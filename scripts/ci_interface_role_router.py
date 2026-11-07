@@ -10,6 +10,7 @@ import json
 import subprocess
 
 from ci_tag_consumer_proof import classify, report_regression_failed_on_assertion
+from ci_interface_prefix_transport import overlay_source_path
 
 ROOT = "TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride"
 PACKAGE = "github.com/ctlplne/probectl/internal/bgp"
@@ -40,7 +41,7 @@ def main():
     original = source.read_text()
     seam = "res := renderOnce(t, spec)"
     assert original.count(seam) == 1
-    mutant = out / "missing-accessibility.go"
+    mutant = overlay_source_path(out, "missing-accessibility.go")
     mutant.write_text(original.replace(seam, seam + "\nif spec.Accessibility { res.Accessibility = nil }"))
     overlay = out / "missing-accessibility.json"
     overlay.write_text(json.dumps({"Replace": {str(source): str(mutant.resolve())}}))

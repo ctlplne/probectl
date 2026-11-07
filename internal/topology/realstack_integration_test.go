@@ -469,11 +469,11 @@ func (tn *topoTenant) deviceEdges() []wantEdge {
 
 func (tn *topoTenant) deviceEdgesWith(n lldpNeighbor) []wantEdge {
 	dev := "device:" + sharedAddr
-	return []wantEdge{
-		{dev, "device", "hop:" + sharedAddr, ""},
-		{dev, "device", "hop:" + tn.device.ip, ""},
-		{dev, "physical", n.nodeID(), "eth0 ↔ " + n.port},
+	out := []wantEdge{{dev, "physical", n.nodeID(), "eth0 ↔ " + n.port}}
+	for _, address := range tn.device.addresses {
+		out = append(out, wantEdge{dev, "device", "hop:" + address, ""})
 	}
+	return out
 }
 
 func (tn *topoTenant) routingEdges() []wantEdge {
@@ -487,10 +487,12 @@ func (tn *topoTenant) expectedNodes(n lldpNeighbor) map[string]vizNode {
 		{"hop:" + sharedAddr, "hop", sharedAddr},
 		{"host:" + sharedAddr, "host", sharedAddr},
 		{"device:" + sharedAddr, "device", tn.sysName},
-		{"hop:" + tn.device.ip, "hop", tn.device.ip},
 		{n.nodeID(), "device", n.name},
 		{"as:" + strconv.Itoa(int(tn.origin)), "as", "AS" + strconv.Itoa(int(tn.origin))},
 		{"prefix:" + tn.prefix, "prefix", tn.prefix},
+	}
+	for _, address := range tn.device.addresses {
+		nodes = append(nodes, vizNode{"hop:" + address, "hop", address})
 	}
 	out := map[string]vizNode{}
 	for _, v := range nodes {
@@ -903,9 +905,14 @@ func (tn *topoTenant) whatIfCLI(t *testing.T, st *shipped.Stack, target string) 
 
 // downstream is what failing hop:127.0.0.1 cuts off from the control plane's
 // vantage: the traced host, and the tenant's device with everything only it
-// connects (its eth0 hop and its LLDP neighbor).
+// connects (its other interface addresses and its LLDP neighbor).
 func (tn *topoTenant) downstream() []string {
-	out := []string{"host:" + sharedAddr, "device:" + sharedAddr, "hop:" + tn.device.ip, tn.neighbor.nodeID()}
+	out := []string{"host:" + sharedAddr, "device:" + sharedAddr, tn.neighbor.nodeID()}
+	for _, address := range tn.device.addresses {
+		if address != sharedAddr {
+			out = append(out, "hop:"+address)
+		}
+	}
 	slices.Sort(out)
 	return out
 }
@@ -934,8 +941,8 @@ func (tn *topoTenant) checkWhatIf(t *testing.T, st *shipped.Stack, other *topoTe
 		if len(imp.ImpactedPrefixes) != 0 || len(imp.ImpactedServices) != 0 {
 			t.Errorf("%s as %s: impacted prefixes %v services %v, want none for a hop", surface, tn.slug, imp.ImpactedPrefixes, imp.ImpactedServices)
 		}
-		if imp.Coverage.PathEdges != 2 || imp.Coverage.DeviceEdges != 2 || imp.Coverage.PhysicalEdges != 1 || imp.Coverage.RoutingEdges != 1 {
-			t.Errorf("%s as %s: coverage %+v, want the tenant's own 2 path, 2 device, 1 physical and 1 routing edges", surface, tn.slug, imp.Coverage)
+		if imp.Coverage.PathEdges != 2 || imp.Coverage.DeviceEdges != len(tn.device.addresses) || imp.Coverage.PhysicalEdges != 1 || imp.Coverage.RoutingEdges != 1 {
+			t.Errorf("%s as %s: coverage %+v, want the tenant's own 2 path, %d device, 1 physical and 1 routing edges", surface, tn.slug, imp.Coverage, len(tn.device.addresses))
 		}
 	}
 	as := "as:" + strconv.Itoa(int(tn.origin))
@@ -1173,6 +1180,11 @@ func (tn *topoTenant) checkRCA(t *testing.T, st *shipped.Stack) {
 				{from: dev, kind: "device", to: "hop:" + tn.device.ip},
 				{from: dev, kind: "physical", to: tn.neighbor.nodeID()},
 			}
+			for _, address := range tn.device.addresses {
+				if address != sharedAddr && address != tn.device.ip {
+					want = append(want, wantEdge{from: dev, kind: "device", to: "hop:" + address})
+				}
+			}
 			if netip.MustParsePrefix(tn.prefix).Contains(netip.MustParseAddr(sharedAddr)) {
 				// The host sits in the tenant's hijacked block: the walk
 				// reaches the origin that carries it, the cause.
@@ -1217,6 +1229,9 @@ func (tn *topoTenant) renderTopology(t *testing.T, st *shipped.Stack, other *top
 	t.Helper()
 	expect := []string{"Topology", "Live topology", "Dependency graph", tn.sysName, tn.neighbor.name, tn.neighbor.nodeID(),
 		"hop:" + tn.device.ip, "prefix:" + tn.prefix, "AS" + strconv.Itoa(int(tn.origin)), "agent:control", "host:" + sharedAddr}
+	for _, address := range tn.device.addresses {
+		expect = append(expect, "hop:"+address)
+	}
 	page := testsupport.RenderSpec{
 		URL:            st.BaseURL + "/ui/topology",
 		Cookies:        []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: tn.cookie}},
@@ -1230,6 +1245,7 @@ func (tn *topoTenant) renderTopology(t *testing.T, st *shipped.Stack, other *top
 		},
 		Absent: tn.foreignIdentifiers(other),
 	}
+	page.Steps[1].Expect = append(page.Steps[1].Expect, tn.downstream()...)
 	res := testsupport.RenderUI(t, page)
 	tn.keep([]byte(res.Text))
 	t.Logf("the rendered Topology page shows %s its graph and the what-if of hop %s", tn.slug, sharedAddr)
@@ -1245,6 +1261,9 @@ func (tn *topoTenant) renderLive(t *testing.T, st *shipped.Stack, other *topoTen
 		TrustCertFiles: st.TrustCerts(), CAFile: st.CAFile,
 		Expect: []string{"Live topology", tn.sysName, tn.next.name, tn.next.nodeID()},
 		Absent: append([]string{tn.neighbor.name, tn.neighbor.nodeID()}, tn.foreignIdentifiers(other)...),
+	}
+	for _, address := range tn.device.addresses {
+		page.Expect = append(page.Expect, "hop:"+address)
 	}
 	res := testsupport.RenderUI(t, page)
 	tn.keep([]byte(res.Text))
@@ -1282,7 +1301,8 @@ type snmpDevice struct {
 	lab       *snmpLab
 	container string
 	port      int
-	ip        string // the container's eth0 address on the docker bridge
+	ip        string   // the container's eth0 address on the docker bridge
+	addresses []string // independently measured kernel interface addresses
 }
 
 func startSNMPLab(t *testing.T) *snmpLab {
@@ -1353,6 +1373,13 @@ func (lab *snmpLab) startDevice(t *testing.T, tn *topoTenant) *snmpDevice {
 	if addr, err := netip.ParseAddr(d.ip); err != nil || !addr.Is4() {
 		t.Fatalf("device %s's eth0 address %q is not IPv4", d.container, d.ip)
 	}
+	// BusyBox ip is part of the pinned Alpine base. Read the kernel inventory,
+	// independently of both SNMP and probectl, including IPv6 loopbacks.
+	d.addresses = kernelInterfaceAddresses(t, lab.docker(t, "exec", d.container, "ip", "address", "show"))
+	if !slices.Contains(d.addresses, sharedAddr) || !slices.Contains(d.addresses, d.ip) {
+		t.Fatalf("device kernel inventory %v omitted configured loopback or eth0", d.addresses)
+	}
+	t.Logf("device kernel interface addresses: %v", d.addresses)
 	t.Logf("device %s (%s) answers on 127.0.0.1:%d; eth0 is %s; LLDP neighbor %s on %s", tn.sysName, d.container, d.port, d.ip, tn.neighbor.name, tn.neighbor.port)
 	return d
 }
@@ -1449,4 +1476,54 @@ func tailLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// kernelInterfaceAddresses reads only configured inet/inet6 addresses. Broadcast
+// destinations on the same line are deliberately not interface identities.
+func kernelInterfaceAddresses(t *testing.T, raw string) []string {
+	t.Helper()
+	var addresses []string
+	for _, line := range strings.Split(raw, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || (fields[0] != "inet" && fields[0] != "inet6") {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(fields[1])
+		if err != nil || prefix.Addr().IsUnspecified() || prefix.Addr().IsMulticast() {
+			t.Fatalf("invalid kernel interface address line %q: %v", line, err)
+		}
+		addresses = append(addresses, prefix.Addr().String())
+	}
+	slices.Sort(addresses)
+	return slices.Compact(addresses)
+}
+
+func TestTopologyExpectedGraphKeepsMeasuredDualStackAddresses(t *testing.T) {
+	addresses := kernelInterfaceAddresses(t, `1: lo: <LOOPBACK,UP>
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+2: eth0: <BROADCAST,UP>
+    inet 172.17.0.5/16 brd 172.17.255.255 scope global eth0
+    inet6 fe80::42:acff:fe11:5/64 scope link
+`)
+	wantAddresses := []string{"127.0.0.1", "172.17.0.5", "::1", "fe80::42:acff:fe11:5"}
+	if !slices.Equal(addresses, wantAddresses) {
+		t.Fatalf("kernel inventory lost complete dual-stack unicast or retained broadcast: %v", addresses)
+	}
+	tn := &topoTenant{device: &snmpDevice{ip: "172.17.0.5", addresses: addresses}}
+	graphNodes := tn.expectedNodes(tn.neighbor)
+	edges := tn.deviceEdges()
+	downstream := tn.downstream()
+	for _, address := range addresses {
+		id := "hop:" + address
+		if graphNodes[id].Label != address || !slices.Contains(edges, wantEdge{"device:" + sharedAddr, "device", id, ""}) {
+			t.Fatalf("measured address %s missing from exact topology expectation", address)
+		}
+		if address != sharedAddr && !slices.Contains(downstream, id) {
+			t.Fatalf("measured downstream address %s omitted from failure expectation", address)
+		}
+	}
+	if _, retained := graphNodes["hop:172.17.255.255"]; retained {
+		t.Fatal("kernel broadcast destination retained as an owned topology node")
+	}
 }
