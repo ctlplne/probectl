@@ -33,6 +33,8 @@ UNIT = {
         "TestInterfaceRoleExplorerSQLKeepsFixedTenantJoinAndCompleteExternalValues",
     ),
     "internal/flow": (
+        "TestRoutingCaptureWitnessBindsEveryOriginalFieldAndUnknownWireData",
+        "TestRoutingCaptureWitnessPreservesCompleteValuesAndRefusesPartialAdmission",
         "TestPeeringEstimateCombinesIntervalsBeforeExactPercentile",
         "TestPeeringEstimateRefusesForeignMissingPartialAndUnadmittedInputs",
         "TestInterfaceRoleQuerySelectorsRequireAllSourcePlanesAndCompleteInputs",
@@ -515,6 +517,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "flow-capture-wire": (
+        "internal/flow/routing_capture.go",
+        "body, err := (proto.MarshalOptions{Deterministic: true}).Marshal(record)",
+        "copyForOmission := proto.Clone(record).(*flowv1.FlowRecord); copyForOmission.SourceAsName = \"\"; body, err := (proto.MarshalOptions{Deterministic: true}).Marshal(copyForOmission)",
+        "TestRoutingCaptureWitnessBindsEveryOriginalFieldAndUnknownWireData", "source_as_name",
+        "original flow field escaped capture identity",
+    ),
+    "flow-capture-budget": (
+        "internal/flow/routing_capture.go",
+        "if memoryBytes <= 0 || workUnits <= 0 || size <= 0 || size > memoryBytes/4 || size > workUnits/8 {",
+        "if false && (memoryBytes <= 0 || workUnits <= 0 || size <= 0 || size > memoryBytes/4 || size > workUnits/8) {",
+        "TestRoutingCaptureWitnessPreservesCompleteValuesAndRefusesPartialAdmission", "",
+        "refused capture exposed a partial witness",
+    ),
     "routing-capture-sender": (
         "internal/store/bgp_routing_flow.go",
         'if authenticatedSender != "" && owner.AgentID != authenticatedSender {',
