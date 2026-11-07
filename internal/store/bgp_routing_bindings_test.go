@@ -27,6 +27,11 @@ func TestRoutingBindingManifestKeepsExactSelectorsAndRefusesAmbiguity(t *testing
 	if normalized, err := prepareRoutingBindings(t.Context(), []routingSourceBinding{upper}, routingViewBudget()); err != nil || normalized[0].Distinguisher != binding.Distinguisher {
 		t.Fatal("operator wire selector case changed the supported value", err)
 	}
+	unknown := binding
+	unknown.SourceFormat = "future-unknown"
+	if out, err := prepareRoutingBindings(t.Context(), []routingSourceBinding{unknown}, routingViewBudget()); err == nil || out != nil {
+		t.Fatal("unknown routing serializer acquired operator authority")
+	}
 	got[0].Families[0] = 2
 	if !reflect.DeepEqual(binding.Families, []uint16{2, 1}) {
 		t.Fatal("prepared routing manifest aliased operator input")
