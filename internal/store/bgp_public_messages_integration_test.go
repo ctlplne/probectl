@@ -11,6 +11,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/netip"
 	"testing"
 	"time"
@@ -145,6 +146,7 @@ func TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions
 			}
 			return nil
 		})
+		provePublishedPublicSnapshotRead(t, f, tenant, input, source, profile)
 	}
 	input, source := stage(f.tenants[0], false, false)
 	attack := message(f.tenants[0], input, source, 1, false)
@@ -157,6 +159,12 @@ func TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions
 	}
 	if got, current, entries := state(f.tenants[1], sources[1].ID); got != "current" || current != 3 || entries != 3 {
 		t.Fatal("foreign public message changed sibling source", got, current, entries)
+	}
+	if got, err := publicSnapshotReadForFixture(t, f, f.tenants[0], base, sources[0].ID, "2001:db8::1", profile, time.Hour); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || got.Paths != nil {
+		t.Fatal("public reader revived a replaced source", got, err)
+	}
+	if got, err := publicSnapshotReadForFixture(t, f, f.tenants[0], base, sources[1].ID, "2001:db8::1", profile, time.Hour); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || got.Paths != nil {
+		t.Fatal("public reader borrowed a sibling snapshot", got, err)
 	}
 	for _, tc := range []struct {
 		name                         string
@@ -179,6 +187,43 @@ func TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions
 			if out.Status != tc.want {
 				t.Fatal("public completion manufactured data or lost a genuine empty source", out, tc.want)
 			}
+			got, err := publicSnapshotReadForFixture(t, f, f.tenants[0], input, source.ID, "2001:db8::1", profile, time.Hour)
+			want := ErrBGPRoutingSourceUnavailable
+			if tc.empty {
+				want = ErrBGPRoutingRouteMissing
+			}
+			if !errors.Is(err, want) || got.Paths != nil {
+				t.Fatal("public reader confused empty, unavailable or incomplete source", got, err)
+			}
 		})
 	}
+	t.Run("read-manifest", func(t *testing.T) {
+		tenant := f.tenants[1]
+		var original []byte
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			return sc.Q.QueryRow(ctx, `SELECT peer_identity FROM bgp_routing_views WHERE tenant_id=$1 AND id=$2`, tenant, sources[1].Views[0].ID).Scan(&original)
+		})
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET peer_identity=jsonb_set(peer_identity,'{Cursor}','"changed-current-source"'::jsonb) WHERE tenant_id=$1 AND id=$2`, tenant, sources[1].Views[0].ID)
+			return err
+		})
+		got, err := publicSnapshotReadForFixture(t, f, tenant, base, sources[1].ID, "2001:db8::1", profile, time.Hour)
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			_, restoreErr := sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET peer_identity=$3::jsonb WHERE tenant_id=$1 AND id=$2`, tenant, sources[1].Views[0].ID, original)
+			return restoreErr
+		})
+		if !errors.Is(err, ErrBGPRoutingView) || got.Paths != nil {
+			t.Fatal("public reader accepted changed complete source metadata", got, err)
+		}
+	})
+	t.Run("read-revoked", func(t *testing.T) {
+		tenant := f.tenants[1]
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `UPDATE agent_identities SET revoked_at=clock_timestamp(),revoked_by='test' WHERE tenant_id=$1 AND agent_id='role-listener'`, tenant)
+			return err
+		})
+		if got, err := publicSnapshotReadForFixture(t, f, tenant, base, sources[1].ID, "2001:db8::1", profile, time.Hour); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || got.Paths != nil {
+			t.Fatal("public reader accepted a revoked collector", got, err)
+		}
+	})
 }

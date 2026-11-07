@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -189,7 +190,7 @@ func readRoutingLongestPrefix(ctx context.Context, sc tenancy.Scope, source BGPR
 		if err := routingBatchCharge(&budget, count*1024, count*256); err != nil {
 			return BGPRoutingLookup{}, err
 		}
-		paths, err := readRoutingPaths(ctx, sc, source, ref, prefix, afi, view, count)
+		paths, err := readRoutingPaths(ctx, sc, source.Scope, ref, prefix, afi, view, count)
 		if err != nil {
 			return BGPRoutingLookup{}, err
 		}
@@ -198,7 +199,7 @@ func readRoutingLongestPrefix(ctx context.Context, sc tenancy.Scope, source BGPR
 	return BGPRoutingLookup{}, ErrBGPRoutingRouteMissing
 }
 
-func readRoutingPaths(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef,
+func readRoutingPaths(ctx context.Context, sc tenancy.Scope, source entity.Scope, ref BGPRoutingViewRef,
 	prefix netip.Prefix, afi uint16, view routingReadView, count int64) ([]BGPRoutingChange, error) {
 	rows, err := sc.Q.Query(ctx, `SELECT has_path_id,path_id,segments,attributes,next_hops,sequence,observed_at
  FROM bgp_routing_entries WHERE tenant_id=$1 AND context_id=$2 AND view_id=$3 AND generation=$4 AND prefix=$5::cidr AND afi=$6 AND safi=1

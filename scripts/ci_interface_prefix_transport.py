@@ -187,6 +187,7 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestPublicSnapshotLookupRequiresTenantAndWholeAdmissionBeforeStorage",
         "TestPublicSnapshotMessageKeepsWholePathsExactReplayAndExclusiveCompletion",
         "TestPublicSnapshotMessageRefusesLatePartialShapeBudgetAndForeignScope",
         "TestPublicSnapshotFreshnessUsesOriginalClockAndIndependentAuthorityLimits",
@@ -600,6 +601,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-read-source": (
+        "internal/store/bgp_public_lookup.go",
+        "store.publicSourceAuthorityInScope(ctx, sc, source, false)",
+        "BGPRoutingSourceAuthority{AsOf: time.Now(), ValidUntil: time.Now().Add(time.Hour)}, error(nil)",
+        "TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions", "read-revoked",
+        "public reader accepted a revoked collector",
+    ),
+    "public-read-manifest": (
+        "internal/store/bgp_public_manifest_reader.go",
+        "if !bytes.Equal(digest[:], header.manifestDigest) {",
+        "if false && !bytes.Equal(digest[:], header.manifestDigest) {",
+        "TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions", "read-manifest",
+        "public reader accepted changed complete source metadata",
+    ),
     "public-message-sequence": (
         "internal/store/bgp_public_message_store.go",
         'if input.Sequence != header.nextSequence || header.state != "staging" {',
