@@ -25,3 +25,30 @@ func TestRoutingPeerUpKeepsCompleteDeclaredFamiliesAndRefusesMalformedSource(t *
 		}
 	}
 }
+
+func TestLocRIBPeerUpKeepsExplicitFamilyCohortsAndAdjacentDefaults(t *testing.T) {
+	for _, families := range [][]byte{{1}, {2}, {1, 2}} {
+		caps := []byte{65, 4, 0, 0, 0, 1}
+		want := make([]RouteFamily, 0, len(families))
+		for _, afi := range families {
+			caps = append(caps, 1, 4, 0, afi, 0, 1)
+			want = append(want, RouteFamily{AFI: uint16(afi), SAFI: 1})
+		}
+		open := routeOpenForTest(caps, false)
+		raw := peerUpFrameForTest(open, open, nil)
+		raw[6] = 3
+		clear(raw[16:32])
+		clear(raw[48:68])
+		_, got, err := DecodeRoutingPeerUp(t.Context(), raw, PeerMessageBudget{16 << 20, 16 << 20})
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatal("Loc-RIB Peer Up invented another emulated family cohort", families, got, err)
+		}
+		// Adjacent peers retain ordinary BGP's implicit IPv4 semantics. They
+		// never grant a selected-RIB or canonical source merely by advertising MP.
+		adjacent := peerUpFrameForTest(open, open, nil)
+		_, got, err = DecodeRoutingPeerUp(t.Context(), adjacent, PeerMessageBudget{16 << 20, 16 << 20})
+		if err != nil || len(got) == 0 || got[0] != (RouteFamily{AFI: 1, SAFI: 1}) {
+			t.Fatal("Loc-RIB cohort handling changed adjacent BGP grammar", got, err)
+		}
+	}
+}
