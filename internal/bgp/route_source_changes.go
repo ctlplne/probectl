@@ -61,7 +61,7 @@ func decodeBMPRouteChanges(ctx context.Context, raw []byte, peer PeerUp, budget 
 	}
 	out := RoutingChanges{Header: frame.Header, Attributes: frame.Update.Attributes}
 	if frame.Update.HasEndOfRIB {
-		if _, err := parseBMPRouteAddPath(peer.SentOpen, peer.ReceivedOpen, frame.Header.View, frame.Update.EndOfRIB); err != nil {
+		if _, err := parseBMPRouteAddPath(peer.SentOpen, peer.ReceivedOpen, frame.Header.View, frame.Update.EndOfRIB, peer.SourceProfile); err != nil {
 			return none, err
 		}
 		out.Groups = []RoutingChangeGroup{{Family: frame.Update.EndOfRIB, EndOfRIB: true}}
@@ -183,7 +183,7 @@ func sourceLegacyRouteChanges(ctx context.Context, frame sourceRouteFrame, peer 
 	if len(frame.Update.WithdrawnIPv4)+len(frame.Update.ReachableIPv4) == 0 {
 		return out, nil
 	}
-	add, err := parseBMPRouteAddPath(peer.SentOpen, peer.ReceivedOpen, frame.Header.View, out.Family)
+	add, err := parseBMPRouteAddPath(peer.SentOpen, peer.ReceivedOpen, frame.Header.View, out.Family, peer.SourceProfile)
 	if err != nil {
 		return none, err
 	}
@@ -215,7 +215,7 @@ func sourceMultiprotocolChanges(ctx context.Context, attr RouteAttribute, view B
 		return none, errBMPRouteChanges
 	}
 	family := RouteFamily{AFI: binary.BigEndian.Uint16(attr.Value[:2]), SAFI: attr.Value[2]}
-	add, err := parseBMPRouteAddPath(peer.SentOpen, peer.ReceivedOpen, view, family)
+	add, err := parseBMPRouteAddPath(peer.SentOpen, peer.ReceivedOpen, view, family, peer.SourceProfile)
 	if err != nil {
 		return none, err
 	}
@@ -233,7 +233,7 @@ func sourceMultiprotocolChanges(ctx context.Context, attr RouteAttribute, view B
 	if len(attr.Value) < 4 {
 		return none, errBMPRouteChanges
 	}
-	nextAFI, err := parseBMPRouteNextHopAFI(peer.SentOpen, peer.ReceivedOpen, view, family, int(attr.Value[3]))
+	nextAFI, err := parseBMPRouteNextHopAFI(peer.SentOpen, peer.ReceivedOpen, view, family, int(attr.Value[3]), peer.SourceProfile)
 	if err != nil {
 		return none, err
 	}

@@ -14,12 +14,16 @@ import "bytes"
 // receiving peer's advertised capability. Sender support cannot replace it.
 // MP participation is explicit even for legacy IPv4. These payload facts do
 // not establish tenant/router ownership, source credentials or a live epoch.
-func parseBMPRouteNextHopAFI(sentOpen, receivedOpen []byte, view BMPRouteView, family RouteFamily, nextHopLength int) (uint16, error) {
-	sent, err := parseRouteOpenCapabilities(sentOpen)
+func parseBMPRouteNextHopAFI(sentOpen, receivedOpen []byte, view BMPRouteView, family RouteFamily, nextHopLength int, profiles ...RoutingSourceProfile) (uint16, error) {
+	profile, err := routingSourceProfile(profiles)
+	if err != nil || profile.Format != "" && view != BMPLocRIB {
+		return 0, ErrRouteCapabilities
+	}
+	sent, err := parseRouteOpenCapabilities(sentOpen, profile)
 	if err != nil {
 		return 0, err
 	}
-	received, err := parseRouteOpenCapabilities(receivedOpen)
+	received, err := parseRouteOpenCapabilities(receivedOpen, profile)
 	if err != nil {
 		return 0, err
 	}

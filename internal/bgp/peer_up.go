@@ -24,6 +24,7 @@ type PeerUpInformation struct {
 // PeerUp is an owned copy of complete source metadata, not a live-session
 // credential. Repeated information TLVs retain their order and values.
 type PeerUp struct {
+	SourceProfile          RoutingSourceProfile
 	Header                 BMPRouteViewHeader
 	LocalAddress           netip.Addr
 	LocalPort, RemotePort  uint16
@@ -46,9 +47,13 @@ var (
 // and every information tail must validate before any metadata is returned.
 // Authentication, canonical ownership, revocation and session epoch fencing
 // belong to the listener/store; a payload address cannot establish them.
-func parseBMPPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget) (PeerUp, error) {
+func parseBMPPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget, profiles ...RoutingSourceProfile) (PeerUp, error) {
 	none := PeerUp{}
 	if err := ctx.Err(); err != nil {
+		return none, err
+	}
+	profile, err := routingSourceProfile(profiles)
+	if err != nil {
 		return none, err
 	}
 	if budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || int64(len(raw)) > budget.MemoryBytes/128 || int64(len(raw)) > budget.WorkUnits/4 {
@@ -60,6 +65,9 @@ func parseBMPPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget) (
 	}
 	header, err := ParseBMPRouteViewHeader(raw[bmpCommonHeaderLen:bodyOffset])
 	if err != nil {
+		return none, ErrBMPPeerUp
+	}
+	if profile.Format != "" && header.View != BMPLocRIB {
 		return none, ErrBMPPeerUp
 	}
 	local := raw[bodyOffset : bodyOffset+16]
@@ -79,19 +87,19 @@ func parseBMPPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget) (
 		}
 		address = netip.AddrFrom4([4]byte(local[12:]))
 	}
-	sent, rest, err := takeRouteOpen(raw[bodyOffset+20:])
+	sent, rest, err := takeRouteOpen(raw[bodyOffset+20:], profile)
 	if err != nil {
 		return none, err
 	}
 	if err := ctx.Err(); err != nil {
 		return none, err
 	}
-	received, info, err := takeRouteOpen(rest)
+	received, info, err := takeRouteOpen(rest, profile)
 	if err != nil {
 		return none, err
 	}
 	if header.View == BMPLocRIB {
-		capabilities, err := parseRouteOpenCapabilities(sent)
+		capabilities, err := parseRouteOpenCapabilities(sent, profile)
 		if err != nil || !capabilities.fourAS || !bytes.Equal(sent, received) {
 			return none, ErrBMPPeerUp
 		}
@@ -115,7 +123,7 @@ func parseBMPPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget) (
 	if err := ctx.Err(); err != nil {
 		return none, err
 	}
-	out := PeerUp{Header: header, LocalAddress: address, LocalPort: localPort, RemotePort: remotePort,
+	out := PeerUp{Header: header, SourceProfile: profile, LocalAddress: address, LocalPort: localPort, RemotePort: remotePort,
 		SentOpen: append([]byte(nil), sent...), ReceivedOpen: append([]byte(nil), received...),
 		Information: make([]PeerUpInformation, 0, count)}
 	for offset := 0; offset < len(info); {
@@ -130,7 +138,7 @@ func parseBMPPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget) (
 	return out, nil
 }
 
-func takeRouteOpen(raw []byte) ([]byte, []byte, error) {
+func takeRouteOpen(raw []byte, profile RoutingSourceProfile) ([]byte, []byte, error) {
 	if len(raw) < bgpHeaderLen {
 		return nil, nil, ErrBMPPeerUp
 	}
@@ -138,7 +146,7 @@ func takeRouteOpen(raw []byte) ([]byte, []byte, error) {
 	if length < 29 || length > len(raw) {
 		return nil, nil, ErrBMPPeerUp
 	}
-	if _, err := parseRouteOpenCapabilities(raw[:length]); err != nil {
+	if _, err := parseRouteOpenCapabilities(raw[:length], profile); err != nil {
 		return nil, nil, errors.Join(ErrBMPPeerUp, err)
 	}
 	return raw[:length], raw[length:], nil
@@ -147,16 +155,16 @@ func takeRouteOpen(raw []byte) ([]byte, []byte, error) {
 // DecodeRoutingPeerUp validates the complete metadata used to start private
 // routing generations. It grants no tenant/router/session authority. Only
 // supported unicast families declared by both complete OPENs are staged.
-func DecodeRoutingPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget) (PeerUp, []RouteFamily, error) {
-	peer, err := parseBMPPeerUp(ctx, raw, budget)
+func DecodeRoutingPeerUp(ctx context.Context, raw []byte, budget PeerMessageBudget, profiles ...RoutingSourceProfile) (PeerUp, []RouteFamily, error) {
+	peer, err := parseBMPPeerUp(ctx, raw, budget, profiles...)
 	if err != nil {
 		return PeerUp{}, nil, err
 	}
-	sent, err := parseRouteOpenCapabilities(peer.SentOpen)
+	sent, err := parseRouteOpenCapabilities(peer.SentOpen, peer.SourceProfile)
 	if err != nil {
 		return PeerUp{}, nil, err
 	}
-	received, err := parseRouteOpenCapabilities(peer.ReceivedOpen)
+	received, err := parseRouteOpenCapabilities(peer.ReceivedOpen, peer.SourceProfile)
 	if err != nil {
 		return PeerUp{}, nil, err
 	}

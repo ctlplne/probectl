@@ -36,12 +36,16 @@ type routeOpenCapabilities struct {
 //
 // ASN wire width still comes from the BMP header, not these capabilities.
 // These source-supplied bytes establish no tenant, router or current session.
-func parseBMPRouteAddPath(sentOpen, receivedOpen []byte, view BMPRouteView, family RouteFamily) (bool, error) {
-	sent, err := parseRouteOpenCapabilities(sentOpen)
+func parseBMPRouteAddPath(sentOpen, receivedOpen []byte, view BMPRouteView, family RouteFamily, profiles ...RoutingSourceProfile) (bool, error) {
+	profile, err := routingSourceProfile(profiles)
+	if err != nil || profile.Format != "" && view != BMPLocRIB {
+		return false, ErrRouteCapabilities
+	}
+	sent, err := parseRouteOpenCapabilities(sentOpen, profile)
 	if err != nil {
 		return false, err
 	}
-	received, err := parseRouteOpenCapabilities(receivedOpen)
+	received, err := parseRouteOpenCapabilities(receivedOpen, profile)
 	if err != nil {
 		return false, err
 	}
@@ -66,8 +70,12 @@ func parseBMPRouteAddPath(sentOpen, receivedOpen []byte, view BMPRouteView, fami
 	}
 }
 
-func parseRouteOpenCapabilities(raw []byte) (routeOpenCapabilities, error) {
+func parseRouteOpenCapabilities(raw []byte, profiles ...RoutingSourceProfile) (routeOpenCapabilities, error) {
 	none := routeOpenCapabilities{}
+	profile, err := routingSourceProfile(profiles)
+	if err != nil {
+		return none, err
+	}
 	// RFC8654 does not extend OPENs: their protocol maximum remains 4096.
 	// Both input and every allocation are therefore bounded by wire framing.
 	if len(raw) < 29 || len(raw) > 4096 || raw[18] != 1 || raw[19] != 4 || int(binary.BigEndian.Uint16(raw[16:18])) != len(raw) {
@@ -114,14 +122,17 @@ func parseRouteOpenCapabilities(raw []byte) (routeOpenCapabilities, error) {
 		if kind != 2 {
 			continue
 		}
-		if err := out.parseCapabilities(value, &seenAddPath); err != nil {
+		if err := out.parseCapabilities(value, &seenAddPath, profile.Format); err != nil {
 			return none, err
 		}
+	}
+	if profile.Format == RoutingSourceFRRLocRIBV1 {
+		profile.applyFRRFamilies(&out)
 	}
 	return out, nil
 }
 
-func (c *routeOpenCapabilities) parseCapabilities(raw []byte, seenAddPath *bool) error {
+func (c *routeOpenCapabilities) parseCapabilities(raw []byte, seenAddPath *bool, format string) error {
 	for len(raw) != 0 {
 		if len(raw) < 2 || int(raw[1]) > len(raw)-2 {
 			return ErrRouteCapabilities
@@ -163,6 +174,13 @@ func (c *routeOpenCapabilities) parseCapabilities(raw []byte, seenAddPath *bool)
 			}
 			c.fourAS, c.asn = true, asn
 		case 69:
+			if format == RoutingSourceFRRLocRIBV1 {
+				if *seenAddPath || length != 0 {
+					return ErrRouteCapabilities
+				}
+				*seenAddPath = true
+				continue
+			}
 			// RFC7911 requires one instance containing all family tuples.
 			// Unsupported intent or conflicting repeated tuples leave source
 			// encoding unknown; never infer ordinary NLRI from that ambiguity.

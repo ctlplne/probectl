@@ -111,6 +111,13 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 	if out, families, err := DecodeRoutingPeerUp(ctx, raw, PeerMessageBudget{memory, work}); err != nil && (!reflect.DeepEqual(out, PeerUp{}) || families != nil) {
 		t.Fatal("invalid routing Peer Up exposed partial metadata or families")
 	}
+	profile := RoutingSourceProfile{Format: RoutingSourceFRRLocRIBV1, Families: []RouteFamily{{AFI: 1, SAFI: 1}, {AFI: 2, SAFI: 1}}}
+	if out, families, err := DecodeRoutingPeerUp(ctx, raw, PeerMessageBudget{memory, work}, profile); err != nil && (!reflect.DeepEqual(out, PeerUp{}) || families != nil) {
+		t.Fatal("invalid profiled Peer Up exposed partial metadata or families")
+	}
+	if out, err := parseRouteOpenCapabilities(raw, profile); err != nil && !reflect.DeepEqual(out, routeOpenCapabilities{}) {
+		t.Fatal("invalid profiled OPEN exposed partial capabilities")
+	}
 	if out, err := parseBMPPeerUp(ctx, raw, PeerMessageBudget{memory, work}); err != nil && !reflect.DeepEqual(out, PeerUp{}) {
 		t.Fatal("invalid Peer Up exposed partial source metadata")
 	}
@@ -128,7 +135,7 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 		seen := false
 		// The private helper may accumulate until an error; its complete OPEN
 		// caller above must discard that partial state rather than publish it.
-		_ = capabilities.parseCapabilities(raw, &seen)
+		_ = capabilities.parseCapabilities(raw, &seen, "")
 	}
 	for _, view := range []BMPRouteView{BMPAdjRIBInPrePolicy, BMPAdjRIBOutPostPolicy, BMPLocRIB} {
 		for _, family := range []RouteFamily{{1, 1}, {2, 1}} {

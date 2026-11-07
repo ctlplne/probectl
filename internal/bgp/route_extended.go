@@ -21,6 +21,9 @@ func parseBMPRouteUpdateFrame(ctx context.Context, raw []byte, source PeerUp, bu
 	if err := ctx.Err(); err != nil {
 		return UpdateFrame{}, err
 	}
+	if source.SourceProfile.Format != "" && source.Header.View != BMPLocRIB {
+		return UpdateFrame{}, ErrRouteCapabilities
+	}
 	// Reserve both complete OPEN decodes and their capability maps before they
 	// allocate. Leave the independent UPDATE parser its complete own admission.
 	openBytes := int64(len(source.SentOpen)) + int64(len(source.ReceivedOpen))
@@ -29,11 +32,11 @@ func parseBMPRouteUpdateFrame(ctx context.Context, raw []byte, source PeerUp, bu
 	}
 	budget.MemoryBytes -= openBytes*128 + 1024
 	budget.WorkUnits -= openBytes * 8
-	sent, err := parseRouteOpenCapabilities(source.SentOpen)
+	sent, err := parseRouteOpenCapabilities(source.SentOpen, source.SourceProfile)
 	if err != nil {
 		return UpdateFrame{}, err
 	}
-	received, err := parseRouteOpenCapabilities(source.ReceivedOpen)
+	received, err := parseRouteOpenCapabilities(source.ReceivedOpen, source.SourceProfile)
 	if err != nil {
 		return UpdateFrame{}, err
 	}

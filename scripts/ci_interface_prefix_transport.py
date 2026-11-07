@@ -96,6 +96,8 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestFRRRoutingProfileKeepsOriginalMetadataFamiliesAndStrictDefault",
+        "TestFRRRoutingProfileRefusesUnknownAmbiguousAndUnadmittedSources",
         "TestBMPRoutingSourceLossRetiresAllSelectorsAfterSocketDeregistration",
         "TestBMPRoutingSelectorsKeepIndependentGenerationsRefusalsAndSourceClosure",
         "TestBMPRoutingMetadataAdmissionKeepsWholePopulationAndReclaimsSourceState",
@@ -1408,6 +1410,14 @@ def ix_prefix_controls():
 def bmp_routing_transport_controls():
     out = Path("artifacts/interface-prefix-transport").resolve()
     for name, file, seam, replacement, root, child, marker in (
+        ("frr_explicit_serializer_omitted", "internal/bgp/route_add_path.go",
+         "if format == RoutingSourceFRRLocRIBV1 {", "if false && format == RoutingSourceFRRLocRIBV1 {",
+         "TestFRRRoutingProfileKeepsOriginalMetadataFamiliesAndStrictDefault", "",
+         "explicit FRR source profile refused complete original metadata or lost declared families"),
+        ("frr_unknown_profile_accepted", "internal/bgp/routing_source_profile.go",
+         "profile.Format != RoutingSourceFRRLocRIBV1 ||", "false ||",
+         "TestFRRRoutingProfileRefusesUnknownAmbiguousAndUnadmittedSources", "",
+         "invalid source profile exposed partial routing metadata"),
         ("bmp_selector_identifier_omitted", "internal/bgp/bmp_routing_book.go",
          "identifier: header.BGPIdentifier.As4()", "identifier: [4]byte{}",
          "TestBMPRoutingSelectorsKeepIndependentGenerationsRefusalsAndSourceClosure", "",

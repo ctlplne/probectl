@@ -72,10 +72,17 @@ func TestBMPLocRIBRealRouterKeepsCompletePeerAndFamilyMarkers(t *testing.T) {
 			continue
 		}
 		if common[5] == 3 {
-			peer, err := bgp.SourcePeerUpForTest(t.Context(), raw, bgp.PeerMessageBudget{MemoryBytes: 16 << 20, WorkUnits: 16 << 20})
+			// Explicit lab configuration matches the pinned FRR serializer. The
+			// original bytes remain unchanged; strict-default refusal of this
+			// nonconforming OPEN stays a separate mandatory regression.
+			profile := bgp.RoutingSourceProfile{Format: bgp.RoutingSourceFRRLocRIBV1, Families: []bgp.RouteFamily{{AFI: 1, SAFI: 1}, {AFI: 2, SAFI: 1}}}
+			peer, families, err := bgp.DecodeRoutingPeerUp(t.Context(), raw, bgp.PeerMessageBudget{MemoryBytes: 16 << 20, WorkUnits: 16 << 20}, profile)
 			if err != nil {
 				t.Logf("pinned FRR complete Loc-RIB Peer Up (%d bytes): %x", len(raw), raw)
 				t.Fatal("actual Loc-RIB Peer Up refused", err)
+			}
+			if peer.SourceProfile.Format != profile.Format || len(families) != 2 {
+				t.Fatal("actual configured FRR source lost its explicit format or complete family declaration")
 			}
 			peers[key(h)] = peer
 			continue
