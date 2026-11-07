@@ -99,6 +99,8 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestRoutingPathFieldsKeepCompleteSemanticsAndExplicitUnknowns",
+        "TestRoutingPathFieldsRefuseWholeAdmissionMalformedAndCancelledInput",
         "TestFRRRoutingProfileKeepsOriginalMetadataFamiliesAndStrictDefault",
         "TestFRRRoutingProfileRefusesUnknownAmbiguousAndUnadmittedSources",
         "TestBMPRoutingSourceLossRetiresAllSelectorsAfterSocketDeregistration",
@@ -496,6 +498,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-path-origin-set": (
+        "internal/bgp/routing_path_fields.go",
+        "if segment.Kind == ASPathSequence {\n\t\t\tvalue := segment.Values[len(segment.Values)-1]",
+        "if segment.Kind == ASPathSequence || segment.Kind == ASPathSet {\n\t\t\tvalue := segment.Values[len(segment.Values)-1]",
+        "TestRoutingPathFieldsKeepCompleteSemanticsAndExplicitUnknowns", "origin-set",
+        "routing field projection lost complete semantics or explicit unknowns",
+    ),
+    "routing-path-complete": (
+        "internal/bgp/routing_path_fields.go",
+        "Values: append([]uint32(nil), segment.Values...)",
+        "Values: append([]uint32(nil), segment.Values[:min(8192,len(segment.Values))]...)",
+        "TestRoutingPathFieldsKeepCompleteSemanticsAndExplicitUnknowns", "",
+        "admitted complete reconstructed path was truncated by a former count",
+    ),
     "routing-flow-protocol": (
         "internal/store/bgp_routing_flow.go",
         " && binding.Protocol == input.Protocol && binding.Domain == input.Domain",
