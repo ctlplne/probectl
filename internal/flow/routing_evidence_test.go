@@ -50,6 +50,13 @@ func TestFlowEvidencePreservesEveryConfiguredDomainBeyondTransportAndCachePages(
 	}
 }
 
+type routingRawCapture struct{ count atomic.Uint64 }
+
+func (r *routingRawCapture) Emit(_ context.Context, batch []Record) error {
+	r.count.Add(uint64(len(batch)))
+	return nil
+}
+
 type routingWitnessCapture struct {
 	entered  chan []*agentv1.FlowRoutingWitness
 	release  chan struct{}
