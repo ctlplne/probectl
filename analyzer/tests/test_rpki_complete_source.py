@@ -10,6 +10,8 @@ import io
 import json
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from probectl_analyzer.events import RPKIStatus
 from probectl_analyzer.rpki import VRPError, VRPSet, iter_roas
@@ -141,3 +143,44 @@ def test_rpki_pipeline_degrades_an_incomplete_source_to_unknown(tmp_path):
         rpki_vrp_file=str(path),
     )
     assert load_vrp(config) is None, "incomplete validator source escaped graceful unknown status"
+
+
+def test_streamed_vrp_value_is_framed_and_decoded_once(monkeypatch):
+    payload = json.dumps({"roas": [{**ROA, "note": "x" * (256 << 10)}]}).encode()
+    original = json.JSONDecoder
+    calls = 0
+
+    class CountingDecoder(original):
+        def raw_decode(self, text, idx=0):
+            nonlocal calls
+            calls += 1
+            return super().raw_decode(text, idx)
+
+    monkeypatch.setattr(json, "JSONDecoder", CountingDecoder)
+    assert len(VRPSet.from_stream(io.BytesIO(payload))) == 1
+    assert calls == 2, "VRP streamed value was decoded more than once"
+
+
+_JSON_METADATA = st.recursive(
+    st.none()
+    | st.booleans()
+    | st.integers(min_value=-(1 << 64), max_value=1 << 64)
+    | st.text(max_size=64),
+    lambda child: (
+        st.lists(child, max_size=5) | st.dictionaries(st.text(max_size=16), child, max_size=5)
+    ),
+    max_leaves=12,
+)
+
+
+@settings(max_examples=40, deadline=None)
+@given(metadata=_JSON_METADATA, chunk=st.sampled_from([1, 7, 64, 8192]), ascii_only=st.booleans())
+def test_complete_vrp_stream_matches_json_for_nested_metadata_and_rejects_lost_close(
+    metadata, chunk, ascii_only
+):
+    payload = json.dumps(
+        {"before": metadata, "roas": [ROA], "after": metadata}, ensure_ascii=ascii_only
+    ).encode()
+    assert list(iter_roas(io.BytesIO(payload), chunk_size=chunk)) == [ROA]
+    with pytest.raises(VRPError):
+        list(iter_roas(io.BytesIO(payload[:-1]), chunk_size=chunk))
