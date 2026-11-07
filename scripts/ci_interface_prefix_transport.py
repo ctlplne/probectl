@@ -261,6 +261,7 @@ INTEGRATION = {
     ),
     "internal/store": (
         "TestPublicRoutingAuthorityKeepsTenantPurposeCurrentCredentialAndAssignmentBirth",
+        "TestPublicRoutingStagingKeepsTenantPrivateOwnedMetadataAndAtomicReplacement",
         "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges",
         "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone",
         "TestRoutingOperatorConfigurationKeepsTenantPolicyCASAndAtomicAudit",
@@ -585,6 +586,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-stage-slot": (
+        "internal/store/bgp_public_views.go",
+        "AND source_kind='public_bgp' AND peer_key=$5 AND afi=$6 AND safi=$7 AND state IN ('staging','current')",
+        "AND source_kind='public_bgp' AND $5::bytea IS NOT NULL AND afi=$6 AND safi=$7 AND state IN ('staging','current')",
+        "TestPublicRoutingStagingKeepsTenantPrivateOwnedMetadataAndAtomicReplacement", "",
+        "public staging replacement mixed slots or tenant generations",
+    ),
     "public-source-purpose": (
         "internal/store/bgp_public_authority.go",
         "AND sender.spiffe_id='spiffe://probectl/tenant/' || source.tenant_id::text || '/entity/' || source.agent_id",

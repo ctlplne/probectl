@@ -21,14 +21,15 @@ import (
 // and complete source values. Neither these fields nor their digest grant
 // tenant/source access or establish a complete/current RIB.
 type BGPPublicRoutingPeer struct {
-	Feed, Format, Collector string
-	PeerAddress             netip.Addr
-	PeerASN                 uint32
-	PeerBGPIdentifier       *uint32 `json:",omitempty"`
-	CollectorIdentifier     *uint32 `json:",omitempty"`
-	ViewName                []byte
-	ObservedUnixNanos       *int64 `json:",omitempty"`
-	Cursor                  string `json:",omitempty"`
+	Feed, Format, Collector    string
+	PeerAddress                netip.Addr
+	PeerASN                    uint32
+	PeerBGPIdentifier          *uint32 `json:",omitempty"`
+	CollectorIdentifier        *uint32 `json:",omitempty"`
+	ViewName                   []byte
+	ObservedUnixNanos          *int64 `json:",omitempty"`
+	CollectorObservedUnixNanos *int64 `json:",omitempty"` // authenticated collector clock retained beyond database precision
+	Cursor                     string `json:",omitempty"`
 }
 
 func publicRoutingViewMetadata(ctx context.Context, definition BGPRoutingViewDefinition, budget BGPRoutingBudget) ([]byte, [32]byte, error) {
@@ -47,7 +48,8 @@ func publicRoutingViewMetadata(ctx context.Context, definition BGPRoutingViewDef
 		peer.Collector == "" || strings.TrimSpace(peer.Collector) != peer.Collector ||
 		!utf8.ValidString(peer.Collector) || !utf8.ValidString(peer.Cursor) || peer.PeerASN == 0 ||
 		!peer.PeerAddress.IsValid() || peer.PeerAddress.Zone() != "" || peer.PeerAddress.IsUnspecified() || peer.PeerAddress.IsMulticast() ||
-		(peer.ObservedUnixNanos != nil && *peer.ObservedUnixNanos < 0) {
+		(peer.ObservedUnixNanos != nil && *peer.ObservedUnixNanos < 0) ||
+		(peer.CollectorObservedUnixNanos != nil && *peer.CollectorObservedUnixNanos < 0) {
 		return nil, empty, ErrBGPRoutingView
 	}
 	if budget.MemoryBytes < 4096 || budget.WorkUnits < 4096 || budget.StateBytes <= 0 {
@@ -63,6 +65,7 @@ func publicRoutingViewMetadata(ctx context.Context, definition BGPRoutingViewDef
 	// Changing source clocks/cursors are retry metadata, not a new peer slot.
 	identity := peer
 	identity.ObservedUnixNanos, identity.Cursor = nil, ""
+	identity.CollectorObservedUnixNanos = nil
 	keyBody, err := json.Marshal(identity)
 	if err != nil {
 		return nil, empty, err

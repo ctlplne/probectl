@@ -46,6 +46,7 @@ func TestPublicRoutingMetadataKeepsWholeSourceIdentityWithoutInventedBMP(t *test
 	definition.Public.ViewName[0] = 0
 	changedClock := int64(1700000000987654321)
 	definition.Public.ObservedUnixNanos, definition.Public.Cursor = &changedClock, "next-source-cursor"
+	definition.Public.CollectorObservedUnixNanos = &changedClock
 	changed, same, err := routingViewMetadata(t.Context(), definition, budget)
 	if err != nil || same != key || bytes.Equal(changed, body) {
 		t.Fatal("public source clock or cursor changed the peer slot or vanished from retry metadata", err)
