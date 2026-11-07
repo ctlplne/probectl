@@ -395,7 +395,7 @@ export interface BGPRoutingBinding {
 export interface BGPRoutingBindingConfiguration {
   collector_agent_id: string
   context_id: string
-  manifest: JsonValue
+  manifest: BGPRoutingBindingManifest | null
   router_id: string
   source_ref: string
 }

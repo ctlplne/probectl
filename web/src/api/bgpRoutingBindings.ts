@@ -6,27 +6,8 @@
 
 import { apiFetch } from './client'
 
-export interface BGPRoutingBinding {
-  id?: string
-  context_id: string
-  router_id: string
-  distinguisher: string
-  bgp_identifier: string
-  families: (1 | 2)[]
-  source_format?: '' | 'frr_loc_rib_v1'
-}
-
-export interface BGPRoutingBindingConfiguration {
-  collector_agent_id: string
-  source_ref: string
-  context_id: string
-  router_id: string
-  manifest: {
-    epoch: string
-    assigned_at: string
-    bindings: BGPRoutingBinding[]
-  } | null
-}
+import type { BGPRoutingBinding, BGPRoutingBindingConfiguration } from './sdk.gen'
+export type { BGPRoutingBinding, BGPRoutingBindingConfiguration } from './sdk.gen'
 
 export function readBGPRoutingBindings(
   context: string,

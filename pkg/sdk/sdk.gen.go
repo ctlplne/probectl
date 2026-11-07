@@ -476,11 +476,11 @@ type BGPRoutingBinding struct {
 }
 
 type BGPRoutingBindingConfiguration struct {
-	CollectorAgentId string `json:"collector_agent_id"`
-	ContextId        string `json:"context_id"`
-	Manifest         any    `json:"manifest"`
-	RouterId         string `json:"router_id"`
-	SourceRef        string `json:"source_ref"`
+	CollectorAgentId string                     `json:"collector_agent_id"`
+	ContextId        string                     `json:"context_id"`
+	Manifest         *BGPRoutingBindingManifest `json:"manifest"`
+	RouterId         string                     `json:"router_id"`
+	SourceRef        string                     `json:"source_ref"`
 }
 
 type BGPRoutingBindingManifest struct {
