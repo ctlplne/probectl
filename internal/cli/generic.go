@@ -76,6 +76,14 @@ func cmdAPIWithStdin(cfg Config, args []string, stdin io.Reader, stdout, stderr 
 		profile := surfaceCommands["interface-roles"].Ops["set-policy"]
 		op.ExactJSON, op.MaxBodyBytes = profile.ExactJSON, profile.MaxBodyBytes
 	}
+	if pathMatchesTemplate("/v1/entity-contexts/{context_id}/bgp-routing-bindings", requestPath(path)) {
+		for _, profile := range surfaceCommands["routing-bindings"].Ops {
+			if profile.Method == method {
+				op.ExactJSON, op.MaxBodyBytes = profile.ExactJSON, profile.MaxBodyBytes
+				break
+			}
+		}
+	}
 	if method == http.MethodGet && pathMatchesTemplate("/v1/explorer/flow-snapshots/{id}/csv", requestPath(path)) {
 		op.VerifiedDownload = true
 	}

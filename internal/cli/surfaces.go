@@ -75,6 +75,10 @@ type cliCoverage struct {
 }
 
 var surfaceCommands = map[string]surfaceCommand{
+	"routing-bindings": {Name: "routing-bindings", Summary: "current tenant router-local selected-RIB bindings", Ops: map[string]apiOp{
+		"read":    {Method: http.MethodGet, Path: "/v1/entity-contexts/{context_id}/bgp-routing-bindings", ArgName: "context_id", ExactJSON: true, Description: "read complete configuration; use --query collector_agent_id=... --query source_ref=..."},
+		"replace": {Method: http.MethodPut, Path: "/v1/entity-contexts/{context_id}/bgp-routing-bindings", ArgName: "context_id", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "replace complete bindings with exact expected_epoch; use --body-file - for stdin"},
+	}},
 	"interface-roles": {Name: "interface-roles", Summary: "current interface roles, context policy and persistent overrides", Ops: map[string]apiOp{
 		"explain":        {Method: http.MethodGet, Path: "/v1/entity-contexts/{context_id}/interfaces/{id}/role", ArgName: "context_id,id", ExactJSON: true, Description: "explain the current role and contributing sources; requires entities.read, metrics.read and events.read"},
 		"policy":         {Method: http.MethodGet, Path: "/v1/entity-contexts/{context_id}/interface-role-policy", ArgName: "context_id", ExactJSON: true},

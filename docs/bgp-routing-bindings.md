@@ -84,3 +84,14 @@ array. The editor replaces the entire array without truncation. Withdrawing
 every selector requires explicit confirmation. Changing tenant or source clears
 the draft; stale responses cannot populate a different source editor. Read-only
 operators can inspect configuration without receiving write controls.
+
+The CLI preserves the complete array and exact epoch for both named commands
+and raw API operations:
+
+```sh
+probectl routing-bindings read CONTEXT --query collector_agent_id=COLLECTOR --query source_ref=ORIGIN --json
+probectl routing-bindings replace CONTEXT --body-file bindings.json --json
+```
+
+The body file contains the same complete replacement object as REST. The CLI
+does not infer tenant identity or a source format from packet metadata.

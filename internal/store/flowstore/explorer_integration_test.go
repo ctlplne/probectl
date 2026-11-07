@@ -22,9 +22,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/chclient"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/chtest"
 )
@@ -537,9 +540,7 @@ func TestExplorerClickHouseRealD103MembershipAndMatrix(t *testing.T) {
 func TestExplorerClickHouseRealD103EveryRegistryFieldPaired(t *testing.T) {
 	store := explorerIntegrationStore(t)
 	ctx := t.Context()
-	suffix := time.Now().UnixNano()
-	red := fmt.Sprintf("probectl-qa-beta-fx1-reg2-red-%d", suffix)
-	blue := fmt.Sprintf("probectl-qa-beta-fx1-reg2-blue-%d", suffix)
+	red, blue := uuid.NewString(), uuid.NewString()
 	t.Cleanup(func() {
 		cleanupExplorerFixtureTenant(t, store, red)
 		cleanupExplorerFixtureTenant(t, store, blue)
@@ -555,13 +556,25 @@ func TestExplorerClickHouseRealD103EveryRegistryFieldPaired(t *testing.T) {
 		}
 	}
 	for _, tenant := range []string{red, blue} {
+		ctx := tenancy.WithTenant(ctx, tenancy.ID(tenant))
+		// The direct store matrix models current role metadata. It does not
+		// attest a physical router or reuse another tenant's projection.
+		at := time.Now().UTC()
+		roles := roleQueryFixture(tenant, at)
+		for i := range roles {
+			roles[i].Domain = own.ObsDomain
+		}
+		projection, err := NewInterfaceRoleQueryData(ctx, tenant, at, roles, 1<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
 		names := explorerNames{{TenantID: tenant, Exporter: own.Exporter, Index: 7, Name: "inside"}, {TenantID: tenant, Exporter: own.Exporter, Index: 8, Name: "outside"}}
 		memory.WithExplorerInterfaces(names)
 		store.WithExplorerInterfaces(names)
 		for _, field := range flow.QueryFields() {
 			t.Run(tenant+"/"+field.Name, func(t *testing.T) {
 				plan := flow.QueryPlan{From: own.TS.Add(-time.Minute), To: own.TS.Add(time.Minute), GroupBy: []string{field.Name}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}
-				query := PlanQuery{TenantID: tenant, Plan: plan}
+				query := PlanQuery{TenantID: tenant, Plan: plan, Roles: projection}
 				reference, err := memory.ExplorePlan(ctx, query)
 				if err != nil {
 					t.Fatal(err)
