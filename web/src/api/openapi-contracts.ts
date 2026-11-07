@@ -33,14 +33,14 @@ export const API_CALL_CONTRACTS = [
     method: 'GET',
     path: '`/entity-contexts/${encodeURIComponent(context)}/bgp-routing-bindings?${query.toString()}`',
     response: 'BGPRoutingBindingConfiguration',
-    generated: 'GetBGPRoutingBindingsResponse',
+    generated: 'GetBgpRoutingBindingsResponse',
   },
   {
     file: 'api/bgpRoutingBindings.ts',
     method: 'PUT',
     path: '`/entity-contexts/${encodeURIComponent(context)}/bgp-routing-bindings`',
     response: 'BGPRoutingBindingConfiguration',
-    generated: 'ReplaceBGPRoutingBindingsResponse',
+    generated: 'ReplaceBgpRoutingBindingsResponse',
   },
   {
     file: 'api/interfaceRoles.ts',

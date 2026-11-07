@@ -465,6 +465,37 @@ type BGPEventList struct {
 	Items          []BGPEvent `json:"items,omitempty"`
 }
 
+type BGPRoutingBinding struct {
+	BgpIdentifier string `json:"bgp_identifier"`
+	ContextId     string `json:"context_id"`
+	Distinguisher string `json:"distinguisher"`
+	Families      []int  `json:"families"`
+	Id            string `json:"id,omitempty"`
+	RouterId      string `json:"router_id"`
+	SourceFormat  string `json:"source_format,omitempty"`
+}
+
+type BGPRoutingBindingConfiguration struct {
+	CollectorAgentId string `json:"collector_agent_id"`
+	ContextId        string `json:"context_id"`
+	Manifest         any    `json:"manifest"`
+	RouterId         string `json:"router_id"`
+	SourceRef        string `json:"source_ref"`
+}
+
+type BGPRoutingBindingManifest struct {
+	AssignedAt string              `json:"assigned_at"`
+	Bindings   []BGPRoutingBinding `json:"bindings"`
+	Epoch      string              `json:"epoch"`
+}
+
+type BGPRoutingBindingReplacement struct {
+	Bindings         []BGPRoutingBinding `json:"bindings"`
+	CollectorAgentId string              `json:"collector_agent_id"`
+	ExpectedEpoch    string              `json:"expected_epoch"`
+	SourceRef        string              `json:"source_ref"`
+}
+
 type Branding struct {
 	ProductName    string            `json:"product_name"`
 	TokenOverrides map[string]string `json:"token_overrides,omitempty"`
@@ -4898,6 +4929,53 @@ func (c *Client) CreateEntityContext(ctx context.Context, req CreateEntityContex
 	query := url.Values{}
 	var out EntityContext
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read a complete operator routing-source binding manifest
+type GetBgpRoutingBindingsRequest struct {
+	ContextId        string  `json:"-"`
+	CollectorAgentId *string `json:"-"`
+	SourceRef        *string `json:"-"`
+}
+
+func (c *Client) GetBgpRoutingBindings(ctx context.Context, req GetBgpRoutingBindingsRequest) (*BGPRoutingBindingConfiguration, error) {
+	path := "/v1/entity-contexts/{context_id}/bgp-routing-bindings"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	if req.CollectorAgentId != nil {
+		query.Set("collector_agent_id", formatQueryValue(*req.CollectorAgentId))
+	}
+	if req.SourceRef != nil {
+		query.Set("source_ref", formatQueryValue(*req.SourceRef))
+	}
+	var out BGPRoutingBindingConfiguration
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Atomically replace a complete operator routing-source manifest
+type ReplaceBgpRoutingBindingsRequest struct {
+	ContextId string                        `json:"-"`
+	Body      *BGPRoutingBindingReplacement `json:"-"`
+}
+
+func (c *Client) ReplaceBgpRoutingBindings(ctx context.Context, req ReplaceBgpRoutingBindingsRequest) (*BGPRoutingBindingConfiguration, error) {
+	path := "/v1/entity-contexts/{context_id}/bgp-routing-bindings"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	var out BGPRoutingBindingConfiguration
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

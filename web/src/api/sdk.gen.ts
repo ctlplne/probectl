@@ -382,6 +382,37 @@ export interface BGPEventList {
   items?: BGPEvent[]
 }
 
+export interface BGPRoutingBinding {
+  bgp_identifier: string
+  context_id: string
+  distinguisher: string
+  families: number[]
+  id?: string
+  router_id: string
+  source_format?: "" | "frr_loc_rib_v1"
+}
+
+export interface BGPRoutingBindingConfiguration {
+  collector_agent_id: string
+  context_id: string
+  manifest: JsonValue
+  router_id: string
+  source_ref: string
+}
+
+export interface BGPRoutingBindingManifest {
+  assigned_at: string
+  bindings: BGPRoutingBinding[]
+  epoch: string
+}
+
+export interface BGPRoutingBindingReplacement {
+  bindings: BGPRoutingBinding[]
+  collector_agent_id: string
+  expected_epoch: string
+  source_ref: string
+}
+
 export interface Branding {
   product_name: "probectl"
   token_overrides?: { [key: string]: string }
@@ -3532,6 +3563,21 @@ export interface CreateEntityContextRequest {
 
 export type CreateEntityContextResponse = EntityContext
 
+export interface GetBgpRoutingBindingsRequest {
+  contextId: string
+  collectorAgentId: string
+  sourceRef: string
+}
+
+export type GetBgpRoutingBindingsResponse = BGPRoutingBindingConfiguration
+
+export interface ReplaceBgpRoutingBindingsRequest {
+  contextId: string
+  body: BGPRoutingBindingReplacement
+}
+
+export type ReplaceBgpRoutingBindingsResponse = BGPRoutingBindingConfiguration
+
 export interface GetInterfaceRolePolicyRequest {
   contextId: string
 }
@@ -5307,6 +5353,22 @@ export class ProbectlSDKClient {
     let path = "/v1/entity-contexts"
     const query = new URLSearchParams()
     return this.requestJSON<CreateEntityContextResponse>("POST", path, query, request.body)
+  }
+
+  async getBgpRoutingBindings(request: GetBgpRoutingBindingsRequest): Promise<GetBgpRoutingBindingsResponse> {
+    let path = "/v1/entity-contexts/{context_id}/bgp-routing-bindings"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    if (request.collectorAgentId !== undefined) query.set("collector_agent_id", String(request.collectorAgentId))
+    if (request.sourceRef !== undefined) query.set("source_ref", String(request.sourceRef))
+    return this.requestJSON<GetBgpRoutingBindingsResponse>("GET", path, query, undefined)
+  }
+
+  async replaceBgpRoutingBindings(request: ReplaceBgpRoutingBindingsRequest): Promise<ReplaceBgpRoutingBindingsResponse> {
+    let path = "/v1/entity-contexts/{context_id}/bgp-routing-bindings"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ReplaceBgpRoutingBindingsResponse>("PUT", path, query, request.body)
   }
 
   async getInterfaceRolePolicy(request: GetInterfaceRolePolicyRequest): Promise<GetInterfaceRolePolicyResponse> {

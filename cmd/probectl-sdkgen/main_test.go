@@ -133,3 +133,34 @@ func TestEveryPathPlaceholderHasAPathParameter(t *testing.T) {
 		t.Fatal("no path placeholders found — the spec or operations() changed shape")
 	}
 }
+
+func TestNullableReferencedManifestKeepsTypedGoAndTypeScriptShape(t *testing.T) {
+	g := generator{}
+	for _, raw := range []string{
+		`{"oneOf":[{"$ref":"#/components/schemas/Manifest"},{"type":"null"}]}`,
+		`{"oneOf":[{"type":"null"},{"$ref":"#/components/schemas/Manifest"}]}`,
+	} {
+		var input schema
+		if err := json.Unmarshal([]byte(raw), &input); err != nil {
+			t.Fatal(err)
+		}
+		if got := g.goType(&input); got != "*Manifest" {
+			t.Fatal("nullable referenced manifest lost its typed Go model", got)
+		}
+		if got := g.tsType(&input); got != "Manifest | null" {
+			t.Fatal("nullable referenced manifest lost its typed TypeScript model", got)
+		}
+	}
+	for _, raw := range []string{
+		`{"oneOf":[{"$ref":"#/components/schemas/First"},{"$ref":"#/components/schemas/Second"}]}`,
+		`{"oneOf":[{"$ref":"#/components/schemas/Manifest"},{"type":"integer"}]}`,
+	} {
+		var input schema
+		if err := json.Unmarshal([]byte(raw), &input); err != nil {
+			t.Fatal(err)
+		}
+		if g.goType(&input) != "any" || g.tsType(&input) != "JsonValue" {
+			t.Fatal("ambiguous schema union guessed a convenient manifest model")
+		}
+	}
+}
