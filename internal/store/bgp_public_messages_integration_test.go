@@ -263,6 +263,24 @@ func TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions
 		}); err != nil || staged.Status != "invalidated" {
 			t.Fatal("MRT source retry replaced original record", staged, err)
 		}
+		input.ObservationID, input.ObservedAt = uuid.NewString(), now(tenant)
+		if err := run(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			staged, err = (BGPRouting{}).StagePublicSnapshotInScope(ctx, sc, input, profile)
+			return err
+		}); err != nil || staged.Status != "staged" {
+			t.Fatal("MRT reset fixture could not stage", staged, err)
+		}
+		reset := message(tenant, input, staged, 1, false)
+		reset.Reset = true
+		var resetResult BGPRoutingApplyResult
+		if err := run(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			resetResult, err = (BGPRouting{}).ApplyPublicSnapshotMessageInScope(ctx, sc, reset, BGPRoutingBudget{}, 0)
+			return err
+		}); err != nil || resetResult.Status != "invalidated" {
+			t.Fatal("MRT source reset required route-data admission", resetResult, err)
+		}
 	})
 	t.Run("read-manifest", func(t *testing.T) {
 		tenant := f.tenants[1]

@@ -607,6 +607,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-mrt-reset": (
+        "internal/store/bgp_public_message_store.go",
+        "profile, !input.Reset)",
+        "profile, true)",
+        "TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions", "mrt-empty-source-record",
+        "MRT source reset required route-data admission",
+    ),
     "public-mrt-record": (
         "internal/store/bgp_public_snapshot_plan.go",
         "sourceRecordDigest = crypto.Hash(input.SourceRecord)",
