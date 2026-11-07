@@ -25,7 +25,7 @@ import (
 // FlowRoutingCaptureResolver may resolve a certificate-attested witness or
 // seal unavailable. Its sender argument is an untrusted lookup selector. The
 // runtime must never wire the evidence writer's CaptureAuthenticated method.
-type FlowRoutingCaptureResolver func(context.Context, string, [32]byte, entity.FlowCaptureInput) (entity.FlowCaptureReference, error)
+type FlowRoutingCaptureResolver func(context.Context, string, []entity.FlowCaptureWitness) ([]entity.FlowCaptureReference, error)
 
 type flowRoutingCaptures struct {
 	resolve           FlowRoutingCaptureResolver
@@ -65,12 +65,13 @@ func (c *FlowConsumer) resolveFlowCaptures(ctx context.Context, tenant string, r
 	memory, work := c.captures.memoryBytes, c.captures.work
 	// Account for the complete descriptor/reference population before making
 	// any durable calls. The native source payload is separately charged below.
-	if memory <= 0 || work <= 0 || int64(len(records)) > memory/256 || int64(len(records)) > work/256 {
+	if memory <= 0 || work <= 0 || int64(len(records)) > memory/512 || int64(len(records)) > work/512 {
 		return nil, flow.ErrRoutingCaptureAdmission
 	}
-	memory -= int64(len(records)) * 256
-	work -= int64(len(records)) * 256
+	memory -= int64(len(records)) * 512
+	work -= int64(len(records)) * 512
 	projections := make([]flowCaptureProjection, len(records))
+	witnesses := make([]entity.FlowCaptureWitness, 0, len(records))
 	for i, record := range records {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -91,16 +92,26 @@ func (c *FlowConsumer) resolveFlowCaptures(ctx context.Context, tenant string, r
 			continue // invalid sender/tuple remains raw data without authority
 		}
 		projections[i] = flowCaptureProjection{digest: digest, input: input, key: key}
+		witnesses = append(witnesses, entity.FlowCaptureWitness{RawDigest: digest, Input: input})
 	}
+	if len(witnesses) == 0 {
+		return projections, nil
+	}
+	refs, err := c.captures.resolve(ctx, records[0].GetAgentId(), witnesses)
+	if err != nil {
+		return nil, err
+	}
+	if len(refs) != len(witnesses) {
+		return nil, errFlowCaptureReference
+	}
+	index := 0
 	for i := range projections {
 		projection := &projections[i]
 		if projection.key == ([32]byte{}) {
 			continue
 		}
-		ref, err := c.captures.resolve(ctx, records[i].GetAgentId(), projection.digest, projection.input)
-		if err != nil {
-			return nil, err
-		}
+		ref := refs[index]
+		index++
 		clock := ref.CapturedAt.UnixNano()
 		if ref.Key != projection.key || clock <= 0 || !time.Unix(0, clock).Equal(ref.CapturedAt) {
 			return nil, errFlowCaptureReference

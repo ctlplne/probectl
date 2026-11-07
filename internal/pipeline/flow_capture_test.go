@@ -74,14 +74,21 @@ func TestFlowCaptureConsumerKeepsOriginalDigestFrozenClockAndTenant(t *testing.T
 		expected[digest] = input
 	}
 	var resolutions int
-	resolve := func(ctx context.Context, sender string, digest [32]byte, input entity.FlowCaptureInput) (entity.FlowCaptureReference, error) {
+	resolve := func(ctx context.Context, sender string, witnesses []entity.FlowCaptureWitness) ([]entity.FlowCaptureReference, error) {
 		tenant, ok := tenancy.FromContext(ctx)
-		if !ok || (tenant.String() != flowCaptureTenantA && tenant.String() != flowCaptureTenantB) || sender != flowCaptureSender || expected[digest] != input {
-			t.Fatal("capture consumer lost verified tenant or original raw digest before enrichment")
+		refs := make([]entity.FlowCaptureReference, len(witnesses))
+		for i, witness := range witnesses {
+			if !ok || (tenant.String() != flowCaptureTenantA && tenant.String() != flowCaptureTenantB) || sender != flowCaptureSender || expected[witness.RawDigest] != witness.Input {
+				t.Fatal("capture consumer lost verified tenant or original raw digest before enrichment")
+			}
+			key, err := entity.FlowCaptureKey(tenant.String(), sender, witness.RawDigest, witness.Input)
+			if err != nil {
+				return nil, err
+			}
+			resolutions++
+			refs[i] = entity.FlowCaptureReference{Key: key, CapturedAt: firstAt}
 		}
-		key, err := entity.FlowCaptureKey(tenant.String(), sender, digest, input)
-		resolutions++
-		return entity.FlowCaptureReference{Key: key, CapturedAt: firstAt}, err
+		return refs, nil
 	}
 	store := flowstore.NewMemory()
 	consumer := NewFlowConsumer(nil, store, &changingCaptureEnricher{}, nil).WithRoutingCaptures(resolve, 16<<20, 16<<20)
@@ -119,23 +126,31 @@ func TestFlowCaptureConsumerKeepsOriginalDigestFrozenClockAndTenant(t *testing.T
 
 func TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution(t *testing.T) {
 	message := captureBatchMessageForTest(t, flowCaptureBatchForTest(3))
-	for _, mode := range []string{"memory", "work", "aggregate-memory", "wrong-key", "missing-clock", "resolver-failure", "foreign-context"} {
+	for _, mode := range []string{"memory", "work", "aggregate-memory", "wrong-key", "missing-clock", "partial-receipts", "resolver-failure", "foreign-context"} {
 		t.Run(mode, func(t *testing.T) {
 			store := flowstore.NewMemory()
 			calls := 0
-			resolve := func(_ context.Context, sender string, digest [32]byte, input entity.FlowCaptureInput) (entity.FlowCaptureReference, error) {
+			resolve := func(_ context.Context, sender string, witnesses []entity.FlowCaptureWitness) ([]entity.FlowCaptureReference, error) {
 				calls++
-				key, err := entity.FlowCaptureKey(flowCaptureTenantA, sender, digest, input)
-				ref := entity.FlowCaptureReference{Key: key, CapturedAt: time.Unix(1700000000, 123456789)}
+				refs := make([]entity.FlowCaptureReference, len(witnesses))
+				for i, witness := range witnesses {
+					key, err := entity.FlowCaptureKey(flowCaptureTenantA, sender, witness.RawDigest, witness.Input)
+					if err != nil {
+						return nil, err
+					}
+					refs[i] = entity.FlowCaptureReference{Key: key, CapturedAt: time.Unix(1700000000, 123456789)}
+				}
 				switch mode {
 				case "wrong-key":
-					ref.Key[0] ^= 1
+					refs[0].Key[0] ^= 1
 				case "missing-clock":
-					ref.CapturedAt = time.Time{}
+					refs[0].CapturedAt = time.Time{}
+				case "partial-receipts":
+					return refs[:len(refs)-1], nil
 				case "resolver-failure":
-					return entity.FlowCaptureReference{}, errors.New("first receipt storage unavailable")
+					return nil, errors.New("first receipt storage unavailable")
 				}
-				return ref, err
+				return refs, nil
 			}
 			memory, work := int64(1<<20), int64(1<<20)
 			if mode == "memory" {
@@ -145,7 +160,7 @@ func TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution(t *tes
 				work = 1
 			}
 			if mode == "aggregate-memory" {
-				memory = 256*3 + int64(proto.Size(flowCaptureBatchForTest(3).Flows[0]))*4 + 64
+				memory = 512*3 + int64(proto.Size(flowCaptureBatchForTest(3).Flows[0]))*4 + 64
 			}
 			consumer := NewFlowConsumer(nil, store, nil, nil).WithRoutingCaptures(resolve, memory, work)
 			ctx := t.Context()

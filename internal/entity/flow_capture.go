@@ -24,6 +24,14 @@ type FlowCaptureReference struct {
 	CapturedAt time.Time
 }
 
+// FlowCaptureWitness is a complete original-record fingerprint and observed
+// lookup tuple. Sender/tenant authority is supplied by its calling transport,
+// never by this value. Raw consumers use it only to resolve existing witnesses.
+type FlowCaptureWitness struct {
+	RawDigest [32]byte
+	Input     FlowCaptureInput
+}
+
 // FlowCaptureInput contains observed dimensions, never canonical ownership.
 // The raw-record digest covers every original field; this tuple separately
 // binds the fields used for routing so an authenticated sender cannot attest
