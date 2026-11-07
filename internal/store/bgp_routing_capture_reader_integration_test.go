@@ -50,6 +50,15 @@ func proveCapturedRoutingReaderRequiresCurrentContextAndOriginalReference(t *tes
 		if !errors.Is(err, denied) || !reflect.DeepEqual(lookup, BGPRoutingFlowLookup{}) {
 			t.Fatal("retained routing key bypassed current context authorization", err)
 		}
+		err = tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			budget := routingViewBudget()
+			budget.MemoryBytes, budget.WorkUnits = 1, 1
+			_, err := (BGPRouting{}).ReadFlowCaptureInScope(ctx, sc, "routing-flow", entity.FlowCaptureWitness{RawDigest: raw, Input: input}, first[lane], budget, func(context.Context, entity.ContextRecord) error { return denied })
+			return err
+		})
+		if !errors.Is(err, denied) {
+			t.Fatal("denied retained routing read disclosed payload admission", err)
+		}
 		if lookup, err = readFlowCaptureForTest(t, f, lane, raw, input, first[lane], nil); !errors.Is(err, entity.ErrScopeMismatch) || !reflect.DeepEqual(lookup, BGPRoutingFlowLookup{}) {
 			t.Fatal("retained routing reader accepted absent context authorization", err)
 		}
