@@ -13,7 +13,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/store/sourceepoch"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -148,15 +148,13 @@ func proveProvisionalCaptureRefusesRetiredAuthority(t *testing.T, f *roleInputsF
 	old := read(baseline.Key)
 	rawEpoch := routingCaptureHash([]byte("raw before validated erasure epoch"))
 	beforeEpoch := stage(rawEpoch, old.objects)
-	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-		if _, err := sourceepoch.SourceGenerationInScope(ctx, sc); err != nil {
-			return err
-		}
-		if err := audit.LockTenantStream(ctx, sc.Q, tenant); err != nil {
-			return err
-		}
-		return sourceepoch.InvalidateSourceGenerationInScope(ctx, sc)
-	})
+	// Exercise the complete existing objectless lifecycle. The low-level
+	// invalidation marker deliberately remains closed until that workflow has
+	// proved its empty cache and completed the matching transition token.
+	lifecycle := flowsnapshot.NewLifecycle(f.pool, nil, tenancy.NewPostgresWriterFence(f.pool))
+	if err := lifecycle.Invalidate(ctx, tenant, func(context.Context) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
 	checkUnavailable(rawEpoch, beforeEpoch, "expired provisional epoch became canonical after erasure")
 
 	newBaseline, err := service.CaptureAuthenticated(ctx, "routing-flow", routingCaptureHash([]byte("current source after erasure epoch")), input, routingViewBudget())
