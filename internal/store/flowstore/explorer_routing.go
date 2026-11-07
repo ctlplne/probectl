@@ -63,6 +63,20 @@ func captureResultRoutingIdentity(ctx context.Context, result *PlanResult, query
 	return nil
 }
 
+func validatePlanCurrentProjections(ctx context.Context, query PlanQuery, plan flow.QueryPlan) error {
+	if err := validatePlanInterfaceRoles(ctx, query, plan); err != nil {
+		return err
+	}
+	return validatePlanRouting(ctx, query, plan)
+}
+
+func captureResultCurrentProjections(ctx context.Context, result *PlanResult, query PlanQuery) error {
+	if err := captureResultRoleIdentity(ctx, result, query); err != nil {
+		return err
+	}
+	return captureResultRoutingIdentity(ctx, result, query)
+}
+
 type routingQueryKey struct {
 	key   [32]byte
 	clock int64

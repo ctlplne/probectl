@@ -48,10 +48,7 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if plan.Cursor != "" {
 		return PlanResult{}, errors.New("flow cursor must be resolved from its stored snapshot before execution")
 	}
-	if err := validatePlanInterfaceRoles(ctx, query, plan); err != nil {
-		return PlanResult{}, err
-	}
-	if err := validatePlanRouting(ctx, query, plan); err != nil {
+	if err := validatePlanCurrentProjections(ctx, query, plan); err != nil {
 		return PlanResult{}, err
 	}
 	if query.Tags != nil {
@@ -224,10 +221,7 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 		}
 		sort.Slice(selection.rows, func(i, j int) bool { return ranks[key(selection.rows[i])] < ranks[key(selection.rows[j])] })
 	}
-	if err := captureResultRoleIdentity(ctx, &result, query); err != nil {
-		return PlanResult{}, err
-	}
-	if err := captureResultRoutingIdentity(ctx, &result, query); err != nil {
+	if err := captureResultCurrentProjections(ctx, &result, query); err != nil {
 		return PlanResult{}, err
 	}
 	if err := ctx.Err(); err != nil {

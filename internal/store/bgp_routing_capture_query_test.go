@@ -105,7 +105,8 @@ func proveRoutingQueryCaptureReuseKeepsEveryOriginalReference(t *testing.T) {
 		}
 		reads[i] = read
 	}
-	budget := BGPRoutingBudget{MemoryBytes: flowstore.DefaultExplorerBudget().MemoryBytes / 4, WorkUnits: flowstore.DefaultExplorerBudget().MemoryBytes / 4}
+	limit := flowstore.DefaultExplorerBudget().MemoryBytes / 4
+	budget := BGPRoutingBudget{MemoryBytes: limit, WorkUnits: limit, StateBytes: limit}
 	keys, err := routingQueryCaptureKeys(ctx, tenancy.Scope{Tenant: tenancy.ID(routingCaptureTenant)}, reads, &budget)
 	if err != nil || len(keys) != len(reads) {
 		t.Fatal("complete routing query capture references were truncated", err)

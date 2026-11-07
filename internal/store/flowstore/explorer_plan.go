@@ -431,10 +431,7 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 	if plan.Cursor != "" {
 		return PlanResult{}, errors.New("flow cursor must be resolved from its stored snapshot before execution")
 	}
-	if err := validatePlanInterfaceRoles(ctx, query, plan); err != nil {
-		return PlanResult{}, err
-	}
-	if err := validatePlanRouting(ctx, query, plan); err != nil {
+	if err := validatePlanCurrentProjections(ctx, query, plan); err != nil {
 		return PlanResult{}, err
 	}
 	if plan.DataSeries == "rollup" {
@@ -600,10 +597,7 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 
 	sortPlanPoints(result.Series)
 	sortPlanPoints(result.OtherSeries)
-	if err := captureResultRoleIdentity(ctx, &result, query); err != nil {
-		return PlanResult{}, err
-	}
-	if err := captureResultRoutingIdentity(ctx, &result, query); err != nil {
+	if err := captureResultCurrentProjections(ctx, &result, query); err != nil {
 		return PlanResult{}, err
 	}
 	if err := ctx.Err(); err != nil {
