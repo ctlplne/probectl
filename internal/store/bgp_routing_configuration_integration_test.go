@@ -113,8 +113,19 @@ func TestRoutingOperatorConfigurationKeepsTenantPolicyCASAndAtomicAudit(t *testi
 	}
 	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
 		foreign := routingFixtureSource(f, 1)
-		if out, err := (BGPRouting{}).BindingsInScope(ctx, sc, foreign.CollectorAgentID, foreign.SourceRef, routingViewBudget(), authorizer(0, "")); err == nil || out.CollectorAgentID != "" {
-			t.Fatal("foreign source configuration escaped tenant storage isolation", out, err)
+		// The fixture deliberately uses identical source keys in both tenants.
+		// Those keys must resolve our own replacement, never the sibling epoch.
+		if out, err := (BGPRouting{}).BindingsInScope(ctx, sc, foreign.CollectorAgentID, foreign.SourceRef, routingViewBudget(), authorizer(0, "")); err != nil || out.Manifest == nil || out.Manifest.Epoch != empty.Manifest.Epoch || out.Manifest.Epoch == first[1].Manifest.Epoch {
+			t.Fatal("identical routing source keys borrowed a foreign tenant configuration", out, err)
+		}
+		var foreignRows int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM entity_source_contexts WHERE tenant_id=$1`, f.tenants[1]).Scan(&foreignRows); err != nil || foreignRows != 0 {
+			t.Fatal("routing configuration escaped storage-layer tenant RLS", foreignRows, err)
+		}
+		mismatch := sc
+		mismatch.Tenant = tenancy.ID(f.tenants[1])
+		if out, err := (BGPRouting{}).BindingsInScope(ctx, mismatch, foreign.CollectorAgentID, foreign.SourceRef, routingViewBudget(), authorizer(1, "")); !errors.Is(err, entity.ErrScopeMismatch) || out.CollectorAgentID != "" {
+			t.Fatal("mismatched tenant scope reached routing configuration", out, err)
 		}
 		return nil
 	})
