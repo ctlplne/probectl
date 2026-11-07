@@ -33,6 +33,11 @@ func TestBGPRoutingPlanKeepsEveryReferenceInItsTenantSchema(t *testing.T) {
 				t.Fatal("routing generation reference escaped its physical tenant schema", want)
 			}
 		}
+		key := strings.Index(plan, `CREATE UNIQUE INDEX IF NOT EXISTS entity_sources_tenant_context_identity_uidx`)
+		fk := strings.Index(plan, `ADD CONSTRAINT "fx5_public_snapshot_source_fk"`)
+		if key < 0 || fk <= key {
+			t.Fatal("public snapshot source key was installed after its dependent foreign key")
+		}
 	}
 	if len(bgpRoutingStoragePlan(schema, []string{"entity_contexts"})) != 0 {
 		t.Fatal("routing plan invented absent tenant tables")

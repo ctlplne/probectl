@@ -16,6 +16,11 @@ func bgpRoutingStoragePlan(schema string, tables []string) []string {
 	}
 	q := quoteIdent(schema)
 	var plan []string
+	if owned["entity_source_contexts"] && owned["bgp_public_snapshots"] {
+		// A source assignment copied before the tag identity index existed
+		// needs its exact key before the new snapshot FK can be installed.
+		plan = append(plan, `CREATE UNIQUE INDEX IF NOT EXISTS entity_sources_tenant_context_identity_uidx ON `+q+`."entity_source_contexts" (tenant_id,context_id,agent_id,source_kind,source_ref)`)
+	}
 	for _, key := range []struct{ child, name, columns, parent, parentColumns string }{
 		{"bgp_public_snapshots", "fx5_public_snapshot_tenant_fk", "tenant_id", "public.tenants", "id"},
 		{"bgp_public_snapshots", "fx5_public_snapshot_context_fk", "tenant_id,context_id", "entity_contexts", "tenant_id,id"},
