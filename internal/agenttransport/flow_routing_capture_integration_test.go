@@ -35,16 +35,16 @@ func TestFlowRoutingWitnessRealMTLSKeepsTenantFirstReceiptAndCurrentSender(t *te
 	t.Cleanup(pool.Close)
 	testsupport.LockPostgresPublicCatalog(t, pool)
 	server := startTestServer(ctx, t, pool)
-	agentID := newUUID(t)
 	type lane struct {
-		tenant  string
-		client  *agent.EvidenceClient
-		capture *agentv1.FlowRoutingCapture
+		tenant, agent string
+		client        *agent.EvidenceClient
+		capture       *agentv1.FlowRoutingCapture
 	}
 	var lanes []lane
 	raw := &agentv1.FlowRoutingWitness{RawDigest: make([]byte, 32), ExporterAddress: "192.0.2.1", SourceAddress: "203.0.113.1", DestinationAddress: "2001:db8::1", FlowProtocol: "ipfix", ObservationDomain: ^uint32(0)}
 	raw.RawDigest[31] = 1
 	for _, suffix := range []string{"a", "b"} {
+		agentID := newUUID(t)
 		tenant, err := store.NewTenants(pool).Create(ctx, fmt.Sprintf("flow-witness-wire-%s-%d", suffix, time.Now().UnixNano()), suffix)
 		if err != nil {
 			t.Fatal(err)
@@ -104,10 +104,10 @@ func TestFlowRoutingWitnessRealMTLSKeepsTenantFirstReceiptAndCurrentSender(t *te
 		}); err != nil {
 			t.Fatal(err)
 		}
-		lanes = append(lanes, lane{tenant.ID, client, captures[0]})
+		lanes = append(lanes, lane{tenant.ID, agentID, client, captures[0]})
 	}
 	if bytes.Equal(lanes[0].capture.Key, lanes[1].capture.Key) {
-		t.Fatal("same sender/raw tuple crossed certified tenant scope")
+		t.Fatal("same raw digest/tuple crossed certified tenant scope")
 	}
 	if err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(lanes[0].tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var foreign int
@@ -120,7 +120,7 @@ func TestFlowRoutingWitnessRealMTLSKeepsTenantFirstReceiptAndCurrentSender(t *te
 		t.Fatal(err)
 	}
 	// A CA-valid new serial is not the exact issued sender credential.
-	cert, key, err := server.ca.IssueClientCert(agentID, crypto.EntitySPIFFEID(lanes[0].tenant, agentID), time.Hour)
+	cert, key, err := server.ca.IssueClientCert(lanes[0].agent, crypto.EntitySPIFFEID(lanes[0].tenant, lanes[0].agent), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestFlowRoutingWitnessRealMTLSKeepsTenantFirstReceiptAndCurrentSender(t *te
 	if captures, err := unissued.SubmitFlowRouting(ctx, []*agentv1.FlowRoutingWitness{raw}); err == nil || captures != nil {
 		t.Fatal("unissued evidence serial reached a routing witness")
 	}
-	if _, _, err := store.NewAgentIdentities(pool).RevokeAgent(ctx, lanes[0].tenant, agentID, "operator-test"); err != nil {
+	if _, _, err := store.NewAgentIdentities(pool).RevokeAgent(ctx, lanes[0].tenant, lanes[0].agent, "operator-test"); err != nil {
 		t.Fatal(err)
 	}
 	if captures, err := lanes[0].client.SubmitFlowRouting(ctx, []*agentv1.FlowRoutingWitness{raw}); err == nil || captures != nil {
