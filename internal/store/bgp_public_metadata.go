@@ -42,14 +42,7 @@ func publicRoutingViewMetadata(ctx context.Context, definition BGPRoutingViewDef
 		return nil, empty, ErrBGPRoutingView
 	}
 	peer := *definition.Public
-	if (peer.Feed != "ris" && peer.Feed != "routeviews") ||
-		(peer.Format != "mrt_table_dump_v2" && peer.Format != "ris_live") ||
-		(peer.Feed == "routeviews" && peer.Format == "ris_live") ||
-		peer.Collector == "" || strings.TrimSpace(peer.Collector) != peer.Collector ||
-		!utf8.ValidString(peer.Collector) || !utf8.ValidString(peer.Cursor) || peer.PeerASN == 0 ||
-		!peer.PeerAddress.IsValid() || peer.PeerAddress.Zone() != "" || peer.PeerAddress.IsUnspecified() || peer.PeerAddress.IsMulticast() ||
-		(peer.ObservedUnixNanos != nil && *peer.ObservedUnixNanos < 0) ||
-		(peer.CollectorObservedUnixNanos != nil && *peer.CollectorObservedUnixNanos < 0) {
+	if !validPublicRoutingPeer(peer) {
 		return nil, empty, ErrBGPRoutingView
 	}
 	if budget.MemoryBytes < 4096 || budget.WorkUnits < 4096 || budget.StateBytes <= 0 {
@@ -86,6 +79,17 @@ func publicRoutingViewMetadata(ctx context.Context, definition BGPRoutingViewDef
 		return nil, [32]byte{}, err
 	}
 	return body, empty, nil
+}
+
+func validPublicRoutingPeer(peer BGPPublicRoutingPeer) bool {
+	return (peer.Feed == "ris" || peer.Feed == "routeviews") &&
+		(peer.Format == "mrt_table_dump_v2" || peer.Format == "ris_live") &&
+		!(peer.Feed == "routeviews" && peer.Format == "ris_live") &&
+		peer.Collector != "" && strings.TrimSpace(peer.Collector) == peer.Collector &&
+		utf8.ValidString(peer.Collector) && utf8.ValidString(peer.Cursor) && peer.PeerASN != 0 &&
+		peer.PeerAddress.IsValid() && peer.PeerAddress.Zone() == "" && !peer.PeerAddress.IsUnspecified() && !peer.PeerAddress.IsMulticast() &&
+		(peer.ObservedUnixNanos == nil || *peer.ObservedUnixNanos >= 0) &&
+		(peer.CollectorObservedUnixNanos == nil || *peer.CollectorObservedUnixNanos >= 0)
 }
 
 func emptyPublicBMPPeer(peer BGPRoutingPeer) bool {
