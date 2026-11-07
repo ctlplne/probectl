@@ -408,3 +408,14 @@ flow joins remain unfinished; no source is promoted from staging alone.
 Malformed OPEN capabilities remain unavailable, including the empty ADD-PATH
 advertisement observed in current FRR sources. Bytes are not repaired or
 substituted to manufacture a valid source view.
+
+For the explicit FRR Loc-RIB serializer profile, use a source containing the
+[upstream BMP AS-path reporting fix](https://github.com/FRRouting/frr/commit/231e91a7b04384187dc4d355207ae8e4b03b7324),
+included in FRR 10.7.1. Older FRR sources can prepend the local AS while encoding
+BMP updates, so their reported path differs from the router's stored selected
+path. Do not select a source profile as proof of that equivalence until the
+source's BMP output has been checked against its own routing table. probectl
+preserves reported segments; it does not remove an ASN or guess whether a
+prepend was legitimate. The real-source fixture uses digest-pinned FRR 10.7.1
+and independently checks the configured router table and the original expected
+paths. This fixture update alone does not qualify the unfinished flow join.

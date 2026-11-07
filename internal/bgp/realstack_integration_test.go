@@ -41,7 +41,9 @@ import (
 
 // frrImage is the real BGP speaker of the deterministic leg: FRRouting, the
 // router the BMP documentation is verified with, pinned by digest.
-const frrImage = "quay.io/frrouting/frr:10.3.1@sha256:f90d26a9fd5c14fc5795a73b4254ac88bc3186c45bbeb220a225fb6182de812c"
+// 10.7.1 includes the upstream BMP reporting fix 231e91a7b043: outbound
+// local-AS/confederation rewriting must not alter the selected stored path.
+const frrImage = "quay.io/frrouting/frr:10.7.1@sha256:e995beaa50fdc9edb35eadcfefa29b7f062cc06f2b812613789b68fa541554d2"
 
 // The lab's routing plan. Every prefix and ASN is from the documentation or
 // private ranges, so nothing here can be mistaken for the live internet.
