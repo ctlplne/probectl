@@ -219,14 +219,15 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 				`ADD CONSTRAINT "entity_evidence_agent_addresses_check" CHECK`,
 				`ADD CONSTRAINT "entity_evidence_snmp_prefix_snapshot_check" CHECK`,
 				`ADD CONSTRAINT "entities_network_prefix_kind_check"`,
+				`FOREACH check_name IN ARRAY ARRAY['entity_source_contexts_source_kind_check','fx5_public_source_shape'] LOOP`,
 			}
 			for _, want := range wants {
 				if !strings.Contains(joined, want) {
 					t.Fatalf("registry silo plan missing %s", want)
 				}
 			}
-			// Count the actual additions. A repair block may query pg_constraint
-			// more than once before adding one constraint.
+			// Count emitted ADD CONSTRAINT statements. The public source loop
+			// above explicitly binds both named checks to its one SQL statement.
 			if got := strings.Count(joined, ` ADD CONSTRAINT `); got != len(wants)-1 {
 				t.Fatalf("registry and import silo plan has %d constraint additions; want %d", got, len(wants)-1)
 			}
