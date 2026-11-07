@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/auth"
@@ -73,7 +73,7 @@ func TestBGPRoutingConfigurationAPIKeepsTenantCurrentActorEpochAndAtomicAudit(t 
 		}
 		return res.StatusCode, raw
 	}
-	target, router := uuid.NewString(), uuid.NewString()
+	target, router := gouuid.NewString(), gouuid.NewString()
 	for _, tenant := range f.tenants {
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES($1,$2,$2,$2,'mapped-target','routed')`, tenant, target); err != nil {
@@ -124,7 +124,7 @@ func TestBGPRoutingConfigurationAPIKeepsTenantCurrentActorEpochAndAtomicAudit(t 
 		}
 		return (store.ABACPolicies{}).Delete(ctx, sc, policyID)
 	})
-	fault := "probectl_qa_beta_routing_audit_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	fault := "probectl_qa_beta_routing_audit_" + strings.ReplaceAll(gouuid.NewString(), "-", "")
 	if _, err := f.pool.Exec(t.Context(), fmt.Sprintf(`CREATE FUNCTION public.%s() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.tenant_id='%s'::uuid AND NEW.action='bgp.routing_bindings.replaced' THEN RAISE EXCEPTION 'owned QA routing audit refused'; END IF; RETURN NEW; END $$; CREATE TRIGGER %s BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION public.%s()`, fault, f.tenants[0], fault, fault)); err != nil {
 		t.Fatal(err)
 	}
