@@ -21,12 +21,14 @@ import (
 // BGPPublicSnapshotInput has no tenant, context or router selector. Transport
 // supplies the current collector identity; the operator source assignment
 // resolves its context. Definitions must be one complete decoded peer manifest.
-// Present empty means an empty manifest. Nil means unavailable, never empty.
+// Present empty means an empty manifest. Nil means unavailable unless a full
+// original SourceRecord supplies its own verified peer table.
 type BGPPublicSnapshotInput struct {
 	CollectorAgentID, SenderSerial, SourceRef, ObservationID string
 	SourceObservedUnixNanos                                  *int64 // original RIB production clock, never the collector receipt
 	ObservedAt                                               time.Time
 	Definitions                                              []BGPRoutingViewDefinition
+	SourceRecord                                             []byte // complete raw MRT peer table; nil for normalized internal inputs
 }
 
 type publicSnapshotPeer struct {
@@ -40,6 +42,22 @@ func preparePublicSnapshot(ctx context.Context, input BGPPublicSnapshotInput, pr
 	var digest [32]byte
 	if err := ctx.Err(); err != nil {
 		return nil, digest, profile, err
+	}
+	var sourceRecordDigest []byte
+	var sourceDefinitions []BGPRoutingViewDefinition
+	if input.SourceRecord != nil {
+		if err := routingBatchPopulationCharge(&profile, len(input.SourceRecord), 128, 32); err != nil {
+			return nil, digest, profile, err
+		}
+		var err error
+		sourceDefinitions, err = publicMRTSnapshotDefinitions(ctx, input, profile)
+		if err != nil {
+			return nil, digest, profile, err
+		}
+		if input.Definitions == nil {
+			input.Definitions = sourceDefinitions
+		}
+		sourceRecordDigest = crypto.Hash(input.SourceRecord)
 	}
 	key := entity.SourceKey{AgentID: input.CollectorAgentID, Kind: entity.PublicBGP, SourceRef: input.SourceRef}
 	if normalized, err := key.Normalize(); err != nil || normalized != key || input.SenderSerial == "" || strings.TrimSpace(input.SenderSerial) != input.SenderSerial {
@@ -94,11 +112,19 @@ func preparePublicSnapshot(ctx context.Context, input BGPPublicSnapshotInput, pr
 		}
 		return int(a.AFI) - int(b.AFI)
 	})
+	if sourceDefinitions != nil {
+		var err error
+		profile, err = verifyPublicMRTSnapshotPeers(ctx, input, peers, sourceDefinitions, profile)
+		if err != nil {
+			return nil, digest, profile, err
+		}
+	}
 	manifest, err := json.Marshal(struct {
 		Version                 int
 		SourceObservedUnixNanos *int64 `json:",omitempty"`
+		SourceRecordDigest      []byte `json:",omitempty"`
 		Peers                   []publicSnapshotPeer
-	}{1, input.SourceObservedUnixNanos, peers})
+	}{1, input.SourceObservedUnixNanos, sourceRecordDigest, peers})
 	if err != nil {
 		return nil, digest, profile, err
 	}

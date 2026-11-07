@@ -16,15 +16,16 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-func replayPublicSnapshot(ctx context.Context, sc tenancy.Scope, source BGPPublicRoutingSource, id string, peers []publicSnapshotPeer, digest [32]byte, sourceClock *int64, asOf time.Time) (BGPPublicSnapshotStageResult, bool, error) {
+func replayPublicSnapshot(ctx context.Context, sc tenancy.Scope, source BGPPublicRoutingSource, id string, peers []publicSnapshotPeer, digest [32]byte, sourceClock *int64, sourceRecord []byte, asOf time.Time) (BGPPublicSnapshotStageResult, bool, error) {
 	none := BGPPublicSnapshotStageResult{}
 	var owned, identical bool
 	var state string
 	var until time.Time
 	err := sc.Q.QueryRow(ctx, `SELECT collector_agent_id=$4 AND source_ref=$5,
  sender_serial=$6 AND manifest_digest=$7 AND observed_unix_nanos=$8 AND expected_views=$9
- AND source_observed_unix_nanos IS NOT DISTINCT FROM $10::bigint,state,valid_until
- FROM bgp_public_snapshots WHERE tenant_id=$1 AND context_id=$2 AND id=$3 FOR UPDATE`, source.TenantID, source.ContextID, id, source.CollectorAgentID, source.SourceRef, source.SenderSerial, digest[:], source.ObservedAt.UnixNano(), int64(len(peers)), sourceClock).Scan(&owned, &identical, &state, &until)
+ AND source_observed_unix_nanos IS NOT DISTINCT FROM $10::bigint
+ AND source_record IS NOT DISTINCT FROM $11::bytea,state,valid_until
+ FROM bgp_public_snapshots WHERE tenant_id=$1 AND context_id=$2 AND id=$3 FOR UPDATE`, source.TenantID, source.ContextID, id, source.CollectorAgentID, source.SourceRef, source.SenderSerial, digest[:], source.ObservedAt.UnixNano(), int64(len(peers)), sourceClock, sourceRecord).Scan(&owned, &identical, &state, &until)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return none, false, nil
 	}

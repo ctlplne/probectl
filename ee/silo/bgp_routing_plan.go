@@ -74,7 +74,7 @@ func publicSnapshotClockChecksPlan(child string) string {
 	return fmt.Sprintf(`DO $fx5_public_clock_checks$ DECLARE entry record; BEGIN
 FOR entry IN SELECT conname,pg_get_constraintdef(oid) AS definition FROM pg_constraint
  WHERE conrelid='public.bgp_public_snapshots'::regclass AND contype='c'
- AND conname IN ('fx5_public_snapshot_source_clock','fx5_public_snapshot_current_source_clock') LOOP
+ AND conname IN ('fx5_public_snapshot_source_clock','fx5_public_snapshot_current_source_clock','fx5_public_snapshot_source_record') LOOP
  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname=entry.conname) THEN
   EXECUTE 'ALTER TABLE ' || %s || ' ADD CONSTRAINT ' || quote_ident(entry.conname) || ' ' || entry.definition;
  END IF;

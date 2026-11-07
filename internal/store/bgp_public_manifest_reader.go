@@ -95,7 +95,7 @@ func loadPublicSnapshotManifest(ctx context.Context, sc tenancy.Scope, source BG
 	if int64(len(definitions)) != header.expectedViews {
 		return nil, ErrBGPRoutingView
 	}
-	input := BGPPublicSnapshotInput{CollectorAgentID: source.CollectorAgentID, SenderSerial: source.SenderSerial, SourceRef: source.SourceRef, ObservationID: id, ObservedAt: time.Unix(0, header.observedNanos), SourceObservedUnixNanos: header.sourceClock, Definitions: definitions}
+	input := BGPPublicSnapshotInput{CollectorAgentID: source.CollectorAgentID, SenderSerial: source.SenderSerial, SourceRef: source.SourceRef, ObservationID: id, ObservedAt: time.Unix(0, header.observedNanos), SourceObservedUnixNanos: header.sourceClock, Definitions: definitions, SourceRecord: header.sourceRecord}
 	_, digest, _, err := preparePublicSnapshot(ctx, input, remaining)
 	if err != nil {
 		return nil, err

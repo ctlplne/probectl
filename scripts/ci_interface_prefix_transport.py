@@ -191,6 +191,8 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestPublicMRTManifestKeepsOriginalEmptySourceAndPeerWireIdentity",
+        "TestPublicMRTManifestRefusesForgedPeerClockUnsupportedSourceAndPartialAdmission",
         "TestPublicSnapshotLookupRequiresTenantAndWholeAdmissionBeforeStorage",
         "TestPublicSnapshotMessageKeepsWholePathsExactReplayAndExclusiveCompletion",
         "TestPublicSnapshotMessageRefusesLatePartialShapeBudgetAndForeignScope",
@@ -605,6 +607,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-mrt-record": (
+        "internal/store/bgp_public_snapshot_plan.go",
+        "sourceRecordDigest = crypto.Hash(input.SourceRecord)",
+        "sourceRecordDigest = nil",
+        "TestPublicMRTManifestKeepsOriginalEmptySourceAndPeerWireIdentity", "",
+        "MRT manifest lost original ASN encoding",
+    ),
     "mrt-rib-whole": (
         "internal/bgp/mrt_rib.go",
         "validateSourceRouteAttributes(entry.Attributes)",

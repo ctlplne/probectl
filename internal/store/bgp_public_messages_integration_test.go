@@ -9,6 +9,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -197,6 +198,72 @@ func TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions
 			}
 		})
 	}
+	t.Run("mrt-empty-source-record", func(t *testing.T) {
+		tenant := f.tenants[0]
+		input := base
+		input.Definitions = nil
+		input.ObservationID, input.ObservedAt = uuid.NewString(), now(tenant)
+		input.SenderSerial = f.serials[tenant+"role-listener"]
+		clock := input.ObservedAt.Unix() * 1_000_000_000
+		input.SourceObservedUnixNanos = &clock
+		input.SourceRecord = publicMRTRecordForTest([]byte{0, 255, 1}, true, false, uint32(input.ObservedAt.Unix()))
+		var staged BGPPublicSnapshotStageResult
+		if err := run(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			staged, err = (BGPRouting{}).StagePublicSnapshotInScope(ctx, sc, input, profile)
+			return err
+		}); err != nil || staged.Status != "staged" || len(staged.Views) != 0 {
+			t.Fatal("original empty MRT source could not stage", staged, err)
+		}
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var original []byte
+			var charge int64
+			if err := sc.Q.QueryRow(ctx, `SELECT source_record,charged_bytes FROM bgp_public_snapshots WHERE tenant_id=$1 AND id=$2`, tenant, staged.ID).Scan(&original, &charge); err != nil {
+				return err
+			}
+			if !bytes.Equal(original, input.SourceRecord) || charge < 512+int64(len(original)) {
+				t.Fatal("empty MRT source lost original bytes or state accounting", charge)
+			}
+			return nil
+		})
+		f.in(f.tenants[1], func(ctx context.Context, sc tenancy.Scope) error {
+			var count int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_public_snapshots WHERE source_record IS NOT NULL`).Scan(&count); err != nil {
+				return err
+			}
+			if count != 0 {
+				t.Fatal("original MRT bytes crossed tenant storage", count)
+			}
+			return nil
+		})
+		if out := apply(tenant, message(tenant, input, staged, 1, true)); out.Status != "applied" {
+			t.Fatal("genuine empty MRT source could not complete", out)
+		}
+		if got, err := publicSnapshotReadForFixture(t, f, tenant, input, staged.ID, "192.0.2.1", profile, time.Hour); !errors.Is(err, ErrBGPRoutingRouteMissing) || got.Paths != nil {
+			t.Fatal("empty raw MRT source manufactured a route", got, err)
+		}
+		changed := publicMRTRecordForTest([]byte{0, 255, 2}, true, false, uint32(input.ObservedAt.Unix()))
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `UPDATE bgp_public_snapshots SET source_record=$3 WHERE tenant_id=$1 AND id=$2`, tenant, staged.ID, changed)
+			return err
+		})
+		got, readErr := publicSnapshotReadForFixture(t, f, tenant, input, staged.ID, "192.0.2.1", profile, time.Hour)
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `UPDATE bgp_public_snapshots SET source_record=$3 WHERE tenant_id=$1 AND id=$2`, tenant, staged.ID, input.SourceRecord)
+			return err
+		})
+		if !errors.Is(readErr, ErrBGPRoutingView) || got.Paths != nil {
+			t.Fatal("current empty MRT source discarded changed original metadata", got, readErr)
+		}
+		input.SourceRecord = changed
+		if err := run(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			staged, err = (BGPRouting{}).StagePublicSnapshotInScope(ctx, sc, input, profile)
+			return err
+		}); err != nil || staged.Status != "invalidated" {
+			t.Fatal("MRT source retry replaced original record", staged, err)
+		}
+	})
 	t.Run("read-manifest", func(t *testing.T) {
 		tenant := f.tenants[1]
 		var original []byte

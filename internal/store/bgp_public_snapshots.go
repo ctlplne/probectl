@@ -57,7 +57,7 @@ func (store BGPRouting) StagePublicSnapshotInScope(ctx context.Context, sc tenan
 	if err != nil {
 		return none, err
 	}
-	if replay, exists, err := replayPublicSnapshot(ctx, sc, source, input.ObservationID, peers, digest, input.SourceObservedUnixNanos, authority.AsOf); err != nil || exists {
+	if replay, exists, err := replayPublicSnapshot(ctx, sc, source, input.ObservationID, peers, digest, input.SourceObservedUnixNanos, input.SourceRecord, authority.AsOf); err != nil || exists {
 		return replay, err
 	}
 	var latest *int64
@@ -76,6 +76,10 @@ func (store BGPRouting) StagePublicSnapshotInScope(ctx context.Context, sc tenan
 		return none, ErrBGPRoutingSourceUnavailable
 	}
 	charge := int64(512)
+	if int64(len(input.SourceRecord)) > profile.StateBytes-charge {
+		return none, ErrBGPRoutingBudget
+	}
+	charge += int64(len(input.SourceRecord))
 	for _, value := range []string{source.CollectorAgentID, source.SourceRef, source.SenderSerial} {
 		if int64(len(value)) > profile.StateBytes-charge {
 			return none, ErrBGPRoutingBudget
@@ -94,9 +98,9 @@ func (store BGPRouting) StagePublicSnapshotInScope(ctx context.Context, sc tenan
 	}
 	if _, err := sc.Q.Exec(ctx, `INSERT INTO bgp_public_snapshots
  (tenant_id,context_id,id,collector_agent_id,source_ref,sender_serial,manifest_digest,expected_views,state,
- observed_at,observed_unix_nanos,last_message_unix_nanos,valid_until,charged_bytes,source_observed_unix_nanos)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,'staging',$9,$10,$10,$11,$12,$13)`, source.TenantID, source.ContextID, input.ObservationID, source.CollectorAgentID, source.SourceRef, source.SenderSerial,
-		digest[:], int64(len(peers)), source.ObservedAt, source.ObservedAt.UnixNano(), until, charge, input.SourceObservedUnixNanos); err != nil {
+ observed_at,observed_unix_nanos,last_message_unix_nanos,valid_until,charged_bytes,source_observed_unix_nanos,source_record)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,'staging',$9,$10,$10,$11,$12,$13,$14)`, source.TenantID, source.ContextID, input.ObservationID, source.CollectorAgentID, source.SourceRef, source.SenderSerial,
+		digest[:], int64(len(peers)), source.ObservedAt, source.ObservedAt.UnixNano(), until, charge, input.SourceObservedUnixNanos, input.SourceRecord); err != nil {
 		return none, err
 	}
 	views := make([]BGPPublicSnapshotView, 0, len(peers))

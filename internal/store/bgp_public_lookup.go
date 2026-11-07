@@ -51,7 +51,7 @@ func (store BGPRouting) LookupPublicSnapshotInScope(ctx context.Context, sc tena
 	if err := requireRoutingReadSnapshot(ctx, sc); err != nil {
 		return BGPPublicRoutingLookup{}, err
 	}
-	header, err := loadCurrentPublicSnapshot(ctx, sc, source, id)
+	header, err := loadCurrentPublicSnapshot(ctx, sc, source, id, profile)
 	if err != nil {
 		return BGPPublicRoutingLookup{}, err
 	}
@@ -93,13 +93,18 @@ func (store BGPRouting) LookupPublicSnapshotInScope(ctx context.Context, sc tena
 	return BGPPublicRoutingLookup{Source: source, SnapshotID: id, SourceObservedUnixNanos: *header.sourceClock, Prefix: prefix, Paths: paths, AsOf: authority.AsOf, ValidUntil: until}, nil
 }
 
-func loadCurrentPublicSnapshot(ctx context.Context, sc tenancy.Scope, source BGPPublicRoutingSource, id string) (publicSnapshotWriteState, error) {
+func loadCurrentPublicSnapshot(ctx context.Context, sc tenancy.Scope, source BGPPublicRoutingSource, id string, profile BGPRoutingBudget) (publicSnapshotWriteState, error) {
 	var header publicSnapshotWriteState
+	var hasSourceRecord bool
 	err := sc.Q.QueryRow(ctx, `SELECT state,observed_unix_nanos,last_message_unix_nanos,next_sequence,last_sequence,expected_views,manifest_digest,last_digest,source_observed_unix_nanos,valid_until
+ ,source_record IS NOT NULL,CASE WHEN octet_length(source_record)<=$7 THEN source_record ELSE NULL END
  FROM bgp_public_snapshots WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND collector_agent_id=$4 AND source_ref=$5 AND sender_serial=$6
- AND state='current' AND completed_at IS NOT NULL`, source.TenantID, source.ContextID, id, source.CollectorAgentID, source.SourceRef, source.SenderSerial).Scan(&header.state, &header.observedNanos, &header.lastClock, &header.nextSequence, &header.lastSequence, &header.expectedViews, &header.manifestDigest, &header.lastDigest, &header.sourceClock, &header.until)
+ AND state='current' AND completed_at IS NOT NULL`, source.TenantID, source.ContextID, id, source.CollectorAgentID, source.SourceRef, source.SenderSerial, profile.MemoryBytes/128).Scan(&header.state, &header.observedNanos, &header.lastClock, &header.nextSequence, &header.lastSequence, &header.expectedViews, &header.manifestDigest, &header.lastDigest, &header.sourceClock, &header.until, &hasSourceRecord, &header.sourceRecord)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return publicSnapshotWriteState{}, ErrBGPRoutingSourceUnavailable
+	}
+	if err == nil && hasSourceRecord && header.sourceRecord == nil {
+		return publicSnapshotWriteState{}, ErrBGPRoutingBudget
 	}
 	return header, err
 }

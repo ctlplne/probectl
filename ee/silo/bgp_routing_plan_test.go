@@ -28,6 +28,7 @@ func TestBGPRoutingPlanKeepsEveryReferenceInItsTenantSchema(t *testing.T) {
 			`"fx5_route_entry_view_fk" FOREIGN KEY (tenant_id,context_id,view_id,generation,afi,safi) REFERENCES "` + schema + `"."bgp_routing_views" (tenant_id,context_id,id,generation,afi,safi)`,
 			`'entity_source_contexts_source_kind_check','fx5_public_source_shape'`,
 			`'fx5_public_snapshot_source_clock','fx5_public_snapshot_current_source_clock'`,
+			`'fx5_public_snapshot_source_record'`,
 			`'ALTER TABLE ' || '"` + schema + `"."entity_source_contexts"' || ' ADD CONSTRAINT '`,
 		} {
 			if !strings.Contains(plan, want) {
