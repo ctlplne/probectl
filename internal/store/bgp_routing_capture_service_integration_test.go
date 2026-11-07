@@ -67,6 +67,7 @@ func TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges(
 			t.Fatal("capture adapter lost complete owned paths or crossed tenant", lane, err)
 		}
 	}
+	proveCapturedRoutingReaderRequiresCurrentContextAndOriginalReference(t, f, first, rawDigest, input, changes)
 	proveProvisionalCaptureKeepsOriginalRouteBeforeAuthenticatedPublication(t, f, service, first, changes, input)
 	proveCompleteRawCaptureBatchKeepsTenantAndAtomicRefusal(t, f, service, input)
 	// The raw lane can resolve a positive certificate-authored witness, but
@@ -97,6 +98,7 @@ func TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges(
 		return err
 	})
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0]))
+	requireRetiredRoutingReaderUnavailable(t, f, 0, rawDigest, input, first[0])
 	if retry, err := service.CaptureAuthenticated(ctx, "routing-flow", rawDigest, input, routingViewBudget()); err != nil || retry.Key != first[0].Key || !retry.CapturedAt.Equal(first[0].CapturedAt) {
 		t.Fatal("retry re-read current input or changed its first capture clock", err)
 	}

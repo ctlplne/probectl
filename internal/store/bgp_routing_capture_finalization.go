@@ -75,6 +75,10 @@ func finalizeAuthenticatedRoutingCaptureInScope(ctx context.Context, sc tenancy.
 // private first-ingestion snapshot. The publication transaction retains source
 // rows through commit, sharing the existing routing writer lock order.
 func routingCapturePublicationCurrent(ctx context.Context, sc tenancy.Scope, lookup BGPRoutingFlowLookup, sender string, input BGPRoutingFlowInput, budget BGPRoutingBudget) (bool, error) {
+	return routingCaptureAuthorityCurrent(ctx, sc, lookup, sender, input, budget, true)
+}
+
+func routingCaptureAuthorityCurrent(ctx context.Context, sc tenancy.Scope, lookup BGPRoutingFlowLookup, sender string, input BGPRoutingFlowInput, budget BGPRoutingBudget, lock bool) (bool, error) {
 	if lookup.Owner.TenantID != sc.Tenant.String() || lookup.Owner.AgentID != sender || lookup.Owner.Exporter != input.Exporter.Unmap() || lookup.Owner.Protocol != input.Protocol || lookup.Owner.Domain != input.Domain {
 		return false, entity.ErrScopeMismatch
 	}
@@ -113,14 +117,17 @@ func routingCapturePublicationCurrent(ctx context.Context, sc tenancy.Scope, loo
 		return false, errRoutingCaptureFormat
 	}
 	var present int
-	err = sc.Q.QueryRow(ctx, `SELECT 1 FROM entity_evidence e
+	query := `SELECT 1 FROM entity_evidence e
  JOIN entities node ON (node.tenant_id,node.context_id,node.id)=(e.tenant_id,e.context_id,e.entity_id)
- AND node.kind='device' `+interfaceRoleAuthorityJoinsSQL()+`
+ AND node.kind='device' ` + interfaceRoleAuthorityJoinsSQL() + `
  WHERE e.tenant_id=$1 AND e.context_id=$2 AND e.id=$3 AND e.agent_id=$4
  AND node.id=$5 AND source.anchor_entity_id=node.id
  AND e.source_kind='flow_exporter' AND e.alias_kind='flow_exporter_id'
- AND e.support_evidence_id IS NULL AND `+currentEntityEvidenceSnapshotSQL()+`
- FOR SHARE OF e,node,source,assignment,sender`, sc.Tenant.String(), owner.ContextID, id, sender, owner.RouterID).Scan(&present)
+ AND e.support_evidence_id IS NULL AND ` + currentEntityEvidenceSnapshotSQL()
+	if lock {
+		query += ` FOR SHARE OF e,node,source,assignment,sender`
+	}
+	err = sc.Q.QueryRow(ctx, query, sc.Tenant.String(), owner.ContextID, id, sender, owner.RouterID).Scan(&present)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -138,7 +145,7 @@ func routingCapturePublicationCurrent(ctx context.Context, sc tenancy.Scope, loo
 		if side.Route.Source.RouterID == "" {
 			continue
 		}
-		if _, err := (BGPRouting{}).sourceAuthorityForWriteInScope(ctx, sc, side.Route.Source); err != nil {
+		if _, err := routingSourceAuthority(ctx, sc, side.Route.Source, lock); err != nil {
 			if errors.Is(err, ErrBGPRoutingSourceUnavailable) {
 				return false, nil
 			}
