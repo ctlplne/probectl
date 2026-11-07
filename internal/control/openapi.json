@@ -19724,7 +19724,7 @@
             "maxProperties": 250,
             "additionalProperties": {
               "type": "string",
-              "maxLength": 65536
+              "maxLength": 2097152
             },
             "description": "Native flow compatibility exact filters form one all/include group (up to250 entries). Use flow.filter for nested composition and saved refs. Legacy sources retain12 filters and200-byte values. Tenant selectors are always refused."
           },
@@ -25361,16 +25361,14 @@
             "type": "object",
             "maxProperties": 8,
             "additionalProperties": {
-              "type": "string",
-              "maxLength": 65536
+              "type": "string"
             }
           },
           "column": {
             "type": "object",
             "maxProperties": 8,
             "additionalProperties": {
-              "type": "string",
-              "maxLength": 65536
+              "type": "string"
             }
           },
           "row_other": {
@@ -25991,8 +25989,7 @@
             "type": "object",
             "maxProperties": 8,
             "additionalProperties": {
-              "type": "string",
-              "maxLength": 65536
+              "type": "string"
             }
           },
           "other": {
@@ -26023,8 +26020,7 @@
             "type": "object",
             "maxProperties": 8,
             "additionalProperties": {
-              "type": "string",
-              "maxLength": 65536
+              "type": "string"
             }
           },
           "other": {
