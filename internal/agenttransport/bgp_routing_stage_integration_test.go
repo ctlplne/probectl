@@ -82,6 +82,10 @@ func TestRoutingFRRProfileRequiresCurrentOperatorBindingThroughRealMTLS(t *testi
 	proveRoutingStagingMTLS(t, "frr-profile")
 }
 
+func TestRoutingMappedVRFRequiresCurrentBindingThroughRealMTLS(t *testing.T) {
+	proveRoutingStagingMTLS(t, "mapped-vrf")
+}
+
 func proveRoutingStagingMTLS(t *testing.T, scenario string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
@@ -166,15 +170,20 @@ func proveRoutingStagingMTLS(t *testing.T, scenario string) {
 		}
 		t.Cleanup(func() { _ = client.Close() })
 		input := &agentv1.BmpRoutingPeerUp{ObservationId: nonce, ConfiguredRef: originID, OriginSerial: originSerial, ObservedUnixNanos: time.Now().UnixNano(), Message: routingPeerUpWire(t)}
-		if scenario == "frr-profile" {
+		if scenario == "frr-profile" || scenario == "mapped-vrf" {
 			input.Message = routingPeerUpWireForFormat(t, true)
+			if scenario == "mapped-vrf" {
+				for j := 8; j < 16; j++ {
+					input.Message[j] = 255
+				}
+			}
 			if _, err := client.StageRoutingPeer(ctx, input); err == nil {
 				t.Fatal("routing sender enabled a serializer without current operator configuration")
 			}
 			// Storage fixture only: the public operator writer is proved
 			// separately. Identical canonical IDs in each RLS tenant are deliberate.
 			bindings, err := json.Marshal([]map[string]any{{"id": newUUID(t), "context_id": contextID, "router_id": routerID,
-				"distinguisher": "0000000000000000", "bgp_identifier": "192.0.2.1", "families": []uint16{1, 2}, "source_format": store.BGPRoutingSourceFRRLocRIBV1}})
+				"distinguisher": fmt.Sprintf("%x", input.Message[8:16]), "bgp_identifier": "192.0.2.1", "families": []uint16{1, 2}, "source_format": store.BGPRoutingSourceFRRLocRIBV1}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -191,7 +200,7 @@ func proveRoutingStagingMTLS(t *testing.T, scenario string) {
 		if err != nil || receipt.GetStatus() != "staged" || len(receipt.GetViews()) != 2 {
 			t.Fatal("real mTLS routing staging lost complete owned source", receipt, err)
 		}
-		if scenario == "frr-profile" {
+		if scenario == "frr-profile" || scenario == "mapped-vrf" {
 			if err := tenancy.InTenant(tenantCtx, pool, func(ctx context.Context, sc tenancy.Scope) error {
 				var total int
 				err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE tenant_id=$1 AND peer_identity->>'SourceFormat'=$2

@@ -33,6 +33,14 @@ func (c capturedRoutingStaging) StageRoutingPeer(_ context.Context, request *age
 
 // Real tenant-bound TLS source socket; registry and evidence sink are modeled.
 func TestBMPRoutingStagingUsesAdmittedIdentityAndCompleteOriginalPeerUp(t *testing.T) {
+	proveBMPRoutingStagingCompletePeer(t, false)
+}
+
+func TestBMPRoutingMappedPeerRetainsWholeOpaqueSelectorThroughRealTLS(t *testing.T) {
+	proveBMPRoutingStagingCompletePeer(t, true)
+}
+
+func proveBMPRoutingStagingCompletePeer(t *testing.T, mapped bool) {
 	calls := make(chan *agentv1.BmpRoutingPeerUp, 4)
 	stack := startBMPTestStack(t, WithBMPTenantLane("tenant-a", "tenant-a-lane"), WithBMPEntityEvidence("listener-auth", capturedRoutingStaging{requests: calls}))
 	defer stack.stop()
@@ -45,6 +53,11 @@ func TestBMPRoutingStagingUsesAdmittedIdentityAndCompleteOriginalPeerUp(t *testi
 	open := routeOpenForTest([]byte{65, 4, 0, 0, 0, 1, 1, 4, 0, 2, 0, 1}, false)
 	frame := peerUpFrameForTest(open, open, nil)
 	frame[6] = 3
+	if mapped {
+		for j := 8; j < 16; j++ {
+			frame[j] = 255
+		}
+	}
 	clear(frame[16:32])
 	clear(frame[48:68])
 	before := time.Now()
