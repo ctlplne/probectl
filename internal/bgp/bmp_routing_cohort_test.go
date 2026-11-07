@@ -9,6 +9,7 @@ package bgp
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -20,6 +21,9 @@ type routingCohortCapture struct{ routingSelectorsCapture }
 
 func (c *routingCohortCapture) StageRoutingPeer(ctx context.Context, request *agentv1.BmpRoutingPeerUp) (*agentv1.BmpRoutingStagingReceipt, error) {
 	c.stages = append(c.stages, proto.Clone(request).(*agentv1.BmpRoutingPeerUp))
+	if c.refuse {
+		return nil, errors.New("modeled cohort staging refusal")
+	}
 	_, families, err := DecodeRoutingPeerUp(ctx, request.Message, PeerMessageBudget{16 << 20, 16 << 20})
 	if err != nil {
 		return nil, err
@@ -120,6 +124,25 @@ func TestBMPRoutingCohortsKeepOneSocketFamiliesSequencesAndWholeReplacement(t *t
 	last = sink.messages[len(sink.messages)-1]
 	if last.Generation != fourth || last.Sequence != 1 || !last.Heartbeat {
 		t.Fatal("source statistics changed cohort ownership or sequence", last)
+	}
+	// A failed known single-family restart keeps its refused identity. A later
+	// independent AFI must not receive messages from that failed cohort.
+	sink.refuse = true
+	up(handle, 1)
+	sink.refuse = false
+	v6, fifth := up(handle, 2)
+	if len(states.sessions[handle]) != 2 {
+		t.Fatal("failed family record lost identity or closed a disjoint cohort")
+	}
+	before := len(sink.messages)
+	drive(handle, sourceRouteFrameForTest(v4[6:48], endOfRIBFrameForTest(nil, nil, nil)))
+	if len(sink.messages) != before {
+		t.Fatal("failed family dispatch resumed or reset a healthy disjoint cohort")
+	}
+	drive(handle, sourceRouteFrameForTest(v6[6:48], endOfRIBFrameForTest(nil, []byte{128, 15, 3, 0, 2, 1}, nil)))
+	last = sink.messages[len(sink.messages)-1]
+	if last.Generation != fifth || last.Sequence != 1 {
+		t.Fatal("disjoint cohort failed to recover independently", last)
 	}
 	listener.endRoutingEvidence(ctx, id, handle)
 	peer := <-listener.evidenceQueue

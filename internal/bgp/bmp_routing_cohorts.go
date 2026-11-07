@@ -67,6 +67,7 @@ func (l *BMPListener) stageRoutingCohort(ctx context.Context, writer bmpRoutingM
 	selected, previous, existed := states.resolve(peer)
 	attempt := bmpRoutingStreamState{source: routingCohortSource(selected), generation: peer.routingPeerUp.ObservationId}
 	if existed {
+		attempt.familyMask = previous.familyMask
 		attempt.previous, attempt.previousSequence = previous.generation, previous.sequence
 	}
 	// The single worker cannot change its book during this synchronous RPC.

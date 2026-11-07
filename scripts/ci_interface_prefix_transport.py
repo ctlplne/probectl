@@ -1526,6 +1526,10 @@ def ix_prefix_controls():
 def bmp_routing_transport_controls():
     out = Path("artifacts/interface-prefix-transport").resolve()
     for name, file, seam, replacement, root, child, marker in (
+        ("bmp_failed_cohort_identity_lost", "internal/bgp/bmp_routing_cohorts.go",
+         "attempt.familyMask = previous.familyMask", "attempt.familyMask = 0",
+         "TestBMPRoutingCohortsKeepOneSocketFamiliesSequencesAndWholeReplacement", "",
+         "failed family record lost identity or closed a disjoint cohort"),
         ("bmp_disjoint_cohort_retirement_restored", "internal/bgp/bmp_routing_cohorts.go",
          "if mask != 0 && state.familyMask != 0 && mask&state.familyMask == 0 {",
          "if false && mask != 0 && state.familyMask != 0 && mask&state.familyMask == 0 {",
