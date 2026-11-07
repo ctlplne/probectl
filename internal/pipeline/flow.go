@@ -366,6 +366,12 @@ func (c *FlowConsumer) enrichRecord(ctx context.Context, f *flowv1.FlowRecord) {
 
 // rowFromProto flattens the bus record into the storage row.
 func rowFromProto(f *flowv1.FlowRecord) flowstore.Row {
+	return rowFromProtoAt(f, time.Now())
+}
+
+// The ingestion adapter supplies its durable first processing clock. A retry
+// must not clamp the same future exporter timestamp against a later wall clock.
+func rowFromProtoAt(f *flowv1.FlowRecord, now time.Time) flowstore.Row {
 	ts := time.Unix(0, f.GetEndUnixNano()).UTC()
 	if f.GetEndUnixNano() == 0 {
 		ts = time.Unix(0, f.GetObservedAtUnixNano()).UTC()
@@ -382,7 +388,6 @@ func rowFromProto(f *flowv1.FlowRecord) flowstore.Row {
 	// exporter cannot land rows in the future and poison capacity/top-talker
 	// windows. The clamp is the shared one (FutureClamped counter); benign sub-
 	// window skew passes through. startTS is never left after ts.
-	now := time.Now()
 	ts = clampFutureTime(ts, now)
 	startTS = clampFutureTime(startTS, now)
 	if startTS.After(ts) {

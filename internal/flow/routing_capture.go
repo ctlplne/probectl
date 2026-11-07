@@ -35,9 +35,9 @@ func RoutingCaptureWitness(ctx context.Context, record *flowv1.FlowRecord, memor
 	if record == nil {
 		return fail(entity.ErrInvalidClaim)
 	}
-	size := int64(proto.Size(record))
-	if memoryBytes <= 0 || workUnits <= 0 || size <= 0 || size > memoryBytes/4 || size > workUnits/8 {
-		return fail(ErrRoutingCaptureAdmission)
+	digest, err := OriginalFlowDigest(ctx, record, memoryBytes, workUnits)
+	if err != nil {
+		return fail(err)
 	}
 	exporter, err := netip.ParseAddr(record.GetExporterAddress())
 	if err != nil {
@@ -52,23 +52,41 @@ func RoutingCaptureWitness(ctx context.Context, record *flowv1.FlowRecord, memor
 		return fail(entity.ErrInvalidClaim)
 	}
 	input := entity.FlowCaptureInput{Exporter: exporter.Unmap(), Source: source.Unmap(), Destination: destination.Unmap(), Protocol: record.GetFlowProtocol(), Domain: record.GetObservationDomain()}
-	body, err := (proto.MarshalOptions{Deterministic: true}).Marshal(record)
-	if err != nil {
-		return fail(err)
-	}
-	if err := ctx.Err(); err != nil {
-		return fail(err)
-	}
-	hashed := crypto.Hash(body)
-	if len(hashed) != 32 {
-		return fail(entity.ErrInvalidClaim)
-	}
-	var digest [32]byte
-	copy(digest[:], hashed)
 	// Validation here prevents producer/consumer disagreement about malformed
 	// tuples. These payload IDs are lookup selectors, never evidence authority.
 	if _, err := entity.FlowCaptureKey(record.GetTenantId(), record.GetAgentId(), digest, input); err != nil {
 		return fail(err)
 	}
 	return digest, input, nil
+}
+
+// OriginalFlowDigest fingerprints the complete original protobuf record for
+// all supported raw flow formats. Payload tenant/sender/addresses remain
+// untrusted data here. RoutingCaptureWitness separately validates their tuple;
+// consumers derive authority only from their verified transport context.
+func OriginalFlowDigest(ctx context.Context, record *flowv1.FlowRecord, memoryBytes, workUnits int64) ([32]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return [32]byte{}, err
+	}
+	if record == nil {
+		return [32]byte{}, entity.ErrInvalidClaim
+	}
+	size := int64(proto.Size(record))
+	if memoryBytes <= 0 || workUnits <= 0 || size <= 0 || size > memoryBytes/4 || size > workUnits/8 {
+		return [32]byte{}, ErrRoutingCaptureAdmission
+	}
+	body, err := (proto.MarshalOptions{Deterministic: true}).Marshal(record)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return [32]byte{}, err
+	}
+	hashed := crypto.Hash(body)
+	if len(hashed) != 32 {
+		return [32]byte{}, entity.ErrInvalidClaim
+	}
+	var digest [32]byte
+	copy(digest[:], hashed)
+	return digest, nil
 }

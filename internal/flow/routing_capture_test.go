@@ -147,3 +147,24 @@ func TestRoutingCaptureWitnessPreservesCompleteValuesAndRefusesPartialAdmission(
 		}
 	}
 }
+
+// A fingerprint must preserve raw bytes even before a transport has corrected
+// payload identity. Its existence is never a canonical routing grant.
+func TestOriginalFlowDigestPreservesUntrustedAndCloudPayloadWithoutAuthority(t *testing.T) {
+	raw := captureRecordForTest()
+	raw.TenantId = "untrusted-payload-tenant"
+	raw.AgentId = "untrusted-payload-sender"
+	raw.FlowProtocol = ProtoAWSVPCFlowLogs
+	first, err := OriginalFlowDigest(t.Context(), raw, 128<<20, 128<<20)
+	if err != nil || first == ([32]byte{}) {
+		t.Fatal("complete raw record lost its source-neutral fingerprint", err)
+	}
+	if digest, input, err := RoutingCaptureWitness(t.Context(), raw, 128<<20, 128<<20); err == nil || digest != ([32]byte{}) || input != (entity.FlowCaptureInput{}) {
+		t.Fatal("raw fingerprint granted routing authority to an untrusted payload", err)
+	}
+	changed := proto.Clone(raw).(*flowv1.FlowRecord)
+	changed.TenantId = "different-untrusted-payload"
+	if got, err := OriginalFlowDigest(t.Context(), changed, 128<<20, 128<<20); err != nil || got == first {
+		t.Fatal("raw fingerprint silently normalized untrusted original identity", err)
+	}
+}

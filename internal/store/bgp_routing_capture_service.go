@@ -21,10 +21,7 @@ import (
 // BGPRoutingCaptureReference identifies a first processing-time observation.
 // It contains no route or source grant. Outward readers independently resolve
 // its immutable payload under current tenant/actor/context authorization.
-type BGPRoutingCaptureReference struct {
-	Key        [32]byte
-	CapturedAt time.Time
-}
+type BGPRoutingCaptureReference = entity.FlowCaptureReference
 
 // BGPRoutingFlowCaptures is an ingestion-only adapter around existing routed
 // Postgres state. Only the authenticated evidence path creates positive

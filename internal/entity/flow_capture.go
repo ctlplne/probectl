@@ -9,11 +9,20 @@ package entity
 import (
 	"encoding/json"
 	"net/netip"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 )
+
+// FlowCaptureReference identifies immutable first processing metadata. It is
+// shared by ingestion adapters without a storage implementation dependency;
+// neither its key nor processing clock is a reader grant.
+type FlowCaptureReference struct {
+	Key        [32]byte
+	CapturedAt time.Time
+}
 
 // FlowCaptureInput contains observed dimensions, never canonical ownership.
 // The raw-record digest covers every original field; this tuple separately

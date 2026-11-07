@@ -15,6 +15,10 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
+    "internal/pipeline": (
+        "TestFlowProjectionUsesFrozenFirstProcessingClock",
+        "TestSFlowStartTimeFallback",
+    ),
     "cmd/probectl-bmp-listener": (
         "TestBMPEvidenceAdapterKeepsCompleteRoutingTransport",
     ),
@@ -33,6 +37,7 @@ UNIT = {
         "TestInterfaceRoleExplorerSQLKeepsFixedTenantJoinAndCompleteExternalValues",
     ),
     "internal/flow": (
+        "TestOriginalFlowDigestPreservesUntrustedAndCloudPayloadWithoutAuthority",
         "TestFlowEvidencePreservesEveryConfiguredDomainBeyondTransportAndCachePages",
         "TestFlowRoutingWorkerKeepsCompleteEligibleRecordsWithoutWaitingOnRPC",
         "TestFlowRoutingWitnessProducerRefusesForeignUnconfiguredAndPartialMetadata",
@@ -527,6 +532,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "flow-capture-clock": (
+        "internal/pipeline/flow.go",
+        "func rowFromProtoAt(f *flowv1.FlowRecord, now time.Time) flowstore.Row {",
+        "func rowFromProtoAt(f *flowv1.FlowRecord, now time.Time) flowstore.Row { now = time.Now()",
+        "TestFlowProjectionUsesFrozenFirstProcessingClock", "",
+        "frozen first processing clock changed retry projection or original counters",
+    ),
     "flow-identity-complete": (
         "internal/flow/entity_evidence.go",
         "source := entity.SourceKey{AgentID: c.cfg.AgentID, Kind: entity.FlowExporter,",
