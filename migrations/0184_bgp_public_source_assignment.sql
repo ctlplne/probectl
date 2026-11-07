@@ -10,7 +10,7 @@ ALTER TABLE entity_source_contexts
     DROP CONSTRAINT IF EXISTS entity_source_contexts_source_kind_check;
 ALTER TABLE entity_source_contexts
     ADD CONSTRAINT entity_source_contexts_source_kind_check CHECK (source_kind IN
-        ('device_target','flow_exporter','path_agent','bmp_peer','agent_site','public_bgp'));
+        ('device_target','flow_exporter','path_agent','bmp_peer','agent_site','public_bgp')) NOT VALID;
 DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint
                    WHERE conrelid='entity_source_contexts'::regclass
@@ -18,6 +18,6 @@ DO $$ BEGIN
         ALTER TABLE entity_source_contexts ADD CONSTRAINT fx5_public_source_shape
             CHECK (source_kind<>'public_bgp' OR
                    (anchor_entity_id IS NULL AND routing_epoch IS NULL
-                    AND routing_assigned_at IS NULL AND routing_bindings IS NULL));
+                    AND routing_assigned_at IS NULL AND routing_bindings IS NULL)) NOT VALID;
     END IF;
 END $$;

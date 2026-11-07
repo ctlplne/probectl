@@ -84,7 +84,7 @@ func publicRoutingViewMetadata(ctx context.Context, definition BGPRoutingViewDef
 func validPublicRoutingPeer(peer BGPPublicRoutingPeer) bool {
 	return (peer.Feed == "ris" || peer.Feed == "routeviews") &&
 		(peer.Format == "mrt_table_dump_v2" || peer.Format == "ris_live") &&
-		!(peer.Feed == "routeviews" && peer.Format == "ris_live") &&
+		(peer.Feed != "routeviews" || peer.Format != "ris_live") &&
 		peer.Collector != "" && strings.TrimSpace(peer.Collector) == peer.Collector &&
 		utf8.ValidString(peer.Collector) && utf8.ValidString(peer.Cursor) && peer.PeerASN != 0 &&
 		peer.PeerAddress.IsValid() && peer.PeerAddress.Zone() == "" && !peer.PeerAddress.IsUnspecified() && !peer.PeerAddress.IsMulticast() &&
