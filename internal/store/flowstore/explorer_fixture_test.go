@@ -27,6 +27,14 @@ func explorerFixtureRow(tenant string) Row {
 	return Row{TenantID: tenant, AgentID: "collector-1", Exporter: "192.0.2.1", ObsDomain: 42, Protocol: "ipfix", TS: ts, StartTS: ts.Add(-30 * time.Second), SrcAddr: "198.51.100.7", DstAddr: "2001:db8:1::8", SrcPort: 12345, DstPort: 443, Transport: "tcp", NetType: "ipv6", InIf: 7, OutIf: 8, VLAN: 100, ToS: 184, TCPFlags: 18, NextHop: "192.0.2.254", Bytes: 123, Packets: 3, Sampling: 100, BytesScaled: 12300, PacketsScaled: 300, SrcASN: 64512, SrcASName: "Test source", SrcCountry: "DE", DstASN: 64513, DstASName: "Test destination", DstCountry: "GB"}
 }
 func TestExplorerRegistryCoversEveryStoredFlowColumn(t *testing.T) {
+	// These are immutable ingestion selectors, not user dimensions or reader
+	// grants. Require an explicit classification for each private column;
+	// every other stored value must still be reachable through the registry.
+	private := map[string]bool{
+		"raw_flow_digest":             false,
+		"routing_capture_key":         false,
+		"routing_captured_unix_nanos": false,
+	}
 	columns := map[string]bool{}
 	for _, field := range flow.QueryFields() {
 		if field.Derived == "" {
@@ -46,6 +54,14 @@ func TestExplorerRegistryCoversEveryStoredFlowColumn(t *testing.T) {
 				name = "start_ts"
 			}
 		}
+		if _, internal := private[name]; internal {
+			if columns[name] {
+				t.Errorf("private ingestion selector %s exposed as a raw query dimension", name)
+			}
+			private[name] = true
+			delete(columns, name)
+			continue
+		}
 		if !columns[name] {
 			t.Errorf("stored field %s missing registry entry", name)
 		}
@@ -54,5 +70,15 @@ func TestExplorerRegistryCoversEveryStoredFlowColumn(t *testing.T) {
 	delete(columns, "row_id") // Stored by ClickHouse and the memory dedup index.
 	if len(columns) != 0 {
 		t.Fatalf("registry references absent stored columns: %v", columns)
+	}
+	for name, present := range private {
+		if !present {
+			t.Errorf("private flow field classification is stale: %s", name)
+		}
+	}
+	for _, column := range routingCaptureColumns {
+		if !private[column.name] {
+			t.Errorf("capture schema field %s lacks an explicit private classification", column.name)
+		}
 	}
 }
