@@ -8,6 +8,7 @@ package store
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"time"
 
@@ -89,6 +90,9 @@ func resolveRoutingStageSource(ctx context.Context, sc tenancy.Scope, base BGPRo
 		return base, false, err
 	}
 	if config.Manifest == nil {
+		if input.RefusedPeer != nil && input.RefusedPeer.Distinguisher != ([8]byte{}) {
+			return base, false, errBGPRoutingContextBinding
+		}
 		if metadata.Epoch != "" {
 			return base, false, ErrBGPRoutingSourceUnavailable
 		}
@@ -98,6 +102,14 @@ func resolveRoutingStageSource(ctx context.Context, sc tenancy.Scope, base BGPRo
 		return base, false, ErrBGPRoutingSourceUnavailable
 	}
 	if len(input.Definitions) == 0 || len(input.Definitions) > 2 {
+		if input.RefusedPeer != nil {
+			selected, err := selectRoutingSourceByPeer(ctx, sc, config, *input.RefusedPeer)
+			if err != nil {
+				return base, false, err
+			}
+			base.ContextID, base.RouterID, base.routingSelection = selected.ContextID, selected.RouterID, &selected
+			return base, false, nil
+		}
 		// An unprocessable source frame cannot keep older attribution alive.
 		// A queued older frame must still preserve generations born after it.
 		return base, true, invalidateRoutingBaseViews(ctx, sc, base, "")
@@ -112,6 +124,22 @@ func resolveRoutingStageSource(ctx context.Context, sc tenancy.Scope, base BGPRo
 	}
 	base.ContextID, base.RouterID, base.routingSelection = selected.ContextID, selected.RouterID, &selected
 	return base, false, nil
+}
+
+// The fixed protocol key scopes a refusal, never a canonical target grant.
+// Resolve every target through the complete current tenant-owned manifest and
+// its storage-layer birth/assignment checks before returning the selection.
+func selectRoutingSourceByPeer(ctx context.Context, sc tenancy.Scope, config routingSourceConfiguration, peer BGPRoutingPeer) (routingSourceSelection, error) {
+	if config.Manifest == nil {
+		return routingSourceSelection{}, errBGPRoutingContextBinding
+	}
+	selector := hex.EncodeToString(peer.Distinguisher[:])
+	for _, binding := range config.Manifest.Bindings {
+		if binding.Distinguisher == selector && binding.BGPIdentifier == peer.BGPIdentifier.String() {
+			return selectRoutingSource(ctx, sc, config, peer, binding.Families)
+		}
+	}
+	return routingSourceSelection{}, errBGPRoutingContextBinding
 }
 
 func routingSourceSlot(source BGPRoutingSource) (any, string) {

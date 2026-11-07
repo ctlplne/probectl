@@ -32,28 +32,33 @@ func (svc *service) stageRoutingPeer(ctx context.Context, id crypto.SPIFFEID, se
 	if raw == nil || req.GetRoutingMessage() != nil || len(req.GetObservations())+len(req.GetFaults()) != 0 {
 		return nil, status.Error(codes.InvalidArgument, "routing metadata must be a complete exclusive request")
 	}
-	if !svc.admitEntityEvidence(ctx, id.TenantID, 1, proto.Size(req)) {
-		return nil, status.Error(codes.ResourceExhausted, "tenant routing evidence rate exceeded")
+	admitted := svc.admitEntityEvidence(ctx, id.TenantID, 1, proto.Size(req))
+	refusedPeer, unbound := routingRefusalPeer(raw.GetMessage())
+	if unbound {
+		return nil, status.Error(codes.InvalidArgument, "routing view has no selected source-context binding")
 	}
 	profile := store.BGPRoutingBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20, StateBytes: 1 << 30, LeaseDuration: time.Minute}
-	input := store.BGPRoutingPeerUpInput{CollectorAgentID: id.AgentID, SenderSerial: serial, SourceRef: raw.GetConfiguredRef(), OriginSerial: raw.GetOriginSerial(), ObservationID: raw.GetObservationId(), ObservedAt: time.Unix(0, raw.GetObservedUnixNanos()), FrameDigest: crypto.Hash(raw.GetMessage())}
-	peer, families, decodeErr := bgp.DecodeRoutingPeerUp(ctx, raw.GetMessage(), bgp.PeerMessageBudget{MemoryBytes: profile.MemoryBytes / 2, WorkUnits: profile.WorkUnits / 2})
-	if decodeErr == nil {
-		if peer.Header.View != bgp.BMPLocRIB {
-			return nil, status.Error(codes.InvalidArgument, "routing staging requires a selected Loc-RIB source")
-		}
-		// A router SVID may carry multiple VRFs. Until an explicit current
-		// operator selector is bound, only its global view belongs to this
-		// source assignment; payload distinguishers cannot select a context.
-		if peer.Header.Distinguisher != ([8]byte{}) {
-			return nil, status.Error(codes.InvalidArgument, "routing view has no explicit source-context binding")
-		}
-		metadata := store.BGPRoutingPeer{Type: peer.Header.PeerType, Flags: peer.Header.Flags, Distinguisher: peer.Header.Distinguisher, Address: peer.Header.PeerAddress, ASN: peer.Header.PeerASN, BGPIdentifier: peer.Header.BGPIdentifier, LocalAddress: peer.LocalAddress, LocalPort: peer.LocalPort, RemotePort: peer.RemotePort, SentOpen: peer.SentOpen, ReceivedOpen: peer.ReceivedOpen}
-		for _, info := range peer.Information {
-			metadata.Information = append(metadata.Information, store.BGPRoutingPeerInformation{Type: info.Type, Value: info.Value})
-		}
-		for _, family := range families {
-			input.Definitions = append(input.Definitions, store.BGPRoutingViewDefinition{Kind: string(peer.Header.View), AFI: family.AFI, SAFI: family.SAFI, Filtered: peer.Header.Filtered, Peer: metadata})
+	input := store.BGPRoutingPeerUpInput{CollectorAgentID: id.AgentID, SenderSerial: serial, SourceRef: raw.GetConfiguredRef(), OriginSerial: raw.GetOriginSerial(), ObservationID: raw.GetObservationId(), ObservedAt: time.Unix(0, raw.GetObservedUnixNanos()), RefusedPeer: refusedPeer}
+	if admitted {
+		input.FrameDigest = crypto.Hash(raw.GetMessage())
+		peer, families, decodeErr := bgp.DecodeRoutingPeerUp(ctx, raw.GetMessage(), bgp.PeerMessageBudget{MemoryBytes: profile.MemoryBytes / 2, WorkUnits: profile.WorkUnits / 2})
+		if decodeErr == nil {
+			if peer.Header.View != bgp.BMPLocRIB {
+				return nil, status.Error(codes.InvalidArgument, "routing staging requires a selected Loc-RIB source")
+			}
+			// A router SVID may carry multiple VRFs. Until an explicit current
+			// operator selector is bound, only its global view belongs to this
+			// source assignment; payload distinguishers cannot select a context.
+			if peer.Header.Distinguisher != ([8]byte{}) {
+				return nil, status.Error(codes.InvalidArgument, "routing view has no explicit source-context binding")
+			}
+			metadata := store.BGPRoutingPeer{Type: peer.Header.PeerType, Flags: peer.Header.Flags, Distinguisher: peer.Header.Distinguisher, Address: peer.Header.PeerAddress, ASN: peer.Header.PeerASN, BGPIdentifier: peer.Header.BGPIdentifier, LocalAddress: peer.LocalAddress, LocalPort: peer.LocalPort, RemotePort: peer.RemotePort, SentOpen: peer.SentOpen, ReceivedOpen: peer.ReceivedOpen}
+			for _, info := range peer.Information {
+				metadata.Information = append(metadata.Information, store.BGPRoutingPeerInformation{Type: info.Type, Value: info.Value})
+			}
+			for _, family := range families {
+				input.Definitions = append(input.Definitions, store.BGPRoutingViewDefinition{Kind: string(peer.Header.View), AFI: family.AFI, SAFI: family.SAFI, Filtered: peer.Header.Filtered, Peer: metadata})
+			}
 		}
 	}
 	// Even a metadata refusal retires prior known state under the authenticated
@@ -68,6 +73,11 @@ func (svc *service) stageRoutingPeer(ctx context.Context, id crypto.SPIFFEID, se
 	})
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "current routing source staging is unavailable")
+	}
+	// A refused replacement cannot keep the known prior source current. The
+	// bounded control path above commits only invalidation, never route data.
+	if !admitted {
+		return nil, status.Error(codes.ResourceExhausted, "tenant routing evidence rate exceeded")
 	}
 	receipt := &agentv1.BmpRoutingStagingReceipt{Status: result.Status}
 	for _, view := range result.Views {
