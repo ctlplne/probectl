@@ -191,10 +191,10 @@ test('routing source change rejects a late former-source reply', async () => {
       resolve(jsonResponse(old))
       await pending
     })
-    expect(
-      (card.getByRole('textbox', { name: 'Complete routing binding array' }) as HTMLTextAreaElement)
-        .value,
-    ).not.toContain('aaaaaaaaaaaaaaaa')
+    const editor = card.getByRole<HTMLTextAreaElement>('textbox', {
+      name: 'Complete routing binding array',
+    })
+    expect(editor.value).not.toContain('aaaaaaaaaaaaaaaa')
     expect(card.getByRole('textbox', { name: 'Routing origin identity' })).toHaveValue('origin-b')
   } finally {
     cleanup()
