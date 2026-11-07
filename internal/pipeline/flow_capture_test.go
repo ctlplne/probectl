@@ -123,7 +123,7 @@ func TestFlowCaptureConsumerRefusesPartialUnscopedAndMismatchedResolution(t *tes
 		t.Run(mode, func(t *testing.T) {
 			store := flowstore.NewMemory()
 			calls := 0
-			resolve := func(ctx context.Context, sender string, digest [32]byte, input entity.FlowCaptureInput) (entity.FlowCaptureReference, error) {
+			resolve := func(_ context.Context, sender string, digest [32]byte, input entity.FlowCaptureInput) (entity.FlowCaptureReference, error) {
 				calls++
 				key, err := entity.FlowCaptureKey(flowCaptureTenantA, sender, digest, input)
 				ref := entity.FlowCaptureReference{Key: key, CapturedAt: time.Unix(1700000000, 123456789)}

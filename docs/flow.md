@@ -1060,3 +1060,21 @@ input or downloaded answer. API and CLI clients can perform the same second
 read using the cited IDs; MCP clients use `test_tag_context`. This is the test
 evidence context component, with other typed RCA selection and full source
 composition still pending.
+
+## Original routing capture references — implementation preview
+
+Flow storage schema 7 can retain an original raw-record digest, a tenant-bound
+routing capture key and an exact first processing clock alongside raw and
+complete hourly inputs. Captured retries reuse the raw identity even when
+open-data enrichment changes. A routing key is an identifier; reading its
+retained source evidence requires independent current authorization.
+
+Older rows and unsupported or unattested sources have no invented capture.
+Raw-input expiry clears these references from complete hourly inputs while
+preserving the existing hourly aggregates. Tenant export and deletion keep the
+same storage-level tenant boundary. The migration extends pooled and routed
+tenant stores without changing the checksums of earlier migrations.
+
+The producer-to-consumer timing adapter and outward BGP join remain inactive in
+this candidate. Stored reference support alone does not establish a physical
+flow join, a current router path or a forwarding claim.
