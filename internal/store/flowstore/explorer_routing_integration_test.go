@@ -105,7 +105,7 @@ func proveRoutingQueryJoinsInRealStore(t *testing.T, store *ClickHouse, tenants 
 			if !known || !unknown {
 				t.Fatal("actual routing join changed complete paths, full ASN, key/clock or missing-row semantics", table, known, unknown)
 			}
-			proveRoutingPredicateCountsInRealStore(t, ctx, store, reader, tenant, from, external, count, origin)
+			proveRoutingPredicateCountsInRealStore(ctx, t, store, reader, tenant, from, external, count, origin)
 			if lane == 1 {
 				for _, attack := range [][]explorerExternalData{first, grafted} {
 					foreign, err := store.explorerQueryRows(ctx, Target{}, reader, tenant, sql, params, attack...)
@@ -118,7 +118,7 @@ func proveRoutingQueryJoinsInRealStore(t *testing.T, store *ClickHouse, tenants 
 	}
 }
 
-func proveRoutingPredicateCountsInRealStore(t *testing.T, ctx context.Context, store *ClickHouse, reader chclient.ReadLane, tenant, from string, external []explorerExternalData, count int, origin string) {
+func proveRoutingPredicateCountsInRealStore(ctx context.Context, t *testing.T, store *ClickHouse, reader chclient.ReadLane, tenant, from string, external []explorerExternalData, count int, origin string) {
 	t.Helper()
 	for _, test := range []struct {
 		op      flow.QueryOperator

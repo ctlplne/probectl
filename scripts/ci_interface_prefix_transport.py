@@ -15,6 +15,11 @@ from ci_tag_consumer_proof import classify, report_regression_failed_on_assertio
 
 PREFIX = "github.com/ctlplne/probectl/"
 UNIT = {
+    "internal/tags": (
+        "TestNativeFlowFieldsCannotBeShadowedByTenantTags",
+        "TestResolveRejectsMixedTenantContextAndUntrustedRuleShapes",
+        "TestSnapshotPinsRevisionAndRejectsCrossContextSubject",
+    ),
     "cmd/probectl-flow-agent": (
         "TestObservedFlowEvidenceKeepsCompleteRoutingWitnessChannel",
     ),
@@ -591,6 +596,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-tag-shadow": (
+        "internal/tags/resolver.go",
+        '"src_bgp_provenance": true',
+        '"native_reserved_fixture": true',
+        "TestNativeFlowFieldsCannotBeShadowedByTenantTags", "src_bgp_provenance",
+        'native query field "src_bgp_provenance" admitted as a tenant tag key',
+    ),
     "public-snapshot-manifest": (
         "internal/store/bgp_public_snapshot_plan.go",
         "for _, definition := range input.Definitions {",

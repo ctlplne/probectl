@@ -62,7 +62,14 @@ var reservedKeys = map[string]bool{
 	"dst_asn": true, "dst_as_name": true, "dst_country": true,
 	"row_id": true, "src_prefix": true, "dst_prefix": true,
 	"dscp": true, "tcp_flag_names": true, "in_if_name": true,
-	"out_if_name": true,
+	"out_if_name":        true,
+	"src_bgp_provenance": true, "dst_bgp_provenance": true,
+	"src_bgp_prefix": true, "dst_bgp_prefix": true,
+	"src_bgp_as_paths": true, "dst_bgp_as_paths": true,
+	"src_bgp_next_hop_as": true, "dst_bgp_next_hop_as": true,
+	"src_bgp_origin_as": true, "dst_bgp_origin_as": true,
+	"src_bgp_first_transit_as": true, "dst_bgp_first_transit_as": true,
+	"src_bgp_rpki": true, "dst_bgp_rpki": true,
 }
 
 type Scope struct {
