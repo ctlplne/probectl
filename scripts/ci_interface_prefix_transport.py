@@ -31,6 +31,9 @@ UNIT = {
         "TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness",
     ),
     "internal/store/flowstore": (
+        "TestFlowRoutingCaptureRowsPreserveRawIdentityAndTenant",
+        "TestFlowRoutingCaptureRowsRefuseIncompleteOrForeignMetadata",
+        "TestFlowRoutingCaptureCHWireRetainsCompleteReferencesAndExpiry",
         "TestInterfaceRoleQueryProjectionKeepsTenantIdentityAndCompleteMetadata",
         "TestInterfaceRoleQueryProjectionRefusesAmbiguousExpiredOrPartialInputs",
         "TestInterfaceRoleExplorerPreservesBothDirectionsMissingRowsAndTenantBoundary",
@@ -532,6 +535,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "flow-capture-row-identity": (
+        "internal/store/flowstore/clickhouse.go",
+        'if r.RoutingCaptureKey != "" {',
+        'if false && r.RoutingCaptureKey != "" {',
+        "TestFlowRoutingCaptureRowsPreserveRawIdentityAndTenant", "",
+        "original raw identity changed with retry enrichment",
+    ),
+    "flow-capture-row-scope": (
+        "internal/store/flowstore/routing_capture.go",
+        'err != nil || row.RoutingCaptureKey != hex.EncodeToString(key[:])',
+        'err != nil || (false && row.RoutingCaptureKey != hex.EncodeToString(key[:]))',
+        "TestFlowRoutingCaptureRowsRefuseIncompleteOrForeignMetadata", "",
+        "incomplete or foreign routing reference reached flow storage",
+    ),
     "flow-capture-clock": (
         "internal/pipeline/flow.go",
         "func rowFromProtoAt(f *flowv1.FlowRecord, now time.Time) flowstore.Row {",
