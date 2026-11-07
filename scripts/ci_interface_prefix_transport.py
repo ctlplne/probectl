@@ -45,6 +45,8 @@ UNIT = {
         "TestSNMPPollSkipsExtraPrefixFetchWithoutEvidenceChannel",
     ),
     "internal/ai/mcp": (
+        "TestBGPRoutingNativeToolsKeepCompleteInputAndTenantUserBoundary",
+        "TestBGPRoutingNativeParserRefusesAuthorityHintsAndIncompleteReplacement",
         "TestInterfaceRoleNativeToolsPreserveCompleteInputAndUserTenantBoundary",
         "TestInterfaceRoleNativeExplanationRequiresEverySourceBeforeBackend",
     ),
@@ -53,6 +55,7 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestBGPRoutingMCPMetadataKeepsStoredIDsAndFullUntrustedRedaction",
         "TestNativeFlowRoleProjectionHonorsCancellationAndExistingTenantScope",
         "TestNativeFlowRoleProjectionRetainsCompleteTenantProvenance",
         "TestNativeFlowRoleProjectionRefusesForeignMissingStaleOrChangedIdentity",

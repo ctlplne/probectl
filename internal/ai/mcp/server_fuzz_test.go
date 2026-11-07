@@ -29,6 +29,8 @@ func FuzzMCPHandle(f *testing.F) {
 		{"all", `{"jsonrpc":"2.0","id":"ping-1","method":"ping"}`},
 		{"all", `{"jsonrpc":"2.0","method":"notifications/initialized"}`},
 		{"all", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`},
+		{"all", `{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"bgp_routing_bindings","arguments":{"context_id":"` + tagWriteTestID + `","collector_agent_id":"collector","source_ref":"origin"}}}`},
+		{"all", `{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"bgp_routing_bindings_replace","arguments":{"context_id":"` + tagWriteTestID + `","collector_agent_id":"collector","source_ref":"origin","expected_epoch":"","bindings":[]}}}`},
 		{"all", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_tests","arguments":{}}}`},
 		{"all", `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_path","arguments":{"target":"https://api.example.test"}}}`},
 		{"all", `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_incident","arguments":{"id":"inc-1"}}}`},
@@ -54,6 +56,18 @@ func FuzzMCPHandle(f *testing.F) {
 
 		var req rpcRequest
 		reqOK := json.Unmarshal(raw, &req) == nil
+		var routing struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}
+		if reqOK && json.Unmarshal(req.Params, &routing) == nil && (routing.Name == "bgp_routing_bindings" || routing.Name == "bgp_routing_bindings_replace") {
+			for _, write := range []bool{false, true} {
+				command, err := decodeBGPRoutingBindingCommand(routing.Arguments, write, maxMCPHandleFuzzBody)
+				if err != nil && command != (BGPRoutingBindingCommand{}) {
+					t.Fatal("refused native routing input exposed a partial command")
+				}
+			}
+		}
 		backend := &mcpFuzzBackend{}
 		server := newTestServer(backend, testGate(), WithRateLimit(0))
 		principal := mcpFuzzPrincipal(principalMode)

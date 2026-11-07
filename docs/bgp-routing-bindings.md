@@ -70,3 +70,10 @@ Operations share the configured Explorer execution, response, memory and tenant
 fairness admission. Complete metadata and retained state also use the routing
 store's finite byte/work/state budget. There is no binding-count truncation:
 refused admission returns an error with no partial replacement.
+
+When native MCP is configured, `bgp_routing_bindings` reads the configuration and
+`bgp_routing_bindings_replace` performs the same epoch-conditional replacement.
+Both require an authenticated tenant user and the same current context
+permissions. They share the REST admission and audit path. Existing egress
+consent and redaction apply to sender/operator values; canonical stored UUIDs
+retain their structural identity. The tools do not grant source freshness.
