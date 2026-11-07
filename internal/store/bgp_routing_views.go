@@ -64,6 +64,7 @@ type BGPRoutingViewDefinition struct {
 	SAFI     uint8
 	Filtered bool
 	Peer     BGPRoutingPeer
+	Public   *BGPPublicRoutingPeer `json:"public,omitempty"`
 }
 
 // BGPRoutingView is a staging generation, not a published route or a live grant.
@@ -78,9 +79,15 @@ type BGPRoutingView struct {
 }
 
 func routingViewMetadata(ctx context.Context, definition BGPRoutingViewDefinition, budget BGPRoutingBudget) ([]byte, [32]byte, error) {
+	if definition.Kind == "public_bgp" {
+		return publicRoutingViewMetadata(ctx, definition, budget)
+	}
 	var key [32]byte
 	if err := ctx.Err(); err != nil {
 		return nil, key, err
+	}
+	if definition.Public != nil {
+		return nil, key, ErrBGPRoutingView
 	}
 	if budget.MemoryBytes <= 1024 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
 		return nil, key, ErrBGPRoutingBudget
@@ -164,6 +171,9 @@ func (store BGPRouting) beginViewInScope(ctx context.Context, sc tenancy.Scope, 
 	none := BGPRoutingView{}
 	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
 		return none, err
+	}
+	if definition.Kind == "public_bgp" || definition.Public != nil {
+		return none, ErrBGPRoutingView
 	}
 	if budget.MemoryBytes <= 1024 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
 		return none, ErrBGPRoutingBudget

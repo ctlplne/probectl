@@ -181,6 +181,8 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestPublicRoutingMetadataKeepsWholeSourceIdentityWithoutInventedBMP",
+        "TestPublicRoutingMetadataRefusesMixedViewsAndCannotGrantRouterWrites",
         "TestRetainedRoutingQueryFieldsKeepWholePathsAndExplicitAmbiguity",
         "TestRoutingCaptureServiceRequiresTenantBeforeAvailability",
         "TestRoutingCaptureRepositoryRequiresTenantBeforeStorage",
@@ -580,6 +582,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-peer-presence": (
+        "internal/store/bgp_public_metadata.go",
+        "identity := peer",
+        "identity := peer; identity.PeerBGPIdentifier = nil",
+        "TestPublicRoutingMetadataKeepsWholeSourceIdentityWithoutInventedBMP", "",
+        "absent public peer identifier aliased an explicitly observed zero",
+    ),
     "ix-membership-current": (
         "internal/opendata/peeringdb_memberships.go",
         "out.Current = out.Enabled && p.availability(at) == nil",
