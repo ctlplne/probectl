@@ -58,6 +58,9 @@ func queryLibraryRuntime(t *testing.T, admin *pgxpool.Pool) *pgxpool.Pool {
 			}
 		}
 	}
+	if config.ConnConfig.TLSConfig == nil || config.ConnConfig.TLSConfig.InsecureSkipVerify {
+		t.Fatal("library proof requires a certificate-verified PostgreSQL connection")
+	}
 	config.MaxConns = 4
 	pool, err := pgxpool.NewWithConfig(t.Context(), config)
 	if err != nil {
@@ -65,11 +68,9 @@ func queryLibraryRuntime(t *testing.T, admin *pgxpool.Pool) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 	var super, bypass, tls bool
-	if err := pool.QueryRow(t.Context(), `SELECT rolsuper,rolbypassrls,COALESCE((SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()),false) FROM pg_roles WHERE rolname=current_user`).Scan(&super, &bypass, &tls); err != nil || super || bypass {
-		t.Fatal("library proof requires actual NOSUPERUSER NOBYPASSRLS runtime")
+	if err := pool.QueryRow(t.Context(), `SELECT rolsuper,rolbypassrls,COALESCE((SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()),false) FROM pg_roles WHERE rolname=current_user`).Scan(&super, &bypass, &tls); err != nil || super || bypass || !tls {
+		t.Fatal("library proof requires actual NOSUPERUSER NOBYPASSRLS runtime over TLS")
 	}
-	if tls {
-		t.Log("library restricted runtime TLS transport verified")
-	}
+	t.Log("library restricted runtime TLS transport verified")
 	return pool
 }
