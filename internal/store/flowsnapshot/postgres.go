@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/store/sourceepoch"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -50,8 +51,7 @@ func (p *postgres) lease(ctx context.Context, tenant string, exclusive bool, fn 
 }
 
 func ensureEpoch(ctx context.Context, sc tenancy.Scope) error {
-	_, err := sc.Q.Exec(ctx, `INSERT INTO flow_snapshot_epochs(tenant_id,generation,invalidating) VALUES($1::uuid,1,false) ON CONFLICT (tenant_id) DO NOTHING`, sc.Tenant.String())
-	return err
+	return sourceepoch.PrepareInScope(ctx, sc)
 }
 
 func (p *postgres) state(ctx context.Context, tenant string) (epoch, error) {

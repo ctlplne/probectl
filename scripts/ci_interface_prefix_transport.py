@@ -561,8 +561,8 @@ ROUTING_WRITE_CONTROLS = {
     ),
     "routing-capture-generation": (
         "internal/store/bgp_routing_capture_repository.go",
-        "flowsnapshot.MatchSourceGenerationInScope(ctx, sc, sourceGeneration)",
-        "func() error { _ = sourceGeneration; _ = flowsnapshot.ErrInvalidating; return nil }()",
+        "sourceepoch.MatchSourceGenerationInScope(ctx, sc, sourceGeneration)",
+        "func() error { _ = sourceGeneration; _ = sourceepoch.ErrInvalidating; return nil }()",
         "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone", "",
         "pre-erasure routing capture republished source data",
     ),

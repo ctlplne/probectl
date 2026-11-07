@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/entity"
-	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
+	"github.com/ctlplne/probectl/internal/store/sourceepoch"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -47,7 +47,7 @@ func (service *BGPRoutingFlowCaptures) CaptureAuthenticated(ctx context.Context,
 	var exists bool
 	err = tenancy.InTenant(ctx, service.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		sourceGeneration, err = flowsnapshot.SourceGenerationInScope(ctx, sc)
+		sourceGeneration, err = sourceepoch.SourceGenerationInScope(ctx, sc)
 		if err == nil {
 			previous, exists, err = loadRoutingCaptureReceiptInScope(ctx, sc, key)
 		}
@@ -69,7 +69,7 @@ func (service *BGPRoutingFlowCaptures) CaptureAuthenticated(ctx context.Context,
 		// audit lock. The transaction retains that tenant writer lease through
 		// publication, without holding a second pool connection. The original
 		// token is checked again under the audit lock by retainRoutingCapture.
-		if _, err := flowsnapshot.SourceGenerationInScope(ctx, sc); err != nil {
+		if _, err := sourceepoch.SourceGenerationInScope(ctx, sc); err != nil {
 			return err
 		}
 		var err error
@@ -141,7 +141,7 @@ func (service *BGPRoutingFlowCaptures) ResolveWitness(ctx context.Context, claim
 	ctx = tenancy.WithSiloTableLock(ctx)
 	var receipt routingCaptureReceipt
 	err = tenancy.InTenant(ctx, service.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		generation, err := flowsnapshot.SourceGenerationInScope(ctx, sc)
+		generation, err := sourceepoch.SourceGenerationInScope(ctx, sc)
 		if err != nil {
 			return err
 		}

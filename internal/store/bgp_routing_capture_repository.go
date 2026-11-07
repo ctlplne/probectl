@@ -13,9 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/entity"
-	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
+	"github.com/ctlplne/probectl/internal/store/sourceepoch"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -56,10 +55,10 @@ func retainRoutingCaptureInScope(ctx context.Context, sc tenancy.Scope, key [32]
 	}
 	// Share lifecycle lock order with subject erasure and report publication.
 	// A capture started before validated erasure cannot republish old content.
-	if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
+	if err := tenancy.LockTenantAuditStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
 		return routingCaptureReceipt{}, err
 	}
-	if err := flowsnapshot.MatchSourceGenerationInScope(ctx, sc, sourceGeneration); err != nil {
+	if err := sourceepoch.MatchSourceGenerationInScope(ctx, sc, sourceGeneration); err != nil {
 		return routingCaptureReceipt{}, err
 	}
 	if err := lockBGPRoutingState(ctx, sc); err != nil {

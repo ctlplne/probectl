@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/store/sourceepoch"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -36,7 +37,7 @@ var (
 	ErrBudget       = errors.New("flow snapshot storage budget exceeded")
 	ErrIntegrity    = errors.New("flow snapshot integrity check failed")
 	ErrEncryption   = errors.New("flow snapshots require configured at-rest encryption")
-	ErrInvalidating = errors.New("flow snapshot lifecycle transition in progress")
+	ErrInvalidating = sourceepoch.ErrInvalidating
 )
 
 // Scope comes from the authenticated principal, never the query grammar.

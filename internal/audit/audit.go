@@ -526,12 +526,7 @@ func ProviderVerifyFrom(ctx context.Context, pool *pgxpool.Pool, afterSeq int64)
 }
 
 func lockTenantStream(ctx context.Context, q tenancy.Querier, tenantID string) error {
-	_, err := q.Exec(
-		ctx,
-		`SELECT pg_advisory_xact_lock(hashtextextended('audit:'||$1::text, 0))`,
-		tenantID,
-	)
-	return err
+	return tenancy.LockTenantAuditStream(ctx, q, tenantID)
 }
 
 // LockTenantStream acquires the canonical transaction-scoped tenant audit
