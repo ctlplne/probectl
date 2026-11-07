@@ -41,11 +41,15 @@ func (service *BGPRoutingFlowCaptures) CaptureAuthenticated(ctx context.Context,
 	var sourceGeneration int64
 	var previous routingCaptureReceipt
 	var exists bool
+	var hasIntent bool
 	err = tenancy.InTenant(ctx, service.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
 		sourceGeneration, err = sourceepoch.SourceGenerationInScope(ctx, sc)
 		if err == nil {
 			previous, exists, err = loadRoutingCaptureReceiptInScope(ctx, sc, key)
+		}
+		if err == nil && !exists {
+			_, hasIntent, err = loadRoutingCaptureIntentInScope(ctx, sc, key)
 		}
 		return err
 	})
@@ -55,9 +59,12 @@ func (service *BGPRoutingFlowCaptures) CaptureAuthenticated(ctx context.Context,
 	if exists {
 		return routingCaptureReference(previous), nil
 	}
-	objects, err := service.captureCurrentFlow(ctx, sender, input, budget)
-	if err != nil {
-		return BGPRoutingCaptureReference{}, err
+	var objects *routingCaptureObjects
+	if !hasIntent {
+		objects, err = service.captureCurrentFlow(ctx, sender, input, budget)
+		if err != nil {
+			return BGPRoutingCaptureReference{}, err
+		}
 	}
 	var stored routingCaptureReceipt
 	err = tenancy.InTenant(ctx, service.pool, func(ctx context.Context, sc tenancy.Scope) error {
@@ -69,7 +76,7 @@ func (service *BGPRoutingFlowCaptures) CaptureAuthenticated(ctx context.Context,
 			return err
 		}
 		var err error
-		stored, err = retainRoutingCaptureInScope(ctx, sc, key, objects, sourceGeneration, budget)
+		stored, err = finalizeAuthenticatedRoutingCaptureInScope(ctx, sc, key, objects, sourceGeneration, sender, input, budget)
 		return err
 	})
 	if err != nil {
