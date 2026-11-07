@@ -89,6 +89,7 @@ func proveRoutingCaptureRowsInRealStore(t *testing.T, store *ClickHouse) {
 			}
 		}
 	}
+	proveRoutingQueryJoinsInRealStore(t, store, tenants, rows, count)
 	if err := store.DeleteTenantBefore(t.Context(), tenants[0], rows[0].TS.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
