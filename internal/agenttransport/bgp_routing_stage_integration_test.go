@@ -262,7 +262,7 @@ func proveRoutingStagingMTLS(t *testing.T, peerUpRateRefusal bool) {
 	rejected := &agentv1.BmpRoutingMessage{ConfiguredRef: lanes[1].input.ConfiguredRef, OriginSerial: lanes[1].input.OriginSerial, Generation: streamNonce, Sequence: 4, ObservedUnixNanos: time.Now().UnixNano(), Message: routingUpdateWire(lanes[1].input.Message, "v4-eor", 64497)}
 	if peerUpRateRefusal {
 		replacement := proto.Clone(lanes[1].input).(*agentv1.BmpRoutingPeerUp)
-		replacement.ObservationId, replacement.ObservedUnixNanos = uuid.NewString(), time.Now().UnixNano()
+		replacement.ObservationId, replacement.ObservedUnixNanos = newUUID(t), time.Now().UnixNano()
 		if _, err := lanes[1].client.StageRoutingPeer(ctx, replacement); err == nil || counts(lanes[1], "current") != 0 || counts(lanes[0], "current") != 2 {
 			t.Fatal("rate-refused routing Peer Up retained stale or foreign current state", err)
 		}
