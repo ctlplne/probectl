@@ -1,6 +1,15 @@
 {
   "purpose": "Attack-surface parity for fuzzing (Foundation-Loop S-7f81b4c2). Every function that consumes untrusted input in the ingest-surface packages is bound here to the fuzz target that exercises it, or carries a written exemption saying why it is not untrusted input. internal/cipolicy's TestFuzzParityEveryParserIsRegistered discovers parsers structurally and fails on any that is missing, on a target that does not exist, and on a stale entry that matches no parser.",
   "parsers": {
+    "bgp.DecodeRoutingChanges": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.DecodeRoutingLifecycle": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.DecodeRoutingPeerUp": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
     "bgp.ParseASPathSegments": {
       "target": "FuzzBGPASPath"
     },
@@ -13,28 +22,13 @@
     "bgp.ParseBGPRoutePrefixes": {
       "target": "FuzzBMPRouteMonitoring"
     },
-    "bgp.parseBGPUpdateFrame": {
-      "target": "FuzzBMPRouteMonitoring"
-    },
-    "bgp.parseBMPPeerDown": {
-      "target": "FuzzBMPRouteMonitoring"
-    },
-    "bgp.parseBMPPeerUp": {
-      "target": "FuzzBMPRouteMonitoring"
-    },
-    "bgp.parseBMPRouteAddPath": {
-      "target": "FuzzBMPRouteMonitoring"
-    },
-    "bgp.parseBMPRouteNextHopAFI": {
-      "target": "FuzzBMPRouteMonitoring"
-    },
     "bgp.ParseBMPRouteViewHeader": {
       "target": "FuzzBMPRouteMonitoring"
     },
-    "bgp.parseMPReachRoutes": {
-      "target": "FuzzBMPRouteMonitoring"
+    "bgp.ParseRoutingPathText": {
+      "target": "FuzzRoutingPathText"
     },
-    "bgp.parseMPUnreachRoutes": {
+    "bgp.decodeBMPRouteChanges": {
       "target": "FuzzBMPRouteMonitoring"
     },
     "bgp.decodeIPv4NLRI": {
@@ -49,19 +43,49 @@
     "bgp.parseBGPASPathValueWidth": {
       "target": "FuzzBGPASPath"
     },
+    "bgp.parseBGPUpdateFrame": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
     "bgp.parseBGPUpdateRoutes": {
       "target": "FuzzBMPRouteMonitoring"
     },
     "bgp.parseBMPPeer": {
       "target": "FuzzBMPRouteMonitoring"
     },
+    "bgp.parseBMPPeerDown": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseBMPPeerUp": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseBMPRouteAddPath": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
     "bgp.parseBMPRouteMonitoring": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseBMPRouteNextHopAFI": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseBMPRouteUpdateFrame": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseBMPSourceRoute": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseMPReachRoutes": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseMPUnreachRoutes": {
       "target": "FuzzBMPRouteMonitoring"
     },
     "bgp.parsePeerDownInformation": {
       "target": "FuzzBMPRouteMonitoring"
     },
     "bgp.parseRouteOpenCapabilities": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.parseRoutingMessageFamilyMask": {
       "target": "FuzzBMPRouteMonitoring"
     },
     "bgp.routeOpenCapabilities.parseCapabilities": {
@@ -216,27 +240,6 @@
     },
     "siem.parseSyslogPRI": {
       "target": "FuzzParseSyslog"
-    },
-    "bgp.parseBMPRouteUpdateFrame": {
-      "target": "FuzzBMPRouteMonitoring"
-    },
-    "bgp.parseBMPSourceRoute": {
-      "target": "FuzzBMPRouteMonitoring"
-    },
-    "bgp.decodeBMPRouteChanges": {
-      "target": "FuzzBMPRouteMonitoring"
-    },
-    "bgp.DecodeRoutingPeerUp": {
-      "target": "FuzzBMPRouteMonitoring"
-    },
-    "bgp.DecodeRoutingChanges": {
-      "target": "FuzzBMPRouteMonitoring"
-    },
-    "bgp.DecodeRoutingLifecycle": {
-      "target": "FuzzBMPRouteMonitoring"
-    },
-    "bgp.parseRoutingMessageFamilyMask": {
-      "target": "FuzzBMPRouteMonitoring"
     }
   }
 }
