@@ -161,3 +161,12 @@ def test_rib_rejects_undefined_peer_in_an_existing_peer_table():
     assert (
         list(stream_mrt(io.BytesIO(peer_index_table() + invalid))) == []
     ), "RIB record invented an absent peer identity"
+
+
+def test_empty_peer_replacement_cannot_restore_unknown_peer_routes():
+    empty_body = struct.pack(">IHH", 9, 0, 0)
+    empty = struct.pack(">IHHI", 0, 13, 1, len(empty_body)) + empty_body
+    data = peer_index_table() + empty + rib_ipv4("192.0.2.0/24", [64511, 64496])
+    assert list(stream_mrt(io.BytesIO(data))) == [], (
+        "explicit empty peer replacement allowed an unknown peer route"
+    )
