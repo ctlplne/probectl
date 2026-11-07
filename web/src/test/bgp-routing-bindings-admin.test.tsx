@@ -104,6 +104,7 @@ for (const theme of ['light', 'dark']) {
       const storage = Object.getOwnPropertyDescriptor(window, 'localStorage')
       Object.defineProperty(window, 'localStorage', {
         configurable: true,
+        enumerable: true,
         value: { getItem: () => theme, setItem: vi.fn() },
       })
       try {
