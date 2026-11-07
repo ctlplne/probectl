@@ -30,6 +30,10 @@ func (c gosnmpConn) walkInterfaceAddresses(ctx context.Context, fn gosnmp.WalkFu
 	return c.walkInterfaceColumn(ctx, oidIPAddressIfIndex, fn)
 }
 
+func (c gosnmpConn) walkInterfaceAddressTypes(ctx context.Context, fn gosnmp.WalkFunc) error {
+	return c.walkInterfaceColumn(ctx, oidIPAddressType, fn)
+}
+
 func (c gosnmpConn) walkInterfaceColumn(ctx context.Context, root string, fn gosnmp.WalkFunc) error {
 	if c.g == nil {
 		return errSNMPInterfacePrefixIncomplete

@@ -27,6 +27,7 @@ const oidIPAddressIfIndex = ".1.3.6.1.2.1.4.34.1.3"
 
 type snmpInterfaceAddressWalker interface {
 	walkInterfaceAddresses(context.Context, gosnmp.WalkFunc) error
+	walkInterfaceAddressTypes(context.Context, gosnmp.WalkFunc) error
 }
 
 type snmpInterfaceAddress struct {
@@ -185,7 +186,8 @@ func collectSNMPInterfaceAddresses(ctx context.Context, conn snmpInterfaceAddres
 		}
 		return rows[i].zone < rows[j].zone
 	})
-	return rows, nil
+	limits.IndexBytes -= used
+	return selectSNMPInterfaceAddressTypes(ctx, conn, rows, limits)
 }
 
 func collectSNMPModernAddresses(ctx context.Context, conn snmpConn, inv *Inventory) {
