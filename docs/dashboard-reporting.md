@@ -67,7 +67,11 @@ Sources additionally require current `ai.query`, `flow.read`, applicable
 metadata permissions such as `tags.read`, and permission on selected contexts.
 Current user grants are intersected with the original credential ceiling.
 Stored source requirements describe what a reader must prove; they confer no
-permission.
+permission. Canonical role and routing sources also retain their complete
+context lineage; future readers must still hold the applicable `entities.read`
+permission and, for role sources, `metrics.read` and `events.read`. Private
+version-2 source receipts preserve those requirements alongside compatible
+version-1 ordinary/tag receipts in the same tenant-isolated report store.
 
 Malformed/unknown-field JSON returns `400`; a manifest above 64 KiB returns
 `413`; invalid bounds, duplicate names, kinds or versions return `422`.

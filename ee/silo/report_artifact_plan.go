@@ -32,7 +32,7 @@ func reportArtifactStoragePlan(schema string, tables []string) []string {
         AND body_bytes IS NOT NULL AND body_bytes BETWEEN 1 AND 140737488355328
         AND body_digest IS NOT NULL AND octet_length(body_digest)=32
         AND source_capture IS NOT NULL AND jsonb_typeof(source_capture)='object'
-        AND source_capture @> '{"version":1}'::jsonb
+        AND (source_capture @> '{"version":1}'::jsonb OR source_capture @> '{"version":2}'::jsonb)
         AND source_capture->>'tenant_id' IS NOT NULL
         AND source_capture->>'tenant_id'=tenant_id::text
         AND octet_length(source_capture::text)<=1048576)
@@ -42,12 +42,13 @@ func reportArtifactStoragePlan(schema string, tables []string) []string {
 	statements := []string{
 		fmt.Sprintf(`DO $report_shape$ BEGIN
     IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass
-        AND conname='dashboard_report_artifacts_body_representation_v3') THEN
-        ALTER TABLE %s ADD CONSTRAINT dashboard_report_artifacts_body_representation_v3 CHECK %s NOT VALID;
+        AND conname='dashboard_report_artifacts_body_representation_v4') THEN
+        ALTER TABLE %s ADD CONSTRAINT dashboard_report_artifacts_body_representation_v4 CHECK %s NOT VALID;
     END IF;
 END $report_shape$`, quoteLiteral(parent), parent, shape),
 		"ALTER TABLE " + parent + " DROP CONSTRAINT IF EXISTS dashboard_report_artifacts_body_representation",
 		"ALTER TABLE " + parent + " DROP CONSTRAINT IF EXISTS dashboard_report_artifacts_body_representation_v2",
+		"ALTER TABLE " + parent + " DROP CONSTRAINT IF EXISTS dashboard_report_artifacts_body_representation_v3",
 		fmt.Sprintf(`DO $report_ordinal$ BEGIN
     IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass
         AND conname='dashboard_report_artifact_chunks_ordinal_nonnegative') THEN

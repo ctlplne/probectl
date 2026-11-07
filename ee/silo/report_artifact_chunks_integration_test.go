@@ -46,7 +46,7 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 					t.Error(err)
 				}
 			})
-			for _, id := range ids {
+			for lane, id := range ids {
 				if err := prov.Provision(ctx, id, "", model); err != nil {
 					t.Fatal(err)
 				}
@@ -55,7 +55,7 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 				// Catch-up must repair every control, and be idempotent.
 				for _, sql := range []string{
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts ALTER COLUMN content SET NOT NULL`,
-					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation_v3`,
+					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation_v4`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts ADD CONSTRAINT dashboard_report_artifacts_body_representation_v2 CHECK(body_storage='inline') NOT VALID`,
 					`DROP POLICY report_artifact_format ON ` + schema + `.dashboard_report_artifacts`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifact_chunks DROP CONSTRAINT dashboard_report_artifact_chunks_artifact_fk`,
@@ -79,7 +79,7 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 				}
 				if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifacts
       (tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)
-      VALUES($1,'same-artifact','same-view','csv','text/csv','owned.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',4,decode(repeat('00',32),'hex'),jsonb_build_object('version',1,'tenant_id',$1::uuid::text))`, id); err != nil {
+      VALUES($1,'same-artifact','same-view','csv','text/csv','owned.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',4,decode(repeat('00',32),'hex'),jsonb_build_object('version',$2::int,'tenant_id',$1::uuid::text))`, id, lane+1); err != nil {
 					t.Fatal("silo rejected own chunk parent", err)
 				}
 				if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,'same-artifact',0,$2)`, id, []byte("body")); err != nil {

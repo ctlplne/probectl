@@ -54,7 +54,11 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 			return err
 		}
 		defer stage.Close()
-		capture, _ := json.Marshal(map[string]any{"version": 1, "tenant_id": tenant})
+		version := 1
+		if tenant == tenants[1] {
+			version = 2
+		}
+		capture, _ := json.Marshal(map[string]any{"version": version, "tenant_id": tenant})
 		in := input
 		in.ID = id
 		return tenancy.InTenant(tctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
@@ -128,6 +132,13 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 		got, err := io.ReadAll(reader)
 		_ = reader.Close()
 		_ = stage.Close()
+		var capture struct {
+			Version  int    `json:"version"`
+			TenantID string `json:"tenant_id"`
+		}
+		if err := json.Unmarshal(meta.SourceCapture, &capture); err != nil || capture.Version != i+1 || capture.TenantID != tenant {
+			t.Fatal("stored report lost versioned tenant source requirements", err)
+		}
 		if err != nil || !bytes.Equal(got, payloads[i]) || meta.Content != nil || meta.BodyBytes != int64(len(got)) {
 			t.Fatal("owned complete chunk body or integrity metadata changed", err)
 		}

@@ -79,7 +79,7 @@ func proveHybridReportChunks(t *testing.T, pool *pgxpool.Pool, prov *Provisioner
 			for _, artifact := range artifacts {
 				if _, err := sc.Q.Exec(ctx, `INSERT INTO dashboard_report_artifacts
  (tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)
- VALUES($1,$2,'same-view','csv','text/csv','hybrid.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',$3,decode(repeat('00',32),'hex'),jsonb_build_object('version',1,'tenant_id',$1::uuid::text))`, id, artifact, len(body)); err != nil {
+ VALUES($1,$2,'same-view','csv','text/csv','hybrid.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',$3,decode(repeat('00',32),'hex'),jsonb_build_object('version',$4::int,'tenant_id',$1::uuid::text))`, id, artifact, len(body), i+1); err != nil {
 					return err
 				}
 				if _, err := sc.Q.Exec(ctx, `INSERT INTO dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,$2,0,$3)`, id, artifact, body); err != nil {
