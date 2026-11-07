@@ -131,9 +131,9 @@ def test_rib_late_entry_and_trailing_bytes_never_publish_a_record_prefix():
     good = rib_ipv4("198.51.100.0/24", [64511, 64502])
     for bad in (malformed, padded):
         routes = list(stream_mrt(io.BytesIO(peer_index_table() + bad + good)))
-        assert [route.prefix for route in routes] == ["198.51.100.0/24"], (
-            "malformed RIB record published an earlier prefix"
-        )
+        assert [route.prefix for route in routes] == [
+            "198.51.100.0/24"
+        ], "malformed RIB record published an earlier prefix"
 
 
 def test_peer_index_late_failure_keeps_whole_original_collector_and_peer_identity():
@@ -158,6 +158,6 @@ def test_rib_rejects_undefined_peer_in_an_existing_peer_table():
     body = bytearray(valid[12:])
     body[10:12] = struct.pack(">H", 65535)
     invalid = struct.pack(">IHHI", 0, 13, 2, len(body)) + body
-    assert list(stream_mrt(io.BytesIO(peer_index_table() + invalid))) == [], (
-        "RIB record invented an absent peer identity"
-    )
+    assert (
+        list(stream_mrt(io.BytesIO(peer_index_table() + invalid))) == []
+    ), "RIB record invented an absent peer identity"
