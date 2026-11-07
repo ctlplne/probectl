@@ -86,7 +86,11 @@ func (scan *flowQuerySubjectScan) walk(ctx context.Context, scope tenancy.Scope,
 	if scan.emit != nil {
 		portable = "row_to_json(subject_row)"
 	}
-	if locked {
+	// Capture objects deliberately grant no UPDATE privilege, which PostgreSQL
+	// also requires for SELECT FOR UPDATE. Their writer and this eraser already
+	// serialize on the tenant audit lock; exact deletion counts still fail closed
+	// on a concurrent destructive change. Mutable query rows keep their row lock.
+	if locked && scan.table != "bgp_flow_capture_objects" {
 		suffix = " FOR UPDATE OF subject_row"
 	}
 	id, projection, cursor := "subject_row.id", "subject_row.id::text", "$3::uuid"
