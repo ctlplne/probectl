@@ -178,11 +178,7 @@ func readRoutingCaptureObjectInScope(ctx context.Context, sc tenancy.Scope, dige
 }
 
 func admitRetainedRoutingCapture(ctx context.Context, sc tenancy.Scope, objects *routingCaptureObjects, budget BGPRoutingBudget) error {
-	var used int64
-	err := sc.Q.QueryRow(ctx, `SELECT
- COALESCE((SELECT sum(charged_bytes) FROM bgp_flow_capture_objects WHERE tenant_id=$1),0)::bigint
- + COALESCE((SELECT sum(charged_bytes) FROM bgp_flow_capture_receipts WHERE tenant_id=$1),0)::bigint
- + COALESCE((SELECT sum(charged_bytes) FROM bgp_flow_capture_payloads WHERE tenant_id=$1),0)::bigint`, sc.Tenant.String()).Scan(&used)
+	used, err := routingStateBytesInScope(ctx, sc)
 	if err != nil {
 		return err
 	}

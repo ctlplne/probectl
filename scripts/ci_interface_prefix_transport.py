@@ -510,6 +510,27 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-capture-first": (
+        "internal/store/bgp_routing_capture_repository.go",
+        "if err != nil || exists {",
+        "if err != nil { _ = exists",
+        "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone", "",
+        "retry changed the first successful routing capture",
+    ),
+    "routing-capture-generation": (
+        "internal/store/bgp_routing_capture_repository.go",
+        "flowsnapshot.MatchSourceGenerationInScope(ctx, sc, sourceGeneration)",
+        "func() error { _ = sourceGeneration; return nil }()",
+        "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone", "",
+        "pre-erasure routing capture republished source data",
+    ),
+    "routing-capture-state": (
+        "internal/store/bgp_routing_capture_repository.go",
+        "admitRetainedRoutingCapture(ctx, sc, objects, budget)",
+        "error(nil)",
+        "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone", "",
+        "retained capture ignored complete tenant state admission",
+    ),
     "routing-capture-scope": (
         "internal/store/bgp_routing_capture.go",
         "if source.Scope != owner.Scope || source.RouterID != owner.RouterID {",
