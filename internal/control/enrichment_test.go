@@ -42,6 +42,18 @@ func TestBuildEnrichmentNothingConfigured(t *testing.T) {
 	}
 }
 
+func TestBuildMembershipInputKeepsUnavailableVisibleWithoutOutboundSources(t *testing.T) {
+	cfg := &config.Config{FlowEnrichIXMembershipFile: filepath.Join(t.TempDir(), "missing.json"), FlowEnrichIXMembershipMaxAge: time.Hour, FlowQueryMemoryBytes: 128 << 20}
+	en, enabled := BuildEnrichment(cfg, statusQuietLog())
+	if !enabled || en == nil {
+		t.Fatal("configured unavailable membership source disappeared")
+	}
+	status := en.Status()
+	if len(status) != 1 || status[0].Descriptor.Name != "peeringdb-ix-membership-file" || status[0].Health.Status != "unavailable" || en.IXMemberships(time.Now()).Current {
+		t.Fatal("membership failure enabled an outbound fallback or current source", status)
+	}
+}
+
 func TestBuildEnrichmentRegistersConfiguredSources(t *testing.T) {
 	cfg := &config.Config{
 		FlowEnrichASN:      true,

@@ -574,6 +574,9 @@ type Config struct {
 	// Optional complete local PeeringDB ixpfx cache. No outbound requests.
 	FlowEnrichIXPrefixFile   string
 	FlowEnrichIXPrefixMaxAge time.Duration
+	// Complete local netixlan membership; independent from LAN prefix data.
+	FlowEnrichIXMembershipFile   string
+	FlowEnrichIXMembershipMaxAge time.Duration
 	// FlowCHTenantScoping (TENANT-102) attaches a per-request tenant custom
 	// setting to ClickHouse reads so a reader row policy can constrain the
 	// query path at the DB. Requires server-side custom_settings_prefixes=SQL_
@@ -1238,6 +1241,11 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.FlowEnrichIXPrefixMaxAge = l.dur("PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE", 24*time.Hour)
 	if cfg.FlowEnrichIXPrefixMaxAge <= 0 {
 		l.errf("PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE must be positive")
+	}
+	cfg.FlowEnrichIXMembershipFile = l.str("PROBECTL_FLOW_ENRICH_IX_MEMBERSHIP_FILE", "")
+	cfg.FlowEnrichIXMembershipMaxAge = l.dur("PROBECTL_FLOW_ENRICH_IX_MEMBERSHIP_MAX_AGE", 24*time.Hour)
+	if cfg.FlowEnrichIXMembershipMaxAge <= 0 {
+		l.errf("PROBECTL_FLOW_ENRICH_IX_MEMBERSHIP_MAX_AGE must be positive")
 	}
 	cfg.FlowEnrichIXP = l.boolean("PROBECTL_FLOW_ENRICH_IXP", false)
 	if cfg.FlowEnrichIXP && !cfg.FlowEnrichASN {

@@ -1103,3 +1103,42 @@ counted in collector statistics.
 The outward BGP join remains preview and incomplete. Stored reference support
 alone does not establish a physical flow join, a current router path or a
 forwarding claim. Readers still require independent current authorization.
+
+
+## Local IX membership input
+
+The peering-estimate input can load a complete, permitted local PeeringDB
+`netixlan` projection with `PROBECTL_FLOW_ENRICH_IX_MEMBERSHIP_FILE`. It is
+independent of IX prefixes: a LAN subnet does not establish ASN membership.
+Nothing is downloaded. PeeringDB source terms and provider/MSP permission
+requirements in [source terms](opendata-aup.md) still apply.
+
+The canonical import format is:
+
+```json
+{
+  "version": 1,
+  "object": "netixlan",
+  "observed_at": "2026-11-07T12:00:00Z",
+  "complete": true,
+  "record_count": 1,
+  "data": [
+    {"id": 7, "ix_id": 11, "ixlan_id": 13, "asn": 64500, "status": "ok", "operational": true}
+  ]
+}
+```
+
+Include every record in the complete projection; retain inactive statuses and
+operational flags. Duplicate IDs, unknown/missing/null fields, invalid IDs or
+ASNs, a mismatched count, partial data, future observation clocks and malformed
+late rows refuse the whole input. A complete empty array explicitly withdraws
+all memberships. Admission covers full bytes, decoding, indexes and copied
+results; it does not truncate the population. Refresh by replacing the entire
+file and restarting, preserving the true observation time. Reads recheck the
+source's enabled state and expiry independently of per-IP cache lifetime.
+
+Only active operational ports can establish the exact ASN + IX + LAN tuple.
+Public membership grants no tenant access, owned interface identity, current
+route or established peering. The estimate must combine it with current
+tenant-owned FX-4 role/interface and routing evidence. This input is preview;
+the complete peering-estimate service and real joined-flow proof remain pending.

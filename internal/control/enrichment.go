@@ -28,7 +28,7 @@ import (
 // with the load error — and the control plane keeps serving (open data
 // degrades gracefully, docs/guardrails.md G7-10).
 func BuildEnrichment(cfg *config.Config, log *slog.Logger) (*opendata.Enricher, bool) {
-	if !cfg.FlowEnrichASN && cfg.FlowEnrichGeoDB == "" && cfg.FlowEnrichRIRDir == "" && !cfg.FlowEnrichIXP && cfg.FlowEnrichASNFile == "" && cfg.FlowEnrichIXPrefixFile == "" {
+	if !cfg.FlowEnrichASN && cfg.FlowEnrichGeoDB == "" && cfg.FlowEnrichRIRDir == "" && !cfg.FlowEnrichIXP && cfg.FlowEnrichASNFile == "" && cfg.FlowEnrichIXPrefixFile == "" && cfg.FlowEnrichIXMembershipFile == "" {
 		return nil, false
 	}
 	en := opendata.NewEnricher(log, opendata.WithCacheMaxEntries(cfg.FlowEnrichCacheMax))
@@ -78,6 +78,15 @@ func BuildEnrichment(cfg *config.Config, log *slog.Logger) (*opendata.Enricher, 
 		} else {
 			en.Register(idx)
 			log.Info("local IX prefix enrichment enabled", "source", "peeringdb-ix-prefix-file")
+		}
+	}
+	if cfg.FlowEnrichIXMembershipFile != "" {
+		if source, err := opendata.LoadPeeringDBIXMemberships(context.Background(), cfg.FlowEnrichIXMembershipFile, cfg.FlowEnrichIXMembershipMaxAge, int64(cfg.FlowQueryMemoryBytes), time.Now()); err != nil {
+			log.Error("IX membership enrichment configured but unavailable", "error", err)
+			en.RegisterUnavailable(&opendata.PeeringDBIXMemberships{}, err)
+		} else {
+			en.Register(source)
+			log.Info("local IX membership source enabled", "source", "peeringdb-ix-membership-file")
 		}
 	}
 	if cfg.FlowEnrichIXP {

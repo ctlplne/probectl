@@ -28,11 +28,14 @@ UNIT = {
         "TestBMPEvidenceAdapterKeepsCompleteRoutingTransport",
     ),
     "internal/opendata": (
+        "TestIXMembershipCacheKeepsCompletePortsExactSelectorsAndOriginalFreshness",
+        "TestIXMembershipCacheRefusesPartialCorruptOrUnadmittedWholeManifests",
         "TestPeeringDBIXPrefixesKeepCompletePopulationClockAndOwnedMatches",
         "TestPeeringDBIXPrefixesRefusePartialAmbiguousOrMalformedSnapshot",
         "TestPeeringDBIXPrefixesKeepInactiveAndExpiredSourcesVisibleWithoutMemberships",
     ),
     "internal/config": (
+        "TestIXMembershipLocalConfigKeepsNoEgressAndIndependentPositiveFreshness",
         "TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness",
     ),
     "internal/store/flowstore": (
@@ -100,6 +103,7 @@ UNIT = {
         "TestInterfaceRoleMCPMetadataRefusesMalformedIdentifiersAndRevisions",
         "TestInterfaceRoleIXSourceMatchesOnlyOwnedCurrentInputsAndPreservesOverrides",
         "TestBuildEnrichmentIXPrefixFailureRemainsVisibleAndMakesNoOutboundSource",
+        "TestBuildMembershipInputKeepsUnavailableVisibleWithoutOutboundSources",
         "TestFlowRoleSnapshotRequiresCurrentTenantUserBeforeStorage",
         "TestRoleSnapshotReceiptRefusesMissingOrForeignAuthority",
         "TestReportRoleContextCapturePreservesTagsAndCurrentSourceRequirements",
@@ -571,6 +575,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "ix-membership-current": (
+        "internal/opendata/peeringdb_memberships.go",
+        "out.Current = out.Enabled && p.availability(at) == nil",
+        "out.Current = out.Enabled",
+        "TestIXMembershipCacheKeepsCompletePortsExactSelectorsAndOriginalFreshness", "",
+        "expired membership remained eligible",
+    ),
+    "ix-membership-complete": (
+        "internal/opendata/peeringdb_memberships.go",
+        "for _, row := range manifest.Data {",
+        "for _, row := range manifest.Data[:min(1,len(manifest.Data))] {",
+        "TestIXMembershipCacheKeepsCompletePortsExactSelectorsAndOriginalFreshness", "",
+        "complete IX membership lost ports or included inactive records",
+    ),
     "routing-registry": (
         "internal/flow/query_fields.go",
         "\tregisterRoutingQueryFields()",
