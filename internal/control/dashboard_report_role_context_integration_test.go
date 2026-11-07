@@ -35,11 +35,21 @@ func TestReportRoleSourcesKeepCurrentCanonicalContextsWithoutTags(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
+		current, err := loadCurrentUserAuthority(ctx, f.pool, tenant, actors[tenant].UserID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Exercise the exact scheduled-source ceiling, then the same current
+		// actor source capture used by both schedules and interactive reports.
+		ctx, scheduled, err := current.backgroundContext(ctx, reportBackgroundSourcePermissions())
+		if err != nil {
+			t.Fatal(err)
+		}
 		view, err := views.SaveQueryView(ctx, tenant, actors[tenant].UserID, flow.SaveQueryView{Definition: flow.QueryViewDefinition{Name: "Canonical role report", Visibility: "private", Time: flow.QueryViewTime{Mode: "absolute"}, Plan: flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(time.Minute), DataSeries: "raw", GroupBy: []string{"in_if_role", "out_if_role"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		capture, err := f.server.captureReportFlowSources(ctx, actors[tenant], []reportFlowSourceRef{{ID: view.ID, Version: view.Version}})
+		capture, err := f.server.captureReportFlowSources(ctx, scheduled, []reportFlowSourceRef{{ID: view.ID, Version: view.Version}})
 		if err != nil {
 			t.Fatal("role-only report could not capture its admitted sources", err)
 		}

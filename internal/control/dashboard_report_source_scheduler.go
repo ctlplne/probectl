@@ -19,6 +19,12 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
+// This ceiling delegates only source reads. Actual current user grants and
+// context policies are still intersected at every source/publication check.
+func reportBackgroundSourcePermissions() []string {
+	return []string{"metrics.read", "events.read", permAIQuery, permFlowRead, permTagsRead, "agent.read", "entities.read"}
+}
+
 func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context, tenantName string, item store.DueDashboardReport, definition dashboardDefinition, now time.Time) (bool, error) {
 	server := s.sourceServer
 	if server == nil {
@@ -34,7 +40,7 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
-	ctx, actor, err := current.backgroundContext(ctx, []string{"metrics.read", permAIQuery, permFlowRead, permTagsRead, "agent.read", "entities.read"})
+	ctx, actor, err := current.backgroundContext(ctx, reportBackgroundSourcePermissions())
 	if err != nil {
 		return false, err
 	}

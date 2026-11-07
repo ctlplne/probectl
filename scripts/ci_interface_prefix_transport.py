@@ -554,6 +554,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "report-role-scheduler-ceiling": (
+        "internal/control/dashboard_report_source_scheduler.go",
+        '"metrics.read", "events.read", permAIQuery',
+        '"metrics.read", permAIQuery',
+        "TestReportRoleSourcesKeepCurrentCanonicalContextsWithoutTags", "",
+        "role-only report could not capture its admitted sources",
+    ),
     "report-role-context-capture": (
         "internal/control/dashboard_report_sources.go",
         "ctx = context.WithValue(ctx, reportContextCaptureKey{}, scope)",
