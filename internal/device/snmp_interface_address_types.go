@@ -24,6 +24,9 @@ func snmpInterfaceAddressKey(row snmpInterfaceAddress) snmpInterfaceAddress {
 }
 
 func parseSNMPInterfaceAddressType(pdu gosnmp.SnmpPDU) (snmpInterfaceAddress, uint32, error) {
+	if len(pdu.Name) > 256 {
+		return snmpInterfaceAddress{}, 0, errSNMPInterfacePrefixIncomplete
+	}
 	suffix, ok := strings.CutPrefix(strings.TrimPrefix(pdu.Name, "."), strings.TrimPrefix(oidIPAddressType, ".")+".")
 	kind, err := snmpAddressInterfaceIndex(pdu.Value)
 	if !ok || err != nil || kind > 3 {
