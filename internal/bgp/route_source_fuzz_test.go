@@ -8,6 +8,7 @@ package bgp
 
 import (
 	"context"
+	"encoding/hex"
 	"net/netip"
 	"reflect"
 	"testing"
@@ -15,6 +16,12 @@ import (
 
 // Extend existing nightly targets; do not add another job or time budget.
 func addRouteSourceFuzzSeeds(f *testing.F) {
+	profiled, err := hex.DecodeString(frr103LocRIBPeerUp)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(profiled)
+	f.Add(append([]byte(nil), profiled[68:153]...))
 	open := routeOpenForTest([]byte{65, 4, 255, 255, 255, 255, 69, 4, 0, 1, 1, 3}, true)
 	up := peerUpFrameForTest(open, open, []PeerUpInformation{{3, []byte("vrf-東京")}, {3, []byte("edge")}})
 	f.Add(open)
