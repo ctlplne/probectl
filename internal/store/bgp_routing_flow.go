@@ -99,7 +99,7 @@ func (store BGPRouting) LookupFlowInScope(ctx context.Context, sc tenancy.Scope,
 	if err := sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&result.CapturedAt); err != nil {
 		return BGPRoutingFlowLookup{}, err
 	}
-	if !binding.ValidUntil.After(result.CapturedAt) || !routingFlowSideCurrent(result.Source, result.CapturedAt) || !routingFlowSideCurrent(result.Destination, result.CapturedAt) {
+	if !binding.ValidUntil.After(result.CapturedAt) || !routingFlowSideCurrent(&result.Source, result.CapturedAt) || !routingFlowSideCurrent(&result.Destination, result.CapturedAt) {
 		return BGPRoutingFlowLookup{}, ErrBGPRoutingFlowSource
 	}
 	return result, nil
@@ -171,6 +171,6 @@ func (store BGPRouting) routingFlowSide(ctx context.Context, sc tenancy.Scope, o
 	}
 }
 
-func routingFlowSideCurrent(side BGPRoutingFlowSide, at time.Time) bool {
+func routingFlowSideCurrent(side *BGPRoutingFlowSide, at time.Time) bool {
 	return side.State != "router_selected" || side.Route.ValidUntil.After(at)
 }

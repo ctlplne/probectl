@@ -60,7 +60,7 @@ func TestRoutingFlowCaptureCannotChooseOwnerFromPayloadOrPartialEvidence(t *test
 			t.Fatal("routing capture reached storage without exact outer tenant scope", err)
 		}
 	}
-	if routingFlowSideCurrent(BGPRoutingFlowSide{State: "router_selected", Route: BGPRoutingLookup{ValidUntil: time.Now().Add(-time.Second)}}, time.Now()) {
+	if routingFlowSideCurrent(&BGPRoutingFlowSide{State: "router_selected", Route: BGPRoutingLookup{ValidUntil: time.Now().Add(-time.Second)}}, time.Now()) {
 		t.Fatal("routing capture outlived its current source lease")
 	}
 }
