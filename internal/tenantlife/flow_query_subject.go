@@ -19,7 +19,7 @@ import (
 )
 
 func flowQuerySubjectTable(table string) bool {
-	return table == "flow_query_filters" || table == "flow_query_views"
+	return table == "flow_query_filters" || table == "flow_query_views" || table == "bgp_flow_capture_objects"
 }
 
 type flowQuerySubjectScan struct {
@@ -42,12 +42,23 @@ func newFlowQuerySubjectScan(table string, aliases subjectAliasSet) (*flowQueryS
 	for _, column := range policy.contains {
 		documents = append(documents, "subject_row."+pgIdent(column))
 	}
+	if table == "bgp_flow_capture_objects" {
+		// Only source identifiers are subject-bearing. Numeric routes, evidence
+		// UUIDs and structural tenant/context IDs are not person ownership.
+		documents = nil
+		for _, path := range []string{"{data,Owner,AgentID}", "{data,Source,Route,Source,CollectorAgentID}", "{data,Source,Route,Source,SourceRef}", "{data,Destination,Route,Source,CollectorAgentID}", "{data,Destination,Route,Source,SourceRef}"} {
+			documents = append(documents, "(subject_row.searchable_body #> '"+path+"')")
+		}
+	}
 	for _, alias := range aliases.values() {
 		if isSafeContainsIdentifier(alias) {
 			safe = append(safe, alias)
 		}
 	}
-	if len(exact) == 0 || len(documents) == 0 {
+	if len(exact) == 0 {
+		exact = append(exact, "($2::text[] IS NULL AND FALSE)")
+	}
+	if len(documents) == 0 {
 		return nil, errors.New("tenantlife: decoded flow configuration policy unavailable")
 	}
 	var matcher *govern.SubjectDocumentMatcher
@@ -78,9 +89,14 @@ func (scan *flowQuerySubjectScan) walk(ctx context.Context, scope tenancy.Scope,
 	if locked {
 		suffix = " FOR UPDATE OF subject_row"
 	}
-	query := `SELECT subject_row.id::text,` + scan.exactSQL + `,` + scan.documentSQL + `,` + portable + ` FROM ` + pgIdent(scan.table) + ` AS subject_row
- WHERE subject_row.tenant_id=$1::uuid AND ($3::uuid IS NULL OR subject_row.id>$3::uuid)
- ORDER BY subject_row.id LIMIT $4` + suffix
+	id, projection, cursor := "subject_row.id", "subject_row.id::text", "$3::uuid"
+	if scan.table == "bgp_flow_capture_objects" {
+		id = `encode(subject_row.digest,'hex') COLLATE "C"`
+		projection, cursor = id, `$3::text COLLATE "C"`
+	}
+	query := `SELECT ` + projection + `,` + scan.exactSQL + `,` + scan.documentSQL + `,` + portable + ` FROM ` + pgIdent(scan.table) + ` AS subject_row
+ WHERE subject_row.tenant_id=$1::uuid AND (` + cursor + ` IS NULL OR ` + id + `>` + cursor + `)
+ ORDER BY ` + id + ` LIMIT $4` + suffix
 	var after *string
 	var total int64
 	for {
@@ -214,7 +230,11 @@ func eraseFlowQuerySubjectRows(ctx context.Context, scope tenancy.Scope, table s
 		for i, record := range records {
 			ids[i] = record.id
 		}
-		tag, err := scope.Q.Exec(ctx, `DELETE FROM `+pgIdent(table)+` WHERE tenant_id=$1::uuid AND id=ANY($2::uuid[])`, scope.Tenant.String(), ids)
+		selector := "id=ANY($2::uuid[])"
+		if table == "bgp_flow_capture_objects" {
+			selector = "digest=ANY(ARRAY(SELECT decode(item,'hex') FROM unnest($2::text[]) AS candidate(item)))"
+		}
+		tag, err := scope.Q.Exec(ctx, `DELETE FROM `+pgIdent(table)+` WHERE tenant_id=$1::uuid AND `+selector, scope.Tenant.String(), ids)
 		if err != nil {
 			return err
 		}

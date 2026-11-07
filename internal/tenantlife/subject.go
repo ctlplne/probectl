@@ -341,7 +341,8 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// Prefixes, numeric AS segments, wire attributes and next-hop addresses
 	// are operator network inventory, without first-class person ownership.
 	"bgp_routing_entries": {plane: "postgres:bgp_routing_entries", disposition: subjectTableNoSubject},
-	// Search decoded JSON so escaped source identifiers remain erasable. Content
+	// The decoded-document scanner selects source identifiers from this JSON.
+	// Structural scope UUIDs and network inventory are not subject ownership. Content
 	// deletion cascades payload links; hash-only first receipts remain tombstones
 	// and prevent a replay from attaching the erased content again.
 	"bgp_flow_capture_objects":  {plane: "postgres:bgp_flow_capture_objects", disposition: subjectTableDeleteMatches, contains: []string{"searchable_body"}},
