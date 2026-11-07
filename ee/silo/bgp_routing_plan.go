@@ -49,7 +49,26 @@ END $fx5_route_fk$`, quoteLiteral(child), quoteLiteral(key.name), child, quoteId
 	if owned["bgp_routing_views"] {
 		plan = append(plan, routingBindingChecksPlan(q+"."+quoteIdent("bgp_routing_views"))...)
 	}
+	if owned["entity_source_contexts"] {
+		plan = append(plan, publicSourceChecksPlan(q+"."+quoteIdent("entity_source_contexts")))
+	}
 	return plan
+}
+
+// LIKE copies checks for new silos. Catch-up must also replace the old source
+// family check and enforce the public source shape in existing physical silos.
+func publicSourceChecksPlan(child string) string {
+	return fmt.Sprintf(`DO $fx5_public_source_checks$
+DECLARE check_name text; definition text;
+BEGIN
+ FOREACH check_name IN ARRAY ARRAY['entity_source_contexts_source_kind_check','fx5_public_source_shape'] LOOP
+  SELECT pg_get_constraintdef(oid) INTO definition FROM pg_constraint
+   WHERE conrelid='public.entity_source_contexts'::regclass AND conname=check_name AND contype='c';
+  IF definition IS NULL THEN RAISE EXCEPTION 'public routing source constraint is missing'; END IF;
+  EXECUTE 'ALTER TABLE ' || %s || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(check_name);
+  EXECUTE 'ALTER TABLE ' || %s || ' ADD CONSTRAINT ' || quote_ident(check_name) || ' ' || definition;
+ END LOOP;
+END $fx5_public_source_checks$`, quoteLiteral(child), quoteLiteral(child))
 }
 
 // Existing silo copies need the expanded checks as well as the new columns.

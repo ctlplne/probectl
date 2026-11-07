@@ -1252,7 +1252,7 @@ export interface EntitySourceAssignment {
   agent_id: string
   anchor_entity_id?: string
   context_id: string
-  source_kind: "device_target" | "flow_exporter" | "path_agent" | "bmp_peer" | "agent_site"
+  source_kind: "device_target" | "flow_exporter" | "path_agent" | "bmp_peer" | "agent_site" | "public_bgp"
   source_ref: string
 }
 

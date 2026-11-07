@@ -135,6 +135,15 @@ The receiver admits only aliases from the authenticated source family:
 SNMP device/interface/neighbor for device sources, exporter/address for flow,
 peer/address for BMP, hop/address for path agents and site for synthetic
 agents. A cross-family alias is rejected before the tenant transaction.
+Public routing collectors use `public_bgp` assignments through the same
+tenant-owned source API, with no `anchor_entity_id`. Their source reference
+identifies the operator-configured feed, format and collector. This assignment
+does not authorize any entity alias, router identity or complete RIB claim.
+Routing authority additionally requires the exact current entity-purpose
+collector credential, current context assignment and an observation born after
+both assignments and credential issuance. Revocation, expiry, withdrawal and
+rebinding invalidate retained authority. Existing physical tenant silos receive
+the same source-family and anchor/selector shape constraints on catch-up.
 Flow address and exporter aliases must name the exact configured exporter;
 the protocol/domain in an exporter alias must match its provenance.
 BMP peer provenance must name the verified router source and the peer alias's

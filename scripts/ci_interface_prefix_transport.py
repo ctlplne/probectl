@@ -126,6 +126,7 @@ UNIT = {
         "TestSnapshotsKeepWholeSourceValidityUnderConfiguredAdmission",
     ),
     "internal/entity": (
+        "TestPublicRoutingAssignmentCannotAuthorizeEntityObservations",
         "TestFlowCaptureKeyBindsTenantCertifiedSenderTupleAndEveryDigestByte",
         "TestFlowCaptureKeyRefusesMissingSenderMalformedScopeAndUnscopedAddresses",
         "TestSNMPPrefixSnapshotKeepsCompleteOwnedCanonicalRows",
@@ -181,6 +182,7 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestPublicRoutingAuthorityRequiresTenantBeforeStorageAndCompleteAssignment",
         "TestPublicRoutingMetadataKeepsWholeSourceIdentityWithoutInventedBMP",
         "TestPublicRoutingMetadataRefusesMixedViewsAndCannotGrantRouterWrites",
         "TestRetainedRoutingQueryFieldsKeepWholePathsAndExplicitAmbiguity",
@@ -258,6 +260,7 @@ INTEGRATION = {
         "TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission",
     ),
     "internal/store": (
+        "TestPublicRoutingAuthorityKeepsTenantPurposeCurrentCredentialAndAssignmentBirth",
         "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges",
         "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone",
         "TestRoutingOperatorConfigurationKeepsTenantPolicyCASAndAtomicAudit",
@@ -582,6 +585,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-source-purpose": (
+        "internal/store/bgp_public_authority.go",
+        "AND sender.spiffe_id='spiffe://probectl/tenant/' || source.tenant_id::text || '/entity/' || source.agent_id",
+        "-- source credential purpose omitted",
+        "TestPublicRoutingAuthorityKeepsTenantPurposeCurrentCredentialAndAssignmentBirth", "purpose",
+        "revoked or replaced public source retained current routing authority",
+    ),
+    "public-source-birth": (
+        "internal/store/bgp_public_authority.go",
+        "AND source.assigned_at<=$6 AND assignment.assigned_at<=$6 AND sender.issued_at<=$6",
+        "AND assignment.assigned_at<=$6 AND sender.issued_at<=$6",
+        "TestPublicRoutingAuthorityKeepsTenantPurposeCurrentCredentialAndAssignmentBirth", "rebound",
+        "revoked or replaced public source retained current routing authority",
+    ),
     "public-peer-presence": (
         "internal/store/bgp_public_metadata.go",
         "identity := peer",

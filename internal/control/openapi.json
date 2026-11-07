@@ -21785,7 +21785,7 @@
         "required": ["agent_id", "source_kind", "source_ref", "context_id"],
         "properties": {
           "agent_id": {"type": "string", "format": "uuid"},
-          "source_kind": {"type": "string", "enum": ["device_target", "flow_exporter", "path_agent", "bmp_peer", "agent_site"]},
+          "source_kind": {"description": "public_bgp assigns an existing per-tenant public collector without a router anchor; it does not authorize entity evidence or establish RIB completeness.", "type": "string", "enum": ["device_target", "flow_exporter", "path_agent", "bmp_peer", "agent_site", "public_bgp"]},
           "source_ref": {"type": "string", "minLength": 1, "maxLength": 1024},
           "context_id": {"type": "string", "format": "uuid"},
           "anchor_entity_id": {"type": "string", "format": "uuid"}

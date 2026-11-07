@@ -24,6 +24,7 @@ const (
 	FlowExporter SourceKind = "flow_exporter"
 	PathAgent    SourceKind = "path_agent"
 	BMPPeer      SourceKind = "bmp_peer"
+	PublicBGP    SourceKind = "public_bgp"
 	AgentSite    SourceKind = "agent_site"
 )
 
@@ -42,7 +43,7 @@ func (s SourceKey) Normalize() (SourceKey, error) {
 		return SourceKey{}, ErrInvalidSource
 	}
 	switch s.Kind {
-	case DeviceTarget, FlowExporter, PathAgent, BMPPeer, AgentSite:
+	case DeviceTarget, FlowExporter, PathAgent, BMPPeer, AgentSite, PublicBGP:
 		return s, nil
 	default:
 		return SourceKey{}, ErrInvalidSource

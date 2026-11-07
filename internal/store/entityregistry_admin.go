@@ -179,6 +179,11 @@ func (s *EntityRegistry) AssignEntitySource(ctx context.Context, sc tenancy.Scop
 	if err != nil {
 		return err
 	}
+	// Public collector assignments have no router/device anchor. They cannot
+	// authorize entity observations; their routing reader checks this source.
+	if key.Kind == entity.PublicBGP && anchorID != "" {
+		return entity.ErrInvalidClaim
+	}
 	agent, err := validRegistryUUID(key.AgentID)
 	if err != nil {
 		return err
