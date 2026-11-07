@@ -33,6 +33,12 @@ UNIT = {
         "TestInterfaceRoleExplorerSQLKeepsFixedTenantJoinAndCompleteExternalValues",
     ),
     "internal/flow": (
+        "TestFlowEvidencePreservesEveryConfiguredDomainBeyondTransportAndCachePages",
+        "TestFlowRoutingWorkerKeepsCompleteEligibleRecordsWithoutWaitingOnRPC",
+        "TestFlowRoutingWitnessProducerRefusesForeignUnconfiguredAndPartialMetadata",
+        "TestWhollyUnresolvedFlowEvidenceRetriesAfterOneMinute",
+        "TestFlowEvidenceRequiresExactConfiguredExporter",
+        "TestFlowEvidenceClaimsAreBoundedAndDoNotUseUnlistedExporter",
         "TestRoutingCaptureWitnessBindsEveryOriginalFieldAndUnknownWireData",
         "TestRoutingCaptureWitnessPreservesCompleteValuesAndRefusesPartialAdmission",
         "TestPeeringEstimateCombinesIntervalsBeforeExactPercentile",
@@ -521,6 +527,27 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "flow-identity-complete": (
+        "internal/flow/entity_evidence.go",
+        "source := entity.SourceKey{AgentID: c.cfg.AgentID, Kind: entity.FlowExporter,",
+        "if len(claims) == 64 { break }; source := entity.SourceKey{AgentID: c.cfg.AgentID, Kind: entity.FlowExporter,",
+        "TestFlowEvidencePreservesEveryConfiguredDomainBeyondTransportAndCachePages", "",
+        "complete configured source batch lost identity evidence",
+    ),
+    "flow-identity-scan": (
+        "internal/flow/entity_evidence.go",
+        "seen[key] = struct{}{}",
+        "if len(seen) >= 4096 { break }; seen[key] = struct{}{}",
+        "TestFlowEvidencePreservesEveryConfiguredDomainBeyondTransportAndCachePages", "",
+        "complete configured source batch lost identity evidence",
+    ),
+    "flow-witness-producer": (
+        "internal/flow/routing_evidence.go",
+        "record.TenantID != c.cfg.TenantID || record.AgentID != c.cfg.AgentID",
+        "false && (record.TenantID != c.cfg.TenantID || record.AgentID != c.cfg.AgentID)",
+        "TestFlowRoutingWitnessProducerRefusesForeignUnconfiguredAndPartialMetadata", "",
+        "foreign or malformed source exposed partial routing witnesses",
+    ),
     "flow-witness-issued": (
         "internal/agenttransport/entity_evidence.go",
         "if !known {",

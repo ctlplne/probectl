@@ -317,8 +317,8 @@ func TestFlowEvidenceClaimsAreBoundedAndDoNotUseUnlistedExporter(t *testing.T) {
 			ObservationDomain: i, ObservedAt: now})
 	}
 	claims, keys := c.flowEvidenceClaims(batch, nil, nil, nil, now)
-	if len(claims) != 64 || len(keys) != 32 {
-		t.Fatalf("claims/keys = %d/%d, want 64/32", len(claims), len(keys))
+	if len(claims) != 80 || len(keys) != 40 {
+		t.Fatalf("claims/keys = %d/%d, want complete 80/40", len(claims), len(keys))
 	}
 	for i, claim := range claims {
 		if claim.Source != (entity.SourceKey{AgentID: agent, Kind: entity.FlowExporter,
@@ -333,27 +333,27 @@ func TestFlowEvidenceClaimsAreBoundedAndDoNotUseUnlistedExporter(t *testing.T) {
 	key0 := evidenceSource{exporter: "192.0.2.7", protocol: ProtoIPFIX, domain: 0}
 	claims, keys = c.flowEvidenceClaims(batch,
 		map[evidenceSource]time.Time{key0: now}, nil, nil, now.Add(time.Minute))
-	if len(claims) != 64 || len(keys) != 32 || keys[0].domain != 1 {
+	if len(claims) != 78 || len(keys) != 39 || keys[0].domain != 1 {
 		t.Fatalf("accepted identity refreshed before 12 hours: %d/%d first=%+v", len(claims), len(keys), keys[0])
 	}
 	claims, keys = c.flowEvidenceClaims(batch, nil,
 		map[evidenceSource]time.Time{key0: now}, nil, now.Add(time.Second))
-	if len(claims) != 64 || len(keys) != 32 || keys[0].domain != 1 {
+	if len(claims) != 78 || len(keys) != 39 || keys[0].domain != 1 {
 		t.Fatalf("failed identity retried before one minute: %d/%d first=%+v", len(claims), len(keys), keys[0])
 	}
 	claims, keys = c.flowEvidenceClaims(batch, nil,
 		map[evidenceSource]time.Time{key0: now}, nil, now.Add(flowEvidenceRetry))
-	if len(claims) != 64 || len(keys) != 32 || keys[0].domain != 0 {
+	if len(claims) != 80 || len(keys) != 40 || keys[0].domain != 0 {
 		t.Fatalf("failed identity did not retry after one minute: %d/%d first=%+v", len(claims), len(keys), keys[0])
 	}
 	claims, keys = c.flowEvidenceClaims(batch, nil, nil,
 		map[evidenceSource]time.Time{key0: now}, now.Add(time.Minute))
-	if len(claims) != 64 || len(keys) != 32 || keys[0].domain != 1 {
+	if len(claims) != 78 || len(keys) != 39 || keys[0].domain != 1 {
 		t.Fatalf("partly accepted identity rewrote durable evidence within one hour: %d/%d first=%+v", len(claims), len(keys), keys[0])
 	}
 	claims, keys = c.flowEvidenceClaims(batch, nil, nil,
 		map[evidenceSource]time.Time{key0: now}, now.Add(flowEvidenceUnresolvedRetry))
-	if len(claims) != 64 || len(keys) != 32 || keys[0].domain != 0 {
+	if len(claims) != 80 || len(keys) != 40 || keys[0].domain != 0 {
 		t.Fatalf("partly accepted identity did not retry after one hour: %d/%d first=%+v", len(claims), len(keys), keys[0])
 	}
 	fresh := []Record{{Exporter: "192.0.2.7", Protocol: ProtoIPFIX,

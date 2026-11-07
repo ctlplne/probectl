@@ -52,6 +52,8 @@ type Stats struct {
 	EvidenceUnresolved     atomic.Uint64
 	EvidenceErrors         atomic.Uint64
 	EvidenceQueueDrops     atomic.Uint64
+	RoutingWitnessReceipts atomic.Uint64
+	RoutingWitnessErrors   atomic.Uint64
 }
 
 // StatsSnapshot is a point-in-time copy for logging/tests.
@@ -59,6 +61,7 @@ type StatsSnapshot struct {
 	Packets, Records, DecodeErrors, TemplateMisses, QueueDrops, EmitErrors, SourceDrops, DroppedRecords uint64
 	QualityReceipts, QualityEmitErrors, QualityInvalidReceipts                                          uint64
 	EvidenceAccepted, EvidenceUnresolved, EvidenceErrors, EvidenceQueueDrops                            uint64
+	RoutingWitnessReceipts, RoutingWitnessErrors                                                        uint64
 }
 
 // Collector binds the configured UDP listeners, decodes datagrams into
@@ -271,6 +274,8 @@ func (c *Collector) StatsSnapshot() StatsSnapshot {
 		EvidenceUnresolved:     c.stats.EvidenceUnresolved.Load(),
 		EvidenceErrors:         c.stats.EvidenceErrors.Load(),
 		EvidenceQueueDrops:     c.stats.EvidenceQueueDrops.Load(),
+		RoutingWitnessReceipts: c.stats.RoutingWitnessReceipts.Load(),
+		RoutingWitnessErrors:   c.stats.RoutingWitnessErrors.Load(),
 	}
 }
 
@@ -398,6 +403,7 @@ func (c *Collector) flushLoop(ctx context.Context) {
 				"quality_invalid_receipts", s.QualityInvalidReceipts,
 				"evidence_accepted", s.EvidenceAccepted, "evidence_unresolved", s.EvidenceUnresolved,
 				"evidence_errors", s.EvidenceErrors, "evidence_queue_drops", s.EvidenceQueueDrops,
+				"routing_witness_receipts", s.RoutingWitnessReceipts, "routing_witness_errors", s.RoutingWitnessErrors,
 				"templates", c.dec.TemplateCount())
 		}
 	}

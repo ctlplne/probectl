@@ -118,6 +118,12 @@ first observation cannot be filled by later routing data. The raw bus consumer
 can resolve an independently authenticated witness or seal unavailable. A
 claimed bus agent ID cannot create positive canonical routing evidence.
 
+The collector worker preserves every eligible configured source in the raw
+batch and pages identity observations over the existing transport. Its optional
+routing-witness adapter runs independently of raw publication and reports
+receipt/error counts in collector statistics. The production runtime wrapper
+has not yet enabled that adapter.
+
 This transport foundation has not yet activated flow ingestion attachment or
 historical query surfaces. Current reader authorization, actual flow-sender
 proofs and complete served-surface acceptance remain required for that release.

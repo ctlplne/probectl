@@ -55,14 +55,59 @@ func (c *Collector) RefreshEvidenceAfterRotation() {
 }
 
 // evidenceLoop has one worker and a one-batch queue so a slow restricted RPC
-// never stalls the raw flow bus. It submits at most 64 claims for each batch,
-// once per exporter/domain/protocol per refresh or retry interval.
+// never stalls the raw flow bus. Every eligible source is submitted in bounded
+// 64-claim transport pages, once per source per refresh or retry interval.
 func (c *Collector) evidenceLoop(ctx context.Context) {
 	lastAccepted := make(map[evidenceSource]time.Time)
 	lastAttempt := make(map[evidenceSource]time.Time)
 	lastPartial := make(map[evidenceSource]time.Time)
 	lastFault := make(map[string]time.Time)
 	pendingFault := make(map[string]entity.FaultObservation)
+	processIdentity := func(batch []Record) {
+		now := c.now()
+		claims, keys := c.flowEvidenceClaims(batch, lastAccepted, lastAttempt, lastPartial, now)
+		if len(claims) == 0 {
+			return
+		}
+		for start := 0; start < len(keys); start += 32 {
+			end := min(start+32, len(keys))
+			pageKeys, pageClaims := keys[start:end], claims[start*2:end*2]
+			accepted, unresolved, err := c.evidence.Submit(ctx, pageClaims)
+			for _, key := range pageKeys {
+				lastAttempt[key] = now
+			}
+			if len(lastAttempt) > 4096 {
+				// A hostile exporter can vary observation-domain IDs, including
+				// while the RPC is failing. The optional throttle stays bounded.
+				lastAccepted = make(map[evidenceSource]time.Time)
+				lastAttempt = make(map[evidenceSource]time.Time)
+				lastPartial = make(map[evidenceSource]time.Time)
+			}
+			if err != nil {
+				c.stats.EvidenceErrors.Add(1)
+				c.log.Warn("flow canonical evidence unavailable; raw events retained",
+					"tenant_id", c.cfg.TenantID, "agent_id", c.cfg.AgentID,
+					"count", len(pageClaims), "error", err.Error())
+				continue
+			}
+			c.stats.EvidenceAccepted.Add(uint64(accepted))
+			c.stats.EvidenceUnresolved.Add(uint64(unresolved))
+			if unresolved == 0 && accepted == len(pageClaims) {
+				for _, key := range pageKeys {
+					lastAccepted[key] = now
+					delete(lastPartial, key)
+				}
+			} else if accepted > 0 {
+				// The response is aggregate, so throttle all keys in a partial
+				// batch instead of rewriting accepted aliases per flow packet.
+				// A wholly unresolved batch wrote no accepted aliases and can
+				// retry after the ordinary one-minute transport interval.
+				for _, key := range pageKeys {
+					lastPartial[key] = now
+				}
+			}
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -78,45 +123,8 @@ func (c *Collector) evidenceLoop(ctx context.Context) {
 		case receipts := <-c.faultQueue:
 			c.sendFlowFaults(ctx, receipts, lastFault, pendingFault)
 		case batch := <-c.evidenceQueue:
-			now := c.now()
-			claims, keys := c.flowEvidenceClaims(batch, lastAccepted, lastAttempt, lastPartial, now)
-			if len(claims) == 0 {
-				continue
-			}
-			accepted, unresolved, err := c.evidence.Submit(ctx, claims)
-			for _, key := range keys {
-				lastAttempt[key] = now
-			}
-			if len(lastAttempt) > 4096 {
-				// A hostile exporter can vary observation-domain IDs, including
-				// while the RPC is failing. The optional throttle stays bounded.
-				lastAccepted = make(map[evidenceSource]time.Time)
-				lastAttempt = make(map[evidenceSource]time.Time)
-				lastPartial = make(map[evidenceSource]time.Time)
-			}
-			if err != nil {
-				c.stats.EvidenceErrors.Add(1)
-				c.log.Warn("flow canonical evidence unavailable; raw events retained",
-					"tenant_id", c.cfg.TenantID, "agent_id", c.cfg.AgentID,
-					"count", len(claims), "error", err.Error())
-				continue
-			}
-			c.stats.EvidenceAccepted.Add(uint64(accepted))
-			c.stats.EvidenceUnresolved.Add(uint64(unresolved))
-			if unresolved == 0 && accepted == len(claims) {
-				for _, key := range keys {
-					lastAccepted[key] = now
-					delete(lastPartial, key)
-				}
-			} else if accepted > 0 {
-				// The response is aggregate, so throttle all keys in a partial
-				// batch instead of rewriting accepted aliases per flow packet.
-				// A wholly unresolved batch wrote no accepted aliases and can
-				// retry after the ordinary one-minute transport interval.
-				for _, key := range keys {
-					lastPartial[key] = now
-				}
-			}
+			processIdentity(batch)
+			c.sendRoutingWitnesses(ctx, batch)
 		}
 	}
 }
@@ -275,9 +283,6 @@ func (c *Collector) flowEvidenceClaims(batch []Record, lastAccepted,
 		if _, duplicate := seen[key]; duplicate {
 			continue
 		}
-		if len(seen) >= 4096 {
-			break // untrusted domain churn never allocates an unbounded scan map
-		}
 		seen[key] = struct{}{}
 		// An hour of slack covers the next RPC and clock skew; the server
 		// still validates the original timestamp.
@@ -289,9 +294,6 @@ func (c *Collector) flowEvidenceClaims(batch []Record, lastAccepted,
 		}
 		if last := lastAttempt[key]; !last.IsZero() && now.Before(last.Add(flowEvidenceRetry)) {
 			continue
-		}
-		if len(claims) == 64 {
-			break
 		}
 		source := entity.SourceKey{AgentID: c.cfg.AgentID, Kind: entity.FlowExporter,
 			SourceRef: exporter}
