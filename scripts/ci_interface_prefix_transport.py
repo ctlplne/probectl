@@ -82,6 +82,8 @@ UNIT = {
         "TestAuditPolicyMatrixCoversRequiredRoutes",
     ),
     "internal/entity": (
+        "TestFlowCaptureKeyBindsTenantCertifiedSenderTupleAndEveryDigestByte",
+        "TestFlowCaptureKeyRefusesMissingSenderMalformedScopeAndUnscopedAddresses",
         "TestSNMPPrefixSnapshotKeepsCompleteOwnedCanonicalRows",
         "TestSNMPPrefixSnapshotRejectsPartialMalformedAndForeignClaims",
         "TestSNMPPrefixSnapshotAdmissionNeverTruncatesToFit",
@@ -513,6 +515,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-capture-sender": (
+        "internal/store/bgp_routing_flow.go",
+        'if authenticatedSender != "" && owner.AgentID != authenticatedSender {',
+        'if false && authenticatedSender != "" && owner.AgentID != authenticatedSender {',
+        "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges", "",
+        "authenticated sender selected another agent's canonical router",
+    ),
     "routing-capture-subject": (
         "internal/tenantlife/flow_query_subject.go",
         ' || table == "bgp_flow_capture_objects"',

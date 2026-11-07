@@ -21,11 +21,7 @@ var ErrBGPRoutingFlowSource = errors.New("routing capture requires a unique curr
 
 // BGPRoutingFlowInput contains flow dimensions, never canonical ownership or a
 // grant. Agent IDs, tenant IDs and claimed VRFs cannot choose a routing context.
-type BGPRoutingFlowInput struct {
-	Exporter, Source, Destination netip.Addr
-	Protocol                      string
-	Domain                        uint32
-}
+type BGPRoutingFlowInput = entity.FlowCaptureInput
 
 // BGPRoutingFlowSide preserves the difference between an owned selected route,
 // a complete RIB without a prefix, and unavailable current source evidence.
@@ -51,6 +47,10 @@ type BGPRoutingFlowLookup struct {
 // snapshot. This is an ingestion seam; user-facing readers still need current
 // actor/context/source authorization. No cross-request authority cache is used.
 func (store BGPRouting) LookupFlowInScope(ctx context.Context, sc tenancy.Scope, input BGPRoutingFlowInput, budget BGPRoutingBudget) (BGPRoutingFlowLookup, error) {
+	return store.lookupFlowInScope(ctx, sc, input, "", budget)
+}
+
+func (store BGPRouting) lookupFlowInScope(ctx context.Context, sc tenancy.Scope, input BGPRoutingFlowInput, authenticatedSender string, budget BGPRoutingBudget) (BGPRoutingFlowLookup, error) {
 	if err := ctx.Err(); err != nil {
 		return BGPRoutingFlowLookup{}, err
 	}
@@ -77,6 +77,9 @@ func (store BGPRouting) LookupFlowInScope(ctx context.Context, sc tenancy.Scope,
 	owner, err := routingFlowOwner(tenant.String(), input.Exporter.Unmap(), owners)
 	if err != nil {
 		return BGPRoutingFlowLookup{}, err
+	}
+	if authenticatedSender != "" && owner.AgentID != authenticatedSender {
+		return BGPRoutingFlowLookup{}, entity.ErrScopeMismatch
 	}
 	bindings, err := reader.FlowBindingsInScope(ctx, sc, owner.Scope, part)
 	if err != nil {

@@ -27,15 +27,16 @@ type BGPRoutingCaptureReference struct {
 }
 
 // BGPRoutingFlowCaptures is an ingestion-only adapter around existing routed
-// Postgres state. The caller derives Key from the verified raw observation,
-// before enrichment or time clamping; no packet supplies a canonical context.
+// Postgres state. Only the authenticated evidence path creates positive
+// captures. Raw bus consumers may look up witnesses, never derive authority
+// from payload agent IDs; no packet supplies a canonical context.
 type BGPRoutingFlowCaptures struct{ pool *pgxpool.Pool }
 
 func NewBGPRoutingFlowCaptures(pool *pgxpool.Pool) *BGPRoutingFlowCaptures {
 	return &BGPRoutingFlowCaptures{pool: pool}
 }
 
-func (service *BGPRoutingFlowCaptures) Capture(ctx context.Context, key [32]byte, input BGPRoutingFlowInput, budget BGPRoutingBudget) (BGPRoutingCaptureReference, error) {
+func (service *BGPRoutingFlowCaptures) CaptureAuthenticated(ctx context.Context, sender string, rawDigest [32]byte, input BGPRoutingFlowInput, budget BGPRoutingBudget) (BGPRoutingCaptureReference, error) {
 	if err := ctx.Err(); err != nil {
 		return BGPRoutingCaptureReference{}, err
 	}
@@ -43,17 +44,24 @@ func (service *BGPRoutingFlowCaptures) Capture(ctx context.Context, key [32]byte
 	if canonical, err := validRegistryUUID(tenant.String()); !ok || err != nil || canonical != tenant.String() {
 		return BGPRoutingCaptureReference{}, entity.ErrScopeMismatch
 	}
-	if key == ([32]byte{}) || budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
+	if sender == "" {
+		return BGPRoutingCaptureReference{}, entity.ErrScopeMismatch
+	}
+	if rawDigest == ([32]byte{}) || budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || budget.StateBytes <= 0 {
 		return BGPRoutingCaptureReference{}, ErrBGPRoutingBudget
 	}
 	if service == nil || service.pool == nil {
 		return BGPRoutingCaptureReference{}, ErrBGPRoutingSourceUnavailable
 	}
+	key, err := entity.FlowCaptureKey(tenant.String(), sender, rawDigest, input)
+	if err != nil {
+		return BGPRoutingCaptureReference{}, err
+	}
 	ctx = tenancy.WithSiloTableLock(ctx)
 	var sourceGeneration int64
 	var previous routingCaptureReceipt
 	var exists bool
-	err := tenancy.InTenant(ctx, service.pool, func(ctx context.Context, sc tenancy.Scope) error {
+	err = tenancy.InTenant(ctx, service.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
 		sourceGeneration, err = flowsnapshot.SourceGenerationInScope(ctx, sc)
 		if err == nil {
@@ -67,7 +75,7 @@ func (service *BGPRoutingFlowCaptures) Capture(ctx context.Context, key [32]byte
 	if exists {
 		return routingCaptureReference(previous), nil
 	}
-	objects, err := service.captureCurrentFlow(ctx, input, budget)
+	objects, err := service.captureCurrentFlow(ctx, sender, input, budget)
 	if err != nil {
 		return BGPRoutingCaptureReference{}, err
 	}
@@ -90,11 +98,11 @@ func (service *BGPRoutingFlowCaptures) Capture(ctx context.Context, key [32]byte
 	return routingCaptureReference(stored), nil
 }
 
-func (service *BGPRoutingFlowCaptures) captureCurrentFlow(ctx context.Context, input BGPRoutingFlowInput, budget BGPRoutingBudget) (*routingCaptureObjects, error) {
+func (service *BGPRoutingFlowCaptures) captureCurrentFlow(ctx context.Context, sender string, input BGPRoutingFlowInput, budget BGPRoutingBudget) (*routingCaptureObjects, error) {
 	var captured BGPRoutingFlowLookup
 	err := tenancy.InTenantReadSnapshot(ctx, service.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		captured, err = (BGPRouting{}).LookupFlowInScope(ctx, sc, input, budget)
+		captured, err = (BGPRouting{}).lookupFlowInScope(ctx, sc, input, sender, budget)
 		return err
 	})
 	// An unavailable first lookup is itself immutable. A later retry cannot

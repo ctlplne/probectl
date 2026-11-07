@@ -19,17 +19,17 @@ func TestRoutingCaptureServiceRequiresTenantBeforeAvailability(t *testing.T) {
 	service := NewBGPRoutingFlowCaptures(nil)
 	key := routingCaptureHash([]byte("verified raw flow"))
 	for _, ctx := range []context.Context{t.Context(), tenancy.WithTenant(t.Context(), tenancy.ID("invalid"))} {
-		if got, err := service.Capture(ctx, key, BGPRoutingFlowInput{}, routingViewBudget()); !errors.Is(err, entity.ErrScopeMismatch) || got != (BGPRoutingCaptureReference{}) {
+		if got, err := service.CaptureAuthenticated(ctx, "routing-flow", key, BGPRoutingFlowInput{}, routingViewBudget()); !errors.Is(err, entity.ErrScopeMismatch) || got != (BGPRoutingCaptureReference{}) {
 			t.Fatal("unscoped capture reached service availability", err)
 		}
 	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(routingCaptureTenant))
-	if got, err := service.Capture(ctx, key, BGPRoutingFlowInput{}, routingViewBudget()); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || got != (BGPRoutingCaptureReference{}) {
+	if got, err := service.CaptureAuthenticated(ctx, "routing-flow", key, BGPRoutingFlowInput{}, routingViewBudget()); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || got != (BGPRoutingCaptureReference{}) {
 		t.Fatal("missing capture storage invented a reference", err)
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if got, err := service.Capture(canceled, key, BGPRoutingFlowInput{}, routingViewBudget()); !errors.Is(err, context.Canceled) || got != (BGPRoutingCaptureReference{}) {
+	if got, err := service.CaptureAuthenticated(canceled, "routing-flow", key, BGPRoutingFlowInput{}, routingViewBudget()); !errors.Is(err, context.Canceled) || got != (BGPRoutingCaptureReference{}) {
 		t.Fatal("canceled capture returned a partial reference", err)
 	}
 }
