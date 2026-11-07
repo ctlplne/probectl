@@ -110,12 +110,19 @@ func proveFlowRoutingRuntimeOrdering(t *testing.T, pool *pgxpool.Pool, tenant, s
 				continue
 			}
 			matched++
-			if row.TenantID != tenant || row.RoutingCaptureKey != hex.EncodeToString(receipt.Key) || row.RoutingCapturedUnixNanos != receipt.CapturedUnixNanos || row.TS.UnixNano() != receipt.CapturedUnixNanos || row.Bytes != 41 {
+			if row.TenantID != tenant || row.RoutingCaptureKey != hex.EncodeToString(receipt.Key) || row.RoutingCapturedUnixNanos != receipt.CapturedUnixNanos || row.Bytes != 41 {
 				t.Fatal("runtime raw/evidence race changed original bytes, first clock or tenant")
 			}
 		}
 		if matched != 1 {
 			t.Fatal("runtime raw retry lost or duplicated the original flow", matched)
+		}
+		// TS is deliberately excluded from the portable Row JSON. Verify the
+		// real analytics axis through an exact first-clock query instead.
+		at := time.Unix(0, receipt.CapturedUnixNanos)
+		points, err := rows.TopTalkers(ctx, flowstore.TopQuery{TenantID: tenant, By: flowstore.ByExporter, Window: time.Nanosecond, Now: at})
+		if err != nil || len(points) != 1 || points[0].Flows != 1 || points[0].Bytes != 41 {
+			t.Fatal("runtime raw/evidence race changed the first analytics clock", points, err)
 		}
 		if err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 			var outcome string
