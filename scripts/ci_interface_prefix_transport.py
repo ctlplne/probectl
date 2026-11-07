@@ -202,6 +202,8 @@ INTEGRATION = {
     ),
     "internal/agenttransport": (
         "TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState",
+        "TestRoutingPeerUpRateRefusalInvalidatesOnlyItsCurrentOwnedSource",
+        "TestRoutingMalformedUnboundPeerUpPreservesKnownContexts",
         "TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata",
     ),
     "internal/tenantlife": (
@@ -474,6 +476,25 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-peer-up-rate-refusal": (
+        "internal/agenttransport/bgp_routing_stage.go",
+        "var result store.BGPRoutingStageResult",
+        'if !admitted { return nil, status.Error(codes.ResourceExhausted, "tenant routing evidence rate exceeded") }; var result store.BGPRoutingStageResult',
+        "TestRoutingPeerUpRateRefusalInvalidatesOnlyItsCurrentOwnedSource", "",
+        "rate-refused routing Peer Up retained stale or foreign current state",
+    ),
+    "routing-malformed-unbound": (
+        "internal/agenttransport/bgp_routing_stage.go",
+        "if unbound {", "if false && unbound {",
+        "TestRoutingMalformedUnboundPeerUpPreservesKnownContexts", "",
+        "malformed unbound routing view retired a known canonical context",
+    ),
+    "routing-refused-selector": (
+        "internal/store/bgp_routing_stage_binding.go",
+        "if input.RefusedPeer != nil {", "if false && input.RefusedPeer != nil {",
+        "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal", "",
+        "selector refusal retired sibling bindings or created routing authority",
+    ),
     "routing-bound-stream-unwired": (
         "internal/store/bgp_routing_stream.go",
         "source, handled, err := resolveRoutingStreamSource(ctx, sc, source, input, profile)",

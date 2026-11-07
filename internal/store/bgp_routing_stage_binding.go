@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -89,6 +90,9 @@ func resolveRoutingStageSource(ctx context.Context, sc tenancy.Scope, base BGPRo
 		}
 		return base, false, err
 	}
+	if input.RefusedPeer != nil && (input.RefusedPeer.Type != 3 || !input.RefusedPeer.BGPIdentifier.Is4()) {
+		return base, false, ErrBGPRoutingView
+	}
 	if config.Manifest == nil {
 		if input.RefusedPeer != nil && input.RefusedPeer.Distinguisher != ([8]byte{}) {
 			return base, false, errBGPRoutingContextBinding
@@ -130,6 +134,13 @@ func resolveRoutingStageSource(ctx context.Context, sc tenancy.Scope, base BGPRo
 // Resolve every target through the complete current tenant-owned manifest and
 // its storage-layer birth/assignment checks before returning the selection.
 func selectRoutingSourceByPeer(ctx context.Context, sc tenancy.Scope, config routingSourceConfiguration, peer BGPRoutingPeer) (routingSourceSelection, error) {
+	tenant, ok := tenancy.FromContext(ctx)
+	if !ok || tenant != sc.Tenant || config.TenantID != tenant.String() {
+		return routingSourceSelection{}, entity.ErrScopeMismatch
+	}
+	if err := ctx.Err(); err != nil {
+		return routingSourceSelection{}, err
+	}
 	if config.Manifest == nil {
 		return routingSourceSelection{}, errBGPRoutingContextBinding
 	}
