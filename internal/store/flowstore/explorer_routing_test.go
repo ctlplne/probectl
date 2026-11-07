@@ -66,14 +66,15 @@ func TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys(t *tes
 			last = Row{TenantID: tenant, AgentID: "routing-flow", Exporter: input.Exporter.String(), Protocol: input.Protocol, ObsDomain: input.Domain, SrcAddr: input.Source.String(), DstAddr: input.Destination.String(), RawFlowDigest: hex.EncodeToString(digest[:]), RoutingCaptureKey: hex.EncodeToString(key[:]), RoutingCapturedUnixNanos: at.UnixNano()}
 		}
 	}
-	data, err := newRoutingQueryData(ctx, tenant, at, rows, 64<<20)
+	metadataBytes := DefaultExplorerBudget().MemoryBytes / 4
+	data, err := newRoutingQueryData(ctx, tenant, at, rows, metadataBytes)
 	if err != nil || len(data.byKey) != count {
 		t.Fatal("complete routing query projection lost shared full paths or original references", err)
 	}
 	if len(data.facts) != 1 {
 		t.Fatal("routing query projection duplicated identical source facts", len(data.facts))
 	}
-	external, err := data.externalData(ctx, tenant, 64<<20)
+	external, err := data.externalData(ctx, tenant, metadataBytes)
 	if err != nil || len(external) != 2 {
 		t.Fatal("complete routing projection lost its reference or fact transport", err)
 	}
@@ -98,7 +99,7 @@ func TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys(t *tes
 	conflict := append([]RoutingProjection(nil), rows[:2]...)
 	conflict[1].Fields = maps.Clone(fields)
 	conflict[1].Fields["src_bgp_origin_as"] = "64500"
-	if partial, err := newRoutingQueryData(ctx, tenant, at, conflict, 64<<20); !errors.Is(err, ErrRoutingQueryScope) || partial != nil {
+	if partial, err := newRoutingQueryData(ctx, tenant, at, conflict, metadataBytes); !errors.Is(err, ErrRoutingQueryScope) || partial != nil {
 		t.Fatal("routing query source hint replaced complete verified fields", err)
 	}
 	if got := data.valueForRow(last, "src_bgp_as_paths"); got != string(encoded) || data.valueForRow(last, "src_bgp_origin_as") != "4294967295" {

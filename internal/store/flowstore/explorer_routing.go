@@ -69,12 +69,17 @@ type routingQueryBuilder struct {
 	seen      map[[32]byte]bool
 }
 
+// Covers retained key/index state, compact digest serialization and temporary
+// reference wire copies. Complete path/source bodies are charged separately
+// once per unique fact, rather than repeated for every original flow.
+const routingQueryReferenceBytes = 2048
+
 func newRoutingQueryData(ctx context.Context, tenant string, at time.Time, rows []RoutingProjection, memory int64) (*routingQueryData, error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || bound.String() != tenant || !validTagProjectionID(tenant) || at.IsZero() {
 		return nil, ErrRoutingQueryScope
 	}
-	if memory < 4096 || int64(len(rows)) > (memory-4096)/512 {
+	if memory < 4096 || int64(len(rows)) > (memory-4096)/routingQueryReferenceBytes {
 		return nil, ErrExplorerBudget
 	}
 	builder := routingQueryBuilder{data: &routingQueryData{tenant: tenant, asOf: at.UTC(), byKey: map[routingQueryKey][32]byte{}, facts: map[[32]byte]routingQueryFact{}}, remaining: memory - 4096, hints: map[[32]byte][32]byte{}, seen: map[[32]byte]bool{}}
@@ -102,7 +107,7 @@ func (builder *routingQueryBuilder) add(ctx context.Context, row RoutingProjecti
 	if err != nil || scope != row.Scope || row.TenantID != builder.data.tenant || row.Key == ([32]byte{}) || row.Clock <= 0 || len(row.SourceIDs) == 0 || builder.seen[row.Key] {
 		return ErrRoutingQueryScope
 	}
-	if err := builder.charge(512); err != nil {
+	if err := builder.charge(routingQueryReferenceBytes); err != nil {
 		return err
 	}
 	if int64(len(row.SourceIDs)) > builder.remaining/32 {

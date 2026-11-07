@@ -544,8 +544,8 @@ def bgp_routing_generation_control():
 ROUTING_WRITE_CONTROLS = {
     "flow-routing-sharing": (
         "internal/store/flowstore/explorer_routing.go",
-        "if err := builder.charge(512); err != nil {",
-        "if err := builder.charge(4096); err != nil {",
+        "fact := builder.data.facts[id]",
+        "fact := builder.data.facts[id]; for name,value:=range row.Fields { if err:=builder.charge(256+int64(len(name)+len(value))*12);err!=nil{return [32]byte{},err} }",
         "TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys", "",
         "complete routing query projection lost shared full paths or original references",
     ),
