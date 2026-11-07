@@ -14,7 +14,7 @@ import struct
 import pytest
 from mrt_fixtures import bgp4mp_update_as4, peer_index_table, rib_ipv4
 
-from probectl_analyzer.mrt import MAX_MRT_RECORD_LENGTH, MRTError, stream_mrt
+from probectl_analyzer.mrt import MAX_MRT_RECORD_LENGTH, MRTError, MRTReader, stream_mrt
 
 
 class CountingReader:
@@ -119,3 +119,43 @@ def test_short_extended_timestamp_does_not_consume_next_record():
     short = struct.pack(">IHHI", 0, 17, 4, 3) + b"abc"
     good = bgp4mp_update_as4("198.51.100.0/24", [64496])
     assert [r.prefix for r in stream_mrt(io.BytesIO(short + good))] == ["198.51.100.0/24"]
+
+
+def test_rib_late_entry_and_trailing_bytes_never_publish_a_record_prefix():
+    valid = rib_ipv4("192.0.2.0/24", [64511, 64496])
+    body = bytearray(valid[12:])
+    # Sequence(4), prefix length+octets(4), then entry count(2).
+    body[8:10] = struct.pack(">H", 2)
+    malformed = struct.pack(">IHHI", 0, 13, 2, len(body) + 1) + body + b"\x00"
+    padded = struct.pack(">IHHI", 0, 13, 2, len(valid[12:]) + 1) + valid[12:] + b"\x00"
+    good = rib_ipv4("198.51.100.0/24", [64511, 64502])
+    for bad in (malformed, padded):
+        routes = list(stream_mrt(io.BytesIO(peer_index_table() + bad + good)))
+        assert [route.prefix for route in routes] == ["198.51.100.0/24"], (
+            "malformed RIB record published an earlier prefix"
+        )
+
+
+def test_peer_index_late_failure_keeps_whole_original_collector_and_peer_identity():
+    original = peer_index_table(peer_as=64511, peer_ip="192.0.2.1")
+    replacement = bytearray(peer_index_table(peer_as=64512, peer_ip="192.0.2.2")[12:])
+    replacement[:4] = struct.pack(">I", 123456789)
+    malformed = struct.pack(">IHHI", 0, 13, 1, len(replacement) - 1) + replacement[:-1]
+    padded = struct.pack(">IHHI", 0, 13, 1, len(replacement) + 1) + replacement + b"\x00"
+    for bad in (malformed, padded):
+        reader = MRTReader()
+        expected = list(reader.stream(io.BytesIO(original + rib_ipv4("192.0.2.0/24", [64496]))))[0]
+        route = list(reader.stream(io.BytesIO(bad + rib_ipv4("198.51.100.0/24", [64502]))))[0]
+        assert (route.collector_id, route.peer_asn, route.peer_address) == (
+            expected.collector_id, 64511, "192.0.2.1"
+        ), "malformed peer table mixed collector and peer generations"
+
+
+def test_rib_rejects_undefined_peer_in_an_existing_peer_table():
+    valid = rib_ipv4("192.0.2.0/24", [64511, 64496])
+    body = bytearray(valid[12:])
+    body[10:12] = struct.pack(">H", 65535)
+    invalid = struct.pack(">IHHI", 0, 13, 2, len(body)) + body
+    assert list(stream_mrt(io.BytesIO(peer_index_table() + invalid))) == [], (
+        "RIB record invented an absent peer identity"
+    )
