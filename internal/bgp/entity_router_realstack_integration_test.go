@@ -1088,7 +1088,12 @@ func queryEdgeSNMP(t *testing.T, container, community, oid string) string {
 
 func startRouterBMPEvidenceListener(t *testing.T, st *shipped.Stack, lab *routingLab, reg edgeFlowRegistration, originAnchor string) *bgpTenant {
 	t.Helper()
-	tn := &bgpTenant{slug: "fx2-router", id: reg.tenantID, cookie: reg.cookie,
+	return startRouterBMPEvidenceListenerNamed(t, st, lab, reg, originAnchor, "fx2")
+}
+
+func startRouterBMPEvidenceListenerNamed(t *testing.T, st *shipped.Stack, lab *routingLab, reg edgeFlowRegistration, originAnchor, prefix string) *bgpTenant {
+	t.Helper()
+	tn := &bgpTenant{slug: prefix + "-router", id: reg.tenantID, cookie: reg.cookie,
 		router: "rtr-a", prefix: prefixA}
 	tn.setupAPI(t, st)
 	tn.registerRouterAPI(t, st)
@@ -1097,12 +1102,12 @@ func startRouterBMPEvidenceListener(t *testing.T, st *shipped.Stack, lab *routin
 	if code != http.StatusOK {
 		t.Fatalf("assign FX-2 authenticated BMP peer context: HTTP %d: %.300s", code, payload)
 	}
-	csr, key, err := crypto.CreateCSR("fx2-bmp-listener-evidence")
+	csr, key, err := crypto.CreateCSR(prefix + "-bmp-listener-evidence")
 	if err != nil {
 		t.Fatal(err)
 	}
 	code, payload = st.Do(t, reg.cookie, http.MethodPost, "/v1/agents/enroll-tokens",
-		map[string]any{"name": "fx2-bmp-evidence", "ttl_seconds": 600,
+		map[string]any{"name": prefix + "-bmp-evidence", "ttl_seconds": 600,
 			"agent_id": tn.collectorID})
 	if code != http.StatusCreated {
 		t.Fatalf("mint FX-2 BMP evidence token: HTTP %d", code)
@@ -1113,7 +1118,7 @@ func startRouterBMPEvidenceListener(t *testing.T, st *shipped.Stack, lab *routin
 	}
 	code, payload = st.Do(t, reg.cookie, http.MethodPost, "/v1/collectors/register",
 		map[string]string{"token": token.Token, "plane": "entity",
-			"hostname": "fx2-bmp-listener", "csr_pem": string(csr)})
+			"hostname": prefix + "-bmp-listener", "csr_pem": string(csr)})
 	if code != http.StatusCreated {
 		t.Fatalf("register FX-2 BMP evidence SVID: HTTP %d: %.300s", code, payload)
 	}
@@ -1129,10 +1134,10 @@ func startRouterBMPEvidenceListener(t *testing.T, st *shipped.Stack, lab *routin
 		evidence.SVID.SPIFFEID != crypto.EntitySPIFFEID(reg.tenantID, tn.collectorID) {
 		t.Fatalf("FX-2 BMP evidence registration lost exact listener identity: %v", err)
 	}
-	certFile, keyFile, caFile := writeRouterEvidenceFiles(t, st, "fx2-bmp-evidence", evidence.SVID.CertPEM, key)
+	certFile, keyFile, caFile := writeRouterEvidenceFiles(t, st, prefix+"-bmp-evidence", evidence.SVID.CertPEM, key)
 	logins := bmpLogins(t, st)
 	tn.listenAddr = shipped.FreeAddr(t)
-	tn.listenerLog = st.StartProcess(t, "fx2-bmp-listener",
+	tn.listenerLog = st.StartProcess(t, prefix+"-bmp-listener",
 		st.Binary(t, "probectl-bmp-listener"), nil, []string{
 			"PROBECTL_BMP_LISTEN_ADDR=" + tn.listenAddr,
 			"PROBECTL_BMP_TLS_CERT_FILE=" + st.ServerCert,

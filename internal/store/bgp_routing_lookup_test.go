@@ -82,7 +82,7 @@ func TestBGPRoutingRouterLookupRequiresExactTenantContextBeforeStorage(t *testin
 		{"missing-storage", ctx, scope, router, ErrBGPRoutingSourceUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := (BGPRouting{}).lookupRouterInScope(tc.ctx, sc, tc.scope, tc.router, netip.MustParseAddr("192.0.2.1"), routingViewBudget())
+			got, err := (BGPRouting{}).LookupRouterInScope(tc.ctx, sc, tc.scope, tc.router, netip.MustParseAddr("192.0.2.1"), routingViewBudget())
 			if !errors.Is(err, tc.want) || got.Paths != nil || got.Source.TenantID != "" {
 				t.Fatal("router lookup selected a foreign or incomplete context", got, err)
 			}

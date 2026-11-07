@@ -274,6 +274,13 @@
       "capabilities": [
         "F18"
       ]
+    },
+    {
+      "ref": "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors",
+      "profile": "integration",
+      "capabilities": [
+        "F6"
+      ]
     }
   ]
 }

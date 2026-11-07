@@ -45,9 +45,9 @@ func routingLookupBegin(t *testing.T, f *roleInputsFixture, source BGPRoutingSou
 	}
 	return BGPRoutingViewRef{ID: view.ID, Generation: view.Generation}
 }
-func routingLookupRead(t *testing.T, f *roleInputsFixture, source BGPRoutingSource, ref BGPRoutingViewRef, address string, budget BGPRoutingBudget) (routingLookup, error) {
+func routingLookupRead(t *testing.T, f *roleInputsFixture, source BGPRoutingSource, ref BGPRoutingViewRef, address string, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
 	t.Helper()
-	var got routingLookup
+	var got BGPRoutingLookup
 	err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(source.TenantID)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
 		got, err = (BGPRouting{}).lookupViewInScope(ctx, sc, source, ref, netip.MustParseAddr(address), budget)
@@ -219,7 +219,7 @@ func TestBGPRoutingLookupRefusesChangedAuthorityClockCorruptionAndMixedSnapshots
 	if got, err := routingLookupRead(t, f, foreign, ref, "192.0.2.9", routingViewBudget()); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || got.Paths != nil {
 		t.Fatal("lookup used a route from another router", got, err)
 	}
-	if got, err := routingLookupRead(t, f, source, ref, "203.0.113.9", routingViewBudget()); !errors.Is(err, errBGPRoutingRouteMissing) || got.Paths != nil {
+	if got, err := routingLookupRead(t, f, source, ref, "203.0.113.9", routingViewBudget()); !errors.Is(err, ErrBGPRoutingRouteMissing) || got.Paths != nil {
 		t.Fatal("missing complete route manufactured a path", got, err)
 	}
 }
@@ -228,11 +228,11 @@ func TestBGPRoutingRouterLookupUsesOwnContextAndRefusesConflictingCompleteViews(
 	f := newRoleInputsFixture(t)
 	sources := []BGPRoutingSource{routingFixtureSource(f, 0), routingFixtureSource(f, 1)}
 	refs := make([]BGPRoutingViewRef, 2)
-	read := func(source BGPRoutingSource) (routingLookup, error) {
-		var got routingLookup
+	read := func(source BGPRoutingSource) (BGPRoutingLookup, error) {
+		var got BGPRoutingLookup
 		err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(source.TenantID)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
 			var err error
-			got, err = (BGPRouting{}).lookupRouterInScope(ctx, sc, source.Scope, source.RouterID, netip.MustParseAddr("192.0.2.9"), routingViewBudget())
+			got, err = (BGPRouting{}).LookupRouterInScope(ctx, sc, source.Scope, source.RouterID, netip.MustParseAddr("192.0.2.9"), routingViewBudget())
 			return err
 		})
 		return got, err

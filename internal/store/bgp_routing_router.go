@@ -17,34 +17,34 @@ import (
 
 var errBGPRoutingAmbiguousView = errors.New("router has conflicting complete selected views")
 
-// This selector is only for an independently resolved canonical router in an
+// LookupRouterInScope selects only an independently resolved canonical router in an
 // authorized context. An exporter address, claimed peer ASN or row-supplied
 // collector must never select that context. Multiple complete views are a
 // conflict, not permission to pick whichever contains a convenient prefix.
-func (store BGPRouting) lookupRouterInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope,
-	routerID string, address netip.Addr, budget BGPRoutingBudget) (routingLookup, error) {
+func (store BGPRouting) LookupRouterInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope,
+	routerID string, address netip.Addr, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
 	if err := ctx.Err(); err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	tenant, present := tenancy.FromContext(ctx)
 	if !present || tenant != sc.Tenant || tenant.String() != scope.TenantID {
-		return routingLookup{}, entity.ErrScopeMismatch
+		return BGPRoutingLookup{}, entity.ErrScopeMismatch
 	}
 	normalized, err := scope.Normalize()
 	if err != nil || normalized != scope {
-		return routingLookup{}, entity.ErrInvalidScope
+		return BGPRoutingLookup{}, entity.ErrInvalidScope
 	}
 	if canonical, err := validRegistryUUID(routerID); err != nil || canonical != routerID {
-		return routingLookup{}, entity.ErrInvalidScope
+		return BGPRoutingLookup{}, entity.ErrInvalidScope
 	}
 	if !address.IsValid() || address.Zone() != "" {
-		return routingLookup{}, ErrBGPRoutingView
+		return BGPRoutingLookup{}, ErrBGPRoutingView
 	}
 	if err := routingBatchCharge(&budget, 2048, 256); err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	if err := requireRoutingReadSnapshot(ctx, sc); err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	afi := uint16(2)
 	if address.Is4() {
@@ -59,19 +59,19 @@ func (store BGPRouting) lookupRouterInScope(ctx context.Context, sc tenancy.Scop
 	var count, encoded int64
 	if err := sc.Q.QueryRow(ctx, `SELECT count(*),COALESCE(sum(octet_length(collector_agent_id)+octet_length(source_ref)+octet_length(sender_serial)+octet_length(origin_serial)+COALESCE(octet_length(routing_selection::text),0)),0)::bigint`+selected,
 		scope.TenantID, scope.ContextID, routerID, afi).Scan(&count, &encoded); err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	if count == 0 {
-		return routingLookup{}, ErrBGPRoutingSourceUnavailable
+		return BGPRoutingLookup{}, ErrBGPRoutingSourceUnavailable
 	}
 	if count != 1 {
-		return routingLookup{}, errBGPRoutingAmbiguousView
+		return BGPRoutingLookup{}, errBGPRoutingAmbiguousView
 	}
 	if encoded < 0 || encoded > budget.MemoryBytes/128 || encoded > budget.WorkUnits/16 {
-		return routingLookup{}, ErrBGPRoutingBudget
+		return BGPRoutingLookup{}, ErrBGPRoutingBudget
 	}
 	if err := routingBatchCharge(&budget, encoded*128, encoded*16); err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	source := BGPRoutingSource{Scope: scope, RouterID: routerID}
 	var ref BGPRoutingViewRef
@@ -79,15 +79,15 @@ func (store BGPRouting) lookupRouterInScope(ctx context.Context, sc tenancy.Scop
 	var kind string
 	if err := sc.Q.QueryRow(ctx, `SELECT id::text,generation::text,collector_agent_id,source_ref,sender_serial,origin_serial,observed_at,routing_selection,view_kind`+selected,
 		scope.TenantID, scope.ContextID, routerID, afi).Scan(&ref.ID, &ref.Generation, &source.CollectorAgentID, &source.SourceRef, &source.SenderSerial, &source.OriginSerial, &source.ObservedAt, &raw, &kind); err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	if kind == "operator_loc_rib" {
 		source.routingSelection, err = decodeRoutingSelection(ctx, raw, source, budget)
 		if err != nil {
-			return routingLookup{}, err
+			return BGPRoutingLookup{}, err
 		}
 	} else if raw != nil {
-		return routingLookup{}, ErrBGPRoutingView
+		return BGPRoutingLookup{}, ErrBGPRoutingView
 	}
 	return store.lookupViewInScope(ctx, sc, source, ref, address, budget)
 }

@@ -108,7 +108,7 @@ func proveRoutingBoundAuthority(t *testing.T, format string) {
 			routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 1, AFI: afi, SAFI: 1, Changes: []BGPRoutingChange{change}})
 			routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 2, AFI: afi, SAFI: 1, EndOfRIB: true})
 			if err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(source.TenantID)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
-				got, err := (BGPRouting{}).lookupRouterInScope(ctx, sc, source.Scope, source.RouterID, netip.MustParseAddr(address), routingViewBudget())
+				got, err := (BGPRouting{}).LookupRouterInScope(ctx, sc, source.Scope, source.RouterID, netip.MustParseAddr(address), routingViewBudget())
 				if err != nil || len(got.Paths) != 1 || got.Prefix != change.Prefix || !reflect.DeepEqual(got.Paths[0].Segments, change.Segments) ||
 					got.Source.routingSelection == nil || !sameRoutingSelection(*got.Source.routingSelection, *source.routingSelection) {
 					t.Fatal("bound routing lookup lost current owned path", err, got)

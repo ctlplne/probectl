@@ -20,14 +20,16 @@ import (
 
 var (
 	errBGPRoutingReadSnapshot = errors.New("routing lookup requires a repeatable tenant snapshot")
-	errBGPRoutingRouteMissing = errors.New("complete current routing view has no matching prefix")
+	// ErrBGPRoutingRouteMissing means a complete, currently authorized RIB has
+	// no containing prefix; it does not mean source evidence is unavailable.
+	ErrBGPRoutingRouteMissing = errors.New("complete current routing view has no matching prefix")
 )
 
-// routingLookup preserves all paths at the longest matching prefix. Loc-RIB
+// BGPRoutingLookup preserves all paths at the longest matching prefix. Loc-RIB
 // means selected BGP routes, never a proof of installed forwarding state. The
 // eventual exporter resolver must independently bind this exact router/context
 // and label a public fallback; an adjacent view cannot stand in for Loc-RIB.
-type routingLookup struct {
+type BGPRoutingLookup struct {
 	Source                           BGPRoutingSource
 	View                             BGPRoutingViewRef
 	Prefix                           netip.Prefix
@@ -47,31 +49,31 @@ type routingReadView struct {
 // and grant resolution. No page, partial path set or historical generation may
 // escape an admission, source, lease or decoding failure.
 func (store BGPRouting) lookupViewInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource,
-	ref BGPRoutingViewRef, address netip.Addr, budget BGPRoutingBudget) (routingLookup, error) {
+	ref BGPRoutingViewRef, address netip.Addr, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
 	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	if !address.IsValid() || address.Zone() != "" {
-		return routingLookup{}, ErrBGPRoutingView
+		return BGPRoutingLookup{}, ErrBGPRoutingView
 	}
 	for _, id := range []string{ref.ID, ref.Generation} {
 		if normalized, err := validRegistryUUID(id); err != nil || normalized != id {
-			return routingLookup{}, ErrBGPRoutingView
+			return BGPRoutingLookup{}, ErrBGPRoutingView
 		}
 	}
 	if err := routingBatchCharge(&budget, 2048, 256); err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	for _, value := range []string{source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial} {
 		if int64(len(value)) > budget.MemoryBytes/4 || int64(len(value)) > budget.WorkUnits/2 {
-			return routingLookup{}, ErrBGPRoutingBudget
+			return BGPRoutingLookup{}, ErrBGPRoutingBudget
 		}
 		if err := routingBatchCharge(&budget, int64(len(value))*4, int64(len(value))*2); err != nil {
-			return routingLookup{}, err
+			return BGPRoutingLookup{}, err
 		}
 	}
 	if err := requireRoutingReadSnapshot(ctx, sc); err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	afi := uint16(2)
 	if address.Is4() {
@@ -79,37 +81,37 @@ func (store BGPRouting) lookupViewInScope(ctx context.Context, sc tenancy.Scope,
 	}
 	view, err := loadRoutingReadView(ctx, sc, source, ref, afi)
 	if err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	birth := source
 	birth.ObservedAt = view.born
 	authority, err := store.sourceAuthorityInScope(ctx, sc, birth)
 	if err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	if view.lastObservedAt == nil || view.clockSequence == nil || *view.clockSequence != view.lastSequence ||
 		view.lastSequence <= 0 || view.lastObservedAt.Before(view.born) || view.lastObservedAt.After(authority.AsOf) {
-		return routingLookup{}, ErrBGPRoutingSourceUnavailable
+		return BGPRoutingLookup{}, ErrBGPRoutingSourceUnavailable
 	}
 	deadline := minRoutingTime(view.validUntil, authority.ValidUntil)
 	if !deadline.After(authority.AsOf) {
-		return routingLookup{}, ErrBGPRoutingSourceUnavailable
+		return BGPRoutingLookup{}, ErrBGPRoutingSourceUnavailable
 	}
 	result, err := readRoutingLongestPrefix(ctx, sc, birth, ref, address, afi, view, budget)
-	if err != nil && !errors.Is(err, errBGPRoutingRouteMissing) {
-		return routingLookup{}, err
+	if err != nil && !errors.Is(err, ErrBGPRoutingRouteMissing) {
+		return BGPRoutingLookup{}, err
 	}
 	// The query may have waited for IO. A transaction-start timestamp alone
 	// must not serve routes after their source/credential or heartbeat expires.
 	var finished time.Time
 	if clockErr := sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&finished); clockErr != nil {
-		return routingLookup{}, clockErr
+		return BGPRoutingLookup{}, clockErr
 	}
 	if !deadline.After(finished) {
-		return routingLookup{}, ErrBGPRoutingSourceUnavailable
+		return BGPRoutingLookup{}, ErrBGPRoutingSourceUnavailable
 	}
 	if err != nil {
-		return routingLookup{}, err
+		return BGPRoutingLookup{}, err
 	}
 	result.AsOf, result.ValidUntil = authority.AsOf, deadline
 	return result, nil
@@ -153,13 +155,13 @@ func loadRoutingReadView(ctx context.Context, sc tenancy.Scope, source BGPRoutin
 }
 
 func readRoutingLongestPrefix(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef,
-	address netip.Addr, afi uint16, view routingReadView, budget BGPRoutingBudget) (routingLookup, error) {
+	address netip.Addr, afi uint16, view routingReadView, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
 	for bits := address.BitLen(); bits >= 0; bits-- {
 		if err := ctx.Err(); err != nil {
-			return routingLookup{}, err
+			return BGPRoutingLookup{}, err
 		}
 		if err := routingBatchCharge(&budget, 0, 128); err != nil {
-			return routingLookup{}, err
+			return BGPRoutingLookup{}, err
 		}
 		prefix := netip.PrefixFrom(address, bits).Masked()
 		var count, encoded int64
@@ -167,7 +169,7 @@ func readRoutingLongestPrefix(ctx context.Context, sc tenancy.Scope, source BGPR
  FROM bgp_routing_entries WHERE tenant_id=$1 AND context_id=$2 AND view_id=$3 AND generation=$4 AND prefix=$5::cidr AND afi=$6 AND safi=1`,
 			source.TenantID, source.ContextID, ref.ID, ref.Generation, prefix.String(), afi).Scan(&count, &encoded)
 		if err != nil {
-			return routingLookup{}, err
+			return BGPRoutingLookup{}, err
 		}
 		if count == 0 {
 			continue
@@ -176,24 +178,24 @@ func readRoutingLongestPrefix(ctx context.Context, sc tenancy.Scope, source BGPR
 		// bodies. The snapshot binds this account to exactly the rows read below.
 		if count < 0 || encoded < 0 || encoded > budget.MemoryBytes/32 || encoded > budget.WorkUnits/8 ||
 			count > budget.MemoryBytes/1024 || count > budget.WorkUnits/256 {
-			return routingLookup{}, ErrBGPRoutingBudget
+			return BGPRoutingLookup{}, ErrBGPRoutingBudget
 		}
 		if err := routingBatchCharge(&budget, encoded*32, encoded*8); err != nil {
-			return routingLookup{}, err
+			return BGPRoutingLookup{}, err
 		}
 		if count > budget.MemoryBytes/1024 || count > budget.WorkUnits/256 {
-			return routingLookup{}, ErrBGPRoutingBudget
+			return BGPRoutingLookup{}, ErrBGPRoutingBudget
 		}
 		if err := routingBatchCharge(&budget, count*1024, count*256); err != nil {
-			return routingLookup{}, err
+			return BGPRoutingLookup{}, err
 		}
 		paths, err := readRoutingPaths(ctx, sc, source, ref, prefix, afi, view, count)
 		if err != nil {
-			return routingLookup{}, err
+			return BGPRoutingLookup{}, err
 		}
-		return routingLookup{Source: source, View: ref, Prefix: prefix, Paths: paths, LastSequence: view.lastSequence, LastObservedAt: *view.lastObservedAt}, nil
+		return BGPRoutingLookup{Source: source, View: ref, Prefix: prefix, Paths: paths, LastSequence: view.lastSequence, LastObservedAt: *view.lastObservedAt}, nil
 	}
-	return routingLookup{}, errBGPRoutingRouteMissing
+	return BGPRoutingLookup{}, ErrBGPRoutingRouteMissing
 }
 
 func readRoutingPaths(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef,
