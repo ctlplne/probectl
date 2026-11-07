@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"runtime"
@@ -55,6 +56,13 @@ func TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors(t
 	}
 	registrations := []edgeFlowRegistration{first, second}
 	pool := st.ApplicationReadPool(t)
+	t.Cleanup(func() {
+		if t.Failed() {
+			for _, reg := range registrations {
+				logFRRRoutingState(t, pool, reg)
+			}
+		}
+	})
 	manifests := make([]store.BGPRoutingBindingConfiguration, 2)
 	before := make([]store.BGPRoutingLookup, 2)
 	for lane, reg := range registrations {
@@ -153,8 +161,15 @@ func readFRRSelectedPath(ctx context.Context, pool *pgxpool.Pool, tenant string,
 func awaitFRRSelectedPath(t *testing.T, pool *pgxpool.Pool, reg edgeFlowRegistration, address, prefix string, expected []uint32, nextHop netip.Addr) store.BGPRoutingLookup {
 	t.Helper()
 	var got store.BGPRoutingLookup
+	last := "no current lookup completed"
+	defer func() {
+		if t.Failed() {
+			t.Logf("selected-RIB lookup for %s: %s", prefix, last)
+		}
+	}()
 	shipped.Await(t, "actual FRR complete selected prefix "+prefix, 30*time.Second, func() bool {
 		current, err := readFRRSelectedPath(t.Context(), pool, reg.tenantID, reg, address)
+		last = fmt.Sprintf("error=%v prefix=%s paths=%+v generation=%s sequence=%d observed=%s", err, current.Prefix, current.Paths, current.View.Generation, current.LastSequence, current.LastObservedAt)
 		if err != nil || current.Prefix.String() != prefix || len(current.Paths) != 1 {
 			return false
 		}
@@ -172,4 +187,37 @@ func awaitFRRSelectedPath(t *testing.T, pool *pgxpool.Pool, reg edgeFlowRegistra
 		return true
 	})
 	return got
+}
+
+// On failure expose only this fixture's tenant-scoped routing state. A staged
+// dump, a decoder refusal, incomplete EOR and a mismatched selected path need
+// different repairs; none is permission to extend the wait or weaken the path.
+func logFRRRoutingState(t *testing.T, pool *pgxpool.Pool, reg edgeFlowRegistration) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(reg.tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+		rows, err := sc.Q.Query(ctx, `SELECT v.id::text,v.generation::text,v.afi,v.state,v.completed_at IS NOT NULL,v.last_sequence,
+ COALESCE(v.message_clock_sequence,0),v.valid_until,v.peer_identity->>'SourceFormat',
+ (SELECT count(*) FROM bgp_routing_entries e WHERE e.tenant_id=v.tenant_id AND e.context_id=v.context_id AND e.view_id=v.id AND e.generation=v.generation)
+ FROM bgp_routing_views v WHERE v.tenant_id=$1 AND v.context_id=$2 AND v.router_id=$3 ORDER BY v.observed_at,v.afi`, reg.tenantID, reg.contextID, reg.deviceID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		count := 0
+		for rows.Next() {
+			values, err := rows.Values()
+			if err != nil {
+				return err
+			}
+			t.Logf("selected-RIB fixture tenant %s view: %v", reg.tenantID, values)
+			count++
+		}
+		t.Logf("selected-RIB fixture tenant %s retained %d views", reg.tenantID, count)
+		return rows.Err()
+	})
+	if err != nil {
+		t.Logf("selected-RIB fixture state unavailable: %v", err)
+	}
 }
