@@ -27,22 +27,23 @@ SUB_BGP4MP_MESSAGE_AS4 = 4
 BGP_UPDATE = 2
 AFI_IPV4 = 1
 
-# Declared BGP message = 19-byte header + withdrawn_len(2) + total_attr_len(2),
-# both zero: a well-formed but empty UPDATE that announces no prefixes at all.
-DECLARED_MSG_LEN = 23
+# Include a valid AS_PATH so mandatory attribute validation cannot mask the
+# original framing fault when its guard is omitted. Still no announced NLRI.
+_AS_PATH = b"\x40\x02\x06\x02\x01" + struct.pack(">I", 64496)
+DECLARED_MSG_LEN = 19 + 2 + 2 + len(_AS_PATH)
 
 # Bytes of 0x00 appended AFTER the declared message, still inside the MRT record
 # frame. Each 0x00 decodes as a length-0 ("0.0.0.0/0") NLRI prefix, so the unfixed
 # parser materializes one BGPRoute per padding byte. 100 KiB keeps the RED run's
 # allocation modest (~tens of MiB) while staying wildly disproportionate to the
-# 23-byte declared message; scaling this toward 16 MiB reproduces the >1 GiB RSS.
+# small declared message; scaling this toward 16 MiB reproduces the >1 GiB RSS.
 _NLRI_PADDING = 100_000
 
 
 def _malicious_bgp4mp_record() -> bytes:
     """A BGP4MP_MESSAGE_AS4 record whose BGP message under-claims its framed size."""
-    # Declared UPDATE body: no withdrawals, no path attributes, no NLRI.
-    update = struct.pack(">H", 0) + struct.pack(">H", 0)
+    # Declared UPDATE body: no withdrawals, a valid path, no NLRI.
+    update = struct.pack(">H", 0) + struct.pack(">H", len(_AS_PATH)) + _AS_PATH
     assert DECLARED_MSG_LEN == 19 + len(update)
     msg = (
         b"\xff" * 16  # BGP marker
@@ -68,7 +69,7 @@ def test_nlri_parse_is_bounded_by_declared_bgp_message_length():
 
     # The number of prefixes a record can yield must be bounded by the declared BGP
     # message length (each NLRI prefix needs >= 1 byte). The unfixed parser yields
-    # one route per padding byte (~100k) from a 23-byte message; the fix bounds the
+    # one route per padding byte (~100k) from a small message; the fix bounds the
     # scan to the declared body, which announces nothing.
     assert len(routes) <= DECLARED_MSG_LEN, (
         f"NLRI parse yielded {len(routes)} prefixes from a {DECLARED_MSG_LEN}-byte "
