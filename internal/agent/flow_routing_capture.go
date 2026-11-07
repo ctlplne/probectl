@@ -72,7 +72,10 @@ func (c *EvidenceClient) SubmitFlowRouting(ctx context.Context, raw []*agentv1.F
 	if size <= 0 || size > math.MaxInt32-4096 || len(raw) > (math.MaxInt32-4096)/128 {
 		return nil, ErrEvidenceBatchInvalid
 	}
-	callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// A configured complete raw batch can require more than the generic
+	// evidence call's five seconds. Match the receiver's finite operation
+	// budget; never trim witnesses to fit a client-only deadline.
+	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	c.mu.RLock()
 	svc := c.svc
