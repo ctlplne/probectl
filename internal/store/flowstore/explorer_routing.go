@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"maps"
 	"slices"
 	"strconv"
 	"time"
@@ -32,6 +33,10 @@ type RoutingProjection struct {
 	Clock     int64
 	Fields    map[string]string
 	SourceIDs []string
+	// FactsID is a request-local memoization hint supplied by the verified
+	// capture reader. A matching hint still requires identical context,
+	// fields and sources. It never grants or replaces source authority.
+	FactsID [32]byte
 }
 
 type routingQueryKey struct {
@@ -42,9 +47,22 @@ type routingQueryKey struct {
 type routingQueryData struct {
 	tenant string
 	asOf   time.Time
-	byKey  map[routingQueryKey]map[string]string
-	rows   []RoutingProjection
+	byKey  map[routingQueryKey][32]byte
+	facts  map[[32]byte]routingQueryFact
 	digest string
+}
+
+type routingQueryFact struct {
+	Scope     entity.Scope
+	Fields    map[string]string
+	SourceIDs []string
+}
+
+type routingQueryBuilder struct {
+	data      *routingQueryData
+	remaining int64
+	hints     map[[32]byte][32]byte
+	seen      map[[32]byte]bool
 }
 
 func newRoutingQueryData(ctx context.Context, tenant string, at time.Time, rows []RoutingProjection, memory int64) (*routingQueryData, error) {
@@ -52,77 +70,141 @@ func newRoutingQueryData(ctx context.Context, tenant string, at time.Time, rows 
 	if !ok || bound.String() != tenant || !validTagProjectionID(tenant) || at.IsZero() {
 		return nil, ErrRoutingQueryScope
 	}
-	if memory < 4096 || int64(len(rows)) > (memory-4096)/4096 {
+	if memory < 4096 || int64(len(rows)) > (memory-4096)/512 {
 		return nil, ErrExplorerBudget
 	}
-	used := int64(4096)
-	data := &routingQueryData{tenant: tenant, asOf: at.UTC(), byKey: map[routingQueryKey]map[string]string{}}
-	seen := map[[32]byte]bool{}
+	builder := routingQueryBuilder{data: &routingQueryData{tenant: tenant, asOf: at.UTC(), byKey: map[routingQueryKey][32]byte{}, facts: map[[32]byte]routingQueryFact{}}, remaining: memory - 4096, hints: map[[32]byte][32]byte{}, seen: map[[32]byte]bool{}}
 	for _, row := range rows {
+		if err := builder.add(ctx, row); err != nil {
+			return nil, err
+		}
+	}
+	return builder.finish(ctx)
+}
+
+func (builder *routingQueryBuilder) charge(bytes int64) error {
+	if bytes < 0 || bytes > builder.remaining {
+		return ErrExplorerBudget
+	}
+	builder.remaining -= bytes
+	return nil
+}
+
+func (builder *routingQueryBuilder) add(ctx context.Context, row RoutingProjection) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	scope, err := row.Normalize()
+	if err != nil || scope != row.Scope || row.TenantID != builder.data.tenant || row.Key == ([32]byte{}) || row.Clock <= 0 || len(row.SourceIDs) == 0 || builder.seen[row.Key] {
+		return ErrRoutingQueryScope
+	}
+	if err := builder.charge(512); err != nil {
+		return err
+	}
+	if int64(len(row.SourceIDs)) > builder.remaining/32 {
+		return ErrExplorerBudget
+	}
+	row.SourceIDs = slices.Clone(row.SourceIDs)
+	slices.Sort(row.SourceIDs)
+	row.SourceIDs = slices.Compact(row.SourceIDs)
+	factID, err := builder.internFact(ctx, row)
+	if err != nil {
+		return err
+	}
+	builder.seen[row.Key] = true
+	builder.data.byKey[routingQueryKey{row.Key, row.Clock}] = factID
+	return nil
+}
+
+func (builder *routingQueryBuilder) internFact(ctx context.Context, row RoutingProjection) ([32]byte, error) {
+	if row.FactsID != ([32]byte{}) {
+		if id, exists := builder.hints[row.FactsID]; exists {
+			fact := builder.data.facts[id]
+			if fact.Scope != row.Scope || !maps.Equal(fact.Fields, row.Fields) || !slices.Equal(fact.SourceIDs, row.SourceIDs) {
+				return [32]byte{}, ErrRoutingQueryScope
+			}
+			return id, nil
+		}
+	}
+	cost := int64(0)
+	for name, value := range row.Fields {
+		if err := ctx.Err(); err != nil {
+			return [32]byte{}, err
+		}
+		definition, ok := flow.RoutingQueryField(name)
+		if !ok {
+			return [32]byte{}, ErrRoutingQueryScope
+		}
+		cost += 256 + int64(len(name)+len(value))*12
+		if cost > builder.remaining {
+			return [32]byte{}, ErrExplorerBudget
+		}
+		if definition.Type == flow.QueryUnsigned && value != "" {
+			parsed, err := strconv.ParseUint(value, 10, 32)
+			if err != nil || strconv.FormatUint(parsed, 10) != value {
+				return [32]byte{}, ErrRoutingQueryScope
+			}
+		}
+	}
+	for _, source := range row.SourceIDs {
+		if source == "" {
+			return [32]byte{}, ErrRoutingQueryScope
+		}
+		cost += 256 + int64(len(source))*12
+		if cost > builder.remaining {
+			return [32]byte{}, ErrExplorerBudget
+		}
+	}
+	fact := routingQueryFact{Scope: row.Scope, Fields: maps.Clone(row.Fields), SourceIDs: slices.Clone(row.SourceIDs)}
+	// The source reader supplies stable, complete source order. Preserve it in
+	// the hint comparison and canonicalize only the content-addressed payload.
+	body, err := json.Marshal(fact)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	var id [32]byte
+	copy(id[:], crypto.Hash(body))
+	if previous, exists := builder.data.facts[id]; exists {
+		if previous.Scope != fact.Scope || !maps.Equal(previous.Fields, fact.Fields) || !slices.Equal(previous.SourceIDs, fact.SourceIDs) {
+			return [32]byte{}, ErrRoutingQueryScope
+		}
+	} else {
+		if err := builder.charge(cost); err != nil {
+			return [32]byte{}, err
+		}
+		builder.data.facts[id] = fact
+	}
+	if row.FactsID != ([32]byte{}) {
+		builder.hints[row.FactsID] = id
+	}
+	return id, nil
+}
+
+func (builder *routingQueryBuilder) finish(ctx context.Context) (*routingQueryData, error) {
+	type reference struct {
+		Key   [32]byte
+		Clock int64
+		Fact  [32]byte
+	}
+	refs := make([]reference, 0, len(builder.data.byKey))
+	for key, fact := range builder.data.byKey {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		scope, err := row.Normalize()
-		if err != nil || scope != row.Scope || row.TenantID != tenant || row.Key == ([32]byte{}) || row.Clock <= 0 || len(row.SourceIDs) == 0 {
-			return nil, ErrRoutingQueryScope
-		}
-		used += 4096
-		for name, value := range row.Fields {
-			definition, ok := flow.RoutingQueryField(name)
-			if !ok {
-				return nil, ErrRoutingQueryScope
-			}
-			used += 256 + int64(len(name)+len(value))*12
-			if used > memory {
-				return nil, ErrExplorerBudget
-			}
-			if definition.Type == flow.QueryUnsigned && value != "" {
-				parsed, err := strconv.ParseUint(value, 10, 32)
-				if err != nil || strconv.FormatUint(parsed, 10) != value {
-					return nil, ErrRoutingQueryScope
-				}
-			}
-		}
-		fields := make(map[string]string, len(row.Fields))
-		for name, value := range row.Fields {
-			fields[name] = value
-		}
-		row.SourceIDs = slices.Clone(row.SourceIDs)
-		slices.Sort(row.SourceIDs)
-		row.SourceIDs = slices.Compact(row.SourceIDs)
-		for _, source := range row.SourceIDs {
-			used += 256 + int64(len(source))*12
-			if used > memory {
-				return nil, ErrExplorerBudget
-			}
-			if source == "" {
-				return nil, ErrRoutingQueryScope
-			}
-		}
-		row.Fields = fields
-		key := routingQueryKey{row.Key, row.Clock}
-		if seen[row.Key] {
-			return nil, ErrRoutingQueryScope
-		}
-		seen[row.Key] = true
-		data.byKey[key] = fields
-		data.rows = append(data.rows, row)
+		refs = append(refs, reference{key.key, key.clock, fact})
 	}
-	slices.SortFunc(data.rows, func(a, b RoutingProjection) int {
-		return slices.Compare(a.Key[:], b.Key[:])
-	})
+	slices.SortFunc(refs, func(a, b reference) int { return slices.Compare(a.Key[:], b.Key[:]) })
 	body, err := json.Marshal(struct {
-		Tenant string              `json:"tenant_id"`
-		Rows   []RoutingProjection `json:"rows"`
-	}{tenant, data.rows})
+		Tenant     string
+		References []reference
+	}{builder.data.tenant, refs})
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(body)) > memory-used {
-		return nil, ErrExplorerBudget
-	}
-	data.digest = hex.EncodeToString(crypto.Hash(body))
-	return data, nil
+	// Per-reference reservation includes this compact serialization. Full
+	// fields were charged only once per unique content-addressed fact.
+	builder.data.digest = hex.EncodeToString(crypto.Hash(body))
+	return builder.data, nil
 }
 
 func (data *routingQueryData) validate(ctx context.Context, tenant string) error {
@@ -164,8 +246,8 @@ func (data *routingQueryData) valueForRow(row Row, field string) string {
 	body, _ := hex.DecodeString(row.RoutingCaptureKey)
 	var key [32]byte
 	copy(key[:], body)
-	if fields, exists := data.byKey[routingQueryKey{key, row.RoutingCapturedUnixNanos}]; exists {
-		if value, exists := fields[field]; exists {
+	if id, exists := data.byKey[routingQueryKey{key, row.RoutingCapturedUnixNanos}]; exists {
+		if value, exists := data.facts[id].Fields[field]; exists {
 			return value
 		}
 	}

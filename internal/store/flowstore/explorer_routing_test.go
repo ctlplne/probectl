@@ -59,7 +59,7 @@ func TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys(t *tes
 		if err != nil {
 			t.Fatal(err)
 		}
-		rows[i] = RoutingProjection{Scope: entity.Scope{TenantID: tenant, ContextID: contextID}, Key: key, Clock: at.UnixNano(), Fields: fields, SourceIDs: []string{"routing-view/current-source-and-origin"}}
+		rows[i] = RoutingProjection{Scope: entity.Scope{TenantID: tenant, ContextID: contextID}, Key: key, Clock: at.UnixNano(), Fields: fields, SourceIDs: []string{"routing-view/current-source-and-origin"}, FactsID: [32]byte{31: 1}}
 		if i == count-1 {
 			last = Row{TenantID: tenant, AgentID: "routing-flow", Exporter: input.Exporter.String(), Protocol: input.Protocol, ObsDomain: input.Domain, SrcAddr: input.Source.String(), DstAddr: input.Destination.String(), RawFlowDigest: hex.EncodeToString(digest[:]), RoutingCaptureKey: hex.EncodeToString(key[:]), RoutingCapturedUnixNanos: at.UnixNano()}
 		}
@@ -67,6 +67,9 @@ func TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys(t *tes
 	data, err := newRoutingQueryData(ctx, tenant, at, rows, 64<<20)
 	if err != nil || len(data.byKey) != count {
 		t.Fatal("complete routing query projection lost shared full paths or original references", err)
+	}
+	if len(data.facts) != 1 {
+		t.Fatal("routing query projection duplicated identical source facts", len(data.facts))
 	}
 	if got := data.valueForRow(last, "src_bgp_as_paths"); got != string(encoded) || data.valueForRow(last, "src_bgp_origin_as") != "4294967295" {
 		t.Fatal("routing query projection truncated the complete path or full ASN")
