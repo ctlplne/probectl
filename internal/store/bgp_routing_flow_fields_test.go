@@ -33,6 +33,6 @@ func TestRoutingFlowProjectionKeepsEveryPathAndRejectsPartialAdmission(t *testin
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if got, err := routingFlowPathFields(ctx, paths, routingViewBudget()); !errors.Is(err, context.Canceled) || got != nil {
-		t.Fatal("cancelled flow projection returned partial paths", err)
+		t.Fatal("canceled flow projection returned partial paths", err)
 	}
 }

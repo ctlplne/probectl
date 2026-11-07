@@ -158,10 +158,10 @@ func TestRoutingCaptureObjectsRefuseTenantMixCorruptionOldFormatsAndPartialAdmis
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	if got, err := decodeRoutingCapture(canceled, objects, routingViewBudget()); !errors.Is(err, context.Canceled) || got.Owner.TenantID != "" {
-		t.Fatal("cancelled capture exposed data", err)
+		t.Fatal("canceled capture exposed data", err)
 	}
 	if got, err := freezeRoutingCapture(canceled, input, routingViewBudget()); !errors.Is(err, context.Canceled) || got.facts.payload != "" {
-		t.Fatal("cancelled capture encoded data", err)
+		t.Fatal("canceled capture encoded data", err)
 	}
 	var header map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(objects.facts.payload), &header); err != nil {

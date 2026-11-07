@@ -218,7 +218,7 @@ func validateRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, bu
 	if !ok || tenant.String() != owner.TenantID {
 		return entity.ErrScopeMismatch
 	}
-	if normalized, err := owner.Scope.Normalize(); err != nil || normalized != owner.Scope {
+	if normalized, err := owner.Normalize(); err != nil || normalized != owner.Scope {
 		return entity.ErrScopeMismatch
 	}
 	if router, err := validRegistryUUID(owner.RouterID); err != nil || router != owner.RouterID {
