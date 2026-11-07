@@ -621,7 +621,7 @@ ROUTING_WRITE_CONTROLS = {
         "internal/agenttransport/bgp_routing_stage.go",
         "if unbound {", "if false && unbound {",
         "TestRoutingMalformedUnboundPeerUpPreservesKnownContexts", "",
-        "unbound routing VRF selected or reset a canonical context",
+        "truncated unbound routing selector retired a known canonical context",
     ),
     "routing-refused-selector": (
         "internal/store/bgp_routing_stage_binding.go",

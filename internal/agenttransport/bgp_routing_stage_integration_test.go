@@ -246,6 +246,16 @@ func proveRoutingStagingMTLS(t *testing.T, scenario string) {
 		if _, err := lanes[0].client.StageRoutingPeer(ctx, malformedUnbound); err == nil || counts(lanes[0], "staging") != 2 || counts(lanes[1], "staging") != 2 {
 			t.Fatal("malformed unbound routing view retired a known canonical context", err)
 		}
+		// A complete nonzero selector is checked against current storage bindings.
+		// A truncated selector has no safe target; it must be refused before the
+		// source-wide invalidation path can retire any known canonical context.
+		truncatedSelector := proto.Clone(unbound).(*agentv1.BmpRoutingPeerUp)
+		truncatedSelector.ObservationId = newUUID(t)
+		truncatedSelector.Message = truncatedSelector.Message[:40]
+		binary.BigEndian.PutUint32(truncatedSelector.Message[1:5], uint32(len(truncatedSelector.Message)))
+		if _, err := lanes[0].client.StageRoutingPeer(ctx, truncatedSelector); err == nil || counts(lanes[0], "staging") != 2 || counts(lanes[1], "staging") != 2 {
+			t.Fatal("truncated unbound routing selector retired a known canonical context", err)
+		}
 	}
 	foreign := proto.Clone(lanes[0].input).(*agentv1.BmpRoutingPeerUp)
 	foreign.OriginSerial = lanes[1].originSerial
