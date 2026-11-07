@@ -47,6 +47,11 @@ func TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors(t
 	const external6 = "2001:db8:5000::/48"
 	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "route-map FX5-V6-ORIGIN permit 10", "-c", "set as-path prepend "+strconv.Itoa(originA), "-c", "exit", "-c", "router bgp "+strconv.Itoa(edgeASN), "-c", "address-family ipv6 unicast", "-c", "network "+external6+" route-map FX5-V6-ORIGIN", "-c", "end")
 	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "address-family ipv6 unicast", "-c", "no network "+link.prefix6, "-c", "exit-address-family", "-c", "bmp targets probectl", "-c", "bmp monitor ipv4 unicast loc-rib", "-c", "bmp monitor ipv6 unicast loc-rib", "-c", "bmp stats interval 1000", "-c", "end")
+	// Check the router again after all source configuration, independently of
+	// its BMP serializer. A serialized outbound path must never replace the
+	// selected path merely to satisfy a stored-state assertion.
+	lab.awaitRoutes(t, "rtr-a", map[string]string{prefixA: path(edgeASN, originA)})
+	logFRRSelectedRouterTables(t, lab)
 	st := shipped.Start(t, shipped.Options{Name: "selected-rib", TenantBand: 4})
 	first := registerEdgeFlowEvidence(t, st, lab.ip["rtr-a"])
 	second := registerSecondRouterTenant(t, st, first)
@@ -58,6 +63,7 @@ func TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors(t
 	pool := st.ApplicationReadPool(t)
 	t.Cleanup(func() {
 		if t.Failed() {
+			logFRRSelectedRouterTables(t, lab)
 			for _, reg := range registrations {
 				logFRRRoutingState(t, pool, reg)
 			}
@@ -132,6 +138,15 @@ func TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors(t
 		awaitFRRSelectedPath(t, pool, reg, "2001:db8:5000::1", external6, []uint32{edgeASN, originA}, netip.MustParseAddr(link.peerIP6))
 	}
 	t.Log("real-integration: actual FRR dual-family Loc-RIB, public configuration, issued collector/origin mTLS, app-role TLS/RLS, source liveness/delegation/restart/withdrawal; no flow/forwarding or multi-VRF hardware claim")
+}
+
+func logFRRSelectedRouterTables(t *testing.T, lab *routingLab) {
+	t.Helper()
+	for _, family := range []string{"ipv4", "ipv6"} {
+		// This isolated fixture contains only the hand-specified test prefixes;
+		// no running configuration, credentials or operator routes are logged.
+		t.Logf("selected-RIB router %s table: %s", family, lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "show bgp "+family+" unicast json"))
+	}
 }
 
 func putFRRSelectedRIBBinding(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, listener *bgpTenant, identifier, epoch string, enabled bool) store.BGPRoutingBindingConfiguration {
