@@ -28,6 +28,7 @@ import (
 	"github.com/ctlplne/probectl/internal/bus"
 	probectlc "github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	"github.com/ctlplne/probectl/internal/logging"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -367,8 +368,14 @@ func configureBMPEvidence(cfg bmpEvidenceConfig, metrics *agentmetrics.Runtime) 
 		observedBMPEvidence{client: client, metrics: metrics}), nil
 }
 
+type bmpEvidenceClient interface {
+	Submit(context.Context, []entity.Observation) (int, int, error)
+	StageRoutingPeer(context.Context, *agentv1.BmpRoutingPeerUp) (*agentv1.BmpRoutingStagingReceipt, error)
+	SubmitRoutingMessage(context.Context, *agentv1.BmpRoutingMessage) (*agentv1.BmpRoutingMessageReceipt, error)
+}
+
 type observedBMPEvidence struct {
-	client  *agent.EvidenceClient
+	client  bmpEvidenceClient
 	metrics *agentmetrics.Runtime
 }
 
