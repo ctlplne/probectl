@@ -27,6 +27,7 @@ var errBGPRoutingContextBinding = errors.New("routing view lacks an explicit con
 // supplies the live mTLS collector and serial; RLS operator assignments resolve
 // canonical ownership. Definitions must come from complete server-side decoding.
 type BGPRoutingPeerUpInput struct {
+	RefusedPeer                                                            *BGPRoutingPeer // protocol selector for refusal only; never canonical authority
 	CollectorAgentID, SenderSerial, SourceRef, OriginSerial, ObservationID string
 	ObservedAt                                                             time.Time
 	FrameDigest                                                            []byte

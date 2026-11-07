@@ -57,14 +57,18 @@ func routingPeerUpWire(t *testing.T) []byte {
 // Actual served mTLS evidence client/listener and application-role Postgres.
 // BGP bytes are a protocol fixture, not a real-router or flow-join receipt.
 func TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState(t *testing.T) {
-	proveRoutingStagingMTLS(t, false)
+	proveRoutingStagingMTLS(t, "")
 }
 
 func TestRoutingPeerUpRateRefusalInvalidatesOnlyItsCurrentOwnedSource(t *testing.T) {
-	proveRoutingStagingMTLS(t, true)
+	proveRoutingStagingMTLS(t, "peer-up-rate")
 }
 
-func proveRoutingStagingMTLS(t *testing.T, peerUpRateRefusal bool) {
+func TestRoutingMalformedUnboundPeerUpPreservesKnownContexts(t *testing.T) {
+	proveRoutingStagingMTLS(t, "malformed-unbound")
+}
+
+func proveRoutingStagingMTLS(t *testing.T, scenario string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
@@ -177,6 +181,15 @@ func proveRoutingStagingMTLS(t *testing.T, peerUpRateRefusal bool) {
 	if _, err := lanes[0].client.StageRoutingPeer(ctx, unbound); err == nil || counts(lanes[0], "staging") != 2 || counts(lanes[1], "staging") != 2 {
 		t.Fatal("unbound routing VRF selected or reset a canonical context", err)
 	}
+	if scenario == "malformed-unbound" {
+		malformedUnbound := proto.Clone(unbound).(*agentv1.BmpRoutingPeerUp)
+		malformedUnbound.ObservationId = newUUID(t)
+		malformedUnbound.Message = malformedUnbound.Message[:70]
+		binary.BigEndian.PutUint32(malformedUnbound.Message[1:5], uint32(len(malformedUnbound.Message)))
+		if _, err := lanes[0].client.StageRoutingPeer(ctx, malformedUnbound); err == nil || counts(lanes[0], "staging") != 2 || counts(lanes[1], "staging") != 2 {
+			t.Fatal("malformed unbound routing view retired a known canonical context", err)
+		}
+	}
 	foreign := proto.Clone(lanes[0].input).(*agentv1.BmpRoutingPeerUp)
 	foreign.OriginSerial = lanes[1].originSerial
 	if _, err := lanes[0].client.StageRoutingPeer(ctx, foreign); err == nil || counts(lanes[0], "staging") != 2 || counts(lanes[1], "staging") != 2 {
@@ -260,7 +273,7 @@ func proveRoutingStagingMTLS(t *testing.T, peerUpRateRefusal bool) {
 		t.Fatal("rate refusal prerequisite could not consume tenant byte allowance")
 	}
 	rejected := &agentv1.BmpRoutingMessage{ConfiguredRef: lanes[1].input.ConfiguredRef, OriginSerial: lanes[1].input.OriginSerial, Generation: streamNonce, Sequence: 4, ObservedUnixNanos: time.Now().UnixNano(), Message: routingUpdateWire(lanes[1].input.Message, "v4-eor", 64497)}
-	if peerUpRateRefusal {
+	if scenario == "peer-up-rate" {
 		replacement := proto.Clone(lanes[1].input).(*agentv1.BmpRoutingPeerUp)
 		replacement.ObservationId, replacement.ObservedUnixNanos = newUUID(t), time.Now().UnixNano()
 		if _, err := lanes[1].client.StageRoutingPeer(ctx, replacement); err == nil || counts(lanes[1], "current") != 0 || counts(lanes[0], "current") != 2 {

@@ -112,6 +112,15 @@ func TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal(t *tes
 	if _, err := stage(0, unbound); !errors.Is(err, errBGPRoutingContextBinding) || count(0) != 4 || count(1) != 4 {
 		t.Fatal("unbound selector changed an owned routing source", err)
 	}
+	refused := up(0, 0, uuid.NewString())
+	hint := refused.Definitions[0].Peer
+	refused.RefusedPeer, refused.Definitions = &hint, nil
+	if got, err := stage(0, refused); err != nil || got.Status != "invalidated" || len(got.Views) != 0 || count(0) != 2 || count(1) != 4 {
+		t.Fatal("selector refusal retired sibling bindings or created routing authority", got, err, count(0), count(1))
+	}
+	if got, err := stage(0, up(0, 0, uuid.NewString())); err != nil || got.Status != "staged" || count(0) != 4 {
+		t.Fatal("selected source could not restart after scoped refusal", got, err)
+	}
 	replacement := up(0, 0, uuid.NewString())
 	replacement.Definitions = replacement.Definitions[:1]
 	if got, err := stage(0, replacement); err != nil || got.Status != "staged" || count(0) != 3 || count(1) != 4 {
