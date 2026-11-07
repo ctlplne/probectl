@@ -77,6 +77,7 @@ type schema struct {
 	Items                *schema            `json:"items"`
 	AdditionalProperties any                `json:"additionalProperties"`
 	AllOf                []*schema          `json:"allOf"`
+	OneOf                []*schema          `json:"oneOf"`
 	Enum                 []any              `json:"enum"`
 }
 
@@ -356,6 +357,27 @@ func typeName(s *schema) string {
 	if name := refName(s.Ref, "#/components/schemas/"); name != "" {
 		return name
 	}
+	return nullableReference(s)
+}
+
+// A reference-or-null union has one unambiguous model. Other alternatives
+// remain generic; selecting a convenient branch would lose supported values.
+func nullableReference(s *schema) string {
+	if s == nil || s.Ref != "" || s.Type != nil || len(s.OneOf) != 2 || len(s.Properties) != 0 || len(s.AllOf) != 0 {
+		return ""
+	}
+	for i, variant := range s.OneOf {
+		other := s.OneOf[1-i]
+		if variant == nil || other == nil || other.Ref != "" {
+			continue
+		}
+		if kind, ok := other.Type.(string); !ok || kind != "null" {
+			continue
+		}
+		if name := refName(variant.Ref, "#/components/schemas/"); name != "" {
+			return name
+		}
+	}
 	return ""
 }
 
@@ -385,6 +407,9 @@ func schemaType(s *schema) string {
 func schemaNullable(s *schema) bool {
 	if s == nil {
 		return false
+	}
+	if nullableReference(s) != "" {
+		return true
 	}
 	items, ok := s.Type.([]any)
 	if !ok {
