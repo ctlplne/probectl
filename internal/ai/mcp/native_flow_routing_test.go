@@ -58,8 +58,8 @@ func TestNativeRoutingASNsKeepStructuredPathsAndMandatoryTextRedaction(t *testin
 		t.Fatal("native CSV routing facts lost complete values or bypassed mandatory text redaction", err)
 	}
 	content := response["content"].([]map[string]any)
-	var copy NativeFlowResult
-	if err := json.Unmarshal([]byte(content[0]["text"].(string)), &copy); err != nil || !reflect.DeepEqual(copy, got) {
+	var wireCopy NativeFlowResult
+	if err := json.Unmarshal([]byte(content[0]["text"].(string)), &wireCopy); err != nil || !reflect.DeepEqual(wireCopy, got) {
 		t.Fatal("native routing wire copies diverged", err)
 	}
 }
