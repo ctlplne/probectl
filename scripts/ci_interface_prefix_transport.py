@@ -537,6 +537,50 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-intent-publication": (
+        "internal/store/bgp_routing_capture_repository.go",
+        "func readRoutingCaptureInScope(ctx context.Context, sc tenancy.Scope, key [32]byte, budget BGPRoutingBudget) (routingCaptureReceipt, bool, error) {",
+        "func readRoutingCaptureInScope(ctx context.Context, sc tenancy.Scope, key [32]byte, budget BGPRoutingBudget) (routingCaptureReceipt, bool, error) {\n"
+        "if intent, found, err := loadRoutingCaptureIntentInScope(ctx,sc,key); err == nil && found { objects,e := readRoutingCaptureIntentPayloadInScope(ctx,sc,intent,budget); if e != nil { return routingCaptureReceipt{},false,e }; return routingCaptureReceipt{key:key,capturedAt:intent.capturedAt,outcome:\"captured\",objects:objects},true,nil }\n",
+        "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone", "",
+        "unattested private candidate became canonical routing evidence",
+    ),
+    "routing-intent-clock": (
+        "internal/store/bgp_routing_capture_intents.go",
+        "return intent.reference(), err",
+        "return BGPRoutingCaptureReference{Key:key,CapturedAt:objects.capturedAt}, err",
+        "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone", "",
+        "provisional retry replaced its first processing clock",
+    ),
+    "routing-intent-generation": (
+        "internal/store/bgp_routing_capture_intents.go",
+        "sourceepoch.MatchSourceGenerationInScope(ctx, sc, generation)",
+        "error(nil)",
+        "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone", "",
+        "pre-erasure provisional capture republished source data",
+    ),
+    "routing-intent-epoch-final": (
+        "internal/store/bgp_routing_capture_finalization.go",
+        "if intent.sourceGeneration == generation {",
+        "if true {",
+        "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges", "",
+        "expired provisional epoch became canonical after erasure",
+    ),
+    "routing-intent-current-source": (
+        "internal/store/bgp_routing_capture_finalization.go",
+        "current, err := routingCapturePublicationCurrent(ctx, sc, lookup, sender, input, budget)",
+        "_ = lookup; current, err := true, error(nil)",
+        "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges", "",
+        "revoked source finalized a private provisional capture",
+    ),
+    "routing-intent-refill": (
+        "internal/store/bgp_routing_capture_intents.go",
+        "if intent, exists, err := loadRoutingCaptureIntentInScope(ctx, sc, key); err != nil || exists {\n\t\treturn intent.reference(), err\n\t}",
+        "if intent, exists, err := loadRoutingCaptureIntentInScope(ctx, sc, key); err != nil || exists {\n"
+        "if err == nil && exists { var linked bool; err=sc.Q.QueryRow(ctx,`SELECT EXISTS(SELECT 1 FROM bgp_flow_capture_intent_payloads WHERE tenant_id=$1 AND flow_key=$2)`,sc.Tenant.String(),key[:]).Scan(&linked); if err==nil && !linked { err=insertRoutingCaptureObjects(ctx,sc,objects); if err==nil { _,err=sc.Q.Exec(ctx,`INSERT INTO bgp_flow_capture_intent_payloads(tenant_id,flow_key,facts_digest,clocks_digest) VALUES($1,$2,$3,$4)`,sc.Tenant.String(),key[:],objects.facts.digest[:],objects.clocks.digest[:]) } } }; return intent.reference(),err\n}",
+        "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone", "",
+        "erased provisional retry refilled its payload or changed first clock",
+    ),
     "flow-capture-consumer-wire": (
         "internal/pipeline/flow_capture.go",
         'ctx = tenancy.WithTenant(ctx, tenancy.ID(tenant))',
