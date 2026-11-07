@@ -128,3 +128,31 @@ func TestBMPRoutingCohortsKeepOneSocketFamiliesSequencesAndWholeReplacement(t *t
 		t.Fatal("physical source closure leaked cohorts or changed a sibling socket")
 	}
 }
+
+func TestRoutingCohortReceiptRequiresCompleteUniqueGeneration(t *testing.T) {
+	for _, families := range [][]uint32{{1}, {2}, {1, 2}} {
+		receipt := &agentv1.BmpRoutingStagingReceipt{Status: "staged"}
+		var want uint8
+		for _, afi := range families {
+			receipt.Views = append(receipt.Views, &agentv1.BmpRoutingViewReference{Generation: "owned-generation", Afi: afi, Safi: 1})
+			want |= 1 << (afi - 1)
+		}
+		if mask, ok := routingReceiptFamilyMask(receipt, "owned-generation"); !ok || mask != want {
+			t.Fatal("complete supported receipt lost cohort", mask, want)
+		}
+	}
+	for _, receipt := range []*agentv1.BmpRoutingStagingReceipt{
+		nil,
+		{Status: "staged"},
+		{Status: "staged", Views: []*agentv1.BmpRoutingViewReference{nil}},
+		{Status: "staged", Views: []*agentv1.BmpRoutingViewReference{{Generation: "foreign-generation", Afi: 1, Safi: 1}}},
+		{Status: "staged", Views: []*agentv1.BmpRoutingViewReference{{Generation: "owned-generation", Afi: 3, Safi: 1}}},
+		{Status: "staged", Views: []*agentv1.BmpRoutingViewReference{{Generation: "owned-generation", Afi: 1, Safi: 128}}},
+		{Status: "staged", Views: []*agentv1.BmpRoutingViewReference{{Generation: "owned-generation", Afi: 1, Safi: 1}, {Generation: "owned-generation", Afi: 1, Safi: 1}}},
+		{Status: "invalidated", Views: []*agentv1.BmpRoutingViewReference{{Generation: "owned-generation", Afi: 1, Safi: 1}}},
+	} {
+		if mask, ok := routingReceiptFamilyMask(receipt, "owned-generation"); ok || mask != 0 {
+			t.Fatal("partial, foreign or inconsistent receipt retained cohort metadata", mask)
+		}
+	}
+}

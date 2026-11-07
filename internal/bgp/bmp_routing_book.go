@@ -14,6 +14,7 @@ const DefaultBMPRoutingStateBytes int64 = 64 << 20
 // This protocol selector is opaque and never supplies canonical authority.
 // Only the receiver's current tenant-owned operator assignment can do that.
 type bmpRoutingSelector struct {
+	cohort        uint8 // exact supported family mask from the authenticated staging receipt
 	distinguisher [8]byte
 	identifier    [4]byte
 }
@@ -41,35 +42,71 @@ func newBMPRoutingStreams(limit int64) *bmpRoutingStreams {
 	return &bmpRoutingStreams{sessions: make(map[uint64]map[bmpRoutingSelector]bmpRoutingStreamState), limit: limit}
 }
 
-func (streams *bmpRoutingStreams) get(peer bmpPeerEvidence) (bmpRoutingStreamState, bool) {
+func (streams *bmpRoutingStreams) peers(peer bmpPeerEvidence) []bmpPeerEvidence {
+	out := make([]bmpPeerEvidence, 0, 4)
+	for cohort := uint8(0); cohort <= 3; cohort++ {
+		selected := peer
+		selected.routingSelector.cohort = cohort
+		if _, exists := streams.sessions[peer.sessionHandle][selected.routingSelector]; exists {
+			out = append(out, selected)
+		}
+	}
+	return out
+}
+
+// An unspecified cohort can resolve only a unique known stream. Production
+// dispatch supplies an exact receipt-selected key when multiple cohorts exist.
+func (streams *bmpRoutingStreams) resolve(peer bmpPeerEvidence) (bmpPeerEvidence, bmpRoutingStreamState, bool) {
 	state, ok := streams.sessions[peer.sessionHandle][peer.routingSelector]
+	if ok || peer.routingSelector.cohort != 0 {
+		return peer, state, ok
+	}
+	peers := streams.peers(peer)
+	if len(peers) != 1 {
+		return peer, bmpRoutingStreamState{}, false
+	}
+	selected := peers[0]
+	return selected, streams.sessions[selected.sessionHandle][selected.routingSelector], true
+}
+
+func (streams *bmpRoutingStreams) get(peer bmpPeerEvidence) (bmpRoutingStreamState, bool) {
+	_, state, ok := streams.resolve(peer)
 	return state, ok
 }
 
-func (streams *bmpRoutingStreams) put(peer bmpPeerEvidence, state bmpRoutingStreamState) bool {
-	previous, exists := streams.get(peer)
+func (streams *bmpRoutingStreams) admit(peer bmpPeerEvidence, state bmpRoutingStreamState) (int64, bool) {
+	previous, exists := streams.sessions[peer.sessionHandle][peer.routingSelector]
 	var oldBytes int64
 	if exists {
 		oldBytes = bmpRoutingStateCharge(previous)
 	}
 	nextBytes := bmpRoutingStateCharge(state)
 	if nextBytes > streams.limit || streams.used-oldBytes > streams.limit-nextBytes {
+		return 0, false
+	}
+	return nextBytes - oldBytes, true
+}
+
+func (streams *bmpRoutingStreams) put(peer bmpPeerEvidence, state bmpRoutingStreamState) bool {
+	delta, ok := streams.admit(peer, state)
+	if !ok {
 		return false
 	}
 	if streams.sessions[peer.sessionHandle] == nil {
 		streams.sessions[peer.sessionHandle] = make(map[bmpRoutingSelector]bmpRoutingStreamState)
 	}
 	streams.sessions[peer.sessionHandle][peer.routingSelector] = state
-	streams.used += nextBytes - oldBytes
+	streams.used += delta
 	return true
 }
 
 func (streams *bmpRoutingStreams) remove(peer bmpPeerEvidence) {
-	if state, exists := streams.get(peer); exists {
+	selected, state, exists := streams.resolve(peer)
+	if exists {
 		streams.used -= bmpRoutingStateCharge(state)
-		delete(streams.sessions[peer.sessionHandle], peer.routingSelector)
-		if len(streams.sessions[peer.sessionHandle]) == 0 {
-			delete(streams.sessions, peer.sessionHandle)
+		delete(streams.sessions[selected.sessionHandle], selected.routingSelector)
+		if len(streams.sessions[selected.sessionHandle]) == 0 {
+			delete(streams.sessions, selected.sessionHandle)
 		}
 	}
 }

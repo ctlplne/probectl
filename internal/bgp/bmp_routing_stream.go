@@ -21,6 +21,7 @@ type bmpRoutingMessageWriter interface {
 }
 
 type bmpRoutingStreamState struct {
+	familyMask       uint8
 	source           bmpPeerEvidence // identity/loss token only; never retains a wire payload
 	generation       string
 	previous         string
@@ -167,76 +168,11 @@ func (l *BMPListener) routingStreamEvidence(ctx context.Context, peer bmpPeerEvi
 		}
 		return
 	}
-	state, existed := states.get(peer)
-	state.source = bmpPeerEvidence{tenantID: peer.tenantID, routerAgentID: peer.routerAgentID,
-		routerSerial: peer.routerSerial, sessionHandle: peer.sessionHandle, routingLoss: peer.routingLoss, routingSelector: peer.routingSelector}
-	if peer.routingLoss != nil && peer.routingLoss.Load() {
-		if existed && !state.failed {
-			l.retireRoutingStream(ctx, writer, peer, &state)
-			states.put(peer, state)
-		}
-		return
-	}
-	if state.failed && peer.routingPeerUp == nil {
-		return
-	}
 	if peer.routingPeerUp != nil {
-		stager, ok := l.evidence.(bmpRoutingStager)
-		if !ok {
-			l.retireRoutingStream(ctx, writer, peer, &state)
-			if existed {
-				states.put(peer, state)
-			}
-			return
-		}
-		previous := state
-		state.previous, state.generation = state.generation, peer.routingPeerUp.ObservationId
-		state.previousSequence, state.sequence = state.sequence, 0
-		if !states.put(peer, state) {
-			l.routingStateRefused(states)
-			if existed {
-				l.retireRoutingStream(ctx, writer, peer, &previous)
-				states.put(peer, previous)
-			}
-			return
-		}
-		receipt, err := stager.StageRoutingPeer(ctx, peer.routingPeerUp)
-		if err != nil || receipt == nil || len(receipt.Views) == 0 {
-			l.retireRoutingStream(ctx, writer, peer, &state)
-			if existed {
-				states.put(peer, state)
-			} else {
-				// A rejected fresh selector cannot grow retained state. Its
-				// attempted private generation has already been reset.
-				states.remove(peer)
-			}
-			l.log.Warn("bmp routing staging unavailable; raw collection retained", "tenant_id", l.laneTenant, "agent_id", l.evidenceAgent)
-			return
-		}
-		states.put(peer, bmpRoutingStreamState{generation: peer.routingPeerUp.ObservationId, source: state.source})
+		l.stageRoutingCohort(ctx, writer, peer, states)
 		return
 	}
-	if state.generation == "" {
-		return
-	}
-	message := peer.routingMessage
-	if message == nil || state.sequence >= math.MaxInt64-1 {
-		l.retireRoutingStream(ctx, writer, peer, &state)
-		states.put(peer, state)
-		return
-	}
-	state.sequence++
-	message.ConfiguredRef, message.OriginSerial, message.Generation, message.Sequence = peer.routerAgentID, peer.routerSerial, state.generation, state.sequence
-	_, err := writer.SubmitRoutingMessage(ctx, message)
-	if err != nil {
-		l.retireRoutingStream(ctx, writer, peer, &state)
-		l.log.Warn("bmp ordered routing evidence unavailable", "tenant_id", l.laneTenant, "agent_id", l.evidenceAgent)
-	}
-	if message.SourceReset && err == nil {
-		states.remove(peer)
-	} else {
-		states.put(peer, state)
-	}
+	l.dispatchRoutingCohorts(ctx, writer, peer, states)
 }
 
 // Source-driven liveness only: no timer renews routing authority merely because
