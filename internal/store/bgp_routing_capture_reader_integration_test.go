@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -46,6 +47,7 @@ func proveCapturedRoutingReaderRequiresCurrentContextAndOriginalReference(t *tes
 		if err != nil || calls != 1 || !lookup.CapturedAt.Equal(first[lane].CapturedAt) || !reflect.DeepEqual(lookup.Source.Route.Paths, []BGPRoutingChange{changes[lane]}) {
 			t.Fatal("current retained routing reader lost its complete original snapshot", lane, calls, err)
 		}
+		proveRoutingCaptureBatchReaderScope(t, f, lane, raw, input, first[lane])
 		denied := errors.New("current context permission removed")
 		lookup, err = readFlowCaptureForTest(t, f, lane, raw, input, first[lane], func(context.Context, entity.ContextRecord) error { return denied })
 		if !errors.Is(err, denied) || !reflect.DeepEqual(lookup, BGPRoutingFlowLookup{}) {
@@ -75,6 +77,39 @@ func proveCapturedRoutingReaderRequiresCurrentContextAndOriginalReference(t *tes
 		}
 	}
 	proveCapturedNextHopReadRequiresCurrentSupportingEvidence(t, f, first, raw, input, changes)
+}
+
+func proveRoutingCaptureBatchReaderScope(t *testing.T, f *roleInputsFixture, lane int, raw [32]byte, input BGPRoutingFlowInput, ref BGPRoutingCaptureReference) {
+	t.Helper()
+	read := flowstore.RoutingCaptureRead{Sender: "routing-flow", Witness: entity.FlowCaptureWitness{RawDigest: raw, Input: input}, Ref: ref}
+	missing := read
+	missing.Witness.RawDigest[0] ^= 1
+	key, err := entity.FlowCaptureKey(f.tenants[lane], missing.Sender, missing.Witness.RawDigest, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing.Ref.Key = key
+	err = tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[lane])), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		calls := 0
+		projections, err := readRoutingCaptureQueryBatchInScope(ctx, sc, []flowstore.RoutingCaptureRead{read, missing}, routingViewBudget(), func(_ context.Context, record entity.ContextRecord) error {
+			calls++
+			if record.TenantID != f.tenants[lane] || record.ContextID != f.contextID {
+				t.Fatal("routing query batch authorized a foreign context")
+			}
+			return nil
+		})
+		if err != nil || calls != 1 || len(projections) != 1 || projections[0].Key != ref.Key || projections[0].Clock != ref.CapturedAt.UnixNano() || projections[0].Fields["src_bgp_provenance"] != "router_selected" || projections[0].Fields["src_bgp_as_paths"] == "" {
+			t.Fatal("routing query batch lost original evidence or treated a missing capture as authority", calls, err)
+		}
+		denied := errors.New("current batch context denied")
+		if partial, err := readRoutingCaptureQueryBatchInScope(ctx, sc, []flowstore.RoutingCaptureRead{read}, routingViewBudget(), func(context.Context, entity.ContextRecord) error { return denied }); !errors.Is(err, denied) || partial != nil {
+			t.Fatal("routing query batch exposed data before its current context authorization", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func proveCapturedNextHopReadRequiresCurrentSupportingEvidence(t *testing.T, f *roleInputsFixture, first [2]BGPRoutingCaptureReference, raw [32]byte, input BGPRoutingFlowInput, changes []BGPRoutingChange) {

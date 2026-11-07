@@ -7,11 +7,13 @@
 package store
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -19,6 +21,7 @@ import (
 )
 
 func TestRetainedRoutingQueryFieldsKeepWholePathsAndExplicitAmbiguity(t *testing.T) {
+	proveRoutingQueryCaptureReuseKeepsEveryOriginalReference(t)
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(routingCaptureTenant))
 	lookup := routingCaptureFixture(t)
 	path := lookup.Source.Route.Paths[0]
@@ -78,5 +81,51 @@ func TestRetainedRoutingQueryFieldsKeepWholePathsAndExplicitAmbiguity(t *testing
 	}
 	if got, err := routingCaptureQueryProjection(ctx, lookup, ref, BGPRoutingBudget{MemoryBytes: 1, WorkUnits: 1}); !errors.Is(err, ErrBGPRoutingBudget) || !reflect.DeepEqual(got, flowstore.RoutingProjection{}) {
 		t.Fatal("retained routing query exposed an unadmitted prefix", err)
+	}
+}
+
+func proveRoutingQueryCaptureReuseKeepsEveryOriginalReference(t *testing.T) {
+	t.Helper()
+	lookup := routingCaptureFixture(t)
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(routingCaptureTenant))
+	input := entity.FlowCaptureInput{Exporter: lookup.Owner.Exporter, Protocol: lookup.Owner.Protocol, Domain: lookup.Owner.Domain, Source: lookup.Source.Route.Prefix.Addr(), Destination: lookup.Destination.Route.Prefix.Addr()}
+	reads := make([]flowstore.RoutingCaptureRead, 50_000)
+	header := routingQueryCaptureHeader{contextID: lookup.Owner.ContextID}
+	for i := range reads {
+		read := flowstore.RoutingCaptureRead{Sender: lookup.Owner.AgentID, Witness: entity.FlowCaptureWitness{Input: input}}
+		binary.BigEndian.PutUint64(read.Witness.RawDigest[:8], uint64(i+1))
+		key, err := entity.FlowCaptureKey(routingCaptureTenant, read.Sender, read.Witness.RawDigest, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		read.Ref = entity.FlowCaptureReference{Key: key, CapturedAt: lookup.CapturedAt.Add(time.Duration(i) * time.Nanosecond)}
+		if !routingQueryCaptureMatches(lookup, read, header) {
+			t.Fatal("shared routing capture lost an original valid reference", i)
+		}
+		reads[i] = read
+	}
+	budget := BGPRoutingBudget{MemoryBytes: flowstore.DefaultExplorerBudget().MemoryBytes / 4, WorkUnits: flowstore.DefaultExplorerBudget().MemoryBytes / 4}
+	keys, err := routingQueryCaptureKeys(ctx, tenancy.Scope{Tenant: tenancy.ID(routingCaptureTenant)}, reads, &budget)
+	if err != nil || len(keys) != len(reads) {
+		t.Fatal("complete routing query capture references were truncated", err)
+	}
+	changed := reads[len(reads)-1]
+	changed.Witness.RawDigest[0] ^= 1
+	if partial, err := routingQueryCaptureKeys(ctx, tenancy.Scope{Tenant: tenancy.ID(routingCaptureTenant)}, []flowstore.RoutingCaptureRead{reads[0], changed}, &budget); !errors.Is(err, entity.ErrScopeMismatch) || partial != nil {
+		t.Fatal("shared routing capture accepted a detached original digest", err)
+	}
+	for _, change := range []func(*flowstore.RoutingCaptureRead){
+		func(read *flowstore.RoutingCaptureRead) { read.Sender = "another-agent" },
+		func(read *flowstore.RoutingCaptureRead) { read.Witness.Input.Protocol = "sflow5" },
+		func(read *flowstore.RoutingCaptureRead) { read.Ref.CapturedAt = lookup.Owner.ValidUntil },
+		func(read *flowstore.RoutingCaptureRead) {
+			read.Ref.CapturedAt = lookup.Source.Route.AsOf.Add(-time.Nanosecond)
+		},
+	} {
+		changed := reads[0]
+		change(&changed)
+		if routingQueryCaptureMatches(lookup, changed, header) {
+			t.Fatal("shared routing capture reused another sender, tuple or invalid first clock")
+		}
 	}
 }

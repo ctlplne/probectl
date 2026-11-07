@@ -48,15 +48,19 @@ func admitRoutingCaptureJSON(ctx context.Context, object routingCaptureObject, b
 // Charge the complete retained shape before JSON allocates its buffers. These
 // are conservative representation costs, never route/path/population ceilings.
 func admitRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, budget BGPRoutingBudget) error {
+	return chargeRoutingCapture(ctx, lookup, &budget)
+}
+
+func chargeRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, budget *BGPRoutingBudget) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := routingBatchCharge(&budget, 4096, 1024); err != nil {
+	if err := routingBatchCharge(budget, 4096, 1024); err != nil {
 		return err
 	}
 	owner := lookup.Owner
 	for _, value := range []string{owner.TenantID, owner.ContextID, owner.AgentID, owner.RouterID, owner.SourceID, owner.Protocol} {
-		if err := routingCaptureStringCharge(ctx, &budget, value); err != nil {
+		if err := routingCaptureStringCharge(ctx, budget, value); err != nil {
 			return err
 		}
 	}
@@ -66,7 +70,7 @@ func admitRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, budge
 		}
 		source := side.Route.Source
 		for _, value := range []string{side.State, source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial} {
-			if err := routingCaptureStringCharge(ctx, &budget, value); err != nil {
+			if err := routingCaptureStringCharge(ctx, budget, value); err != nil {
 				return err
 			}
 		}
@@ -74,17 +78,17 @@ func admitRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, budge
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := routingCaptureCountCharge(ctx, &budget, len(path.NextHops), 256); err != nil {
+			if err := routingCaptureCountCharge(ctx, budget, len(path.NextHops), 256); err != nil {
 				return err
 			}
-			if err := routingBatchCharge(&budget, 512, 128); err != nil {
+			if err := routingBatchCharge(budget, 512, 128); err != nil {
 				return err
 			}
 			for _, segment := range path.Segments {
-				if err := routingBatchCharge(&budget, 128, 32); err != nil {
+				if err := routingBatchCharge(budget, 128, 32); err != nil {
 					return err
 				}
-				if err := routingCaptureCountCharge(ctx, &budget, len(segment.Values), 64); err != nil {
+				if err := routingCaptureCountCharge(ctx, budget, len(segment.Values), 64); err != nil {
 					return err
 				}
 			}
@@ -92,10 +96,10 @@ func admitRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, budge
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				if err := routingBatchCharge(&budget, 128, 32); err != nil {
+				if err := routingBatchCharge(budget, 128, 32); err != nil {
 					return err
 				}
-				if err := routingCaptureCountCharge(ctx, &budget, len(attribute.Value), 8); err != nil {
+				if err := routingCaptureCountCharge(ctx, budget, len(attribute.Value), 8); err != nil {
 					return err
 				}
 			}
@@ -104,17 +108,17 @@ func admitRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, budge
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := routingBatchCharge(&budget, 256, 64); err != nil {
+			if err := routingBatchCharge(budget, 256, 64); err != nil {
 				return err
 			}
-			if err := routingCaptureStringCharge(ctx, &budget, field.ASPathText); err != nil {
+			if err := routingCaptureStringCharge(ctx, budget, field.ASPathText); err != nil {
 				return err
 			}
 			for _, segment := range field.ASPath {
-				if err := routingBatchCharge(&budget, 128, 32); err != nil {
+				if err := routingBatchCharge(budget, 128, 32); err != nil {
 					return err
 				}
-				if err := routingCaptureCountCharge(ctx, &budget, len(segment.Values), 64); err != nil {
+				if err := routingCaptureCountCharge(ctx, budget, len(segment.Values), 64); err != nil {
 					return err
 				}
 			}
@@ -123,14 +127,14 @@ func admitRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, budge
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := routingBatchCharge(&budget, 512, 128); err != nil {
+			if err := routingBatchCharge(budget, 512, 128); err != nil {
 				return err
 			}
-			if err := routingCaptureStringCharge(ctx, &budget, field.Reason); err != nil {
+			if err := routingCaptureStringCharge(ctx, budget, field.Reason); err != nil {
 				return err
 			}
 			for _, source := range field.Sources {
-				if err := routingCaptureStringCharge(ctx, &budget, source); err != nil {
+				if err := routingCaptureStringCharge(ctx, budget, source); err != nil {
 					return err
 				}
 			}
