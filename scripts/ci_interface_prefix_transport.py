@@ -161,6 +161,7 @@ INTEGRATION = {
         "TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority",
     ),
     "internal/control": (
+        "TestBGPRoutingBindingsStdioKeepsTenantEpochAndCurrentCredentials",
         "TestBGPRoutingConfigurationAPIKeepsTenantCurrentActorEpochAndAtomicAudit",
         "TestNativeFlowRoleTLSKeepsWholeProvenanceAndCurrentAuthority",
         "TestInterfaceRoleNativeTLSKeepsTenantConfigurationAndCurrentSources",
@@ -485,6 +486,12 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-native-metadata": (
+        "internal/control/mcp_bgp_routing_bindings.go",
+        "return marshalBGPRoutingMCPConfiguration(raw)", "return raw, nil",
+        "TestBGPRoutingBindingsStdioKeepsTenantEpochAndCurrentCredentials", "2026-07-28",
+        "native routing metadata changed canonical binding identity",
+    ),
     "routing-api-current-authority": (
         "internal/control/bgp_routing_api.go",
         "authority, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)",
