@@ -35,7 +35,7 @@ import (
 // ClickHouse persistence.
 func proveFlowRoutingRuntimeOrdering(t *testing.T, pool *pgxpool.Pool, tenant, sender string, client *agent.EvidenceClient) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	b := bus.NewMemory()
 	rows := flowstore.NewMemory()
 	budget := store.BGPRoutingBudget{MemoryBytes: 256 << 20, WorkUnits: 256 << 20, StateBytes: 1 << 30, LeaseDuration: time.Minute}

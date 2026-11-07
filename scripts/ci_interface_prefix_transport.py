@@ -540,6 +540,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-capture-read-context": (
+        "internal/store/bgp_routing_capture_reader.go",
+        "if err := authorize(ctx, record); err != nil {",
+        "if err := authorize(ctx, record); false && err != nil {",
+        "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges", "",
+        "retained routing key bypassed current context authorization",
+    ),
+    "routing-capture-read-source": (
+        "internal/store/bgp_routing_capture_reader.go",
+        "if !current {",
+        "if false && !current {",
+        "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges", "",
+        "retained routing reader reused removed current source authority",
+    ),
     "flow-witness-runtime": (
         "cmd/probectl-flow-agent/main.go",
         "func (o observedFlowEvidence) SubmitFlowRouting(",
