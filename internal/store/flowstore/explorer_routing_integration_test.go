@@ -83,7 +83,7 @@ func proveRoutingQueryJoinsInRealStore(t *testing.T, store *ClickHouse, tenants 
 			if err != nil {
 				t.Fatal(err)
 			}
-			sql += settings
+			sql += "\n" + settings
 			got, err := store.explorerQueryRows(ctx, Target{}, reader, tenant, sql, params, external...)
 			if err != nil || len(got) != 2 {
 				t.Fatal("actual routing join lost known or unknown retained traffic", table, len(got), err)
