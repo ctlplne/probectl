@@ -71,6 +71,9 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	if revoked {
 		return nil, status.Error(codes.PermissionDenied, "evidence identity was revoked")
 	}
+	if !validEntityEvidenceEnvelope(req) {
+		return nil, status.Error(codes.InvalidArgument, "evidence request must contain one complete operation")
+	}
 	if req.GetFlowRouting() != nil {
 		response, err := svc.submitFlowRoutingEvidence(ctx, id, req)
 		if err == nil {

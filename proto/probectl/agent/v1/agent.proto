@@ -327,6 +327,41 @@ message BmpRoutingViewReference {
   uint32 safi = 4;
 }
 
+// A complete original TABLE_DUMP_V2 peer-index record. The source reference
+// selects only a current operator assignment; tenant and collector come from
+// the evidence mTLS identity. Staging does not make any route current.
+message PublicRoutingPeerTable {
+  string observation_id = 1;
+  string configured_ref = 2;
+  int64 observed_unix_nanos = 3;
+  bytes source_record = 4;
+}
+
+// One original MRT RIB record or an exclusive whole-file EOF/reset marker.
+// The sender validates complete file framing before EOF. The receiver decodes
+// every record against the stored peer table and never accepts interpreted
+// paths, peer-selected view handles, tenant, context or router identifiers.
+message PublicRoutingMessage {
+  string configured_ref = 1;
+  string snapshot_id = 2;
+  int64 observed_unix_nanos = 3;
+  int64 sequence = 4;
+  bytes record = 5;
+  bool complete = 6;
+  bool source_reset = 7;
+}
+
+message PublicRoutingStagingReceipt {
+  string status = 1; // staged | replayed | invalidated; never a read grant
+  string snapshot_id = 2;
+}
+
+message PublicRoutingMessageReceipt {
+  string status = 1; // applied | replayed | invalidated
+  string snapshot_id = 2;
+  int64 sequence = 3;
+}
+
 // Original flow dimensions witnessed by the restricted evidence mTLS peer.
 // The digest covers the entire original bus record; this separate tuple binds
 // routing inputs to that digest. No tenant, sender, context or router is accepted.
@@ -361,6 +396,8 @@ message SubmitEntityEvidenceRequest {
   BmpRoutingPeerUp routing_peer_up = 3; // exclusive; complete staging only
   BmpRoutingMessage routing_message = 4; // exclusive; complete ordered source message
   FlowRoutingWitnessBatch flow_routing = 5; // exclusive; certified sender only
+  PublicRoutingPeerTable public_routing_peer_table = 6; // exclusive original source metadata
+  PublicRoutingMessage public_routing_message = 7; // exclusive original MRT record or EOF/reset
 }
 
 message SubmitEntityEvidenceResponse {
@@ -370,4 +407,6 @@ message SubmitEntityEvidenceResponse {
   BmpRoutingStagingReceipt routing = 4;
   BmpRoutingMessageReceipt routing_message = 5;
   FlowRoutingCaptureBatch flow_routing = 6;
+  PublicRoutingStagingReceipt public_routing = 7;
+  PublicRoutingMessageReceipt public_routing_message = 8;
 }

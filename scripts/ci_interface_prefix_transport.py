@@ -141,6 +141,7 @@ UNIT = {
         "TestInterfaceRolePolicyRefusesAmbiguityAndKeepsCanonicalSets",
     ),
     "internal/agent": (
+        "TestPublicRoutingClientKeepsOriginalFramesAndRequiresExclusiveReceipts",
         "TestFlowRoutingClientRequiresCompleteOrderedCertifiedReceipts",
         "TestRoutingResetClientRequiresExactInvalidationReceipt",
         "TestRoutingMessageClientKeepsExactStreamAndRefusesMixedReceipts",
@@ -148,6 +149,7 @@ UNIT = {
         "TestSNMPPrefixEvidenceWireKeepsCompleteSetAndWholeRequestAdmission",
     ),
     "internal/agenttransport": (
+        "TestEntityEvidenceEnvelopeKeepsOnePlaneAndRefusesUnknownPublicFields",
         "TestFlowRoutingWitnessReceiverKeepsCompleteBatchAndCertifiedScope",
         "TestFlowRoutingWitnessReceiverRefusesMixedMalformedAndUnknownAuthority",
         "TestRoutingProjectionKeepsWholePopulationAndAdmitsDescriptorExpansion",
@@ -609,6 +611,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-receipt-stage": (
+        "internal/agent/bgp_routing_stage.go",
+        "hasPublicRoutingReceipt(response)",
+        "false",
+        "TestRoutingStageClientPreservesCompleteRequestAndRequiresPrivateReceipt", "",
+        "routing staging accepted missing, partial or published receipt",
+    ),
     "public-mrt-refusal": (
         "internal/store/bgp_public_mrt_message.go",
         "errors.Is(err, bgp.ErrMRTRecord)",

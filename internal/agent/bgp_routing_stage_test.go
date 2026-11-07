@@ -44,6 +44,8 @@ func TestRoutingStageClientPreservesCompleteRequestAndRequiresPrivateReceipt(t *
 		{Accepted: 1, Routing: good},
 		{FlowRouting: &agentv1.FlowRoutingCaptureBatch{}, Routing: good},
 		{RoutingMessage: &agentv1.BmpRoutingMessageReceipt{}, Routing: good},
+		{PublicRouting: &agentv1.PublicRoutingStagingReceipt{}, Routing: good},
+		{PublicRoutingMessage: &agentv1.PublicRoutingMessageReceipt{}, Routing: good},
 	} {
 		stub.response = response
 		if _, err := client.StageRoutingPeer(context.Background(), raw); err == nil {
