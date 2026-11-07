@@ -31,9 +31,12 @@ type BGPRoutingStreamInput struct {
 // generation before refusal is acknowledged. The caller must commit refusals.
 func (store BGPRouting) ApplyPeerMessageInScope(ctx context.Context, sc tenancy.Scope, input BGPRoutingStreamInput, profile BGPRoutingBudget,
 	decode func(context.Context, BGPRoutingPeer, []BGPRoutingStagedView) ([]BGPRoutingBatch, error)) (BGPRoutingApplyResult, error) {
-	source, err := store.authorizeRoutingStream(ctx, sc, input, profile)
+	source, handled, err := store.authorizeRoutingStream(ctx, sc, input, profile)
 	if err != nil {
 		return BGPRoutingApplyResult{}, err
+	}
+	if handled {
+		return BGPRoutingApplyResult{Status: "invalidated"}, nil
 	}
 	if input.Reset {
 		return invalidateRoutingStream(ctx, sc, source, input.Generation, "source-reset")
@@ -55,30 +58,42 @@ func (store BGPRouting) ApplyPeerMessageInScope(ctx context.Context, sc tenancy.
 	return store.persistRoutingStream(ctx, sc, source, input, refs, batches, profile)
 }
 
-func (store BGPRouting) authorizeRoutingStream(ctx context.Context, sc tenancy.Scope, input BGPRoutingStreamInput, profile BGPRoutingBudget) (BGPRoutingSource, error) {
+func (store BGPRouting) authorizeRoutingStream(ctx context.Context, sc tenancy.Scope, input BGPRoutingStreamInput, profile BGPRoutingBudget) (BGPRoutingSource, bool, error) {
 	up := BGPRoutingPeerUpInput{CollectorAgentID: input.CollectorAgentID, SenderSerial: input.SenderSerial, SourceRef: input.SourceRef, OriginSerial: input.OriginSerial, ObservationID: input.Generation, ObservedAt: input.ObservedAt}
 	source, err := routingStageSource(ctx, sc, up, profile)
 	if err != nil {
-		return source, err
+		return source, false, err
 	}
 	if id, err := validRegistryUUID(input.Generation); err != nil || id != input.Generation {
-		return source, ErrBGPRoutingView
+		return source, false, ErrBGPRoutingView
 	}
 	if err := lockBGPRoutingState(ctx, sc); err != nil {
-		return source, err
+		return source, false, err
+	}
+	source, handled, err := resolveRoutingStreamSource(ctx, sc, source, input, profile)
+	if err != nil || handled {
+		return source, handled, err
 	}
 	if _, err := store.sourceAuthorityForWriteInScope(ctx, sc, source); err != nil {
-		return source, err
+		return source, false, err
 	}
-	return source, nil
+	return source, false, nil
 }
 
 func loadRoutingStreamMetadata(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, generation string, profile BGPRoutingBudget) (BGPRoutingPeer, []BGPRoutingStagedView, error) {
+	selection, err := routingSelectionJSON(source)
+	if err != nil {
+		return BGPRoutingPeer{}, nil, err
+	}
+	kind := "loc_rib"
+	if source.routingSelection != nil {
+		kind = "operator_loc_rib"
+	}
 	rows, err := sc.Q.Query(ctx, `SELECT id::text,afi,safi,CASE WHEN octet_length(peer_identity::text)<=$9 THEN peer_identity ELSE NULL END FROM bgp_routing_views
  WHERE tenant_id=$1 AND context_id=$2 AND router_id=$3 AND collector_agent_id=$4 AND source_ref=$5
  AND sender_serial=$6 AND origin_serial=$7 AND generation=$8 AND source_kind='router_bmp'
- AND view_kind='loc_rib' ORDER BY afi,safi FOR UPDATE`, source.TenantID, source.ContextID, source.RouterID,
-		source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, generation, profile.MemoryBytes/32)
+ AND view_kind=$10 AND routing_selection IS NOT DISTINCT FROM $11::jsonb ORDER BY afi,safi FOR UPDATE`, source.TenantID, source.ContextID, source.RouterID,
+		source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, generation, profile.MemoryBytes/32, kind, selection)
 	if err != nil {
 		return BGPRoutingPeer{}, nil, err
 	}
@@ -98,7 +113,10 @@ func loadRoutingStreamMetadata(ctx context.Context, sc tenancy.Scope, source BGP
 		}
 		seen[ref.AFI] = true
 		var current BGPRoutingPeer
-		if json.Unmarshal(raw, &current) != nil || current.Type != 3 || current.Distinguisher != ([8]byte{}) || len(current.OpenFrameDigest) != 32 {
+		if json.Unmarshal(raw, &current) != nil || current.Type != 3 || len(current.OpenFrameDigest) != 32 {
+			return BGPRoutingPeer{}, nil, ErrBGPRoutingView
+		}
+		if !routingStreamPeerMatchesSource(source, current, ref.AFI, ref.SAFI) {
 			return BGPRoutingPeer{}, nil, ErrBGPRoutingView
 		}
 		body, err := json.Marshal(current)
@@ -115,6 +133,14 @@ func loadRoutingStreamMetadata(ctx context.Context, sc tenancy.Scope, source BGP
 		return BGPRoutingPeer{}, nil, ErrBGPRoutingSourceUnavailable
 	}
 	return peer, refs, nil
+}
+
+func routingStreamPeerMatchesSource(source BGPRoutingSource, peer BGPRoutingPeer, afi uint16, safi uint8) bool {
+	if source.routingSelection == nil {
+		return peer.Distinguisher == ([8]byte{})
+	}
+	_, err := routingStoredViewKind(source, BGPRoutingViewDefinition{Kind: "loc_rib", AFI: afi, SAFI: safi, Peer: peer})
+	return err == nil
 }
 
 func routingStreamPlanMatches(refs []BGPRoutingStagedView, batches []BGPRoutingBatch) bool {

@@ -163,6 +163,7 @@ INTEGRATION = {
         "TestRoutingStageReplacementWithdrawsOmittedFamiliesWithoutAffectingSibling",
         "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
         "TestBGPRoutingWholeStreamKeepsFamilyAtomicityReplayAndTenantFence",
+        "TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation",
         "TestInterfaceRoleInputsKeepCurrentOwnedSourcesAndNegativeFences",
         "TestInterfaceRoleInputsRetainWholePrefixTableAndRefusePartialBudget",
         "TestInterfaceRoleInputsRequireAuthenticatedFaultClockAndRecovery",
@@ -461,6 +462,38 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-bound-stream-unwired": (
+        "internal/store/bgp_routing_stream.go",
+        "source, handled, err := resolveRoutingStreamSource(ctx, sc, source, input, profile)",
+        "source, handled, err := source, false, error(nil)",
+        "TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation",
+        "",
+        "bound source message refused current complete generation",
+    ),
+    "routing-bound-stream-generation": (
+        "internal/store/bgp_routing_stage_binding.go",
+        "AND ($6::uuid IS NULL OR generation=$6::uuid)",
+        "AND ($6::uuid IS NULL OR $6::uuid IS NOT NULL)",
+        "TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation",
+        "",
+        "known routing admission refusal retained or crossed a source generation",
+    ),
+    "routing-bound-stream-cohort": (
+        "internal/store/bgp_routing_stream_binding.go",
+        "if !routingStreamFamiliesComplete(source, seen) {",
+        "if false && !routingStreamFamiliesComplete(source, seen) {",
+        "TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation",
+        "",
+        "incomplete retained source refreshed a surviving routing view",
+    ),
+    "routing-bound-stream-peer": (
+        "internal/store/bgp_routing_stream.go",
+        "if !routingStreamPeerMatchesSource(source, current, ref.AFI, ref.SAFI) {",
+        "if false && !routingStreamPeerMatchesSource(source, current, ref.AFI, ref.SAFI) {",
+        "TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation",
+        "",
+        "wrong routing peer reached source decoder",
+    ),
     "routing-stage-selector": (
         "internal/store/bgp_routing_stage.go",
         "AND source_kind='router_bmp' AND state IN ('staging','current')\n AND ((routing_selection IS NULL AND $6::text IS NULL)\n      OR (routing_selection->>'epoch'=$6 AND routing_selection->>'binding_id'=$7))",
@@ -479,7 +512,7 @@ ROUTING_WRITE_CONTROLS = {
     ),
     "routing-stage-base-credential": (
         "internal/store/bgp_routing_stage_binding.go",
-        "if _, err := routingCredentialAuthority(ctx, sc, base, true, config.Manifest.Epoch); err != nil {",
+        "if _, err := routingCredentialAuthority(ctx, sc, base, true, metadata.Epoch); err != nil {",
         "if _, err := (BGPRoutingSourceAuthority{}), error(nil); err != nil {",
         "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
         "",

@@ -200,4 +200,12 @@ func TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation(t *te
 	if got, called, err := apply(1, 1, message, "heartbeat", profile); err != nil || called || got.Status != "invalidated" || count(1, fresh.Generation) != 2 {
 		t.Fatal("old bound generation invalidated or revived a replacement source", got, called, err)
 	}
+	f.in(f.tenants[1], func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET peer_identity=jsonb_set(peer_identity,'{Distinguisher,7}',to_jsonb(99)) WHERE generation=$1`, fresh.Generation)
+		return err
+	})
+	fresh.Sequence, fresh.ObservedAt = 4, routingFixtureTime(f)
+	if got, called, err := apply(1, 1, fresh, "heartbeat", profile); err != nil || called || got.Status != "invalidated" || count(1, fresh.Generation) != 0 {
+		t.Fatal("changed retained routing peer refreshed another bound selector", got, called, err)
+	}
 }
