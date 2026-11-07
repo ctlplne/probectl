@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // Extend the existing retained-input proof, using its actual TLS ClickHouse
@@ -62,6 +63,19 @@ func proveRoutingCaptureRowsInRealStore(t *testing.T, store *ClickHouse) {
 		t.Fatal(err)
 	}
 	for lane, tenant := range tenants {
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		for _, series := range []string{"raw", "rollup"} {
+			refs, err := store.RoutingCaptureReferences(ctx, tenant, rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), series)
+			if err != nil || len(refs) != count {
+				t.Fatal("complete raw/hourly routing reference read lost tenant inputs", series, len(refs), err)
+			}
+			for _, ref := range refs {
+				key, err := entity.FlowCaptureKey(tenant, ref.Sender, ref.Witness.RawDigest, ref.Witness.Input)
+				if err != nil || key != ref.Ref.Key || ref.Ref.CapturedAt.UnixNano() != 1700000000123456789 {
+					t.Fatal("actual routing reference read changed original tenant identity or clock", err)
+				}
+			}
+		}
 		for _, table := range []string{sharedFlowsTable, sharedFlowRollupsTable} {
 			got, err := store.queryScoped(t.Context(), Target{}, tenant, "SELECT tenant_id,raw_flow_digest,routing_capture_key,toString(routing_captured_unix_nanos) AS clock FROM "+table+" FINAL ORDER BY raw_flow_digest", nil)
 			if err != nil || len(got) != count {
