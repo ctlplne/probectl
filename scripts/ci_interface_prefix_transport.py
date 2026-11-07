@@ -542,6 +542,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "routing-capture-read-support": (
+        "internal/store/bgp_routing_capture_reader.go",
+        "if err := redactUnreadableCapturedNextHops(ctx, sc, &lookup, budget); err != nil {",
+        "if err := error(nil); err != nil {",
+        "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges", "",
+        "retained next-hop read reused unavailable support or erased independent paths",
+    ),
     "flow-routing-sharing": (
         "internal/store/flowstore/explorer_routing.go",
         "fact := builder.data.facts[id]",
