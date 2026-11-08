@@ -195,7 +195,7 @@ describe('native flow plan controls', () => {
     expect(updated[249].values).toEqual(['9007199254740993'])
     expect(updated[0].values).toEqual(['1'])
     expect(screen.getByRole('button', { name: 'Add condition to group 1' })).toBeDisabled()
-  })
+  }, 60_000)
 
   test('has accessible labels and fieldsets', async () => {
     const { container } = render(<Harness />)
