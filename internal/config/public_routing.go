@@ -17,6 +17,7 @@ func loadPublicRoutingConfig(l *loader, cfg *Config) {
 	cfg.PublicRoutingMemoryBytes = l.intRange("PROBECTL_PUBLIC_ROUTING_MEMORY_BYTES", 512<<20, 1, maxInt)
 	cfg.PublicRoutingWorkUnits = l.intRange("PROBECTL_PUBLIC_ROUTING_WORK_UNITS", 2<<30, 1, maxInt)
 	cfg.BGPRoutingStateBytes = l.intRange("PROBECTL_BGP_ROUTING_STATE_BYTES", 64<<30, 1, maxInt)
+	cfg.BGPRoutingCaptureStateBytes = l.intRange("PROBECTL_BGP_CAPTURE_STATE_BYTES", 64<<30, 1, maxInt)
 	cfg.PublicRoutingMaxAge = l.dur("PROBECTL_PUBLIC_ROUTING_MAX_AGE", 12*time.Hour)
 	if cfg.PublicRoutingMaxAge <= 0 {
 		l.errf("PROBECTL_PUBLIC_ROUTING_MAX_AGE: must be positive")

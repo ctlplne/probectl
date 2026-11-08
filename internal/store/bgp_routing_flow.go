@@ -186,15 +186,45 @@ func (store BGPRouting) routingFlowSide(ctx context.Context, sc tenancy.Scope, o
 			return BGPRoutingFlowSide{}, err
 		}
 		return BGPRoutingFlowSide{State: "router_selected", Route: route, Fields: fields}, nil
-	case errors.Is(err, ErrBGPRoutingRouteMissing):
-		return BGPRoutingFlowSide{State: "no_prefix"}, nil
-	case errors.Is(err, ErrBGPRoutingSourceUnavailable):
-		return BGPRoutingFlowSide{State: "source_unavailable"}, nil
+	case errors.Is(err, ErrBGPRoutingRouteMissing), errors.Is(err, ErrBGPRoutingSourceUnavailable):
+		routerState := "source_unavailable"
+		if errors.Is(err, ErrBGPRoutingRouteMissing) {
+			routerState = "no_prefix"
+		}
+		return store.publicRoutingFlowSide(ctx, sc, owner.Scope, address, routerState, budget)
 	default:
 		return BGPRoutingFlowSide{}, err
 	}
 }
 
 func routingFlowSideCurrent(side *BGPRoutingFlowSide, at time.Time) bool {
+	if side.Public != nil {
+		return side.Public.ValidUntil.After(at)
+	}
 	return side.State != "router_selected" || side.Route.ValidUntil.After(at)
+}
+
+func (store BGPRouting) publicRoutingFlowSide(ctx context.Context, sc tenancy.Scope, scope entity.Scope, address netip.Addr, routerState string, budget BGPRoutingBudget) (BGPRoutingFlowSide, error) {
+	maxAge := budget.PublicSourceMaxAge
+	if maxAge == 0 {
+		maxAge = 12 * time.Hour
+	}
+	part := budget
+	part.MemoryBytes /= 4
+	part.WorkUnits /= 4
+	public, err := store.LookupPublicContextInScope(ctx, sc, scope, address, part, maxAge)
+	if errors.Is(err, ErrBGPRoutingSourceUnavailable) {
+		return BGPRoutingFlowSide{State: routerState}, nil
+	}
+	if errors.Is(err, ErrBGPRoutingRouteMissing) {
+		return BGPRoutingFlowSide{State: "public_no_prefix", RouterState: routerState, Public: &public}, nil
+	}
+	if err != nil {
+		return BGPRoutingFlowSide{}, err
+	}
+	fields, hops, err := publicRoutingFlowFields(ctx, public, part)
+	if err != nil {
+		return BGPRoutingFlowSide{}, err
+	}
+	return BGPRoutingFlowSide{State: "public_fallback", RouterState: routerState, Public: &public, Fields: fields, NextHops: hops}, nil
 }

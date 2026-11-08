@@ -252,7 +252,7 @@ func validateRoutingFieldValue(name, value string) error {
 	switch {
 	case strings.HasSuffix(name, "_provenance"):
 		switch value {
-		case "router_selected", "public_ris", "public_routeviews", "no_prefix", "unavailable", "ambiguous":
+		case "router_selected", "public_ris", "public_routeviews", "public_mixed", "no_prefix", "unavailable", "ambiguous":
 			return nil
 		default:
 			return ErrRoutingQueryScope

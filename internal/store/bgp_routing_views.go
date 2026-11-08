@@ -34,6 +34,9 @@ type BGPRoutingBudget struct {
 	// LeaseDuration is operator-owned policy, never supplied by a peer. Only
 	// a new ordered heartbeat may refresh the source lease by this duration.
 	LeaseDuration time.Duration
+	// PublicSourceMaxAge is original public-file freshness, independent of
+	// live BMP heartbeats. Zero uses the library's 12-hour public default.
+	PublicSourceMaxAge time.Duration
 }
 
 // BGPRoutingPeer retains the complete parsed Peer Up metadata. It is untrusted

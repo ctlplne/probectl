@@ -154,6 +154,7 @@ UNIT = {
         "TestSNMPPrefixEvidenceWireKeepsCompleteSetAndWholeRequestAdmission",
     ),
     "internal/agenttransport": (
+        "TestRoutingCapturePolicyKeepsConfiguredAdmissionAcrossOptionOrder",
         "TestEntityEvidenceEnvelopeKeepsOnePlaneAndRefusesUnknownPublicFields",
         "TestFlowRoutingWitnessReceiverKeepsCompleteBatchAndCertifiedScope",
         "TestFlowRoutingWitnessReceiverRefusesMixedMalformedAndUnknownAuthority",
@@ -198,6 +199,7 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestPublicCaptureQueryProjectionKeepsExactPathsSourceCohortAndExplicitProvenance",
         "TestPublicCaptureKeepsWholeOriginalCohortAndSeparatesObservationClocks",
         "TestPublicCaptureKeepsCompletePrefixAbsenceAndRefusesPartialForeignOrForgedFacts",
         "TestPublicCaptureRejectsClockCohortOmissionsAndVersionDowngrades",
@@ -290,6 +292,7 @@ INTEGRATION = {
     ),
     "internal/store": (
         "TestPublicRoutingAuthorityKeepsTenantPurposeCurrentCredentialAndAssignmentBirth",
+        "TestPublicFlowFallbackKeepsOriginalCaptureAndCurrentTenantSourceAuthority",
         "TestPublicContextLookupKeepsWholeAssignedCohortTenantAndPrefixAbsence",
         "TestPublicMRTRecordsKeepOriginalPathsTenantScopeAndWholeSourceRefusal",
         "TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions",
@@ -623,6 +626,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-flow-current-source": (
+        "internal/store/bgp_routing_capture_finalization.go",
+        "if side.Public != nil {",
+        "if false && side.Public != nil {",
+        "TestPublicFlowFallbackKeepsOriginalCaptureAndCurrentTenantSourceAuthority", "",
+        "public retained reader bypassed current original source authority",
+    ),
+    "public-capture-projection": (
+        "internal/store/bgp_public_capture_query.go",
+        'out.Fields[prefix+"bgp_provenance"] = provenance',
+        'out.Fields[prefix+"bgp_provenance"] = "router_selected"',
+        "TestPublicCaptureQueryProjectionKeepsExactPathsSourceCohortAndExplicitProvenance", "",
+        "public native projection changed paths or invented router/RPKI authority",
+    ),
     "public-capture-clocks": (
         "internal/store/bgp_public_capture.go",
         "public.Sources = append([]BGPPublicRoutingLookup(nil), public.Sources...)",

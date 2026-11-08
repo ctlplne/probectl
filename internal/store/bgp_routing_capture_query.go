@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/ctlplne/probectl/internal/bgp"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -66,6 +67,8 @@ func routingCaptureSideQueryFields(ctx context.Context, side BGPRoutingFlowSide,
 		out.Fields[prefix+"bgp_provenance"] = "unavailable"
 		return nil
 	case "router_selected":
+	case "public_fallback", "public_no_prefix":
+		return routingCapturePublicQueryFields(ctx, side, owner, prefix, out, budget)
 	default:
 		return errRoutingCaptureFormat
 	}
@@ -77,24 +80,34 @@ func routingCaptureSideQueryFields(ctx context.Context, side BGPRoutingFlowSide,
 			return errRoutingCaptureFormat
 		}
 	}
-	if err := routingBatchCharge(budget, int64(len(side.Fields))*64+512, int64(len(side.Fields))*64); err != nil {
+	out.Fields[prefix+"bgp_provenance"] = "router_selected"
+	out.Fields[prefix+"bgp_prefix"] = side.Route.Prefix.String()
+	if err := routingCapturePathQueryFields(ctx, side.Fields, side.NextHops, prefix, out, budget); err != nil {
 		return err
 	}
-	paths := make([]string, 0, len(side.Fields))
+	out.SourceIDs = append(out.SourceIDs, "routing-view/"+side.Route.View.ID+"/"+side.Route.View.Generation)
+	return nil
+}
+
+func routingCapturePathQueryFields(ctx context.Context, fields []bgp.RoutingPathFields, hops []BGPRoutingNextHopAS, prefix string, out *flowstore.RoutingProjection, budget *BGPRoutingBudget) error {
+	if err := routingBatchCharge(budget, int64(len(fields))*64+512, int64(len(fields))*64); err != nil {
+		return err
+	}
+	paths := make([]string, 0, len(fields))
 	var origin, transit, nextHop *uint32
 	originKnown, transitKnown, nextHopKnown := true, true, true
-	for i, fields := range side.Fields {
+	for i, field := range fields {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		// Includes sorting, JSON escaping and complete transient/output copies.
-		if err := routingBatchCharge(budget, int64(len(fields.ASPathText))*12, int64(len(fields.ASPathText))*8); err != nil {
+		if err := routingBatchCharge(budget, int64(len(field.ASPathText))*12, int64(len(field.ASPathText))*8); err != nil {
 			return err
 		}
-		paths = append(paths, fields.ASPathText)
-		origin, originKnown = routingQueryConsensus(origin, originKnown, fields.OriginAS)
-		transit, transitKnown = routingQueryConsensus(transit, transitKnown, fields.FirstTransitAS)
-		hop := side.NextHops[i]
+		paths = append(paths, field.ASPathText)
+		origin, originKnown = routingQueryConsensus(origin, originKnown, field.OriginAS)
+		transit, transitKnown = routingQueryConsensus(transit, transitKnown, field.FirstTransitAS)
+		hop := hops[i]
 		nextHop, nextHopKnown = routingQueryConsensus(nextHop, nextHopKnown, hop.ASN)
 		for _, source := range hop.Sources {
 			if err := routingBatchCharge(budget, 128+int64(len(source))*12, 64); err != nil {
@@ -109,13 +122,10 @@ func routingCaptureSideQueryFields(ctx context.Context, side BGPRoutingFlowSide,
 	if err != nil {
 		return err
 	}
-	out.Fields[prefix+"bgp_provenance"] = "router_selected"
-	out.Fields[prefix+"bgp_prefix"] = side.Route.Prefix.String()
 	out.Fields[prefix+"bgp_as_paths"] = string(encoded)
 	out.Fields[prefix+"bgp_origin_as"] = routingQueryASN(origin, originKnown)
 	out.Fields[prefix+"bgp_first_transit_as"] = routingQueryASN(transit, transitKnown)
 	out.Fields[prefix+"bgp_next_hop_as"] = routingQueryASN(nextHop, nextHopKnown)
-	out.SourceIDs = append(out.SourceIDs, "routing-view/"+side.Route.View.ID+"/"+side.Route.View.Generation)
 	return nil
 }
 

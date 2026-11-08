@@ -21,7 +21,7 @@ import (
 // Match the existing authenticated flow capture operation, rather than the
 // smaller router-view fixture allowance. Complete binary identity stays intact.
 func publicCaptureBudget() BGPRoutingBudget {
-	return BGPRoutingBudget{MemoryBytes: 256 << 20, WorkUnits: 256 << 20, StateBytes: 1 << 30}
+	return BGPRoutingBudget{MemoryBytes: 512 << 20, WorkUnits: 2 << 30, StateBytes: 64 << 30}
 }
 
 func publicCaptureFixture(t testing.TB) BGPRoutingFlowLookup {

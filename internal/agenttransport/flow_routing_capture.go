@@ -70,7 +70,7 @@ func parseFlowRoutingWitnessBatch(id crypto.SPIFFEID, req *agentv1.SubmitEntityE
 }
 
 func (svc *service) submitFlowRoutingEvidence(ctx context.Context, id crypto.SPIFFEID, req *agentv1.SubmitEntityEvidenceRequest) (*agentv1.SubmitEntityEvidenceResponse, error) {
-	budget := store.BGPRoutingBudget{MemoryBytes: 256 << 20, WorkUnits: 256 << 20, StateBytes: 1 << 30, LeaseDuration: time.Minute}
+	budget := svc.routingCaptureBudget()
 	witnesses, err := parseFlowRoutingWitnessBatch(id, req, budget)
 	if err != nil {
 		return nil, err
