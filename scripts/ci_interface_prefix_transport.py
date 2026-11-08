@@ -619,6 +619,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-read-absence": (
+        "internal/store/bgp_public_lookup.go",
+        "// A proved absence needs its original complete source for capture-time",
+        "if lookupErr != nil { return BGPPublicRoutingLookup{}, lookupErr }; // A proved absence needs its original complete source for capture-time",
+        "TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions", "",
+        "complete public no-prefix result discarded its original source authority",
+    ),
     "public-mrt-import-reset": (
         "internal/agent/public_mrt_stream.go",
         "err = errors.Join(err, reset())",

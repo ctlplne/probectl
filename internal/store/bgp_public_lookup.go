@@ -87,10 +87,9 @@ func (store BGPRouting) LookupPublicSnapshotInScope(ctx context.Context, sc tena
 	if !until.After(finished) {
 		return BGPPublicRoutingLookup{}, ErrBGPRoutingSourceUnavailable
 	}
-	if lookupErr != nil {
-		return BGPPublicRoutingLookup{}, lookupErr
-	}
-	return BGPPublicRoutingLookup{Source: source, SnapshotID: id, SourceObservedUnixNanos: *header.sourceClock, Prefix: prefix, Paths: paths, AsOf: authority.AsOf, ValidUntil: until}, nil
+	// A proved absence needs its original complete source for capture-time
+	// provenance. All earlier authority/corruption failures still return empty.
+	return BGPPublicRoutingLookup{Source: source, SnapshotID: id, SourceObservedUnixNanos: *header.sourceClock, Prefix: prefix, Paths: paths, AsOf: authority.AsOf, ValidUntil: until}, lookupErr
 }
 
 func loadCurrentPublicSnapshot(ctx context.Context, sc tenancy.Scope, source BGPPublicRoutingSource, id string, profile BGPRoutingBudget) (publicSnapshotWriteState, error) {
