@@ -151,7 +151,7 @@ func (f *publicWireFixture) publish(t *testing.T, lane *publicWireLane) {
 		message := f.message(lane, int64(i+1))
 		message.Complete = afi == 0
 		if afi != 0 {
-			message.Record = publicRIBWire(afi, lane.tail, uint32(lane.source.ObservedUnixNanos/1_000_000_000))
+			message.Record = publicRIBWire(afi, lane.tail, binary.BigEndian.Uint32(lane.source.SourceRecord[:4]))
 		}
 		if got, err := lane.client.SubmitPublicRoutingMessage(f.ctx, message); err != nil || got.GetStatus() != "applied" {
 			t.Fatal("original MRT record or EOF failed authenticated publication", got, err)
@@ -185,7 +185,8 @@ func (f *publicWireFixture) assertCurrent(t *testing.T, lane *publicWireLane) {
 			t.Fatal("served MRT source lost tenant-owned complete paths", got, err)
 		}
 		path := got.Paths[0]
-		if len(path.Path.Segments) != 2 || len(path.Path.Segments[0].Values) != 3 || path.Path.Segments[0].Values[0] != ^uint32(0) || path.Path.Segments[0].Values[1] != lane.tail || path.Path.Segments[0].Values[2] != lane.tail || path.Path.Segments[1].Kind != 1 || path.Peer.Collector != "rrc00" || len(path.Peer.ViewName) != 2 || path.Peer.ViewName[0] != 0 || path.Peer.ViewName[1] != 255 || path.Peer.PeerBGPIdentifier == nil || *path.Peer.PeerBGPIdentifier != 0 || path.Path.Attributes.MRT == nil || path.Path.Attributes.MRT.OriginatedUnixNanos != 0 || path.Path.Attributes.MRT.Sequence != ^uint32(0) || got.SourceObservedUnixNanos != lane.source.ObservedUnixNanos/1_000_000_000*1_000_000_000 {
+		sourceClock := int64(binary.BigEndian.Uint32(lane.source.SourceRecord[:4])) * 1_000_000_000
+		if len(path.Path.Segments) != 2 || len(path.Path.Segments[0].Values) != 3 || path.Path.Segments[0].Values[0] != ^uint32(0) || path.Path.Segments[0].Values[1] != lane.tail || path.Path.Segments[0].Values[2] != lane.tail || path.Path.Segments[1].Kind != 1 || path.Peer.Collector != "rrc00" || len(path.Peer.ViewName) != 2 || path.Peer.ViewName[0] != 0 || path.Peer.ViewName[1] != 255 || path.Peer.PeerBGPIdentifier == nil || *path.Peer.PeerBGPIdentifier != 0 || path.Path.Attributes.MRT == nil || path.Path.Attributes.MRT.OriginatedUnixNanos != 0 || path.Path.Attributes.MRT.RecordUnixNanos != sourceClock || path.Path.Attributes.MRT.Sequence != ^uint32(0) || got.SourceObservedUnixNanos != sourceClock || got.ValidUntil.After(time.Unix(0, sourceClock).Add(12*time.Hour)) {
 			t.Fatal("served MRT source narrowed original wire facts or borrowed sibling paths", path)
 		}
 	}
