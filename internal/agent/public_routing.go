@@ -25,7 +25,7 @@ func hasPublicRoutingReceipt(response *agentv1.SubmitEntityEvidenceResponse) boo
 // restricted evidence mTLS channel. The caller owns its deadline and retains
 // the same observation UUID, capture time and bytes across a retry.
 func (c *EvidenceClient) StagePublicRoutingSource(ctx context.Context, raw *agentv1.PublicRoutingPeerTable) (*agentv1.PublicRoutingStagingReceipt, error) {
-	if raw == nil || !validPublicRoutingNonce(raw.GetObservationId()) || raw.GetConfiguredRef() == "" || raw.GetObservedUnixNanos() <= 0 || len(raw.SourceRecord) < 12 || len(raw.ProtoReflect().GetUnknown()) != 0 {
+	if raw == nil || !validPublicRoutingNonce(raw.GetObservationId()) || raw.GetConfiguredRef() == "" || raw.GetObservedUnixNanos() <= 0 || len(raw.ProtoReflect().GetUnknown()) != 0 {
 		return nil, ErrEvidenceBatchInvalid
 	}
 	response, err := c.submitPublicRouting(ctx, &agentv1.SubmitEntityEvidenceRequest{PublicRoutingPeerTable: raw})

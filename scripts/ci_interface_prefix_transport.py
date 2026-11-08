@@ -142,6 +142,10 @@ UNIT = {
         "TestInterfaceRolePolicyRefusesAmbiguityAndKeepsCanonicalSets",
     ),
     "internal/agent": (
+        "TestPublicMRTImporterStreamsWholeInputAndKeepsExactAmbiguousRetries",
+        "TestPublicMRTImporterRefusesPartialReplacedUnadmittedAndCanceledSources",
+        "TestPublicMRTFileCompressionRequiresCleanWholeEOF",
+        "TestPublicMRTImporterReportsFailedRetirementAndRefusesEmptyFirstRecord",
         "TestPublicRoutingClientKeepsOriginalFramesAndRequiresExclusiveReceipts",
         "TestFlowRoutingClientRequiresCompleteOrderedCertifiedReceipts",
         "TestRoutingResetClientRequiresExactInvalidationReceipt",
@@ -614,6 +618,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-mrt-import-reset": (
+        "internal/agent/public_mrt_stream.go",
+        "err = errors.Join(err, reset())",
+        "err = errors.Join(err)",
+        "TestPublicMRTImporterRefusesPartialReplacedUnadmittedAndCanceledSources", "partial-header",
+        "public MRT importer published partial or refused source without reset",
+    ),
+    "public-mrt-import-eof": (
+        "internal/agent/public_mrt_stream.go",
+        "complete := errors.Is(readErr, io.EOF) && len(raw) == 0",
+        "complete := len(raw) == 0",
+        "TestPublicMRTFileCompressionRequiresCleanWholeEOF", "gzip-truncated",
+        "compressed public MRT corruption became a complete EOF",
+    ),
     "public-mrt-envelope": (
         "internal/agenttransport/entity_evidence.go",
         "if !validEntityEvidenceEnvelope(req) {",

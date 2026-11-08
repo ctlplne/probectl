@@ -341,6 +341,43 @@ agent. See [`lifecycle.md`](lifecycle.md).
 A rejected agent gets a gRPC `FailedPrecondition` ("upgrade required"); a dev/unpinned
 build (`0.0.0-dev`) on either side skips the check.
 
+### One-shot public MRT import
+
+`probectl-agent import-mrt` streams an explicitly supplied local regular MRT,
+gzip or bzip2 file through the existing evidence mTLS listener. It downloads
+nothing. Enroll a dedicated evidence-purpose identity and assign its exact
+`public_bgp` source reference to the intended context first; the server derives
+tenant and collector from that issued certificate. A normal agent certificate
+cannot write this evidence.
+
+```sh
+probectl-agent import-mrt --file ./bview.gz \
+  --source ris/mrt_table_dump_v2/rrc00 --control-addr control.example:8444 \
+  --identity-dir ./collector-evidence --server-name control.example
+```
+
+The identity directory contains `cert.pem`, `key.pem` and `server-ca.pem` from
+enrollment. No tenant, context, router or interpreted path is supplied on this
+command. Whole records retain their original bytes. Only clean file EOF can
+publish; partial frames, decompression/checksum errors, replaced peer tables,
+unsupported records and failed submissions trigger attempt retirement. An
+unacknowledged retirement is reported as an error. Receiving an old file does
+not renew its original timestamp or current source authority.
+
+| Import option | Default | Meaning |
+|---|---|---|
+| `--record-bytes` | `4190208` | finite whole-record admission, including its 12-byte header; raise together with `PROBECTL_AGENT_MAX_RECEIVE_BYTES` and decoder admission for a larger intended record |
+| `--memory-bytes` | `536870912` | per-record decoder memory admission, paired with the control-plane public routing policy |
+| `--work-units` | `2147483648` | per-record decoder work admission |
+| `--rpc-timeout` | `30s` | deadline for each submission and bounded cleanup RPC |
+| `--retry-attempts` | `2` | finite attempts for an ambiguous unavailable/deadline response; nonce, sequence, clock and bytes stay identical |
+| `--retry-delay` | `250ms` | pause before an ambiguous retry; authorization, source and rate refusals are not retried |
+
+These are record/operation policies, not file-row or file-byte ceilings. The
+control plane enforces finite tenant state, fairness and original-file age.
+Import receipt counters cover all accepted original records and bytes; they do
+not attest that the operator's input came from a live upstream collector.
+
 ### Agent self-metrics
 
 Every shipped collector process exposes Prometheus text at `GET /metrics`:

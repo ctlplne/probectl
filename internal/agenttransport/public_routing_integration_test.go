@@ -9,6 +9,7 @@
 package agenttransport_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/binary"
@@ -222,6 +223,19 @@ func TestPublicRoutingOriginalMRTRealMTLSKeepsTenantCurrentSourceAndWholeRefusal
 		f.assertCurrent(t, a)
 		f.assertCurrent(t, b)
 	})
+	t.Run("whole-file-producer", func(t *testing.T) {
+		original := bytes.Clone(a.source.SourceRecord)
+		clock := binary.BigEndian.Uint32(original[:4])
+		original = append(original, publicRIBWire(1, a.tail, clock)...)
+		original = append(original, publicRIBWire(2, a.tail, clock)...)
+		got, err := a.client.ImportPublicMRT(f.ctx, bytes.NewReader(original), agent.DefaultPublicMRTOptions(a.source.ConfiguredRef))
+		if err != nil || got.Records != 3 || got.Bytes != int64(len(original)) || got.SnapshotID == a.source.ObservationId {
+			t.Fatal("original whole MRT sender failed authenticated complete import", got, err)
+		}
+		a.source.ObservationId = got.SnapshotID
+		f.assertCurrent(t, a)
+		f.assertCurrent(t, b)
+	})
 	t.Run("unissued-serial", func(t *testing.T) {
 		cert, key, err := f.server.ca.IssueClientCert(a.collector, crypto.EntitySPIFFEID(a.tenant, a.collector), time.Hour)
 		if err != nil {
@@ -248,7 +262,7 @@ func TestPublicRoutingOriginalMRTRealMTLSKeepsTenantCurrentSourceAndWholeRefusal
 }
 
 func TestPublicRoutingRealMTLSKnownSourceRefusalCommitsWithoutSiblingDamage(t *testing.T) {
-	for _, scenario := range []string{"malformed-stage", "malformed-frame", "rate-stage", "rate-frame"} {
+	for _, scenario := range []string{"empty-stage", "malformed-stage", "malformed-frame", "rate-stage", "rate-frame"} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newPublicWireFixture(t)
 			a, b := &f.lanes[0], &f.lanes[1]
@@ -258,11 +272,14 @@ func TestPublicRoutingRealMTLSKnownSourceRefusalCommitsWithoutSiblingDamage(t *t
 				}
 			}
 			var err error
-			if scenario == "malformed-stage" || scenario == "rate-stage" {
+			if scenario == "empty-stage" || scenario == "malformed-stage" || scenario == "rate-stage" {
 				replacement := proto.Clone(a.source).(*agentv1.PublicRoutingPeerTable)
 				replacement.ObservationId, replacement.ObservedUnixNanos = newUUID(t), time.Now().UnixNano()
 				if scenario == "malformed-stage" {
 					replacement.SourceRecord = replacement.SourceRecord[:12]
+				}
+				if scenario == "empty-stage" {
+					replacement.SourceRecord = nil
 				}
 				_, err = a.client.StagePublicRoutingSource(f.ctx, replacement)
 			} else {

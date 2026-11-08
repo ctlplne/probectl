@@ -59,6 +59,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "import-mrt":
+			if err := runImportMRT(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "probectl-agent import-mrt:", err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
 	if err := run(); err != nil {
