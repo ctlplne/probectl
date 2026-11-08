@@ -56,6 +56,8 @@ func provePublishedPublicSnapshotRead(t *testing.T, f *roleInputsFixture, tenant
 	}{{"203.0.113.1", time.Hour, ErrBGPRoutingRouteMissing}, {"192.0.2.9", time.Nanosecond, ErrBGPRoutingSourceUnavailable}} {
 		if got, err := publicSnapshotReadForFixture(t, f, tenant, input, staged.ID, tc.address, profile, tc.age); !errors.Is(err, tc.want) || got.Paths != nil {
 			t.Fatal("public reader manufactured missing or stale source data", got, err)
+		} else if errors.Is(err, ErrBGPRoutingRouteMissing) && (got.Source.TenantID != tenant || got.Source.ContextID != f.contextID || got.SnapshotID != staged.ID || got.SourceObservedUnixNanos != *input.SourceObservedUnixNanos || got.AsOf.IsZero() || !got.ValidUntil.After(got.AsOf) || got.ValidUntil.After(time.Unix(0, *input.SourceObservedUnixNanos).Add(tc.age)) || got.Prefix.IsValid()) {
+			t.Fatal("complete public no-prefix result discarded its original source authority", got)
 		}
 	}
 }
