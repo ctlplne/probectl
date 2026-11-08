@@ -33,6 +33,7 @@ type BGPRoutingFlowSide struct {
 	NextHops    []BGPRoutingNextHopAS
 	Public      *BGPPublicContextLookup `json:",omitempty"`
 	RouterState string                  `json:",omitempty"`
+	RPKI        *BGPRoutingRPKICapture  `json:",omitempty"`
 }
 
 // BGPRoutingFlowLookup is capture-time evidence, not a historical forwarding

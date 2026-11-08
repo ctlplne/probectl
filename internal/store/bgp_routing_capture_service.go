@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/store/sourceepoch"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -26,7 +27,10 @@ type BGPRoutingCaptureReference = entity.FlowCaptureReference
 // Postgres state. Only the authenticated evidence path creates positive
 // captures. Raw bus consumers may look up witnesses, never derive authority
 // from payload agent IDs; no packet supplies a canonical context.
-type BGPRoutingFlowCaptures struct{ pool *pgxpool.Pool }
+type BGPRoutingFlowCaptures struct {
+	pool *pgxpool.Pool
+	rpki *opendata.Enricher
+}
 
 func NewBGPRoutingFlowCaptures(pool *pgxpool.Pool) *BGPRoutingFlowCaptures {
 	return &BGPRoutingFlowCaptures{pool: pool}
@@ -99,6 +103,11 @@ func (service *BGPRoutingFlowCaptures) captureCurrentFlow(ctx context.Context, s
 	}
 	if err != nil {
 		return nil, err
+	}
+	if service.rpki != nil {
+		if err := captureRoutingRPKI(ctx, &captured, service.rpki.RPKI(captured.CapturedAt), budget); err != nil {
+			return nil, err
+		}
 	}
 	objects, err := freezeRoutingCapture(ctx, captured, budget)
 	if err != nil {

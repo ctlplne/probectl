@@ -42,6 +42,7 @@ import (
 	"github.com/ctlplne/probectl/internal/lifecycle"
 	"github.com/ctlplne/probectl/internal/metrics"
 	"github.com/ctlplne/probectl/internal/objectstore"
+	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/otel/otlp"
 	"github.com/ctlplne/probectl/internal/pipeline"
 	"github.com/ctlplne/probectl/internal/promapi"
@@ -995,6 +996,7 @@ func startAgentTransport(
 	correlator *incident.Correlator,
 	writerFence tenancy.WriterFence,
 	testBundles agenttransport.TestBundles,
+	ripEnricher *opendata.Enricher,
 	log *slog.Logger,
 ) error {
 	if !cfg.AgentTransportEnabled() {
@@ -1002,7 +1004,8 @@ func startAgentTransport(
 	}
 	grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), resultBus, a2aBroker, log,
 		agenttransport.WithRoutingLimits(store.BGPRoutingBudget{MemoryBytes: int64(cfg.PublicRoutingMemoryBytes), WorkUnits: int64(cfg.PublicRoutingWorkUnits), StateBytes: int64(cfg.BGPRoutingStateBytes), LeaseDuration: cfg.PublicRoutingMaxAge}, cfg.PublicRoutingMaxAge, cfg.AgentMaxReceiveBytes),
-		agenttransport.WithRoutingCaptureStateBytes(int64(cfg.BGPRoutingCaptureStateBytes)))
+		agenttransport.WithRoutingCaptureStateBytes(int64(cfg.BGPRoutingCaptureStateBytes)),
+		agenttransport.WithRPKIEnrichment(ipEnricher))
 	if err != nil {
 		return fmt.Errorf("agent transport: %w", err)
 	}

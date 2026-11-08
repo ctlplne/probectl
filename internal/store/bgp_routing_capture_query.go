@@ -56,9 +56,12 @@ func routingCaptureSideQueryFields(ctx context.Context, side BGPRoutingFlowSide,
 	for _, name := range []string{"bgp_prefix", "bgp_as_paths", "bgp_origin_as", "bgp_first_transit_as", "bgp_next_hop_as"} {
 		out.Fields[prefix+name] = ""
 	}
-	// RPKI remains explicitly unknown until independently sourced evidence is
-	// attached. Router-selected paths alone establish no validation status.
+	// Only independently retained original validator evidence can establish a
+	// verdict. Router/public route paths alone leave validation unknown.
 	out.Fields[prefix+"bgp_rpki"] = "unknown"
+	if err := routingCaptureRPKIQueryFields(ctx, side, prefix, out, budget); err != nil {
+		return err
+	}
 	switch side.State {
 	case "no_prefix":
 		out.Fields[prefix+"bgp_provenance"] = "no_prefix"

@@ -138,8 +138,11 @@ The primitive follows [RFC6811](https://www.rfc-editor.org/rfc/rfc6811):
 requires a covering VRP matching the route origin and permitted length;
 `invalid` means covering VRPs exist but none authorizes that route. AS0
 assertions never authorize a route. An unknown/ambiguous route origin remains
-`unknown`. Validation reports evidence and never blocks traffic. The source
-registration does not yet attach RPKI evidence to flow capture.
+`unknown`. Validation reports evidence and never blocks traffic. Authenticated flow capture retains the original source digest, generation
+clock, complete covering set and each path verdict in existing tenant-isolated
+routing facts. Historical reads preserve that original validation and still
+reauthorize the original routing sources and the current reader. Mixed path
+verdicts remain unknown in the scalar query field.
 
 No validator data is shipped with probectl. Permission to read a local file is
 not permission to download or redistribute repository data: the operator must

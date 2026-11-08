@@ -11,6 +11,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/store"
 )
 
@@ -19,10 +20,20 @@ type routingTransportLimits struct {
 	maxAge            time.Duration
 	receiveBytes      int
 	captureStateBytes int64
+	rpki              *opendata.Enricher
 }
 
 // Option configures finite transport/source admission before listeners start.
 type Option func(*routingTransportLimits) error
+
+// WithRPKIEnrichment supplies independent local validator evidence for
+// authenticated ingestion-time capture. It adds no sender-supplied authority.
+func WithRPKIEnrichment(source *opendata.Enricher) Option {
+	return func(limits *routingTransportLimits) error {
+		limits.rpki = source
+		return nil
+	}
+}
 
 func defaultRoutingTransportLimits() routingTransportLimits {
 	return routingTransportLimits{public: store.BGPRoutingBudget{MemoryBytes: 512 << 20, WorkUnits: 2 << 30, StateBytes: 64 << 30, LeaseDuration: 12 * time.Hour}, maxAge: 12 * time.Hour, receiveBytes: maxRecvBytes, captureStateBytes: 64 << 30}

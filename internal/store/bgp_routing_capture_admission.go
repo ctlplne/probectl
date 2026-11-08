@@ -65,6 +65,9 @@ func chargeRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, budg
 		}
 	}
 	for _, side := range []*BGPRoutingFlowSide{&lookup.Source, &lookup.Destination} {
+		if err := chargeRoutingRPKICapture(ctx, side.RPKI, budget); err != nil {
+			return err
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}

@@ -206,6 +206,9 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestRoutingRPKICaptureKeepsWholeEvidenceOriginalClockAndTenantBoundary",
+        "TestRoutingRPKICaptureRefusesForgedStalePartialAndUnadmittedEvidence",
+        "TestRoutingRPKICapturePreservesUnknownPublicOriginsAndCompleteNotFound",
         "TestPublicCaptureQueryProjectionKeepsExactPathsSourceCohortAndExplicitProvenance",
         "TestPublicCaptureKeepsWholeOriginalCohortAndSeparatesObservationClocks",
         "TestPublicCaptureKeepsCompletePrefixAbsenceAndRefusesPartialForeignOrForgedFacts",
@@ -633,6 +636,27 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "rpki-capture-whole": (
+        "internal/store/bgp_rpki_capture.go",
+        "Covering: covering,",
+        "Covering: covering[:0],",
+        "TestRoutingRPKICaptureKeepsWholeEvidenceOriginalClockAndTenantBoundary", "",
+        "RPKI capture lost whole original validator evidence",
+    ),
+    "rpki-capture-clock": (
+        "internal/store/bgp_rpki_capture.go",
+        "capture.ObservedAt.After(at) || !capture.ValidUntil.After(at) ||",
+        "",
+        "TestRoutingRPKICaptureRefusesForgedStalePartialAndUnadmittedEvidence", "",
+        "RPKI capture accepted forged or stale independent evidence",
+    ),
+    "rpki-capture-wire": (
+        "internal/store/bgp_routing_capture_service.go",
+        "if service.rpki != nil {",
+        "if false && service.rpki != nil {",
+        "TestPublicFlowFallbackKeepsOriginalCaptureAndCurrentTenantSourceAuthority", "",
+        "authenticated public flow omitted original complete validator evidence",
+    ),
     "rpki-source-current": (
         "internal/opendata/rpki_source.go",
         "s.Current = s.Enabled && s.complete && !s.ObservedAt.IsZero() && !s.ObservedAt.After(at) && s.ValidUntil.After(at)",

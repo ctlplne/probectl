@@ -80,7 +80,7 @@ func (svc *service) submitFlowRoutingEvidence(ctx context.Context, id crypto.SPI
 	}
 	ctx, cancel := context.WithTimeout(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), 30*time.Second)
 	defer cancel()
-	captures := store.NewBGPRoutingFlowCaptures(svc.pool)
+	captures := store.NewBGPRoutingFlowCaptures(svc.pool).WithRPKIEnrichment(svc.routingLimits.rpki)
 	response := &agentv1.FlowRoutingCaptureBatch{Captures: make([]*agentv1.FlowRoutingCapture, len(witnesses))}
 	for i, witness := range witnesses {
 		// Normal scoped Postgres transactions take the existing durable writer

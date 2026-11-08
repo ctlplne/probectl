@@ -29,6 +29,9 @@ type routingCapturePublicClock struct {
 }
 
 func routingCaptureVersion(lookup BGPRoutingFlowLookup) int {
+	if lookup.Source.RPKI != nil || lookup.Destination.RPKI != nil {
+		return 3
+	}
 	if lookup.Source.Public != nil || lookup.Destination.Public != nil {
 		return 2
 	}

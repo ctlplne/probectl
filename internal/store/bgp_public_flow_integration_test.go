@@ -80,7 +80,8 @@ func TestPublicFlowFallbackKeepsOriginalCaptureAndCurrentTenantSourceAuthority(t
 	var original [2]string
 	var references [2]BGPRoutingCaptureReference
 	var raw = [32]byte{1, 2, 255}
-	captures := NewBGPRoutingFlowCaptures(f.pool)
+	rpki := routingRPKIEnricher(t, time.Now(), `{"prefix":"192.0.2.0/24","asn":64497,"maxLength":32},{"prefix":"2001:db8::/32","asn":64497,"maxLength":128}`)
+	captures := NewBGPRoutingFlowCaptures(f.pool).WithRPKIEnrichment(rpki)
 	for lane, tenant := range f.tenants {
 		original[lane] = publishPublicFlowFixture(t, f, tenant, uint32(64497+lane), false)
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
@@ -131,6 +132,9 @@ func TestPublicFlowFallbackKeepsOriginalCaptureAndCurrentTenantSourceAuthority(t
 		got, err := read(lane)
 		if err != nil || got.Owner.TenantID != f.tenants[lane] || got.Source.State != "public_fallback" || got.Destination.State != "public_fallback" || got.Source.RouterState != "no_prefix" || got.Source.Public == nil || got.Destination.Public == nil || got.Source.Public.Sources[0].SnapshotID != original[lane] || len(got.Source.Public.Paths) != 2 || len(got.Destination.Public.Paths) != 1 || len(got.Source.Public.Paths[0].Peer.ViewName) != 65535 || got.Source.Public.Paths[0].Path.Segments[1].Values[1] != uint32(64497+lane) {
 			t.Fatal("public fallback lost original complete paths or crossed tenants", got, err)
+		}
+		if got.Source.RPKI == nil || got.Destination.RPKI == nil || got.Source.RPKI.Records != 2 || len(got.Source.RPKI.Covering) != 1 || len(got.Destination.RPKI.Covering) != 1 || got.Source.RPKI.Version != rpki.RPKI(got.CapturedAt).Version {
+			t.Fatal("authenticated public flow omitted original complete validator evidence")
 		}
 		projection, err := routingCaptureQueryProjection(tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[lane])), got, references[lane], profile)
 		if err != nil || projection.Fields["src_bgp_provenance"] != "public_ris" || projection.Fields["src_bgp_prefix"] != "192.0.2.0/24" || projection.Fields["dst_bgp_prefix"] != "2001:db8::/32" || projection.Fields["src_bgp_rpki"] != "unknown" {

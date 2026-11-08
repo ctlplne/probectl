@@ -1081,8 +1081,14 @@ with `src_` or `dst_`. Complete paths retain their segment boundaries and
 values; filter values share the whole-plan byte budget. A blank exact ASN
 filter selects unknown independently of ASN zero; `in`/`not_in` lists can
 combine blank with complete uint32 values. Nested exclusions retain unknown
-traffic unless the predicate actually selects it. Older hourly summaries do
-not reconstruct these fields. Current source authorization applies even when
+traffic unless the predicate actually selects it. When a complete current local RPKI validator export is configured, authenticated
+ingestion captures its exact source digest, original generation/expiry, full
+covering VRPs and per-path verdicts. Valid/invalid/not_found require that
+independent complete source and a known original route origin; AS_SET or
+conflicting path verdicts remain unknown. AS0 never authorizes a route. Original
+validation is immutable processing-time evidence, so a new validator export or
+later expiry does not rewrite past captures. Missing original evidence remains
+unknown; older hourly summaries do not reconstruct these fields. Current source authorization applies even when
 all selected traffic has unavailable routing metadata.
 
 Older rows and unsupported or unattested sources have no invented capture.
