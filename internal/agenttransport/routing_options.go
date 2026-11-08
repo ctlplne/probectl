@@ -36,7 +36,7 @@ func WithRPKIEnrichment(source *opendata.Enricher) Option {
 }
 
 func defaultRoutingTransportLimits() routingTransportLimits {
-	return routingTransportLimits{public: store.BGPRoutingBudget{MemoryBytes: 512 << 20, WorkUnits: 2 << 30, StateBytes: 64 << 30, LeaseDuration: 12 * time.Hour}, maxAge: 12 * time.Hour, receiveBytes: maxRecvBytes, captureStateBytes: 64 << 30}
+	return routingTransportLimits{public: store.BGPRoutingBudget{MemoryBytes: 2 << 30, WorkUnits: 2 << 30, StateBytes: 64 << 30, LeaseDuration: 12 * time.Hour}, maxAge: 12 * time.Hour, receiveBytes: maxRecvBytes, captureStateBytes: 64 << 30}
 }
 
 // WithRoutingLimits sets public-source operation admission, the shared tenant

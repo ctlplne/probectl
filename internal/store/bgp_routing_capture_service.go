@@ -104,10 +104,8 @@ func (service *BGPRoutingFlowCaptures) captureCurrentFlow(ctx context.Context, s
 	if err != nil {
 		return nil, err
 	}
-	if service.rpki != nil {
-		if err := captureRoutingRPKI(ctx, &captured, service.rpki.RPKI(captured.CapturedAt), budget); err != nil {
-			return nil, err
-		}
+	if err := service.attachRPKI(ctx, &captured, budget); err != nil {
+		return nil, err
 	}
 	objects, err := freezeRoutingCapture(ctx, captured, budget)
 	if err != nil {

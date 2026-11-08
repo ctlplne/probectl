@@ -31,7 +31,7 @@ func TestRoutingCapturePolicyKeepsConfiguredAdmissionAcrossOptionOrder(t *testin
 		}
 	}
 	defaults := (&service{}).routingCaptureBudget()
-	if defaults.MemoryBytes != 512<<20 || defaults.WorkUnits != 2<<30 || defaults.StateBytes != 64<<30 || defaults.PublicSourceMaxAge != 12*time.Hour {
+	if defaults.MemoryBytes != 2<<30 || defaults.WorkUnits != 2<<30 || defaults.StateBytes != 64<<30 || defaults.PublicSourceMaxAge != 12*time.Hour {
 		t.Fatal("capture defaults cannot retain complete public metadata", defaults)
 	}
 }

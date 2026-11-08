@@ -38,6 +38,13 @@ func (service *BGPRoutingFlowCaptures) WithRPKIEnrichment(source *opendata.Enric
 	return service
 }
 
+func (service *BGPRoutingFlowCaptures) attachRPKI(ctx context.Context, lookup *BGPRoutingFlowLookup, budget BGPRoutingBudget) error {
+	if service.rpki == nil {
+		return ctx.Err()
+	}
+	return captureRoutingRPKI(ctx, lookup, service.rpki.RPKI(lookup.CapturedAt), budget)
+}
+
 func captureRoutingRPKI(ctx context.Context, lookup *BGPRoutingFlowLookup, snapshot opendata.RPKISnapshot, budget BGPRoutingBudget) error {
 	tenant, ok := tenancy.FromContext(ctx)
 	if !ok || tenant.String() != lookup.Owner.TenantID {

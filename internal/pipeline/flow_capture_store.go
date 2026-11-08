@@ -12,14 +12,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/store"
 )
 
 // WithRoutingCaptureStore records first-ingestion metadata in the routed
 // tenant store. Raw sender claims may stage private candidates; only the
 // independently authenticated evidence channel can finalize route evidence.
-func (c *FlowConsumer) WithRoutingCaptureStore(pool *pgxpool.Pool, budget store.BGPRoutingBudget) *FlowConsumer {
-	captures := store.NewBGPRoutingFlowCaptures(pool)
+func (c *FlowConsumer) WithRoutingCaptureStore(pool *pgxpool.Pool, budget store.BGPRoutingBudget, rpki *opendata.Enricher) *FlowConsumer {
+	captures := store.NewBGPRoutingFlowCaptures(pool).WithRPKIEnrichment(rpki)
 	return c.WithRoutingCaptures(func(ctx context.Context, sender string, witnesses []entity.FlowCaptureWitness) ([]entity.FlowCaptureReference, error) {
 		return captures.StageRaw(ctx, sender, witnesses, budget)
 	}, budget.MemoryBytes, budget.WorkUnits)

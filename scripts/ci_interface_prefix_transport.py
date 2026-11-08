@@ -651,9 +651,9 @@ ROUTING_WRITE_CONTROLS = {
         "RPKI capture accepted forged or stale independent evidence",
     ),
     "rpki-capture-wire": (
-        "internal/store/bgp_routing_capture_service.go",
-        "if service.rpki != nil {",
-        "if false && service.rpki != nil {",
+        "internal/store/bgp_rpki_capture.go",
+        "if service.rpki == nil {",
+        "if true || service.rpki == nil {",
         "TestPublicFlowFallbackKeepsOriginalCaptureAndCurrentTenantSourceAuthority", "",
         "authenticated public flow omitted original complete validator evidence",
     ),

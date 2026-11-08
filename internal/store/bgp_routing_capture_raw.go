@@ -92,7 +92,7 @@ func (service *BGPRoutingFlowCaptures) StageRaw(ctx context.Context, sender stri
 			if err := routingBatchCharge(&operation, 0, 4096); err != nil {
 				return err
 			}
-			objects, err := captureRawRoutingCandidate(ctx, sc, sender, input, operation)
+			objects, err := service.captureRawRoutingCandidate(ctx, sc, sender, input, operation)
 			if err != nil {
 				return err
 			}
@@ -146,7 +146,7 @@ func (service *BGPRoutingFlowCaptures) StageRaw(ctx context.Context, sender stri
 	return refs, nil
 }
 
-func captureRawRoutingCandidate(ctx context.Context, sc tenancy.Scope, sender string, input BGPRoutingFlowInput, budget BGPRoutingBudget) (*routingCaptureObjects, error) {
+func (service *BGPRoutingFlowCaptures) captureRawRoutingCandidate(ctx context.Context, sc tenancy.Scope, sender string, input BGPRoutingFlowInput, budget BGPRoutingBudget) (*routingCaptureObjects, error) {
 	lookup, err := (BGPRouting{}).LookupFlowInScope(ctx, sc, input, budget)
 	if errors.Is(err, ErrBGPRoutingFlowSource) || errors.Is(err, ErrBGPRoutingSourceUnavailable) {
 		return nil, nil
@@ -156,6 +156,9 @@ func captureRawRoutingCandidate(ctx context.Context, sc tenancy.Scope, sender st
 	}
 	if lookup.Owner.AgentID != sender {
 		return nil, nil
+	}
+	if err := service.attachRPKI(ctx, &lookup, budget); err != nil {
+		return nil, err
 	}
 	objects, err := freezeRoutingCapture(ctx, lookup, budget)
 	if err != nil {

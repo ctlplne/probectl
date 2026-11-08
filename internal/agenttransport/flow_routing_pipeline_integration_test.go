@@ -41,7 +41,7 @@ func proveFlowRoutingRuntimeOrdering(t *testing.T, pool *pgxpool.Pool, tenant, s
 	budget := store.BGPRoutingBudget{MemoryBytes: 256 << 20, WorkUnits: 256 << 20, StateBytes: 1 << 30, LeaseDuration: time.Minute}
 	consumer := pipeline.NewFlowConsumer(b, rows, nil, nil).
 		WithTenantBinding(pipeline.NewRegistryBinding(pool)).
-		WithRoutingCaptureStore(pool, budget)
+		WithRoutingCaptureStore(pool, budget, nil)
 	done := make(chan error, 1)
 	go func() { done <- consumer.Run(ctx) }()
 	t.Cleanup(func() {
