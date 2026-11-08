@@ -33,6 +33,11 @@ UNIT = {
         "TestBMPEvidenceAdapterKeepsCompleteRoutingTransport",
     ),
     "internal/opendata": (
+        "TestRPKICompleteValidatorSourceKeepsFullFamiliesASNsAndOriginalFreshness",
+        "TestRPKICompleteValidatorSourceRefusesMalformedLateOrUnadmittedData",
+        "TestRPKIValidatorSourceKeepsCompleteIntendedPopulationBeyondMonitoringPrefixes",
+        "TestRPKISnapshotKeepsLargeMetadataAndOriginalSubsecondGeneration",
+        "TestRPKISnapshotRefusesDisabledAmbiguousAndExpiredSourcesBeyondIPCache",
         "TestIXMembershipCacheKeepsCompletePortsExactSelectorsAndOriginalFreshness",
         "TestIXMembershipCacheRefusesPartialCorruptOrUnadmittedWholeManifests",
         "TestPeeringDBIXPrefixesKeepCompletePopulationClockAndOwnedMatches",
@@ -40,6 +45,7 @@ UNIT = {
         "TestPeeringDBIXPrefixesKeepInactiveAndExpiredSourcesVisibleWithoutMemberships",
     ),
     "internal/config": (
+        "TestRPKILocalConfigKeepsCompleteRaiseableAdmissionAndNoEgress",
         "TestPublicRoutingAdmissionIsFiniteRaiseableObservableAndOffline",
         "TestIXMembershipLocalConfigKeepsNoEgressAndIndependentPositiveFreshness",
         "TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness",
@@ -91,6 +97,7 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestBuildRPKIEnrichmentKeepsLocalCompleteSourceAndUnavailableHealth",
         "TestNativeRoutingCSVPagesKeepCompleteTypedPathsAndExactSourceRecords",
         "TestNativeFlowRoutingPathsKeepWholeTypedSegmentsAcrossQueryProjections",
         "TestReportRoutingReaderRequiresCurrentScopedAuthorityBeyondReceipt",
@@ -626,6 +633,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "rpki-source-current": (
+        "internal/opendata/rpki_source.go",
+        "s.Current = s.Enabled && s.complete && !s.ObservedAt.IsZero() && !s.ObservedAt.After(at) && s.ValidUntil.After(at)",
+        "s.Current = s.Enabled && s.complete",
+        "TestRPKICompleteValidatorSourceKeepsFullFamiliesASNsAndOriginalFreshness", "",
+        "copying stale validator bytes renewed their generation",
+    ),
+    "rpki-source-eof": (
+        "internal/opendata/rpki_json.go",
+        "if _, err := decoder.Token(); !errors.Is(err, io.EOF) {",
+        "if _, err := decoder.Token(); false && !errors.Is(err, io.EOF) {",
+        "TestRPKICompleteValidatorSourceRefusesMalformedLateOrUnadmittedData", "",
+        "partial or malformed validator export became authoritative",
+    ),
     "public-flow-current-source": (
         "internal/store/bgp_routing_capture_finalization.go",
         "if side.Public != nil {",

@@ -583,6 +583,11 @@ type Config struct {
 	// Complete local netixlan membership; independent from LAN prefix data.
 	FlowEnrichIXMembershipFile   string
 	FlowEnrichIXMembershipMaxAge time.Duration
+	// Complete local validator VRPs; never downloaded and never an IP lookup.
+	FlowEnrichRPKIFile        string
+	FlowEnrichRPKIMaxAge      time.Duration
+	FlowEnrichRPKIMemoryBytes int
+	FlowEnrichRPKIWorkUnits   int
 	// FlowCHTenantScoping (TENANT-102) attaches a per-request tenant custom
 	// setting to ClickHouse reads so a reader row policy can constrain the
 	// query path at the DB. Requires server-side custom_settings_prefixes=SQL_
@@ -1244,6 +1249,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.FlowEnrichGeoDB = l.str("PROBECTL_FLOW_ENRICH_GEOIP_DB", "")
 	cfg.FlowEnrichRIRDir = l.str("PROBECTL_FLOW_ENRICH_RIR_DIR", "")
 	cfg.FlowEnrichASNFile = l.str("PROBECTL_FLOW_ENRICH_ASN_FILE", "")
+	loadRPKIConfig(l, cfg)
 	cfg.FlowEnrichIXPrefixFile = l.str("PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE", "")
 	cfg.FlowEnrichIXPrefixMaxAge = l.dur("PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE", 24*time.Hour)
 	if cfg.FlowEnrichIXPrefixMaxAge <= 0 {
@@ -2301,6 +2307,10 @@ func (c *Config) LogValue() slog.Value {
 		slog.Int("bgp_routing_state_bytes", c.BGPRoutingStateBytes),
 		slog.Int("bgp_routing_capture_state_bytes", c.BGPRoutingCaptureStateBytes),
 		slog.Duration("public_routing_max_age", c.PublicRoutingMaxAge),
+		slog.Bool("flow_enrich_rpki", c.FlowEnrichRPKIFile != ""),
+		slog.Duration("flow_enrich_rpki_max_age", c.FlowEnrichRPKIMaxAge),
+		slog.Int("flow_enrich_rpki_memory_bytes", c.FlowEnrichRPKIMemoryBytes),
+		slog.Int("flow_enrich_rpki_work_units", c.FlowEnrichRPKIWorkUnits),
 	)
 }
 
@@ -2363,18 +2373,22 @@ func (c *Config) Redacted() map[string]any {
 			"nesting": c.FlowQuestionMaxNesting, "model_response_bytes": c.FlowQuestionModelResponseBytes,
 			"model_output_tokens": c.FlowQuestionModelOutputTokens, "openai_token_parameter": c.FlowQuestionModelTokenParameter,
 		},
-		"oidc_issuer":                 c.OIDCIssuer, // an issuer URL is not a secret
-		"region":                      c.Region,
-		"regions":                     c.Regions,
-		"residency":                   c.Residency,
-		"replication_mode":            c.ReplicationMode,
-		"flow_retention_days":         c.FlowRetentionDays,
-		"flow_enrich_cache_max":       c.FlowEnrichCacheMax,
-		"flow_enrich_asn":             c.FlowEnrichASN,
-		"flow_enrich_geoip_db":        c.FlowEnrichGeoDB != "", // a boolean, never the operator's path
-		"flow_enrich_rir_dir":         c.FlowEnrichRIRDir != "",
-		"flow_enrich_asn_file":        c.FlowEnrichASNFile != "", // a boolean, never the operator's path
-		"flow_enrich_ixp":             c.FlowEnrichIXP,
+		"oidc_issuer":           c.OIDCIssuer, // an issuer URL is not a secret
+		"region":                c.Region,
+		"regions":               c.Regions,
+		"residency":             c.Residency,
+		"replication_mode":      c.ReplicationMode,
+		"flow_retention_days":   c.FlowRetentionDays,
+		"flow_enrich_cache_max": c.FlowEnrichCacheMax,
+		"flow_enrich_asn":       c.FlowEnrichASN,
+		"flow_enrich_geoip_db":  c.FlowEnrichGeoDB != "", // a boolean, never the operator's path
+		"flow_enrich_rir_dir":   c.FlowEnrichRIRDir != "",
+		"flow_enrich_asn_file":  c.FlowEnrichASNFile != "", // a boolean, never the operator's path
+		"flow_enrich_ixp":       c.FlowEnrichIXP,
+		"flow_enrich_rpki": map[string]any{
+			"configured": c.FlowEnrichRPKIFile != "", "max_age": c.FlowEnrichRPKIMaxAge.String(),
+			"memory_bytes": c.FlowEnrichRPKIMemoryBytes, "work_units": c.FlowEnrichRPKIWorkUnits,
+		},
 		"alert_smtp_configured":       c.AlertSMTPAddr != "", // a boolean, never address or credentials
 		"alert_smtp_tls_mode":         c.AlertSMTPTLSMode,
 		"backup_retention_note":       c.BackupRetentionNote,

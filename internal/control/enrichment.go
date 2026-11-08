@@ -28,10 +28,11 @@ import (
 // with the load error — and the control plane keeps serving (open data
 // degrades gracefully, docs/guardrails.md G7-10).
 func BuildEnrichment(cfg *config.Config, log *slog.Logger) (*opendata.Enricher, bool) {
-	if !cfg.FlowEnrichASN && cfg.FlowEnrichGeoDB == "" && cfg.FlowEnrichRIRDir == "" && !cfg.FlowEnrichIXP && cfg.FlowEnrichASNFile == "" && cfg.FlowEnrichIXPrefixFile == "" && cfg.FlowEnrichIXMembershipFile == "" {
+	if !cfg.FlowEnrichASN && cfg.FlowEnrichGeoDB == "" && cfg.FlowEnrichRIRDir == "" && !cfg.FlowEnrichIXP && cfg.FlowEnrichASNFile == "" && cfg.FlowEnrichIXPrefixFile == "" && cfg.FlowEnrichIXMembershipFile == "" && cfg.FlowEnrichRPKIFile == "" {
 		return nil, false
 	}
 	en := opendata.NewEnricher(log, opendata.WithCacheMaxEntries(cfg.FlowEnrichCacheMax))
+	registerRPKIEnrichment(en, cfg, log)
 	if cfg.FlowEnrichGeoDB != "" {
 		if reader, err := opendata.OpenMMDB(cfg.FlowEnrichGeoDB); err != nil {
 			log.Error("geo enrichment configured but unavailable", "error", err)

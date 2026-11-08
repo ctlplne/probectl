@@ -33,6 +33,7 @@ const (
 	KindGeo        Kind = "geo"        // IP → country / city / lat-lon
 	KindIXP        Kind = "ixp"        // ASN → IXP / facility presence
 	KindAllocation Kind = "allocation" // IP → RIR allocation / status
+	KindRPKI       Kind = "rpki"       // route prefix + origin → validator VRP evidence
 )
 
 // Permission expresses the engineering review of a source's commercial-use

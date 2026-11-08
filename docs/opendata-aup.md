@@ -75,6 +75,7 @@ Every source obeys the same safety rules, enforced in code:
 | **MaxMind GeoLite2** | `maxmind-geolite2` | `geo` | country, city, lat/lon | GeoLite EULA, including CC BY-SA terms | **restricted** | "This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com" |
 | **PeeringDB** | `peeringdb` | `ixp` | IXP / facility presence | PeeringDB AUP | **restricted** | "Data from PeeringDB" |
 | **PeeringDB local IX prefixes** | `peeringdb-ix-prefix-file` | `ixp` | complete operator-supplied `ixpfx` LAN subnets; no fetch or membership inference | PeeringDB AUP | **restricted** | "Data from PeeringDB" |
+| **Local RPKI validator export** | `rpki-vrp-file` | `rpki` | complete validated ROA payloads for route-prefix/origin validation; no fetch, IP-only verdict or traffic blocking | Underlying TAL/repository terms remain the operator's responsibility | **unknown** | Underlying source terms apply; no dataset distributed |
 | **RIR delegated-stats** | `rir-stats` | `allocation` | RIR, country, allocation status/date | Five registry-specific terms | **unknown** | — |
 
 (The `name`, license, attribution, and commercial-use cells above are taken
@@ -113,3 +114,34 @@ non-commercial, terms) layered on top of this same framework — see
 reuses the same provenance/AUP model as well. The pattern is deliberate: every
 external dataset, whether for enrichment, threat-intel, or pricing, declares its
 provenance the same way.
+
+## Local RPKI validator input
+
+An operator may supply an existing validator's complete JSON export using
+`PROBECTL_FLOW_ENRICH_RPKI_FILE`. The reader makes no network requests, accepts
+the full IPv4/IPv6 VRP population (including AS0 denials and 32-bit ASNs), and
+rejects any malformed row, duplicate JSON key or trailing input as a whole.
+Unknown metadata is validated completely; it is not silently clipped. The
+configured memory/work budgets admit the complete source and can be raised.
+
+The source clock comes from `metadata.generated` (Unix seconds) and/or
+`metadata.generatedTime` (RFC3339, preserving fractional seconds), consistent
+with [Routinator's JSON output](https://routinator.docs.nlnetlabs.nl/en/latest/output-formats.html).
+If both are present their whole seconds must agree. A raw ROA array can be read
+but cannot establish freshness without an original generation clock. Copying
+the file, changing its modification time, restarting or reading it never
+renews that clock. Missing, disabled, expired or ambiguous sources remain
+unavailable; they cannot turn missing evidence into a `not_found` verdict.
+
+The primitive follows [RFC6811](https://www.rfc-editor.org/rfc/rfc6811):
+`not_found` requires a current complete source with no covering VRP; `valid`
+requires a covering VRP matching the route origin and permitted length;
+`invalid` means covering VRPs exist but none authorizes that route. AS0
+assertions never authorize a route. An unknown/ambiguous route origin remains
+`unknown`. Validation reports evidence and never blocks traffic. The source
+registration does not yet attach RPKI evidence to flow capture.
+
+No validator data is shipped with probectl. Permission to read a local file is
+not permission to download or redistribute repository data: the operator must
+comply with the underlying TAL and repository terms. Commercial-use permission
+is reported as unknown, not inferred from the protocol specification.

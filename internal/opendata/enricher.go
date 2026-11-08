@@ -131,6 +131,11 @@ func (en *Enricher) Status() []SourceStatus {
 	out := make([]SourceStatus, 0, len(en.sources))
 	for _, ms := range en.sources {
 		health := ms.health
+		if source, ok := ms.src.(*RPKIVRPs); ok && health.Enabled {
+			if err := source.availability(time.Now()); err != nil {
+				health.Status, health.LastError = "unavailable", err.Error()
+			}
+		}
 		if source, ok := ms.src.(*PeeringDBIXPrefixes); ok && health.Enabled {
 			if err := source.availability(time.Now()); err != nil {
 				health.Status, health.LastError = "unavailable", err.Error()
