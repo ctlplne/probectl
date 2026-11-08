@@ -92,13 +92,23 @@ func TestPublicFlowFallbackKeepsOriginalCaptureAndCurrentTenantSourceAuthority(t
 			t.Fatal("public sources displaced the owned router-selected route", selected, err)
 		}
 		staged, err := captures.StageRaw(ctx, "routing-flow", []entity.FlowCaptureWitness{{RawDigest: raw, Input: input}}, profile)
-		if err != nil || len(staged) != 1 || staged[0].Outcome != "" || staged[0].Key == ([32]byte{}) || staged[0].CapturedAt.IsZero() {
+		if err != nil || len(staged) != 1 || staged[0].Key == ([32]byte{}) || staged[0].CapturedAt.IsZero() {
 			t.Fatal("public fallback could not retain its original raw candidate", staged, err)
 		}
 		references[lane], err = captures.CaptureAuthenticated(ctx, "routing-flow", raw, input, profile)
-		if err != nil || references[lane].Outcome != "captured" || !references[lane].CapturedAt.Equal(staged[0].CapturedAt) {
+		if err != nil || references[lane].Key != staged[0].Key || !references[lane].CapturedAt.Equal(staged[0].CapturedAt) {
 			t.Fatal("public authenticated capture lost its original clock or positive receipt", references[lane], err)
 		}
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var outcome string
+			if err := sc.Q.QueryRow(ctx, `SELECT outcome FROM bgp_flow_capture_receipts WHERE tenant_id=$1 AND flow_key=$2`, tenant, references[lane].Key[:]).Scan(&outcome); err != nil {
+				return err
+			}
+			if outcome != "captured" {
+				t.Fatal("public authenticated publisher did not retain a positive terminal receipt", outcome)
+			}
+			return nil
+		})
 	}
 	read := func(lane int) (BGPRoutingFlowLookup, error) {
 		var got BGPRoutingFlowLookup
