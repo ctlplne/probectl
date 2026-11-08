@@ -144,6 +144,17 @@ func TestRoutingRPKICaptureRefusesForgedStalePartialAndUnadmittedEvidence(t *tes
 
 func TestRoutingRPKICapturePreservesUnknownPublicOriginsAndCompleteNotFound(t *testing.T) {
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(routingCaptureTenant))
+	mixed := routingRPKIKnownFixture(t)
+	other := mixed.Source.Route.Paths[0]
+	other.PathID--
+	other.Segments = append(append([]BGPRoutingSegment(nil), other.Segments...), BGPRoutingSegment{Kind: 2, Values: []uint32{64496}})
+	mixed.Source.Route.Paths = append(mixed.Source.Route.Paths, other)
+	mixed.Source.NextHops = append(mixed.Source.NextHops, mixed.Source.NextHops[0])
+	var err error
+	mixed.Source.Fields, err = routingFlowPathFields(ctx, mixed.Source.Route.Paths, publicCaptureBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		input BGPRoutingFlowLookup
 		rows  string
@@ -152,6 +163,7 @@ func TestRoutingRPKICapturePreservesUnknownPublicOriginsAndCompleteNotFound(t *t
 		{publicCaptureFixture(t), "", "unknown"}, // original AS_SET has no unique origin
 		{routingRPKIKnownFixture(t), "", "not_found"},
 		{routingRPKIKnownFixture(t), `{"prefix":"192.0.2.0/24","asn":64496,"maxLength":32}`, "invalid"},
+		{mixed, `{"prefix":"192.0.2.0/24","asn":4294967295,"maxLength":32}`, "unknown"},
 	} {
 		input := tc.input
 		en := routingRPKIEnricher(t, input.CapturedAt, tc.rows)
@@ -162,6 +174,9 @@ func TestRoutingRPKICapturePreservesUnknownPublicOriginsAndCompleteNotFound(t *t
 		projection, err := routingCaptureQueryProjection(ctx, input, ref, publicCaptureBudget())
 		if err != nil || projection.Fields["src_bgp_rpki"] != tc.want || input.Source.RPKI == nil {
 			t.Fatal("complete empty source or ambiguous origin invented a validation verdict", tc.want, projection, err)
+		}
+		if len(input.Source.Fields) == 2 && !reflect.DeepEqual(input.Source.RPKI.Verdicts, []string{"valid", "invalid"}) {
+			t.Fatal("RPKI multipath consensus clipped or guessed original path verdicts", input.Source.RPKI.Verdicts)
 		}
 		objects, err := freezeRoutingCapture(ctx, input, publicCaptureBudget())
 		if err != nil {
