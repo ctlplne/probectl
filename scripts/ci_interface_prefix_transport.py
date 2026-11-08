@@ -287,6 +287,7 @@ INTEGRATION = {
     ),
     "internal/store": (
         "TestPublicRoutingAuthorityKeepsTenantPurposeCurrentCredentialAndAssignmentBirth",
+        "TestPublicContextLookupKeepsWholeAssignedCohortTenantAndPrefixAbsence",
         "TestPublicMRTRecordsKeepOriginalPathsTenantScopeAndWholeSourceRefusal",
         "TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions",
         "TestPublicSnapshotStagingKeepsWholeTenantManifestReplayRollbackAndEmptyWithdrawal",
@@ -619,6 +620,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-context-complete": (
+        "internal/store/bgp_public_context.go",
+        "part := remaining",
+        "refs = refs[:1]; part := remaining",
+        "TestPublicContextLookupKeepsWholeAssignedCohortTenantAndPrefixAbsence", "",
+        "public context omitted a source or changed complete longest-prefix evidence",
+    ),
+    "public-context-prefix": (
+        "internal/store/bgp_public_context.go",
+        "got.Prefix.Bits() > out.Prefix.Bits()",
+        "false",
+        "TestPublicContextLookupKeepsWholeAssignedCohortTenantAndPrefixAbsence", "",
+        "public context omitted a source or changed complete longest-prefix evidence",
+    ),
     "public-read-absence": (
         "internal/store/bgp_public_lookup.go",
         "// A proved absence needs its original complete source for capture-time",
