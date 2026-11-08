@@ -40,6 +40,7 @@ import (
 
 type publicWireLane struct {
 	tenant, collector, serial string
+	certFile, keyFile         string
 	client                    *agent.EvidenceClient
 	raw                       agentv1.AgentServiceClient
 	source                    *agentv1.PublicRoutingPeerTable
@@ -112,6 +113,7 @@ func newPublicWireFixture(t *testing.T) *publicWireFixture {
 			t.Fatal(err)
 		}
 		certFile, keyFile := writeTemp(t, t.TempDir(), "evidence.crt", cert), writeTemp(t, t.TempDir(), "evidence.key", key)
+		lane.certFile, lane.keyFile = certFile, keyFile
 		lane.client, err = agent.DialEntityEvidence(f.server.addr, certFile, keyFile, f.server.caFile, "localhost")
 		if err != nil {
 			t.Fatal(err)

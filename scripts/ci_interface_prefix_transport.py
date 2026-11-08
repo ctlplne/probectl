@@ -332,6 +332,7 @@ INTEGRATION = {
         "TestBGPRoutingMessageClockRejectsLegacyWritersAndUnusableHeartbeats",
     ),
     "internal/agenttransport": (
+        "TestPublicMRTNativeCommandPublishesWholeFileAndRejectsCorruptCompression",
         "TestPublicRoutingOriginalMRTRealMTLSKeepsTenantCurrentSourceAndWholeRefusal",
         "TestPublicRoutingRealMTLSKnownSourceRefusalCommitsWithoutSiblingDamage",
         "TestFlowRoutingWitnessRealMTLSKeepsTenantFirstReceiptAndCurrentSender",
