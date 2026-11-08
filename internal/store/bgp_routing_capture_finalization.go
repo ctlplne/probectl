@@ -139,6 +139,16 @@ func routingCaptureAuthorityCurrent(ctx context.Context, sc tenancy.Scope, looku
 		if lane == 1 {
 			address = input.Destination.Unmap()
 		}
+		if side.Public != nil {
+			if side.State == "public_fallback" && !side.Public.Prefix.Contains(address) {
+				return false, errRoutingCaptureFormat
+			}
+			current, err := routingPublicCaptureAuthorityCurrent(ctx, sc, lookup.Owner.Scope, side.Public, lock)
+			if err != nil || !current {
+				return false, err
+			}
+			continue
+		}
 		if side.State == "router_selected" && !side.Route.Prefix.Contains(address) {
 			return false, errRoutingCaptureFormat
 		}
@@ -146,6 +156,27 @@ func routingCaptureAuthorityCurrent(ctx context.Context, sc tenancy.Scope, looku
 			continue
 		}
 		if _, err := routingSourceAuthority(ctx, sc, side.Route.Source, lock); err != nil {
+			if errors.Is(err, ErrBGPRoutingSourceUnavailable) {
+				return false, nil
+			}
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// Reauthorize original contributors without querying or substituting today's
+// public RIB. Rotating a complete RIB does not rewrite legitimate old facts;
+// loss of the original tenant/context/assignment/credential still denies them.
+func routingPublicCaptureAuthorityCurrent(ctx context.Context, sc tenancy.Scope, scope entity.Scope, public *BGPPublicContextLookup, lock bool) (bool, error) {
+	if public.Scope != scope || scope.TenantID != sc.Tenant.String() || len(public.Sources) == 0 {
+		return false, entity.ErrScopeMismatch
+	}
+	for _, original := range public.Sources {
+		if original.Source.Scope != scope {
+			return false, entity.ErrScopeMismatch
+		}
+		if _, err := (BGPRouting{}).publicSourceAuthorityInScope(ctx, sc, original.Source, lock); err != nil {
 			if errors.Is(err, ErrBGPRoutingSourceUnavailable) {
 				return false, nil
 			}

@@ -135,10 +135,55 @@ func TestPublicContextLookupKeepsWholeAssignedCohortTenantAndPrefixAbsence(t *te
 		return err
 	})
 	assertOwned(a, 0)
+	original, err := read(a, entity.Scope{TenantID: a, ContextID: f.contextID}, "192.0.2.9", profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := func(tenant string, public *BGPPublicContextLookup) bool {
+		t.Helper()
+		var allowed bool
+		err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			allowed, err = routingPublicCaptureAuthorityCurrent(ctx, sc, entity.Scope{TenantID: tenant, ContextID: f.contextID}, public, false)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return allowed
+	}
+	// Rotate the source through its actual writer to a complete empty RIB.
+	// Original captured authority must not require/refill from today's header.
+	empty := BGPPublicSnapshotInput{CollectorAgentID: "role-listener", SenderSerial: f.serials[a+"role-listener"], SourceRef: refs[1], ObservationID: uuid.NewString(), ObservedAt: time.Now()}
+	empty.SourceRecord = publicMRTRecordForTest(nil, true, false, uint32(empty.ObservedAt.Unix()))
+	write(a, func(ctx context.Context, sc tenancy.Scope) error {
+		got, err := (BGPRouting{}).StagePublicMRTSourceInScope(ctx, sc, empty, profile, true)
+		if err == nil && got.Status != "staged" {
+			t.Fatal("empty source rotation could not stage", got)
+		}
+		return err
+	})
+	write(a, func(ctx context.Context, sc tenancy.Scope) error {
+		got, err := (BGPRouting{}).ApplyPublicMRTFrameInScope(ctx, sc, BGPPublicSnapshotMessage{CollectorAgentID: empty.CollectorAgentID, SenderSerial: empty.SenderSerial, SourceRef: empty.SourceRef, SnapshotID: empty.ObservationID, Sequence: 1, ObservedAt: time.Now(), Complete: true}, nil, profile, time.Hour)
+		if err == nil && got.Status != "applied" {
+			t.Fatal("empty source rotation could not complete", got)
+		}
+		return err
+	})
+	if !current(a, &original) {
+		t.Fatal("retained public authority incorrectly required a current original RIB")
+	}
+	rotated, err := read(a, original.Scope, "192.0.2.9", profile)
+	if err != nil || len(rotated.Sources) != 2 || rotated.Prefix.String() != "192.0.2.0/24" || original.Prefix.String() != "192.0.2.0/25" {
+		t.Fatal("public RIB rotation refilled original facts or lost its complete empty contributor", rotated, err)
+	}
 	write(a, func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET expires_at=clock_timestamp()-interval '1 second' WHERE tenant_id=$1 AND context_id=$2 AND source_kind='public_bgp' AND source_ref=$3`, a, f.contextID, refs[1])
 		return err
 	})
+	if current(a, &original) {
+		t.Fatal("retained public capture kept expired original source authority")
+	}
 	got, err := read(a, entity.Scope{TenantID: a, ContextID: f.contextID}, "192.0.2.9", profile)
 	if err != nil || len(got.Sources) != 1 || got.Sources[0].Source.SourceRef != refs[0] || got.Prefix.String() != "192.0.2.0/24" {
 		t.Fatal("public context retained an explicitly expired source assignment", got, err)

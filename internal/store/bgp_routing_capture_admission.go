@@ -69,39 +69,17 @@ func chargeRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, budg
 			return err
 		}
 		source := side.Route.Source
-		for _, value := range []string{side.State, source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial} {
+		for _, value := range []string{side.State, side.RouterState, source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial} {
 			if err := routingCaptureStringCharge(ctx, budget, value); err != nil {
 				return err
 			}
 		}
+		if err := chargePublicRoutingCapture(ctx, side.Public, budget); err != nil {
+			return err
+		}
 		for _, path := range side.Route.Paths {
-			if err := ctx.Err(); err != nil {
+			if err := chargeRoutingCapturePath(ctx, path, budget); err != nil {
 				return err
-			}
-			if err := routingCaptureCountCharge(ctx, budget, len(path.NextHops), 256); err != nil {
-				return err
-			}
-			if err := routingBatchCharge(budget, 512, 128); err != nil {
-				return err
-			}
-			for _, segment := range path.Segments {
-				if err := routingBatchCharge(budget, 128, 32); err != nil {
-					return err
-				}
-				if err := routingCaptureCountCharge(ctx, budget, len(segment.Values), 64); err != nil {
-					return err
-				}
-			}
-			for _, attribute := range path.Attributes.Wire {
-				if err := ctx.Err(); err != nil {
-					return err
-				}
-				if err := routingBatchCharge(budget, 128, 32); err != nil {
-					return err
-				}
-				if err := routingCaptureCountCharge(ctx, budget, len(attribute.Value), 8); err != nil {
-					return err
-				}
 			}
 		}
 		for _, field := range side.Fields {
@@ -141,6 +119,43 @@ func chargeRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, budg
 		}
 	}
 	return ctx.Err()
+}
+
+func chargeRoutingCapturePath(ctx context.Context, path BGPRoutingChange, budget *BGPRoutingBudget) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := routingCaptureCountCharge(ctx, budget, len(path.NextHops), 256); err != nil {
+		return err
+	}
+	if err := routingBatchCharge(budget, 512, 128); err != nil {
+		return err
+	}
+	for _, segment := range path.Segments {
+		if err := routingBatchCharge(budget, 128, 32); err != nil {
+			return err
+		}
+		if err := routingCaptureCountCharge(ctx, budget, len(segment.Values), 64); err != nil {
+			return err
+		}
+	}
+	for _, attribute := range path.Attributes.Wire {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := routingBatchCharge(budget, 128, 32); err != nil {
+			return err
+		}
+		if err := routingCaptureCountCharge(ctx, budget, len(attribute.Value), 8); err != nil {
+			return err
+		}
+	}
+	if path.Attributes.MRT != nil {
+		if err := routingBatchCharge(budget, 256, 128); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func routingCaptureCountCharge(ctx context.Context, budget *BGPRoutingBudget, count int, cost int64) error {

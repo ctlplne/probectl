@@ -23,6 +23,11 @@ func redactUnreadableCapturedNextHops(ctx context.Context, sc tenancy.Scope, loo
 	}
 	ids := map[string]bool{}
 	for _, side := range []BGPRoutingFlowSide{lookup.Source, lookup.Destination} {
+		if side.Public != nil {
+			// Public peer associations belong to the original public sources,
+			// all reauthorized by the retained reader before this helper.
+			continue
+		}
 		for _, hop := range side.NextHops {
 			for _, source := range hop.Sources {
 				if err := routingBatchCharge(&budget, 256+int64(len(source))*12, 256); err != nil {
@@ -68,6 +73,9 @@ func redactUnreadableCapturedNextHops(ctx context.Context, sc tenancy.Scope, loo
 		return err
 	}
 	for _, side := range []*BGPRoutingFlowSide{&lookup.Source, &lookup.Destination} {
+		if side.Public != nil {
+			continue
+		}
 		for i := range side.NextHops {
 			hop := &side.NextHops[i]
 			for _, source := range hop.Sources {

@@ -27,10 +27,12 @@ type BGPRoutingFlowInput = entity.FlowCaptureInput
 // a complete RIB without a prefix, and unavailable current source evidence.
 // Only router_selected has a Route; neither other state invents an empty path.
 type BGPRoutingFlowSide struct {
-	State    string
-	Route    BGPRoutingLookup
-	Fields   []bgp.RoutingPathFields // one complete projection per retained path
-	NextHops []BGPRoutingNextHopAS
+	State       string
+	Route       BGPRoutingLookup
+	Fields      []bgp.RoutingPathFields // one complete projection per retained path
+	NextHops    []BGPRoutingNextHopAS
+	Public      *BGPPublicContextLookup `json:",omitempty"`
+	RouterState string                  `json:",omitempty"`
 }
 
 // BGPRoutingFlowLookup is capture-time evidence, not a historical forwarding

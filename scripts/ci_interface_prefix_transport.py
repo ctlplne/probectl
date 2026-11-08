@@ -198,6 +198,9 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestPublicCaptureKeepsWholeOriginalCohortAndSeparatesObservationClocks",
+        "TestPublicCaptureKeepsCompletePrefixAbsenceAndRefusesPartialForeignOrForgedFacts",
+        "TestPublicCaptureRejectsClockCohortOmissionsAndVersionDowngrades",
         "TestPublicMRTRoutingProjectionKeepsOriginalSourceFactsAndRefusesInvalidMetadata",
         "TestPublicMRTManifestKeepsOriginalEmptySourceAndPeerWireIdentity",
         "TestPublicMRTManifestRefusesForgedPeerClockUnsupportedSourceAndPartialAdmission",
@@ -620,6 +623,27 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-capture-clocks": (
+        "internal/store/bgp_public_capture.go",
+        "public.Sources = append([]BGPPublicRoutingLookup(nil), public.Sources...)",
+        "public.Sources = public.Sources",
+        "TestPublicCaptureKeepsWholeOriginalCohortAndSeparatesObservationClocks", "",
+        "public capture clock splitting mutated original source observations",
+    ),
+    "public-capture-admission": (
+        "internal/store/bgp_routing_capture_admission.go",
+        "chargePublicRoutingCapture(ctx, side.Public, budget)",
+        "error(nil)",
+        "TestPublicCaptureKeepsCompletePrefixAbsenceAndRefusesPartialForeignOrForgedFacts", "",
+        "public capture bypassed complete binary source admission",
+    ),
+    "public-capture-authority": (
+        "internal/store/bgp_routing_capture_finalization.go",
+        "if _, err := (BGPRouting{}).publicSourceAuthorityInScope(ctx, sc, original.Source, lock); err != nil {",
+        "if err := error(nil); err != nil {",
+        "TestPublicContextLookupKeepsWholeAssignedCohortTenantAndPrefixAbsence", "",
+        "retained public capture kept expired original source authority",
+    ),
     "public-context-complete": (
         "internal/store/bgp_public_context.go",
         "part := remaining",

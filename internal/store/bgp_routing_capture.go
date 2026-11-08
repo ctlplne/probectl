@@ -50,6 +50,7 @@ type routingCaptureViewClock struct {
 	AsOf, ValidUntil, LastObservedAt time.Time
 	LastSequence                     int64
 	NextHopExpiry                    []time.Time
+	Public                           *routingCapturePublicClock `json:",omitempty"`
 }
 
 type routingCaptureClocks struct {
@@ -75,8 +76,9 @@ func freezeRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, budg
 	if err := validateRoutingCapture(ctx, lookup, budget); err != nil {
 		return routingCaptureObjects{}, err
 	}
-	facts := routingCaptureFacts{Version: 1, Kind: "routing_facts", TenantID: lookup.Owner.TenantID, Data: lookup}
-	clocks := routingCaptureClocks{Version: 1, Kind: "routing_clocks", TenantID: lookup.Owner.TenantID, OwnerClock: lookup.Owner.InterfaceRoleEvidenceClock, OwnerSourceID: lookup.Owner.SourceID}
+	version := routingCaptureVersion(lookup)
+	facts := routingCaptureFacts{Version: version, Kind: "routing_facts", TenantID: lookup.Owner.TenantID, Data: lookup}
+	clocks := routingCaptureClocks{Version: version, Kind: "routing_clocks", TenantID: lookup.Owner.TenantID, OwnerClock: lookup.Owner.InterfaceRoleEvidenceClock, OwnerSourceID: lookup.Owner.SourceID}
 	facts.Data.CapturedAt = time.Time{}
 	facts.Data.Owner.InterfaceRoleEvidenceClock = InterfaceRoleEvidenceClock{}
 	facts.Data.Owner.SourceID = ""
@@ -115,6 +117,7 @@ func splitRoutingCaptureClock(side *BGPRoutingFlowSide) routingCaptureViewClock 
 		clock.NextHopExpiry = append(clock.NextHopExpiry, side.NextHops[i].ValidUntil)
 		side.NextHops[i].ValidUntil = time.Time{}
 	}
+	clock.Public = splitRoutingCapturePublicClock(side)
 	return clock
 }
 
@@ -159,7 +162,7 @@ func decodeRoutingCapture(ctx context.Context, objects routingCaptureObjects, bu
 	if err := readRoutingCaptureObject(objects.clocks, &clocks); err != nil {
 		return BGPRoutingFlowLookup{}, err
 	}
-	if facts.Version != 1 || clocks.Version != 1 || facts.Kind != "routing_facts" || clocks.Kind != "routing_clocks" || facts.TenantID != tenant.String() || clocks.TenantID != tenant.String() || clocks.FactsDigest != objects.facts.digest {
+	if (facts.Version != 1 && facts.Version != 2) || clocks.Version != facts.Version || facts.Kind != "routing_facts" || clocks.Kind != "routing_clocks" || facts.TenantID != tenant.String() || clocks.TenantID != tenant.String() || clocks.FactsDigest != objects.facts.digest || routingCaptureVersion(facts.Data) != facts.Version {
 		return BGPRoutingFlowLookup{}, errRoutingCaptureFormat
 	}
 	result := facts.Data
@@ -179,6 +182,9 @@ func decodeRoutingCapture(ctx context.Context, objects routingCaptureObjects, bu
 		side.Route.Source.routingSelection = facts.Selections[lane]
 		for i := range side.NextHops {
 			side.NextHops[i].ValidUntil = clock.NextHopExpiry[i]
+		}
+		if err := restoreRoutingCapturePublicClock(side, clock.Public); err != nil {
+			return BGPRoutingFlowLookup{}, err
 		}
 	}
 	if err := validateRoutingCapture(ctx, result, budget); err != nil {
@@ -242,6 +248,12 @@ func validateRoutingCapture(ctx context.Context, lookup BGPRoutingFlowLookup, bu
 func validateRoutingCaptureSide(ctx context.Context, owner InterfaceRoleFlowBinding, side *BGPRoutingFlowSide, at time.Time, budget BGPRoutingBudget) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if side.Public != nil {
+		return validatePublicRoutingCaptureSide(ctx, owner, side, at, budget)
+	}
+	if side.RouterState != "" {
+		return errRoutingCaptureFormat
 	}
 	if side.State != "router_selected" {
 		if (side.State != "no_prefix" && side.State != "source_unavailable") || side.Route.Source != (BGPRoutingSource{}) || side.Route.View != (BGPRoutingViewRef{}) || side.Route.Prefix.IsValid() || !side.Route.AsOf.IsZero() || !side.Route.ValidUntil.IsZero() || !side.Route.LastObservedAt.IsZero() || side.Route.LastSequence != 0 || side.Route.Paths != nil || side.Fields != nil || side.NextHops != nil {
