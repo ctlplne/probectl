@@ -26,6 +26,7 @@ func publishPublicFlowFixture(t *testing.T, f *roleInputsFixture, tenant string,
 	t.Helper()
 	const reference = "ris/mrt_table_dump_v2/rrc00"
 	profile := publicCaptureBudget()
+	profile.LeaseDuration = 12 * time.Hour
 	write := func(fn func(context.Context, tenancy.Scope) error) {
 		t.Helper()
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
