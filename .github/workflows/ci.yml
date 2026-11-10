@@ -46,6 +46,7 @@ jobs:
         run: |
           python3 scripts/ci_qualification.py --selftest
           python3 scripts/ci_development.py --selftest
+          python3 scripts/ci_image.py --selftest
           python3 scripts/ci_qualification.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -1162,12 +1163,12 @@ jobs:
             || { echo "::error::shipped probectl-ebpf-agent image is NOT the -tags ebpf live build (EBPF-004)"; exit 1; }
 
   e2e:
-    needs: [no-devauth-in-release, web-build]
+    needs: build-images
     name: e2e (release image, production auth, two tenants)
     # TQ-03 (beta gate G6): the black-box e2e tests the control plane AS
-    # SHIPPED. The step below builds the release image exactly as image-scan
-    # does (deploy/docker/Dockerfile, COMPONENT=probectl-control, the default
-    # core edition, no build tags) and loads it locally — it is never pushed.
+    # SHIPPED. Load the verified amd64 artifact from build-images: the same
+    # core control image scanned by image-scan, with the ordinary Dockerfile
+    # and production auth. The CI image is never pushed to a registry.
     # test/e2e then runs that image the way deploy/compose/probectl.yml does
     # (certgen, verify-full Postgres, least-privilege serve login, read-only
     # non-root container) in PROBECTL_AUTH_MODE=session against a real Dex,
@@ -1179,6 +1180,9 @@ jobs:
     # least-privilege reader login, the production shape (G6, G7-12).
     # Inside verify-all because the nightly copy alone went red for 19 nights
     # with nobody looking (G6 root cause, bucket C).
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -1189,18 +1193,16 @@ jobs:
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - name: Build the release control-plane image (amd64, local load, never pushed)
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: deploy/docker/Dockerfile
-          platforms: linux/amd64
-          build-args: |
-            COMPONENT=probectl-control
-            EDITION=core
-          load: true
-          tags: probectl/probectl-control:e2e
+      - name: Load the exact release control image from this build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "image-probectl-control-$GITHUB_SHA" --dir "$RUNNER_TEMP/probectl-image"
+          python3 scripts/ci_image.py load --docker "$RUNNER_TEMP/probectl-image/image.tar" \
+            --receipt "$RUNNER_TEMP/probectl-image/image-proof.json" \
+            --component probectl-control --edition core --tag probectl/probectl-control:e2e \
+            --output artifacts/image-consumer/e2e.json
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "26.12.1"
@@ -1229,6 +1231,12 @@ jobs:
         env:
           PROBECTL_E2E_IMAGE: probectl/probectl-control:e2e
         run: make e2e
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: image-e2e-receipt-${{ github.run_attempt }}
+          path: artifacts/image-consumer/
+          retention-days: 90
 
   first-data:
     needs: action-pins
@@ -2186,6 +2194,10 @@ jobs:
           ref: ${{ github.sha }}
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Keep one immutable source/build clock for both exports
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+          echo "IMAGE_BUILD_DATE=$(git show -s --format=%cI HEAD)" >> "$GITHUB_ENV"
       - name: Build multi-arch image (linux/amd64 + linux/arm64)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -2195,8 +2207,59 @@ jobs:
           build-args: |
             COMPONENT=${{ matrix.buildComponent }}
             EDITION=${{ matrix.edition || 'core' }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ env.IMAGE_BUILD_DATE }}
+            SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.probectl.component=${{ matrix.component }}
+            org.probectl.edition=${{ matrix.edition || 'core' }}
           push: false
+          provenance: mode=min
+          outputs: type=oci,dest=${{ runner.temp }}/multiarch.tar
           tags: probectl/${{ matrix.component }}:ci
+      - name: Export the same cached amd64 image for consumers
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          build-args: |
+            COMPONENT=${{ matrix.buildComponent }}
+            EDITION=${{ matrix.edition || 'core' }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ env.IMAGE_BUILD_DATE }}
+            SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.probectl.component=${{ matrix.component }}
+            org.probectl.edition=${{ matrix.edition || 'core' }}
+          push: false
+          provenance: false
+          outputs: type=docker,dest=${{ runner.temp }}/image.tar
+          tags: probectl/${{ matrix.component }}:ci
+      - name: Verify complete platform outputs and exact amd64 identity
+        env:
+          COMPONENT: ${{ matrix.component }}
+          EDITION: ${{ matrix.edition || 'core' }}
+        run: |
+          python3 scripts/ci_image.py produce --oci "$RUNNER_TEMP/multiarch.tar" \
+            --docker "$RUNNER_TEMP/image.tar" --component "$COMPONENT" --edition "$EDITION" \
+            --output "$RUNNER_TEMP/image-proof.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-${{ matrix.component }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/image.tar
+            ${{ runner.temp }}/image-proof.json
+          compression-level: 1
+          retention-days: 7
+          overwrite: true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-proof-${{ matrix.component }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/image-proof.json
+          retention-days: 90
 
   # SUP-01: EVERY shipped image is vuln-scanned, not just probectl-control. The
   # matrix mirrors build-images (one entry per published image); the cipolicy
@@ -2208,8 +2271,11 @@ jobs:
   # CRITICAL catches the catastrophic class without reddening main on that churn
   # (D-35 option b, decided as PD-13/D-49). No row is report-only.
   image-scan:
-    needs: [no-devauth-in-release, web-build]
+    needs: build-images
     name: image-scan (${{ matrix.component }})
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -2234,22 +2300,21 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - name: Build a local amd64 image to scan
-        if: matrix.component != 'probectl-browser-agent'
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64
-          build-args: |
-            COMPONENT=${{ matrix.buildComponent }}
-            EDITION=${{ matrix.edition || 'core' }}
-          load: true
-          tags: probectl/${{ matrix.component }}:scan
+      - name: Download and verify the exact amd64 build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMPONENT: ${{ matrix.component }}
+          EDITION: ${{ matrix.edition || 'core' }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "image-$COMPONENT-$GITHUB_SHA" --dir "$RUNNER_TEMP/probectl-image"
+          python3 scripts/ci_image.py load --docker "$RUNNER_TEMP/probectl-image/image.tar" \
+            --receipt "$RUNNER_TEMP/probectl-image/image-proof.json" --component "$COMPONENT" \
+            --edition "$EDITION" --tag "probectl/$COMPONENT:scan" \
+            --output artifacts/image-consumer/scan.json
       - name: Exercise the shipped browser worker (success and failure screenshot)
         if: matrix.component == 'probectl-browser-agent'
-        run: bash scripts/check_browser_image.sh probectl/probectl-browser-agent:scan linux/amd64
+        run: bash scripts/check_browser_image.sh probectl/probectl-browser-agent:scan linux/amd64 reuse
       - name: Trivy image scan (vuln)
         # Vuln-only: secret scanning is gitleaks' job (the secret-scan job, with
         # the .gitleaks.toml allowlist); see the dependency-scan step above.
@@ -2261,6 +2326,12 @@ jobs:
           severity: ${{ matrix.severity || 'CRITICAL,HIGH' }}
           ignore-unfixed: true
           exit-code: ${{ matrix.exit_code }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: image-scan-receipt-${{ matrix.component }}-${{ github.run_attempt }}
+          path: artifacts/image-consumer/
+          retention-days: 90
 
   commitlint:
     needs: action-pins

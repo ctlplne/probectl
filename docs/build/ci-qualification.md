@@ -48,3 +48,20 @@ also wait for the existing release/dev-auth compile checks. Frontend audits,
 lint, complete coverage and both-theme rendered accessibility remain required;
 their independent jobs can continue while early builds execute. The early
 untagged control binary is not substituted for a core/EE or FIPS image.
+
+Each image producer exports the existing complete amd64+arm64 build as OCI and
+exports the cached amd64 result as a single-platform Docker archive. Both use
+the exact commit, edition and source clock. `ci_image.py` verifies both platform
+configs and layer descriptors, retains the OCI index and provenance, and
+requires the Docker config digest to equal the multiarch amd64 config digest.
+The second export reuses that job's builder cache; scanners and E2E do not build
+another image.
+
+The amd64 archive and receipt stay in this workflow run's `image-<component>-<sha>`
+artifact for seven days. Scan and compatible production-auth E2E jobs verify
+the full archive hash, source, edition, component and run before Docker load,
+then check the loaded image ID/platform and tag that exact ID. All image scan
+rows, their blocking severities and the browser worker's functional smoke proof
+remain. Independent platform/provenance and consumer receipts last 90 days.
+A Docker archive alone never qualifies multiarch support. An expired transfer
+requires rerunning its producer; consumers never fetch a registry fallback.

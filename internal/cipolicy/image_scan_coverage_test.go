@@ -155,3 +155,58 @@ func TestImageWorkWaitsForExistingEarlyBuilds(t *testing.T) {
 		}
 	}
 }
+
+func TestImageConsumersReuseVerifiedProducerBytes(t *testing.T) {
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Uses string            `yaml:"uses"`
+				Run  string            `yaml:"run"`
+				With map[string]string `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(readWorkflow(t, "ci.yml")), &workflow); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"image-scan", "e2e"} {
+		var commands []string
+		for _, step := range workflow.Jobs[name].Steps {
+			if strings.HasPrefix(step.Uses, "docker/build-push-action@") || strings.Contains(step.Run, "docker build") {
+				t.Errorf("%s rebuilds the image instead of consuming the exact producer", name)
+			}
+			commands = append(commands, step.Run)
+		}
+		joined := strings.Join(commands, "\n")
+		for _, required := range []string{"gh run download", "scripts/ci_image.py load", "--receipt", "--component", "--output artifacts/image-consumer/"} {
+			if !strings.Contains(joined, required) {
+				t.Errorf("%s lost verified image consumption %q", name, required)
+			}
+		}
+	}
+	var platforms []string
+	for _, step := range workflow.Jobs["build-images"].Steps {
+		if !strings.HasPrefix(step.Uses, "docker/build-push-action@") {
+			continue
+		}
+		platforms = append(platforms, step.With["platforms"])
+		if step.With["push"] != "false" || !strings.Contains(step.With["labels"], "org.opencontainers.image.revision=${{ github.sha }}") {
+			t.Fatal("CI image exports must retain exact source identity and never publish")
+		}
+		switch step.With["platforms"] {
+		case "linux/amd64,linux/arm64":
+			if !strings.HasPrefix(step.With["outputs"], "type=oci,") || step.With["provenance"] != "mode=min" {
+				t.Fatal("complete multiarch export/provenance is missing")
+			}
+		case "linux/amd64":
+			if !strings.HasPrefix(step.With["outputs"], "type=docker,") {
+				t.Fatal("consumer transfer must be single-platform Docker format")
+			}
+		default:
+			t.Fatal("unexpected image export platform")
+		}
+	}
+	if len(platforms) != 2 {
+		t.Fatal("producer must retain both full multiarch build and cached amd64 export")
+	}
+}
