@@ -84,8 +84,8 @@ func (r *rpkiJSONReader) value(memory *int64) (any, error) {
 				return nil, err
 			}
 		}
-		close, err := r.token(memory)
-		if err != nil || close != json.Delim('}') {
+		closing, err := r.token(memory)
+		if err != nil || closing != json.Delim('}') {
 			return nil, errors.Join(errRPKIJSON, err)
 		}
 		return out, nil
@@ -98,8 +98,8 @@ func (r *rpkiJSONReader) value(memory *int64) (any, error) {
 			}
 			out = append(out, value)
 		}
-		close, err := r.token(memory)
-		if err != nil || close != json.Delim(']') {
+		closing, err := r.token(memory)
+		if err != nil || closing != json.Delim(']') {
 			return nil, errors.Join(errRPKIJSON, err)
 		}
 		return out, nil
@@ -167,8 +167,8 @@ func decodeRPKIExport(ctx context.Context, raw []byte, budget *rpkiJSONBudget) (
 				}
 			}
 		}
-		close, err := r.token(&scratch)
-		if err != nil || close != json.Delim('}') || !found {
+		closing, err := r.token(&scratch)
+		if err != nil || closing != json.Delim('}') || !found {
 			return none, errors.Join(errRPKIJSON, err)
 		}
 	default:
@@ -201,8 +201,8 @@ func (r *rpkiJSONReader) roas(snapshot *RPKISnapshot) error {
 		snapshot.Records++
 	}
 	scratch := r.budget.memory
-	close, err := r.token(&scratch)
-	if err != nil || close != json.Delim(']') {
+	closing, err := r.token(&scratch)
+	if err != nil || closing != json.Delim(']') {
 		return errors.Join(errRPKIJSON, err)
 	}
 	return nil

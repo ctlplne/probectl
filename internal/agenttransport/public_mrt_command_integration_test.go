@@ -32,7 +32,18 @@ func TestPublicMRTNativeCommandPublishesWholeFileAndRejectsCorruptCompression(t 
 	buildCtx, stopBuild := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer stopBuild()
 	bin := filepath.Join(t.TempDir(), "probectl-agent")
-	build := exec.CommandContext(buildCtx, filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-p=2", "-o", bin, "../../cmd/probectl-agent")
+	goBinary, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal("native MRT command requires the pinned Go tool on PATH", err)
+	}
+	env := append(os.Environ(), "GOTOOLCHAIN=local")
+	version := exec.CommandContext(buildCtx, goBinary, "version")
+	version.Env = env
+	if output, err := version.CombinedOutput(); err != nil || !bytes.Contains(output, []byte(" "+runtime.Version()+" ")) {
+		t.Fatal("native MRT command requires the same Go patch as its test binary", err, string(output))
+	}
+	build := exec.CommandContext(buildCtx, goBinary, "build", "-p=2", "-o", bin, "../../cmd/probectl-agent")
+	build.Env = env
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatal("native MRT command did not build", err, string(output))
 	}

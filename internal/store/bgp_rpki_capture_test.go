@@ -119,24 +119,24 @@ func TestRoutingRPKICaptureRefusesForgedStalePartialAndUnadmittedEvidence(t *tes
 		func(c *BGPRoutingRPKICapture) { c.Covering = append(c.Covering, c.Covering[0]) },
 		func(c *BGPRoutingRPKICapture) { c.Version = "unproved" },
 	} {
-		copy := lookup
-		if err := captureRoutingRPKI(ctx, &copy, snapshot, publicCaptureBudget()); err != nil {
+		candidate := lookup
+		if err := captureRoutingRPKI(ctx, &candidate, snapshot, publicCaptureBudget()); err != nil {
 			t.Fatal(err)
 		}
-		mutate(copy.Source.RPKI)
-		if objects, err := freezeRoutingCapture(ctx, copy, publicCaptureBudget()); err == nil || objects.facts.payload != "" {
+		mutate(candidate.Source.RPKI)
+		if objects, err := freezeRoutingCapture(ctx, candidate, publicCaptureBudget()); err == nil || objects.facts.payload != "" {
 			t.Fatal("RPKI capture accepted forged or stale independent evidence", err)
 		}
 	}
 	for _, limits := range []BGPRoutingBudget{{MemoryBytes: 1, WorkUnits: 1 << 30}, {MemoryBytes: 1 << 30, WorkUnits: 1}} {
-		copy := lookup
-		if err := captureRoutingRPKI(ctx, &copy, snapshot, limits); err == nil || copy.Source.RPKI != nil || copy.Destination.RPKI != nil {
+		candidate := lookup
+		if err := captureRoutingRPKI(ctx, &candidate, snapshot, limits); err == nil || candidate.Source.RPKI != nil || candidate.Destination.RPKI != nil {
 			t.Fatal("unadmitted RPKI operation returned a partial capture", err)
 		}
 	}
 	for _, absent := range []opendata.RPKISnapshot{en.RPKI(lookup.CapturedAt.Add(2 * time.Hour)), {Enabled: true, Current: true, Version: snapshot.Version}} {
-		copy := lookup
-		if err := captureRoutingRPKI(ctx, &copy, absent, publicCaptureBudget()); err != nil || copy.Source.RPKI != nil {
+		candidate := lookup
+		if err := captureRoutingRPKI(ctx, &candidate, absent, publicCaptureBudget()); err != nil || candidate.Source.RPKI != nil {
 			t.Fatal("stale or caller-filled validator metadata established authority", err)
 		}
 	}
