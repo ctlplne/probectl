@@ -89,7 +89,11 @@ without a reachable vulnerable call; the version floor does not replace it.
 
 - **Bot-proposed, human-reviewed, never auto-merged.** An update bot opens the
   pull requests and a person reads the release notes, reviews, and merges — the
-  bots never merge on their own and never batch unrelated bumps.
+  bots never merge on their own. Routine compatible minor/patch version updates
+  are grouped within an ecosystem; security updates stay separate and preempt
+  routine work. Weekly checks are staggered across the week, with at most two
+  ordinary version-update PRs per manifest location. This limit does not consume
+  Dependabot's separate security-update allowance.
   [`.github/dependabot.yml`](../.github/dependabot.yml) tracks the gomod (`/`
   and `/test`), npm (`/web` and `/browser-worker`), pip (`/analyzer`), Docker
   (`/deploy/docker`, `/browser-worker`) and GitHub-Actions ecosystems;
@@ -97,8 +101,11 @@ without a reachable vulnerable call; the version floor does not replace it.
   image references in the Compose stacks and Helm values that Dependabot's
   docker manager does not. Coverage is enforced by
   `TestDependencyBotsCoverEveryLockfileAndDigestLocation` (SUP-16), so a new
-  lockfile or digest location cannot be added without a bot entry. Each bump
-  lands as **its own pull request** through the **full** gate set
+  lockfile or digest location cannot be added without a bot entry. Major updates,
+  authentication/crypto/transport, browser toolchain, image bases and scanners
+  retain separate review; CodeQL sub-actions retain their coordinated group to
+  avoid version skew. Group exclusions do not ignore or disable those updates.
+  Every individual or grouped update lands through the **full** gate set
   (unit/integration tests, the isolation suites, fuzz-smoke, and the eBPF
   kernel-matrix where relevant).
 - **Patch SLA (from advisory/PR open to merge):** `Critical 7 days`,

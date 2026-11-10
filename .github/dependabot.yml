@@ -5,58 +5,165 @@
 # commitlint gate green; actions stay SHA-pinned (check_action_pins.sh).
 version: 2
 updates:
+# Routine version updates are staggered and grouped; security updates stay
+# separate and prioritized. Majors and sensitive transport/crypto/browser/base
+# image/scanner updates retain individual or existing coordinated review.
   - package-ecosystem: gomod
     directory: "/"
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+      day: monday
+      time: "02:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
     commit-message:
       prefix: "build(deps)"
+    groups:
+      routine-version-updates:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+        exclude-patterns:
+          - "golang.org/x/crypto"
+          - "golang.org/x/net"
+          - "golang.org/x/oauth2"
+          - "github.com/coreos/go-oidc*"
+          - "github.com/go-jose/*"
+          - "github.com/jackc/pgx*"
+          - "github.com/nats-io/*"
+          - "github.com/twmb/franz-go*"
+          - "github.com/cilium/ebpf"
+          - "google.golang.org/grpc"
+          - "google.golang.org/protobuf"
+          - "gopkg.in/yaml*"
   - package-ecosystem: gomod
     directory: "/test"
     schedule:
       interval: weekly
+      day: monday
+      time: "02:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
     commit-message:
       prefix: "build(deps)"
+    groups:
+      routine-version-updates:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+        exclude-patterns:
+          - "golang.org/x/crypto"
+          - "golang.org/x/net"
+          - "golang.org/x/oauth2"
+          - "github.com/coreos/go-oidc*"
+          - "github.com/go-jose/*"
+          - "github.com/jackc/pgx*"
+          - "github.com/nats-io/*"
+          - "github.com/twmb/franz-go*"
+          - "github.com/cilium/ebpf"
+          - "google.golang.org/grpc"
+          - "google.golang.org/protobuf"
+          - "gopkg.in/yaml*"
   - package-ecosystem: npm
     directory: "/web"
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+      day: tuesday
+      time: "02:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
     commit-message:
       prefix: "build(deps)"
+    groups:
+      routine-version-updates:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+        exclude-patterns:
+          - "*playwright*"
+          - "react-router*"
+          - "@vitejs/*"
+          - "vite"
+          - "rolldown"
+          - "rollup"
+          - "*jose*"
+          - "*crypto*"
   # SUP-16: the browser-worker ships a committed package-lock.json (the
   # Playwright worker's npm tree) — keep it current like web/.
   - package-ecosystem: npm
     directory: "/browser-worker"
     schedule:
       interval: weekly
+      day: tuesday
+      time: "02:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
     commit-message:
       prefix: "build(deps)"
+    groups:
+      routine-version-updates:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+        exclude-patterns:
+          - "*playwright*"
+          - "react-router*"
+          - "@vitejs/*"
+          - "vite"
+          - "rolldown"
+          - "rollup"
+          - "*jose*"
+          - "*crypto*"
   # SUP-16: the Python analyzer's hash-locked runtime + dev requirements
   # (analyzer/requirements.lock, requirements-dev.lock, pyproject.toml).
   - package-ecosystem: pip
     directory: "/analyzer"
     schedule:
       interval: weekly
+      day: wednesday
+      time: "02:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
     commit-message:
       prefix: "build(deps)"
+    groups:
+      routine-version-updates:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+        exclude-patterns:
+          - "websockets"
+          - "cryptography"
+          - "pyopenssl"
+          - "pyjwt"
   - package-ecosystem: docker
     directory: "/deploy/docker"
     schedule:
       interval: weekly
+      day: thursday
+      time: "02:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
     commit-message:
       prefix: "build(deps)"
   - package-ecosystem: docker
     directory: "/browser-worker"
     schedule:
       interval: weekly
+      day: thursday
+      time: "02:30"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
     commit-message:
       prefix: "build(deps)"
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+      day: friday
+      time: "02:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
     commit-message:
       prefix: "ci(deps)"
     # CodeQL's init/autobuild/analyze must move together: init writes a config
@@ -65,5 +172,10 @@ updates:
     # never pass CI, and merging one alone breaks code scanning on main.
     groups:
       codeql-action:
+        applies-to: version-updates
         patterns:
           - "github/codeql-action*"
+      routine-setup-actions:
+        applies-to: version-updates
+        patterns: ["actions/setup-*", "actions/cache"]
+        update-types: [minor, patch]
