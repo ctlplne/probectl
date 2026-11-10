@@ -13,7 +13,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/opendata"
@@ -131,7 +131,7 @@ func peeringTargetScope(ctx context.Context, target peeringTarget, in store.Inte
 	if !bound || err != nil || scope != target.Scope || tenant.String() != scope.TenantID || in.Scope != scope || in.InterfaceID != target.InterfaceID {
 		return entity.ErrScopeMismatch
 	}
-	id, err := uuid.Parse(target.InterfaceID)
+	id, err := gouuid.Parse(target.InterfaceID)
 	if err != nil || id.String() != target.InterfaceID || in.AsOf.IsZero() || target.PeerASN == 0 || target.IXID <= 0 || target.LANID <= 0 {
 		return errPeeringTarget
 	}
