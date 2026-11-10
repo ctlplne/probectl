@@ -34,7 +34,7 @@ dev = [
   # Constrain Black's already-vetted transitive packages so fresh resolution
   # retains the hash-locked versions instead of adopting new minor releases.
   "platformdirs==4.13.6",
-  "mypy-extensions==1.1.0",
+  "mypy-extensions==1.2.0",
   "hypothesis==6.141.1",
 ]
 
