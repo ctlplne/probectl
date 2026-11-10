@@ -62,6 +62,7 @@ jobs:
         run: ./scripts/check_cosign_wiring.sh
 
   secret-scan:
+    needs: action-pins
     # No committed secrets, ever. gitleaks scans every reachable commit, not
     # only HEAD, because a deleted key is still recoverable from git history.
     # Allowlist policy lives in .gitleaks.toml and must be tightly scoped.
@@ -89,6 +90,7 @@ jobs:
           ./scripts/check_untrusted_keys.sh
 
   no-devauth-in-release:
+    needs: action-pins
     # Sprint 3 (RED-001/SEC-001): the dev-auth bypass must be PHYSICALLY
     # absent from release binaries. Three checks: the tagged-only
     # implementation symbol is absent, the synthesized dev-principal literal
@@ -134,6 +136,7 @@ jobs:
           echo "release refusal verified"
 
   lint-go:
+    needs: action-pins
     name: lint-go
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -163,6 +166,7 @@ jobs:
         run: make strength-gate
 
   lint-python:
+    needs: action-pins
     name: lint-python
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -181,6 +185,7 @@ jobs:
         run: make lint-python
 
   editions-gate:
+    needs: action-pins
     name: editions-gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -196,6 +201,7 @@ jobs:
         run: make editions-gate
 
   packaging-smoke:
+    needs: action-pins
     name: packaging-smoke
     # OPS-002: nfpm previously only ran at tag time, so a broken nfpm.yaml
     # (${VAR}-in-src not expanded; v-prefix mismatch) shipped undetected and
@@ -235,6 +241,7 @@ jobs:
         run: make compose-image-gate
 
   fips-gate:
+    needs: action-pins
     name: fips-gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -250,6 +257,7 @@ jobs:
         run: make build-fips fips-gate
 
   test-go:
+    needs: action-pins
     name: test-go
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -330,6 +338,7 @@ jobs:
         run: make endpoint-build
 
   device-live:
+    needs: action-pins
     name: device-live (SNMP integration)
     # COVER-015: TestSNMPIntegration is intentionally env-gated so local
     # service-free runs can skip it, but CI must prove the real gosnmp wire path
@@ -358,6 +367,7 @@ jobs:
           python3 scripts/ci_interface_role_evidence.py
 
   path-raw-live:
+    needs: action-pins
     name: path-raw-live (CAP_NET_RAW)
     # COVER-016: the full traceroute path needs raw ICMP plus a multi-hop
     # fixture. The job creates Linux namespaces and fails if TestRunRawMultiHop
@@ -384,6 +394,7 @@ jobs:
   # eval set through the real planner->engine->synthesize pipeline against
   # the deterministic builtin model.
   rca-eval:
+    needs: action-pins
     name: rca-eval (BLOCKING — floors 0.85/0.85)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -418,6 +429,7 @@ jobs:
           retention-days: 90
 
   report-pdf:
+    needs: action-pins
     name: report-pdf (offline Unicode and complete output)
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -478,6 +490,7 @@ jobs:
           retention-days: 90
 
   coverage:
+    needs: action-pins
     name: coverage
     # Per-package statement-coverage floor on the service-free logic / parser /
     # probe packages (scripts/check_coverage.sh). Stateful DB/transport packages
@@ -546,6 +559,7 @@ jobs:
           gh pr comment "${{ github.event.pull_request.number }}" --body-file coverage-pr-summary/coverage-summary.txt || true
 
   test-python:
+    needs: action-pins
     name: test-python
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -577,6 +591,7 @@ jobs:
       - run: make test-python
 
   browser-worker:
+    needs: action-pins
     name: browser-worker
     # S36, F15: the Playwright browser-synthetic worker. Runs INSIDE the official
     # Playwright image (Chromium + deps preinstalled), so the smoke test exercises a
@@ -628,6 +643,7 @@ jobs:
           fi
 
   openapi-gate:
+    needs: action-pins
     name: openapi-gate
     # S19, F23: no undocumented routes ship at a GA milestone. Validates the spec
     # is OpenAPI 3.1 and that the registered /v1 routes exactly match the spec.
@@ -645,6 +661,7 @@ jobs:
         run: make openapi-gate
 
   completeness-gate:
+    needs: action-pins
     name: completeness-gate
     # CL-001: every cataloged capability must carry validated evidence for
     # each wiring-spine cell, an explicit none-by-design reason, or an honest
@@ -673,6 +690,7 @@ jobs:
           retention-days: 90
 
   delivery-audit-gate:
+    needs: action-pins
     name: delivery-audit-gate
     # CL-002: a signed receipt is promotable only with independent out-of-band
     # signer trust, exact clean source identity, real delivery evidence, and no
@@ -701,6 +719,7 @@ jobs:
         run: make delivery-audit-gate
 
   sdk-gate:
+    needs: action-pins
     name: sdk-gate
     # PRODUCT-007 / SCHEMA: generated public SDKs must stay byte-for-byte in
     # sync with the tenant-facing OpenAPI contract.
@@ -718,6 +737,7 @@ jobs:
         run: make sdk-gate
 
   migration-gate:
+    needs: action-pins
     name: migration-gate
     # S34, F28: zero-downtime upgrades require additive (expand/contract) migrations
     # — release N's schema must work with N-1's code (rollback) and N's code. Rejects
@@ -736,6 +756,7 @@ jobs:
         run: make migration-gate
 
   helm-gate:
+    needs: action-pins
     name: helm-gate
     # S19 + S35, F29: the shipped Helm chart lints for every reference profile and
     # upholds the secure-by-default hardening invariants (non-root/read-only pod,
@@ -908,6 +929,7 @@ jobs:
           bash scripts/check_compose_hardening.sh
 
   kyverno-admission:
+    needs: action-pins
     name: kyverno-admission (RTO-12)
     # RTO-12: the agent chart's image-integrity ImageValidatingPolicy, proven on a REAL
     # cluster instead of by grep. kind (node image pinned by digest) + Kyverno
@@ -945,6 +967,7 @@ jobs:
             ./scripts/kyverno_admission_smoke.sh
 
   terraform-gate:
+    needs: action-pins
     name: terraform-gate
     # S35, F29: the probectl Terraform module is fmt-clean and validates (fmt +
     # `terraform validate` of the example root that consumes it).
@@ -962,6 +985,7 @@ jobs:
         run: make terraform-gate
 
   ebpf-kernel-matrix:
+    needs: action-pins
     name: ebpf-kernel-matrix (${{ matrix.kernel }})
     # U-021: the BPF programs are LOADED and ATTACHED on real LTS kernels —
     # not just statically checked. vimto boots each kernel under QEMU with the
@@ -1104,6 +1128,7 @@ jobs:
           env ${{ matrix.env_extra }} CGO_ENABLED=0 go test -tags ebpf -exec "$(go env GOPATH)/bin/vimto -memory size=256M -kernel ${{ matrix.image }} -sudo exec --" -run '${{ matrix.run }}' -count=1 -v ./internal/ebpf/
 
   ebpf-image-live:
+    needs: action-pins
     # EBPF-004: the SHIPPED probectl-ebpf-agent image must carry the LIVE
     # CO-RE loader, not the fixture replayer. Build the release Dockerfile
     # (deploy/docker/Dockerfile.ebpf — the same file release.yml publishes),
@@ -1136,6 +1161,7 @@ jobs:
             || { echo "::error::shipped probectl-ebpf-agent image is NOT the -tags ebpf live build (EBPF-004)"; exit 1; }
 
   e2e:
+    needs: action-pins
     name: e2e (release image, production auth, two tenants)
     # TQ-03 (beta gate G6): the black-box e2e tests the control plane AS
     # SHIPPED. The step below builds the release image exactly as image-scan
@@ -1204,6 +1230,7 @@ jobs:
         run: make e2e
 
   first-data:
+    needs: action-pins
     name: first-data (evaluation stack from a clean checkout)
     # G4(a): `make first-data` is the first command docs/getting-started.md
     # gives a new user, and no job ran it, so the evaluation stack sat broken
@@ -1238,6 +1265,7 @@ jobs:
             --profile synthetic --profile browser-synthetic down -v || true
 
   cross-tenant-isolation:
+    needs: action-pins
     name: cross-tenant-isolation
     # Permanent CI gate — docs/guardrails.md G7-1. From S2 this proves real
     # tenant isolation (RLS + tenancy choke point) against a Postgres service;
@@ -1346,6 +1374,7 @@ jobs:
         run: make test-isolation
 
   nms-vendor-live:
+    needs: action-pins
     name: nms-vendor-live (LibreNMS and Zabbix)
     # D-107: actual digest-pinned vendor API/export bytes, imported into two
     # Postgres tenants. The isolated fixture images are never release inputs.
@@ -1385,6 +1414,7 @@ jobs:
         run: python3 scripts/ci_nms_vendor.py cleanup
 
   netbox-live:
+    needs: action-pins
     name: netbox-live (NetBox tenant mapping)
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -1441,6 +1471,7 @@ jobs:
         run: python3 scripts/ci_netbox.py cleanup
 
   integration:
+    needs: action-pins
     name: integration
     # Runs the stateful control-plane and four-store proofs independently of
     # the NetBox source. Both lanes are mandatory in verify-all.
@@ -1684,6 +1715,7 @@ jobs:
         run: python3 scripts/ci_interface_prefix_transport.py --integration
 
   perf-smoke:
+    needs: action-pins
     name: perf-smoke
     # S18a perf-foundation: a cheap, repeatable load baseline (a smoke, not a
     # soak). The ingest baseline needs no services; the pooled multi-tenant smoke
@@ -1705,6 +1737,7 @@ jobs:
         run: make perf-smoke
 
   backup-drill:
+    needs: action-pins
     name: backup-drill
     # U-030: the backup → wipe → restore drill EXECUTES on every pass against
     # the dev compose Postgres + ClickHouse + filesystem object store:
@@ -1751,6 +1784,7 @@ jobs:
             artifacts/backup-restore-large.log
 
   failover-drill:
+    needs: action-pins
     name: failover-drill
     # U-053: the promote-the-standby failover (the documented multi-region
     # model) is TIMED on every pass: streaming replica, kill -9 the primary,
@@ -1798,6 +1832,7 @@ jobs:
             artifacts/failover-representative.log
 
   chaos-dependency-drill:
+    needs: action-pins
     name: chaos-dependency-drill
     # RESIL-004: dependency chaos must execute, not stay a release-matrix note.
     # This non-production drill fills the real agent buffer cap, kills a
@@ -1817,6 +1852,7 @@ jobs:
         run: make chaos-dependency-drill
 
   load-smoke:
+    needs: action-pins
     name: load-smoke
     # U-005: the FULL-STACK load gate's S-tier smoke — synthetic agents through
     # real Kafka, the production consumers (retry/DLQ + cardinality caps), real
@@ -1840,6 +1876,7 @@ jobs:
         run: make load-test-smoke
 
   proto:
+    needs: action-pins
     name: proto
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1887,6 +1924,7 @@ jobs:
             || { echo "::error::generated code is stale — run 'make proto' and commit"; exit 1; }
 
   web:
+    needs: action-pins
     name: web
     # Frontend foundation (S8a): typecheck, lint, jsdom axe, theme-swap + token
     # guards, and a production build. Rendered browser a11y runs in the
@@ -1995,6 +2033,7 @@ jobs:
           retention-days: 90
 
   web-rendered-a11y:
+    needs: action-pins
     name: web-rendered-a11y
     # X16: real-browser WCAG + J1-J6 interaction-performance gate. Runs in the
     # same digest-pinned Playwright image used by the browser worker so
@@ -2038,6 +2077,7 @@ jobs:
           retention-days: 90
 
   dependency-scan:
+    needs: action-pins
     name: dependency-scan
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -2091,6 +2131,7 @@ jobs:
           retention-days: 90
 
   build-images:
+    needs: action-pins
     name: build-images
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -2141,6 +2182,7 @@ jobs:
   # CRITICAL catches the catastrophic class without reddening main on that churn
   # (D-35 option b, decided as PD-13/D-49). No row is report-only.
   image-scan:
+    needs: action-pins
     name: image-scan (${{ matrix.component }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -2195,6 +2237,7 @@ jobs:
           exit-code: ${{ matrix.exit_code }}
 
   commitlint:
+    needs: action-pins
     name: commitlint
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -2213,6 +2256,7 @@ jobs:
   # (Signed-off-by trailer, git commit -s). Dependency-free script — nothing to
   # pin. Forward-only; historical commits are a counsel item (Appendix B).
   dco:
+    needs: action-pins
     name: dco
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -2234,6 +2278,7 @@ jobs:
   # installed pinned + sumdb-verified (no third-party action to pin).
   # Informational — not a merge gate.
   sbom:
+    needs: action-pins
     name: sbom
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -2257,6 +2302,7 @@ jobs:
           retention-days: 90
 
   compose-render:
+    needs: action-pins
     name: compose-render (OPS-006)
     # OPS-006: the shipped docker-compose files must actually RENDER — a typo'd
     # YAML/interpolation in a compose recipe is a getting-started footgun that
