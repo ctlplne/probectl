@@ -45,6 +45,7 @@ jobs:
           QUALIFICATION_SHA: ${{ inputs.qualification_sha }}
         run: |
           python3 scripts/ci_qualification.py --selftest
+          python3 scripts/ci_development.py --selftest
           python3 scripts/ci_qualification.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
