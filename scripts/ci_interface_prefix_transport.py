@@ -63,6 +63,8 @@ UNIT = {
         "TestInterfaceRoleExplorerSQLKeepsFixedTenantJoinAndCompleteExternalValues",
     ),
     "internal/flow": (
+        "TestPeeringPercentileServiceSeamKeepsExactCombinedRateAndObservedZeros",
+        "TestPeeringPercentileServiceSeamRefusesForeignMissingAndPartialInputs",
         "TestRoutingRegistryKeepsCompletePathsUnknownASNsAndEveryQueryAxis",
         "TestRoutingQuerySelectorsRequireTheBGPSourcePlaneOnEveryAxis",
         "TestOriginalFlowDigestPreservesUntrustedAndCloudPayloadWithoutAuthority",
