@@ -30,11 +30,10 @@ on:
 permissions:
   contents: read
 
-# Superseded PR scans share one group; scheduled/manual scans stay independent.
-# The current candidate still runs every language and the complete analysis.
+# Every security analysis remains independent, including pending PR scans.
 concurrency:
-  group: codeql-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: codeql-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   analyze:

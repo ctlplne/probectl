@@ -18,9 +18,8 @@ import (
 // last 30 ci runs on main: 26 canceled, 3 failed, ZERO successes, ever. A branch
 // that can never conclude can never be released.
 //
-// So the rule is narrow and mechanical: ci.yml may cancel in progress, but never
-// unconditionally — the expression has to exclude main and tags. Canceling on PR
-// branches is the point of the setting and stays.
+// Workflow-level automatic cancellation stays PR-only. Explicit main
+// development coalescing must separately preserve every full qualification.
 func TestMainRunsAreNeverCanceledInProgress(t *testing.T) {
 	ci := readWorkflow(t, "ci.yml")
 	block, ok := concurrencyBlock(ci)
@@ -37,10 +36,8 @@ func TestMainRunsAreNeverCanceledInProgress(t *testing.T) {
 			"leaves no conclusion for release.yml's require-green-ci to read (DPR-235). Guard the " +
 			"expression on github.ref instead.")
 	}
-	for _, want := range []string{"refs/heads/main", "refs/tags/"} {
-		if !strings.Contains(value, want) {
-			t.Errorf("cancel-in-progress expression %q must exempt %q", value, want)
-		}
+	if value != "false" && value != "${{ github.event_name == 'pull_request' }}" {
+		t.Errorf("workflow-level cancellation must be PR-only, not %q", value)
 	}
 
 	// DPR-242: not canceling is only half of it. With one group per REF, a main
@@ -60,6 +57,25 @@ func TestMainRunsAreNeverCanceledInProgress(t *testing.T) {
 	if !strings.Contains(group, "refs/heads/main") {
 		t.Errorf("concurrency group %q must name refs/heads/main, so branches keep one group per ref "+
 			"and keep the coalescing that cancel-in-progress exists for", group)
+	}
+	if !strings.Contains(group, "github.run_id") || !strings.Contains(group, "protected-") {
+		t.Fatal("full/manual runs need their own concurrency group even while pending")
+	}
+}
+
+func TestFullQualificationKeepsExactMainPinAndSecurityIndependence(t *testing.T) {
+	ci := readWorkflow(t, "ci.yml")
+	for _, required := range []string{"workflow_dispatch:", "qualification_sha:", "required: true", "QUALIFICATION_SHA: ${{ inputs.qualification_sha }}", "python3 scripts/ci_qualification.py --selftest", "python3 scripts/ci_qualification.py", "path: artifacts/ci-qualification/"} {
+		if !strings.Contains(ci, required) {
+			t.Errorf("full exact-main qualification is missing %q", required)
+		}
+	}
+	codeql := readWorkflow(t, "codeql.yml")
+	block, present := concurrencyBlock(codeql)
+	value, configured := scalarKey(block, "cancel-in-progress")
+	group, grouped := scalarKey(block, "group")
+	if !present || !configured || value != "false" || !grouped || !strings.Contains(group, "github.run_id") {
+		t.Fatal("security analyses must never cancel or replace each other")
 	}
 }
 
