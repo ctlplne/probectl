@@ -41,3 +41,10 @@ pre-cancellation job conclusions, artifact identities and run links for 90 days.
 Cancellation does not delete GitHub's existing logs or artifacts and does not
 create evidence for steps that never ran. Required incomplete checks remain owed
 to the complete pinned qualification.
+
+The existing typecheck, production bundle, bundle budget and real control-plane
+UI-embed compile run early in `web-build`. Image matrices and release-image E2E
+also wait for the existing release/dev-auth compile checks. Frontend audits,
+lint, complete coverage and both-theme rendered accessibility remain required;
+their independent jobs can continue while early builds execute. The early
+untagged control binary is not substituted for a core/EE or FIPS image.

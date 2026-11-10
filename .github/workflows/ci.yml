@@ -1162,7 +1162,7 @@ jobs:
             || { echo "::error::shipped probectl-ebpf-agent image is NOT the -tags ebpf live build (EBPF-004)"; exit 1; }
 
   e2e:
-    needs: action-pins
+    needs: [no-devauth-in-release, web-build]
     name: e2e (release image, production auth, two tenants)
     # TQ-03 (beta gate G6): the black-box e2e tests the control plane AS
     # SHIPPED. The step below builds the release image exactly as image-scan
@@ -1924,16 +1924,11 @@ jobs:
           git diff --exit-code -- internal/gen \
             || { echo "::error::generated code is stale — run 'make proto' and commit"; exit 1; }
 
-  web:
+  web-build:
     needs: action-pins
-    name: web
-    # Frontend foundation (S8a): typecheck, lint, jsdom axe, theme-swap + token
-    # guards, and a production build. Rendered browser a11y runs in the
-    # web-rendered-a11y job below so color/focus/target checks use Chromium.
+    name: web-build (typecheck, production bundle and control compile)
     runs-on: ubuntu-latest
-    # Keep every test, coverage floor and release-embed check. The full suite
-    # printed its coverage at the previous 15-minute job boundary.
-    timeout-minutes: 30
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: web
@@ -1964,6 +1959,63 @@ jobs:
           ./scripts/check_web_lock.sh
       - name: Install
         run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Bundle performance budget (X16 — initial <=250 KiB gz; routes <=150 KiB gz)
+        run: npm run bundle:check
+      # SUP-06/WEB-18: the downloadable control-plane binary must embed the REAL
+      # SPA, not the "not bundled" placeholder. Overlay the bundle just built
+      # above onto the embed dir (as the release workflow and the docker web stage
+      # do), then prove it end to end: the -tags release guard refuses the
+      # placeholder, and a compiled binary references a hashed /ui/assets bundle.
+      - name: Release build embeds the real web UI, never the placeholder (SUP-06/WEB-18)
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          cp -R web/dist/. internal/webui/dist/
+          test -d internal/webui/dist/assets
+          go test -tags release ./internal/webui/
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/probectl-control-ui-check ./cmd/probectl-control
+          if grep -qaF 'ARCH-004 placeholder' /tmp/probectl-control-ui-check; then
+            echo "::error::control binary embeds the web-UI placeholder, not the built SPA (SUP-06/WEB-18)"; exit 1
+          fi
+          grep -qaE '/ui/assets/index-' /tmp/probectl-control-ui-check \
+            || { echo "::error::control binary references no hashed /ui/assets bundle (SUP-06)"; exit 1; }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: web-build-${{ github.sha }}
+          path: |
+            web/dist/
+            receipts/web-ux/bundle-budget.json
+          retention-days: 7
+
+  web:
+    needs: action-pins
+    name: web
+    # Audits, lint, coverage, jsdom axe and token checks remain independent.
+    # web-build runs the existing typecheck/build/embed checks before images.
+    # Rendered accessibility still uses Chromium in web-rendered-a11y.
+    runs-on: ubuntu-latest
+    # Keep every test, coverage floor and release-embed check. The full suite
+    # printed its coverage at the previous 15-minute job boundary.
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "26.12.1"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci
       - name: Audit gate (SEC-004 — exact, expiring exceptions only)
         run: |
           node ../scripts/check_npm_audit_policy.mjs --selftest
@@ -1991,8 +2043,6 @@ jobs:
             --omit-dev
       - name: Complete inbox pages and original UI quota control
         run: python3 ../scripts/ci_report_inbox.py --web
-      - name: Typecheck
-        run: npm run typecheck
       - name: Format check (CODE-009 — prettier)
         run: npm run format:check
       - name: Lint (CODE-009 — type-checked eslint)
@@ -2001,36 +2051,11 @@ jobs:
         run: npm run coverage-gate
       - name: Test + coverage floor (a11y gate · TEST-012 coverage threshold)
         run: npm run coverage
-      - name: Build
-        run: npm run build
-      - name: Bundle performance budget (X16 — initial <=250 KiB gz; routes <=150 KiB gz)
-        run: npm run bundle:check
-      # SUP-06/WEB-18: the downloadable control-plane binary must embed the REAL
-      # SPA, not the "not bundled" placeholder. Overlay the bundle just built
-      # above onto the embed dir (as the release workflow and the docker web stage
-      # do), then prove it end to end: the -tags release guard refuses the
-      # placeholder, and a compiled binary references a hashed /ui/assets bundle.
-      - name: Release build embeds the real web UI, never the placeholder (SUP-06/WEB-18)
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          cp -R web/dist/. internal/webui/dist/
-          test -d internal/webui/dist/assets
-          go test -tags release ./internal/webui/
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/probectl-control-ui-check ./cmd/probectl-control
-          if grep -qaF 'ARCH-004 placeholder' /tmp/probectl-control-ui-check; then
-            echo "::error::control binary embeds the web-UI placeholder, not the built SPA (SUP-06/WEB-18)"; exit 1
-          fi
-          grep -qaE '/ui/assets/index-' /tmp/probectl-control-ui-check \
-            || { echo "::error::control binary references no hashed /ui/assets bundle (SUP-06)"; exit 1; }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: web-bundle-budget-receipt
-          path: |
-            receipts/web-ux/bundle-budget.json
-            artifacts/report-inbox/
-
+          name: web-report-inbox-receipt
+          path: artifacts/report-inbox/
           retention-days: 90
 
   web-rendered-a11y:
@@ -2132,7 +2157,7 @@ jobs:
           retention-days: 90
 
   build-images:
-    needs: action-pins
+    needs: [no-devauth-in-release, web-build]
     name: build-images
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -2183,7 +2208,7 @@ jobs:
   # CRITICAL catches the catastrophic class without reddening main on that churn
   # (D-35 option b, decided as PD-13/D-49). No row is report-only.
   image-scan:
-    needs: action-pins
+    needs: [no-devauth-in-release, web-build]
     name: image-scan (${{ matrix.component }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -2430,6 +2455,7 @@ jobs:
       - load-smoke
       - proto
       - web
+      - web-build
       - web-rendered-a11y
       - dependency-scan
       - build-images

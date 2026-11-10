@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // TestEveryBuiltImageIsScanned closes SUP-01: every image the build-images job
@@ -120,5 +122,36 @@ func TestEveryImageScanBlocks(t *testing.T) {
 	}
 	if !strings.Contains(ci, "severity: ${{ matrix.severity || 'CRITICAL,HIGH' }}") {
 		t.Error("the Trivy step no longer takes its severity from the row (PD-13)")
+	}
+}
+
+func TestImageWorkWaitsForExistingEarlyBuilds(t *testing.T) {
+	ci := readWorkflow(t, "ci.yml")
+	needs := jobNeeds(t, ci)
+	for _, job := range []string{"build-images", "image-scan", "e2e"} {
+		for _, prerequisite := range []string{"no-devauth-in-release", "web-build"} {
+			if !gatesOn(job, prerequisite, needs, map[string]bool{}) {
+				t.Errorf("%s can start before existing %s compile checks", job, prerequisite)
+			}
+		}
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(ci), &workflow); err != nil {
+		t.Fatal(err)
+	}
+	var commands []string
+	for _, step := range workflow.Jobs["web-build"].Steps {
+		commands = append(commands, step.Run)
+	}
+	for _, required := range []string{"npm run typecheck", "npm run build", "npm run bundle:check", "go test -tags release ./internal/webui/", "go build -trimpath -o /tmp/probectl-control-ui-check ./cmd/probectl-control"} {
+		if !strings.Contains(strings.Join(commands, "\n"), required) {
+			t.Errorf("early build lost existing check %q", required)
+		}
 	}
 }
