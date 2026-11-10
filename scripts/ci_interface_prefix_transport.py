@@ -302,6 +302,7 @@ INTEGRATION = {
         "TestInterfaceRoleFrozenObjectsKeepWholePagesCSVAndCurrentAuthority",
         "TestInterfaceRoleConfigurationAPIKeepsCompletePoliciesTenantCASAndAtomicAudit",
         "TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority",
+        "TestPeeringTargetStoreKeepsCurrentTenantGrantAndPublicationAuthority",
         "TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges",
         "TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission",
     ),
@@ -641,6 +642,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "peering-target-current-grants": (
+        "internal/control/peering_target_store.go",
+        "if !allowed {",
+        "if false && !allowed {",
+        "TestPeeringTargetStoreKeepsCurrentTenantGrantAndPublicationAuthority", "",
+        "actual peering target bypassed current source-plane permission",
+    ),
+    "peering-target-publication": (
+        "internal/control/peering_target_store.go",
+        "if !previous.Eligible || !current.Eligible || current.InputDigest != previous.InputDigest || current.Target != previous.Target || current.RouterID != previous.RouterID || current.PrefixVersion != previous.PrefixVersion || current.MemberVersion != previous.MemberVersion {",
+        "if false && (!previous.Eligible || !current.Eligible || current.InputDigest != previous.InputDigest || current.Target != previous.Target || current.RouterID != previous.RouterID || current.PrefixVersion != previous.PrefixVersion || current.MemberVersion != previous.MemberVersion) {",
+        "TestPeeringTargetStoreKeepsCurrentTenantGrantAndPublicationAuthority", "",
+        "peering target publication reused a changed complete public generation",
+    ),
     "peering-target-scope": (
         "internal/control/peering_target.go",
         "if !bound || err != nil || scope != target.Scope || tenant.String() != scope.TenantID || in.Scope != scope || in.InterfaceID != target.InterfaceID {",

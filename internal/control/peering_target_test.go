@@ -22,8 +22,12 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-func peeringTargetSources(t testing.TB, at time.Time, lan int64, ports int) *opendata.Enricher {
+func peeringTargetSources(t testing.TB, at time.Time, lan int64, ports int, subnet ...string) *opendata.Enricher {
 	t.Helper()
+	v4 := "198.51.100.0/24"
+	if len(subnet) == 1 {
+		v4 = subnet[0]
+	}
 	dir := t.TempDir()
 	write := func(name string, body any) string {
 		raw, err := json.Marshal(body)
@@ -37,7 +41,7 @@ func peeringTargetSources(t testing.TB, at time.Time, lan int64, ports int) *ope
 		return path
 	}
 	prefixes := write("ixpfx.json", map[string]any{"version": 1, "object": "ixpfx", "observed_at": at.Add(-30 * time.Second), "complete": true, "record_count": 2, "data": []any{
-		map[string]any{"id": 7, "ixlan_id": lan, "protocol": "IPv4", "prefix": "198.51.100.0/24", "status": "ok"},
+		map[string]any{"id": 7, "ixlan_id": lan, "protocol": "IPv4", "prefix": v4, "status": "ok"},
 		map[string]any{"id": 8, "ixlan_id": lan, "protocol": "IPv6", "prefix": "2001:db8::/64", "status": "ok"},
 	}})
 	rows := make([]any, 0, ports)
