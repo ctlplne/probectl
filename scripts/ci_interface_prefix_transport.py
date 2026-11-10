@@ -97,6 +97,9 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestPeeringTargetKeepsWholeOwnedLANMembershipAndOriginalGenerations",
+        "TestPeeringTargetRefusesForeignScopeBeforePublicAvailabilityAndAdmission",
+        "TestPeeringTargetRequiresExactCurrentLANBindingRoleAndMembership",
         "TestBuildRPKIEnrichmentKeepsLocalCompleteSourceAndUnavailableHealth",
         "TestNativeRoutingCSVPagesKeepCompleteTypedPathsAndExactSourceRecords",
         "TestNativeFlowRoutingPathsKeepWholeTypedSegmentsAcrossQueryProjections",
@@ -636,6 +639,27 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "peering-target-scope": (
+        "internal/control/peering_target.go",
+        "if !bound || err != nil || scope != target.Scope || tenant.String() != scope.TenantID || in.Scope != scope || in.InterfaceID != target.InterfaceID {",
+        "if false && (!bound || err != nil || scope != target.Scope || tenant.String() != scope.TenantID || in.Scope != scope || in.InterfaceID != target.InterfaceID) {",
+        "TestPeeringTargetRefusesForeignScopeBeforePublicAvailabilityAndAdmission", "",
+        "peering target consulted public availability before the tenant boundary",
+    ),
+    "peering-target-lan": (
+        "internal/control/peering_target.go",
+        "if match.LANID != target.LANID {",
+        "if false && match.LANID != target.LANID {",
+        "TestPeeringTargetRequiresExactCurrentLANBindingRoleAndMembership", "wrong-lan",
+        "peering target admitted unavailable or mismatched IX/owner evidence",
+    ),
+    "peering-target-freshness": (
+        "internal/control/peering_target.go",
+        "members.ValidUntil.After(at)",
+        "(true || members.ValidUntil.After(at))",
+        "TestPeeringTargetRequiresExactCurrentLANBindingRoleAndMembership", "expired-members",
+        "peering target admitted unavailable or mismatched IX/owner evidence",
+    ),
     "rpki-capture-whole": (
         "internal/store/bgp_rpki_capture.go",
         "Covering: covering,",

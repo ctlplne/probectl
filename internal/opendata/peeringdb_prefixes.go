@@ -36,6 +36,7 @@ type PeeringDBIXPrefixes struct {
 type IXPrefix struct {
 	SourceID string
 	Prefix   netip.Prefix
+	LANID    int64
 }
 
 // IXPrefixSnapshot contains public source metadata only. Its private index is
@@ -197,7 +198,7 @@ func LoadPeeringDBIXPrefixes(ctx context.Context, path string, maxAge time.Durat
 		if row.Status != "ok" {
 			continue
 		}
-		s.entries = append(s.entries, IXPrefix{Prefix: prefix,
+		s.entries = append(s.entries, IXPrefix{Prefix: prefix, LANID: row.LANID,
 			SourceID: "peeringdb/ixpfx/" + strconv.FormatInt(row.ID, 10) + "/ixlan/" + strconv.FormatInt(row.LANID, 10) + "/snapshot/" + s.Version})
 	}
 	return &PeeringDBIXPrefixes{snapshot: s, maxAge: maxAge}, nil
