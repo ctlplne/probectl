@@ -996,7 +996,7 @@ func startAgentTransport(
 	correlator *incident.Correlator,
 	writerFence tenancy.WriterFence,
 	testBundles agenttransport.TestBundles,
-	ripEnricher *opendata.Enricher,
+	ipEnricher *opendata.Enricher,
 	log *slog.Logger,
 ) error {
 	if !cfg.AgentTransportEnabled() {
