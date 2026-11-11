@@ -289,6 +289,15 @@
         "F6",
         "F17"
       ]
+    },
+    {
+      "ref": "test:internal/bgp/peering_estimate_realstack_integration_test.go#TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95",
+      "profile": "integration",
+      "capabilities": [
+        "F6",
+        "F17",
+        "F18"
+      ]
     }
   ]
 }
