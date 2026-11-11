@@ -294,6 +294,7 @@ func Start(t *testing.T, o Options) *Stack {
 		}
 	})
 	s.awaitReady(t)
+	s.awaitConfiguredMCP(t, serveEnv)
 	return s
 }
 
@@ -325,6 +326,7 @@ func (s *Stack) RestartControl(t *testing.T, label string, env map[string]string
 	s.controlLabel = label
 	s.Log = s.start(t, label, s.Control, []string{"serve"}, full)
 	s.awaitReady(t)
+	s.awaitConfiguredMCP(t, full)
 }
 
 // ServeUntilExit stops the control plane and serves it again with env added,
