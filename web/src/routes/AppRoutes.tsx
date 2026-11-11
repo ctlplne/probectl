@@ -75,6 +75,9 @@ const TopologyPage = lazy(() =>
   import('./TopologyPage').then((module) => ({ default: module.TopologyPage })),
 )
 const CostPage = lazy(() => import('./CostPage').then((module) => ({ default: module.CostPage })))
+const CapacityAgreementsPage = lazy(() =>
+  import('./CapacityAgreementsPage').then((module) => ({ default: module.CapacityAgreementsPage })),
+)
 const SLOsPage = lazy(() => import('./SLOsPage').then((module) => ({ default: module.SLOsPage })))
 const CompliancePage = lazy(() =>
   import('./CompliancePage').then((module) => ({ default: module.CompliancePage })),
@@ -164,6 +167,7 @@ export function AppRoutes() {
         <Route path="/dashboards" element={deferred(DashboardsPage)} />
         <Route path="/topology" element={deferred(TopologyPage)} />
         <Route path="/cost" element={deferred(CostPage)} />
+        <Route path="/capacity" element={deferred(CapacityAgreementsPage)} />
         <Route path="/slos" element={deferred(SLOsPage)} />
         <Route path="/compliance" element={deferred(CompliancePage)} />
         <Route path="/outages" element={deferred(OutagesPage)} />
@@ -186,6 +190,7 @@ export function AppRoutes() {
               '/dashboards',
               '/topology',
               '/cost',
+              '/capacity',
               '/slos',
               '/compliance',
               '/outages',

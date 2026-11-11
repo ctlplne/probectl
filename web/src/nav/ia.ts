@@ -60,6 +60,7 @@ export const NAV: NavItem[] = [
   { to: '/compliance', labelKey: 'nav.compliance', icon: 'compliance', group: 'secure' },
   { to: '/audit', labelKey: 'nav.audit', icon: 'compliance', group: 'secure' },
   { to: '/cost', labelKey: 'nav.cost', icon: 'cost', group: 'operate' },
+  { to: '/capacity', labelKey: 'nav.capacity', icon: 'cost', group: 'operate' },
   { to: '/slos', labelKey: 'nav.slos', icon: 'slo', group: 'operate' },
   { to: '/admin', labelKey: 'nav.admin', icon: 'admin', group: 'operate' },
   { to: '/docs/api', labelKey: 'nav.apiDocs', icon: 'info', group: 'operate' },

@@ -416,6 +416,28 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: AI_LIVE_RECEIPT,
   },
   {
+    capability: 'Recorded capacity agreements and immutable financial revisions',
+    featureIds: ['F13', 'F17'],
+    sprint: 'FX-6',
+    kind: 'native',
+    route: '/capacity',
+    evidence: [
+      'file:web/src/routes/CapacityAgreementsPage.tsx',
+      'openapi:/v1/flows/capacity/agreements',
+      'openapi:/v1/flows/capacity/agreements/{id}',
+      'openapi:/v1/flows/capacity/agreements/{id}/revisions',
+      'cli:probectl capacity-agreements list',
+      'cli:probectl capacity-agreements revisions',
+    ],
+    liveReceipt: {
+      status: 'static-only',
+      evidence: [
+        'test:web/src/test/capacity-agreements.test.tsx:financial screen keeps exact revisions',
+      ],
+      note: 'Financial configuration screen is implemented. Served two-tenant browser/accessibility proof and complete source-backed capacity acceptance remain required; no measured billing or runout claim.',
+    },
+  },
+  {
     capability: 'Structured telemetry Explorer + logical execution receipts',
     featureIds: ['F13', 'F17'],
     sprint: 'X7',

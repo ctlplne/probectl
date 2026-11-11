@@ -50,6 +50,14 @@ const contract = (
 
 export const NATIVE_DATA_SURFACE_TRUTH: readonly NativeDataTruthContract[] = [
   contract(
+    '/capacity',
+    'operator-recorded financial configuration',
+    '/flows/capacity/agreements current financial permissions, immutable revisions and complete page status',
+    'page as_of and revision recorded_at; no telemetry ingest is claimed',
+    'recorded terms do not prove counter availability, measured billing or forecast capacity',
+    'refresh current terms, page revisions or record complete terms when financially authorized',
+  ),
+  contract(
     '/onboarding',
     'producer readiness service',
     '/agents/onboarding readiness fields',

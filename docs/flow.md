@@ -1258,8 +1258,13 @@ row ceiling or total-history cap. Retained revisions use
 `PROBECTL_FLOW_QUERY_LIBRARY_BYTES`; execution, memory and read-work use the
 existing flow-query operation policy. A refusal returns no partial page.
 
-The generated Go/TypeScript clients expose all six operations. CLI equivalents:
+The **Capacity** screen opens this financial configuration independently of
+telemetry permissions. It supports exact prices and revisions, interface or
+tagged-circuit targets, effective-date lookup, complete catalog/history pages,
+and explicit compare-and-delete confirmation. It clears loaded terms on an
+identity or permission change and after a current authorization refusal.
 
+The generated Go/TypeScript clients expose all six operations. CLI equivalents:
 ```sh
 probectl --json capacity-agreements list --query limit=1001
 probectl --json capacity-agreements create --body-file terms.json
