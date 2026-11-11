@@ -1312,8 +1312,8 @@ the result, so a changed tag revision or member set requires a fresh calculation
 
 The internal source-to-percentile and bill comparison path preserves rational
 values, sums distinct circuit members before ranking, and withholds amounts for
-incomplete required coverage. The complete-month REST/SDK/CLI bill check is
-described below; measured UI/MCP and public forecast operations remain in progress.
+incomplete required coverage. The complete-month bill check is described below; public forecast operations
+remain in progress.
 
 The counter-backed forecast adapter uses those same summed grids for its exact
 trend plus weekly pattern. Its interval is an `in_sample_residual_envelope`,
@@ -1346,3 +1346,16 @@ each current interface/source binding: older same-index counters are not assigne
 to a newly created identity. Incomplete coverage keeps the full expected sample
 count and withholds the percentile and charge. `source_valid_until` is only an
 upper bound on current source clocks, never a reusable or frozen reader grant.
+
+The Capacity agreements screen checks the selected exact revision with explicit
+period, poll gap, complete member bounds and optional invoice input. It displays
+fractions without floating-point rounding, full coverage counts, source clocks
+and all member assumptions (paged for rendering, plus complete result JSON).
+Results remain in the current tenant/user/grant component only and are cleared
+on input/identity changes, fresh-check failure and source validity expiry.
+
+The native `capacity_agreement_bill_check` tool takes `id` and a `check` object
+with the same input as REST. It uses the same tenant-scoped service, current
+financial/context permissions and original source receipts; the existing MCP
+consent, exact transport credential refresh and full PII/PAN redaction remain.
+Names, assumptions, invoice terms and computed amounts have no redaction bypass.

@@ -24,6 +24,7 @@ import {
   Table,
 } from '../components'
 import { Page } from './RoutePage'
+import { CapacityBillCheck } from './CapacityBillCheck'
 import styles from './flowExplorer.module.css'
 
 const base = '/flows/capacity/agreements'
@@ -403,6 +404,14 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
             )}
           </CardBody>
         </Card>
+      )}
+      {selected && (
+        <CapacityBillCheck
+          key={`${selected.id}/${selected.version}/${selected.current_version}`}
+          agreement={selected}
+          busy={busy}
+          execute={execute}
+        />
       )}
       {canWrite && (
         <Card>

@@ -50,6 +50,9 @@ func TestCapacityAgreementNativeToolsKeepExactTermsAndSeparateTenantFinancialGra
 			if tool.name == "capacity_agreement_update" || tool.name == "capacity_agreement_delete" {
 				args["version"] = "9007199254740993"
 			}
+			if tool.name == "capacity_agreement_bill_check" {
+				args["check"] = flow.CapacityBillRequest{Version: "9007199254740993", At: "2026-10-15T00:00:00Z", MaximumPollGap: "5m", PhysicalBounds: []flow.CapacityPhysicalBound{{ContextID: tagWriteTestID, InterfaceID: tagWriteTestID, MaxBPS: "18446744073709551615"}}}
+			}
 			before := len(b.tenants)
 			response := handle(t, server, p, 1, "tools/call", map[string]any{"name": tool.name, "arguments": args})
 			if len(b.tenants) != before+1 || b.tenants[before] != tenant || resultOf(t, response)["isError"] == true {
@@ -79,6 +82,9 @@ func TestCapacityAgreementNativeToolsKeepExactTermsAndSeparateTenantFinancialGra
 func TestCapacityAgreementNativeArgumentsRefuseAuthorityHintsAndAmbiguousOperations(t *testing.T) {
 	for _, input := range []struct{ name, raw string }{
 		{"capacity_agreements_list", `{"tenant_id":"foreign"}`},
+		{"capacity_agreement_bill_check", `{"id":"` + tagWriteTestID + `"}`},
+		{"capacity_agreement_get", `{"id":"` + tagWriteTestID + `","check":{}}`},
+		{"capacity_agreement_bill_check", `{"id":"` + tagWriteTestID + `","check":{},"version":"1"}`},
 		{"capacity_agreements_list", `{"limit":0}`},
 		{"capacity_agreements_list", `{"limit":-1}`},
 		{"capacity_agreements_list", `{"limit":1,"limit":2}`},

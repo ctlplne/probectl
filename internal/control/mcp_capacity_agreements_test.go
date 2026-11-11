@@ -67,3 +67,22 @@ func TestCapacityAgreementNativeServiceRejectsContradictoryCredentialBeforeStora
 		t.Fatal("native financial service replaced a contradictory credential before storage", err)
 	}
 }
+
+func TestCapacityAgreementBillNativeKeepsCanonicalMembersAndFullFinancialRedaction(t *testing.T) {
+	const id = "41111111-1111-4111-8111-111111111111"
+	const card = "4111111111111111"
+	result := flow.CapacityAgreementBill{Agreement: flow.CapacityAgreement{ID: id, Version: "1", CurrentVersion: "1", Definition: flow.CapacityAgreementDefinition{UnitPrice: card}},
+		Members: []flow.CapacityBillMember{{ContextID: id, DeviceID: id, InterfaceID: id, PhysicalMaxBPS: card}}, Bill: flow.CapacityBillResult{ChargeNumerator: card, ChargeDenominator: "1"}}
+	raw, err := marshalNativeCapacityBill(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redacted := ai.NewEgressGate(nil, nil, ai.RedactionPolicy{}).RedactForTenant(string(raw), "red")
+	var got flow.CapacityAgreementBill
+	if err := json.Unmarshal([]byte(redacted), &got); err != nil || got.Agreement.ID != id || len(got.Members) != 1 || got.Members[0].ContextID != id || got.Members[0].DeviceID != id || got.Members[0].InterfaceID != id {
+		t.Fatal("native bill lost current canonical IDs", err, got)
+	}
+	if got.Agreement.Definition.UnitPrice == card || got.Members[0].PhysicalMaxBPS == card || got.Bill.ChargeNumerator == card {
+		t.Fatal("bill terms, assumptions or computed amount bypassed mandatory financial PAN redaction")
+	}
+}

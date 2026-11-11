@@ -23,6 +23,7 @@ type CapacityAgreementCommand struct {
 	Version    string                            `json:"version,omitempty"`
 	At         string                            `json:"at,omitempty"`
 	Definition *flow.CapacityAgreementDefinition `json:"definition,omitempty"`
+	Check      *flow.CapacityBillRequest         `json:"check,omitempty"`
 }
 
 type CapacityAgreementBackend interface {
@@ -34,6 +35,7 @@ var capacityAgreementTools = []struct {
 	write             bool
 }{
 	{"capacity_agreements_list", "Page current tenant financial agreements; complete pages have resource admission and no total catalog ceiling.", false},
+	{"capacity_agreement_bill_check", "Check complete-month measured p95, commit, overage and exact invoice difference against recorded terms and all current members. Explicit physical bounds and original counter receipts are required; incomplete coverage withholds amounts.", false},
 	{"capacity_agreement_get", "Read current, exact recorded or effective agreement terms. Version and effective instant are mutually exclusive.", false},
 	{"capacity_agreement_revisions", "Page complete immutable agreement revisions in recording order, including retired inventory references.", false},
 	{"capacity_agreement_create", "Record complete operator financial terms for one current-tenant interface or tagged circuit.", true},
@@ -59,7 +61,14 @@ func decodeCapacityAgreementCommand(raw json.RawMessage, name string, limit int)
 	if input.Limit != nil && *input.Limit <= 0 {
 		return none, argErr("page size must be positive when supplied")
 	}
+	if name != "capacity_agreement_bill_check" && input.Check != nil {
+		return none, argErr("measured billing input is accepted only by the bill check")
+	}
 	switch name {
+	case "capacity_agreement_bill_check":
+		if input.Check == nil || input.Definition != nil || input.After != "" || input.Limit != nil || input.Version != "" || input.At != "" {
+			return none, argErr("bill check requires only agreement ID and complete check input")
+		}
 	case "capacity_agreements_list", "capacity_agreement_revisions":
 		if input.Definition != nil || input.Version != "" || input.At != "" {
 			return none, argErr("agreement pages do not accept terms or a version/effective lookup")

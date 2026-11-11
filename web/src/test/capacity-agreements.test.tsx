@@ -14,6 +14,8 @@ import { AuthContext } from '../auth/AuthProvider'
 import type {
   CapacityAgreement,
   CapacityAgreementInput,
+  CapacityAgreementBill,
+  CapacityBillInput,
   CapacityAgreementPage,
 } from '../api/sdk.gen'
 import { CapacityAgreementsPage } from '../routes/CapacityAgreementsPage'
@@ -251,3 +253,195 @@ test.each(['light', 'dark'])(
     }
   },
 )
+
+function measuredBill(tenant: string): CapacityAgreementBill {
+  return {
+    agreement: item(tenant),
+    as_of: '2026-11-01T01:00:00Z',
+    source_valid_until: '2099-11-01T01:00:00Z',
+    maximum_poll_gap: '5m',
+    membership_basis: 'current_member_set_applied_to_complete_period',
+    period: {
+      from: '2026-10-01T00:00:00Z',
+      to: '2026-11-01T00:00:00Z',
+      timezone: 'UTC',
+      billing_day: 1,
+      boundary_policy: 'calendar',
+    },
+    percentile: {
+      complete: true,
+      direction: 'in',
+      expected_samples: 8928,
+      observed_samples: 8928,
+      missing_samples: 0,
+      bps_numerator: '15200',
+      bps_denominator: '1',
+      from: '2026-10-01T00:00:00Z',
+      to: '2026-11-01T00:00:00Z',
+      model: 'poll_start_mean_overlap',
+      rank: 8482,
+    },
+    bill: {
+      complete: true,
+      currency: 'USD',
+      from: '2026-10-01T00:00:00Z',
+      to: '2026-11-01T00:00:00Z',
+      model: 'recorded_terms',
+      commit_numerator: '1000',
+      commit_denominator: '1',
+      overage_numerator: '14200',
+      overage_denominator: '1',
+      billable_numerator: '19',
+      billable_denominator: '1',
+      charge_numerator: '4750000000000000019',
+      charge_denominator: '1250000000000000000',
+      invoice_compared: true,
+      invoice_difference_numerator: '0',
+      invoice_difference_denominator: '1',
+    },
+    members: Array.from({ length: 201 }, (_, i) => ({
+      context_id: item(tenant).definition.target.context_id!,
+      interface_id: `${tenant}-interface-${i}`,
+      device_id: `${tenant}-device`,
+      if_index: i + 1,
+      observed_not_before: '2026-09-30T00:00:00Z',
+      physical_max_bps: '18446744073709551615',
+    })),
+  }
+}
+async function fillBill() {
+  fireEvent.change(screen.getByLabelText('Instant within billing period'), {
+    target: { value: '2026-10-15T12:00:00.123456789+05:45' },
+  })
+  fireEvent.change(screen.getByLabelText('Member 1 physical upper bound (bps)'), {
+    target: { value: '18446744073709551615' },
+  })
+}
+
+test.each(['light', 'dark'])(
+  'measured bill keeps exact input, complete output and accessible %s controls',
+  async (theme) => {
+    const previous = Object.getOwnPropertyDescriptor(window, 'localStorage')
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      enumerable: true,
+      value: { getItem: () => theme, setItem: vi.fn() },
+    })
+    let sent: CapacityBillInput | undefined
+    const response = measuredBill('red')
+    fixture(async (url, init) => {
+      if (url.pathname.endsWith('/check')) {
+        sent = JSON.parse(String(init?.body)) as CapacityBillInput
+        return jsonResponse(response)
+      }
+      return jsonResponse(url.pathname === base ? page('red') : item('red'))
+    })
+    try {
+      const view = mount({ write: false })
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Open red WAN' })).toBeEnabled(),
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Open red WAN' }))
+      await screen.findByRole('button', { name: 'Check measured bill' })
+      await fillBill()
+      fireEvent.change(screen.getByLabelText('Invoiced amount to compare'), {
+        target: { value: '-0.000000000000000000000000000001' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Check measured bill' }))
+      const result = await screen.findByRole('region', { name: 'Measured billing result' })
+      expect(sent).toEqual({
+        version,
+        at: '2026-10-15T12:00:00.123456789+05:45',
+        maximum_poll_gap: '5m',
+        invoiced: '-0.000000000000000000000000000001',
+        physical_bounds: [
+          {
+            context_id: item('red').definition.target.context_id,
+            interface_id: item('red').definition.target.interface_id,
+            max_bps: '18446744073709551615',
+          },
+        ],
+      })
+      expect(
+        within(result).getByText('4750000000000000019 / 1250000000000000000'),
+      ).toBeInTheDocument()
+      const table = within(result).getByRole('table', { name: 'Complete bill member assumptions' })
+      expect(within(table).getByText('red-interface-99')).toBeInTheDocument()
+      fireEvent.click(within(result).getByRole('button', { name: 'Next member assumptions' }))
+      fireEvent.click(within(result).getByRole('button', { name: 'Next member assumptions' }))
+      expect(within(table).getByText('red-interface-200')).toBeInTheDocument()
+      expect(within(result).getByRole('button', { name: 'Next member assumptions' })).toBeDisabled()
+      expect(document.documentElement.dataset.theme).toBe(theme)
+      expect(await axe(view.container)).toHaveNoViolations()
+      response.percentile = {
+        ...response.percentile,
+        complete: false,
+        observed_samples: 8926,
+        missing_samples: 2,
+        bps_numerator: undefined,
+        bps_denominator: undefined,
+        rank: undefined,
+      }
+      response.bill = {
+        ...response.bill,
+        complete: false,
+        charge_numerator: undefined,
+        charge_denominator: undefined,
+        reason: 'required_coverage_incomplete',
+      }
+      fireEvent.click(screen.getByRole('button', { name: 'Check measured bill' }))
+      await screen.findByText('No — no measured percentile or charge')
+      expect(
+        screen.queryByText('4750000000000000019 / 1250000000000000000'),
+      ).not.toBeInTheDocument()
+      expect(screen.getByText('8928 / 8926 / 2')).toBeInTheDocument()
+    } finally {
+      if (previous) Object.defineProperty(window, 'localStorage', previous)
+      else Reflect.deleteProperty(window, 'localStorage')
+    }
+  },
+)
+
+test('late measured bills cannot cross tenant changes and withdrawn authority clears amounts', async () => {
+  let tenant = 'red'
+  let late: ((response: Response) => void) | undefined
+  fixture(async (url) => {
+    if (url.pathname.endsWith('/check')) {
+      if (tenant === 'red')
+        return new Promise<Response>((resolve) => {
+          late = resolve
+        })
+      return jsonResponse(measuredBill('blue'))
+    }
+    return jsonResponse(url.pathname === base ? page(tenant) : item(tenant))
+  })
+  mount({
+    write: false,
+    switched: () => {
+      tenant = 'blue'
+    },
+  })
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Open red WAN' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Open red WAN' }))
+  await screen.findByRole('button', { name: 'Check measured bill' })
+  await fillBill()
+  fireEvent.click(screen.getByRole('button', { name: 'Check measured bill' }))
+  await waitFor(() => expect(late).toBeDefined())
+  fireEvent.click(screen.getByRole('button', { name: 'Switch financial tenant' }))
+  await screen.findByRole('button', { name: 'Open blue WAN' })
+  await act(async () => {
+    late!(jsonResponse(measuredBill('red')))
+  })
+  expect(screen.queryByRole('region', { name: 'Measured billing result' })).not.toBeInTheDocument()
+  expect(screen.queryByText('red WAN')).not.toBeInTheDocument()
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Open blue WAN' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Open blue WAN' }))
+  await screen.findByRole('button', { name: 'Check measured bill' })
+  await fillBill()
+  fireEvent.click(screen.getByRole('button', { name: 'Check measured bill' }))
+  await screen.findByRole('region', { name: 'Measured billing result' })
+  fireEvent.click(screen.getByRole('button', { name: 'Withdraw financial permission' }))
+  expect(screen.queryByRole('region', { name: 'Measured billing result' })).not.toBeInTheDocument()
+  expect(screen.queryByText('blue WAN')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Member 1 physical upper bound (bps)')).not.toBeInTheDocument()
+})

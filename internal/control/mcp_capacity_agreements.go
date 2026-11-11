@@ -30,6 +30,9 @@ func (b mcpCapacityAgreementBackend) CapacityAgreements(ctx context.Context, p *
 	if err != nil {
 		return nil, err
 	}
+	if name == "capacity_agreement_bill_check" {
+		return b.capacityAgreementBill(ctx, input)
+	}
 	method := http.MethodGet
 	switch name {
 	case "capacity_agreements_list", "capacity_agreement_get", "capacity_agreement_revisions":
@@ -170,7 +173,7 @@ func capacityAgreementToolOption(server *Server) (mcp.Option, error) {
 		return nil, err
 	}
 	roots := map[string]any{}
-	for _, name := range []string{"capacity_agreements_list", "capacity_agreement_get", "capacity_agreement_revisions", "capacity_agreement_create", "capacity_agreement_update", "capacity_agreement_delete"} {
+	for _, name := range []string{"capacity_agreements_list", "capacity_agreement_get", "capacity_agreement_revisions", "capacity_agreement_create", "capacity_agreement_update", "capacity_agreement_delete", "capacity_agreement_bill_check"} {
 		properties := map[string]any{}
 		required := []string{}
 		if name != "capacity_agreements_list" && name != "capacity_agreement_create" {
@@ -181,6 +184,9 @@ func capacityAgreementToolOption(server *Server) (mcp.Option, error) {
 		case "capacity_agreements_list", "capacity_agreement_revisions":
 			properties["after"] = map[string]any{"type": "string"}
 			properties["limit"] = map[string]any{"type": "integer", "minimum": 1}
+		case "capacity_agreement_bill_check":
+			properties["check"] = map[string]any{"$ref": "#/components/schemas/CapacityBillInput"}
+			required = append(required, "check")
 		case "capacity_agreement_get":
 			properties["version"] = map[string]any{"type": "string", "pattern": "^[1-9][0-9]*$"}
 			properties["at"] = map[string]any{"type": "string", "format": "date-time"}

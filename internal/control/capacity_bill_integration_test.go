@@ -77,15 +77,7 @@ func TestCapacityAgreementBillServesCompleteMonthAndCurrentTwoTenantAuthority(t 
 	if err := json.Unmarshal(raw, &sdkBody); err != nil {
 		t.Fatal(err)
 	}
-	assertBill := func(got flow.CapacityAgreementBill) {
-		t.Helper()
-		if !got.Percentile.Complete || !got.Bill.Complete || got.Percentile.ExpectedSamples != 8928 || got.Percentile.ObservedSamples != 8928 || got.Percentile.MissingSamples != 0 ||
-			got.Percentile.BPSNumerator != "15200" || got.Percentile.BPSDenominator != "1" || got.Bill.OverageNumerator != "14200" ||
-			got.Bill.ChargeNumerator != "4750000000000000019" || got.Bill.ChargeDenominator != "1250000000000000000" || !got.Bill.InvoiceCompared || got.Bill.InvoiceDifferenceNumerator != "0" ||
-			!got.Period.From.Equal(from) || !got.Period.To.Equal(to) || got.MembershipBasis != "current_member_set_applied_to_complete_period" || len(got.Members) != 1 {
-			t.Fatal("complete-month hand percentile/exact bill disagreed or lost its explicit assumptions", got)
-		}
-	}
+
 	for _, tenant := range f.tenants {
 		result, err := clients[tenant].CheckCapacityAgreementBill(t.Context(), sdk.CheckCapacityAgreementBillRequest{Id: ids[tenant], Body: &sdkBody})
 		if err != nil || result == nil {
@@ -96,7 +88,7 @@ func TestCapacityAgreementBillServesCompleteMonthAndCurrentTwoTenantAuthority(t 
 		if err := json.Unmarshal(encoded, &got); err != nil {
 			t.Fatal(err)
 		}
-		assertBill(got)
+		assertCapacityMonthBill(t, got, from, to)
 		var stdout, stderr bytes.Buffer
 		getenv := func(key string) string {
 			return map[string]string{"PROBECTL_API_URL": socket.URL, "PROBECTL_API_TOKEN": f.tokens[tenant], "PROBECTL_CA_FILE": ca}[key]
@@ -107,7 +99,7 @@ func TestCapacityAgreementBillServesCompleteMonthAndCurrentTwoTenantAuthority(t 
 		if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
 			t.Fatal(err)
 		}
-		assertBill(got)
+		assertCapacityMonthBill(t, got, from, to)
 	}
 	a, b := f.tenants[0], f.tenants[1]
 	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
@@ -194,7 +186,7 @@ func TestCapacityAgreementBillServesCompleteMonthAndCurrentTwoTenantAuthority(t 
 	if status, got, _ := request(b, ids[b]); status != http.StatusOK {
 		t.Fatal("tenant refusal damaged the sibling month", status)
 	} else {
-		assertBill(got)
+		assertCapacityMonthBill(t, got, from, to)
 	}
 	probe.after = func() {
 		f.in(b, func(ctx context.Context, sc tenancy.Scope) error {
@@ -204,5 +196,15 @@ func TestCapacityAgreementBillServesCompleteMonthAndCurrentTwoTenantAuthority(t 
 	}
 	if status, _, encoded := request(b, ids[b]); status != http.StatusUnauthorized || strings.Contains(encoded, "4750000000000000019") {
 		t.Fatal("token revoked during counter IO still published a measured bill", status)
+	}
+}
+
+func assertCapacityMonthBill(t *testing.T, got flow.CapacityAgreementBill, from, to time.Time) {
+	t.Helper()
+	if !got.Percentile.Complete || !got.Bill.Complete || got.Percentile.ExpectedSamples != 8928 || got.Percentile.ObservedSamples != 8928 || got.Percentile.MissingSamples != 0 ||
+		got.Percentile.BPSNumerator != "15200" || got.Percentile.BPSDenominator != "1" || got.Bill.OverageNumerator != "14200" ||
+		got.Bill.ChargeNumerator != "4750000000000000019" || got.Bill.ChargeDenominator != "1250000000000000000" || !got.Bill.InvoiceCompared || got.Bill.InvoiceDifferenceNumerator != "0" ||
+		!got.Period.From.Equal(from) || !got.Period.To.Equal(to) || got.MembershipBasis != "current_member_set_applied_to_complete_period" || len(got.Members) != 1 {
+		t.Fatal("complete-month hand percentile/exact bill disagreed or lost its explicit assumptions", got)
 	}
 }

@@ -309,3 +309,20 @@
     min-height: var(--density-touch-target);
   }
 }
+
+.completeResult {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.completeResult pre {
+  max-height: calc(var(--space-8) * 16);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+}
+.completeResult summary:focus-visible {
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
+  outline-offset: var(--focus-ring-offset);
+}
