@@ -294,6 +294,7 @@ UNIT = {
 }
 FLOW_INTEGRATION = {
     "internal/store/flowstore": (
+        "TestPeeringTrafficRealStoreKeepsWholeTenantStatesDirectionsAndOriginalClock",
         "TestInterfaceRoleExplorerClickHouseKeepsTenantDirectionsAndCompleteTotals",
     ),
 }
@@ -2662,6 +2663,22 @@ def peering_interval_combination_control():
         raise RuntimeError("peering interval combination did not fail its exact hand assertion")
 
 
+def peering_flow_clock_control():
+    source = Path("internal/store/flowstore/peering_traffic_clickhouse.go").resolve()
+    original = source.read_text()
+    seam = " AND peer_capture.peer_clock=routing_captured_unix_nanos"
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    mutant = overlay_source_path(out, "peering_flow_original_clock_omitted.go")
+    mutant.write_text(original.replace(seam, ""))
+    overlay = out / "peering_flow_original_clock_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    root = "TestPeeringTrafficRealStoreKeepsWholeTenantStatesDirectionsAndOriginalClock"
+    result = execute("internal/store/flowstore", (root,), "peering_flow_original_clock_omitted", integration=True, overlay=overlay)
+    if not report_regression_failed_on_assertion(result.stdout, result.returncode, package=PREFIX + "internal/store/flowstore", root=root, child="", marker="actual peering join replaced an original capture clock"):
+        raise RuntimeError("peering flow clock omission did not fail its exact assertion")
+
+
 def main(integration, flow_integration=False):
     if not integration:
         artifact_selftest()
@@ -2677,6 +2694,8 @@ def main(integration, flow_integration=False):
         if failures:
             positive_failures.extend(failures)
             print(json.dumps({"required_positive_failure": package, "errors": failures}))
+    if flow_integration:
+        peering_flow_clock_control()
     if integration and not flow_integration:
         bgp_source_peer_control()
         bgp_source_origin_control()
