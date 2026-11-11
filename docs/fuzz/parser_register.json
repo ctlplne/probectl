@@ -1,6 +1,9 @@
 {
   "purpose": "Attack-surface parity for fuzzing (Foundation-Loop S-7f81b4c2). Every function that consumes untrusted input in the ingest-surface packages is bound here to the fuzz target that exercises it, or carries a written exemption saying why it is not untrusted input. internal/cipolicy's TestFuzzParityEveryParserIsRegistered discovers parsers structurally and fails on any that is missing, on a target that does not exist, and on a stale entry that matches no parser.",
   "parsers": {
+    "device.ParseCounterBatch": {
+      "target": "FuzzDeviceCounterBatch"
+    },
     "bgp.ParseASPathSegments": {
       "target": "FuzzBGPASPath"
     },
