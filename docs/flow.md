@@ -1074,6 +1074,15 @@ actual credential. Global and original canonical-context permissions are
 checked again for queries, frozen readers and reports. A stored receipt cannot
 replace a revoked source-plane grant.
 
+Public fallback retains the original source snapshot and each peer view's
+independent generation, with an explicit association between them. These IDs
+are provenance, never read grants. New associations use immutable capture
+format 4; current readers retain formats 1–3 without rewriting their clocks
+or identities. Use compatible readers when restoring or downgrading: an
+unsupported format is refused rather than decoded as partial routing data.
+Verifying a retained manifest does not issue a new source lease; original
+expiry and current source authority remain independently checked.
+
 Explorer's shared API, CLI, UI and MCP schema includes source and destination
 `bgp_provenance`, `bgp_prefix`, `bgp_as_paths`, `bgp_next_hop_as`,
 `bgp_origin_as`, `bgp_first_transit_as` and `bgp_rpki` fields, each prefixed
