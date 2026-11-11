@@ -24,6 +24,8 @@ const (
 	externalInterfaceRoles
 	externalRoutingReferences
 	externalRoutingFacts
+	externalPeeringInterfaces
+	externalPeeringCaptures
 )
 
 type explorerExternalData struct {
@@ -45,6 +47,10 @@ func (data explorerExternalData) specification() (string, string, error) {
 		return "routing_capture_lookup", "routing_ref_tenant String, routing_key String, routing_clock Int64, routing_fact String", nil
 	case externalRoutingFacts:
 		return "routing_fact_lookup", "routing_fact_tenant String, routing_fact_id String, routing_values Map(String, String)", nil
+	case externalPeeringInterfaces:
+		return "peering_interface_lookup", "peer_tenant String, peer_exporter String, peer_protocol String, peer_domain UInt32, peer_index UInt32, peer_interface String, peer_role String", nil
+	case externalPeeringCaptures:
+		return "peering_capture_lookup", "peer_capture_tenant String, peer_key String, peer_clock Int64, peer_state String", nil
 	default:
 		return "", "", ErrTagQueryScope
 	}

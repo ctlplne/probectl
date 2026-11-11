@@ -127,6 +127,28 @@ func (b *PlanBatch) ExplorePlan(query PlanQuery) (PlanResult, error) {
 	return result, nil
 }
 
+// PeeringTraffic uses the same operation deadline/read/response allowance as
+// original-capture discovery and metadata reads, without a second cost policy.
+func (b *PlanBatch) PeeringTraffic(query PeeringTrafficQuery) (PeeringTrafficResult, error) {
+	b.queryMu.Lock()
+	defer b.queryMu.Unlock()
+	if err := b.ctx.Err(); err != nil {
+		return PeeringTrafficResult{}, err
+	}
+	backend, ok := b.backend.(PeeringTrafficStore)
+	if !ok || b.failed || b.queries == 0 || query.Data == nil || query.Data.target.TenantID != b.tenant {
+		b.failed = true
+		return PeeringTrafficResult{}, ErrExplorerBudget
+	}
+	b.queries--
+	result, err := backend.PeeringTraffic(b.queryContext(), query)
+	if err != nil {
+		b.failed = true
+		return PeeringTrafficResult{}, err
+	}
+	return result, nil
+}
+
 func explorerPlanBudget(ctx context.Context, backend PlanStore, tenant string, store Store) (ExplorerBudget, error) {
 	b, _ := ctx.Value(explorerBatchKey{}).(*PlanBatch)
 	if b == nil {

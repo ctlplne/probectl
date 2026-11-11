@@ -51,6 +51,9 @@ UNIT = {
         "TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness",
     ),
     "internal/store/flowstore": (
+        "TestPeeringTrafficKeepsCompleteOwnedPopulationStatesAndExactPartialIntervals",
+        "TestPeeringTrafficRefusesMissingCurrentScopeBudgetAndInventedRows",
+        "TestPeeringTrafficSQLBindsTenantOriginalClockAndWholeStatePopulation",
         "TestPeeringQueryDataBindsCompleteReferencesTargetDirectionAndImmutableStates",
         "TestPeeringQueryDataRefusesMixedUnprovenAndUnadmittedInputs",
         "TestPeeringQueryDigestIncludesOriginalStatesAndTargetPeer",
@@ -727,6 +730,20 @@ ROUTING_WRITE_CONTROLS = {
         "refs = append(refs, reference{row.Key, row.Clock, peeringQueryStates{}})",
         "TestPeeringQueryDigestIncludesOriginalStatesAndTargetPeer", "",
         "peering digest omitted an original state or target peer",
+    ),
+    "peering-traffic-owner": (
+        "internal/store/flowstore/peering_traffic.go",
+        "!owners[owner{address.Unmap().String(), row.Protocol, row.ObsDomain}]",
+        "false",
+        "TestPeeringTrafficKeepsCompleteOwnedPopulationStatesAndExactPartialIntervals", "",
+        "peering aggregation dropped owned unknown/state traffic, included another router/tenant, truncated counters or lost partial intervals",
+    ),
+    "peering-traffic-states": (
+        "internal/store/flowstore/peering_traffic.go",
+        "state: query.Data.stateForRow(row)",
+        'state: "unavailable"',
+        "TestPeeringTrafficKeepsCompleteOwnedPopulationStatesAndExactPartialIntervals", "",
+        "peering aggregation dropped owned unknown/state traffic, included another router/tenant, truncated counters or lost partial intervals",
     ),
     "peering-query-key-clock": (
         "internal/store/flowstore/peering_query_data.go",
