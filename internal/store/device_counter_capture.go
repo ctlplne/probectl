@@ -198,23 +198,7 @@ func (s *DeviceCounterCaptures) LookupWitnessInScope(ctx context.Context, sc ten
 
 func lookupDeviceCounterWitness(ctx context.Context, sc tenancy.Scope, key [32]byte, lock bool) (DeviceCounterCapture, error) {
 	result := DeviceCounterCapture{CounterCaptureReference: entity.CounterCaptureReference{Key: key}, Scope: entity.Scope{TenantID: sc.Tenant.String()}}
-	sql := `SELECT c.captured_at,p.context_id::text,p.device_id::text,p.sender_serial,p.source_assigned_at,p.agent_assigned_at
-        FROM device_counter_captures c JOIN device_counter_capture_sources p USING(tenant_id,capture_key)
-        JOIN entity_source_contexts m ON (m.tenant_id,m.agent_id,m.source_kind,m.source_ref)=(p.tenant_id,p.agent_id,p.source_kind,p.source_ref)
-          AND m.context_id=p.context_id AND m.anchor_entity_id=p.device_id AND m.assigned_at=p.source_assigned_at
-        JOIN entity_agent_contexts a ON (a.tenant_id,a.agent_id,a.context_id)=(p.tenant_id,p.agent_id,p.context_id) AND a.assigned_at=p.agent_assigned_at
-        JOIN entities n ON (n.tenant_id,n.context_id,n.id,n.kind)=(p.tenant_id,p.context_id,p.device_id,p.device_kind)
-        JOIN agent_identities origin ON (origin.tenant_id,origin.agent_id,origin.serial)=(p.tenant_id,p.agent_id,p.sender_serial)
-        JOIN flow_snapshot_epochs epoch ON epoch.tenant_id=p.tenant_id AND NOT epoch.invalidating
-        WHERE c.tenant_id=$1 AND c.capture_key=$2
-          AND m.assigned_at<=statement_timestamp() AND a.assigned_at<=statement_timestamp()
-          AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())
-          AND (a.expires_at IS NULL OR a.expires_at>statement_timestamp())
-          AND origin.revoked_at IS NULL AND origin.spiffe_id='spiffe://probectl/tenant/' || p.tenant_id::text || '/entity/' || p.agent_id
-          AND EXISTS(SELECT 1 FROM agent_identities live WHERE live.tenant_id=p.tenant_id AND live.agent_id=p.agent_id
-              AND live.spiffe_id=origin.spiffe_id AND live.revoked_at IS NULL AND live.not_after>statement_timestamp())
-          AND NOT EXISTS(SELECT 1 FROM agent_identities revoked WHERE revoked.tenant_id=p.tenant_id AND revoked.agent_id=p.agent_id
-              AND revoked.revoked_at IS NOT NULL AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')`
+	sql := "SELECT c.captured_at,p.context_id::text,p.device_id::text,p.sender_serial,p.source_assigned_at,p.agent_assigned_at " + deviceCounterWitnessScopeSQL + " AND c.capture_key=$2"
 	if lock {
 		// Immutable receipt/payload tables deliberately grant no UPDATE;
 		// PostgreSQL row-lock SELECTs require that privilege. The caller's
@@ -232,3 +216,23 @@ func lookupDeviceCounterWitness(ctx context.Context, sc tenancy.Scope, key [32]b
 	}
 	return result, nil
 }
+
+// Shared by single-publication and complete-set readers; neither path may
+// weaken original sender, source-incarnation, lifecycle or tenant predicates.
+const deviceCounterWitnessScopeSQL = `
+        FROM device_counter_captures c JOIN device_counter_capture_sources p USING(tenant_id,capture_key)
+        JOIN entity_source_contexts m ON (m.tenant_id,m.agent_id,m.source_kind,m.source_ref)=(p.tenant_id,p.agent_id,p.source_kind,p.source_ref)
+          AND m.context_id=p.context_id AND m.anchor_entity_id=p.device_id AND m.assigned_at=p.source_assigned_at
+        JOIN entity_agent_contexts a ON (a.tenant_id,a.agent_id,a.context_id)=(p.tenant_id,p.agent_id,p.context_id) AND a.assigned_at=p.agent_assigned_at
+        JOIN entities n ON (n.tenant_id,n.context_id,n.id,n.kind)=(p.tenant_id,p.context_id,p.device_id,p.device_kind)
+        JOIN agent_identities origin ON (origin.tenant_id,origin.agent_id,origin.serial)=(p.tenant_id,p.agent_id,p.sender_serial)
+        JOIN flow_snapshot_epochs epoch ON epoch.tenant_id=p.tenant_id AND NOT epoch.invalidating
+        WHERE c.tenant_id=$1
+          AND m.assigned_at<=statement_timestamp() AND a.assigned_at<=statement_timestamp()
+          AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())
+          AND (a.expires_at IS NULL OR a.expires_at>statement_timestamp())
+          AND origin.revoked_at IS NULL AND origin.spiffe_id='spiffe://probectl/tenant/' || p.tenant_id::text || '/entity/' || p.agent_id
+          AND EXISTS(SELECT 1 FROM agent_identities live WHERE live.tenant_id=p.tenant_id AND live.agent_id=p.agent_id
+              AND live.spiffe_id=origin.spiffe_id AND live.revoked_at IS NULL AND live.not_after>statement_timestamp())
+          AND NOT EXISTS(SELECT 1 FROM agent_identities revoked WHERE revoked.tenant_id=p.tenant_id AND revoked.agent_id=p.agent_id
+              AND revoked.revoked_at IS NOT NULL AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')`

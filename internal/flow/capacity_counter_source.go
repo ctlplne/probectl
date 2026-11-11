@@ -8,6 +8,7 @@ package flow
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -21,6 +22,7 @@ type CapacityCounterSource struct {
 	TenantID, ContextID, DeviceID, InterfaceID string
 	AgentID, SourceRef                         string
 	SourceAssignedAt, AgentAssignedAt          time.Time
+	InterfaceCreatedAt                         time.Time
 	PhysicalMaxBPS                             uint64
 }
 
@@ -63,6 +65,41 @@ type CapacityMeasuredMember struct {
 
 func (m CapacityMeasuredMember) Source() CapacityCounterSource { return m.source }
 
+// RetainedMemoryBytes charges actual complete result strings and grid storage
+// after resampling. Circuit assembly can reuse transient working memory while
+// retaining every member, without a fixed member/sample ceiling.
+func (m CapacityMeasuredMember) RetainedMemoryBytes(ctx context.Context) (int64, error) {
+	charge := int64(1024)
+	debit := func(size int64) bool {
+		if size < 0 || size > (math.MaxInt64-charge)/2 {
+			return false
+		}
+		charge += size * 2
+		return true
+	}
+	for _, value := range []string{m.source.TenantID, m.source.ContextID, m.source.DeviceID, m.source.InterfaceID, m.source.AgentID, m.source.SourceRef} {
+		if !debit(int64(len(value))) {
+			return 0, errCapacityCounterInput
+		}
+	}
+	for _, series := range [][]capacityCounterRate{m.in, m.out} {
+		for _, sample := range series {
+			if err := ctx.Err(); err != nil {
+				return 0, err
+			}
+			if !debit(256) {
+				return 0, errCapacityCounterInput
+			}
+			for _, value := range []string{sample.bytes, sample.bytesDenominator, sample.numerator, sample.denominator, sample.reason} {
+				if !debit(int64(len(value))) {
+					return 0, errCapacityCounterInput
+				}
+			}
+		}
+	}
+	return charge, nil
+}
+
 func capacitySample(rate capacityCounterRate) CapacityCounterSample {
 	denominator := rate.bytesDenominator
 	if rate.observed && denominator == "" {
@@ -103,7 +140,7 @@ func MeasureCapacityCounterMember(ctx context.Context, source CapacityCounterSou
 		return none, tenancy.ErrNoTenant
 	}
 	if !capacityAgreementUUID(source.TenantID) || !capacityAgreementUUID(source.ContextID) || !capacityAgreementUUID(source.DeviceID) || !capacityAgreementUUID(source.InterfaceID) ||
-		!capacityAgreementText(source.AgentID, true) || !capacityAgreementText(source.SourceRef, true) || source.SourceAssignedAt.IsZero() || source.AgentAssignedAt.IsZero() {
+		!capacityAgreementText(source.AgentID, true) || !capacityAgreementText(source.SourceRef, true) || source.SourceAssignedAt.IsZero() || source.AgentAssignedAt.IsZero() || source.InterfaceCreatedAt.IsZero() {
 		return none, errCapacityCounterInput
 	}
 	admission := capacityGridAdmission{window.MemoryBytes / 4, window.WorkUnits / 4}
@@ -115,7 +152,7 @@ func MeasureCapacityCounterMember(ctx context.Context, source CapacityCounterSou
 			return none, errCapacityCounterInput
 		}
 	}
-	incarnation := source.SourceAssignedAt.Format(time.RFC3339Nano) + "/" + source.AgentAssignedAt.Format(time.RFC3339Nano)
+	incarnation := source.SourceAssignedAt.Format(time.RFC3339Nano) + "/" + source.AgentAssignedAt.Format(time.RFC3339Nano) + "/" + source.InterfaceCreatedAt.Format(time.RFC3339Nano)
 	in, out := []capacityCounterPoint{}, []capacityCounterPoint{}
 	previous := map[string]CapacityCounterObservation{}
 	for _, observation := range observations {
@@ -124,6 +161,9 @@ func MeasureCapacityCounterMember(ctx context.Context, source CapacityCounterSou
 		}
 		if err := validateCapacityCounterObservation(source, observation); err != nil {
 			return none, err
+		}
+		if observation.PollStartedAt.Before(source.InterfaceCreatedAt) {
+			continue // index reuse never assigns an old counter to a new canonical interface
 		}
 		point := capacityCounterPoint{tenant: source.TenantID, context: source.ContextID, router: source.DeviceID, iface: source.InterfaceID,
 			source: source.AgentID + "/" + source.SourceRef, incarnation: incarnation, continuity: "original_poll_clocks",

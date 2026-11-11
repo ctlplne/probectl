@@ -429,6 +429,18 @@ export interface CapacityAgreement {
   version: string
 }
 
+export interface CapacityAgreementBill {
+  agreement: CapacityAgreement
+  as_of: string
+  bill: CapacityBillResult
+  maximum_poll_gap: string
+  members: CapacityBillMember[]
+  membership_basis: "current_member_set_applied_to_complete_period"
+  percentile: CapacityPercentileResult
+  period: CapacityBillingPeriod
+  source_valid_until: string
+}
+
 export interface CapacityAgreementDefinition {
   billing_day: number
   commit_bps: string
@@ -453,6 +465,71 @@ export interface CapacityAgreementPage {
   has_more: boolean
   items: CapacityAgreement[]
   next?: string
+}
+
+export interface CapacityBillInput {
+  at: string
+  invoiced?: string
+  maximum_poll_gap: string
+  physical_bounds: CapacityPhysicalBound[]
+  version: string
+}
+
+export interface CapacityBillMember {
+  context_id: string
+  device_id: string
+  if_index: number
+  interface_id: string
+  observed_not_before: string
+  physical_max_bps: string
+}
+
+export interface CapacityBillResult {
+  billable_denominator?: string
+  billable_numerator?: string
+  charge_denominator?: string
+  charge_numerator?: string
+  commit_denominator: string
+  commit_numerator: string
+  complete: boolean
+  currency: string
+  from: string
+  invoice_compared: boolean
+  invoice_difference_denominator?: string
+  invoice_difference_numerator?: string
+  model: string
+  overage_denominator?: string
+  overage_numerator?: string
+  reason?: string
+  to: string
+}
+
+export interface CapacityBillingPeriod {
+  billing_day: number
+  boundary_policy: string
+  from: string
+  timezone: string
+  to: string
+}
+
+export interface CapacityPercentileResult {
+  bps_denominator?: string
+  bps_numerator?: string
+  complete: boolean
+  direction: string
+  expected_samples: number
+  from: string
+  missing_samples: number
+  model: string
+  observed_samples: number
+  rank?: number
+  to: string
+}
+
+export interface CapacityPhysicalBound {
+  context_id: string
+  interface_id: string
+  max_bps: string
 }
 
 export interface CapacityTarget {
@@ -3992,6 +4069,13 @@ export interface DeleteCapacityAgreementRequest {
 
 export type DeleteCapacityAgreementResponse = void
 
+export interface CheckCapacityAgreementBillRequest {
+  id: string
+  body: CapacityBillInput
+}
+
+export type CheckCapacityAgreementBillResponse = CapacityAgreementBill
+
 export interface ListCapacityAgreementRevisionsRequest {
   id: string
   after?: string
@@ -5855,6 +5939,13 @@ export class ProbectlSDKClient {
     const query = new URLSearchParams()
     if (request.version !== undefined) query.set("version", String(request.version))
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async checkCapacityAgreementBill(request: CheckCapacityAgreementBillRequest): Promise<CheckCapacityAgreementBillResponse> {
+    let path = "/v1/flows/capacity/agreements/{id}/check"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<CheckCapacityAgreementBillResponse>("POST", path, query, request.body)
   }
 
   async listCapacityAgreementRevisions(request: ListCapacityAgreementRevisionsRequest): Promise<ListCapacityAgreementRevisionsResponse> {

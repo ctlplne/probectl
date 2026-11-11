@@ -20,7 +20,7 @@ import (
 func capacitySourceTestInput() (context.Context, CapacityCounterSource, CapacityMeasurementWindow, []CapacityCounterObservation) {
 	start := time.Date(2026, 11, 1, 0, 0, 0, 123, time.UTC)
 	source := CapacityCounterSource{TenantID: uuid.NewString(), ContextID: uuid.NewString(), DeviceID: uuid.NewString(), InterfaceID: uuid.NewString(),
-		AgentID: "counter-agent", SourceRef: "192.0.2.1", SourceAssignedAt: start.Add(-time.Hour), AgentAssignedAt: start.Add(-time.Hour), PhysicalMaxBPS: 1_000_000}
+		AgentID: "counter-agent", SourceRef: "192.0.2.1", SourceAssignedAt: start.Add(-time.Hour), AgentAssignedAt: start.Add(-time.Hour), InterfaceCreatedAt: start.Add(-time.Hour), PhysicalMaxBPS: 1_000_000}
 	window := CapacityMeasurementWindow{From: start, To: start.Add(10 * time.Minute), MaximumPollGap: 5 * time.Minute, MemoryBytes: 128 << 20, WorkUnits: 128 << 20}
 	var observations []CapacityCounterObservation
 	for _, direction := range []string{"in", "out"} {
@@ -124,5 +124,20 @@ func TestCapacityCounterSourceRefusesForeignUnorderedAndUnadmittedFacts(t *testi
 	window.MemoryBytes = 1
 	if result, err := MeasureCapacityCounterMember(ctx, source, window, points); err == nil || !reflect.DeepEqual(result, CapacityMeasuredMember{}) {
 		t.Fatal("unadmitted measurement returned a prefix", result, err)
+	}
+}
+
+func TestCapacityCounterSourceDoesNotGiveAReusedIndexEarlierTraffic(t *testing.T) {
+	ctx, source, window, points := capacitySourceTestInput()
+	source.InterfaceCreatedAt = window.From.Add(5 * time.Minute)
+	member, err := MeasureCapacityCounterMember(ctx, source, window, points)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, direction := range []string{"in", "out"} {
+		samples := member.Samples(direction)
+		if len(samples) != 2 || samples[0].Observed || samples[0].Reason != "counter_coverage_incomplete" || samples[0].BytesNumerator != "" || !samples[1].Observed {
+			t.Fatal("new canonical interface inherited earlier traffic through the same physical index", direction, samples)
+		}
 	}
 }

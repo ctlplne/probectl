@@ -1312,8 +1312,8 @@ the result, so a changed tag revision or member set requires a fresh calculation
 
 The internal source-to-percentile and bill comparison path preserves rational
 values, sums distinct circuit members before ranking, and withholds amounts for
-incomplete required coverage. This does not yet expose a complete measured
-billing or forecast operation on the financial configuration surfaces above.
+incomplete required coverage. The complete-month REST/SDK/CLI bill check is
+described below; measured UI/MCP and public forecast operations remain in progress.
 
 The counter-backed forecast adapter uses those same summed grids for its exact
 trend plus weekly pattern. Its interval is an `in_sample_residual_envelope`,
@@ -1321,3 +1321,28 @@ not a calibrated confidence level. The selected future horizon and capacity
 threshold are explicit; a threshold not reached in that horizon has no invented
 date. `max_directional_percentiles` returns separate inbound/outbound forecasts,
 while `interval_max` and `interval_sum` forecast their stated per-interval series.
+
+`POST /v1/flows/capacity/agreements/{id}/check` checks one complete configured
+billing month. Supply the exact recorded `version`, an RFC3339 `at` within that
+period, a positive `maximum_poll_gap` such as `5m`, and `physical_bounds`: one
+canonical `context_id`, `interface_id` and exact positive `max_bps` string for
+every current member. An optional signed decimal `invoiced` is compared in the
+recorded currency. The selected immutable terms must be effective across the
+whole period; a mid-period terms change cannot be silently priced as one rate.
+
+This read operation requires `flow.agreements.read` plus current `metrics.read`
+and `entities.read` for every selected context; circuits also require
+`tags.read`. Current financial, source, circuit and original-receipt authority
+share the publication snapshot. The HTTP credential is refreshed before output.
+No financial write permission or persisted result is created. The generated
+clients expose `checkCapacityAgreementBill`; the CLI is
+`probectl --json capacity-agreements check AGREEMENT_ID --body-file check.json`.
+
+The result includes the complete calendar period, member assumptions, exact
+rational p95/overage/charge and optional invoice difference. Its
+`membership_basis` explicitly applies the current member set to the full period;
+it does not reconstruct historical tag membership. `observed_not_before` marks
+each current interface/source binding: older same-index counters are not assigned
+to a newly created identity. Incomplete coverage keeps the full expected sample
+count and withholds the percentile and charge. `source_valid_until` is only an
+upper bound on current source clocks, never a reusable or frozen reader grant.

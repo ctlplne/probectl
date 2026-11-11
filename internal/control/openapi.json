@@ -14663,6 +14663,80 @@
           "reason": "Complete page is admitted by finite operator memory and work budgets; no fixed row ceiling or total history cap."
         }
       }
+    },
+    "/v1/flows/capacity/agreements/{id}/check": {
+      "post": {
+        "operationId": "checkCapacityAgreementBill",
+        "summary": "Check a complete billing period against recorded terms and exact counters",
+        "tags": [
+          "flows"
+        ],
+        "x-required-permission": "flow.agreements.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "description": "Read-only analysis requires a current tenant user, financial read and current metrics.read/entities.read for every source context; circuits also require tags.read. Tenant and source identity never come from JSON. The selected immutable revision must be effective across the entire calendar period. All current member/source/certificate/erasure authority and original poll receipts are re-read in one tenant RLS snapshot after calculation; the originating HTTP credential is refreshed before output. Exact uint32/uint64 counters use the stated poll-start mean-overlap model, physical bounds and explicit poll-gap tolerance. Incomplete required coverage yields no percentile or charge. Current circuit membership is explicit, not a historical membership assertion. No remediation, invoice creation, retained result or financial write permission. Complete output and resources are bounded by the existing operator query profile without truncation.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapacityBillInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "200": {
+            "description": "Complete current-source percentile and exact recorded-term comparison, including explicit missing coverage and assumptions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacityAgreementBill"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -27836,6 +27910,315 @@
           "has_more",
           "as_of"
         ]
+      },
+      "CapacityPhysicalBound": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "max_bps": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "description": "Exact positive uint64 physical upper bound for the complete selected period; separate from the financial commit."
+          }
+        },
+        "required": [
+          "context_id",
+          "interface_id",
+          "max_bps"
+        ]
+      },
+      "CapacityBillInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "maximum_poll_gap": {
+            "type": "string",
+            "description": "Positive Go duration, such as 5m. Poll gaps exceeding this explicit cadence/tolerance remain unknown."
+          },
+          "physical_bounds": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/CapacityPhysicalBound"
+            },
+            "description": "One bound for every current member, no duplicates or unrelated identities. The whole array is admitted by operator memory/work resources; no fixed member ceiling."
+          },
+          "invoiced": {
+            "type": "string",
+            "description": "Optional signed exact decimal invoice total in the recorded currency. No tax/fees or rounding are inferred."
+          }
+        },
+        "required": [
+          "version",
+          "at",
+          "maximum_poll_gap",
+          "physical_bounds"
+        ]
+      },
+      "CapacityBillingPeriod": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "billing_day": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31
+          },
+          "boundary_policy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "timezone",
+          "billing_day",
+          "boundary_policy"
+        ]
+      },
+      "CapacityBillMember": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "if_index": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "physical_max_bps": {
+            "type": "string"
+          },
+          "observed_not_before": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "context_id",
+          "device_id",
+          "interface_id",
+          "if_index",
+          "physical_max_bps",
+          "observed_not_before"
+        ]
+      },
+      "CapacityPercentileResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "model": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "expected_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "observed_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missing_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "bps_numerator": {
+            "type": "string"
+          },
+          "bps_denominator": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "model",
+          "direction",
+          "expected_samples",
+          "observed_samples",
+          "missing_samples",
+          "complete"
+        ],
+        "description": "Exact rational bps over the complete five-minute grid. Missing required coverage withholds the percentile, rather than reducing the population or filling zeros."
+      },
+      "CapacityBillResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "model": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "commit_numerator": {
+            "type": "string"
+          },
+          "commit_denominator": {
+            "type": "string"
+          },
+          "overage_numerator": {
+            "type": "string"
+          },
+          "overage_denominator": {
+            "type": "string"
+          },
+          "billable_numerator": {
+            "type": "string"
+          },
+          "billable_denominator": {
+            "type": "string"
+          },
+          "charge_numerator": {
+            "type": "string"
+          },
+          "charge_denominator": {
+            "type": "string"
+          },
+          "invoice_difference_numerator": {
+            "type": "string"
+          },
+          "invoice_difference_denominator": {
+            "type": "string"
+          },
+          "invoice_compared": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "model",
+          "currency",
+          "complete",
+          "commit_numerator",
+          "commit_denominator",
+          "invoice_compared"
+        ],
+        "description": "Exact uniform-unit-rate comparison with the commit floor. Incomplete coverage withholds charge/overage amounts. This is not a generated invoice."
+      },
+      "CapacityAgreementBill": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "agreement": {
+            "$ref": "#/components/schemas/CapacityAgreement"
+          },
+          "period": {
+            "$ref": "#/components/schemas/CapacityBillingPeriod"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapacityBillMember"
+            }
+          },
+          "maximum_poll_gap": {
+            "type": "string"
+          },
+          "percentile": {
+            "$ref": "#/components/schemas/CapacityPercentileResult"
+          },
+          "bill": {
+            "$ref": "#/components/schemas/CapacityBillResult"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source_valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "membership_basis": {
+            "type": "string",
+            "enum": [
+              "current_member_set_applied_to_complete_period"
+            ]
+          }
+        },
+        "required": [
+          "agreement",
+          "period",
+          "members",
+          "maximum_poll_gap",
+          "percentile",
+          "bill",
+          "as_of",
+          "source_valid_until",
+          "membership_basis"
+        ],
+        "description": "Current canonical member set applied to the complete selected period, not a historical tag-membership claim. Traffic before a member current identity/source binding remains unknown. Source clock is an upper bound, not a frozen read grant."
       }
     }
   }

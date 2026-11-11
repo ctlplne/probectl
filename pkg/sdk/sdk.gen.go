@@ -512,6 +512,19 @@ type CapacityAgreement struct {
 	Version        string                      `json:"version"`
 }
 
+// Current canonical member set applied to the complete selected period, not a historical tag-membership claim. Traffic before a member current identity/source binding remains unknown. Source clock is an upper bound, not a frozen read grant.
+type CapacityAgreementBill struct {
+	Agreement        CapacityAgreement        `json:"agreement"`
+	AsOf             string                   `json:"as_of"`
+	Bill             CapacityBillResult       `json:"bill"`
+	MaximumPollGap   string                   `json:"maximum_poll_gap"`
+	Members          []CapacityBillMember     `json:"members"`
+	MembershipBasis  string                   `json:"membership_basis"`
+	Percentile       CapacityPercentileResult `json:"percentile"`
+	Period           CapacityBillingPeriod    `json:"period"`
+	SourceValidUntil string                   `json:"source_valid_until"`
+}
+
 // Complete operator-recorded financial terms. No price, currency, physical capacity or source grant is inferred. Short months clamp billing_day to their last day; timezone is an offline IANA zone, never Local.
 type CapacityAgreementDefinition struct {
 	BillingDay int            `json:"billing_day"`
@@ -537,6 +550,73 @@ type CapacityAgreementPage struct {
 	HasMore bool                `json:"has_more"`
 	Items   []CapacityAgreement `json:"items"`
 	Next    string              `json:"next,omitempty"`
+}
+
+type CapacityBillInput struct {
+	At             string                  `json:"at"`
+	Invoiced       string                  `json:"invoiced,omitempty"`
+	MaximumPollGap string                  `json:"maximum_poll_gap"`
+	PhysicalBounds []CapacityPhysicalBound `json:"physical_bounds"`
+	Version        string                  `json:"version"`
+}
+
+type CapacityBillMember struct {
+	ContextId         string `json:"context_id"`
+	DeviceId          string `json:"device_id"`
+	IfIndex           int    `json:"if_index"`
+	InterfaceId       string `json:"interface_id"`
+	ObservedNotBefore string `json:"observed_not_before"`
+	PhysicalMaxBps    string `json:"physical_max_bps"`
+}
+
+// Exact uniform-unit-rate comparison with the commit floor. Incomplete coverage withholds charge/overage amounts. This is not a generated invoice.
+type CapacityBillResult struct {
+	BillableDenominator          string `json:"billable_denominator,omitempty"`
+	BillableNumerator            string `json:"billable_numerator,omitempty"`
+	ChargeDenominator            string `json:"charge_denominator,omitempty"`
+	ChargeNumerator              string `json:"charge_numerator,omitempty"`
+	CommitDenominator            string `json:"commit_denominator"`
+	CommitNumerator              string `json:"commit_numerator"`
+	Complete                     bool   `json:"complete"`
+	Currency                     string `json:"currency"`
+	From                         string `json:"from"`
+	InvoiceCompared              bool   `json:"invoice_compared"`
+	InvoiceDifferenceDenominator string `json:"invoice_difference_denominator,omitempty"`
+	InvoiceDifferenceNumerator   string `json:"invoice_difference_numerator,omitempty"`
+	Model                        string `json:"model"`
+	OverageDenominator           string `json:"overage_denominator,omitempty"`
+	OverageNumerator             string `json:"overage_numerator,omitempty"`
+	Reason                       string `json:"reason,omitempty"`
+	To                           string `json:"to"`
+}
+
+type CapacityBillingPeriod struct {
+	BillingDay     int    `json:"billing_day"`
+	BoundaryPolicy string `json:"boundary_policy"`
+	From           string `json:"from"`
+	Timezone       string `json:"timezone"`
+	To             string `json:"to"`
+}
+
+// Exact rational bps over the complete five-minute grid. Missing required coverage withholds the percentile, rather than reducing the population or filling zeros.
+type CapacityPercentileResult struct {
+	BpsDenominator  string `json:"bps_denominator,omitempty"`
+	BpsNumerator    string `json:"bps_numerator,omitempty"`
+	Complete        bool   `json:"complete"`
+	Direction       string `json:"direction"`
+	ExpectedSamples int    `json:"expected_samples"`
+	From            string `json:"from"`
+	MissingSamples  int    `json:"missing_samples"`
+	Model           string `json:"model"`
+	ObservedSamples int    `json:"observed_samples"`
+	Rank            int    `json:"rank,omitempty"`
+	To              string `json:"to"`
+}
+
+type CapacityPhysicalBound struct {
+	ContextId   string `json:"context_id"`
+	InterfaceId string `json:"interface_id"`
+	MaxBps      string `json:"max_bps"`
 }
 
 // Interface requires context_id and interface_id only. Circuit requires tag_id and a complete nonempty tag_value only. References bind to current-tenant inventory; they confer no telemetry authority.
@@ -5992,6 +6072,26 @@ func (c *Client) DeleteCapacityAgreement(ctx context.Context, req DeleteCapacity
 		query.Set("version", formatQueryValue(*req.Version))
 	}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Check a complete billing period against recorded terms and exact counters
+type CheckCapacityAgreementBillRequest struct {
+	Id   string             `json:"-"`
+	Body *CapacityBillInput `json:"-"`
+}
+
+func (c *Client) CheckCapacityAgreementBill(ctx context.Context, req CheckCapacityAgreementBillRequest) (*CapacityAgreementBill, error) {
+	path := "/v1/flows/capacity/agreements/{id}/check"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out CapacityAgreementBill
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Page immutable recorded agreement revisions

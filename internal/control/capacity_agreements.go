@@ -69,6 +69,10 @@ type capacityAgreementOperation struct {
 }
 
 func (s *Server) beginCapacityAgreement(r *http.Request) (capacityAgreementOperation, error) {
+	return s.beginCapacityAgreementMode(r, r.Method != http.MethodGet)
+}
+
+func (s *Server) beginCapacityAgreementMode(r *http.Request, mutation bool) (capacityAgreementOperation, error) {
 	none := capacityAgreementOperation{}
 	actor := auth.PrincipalFrom(r.Context())
 	ctx, err := bindFlowRoleContext(r.Context(), actor)
@@ -86,7 +90,6 @@ func (s *Server) beginCapacityAgreement(r *http.Request) (capacityAgreementOpera
 		return none, apierror.Unavailable("financial operation admission is unavailable")
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
-	mutation := r.Method != http.MethodGet
 	if err := s.currentCapacityAgreementActor(ctx, actor, mutation); err != nil {
 		cancel()
 		return none, err

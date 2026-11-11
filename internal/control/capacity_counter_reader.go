@@ -29,7 +29,7 @@ type capacityCounterSelection struct {
 }
 
 func sameCapacityCounterInterface(a, b store.DeviceCounterInterface) bool {
-	return a.Scope == b.Scope && a.InterfaceID == b.InterfaceID && a.IfIndex == b.IfIndex && a.Generation == b.Generation &&
+	return a.Scope == b.Scope && a.InterfaceID == b.InterfaceID && a.IfIndex == b.IfIndex && a.Generation == b.Generation && a.CreatedAt.Equal(b.CreatedAt) &&
 		a.Source.ContextID == b.Source.ContextID && a.Source.DeviceID == b.Source.DeviceID && a.Source.AgentID == b.Source.AgentID && a.Source.SourceRef == b.Source.SourceRef &&
 		a.Source.SourceAssignedAt.Equal(b.Source.SourceAssignedAt) && a.Source.AgentAssignedAt.Equal(b.Source.AgentAssignedAt)
 }
@@ -94,7 +94,7 @@ func validateCapacityCounterReceipts(ctx context.Context, sc tenancy.Scope, read
 	if int64(len(rows)) > budget.MemoryBytes/4096 || int64(len(rows)) > budget.WorkUnits/4096 {
 		return flowstore.ErrCounterHistoryBudget
 	}
-	witnesses := make(map[[32]byte]store.DeviceCounterCapture)
+	keys := make([][32]byte, 0, len(rows))
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -109,14 +109,19 @@ func validateCapacityCounterReceipts(ctx context.Context, sc tenancy.Scope, read
 		if err != nil || key != row.CaptureKey || row.Width != 32 && row.Width != 64 {
 			return flowstore.ErrCounterHistoryInput
 		}
+		keys = append(keys, key)
+	}
+	witnesses, err := reader.LookupWitnessesInScope(ctx, sc, keys, budget.MemoryBytes)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		witness, found := witnesses[row.CaptureKey]
 		if !found {
-			var err error
-			witness, err = reader.LookupWitnessInScope(ctx, sc, row.AgentID, row.RawDigest, input)
-			if err != nil {
-				return err
-			}
-			witnesses[row.CaptureKey] = witness
+			return store.ErrCounterCaptureUnavailable
 		}
 		if witness.Key != row.CaptureKey || witness.Scope != target.Scope || witness.DeviceID != row.DeviceID || witness.SenderSerial != row.SenderSerial ||
 			!witness.CapturedAt.Equal(row.CapturedAt) || !witness.SourceAssignedAt.Equal(row.SourceAssignedAt) || !witness.AgentAssignedAt.Equal(row.AgentAssignedAt) {
@@ -188,7 +193,8 @@ func (s *Server) readCapacityCounterMember(ctx context.Context, actor *auth.Prin
 			Value: row.Value, Width: width, UptimeTicks: row.UptimeTicks, DiscontinuityTicks: row.DiscontinuityTicks, UptimeKnown: row.UptimeKnown, DiscontinuityKnown: row.DiscontinuityKnown})
 	}
 	source := flow.CapacityCounterSource{TenantID: actor.TenantID, ContextID: target.Source.ContextID, DeviceID: target.Source.DeviceID, InterfaceID: target.InterfaceID,
-		AgentID: target.Source.AgentID, SourceRef: target.Source.SourceRef, SourceAssignedAt: target.Source.SourceAssignedAt, AgentAssignedAt: target.Source.AgentAssignedAt, PhysicalMaxBPS: selected.PhysicalMaxBPS}
+		AgentID: target.Source.AgentID, SourceRef: target.Source.SourceRef, SourceAssignedAt: target.Source.SourceAssignedAt, AgentAssignedAt: target.Source.AgentAssignedAt,
+		InterfaceCreatedAt: target.CreatedAt, PhysicalMaxBPS: selected.PhysicalMaxBPS}
 	result, err := flow.MeasureCapacityCounterMember(ctx, source, window, observations)
 	if err != nil {
 		return none, err

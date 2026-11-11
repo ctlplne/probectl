@@ -297,6 +297,7 @@ func (s *Server) flowRoutes() []apiRoute {
 		{http.MethodPut, "/v1/flows/capacity/agreements/{id}", s.handleCapacityAgreementSave, permFlowAgreementsWrite},
 		{http.MethodDelete, "/v1/flows/capacity/agreements/{id}", s.handleCapacityAgreementDelete, permFlowAgreementsWrite},
 		{http.MethodGet, "/v1/flows/capacity/agreements/{id}/revisions", s.handleCapacityAgreementList, permFlowAgreementsRead},
+		{http.MethodPost, "/v1/flows/capacity/agreements/{id}/check", s.handleCapacityAgreementBill, permFlowAgreementsRead},
 		{http.MethodPost, "/v1/flows/peering-estimate", s.handlePeeringEstimate, permFlowRead},
 		{http.MethodGet, "/v1/flows/anomalies", s.handleFlowAnomalies, permFlowRead},
 	}

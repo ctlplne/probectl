@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
@@ -98,7 +99,7 @@ func TestCapacityCounterReaderKeepsOriginalReceiptsAndCurrentTenantSourceAuthori
 					Population: 2, IfIndex: 7, Name: "probectl.device.if." + direction + ".octets", Value: value, Width: width,
 					UptimeTicks: 100000 + uint32(poll)*30000, UptimeKnown: true, DiscontinuityKnown: true})
 			}
-			if err := probe.Memory.InsertCounterPoll(ctx, rows, budget); err != nil {
+			if err := probe.InsertCounterPoll(ctx, rows, budget); err != nil {
 				t.Fatal(err)
 			}
 			allRows[tenant] = append(allRows[tenant], rows...)
@@ -141,6 +142,39 @@ func TestCapacityCounterReaderKeepsOriginalReceiptsAndCurrentTenantSourceAuthori
 	if probe.calls != before {
 		t.Fatal("contradictory tenant scope reached the telemetry backend")
 	}
+	// Two current canonical identities for the same device/index cannot be
+	// selected as if they were distinct physical circuit members.
+	const competingID = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+	if err := store.NewAgentIdentities(f.pool).Record(t.Context(), a, "counter-second-collector", crypto.EntitySPIFFEID(a, "counter-second-collector"), "counter-second-serial", time.Now().Add(time.Hour), ""); err != nil {
+		t.Fatal(err)
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts(tenant_id,agent_id,context_id) VALUES($1,'counter-second-collector',$2)`, a, f.contextID); err != nil {
+			return err
+		}
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_source_contexts(tenant_id,agent_id,source_kind,source_ref,context_id,anchor_entity_id) VALUES($1,'counter-second-collector','device_target','192.0.2.254',$2,$3)`, a, f.contextID, f.routerID); err != nil {
+			return err
+		}
+		_, err := sc.Q.Exec(ctx, `INSERT INTO entities(tenant_id,context_id,id,kind,label,parent_entity_id,source_agent_id,configured_ref,interface_index)
+ VALUES($1,$2,$3,'interface','competing current physical index',$4,'counter-second-collector','192.0.2.254',7)`, a, f.contextID, competingID, f.routerID)
+		return err
+	})
+	before = probe.calls
+	refused(t.Context(), actors[a], selection(a), windows[a])
+	if probe.calls != before {
+		t.Fatal("ambiguous physical ownership reached counter history")
+	}
+	read(b)
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET expires_at=assigned_at WHERE tenant_id=$1 AND agent_id='counter-second-collector'`, a)
+		return err
+	})
+	read(a) // an inactive retained identity is not a competing current owner
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `DELETE FROM entities WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, a, f.contextID, competingID)
+		return err
+	})
+	read(a)
 	probe.transform = func([]flowstore.CounterRow) ([]flowstore.CounterRow, error) { return allRows[b], nil }
 	refused(t.Context(), actors[a], selection(a), windows[a])
 	probe.transform = func(rows []flowstore.CounterRow) ([]flowstore.CounterRow, error) {
