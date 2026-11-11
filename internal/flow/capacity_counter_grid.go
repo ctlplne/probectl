@@ -68,7 +68,7 @@ func admitCapacityCounterGrid(ctx context.Context, window capacityCounterGridWin
 		if point.tenant != tenant.String() || point.at.IsZero() || i > 0 && !point.at.After(points[i-1].at) {
 			return 0, capacityGridAdmission{}, errCapacityCounterInput
 		}
-		for _, value := range []string{point.tenant, point.context, point.router, point.iface, point.source, point.incarnation, point.continuity} {
+		for _, value := range []string{point.tenant, point.context, point.router, point.iface, point.source, point.incarnation, point.continuity, point.intervalReason} {
 			if strings.TrimSpace(value) != value || !budget.debit(int64(len(value)), 32, 32) {
 				return 0, capacityGridAdmission{}, errCapacityCounterInput
 			}

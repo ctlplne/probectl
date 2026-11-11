@@ -29,6 +29,7 @@ type capacityCounterPoint struct {
 	exact                           bool
 	width                           uint8
 	octets, maxBitsPerSecond        uint64
+	intervalReason                  string // Derived from original poll clocks, never supplied by a public query.
 }
 
 type capacityCounterRate struct {
@@ -60,7 +61,7 @@ func capacityCounterInterval(ctx context.Context, before, after capacityCounterP
 	}
 	memoryBytes, workUnits = memoryBytes-4096, workUnits-4096
 	for _, point := range []capacityCounterPoint{before, after} {
-		for _, value := range []string{point.tenant, point.context, point.router, point.iface, point.source, point.incarnation, point.continuity} {
+		for _, value := range []string{point.tenant, point.context, point.router, point.iface, point.source, point.incarnation, point.continuity, point.intervalReason} {
 			if err := ctx.Err(); err != nil {
 				return none, err
 			}
@@ -85,6 +86,9 @@ func capacityCounterInterval(ctx context.Context, before, after capacityCounterP
 		}
 		out.reason = reason
 		return out, nil
+	}
+	if after.intervalReason != "" {
+		return unknown(after.intervalReason)
 	}
 	if !before.exact || !after.exact {
 		return unknown("exact_counter_unavailable")

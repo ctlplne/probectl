@@ -1285,3 +1285,24 @@ PII redaction apply to recorded text and prices, so a protected field can be
 withheld by redaction. Authorized REST, CLI and the Capacity screen retain the
 original financial values. Current canonical target identities and server
 revision/cursor metadata keep their exact values.
+
+The capacity calculation path uses retained integer SNMP counters and their
+original authenticated poll receipts. Current canonical interface ownership,
+source assignments, user grants, credential scope and context policy are checked
+before reading history and again before returning measured facts. Reassignment,
+revocation or erased receipts invalidate a calculation; another tenant's equal
+interface index cannot select its observations.
+
+Its explicit model is `poll_start_counter_poll_mean_overlap`: poll-start clocks
+anchor rates, and each proven mean contributes its exact overlap with a
+five-minute grid. SNMP poll bounds are not individual OID read timestamps.
+Uptime and discontinuity must be present and consistent with the full poll
+windows. Resets, ambiguous uptime wraps, overlapping polls and missing coverage
+stay unknown. Counter wraps need a unique interpretation under a separately
+recorded physical upper bound for the entire requested window. No commit value
+or current advertised link speed silently supplies that historical assumption.
+
+The internal source-to-percentile and bill comparison path preserves rational
+values, sums distinct circuit members before ranking, and withholds amounts for
+incomplete required coverage. This does not yet expose a complete measured
+billing or forecast operation on the financial configuration surfaces above.
