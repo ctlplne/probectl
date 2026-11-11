@@ -23,7 +23,12 @@ func TestCapacityMeasuredForecastUsesWholeCounterCircuitAndHandGrowthRunout(t *t
 	ctx, source, window, _ := capacitySourceTestInput()
 	const samples = 2 * 7 * 24 * 12
 	window.To = window.From.Add(samples * 5 * time.Minute)
-	window.MemoryBytes, window.WorkUnits = 1<<30, 64<<30
+	window.MemoryBytes = 2 << 30
+	work, err := CapacityForecastWorkUnits(window.MemoryBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window.WorkUnits = work
 	source.PhysicalMaxBPS = 1_000_000_000
 	var points []CapacityCounterObservation
 	for _, direction := range []string{"in", "out"} {
@@ -44,6 +49,10 @@ func TestCapacityMeasuredForecastUsesWholeCounterCircuitAndHandGrowthRunout(t *t
 	first, err := MeasureCapacityCounterMember(ctx, source, window, points)
 	if err != nil {
 		t.Fatal(err)
+	}
+	retained, err := first.RetainedMemoryBytes(ctx)
+	if err != nil || retained <= 0 || retained >= window.MemoryBytes {
+		t.Fatal("complete measured grids lost their finite retained-memory charge", retained, err)
 	}
 	secondSource := source
 	secondSource.InterfaceID = uuid.NewString()

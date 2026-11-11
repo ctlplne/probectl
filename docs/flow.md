@@ -1380,3 +1380,10 @@ horizon. The trend-plus-weekly model reports an empirical in-sample residual
 envelope, never a calibrated confidence probability. These operations remain
 preview pending the complete original sender, served-surface and lifecycle
 acceptance; a modeled history test is not physical SNMP proof.
+
+Forecast exact-arithmetic admission uses 32 work units per configured query
+memory byte (64 GiB units with the default 2 GiB memory profile). These units
+charge quadratic rational arithmetic; they do not allocate that amount of
+memory or increase the history read budget. The same finite query timeout,
+tenant fairness and complete-result memory admission remain. This admits the
+complete two-week weekly training workload rather than shortening its samples.

@@ -7,10 +7,11 @@
 package control
 
 import (
+	"testing"
+
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
-	"testing"
 )
 
 func TestCapacityForecastInputKeepsExactWindowsThresholdAndIndependentBounds(t *testing.T) {

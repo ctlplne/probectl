@@ -8,6 +8,7 @@ package flow
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -54,4 +55,17 @@ func ValidateCapacityForecastThreshold(ctx context.Context, value string, memory
 		return errCapacityCounterInput
 	}
 	return ctx.Err()
+}
+
+// CapacityForecastWorkUnits scales the existing finite query memory profile
+// into exact-arithmetic work units. Work is charged in quadratic limb units,
+// not allocated bytes: a two-week weekly fit needs more work than its retained
+// grids. The default 2GiB profile admits 64GiB units without allocating 64GiB.
+// The caller still enforces the ordinary query deadline and tenant fairness.
+func CapacityForecastWorkUnits(memoryBytes int64) (int64, error) {
+	const workPerMemoryByte = 32
+	if memoryBytes <= 0 || memoryBytes > math.MaxInt64/workPerMemoryByte {
+		return 0, errCapacityCounterInput
+	}
+	return memoryBytes * workPerMemoryByte, nil
 }

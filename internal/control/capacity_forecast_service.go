@@ -45,7 +45,11 @@ func (s *Server) measureCapacityForecast(op capacityForecastOperation, input flo
 	if _, err := s.capacityForecastSnapshot(ctx, op.actor, parameters, op.budget, &before, rows); err != nil {
 		return none, err
 	}
-	window := flow.CapacityMeasurementWindow{From: parameters.from, To: parameters.to, MaximumPollGap: parameters.counter.gap, MemoryBytes: op.budget.MemoryBytes / 2, WorkUnits: op.budget.MemoryBytes}
+	workUnits, err := flow.CapacityForecastWorkUnits(op.budget.MemoryBytes)
+	if err != nil {
+		return none, err
+	}
+	window := flow.CapacityMeasurementWindow{From: parameters.from, To: parameters.to, MaximumPollGap: parameters.counter.gap, MemoryBytes: op.budget.MemoryBytes / 2, WorkUnits: workUnits}
 	members, err := measureCapacityBillMembers(ctx, before, rows, window, op.budget.MemoryBytes/4)
 	if err != nil {
 		return none, err

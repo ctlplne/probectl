@@ -32,7 +32,7 @@ import (
 )
 
 // Real TLS PostgreSQL/application RLS and verified HTTPS/generated SDK/CLI.
-// A full month of counter words and original receipt rows is seeded/modelled;
+// A full month of counter words and original receipt rows is seeded/modeled;
 // this root does not claim physical SNMP, issued mTLS or actual ClickHouse.
 func TestCapacityAgreementBillServesCompleteMonthAndCurrentTwoTenantAuthority(t *testing.T) {
 	f := newRoleExplanationAPIFixture(t)

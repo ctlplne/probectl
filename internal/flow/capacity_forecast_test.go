@@ -119,3 +119,35 @@ func TestCapacityForecastRequiresTenantAndWholeOperationAdmission(t *testing.T) 
 		}
 	}
 }
+
+func TestCapacityForecastThresholdRequiresExactPositiveTenantBoundedArithmetic(t *testing.T) {
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID("red"))
+	value := "9007199254740993.000000000000000001"
+	if err := ValidateCapacityForecastThreshold(ctx, value, 1<<20, 1<<20); err != nil {
+		t.Fatal("exact wide threshold was narrowed", err)
+	}
+	for _, value := range []string{"0", "-1", "1/3", "1e20", "01", "1.", "1.x"} {
+		if err := ValidateCapacityForecastThreshold(ctx, value, 1<<20, 1<<20); err == nil {
+			t.Fatal("unsupported or nonpositive threshold was admitted", value)
+		}
+	}
+	if err := ValidateCapacityForecastThreshold(t.Context(), "1", 1<<20, 1<<20); !errors.Is(err, tenancy.ErrNoTenant) {
+		t.Fatal("threshold parsed before tenant boundary", err)
+	}
+	if err := ValidateCapacityForecastThreshold(ctx, value, 1, 1<<20); err == nil {
+		t.Fatal("unadmitted memory was accepted")
+	}
+	if err := ValidateCapacityForecastThreshold(ctx, value, 1<<20, 1); err == nil {
+		t.Fatal("unadmitted arithmetic was accepted")
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := ValidateCapacityForecastThreshold(canceled, value, 1<<20, 1<<20); err == nil {
+		t.Fatal("canceled threshold computation was accepted")
+	}
+	for _, memory := range []int64{0, -1, int64(^uint64(0) >> 1)} {
+		if work, err := CapacityForecastWorkUnits(memory); err == nil || work != 0 {
+			t.Fatal("unbounded or overflowing work admission was accepted", work, err)
+		}
+	}
+}

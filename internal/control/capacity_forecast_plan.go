@@ -51,7 +51,7 @@ func capacityForecastInput(ctx context.Context, input flow.CapacityForecastReque
 		return none, apierror.Validation("a supported measured direction is required")
 	}
 	target := input.Target
-	ids := []string{}
+	var ids []string
 	switch target.Kind {
 	case "interface":
 		if target.TagID != "" || target.TagValue != "" {

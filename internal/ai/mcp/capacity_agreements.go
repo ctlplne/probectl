@@ -57,8 +57,8 @@ func decodeCapacityAgreementCommand(raw json.RawMessage, name string, limit int)
 	}
 	none := CapacityAgreementCommand{}
 	if name == "capacity_forecast" {
-		if input.Forecast == nil || input.ID != "" || input.Check != nil || input.Definition != nil || input.After != "" || input.Limit != nil || input.Version != "" || input.At != "" {
-			return none, argErr("forecast requires only complete forecast input, never financial or authority hints")
+		if err := validateCapacityForecastCommand(input); err != nil {
+			return none, err
 		}
 		return input, nil
 	}
@@ -75,42 +75,56 @@ func decodeCapacityAgreementCommand(raw json.RawMessage, name string, limit int)
 	if name != "capacity_agreement_bill_check" && input.Check != nil {
 		return none, argErr("measured billing input is accepted only by the bill check")
 	}
+	if err := validateCapacityAgreementCommandFields(input, name); err != nil {
+		return none, err
+	}
+	return input, nil
+}
+
+func validateCapacityForecastCommand(input CapacityAgreementCommand) error {
+	if input.Forecast == nil || input.ID != "" || input.Check != nil || input.Definition != nil || input.After != "" || input.Limit != nil || input.Version != "" || input.At != "" {
+		return argErr("forecast requires only complete forecast input, never financial or authority hints")
+	}
+	return nil
+}
+
+func validateCapacityAgreementCommandFields(input CapacityAgreementCommand, name string) error {
 	switch name {
 	case "capacity_agreement_bill_check":
 		if input.Check == nil || input.Definition != nil || input.After != "" || input.Limit != nil || input.Version != "" || input.At != "" {
-			return none, argErr("bill check requires only agreement ID and complete check input")
+			return argErr("bill check requires only agreement ID and complete check input")
 		}
 	case "capacity_agreements_list", "capacity_agreement_revisions":
 		if input.Definition != nil || input.Version != "" || input.At != "" {
-			return none, argErr("agreement pages do not accept terms or a version/effective lookup")
+			return argErr("agreement pages do not accept terms or a version/effective lookup")
 		}
 		if input.After != "" && ((name == "capacity_agreements_list" && !validTagWriteID(input.After)) || (name == "capacity_agreement_revisions" && !capacityAgreementVersion(input.After))) {
-			return none, argErr("the exclusive page cursor must be an agreement ID or exact recorded revision")
+			return argErr("the exclusive page cursor must be an agreement ID or exact recorded revision")
 		}
 	case "capacity_agreement_get":
 		if input.Definition != nil || input.After != "" || input.Limit != nil || input.Version != "" && input.At != "" {
-			return none, argErr("choose current terms, exact revision or effective instant without page/mutation fields")
+			return argErr("choose current terms, exact revision or effective instant without page/mutation fields")
 		}
 		if input.Version != "" && !capacityAgreementVersion(input.Version) {
-			return none, argErr("exact positive recorded revision is required")
+			return argErr("exact positive recorded revision is required")
 		}
 		if input.At != "" {
 			if _, err := time.Parse(time.RFC3339Nano, input.At); err != nil {
-				return none, argErr("effective instant must include an RFC3339 timezone")
+				return argErr("effective instant must include an RFC3339 timezone")
 			}
 		}
 	case "capacity_agreement_create", "capacity_agreement_update":
 		if input.Definition == nil || input.After != "" || input.Limit != nil || input.At != "" || name == "capacity_agreement_create" && input.Version != "" || name == "capacity_agreement_update" && !capacityAgreementVersion(input.Version) {
-			return none, argErr("complete terms and the observed head revision for an update are required")
+			return argErr("complete terms and the observed head revision for an update are required")
 		}
 	case "capacity_agreement_delete":
 		if !capacityAgreementVersion(input.Version) || input.Definition != nil || input.After != "" || input.Limit != nil || input.At != "" {
-			return none, argErr("delete requires only the agreement ID and observed exact head revision")
+			return argErr("delete requires only the agreement ID and observed exact head revision")
 		}
 	default:
-		return none, argErr("unknown capacity agreement command")
+		return argErr("unknown capacity agreement command")
 	}
-	return input, nil
+	return nil
 }
 
 func WithCapacityAgreementBackend(backend CapacityAgreementBackend, schemas NativeFlowSchemas, inputBytes int) Option {
