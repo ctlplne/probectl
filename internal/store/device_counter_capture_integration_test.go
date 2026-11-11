@@ -201,6 +201,11 @@ func TestDeviceCounterWitnessTenantRebindRevocationAndErasureIsolation(t *testin
 	if _, err := f.service.CaptureAuthenticated(f.ctx(t.Context()), f.sender, f.serial, f.digest, f.input, 1<<20); !errors.Is(err, ErrCounterCaptureUnavailable) {
 		t.Fatal("late witness recreated an erased poll", err)
 	}
+	unseenDigest := f.digest
+	unseenDigest[30] = 42
+	if _, err := f.service.CaptureAuthenticated(f.ctx(t.Context()), f.sender, f.serial, unseenDigest, f.input, 1<<20); !errors.Is(err, ErrCounterCaptureUnavailable) {
+		t.Fatal("previously unseen delayed poll bypassed the completed erasure cutoff", err)
+	}
 	fresh := f.input
 	inTenant(t.Context(), t, f.pool, f.tenant, func(ctx context.Context, sc tenancy.Scope) error {
 		return sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&fresh.PollStartedAt)
