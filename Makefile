@@ -416,7 +416,7 @@ secret-scan: ## Run gitleaks across the full git history, including deleted file
 
 .PHONY: workflow-permissions-gate
 workflow-permissions-gate: ## Self-test + enforce least-privilege boundaries for write-capable CI jobs.
-	$(GO) test -count=1 -run '^TestDevelopmentCoalescerKeepsTrustedCodeAndNarrowAuthority$$' ./internal/cipolicy
+	$(GO) test -count=1 -run '^TestMainCIQueueKeepsRunningWorkAndNarrowAuthority$$' ./internal/cipolicy
 	bash scripts/check_workflow_permissions.sh SELFTEST
 	bash scripts/check_workflow_permissions.sh
 	bash scripts/check_release_permissions.sh SELFTEST
