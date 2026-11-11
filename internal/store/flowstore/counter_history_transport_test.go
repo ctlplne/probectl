@@ -12,6 +12,7 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -35,11 +36,29 @@ func TestCounterHistoryTransportPublishesOnlyCompleteAcknowledgedPollsAndReaderR
 						return
 					}
 					r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-					if err := r.ParseMultipartForm(1 << 20); err != nil {
+					parts, err := r.MultipartReader()
+					if err != nil {
 						t.Error(err)
 						return
 					}
-					defer func() { _ = r.MultipartForm.RemoveAll() }()
+					r.PostForm = url.Values{}
+					for {
+						part, err := parts.NextPart()
+						if err == io.EOF {
+							break
+						}
+						if err != nil {
+							t.Error(err)
+							return
+						}
+						value, readErr := io.ReadAll(io.LimitReader(part, (1<<20)+1))
+						closeErr := part.Close()
+						if readErr != nil || closeErr != nil || len(value) > 1<<20 || part.FileName() != "" || part.FormName() == "" || r.PostForm.Has(part.FormName()) {
+							t.Error("counter query fixture rejected malformed or oversized multipart fields", readErr, closeErr)
+							return
+						}
+						r.PostForm.Set(part.FormName(), string(value))
+					}
 					query = r.PostForm.Get("query")
 				}
 				user, _, _ := r.BasicAuth()

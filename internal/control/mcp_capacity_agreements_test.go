@@ -27,7 +27,7 @@ func TestCapacityAgreementNativeMetadataKeepsServerIdentityAndFullPriceTextRedac
 	if err != nil {
 		t.Fatal(err)
 	}
-	gate := ai.NewEgressGate(nil, nil, ai.RedactionPolicy{})
+	gate := ai.NewEgressGate(nil, nil, ai.DefaultRedaction)
 	redacted := gate.RedactForTenant(string(raw), "red")
 	var decoded flow.CapacityAgreement
 	if err := json.Unmarshal([]byte(redacted), &decoded); err != nil || decoded.ID != id || decoded.Version != card || decoded.CurrentVersion != card {
@@ -35,6 +35,14 @@ func TestCapacityAgreementNativeMetadataKeepsServerIdentityAndFullPriceTextRedac
 	}
 	if decoded.Definition.Name == item.Definition.Name || decoded.Definition.Reference == card || decoded.Definition.UnitPrice == card {
 		t.Fatal("operator financial text or prices bypassed standing PII redaction")
+	}
+	// An explicit operator policy may leave email identities clear, but PANs
+	// remain an always-on floor even with all optional masking disabled.
+	floor := ai.NewEgressGate(nil, nil, ai.RedactionPolicy{}).RedactForTenant(string(raw), "red")
+	var floorItem flow.CapacityAgreement
+	if err := json.Unmarshal([]byte(floor), &floorItem); err != nil || floorItem.Definition.Reference == card || floorItem.Definition.UnitPrice == card ||
+		floorItem.ID != id || floorItem.Version != card || floorItem.CurrentVersion != card {
+		t.Fatal("operator masking knobs bypassed the financial PAN floor or changed server metadata", err)
 	}
 	page, err := marshalCapacityAgreementPage(flow.CapacityAgreementPage{Items: []flow.CapacityAgreement{item}, Next: card, HasMore: true}, true)
 	if err != nil {
