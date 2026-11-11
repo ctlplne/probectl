@@ -60,6 +60,9 @@ func capacityCounterInterval(ctx context.Context, before, after capacityCounterP
 	memoryBytes, workUnits = memoryBytes-4096, workUnits-4096
 	for _, point := range []capacityCounterPoint{before, after} {
 		for _, value := range []string{point.tenant, point.context, point.router, point.iface, point.source, point.incarnation, point.continuity} {
+			if err := ctx.Err(); err != nil {
+				return none, err
+			}
 			size := int64(len(value))
 			if size > memoryBytes/16 || size > workUnits/16 || strings.TrimSpace(value) != value {
 				return none, errCapacityCounterInput
@@ -76,6 +79,9 @@ func capacityCounterInterval(ctx context.Context, before, after capacityCounterP
 	}
 	out := capacityCounterRate{from: before.at, to: after.at}
 	unknown := func(reason string) (capacityCounterRate, error) {
+		if err := ctx.Err(); err != nil {
+			return none, err
+		}
 		out.reason = reason
 		return out, nil
 	}
