@@ -137,6 +137,7 @@ func TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95(t *testing.T) {
 		}
 	}
 	provePeeringRouterStdio(t, st, registrations, ids, links, input)
+	renderPeeringRouterEstimates(t, st, registrations, ids, links, input)
 	// An operator withdraws A's exact live routing delegation; neither the
 	// existing socket nor captured history can authorize the former result.
 	putFRRSelectedRIBBinding(t, st, first, listeners[0], lab.ip["rtr-a"], bindings[0].Manifest.Epoch, false)
