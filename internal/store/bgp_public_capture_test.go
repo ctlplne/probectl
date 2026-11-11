@@ -147,6 +147,28 @@ func TestPublicCaptureKeepsDistinctSnapshotAndViewGenerationWithoutLegacyRewrite
 	if err != nil || !reflect.DeepEqual(got, input) {
 		t.Fatal("public capture changed original snapshot/view identities or clocks", err)
 	}
+	var facts routingCaptureFacts
+	var clocks routingCaptureClocks
+	if err := json.Unmarshal([]byte(objects.facts.payload), &facts); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(objects.clocks.payload), &clocks); err != nil {
+		t.Fatal(err)
+	}
+	facts.Version, clocks.Version = 3, 3
+	downgraded := objects
+	downgraded.facts, err = marshalRoutingCaptureObject(facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clocks.FactsDigest = downgraded.facts.digest
+	downgraded.clocks, err = marshalRoutingCaptureObject(clocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := decodeRoutingCapture(ctx, downgraded, publicCaptureBudget()); err == nil || got.Owner != (InterfaceRoleFlowBinding{}) {
+		t.Fatal("public capture downgraded explicit snapshot associations to a legacy format")
+	}
 	// Keep both copies consistent: refusal must come from the source binding,
 	// rather than only the selected-path equality check.
 	for _, invalid := range []string{"", "not-a-generation", "00000000-0000-0000-0000-000000000000"} {
