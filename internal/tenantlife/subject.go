@@ -218,7 +218,13 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		plane: "postgres:alert_ops", disposition: subjectTableDeleteMatches,
 		exact: []string{"acked_by"},
 	},
-	"alert_rules":  {plane: "postgres:alert_rules", disposition: subjectTableNoSubject},
+	// Metadata and saved-query rules retain a configuring user reference and
+	// user-entered selection values. Decode these documents for subject erasure;
+	// opaque group keys and structural rule IDs are not subject selectors.
+	"alert_rules": {
+		plane: "postgres:alert_rules", disposition: subjectTableDeleteMatches,
+		contains: []string{"tag_filter", "query_source"},
+	},
 	"audit_events": {plane: "audit", disposition: subjectTableProjectMatches},
 	"audit_subject_erasures": {
 		plane:       "audit:subject_erasure_projection",

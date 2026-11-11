@@ -79,19 +79,26 @@ type QueryGroupDecision struct {
 }
 
 func (c QueryCondition) Validate(metrics []flow.QueryMetric) error {
-	if c.Mode == "new_group" {
-		if c.Metric != "" || c.Comparison != "" || c.Threshold != "" {
-			return ErrQueryGroups
-		}
-		return nil
+	if err := c.validateShape(); err != nil {
+		return err
 	}
-	if c.Mode != "threshold" || !validComparisons[c.Comparison] || !queryDecimal(c.Threshold) {
-		return ErrQueryGroups
+	if c.Mode == "new_group" {
+		return nil
 	}
 	for _, metric := range metrics {
 		if c.Metric == metric.Measure+":"+metric.Calculation {
 			return nil
 		}
+	}
+	return ErrQueryGroups
+}
+
+func (c QueryCondition) validateShape() error {
+	if c.Mode == "new_group" && c.Metric == "" && c.Comparison == "" && c.Threshold == "" {
+		return nil
+	}
+	if c.Mode == "threshold" && c.Metric != "" && validComparisons[c.Comparison] && queryDecimal(c.Threshold) {
+		return nil
 	}
 	return ErrQueryGroups
 }
@@ -118,7 +125,8 @@ func queryDecimal(text string) bool {
 	return digits > 0 && (dot == -1 || (dot > start && dot < len(text)-1))
 }
 
-func queryBindingKey(binding QueryGroupBinding) (string, error) {
+// StateKey identifies this exact tenant, rule, saved revision and condition.
+func (binding QueryGroupBinding) StateKey() (string, error) {
 	for _, id := range []string{binding.TenantID, binding.RuleID, binding.ViewID} {
 		value, err := gouuid.Parse(id)
 		if err != nil || value == gouuid.Nil || value.String() != id {
@@ -166,7 +174,7 @@ func (b *QueryGroupBudget) decimalWork(size int64) error {
 	return nil
 }
 
-func queryPreviousKeys(ctx context.Context, binding string, previous QueryGroupState, at time.Time, budget *QueryGroupBudget) (map[string]bool, map[string]bool, error) {
+func queryPreviousKeys(ctx context.Context, binding string, previous QueryGroupState, budget *QueryGroupBudget) (map[string]bool, map[string]bool, error) {
 	keys, novel := map[string]bool{}, map[string]bool{}
 	if !previous.Initialized {
 		if previous.Binding != "" || !previous.At.IsZero() || len(previous.Keys) != 0 || len(previous.Novel) != 0 {
@@ -174,7 +182,7 @@ func queryPreviousKeys(ctx context.Context, binding string, previous QueryGroupS
 		}
 		return keys, novel, nil
 	}
-	if previous.Binding != binding || previous.At.IsZero() || !at.After(previous.At) {
+	if previous.Binding != binding || previous.At.IsZero() {
 		return nil, nil, ErrQueryGroups
 	}
 	for _, key := range previous.Keys {
@@ -197,6 +205,24 @@ func queryPreviousKeys(ctx context.Context, binding string, previous QueryGroupS
 		novel[key] = true
 	}
 	return keys, novel, nil
+}
+
+// Validate checks a stored state against its tenant/rule/revision domain.
+// Storage still supplies the FORCE-RLS boundary and optimistic writer version.
+func (state QueryGroupState) Validate(ctx context.Context, binding QueryGroupBinding, budget QueryGroupBudget) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	tenant, ok := tenancy.FromContext(ctx)
+	if !ok || tenant.String() != binding.TenantID {
+		return tenancy.ErrNoTenant
+	}
+	key, err := binding.StateKey()
+	if err != nil {
+		return err
+	}
+	_, _, err = queryPreviousKeys(ctx, key, state, &budget)
+	return err
 }
 
 func queryGroupKey(binding string, group QueryGroup, budget *QueryGroupBudget) (string, map[string]string, error) {
@@ -268,11 +294,14 @@ func EvaluateQueryGroups(ctx context.Context, binding QueryGroupBinding, snapsho
 	if err := budget.charge(4096 + int64(len(binding.Condition.Threshold))*8); err != nil {
 		return nil, QueryGroupState{}, err
 	}
-	key, err := queryBindingKey(binding)
+	key, err := binding.StateKey()
 	if err != nil {
 		return nil, QueryGroupState{}, err
 	}
-	old, novel, err := queryPreviousKeys(ctx, key, previous, snapshot.At, &budget)
+	if previous.Initialized && !snapshot.At.After(previous.At) {
+		return nil, QueryGroupState{}, ErrQueryGroups
+	}
+	old, novel, err := queryPreviousKeys(ctx, key, previous, &budget)
 	if err != nil {
 		return nil, QueryGroupState{}, err
 	}
@@ -289,11 +318,11 @@ func EvaluateQueryGroups(ctx context.Context, binding QueryGroupBinding, snapsho
 }
 
 func queryGroupThreshold(condition QueryCondition) (*big.Rat, error) {
-	if condition.Mode == "new_group" && condition.Metric == "" && condition.Comparison == "" && condition.Threshold == "" {
-		return nil, nil
+	if err := condition.validateShape(); err != nil {
+		return nil, err
 	}
-	if condition.Mode != "threshold" || condition.Metric == "" || !validComparisons[condition.Comparison] || !queryDecimal(condition.Threshold) {
-		return nil, ErrQueryGroups
+	if condition.Mode == "new_group" {
+		return nil, nil
 	}
 	value, ok := new(big.Rat).SetString(condition.Threshold)
 	if !ok {

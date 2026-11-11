@@ -161,7 +161,7 @@ func TestSavedQueryAlertIncompleteOrRefusedReadNeverProducesPartialTransitions(t
 		t.Fatal(err)
 	}
 	snapshot.At = snapshot.At.Add(time.Minute)
-	for _, scenario := range []string{"partial", "stale", "revision", "duplicate", "invalid decimal", "memory", "work", "cancelled"} {
+	for _, scenario := range []string{"partial", "stale", "revision", "duplicate", "invalid decimal", "memory", "work", "canceled"} {
 		t.Run(scenario, func(t *testing.T) {
 			current, currentBudget := snapshot, budget
 			ctx, cancel := context.WithCancel(tenancy.WithTenant(t.Context(), tenancy.ID(binding.TenantID)))
@@ -181,14 +181,14 @@ func TestSavedQueryAlertIncompleteOrRefusedReadNeverProducesPartialTransitions(t
 				currentBudget.MemoryBytes = 4096
 			case "work":
 				currentBudget.WorkUnits = 4800
-			case "cancelled":
+			case "canceled":
 				cancel()
 			}
 			decisions, next, err := EvaluateQueryGroups(ctx, binding, current, state, currentBudget)
 			if err == nil || decisions != nil || !reflect.DeepEqual(next, QueryGroupState{}) {
 				t.Fatal("incomplete/refused read changed state or returned a partial result", decisions, next, err)
 			}
-			if scenario == "cancelled" && !errors.Is(err, context.Canceled) {
+			if scenario == "canceled" && !errors.Is(err, context.Canceled) {
 				t.Fatal("cancellation was lost", err)
 			}
 		})

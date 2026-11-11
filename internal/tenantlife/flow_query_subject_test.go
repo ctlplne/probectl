@@ -16,7 +16,7 @@ import (
 )
 
 func TestFlowQuerySubjectDecodedDocumentsAndNearMatches(t *testing.T) {
-	for _, table := range []string{"flow_query_filters", "flow_query_views", "bgp_flow_capture_objects"} {
+	for _, table := range []string{"flow_query_filters", "flow_query_views", "bgp_flow_capture_objects", "alert_rules"} {
 		for _, test := range []struct {
 			subject, document string
 			want              bool
@@ -28,6 +28,7 @@ func TestFlowQuerySubjectDecodedDocumentsAndNearMatches(t *testing.T) {
 			{"bob@example.test", `[{"b\u006fb@example.test":"nested key"}]`, true},
 			{"bob@example.test", `["evilbob@example.test"]`, false},
 			{"alice\"@example.test", `[{"nested":"alice\"@example.test"}]`, true},
+			{"11111111-1111-4111-8111-111111111111", `[{"owner_user_id":"11111111-1111-4111-8111-111111111111"}]`, true},
 		} {
 			scan, err := newFlowQuerySubjectScan(table, newSubjectAliasSet(test.subject))
 			if err != nil {

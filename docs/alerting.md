@@ -421,6 +421,12 @@ and configured operation, memory, response and fairness budgets can refuse a
 whole operation. Ordinary alert get/list replies expose `has_tag_filter` only;
 full criteria are read separately so large values do not expand bulk rule reads.
 
+Criteria and their configuring user reference participate in subject export
+and verified erasure. Matching configuration is removed with its rule inside
+the tenant's audited erasure transaction; unrelated and other-tenant rules
+remain. Structural rule IDs and opaque saved-query group keys are not subject
+selectors.
+
 The authenticated active user needs current alert write and tag/test/metric read
 grants to configure this selection. The evaluator reloads that user's current
 roles, attributes and policy; disabling the user or revoking source read access
