@@ -33,6 +33,92 @@ type counterCaptureFixture struct {
 	digest                               [32]byte
 }
 
+func TestDeviceCounterWitnessPreservesPollAcrossCacheOnlyInvalidation(t *testing.T) {
+	fixtures := deviceCounterFixtures(t)
+	f := fixtures[0]
+	// Model the existing cache-only begin/end transitions, without erasing
+	// a source, counter payload or directory identity. Original poll clocks
+	// must not be moved forward to make an unrelated cache rebuild pass.
+	inTenant(t.Context(), t, f.pool, f.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := sourceepoch.PrepareInScope(ctx, sc); err != nil {
+			return err
+		}
+		if err := tenancy.LockTenantAuditStream(ctx, sc.Q, f.tenant); err != nil {
+			return err
+		}
+		_, err := sc.Q.Exec(ctx, `UPDATE flow_snapshot_epochs SET generation=generation+1,invalidating=true,transition_token=$2 WHERE tenant_id=$1`, f.tenant, uuid.NewString())
+		return err
+	})
+	inTenant(t.Context(), t, f.pool, f.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE flow_snapshot_epochs SET generation=generation+1,invalidating=false,transition_token=NULL WHERE tenant_id=$1`, f.tenant)
+		return err
+	})
+	for _, lane := range fixtures {
+		ref, err := lane.service.CaptureAuthenticated(lane.ctx(t.Context()), lane.sender, lane.serial, lane.digest, lane.input, 1<<20)
+		if err != nil {
+			t.Fatal("cache-only invalidation discarded an original authorized counter poll", err)
+		}
+		got, err := lane.service.LookupWitness(lane.ctx(t.Context()), lane.sender, lane.digest, lane.input)
+		if err != nil || got.Scope.TenantID != lane.tenant || !got.CapturedAt.Equal(ref.CapturedAt) {
+			t.Fatal("counter cache invalidation changed the original witness or tenant", err)
+		}
+	}
+}
+
+func TestDeviceCounterErasureFenceKeepsLegacyWritersAndWholeTransition(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprint("legacy=", legacy), func(t *testing.T) {
+			f := deviceCounterFixtures(t)[0]
+			inTenant(t.Context(), t, f.pool, f.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+				if err := sourceepoch.PrepareInScope(ctx, sc); err != nil {
+					return err
+				}
+				if err := tenancy.LockTenantAuditStream(ctx, sc.Q, f.tenant); err != nil {
+					return err
+				}
+				if legacy {
+					// Exact old application statement: new migrations must not
+					// relax erasure during a rolling binary upgrade.
+					_, err := sc.Q.Exec(ctx, `INSERT INTO flow_snapshot_epochs(tenant_id,generation,invalidating,transition_token)
+ VALUES($1::uuid,1,true,$2::uuid) ON CONFLICT(tenant_id) DO UPDATE
+ SET generation=flow_snapshot_epochs.generation+1,invalidating=true,transition_token=EXCLUDED.transition_token`, f.tenant, uuid.NewString())
+					return err
+				}
+				return sourceepoch.InvalidateSourceGenerationInScope(ctx, sc)
+			})
+			during := f.input
+			inTenant(t.Context(), t, f.pool, f.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+				if err := sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&during.PollStartedAt); err != nil {
+					return err
+				}
+				_, err := sc.Q.Exec(ctx, `UPDATE flow_snapshot_epochs SET observation_erasing=false WHERE tenant_id=$1`, f.tenant)
+				if err != nil {
+					return err
+				}
+				var erasing bool
+				if err := sc.Q.QueryRow(ctx, `SELECT observation_erasing FROM flow_snapshot_epochs WHERE tenant_id=$1`, f.tenant).Scan(&erasing); err != nil {
+					return err
+				}
+				if !erasing {
+					t.Fatal("in-progress erasure marker was cleared before completion")
+				}
+				return nil
+			})
+			during.PollCompletedAt = during.PollStartedAt
+			if _, err := f.service.CaptureAuthenticated(f.ctx(t.Context()), f.sender, f.serial, f.digest, during, 1<<20); err == nil {
+				t.Fatal("in-progress erasure accepted a counter poll")
+			}
+			inTenant(t.Context(), t, f.pool, f.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+				_, err := sc.Q.Exec(ctx, `UPDATE flow_snapshot_epochs SET generation=generation+1,invalidating=false,transition_token=NULL WHERE tenant_id=$1`, f.tenant)
+				return err
+			})
+			if _, err := f.service.CaptureAuthenticated(f.ctx(t.Context()), f.sender, f.serial, f.digest, during, 1<<20); !errors.Is(err, ErrCounterCaptureUnavailable) {
+				t.Fatal("late first receipt from inside erasure escaped the completed cutoff", err)
+			}
+		})
+	}
+}
+
 func deviceCounterFixtures(t *testing.T) [2]counterCaptureFixture {
 	t.Helper()
 	pool := setup(t.Context(), t)

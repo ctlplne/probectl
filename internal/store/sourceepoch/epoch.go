@@ -111,8 +111,8 @@ func InvalidateSourceGenerationInScope(ctx context.Context, sc tenancy.Scope) er
 	if err != nil {
 		return err
 	}
-	_, err = sc.Q.Exec(ctx, `INSERT INTO flow_snapshot_epochs(tenant_id,generation,invalidating,transition_token)
- VALUES($1::uuid,1,true,$2::uuid) ON CONFLICT(tenant_id) DO UPDATE
- SET generation=flow_snapshot_epochs.generation+1,invalidating=true,transition_token=EXCLUDED.transition_token`, sc.Tenant.String(), token)
+	_, err = sc.Q.Exec(ctx, `INSERT INTO flow_snapshot_epochs(tenant_id,generation,invalidating,transition_token,observation_erasing)
+ VALUES($1::uuid,1,true,$2::uuid,true) ON CONFLICT(tenant_id) DO UPDATE
+ SET generation=flow_snapshot_epochs.generation+1,invalidating=true,transition_token=EXCLUDED.transition_token,observation_erasing=true`, sc.Tenant.String(), token)
 	return err
 }

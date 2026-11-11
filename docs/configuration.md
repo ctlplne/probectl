@@ -2094,6 +2094,9 @@ raise it for the intended polling workload. Erasure removes source payloads,
 retains hash-only replay tombstones and fences older polls. Certificate expiry
 alone does not rewrite accepted history; current sender/source authority is
 checked separately, and revocation still closes the witness.
+Only actual data-erasure transitions advance the poll replay cutoff, through
+completion; an unrelated report-cache generation change preserves original
+poll timestamps. An in-progress erasure cannot clear its marker early.
 The device-agent YAML keys `counter_memory_bytes` and `counter_work_units`
 bound whole-poll wire validation (each defaults to 2 GiB; zero uses the default).
 Raise these positive resources when the intended complete poll needs more;

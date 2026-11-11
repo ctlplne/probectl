@@ -42,7 +42,12 @@ END $fx6_counter_fk$`, quoteLiteral(child), quoteLiteral(key.name), child, quote
 	if owned["flow_snapshot_epochs"] {
 		child := q + `."flow_snapshot_epochs"`
 		plan = append(plan,
-			"UPDATE "+child+" SET observation_not_before=clock_timestamp() WHERE observation_not_before='-infinity' AND (generation>1 OR invalidating)",
+			"ALTER TABLE "+child+" ADD COLUMN IF NOT EXISTS observation_erasing boolean NOT NULL DEFAULT false",
+			fmt.Sprintf(`DO $counter_erasure_shape$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname='counter_observation_erasure_shape') THEN
+ ALTER TABLE %s ADD CONSTRAINT counter_observation_erasure_shape CHECK (NOT observation_erasing OR invalidating);
+END IF;
+END; $counter_erasure_shape$`, quoteLiteral(child), child),
 			"DROP TRIGGER IF EXISTS source_observation_fence ON "+child,
 			"CREATE TRIGGER source_observation_fence BEFORE INSERT OR UPDATE ON "+child+" FOR EACH ROW EXECUTE FUNCTION public.probectl_source_observation_fence()",
 			"ALTER TABLE "+child+" ENABLE ALWAYS TRIGGER source_observation_fence",

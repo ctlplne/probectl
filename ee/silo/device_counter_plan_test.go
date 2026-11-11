@@ -23,6 +23,8 @@ func TestDeviceCounterStoragePlanKeepsTenantReferencesAndErasureFence(t *testing
 			`REFERENCES "` + schema + `"."entity_source_contexts" (tenant_id,context_id,agent_id,source_kind,source_ref)`,
 			`CREATE TRIGGER source_observation_fence BEFORE INSERT OR UPDATE ON "` + schema + `"."flow_snapshot_epochs"`,
 			`ENABLE ALWAYS TRIGGER source_observation_fence`,
+			`ADD COLUMN IF NOT EXISTS observation_erasing boolean NOT NULL DEFAULT false`,
+			`CHECK (NOT observation_erasing OR invalidating)`,
 			`GRANT SELECT, INSERT, DELETE ON "` + schema + `"."device_counter_capture_sources" TO probectl_app`,
 		} {
 			if !strings.Contains(plan, want) {
@@ -31,6 +33,9 @@ func TestDeviceCounterStoragePlanKeepsTenantReferencesAndErasureFence(t *testing
 		}
 		if strings.Contains(plan, "REFERENCES public.entities") || strings.Contains(plan, "REFERENCES public.device_counter_captures") {
 			t.Fatal("silo witness references another tenant storage domain")
+		}
+		if strings.Contains(plan, "WHERE observation_not_before='-infinity' AND (generation>1 OR invalidating)") {
+			t.Fatal("catch-up turns cache-only generations into counter erasures")
 		}
 	}
 }
