@@ -119,18 +119,31 @@ func writeRouterEvidenceFiles(t *testing.T, st *shipped.Stack, name, cert string
 // registerEdgeFlowEvidence uses the shipped public surfaces for BOTH the raw
 // flow collector and its additional restricted evidence SVID. It assigns the
 // exact exporter to a site/VRF without a premature canonical device anchor.
-func registerEdgeFlowEvidence(t *testing.T, st *shipped.Stack, exporterIP string) edgeFlowRegistration {
+func registerEdgeFlowEvidence(t *testing.T, st *shipped.Stack, exporterIP string, existing ...edgeFlowRegistration) edgeFlowRegistration {
 	t.Helper()
-	op := st.OnboardOperator(t, "root@msp-fx2-router.example")
 	var tenant struct{ ID string }
-	st.MustCLI(t, map[string]string{"PROBECTL_API_TOKEN": op}, &tenant,
-		"provider", "create-tenant", "--body",
-		fmt.Sprintf(`{"slug":%q,"name":"FX-2 Router","isolation_model":"pooled"}`,
-			"fx2-router-"+fmt.Sprint(time.Now().UnixNano())))
-	if tenant.ID == "" {
-		t.Fatal("shipped FX-2 router tenant has no ID")
+	var op, cookie string
+	var target edgeFlowRegistration
+	switch len(existing) {
+	case 0:
+		op = st.OnboardOperator(t, "root@msp-fx2-router.example")
+		st.MustCLI(t, map[string]string{"PROBECTL_API_TOKEN": op}, &tenant,
+			"provider", "create-tenant", "--body",
+			fmt.Sprintf(`{"slug":%q,"name":"FX-2 Router","isolation_model":"pooled"}`,
+				"fx2-router-"+fmt.Sprint(time.Now().UnixNano())))
+		if tenant.ID == "" {
+			t.Fatal("shipped FX-2 router tenant has no ID")
+		}
+		cookie = st.SignIn(t, tenant.ID, "ada@acme.example", "FX-2 Router")
+	case 1:
+		target = existing[0]
+		if target.tenantID == "" || target.cookie == "" || target.contextID == "" || target.deviceID == "" || target.agentID != "" {
+			t.Fatal("existing router tenant requires its own context/device and a fresh flow registration")
+		}
+		tenant.ID, cookie, op = target.tenantID, target.cookie, target.operatorToken
+	default:
+		t.Fatal("one existing router tenant is required")
 	}
-	cookie := st.SignIn(t, tenant.ID, "ada@acme.example", "FX-2 Router")
 	mint := func(agentID string) string {
 		t.Helper()
 		body := map[string]any{"name": "fx2-edge-flow", "ttl_seconds": 600}
@@ -185,30 +198,33 @@ func registerEdgeFlowEvidence(t *testing.T, st *shipped.Stack, exporterIP string
 		evidence.SVID.SPIFFEID != crypto.EntitySPIFFEID(tenant.ID, raw.AgentID) {
 		t.Fatal("pinned evidence registration did not preserve the raw flow tenant/agent")
 	}
-	certFile, keyFile, caFile := writeRouterEvidenceFiles(t, st, "fx2-edge-flow-evidence", evidence.SVID.CertPEM, key)
-	code, payload := st.Do(t, cookie, http.MethodPost, "/v1/entity-contexts",
-		map[string]string{"site_label": "FX-2 West DC", "vrf_label": "Customer A"})
-	if code != http.StatusCreated {
-		t.Fatalf("create FX-2 routing context: HTTP %d: %.300s", code, payload)
-	}
+	certFile, keyFile, caFile := writeRouterEvidenceFiles(t, st, "fx2-edge-flow-evidence-"+raw.AgentID, evidence.SVID.CertPEM, key)
 	var routing struct {
 		ContextID string `json:"context_id"`
-	}
-	if err := json.Unmarshal(payload, &routing); err != nil || routing.ContextID == "" {
-		t.Fatalf("decode FX-2 routing context: %v", err)
-	}
-	code, payload = st.Do(t, cookie, http.MethodPost, "/v1/entities",
-		map[string]string{"context_id": routing.ContextID, "kind": "device", "label": "fx2-edge-r1"})
-	if code != http.StatusCreated {
-		t.Fatalf("create FX-2 canonical edge device: HTTP %d: %.300s", code, payload)
 	}
 	var device struct {
 		ID string `json:"id"`
 	}
-	if err := json.Unmarshal(payload, &device); err != nil || device.ID == "" {
-		t.Fatalf("decode FX-2 edge device: %v", err)
+	routing.ContextID, device.ID = target.contextID, target.deviceID
+	if len(existing) == 0 {
+		code, payload := st.Do(t, cookie, http.MethodPost, "/v1/entity-contexts",
+			map[string]string{"site_label": "FX-2 West DC", "vrf_label": "Customer A"})
+		if code != http.StatusCreated {
+			t.Fatalf("create FX-2 routing context: HTTP %d: %.300s", code, payload)
+		}
+		if err := json.Unmarshal(payload, &routing); err != nil || routing.ContextID == "" {
+			t.Fatalf("decode FX-2 routing context: %v", err)
+		}
+		code, payload = st.Do(t, cookie, http.MethodPost, "/v1/entities",
+			map[string]string{"context_id": routing.ContextID, "kind": "device", "label": "fx2-edge-r1"})
+		if code != http.StatusCreated {
+			t.Fatalf("create FX-2 canonical edge device: HTTP %d: %.300s", code, payload)
+		}
+		if err := json.Unmarshal(payload, &device); err != nil || device.ID == "" {
+			t.Fatalf("decode FX-2 edge device: %v", err)
+		}
 	}
-	code, payload = st.Do(t, cookie, http.MethodPut, "/v1/entity-source-contexts",
+	code, payload := st.Do(t, cookie, http.MethodPut, "/v1/entity-source-contexts",
 		map[string]string{"agent_id": raw.AgentID, "source_kind": "flow_exporter",
 			"source_ref": exporterIP, "context_id": routing.ContextID})
 	if code != http.StatusOK {

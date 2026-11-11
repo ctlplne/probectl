@@ -46,7 +46,7 @@ func TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95(t *testing.T) {
 		addRoleRouterLink(t, lab, "ix", "rrc", 232, rrcASN, entity.InterfaceRoleIX),
 		addRoleRouterLink(t, lab, "second-transit", "rtr-b", 233, rtrBASN, entity.InterfaceRoleTransit),
 	}
-	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "neighbor "+lab.ip["edge"]+" shutdown", "-c", "bmp targets probectl", "-c", "bmp monitor ipv4 unicast loc-rib", "-c", "bmp monitor ipv6 unicast loc-rib", "-c", "bmp stats interval 1000", "-c", "end")
+	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "neighbor "+lab.ip["edge"]+" shutdown", "-c", "bmp targets probectl", "-c", "bmp monitor ipv4 unicast loc-rib", "-c", "bmp monitor ipv6 unicast pre-policy", "-c", "bmp monitor ipv6 unicast post-policy", "-c", "bmp monitor ipv6 unicast loc-rib", "-c", "bmp stats interval 1000", "-c", "end")
 	// The new direct transit has no inherited single-prefix export filter.
 	// Retain all three announcements, including those outside this traffic
 	// selection. Unlike the original one-peer lab this router also has real
@@ -82,6 +82,7 @@ func TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95(t *testing.T) {
 	st := shipped.Start(t, shipped.Options{Name: "peeringhand", TenantBand: 4, Env: files})
 	first := registerEdgeFlowEvidence(t, st, lab.ip["rtr-a"])
 	second := registerSecondRouterTenant(t, st, first)
+	second = registerEdgeFlowEvidence(t, st, lab.ip["rtr-a"], second)
 	registrations := []edgeFlowRegistration{first, second}
 	ids := make([]map[uint32]string, 2)
 	listeners := make([]*bgpTenant, 2)

@@ -55,7 +55,7 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows bool) {
 	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(edgeASN), "-c", "no neighbor "+link.routerIP, "-c", "end")
 	const external6 = "2001:db8:5000::/48"
 	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "route-map FX5-V6-ORIGIN permit 10", "-c", "set as-path prepend "+strconv.Itoa(originA), "-c", "exit", "-c", "router bgp "+strconv.Itoa(edgeASN), "-c", "address-family ipv6 unicast", "-c", "network "+external6+" route-map FX5-V6-ORIGIN", "-c", "end")
-	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "address-family ipv6 unicast", "-c", "no network "+link.prefix6, "-c", "exit-address-family", "-c", "bmp targets probectl", "-c", "bmp monitor ipv4 unicast loc-rib", "-c", "bmp monitor ipv6 unicast loc-rib", "-c", "bmp stats interval 1000", "-c", "end")
+	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "address-family ipv6 unicast", "-c", "no network "+link.prefix6, "-c", "exit-address-family", "-c", "bmp targets probectl", "-c", "bmp monitor ipv4 unicast loc-rib", "-c", "bmp monitor ipv6 unicast pre-policy", "-c", "bmp monitor ipv6 unicast post-policy", "-c", "bmp monitor ipv6 unicast loc-rib", "-c", "bmp stats interval 1000", "-c", "end")
 	// Check the router again after all source configuration, independently of
 	// its BMP serializer. A serialized outbound path must never replace the
 	// selected path merely to satisfy a stored-state assertion.
