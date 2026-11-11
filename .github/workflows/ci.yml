@@ -2487,9 +2487,9 @@ jobs:
     name: verify-all (executed-verification umbrella)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Main keeps its unconditional fail-closed umbrella. A cancelled PR
-    # must release its concurrency group; noncancelled failures still run.
-    if: ${{ always() && (github.event_name != 'pull_request' || !cancelled()) }}
+    # Every uncancelled failure still reaches this fail-closed umbrella.
+    # Explicitly superseded development runs must also be able to stop.
+    if: ${{ always() && !cancelled() }}
     needs:
       - action-pins
       - secret-scan

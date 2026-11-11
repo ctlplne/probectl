@@ -77,6 +77,9 @@ func TestFullQualificationKeepsExactMainPinAndSecurityIndependence(t *testing.T)
 	if !present || !configured || value != "false" || !grouped || !strings.Contains(group, "github.run_id") {
 		t.Fatal("security analyses must never cancel or replace each other")
 	}
+	if !strings.Contains(ci, "    if: ${{ always() && !cancelled() }}") {
+		t.Fatal("the verification umbrella must fail closed after failed needs and release explicitly cancelled runs")
+	}
 }
 
 // concurrencyBlock returns the top-level concurrency mapping's text.
