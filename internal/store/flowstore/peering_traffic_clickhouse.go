@@ -97,7 +97,10 @@ func peeringTrafficSQL(query PeeringTrafficQuery, plan flow.QueryPlan, table str
 	// does not depend on an interface match, keeping unmapped traffic visible.
 	input := "(SELECT * FROM " + table + " FINAL WHERE tenant_id={tenant:String} AND ts>={from:DateTime64(9,'UTC')} AND ts<{to:DateTime64(9,'UTC')}) AS peer_input"
 	tuple := "peer_owner.peer_tenant=tenant_id AND toIPv6OrNull(peer_owner.peer_exporter)=toIPv6OrNull(if(position(exporter,'%')=0,exporter,'')) AND peer_owner.peer_protocol=protocol AND peer_owner.peer_domain=obs_domain"
-	from := input + " ANY INNER JOIN (SELECT DISTINCT peer_tenant,peer_exporter,peer_protocol,peer_domain FROM peering_interface_lookup) AS peer_owner ON " + tuple
+	// The right side is unique by owned exporter tuple. ALL keeps every
+	// matching observed flow; legacy INNER ANY semantics can collapse the
+	// left population to one row per owner, corrupting totals and coverage.
+	from := input + " ALL INNER JOIN (SELECT DISTINCT peer_tenant,peer_exporter,peer_protocol,peer_domain FROM peering_interface_lookup) AS peer_owner ON " + tuple
 	from += " ANY LEFT JOIN peering_interface_lookup AS peer_iface ON peer_iface.peer_tenant=tenant_id AND peer_iface.peer_exporter=peer_owner.peer_exporter AND peer_iface.peer_protocol=protocol AND peer_iface.peer_domain=obs_domain AND peer_iface.peer_index=" + index
 	from += " ANY LEFT JOIN peering_capture_lookup AS peer_capture ON peer_capture.peer_capture_tenant=tenant_id AND peer_capture.peer_key=routing_capture_key AND peer_capture.peer_clock=routing_captured_unix_nanos"
 	sql := "SELECT toString(intDiv(toUnixTimestamp64Nano(ts)-{from_ns:Int64},{width_ns:Int64})) AS bucket,ifNull(peer_iface.peer_interface,'') AS interface_id," +

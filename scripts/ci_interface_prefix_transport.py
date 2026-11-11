@@ -2675,17 +2675,22 @@ def peering_interval_combination_control():
 def peering_flow_clock_control():
     source = Path("internal/store/flowstore/peering_traffic_clickhouse.go").resolve()
     original = source.read_text()
-    seam = " AND peer_capture.peer_clock=routing_captured_unix_nanos"
-    assert original.count(seam) == 1
     out = Path("artifacts/interface-prefix-transport").resolve()
-    mutant = overlay_source_path(out, "peering_flow_original_clock_omitted.go")
-    mutant.write_text(original.replace(seam, ""))
-    overlay = out / "peering_flow_original_clock_omitted.json"
-    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
     root = "TestPeeringTrafficRealStoreKeepsWholeTenantStatesDirectionsAndOriginalClock"
-    result = execute("internal/store/flowstore", (root,), "peering_flow_original_clock_omitted", integration=True, overlay=overlay)
-    if not report_regression_failed_on_assertion(result.stdout, result.returncode, package=PREFIX + "internal/store/flowstore", root=root, child="", marker="actual peering join replaced an original capture clock"):
-        raise RuntimeError("peering flow clock omission did not fail its exact assertion")
+    for name, seam, replacement, marker in (
+        ("peering_flow_original_clock_omitted", " AND peer_capture.peer_clock=routing_captured_unix_nanos", "",
+         "actual peering join replaced an original capture clock"),
+        ("peering_flow_owner_population_collapsed", " ALL INNER JOIN (SELECT DISTINCT peer_tenant,peer_exporter,peer_protocol,peer_domain", " ANY INNER JOIN (SELECT DISTINCT peer_tenant,peer_exporter,peer_protocol,peer_domain",
+         "actual peering query lost complete owned tenant states, directions, counters or partial intervals"),
+    ):
+        assert original.count(seam) == 1
+        mutant = overlay_source_path(out, name + ".go")
+        mutant.write_text(original.replace(seam, replacement))
+        overlay = out / (name + ".json")
+        overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+        result = execute("internal/store/flowstore", (root,), name, integration=True, overlay=overlay)
+        if not report_regression_failed_on_assertion(result.stdout, result.returncode, package=PREFIX + "internal/store/flowstore", root=root, child="", marker=marker):
+            raise RuntimeError(name + " did not fail its exact assertion")
 
 
 def main(integration, flow_integration=False):
