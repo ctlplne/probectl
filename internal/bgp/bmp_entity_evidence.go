@@ -19,6 +19,7 @@ import (
 )
 
 type bmpPeerEvidence struct {
+	physicalPeerUp  []byte // owned whole physical metadata; decoded by the single evidence worker
 	routingSelector bmpRoutingSelector
 	routingLoss     *atomic.Bool // shared only by one admitted physical source
 	routingMessage  *agentv1.BmpRoutingMessage
@@ -119,6 +120,14 @@ func (l *BMPListener) evidenceLoop(ctx context.Context) {
 				l.cancelRoutingSession(handle)
 			}
 		case peer := <-l.evidenceQueue:
+			if peer.physicalPeerUp != nil {
+				decoded, err := l.physicalPeerUpEvidence(ctx, peer)
+				if err != nil {
+					l.log.Warn("bmp physical peer metadata refused; raw collection retained", "tenant_id", peer.tenantID)
+					continue
+				}
+				peer = decoded
+			}
 			if peer.routingPeerUp != nil || peer.routingMessage != nil || peer.routingEnd {
 				l.routingStreamEvidence(ctx, peer, routing)
 				continue

@@ -1250,6 +1250,17 @@ swaps only the evidence SVID and writes its issuing CA to `ca.pem`. A failed
 renewal leaves raw BMP events on their tenant lane; canonical evidence stops
 resolving when the old SVID expires.
 
+Complete global physical Peer Up frames supply independent IPv4/IPv6 neighbour
+address and ASN evidence even when the legacy route-event decoder cannot read
+the UPDATE encoding. Both OPENs and the complete metadata tail are validated;
+the received OPEN's ASN must agree with the peer header. The single evidence
+worker preserves the original receipt clock and router SVID, so queued frames
+cannot become newer authority. Loc-RIB and unbound non-global views never
+become physical-neighbour claims. This is an observed relationship, not proof
+of session health or forwarding. Whole Peer Up decoding uses 128 bytes of
+memory admission per wire byte under `PROBECTL_BMP_ROUTING_STATE_BYTES`;
+increase that existing budget for larger complete metadata.
+
 The same restricted evidence connection also carries complete BMP routing
 messages in preview. Source bytes never select a canonical tenant, router or
 context. Initial IPv4 and IPv6 views stay private until each family's explicit

@@ -45,12 +45,20 @@ func proveFRRSelectedGoldenFlowFields(t *testing.T, st *shipped.Stack, lab *rout
 	for _, address := range nextHops {
 		wanted[address] = true
 	}
+	var lastPeers []store.InterfaceRolePeerInput
+	var lastPeerError error
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("independent router neighbours: wanted=%v current=%+v error=%v", nextHops, lastPeers, lastPeerError)
+		}
+	})
 	shipped.Await(t, "current independently authenticated router neighbors before golden ingestion", time.Minute, func() bool {
 		seen := map[netip.Addr]bool{}
 		valid := true
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(own.tenantID))
 		err := tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
 			rows, err := peers.RouterPeersInScope(ctx, sc, entity.Scope{TenantID: own.tenantID, ContextID: own.contextID}, own.deviceID, entity.InterfaceRolePolicyBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20})
+			lastPeers = rows
 			if err != nil {
 				return err
 			}
@@ -65,6 +73,7 @@ func proveFRRSelectedGoldenFlowFields(t *testing.T, st *shipped.Stack, lab *rout
 			}
 			return nil
 		})
+		lastPeerError = err
 		return err == nil && valid && len(seen) == len(wanted)
 	})
 	exporter := lab.ip["rtr-a"]

@@ -130,6 +130,13 @@ func TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95(t *testing.T) {
 			selected := input
 			selected.Direction = direction
 			var last flow.PeeringEstimateResponse
+			t.Cleanup(func() {
+				if t.Failed() {
+					if raw, err := json.Marshal(last); err == nil {
+						t.Logf("last original combined hand estimate tenant=%d direction=%s: %s", lane, direction, raw)
+					}
+				}
+			})
 			shipped.Await(t, "original joined peering hand p95 on both tenant-owned transits", time.Minute, func() bool {
 				code, out := read(lane, selected)
 				last = out
