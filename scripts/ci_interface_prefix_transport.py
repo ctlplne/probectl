@@ -51,6 +51,9 @@ UNIT = {
         "TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness",
     ),
     "internal/store/flowstore": (
+        "TestPeeringQueryDataBindsCompleteReferencesTargetDirectionAndImmutableStates",
+        "TestPeeringQueryDataRefusesMixedUnprovenAndUnadmittedInputs",
+        "TestPeeringQueryDigestIncludesOriginalStatesAndTargetPeer",
         "TestPeeringRoleScopeKeepsWholeCurrentOwnershipBeforeRouterSelection",
         "TestRoutingASNFiltersBindUnknownSeparatelyFromZeroAndKeepExclusions",
         "TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys",
@@ -717,6 +720,27 @@ ROUTING_WRITE_CONTROLS = {
         "AND $4::text<>''",
         "TestPeeringCaptureReaderKeepsCurrentTargetTenantAndOriginalSourceAuthority", "",
         "peering reader selected captures from another canonical router",
+    ),
+    "peering-query-state-digest": (
+        "internal/store/flowstore/peering_query_data.go",
+        "refs = append(refs, reference{row.Key, row.Clock, states})",
+        "refs = append(refs, reference{row.Key, row.Clock, peeringQueryStates{}})",
+        "TestPeeringQueryDigestIncludesOriginalStatesAndTargetPeer", "",
+        "peering digest omitted an original state or target peer",
+    ),
+    "peering-query-key-clock": (
+        "internal/store/flowstore/peering_query_data.go",
+        "data.states[routingQueryKey{key, row.RoutingCapturedUnixNanos}]",
+        "data.states[routingQueryKey{key, data.routing.asOf.UnixNano()}]",
+        "TestPeeringQueryDataBindsCompleteReferencesTargetDirectionAndImmutableStates", "",
+        "peering lookup replaced an original capture clock",
+    ),
+    "peering-query-target-scope": (
+        "internal/store/flowstore/peering_query_data.go",
+        "row.Scope != target.Scope || row.Peering == nil",
+        "false || row.Peering == nil",
+        "TestPeeringQueryDataRefusesMixedUnprovenAndUnadmittedInputs", "",
+        "peering query accepted a mixed target or unproven late state",
     ),
     "peering-target-lan": (
         "internal/control/peering_target.go",
