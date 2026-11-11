@@ -29,6 +29,27 @@ export interface APICallContract {
 
 export const API_CALL_CONTRACTS = [
   {
+    file: 'api/peering.ts',
+    method: 'GET',
+    path: '`/entity-contexts?${query}`',
+    response: 'EntityContextPage',
+    generated: 'ListEntityContextsResponse',
+  },
+  {
+    file: 'api/peering.ts',
+    method: 'GET',
+    path: '`/entities?${query}`',
+    response: 'EntityPage',
+    generated: 'ListCanonicalEntitiesResponse',
+  },
+  {
+    file: 'api/peering.ts',
+    method: 'POST',
+    path: '/flows/peering-estimate',
+    response: 'PeeringEstimateResponse',
+    generated: 'EstimateFlowPeeringResponse',
+  },
+  {
     file: 'api/bgpRoutingBindings.ts',
     method: 'GET',
     path: '`/entity-contexts/${encodeURIComponent(context)}/bgp-routing-bindings?${query.toString()}`',
