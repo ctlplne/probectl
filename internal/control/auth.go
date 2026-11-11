@@ -33,45 +33,47 @@ import (
 // RBAC permission keys (mirror migrations 0003 + 0013). Routes declare the key a
 // caller must hold; the seeded admin/editor/viewer roles grant them.
 const (
-	permTestRead           = "test.read"
-	permTestWrite          = "test.write"
-	permTestAllowPrivate   = "test.allow_private"
-	permTestInsecureTLS    = "test.insecure_tls"
-	permTenantRead         = "tenant.read"
-	permAgentRead          = "agent.read"
-	permAgentWrite         = "agent.write"
-	permNMSImportRead      = "nms.import.read"
-	permNMSImportWrite     = "nms.import.write"
-	permTagsRead           = "tags.read"
-	permTagsWrite          = "tags.write"
-	permAlertRead          = "alert.read"
-	permAlertWrite         = "alert.write"
-	permIncidentRead       = "incident.read"
-	permIncidentWrite      = "incident.write"
-	permOrgRead            = "org.read"
-	permOrgWrite           = "org.write"
-	permChangeRead         = "change.read"
-	permFlowRead           = "flow.read"
-	permFlowFiltersWrite   = "flow.filters.write"
-	permFlowViewsWrite     = "flow.views.write"
-	permMetricsRead        = "metrics.read"
-	permMetricsWrite       = "metrics.write"
-	permCMDBRead           = "cmdb.read"
-	permThreatRead         = "threat.read"
-	permAuditRead          = "audit.read"
-	permIRInvestigate      = "ir.investigate"
-	permAIQuery            = "ai.query"
-	permDirectoryRead      = "directory.read"
-	permDirectoryWrite     = "directory.write"
-	permLifecycleExp       = "lifecycle.export"
-	permLifecycleErase     = "lifecycle.erase"
-	permSecurityKeys       = "security.keys"
-	permFairnessRead       = "fairness.read"
-	permGovernanceRead     = "governance.read"  // AUD-12: read the tenant's own governance policy
-	permGovernanceWrite    = "governance.write" // AUD-12: update the tenant's own governance policy (incl ai_remote_egress)
-	permDiagnosticsRead    = "diagnostics.read"
-	permRemediationPropose = "remediation.propose"
-	permRemediationApprove = "remediation.approve"
+	permTestRead            = "test.read"
+	permTestWrite           = "test.write"
+	permTestAllowPrivate    = "test.allow_private"
+	permTestInsecureTLS     = "test.insecure_tls"
+	permTenantRead          = "tenant.read"
+	permAgentRead           = "agent.read"
+	permAgentWrite          = "agent.write"
+	permNMSImportRead       = "nms.import.read"
+	permNMSImportWrite      = "nms.import.write"
+	permTagsRead            = "tags.read"
+	permTagsWrite           = "tags.write"
+	permAlertRead           = "alert.read"
+	permAlertWrite          = "alert.write"
+	permIncidentRead        = "incident.read"
+	permIncidentWrite       = "incident.write"
+	permOrgRead             = "org.read"
+	permOrgWrite            = "org.write"
+	permChangeRead          = "change.read"
+	permFlowRead            = "flow.read"
+	permFlowFiltersWrite    = "flow.filters.write"
+	permFlowViewsWrite      = "flow.views.write"
+	permFlowAgreementsRead  = "flow.agreements.read"
+	permFlowAgreementsWrite = "flow.agreements.write"
+	permMetricsRead         = "metrics.read"
+	permMetricsWrite        = "metrics.write"
+	permCMDBRead            = "cmdb.read"
+	permThreatRead          = "threat.read"
+	permAuditRead           = "audit.read"
+	permIRInvestigate       = "ir.investigate"
+	permAIQuery             = "ai.query"
+	permDirectoryRead       = "directory.read"
+	permDirectoryWrite      = "directory.write"
+	permLifecycleExp        = "lifecycle.export"
+	permLifecycleErase      = "lifecycle.erase"
+	permSecurityKeys        = "security.keys"
+	permFairnessRead        = "fairness.read"
+	permGovernanceRead      = "governance.read"  // AUD-12: read the tenant's own governance policy
+	permGovernanceWrite     = "governance.write" // AUD-12: update the tenant's own governance policy (incl ai_remote_egress)
+	permDiagnosticsRead     = "diagnostics.read"
+	permRemediationPropose  = "remediation.propose"
+	permRemediationApprove  = "remediation.approve"
 )
 
 // allPermissionKeys is the full catalog — granted to the dev-mode principal so
@@ -86,7 +88,7 @@ var allPermissionKeys = []string{
 	permIncidentRead, permIncidentWrite,
 	permOrgRead, permOrgWrite,
 	permChangeRead,
-	permFlowRead, permFlowFiltersWrite, permFlowViewsWrite,
+	permFlowRead, permFlowFiltersWrite, permFlowViewsWrite, permFlowAgreementsRead, permFlowAgreementsWrite,
 	permMetricsWrite, permCMDBRead, permThreatRead,
 	permDirectoryRead, permDirectoryWrite,
 	permLifecycleExp, permLifecycleErase,

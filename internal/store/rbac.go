@@ -457,10 +457,8 @@ func (Roles) EnsureSystemRoles(ctx context.Context, s tenancy.Scope) error {
 	// AUTHZ-07/09: the broad seeding must exclude operator-only / separation-of-
 	// duty keys. admin gets every permission EXCEPT the SoD keys (ir.investigate
 	// is held only by its dedicated ir-investigator role, per migration 0081);
-	// viewer/editor additionally exclude the operator/provider-infrastructure
-	// read keys (diagnostics.read, fairness.read), which would otherwise leak
-	// deployment-global config, the license record, and SIEM/secrets health to
-	// every tenant's read-only users on a shared MSP control plane.
+	// viewer/editor additionally exclude operator/provider-infrastructure and
+	// confidential financial reads, which require explicit delegation.
 	type seed struct {
 		q    string
 		excl []string
@@ -492,9 +490,10 @@ func (Roles) EnsureSystemRoles(ctx context.Context, s tenancy.Scope) error {
 // systemRoleExcludedKeys: permission keys the broad system-role seeding must not
 // grant. sodPermissionKeys are separation-of-duty keys held only by a dedicated
 // role (AUTHZ-09); operatorOnlyReadKeys are operator/provider-infrastructure
-// reads viewer/editor must not hold (AUTHZ-07).
+// reads viewer/editor must not hold (AUTHZ-07). Financial agreement reads also
+// require explicit delegation instead of the broad read-only system roles.
 var (
 	sodPermissionKeys        = []string{"ir.investigate"}
-	operatorOnlyReadKeys     = []string{"diagnostics.read", "fairness.read"}
+	operatorOnlyReadKeys     = []string{"diagnostics.read", "fairness.read", "flow.agreements.read"}
 	viewerEditorExcludedKeys = append(append([]string{}, sodPermissionKeys...), operatorOnlyReadKeys...)
 )

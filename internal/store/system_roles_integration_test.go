@@ -43,6 +43,7 @@ func TestEnsureSystemRolesSeedsAFreshTenantIdempotently(t *testing.T) {
 			t.Fatalf("ensure: %v", err)
 		}
 	}
+	var delegatedID string
 	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant.ID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 		roles, total, err := (Roles{}).ListPage(ctx, sc, 1, 50)
 		if err != nil {
@@ -75,6 +76,14 @@ func TestEnsureSystemRolesSeedsAFreshTenantIdempotently(t *testing.T) {
 			}
 			if hasPermission("tags.write") != (r.Slug == "admin") {
 				return fmt.Errorf("%s has unexpected tag write grant", r.Slug)
+			}
+			for _, permission := range []string{"flow.agreements.read", "flow.agreements.write"} {
+				if hasPermission(permission) != (r.Slug == "admin") {
+					return fmt.Errorf("%s has unexpected financial agreement grant %q", r.Slug, permission)
+				}
+			}
+			if !hasPermission("flow.read") {
+				return fmt.Errorf("%s lost ordinary telemetry read access", r.Slug)
 			}
 			switch r.Slug {
 			case "admin":
@@ -114,6 +123,18 @@ func TestEnsureSystemRolesSeedsAFreshTenantIdempotently(t *testing.T) {
 				return fmt.Errorf("%s must be a system role", r.Slug)
 			}
 		}
+		delegated, err := (Roles{}).Create(ctx, sc, "finance-reader", "Financial reader", "Explicit recorded-term delegation")
+		if err != nil {
+			return err
+		}
+		delegatedID = delegated.ID
+		if err := (Roles{}).AddPermission(ctx, sc, delegated.ID, "flow.agreements.read"); err != nil {
+			return err
+		}
+		grants, err := (Roles{}).Permissions(ctx, sc, delegated.ID)
+		if err != nil || len(grants) != 1 || grants[0] != "flow.agreements.read" {
+			return fmt.Errorf("explicit financial read delegation changed its exact scope: %v %w", grants, err)
+		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -122,8 +143,17 @@ func TestEnsureSystemRolesSeedsAFreshTenantIdempotently(t *testing.T) {
 		if _, err := (Roles{}).GetBySlug(ctx, sc, "admin"); err == nil {
 			return fmt.Errorf("seeding tenant A must not create roles in tenant B")
 		}
+		grants, err := (Roles{}).Permissions(ctx, sc, delegatedID)
+		if err != nil || len(grants) != 0 {
+			return fmt.Errorf("foreign financial role grants crossed storage isolation: %v %w", grants, err)
+		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(other.ID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return (Roles{}).AddPermission(ctx, sc, delegatedID, "flow.agreements.write")
+	}); err == nil {
+		t.Fatal("storage admitted a foreign financial role reference")
 	}
 }

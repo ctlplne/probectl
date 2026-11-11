@@ -316,3 +316,10 @@ Commercial cards retain their existing hidden-on-unlicensed (`404`) behavior.
 The remediation advisory-only banner requires a successful read explicitly
 reporting approvals disabled. Failed or incomplete reads leave configuration
 unknown and never enable approval actions.
+
+Recorded capacity agreement terms have separate `flow.agreements.read` and
+`flow.agreements.write` permissions. System administrators receive both by
+default; viewer/editor roles require explicit financial delegation. A custom
+role can receive read access without edit access. These grants cover recorded
+terms and revisions; counter telemetry still requires its own current source
+and tenant authorization.
