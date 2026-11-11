@@ -18,8 +18,8 @@ import (
 // last 30 ci runs on main: 26 canceled, 3 failed, ZERO successes, ever. A branch
 // that can never conclude can never be released.
 //
-// Workflow-level automatic cancellation stays PR-only. Explicit main
-// development coalescing must separately preserve every full qualification.
+// Main pushes share one non-cancelling running lane and a replaceable pending
+// slot. Protected full/manual runs keep independent groups even while pending.
 func TestMainRunsAreNeverCanceledInProgress(t *testing.T) {
 	ci := readWorkflow(t, "ci.yml")
 	block, ok := concurrencyBlock(ci)
@@ -27,36 +27,22 @@ func TestMainRunsAreNeverCanceledInProgress(t *testing.T) {
 		t.Fatal("ci.yml has no top-level concurrency block")
 	}
 	value, ok := scalarKey(block, "cancel-in-progress")
-	if !ok {
-		// No key at all means the default (false): main is safe.
-		return
+	if !ok || value != "false" {
+		t.Fatalf("full CI must explicitly preserve running work, not cancel-in-progress %q", value)
 	}
-	if value == "true" {
-		t.Fatal("ci.yml cancels in-progress runs on EVERY ref including main — a canceled run " +
-			"leaves no conclusion for release.yml's require-green-ci to read (DPR-235). Guard the " +
-			"expression on github.ref instead.")
+	queue, ok := scalarKey(block, "queue")
+	if !ok || queue != "single" {
+		t.Fatal("main needs one replaceable pending slot after its running full CI")
 	}
-	if value != "false" && value != "${{ github.event_name == 'pull_request' }}" {
-		t.Errorf("workflow-level cancellation must be PR-only, not %q", value)
-	}
-
-	// DPR-242: not canceling is only half of it. With one group per REF, a main
-	// run that never CONCLUDES blocks every later main run at `pending` — and
-	// ebpf-kernel-matrix (6.6-arm64) never concludes, because its runner does not
-	// exist (D-13). That happened: a push stayed pending until the previous run was
-	// canceled by hand, which trades an automatic cancellation for a manual one.
-	// Keying main on the commit means a stuck run is stuck alone.
+	// A per-SHA main group would bypass the shared running lane and start
+	// every intermediate push. Runner availability/timeout failures remain
+	// ordinary CI failures; later pushes must not destroy the current verdict.
 	group, ok := scalarKey(block, "group")
 	if !ok {
 		t.Fatal("ci.yml's concurrency block declares no group")
 	}
-	if !strings.Contains(group, "github.sha") {
-		t.Errorf("concurrency group %q must key main on github.sha, not on the ref alone: a main run "+
-			"that cannot conclude would otherwise hold every later run at pending (DPR-242)", group)
-	}
 	if !strings.Contains(group, "refs/heads/main") {
-		t.Errorf("concurrency group %q must name refs/heads/main, so branches keep one group per ref "+
-			"and keep the coalescing that cancel-in-progress exists for", group)
+		t.Errorf("concurrency group %q must distinguish the main push lane", group)
 	}
 	if !strings.Contains(group, "github.run_id") || !strings.Contains(group, "protected-") {
 		t.Fatal("full/manual runs need their own concurrency group even while pending")
