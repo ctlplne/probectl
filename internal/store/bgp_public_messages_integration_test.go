@@ -82,7 +82,7 @@ func TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions
 		var out BGPRoutingApplyResult
 		if err := run(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			var err error
-			out, err = (BGPRouting{}).ApplyPublicSnapshotMessageInScope(ctx, sc, input, profile, time.Hour)
+			out, err = (BGPRouting{}).applyPublicSnapshotMessage(ctx, sc, input, profile, time.Hour, nil)
 			return err
 		}); err != nil {
 			t.Fatal("public message transaction failed", err)
@@ -276,7 +276,7 @@ func TestPublicSnapshotMessagesPublishWholeTenantSourcesAndRefuseAtomicOmissions
 		var resetResult BGPRoutingApplyResult
 		if err := run(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			var err error
-			resetResult, err = (BGPRouting{}).ApplyPublicSnapshotMessageInScope(ctx, sc, reset, BGPRoutingBudget{}, 0)
+			resetResult, err = (BGPRouting{}).applyPublicSnapshotMessage(ctx, sc, reset, BGPRoutingBudget{}, 0, nil)
 			return err
 		}); err != nil || resetResult.Status != "invalidated" {
 			t.Fatal("MRT source reset required route-data admission", resetResult, err)

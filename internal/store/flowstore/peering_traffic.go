@@ -50,20 +50,6 @@ type PeeringTrafficStore interface {
 	PeeringTraffic(context.Context, PeeringTrafficQuery) (PeeringTrafficResult, error)
 }
 
-func PeeringTrafficStoreOf(store Store) (PeeringTrafficStore, bool) {
-	for {
-		switch current := store.(type) {
-		case *writeFencedStore:
-			store = current.next
-		case *subjectDeletingWriteFencedStore:
-			store = current.next
-		default:
-			result, ok := store.(PeeringTrafficStore)
-			return result, ok
-		}
-	}
-}
-
 func normalizePeeringTraffic(ctx context.Context, query PeeringTrafficQuery) (flow.QueryPlan, error) {
 	if query.Data == nil {
 		return flow.QueryPlan{}, ErrRoutingQueryScope

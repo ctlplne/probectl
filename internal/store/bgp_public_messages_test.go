@@ -79,7 +79,7 @@ func TestPublicSnapshotMessageRefusesLatePartialShapeBudgetAndForeignScope(t *te
 		t.Fatal("canceled public message retained work", err)
 	}
 	const tenant = "11111111-1111-4111-8111-111111111111"
-	if out, err := (BGPRouting{}).ApplyPublicSnapshotMessageInScope(t.Context(), tenancy.Scope{Tenant: tenancy.ID(tenant)}, input, profile, time.Hour); !errors.Is(err, entity.ErrScopeMismatch) || out.Status != "" {
+	if out, err := (BGPRouting{}).applyPublicSnapshotMessage(t.Context(), tenancy.Scope{Tenant: tenancy.ID(tenant)}, input, profile, time.Hour, nil); !errors.Is(err, entity.ErrScopeMismatch) || out.Status != "" {
 		t.Fatal("public message used storage before tenant scope", out, err)
 	}
 }

@@ -152,10 +152,6 @@ func (s RPKISnapshot) Validate(ctx context.Context, prefix netip.Prefix, origin 
 	return "invalid", out, nil
 }
 
-func (s RPKISnapshot) SameGeneration(other RPKISnapshot) bool {
-	return s.Version == other.Version && s.ObservedAt.Equal(other.ObservedAt) && s.ValidUntil.Equal(other.ValidUntil) && s.Enabled == other.Enabled && s.Current == other.Current && s.Records == other.Records && s.complete == other.complete
-}
-
 func canonicalRPKIIndex(snapshot *RPKISnapshot) {
 	for prefix, values := range snapshot.byPrefix {
 		slices.SortFunc(values, func(a, b RPKIVRP) int {

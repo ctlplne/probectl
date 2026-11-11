@@ -161,12 +161,12 @@ func TestRPKISnapshotRefusesDisabledAmbiguousAndExpiredSourcesBeyondIPCache(t *t
 	}
 	en.setEnabled(loaded.Descriptor().Name, false)
 	disabled := en.RPKI(now)
-	if disabled.Enabled || disabled.Current || current.SameGeneration(disabled) {
+	if disabled.Enabled || disabled.Current || sameRPKITestGeneration(current, disabled) {
 		t.Fatal("disabled RPKI source survived address cache", disabled)
 	}
 	en.setEnabled(loaded.Descriptor().Name, true)
 	stale := en.RPKI(now.Add(2 * time.Hour))
-	if stale.Current || current.SameGeneration(stale) {
+	if stale.Current || sameRPKITestGeneration(current, stale) {
 		t.Fatal("expired validator source survived snapshot identity", stale)
 	}
 	en.Register(loaded)
@@ -179,4 +179,10 @@ func TestRPKISnapshotRefusesDisabledAmbiguousAndExpiredSourcesBeyondIPCache(t *t
 			t.Fatal("unavailable or incomplete validator became authoritative", verdict, proof, err)
 		}
 	}
+}
+
+// Generation equality is a test oracle; shipping capture validation uses the
+// original source's UsableAt and complete retained proof, not this convenience.
+func sameRPKITestGeneration(s, other RPKISnapshot) bool {
+	return s.Version == other.Version && s.ObservedAt.Equal(other.ObservedAt) && s.ValidUntil.Equal(other.ValidUntil) && s.Enabled == other.Enabled && s.Current == other.Current && s.Records == other.Records && s.complete == other.complete
 }

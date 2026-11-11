@@ -26,17 +26,13 @@ type publicSnapshotWriteState struct {
 	until                                                               time.Time
 }
 
-// ApplyPublicSnapshotMessageInScope is one fenced read-committed transaction.
-// The receiver must verify complete source framing/EOF before Complete is set;
-// no public protocol peer-up or subscription grants that status. All errors
-// abort; invalidated is a committed refusal. Published snapshots are immutable
-// until replacement, including their original data age and complete peer set.
-func (store BGPRouting) ApplyPublicSnapshotMessageInScope(ctx context.Context, sc tenancy.Scope, input BGPPublicSnapshotMessage, profile BGPRoutingBudget, maxAge time.Duration) (BGPRoutingApplyResult, error) {
-	return store.applyPublicSnapshotMessage(ctx, sc, input, profile, maxAge, nil)
-}
-
 type publicSnapshotMessageDecoder func(context.Context, tenancy.Scope, BGPPublicRoutingSource, publicSnapshotWriteState) ([]BGPPublicSnapshotBatch, error)
 
+// The shipping MRT adapter supplies complete source framing/EOF validation;
+// peer-up or subscription alone never grants completeness. All errors abort;
+// invalidated is a committed refusal. Published snapshots retain original data
+// age and complete peer sets until replacement. Tests also exercise the same
+// transaction with prepared batches and no raw decoder.
 func (store BGPRouting) applyPublicSnapshotMessage(ctx context.Context, sc tenancy.Scope, input BGPPublicSnapshotMessage, profile BGPRoutingBudget, maxAge time.Duration, decode publicSnapshotMessageDecoder) (BGPRoutingApplyResult, error) {
 	none := BGPRoutingApplyResult{}
 	if err := routingConfigurationScope(ctx, sc); err != nil {
