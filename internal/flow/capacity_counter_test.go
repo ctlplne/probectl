@@ -106,6 +106,11 @@ func TestCapacityCounterRatesKeepTenantScopeCancellationAndWholeAdmission(t *tes
 		t.Fatal("capacity counter arithmetic preceded its outer tenant boundary", got, err)
 	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID("red"))
+	foreignBefore := before
+	foreignBefore.tenant = "blue"
+	if got, err := capacityCounterInterval(ctx, foreignBefore, after, 1<<20, 1<<20); err == nil || !reflect.DeepEqual(got, capacityCounterRate{}) {
+		t.Fatal("capacity counter reused another tenant's original observation", got, err)
+	}
 	for _, change := range []func(*capacityCounterPoint){
 		func(p *capacityCounterPoint) { p.tenant = "blue" },
 		func(p *capacityCounterPoint) { p.context = "another-context" },
