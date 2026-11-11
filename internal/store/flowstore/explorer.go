@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	// ExplorerExecutionLimit applies to the complete store operation.
-	ExplorerExecutionLimit = 5 * time.Second
+	// ExplorerExecutionLimit covers the complete operation, including current
+	// metadata and original routing references for full-size query populations.
+	// Operators may lower or raise it; fairness and the other budgets still apply.
+	ExplorerExecutionLimit = time.Minute
 	// ExplorerReadBytes is a hard read budget, not a response truncation threshold.
 	ExplorerReadBytes = 256 * 1024 * 1024
 	// ExplorerReadRows bounds rows examined by either backend.

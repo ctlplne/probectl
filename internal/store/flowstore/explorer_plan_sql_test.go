@@ -47,7 +47,7 @@ func TestExplorerPlanSQLKeepsScopeOutsideExclusionsAndValuesBound(t *testing.T) 
 	if !strings.Contains(sql, "filtered.__probectl_source_row NOT IN (SELECT g FROM ranked") {
 		t.Fatal("Other membership did not use the original input key")
 	}
-	for _, guard := range []string{"max_execution_time=5", "max_memory_usage=2147483648", "max_bytes_to_read=268435456", "read_overflow_mode='throw'", "result_overflow_mode='throw'"} {
+	for _, guard := range []string{"max_execution_time=60", "max_memory_usage=2147483648", "max_bytes_to_read=268435456", "read_overflow_mode='throw'", "result_overflow_mode='throw'"} {
 		if !strings.Contains(sql, guard) {
 			t.Errorf("missing execution-cost guard: %s", guard)
 		}

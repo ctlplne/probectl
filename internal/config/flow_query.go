@@ -10,7 +10,7 @@ import "time"
 
 func loadFlowQueryConfig(l *loader, cfg *Config) {
 	maxInt := int(^uint(0)>>1) - 1
-	cfg.FlowQueryExecutionLimit = l.dur("PROBECTL_FLOW_QUERY_TIMEOUT", 5*time.Second)
+	cfg.FlowQueryExecutionLimit = l.dur("PROBECTL_FLOW_QUERY_TIMEOUT", time.Minute)
 	if cfg.FlowQueryExecutionLimit <= 0 || cfg.FlowQueryExecutionLimit > time.Duration(1<<63-1)/6 {
 		l.errf("PROBECTL_FLOW_QUERY_TIMEOUT: must be positive and fit the six-pass comparison envelope")
 	}

@@ -17,7 +17,7 @@ func TestFlowQueryCostConfigRejectsUnlimitedAndPreservesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.FlowQueryExecutionLimit != 5*time.Second || cfg.FlowQueryReadBytes != 256<<20 || cfg.FlowQueryReadRows != 5000000 || cfg.FlowQueryResponseBytes != 64<<20 || cfg.FlowQueryMemoryBytes != 2<<30 || cfg.FlowQueryIntermediateGroups != 500000 || cfg.FlowQueryInterfaceItems != 10000 || cfg.FlowQueryThreads != 2 {
+	if cfg.FlowQueryExecutionLimit != time.Minute || cfg.FlowQueryReadBytes != 256<<20 || cfg.FlowQueryReadRows != 5000000 || cfg.FlowQueryResponseBytes != 64<<20 || cfg.FlowQueryMemoryBytes != 2<<30 || cfg.FlowQueryIntermediateGroups != 500000 || cfg.FlowQueryInterfaceItems != 10000 || cfg.FlowQueryThreads != 2 {
 		t.Fatal("operator query defaults changed")
 	}
 	if cfg.FlowSnapshotLifetime != 15*time.Minute || cfg.FlowSnapshotTenantBytes != 512<<20 || cfg.FlowSnapshotBytes != 128<<20 || cfg.FlowSnapshotObjectBytes != 64<<20 || cfg.FlowSnapshotExportBytes != 256<<20 {
