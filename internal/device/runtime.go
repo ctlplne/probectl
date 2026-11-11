@@ -24,6 +24,10 @@ type Stats struct {
 	PollErrors                  atomic.Uint64
 	Metrics                     atomic.Uint64
 	EmitErrors                  atomic.Uint64
+	ExactCounterBatches         atomic.Uint64
+	ExactCounterSamples         atomic.Uint64
+	ExactCounterEmitErrors      atomic.Uint64
+	ExactCounterUnavailable     atomic.Uint64
 	GNMIStreams                 atomic.Uint64
 	CounterResets               atomic.Uint64 // CORRECT-001: counter resets detected and dropped
 	NeighborSnapshots           atomic.Uint64
@@ -122,6 +126,10 @@ func (r *Runtime) StatsSnapshot() map[string]uint64 {
 		"poll_errors":                    r.stats.PollErrors.Load(),
 		"metrics":                        r.stats.Metrics.Load(),
 		"emit_errors":                    r.stats.EmitErrors.Load(),
+		"exact_counter_batches":          r.stats.ExactCounterBatches.Load(),
+		"exact_counter_samples":          r.stats.ExactCounterSamples.Load(),
+		"exact_counter_emit_errors":      r.stats.ExactCounterEmitErrors.Load(),
+		"exact_counter_unavailable":      r.stats.ExactCounterUnavailable.Load(),
 		"gnmi_streams":                   r.stats.GNMIStreams.Load(),
 		"cred_errors":                    r.stats.CredErrors.Load(),
 		"counter_resets":                 r.stats.CounterResets.Load(),
@@ -326,14 +334,13 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 		}
 	}
 
-	// CORRECT-001: apply counter-reset detection before emitting. Cumulative
-	// counters (octets, errors, discards) must never decrease between polls —
-	// a drop (current < previous) means the device rebooted and the 64-bit
-	// counter wrapped to zero. Emitting the wrap-to-zero value would let the
-	// TSDB's rate() produce a huge negative spike, corrupting capacity and SLO
-	// data. We detect the reset, log it, drop the affected counter metrics for
-	// this cycle (emitting a gap instead), and update the cache to the new
-	// post-reset baseline so the next cycle is clean.
+	// Exact capacity history must see the original observations, including
+	// decreases. A separate delivery never changes the legacy TSDB stream.
+	r.emitExactCounters(ctx, metrics)
+
+	// CORRECT-001: preserve the legacy float-series reset/gap policy. A decrease
+	// alone cannot distinguish reset from wrap; exact billing evaluates the
+	// original source/clock/width evidence separately and never guesses one.
 	metrics = r.filterCounterResets(metrics)
 
 	if err := r.emit.Emit(ctx, metrics); err != nil {

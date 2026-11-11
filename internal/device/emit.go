@@ -23,6 +23,13 @@ type Emitter interface {
 	Emit(ctx context.Context, ms []Metric) error
 }
 
+// CounterEmitter receives original exact observations before the legacy TSDB
+// reset filter. Its transport must remain separate from legacy floating-point
+// metrics: a decrease is raw evidence, not permission to call it one wrap.
+type CounterEmitter interface {
+	EmitCounters(context.Context, []Metric) error
+}
+
 // NeighborEmitter is an optional extension implemented by the production bus
 // emitter. Existing metric-only test emitters remain source-compatible.
 type NeighborEmitter interface {
