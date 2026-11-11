@@ -108,6 +108,27 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/alerts.ts',
     method: 'GET',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/query-source`',
+    response: 'AlertQuerySourceState',
+    generated: 'GetAlertQuerySourceResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'PUT',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/query-source`',
+    response: 'AlertQuerySourceState',
+    generated: 'SetAlertQuerySourceResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'DELETE',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/query-source`',
+    response: 'AlertQuerySourceState',
+    generated: 'ClearAlertQuerySourceResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'GET',
     path: '`/alerts/rules/${encodeURIComponent(ruleID)}/tag-filter`',
     response: 'AlertTagFilterState',
     generated: 'GetAlertTagFilterResponse',
@@ -1458,6 +1479,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
   aiAnswer: true,
   alertRule: true,
   alertTagFilterState: true,
+  alertQuerySourceState: true,
   alertRequest: true,
   authorProposal: true,
   discoverProposal: true,
@@ -1516,6 +1538,10 @@ export const OPENAPI_TYPE_CONTRACTS = {
   aiAnswer: GeneratedHasViewKeys<SDK.AIAnswer, AI.Answer>
   alertRule: GeneratedHasViewKeys<SDK.AlertRule, Alerts.AlertRule>
   alertTagFilterState: GeneratedHasViewKeys<SDK.AlertTagFilterState, Alerts.AlertTagFilterState>
+  alertQuerySourceState: GeneratedHasViewKeys<
+    SDK.AlertQuerySourceState,
+    Alerts.AlertQuerySourceState
+  >
   alertRequest: GeneratedHasViewKeys<SDK.AlertRequest, Alerts.AlertRuleInput>
   authorProposal: GeneratedHasViewKeys<SDK.TestProposal, Authoring.TestProposal>
   discoverProposal: GeneratedHasViewKeys<SDK.DiscoverProposal, Authoring.DiscoverProposal>

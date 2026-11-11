@@ -299,21 +299,48 @@ type AlertList struct {
 	Items []AlertRule `json:"items,omitempty"`
 }
 
+type AlertQueryCondition struct {
+	Comparison string `json:"comparison,omitempty"`
+	Metric     string `json:"metric,omitempty"`
+	Mode       string `json:"mode"`
+	Threshold  string `json:"threshold,omitempty"`
+}
+
+// Uses an exact saved Explorer query. Authenticated owner and read-only credential ceiling are server-authored. New-group mode warms a complete initial baseline without firing.
+type AlertQuerySourceInput struct {
+	Condition    AlertQueryCondition `json:"condition"`
+	EverySeconds int                 `json:"every_seconds,omitempty"`
+	ViewId       string              `json:"view_id"`
+	ViewVersion  string              `json:"view_version"`
+}
+
+// Configuration state only; contains no captured credentials or private baseline. Configured does not assert successful background evaluation.
+type AlertQuerySourceState struct {
+	Configured    bool                   `json:"configured"`
+	NextAt        string                 `json:"next_at,omitempty"`
+	RuleId        string                 `json:"rule_id"`
+	RuleUpdatedAt string                 `json:"rule_updated_at"`
+	Source        *AlertQuerySourceInput `json:"source,omitempty"`
+	StaleRevision bool                   `json:"stale_revision"`
+}
+
+// For a saved-query rule, supply query_source instead of metric, type, comparison, threshold, match, baseline or trap fields. The server derives the Boolean predicate rule and verifies complete source cost and current authority before persistence.
 type AlertRequest struct {
-	Channels        []ChannelSpec     `json:"channels,omitempty"`
-	Comparison      string            `json:"comparison,omitempty"`
-	Enabled         *bool             `json:"enabled,omitempty"`
-	ForN            int               `json:"for_n,omitempty"`
-	Match           map[string]string `json:"match,omitempty"`
-	Metric          string            `json:"metric,omitempty"`
-	Name            string            `json:"name"`
-	RenotifySeconds int               `json:"renotify_seconds,omitempty"`
-	Sensitivity     float64           `json:"sensitivity,omitempty"`
-	Severity        string            `json:"severity,omitempty"`
-	Threshold       float64           `json:"threshold,omitempty"`
-	Trap            *AlertTrapMatch   `json:"trap,omitempty"`
-	Type            string            `json:"type"`
-	Window          int               `json:"window,omitempty"`
+	Channels        []ChannelSpec          `json:"channels,omitempty"`
+	Comparison      string                 `json:"comparison,omitempty"`
+	Enabled         *bool                  `json:"enabled,omitempty"`
+	ForN            int                    `json:"for_n,omitempty"`
+	Match           map[string]string      `json:"match,omitempty"`
+	Metric          string                 `json:"metric,omitempty"`
+	Name            string                 `json:"name"`
+	QuerySource     *AlertQuerySourceInput `json:"query_source,omitempty"`
+	RenotifySeconds int                    `json:"renotify_seconds,omitempty"`
+	Sensitivity     float64                `json:"sensitivity,omitempty"`
+	Severity        string                 `json:"severity,omitempty"`
+	Threshold       float64                `json:"threshold,omitempty"`
+	Trap            *AlertTrapMatch        `json:"trap,omitempty"`
+	Type            string                 `json:"type,omitempty"`
+	Window          int                    `json:"window,omitempty"`
 }
 
 type AlertRule struct {
@@ -3045,6 +3072,17 @@ type SavedFlowQueryView struct {
 	Version      string                  `json:"version"`
 }
 
+// Creates a saved-query condition rule; complete source cost and current configuring-user grants are checked before atomic persistence.
+type SavedQueryAlertCreateInput struct {
+	Channels        []ChannelSpec         `json:"channels,omitempty"`
+	Enabled         *bool                 `json:"enabled,omitempty"`
+	ForN            int                   `json:"for_n,omitempty"`
+	Name            string                `json:"name"`
+	QuerySource     AlertQuerySourceInput `json:"query_source"`
+	RenotifySeconds int                   `json:"renotify_seconds,omitempty"`
+	Severity        string                `json:"severity,omitempty"`
+}
+
 // A point-in-time snapshot of this control-plane process. It is deployment-local and contains no tenant identity, labels, or telemetry.
 type SelfMetricsSnapshot struct {
 	Goroutines    int     `json:"goroutines"`
@@ -3865,6 +3903,64 @@ func (c *Client) DeleteMaintenanceWindow(ctx context.Context, req DeleteMaintena
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Read a saved-query alert source
+type GetAlertQuerySourceRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetAlertQuerySource(ctx context.Context, req GetAlertQuerySourceRequest) (*AlertQuerySourceState, error) {
+	path := "/v1/alerts/rules/{id}/query-source"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertQuerySourceState
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Bind an exact saved Explorer revision to an alert
+type SetAlertQuerySourceRequest struct {
+	Id   string                 `json:"-"`
+	Body *AlertQuerySourceInput `json:"-"`
+}
+
+func (c *Client) SetAlertQuerySource(ctx context.Context, req SetAlertQuerySourceRequest) (*AlertQuerySourceState, error) {
+	path := "/v1/alerts/rules/{id}/query-source"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertQuerySourceState
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Clear a saved-query source and disable its rule
+type ClearAlertQuerySourceRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) ClearAlertQuerySource(ctx context.Context, req ClearAlertQuerySourceRequest) (*AlertQuerySourceState, error) {
+	path := "/v1/alerts/rules/{id}/query-source"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertQuerySourceState
+	if err := c.doJSON(ctx, http.MethodDelete, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Read a current alert tag filter

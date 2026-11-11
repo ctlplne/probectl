@@ -150,6 +150,9 @@ func (r Rule) Validate() error {
 	if strings.TrimSpace(r.Name) == "" || len(r.Name) > 200 {
 		return fmt.Errorf("alert: name is required (1-200 chars)")
 	}
+	if r.Metric == QueryMetric && (r.Type != Threshold || r.Comparison != GTE || r.Threshold != 1 || len(r.Match) != 0 || r.Window != 0 || r.Sensitivity != 0 || r.HasTagFilter || r.Trap != nil) {
+		return fmt.Errorf("alert: saved-query sources require their fixed Boolean condition rule")
+	}
 	if r.Type == Trap {
 		if r.HasTagFilter {
 			return fmt.Errorf("alert: current test tag selection requires a metric rule")

@@ -15,9 +15,9 @@ import (
 func TestSavedQueryAlertCredentialCeilingRetainsOnlyExplicitReadScopes(t *testing.T) {
 	binding, _, _ := queryGroupsForTest()
 	source := QuerySource{Version: 1, OwnerUserID: binding.RuleID, ViewID: binding.ViewID, ViewVersion: binding.ViewVersion, EverySeconds: 60, Condition: binding.Condition,
-		ReadGrants: []QueryReadGrant{{Permission: "flow.read", ScopeType: auth.ScopeProject, ScopeID: binding.ViewID}, {Permission: "entities.read", ScopeType: auth.ScopeTenant}}}
+		ReadGrants: []QueryReadGrant{{Permission: "flow.read", ScopeType: auth.ScopeProject, ScopeID: binding.ViewID}, {Permission: "entities.read", ScopeType: auth.ScopeTenant}, {Permission: "ai.query", ScopeType: auth.ScopeTenant}}}
 	principal, err := source.CredentialCeiling(binding.TenantID)
-	if err != nil || principal.TenantID != binding.TenantID || principal.UserID != source.OwnerUserID || !principal.ViaBearerToken || principal.MFASatisfied || principal.Attributes != nil || principal.Has("flow.read") || !principal.HasAny("flow.read") || !principal.Has("entities.read") || principal.HasAny("flow.write") {
+	if err != nil || principal.TenantID != binding.TenantID || principal.UserID != source.OwnerUserID || !principal.ViaBearerToken || principal.MFASatisfied || principal.Attributes != nil || principal.Has("flow.read") || !principal.HasAny("flow.read") || !principal.Has("entities.read") || !principal.Has("ai.query") || principal.HasAny("flow.write") {
 		t.Fatal("captured read ceiling widened scope or invented a credential/MFA", principal, err)
 	}
 	for _, mutate := range []func(*QuerySource){

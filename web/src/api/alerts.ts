@@ -11,6 +11,63 @@ import type { Incident, Severity } from './incidents'
 import type { AlertTagFilterState as GeneratedAlertTagFilterState } from './sdk.gen'
 import type { FlowQueryFilterGroup } from './flowExplorer'
 
+export type { AlertQueryCondition, AlertQuerySourceInput, AlertQuerySourceState } from './sdk.gen'
+import type { AlertQuerySourceInput, AlertQuerySourceState } from './sdk.gen'
+
+export const savedQueryAlertMetric = 'probectl_explorer_query_condition'
+
+export function getAlertQuerySource(tenantID: string, ruleID: string, signal: AbortSignal) {
+  return apiFetch<AlertQuerySourceState>(
+    `/alerts/rules/${encodeURIComponent(ruleID)}/query-source`,
+    {
+      signal,
+      headers: { 'X-Probectl-Tenant': tenantID },
+    },
+  )
+}
+
+export function putAlertQuerySource(
+  tenantID: string,
+  ruleID: string,
+  input: AlertQuerySourceInput,
+  signal: AbortSignal,
+) {
+  return apiFetch<AlertQuerySourceState>(
+    `/alerts/rules/${encodeURIComponent(ruleID)}/query-source`,
+    {
+      method: 'PUT',
+      signal,
+      headers: { 'Content-Type': 'application/json', 'X-Probectl-Tenant': tenantID },
+      body: JSON.stringify(input),
+    },
+  )
+}
+
+export function clearAlertQuerySource(tenantID: string, ruleID: string, signal: AbortSignal) {
+  return apiFetch<AlertQuerySourceState>(
+    `/alerts/rules/${encodeURIComponent(ruleID)}/query-source`,
+    {
+      method: 'DELETE',
+      signal,
+      headers: { 'X-Probectl-Tenant': tenantID },
+    },
+  )
+}
+
+export function createSavedQueryAlert(
+  tenantID: string,
+  name: string,
+  query_source: AlertQuerySourceInput,
+  signal: AbortSignal,
+) {
+  return apiFetch<AlertRule>('/alerts', {
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json', 'X-Probectl-Tenant': tenantID },
+    body: JSON.stringify({ name, query_source }),
+  })
+}
+
 // The shared editor retains the complete nested grammar; generated SDK groups
 // currently project nested anonymous objects as JsonObject rather than this
 // recursive view type. No data is trimmed or coerced at this boundary.

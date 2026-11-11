@@ -19,6 +19,59 @@ import (
 
 const QueryMetric = "probectl_explorer_query_condition"
 
+// QuerySourceInput accepts query configuration only. Owner and credential
+// ceilings are always derived from the actual authenticated configuring user.
+type QuerySourceInput struct {
+	ViewID       string         `json:"view_id"`
+	ViewVersion  string         `json:"view_version"`
+	EverySeconds int64          `json:"every_seconds"`
+	Condition    QueryCondition `json:"condition"`
+}
+
+// QueryRuleInput creates a saved-query rule without exposing its internal
+// Boolean metric adapter. Delivery remains the existing human-configured path.
+type QueryRuleInput struct {
+	Name            string           `json:"name"`
+	Enabled         *bool            `json:"enabled,omitempty"`
+	QuerySource     QuerySourceInput `json:"query_source"`
+	ForN            int              `json:"for_n,omitempty"`
+	RenotifySeconds int              `json:"renotify_seconds,omitempty"`
+	Severity        string           `json:"severity,omitempty"`
+	Channels        []ChannelSpec    `json:"channels,omitempty"`
+}
+
+type QuerySourceState struct {
+	RuleID        string            `json:"rule_id"`
+	RuleUpdatedAt time.Time         `json:"rule_updated_at"`
+	Configured    bool              `json:"configured"`
+	Source        *QuerySourceInput `json:"source,omitempty"`
+	NextAt        *time.Time        `json:"next_at,omitempty"`
+	StaleRevision bool              `json:"stale_revision"`
+}
+
+func NormalizeQuerySourceInput(input QuerySourceInput) (QuerySourceInput, error) {
+	if !canonicalQueryID(input.ViewID) {
+		return QuerySourceInput{}, ErrQueryGroups
+	}
+	if _, err := flow.QueryViewVersion(input.ViewVersion); err != nil {
+		return QuerySourceInput{}, err
+	}
+	if input.EverySeconds == 0 {
+		input.EverySeconds = 60
+	}
+	if input.EverySeconds <= 0 || input.EverySeconds > math.MaxInt64/int64(time.Second) {
+		return QuerySourceInput{}, ErrQueryGroups
+	}
+	if err := input.Condition.validateShape(); err != nil {
+		return QuerySourceInput{}, err
+	}
+	return input, nil
+}
+
+func (s QuerySource) Input() QuerySourceInput {
+	return QuerySourceInput{ViewID: s.ViewID, ViewVersion: s.ViewVersion, EverySeconds: s.EverySeconds, Condition: s.Condition}
+}
+
 // QueryReadGrant is a captured read-only credential ceiling. It is intersected
 // with the active user's current RBAC and ABAC before every source read; it
 // carries no bearer, session, attributes or reusable MFA assertion.
@@ -58,7 +111,9 @@ func (s QuerySource) Validate() error {
 		return err
 	}
 	for _, grant := range s.ReadGrants {
-		if !strings.HasSuffix(grant.Permission, ".read") || strings.TrimSpace(grant.Permission) != grant.Permission {
+		// Saved Explorer reads also use the existing ai.query capability. It
+		// authorizes a read operation, never remediation or source mutation.
+		if (!strings.HasSuffix(grant.Permission, ".read") && grant.Permission != "ai.query") || strings.TrimSpace(grant.Permission) != grant.Permission {
 			return ErrQueryGroups
 		}
 		switch grant.ScopeType {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store/sourceepoch"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -26,6 +27,31 @@ type AlertQuerySource struct {
 	State        alert.QueryGroupState
 	StateVersion int64
 	NextAt       *time.Time
+}
+
+// QuerySourceDue reads only bounded schedule metadata, so a long-cadence rule
+// does not decode its complete baseline on every evaluator tick.
+func (AlertRules) QuerySourceDue(ctx context.Context, sc tenancy.Scope, id string, expected, at time.Time) (bool, error) {
+	if err := alertQueryScope(ctx, sc, expected, 8192); err != nil {
+		return false, err
+	}
+	if at.IsZero() {
+		return false, alert.ErrQueryGroups
+	}
+	var present, due bool
+	err := sc.Q.QueryRow(ctx, `SELECT query_source IS NOT NULL,
+ query_next_eval_at IS NULL OR query_next_eval_at<=$4 FROM alert_rules
+ WHERE tenant_id=$1 AND id=$2 AND updated_at=$3`, sc.Tenant.String(), id, expected, at).Scan(&present, &due)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrAlertQueryChanged
+	}
+	if err != nil {
+		return false, err
+	}
+	if !present {
+		return false, alert.ErrQueryGroups
+	}
+	return due, nil
 }
 
 func alertQueryScope(ctx context.Context, sc tenancy.Scope, expected time.Time, maxBytes int64) error {
@@ -89,10 +115,28 @@ func (AlertRules) GetQuerySource(ctx context.Context, sc tenancy.Scope, id strin
 	return out, ctx.Err()
 }
 
-// The source parent and owner are selected through the same FORCE-RLS scope.
-// Lock them through publication so a deleted/private/revised saved query or
-// inactive configuring user cannot leave a newly published valid binding.
-func lockAlertQueryParents(ctx context.Context, sc tenancy.Scope, source alert.QuerySource) error {
+// Take the ordinary lifecycle writer lease, then the rule row, then the audit
+// lock. Alert edits use row-before-audit ordering. Publication reads parent
+// metadata without row locks: its writers must commit under the same audit
+// lock, so taking parent locks here would invert their row-before-audit order.
+func lockAlertQueryRule(ctx context.Context, sc tenancy.Scope, id string, expected time.Time) error {
+	if _, err := sourceepoch.SourceGenerationInScope(ctx, sc); err != nil {
+		return err
+	}
+	var present int
+	err := sc.Q.QueryRow(ctx, `SELECT 1 FROM alert_rules WHERE tenant_id=$1 AND id=$2 AND updated_at=$3 FOR UPDATE`, sc.Tenant.String(), id, expected).Scan(&present)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrAlertQueryChanged
+	}
+	if err != nil {
+		return err
+	}
+	return tenancy.LockTenantAuditStream(ctx, sc.Q, sc.Tenant.String())
+}
+
+// The caller holds the rule/audit publication locks. Both source parent and
+// active owner are selected through this same FORCE-RLS scope.
+func checkAlertQueryParents(ctx context.Context, sc tenancy.Scope, source alert.QuerySource) error {
 	version, err := flow.QueryViewVersion(source.ViewVersion)
 	if err != nil {
 		return err
@@ -103,7 +147,7 @@ func lockAlertQueryParents(ctx context.Context, sc tenancy.Scope, source alert.Q
  WHERE v.tenant_id=$1 AND v.id=$3 AND v.version=$4
  AND (v.owner_id=$2::text OR v.visibility='tenant')
  AND ($5='new_group' OR EXISTS (SELECT 1 FROM jsonb_array_elements(v.definition->'plan'->'metrics') m
-     WHERE (m->>'measure')||':'||(m->>'calculation')=$6)) FOR SHARE OF v,u`,
+     WHERE (m->>'measure')||':'||(m->>'calculation')=$6))`,
 		sc.Tenant.String(), source.OwnerUserID, source.ViewID, version, source.Condition.Mode, source.Condition.Metric).Scan(&present)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrAlertQueryChanged
@@ -126,8 +170,17 @@ func alertQueryEncode(value any, maxBytes int64) (string, error) {
 // the complete source plan under current source authority/cost admission and
 // recheck its authority in this writer transaction, recording the domain audit.
 // Legacy metric/trap rules cannot accidentally acquire a different data path.
-func (AlertRules) SetQuerySource(ctx context.Context, sc tenancy.Scope, id string, expected time.Time, source *alert.QuerySource, maxBytes int64) (*alert.Rule, error) {
+func (AlertRules) SetQuerySource(ctx context.Context, sc tenancy.Scope, id string, expected time.Time, source *alert.QuerySource, maxBytes int64, publication func(context.Context, tenancy.Scope) error) (*alert.Rule, error) {
 	if err := alertQueryScope(ctx, sc, expected, maxBytes); err != nil {
+		return nil, err
+	}
+	if err := lockAlertQueryRule(ctx, sc, id, expected); err != nil {
+		return nil, err
+	}
+	if publication == nil {
+		return nil, alert.ErrQueryGroups
+	}
+	if err := publication(ctx, sc); err != nil {
 		return nil, err
 	}
 	var encoded any
@@ -139,14 +192,15 @@ func (AlertRules) SetQuerySource(ctx context.Context, sc tenancy.Scope, id strin
 		if err != nil {
 			return nil, err
 		}
-		if err := lockAlertQueryParents(ctx, sc, *source); err != nil {
+		if err := checkAlertQueryParents(ctx, sc, *source); err != nil {
 			return nil, err
 		}
 		encoded = value
 	}
 	var out alert.Rule
 	err := scanAlertRule(sc.Q.QueryRow(ctx, `UPDATE alert_rules SET query_source=$4::jsonb,
- query_group_state=NULL,query_state_version=0,query_next_eval_at=NULL,updated_at=clock_timestamp()
+ query_group_state=NULL,query_state_version=0,query_next_eval_at=NULL,
+ enabled=CASE WHEN $4::jsonb IS NULL THEN false ELSE enabled END,updated_at=clock_timestamp()
  WHERE tenant_id=$1 AND id=$2 AND updated_at=$3
  AND ($4::jsonb IS NULL OR (type='threshold' AND metric=$5 AND comparison='gte' AND threshold=1
      AND trap_match IS NULL AND tag_filter IS NULL)) RETURNING `+alertRuleCols,
@@ -167,7 +221,7 @@ func (AlertRules) SetQuerySource(ctx context.Context, sc tenancy.Scope, id strin
 // neither advance a reconfigured rule nor overwrite a newer scheduled read.
 // Current read authorization is the caller's separate publication obligation;
 // stored IDs or a successful earlier query never replace that obligation.
-func (AlertRules) CommitQueryState(ctx context.Context, sc tenancy.Scope, id string, expected time.Time, previous AlertQuerySource, next alert.QueryGroupState, maxBytes int64) error {
+func (AlertRules) CommitQueryState(ctx context.Context, sc tenancy.Scope, id string, expected time.Time, previous AlertQuerySource, next alert.QueryGroupState, maxBytes int64, publication func(context.Context, tenancy.Scope) error) error {
 	if err := alertQueryScope(ctx, sc, expected, maxBytes); err != nil {
 		return err
 	}
@@ -188,7 +242,16 @@ func (AlertRules) CommitQueryState(ctx context.Context, sc tenancy.Scope, id str
 	if err != nil {
 		return err
 	}
-	if err := lockAlertQueryParents(ctx, sc, previous.Source); err != nil {
+	if err := lockAlertQueryRule(ctx, sc, id, expected); err != nil {
+		return err
+	}
+	if publication == nil {
+		return alert.ErrQueryGroups
+	}
+	if err := publication(ctx, sc); err != nil {
+		return err
+	}
+	if err := checkAlertQueryParents(ctx, sc, previous.Source); err != nil {
 		return err
 	}
 	nextAt := next.At.Add(time.Duration(previous.Source.EverySeconds) * time.Second)

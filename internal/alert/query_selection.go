@@ -1,0 +1,127 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+package alert
+
+import (
+	"encoding/hex"
+	"maps"
+	"sort"
+	"strings"
+	"time"
+)
+
+// QuerySelection is operation-local completion metadata from an authenticated
+// source, not a serialized grant. Only a fully admitted current source read may
+// let an absent group resolve. A failed/partial read returns no selection.
+type QuerySelection struct {
+	TenantID, RuleID, Binding string
+	At                        time.Time
+	Complete                  bool
+}
+
+func (q *QuerySelection) Validate(rule Rule) error {
+	if q == nil || !q.Complete || q.At.IsZero() || q.TenantID != rule.TenantID || q.RuleID != rule.ID || rule.Metric != QueryMetric || !canonicalQueryID(q.TenantID) || !canonicalQueryID(q.RuleID) {
+		return ErrQueryGroups
+	}
+	decoded, err := hex.DecodeString(q.Binding)
+	if err != nil || len(decoded) != 32 || hex.EncodeToString(decoded) != q.Binding {
+		return ErrQueryGroups
+	}
+	return nil
+}
+
+// A complete source selection can resolve durable episodes whose departure
+// happened before a restart. It also bounds the live map to the current group
+// set: resolved departed groups are removed after normal delivery/cleanup.
+func (en *Engine) completeQuerySamples(rule Rule, read RuleMetricRead) ([]Sample, map[string]bool, error) {
+	if err := read.QuerySelection.Validate(rule); err != nil {
+		return nil, nil, err
+	}
+	seen := make(map[string]bool, len(read.Samples))
+	departed := map[string]bool{}
+	samples := append([]Sample(nil), read.Samples...)
+	for _, sample := range samples {
+		if !querySampleLabels(sample.Labels) || (sample.Value != 0 && sample.Value != 1) {
+			return nil, nil, ErrQueryGroups
+		}
+		key := stateKey(rule.ID, sample.Labels)
+		if seen[key] {
+			return nil, nil, ErrQueryGroups
+		}
+		seen[key] = true
+	}
+	missing := map[string]map[string]string{}
+	prefix := rule.ID + "|"
+	en.mu.Lock()
+	for key, state := range en.states {
+		if state.ruleID == rule.ID && !seen[key] {
+			missing[key] = maps.Clone(state.labels)
+		}
+	}
+	for key := range en.restoredNotify {
+		if strings.HasPrefix(key, prefix) && !seen[key] {
+			missing[key] = labelsFromStateKey(key, prefix)
+		}
+	}
+	en.mu.Unlock()
+	keys := make([]string, 0, len(missing))
+	for key := range missing {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		labels := missing[key]
+		if !querySampleLabels(labels) {
+			return nil, nil, ErrQueryGroups
+		}
+		departed[key] = true
+		samples = append(samples, Sample{Labels: labels, Reason: "group absent from the complete saved-query selection"})
+	}
+	en.restoreQueryEpisodes(rule, samples)
+	return samples, departed, nil
+}
+
+func (en *Engine) restoreQueryEpisodes(rule Rule, samples []Sample) {
+	en.mu.Lock()
+	defer en.mu.Unlock()
+	for _, sample := range samples {
+		key := stateKey(rule.ID, sample.Labels)
+		notified, ok := en.restoredNotify[key]
+		if !ok {
+			continue
+		}
+		state := en.stateForLocked(rule, sample.Labels)
+		state.firing, state.since, state.lastNotified = true, notified.FiringSince, notified.LastNotified
+		if op, ok := en.restored[key]; ok {
+			state.silencedUntil, state.ackedBy, state.ackedAt = op.SilencedUntil, op.AckedBy, op.AckedAt
+		}
+		delete(en.restoredNotify, key)
+	}
+}
+
+func querySampleLabels(labels map[string]string) bool {
+	if len(labels) != 2 || !canonicalQueryID(labels["query_view_id"]) {
+		return false
+	}
+	key := labels["query_group"]
+	decoded, err := hex.DecodeString(key)
+	return err == nil && len(decoded) == 32 && hex.EncodeToString(decoded) == key
+}
+
+func (en *Engine) pruneDepartedQueryGroups(departed map[string]bool) {
+	if len(departed) == 0 {
+		return
+	}
+	en.mu.Lock()
+	defer en.mu.Unlock()
+	for key := range departed {
+		state := en.states[key]
+		if state != nil && !state.firing && state.breachCount == 0 {
+			delete(en.states, key)
+		}
+	}
+}

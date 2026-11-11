@@ -67,6 +67,8 @@ import { alertRuleAsCode, maintenanceWindowAsCode } from './codeExport'
 import { pivotHref } from './pivotContext'
 import { useAuth } from '../auth/useAuth'
 import { AlertTagFilterDialog } from './AlertTagFilterDialog'
+import { AlertQuerySourceDialog } from './AlertQuerySourceDialog'
+import { savedQueryAlertMetric } from '../api/alerts'
 
 function labelText(labels?: Record<string, string>): string {
   if (!labels) return ''
@@ -783,6 +785,7 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
         />
         <Select
           label={t('alerts.rule.type')}
+          disabled={rule?.metric === savedQueryAlertMetric}
           value={type}
           onChange={(e) => setType(e.target.value as AlertRule['type'])}
           options={[
@@ -794,6 +797,7 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
         {type !== 'trap' ? (
           <Field
             label={t('alerts.rule.metric')}
+            disabled={rule?.metric === savedQueryAlertMetric}
             value={metric}
             onChange={(e) => setMetric(e.target.value)}
             required
@@ -845,6 +849,7 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
           <>
             <Select
               label={t('alerts.rule.comparison')}
+              disabled={rule?.metric === savedQueryAlertMetric}
               value={comparison}
               onChange={(e) => setComparison(e.target.value as typeof comparison)}
               options={[
@@ -856,6 +861,7 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
             />
             <Field
               label={t('alerts.rule.threshold')}
+              disabled={rule?.metric === savedQueryAlertMetric}
               type="number"
               value={threshold}
               onChange={(e) => setThreshold(e.target.value)}
@@ -1189,6 +1195,7 @@ export function AlertsPage() {
   const [metadataEditing, setMetadataEditing] = useState<{ rule: AlertRule; scope: string } | null>(
     null,
   )
+  const [queryEditing, setQueryEditing] = useState<AlertRule | true | null>(null)
   const [creating, setCreating] = useState(false)
   const [editingWindow, setEditingWindow] = useState<MaintenanceWindow | null>(null)
   const [creatingWindow, setCreatingWindow] = useState(false)
@@ -1329,7 +1336,14 @@ export function AlertsPage() {
           <Button size="sm" variant="ghost" disabled={!canWrite} onClick={() => setEditing(r)}>
             Edit
           </Button>
-          {r.type !== 'trap' && (canReadMetadata || canWrite) ? (
+          {r.metric === savedQueryAlertMetric ? (
+            <Button size="sm" variant="ghost" onClick={() => setQueryEditing(r)}>
+              Saved query source
+            </Button>
+          ) : null}
+          {r.metric !== savedQueryAlertMetric &&
+          r.type !== 'trap' &&
+          (canReadMetadata || canWrite) ? (
             <Button
               size="sm"
               variant="ghost"
@@ -1573,9 +1587,14 @@ export function AlertsPage() {
           <CardHeader
             title="Alert rules"
             actions={
-              <Button disabled={!canWrite} onClick={() => setCreating(true)}>
-                Create rule
-              </Button>
+              <>
+                <Button disabled={!canWrite} onClick={() => setCreating(true)}>
+                  Create rule
+                </Button>
+                <Button disabled={!canWrite} onClick={() => setQueryEditing(true)}>
+                  Create query alert
+                </Button>
+              </>
             }
           />
           <CardBody>
@@ -1607,6 +1626,12 @@ export function AlertsPage() {
           alert={detailAlert}
           onClose={closeAlertDetail}
           returnTo={detailReturnTo}
+        />
+      ) : null}
+      {queryEditing ? (
+        <AlertQuerySourceDialog
+          rule={queryEditing === true ? undefined : queryEditing}
+          onClose={() => setQueryEditing(null)}
         />
       ) : null}
       {creating ? <RuleForm onClose={() => setCreating(false)} /> : null}

@@ -223,12 +223,14 @@ func (AlertRules) Update(ctx context.Context, s tenancy.Scope, id string, in ale
 		   type=$6, comparison=$7, threshold=$8, window_n=$9, sensitivity=$10, for_n=$11,
 		   renotify_seconds=$12, severity=$13, channels=$14::jsonb, trap_match=$15::jsonb,
 		   updated_at=now()
-		 WHERE id = $1
+		 WHERE id = $1 AND tenant_id=$16
+		 AND (query_source IS NULL OR
+		      ($4=$17 AND $6='threshold' AND $7='gte' AND $8=1 AND $15::jsonb IS NULL))
 		 RETURNING `+alertRuleCols,
 		id, in.Name, in.Enabled, in.Metric, marshalMatch(in.Match), string(in.Type),
 		string(in.Comparison), in.Threshold, in.Window, in.Sensitivity, in.ForN,
 		in.RenotifySeconds, string(in.Severity), marshalChannels(in.Channels),
-		marshalTrapMatch(in.Trap)), &r)
+		marshalTrapMatch(in.Trap), s.Tenant.String(), alert.QueryMetric), &r)
 	if err != nil {
 		return nil, mapWriteErr("alert rule", err)
 	}

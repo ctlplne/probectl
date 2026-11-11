@@ -35,6 +35,8 @@ func TestAlertSavedQueryStateKeepsTenantParentsVersionsAndCompleteGroups(t *test
 		}
 	})
 	const maxBytes = 64 << 20
+	// This store fixture seeds configuration authority; served source permission checks remain separate.
+	publication := func(ctx context.Context, _ tenancy.Scope) error { return ctx.Err() }
 	views := flow.NewPostgresQueryViewStore(pool, maxBytes, audit.TenantRecord)
 	type lane struct {
 		tenant, user string
@@ -70,7 +72,7 @@ func TestAlertSavedQueryStateKeepsTenantParentsVersionsAndCompleteGroups(t *test
 			Condition: alert.QueryCondition{Mode: "threshold", Metric: "bytes:total", Comparison: alert.GT, Threshold: "18446744073709551616"}, ReadGrants: []alert.QueryReadGrant{{Permission: "flow.read", ScopeType: auth.ScopeTenant}}}
 		inTenant(t.Context(), t, pool, current.tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			var err error
-			current.rule, err = (AlertRules{}).SetQuerySource(ctx, sc, current.rule.ID, current.rule.UpdatedAt, &current.source, maxBytes)
+			current.rule, err = (AlertRules{}).SetQuerySource(ctx, sc, current.rule.ID, current.rule.UpdatedAt, &current.source, maxBytes, publication)
 			if err != nil {
 				return err
 			}
@@ -90,7 +92,7 @@ func TestAlertSavedQueryStateKeepsTenantParentsVersionsAndCompleteGroups(t *test
 			t.Fatal(err)
 		}
 		inTenant(t.Context(), t, pool, current.tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			return (AlertRules{}).CommitQueryState(ctx, sc, current.rule.ID, current.rule.UpdatedAt, *current.stored, current.next, maxBytes)
+			return (AlertRules{}).CommitQueryState(ctx, sc, current.rule.ID, current.rule.UpdatedAt, *current.stored, current.next, maxBytes, publication)
 		})
 		lanes = append(lanes, current)
 	}
@@ -100,13 +102,36 @@ func TestAlertSavedQueryStateKeepsTenantParentsVersionsAndCompleteGroups(t *test
 			if err != nil || got == nil || got.StateVersion != 1 || len(got.State.Keys) != 32 || !got.State.At.Equal(current.next.At) || got.NextAt == nil || !got.NextAt.Equal(current.next.At.Add(time.Minute)) {
 				t.Fatal("stored complete state or due time did not survive a fresh read", got, err)
 			}
-			if err := (AlertRules{}).CommitQueryState(ctx, sc, current.rule.ID, current.rule.UpdatedAt, *current.stored, current.next, maxBytes); !errors.Is(err, ErrAlertQueryChanged) {
+			for _, check := range []struct {
+				at  time.Time
+				due bool
+			}{{current.next.At.Add(30 * time.Second), false}, {current.next.At.Add(time.Minute), true}} {
+				if due, err := (AlertRules{}).QuerySourceDue(ctx, sc, current.rule.ID, current.rule.UpdatedAt, check.at); err != nil || due != check.due {
+					t.Fatal("stored due metadata changed schedule semantics", due, err)
+				}
+			}
+			if err := (AlertRules{}).CommitQueryState(ctx, sc, current.rule.ID, current.rule.UpdatedAt, *current.stored, current.next, maxBytes, publication); !errors.Is(err, ErrAlertQueryChanged) {
 				t.Fatal("late worker overwrote newer query state", err)
 			}
 			if got, err := (AlertRules{}).GetQuerySource(ctx, sc, current.rule.ID, current.rule.UpdatedAt, 8192); err == nil || got != nil {
 				t.Fatal("unadmitted stored payload was transferred as a successful prefix", got, err)
 			}
 			current.stored = got
+			following := current.next
+			following.At = following.At.Add(time.Minute)
+			if err := (AlertRules{}).CommitQueryState(ctx, sc, current.rule.ID, current.rule.UpdatedAt, *current.stored, following, maxBytes, nil); err == nil {
+				t.Fatal("missing current source publication check advanced query state")
+			}
+			ordinary := *current.rule
+			ordinary.Metric, ordinary.Comparison, ordinary.Threshold = "probectl_probe_loss_ratio", alert.GT, 0.5
+			if changed, err := (AlertRules{}).Update(ctx, sc, current.rule.ID, ordinary); err == nil || changed != nil {
+				t.Fatal("full rule edit silently replaced an attached query source", changed, err)
+			}
+			mixed := &alert.TagFilter{Version: 1, TargetKind: "test", OwnerUserID: current.user, TagRevision: "1", AsOf: current.next.At.Format(time.RFC3339Nano),
+				Filter: &flow.QueryFilterGroup{Match: "all", Conditions: []flow.QueryPredicate{{Field: "tag.role", Op: flow.QueryEqual, Values: []string{"edge"}}}}, TagIDs: map[string]string{"tag.role": current.view.ID}}
+			if changed, err := (AlertRules{}).SetTagFilter(ctx, sc, current.rule.ID, current.rule.UpdatedAt, mixed); err == nil || changed != nil {
+				t.Fatal("metric metadata selection mixed with a query source", changed, err)
+			}
 			return nil
 		})
 	}
@@ -120,12 +145,12 @@ func TestAlertSavedQueryStateKeepsTenantParentsVersionsAndCompleteGroups(t *test
 		}
 		foreignParent := b.source
 		foreignParent.ViewID, foreignParent.OwnerUserID = a.view.ID, a.user
-		if got, err := (AlertRules{}).SetQuerySource(ctx, sc, b.rule.ID, b.rule.UpdatedAt, &foreignParent, maxBytes); !errors.Is(err, ErrAlertQueryChanged) || got != nil {
+		if got, err := (AlertRules{}).SetQuerySource(ctx, sc, b.rule.ID, b.rule.UpdatedAt, &foreignParent, maxBytes, publication); !errors.Is(err, ErrAlertQueryChanged) || got != nil {
 			t.Fatal("foreign query/owner became this tenant's alert source", got, err)
 		}
 		foreignState := a.next
 		foreignState.At = b.next.At.Add(time.Minute)
-		if err := (AlertRules{}).CommitQueryState(ctx, sc, b.rule.ID, b.rule.UpdatedAt, *b.stored, foreignState, maxBytes); err == nil {
+		if err := (AlertRules{}).CommitQueryState(ctx, sc, b.rule.ID, b.rule.UpdatedAt, *b.stored, foreignState, maxBytes, publication); err == nil {
 			t.Fatal("foreign state entered another tenant's rule")
 		}
 		var count int
@@ -143,11 +168,11 @@ func TestAlertSavedQueryStateKeepsTenantParentsVersionsAndCompleteGroups(t *test
 	inTenant(t.Context(), t, pool, a.tenant, func(ctx context.Context, sc tenancy.Scope) error {
 		following := a.next
 		following.At = a.next.At.Add(time.Minute)
-		if err := (AlertRules{}).CommitQueryState(ctx, sc, a.rule.ID, a.rule.UpdatedAt, *a.stored, following, maxBytes); !errors.Is(err, ErrAlertQueryChanged) {
+		if err := (AlertRules{}).CommitQueryState(ctx, sc, a.rule.ID, a.rule.UpdatedAt, *a.stored, following, maxBytes, publication); !errors.Is(err, ErrAlertQueryChanged) {
 			t.Fatal("changed saved query retained old source publication", err)
 		}
 		a.source.ViewVersion = updated.Version
-		a.rule, err = (AlertRules{}).SetQuerySource(ctx, sc, a.rule.ID, a.rule.UpdatedAt, &a.source, maxBytes)
+		a.rule, err = (AlertRules{}).SetQuerySource(ctx, sc, a.rule.ID, a.rule.UpdatedAt, &a.source, maxBytes, publication)
 		if err != nil {
 			return err
 		}

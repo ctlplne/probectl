@@ -374,6 +374,18 @@ func signalFromAlert(a alert.Alert) incident.Signal {
 			target = a.Labels["device"]
 		}
 	}
+	if a.Metric == alert.QueryMetric {
+		plane = "flow"
+		target = "query:" + a.RuleID + ":" + a.Labels["query_group"]
+	}
+	attributes := map[string]string{
+		"metric": a.Metric, "rule_id": a.RuleID,
+		"value": strconv.FormatFloat(a.Value, 'g', -1, 64),
+	}
+	if a.Metric == alert.QueryMetric {
+		attributes["query_group"] = a.Labels["query_group"]
+		attributes["query_view_id"] = a.Labels["query_view_id"]
+	}
 	return incident.Signal{
 		TenantID:   a.TenantID,
 		Plane:      plane,
@@ -383,11 +395,7 @@ func signalFromAlert(a alert.Alert) incident.Signal {
 		Summary:    a.Reason,
 		Target:     target,
 		OccurredAt: a.At,
-		Attributes: map[string]string{
-			"metric":  a.Metric,
-			"rule_id": a.RuleID,
-			"value":   strconv.FormatFloat(a.Value, 'g', -1, 64),
-		},
+		Attributes: attributes,
 	}
 }
 

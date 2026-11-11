@@ -96,3 +96,39 @@ func TestNativeAlertEvaluationSchemaDerivesQueryBoundsFromAPI(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeSavedQueryAlertSchemasKeepExactDecimalAndClosedAuthority(t *testing.T) {
+	schemas, err := alertQueryToolSchemas()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(schemas) != 4 {
+		t.Fatal("saved-query create/read/set/clear schemas incomplete")
+	}
+	for _, schema := range schemas {
+		if !json.Valid(schema) || strings.Contains(string(schema), "#/components/schemas/") {
+			t.Fatal("unresolved saved-query native input schema")
+		}
+	}
+	var input struct {
+		Definitions map[string]json.RawMessage `json:"$defs"`
+	}
+	if err := json.Unmarshal(schemas["alert_query_source_set"], &input); err != nil {
+		t.Fatal(err)
+	}
+	var source struct {
+		Properties map[string]any `json:"properties"`
+		Additional bool           `json:"additionalProperties"`
+	}
+	if json.Unmarshal(input.Definitions["AlertQuerySourceInput"], &source) != nil || source.Additional || len(source.Properties) != 4 || source.Properties["owner_user_id"] != nil || source.Properties["read_grants"] != nil {
+		t.Fatal("native saved source accepted authority hints")
+	}
+	var condition struct {
+		Properties map[string]struct {
+			Type string `json:"type"`
+		} `json:"properties"`
+	}
+	if json.Unmarshal(input.Definitions["AlertQueryCondition"], &condition) != nil || condition.Properties["threshold"].Type != "string" {
+		t.Fatal("native threshold was rounded into a JSON number")
+	}
+}

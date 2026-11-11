@@ -71,6 +71,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     status: 'partial',
     source: 'contract:features',
   },
+  // Saved-query extension is preview; docs/alerting.md records its outstanding qualification.
   { id: 'F8', name: 'Alerting', status: 'delivered', source: 'contract:features' },
   {
     id: 'F9',

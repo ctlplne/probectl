@@ -42,8 +42,10 @@ type MetricSource interface {
 
 // RuleMetricRead keeps source selection evidence separate from metric labels.
 type RuleMetricRead struct {
-	Samples      []Sample
-	TagSelection *TagSelectionReceipt
+	Samples        []Sample
+	TagSelection   *TagSelectionReceipt
+	QuerySelection *QuerySelection
+	Skip           bool
 }
 
 // RuleMetricSource must authorize and apply current metadata before returning
@@ -246,6 +248,16 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	if err != nil {
 		return nil, err
 	}
+	if read.Skip {
+		return nil, nil
+	}
+	var departed map[string]bool
+	if rule.Metric == QueryMetric {
+		read.Samples, departed, err = en.completeQuerySamples(rule, read)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if len(read.Samples) == 0 {
 		en.recordNoData(ctx, rule, read.TagSelection)
 		return en.resolveRestoredTraps(ctx, rule), nil
@@ -269,6 +281,7 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 			acted = append(acted, alert)
 		}
 	}
+	en.pruneDepartedQueryGroups(departed)
 	return append(acted, en.resolveRestoredTraps(ctx, rule)...), nil
 }
 
@@ -368,7 +381,7 @@ func labelsFromStateKey(key, prefix string) map[string]string {
 
 // samples reads a rule's current samples from the source its type names.
 func (en *Engine) samples(ctx context.Context, rule Rule) (RuleMetricRead, error) {
-	if rule.HasTagFilter {
+	if rule.HasTagFilter || rule.Metric == QueryMetric {
 		if rule.Type == Trap {
 			return RuleMetricRead{}, fmt.Errorf("alert: test tag selection requires a metric source")
 		}
@@ -382,6 +395,23 @@ func (en *Engine) samples(ctx context.Context, rule Rule) (RuleMetricRead, error
 		}
 		if err := ctx.Err(); err != nil {
 			return RuleMetricRead{}, err
+		}
+		if rule.Metric == QueryMetric {
+			if rule.HasTagFilter || read.TagSelection != nil {
+				return RuleMetricRead{}, ErrQueryGroups
+			}
+			if read.Skip {
+				if len(read.Samples) != 0 || read.QuerySelection != nil {
+					return RuleMetricRead{}, ErrQueryGroups
+				}
+				return read, nil
+			}
+			if err := read.QuerySelection.Validate(rule); err != nil {
+				return RuleMetricRead{}, err
+			}
+			selection := *read.QuerySelection
+			read.QuerySelection = &selection
+			return read, nil
 		}
 		if err := read.TagSelection.Validate(); err != nil {
 			return RuleMetricRead{}, err

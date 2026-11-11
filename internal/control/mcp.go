@@ -154,6 +154,11 @@ func newMCPServer(
 			} else {
 				options = append(options, option)
 			}
+			if schemas, err := alertQueryToolSchemas(); err != nil {
+				log.Error("MCP saved-query alert schemas are unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, mcp.WithAlertQueryBackend(mcpTagMutationBackend{server: src.NativeFlow}, schemas))
+			}
 			if schemas, err := alertTagToolSchemas(); err != nil {
 				log.Error("MCP alert tag schemas are unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

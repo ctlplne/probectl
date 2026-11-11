@@ -28,6 +28,7 @@ import (
 type AlertTagDependencies struct {
 	Gate      *fairness.Gate
 	FlowStore flowstore.Store
+	Queries   *Server
 }
 
 type alertTagAuthority struct {
@@ -89,6 +90,12 @@ type alertTagMetricSource struct {
 }
 
 func (s alertTagMetricSource) CurrentRule(ctx context.Context, rule alert.Rule) (alert.RuleMetricRead, error) {
+	if rule.Metric == alert.QueryMetric {
+		if s.deps.Queries == nil || s.tenant == "" || s.tenant != rule.TenantID {
+			return alert.RuleMetricRead{}, apierror.Unavailable("saved-query alert source is unavailable")
+		}
+		return s.deps.Queries.readAlertQueryRule(ctx, s.tenant, rule)
+	}
 	if s.pool == nil || s.MetricSource == nil || s.deps.Gate == nil || s.tenant == "" || rule.TenantID != s.tenant || !rule.HasTagFilter || rule.Type == alert.Trap {
 		return alert.RuleMetricRead{}, apierror.Unavailable("current alert metadata source is unavailable")
 	}

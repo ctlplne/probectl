@@ -221,6 +221,29 @@ export interface AlertList {
   items?: AlertRule[]
 }
 
+export interface AlertQueryCondition {
+  comparison?: "gt" | "gte" | "lt" | "lte" | "eq" | "neq"
+  metric?: string
+  mode: "threshold" | "new_group"
+  threshold?: string
+}
+
+export interface AlertQuerySourceInput {
+  condition: AlertQueryCondition
+  every_seconds?: number
+  view_id: string
+  view_version: string
+}
+
+export interface AlertQuerySourceState {
+  configured: boolean
+  next_at?: string
+  rule_id: string
+  rule_updated_at: string
+  source?: AlertQuerySourceInput | null
+  stale_revision: boolean
+}
+
 export interface AlertRequest {
   channels?: ChannelSpec[]
   comparison?: "gt" | "lt" | "gte" | "lte" | "eq" | "neq"
@@ -229,12 +252,13 @@ export interface AlertRequest {
   match?: { [key: string]: string }
   metric?: string
   name: string
+  query_source?: AlertQuerySourceInput | null
   renotify_seconds?: number
   sensitivity?: number
   severity?: "info" | "warning" | "critical"
   threshold?: number
   trap?: AlertTrapMatch | null
-  type: "threshold" | "baseline" | "trap"
+  type?: "threshold" | "baseline" | "trap"
   window?: number
 }
 
@@ -2902,6 +2926,16 @@ export interface SavedFlowQueryView {
   version: string
 }
 
+export interface SavedQueryAlertCreateInput {
+  channels?: ChannelSpec[]
+  enabled?: boolean
+  for_n?: number
+  name: string
+  query_source: AlertQuerySourceInput
+  renotify_seconds?: number
+  severity?: "info" | "warning" | "critical"
+}
+
 export interface SelfMetricsSnapshot {
   goroutines: number
   max_procs: number
@@ -3354,6 +3388,25 @@ export interface DeleteMaintenanceWindowRequest {
 }
 
 export type DeleteMaintenanceWindowResponse = void
+
+export interface GetAlertQuerySourceRequest {
+  id: string
+}
+
+export type GetAlertQuerySourceResponse = AlertQuerySourceState
+
+export interface SetAlertQuerySourceRequest {
+  id: string
+  body: AlertQuerySourceInput
+}
+
+export type SetAlertQuerySourceResponse = AlertQuerySourceState
+
+export interface ClearAlertQuerySourceRequest {
+  id: string
+}
+
+export type ClearAlertQuerySourceResponse = AlertQuerySourceState
 
 export interface GetAlertTagFilterRequest {
   id: string
@@ -5157,6 +5210,27 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async getAlertQuerySource(request: GetAlertQuerySourceRequest): Promise<GetAlertQuerySourceResponse> {
+    let path = "/v1/alerts/rules/{id}/query-source"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetAlertQuerySourceResponse>("GET", path, query, undefined)
+  }
+
+  async setAlertQuerySource(request: SetAlertQuerySourceRequest): Promise<SetAlertQuerySourceResponse> {
+    let path = "/v1/alerts/rules/{id}/query-source"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<SetAlertQuerySourceResponse>("PUT", path, query, request.body)
+  }
+
+  async clearAlertQuerySource(request: ClearAlertQuerySourceRequest): Promise<ClearAlertQuerySourceResponse> {
+    let path = "/v1/alerts/rules/{id}/query-source"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ClearAlertQuerySourceResponse>("DELETE", path, query, undefined)
   }
 
   async getAlertTagFilter(request: GetAlertTagFilterRequest): Promise<GetAlertTagFilterResponse> {

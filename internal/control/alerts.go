@@ -51,23 +51,30 @@ func (s *Server) alertingHealth() alertingRuntimeHealth {
 }
 
 type alertRequest struct {
-	Name            string              `json:"name"`
-	Enabled         *bool               `json:"enabled"`
-	Metric          string              `json:"metric"`
-	Match           map[string]string   `json:"match"`
-	Type            string              `json:"type"`
-	Comparison      string              `json:"comparison"`
-	Threshold       float64             `json:"threshold"`
-	Window          int                 `json:"window"`
-	Sensitivity     float64             `json:"sensitivity"`
-	ForN            int                 `json:"for_n"`
-	RenotifySeconds int                 `json:"renotify_seconds"`
-	Severity        string              `json:"severity"`
-	Channels        []alert.ChannelSpec `json:"channels"`
-	Trap            *alert.TrapMatch    `json:"trap"`
+	Name            string                  `json:"name"`
+	Enabled         *bool                   `json:"enabled"`
+	Metric          string                  `json:"metric"`
+	Match           map[string]string       `json:"match"`
+	Type            string                  `json:"type"`
+	Comparison      string                  `json:"comparison"`
+	Threshold       float64                 `json:"threshold"`
+	Window          int                     `json:"window"`
+	Sensitivity     float64                 `json:"sensitivity"`
+	ForN            int                     `json:"for_n"`
+	RenotifySeconds int                     `json:"renotify_seconds"`
+	Severity        string                  `json:"severity"`
+	Channels        []alert.ChannelSpec     `json:"channels"`
+	Trap            *alert.TrapMatch        `json:"trap"`
+	QuerySource     *alert.QuerySourceInput `json:"query_source,omitempty"`
 }
 
 func (req alertRequest) toRule() (alert.Rule, error) {
+	if req.QuerySource != nil {
+		if req.Metric != "" || req.Type != "" || req.Comparison != "" || req.Threshold != 0 || len(req.Match) != 0 || req.Window != 0 || req.Sensitivity != 0 || req.Trap != nil {
+			return alert.Rule{}, apierror.Validation("query_source replaces metric, match, type, comparison, threshold, baseline and trap fields")
+		}
+		req.Metric, req.Type, req.Comparison, req.Threshold = alert.QueryMetric, string(alert.Threshold), string(alert.GTE), 1
+	}
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
@@ -179,15 +186,11 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) error
 	if err := rejectUnresolvedRedactedSecrets(&rule); err != nil {
 		return err
 	}
-	var created *alert.Rule
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		x, e := store.AlertRules{}.Create(ctx, sc, rule)
-		if e != nil {
-			return e
-		}
-		created = x
-		return s.recordAudit(ctx, sc, r, "alert.create", x.ID, map[string]any{"name": x.Name})
-	}); err != nil {
+	created, err := s.createAlertRule(r.Context(), auth.PrincipalFrom(r.Context()), rule, req.QuerySource,
+		func(ctx context.Context, sc tenancy.Scope, created *alert.Rule) error {
+			return s.recordAudit(ctx, sc, r, "alert.create", created.ID, map[string]any{"name": created.Name})
+		})
+	if err != nil {
 		return err
 	}
 	w.Header().Set("Location", "/v1/alerts/"+created.ID)
@@ -238,6 +241,19 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 		return err
 	}); err != nil {
 		return err
+	}
+	actor := auth.PrincipalFrom(r.Context())
+	var query *preparedAlertQuery
+	if req.QuerySource != nil {
+		if observed.HasTagFilter {
+			return apierror.Validation("clear the test tag filter before changing to a saved-query source")
+		}
+		query, err = s.prepareAlertQuery(r.Context(), actor, *req.QuerySource)
+		if err != nil {
+			return err
+		}
+		defer query.Close()
+		r = r.WithContext(query.ctx)
 	}
 	var prepared *alert.TagFilter
 	if observed.HasTagFilter {
@@ -303,6 +319,16 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 		if prepared != nil {
 			x, e = (store.AlertRules{}).SetTagFilter(ctx, sc, id, x.UpdatedAt, prepared)
 			if e != nil {
+				return e
+			}
+		}
+		if query != nil {
+			x, e = (store.AlertRules{}).SetQuerySource(ctx, sc, id, x.UpdatedAt, &query.source, flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes/8,
+				func(ctx context.Context, sc tenancy.Scope) error { return s.publishAlertQuery(ctx, sc, actor, query) })
+			if e != nil {
+				return e
+			}
+			if e := s.recordAlertQueryAudit(ctx, sc, actor.UserID, "alert.query_source.set", id, &query.source); e != nil {
 				return e
 			}
 		}

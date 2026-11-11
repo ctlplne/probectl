@@ -480,3 +480,47 @@ initial state. In-process metric fixtures remain component evidence; the full
 release-image, sender and four-store receipt is still required. The existing
 query ownership and original regression proofs run before the broad isolation
 suite; every broad suite and coverage floor remains mandatory.
+
+
+## Saved Explorer query alerts (preview)
+
+Choose **Create query alert** in Alerts, select a saved Explorer query and its
+exact revision, then choose a per-group threshold or **new group** condition.
+The threshold is an exact decimal string: wide counters never round through a
+floating-point value. The metric key must exist in the saved plan, for example
+`bytes:total`. New-group mode warms the first complete selected top set without
+firing; a newly selected group stays breaching while it remains in that set.
+The saved query controls its time window, dimensions, top set, filters and
+matrix. Summary Other buckets may satisfy a threshold but are not new identities.
+
+Each rule uses the normal debounce, severity, delivery, acknowledgement and
+incident path. Configure delivery and other rule settings through **Edit**.
+The schedule is a minimum separation in seconds (default 60); the evaluator's
+`PROBECTL_ALERT_EVAL_INTERVAL` tick determines actual read opportunities.
+The complete plan must pass Explorer cost admission before the rule is saved.
+Every scheduled read repeats admission and the active configuring user's current
+source grants, bounded by the actual credential's captured read-only ceiling.
+No bearer, session, attribute grant or durable MFA assertion is stored.
+
+A revised/deleted/private source, revoked owner, incomplete coverage, timeout or
+cost refusal withholds evaluation; none resolves a firing group. Explicitly
+rebind the current revision to resume. Clearing a source also clears its opaque
+baseline and disables the rule, and requires only current `alert.write`.
+Reading configuration requires `alert.read`, `ai.query`, `flow.read` and current
+saved-view visibility. Source-specific tags, routing and context permissions are
+checked wherever the saved plan needs them. Tenant-owned rules and sources use
+storage-layer tenant scope and FORCE-RLS throughout.
+
+Create through `POST /v1/alerts` with `name` and `query_source`, replacing the
+metric/type/comparison/threshold/trap fields. Inspect or rebind using
+`GET|PUT|DELETE /v1/alerts/rules/{id}/query-source`. CLI operations are
+`probectl alert query-source`, `query-source-set` and `query-source-clear`;
+`probectl alert create --body-file rule.json` creates a rule. Native MCP exposes
+`alert_query_create`, `alert_query_source_get`, `alert_query_source_set` and
+`alert_query_source_clear` (the clear requires `confirmed:true`). Exact saved
+revisions and threshold strings are shared across every surface.
+
+This extension remains preview until original real-flow fire/resolve/correlation,
+served both-theme accessibility, current-authority and lifecycle proofs pass.
+Ordinary incident metadata contains an opaque group handle, not private source
+values; detailed group explanations remain under construction.

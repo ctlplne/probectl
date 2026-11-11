@@ -2137,6 +2137,215 @@
         }
       }
     },
+    "/v1/alerts/rules/{id}/query-source": {
+      "get": {
+        "operationId": "getAlertQuerySource",
+        "summary": "Read a saved-query alert source",
+        "x-required-permission": "alert.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current saved-query source configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertQuerySourceState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Authentication binds tenant identity; FORCE-RLS scopes every rule and source read. Current active user, credential ceiling, saved-view visibility and source permissions are checked. Exact saved revision, complete coverage and shared Explorer resource admission are required. Changed or refused sources withhold evaluation and cannot resolve firing groups.",
+        "x-additional-permissions": [
+          "ai.query",
+          "flow.read"
+        ]
+      },
+      "put": {
+        "operationId": "setAlertQuerySource",
+        "summary": "Bind an exact saved Explorer revision to an alert",
+        "x-required-permission": "alert.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current saved-query source configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertQuerySourceState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Authentication binds tenant identity; FORCE-RLS scopes every rule and source read. Current active user, credential ceiling, saved-view visibility and source permissions are checked. Exact saved revision, complete coverage and shared Explorer resource admission are required. Changed or refused sources withhold evaluation and cannot resolve firing groups.",
+        "x-additional-permissions": [
+          "ai.query",
+          "flow.read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertQuerySourceInput"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "clearAlertQuerySource",
+        "summary": "Clear a saved-query source and disable its rule",
+        "x-required-permission": "alert.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Metadata filter cleared; other rule settings preserved."
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "200": {
+            "description": "Current saved-query source configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertQuerySourceState"
+                }
+              }
+            }
+          }
+        },
+        "description": "Requires current alert.write. Clears the source and baseline and disables the rule atomically without returning previous criteria."
+      }
+    },
     "/v1/alerts/rules/{id}/tag-filter": {
       "get": {
         "operationId": "getAlertTagFilter",
@@ -18695,11 +18904,193 @@
           }
         }
       },
+      "AlertQueryCondition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "threshold",
+              "new_group"
+            ]
+          },
+          "metric": {
+            "type": "string",
+            "description": "Exact saved-plan metric key, for example bytes:total."
+          },
+          "comparison": {
+            "type": "string",
+            "enum": [
+              "gt",
+              "gte",
+              "lt",
+              "lte",
+              "eq",
+              "neq"
+            ]
+          },
+          "threshold": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+            "description": "Exact decimal string; never rounded through a JSON floating-point number."
+          }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "mode": {
+                "const": "threshold"
+              }
+            },
+            "required": [
+              "metric",
+              "comparison",
+              "threshold"
+            ]
+          },
+          {
+            "properties": {
+              "mode": {
+                "const": "new_group"
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "metric"
+                  ]
+                },
+                {
+                  "required": [
+                    "comparison"
+                  ]
+                },
+                {
+                  "required": [
+                    "threshold"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "AlertQuerySourceInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "view_id",
+          "view_version",
+          "condition"
+        ],
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "view_version": {
+            "type": "string",
+            "description": "Exact saved Explorer revision."
+          },
+          "every_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "maximum": 9223372036,
+            "default": 60,
+            "description": "Minimum separation between admitted reads; zero defaults to 60. Evaluations run on the configured alert tick."
+          },
+          "condition": {
+            "$ref": "#/components/schemas/AlertQueryCondition"
+          }
+        },
+        "description": "Uses an exact saved Explorer query. Authenticated owner and read-only credential ceiling are server-authored. New-group mode warms a complete initial baseline without firing."
+      },
+      "AlertQuerySourceState": {
+        "type": "object",
+        "required": [
+          "rule_id",
+          "rule_updated_at",
+          "configured",
+          "stale_revision"
+        ],
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rule_updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AlertQuerySourceInput",
+            "type": ["object", "null"]
+          },
+          "next_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stale_revision": {
+            "type": "boolean"
+          }
+        },
+        "description": "Configuration state only; contains no captured credentials or private baseline. Configured does not assert successful background evaluation."
+      },
+      "SavedQueryAlertCreateInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "query_source"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "query_source": {
+            "$ref": "#/components/schemas/AlertQuerySourceInput"
+          },
+          "for_n": {
+            "type": "integer",
+            "description": "Consecutive breaches before firing (debounce)."
+          },
+          "renotify_seconds": {
+            "type": "integer",
+            "description": "Re-notify cadence while firing (0 = once)."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelSpec"
+            }
+          }
+        },
+        "description": "Creates a saved-query condition rule; complete source cost and current configuring-user grants are checked before atomic persistence."
+      },
       "AlertRequest": {
         "type": "object",
         "required": [
-          "name",
-          "type"
+          "name"
         ],
         "properties": {
           "name": {
@@ -18778,8 +19169,25 @@
               "null"
             ],
             "description": "Trap rules only (type trap): the trap match. Absent or null for threshold and baseline rules."
+          },
+          "query_source": {
+            "$ref": "#/components/schemas/AlertQuerySourceInput",
+            "type": ["object", "null"]
           }
-        }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "type"
+            ]
+          },
+          {
+            "required": [
+              "query_source"
+            ]
+          }
+        ],
+        "description": "For a saved-query rule, supply query_source instead of metric, type, comparison, threshold, match, baseline or trap fields. The server derives the Boolean predicate rule and verifies complete source cost and current authority before persistence."
       },
       "AlertTagFilterInput": {
         "type": "object",

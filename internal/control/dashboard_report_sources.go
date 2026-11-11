@@ -49,6 +49,7 @@ type reportFlowInput struct {
 // are frozen records; the requirements never stand in for current reader grants.
 type reportFlowCapture struct {
 	TenantID         string
+	ObservedAt       time.Time
 	SourceGeneration int64
 	FilterVersions   map[string]int64
 	Tables           []reporting.CSVTable
@@ -57,8 +58,11 @@ type reportFlowCapture struct {
 	Contexts         []reportContextRequirement
 	ContextsCaptured bool
 	ContextSources   bool
-	release          func()
-	once             sync.Once
+	// Query alerts retain typed results only during this admitted operation.
+	// Reports retain their portable tables instead; neither is read authority.
+	Results []capturedReportFlow
+	release func()
+	once    sync.Once
 }
 
 func (c *reportFlowCapture) Close() {
@@ -88,6 +92,12 @@ func (p preparedReportFlow) executions() int {
 // snapshot ownership or performing a saved-query preference write. No public
 // source route is exposed until configuration and recipient wiring is complete.
 func (s *Server) captureReportFlowSources(ctx context.Context, actor *auth.Principal, refs []reportFlowSourceRef) (_ *reportFlowCapture, resultErr error) {
+	return s.captureFlowSources(ctx, actor, refs, false, false)
+}
+
+// Query alert reads share saved-revision, current-authority, complete source
+// and publication checks with reports, without rendering a CSV/PDF artifact.
+func (s *Server) captureFlowSources(ctx context.Context, actor *auth.Principal, refs []reportFlowSourceRef, typedResults, gateHeld bool) (_ *reportFlowCapture, resultErr error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || actor == nil || bound.String() != actor.TenantID || actor.UserID == "" {
 		return nil, apierror.Forbidden("report source identity is unavailable")
@@ -95,9 +105,11 @@ func (s *Server) captureReportFlowSources(ctx context.Context, actor *auth.Princ
 	if s.pool == nil || s.flowQueryViews == nil || s.fairnessGate == nil || len(refs) == 0 {
 		return nil, apierror.Unavailable("report source admission is unavailable")
 	}
-	policy := s.reportOutputPolicy()
-	if err := policy.Validate(); err != nil {
-		return nil, apierror.Unavailable("report output admission is unavailable")
+	if !typedResults {
+		policy := s.reportOutputPolicy()
+		if err := policy.Validate(); err != nil {
+			return nil, apierror.Unavailable("report output admission is unavailable")
+		}
 	}
 	budget := flowstore.ExplorerQueryBudget(s.flowStore)
 	if err := budget.Validate(); err != nil {
@@ -106,9 +118,15 @@ func (s *Server) captureReportFlowSources(ctx context.Context, actor *auth.Princ
 	if budget.MemoryBytes/4 < reportFlowPreparationReserve {
 		return nil, reportProjectionLimit()
 	}
-	release, err := s.fairnessGate.BeginQuery(ctx, actor.TenantID)
-	if err != nil {
-		return nil, err
+	// Background query sources acquire this same gate before decoding stored
+	// configuration/state. Their caller retains it through final publication.
+	release := func() {}
+	if !gateHeld {
+		var err error
+		release, err = s.fairnessGate.BeginQuery(ctx, actor.TenantID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	defer func() {
 		if resultErr != nil {
@@ -158,7 +176,7 @@ func (s *Server) captureReportFlowSources(ctx context.Context, actor *auth.Princ
 	if cost > workspace/4 {
 		return nil, reportProjectionLimit()
 	}
-	capture, err := s.collectReportFlows(ctx, principal, prepared, at, workspace)
+	capture, err := s.collectFlowSources(ctx, principal, prepared, at, workspace, typedResults)
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +190,7 @@ func (s *Server) captureReportFlowSources(ctx context.Context, actor *auth.Princ
 		}
 	}
 	capture.SourceGeneration = sourceGeneration
+	capture.ObservedAt = at
 	capture.release = release
 	return capture, nil
 }
@@ -280,7 +299,7 @@ func reportPreparedSubjects(prepared []preparedReportFlow) (bool, []string) {
 	return usesTags, subjects
 }
 
-func (s *Server) collectReportFlows(ctx context.Context, p *auth.Principal, prepared []preparedReportFlow, at time.Time, workspace int64) (*reportFlowCapture, error) {
+func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prepared []preparedReportFlow, at time.Time, workspace int64, typedResults bool) (*reportFlowCapture, error) {
 	batch, ok := ctx.Value(reportFlowBatchKey{}).(*flowstore.PlanBatch)
 	if !ok || batch == nil {
 		return nil, apierror.Unavailable("report source batch is unavailable")
@@ -354,15 +373,20 @@ func (s *Server) collectReportFlows(ctx context.Context, p *auth.Principal, prep
 			captures = append(captures, reportFlowResult(p.TenantID, value.view, "previous", before, tagAsOf))
 		}
 	}
-	policy := s.reportOutputPolicy()
-	if err := policy.Validate(); err != nil {
-		return nil, err
+	result := &reportFlowCapture{TenantID: p.TenantID, Contexts: scope.contexts, ContextsCaptured: scope.captured, ContextSources: contextSources}
+	if typedResults {
+		result.Results = captures
+	} else {
+		policy := s.reportOutputPolicy()
+		if err := policy.Validate(); err != nil {
+			return nil, err
+		}
+		tables, err := projectReportFlowRecords(ctx, captures, workspace/4, 2*max(policy.CSVRows, policy.PDFRows))
+		if err != nil {
+			return nil, err
+		}
+		result.Tables = tables
 	}
-	tables, err := projectReportFlowRecords(ctx, captures, workspace/4, 2*max(policy.CSVRows, policy.PDFRows))
-	if err != nil {
-		return nil, err
-	}
-	result := &reportFlowCapture{TenantID: p.TenantID, Tables: tables, Contexts: scope.contexts, ContextsCaptured: scope.captured, ContextSources: contextSources}
 	for permission := range permissions {
 		result.Permissions = append(result.Permissions, permission)
 	}
@@ -374,10 +398,11 @@ func (s *Server) collectReportFlows(ctx context.Context, p *auth.Principal, prep
 		}
 		input.RoutingSource = flowPlanUsesCapturedRouting(capture.Result.Query)
 		if input.RoutingSource {
-			input.Routing, err = encodeFlowRoutingValidity(capture.Result.RoutingProof)
+			routing, err := encodeFlowRoutingValidity(capture.Result.RoutingProof)
 			if err != nil {
 				return nil, flowExplorerStoreError(err)
 			}
+			input.Routing = routing
 		} else if capture.Result.RoutingProof != nil {
 			return nil, errReportSourceRequirements
 		}
