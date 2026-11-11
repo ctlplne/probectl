@@ -35,6 +35,15 @@ import (
 // This is the selected-RIB source/storage proof; flow join, public fallback,
 // estimate, every served field and multi-VRF physical proof remain separate.
 func TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors(t *testing.T) {
+	proveFRRSelectedRIB(t, false)
+}
+
+func TestFRRSelectedRIBJoinsShippedProtocolGoldenFields(t *testing.T) {
+	proveFRRSelectedRIB(t, true)
+}
+
+func proveFRRSelectedRIB(t *testing.T, goldenFlows bool) {
+	t.Helper()
 	if runtime.GOOS != "linux" {
 		testsupport.SkipOrFatal(t, "selected-RIB integration needs a Linux route to the owned FRR bridge")
 	}
@@ -104,6 +113,10 @@ func TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors(t
 		return sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE tenant_id=$1`, second.tenantID).Scan(&foreign)
 	}); err != nil || foreign != 0 {
 		t.Fatal("actual app-role RIB storage crossed tenant RLS", foreign, err)
+	}
+	if goldenFlows {
+		proveFRRSelectedGoldenFlowFields(t, st, lab, first, second)
+		return
 	}
 	// Observe genuine source-driven liveness after both complete initial dumps;
 	// no local timer, socket state or fabricated frame may renew the current RIB.

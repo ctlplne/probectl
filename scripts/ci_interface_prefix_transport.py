@@ -7,6 +7,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -502,12 +503,12 @@ def selftest():
     print("Prefix transport classifier refuses missing, skipped and unrelated proof")
 
 
-def execute(package, roots, label, integration=False, overlay=None, child=""):
+def execute(package, roots, label, integration=False, overlay=None, child="", real_stack=False):
     # The complete positive package batch exceeded five minutes before its
     # last native protocol root finished. Keep every root and give that
     # combined workload its own allowance; exact omission runs stay bounded.
-    go_timeout = "15m" if overlay is None else "5m"
-    process_timeout = 960 if overlay is None else 360
+    go_timeout = "15m" if overlay is None or real_stack else "5m"
+    process_timeout = 960 if overlay is None or real_stack else 360
     args = ["go", "test", "-race", "-count=1", "-timeout=" + go_timeout, "-json"]
     if integration:
         args += ["-tags=integration"]
@@ -2695,6 +2696,37 @@ def peering_flow_clock_control():
             raise RuntimeError(name + " did not fail its exact assertion")
 
 
+def routing_shipped_witness_omission_control():
+    # Propagate the overlay to the child `go build` that produces the actual
+    # collector. Changing only the parent test would leave shipped bytes intact.
+    source = Path("cmd/probectl-flow-agent/main.go").resolve()
+    original = source.read_text()
+    seam = "func (o observedFlowEvidence) SubmitFlowRouting("
+    assert original.count(seam) == 1
+    out = Path("artifacts/interface-prefix-transport").resolve()
+    mutant = overlay_source_path(out, "shipped_flow_witness_omitted.go")
+    mutant.write_text(original.replace(seam, "func (o observedFlowEvidence) submitFlowRouting("))
+    overlay = out / "shipped_flow_witness_omitted.json"
+    overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
+    previous = os.environ.get("GOFLAGS")
+    # A temporary basename also keeps the inherited flag independent of the
+    # checkout's path, including checkout paths containing spaces.
+    with tempfile.TemporaryDirectory(prefix="probectl-flow-witness-") as directory:
+        inherited = Path(directory) / "overlay.json"
+        inherited.write_text(overlay.read_text())
+        os.environ["GOFLAGS"] = (previous or "") + " -overlay=" + str(inherited)
+        try:
+            root = "TestFRRSelectedRIBJoinsShippedProtocolGoldenFields"
+            result = execute("internal/bgp", (root,), "shipped_flow_witness_omitted", integration=True, overlay=inherited, real_stack=True)
+        finally:
+            if previous is None:
+                os.environ.pop("GOFLAGS", None)
+            else:
+                os.environ["GOFLAGS"] = previous
+    if not report_regression_failed_on_assertion(result.stdout, result.returncode, package=PREFIX + "internal/bgp", root=root, child="", marker="waiting for original router paths on every shipped protocol golden"):
+        raise RuntimeError("omitted shipped witness channel did not fail the actual routing field assertion")
+
+
 def main(integration, flow_integration=False):
     if not integration:
         artifact_selftest()
@@ -2728,6 +2760,7 @@ def main(integration, flow_integration=False):
         configuration_incarnation_controls()
         configuration_api_controls()
         configuration_silo_lock_control()
+        routing_shipped_witness_omission_control()
     if not integration:
         bmp_routing_transport_controls()
         peering_interval_combination_control()

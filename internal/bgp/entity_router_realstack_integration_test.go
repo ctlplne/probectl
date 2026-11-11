@@ -863,15 +863,12 @@ func startShippedEdgeFlow(t *testing.T, st *shipped.Stack, lab *routingLab, reg 
 
 func startShippedRouterFlow(t *testing.T, st *shipped.Stack, lab *routingLab, reg edgeFlowRegistration, exporterIP string) string {
 	t.Helper()
+	return startShippedRouterFlowProtocols(t, st, lab, reg, exporterIP, []string{"IPFIX"})["IPFIX"]
+}
+
+func startShippedRouterFlowProtocols(t *testing.T, st *shipped.Stack, lab *routingLab, reg edgeFlowRegistration, exporterIP string, protocols []string) map[string]string {
+	t.Helper()
 	gateway := labBridgeGateway(t, lab)
-	probe, err := net.ListenUDP("udp4", &net.UDPAddr{IP: gateway, Port: 0})
-	if err != nil {
-		t.Fatalf("reserve FX-2 shipped IPFIX listener: %v", err)
-	}
-	listener := probe.LocalAddr().String()
-	if err := probe.Close(); err != nil {
-		t.Fatal(err)
-	}
 	env := reg.env
 	env["PROBECTL_FLOW_BUS_MODE"] = "kafka"
 	env["PROBECTL_FLOW_BUS_BROKERS"] = strings.Join(testsupport.KafkaBrokers(), ",")
@@ -882,9 +879,35 @@ func startShippedRouterFlow(t *testing.T, st *shipped.Stack, lab *routingLab, re
 	env["PROBECTL_FLOW_METRICS_TLS_KEY_FILE"] = st.ServerKey
 	env["PROBECTL_FLOW_NETFLOW_ENABLED"] = "false"
 	env["PROBECTL_FLOW_SFLOW_ENABLED"] = "false"
-	env["PROBECTL_FLOW_IPFIX_ENABLED"] = "true"
-	env["PROBECTL_FLOW_IPFIX_LISTEN"] = listener
-	env["PROBECTL_FLOW_IPFIX_ALLOWED_SOURCES"] = exporterIP + "/32"
+	env["PROBECTL_FLOW_IPFIX_ENABLED"] = "false"
+	listeners := map[string]string{}
+	var probes []*net.UDPConn
+	defer func() {
+		for _, probe := range probes {
+			_ = probe.Close()
+		}
+	}()
+	for _, protocol := range protocols {
+		if (protocol != "NETFLOW" && protocol != "IPFIX" && protocol != "SFLOW") || listeners[protocol] != "" {
+			t.Fatal("invalid or duplicate owned flow protocol", protocol)
+		}
+		probe, err := net.ListenUDP("udp4", &net.UDPAddr{IP: gateway, Port: 0})
+		if err != nil {
+			t.Fatal("reserve owned protocol listener", err)
+		}
+		probes = append(probes, probe)
+		listener := probe.LocalAddr().String()
+		listeners[protocol] = listener
+		env["PROBECTL_FLOW_"+protocol+"_ENABLED"] = "true"
+		env["PROBECTL_FLOW_"+protocol+"_LISTEN"] = listener
+		env["PROBECTL_FLOW_"+protocol+"_ALLOWED_SOURCES"] = exporterIP + "/32"
+	}
+	for _, probe := range probes {
+		if err := probe.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	probes = nil
 	env["PROBECTL_FLOW_EVIDENCE_CONTROL_ADDR"] = st.AgentAddr
 	env["PROBECTL_FLOW_EVIDENCE_ROTATE_URL"] = st.BaseURL + "/enroll/agent/rotate"
 	env["PROBECTL_FLOW_EVIDENCE_CERT_FILE"] = reg.certFile
@@ -902,12 +925,19 @@ func startShippedRouterFlow(t *testing.T, st *shipped.Stack, lab *routingLab, re
 		values = append(values, key+"="+env[key])
 	}
 	log := st.StartProcess(t, "fx2-edge-flow-collector", st.Binary(t, "probectl-flow-agent"), nil, values)
-	shipped.Await(t, "shipped FX-2 IPFIX listener", 20*time.Second, func() bool {
+	shipped.Await(t, "shipped source-bound protocol listeners", 20*time.Second, func() bool {
 		contents, err := os.ReadFile(log)
-		return err == nil && strings.Contains(string(contents), "flow: listening") &&
-			strings.Contains(string(contents), listener)
+		if err != nil || !strings.Contains(string(contents), "flow: listening") {
+			return false
+		}
+		for _, listener := range listeners {
+			if !strings.Contains(string(contents), listener) {
+				return false
+			}
+		}
+		return true
 	})
-	return listener
+	return listeners
 }
 
 // The query crosses the shipped collector, bus, ClickHouse and tenant API.

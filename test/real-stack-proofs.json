@@ -281,6 +281,14 @@
       "capabilities": [
         "F6"
       ]
+    },
+    {
+      "ref": "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBJoinsShippedProtocolGoldenFields",
+      "profile": "integration",
+      "capabilities": [
+        "F6",
+        "F17"
+      ]
     }
   ]
 }
