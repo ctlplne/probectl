@@ -70,6 +70,8 @@ UNIT = {
         "TestInterfaceRoleExplorerSQLKeepsFixedTenantJoinAndCompleteExternalValues",
     ),
     "internal/flow": (
+        "TestPeeringPartialIntervalRanksExactCombinedRatesWithoutTruncatingWindow",
+        "TestPeeringPartialIntervalRefusesMissingForeignCanceledAndUnadmittedInputs",
         "TestPeeringPercentileServiceSeamKeepsExactCombinedRateAndObservedZeros",
         "TestPeeringPercentileServiceSeamRefusesForeignMissingAndPartialInputs",
         "TestRoutingRegistryKeepsCompletePathsUnknownASNsAndEveryQueryAxis",
@@ -106,6 +108,9 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestPeeringSummaryCombinesTransitBeforeP95AndKeepsUnknownVolumes",
+        "TestPeeringSummaryKeepsMissingIntervalsUnprovenAndRefusesLateCorruption",
+        "TestPeeringServiceRequiresCurrentTenantUserBeforeCaptureSelection",
         "TestPeeringTargetKeepsWholeOwnedLANMembershipAndOriginalGenerations",
         "TestPeeringTargetRefusesForeignScopeBeforePublicAvailabilityAndAdmission",
         "TestPeeringTargetRequiresExactCurrentLANBindingRoleAndMembership",
@@ -737,6 +742,27 @@ ROUTING_WRITE_CONTROLS = {
         "false",
         "TestPeeringTrafficKeepsCompleteOwnedPopulationStatesAndExactPartialIntervals", "",
         "peering aggregation dropped owned unknown/state traffic, included another router/tenant, truncated counters or lost partial intervals",
+    ),
+    "peering-partial-duration": (
+        "internal/flow/peering_partial.go",
+        "duration := min(window.Interval, window.To.Sub(values[i].start))",
+        "duration := window.Interval",
+        "TestPeeringPartialIntervalRanksExactCombinedRatesWithoutTruncatingWindow", "",
+        "partial interval lost exact full-window combined rate",
+    ),
+    "peering-summary-combine": (
+        "internal/control/peering_summary.go",
+        "eligible = append(eligible, fact)",
+        "_ = fact",
+        "TestPeeringSummaryCombinesTransitBeforeP95AndKeepsUnknownVolumes", "",
+        "peering service summed per-link percentiles or lost original hand calculation",
+    ),
+    "peering-summary-coverage": (
+        "internal/control/peering_summary.go",
+        "if !result.CompleteObservedInputs {",
+        "if false && !result.CompleteObservedInputs {",
+        "TestPeeringSummaryKeepsMissingIntervalsUnprovenAndRefusesLateCorruption", "",
+        "peering service manufactured observed zeros for a missing interval",
     ),
     "peering-traffic-states": (
         "internal/store/flowstore/peering_traffic.go",
