@@ -20,9 +20,11 @@ import (
 // Its caller supplies the shared finite read operation and refreshes the exact
 // originating transport credential before output. All financial/source/circuit
 // authority and original receipts are re-read together after the calculation.
-func (s *Server) checkCapacityAgreementBill(op capacityAgreementOperation, id string, input flow.CapacityBillRequest) (flow.CapacityAgreementBill, error) {
+func (s *Server) checkCapacityAgreementBill(op capacityAgreementOperation, id string, input flow.CapacityBillRequest) (_ flow.CapacityAgreementBill, operationErr error) {
 	none := flow.CapacityAgreementBill{}
 	ctx := op.request.Context()
+	finish := s.beginFlowOperation(ctx, "capacity_bill_check")
+	defer func() { finish(operationErr) }()
 	parameters, err := capacityBillInput(input, op.budget.MemoryBytes/32)
 	if err != nil {
 		return none, err

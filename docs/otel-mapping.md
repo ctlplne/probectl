@@ -241,3 +241,13 @@ counts service cost refusals; configured policy is not actual examined rows or
 bytes. Missing ClickHouse scan statistics are not invented. This adds no
 listener or automatic outbound exporter. Existing consent, TLS, audit,
 transport limits and tenant storage isolation remain enforced independently.
+
+Capacity measurement uses the existing native flow service namespace:
+`probectl.flow.explorer.capacity_bill_check` and
+`probectl.flow.explorer.capacity_forecast`, each with `.operations` (fixed
+outcome counter), `.duration` (seconds histogram) and `.active` (gauge).
+They include REST and MCP calls through the shared service. Instrument names
+and outcomes are code-owned; no tenant IDs, query text, target IDs, prices,
+thresholds or dependency error strings become metric labels. Incomplete
+coverage remains explicit in the successful measurement result, rather than
+being presented as a trained forecast or charge.

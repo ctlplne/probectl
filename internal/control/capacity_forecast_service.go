@@ -14,9 +14,11 @@ import (
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
-func (s *Server) measureCapacityForecast(op capacityForecastOperation, input flow.CapacityForecastRequest) (flow.CapacityForecastMeasurement, error) {
+func (s *Server) measureCapacityForecast(op capacityForecastOperation, input flow.CapacityForecastRequest) (_ flow.CapacityForecastMeasurement, operationErr error) {
 	none := flow.CapacityForecastMeasurement{}
 	ctx := op.request.Context()
+	finish := s.beginFlowOperation(ctx, "capacity_forecast")
+	defer func() { finish(operationErr) }()
 	parameters, err := capacityForecastInput(ctx, input, op.budget)
 	if err != nil {
 		return none, err
