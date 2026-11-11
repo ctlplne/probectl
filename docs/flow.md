@@ -1273,3 +1273,15 @@ probectl --json capacity-agreements update AGREEMENT_ID --body-file revised-term
 probectl --json capacity-agreements revisions AGREEMENT_ID --query limit=100
 probectl capacity-agreements delete AGREEMENT_ID --query version=2
 ```
+
+
+MCP exposes `capacity_agreements_list`, `capacity_agreement_get`,
+`capacity_agreement_revisions`, `capacity_agreement_create`,
+`capacity_agreement_update` and `capacity_agreement_delete`. These use the same
+financial permissions and current tenant/user authorization as REST. A delete
+requires the observed exact head revision. Neither the caller nor the arguments
+can select a tenant or confer a telemetry grant. Existing MCP consent and full
+PII redaction apply to recorded text and prices, so a protected field can be
+withheld by redaction. Authorized REST, CLI and the Capacity screen retain the
+original financial values. Current canonical target identities and server
+revision/cursor metadata keep their exact values.

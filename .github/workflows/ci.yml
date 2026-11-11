@@ -1540,7 +1540,7 @@ jobs:
           go test -v -tags=integration -count=1 -timeout=5m -run '^(TestDeviceCounter(WitnessUsesOriginalPollAndStableFirstCapture|ScopedReaderKeepsRotationAndTenantBoundary)|TestEnsureSystemRolesSeedsAFreshTenantIdempotently|TestCapacityAgreementRoleMigrationKeepsPrivateSchemasAndExplicitDelegation|TestRoleGrantsBindParentTenantBeforeInsertUpdateAndPermissionRead)$' ./internal/store || result=1
           go test -v -tags=integration -count=1 -timeout=5m -run '^TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit$' ./internal/flow || result=1
           go test -v -tags=integration -count=1 -timeout=5m -run '^TestSiloRoleReferencesKeepTenantOnProvisionCatchupAndLegacyRefusal$' ./ee/silo || result=1
-          go test -v -tags=integration -count=1 -timeout=5m -run '^TestCapacityAgreementAPIKeepsCurrentFinancialAuthorityAndTenantStorage$' ./internal/control || result=1
+          go test -v -tags=integration -count=1 -timeout=5m -run '^TestCapacityAgreement(API|Native)' ./internal/control ./internal/ai/mcp || result=1
           exit "$result"
       - name: Start Prometheus with the remote-write receiver and the admin API
         # A service container cannot take the required --web.enable-remote-write-receiver

@@ -134,6 +134,11 @@ func newMCPServer(
 		options = append(options, mcp.WithEntityBackend(mcpEntityBackend{pool: pool, pathStore: pathStore, policyLoader: policyLoader}))
 		options = append(options, tagReadOptions(pool, policyLoader, src, gate)...)
 		if src.NativeFlow != nil {
+			if option, err := capacityAgreementToolOption(src.NativeFlow); err != nil {
+				log.Error("MCP financial schemas are unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, option)
+			}
 			if option, err := peeringToolOption(src.NativeFlow); err != nil {
 				log.Error("MCP peering schemas are unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

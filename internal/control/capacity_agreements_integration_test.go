@@ -137,6 +137,9 @@ func TestCapacityAgreementAPIKeepsCurrentFinancialAuthorityAndTenantStorage(t *t
 	if item, err := clients[a].GetCapacityAgreement(t.Context(), sdk.GetCapacityAgreementRequest{Id: items[a].Id, At: &at}); err != nil || item == nil || item.Version != "1" {
 		t.Fatal("actual effective lookup lost original nanosecond boundary", item, err)
 	}
+	if status, _ := request(a, http.MethodGet, base+"/"+items[a].Id+"?at=0001-01-01T00:00:00Z", ""); status != http.StatusNotFound {
+		t.Fatal("valid year-one effective lookup must report missing terms, not an invalid instant", status)
+	}
 	pageSize := 1
 	page, err := clients[a].ListCapacityAgreementRevisions(t.Context(), sdk.ListCapacityAgreementRevisionsRequest{Id: items[a].Id, Limit: &pageSize})
 	if err != nil || page == nil || len(page.Items) != 1 || page.Items[0].Version != "2" || !page.HasMore || page.Next != "2" {

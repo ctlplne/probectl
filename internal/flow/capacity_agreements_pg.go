@@ -189,7 +189,7 @@ func (s *PostgresCapacityAgreements) GetCapacityAgreement(ctx context.Context, a
 }
 
 func (s *PostgresCapacityAgreements) CapacityAgreementAt(ctx context.Context, actor, id string, at time.Time) (CapacityAgreement, error) {
-	if !capacityAgreementUUID(id) || at.IsZero() {
+	if !capacityAgreementUUID(id) {
 		return CapacityAgreement{}, ErrCapacityAgreementInvalid
 	}
 	var result CapacityAgreement
