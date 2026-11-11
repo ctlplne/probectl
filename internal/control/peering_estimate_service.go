@@ -67,7 +67,7 @@ func (s *Server) estimatePeeringTraffic(ctx context.Context, actor *auth.Princip
 		return none, err
 	}
 	if !target.Eligible {
-		return peeringEstimateResult{Target: target, Direction: request.Direction, Reason: target.Reason}, nil
+		return peeringEstimateResult{Target: target, Direction: request.Direction, Reason: target.Reason, From: request.From, To: request.To, BucketSeconds: request.BucketSeconds}, nil
 	}
 	fullRoles, err := s.loadFlowRoleSnapshot(ctx, actor, budget)
 	if err != nil {

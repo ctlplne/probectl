@@ -77,6 +77,59 @@
     }
   ],
   "paths": {
+    "/v1/flows/peering-estimate": {
+      "post": {
+        "operationId": "estimateFlowPeering",
+        "summary": "Estimate hypothetical peering over owned observed transit traffic",
+        "tags": [
+          "flow"
+        ],
+        "x-required-permission": "flow.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "description": "Tenant is authenticated, never supplied in JSON. Requires a current tenant user, flow.read, ai.query, entities.read, metrics.read and events.read including current credential/context/source restrictions. Exact owned interface and current PeeringDB ASN/IX/LAN membership establish target eligibility only. Complete current role ownership and original router/public capture paths feed one tenant-bound aggregation. Rechecks the original source selectors, full role inputs and target generations before publication. All eligible bytes are combined per interval before exact p95; arbitrary final partial intervals use their actual duration. This is read-only analysis, never a routing/remediation action.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PeeringEstimateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Target eligibility, complete observed coverage and explicitly qualified known-eligible p95. Missing target inputs or observed intervals remain unavailable, not zero.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeeringEstimateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "description": "Invalid selection, unavailable retained input coverage, or finite tenant resource admission refusal. No truncated answer."
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/entity-contexts/{context_id}/interfaces/{id}/role": {
       "get": {
         "x-required-permission": "entities.read",
@@ -14239,6 +14292,317 @@
       }
     },
     "schemas": {
+      "PeeringEstimateInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "peer_asn": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "ix_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "maxLength": 19,
+            "description": "Positive signed-64-bit PeeringDB identity, carried as exact decimal text."
+          },
+          "ix_lan_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "maxLength": 19,
+            "description": "Positive signed-64-bit PeeringDB identity, carried as exact decimal text."
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bucket_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9223372036
+          },
+          "dataseries": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "raw",
+              "rollup"
+            ]
+          }
+        },
+        "required": [
+          "context_id",
+          "interface_id",
+          "peer_asn",
+          "ix_id",
+          "ix_lan_id",
+          "direction"
+        ],
+        "description": "Hypothetical peering selection only. Tenant, router, roles, source identity and completeness are resolved from current authenticated server state. IX/LAN IDs use exact decimal strings. Default range is the last hour; no fixed historical day cap."
+      },
+      "PeeringEstimateTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "router_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "peer_asn": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "ix_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "maxLength": 19,
+            "description": "Positive signed-64-bit PeeringDB identity, carried as exact decimal text."
+          },
+          "ix_lan_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "maxLength": 19,
+            "description": "Positive signed-64-bit PeeringDB identity, carried as exact decimal text."
+          },
+          "eligible": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "prefix_version": {
+            "type": "string"
+          },
+          "membership_version": {
+            "type": "string"
+          },
+          "prefix_sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "membership_sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "context_id",
+          "interface_id",
+          "peer_asn",
+          "ix_id",
+          "ix_lan_id",
+          "eligible",
+          "reason",
+          "prefix_sources",
+          "membership_sources"
+        ]
+      },
+      "PeeringEstimateCoverage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "observed_intervals": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expected_intervals": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "complete_observed_inputs": {
+            "type": "boolean"
+          },
+          "complete_routing_classification": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "observed_intervals",
+          "expected_intervals",
+          "complete_observed_inputs",
+          "complete_routing_classification"
+        ]
+      },
+      "PeeringRateEstimate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "selected_interval_bytes": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Exact nonnegative decimal; never coerce to a floating-point number."
+          },
+          "bits_per_second_numerator": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "description": "Exact nonnegative decimal; never coerce to a floating-point number."
+          },
+          "bits_per_second_denominator": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "intervals": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nonzero_intervals": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "selected_interval_bytes",
+          "bits_per_second_numerator",
+          "bits_per_second_denominator",
+          "intervals",
+          "rank",
+          "nonzero_intervals"
+        ]
+      },
+      "PeeringTransitEstimate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "known_eligible_p95": {
+            "$ref": "#/components/schemas/PeeringRateEstimate"
+          }
+        },
+        "required": [
+          "interface_id",
+          "known_eligible_p95"
+        ]
+      },
+      "PeeringEstimateResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "enum": [
+              "probectl.peering-estimate.v1"
+            ]
+          },
+          "preview": {
+            "type": "boolean"
+          },
+          "target": {
+            "$ref": "#/components/schemas/PeeringEstimateTarget"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bucket_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9223372036
+          },
+          "source": {
+            "type": "string"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/PeeringEstimateCoverage"
+          },
+          "bytes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$",
+              "description": "Exact nonnegative decimal; never coerce to a floating-point number."
+            }
+          },
+          "known_eligible_p95": {
+            "$ref": "#/components/schemas/PeeringRateEstimate"
+          },
+          "transit": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PeeringTransitEstimate"
+            }
+          },
+          "interpretation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "preview",
+          "target",
+          "direction",
+          "reason",
+          "from",
+          "to",
+          "bucket_seconds",
+          "coverage",
+          "bytes",
+          "transit",
+          "interpretation"
+        ],
+        "description": "Preview estimate over observed query inputs only. All original routing match states and unmapped volumes are counted. Missing observed intervals have no p95; partial routing evidence is explicit beside known-eligible p95. Complete observed inputs do not assert lossless network telemetry, a live peer/session, forwarding policy or guaranteed savings."
+      },
       "InterfaceRoleExplanation": {
         "type": "object",
         "additionalProperties": false,

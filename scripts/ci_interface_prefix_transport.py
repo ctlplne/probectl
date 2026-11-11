@@ -108,6 +108,8 @@ UNIT = {
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestPeeringAPIKeepsExactPublicIdentitiesAndQualifiedCompleteOutput",
+        "TestPeeringHTTPRefusesTenantAndAuthorityHintsBeforeServiceReads",
         "TestPeeringSummaryCombinesTransitBeforeP95AndKeepsUnknownVolumes",
         "TestPeeringSummaryKeepsMissingIntervalsUnprovenAndRefusesLateCorruption",
         "TestPeeringServiceRequiresCurrentTenantUserBeforeCaptureSelection",

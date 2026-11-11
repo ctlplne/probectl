@@ -146,6 +146,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/flows/ingest-quality", s.handleFlowIngestQuality, permFlowRead},
 		{http.MethodGet, "/v1/flows/top", s.handleFlowTop, permFlowRead},
 		{http.MethodGet, "/v1/flows/capacity", s.handleFlowCapacity, permFlowRead},
+		{http.MethodPost, "/v1/flows/peering-estimate", s.handlePeeringEstimate, permFlowRead},
 		{http.MethodGet, "/v1/flows/anomalies", s.handleFlowAnomalies, permFlowRead},
 		{http.MethodGet, "/v1/otlp/traces", s.handleOTLPTraces, permMetricsRead},
 		{http.MethodGet, "/v1/otlp/logs", s.handleOTLPLogs, permMetricsRead},

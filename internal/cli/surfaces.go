@@ -75,6 +75,9 @@ type cliCoverage struct {
 }
 
 var surfaceCommands = map[string]surfaceCommand{
+	"peering": {Name: "peering", Summary: "hypothetical observed-route peering estimates", Ops: map[string]apiOp{
+		"estimate": {Method: http.MethodPost, Path: "/v1/flows/peering-estimate", ExactJSON: true, Description: "read-only estimate over an owned IX interface; --body-file supplies context_id, interface_id, peer_asn, exact decimal ix_id/ix_lan_id, inbound/outbound direction and optional range/bucket/dataseries; unknown volumes and observed gaps remain explicit"},
+	}},
 	"routing-bindings": {Name: "routing-bindings", Summary: "current tenant router-local selected-RIB bindings", Ops: map[string]apiOp{
 		"read":    {Method: http.MethodGet, Path: "/v1/entity-contexts/{context_id}/bgp-routing-bindings", ArgName: "context_id", ExactJSON: true, Description: "read complete configuration; use --query collector_agent_id=... --query source_ref=..."},
 		"replace": {Method: http.MethodPut, Path: "/v1/entity-contexts/{context_id}/bgp-routing-bindings", ArgName: "context_id", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "replace complete bindings with exact expected_epoch; use --body-file - for stdin"},
