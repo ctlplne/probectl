@@ -115,7 +115,7 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows bool) {
 		t.Fatal("actual app-role RIB storage crossed tenant RLS", foreign, err)
 	}
 	if goldenFlows {
-		proveFRRSelectedGoldenFlowFields(t, st, lab, first, second)
+		proveFRRSelectedGoldenFlowFields(t, st, lab, first, second, []netip.Addr{netip.MustParseAddr(lab.ip["edge"]), netip.MustParseAddr(link.peerIP6)})
 		return
 	}
 	// Observe genuine source-driven liveness after both complete initial dumps;

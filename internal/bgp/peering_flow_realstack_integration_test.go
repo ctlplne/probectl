@@ -10,17 +10,22 @@ package bgp_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/netip"
 	"os/exec"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
 
@@ -29,8 +34,37 @@ import (
 // datagrams below are protocol goldens emitted from the owned router network
 // namespace, not claims of hardware export or actual forwarding. This
 // field leg does not replace physical senders or peering p95 proof.
-func proveFRRSelectedGoldenFlowFields(t *testing.T, st *shipped.Stack, lab *routingLab, own, sibling edgeFlowRegistration) {
+func proveFRRSelectedGoldenFlowFields(t *testing.T, st *shipped.Stack, lab *routingLab, own, sibling edgeFlowRegistration, nextHops []netip.Addr) {
 	t.Helper()
+	// Next-hop ASN needs independent current neighbor evidence. Establish it
+	// before the first immutable flow capture; never warm up by discarding a
+	// flow or infer this ASN from the selected AS path.
+	pool := st.ApplicationReadPool(t)
+	peers := store.NewInterfaceRoleInputs(pool)
+	wanted := map[netip.Addr]bool{}
+	for _, address := range nextHops {
+		wanted[address] = true
+	}
+	shipped.Await(t, "current independently authenticated router neighbors before golden ingestion", time.Minute, func() bool {
+		seen := map[netip.Addr]bool{}
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(own.tenantID))
+		err := tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+			rows, err := peers.RouterPeersInScope(ctx, sc, entity.Scope{TenantID: own.tenantID, ContextID: own.contextID}, own.deviceID, entity.InterfaceRolePolicyBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20})
+			if err != nil {
+				return err
+			}
+			for _, peer := range rows {
+				if wanted[peer.Address] {
+					if peer.ASN != edgeASN || !peer.ValidUntil.After(time.Now()) {
+						return nil
+					}
+					seen[peer.Address] = true
+				}
+			}
+			return nil
+		})
+		return err == nil && len(seen) == len(wanted)
+	})
 	exporter := lab.ip["rtr-a"]
 	listeners := startShippedRouterFlowProtocols(t, st, lab, own, exporter, []string{"NETFLOW", "IPFIX", "SFLOW"})
 	started := time.Now().UTC()
