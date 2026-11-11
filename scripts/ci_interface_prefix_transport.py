@@ -51,6 +51,7 @@ UNIT = {
         "TestFlowIXPrefixLocalConfigKeepsNoEgressAndPositiveFreshness",
     ),
     "internal/store/flowstore": (
+        "TestPeeringRoleScopeKeepsWholeCurrentOwnershipBeforeRouterSelection",
         "TestRoutingASNFiltersBindUnknownSeparatelyFromZeroAndKeepExclusions",
         "TestRoutingQueryProjectionKeepsWholeSharedPathsAndOriginalTenantKeys",
         "TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission",
@@ -662,6 +663,20 @@ ROUTING_WRITE_CONTROLS = {
         "if false && (!bound || err != nil || scope != target.Scope || tenant.String() != scope.TenantID || in.Scope != scope || in.InterfaceID != target.InterfaceID) {",
         "TestPeeringTargetRefusesForeignScopeBeforePublicAvailabilityAndAdmission", "",
         "peering target consulted public availability before the tenant boundary",
+    ),
+    "peering-role-router": (
+        "internal/store/flowstore/peering_roles.go",
+        "if row.Scope == scope && row.RouterID == routerID {\n\t\t\trows = append(rows, row)",
+        "if true {\n\t\t\trows = append(rows, row)",
+        "TestPeeringRoleScopeKeepsWholeCurrentOwnershipBeforeRouterSelection", "",
+        "peering role selection lost complete interfaces or renewed the original clock",
+    ),
+    "peering-role-current": (
+        "internal/store/flowstore/peering_roles.go",
+        "if err := d.validate(ctx, scope.TenantID, now); err != nil {",
+        "if err := d.validate(ctx, scope.TenantID, now); false && err != nil {",
+        "TestPeeringRoleScopeKeepsWholeCurrentOwnershipBeforeRouterSelection", "",
+        "peering selection pruned expired full-source authority",
     ),
     "peering-target-lan": (
         "internal/control/peering_target.go",
