@@ -67,9 +67,6 @@ func preparePublicSnapshot(ctx context.Context, input BGPPublicSnapshotInput, pr
 		!time.Unix(0, input.ObservedAt.UnixNano()).Equal(input.ObservedAt) || input.ObservedAt.UnixNano() < 0 {
 		return nil, digest, profile, ErrBGPRoutingView
 	}
-	if profile.LeaseDuration <= 0 {
-		return nil, digest, profile, ErrBGPRoutingBudget
-	}
 	if input.SourceObservedUnixNanos != nil && *input.SourceObservedUnixNanos < 0 {
 		return nil, digest, profile, ErrBGPRoutingView
 	}

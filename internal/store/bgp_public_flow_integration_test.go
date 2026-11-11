@@ -149,7 +149,7 @@ func TestPublicFlowFallbackKeepsOriginalCaptureAndCurrentTenantSourceAuthority(t
 	assertOriginal(0)
 	assertOriginal(1)
 	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET expires_at=clock_timestamp()-interval '1 second' WHERE tenant_id=$1 AND context_id=$2 AND source_kind='public_bgp'`, f.tenants[0], f.contextID)
+		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET expires_at=clock_timestamp() WHERE tenant_id=$1 AND context_id=$2 AND source_kind='public_bgp'`, f.tenants[0], f.contextID)
 		return err
 	})
 	if got, err := read(0); !errors.Is(err, ErrBGPRoutingSourceUnavailable) || got.Owner.TenantID != "" {

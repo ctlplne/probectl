@@ -73,6 +73,19 @@ func TestPublicSnapshotManifestKeepsBothFamiliesWholeIdentityExactClocksAndEmpty
 	}
 }
 
+func TestPublicSnapshotManifestIdentityDoesNotRequireAReplacementLease(t *testing.T) {
+	input, budget := publicSnapshotFixture()
+	_, original, _, err := preparePublicSnapshot(t.Context(), input, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budget.LeaseDuration = 0
+	peers, retained, _, err := preparePublicSnapshot(t.Context(), input, budget)
+	if err != nil || retained != original || len(peers) != len(input.Definitions) {
+		t.Fatal("immutable public manifest required a new lease or changed original source identity", err)
+	}
+}
+
 func TestPublicSnapshotManifestRefusesLatePartialBudgetAndForeignTenantBeforeStorage(t *testing.T) {
 	for _, mutate := range []func(*BGPPublicSnapshotInput){
 		func(i *BGPPublicSnapshotInput) { i.Definitions = append(i.Definitions, i.Definitions[0]) },

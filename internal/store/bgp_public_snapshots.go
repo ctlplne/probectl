@@ -38,6 +38,11 @@ func (store BGPRouting) StagePublicSnapshotInScope(ctx context.Context, sc tenan
 	if err := routingConfigurationScope(ctx, sc); err != nil {
 		return none, err
 	}
+	// Creating a source needs a bounded new lease. Immutable manifest
+	// verification has no replacement lease and checks original expiry instead.
+	if profile.LeaseDuration <= 0 {
+		return none, ErrBGPRoutingBudget
+	}
 	if input.SourceObservedUnixNanos != nil {
 		clock := *input.SourceObservedUnixNanos
 		input.SourceObservedUnixNanos = &clock
