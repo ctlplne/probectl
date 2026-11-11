@@ -1993,11 +1993,15 @@ jobs:
             || { echo "::error::control binary references no hashed /ui/assets bundle (SUP-06)"; exit 1; }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: web-build-${{ github.sha }}
-          path: |
-            web/dist/
-            receipts/web-ux/bundle-budget.json
+          name: web-build-${{ github.sha }}-${{ github.run_attempt }}
+          path: web/dist/
           retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: web-bundle-budget-receipt-${{ github.run_attempt }}
+          path: receipts/web-ux/bundle-budget.json
+          retention-days: 90
 
   web:
     needs: action-pins
