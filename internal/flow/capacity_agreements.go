@@ -71,6 +71,18 @@ type SaveCapacityAgreement struct {
 	Definition CapacityAgreementDefinition `json:"definition"`
 }
 
+type CapacityAgreementList struct {
+	After string
+	Limit int
+}
+
+type CapacityAgreementPage struct {
+	Items   []CapacityAgreement `json:"items"`
+	Next    string              `json:"next,omitempty"`
+	HasMore bool                `json:"has_more"`
+	AsOf    time.Time           `json:"as_of"`
+}
+
 func capacityAgreementUUID(value string) bool {
 	id, err := uuid.Parse(value)
 	return err == nil && id != uuid.Nil && id.String() == value

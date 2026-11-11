@@ -34,21 +34,36 @@ type PostgresCapacityAgreements struct {
 	fence                              tenancy.WriterFence
 	audit                              QueryConfigAudit
 	stateBytes, memoryBytes, workUnits int64
+	executionLimit                     time.Duration
 }
 
 func NewPostgresCapacityAgreements(pool *pgxpool.Pool, stateBytes, memoryBytes, workUnits int64, record QueryConfigAudit) *PostgresCapacityAgreements {
-	return &PostgresCapacityAgreements{pool: pool, fence: tenancy.NewPostgresWriterFence(pool), audit: record, stateBytes: stateBytes, memoryBytes: memoryBytes, workUnits: workUnits}
+	return &PostgresCapacityAgreements{pool: pool, fence: tenancy.NewPostgresWriterFence(pool), audit: record, stateBytes: stateBytes, memoryBytes: memoryBytes, workUnits: workUnits, executionLimit: time.Minute}
+}
+
+// WithExecutionLimit configures a finite operation deadline before serving.
+// Invalid/unlimited values fail closed when an operation is attempted.
+func (s *PostgresCapacityAgreements) WithExecutionLimit(limit time.Duration) *PostgresCapacityAgreements {
+	s.executionLimit = limit
+	return s
 }
 
 func (s *PostgresCapacityAgreements) scoped(ctx context.Context, actor string, fn func(context.Context, tenancy.Scope) error) error {
+	return s.inScope(ctx, actor, false, fn)
+}
+
+func (s *PostgresCapacityAgreements) inScope(ctx context.Context, actor string, readOnly bool, fn func(context.Context, tenancy.Scope) error) error {
 	if _, ok := tenancy.FromContext(ctx); !ok {
 		return tenancy.ErrNoTenant
 	}
-	if s == nil || s.pool == nil || s.stateBytes <= 0 || s.memoryBytes < 1<<20 || s.workUnits < 4096 || !capacityAgreementText(actor, true) {
+	if s == nil || s.pool == nil || s.stateBytes <= 0 || s.memoryBytes < 1<<20 || s.workUnits < 4096 || s.executionLimit <= 0 || !capacityAgreementText(actor, true) {
 		return ErrCapacityAgreementInvalid
 	}
-	ctx, cancel := context.WithTimeout(tenancy.WithSiloTableLock(ctx), time.Minute)
+	ctx, cancel := context.WithTimeout(tenancy.WithSiloTableLock(ctx), s.executionLimit)
 	defer cancel()
+	if readOnly {
+		return tenancy.InTenantReadSnapshot(ctx, s.pool, fn)
+	}
 	return tenancy.InTenant(ctx, s.pool, fn)
 }
 
@@ -180,10 +195,10 @@ func (s *PostgresCapacityAgreements) SaveCapacityAgreement(ctx context.Context, 
 	if !ok {
 		return CapacityAgreement{}, tenancy.ErrNoTenant
 	}
-	if s == nil || s.pool == nil || s.stateBytes <= 0 {
+	if s == nil || s.pool == nil || s.stateBytes <= 0 || s.executionLimit <= 0 {
 		return CapacityAgreement{}, ErrCapacityAgreementInvalid
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, s.executionLimit)
 	defer cancel()
 	definition, err := NormalizeCapacityAgreement(ctx, input.Definition, s.memoryBytes, s.workUnits)
 	if err != nil {
@@ -285,10 +300,10 @@ func (s *PostgresCapacityAgreements) DeleteCapacityAgreement(ctx context.Context
 	if !ok {
 		return tenancy.ErrNoTenant
 	}
-	if s == nil || s.pool == nil || s.stateBytes <= 0 || !capacityAgreementUUID(id) {
+	if s == nil || s.pool == nil || s.stateBytes <= 0 || s.executionLimit <= 0 || !capacityAgreementUUID(id) {
 		return ErrCapacityAgreementInvalid
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, s.executionLimit)
 	defer cancel()
 	expected, err := capacityAgreementVersion(version)
 	if err != nil {

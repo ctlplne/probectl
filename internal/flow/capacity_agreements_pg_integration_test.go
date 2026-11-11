@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,6 +107,35 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 		if _, err := service.GetCapacityAgreement(bound, "operator", heads[1-i].ID, ""); !errors.Is(err, flow.ErrCapacityAgreementNotFound) {
 			t.Fatal("agreement lookup exposed another tenant", err)
 		}
+		seen := map[string]bool{}
+		after := ""
+		for {
+			page, err := service.ListCapacityAgreements(bound, "operator", flow.CapacityAgreementList{After: after, Limit: 1})
+			if err != nil || len(page.Items) != 1 || page.AsOf.IsZero() {
+				t.Fatal("agreement catalogue lost a complete page", page, err)
+			}
+			item := page.Items[0]
+			if seen[item.ID] || item.TenantID != tenant || item.Definition.UnitPrice != heads[i].Definition.UnitPrice || len(seen) >= 2 {
+				t.Fatal("agreement pagination repeated a row or crossed tenant scope", item)
+			}
+			seen[item.ID] = true
+			if !page.HasMore {
+				if page.Next != "" || len(seen) != 2 {
+					t.Fatal("agreement catalogue ended before its full population", page)
+				}
+				break
+			}
+			if page.Next != item.ID {
+				t.Fatal("agreement continuation did not name the exact last row", page)
+			}
+			after = page.Next
+		}
+		if page, err := service.ListCapacityAgreements(bound, "operator", flow.CapacityAgreementList{Limit: 1001}); err != nil || len(page.Items) != 2 || page.HasMore {
+			t.Fatal("agreement page imposed a fixed row ceiling instead of resource admission", err)
+		}
+		if _, err := service.ListCapacityAgreementRevisions(bound, "operator", heads[1-i].ID, flow.CapacityAgreementList{}); !errors.Is(err, flow.ErrCapacityAgreementNotFound) {
+			t.Fatal("revision pagination exposed another tenant's agreement", err)
+		}
 		if err := tenancy.InTenant(bound, pool, func(ctx context.Context, scope tenancy.Scope) error {
 			var own, foreign int
 			if err := scope.Q.QueryRow(ctx, `SELECT count(*) FROM flow_capacity_agreement_revisions`).Scan(&own); err != nil {
@@ -139,6 +169,28 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 	if _, err := withoutAudit.SaveCapacityAgreement(red, "operator", flow.SaveCapacityAgreement{Definition: heads[0].Definition}); err == nil {
 		t.Fatal("agreement committed without its atomic configuration audit")
 	}
+	rollback := errors.New("intentional agreement audit rollback")
+	var appliedDeadline time.Time
+	limited := flow.NewPostgresCapacityAgreements(pool, 1<<30, 32<<20, 32<<20,
+		func(ctx context.Context, _ tenancy.Scope, _, _, _ string, _ map[string]any) error {
+			appliedDeadline, _ = ctx.Deadline()
+			return rollback
+		}).WithExecutionLimit(30 * time.Second)
+	started := time.Now()
+	_, limitErr := limited.SaveCapacityAgreement(red, "operator", flow.SaveCapacityAgreement{Definition: heads[0].Definition})
+	finished := time.Now()
+	first, last := started.Add(30*time.Second), finished.Add(30*time.Second)
+	if parent, ok := ctx.Deadline(); ok {
+		if parent.Before(first) {
+			first = parent
+		}
+		if parent.Before(last) {
+			last = parent
+		}
+	}
+	if !errors.Is(limitErr, rollback) || appliedDeadline.Before(first) || appliedDeadline.After(last) {
+		t.Fatal("configured operation deadline was lost before transactional audit", appliedDeadline, limitErr)
+	}
 	if err := tenancy.InTenant(red, pool, func(ctx context.Context, scope tenancy.Scope) error {
 		var count int
 		if err := scope.Q.QueryRow(ctx, `SELECT count(*) FROM flow_capacity_agreements`).Scan(&count); err != nil {
@@ -161,6 +213,14 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 	old, err := service.GetCapacityAgreement(red, "operator", heads[0].ID, "1")
 	if err != nil || old.Definition.UnitPrice != heads[0].Definition.UnitPrice || old.CurrentVersion != "2" {
 		t.Fatal("editing terms overwrote the old recorded agreement", old, err)
+	}
+	firstPage, err := service.ListCapacityAgreementRevisions(red, "operator", heads[0].ID, flow.CapacityAgreementList{Limit: 1})
+	if err != nil || len(firstPage.Items) != 1 || firstPage.Items[0].Version != "2" || !firstPage.HasMore || firstPage.Next != "2" {
+		t.Fatal("revision catalogue lost recording order or its continuation", firstPage, err)
+	}
+	lastPage, err := service.ListCapacityAgreementRevisions(red, "operator", heads[0].ID, flow.CapacityAgreementList{After: firstPage.Next, Limit: 1})
+	if err != nil || len(lastPage.Items) != 1 || lastPage.Items[0].Version != "1" || lastPage.Items[0].CurrentVersion != "2" || lastPage.HasMore || lastPage.Next != "" {
+		t.Fatal("revision page omitted or overwrote old financial terms", lastPage, err)
 	}
 	before, _ := time.Parse(time.RFC3339Nano, "2026-12-01T00:00:00.123456789Z")
 	after := before.Add(time.Nanosecond)
@@ -201,6 +261,16 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 	}
 	if _, err := service.GetCapacityAgreement(red, "operator", heads[0].ID, "1"); !errors.Is(err, flow.ErrCapacityAgreementNotFound) {
 		t.Fatal("explicit agreement deletion retained a financial revision", err)
+	}
+	large := heads[1].Definition
+	large.Reference = strings.Repeat("線", 24000)
+	if _, err := service.SaveCapacityAgreement(tenancy.WithTenant(ctx, tenancy.ID(tenants[1])), "operator", flow.SaveCapacityAgreement{Definition: large}); err != nil {
+		t.Fatal("large complete agreement was narrowed to a string ceiling", err)
+	}
+	small := flow.NewPostgresCapacityAgreements(pool, 1<<30, 2<<20, 32<<20, audit.TenantRecord)
+	page, err := small.ListCapacityAgreements(tenancy.WithTenant(ctx, tenancy.ID(tenants[1])), "operator", flow.CapacityAgreementList{})
+	if !errors.Is(err, flow.ErrCapacityAgreementBudget) || page.Items != nil || page.Next != "" {
+		t.Fatal("oversized complete agreement page returned a successful prefix", page, err)
 	}
 	t.Log("real-integration: PostgreSQL app-role FORCE-RLS, reused tenant-owned IDs, exact terms/effective nanos, immutable revisions/CAS and inventory retirement without financial data loss; telemetry/source/surface proof remains separate")
 }
