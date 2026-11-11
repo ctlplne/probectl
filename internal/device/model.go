@@ -63,6 +63,18 @@ type Metric struct {
 	Value float64
 	Unit  string
 	At    time.Time
+	// ExactCounter retains the original typed integer before the legacy TSDB
+	// float conversion. Absence is not zero. It proves neither continuity nor
+	// current source authority; the capacity reader must establish both.
+	// Additive bus transport and exact history are separate integration work.
+	ExactCounter *CounterValue
+}
+
+// CounterValue is the original SNMP counter domain, not a rounded TSDB value.
+// Width is 32 or 64 only when the matching ASN.1 counter type was observed.
+type CounterValue struct {
+	Value uint64
+	Width uint32
 }
 
 // ToProto maps onto the bus/storage schema.

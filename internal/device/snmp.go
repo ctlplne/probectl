@@ -28,10 +28,12 @@ const (
 	// IF-MIB ifTable / ifXTable (per-ifIndex columns).
 	oidIfDescr       = ".1.3.6.1.2.1.2.2.1.2"
 	oidIfOperStatus  = ".1.3.6.1.2.1.2.2.1.8" // 1 = up
+	oidIfInOctets    = ".1.3.6.1.2.1.2.2.1.10"
 	oidIfInDiscards  = ".1.3.6.1.2.1.2.2.1.13"
 	oidIfInErrors    = ".1.3.6.1.2.1.2.2.1.14"
 	oidIfOutDiscards = ".1.3.6.1.2.1.2.2.1.19"
 	oidIfOutErrors   = ".1.3.6.1.2.1.2.2.1.20"
+	oidIfOutOctets   = ".1.3.6.1.2.1.2.2.1.16"
 	oidIfName        = ".1.3.6.1.2.1.31.1.1.1.1"
 	oidIfHCInOctets  = ".1.3.6.1.2.1.31.1.1.1.6"
 	oidIfHCOutOctets = ".1.3.6.1.2.1.31.1.1.1.10"
@@ -218,22 +220,33 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 	// rates them at query time, Prometheus-style).
 	counterCols := []struct {
 		oid, name string
+		width     uint32
+		fallback  bool
 	}{
-		{oidIfHCInOctets, MetricIfInOctets},
-		{oidIfHCOutOctets, MetricIfOutOctets},
-		{oidIfInErrors, MetricIfInErrors},
-		{oidIfOutErrors, MetricIfOutErrors},
-		{oidIfInDiscards, MetricIfInDiscards},
-		{oidIfOutDiscards, MetricIfOutDiscards},
+		{oidIfHCInOctets, MetricIfInOctets, 64, false},
+		{oidIfHCOutOctets, MetricIfOutOctets, 64, false},
+		{oidIfInOctets, MetricIfInOctets, 32, true},
+		{oidIfOutOctets, MetricIfOutOctets, 32, true},
+		{oidIfInErrors, MetricIfInErrors, 32, false},
+		{oidIfOutErrors, MetricIfOutErrors, 32, false},
+		{oidIfInDiscards, MetricIfInDiscards, 32, false},
+		{oidIfOutDiscards, MetricIfOutDiscards, 32, false},
 	}
-	counters := map[uint32]map[string]float64{}
+	type counterMetric struct {
+		value float64
+		exact *CounterValue
+	}
+	counters := map[uint32]map[string]counterMetric{}
 	for _, col := range counterCols {
 		col := col
 		walkColumn(conn, col.oid, func(idx uint32, p gosnmp.SnmpPDU) {
 			if counters[idx] == nil {
-				counters[idx] = map[string]float64{}
+				counters[idx] = map[string]counterMetric{}
 			}
-			counters[idx][col.name] = pduFloat(p)
+			if _, present := counters[idx][col.name]; col.fallback && present {
+				return // Never replace a present HC observation with another width.
+			}
+			counters[idx][col.name] = counterMetric{value: pduFloat(p), exact: snmpExactCounter(p, col.width)}
 		})
 	}
 
@@ -254,7 +267,7 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 			e.Name = e.Descr
 			inv.Interfaces[idx] = e
 		}
-		mk := func(name string, v float64, unit string) {
+		mk := func(name string, v float64, unit string, exact *CounterValue) {
 			m := base
 			m.DeviceName = inv.SysName
 			m.IfIndex, m.IfName = idx, e.Name
@@ -264,21 +277,22 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 			}
 			m.InterfaceAddresses = append(m.InterfaceAddresses, e.ScopedAddrs...)
 			m.Name, m.Value, m.Unit = name, v, unit
+			m.ExactCounter = exact
 			out = append(out, m)
 		}
-		mk(MetricIfOperStatus, boolFloat(e.OperUp), "")
+		mk(MetricIfOperStatus, boolFloat(e.OperUp), "", nil)
 		if e.SpeedMbps > 0 {
 			// ifHighSpeed is natively Mbps; the metric name says mbps and so
 			// must the unit label (was "bps" — a label-only bug; the VALUE
 			// was always Mbps, so no series ever needs rescaling).
-			mk(MetricIfSpeedMbps, float64(e.SpeedMbps), "Mbps")
+			mk(MetricIfSpeedMbps, float64(e.SpeedMbps), "Mbps", nil)
 		}
 		for name, v := range counters[idx] {
 			unit := "octets"
 			if strings.Contains(name, "errors") || strings.Contains(name, "discards") {
 				unit = "packets"
 			}
-			mk(name, v, unit)
+			mk(name, v.value, unit, v.exact)
 		}
 	}
 
