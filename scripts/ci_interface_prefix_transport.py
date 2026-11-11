@@ -175,6 +175,8 @@ UNIT = {
         "TestSNMPPrefixReceiverKeepsPresenceAndRefusesPartialTables",
     ),
     "internal/bgp": (
+        "TestPeeringPathsKeepFullASNOrderedMembershipAndAllPathConsensus",
+        "TestPeeringPathsRefuseMalformedLateUnadmittedAndCanceledEvidence",
         "TestMRTRIBKeepsWholeDualFamilyPathsAttributesClocksAndExplicitAddPath",
         "TestMRTRIBRefusesWholeLateMalformedForeignPeerAndUnadmittedRecords",
         "TestMRTPeerIndexKeepsWholeWirePopulationBinaryIdentityAndEmptySource",
@@ -677,6 +679,27 @@ ROUTING_WRITE_CONTROLS = {
         "if err := d.validate(ctx, scope.TenantID, now); false && err != nil {",
         "TestPeeringRoleScopeKeepsWholeCurrentOwnershipBeforeRouterSelection", "",
         "peering selection pruned expired full-source authority",
+    ),
+    "peering-path-unordered": (
+        "internal/bgp/peering_path.go",
+        "unordered = true",
+        "ordered = true",
+        "TestPeeringPathsKeepFullASNOrderedMembershipAndAllPathConsensus", "set",
+        "peering path eligibility flattened unordered/confederation data or ignored another original path",
+    ),
+    "peering-path-consensus": (
+        "internal/bgp/peering_path.go",
+        "consensus = PeeringPathAmbiguous",
+        "consensus = state",
+        "TestPeeringPathsKeepFullASNOrderedMembershipAndAllPathConsensus", "mixed-paths",
+        "peering path eligibility flattened unordered/confederation data or ignored another original path",
+    ),
+    "peering-path-complete": (
+        "internal/bgp/peering_path.go",
+        "for _, path := range paths {\n\t\tfor _, segment := range path {\n\t\t\tif err := ctx.Err();",
+        "for _, path := range paths[:min(1, len(paths))] {\n\t\tfor _, segment := range path {\n\t\t\tif err := ctx.Err();",
+        "TestPeeringPathsRefuseMalformedLateUnadmittedAndCanceledEvidence", "",
+        "matching first path hid malformed late peering evidence",
     ),
     "peering-target-lan": (
         "internal/control/peering_target.go",
