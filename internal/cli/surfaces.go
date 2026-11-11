@@ -75,6 +75,14 @@ type cliCoverage struct {
 }
 
 var surfaceCommands = map[string]surfaceCommand{
+	"capacity-agreements": {Name: "capacity-agreements", Summary: "tenant financial terms and immutable capacity agreement revisions", Ops: map[string]apiOp{
+		"list":      {Method: http.MethodGet, Path: "/v1/flows/capacity/agreements", ExactJSON: true, Description: "page current financial terms with --query after=... --query limit=...; requires flow.agreements.read"},
+		"get":       {Method: http.MethodGet, Path: "/v1/flows/capacity/agreements/{id}", ArgName: "id", ExactJSON: true, Description: "read current terms, or choose --query version=... or --query at=RFC3339"},
+		"create":    {Method: http.MethodPost, Path: "/v1/flows/capacity/agreements", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "record complete operator terms with --body-file; requires financial read and write permissions"},
+		"update":    {Method: http.MethodPut, Path: "/v1/flows/capacity/agreements/{id}", ArgName: "id", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "append immutable terms with the observed exact version and complete definition in --body-file"},
+		"delete":    {Method: http.MethodDelete, Path: "/v1/flows/capacity/agreements/{id}", ArgName: "id", ExactJSON: true, Description: "delete only the observed head with --query version=..."},
+		"revisions": {Method: http.MethodGet, Path: "/v1/flows/capacity/agreements/{id}/revisions", ArgName: "id", ExactJSON: true, Description: "page immutable recording order with --query after=... --query limit=..."},
+	}},
 	"peering": {Name: "peering", Summary: "hypothetical observed-route peering estimates", Ops: map[string]apiOp{
 		"estimate": {Method: http.MethodPost, Path: "/v1/flows/peering-estimate", ExactJSON: true, Description: "read-only estimate over an owned IX interface; --body-file supplies context_id, interface_id, peer_asn, exact decimal ix_id/ix_lan_id, inbound/outbound direction and optional range/bucket/dataseries; unknown volumes and observed gaps remain explicit"},
 	}},

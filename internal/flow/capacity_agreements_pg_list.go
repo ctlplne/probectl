@@ -58,7 +58,7 @@ func (s *PostgresCapacityAgreements) list(ctx context.Context, actor, id string,
 		}
 	}
 	page := CapacityAgreementPage{Items: []CapacityAgreement{}}
-	err := s.inScope(ctx, actor, true, func(ctx context.Context, sc tenancy.Scope) error {
+	err := s.inScope(ctx, actor, true, false, func(ctx context.Context, sc tenancy.Scope) error {
 		if err := sc.Q.QueryRow(ctx, `SELECT transaction_timestamp()`).Scan(&page.AsOf); err != nil {
 			return err
 		}

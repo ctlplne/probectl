@@ -35,6 +35,7 @@ type PostgresCapacityAgreements struct {
 	audit                              QueryConfigAudit
 	stateBytes, memoryBytes, workUnits int64
 	executionLimit                     time.Duration
+	authorize                          func(context.Context, tenancy.Scope, string, bool) error
 }
 
 func NewPostgresCapacityAgreements(pool *pgxpool.Pool, stateBytes, memoryBytes, workUnits int64, record QueryConfigAudit) *PostgresCapacityAgreements {
@@ -48,11 +49,16 @@ func (s *PostgresCapacityAgreements) WithExecutionLimit(limit time.Duration) *Po
 	return s
 }
 
-func (s *PostgresCapacityAgreements) scoped(ctx context.Context, actor string, fn func(context.Context, tenancy.Scope) error) error {
-	return s.inScope(ctx, actor, false, fn)
+// WithAuthorization installs the serving caller's current credential/user
+// authorization inside the same tenant snapshot as the terms. The repository
+// itself grants no access; private storage/lifecycle callers own authorization.
+// Configure once before use, never concurrently with an operation.
+func (s *PostgresCapacityAgreements) WithAuthorization(authorize func(context.Context, tenancy.Scope, string, bool) error) *PostgresCapacityAgreements {
+	s.authorize = authorize
+	return s
 }
 
-func (s *PostgresCapacityAgreements) inScope(ctx context.Context, actor string, readOnly bool, fn func(context.Context, tenancy.Scope) error) error {
+func (s *PostgresCapacityAgreements) inScope(ctx context.Context, actor string, readOnly, mutation bool, fn func(context.Context, tenancy.Scope) error) error {
 	if _, ok := tenancy.FromContext(ctx); !ok {
 		return tenancy.ErrNoTenant
 	}
@@ -61,10 +67,18 @@ func (s *PostgresCapacityAgreements) inScope(ctx context.Context, actor string, 
 	}
 	ctx, cancel := context.WithTimeout(tenancy.WithSiloTableLock(ctx), s.executionLimit)
 	defer cancel()
-	if readOnly {
-		return tenancy.InTenantReadSnapshot(ctx, s.pool, fn)
+	work := func(ctx context.Context, sc tenancy.Scope) error {
+		if s.authorize != nil {
+			if err := s.authorize(ctx, sc, actor, mutation); err != nil {
+				return err
+			}
+		}
+		return fn(ctx, sc)
 	}
-	return tenancy.InTenant(ctx, s.pool, fn)
+	if readOnly {
+		return tenancy.InTenantReadSnapshot(ctx, s.pool, work)
+	}
+	return tenancy.InTenant(ctx, s.pool, work)
 }
 
 func capacityAgreementStorageError(err error) error {
@@ -163,7 +177,7 @@ func (s *PostgresCapacityAgreements) GetCapacityAgreement(ctx context.Context, a
 		}
 	}
 	var result CapacityAgreement
-	err := s.scoped(ctx, actor, func(ctx context.Context, sc tenancy.Scope) error {
+	err := s.inScope(ctx, actor, true, false, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
 		result, err = s.read(ctx, sc, id, selected, "")
 		return err
@@ -179,7 +193,7 @@ func (s *PostgresCapacityAgreements) CapacityAgreementAt(ctx context.Context, ac
 		return CapacityAgreement{}, ErrCapacityAgreementInvalid
 	}
 	var result CapacityAgreement
-	err := s.scoped(ctx, actor, func(ctx context.Context, sc tenancy.Scope) error {
+	err := s.inScope(ctx, actor, true, false, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
 		result, err = s.read(ctx, sc, id, 0, capacityAgreementNanos(at))
 		return err
@@ -222,7 +236,7 @@ func (s *PostgresCapacityAgreements) SaveCapacityAgreement(ctx context.Context, 
 	}
 	var result CapacityAgreement
 	err = tenancy.FencedWrite(ctx, s.fence, []string{tenant.String()}, func(value string) string { return value }, tenancy.ErrNoTenant, func(ctx context.Context) error {
-		return s.scoped(ctx, actor, func(ctx context.Context, sc tenancy.Scope) error {
+		return s.inScope(ctx, actor, false, true, func(ctx context.Context, sc tenancy.Scope) error {
 			if err := tenancy.LockTenantAuditStream(ctx, sc.Q, tenant.String()); err != nil {
 				return err
 			}
@@ -310,7 +324,7 @@ func (s *PostgresCapacityAgreements) DeleteCapacityAgreement(ctx context.Context
 		return err
 	}
 	err = tenancy.FencedWrite(ctx, s.fence, []string{tenant.String()}, func(value string) string { return value }, tenancy.ErrNoTenant, func(ctx context.Context) error {
-		return s.scoped(ctx, actor, func(ctx context.Context, sc tenancy.Scope) error {
+		return s.inScope(ctx, actor, false, true, func(ctx context.Context, sc tenancy.Scope) error {
 			if err := tenancy.LockTenantAuditStream(ctx, sc.Q, tenant.String()); err != nil {
 				return err
 			}

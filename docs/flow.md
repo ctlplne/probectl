@@ -1218,3 +1218,53 @@ while complete real-source and served-surface qualification is outstanding.
 Native MCP preserves exact numeric IX/LAN identities only after current public
 evidence proves the complete target. Unavailable targets retain untrusted
 caller selections, which remain subject to mandatory text redaction.
+
+
+## Recorded capacity agreements (preview)
+
+`/v1/flows/capacity/agreements` records complete operator financial terms for
+one canonical interface, or one circuit selected by an immutable tag ID and its
+complete value. This configuration does not assert that counters are available,
+calculate a bill, or grant telemetry access. It is separate from the sampled
+capacity series above.
+
+Read with `flow.agreements.read`; create, replace and delete additionally need
+`flow.agreements.write`. Only the administrator system role receives these
+defaults. A delegated financial reader does not need `flow.read`, and an ordinary
+telemetry reader cannot see prices. Current user grants, credential ceiling and
+ABAC are read in the same tenant-isolated storage snapshot as the terms.
+
+Create with POST to the collection and a complete `definition`. Replace with
+PUT to `/{id}` and the observed exact decimal `version`; replacement appends an
+immutable revision. GET `/{id}` returns the head, `?version=1` returns a recorded
+revision, and `?at=2026-11-30T23:59:59.999999999Z` selects effective terms. DELETE
+`/{id}?version=2` uses the observed head version. Foreign and unknown IDs both
+return 404. Inventory retirement preserves financial history without granting
+access to the retired source.
+
+The definition requires `name`, `reference`, `valid_from`, `target`, `billing_day`
+(1–31), offline IANA `timezone`, `direction`, `currency`, `commit_bps`, `unit_bps`
+and `unit_price`. Numeric financial values are exact decimal strings. Interface
+targets require `kind: interface`, `context_id` and `interface_id`; circuit
+targets require `kind: circuit`, `tag_id` and nonempty `tag_value`. The five
+direction conventions are `in`, `out`, `max_directional_percentiles`,
+`interval_max` and `interval_sum`. The commit is a commercial term, not a
+physical counter-wrap bound or forecast capacity threshold.
+
+The collection and `/{id}/revisions` use `after`, `limit`, `next` and `has_more`.
+Revisions page in descending recording order. A default page is 100; larger
+complete pages are admitted by configured memory/work resources without a fixed
+row ceiling or total-history cap. Retained revisions use
+`PROBECTL_FLOW_QUERY_LIBRARY_BYTES`; execution, memory and read-work use the
+existing flow-query operation policy. A refusal returns no partial page.
+
+The generated Go/TypeScript clients expose all six operations. CLI equivalents:
+
+```sh
+probectl --json capacity-agreements list --query limit=1001
+probectl --json capacity-agreements create --body-file terms.json
+probectl --json capacity-agreements get AGREEMENT_ID --query version=1
+probectl --json capacity-agreements update AGREEMENT_ID --body-file revised-terms.json
+probectl --json capacity-agreements revisions AGREEMENT_ID --query limit=100
+probectl capacity-agreements delete AGREEMENT_ID --query version=2
+```

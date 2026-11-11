@@ -14211,6 +14211,458 @@
           "stage": "preview"
         }
       }
+    },
+    "/v1/flows/capacity/agreements": {
+      "get": {
+        "operationId": "listCapacityAgreements",
+        "summary": "List current capacity agreements",
+        "description": "Tenant comes only from the authenticated credential. Current user grants, credential ceiling and ABAC are checked before terms in the same FORCE-RLS snapshot and again before returning data. Requires flow.agreements.read; mutations additionally require flow.agreements.write. Neither permission grants telemetry access. Foreign and missing IDs both return404. Immutable revisions and hash-only mutation audit commit atomically; retired inventory does not erase financial terms. Resources use the configured flow-query library, execution, memory and read-work allowances. No total catalog or history row ceiling; insufficient admission refuses the complete operation.",
+        "tags": [
+          "flows"
+        ],
+        "x-required-permission": "flow.agreements.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exclusive last returned agreement ID (catalog) or exact revision number (revision history). This cursor confers no authority."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 100
+            },
+            "description": "Complete page size, admitted by configured memory/work resources. No fixed row ceiling; no partial page on refusal."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "200": {
+            "description": "List current capacity agreements.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacityAgreementPage"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "cursor",
+          "cursor_param": "after",
+          "limit_param": "limit",
+          "next_cursor": "next",
+          "resource_admitted": true,
+          "reason": "Complete page is admitted by finite operator memory and work budgets; no fixed row ceiling or total history cap."
+        }
+      },
+      "post": {
+        "operationId": "createCapacityAgreement",
+        "summary": "Record a capacity agreement",
+        "description": "Tenant comes only from the authenticated credential. Current user grants, credential ceiling and ABAC are checked before terms in the same FORCE-RLS snapshot and again before returning data. Requires flow.agreements.read; mutations additionally require flow.agreements.write. Neither permission grants telemetry access. Foreign and missing IDs both return404. Immutable revisions and hash-only mutation audit commit atomically; retired inventory does not erase financial terms. Resources use the configured flow-query library, execution, memory and read-work allowances. No total catalog or history row ceiling; insufficient admission refuses the complete operation.",
+        "tags": [
+          "flows"
+        ],
+        "x-required-permission": "flow.agreements.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "201": {
+            "description": "Record a capacity agreement.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacityAgreement"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapacityAgreementInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/flows/capacity/agreements/{id}": {
+      "get": {
+        "operationId": "getCapacityAgreement",
+        "summary": "Read current, recorded or effective capacity terms",
+        "description": "Tenant comes only from the authenticated credential. Current user grants, credential ceiling and ABAC are checked before terms in the same FORCE-RLS snapshot and again before returning data. Requires flow.agreements.read; mutations additionally require flow.agreements.write. Neither permission grants telemetry access. Foreign and missing IDs both return404. Immutable revisions and hash-only mutation audit commit atomically; retired inventory does not erase financial terms. Resources use the configured flow-query library, execution, memory and read-work allowances. No total catalog or history row ceiling; insufficient admission refuses the complete operation.",
+        "tags": [
+          "flows"
+        ],
+        "x-required-permission": "flow.agreements.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            },
+            "description": "Exact recorded revision; mutually exclusive with at."
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Select the latest effective terms at this instant; mutually exclusive with version."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "200": {
+            "description": "Read current, recorded or effective capacity terms.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacityAgreement"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateCapacityAgreement",
+        "summary": "Append immutable capacity agreement terms",
+        "description": "Tenant comes only from the authenticated credential. Current user grants, credential ceiling and ABAC are checked before terms in the same FORCE-RLS snapshot and again before returning data. Requires flow.agreements.read; mutations additionally require flow.agreements.write. Neither permission grants telemetry access. Foreign and missing IDs both return404. Immutable revisions and hash-only mutation audit commit atomically; retired inventory does not erase financial terms. Resources use the configured flow-query library, execution, memory and read-work allowances. No total catalog or history row ceiling; insufficient admission refuses the complete operation.",
+        "tags": [
+          "flows"
+        ],
+        "x-required-permission": "flow.agreements.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "200": {
+            "description": "Append immutable capacity agreement terms.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacityAgreement"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapacityAgreementInput"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteCapacityAgreement",
+        "summary": "Delete an observed capacity agreement revision",
+        "description": "Tenant comes only from the authenticated credential. Current user grants, credential ceiling and ABAC are checked before terms in the same FORCE-RLS snapshot and again before returning data. Requires flow.agreements.read; mutations additionally require flow.agreements.write. Neither permission grants telemetry access. Foreign and missing IDs both return404. Immutable revisions and hash-only mutation audit commit atomically; retired inventory does not erase financial terms. Resources use the configured flow-query library, execution, memory and read-work allowances. No total catalog or history row ceiling; insufficient admission refuses the complete operation.",
+        "tags": [
+          "flows"
+        ],
+        "x-required-permission": "flow.agreements.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            },
+            "description": "Observed current head revision for compare-and-delete."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "204": {
+            "description": "Delete an observed capacity agreement revision."
+          }
+        }
+      }
+    },
+    "/v1/flows/capacity/agreements/{id}/revisions": {
+      "get": {
+        "operationId": "listCapacityAgreementRevisions",
+        "summary": "Page immutable recorded agreement revisions",
+        "description": "Tenant comes only from the authenticated credential. Current user grants, credential ceiling and ABAC are checked before terms in the same FORCE-RLS snapshot and again before returning data. Requires flow.agreements.read; mutations additionally require flow.agreements.write. Neither permission grants telemetry access. Foreign and missing IDs both return404. Immutable revisions and hash-only mutation audit commit atomically; retired inventory does not erase financial terms. Resources use the configured flow-query library, execution, memory and read-work allowances. No total catalog or history row ceiling; insufficient admission refuses the complete operation.",
+        "tags": [
+          "flows"
+        ],
+        "x-required-permission": "flow.agreements.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exclusive last returned agreement ID (catalog) or exact revision number (revision history). This cursor confers no authority."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 100
+            },
+            "description": "Complete page size, admitted by configured memory/work resources. No fixed row ceiling; no partial page on refusal."
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "200": {
+            "description": "Page immutable recorded agreement revisions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacityAgreementPage"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "cursor",
+          "cursor_param": "after",
+          "limit_param": "limit",
+          "next_cursor": "next",
+          "resource_admitted": true,
+          "reason": "Complete page is admitted by finite operator memory and work budgets; no fixed row ceiling or total history cap."
+        }
+      }
     }
   },
   "components": {
@@ -27194,6 +27646,196 @@
             "format": "date-time"
           }
         }
+      },
+      "CapacityTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "interface",
+              "circuit"
+            ]
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tag_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tag_value": {
+            "type": "string"
+          }
+        },
+        "description": "Interface requires context_id and interface_id only. Circuit requires tag_id and a complete nonempty tag_value only. References bind to current-tenant inventory; they confer no telemetry authority."
+      },
+      "CapacityAgreementDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "valid_from": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Effective instant including original nanoseconds; full RFC3339 calendar range is supported."
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/CapacityTarget"
+          },
+          "billing_day": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out",
+              "max_directional_percentiles",
+              "interval_max",
+              "interval_sum"
+            ]
+          },
+          "commit_bps": {
+            "type": "string",
+            "description": "Exact decimal text; never a floating-point quantity."
+          },
+          "unit_bps": {
+            "type": "string",
+            "description": "Exact decimal text; never a floating-point quantity."
+          },
+          "unit_price": {
+            "type": "string",
+            "description": "Exact decimal text; never a floating-point quantity."
+          }
+        },
+        "required": [
+          "name",
+          "reference",
+          "valid_from",
+          "timezone",
+          "currency",
+          "target",
+          "billing_day",
+          "direction",
+          "commit_bps",
+          "unit_bps",
+          "unit_price"
+        ],
+        "description": "Complete operator-recorded financial terms. No price, currency, physical capacity or source grant is inferred. Short months clamp billing_day to their last day; timezone is an offline IANA zone, never Local."
+      },
+      "CapacityAgreementInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "definition"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/CapacityAgreementDefinition"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "description": "Required observed head revision for replacement; omitted for creation."
+          }
+        }
+      },
+      "CapacityAgreement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "current_version": {
+            "type": "string",
+            "description": "Exact decimal text; never a floating-point quantity."
+          },
+          "version": {
+            "type": "string",
+            "description": "Exact decimal text; never a floating-point quantity."
+          },
+          "definition": {
+            "$ref": "#/components/schemas/CapacityAgreementDefinition"
+          },
+          "target_present": {
+            "type": "boolean",
+            "description": "Inventory link is retained; this is not a telemetry-read grant."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "current_version",
+          "version",
+          "definition",
+          "target_present",
+          "created_at",
+          "updated_at",
+          "recorded_at"
+        ]
+      },
+      "CapacityAgreementPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapacityAgreement"
+            }
+          },
+          "next": {
+            "type": "string"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "items",
+          "has_more",
+          "as_of"
+        ]
       }
     }
   }

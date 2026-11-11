@@ -418,6 +418,51 @@ export interface Branding {
   token_overrides?: { [key: string]: string }
 }
 
+export interface CapacityAgreement {
+  created_at: string
+  current_version: string
+  definition: CapacityAgreementDefinition
+  id: string
+  recorded_at: string
+  target_present: boolean
+  updated_at: string
+  version: string
+}
+
+export interface CapacityAgreementDefinition {
+  billing_day: number
+  commit_bps: string
+  currency: string
+  direction: "in" | "out" | "max_directional_percentiles" | "interval_max" | "interval_sum"
+  name: string
+  reference: string
+  target: CapacityTarget
+  timezone: string
+  unit_bps: string
+  unit_price: string
+  valid_from: string
+}
+
+export interface CapacityAgreementInput {
+  definition: CapacityAgreementDefinition
+  version?: string
+}
+
+export interface CapacityAgreementPage {
+  as_of: string
+  has_more: boolean
+  items: CapacityAgreement[]
+  next?: string
+}
+
+export interface CapacityTarget {
+  context_id?: string
+  interface_id?: string
+  kind: "interface" | "circuit"
+  tag_id?: string
+  tag_value?: string
+}
+
 export interface ChangeCandidate {
   event?: ChangeEvent
   reason?: string
@@ -3912,6 +3957,49 @@ export interface FlowCapacityRequest {
 
 export type FlowCapacityResponse = FlowCapacityList
 
+export interface ListCapacityAgreementsRequest {
+  after?: string
+  limit?: number
+}
+
+export type ListCapacityAgreementsResponse = CapacityAgreementPage
+
+export interface CreateCapacityAgreementRequest {
+  body: CapacityAgreementInput
+}
+
+export type CreateCapacityAgreementResponse = CapacityAgreement
+
+export interface GetCapacityAgreementRequest {
+  id: string
+  version?: string
+  at?: string
+}
+
+export type GetCapacityAgreementResponse = CapacityAgreement
+
+export interface UpdateCapacityAgreementRequest {
+  id: string
+  body: CapacityAgreementInput
+}
+
+export type UpdateCapacityAgreementResponse = CapacityAgreement
+
+export interface DeleteCapacityAgreementRequest {
+  id: string
+  version: string
+}
+
+export type DeleteCapacityAgreementResponse = void
+
+export interface ListCapacityAgreementRevisionsRequest {
+  id: string
+  after?: string
+  limit?: number
+}
+
+export type ListCapacityAgreementRevisionsResponse = CapacityAgreementPage
+
 export interface ListFlowIngestQualityRequest {
   agentId?: string
   exporter?: string
@@ -5729,6 +5817,53 @@ export class ProbectlSDKClient {
     if (request.window !== undefined) query.set("window", String(request.window))
     if (request.bucket !== undefined) query.set("bucket", String(request.bucket))
     return this.requestJSON<FlowCapacityResponse>("GET", path, query, undefined)
+  }
+
+  async listCapacityAgreements(request: ListCapacityAgreementsRequest = {}): Promise<ListCapacityAgreementsResponse> {
+    let path = "/v1/flows/capacity/agreements"
+    const query = new URLSearchParams()
+    if (request.after !== undefined) query.set("after", String(request.after))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListCapacityAgreementsResponse>("GET", path, query, undefined)
+  }
+
+  async createCapacityAgreement(request: CreateCapacityAgreementRequest): Promise<CreateCapacityAgreementResponse> {
+    let path = "/v1/flows/capacity/agreements"
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateCapacityAgreementResponse>("POST", path, query, request.body)
+  }
+
+  async getCapacityAgreement(request: GetCapacityAgreementRequest): Promise<GetCapacityAgreementResponse> {
+    let path = "/v1/flows/capacity/agreements/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.version !== undefined) query.set("version", String(request.version))
+    if (request.at !== undefined) query.set("at", String(request.at))
+    return this.requestJSON<GetCapacityAgreementResponse>("GET", path, query, undefined)
+  }
+
+  async updateCapacityAgreement(request: UpdateCapacityAgreementRequest): Promise<UpdateCapacityAgreementResponse> {
+    let path = "/v1/flows/capacity/agreements/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<UpdateCapacityAgreementResponse>("PUT", path, query, request.body)
+  }
+
+  async deleteCapacityAgreement(request: DeleteCapacityAgreementRequest): Promise<DeleteCapacityAgreementResponse> {
+    let path = "/v1/flows/capacity/agreements/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.version !== undefined) query.set("version", String(request.version))
+    await this.request("DELETE", path, query, undefined)
+  }
+
+  async listCapacityAgreementRevisions(request: ListCapacityAgreementRevisionsRequest): Promise<ListCapacityAgreementRevisionsResponse> {
+    let path = "/v1/flows/capacity/agreements/{id}/revisions"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.after !== undefined) query.set("after", String(request.after))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListCapacityAgreementRevisionsResponse>("GET", path, query, undefined)
   }
 
   async listFlowIngestQuality(request: ListFlowIngestQualityRequest = {}): Promise<ListFlowIngestQualityResponse> {

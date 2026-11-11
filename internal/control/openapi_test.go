@@ -47,13 +47,14 @@ type lifecycleExtension struct {
 }
 
 type paginationExtension struct {
-	Mode        string `json:"mode"`
-	CursorParam string `json:"cursor_param"`
-	LimitParam  string `json:"limit_param"`
-	NextCursor  string `json:"next_cursor"`
-	MaxLimit    int    `json:"max_limit"`
-	MaxItems    int    `json:"max_items"`
-	Reason      string `json:"reason"`
+	Mode             string `json:"mode"`
+	CursorParam      string `json:"cursor_param"`
+	LimitParam       string `json:"limit_param"`
+	NextCursor       string `json:"next_cursor"`
+	MaxLimit         int    `json:"max_limit"`
+	MaxItems         int    `json:"max_items"`
+	Reason           string `json:"reason"`
+	ResourceAdmitted bool   `json:"resource_admitted"`
 }
 
 type openAPIParameter struct {
@@ -563,6 +564,8 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/directory/roles":                              "bounded",
 	"/v1/flows/top":                                    "bounded",
 	"/v1/flows/capacity":                               "bounded",
+	"/v1/flows/capacity/agreements":                    "cursor",
+	"/v1/flows/capacity/agreements/{id}/revisions":     "cursor",
 	"/v1/flows/anomalies":                              "bounded",
 	"/v1/flows/ingest-quality":                         "bounded",
 	"/v1/topology":                                     "bounded",
@@ -667,7 +670,7 @@ func TestOpenAPITestTagContextBoundedReadContract(t *testing.T) {
 func assertCursorPagination(t *testing.T, path string, op openAPIOperation, schemas map[string]openAPISchema) {
 	t.Helper()
 	pg := *op.Pagination
-	if pg.CursorParam == "" || pg.LimitParam == "" || pg.NextCursor == "" || pg.MaxLimit <= 0 {
+	if pg.CursorParam == "" || pg.LimitParam == "" || pg.NextCursor == "" || (!pg.ResourceAdmitted && pg.MaxLimit <= 0) {
 		t.Fatalf("GET %s cursor pagination is incomplete: %+v", path, pg)
 	}
 	params := queryParams(op.Parameters)
@@ -679,7 +682,10 @@ func assertCursorPagination(t *testing.T, path string, op openAPIOperation, sche
 	if !ok || limit.In != "query" {
 		t.Fatalf("GET %s limit_param %q is not a query parameter", path, pg.LimitParam)
 	}
-	if limit.Schema.Type != "integer" || limit.Schema.Minimum < 1 || int(limit.Schema.Maximum) != pg.MaxLimit {
+	if pg.ResourceAdmitted && (pg.MaxLimit != 0 || limit.Schema.Maximum != 0 || strings.TrimSpace(pg.Reason) == "") {
+		t.Fatalf("GET %s resource-admitted pages require a complete-page admission reason and no fixed row ceiling", path)
+	}
+	if limit.Schema.Type != "integer" || limit.Schema.Minimum < 1 || (!pg.ResourceAdmitted && int(limit.Schema.Maximum) != pg.MaxLimit) {
 		t.Fatalf("GET %s limit parameter must be integer min=1 max=%d, got %+v", path, pg.MaxLimit, limit.Schema)
 	}
 	schema := resolveSchema(responseSchema(t, path, op), schemas)

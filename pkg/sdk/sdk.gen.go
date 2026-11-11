@@ -501,6 +501,53 @@ type Branding struct {
 	TokenOverrides map[string]string `json:"token_overrides,omitempty"`
 }
 
+type CapacityAgreement struct {
+	CreatedAt      string                      `json:"created_at"`
+	CurrentVersion string                      `json:"current_version"`
+	Definition     CapacityAgreementDefinition `json:"definition"`
+	Id             string                      `json:"id"`
+	RecordedAt     string                      `json:"recorded_at"`
+	TargetPresent  bool                        `json:"target_present"`
+	UpdatedAt      string                      `json:"updated_at"`
+	Version        string                      `json:"version"`
+}
+
+// Complete operator-recorded financial terms. No price, currency, physical capacity or source grant is inferred. Short months clamp billing_day to their last day; timezone is an offline IANA zone, never Local.
+type CapacityAgreementDefinition struct {
+	BillingDay int            `json:"billing_day"`
+	CommitBps  string         `json:"commit_bps"`
+	Currency   string         `json:"currency"`
+	Direction  string         `json:"direction"`
+	Name       string         `json:"name"`
+	Reference  string         `json:"reference"`
+	Target     CapacityTarget `json:"target"`
+	Timezone   string         `json:"timezone"`
+	UnitBps    string         `json:"unit_bps"`
+	UnitPrice  string         `json:"unit_price"`
+	ValidFrom  string         `json:"valid_from"`
+}
+
+type CapacityAgreementInput struct {
+	Definition CapacityAgreementDefinition `json:"definition"`
+	Version    string                      `json:"version,omitempty"`
+}
+
+type CapacityAgreementPage struct {
+	AsOf    string              `json:"as_of"`
+	HasMore bool                `json:"has_more"`
+	Items   []CapacityAgreement `json:"items"`
+	Next    string              `json:"next,omitempty"`
+}
+
+// Interface requires context_id and interface_id only. Circuit requires tag_id and a complete nonempty tag_value only. References bind to current-tenant inventory; they confer no telemetry authority.
+type CapacityTarget struct {
+	ContextId   string `json:"context_id,omitempty"`
+	InterfaceId string `json:"interface_id,omitempty"`
+	Kind        string `json:"kind"`
+	TagId       string `json:"tag_id,omitempty"`
+	TagValue    string `json:"tag_value,omitempty"`
+}
+
 // A change scored as a candidate cause of an incident.
 type ChangeCandidate struct {
 	Event  ChangeEvent `json:"event,omitempty"`
@@ -5838,6 +5885,136 @@ func (c *Client) FlowCapacity(ctx context.Context, req FlowCapacityRequest) (*Fl
 		query.Set("bucket", formatQueryValue(*req.Bucket))
 	}
 	var out FlowCapacityList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List current capacity agreements
+type ListCapacityAgreementsRequest struct {
+	After *string `json:"-"`
+	Limit *int    `json:"-"`
+}
+
+func (c *Client) ListCapacityAgreements(ctx context.Context, req ListCapacityAgreementsRequest) (*CapacityAgreementPage, error) {
+	path := "/v1/flows/capacity/agreements"
+	query := url.Values{}
+	if req.After != nil {
+		query.Set("after", formatQueryValue(*req.After))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out CapacityAgreementPage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Record a capacity agreement
+type CreateCapacityAgreementRequest struct {
+	Body *CapacityAgreementInput `json:"-"`
+}
+
+func (c *Client) CreateCapacityAgreement(ctx context.Context, req CreateCapacityAgreementRequest) (*CapacityAgreement, error) {
+	path := "/v1/flows/capacity/agreements"
+	query := url.Values{}
+	var out CapacityAgreement
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read current, recorded or effective capacity terms
+type GetCapacityAgreementRequest struct {
+	Id      string  `json:"-"`
+	Version *string `json:"-"`
+	At      *string `json:"-"`
+}
+
+func (c *Client) GetCapacityAgreement(ctx context.Context, req GetCapacityAgreementRequest) (*CapacityAgreement, error) {
+	path := "/v1/flows/capacity/agreements/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.Version != nil {
+		query.Set("version", formatQueryValue(*req.Version))
+	}
+	if req.At != nil {
+		query.Set("at", formatQueryValue(*req.At))
+	}
+	var out CapacityAgreement
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Append immutable capacity agreement terms
+type UpdateCapacityAgreementRequest struct {
+	Id   string                  `json:"-"`
+	Body *CapacityAgreementInput `json:"-"`
+}
+
+func (c *Client) UpdateCapacityAgreement(ctx context.Context, req UpdateCapacityAgreementRequest) (*CapacityAgreement, error) {
+	path := "/v1/flows/capacity/agreements/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out CapacityAgreement
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Delete an observed capacity agreement revision
+type DeleteCapacityAgreementRequest struct {
+	Id      string  `json:"-"`
+	Version *string `json:"-"`
+}
+
+func (c *Client) DeleteCapacityAgreement(ctx context.Context, req DeleteCapacityAgreementRequest) error {
+	path := "/v1/flows/capacity/agreements/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.Version != nil {
+		query.Set("version", formatQueryValue(*req.Version))
+	}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Page immutable recorded agreement revisions
+type ListCapacityAgreementRevisionsRequest struct {
+	Id    string  `json:"-"`
+	After *string `json:"-"`
+	Limit *int    `json:"-"`
+}
+
+func (c *Client) ListCapacityAgreementRevisions(ctx context.Context, req ListCapacityAgreementRevisionsRequest) (*CapacityAgreementPage, error) {
+	path := "/v1/flows/capacity/agreements/{id}/revisions"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.After != nil {
+		query.Set("after", formatQueryValue(*req.After))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out CapacityAgreementPage
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
