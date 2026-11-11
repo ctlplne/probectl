@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
@@ -32,35 +33,8 @@ import (
 // this proves current served authority and honest absence, not traffic math,
 // actual ClickHouse, physical senders or a complete native wire journey.
 func TestPeeringEstimateAPIKeepsCurrentTenantSourcesAndUnprovenEmptyIntervals(t *testing.T) {
-	f, _, actors, at := newRoleFlowQueryFixture(t)
-	f.server.WithFlowStore(flowstore.NewMemory())
-	policy := fairness.DefaultPolicy()
-	policy.QueryConcurrency = 2
-	policy.QueriesPerMin = 60
-	f.server.WithFairness(fairness.NewGate(policy, nil))
-	f.server.openDataEnricher = peeringTargetSources(t, time.Now().UTC(), 11, 5001, "10.42.0.0/24")
-	for _, tenant := range f.tenants {
-		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			configuration := store.InterfaceRoleConfiguration{}
-			previous, err := configuration.Policy(ctx, sc, f.contextID, roleExplanationStoreBudget())
-			if err != nil {
-				return err
-			}
-			if _, err := configuration.PutPolicy(ctx, sc, f.contextID, previous.ID, previous.Revision, entity.InterfaceRolePolicyDefinition{}, roleExplanationStoreBudget()); err != nil {
-				return err
-			}
-			if tenant == f.tenants[1] {
-				override, err := configuration.Override(ctx, sc, f.contextID, f.interfaceID)
-				if err != nil {
-					return err
-				}
-				_, err = configuration.PutOverride(ctx, sc, f.contextID, f.interfaceID, override.ID, override.Revision, entity.InterfaceRoleIX)
-				return err
-			}
-			return nil
-		})
-	}
-	input := flow.PeeringEstimateInput{ContextID: f.contextID, InterfaceID: f.interfaceID, PeerASN: ^uint32(0), IXID: "71", LANID: "11", Direction: "inbound", From: at.Add(-time.Hour), To: at, BucketSeconds: 300}
+	f, actors, input := newPeeringEstimateAPIFixture(t)
+
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	read := func(tenant string) (int, flow.PeeringEstimateResponse) {
@@ -140,4 +114,38 @@ func TestPeeringEstimateAPIKeepsCurrentTenantSourcesAndUnprovenEmptyIntervals(t 
 		t.Fatal("actual peering estimate reused withdrawn exporter ownership", status)
 	}
 	assertEmpty(b)
+}
+
+func newPeeringEstimateAPIFixture(t *testing.T) (*roleExplanationAPIFixture, map[string]*auth.Principal, flow.PeeringEstimateInput) {
+	t.Helper()
+	f, _, actors, at := newRoleFlowQueryFixture(t)
+	f.server.WithFlowStore(flowstore.NewMemory())
+	policy := fairness.DefaultPolicy()
+	policy.QueryConcurrency = 2
+	policy.QueriesPerMin = 60
+	f.server.WithFairness(fairness.NewGate(policy, nil))
+	f.server.openDataEnricher = peeringTargetSources(t, time.Now().UTC(), 11, 5001, "10.42.0.0/24")
+	for _, tenant := range f.tenants {
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			configuration := store.InterfaceRoleConfiguration{}
+			previous, err := configuration.Policy(ctx, sc, f.contextID, roleExplanationStoreBudget())
+			if err != nil {
+				return err
+			}
+			if _, err := configuration.PutPolicy(ctx, sc, f.contextID, previous.ID, previous.Revision, entity.InterfaceRolePolicyDefinition{}, roleExplanationStoreBudget()); err != nil {
+				return err
+			}
+			if tenant == f.tenants[1] {
+				override, err := configuration.Override(ctx, sc, f.contextID, f.interfaceID)
+				if err != nil {
+					return err
+				}
+				_, err = configuration.PutOverride(ctx, sc, f.contextID, f.interfaceID, override.ID, override.Revision, entity.InterfaceRoleIX)
+				return err
+			}
+			return nil
+		})
+	}
+	input := flow.PeeringEstimateInput{ContextID: f.contextID, InterfaceID: f.interfaceID, PeerASN: ^uint32(0), IXID: "71", LANID: "11", Direction: "inbound", From: at.Add(-time.Hour), To: at, BucketSeconds: 300}
+	return f, actors, input
 }
