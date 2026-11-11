@@ -125,3 +125,32 @@ func (en *Engine) pruneDepartedQueryGroups(departed map[string]bool) {
 		}
 	}
 }
+
+// ValidQueryGroupKey validates an opaque handle only; a handle never grants
+// access to a source. Current tenant/source authorization remains mandatory.
+func ValidQueryGroupKey(key string) bool {
+	if len(key) != 64 {
+		return false
+	}
+	decoded, err := hex.DecodeString(key)
+	return err == nil && len(decoded) == 32 && hex.EncodeToString(decoded) == key
+}
+
+// QueryGroupInspection is a fresh manual source read, never a historical
+// firing receipt and never an instruction to advance baseline or schedule.
+type QueryGroupInspection struct {
+	Kind                string            `json:"kind"`
+	RuleID              string            `json:"rule_id"`
+	GroupKey            string            `json:"group_key"`
+	ViewID              string            `json:"view_id"`
+	ViewVersion         string            `json:"view_version"`
+	At                  time.Time         `json:"at"`
+	From                time.Time         `json:"from"`
+	To                  time.Time         `json:"to"`
+	Present             bool              `json:"present"`
+	Dimensions          map[string]string `json:"dimensions,omitempty"`
+	ExactValue          string            `json:"exact_value,omitempty"`
+	Condition           QueryCondition    `json:"condition"`
+	ConditionMet        bool              `json:"condition_met"`
+	BaselineInitialized bool              `json:"baseline_initialized"`
+}

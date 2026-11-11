@@ -102,7 +102,7 @@ func TestNativeSavedQueryAlertSchemasKeepExactDecimalAndClosedAuthority(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(schemas) != 4 {
+	if len(schemas) != 5 {
 		t.Fatal("saved-query create/read/set/clear schemas incomplete")
 	}
 	for _, schema := range schemas {

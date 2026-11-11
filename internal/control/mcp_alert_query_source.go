@@ -18,6 +18,13 @@ import (
 
 var _ mcp.AlertQueryBackend = mcpTagMutationBackend{}
 
+func (b mcpTagMutationBackend) AlertQueryGroupGet(ctx context.Context, p *auth.Principal, input mcp.AlertQueryGroupInput) (alert.QueryGroupInspection, error) {
+	if b.server == nil {
+		return alert.QueryGroupInspection{}, apierror.Unavailable("saved-query group inspection is unavailable")
+	}
+	return b.server.readAlertQueryGroup(ctx, p, input.RuleID, input.Group)
+}
+
 func (b mcpTagMutationBackend) AlertQueryCreate(ctx context.Context, p *auth.Principal, input alert.QueryRuleInput) (alert.Rule, error) {
 	if b.server == nil {
 		return alert.Rule{}, apierror.Unavailable("saved-query alerts are unavailable")
@@ -70,6 +77,7 @@ func alertQueryToolSchemas() (map[string]json.RawMessage, error) {
 		return map[string]any{"type": "object", "additionalProperties": false, "properties": properties, "required": required}
 	}
 	return nativeMCPInputSchemas(document.Components.Schemas, map[string]any{
+		"alert_query_group_get":    object(map[string]any{"rule_id": id, "group": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "rule_id", "group"),
 		"alert_query_create":       map[string]any{"$ref": "#/components/schemas/SavedQueryAlertCreateInput"},
 		"alert_query_source_get":   object(map[string]any{"rule_id": id}, "rule_id"),
 		"alert_query_source_set":   object(map[string]any{"rule_id": id, "input": map[string]any{"$ref": "#/components/schemas/AlertQuerySourceInput"}}, "rule_id", "input"),

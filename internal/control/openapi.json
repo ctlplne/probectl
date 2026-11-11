@@ -2137,6 +2137,83 @@
         }
       }
     },
+    "/v1/alerts/rules/{id}/query-group": {
+      "get": {
+        "operationId": "getAlertQueryGroup",
+        "summary": "Inspect one current saved-query group under current source grants",
+        "x-required-permission": "alert.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "group",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A current group or explicit absence, without effects.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertQueryGroupInspection"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Fresh manual query under the actual reader current source permissions. This is not a historical firing receipt. Baseline, schedule, incident and delivery state are unchanged. Absent groups return no source values. The complete saved plan must pass the same Explorer source/coverage/cost admission, then current rule and reader authority are checked again before publication.",
+        "x-additional-permissions": [
+          "ai.query",
+          "flow.read"
+        ]
+      }
+    },
     "/v1/alerts/rules/{id}/query-source": {
       "get": {
         "operationId": "getAlertQuerySource",
@@ -18903,6 +18980,78 @@
             "description": "Current active user, credential scopes and fresh role/policy allow tags.read, test.read and metrics.read. Withheld strips all tag_selection fields regardless of whether any receipt contains one; established alert.read access is preserved."
           }
         }
+      },
+      "AlertQueryGroupInspection": {
+        "type": "object",
+        "required": [
+          "kind",
+          "rule_id",
+          "group_key",
+          "view_id",
+          "view_version",
+          "at",
+          "from",
+          "to",
+          "present",
+          "condition",
+          "condition_met",
+          "baseline_initialized"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "current_query_group"
+          },
+          "rule_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "group_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "view_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "view_version": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "present": {
+            "type": "boolean"
+          },
+          "dimensions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "exact_value": {
+            "type": "string"
+          },
+          "condition": {
+            "$ref": "#/components/schemas/AlertQueryCondition"
+          },
+          "condition_met": {
+            "type": "boolean"
+          },
+          "baseline_initialized": {
+            "type": "boolean"
+          }
+        },
+        "description": "Fresh manual query under the actual reader current source permissions. This is not a historical firing receipt. Baseline, schedule, incident and delivery state are unchanged. Absent groups return no source values."
       },
       "AlertQueryCondition": {
         "type": "object",

@@ -68,6 +68,7 @@ import { pivotHref } from './pivotContext'
 import { useAuth } from '../auth/useAuth'
 import { AlertTagFilterDialog } from './AlertTagFilterDialog'
 import { AlertQuerySourceDialog } from './AlertQuerySourceDialog'
+import { AlertQueryGroupPanel } from './AlertQueryGroupPanel'
 import { savedQueryAlertMetric } from '../api/alerts'
 
 function labelText(labels?: Record<string, string>): string {
@@ -444,6 +445,7 @@ function ActiveAlertDetail({
         <ErrorState description="Could not load on-call connector readiness." />
       ) : null}
 
+      {alert.metric === savedQueryAlertMetric ? <AlertQueryGroupPanel alert={alert} /> : null}
       <section className={styles.evaluations} aria-label="Alert evaluation timeline">
         <div className={styles.evaluationIntro}>
           <div>

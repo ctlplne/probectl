@@ -306,6 +306,24 @@ type AlertQueryCondition struct {
 	Threshold  string `json:"threshold,omitempty"`
 }
 
+// Fresh manual query under the actual reader current source permissions. This is not a historical firing receipt. Baseline, schedule, incident and delivery state are unchanged. Absent groups return no source values.
+type AlertQueryGroupInspection struct {
+	At                  string              `json:"at"`
+	BaselineInitialized bool                `json:"baseline_initialized"`
+	Condition           AlertQueryCondition `json:"condition"`
+	ConditionMet        bool                `json:"condition_met"`
+	Dimensions          map[string]string   `json:"dimensions,omitempty"`
+	ExactValue          string              `json:"exact_value,omitempty"`
+	From                string              `json:"from"`
+	GroupKey            string              `json:"group_key"`
+	Kind                string              `json:"kind"`
+	Present             bool                `json:"present"`
+	RuleId              string              `json:"rule_id"`
+	To                  string              `json:"to"`
+	ViewId              string              `json:"view_id"`
+	ViewVersion         string              `json:"view_version"`
+}
+
 // Uses an exact saved Explorer query. Authenticated owner and read-only credential ceiling are server-authored. New-group mode warms a complete initial baseline without firing.
 type AlertQuerySourceInput struct {
 	Condition    AlertQueryCondition `json:"condition"`
@@ -3903,6 +3921,29 @@ func (c *Client) DeleteMaintenanceWindow(ctx context.Context, req DeleteMaintena
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Inspect one current saved-query group under current source grants
+type GetAlertQueryGroupRequest struct {
+	Id    string  `json:"-"`
+	Group *string `json:"-"`
+}
+
+func (c *Client) GetAlertQueryGroup(ctx context.Context, req GetAlertQueryGroupRequest) (*AlertQueryGroupInspection, error) {
+	path := "/v1/alerts/rules/{id}/query-group"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.Group != nil {
+		query.Set("group", formatQueryValue(*req.Group))
+	}
+	var out AlertQueryGroupInspection
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Read a saved-query alert source

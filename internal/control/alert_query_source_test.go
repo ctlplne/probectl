@@ -14,7 +14,9 @@ import (
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestSavedQueryAlertTypedGroupsKeepMatrixOtherAndExactMetrics(t *testing.T) {
@@ -93,5 +95,34 @@ func TestSavedQueryAlertRequestKeepsExactConditionAndRejectsMixedSources(t *test
 		if _, err := changed.toRule(); err == nil {
 			t.Fatal("query source accepted conflicting metric/baseline criteria")
 		}
+	}
+}
+
+func TestSavedQueryCurrentGroupInspectionKeepsExactFactsAndExplicitAbsence(t *testing.T) {
+	tenant, ruleID, view := "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+	at := time.Now().UTC()
+	source := store.AlertQuerySource{Source: alert.QuerySource{ViewID: view, ViewVersion: "1", Condition: alert.QueryCondition{Mode: "threshold", Metric: "bytes:total", Comparison: alert.GT, Threshold: "18446744073709551616"}}}
+	rule := alert.Rule{ID: ruleID, TenantID: tenant, Metric: alert.QueryMetric}
+	capture := &reportFlowCapture{TenantID: tenant, ObservedAt: at, Inputs: []reportFlowInput{{ID: view, Version: "1", Period: "current", From: at.Add(-time.Minute), To: at}}, Results: []capturedReportFlow{{TenantID: tenant, ID: view, Version: "1", Period: "current", Result: flowstore.PlanResult{Query: flow.QueryPlan{View: "table", Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total"}}}, Coverage: &flowstore.PlanSourceCoverage{CompleteInputs: true}, Rows: []flowstore.PlanRow{{Group: map[string]string{"src_addr": "🌐;=source"}, Metrics: map[string]string{"bytes:total": "18446744073709551617"}}}}}}}
+	snapshot, err := alertQuerySnapshot(ctx, tenant, source.Source, capture, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisions, _, err := alert.EvaluateQueryGroups(ctx, source.Source.Binding(tenant, ruleID), snapshot, source.State, alert.QueryGroupBudget{MemoryBytes: 1 << 20, WorkUnits: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := inspectAlertQueryGroup(ctx, rule, source, capture, decisions[0].Key, 1<<20)
+	if err != nil || out.Kind != "current_query_group" || !out.Present || !out.ConditionMet || out.ExactValue != "18446744073709551617" || out.Dimensions["src_addr"] != "🌐;=source" || !out.At.Equal(at) {
+		t.Fatal("current inspection lost exact source facts", out, err)
+	}
+	out.Dimensions["src_addr"] = "changed"
+	if capture.Results[0].Result.Rows[0].Group["src_addr"] != "🌐;=source" || source.State.Initialized {
+		t.Fatal("manual inspection mutated source or baseline")
+	}
+	absent, err := inspectAlertQueryGroup(ctx, rule, source, capture, strings.Repeat("f", 64), 1<<20)
+	if err != nil || absent.Present || absent.ConditionMet || absent.ExactValue != "" || len(absent.Dimensions) != 0 {
+		t.Fatal("absent current group exposed another group's facts", absent, err)
 	}
 }

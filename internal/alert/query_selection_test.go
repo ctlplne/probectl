@@ -123,3 +123,14 @@ func TestSavedQueryAlertNotDueDoesNotInventAHealthyRead(t *testing.T) {
 		t.Fatal("a skipped query smuggled unverified samples", acted, err)
 	}
 }
+
+func TestSavedQueryOpaqueGroupHandleRejectsUnboundedOrAmbiguousSyntax(t *testing.T) {
+	if !ValidQueryGroupKey(strings.Repeat("a", 64)) {
+		t.Fatal("canonical opaque handle was refused")
+	}
+	for _, key := range []string{"", strings.Repeat("A", 64), strings.Repeat("g", 64), strings.Repeat("a", 65), strings.Repeat("a", 2<<20)} {
+		if ValidQueryGroupKey(key) {
+			t.Fatal("invalid group handle was accepted")
+		}
+	}
+}

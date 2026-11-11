@@ -130,6 +130,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"update":              {Method: http.MethodPut, Path: "/v1/alerts/{id}", ArgName: "id"},
 		"delete":              {Method: http.MethodDelete, Path: "/v1/alerts/{id}", ArgName: "id"},
 		"evaluations":         {Method: http.MethodGet, Path: "/v1/alerts/{id}/evaluations", ArgName: "id", Description: "show bounded tenant-scoped evaluation receipts"},
+		"query-group":         {Method: http.MethodGet, Path: "/v1/alerts/rules/{id}/query-group", ArgName: "id", ExactJSON: true, Description: "inspect a current group under your source grants with --query group=HANDLE; does not change the alert baseline or schedule"},
 		"query-source":        {Method: http.MethodGet, Path: "/v1/alerts/rules/{id}/query-source", ArgName: "id", ExactJSON: true, Description: "read an exact saved-query alert source under current flow grants"},
 		"query-source-set":    {Method: http.MethodPut, Path: "/v1/alerts/rules/{id}/query-source", ArgName: "id", ExactJSON: true, MaxBodyBytes: 2 << 20, Description: "bind a saved Explorer revision and exact grouped condition after complete cost admission"},
 		"query-source-clear":  {Method: http.MethodDelete, Path: "/v1/alerts/rules/{id}/query-source", ArgName: "id", ExactJSON: true, Description: "clear source and baseline and disable the rule"},

@@ -522,5 +522,11 @@ revisions and threshold strings are shared across every surface.
 
 This extension remains preview until original real-flow fire/resolve/correlation,
 served both-theme accessibility, current-authority and lifecycle proofs pass.
-Ordinary incident metadata contains an opaque group handle, not private source
-values; detailed group explanations remain under construction.
+Ordinary incident metadata contains an opaque group handle. **Inspect current
+group** in alert details queries the complete saved source under the actual
+reader's current permissions and shows its AS/destination dimensions and exact
+value, or explicit current absence. It never advances the baseline/schedule and
+is labelled a fresh query, not a historical firing receipt. Read the same data
+with `GET /v1/alerts/rules/{id}/query-group?group=HANDLE`, CLI
+`probectl alert query-group ID --query group=HANDLE`, or native MCP
+`alert_query_group_get`. Historical source-value reconstruction remains unproven.

@@ -14,6 +14,24 @@ import type { FlowQueryFilterGroup } from './flowExplorer'
 export type { AlertQueryCondition, AlertQuerySourceInput, AlertQuerySourceState } from './sdk.gen'
 import type { AlertQuerySourceInput, AlertQuerySourceState } from './sdk.gen'
 
+export type { AlertQueryGroupInspection } from './sdk.gen'
+import type { AlertQueryGroupInspection } from './sdk.gen'
+
+export function getAlertQueryGroup(
+  tenantID: string,
+  ruleID: string,
+  group: string,
+  signal: AbortSignal,
+) {
+  return apiFetch<AlertQueryGroupInspection>(
+    `/alerts/rules/${encodeURIComponent(ruleID)}/query-group?group=${encodeURIComponent(group)}`,
+    {
+      signal,
+      headers: { 'X-Probectl-Tenant': tenantID },
+    },
+  )
+}
+
 export const savedQueryAlertMetric = 'probectl_explorer_query_condition'
 
 export function getAlertQuerySource(tenantID: string, ruleID: string, signal: AbortSignal) {

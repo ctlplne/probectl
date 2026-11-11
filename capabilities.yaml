@@ -151,8 +151,8 @@ capabilities:
     owner: platform/release
     engine: {refs: ["file:internal/alert"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildAlertEvaluatorSupervisor("]}
-    api: {refs: ["api:GET /v1/alerts", "api:GET /v1/alerts/active", "api:GET /v1/alerts/rules/{id}/query-source", "api:PUT /v1/alerts/rules/{id}/query-source", "api:DELETE /v1/alerts/rules/{id}/query-source"]}
-    cli: {refs: ["cli:probectl alert list", "cli:probectl alert active", "cli:probectl alert query-source", "cli:probectl alert query-source-set", "cli:probectl alert query-source-clear"]}
+    api: {refs: ["api:GET /v1/alerts", "api:GET /v1/alerts/active", "api:GET /v1/alerts/rules/{id}/query-group", "api:GET /v1/alerts/rules/{id}/query-source", "api:PUT /v1/alerts/rules/{id}/query-source", "api:DELETE /v1/alerts/rules/{id}/query-source"]}
+    cli: {refs: ["cli:probectl alert list", "cli:probectl alert active", "cli:probectl alert query-group", "cli:probectl alert query-source", "cli:probectl alert query-source-set", "cli:probectl alert query-source-clear"]}
     ui: {refs: ["ui:F8@/alerts"]}
     docs: {refs: ["file:docs/alerting.md#Alerting"]}
     config_keys: {refs: ["config:PROBECTL_ALERT_EVAL_INTERVAL"]}

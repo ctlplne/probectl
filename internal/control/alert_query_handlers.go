@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 )
 
@@ -46,6 +47,19 @@ func (s *Server) handleDeleteAlertQuerySource(w http.ResponseWriter, r *http.Req
 		return err
 	}
 	out, err := s.clearAlertQuerySource(r.Context(), auth.PrincipalFrom(r.Context()), r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, out)
+	return nil
+}
+
+func (s *Server) handleGetAlertQueryGroup(w http.ResponseWriter, r *http.Request) error {
+	values := r.URL.Query()["group"]
+	if len(values) != 1 {
+		return apierror.Validation("one saved-query group handle is required")
+	}
+	out, err := s.readAlertQueryGroup(r.Context(), auth.PrincipalFrom(r.Context()), r.PathValue("id"), values[0])
 	if err != nil {
 		return err
 	}

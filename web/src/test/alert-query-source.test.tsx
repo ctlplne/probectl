@@ -12,6 +12,7 @@ import { AuthContext, type AuthContextValue } from '../auth/AuthProvider'
 import { I18nProvider } from '../i18n/I18nProvider'
 import { TimeProvider } from '../time/TimeProvider'
 import { savedQueryAlertMetric, type AlertRule } from '../api/alerts'
+import { AlertQueryGroupPanel } from '../routes/AlertQueryGroupPanel'
 import { AlertQuerySourceDialog } from '../routes/AlertQuerySourceDialog'
 import { jsonResponse } from './fetchStub'
 
@@ -30,7 +31,7 @@ function identity(tenant = 'tenant-a', permissions = grants): AuthContextValue {
     signOut: vi.fn(),
   }
 }
-function fixture(creating = false) {
+function fixture(creating = false, inspect = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const close = vi.fn()
   const view = (auth: AuthContextValue) => {
@@ -52,7 +53,25 @@ function fixture(creating = false) {
         <I18nProvider initialLocale="en">
           <AuthContext.Provider value={auth}>
             <TimeProvider>
-              <AlertQuerySourceDialog rule={creating ? undefined : rule} onClose={close} />
+              {inspect ? (
+                <AlertQueryGroupPanel
+                  alert={{
+                    fingerprint: 'firing',
+                    evaluation_fingerprint: 'eval',
+                    rule_id: ruleID,
+                    rule_name: 'Source AS',
+                    severity: 'warning',
+                    metric: savedQueryAlertMetric,
+                    labels: { query_group: 'b'.repeat(64) },
+                    value: 1,
+                    reason: 'saved-query condition met',
+                    since: '2026-11-12T00:00:00Z',
+                    last_seen_at: '2026-11-12T00:00:00Z',
+                  }}
+                />
+              ) : (
+                <AlertQuerySourceDialog rule={creating ? undefined : rule} onClose={close} />
+              )}
             </TimeProvider>
           </AuthContext.Provider>
         </I18nProvider>
@@ -89,6 +108,28 @@ function backend() {
               },
             },
           ],
+        })
+      if (path.includes('/query-group?'))
+        return jsonResponse({
+          kind: 'current_query_group',
+          rule_id: ruleID,
+          group_key: 'b'.repeat(64),
+          view_id: viewID,
+          view_version: revision,
+          at: '2026-11-12T00:00:00Z',
+          from: '2026-11-11T23:55:00Z',
+          to: '2026-11-12T00:00:00Z',
+          present: true,
+          dimensions: { src_asn: tenant === 'tenant-b' ? '64513' : '64512' },
+          exact_value: exact,
+          condition: {
+            mode: 'threshold',
+            metric: 'bytes:total',
+            comparison: 'gt',
+            threshold: '50',
+          },
+          condition_met: true,
+          baseline_initialized: true,
         })
       if (method === 'POST') return jsonResponse({ id: ruleID, name: 'Query alert' }, 201)
       if (method === 'DELETE')
@@ -165,4 +206,24 @@ test('saved-query editor clears old tenant criteria and retains write-only expli
   await user.click(screen.getByRole('button', { name: 'Clear and disable' }))
   await screen.findByText('Source and baseline cleared. The rule is disabled.')
   expect(calls.find((call) => call.method === 'DELETE')?.tenant).toBe('tenant-b')
+})
+
+test('current group inspection exposes useful exact facts only in the current tenant scope', async () => {
+  const calls = backend(),
+    user = userEvent.setup(),
+    view = fixture(false, true)
+  await user.click(screen.getByRole('button', { name: 'Inspect current group' }))
+  await screen.findByText('64512')
+  expect(screen.getByText(exact)).toBeInTheDocument()
+  expect(screen.getByText(/not a historical firing receipt/)).toBeInTheDocument()
+  view.rerender(identity('tenant-b'))
+  expect(screen.queryByText('64512')).toBeNull()
+  await user.click(screen.getByRole('button', { name: 'Inspect current group' }))
+  await screen.findByText('64513')
+  expect(
+    calls.filter((call) => call.path.includes('/query-group?')).map((call) => call.tenant),
+  ).toEqual(['tenant-a', 'tenant-b'])
+  view.rerender(identity('tenant-b', ['alert.read']))
+  expect(screen.queryByText('64513')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Inspect current group' })).toBeNull()
 })

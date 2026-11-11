@@ -20,7 +20,13 @@ type AlertQuerySourceInput struct {
 	Input  *alert.QuerySourceInput `json:"input,omitempty"`
 }
 
+type AlertQueryGroupInput struct {
+	RuleID string `json:"rule_id"`
+	Group  string `json:"group"`
+}
+
 type AlertQueryBackend interface {
+	AlertQueryGroupGet(context.Context, *auth.Principal, AlertQueryGroupInput) (alert.QueryGroupInspection, error)
 	AlertQueryCreate(context.Context, *auth.Principal, alert.QueryRuleInput) (alert.Rule, error)
 	AlertQuerySourceGet(context.Context, *auth.Principal, string) (alert.QuerySourceState, error)
 	AlertQuerySourceSet(context.Context, *auth.Principal, AlertQuerySourceInput) (alert.QuerySourceState, error)
@@ -34,12 +40,19 @@ func WithAlertQueryBackend(backend AlertQueryBackend, schemas map[string]json.Ra
 		if backend == nil {
 			return
 		}
-		for _, name := range []string{"alert_query_create", "alert_query_source_get", "alert_query_source_set", "alert_query_source_clear"} {
+		for _, name := range []string{"alert_query_create", "alert_query_group_get", "alert_query_source_get", "alert_query_source_set", "alert_query_source_clear"} {
 			if !json.Valid(schemas[name]) {
 				return
 			}
 		}
 		tools := []Tool{
+			{Name: "alert_query_group_get", Permission: "alert.read", ExtraPermissions: []string{"ai.query", "flow.read"}, Description: "Inspect a current saved-query group with your own source grants. Returns exact dimensions/value or explicit absence; never a historical firing receipt and never advances baseline, schedule or delivery.", Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
+				var input AlertQueryGroupInput
+				if err := decodeNativeArgs(raw, &input); err != nil || !validAlertTagRuleID(input.RuleID) || !alert.ValidQueryGroupKey(input.Group) {
+					return nil, argErr("an owned rule and canonical opaque group handle are required")
+				}
+				return backend.AlertQueryGroupGet(ctx, p, input)
+			}},
 			{Name: "alert_query_create", Permission: "alert.write", ExtraPermissions: []string{"ai.query", "flow.read"}, Description: "Create a saved-query alert with complete source admission, exact decimal conditions and current owner grants. Optional delivery uses the normal configured channels.", Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
 				var input alert.QueryRuleInput
 				if err := decodeBoundedNativeArgs(raw, &input, min(s.nativeRequestBytes(), flow.MaxPlanGrammarBytes)); err != nil {

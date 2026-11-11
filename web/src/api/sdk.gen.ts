@@ -228,6 +228,23 @@ export interface AlertQueryCondition {
   threshold?: string
 }
 
+export interface AlertQueryGroupInspection {
+  at: string
+  baseline_initialized: boolean
+  condition: AlertQueryCondition
+  condition_met: boolean
+  dimensions?: { [key: string]: string }
+  exact_value?: string
+  from: string
+  group_key: string
+  kind: string
+  present: boolean
+  rule_id: string
+  to: string
+  view_id: string
+  view_version: string
+}
+
 export interface AlertQuerySourceInput {
   condition: AlertQueryCondition
   every_seconds?: number
@@ -3389,6 +3406,13 @@ export interface DeleteMaintenanceWindowRequest {
 
 export type DeleteMaintenanceWindowResponse = void
 
+export interface GetAlertQueryGroupRequest {
+  id: string
+  group: string
+}
+
+export type GetAlertQueryGroupResponse = AlertQueryGroupInspection
+
 export interface GetAlertQuerySourceRequest {
   id: string
 }
@@ -5210,6 +5234,14 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async getAlertQueryGroup(request: GetAlertQueryGroupRequest): Promise<GetAlertQueryGroupResponse> {
+    let path = "/v1/alerts/rules/{id}/query-group"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.group !== undefined) query.set("group", String(request.group))
+    return this.requestJSON<GetAlertQueryGroupResponse>("GET", path, query, undefined)
   }
 
   async getAlertQuerySource(request: GetAlertQuerySourceRequest): Promise<GetAlertQuerySourceResponse> {

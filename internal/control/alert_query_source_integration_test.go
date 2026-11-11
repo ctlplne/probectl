@@ -160,6 +160,22 @@ func TestSavedQueryAlertAPIKeepsCurrentSourceAuthorityAndTwoTenants(t *testing.T
 		if err != nil || len(read.Samples) != 2 || read.Samples[0].Value != 1 || read.Samples[1].Value != 1 || read.QuerySelection == nil || !read.QuerySelection.Complete {
 			t.Fatal("current owned query did not produce complete grouped predicates", read, err)
 		}
+		inspected, err := s.readAlertQueryGroup(ctx, current.actor, current.rule.ID, read.Samples[0].Labels["query_group"])
+		if err != nil || !inspected.Present || !inspected.ConditionMet || inspected.ExactValue != fmt.Sprint(100+i*800) || len(inspected.Dimensions) != 1 || inspected.Dimensions["src_asn"] == "" {
+			t.Fatal("authorized reader could not inspect its actual current group", inspected, err)
+		}
+		if out, err := s.readAlertQueryGroup(ctx, current.actor, foreign.rule.ID, read.Samples[0].Labels["query_group"]); err == nil || out.Present {
+			t.Fatal("group facts crossed tenant RLS", out, err)
+		}
+		if err := tenancy.InTenantReadSnapshot(ctx, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			stored, err := (store.AlertRules{}).GetQuerySource(ctx, sc, current.rule.ID, current.rule.UpdatedAt, 64<<20)
+			if err == nil && stored.StateVersion != 1 {
+				return fmt.Errorf("manual inspection advanced scheduled baseline")
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
 		if next, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule); err != nil || !next.Skip || len(next.Samples) != 0 {
 			t.Fatal("not-due read executed or invented health", next, err)
 		}
@@ -180,6 +196,9 @@ func TestSavedQueryAlertAPIKeepsCurrentSourceAuthorityAndTwoTenants(t *testing.T
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+		if out, err := s.readAlertQueryGroup(ctx, current.actor, current.rule.ID, read.Samples[0].Labels["query_group"]); err == nil || out.Present {
+			t.Fatal("revoked current source grants still exposed group facts", out, err)
 		}
 		if read, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule); err == nil || len(read.Samples) != 0 || read.QuerySelection != nil {
 			t.Fatal("revoked current source owner still evaluated", read, err)

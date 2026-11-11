@@ -108,6 +108,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/alerts.ts',
     method: 'GET',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/query-group?group=${encodeURIComponent(group)}`',
+    response: 'AlertQueryGroupInspection',
+    generated: 'GetAlertQueryGroupResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'GET',
     path: '`/alerts/rules/${encodeURIComponent(ruleID)}/query-source`',
     response: 'AlertQuerySourceState',
     generated: 'GetAlertQuerySourceResponse',
