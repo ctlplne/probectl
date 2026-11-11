@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
 )
@@ -78,7 +79,7 @@ func TestPeeringNativeToolKeepsExactInputsTenantAndEverySourcePermission(t *test
 func TestPeeringNativeFinalEncodingRetainsFairnessAndExactCountersWithTextRedaction(t *testing.T) {
 	probe := &peeringBackendProbe{}
 	held, releases := false, 0
-	server := newTestServer(&fakeBackend{}, testGate(), WithPeeringEstimateBackend(probe, NativeFlowSchemas{"flow_peering_estimate": json.RawMessage(`{"type":"object"}`)}, func(context.Context, *auth.Principal) (func(), error) {
+	server := newTestServer(&fakeBackend{}, consentGate(map[string]bool{"tenant-a": true}, ai.DefaultRedaction), WithPeeringEstimateBackend(probe, NativeFlowSchemas{"flow_peering_estimate": json.RawMessage(`{"type":"object"}`)}, func(context.Context, *auth.Principal) (func(), error) {
 		held = true
 		return func() { held = false; releases++ }, nil
 	}))
