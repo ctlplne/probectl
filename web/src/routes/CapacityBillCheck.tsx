@@ -271,7 +271,9 @@ function CapacityBillResult({ result }: { result: CapacityAgreementBill }) {
       <CapacityMemberAssumptions members={result.members} />
       <details className={styles.completeResult}>
         <summary>Complete measured result JSON</summary>
-        <pre>{JSON.stringify(result, null, 2)}</pre>
+        <pre tabIndex={0} aria-label="Complete measured billing result">
+          {JSON.stringify(result, null, 2)}
+        </pre>
       </details>
     </section>
   )

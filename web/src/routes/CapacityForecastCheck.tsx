@@ -380,7 +380,9 @@ function ForecastResult({ result }: { result: CapacityForecastMeasurement }) {
       />
       <details className={styles.completeResult}>
         <summary>Complete measured forecast JSON</summary>
-        <pre>{JSON.stringify(result, null, 2)}</pre>
+        <pre tabIndex={0} aria-label="Complete measured forecast result">
+          {JSON.stringify(result, null, 2)}
+        </pre>
       </details>
     </section>
   )
