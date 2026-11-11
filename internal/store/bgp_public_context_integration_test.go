@@ -163,8 +163,12 @@ func TestPublicContextLookupKeepsWholeAssignedCohortTenantAndPrefixAbsence(t *te
 		}
 		return err
 	})
+	// The authenticated receiver observes the message before opening its write
+	// transaction. A timestamp minted inside the callback is after that
+	// transaction's authority clock and must remain correctly refused.
+	complete := BGPPublicSnapshotMessage{CollectorAgentID: empty.CollectorAgentID, SenderSerial: empty.SenderSerial, SourceRef: empty.SourceRef, SnapshotID: empty.ObservationID, Sequence: 1, ObservedAt: time.Now(), Complete: true}
 	write(a, func(ctx context.Context, sc tenancy.Scope) error {
-		got, err := (BGPRouting{}).ApplyPublicMRTFrameInScope(ctx, sc, BGPPublicSnapshotMessage{CollectorAgentID: empty.CollectorAgentID, SenderSerial: empty.SenderSerial, SourceRef: empty.SourceRef, SnapshotID: empty.ObservationID, Sequence: 1, ObservedAt: time.Now(), Complete: true}, nil, profile, time.Hour)
+		got, err := (BGPRouting{}).ApplyPublicMRTFrameInScope(ctx, sc, complete, nil, profile, time.Hour)
 		if err == nil && got.Status != "applied" {
 			t.Fatal("empty source rotation could not complete", got)
 		}
