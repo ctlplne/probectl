@@ -12,9 +12,12 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/agent"
 	"github.com/ctlplne/probectl/internal/agenttransport"
@@ -23,19 +26,27 @@ import (
 	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/pipeline"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 type counterPublicationProbe struct {
 	check     func(context.Context, bus.Message) error
+	next      bus.Bus
 	published int
 }
 
 func (p *counterPublicationProbe) Publish(ctx context.Context, topic string, key, value []byte) error {
 	if err := p.check(ctx, bus.Message{Topic: topic, Key: key, Value: value}); err != nil {
 		return err
+	}
+	if p.next != nil {
+		if err := p.next.Publish(ctx, topic, key, value); err != nil {
+			return err
+		}
 	}
 	p.published++
 	return nil
@@ -46,8 +57,8 @@ func (*counterPublicationProbe) Subscribe(context.Context, string, string, bus.H
 func (*counterPublicationProbe) Close() error { return nil }
 
 // Real issued mTLS and application-role Postgres, with original typed wire
-// bytes and an in-process publication observer. Physical SNMP/broker/history
-// persistence and served billing acceptance remain separate.
+// bytes, the shipped in-process bus/consumer and exact memory history.
+// Physical SNMP, a durable broker/ClickHouse and served billing remain separate.
 func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
@@ -55,12 +66,12 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 	t.Cleanup(pool.Close)
 	testsupport.LockPostgresPublicCatalog(t, pool)
 	server := startTestServer(ctx, t, pool, func(s *agenttransport.Server) { s.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil)) })
-	area, router, sender := newUUID(t), newUUID(t), newUUID(t)
+	area, router := newUUID(t), newUUID(t)
 	type lane struct {
-		tenant, serial string
-		client         *agent.EvidenceClient
-		input          entity.CounterCaptureInput
-		metrics        []device.Metric
+		tenant, serial, sender string
+		client                 *agent.EvidenceClient
+		input                  entity.CounterCaptureInput
+		metrics                []device.Metric
 	}
 	var lanes [2]lane
 	for i := range lanes {
@@ -73,6 +84,7 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 				t.Error(err)
 			}
 		})
+		sender := newUUID(t)
 		var cert, key []byte
 		var serial string
 		for _, uri := range []string{crypto.AgentSPIFFEID(tenant.ID, sender), crypto.EntitySPIFFEID(tenant.ID, sender)} {
@@ -95,6 +107,14 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 		}
 		bound := tenancy.WithTenant(ctx, tenancy.ID(tenant.ID))
 		if err := tenancy.InTenant(bound, pool, func(ctx context.Context, sc tenancy.Scope) error {
+
+			if i == 1 {
+				_, err := (store.Agents{}).Register(ctx, sc, lanes[0].sender, "foreign-counter-agent", "192.0.2.1", "fixture", crypto.AgentSPIFFEID(tenant.ID, lanes[0].sender), nil)
+				var rejection *pgconn.PgError
+				if !errors.As(err, &rejection) || rejection.Code != "42501" {
+					return fmt.Errorf("foreign global agent reuse was not rejected by tenant RLS: %w", err)
+				}
+			}
 			if _, err := (store.Agents{}).Register(ctx, sc, sender, "counter-agent", "192.0.2.1", "fixture", crypto.AgentSPIFFEID(tenant.ID, sender), nil); err != nil {
 				return err
 			}
@@ -114,7 +134,7 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = client.Close() })
-		lanes[i] = lane{tenant: tenant.ID, serial: serial, client: client}
+		lanes[i] = lane{tenant: tenant.ID, serial: serial, sender: sender, client: client}
 	}
 	var at time.Time
 	if err := pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at); err != nil {
@@ -122,15 +142,34 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 	}
 	at = at.Add(123 * time.Nanosecond)
 	witnesses := store.NewDeviceCounterCaptures(pool)
+	memoryBus := bus.NewMemory()
+	t.Cleanup(func() { _ = memoryBus.Close() })
+	history := flowstore.NewMemory()
+	budget := flowstore.CounterBudget{MemoryBytes: 8 << 20, WorkUnits: 8 << 20, Timeout: time.Minute}
+	consumer := pipeline.NewDeviceCounterConsumer(memoryBus, history, witnesses, budget, 90, nil).WithTenantBinding(pipeline.NewRegistryBinding(pool))
+	finished := make(chan error, 1)
+	go func() { finished <- consumer.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-finished; err != nil {
+			t.Error("counter history consumer failed", err)
+		}
+	})
+	if !memoryBus.WaitForSubscribers(ctx, bus.DeviceCountersTopic, 1) {
+		t.Fatal("counter history consumer did not subscribe")
+	}
 	var first [2]entity.CounterCaptureReference
+	var captures [2]store.DeviceCounterCapture
+	var originals [2]bus.Message
 	for i := range lanes {
 		l := &lanes[i]
+		sender := l.sender
 		zero := uint32(0)
 		l.input = entity.CounterCaptureInput{ConfiguredTarget: "192.0.2.1", PollStartedAt: at, PollCompletedAt: at.Add(time.Nanosecond), PointCount: 2}
 		for _, name := range []string{device.MetricIfInOctets, device.MetricIfOutOctets} {
 			l.metrics = append(l.metrics, device.Metric{TenantID: l.tenant, AgentID: sender, Device: "192.0.2.1", Source: device.SourceSNMP, IfIndex: 7, Name: name, At: at, ExactCounter: &device.CounterValue{Value: ^uint64(0) - uint64(i), Width: 64, UptimeTicks: zero, DiscontinuityTicks: zero, UptimeKnown: true, DiscontinuityKnown: true, PollStartedAt: at, PollCompletedAt: at.Add(time.Nanosecond)}})
 		}
-		probe := &counterPublicationProbe{check: func(ctx context.Context, msg bus.Message) error {
+		probe := &counterPublicationProbe{next: memoryBus, check: func(ctx context.Context, msg bus.Message) error {
 			if msg.Topic != bus.DeviceCountersTopic {
 				t.Fatal("counter publication reached the legacy lane")
 			}
@@ -147,6 +186,8 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 			}
 			if first[i].Key == ([32]byte{}) {
 				first[i] = capture.CounterCaptureReference
+				captures[i] = capture
+				originals[i] = bus.Message{Topic: msg.Topic, Key: append([]byte(nil), msg.Key...), Value: append([]byte(nil), msg.Value...)}
 			} else if first[i] != capture.CounterCaptureReference {
 				t.Fatal("retry changed original witness clock")
 			}
@@ -173,4 +214,30 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 	if first[0].Key == first[1].Key {
 		t.Fatal("same source identifiers crossed certified tenants")
 	}
+	if err := memoryBus.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := memoryBus.Publish(ctx, bus.DeviceCountersTopic, bus.TenantKey(lanes[1].tenant, lanes[1].sender), originals[0].Value); err != nil {
+		t.Fatal(err)
+	}
+	if err := memoryBus.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for i, lane := range lanes {
+		capture := captures[i]
+		query := flowstore.CounterQuery{TenantID: lane.tenant, From: at.Add(-time.Second), To: at.Add(time.Second), Budget: budget, Sources: []flowstore.CounterSelector{{CounterSource: flowstore.CounterSource{ContextID: area, DeviceID: router, AgentID: lane.sender, SourceRef: lane.input.ConfiguredTarget, SourceAssignedAt: capture.SourceAssignedAt, AgentAssignedAt: capture.AgentAssignedAt}, IfIndexes: []uint32{7}}}}
+		rows, err := history.CounterPoints(tenancy.WithTenant(ctx, tenancy.ID(lane.tenant)), query)
+		if err != nil || len(rows) != 2 {
+			t.Fatal("real certified raw poll lost whole history or crossed tenants", len(rows), err)
+		}
+		for _, row := range rows {
+			if row.Value != ^uint64(0)-uint64(i) || row.SenderSerial != lane.serial || row.CaptureKey != first[i].Key || !row.CapturedAt.Equal(first[i].CapturedAt) || !row.PollStartedAt.Equal(at) || !row.UptimeKnown || row.UptimeTicks != 0 || !row.DiscontinuityKnown {
+				t.Fatal("real sender/history chain changed exact values or original provenance")
+			}
+		}
+	}
+	if memoryBus.HandlerErrors() != 0 || memoryBus.HandlerLost() != 0 || memoryBus.NoSubscriberDrops() != 0 {
+		t.Fatal("real certified polls had an unacknowledged or lost history publication")
+	}
+	t.Log("real-integration: issued two-tenant mTLS/Postgres witnesses through the shipped in-process bus and consumer into exact memory history; original population/uint64/zero clocks, retry identity and foreign-key refusal. Physical SNMP, durable broker/ClickHouse and served capacity remain separate")
 }
