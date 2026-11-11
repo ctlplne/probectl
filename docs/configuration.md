@@ -2073,6 +2073,20 @@ decreases omitted by the legacy metrics filter. This separate tenant lane keeps
 full 32/64-bit values, optional uptime/discontinuity ticks and poll bounds for
 capacity processing. Bus delivery alone does not attest the sender or qualify a
 bill check; current source verification and stored-history reads are required.
+Raw counter publication requires the existing configured evidence mTLS channel
+and its current operator-owned device-target binding. The collector persists
+its complete poll witness before publishing the original bus bytes. A missing,
+revoked or rebound source refuses that raw poll while legacy metrics continue.
+`PROBECTL_DEVICE_COUNTER_CAPTURE_STATE_BYTES` (control-plane default 64 GiB,
+positive bytes) independently bounds per-tenant retained counter witnesses;
+raise it for the intended polling workload. Erasure removes source payloads,
+retains hash-only replay tombstones and fences older polls. Certificate expiry
+alone does not rewrite accepted history; current sender/source authority is
+checked separately, and revocation still closes the witness.
+The device-agent YAML keys `counter_memory_bytes` and `counter_work_units`
+bound whole-poll wire validation (each defaults to 2 GiB; zero uses the default).
+Raise these positive resources when the intended complete poll needs more;
+the collector refuses an over-budget poll and never trims its population.
 An explicitly configured target
 with `neighbors: true` also publishes a bounded LLDP/CDP snapshot to
 `probectl.device.neighbors`; it never scans for devices or opens a follow-up

@@ -22,6 +22,8 @@ import (
 
 var ErrCounterBatchInvalid = errors.New("device: complete scoped exact counter batch required")
 
+const defaultCounterResourceBytes int64 = 2 << 30
+
 // RawCounterBatch owns its decoded observations. Its identity fields are lookup
 // selectors, not authenticated authority; a current stored sender witness must
 // independently match the complete raw digest before history accepts anything.
@@ -40,14 +42,16 @@ func ParseCounterBatch(ctx context.Context, tenant string, raw []byte, memoryByt
 		return none, err
 	}
 	size := int64(len(raw))
-	if size == 0 || memoryBytes <= 0 || workUnits <= 0 || size > memoryBytes/8 || size > workUnits/8 {
+	// Repeated short address strings amplify slice allocations even when
+	// there is only one metric. Reserve wire expansion as well as point cost.
+	if size == 0 || memoryBytes <= 0 || workUnits <= 0 || size > memoryBytes/64 || size > workUnits/64 {
 		return none, ErrCounterBatchInvalid
 	}
 	count, err := counterBatchWireCount(ctx, raw)
 	if err != nil {
 		return none, err
 	}
-	if count == 0 || count > math.MaxUint32 || int64(count) > (memoryBytes-size*8)/1024 || int64(count) > (workUnits-size*8)/1024 {
+	if count == 0 || count > math.MaxUint32 || int64(count) > (memoryBytes-size*64)/1024 || int64(count) > (workUnits-size*64)/1024 {
 		return none, ErrCounterBatchInvalid
 	}
 	batch := &devicev1.DeviceMetricBatch{}

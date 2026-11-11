@@ -53,10 +53,12 @@ type TrapEventEmitter interface {
 // BusEmitter publishes DeviceMetricBatches to probectl.device.metrics,
 // tenant-keyed (pooled tenant-tagging, CONTRIBUTING.md).
 type BusEmitter struct {
-	bus       bus.Bus
-	tenant    string
-	namespace string
-	topic     string // shared, or the tenant's namespaced lane (TENANT-107)
+	bus                                  bus.Bus
+	tenant                               string
+	namespace                            string
+	counterWitness                       CounterWitnessClient
+	counterMemoryBytes, counterWorkUnits int64
+	topic                                string // shared, or the tenant's namespaced lane (TENANT-107)
 }
 
 // NewBusEmitter returns an Emitter publishing to bus.DeviceMetricsTopic.
@@ -73,7 +75,7 @@ func NewNamespacedBusEmitter(b bus.Bus, tenant, namespace string) (*BusEmitter, 
 	if err != nil {
 		return nil, fmt.Errorf("device: refusing to start: %w", err)
 	}
-	return &BusEmitter{bus: b, tenant: tenant, namespace: namespace, topic: topic}, nil
+	return &BusEmitter{bus: b, tenant: tenant, namespace: namespace, topic: topic, counterMemoryBytes: defaultCounterResourceBytes, counterWorkUnits: defaultCounterResourceBytes}, nil
 }
 
 // Emit marshals the batch and publishes it. An empty batch is a no-op.

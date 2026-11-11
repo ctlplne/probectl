@@ -35,7 +35,7 @@ func parseFlowRoutingWitnessBatch(id crypto.SPIFFEID, req *agentv1.SubmitEntityE
 		return nil, status.Error(codes.Unauthenticated, "verified evidence sender is required")
 	}
 	batch := req.GetFlowRouting()
-	if batch == nil || batch.ContractVersion != "flow_capture_v1" || len(batch.Observations) == 0 || len(req.GetObservations())+len(req.GetFaults()) != 0 || req.GetRoutingPeerUp() != nil || req.GetRoutingMessage() != nil || len(req.ProtoReflect().GetUnknown()) != 0 || len(batch.ProtoReflect().GetUnknown()) != 0 {
+	if !validEntityEvidenceEnvelope(req) || batch == nil || batch.ContractVersion != "flow_capture_v1" || len(batch.Observations) == 0 || len(req.GetObservations())+len(req.GetFaults()) != 0 || req.GetRoutingPeerUp() != nil || req.GetRoutingMessage() != nil || len(req.ProtoReflect().GetUnknown()) != 0 || len(batch.ProtoReflect().GetUnknown()) != 0 {
 		return nil, status.Error(codes.InvalidArgument, "flow routing evidence must be a complete exclusive supported batch")
 	}
 	size := int64(proto.Size(req))

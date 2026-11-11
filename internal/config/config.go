@@ -193,16 +193,17 @@ type Config struct {
 
 	// Agent transport (gRPC). Enabled when the address and all three TLS files
 	// are set; the transport is mTLS-only (never plaintext).
-	AgentGRPCAddr               string
-	AgentTLSCertFile            string
-	AgentTLSKeyFile             string
-	AgentTLSCAFile              string
-	AgentMaxReceiveBytes        int
-	PublicRoutingMemoryBytes    int
-	PublicRoutingWorkUnits      int
-	BGPRoutingStateBytes        int
-	BGPRoutingCaptureStateBytes int
-	PublicRoutingMaxAge         time.Duration
+	AgentGRPCAddr                  string
+	AgentTLSCertFile               string
+	AgentTLSKeyFile                string
+	AgentTLSCAFile                 string
+	AgentMaxReceiveBytes           int
+	PublicRoutingMemoryBytes       int
+	PublicRoutingWorkUnits         int
+	BGPRoutingStateBytes           int
+	BGPRoutingCaptureStateBytes    int
+	DeviceCounterCaptureStateBytes int
+	PublicRoutingMaxAge            time.Duration
 
 	// Version-skew policy (S34): the control plane rejects agents outside the
 	// supported window at registration, so a rolling upgrade never admits an
@@ -2306,6 +2307,7 @@ func (c *Config) LogValue() slog.Value {
 		slog.Int("public_routing_work_units", c.PublicRoutingWorkUnits),
 		slog.Int("bgp_routing_state_bytes", c.BGPRoutingStateBytes),
 		slog.Int("bgp_routing_capture_state_bytes", c.BGPRoutingCaptureStateBytes),
+		slog.Int("device_counter_capture_state_bytes", c.DeviceCounterCaptureStateBytes),
 		slog.Duration("public_routing_max_age", c.PublicRoutingMaxAge),
 		slog.Bool("flow_enrich_rpki", c.FlowEnrichRPKIFile != ""),
 		slog.Duration("flow_enrich_rpki_max_age", c.FlowEnrichRPKIMaxAge),

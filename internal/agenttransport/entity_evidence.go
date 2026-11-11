@@ -59,6 +59,13 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 		}
 		return response, err
 	}
+	if req.GetDeviceCounter() != nil {
+		response, err := svc.submitDeviceCounterEvidence(ctx, id, serial, req)
+		if err == nil {
+			outcome = "accepted"
+		}
+		return response, err
+	}
 	if req.GetFlowRouting() != nil {
 		response, err := svc.submitFlowRoutingEvidence(ctx, id, req)
 		if err == nil {

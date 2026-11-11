@@ -152,6 +152,9 @@ func run() error {
 	if eerr != nil {
 		return eerr // RED-006: malformed silo namespace refuses start
 	}
+	if err := emitter.WithCounterResources(cfg.CounterMemoryBytes, cfg.CounterWorkUnits); err != nil {
+		return err
+	}
 	rt, err := device.New(cfg, emitter, creds, log)
 	if err != nil {
 		return err
@@ -170,6 +173,7 @@ func run() error {
 		}
 		defer client.Close()
 		evidenceClient = client
+		emitter.WithCounterWitness(client)
 		certTenant, certAgent := client.Identity()
 		if certTenant != cfg.TenantID || certAgent != cfg.AgentID {
 			return fmt.Errorf("device canonical evidence SVID does not match configured tenant and agent")

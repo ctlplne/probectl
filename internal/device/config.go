@@ -146,8 +146,10 @@ type Config struct {
 	TenantID string `yaml:"tenant_id"`
 	AgentID  string `yaml:"agent_id"`
 
-	Bus      BusConfig      `yaml:"bus"`
-	Evidence EvidenceConfig `yaml:"evidence,omitempty"`
+	Bus                BusConfig      `yaml:"bus"`
+	Evidence           EvidenceConfig `yaml:"evidence,omitempty"`
+	CounterMemoryBytes int64          `yaml:"counter_memory_bytes,omitempty"`
+	CounterWorkUnits   int64          `yaml:"counter_work_units,omitempty"`
 
 	// CollectionProfile selects one compiled evidence budget for every target.
 	// Empty preserves the pre-profile explicit configuration behavior.
@@ -169,7 +171,7 @@ type Config struct {
 // Default returns the built-in defaults (memory bus, hostname agent id).
 func Default() *Config {
 	host, _ := os.Hostname()
-	return &Config{AgentID: host, Bus: BusConfig{Mode: "memory"}, CorrelationRetention: 90 * 24 * time.Hour}
+	return &Config{AgentID: host, Bus: BusConfig{Mode: "memory"}, CorrelationRetention: 90 * 24 * time.Hour, CounterMemoryBytes: defaultCounterResourceBytes, CounterWorkUnits: defaultCounterResourceBytes}
 }
 
 // Load reads the YAML config at path (if non-empty) over the defaults, then
@@ -356,6 +358,15 @@ func (c *Config) applyEnv(getenv func(string) string) {
 func (c *Config) Validate() error {
 	if c.TenantID == "" {
 		return errors.New("device: tenant_id is required (PROBECTL_DEVICE_TENANT)")
+	}
+	if c.CounterMemoryBytes == 0 {
+		c.CounterMemoryBytes = defaultCounterResourceBytes
+	}
+	if c.CounterWorkUnits == 0 {
+		c.CounterWorkUnits = defaultCounterResourceBytes
+	}
+	if c.CounterMemoryBytes < 0 || c.CounterWorkUnits < 0 {
+		return errors.New("device: counter_memory_bytes and counter_work_units must be positive")
 	}
 	if err := c.Evidence.validate(); err != nil {
 		return err

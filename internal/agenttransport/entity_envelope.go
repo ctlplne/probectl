@@ -15,7 +15,7 @@ func validEntityEvidenceEnvelope(req *agentv1.SubmitEntityEvidenceRequest) bool 
 		return false
 	}
 	count := 0
-	for _, present := range []bool{len(req.Observations)+len(req.Faults) > 0, req.FlowRouting != nil, req.RoutingPeerUp != nil, req.RoutingMessage != nil, req.PublicRoutingPeerTable != nil, req.PublicRoutingMessage != nil} {
+	for _, present := range []bool{len(req.Observations)+len(req.Faults) > 0, req.FlowRouting != nil, req.RoutingPeerUp != nil, req.RoutingMessage != nil, req.PublicRoutingPeerTable != nil, req.PublicRoutingMessage != nil, req.DeviceCounter != nil} {
 		if present {
 			count++
 		}

@@ -20,6 +20,7 @@ type routingTransportLimits struct {
 	maxAge            time.Duration
 	receiveBytes      int
 	captureStateBytes int64
+	counterStateBytes int64
 	rpki              *opendata.Enricher
 }
 
@@ -36,7 +37,7 @@ func WithRPKIEnrichment(source *opendata.Enricher) Option {
 }
 
 func defaultRoutingTransportLimits() routingTransportLimits {
-	return routingTransportLimits{public: store.BGPRoutingBudget{MemoryBytes: 2 << 30, WorkUnits: 2 << 30, StateBytes: 64 << 30, LeaseDuration: 12 * time.Hour}, maxAge: 12 * time.Hour, receiveBytes: maxRecvBytes, captureStateBytes: 64 << 30}
+	return routingTransportLimits{public: store.BGPRoutingBudget{MemoryBytes: 2 << 30, WorkUnits: 2 << 30, StateBytes: 64 << 30, LeaseDuration: 12 * time.Hour}, maxAge: 12 * time.Hour, receiveBytes: maxRecvBytes, captureStateBytes: 64 << 30, counterStateBytes: 64 << 30}
 }
 
 // WithRoutingLimits sets public-source operation admission, the shared tenant
@@ -76,4 +77,22 @@ func (svc *service) routingStateLimit() int64 {
 		return svc.routingLimits.public.StateBytes
 	}
 	return defaultRoutingTransportLimits().public.StateBytes
+}
+
+// WithDeviceCounterStateBytes bounds retained counter witnesses per tenant,
+// independently of routing capture state. No state is preallocated.
+func WithDeviceCounterStateBytes(bytes int64) Option {
+	return func(limits *routingTransportLimits) error {
+		if bytes <= 0 {
+			return errors.New("counter witness state admission must be positive")
+		}
+		limits.counterStateBytes = bytes
+		return nil
+	}
+}
+func (svc *service) counterCaptureStateLimit() int64 {
+	if svc.routingLimits.counterStateBytes > 0 {
+		return svc.routingLimits.counterStateBytes
+	}
+	return defaultRoutingTransportLimits().counterStateBytes
 }

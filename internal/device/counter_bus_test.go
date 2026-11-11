@@ -16,6 +16,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/entity"
 	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
 )
 
@@ -33,7 +34,7 @@ func TestExactCounterBusLaneKeepsOriginalWrapsClockAndLegacySeparation(t *testin
 		channels[topic] = ch
 		return ch
 	}
-	for _, scenario := range []struct{ tenant, namespace string }{{"red", ""}, {"blue", ""}, {"blue", "blue-counters"}} {
+	for _, scenario := range []struct{ tenant, namespace string }{{"11111111-1111-4111-8111-111111111111", ""}, {"66666666-6666-4666-8666-666666666666", ""}, {"66666666-6666-4666-8666-666666666666", "blue-counters"}} {
 		tenant, namespace := scenario.tenant, scenario.namespace
 		counterTopic, err := bus.TopicFor(namespace, bus.DeviceCountersTopic)
 		if err != nil {
@@ -48,6 +49,7 @@ func TestExactCounterBusLaneKeepsOriginalWrapsClockAndLegacySeparation(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
+		emitter.WithCounterWitness(counterWitnessStub(tenant))
 		runtime := counterCaptureRuntime(tenant, emitter)
 		polls := []*counterClockConn{counterClockFixture(), counterClockFixture()}
 		for i, conn := range polls {
@@ -128,7 +130,7 @@ func (*counterBusRecorder) Subscribe(context.Context, string, string, bus.Handle
 func (*counterBusRecorder) Close() error                                                 { return nil }
 
 func TestExactCounterBusRefusesMixedTenantSenderAndMalformedWholeBatches(t *testing.T) {
-	for _, tenant := range []string{"red", "blue"} {
+	for _, tenant := range []string{"11111111-1111-4111-8111-111111111111", "66666666-6666-4666-8666-666666666666"} {
 		base := Metric{TenantID: tenant, AgentID: "same-agent", Source: SourceSNMP, Device: "192.0.2.9", IfIndex: 1, Name: MetricIfInOctets, At: pollTime, ExactCounter: &CounterValue{Value: 0, Width: 32, PollStartedAt: pollTime, PollCompletedAt: pollTime.Add(time.Second)}}
 		for _, change := range []func(*Metric){
 			func(m *Metric) { m.TenantID = "foreign-tenant" },
@@ -143,7 +145,7 @@ func TestExactCounterBusRefusesMixedTenantSenderAndMalformedWholeBatches(t *test
 			},
 		} {
 			backend := &counterBusRecorder{}
-			emitter := NewBusEmitter(backend, tenant)
+			emitter := NewBusEmitter(backend, tenant).WithCounterWitness(counterWitnessStub(tenant))
 			bad := base
 			change(&bad)
 			if err := emitter.EmitCounters(t.Context(), []Metric{base, bad}); err == nil || len(backend.records) != 0 {
@@ -151,7 +153,7 @@ func TestExactCounterBusRefusesMixedTenantSenderAndMalformedWholeBatches(t *test
 			}
 		}
 		backend := &counterBusRecorder{}
-		emitter := NewBusEmitter(backend, tenant)
+		emitter := NewBusEmitter(backend, tenant).WithCounterWitness(counterWitnessStub(tenant))
 		if err := emitter.EmitCounters(t.Context(), []Metric{base}); err != nil || len(backend.records) != 1 {
 			t.Fatal("valid observed zero counter could not be delivered", err)
 		}
@@ -160,5 +162,17 @@ func TestExactCounterBusRefusesMixedTenantSenderAndMalformedWholeBatches(t *test
 		if err := emitter.EmitCounters(canceled, []Metric{base}); err == nil || len(backend.records) != 1 {
 			t.Fatal("canceled counter delivery escaped onto the bus", err)
 		}
+	}
+}
+
+type counterWitnessFunc func(context.Context, string, [32]byte, entity.CounterCaptureInput) (entity.CounterCaptureReference, error)
+
+func (f counterWitnessFunc) CaptureCounters(ctx context.Context, sender string, digest [32]byte, input entity.CounterCaptureInput) (entity.CounterCaptureReference, error) {
+	return f(ctx, sender, digest, input)
+}
+func counterWitnessStub(tenant string) counterWitnessFunc {
+	return func(_ context.Context, sender string, digest [32]byte, input entity.CounterCaptureInput) (entity.CounterCaptureReference, error) {
+		key, err := entity.CounterCaptureKey(tenant, sender, digest, input)
+		return entity.CounterCaptureReference{Key: key, CapturedAt: pollTime}, err
 	}
 }

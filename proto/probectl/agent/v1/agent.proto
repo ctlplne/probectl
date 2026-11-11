@@ -390,6 +390,22 @@ message FlowRoutingCaptureBatch {
   repeated FlowRoutingCapture captures = 1; // same complete order as the request
 }
 
+// Exclusive witness for one complete original SNMP counter poll. No tenant,
+// sender, context or canonical device is chosen by the request.
+message DeviceCounterWitness {
+  string contract_version = 1; // device_counter_capture_v1
+  string configured_ref = 2;
+  bytes raw_digest = 3; // digest of the complete original DeviceMetricBatch bytes
+  int64 poll_started_unix_nanos = 4;
+  int64 poll_completed_unix_nanos = 5;
+  uint32 point_count = 6;
+}
+
+message DeviceCounterCapture {
+  bytes key = 1;
+  int64 captured_unix_nanos = 2;
+}
+
 message SubmitEntityEvidenceRequest {
   repeated EntityEvidenceObservation observations = 1;
   repeated EntityFaultObservation faults = 2; // 1–64 combined; message size is also bounded
@@ -398,6 +414,7 @@ message SubmitEntityEvidenceRequest {
   FlowRoutingWitnessBatch flow_routing = 5; // exclusive; certified sender only
   PublicRoutingPeerTable public_routing_peer_table = 6; // exclusive original source metadata
   PublicRoutingMessage public_routing_message = 7; // exclusive original MRT record or EOF/reset
+  DeviceCounterWitness device_counter = 8; // exclusive; certified sender only
 }
 
 message SubmitEntityEvidenceResponse {
@@ -409,4 +426,5 @@ message SubmitEntityEvidenceResponse {
   FlowRoutingCaptureBatch flow_routing = 6;
   PublicRoutingStagingReceipt public_routing = 7;
   PublicRoutingMessageReceipt public_routing_message = 8;
+  DeviceCounterCapture device_counter = 9;
 }
