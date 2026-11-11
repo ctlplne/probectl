@@ -15,7 +15,7 @@ you do not pin them yourself.
 
 | Tool            | Version              | Used for                                                                                          |
 | --------------- | -------------------- | ------------------------------------------------------------------------------------------------- |
-| Go              | 1.26.10 (exact)      | control plane, agents, CLI (the patch is pinned — see [`build/toolchain.md`](build/toolchain.md)) |
+| Go              | 1.26.11 (exact)      | control plane, agents, CLI (the patch is pinned — see [`build/toolchain.md`](build/toolchain.md)) |
 | Python          | 3.11+ (CI runs 3.12) | the BGP analyzer (`analyzer/`)                                                                    |
 | Docker + Buildx | recent               | dev stack + multi-arch images                                                                     |
 | golangci-lint   | v2.12.2              | Go linting (installed via `make tools`)                                                           |
@@ -38,7 +38,7 @@ Tailwind 4 requires Safari 16.4+, Chrome 111+, or Firefox 128+ because its
 generated CSS uses modern browser features. See the
 [upstream upgrade guide](https://tailwindcss.com/docs/upgrade-guide).
 
-> The Go version is pinned to the _exact patch_ (`1.26.10`), not a loose `1.26`.
+> The Go version is pinned to the _exact patch_ (`1.26.11`), not a loose `1.26`.
 > That is intentional — it keeps `govulncheck`'s standard-library scan honest and
 > keeps the FIPS build working under `GOTOOLCHAIN=local`. Details:
 > [`build/toolchain.md`](build/toolchain.md).

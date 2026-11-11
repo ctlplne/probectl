@@ -75,7 +75,7 @@ KYVERNO_CHART_URL="https://kyverno.github.io/kyverno/kyverno-3.9.2.tgz"         
 KYVERNO_CHART_SHA256="f6fe7184544d5e2ee33a77808c09e67aa603ce6560cc197038fde31d727c861e"                            # = index.yaml digest
 KYVERNO_TAG="v1.19.2@sha256:c8c4dd09e720d2cd7fd24ca73ac28e46651001372f988e0cba3f2f612f04b955"
 KYVERNOPRE_TAG="v1.19.2@sha256:27f3cc52e628559b56d08363b85316819802086c9808606914f7805a244148f4"
-# registry:2, cosign v2.5.3, crane v0.22.1 and golang 1.26.10 (the toolchain
+# registry:2, cosign v2.5.3, crane v0.22.1 and golang 1.26.11 (the toolchain
 # go.mod pins; same digest as deploy/docker/Dockerfile.ebpf) are pinned by digest as literals
 # in their `docker run` lines below (the supply-pins gate reads those lines).
 
@@ -201,7 +201,7 @@ mkdir -p agentroot/usr/local/bin gocache gomod
 docker run --rm -v "$repo_root:/src:ro" -v "$work:$work" -w /src --user "$(id -u):$(id -g)" \
   -e HOME="$work/home" -e GOCACHE="$work/gocache" -e GOMODCACHE="$work/gomod" -e GOWORK=off -e GOTOOLCHAIN=local \
   -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH="$arch" -e GOFLAGS=-buildvcs=false \
-  golang:1.26.10-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af \
+  golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 \
   go build -trimpath -o "$work/agentroot/usr/local/bin/app" ./cmd/probectl-ebpf-agent > build.log 2>&1 \
   || { cat build.log >&2; die "build the probectl-ebpf-agent binary"; }
 tar -C agentroot -cf agent.tar usr

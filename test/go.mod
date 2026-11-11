@@ -5,7 +5,7 @@
 // ...) from the production module added in S6+.
 module github.com/ctlplne/probectl/test
 
-go 1.26.10
+go 1.26.11
 
 // Patched toolchain. Keep in sync with the root module + go.work.
-toolchain go1.26.10
+toolchain go1.26.11

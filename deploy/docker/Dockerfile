@@ -6,7 +6,7 @@
 # target arch (CGO disabled, pure Go), so multi-arch builds need no emulation.
 # Build context is the repository root.
 
-ARG GO_VERSION=1.26.10
+ARG GO_VERSION=1.26.11
 ARG NODE_VERSION=26
 
 # UX-002: build the web UI FIRST, on the build platform, and hand its bundle to
@@ -55,7 +55,7 @@ RUN PROBECTL_WEB_EDITION="${EDITION}" npm run build   # → /web/dist (hashed as
 
 # Digest-pinned (U-061); bumped manually per docs/dependency-policy.md (no
 # auto-update bot). Tag kept for humans.
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af AS build
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS build
 ARG COMPONENT
 ARG TARGETOS
 ARG TARGETARCH
