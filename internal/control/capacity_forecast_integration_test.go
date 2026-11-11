@@ -20,11 +20,14 @@ import (
 	"testing"
 	"time"
 
+	gouuid "github.com/google/uuid"
+
 	"github.com/ctlplne/probectl/internal/cli"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
@@ -117,6 +120,42 @@ func TestCapacityForecastServesKnownGrowthWithoutFinancialAccessAndKeepsCurrentT
 		}
 		assertForecast(got)
 	}
+	// The same complete original history is also reachable through current
+	// effective circuit membership, without requiring a flow exporter.
+	tagID := gouuid.NewString()
+	for _, tenant := range f.tenants {
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permTagsRead); err != nil {
+				return err
+			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_definitions(tenant_id,id,key) VALUES($1,$2,'forecast_circuit')`, tenant, tagID); err != nil {
+				return err
+			}
+			_, err := (store.TagAssignments{}).CreateManual(ctx, sc, store.ManualTagAssignmentInput{Scope: tags.Scope{TenantID: tenant, ContextID: f.contextID}, TagID: tagID, TargetKind: "interface", TargetID: f.interfaceID, Value: "transit"})
+			return err
+		})
+	}
+	interfaceTarget := input.Target
+	input.Target = flow.CapacityTarget{Kind: "circuit", TagID: tagID, TagValue: "transit"}
+	circuitRaw, _ := json.Marshal(input)
+	var circuitInput sdk.CapacityForecastInput
+	if err := json.Unmarshal(circuitRaw, &circuitInput); err != nil {
+		t.Fatal(err)
+	}
+	for _, tenant := range f.tenants {
+		client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
+		result, err := client.ForecastCapacity(t.Context(), sdk.ForecastCapacityRequest{Body: &circuitInput})
+		if err != nil || result == nil {
+			t.Fatal("complete current circuit forecast failed", err)
+		}
+		encoded, _ := json.Marshal(result)
+		var got flow.CapacityForecastMeasurement
+		if err := json.Unmarshal(encoded, &got); err != nil {
+			t.Fatal(err)
+		}
+		assertForecast(got)
+	}
+	input.Target = interfaceTarget
 	for _, wire := range []string{"2026-07-28", "2025-11-25"} {
 		call := interfaceRoleNativeTLSCaller(t, f, wire)
 		for _, tenant := range f.tenants {

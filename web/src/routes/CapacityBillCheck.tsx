@@ -79,7 +79,7 @@ export function CapacityBillCheck({
     )
   }
   return (
-    <Card>
+    <Card data-capacity-bill>
       <CardHeader
         title="Measured bill check"
         description="Use the selected recorded revision across one complete billing period. Financial terms do not grant access to counters."

@@ -107,7 +107,7 @@ export function CapacityForecastCheck() {
     }
   }
   return (
-    <Card>
+    <Card data-capacity-forecast>
       <CardHeader
         title="Measured capacity forecast"
         description="Forecast from original counters without accessing financial terms. Choose a complete training window and explicit threshold and horizon."
