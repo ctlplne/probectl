@@ -9,6 +9,7 @@ package flowstore
 import (
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,10 +29,16 @@ func TestCounterHistoryTransportPublishesOnlyCompleteAcknowledgedPollsAndReaderR
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				query := r.URL.Query().Get("query")
 				if query == "" {
-					if err := r.ParseForm(); err != nil {
+					mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+					if err != nil || mediaType != "multipart/form-data" {
+						http.Error(w, "query fields require multipart transport", http.StatusBadRequest)
+						return
+					}
+					if err := r.ParseMultipartForm(1 << 20); err != nil {
 						t.Error(err)
 						return
 					}
+					defer func() { _ = r.MultipartForm.RemoveAll() }()
 					query = r.PostForm.Get("query")
 				}
 				user, _, _ := r.BasicAuth()

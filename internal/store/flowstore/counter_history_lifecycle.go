@@ -12,8 +12,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -78,19 +80,36 @@ func (c *ClickHouse) counterLifecycleTarget(ctx context.Context, tenant string) 
 // Both mutation values and export selectors are POST body fields. A source
 // identity must never enter a request URL or an echoed backend error body.
 func (c *ClickHouse) counterRequest(ctx context.Context, target Target, lane chclient.ReadLane, tenant, sql string, params chParams) (*http.Response, error) {
-	fields := url.Values{"query": {sql}}
-	for key, value := range params {
-		fields.Set("param_"+key, value)
+	// ClickHouse parses multipart POST fields as query/typed parameters. A
+	// URL-encoded body is instead interpreted as SQL text. Keep original
+	// source and lifecycle selectors out of URLs, as on Explorer exports.
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	if err := form.WriteField("query", sql); err != nil {
+		return nil, ErrCounterHistoryUnavailable
+	}
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if err := form.WriteField("param_"+key, params[key]); err != nil {
+			return nil, ErrCounterHistoryUnavailable
+		}
+	}
+	if err := form.Close(); err != nil {
+		return nil, ErrCounterHistoryUnavailable
 	}
 	endpoint := c.laneBase(lane, target.BaseURL) + "/?" + tenantSettingName + "=" + url.QueryEscape(tenant)
 	if !lane.Reader {
 		endpoint += "&wait_end_of_query=1"
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(fields.Encode()))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
 	if err != nil {
 		return nil, ErrCounterHistoryUnavailable
 	}
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Content-Type", form.FormDataContentType())
 	response, err := lane.Conn.Do(lane.Key, request)
 	if err != nil {
 		return nil, ErrCounterHistoryUnavailable
