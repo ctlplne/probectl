@@ -26,6 +26,7 @@ import (
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
@@ -152,6 +153,7 @@ func TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95(t *testing.T) {
 		if code == http.StatusOK {
 			t.Fatal("source-joined peering accepted the sibling tenant's canonical target")
 		}
+		provePeeringRouterRPKI(t, st, reg, links, input, lane)
 	}
 	provePeeringRouterStdio(t, st, registrations, ids, links, input)
 	renderPeeringRouterEstimates(t, st, registrations, ids, links, input)
@@ -164,7 +166,30 @@ func TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95(t *testing.T) {
 	if code, out := read(1, input); code != http.StatusOK || !peeringRouterHandMatches(out, second, ids[1], links, 1) {
 		t.Fatal("routing delegation withdrawal damaged the sibling tenant's complete estimate", code)
 	}
-	t.Log("real-integration: FRR selected RIB + same-kernel SNMP + issued IPFIX/evidence mTLS + app-role PG/RLS + Kafka/ClickHouse + HTTPS/CLI and shipped modern/legacy stdio; generated delayed-export twenty-interval two-transit hand101/303Gbps, both directions, missing-input/foreign-target/current-token/current-delegation controls; synthetic IX, no historical forwarding or live peering claim")
+	t.Log("real-integration: FRR selected RIB + same-kernel SNMP + issued IPFIX/evidence mTLS + app-role PG/RLS + Kafka/ClickHouse + HTTPS/CLI and shipped modern/legacy stdio; generated delayed-export twenty-interval two-transit hand101/303Gbps, original RPKI on both transits, both directions, missing-input/foreign-target/current-token/current-delegation controls; synthetic IX/validator files, no historical forwarding/live peering/live validator claim")
+}
+
+func provePeeringRouterRPKI(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, links []roleRouterLink, input flow.PeeringEstimateInput, lane int) {
+	t.Helper()
+	plan := flow.QueryPlan{From: input.From, To: input.To, DataSeries: "raw", GroupBy: []string{"in_if", "src_bgp_rpki", "dst_bgp_rpki"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}, {Measure: "flows", Calculation: "total"}}}
+	shipped.Await(t, "original validator evidence on both current transits", time.Minute, func() bool {
+		code, raw := st.Do(t, reg.cookie, http.MethodPost, "/v1/explorer/query", map[string]any{"source": "flow", "flow": plan})
+		var out struct {
+			Flow *flowstore.PlanResult `json:"flow"`
+		}
+		if code != http.StatusOK || json.Unmarshal(raw, &out) != nil || out.Flow == nil || len(out.Flow.Rows) != 2 {
+			return false
+		}
+		seen := map[string]bool{}
+		for _, row := range out.Flow.Rows {
+			index := row.Group["in_if"]
+			if (index != strconv.FormatUint(uint64(links[0].index), 10) && index != strconv.FormatUint(uint64(links[2].index), 10)) || seen[index] || row.Group["src_bgp_rpki"] != "valid" || row.Group["dst_bgp_rpki"] != "valid" || row.Metrics["flows:total"] != "20" || row.Metrics["bytes:total"] != strconv.FormatInt(int64(1+2*lane)*4_462_500_000_000, 10) {
+				return false
+			}
+			seen[index] = true
+		}
+		return true
+	})
 }
 
 func peeringRouterHandMatches(out flow.PeeringEstimateResponse, reg edgeFlowRegistration, ids map[uint32]string, links []roleRouterLink, lane int) bool {
@@ -198,6 +223,7 @@ func peeringRouterPublicFixtures(t *testing.T, ix roleRouterLink) map[string]str
 	}
 	at := time.Now().UTC().Add(-time.Second)
 	return map[string]string{
+		"PROBECTL_FLOW_ENRICH_RPKI_FILE":          write("validator.json", map[string]any{"metadata": map[string]any{"generated": at.Unix()}, "roas": []map[string]any{{"prefix": prefixA, "asn": originA, "maxLength": 24}}}),
 		"PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE":     write("ixpfx.json", map[string]any{"version": 1, "object": "ixpfx", "observed_at": at, "complete": true, "record_count": 2, "data": []map[string]any{{"id": 7, "ixlan_id": 11, "protocol": "IPv4", "prefix": ix.prefix, "status": "ok"}, {"id": 8, "ixlan_id": 11, "protocol": "IPv6", "prefix": ix.prefix6, "status": "ok"}}}),
 		"PROBECTL_FLOW_ENRICH_IX_MEMBERSHIP_FILE": write("netixlan.json", map[string]any{"version": 1, "object": "netixlan", "observed_at": at, "complete": true, "record_count": 1, "data": []map[string]any{{"id": 1, "ix_id": 71, "ixlan_id": 11, "asn": originA, "status": "ok", "operational": true}}}),
 	}
