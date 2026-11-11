@@ -285,7 +285,7 @@ func (c *ClickHouse) exportCounters(ctx context.Context, tenant string, subjects
 	if err != nil {
 		return 0, err
 	}
-	response, err := c.counterRequest(ctx, target, lane, tenant, "SELECT "+counterReadColumns()+" FROM "+table+" FINAL WHERE "+predicate+" AND "+committed+" ORDER BY context_id,device_id,poll_started_unix_nanos,if_index,name,row_id FORMAT JSONEachRow", params)
+	response, err := c.counterRequest(ctx, target, lane, tenant, "SELECT "+counterReadColumns()+" FROM "+table+" FINAL WHERE "+predicate+" AND "+committed+" ORDER BY context_id,device_id,poll_started_unix_nanos,if_index,name,row_id SETTINGS "+counterReadColumnSetting+" FORMAT JSONEachRow", params)
 	if err != nil {
 		return 0, err
 	}

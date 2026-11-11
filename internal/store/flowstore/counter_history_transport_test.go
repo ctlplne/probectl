@@ -56,8 +56,15 @@ func TestCounterHistoryTransportPublishesOnlyCompleteAcknowledgedPollsAndReaderR
 					}
 					_ = json.NewEncoder(w).Encode(map[string]string{"n": n})
 				case strings.HasPrefix(query, "SELECT "+counterReadColumns()+" FROM "+sharedCounterHistoryTable):
-					if user != "reader" || r.URL.Query().Get(tenantSettingName) != tenant || !strings.Contains(query, "FROM "+sharedCounterPollTable+" FINAL WHERE tenant_id={tenant:String} AND ts>=") {
+					if user != "reader" || r.URL.Query().Get(tenantSettingName) != tenant || !strings.Contains(query, "FROM "+sharedCounterPollTable+" FINAL WHERE tenant_id={tenant:String}") {
 						t.Error("counter read bypassed reader isolation or whole-poll commit markers")
+					}
+					if r.PostForm.Get("param_from") != "" && !strings.Contains(query, "FROM "+sharedCounterPollTable+" FINAL WHERE tenant_id={tenant:String} AND ts>=") {
+						t.Error("counter window lost matching marker admission")
+					}
+					if !strings.Contains(query, "prefer_column_name_to_alias=1") {
+						http.Error(w, "numeric predicates must address stored columns", http.StatusBadRequest)
+						return
 					}
 					for i, row := range rows {
 						document := counterPortableDocument(row)
@@ -97,6 +104,12 @@ func TestCounterHistoryTransportPublishesOnlyCompleteAcknowledgedPollsAndReaderR
 			}
 			if err != nil || len(got) != len(rows) || got[0].Value != ^uint64(0) {
 				t.Fatal("complete exact reader stream failed", len(got), err)
+			}
+			if n, err := backend.ExportCounterTenant(ctx, tenant, io.Discard); err != nil || n != int64(len(rows)) {
+				t.Fatal("complete tenant export lost typed column resolution", n, err)
+			}
+			if n, err := backend.ExportCounterSubject(ctx, tenant, "192.0.2.1", io.Discard); err != nil || n != int64(len(rows)) {
+				t.Fatal("complete subject export lost typed column resolution", n, err)
 			}
 		})
 	}

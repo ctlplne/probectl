@@ -178,6 +178,13 @@ func counterReadColumns() string {
 	return strings.Join(columns, ",")
 }
 
+// Keep typed predicates, marker membership and numeric ordering on the stored
+// columns. Without this query-local setting, ClickHouse substitutes the text
+// projection aliases into WHERE/ORDER BY (for example if_index and population),
+// which can reject the query or sort numbers lexically. The output still uses
+// decimal strings so original counter words and nanoseconds remain exact.
+const counterReadColumnSetting = "prefer_column_name_to_alias=1"
+
 func counterSourcePredicate(query CounterQuery) (string, chParams, error) {
 	params := chParams{"tenant": query.TenantID, "from": strconv.FormatInt(query.From.UnixNano(), 10), "to": strconv.FormatInt(query.To.UnixNano(), 10)}
 	clauses := make([]string, 0, len(query.Sources))
@@ -269,7 +276,7 @@ func (c *ClickHouse) WalkCounterPoints(ctx context.Context, query CounterQuery, 
 	if err != nil {
 		return err
 	}
-	sql := "SELECT " + counterReadColumns() + " FROM " + table + " FINAL WHERE " + predicate + " AND " + committed + " ORDER BY context_id,device_id,if_index,name,poll_started_unix_nanos,capture_key " + settings + " FORMAT JSONEachRow"
+	sql := "SELECT " + counterReadColumns() + " FROM " + table + " FINAL WHERE " + predicate + " AND " + committed + " ORDER BY context_id,device_id,if_index,name,poll_started_unix_nanos,capture_key " + settings + "," + counterReadColumnSetting + " FORMAT JSONEachRow"
 	response, err := c.counterRequest(ctx, target, lane, query.TenantID, sql, params)
 	if err != nil {
 		return err
