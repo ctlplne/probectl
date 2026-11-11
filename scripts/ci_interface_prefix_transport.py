@@ -329,6 +329,7 @@ INTEGRATION = {
         "TestPeeringTargetStoreKeepsCurrentTenantGrantAndPublicationAuthority",
         "TestPeeringEstimateAPIKeepsCurrentTenantSourcesAndUnprovenEmptyIntervals",
         "TestPeeringNativeTLSKeepsWholeTargetCurrentAuthorityAndUnprovenRedaction",
+        "TestPeeringNativeStdioKeepsWholeTargetPrivacyAndCurrentCredential",
         "TestInterfaceRoleExplanationRefusesMidComputationAuthorityChanges",
         "TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmission",
     ),
