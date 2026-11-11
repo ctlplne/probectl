@@ -46,23 +46,36 @@ func (m CapacityMeasuredPercentile) Result() CapacityPercentileResult {
 // coverage counts with no percentile; it cannot become a shorter bill period.
 func CalculateCapacityMeasuredP95(ctx context.Context, window CapacityMeasurementWindow, direction string, members []CapacityMeasuredMember) (CapacityMeasuredPercentile, error) {
 	none := CapacityMeasuredPercentile{}
+	inputs, err := measuredCapacityBillingInputs(ctx, window, members)
+	if err != nil {
+		return none, err
+	}
+	fact, err := capacityBillingP95(ctx, capacityBillingWindow{from: window.From, to: window.To, mode: capacityBillingMode(direction),
+		memoryBytes: window.MemoryBytes / 2, workUnits: window.WorkUnits / 2}, inputs)
+	if err != nil {
+		return none, err
+	}
+	return CapacityMeasuredPercentile{fact: fact, direction: direction}, nil
+}
+
+func measuredCapacityBillingInputs(ctx context.Context, window CapacityMeasurementWindow, members []CapacityMeasuredMember) ([]capacityBillingMember, error) {
 	tenant, bound := tenancy.FromContext(ctx)
 	if !bound {
-		return none, tenancy.ErrNoTenant
+		return nil, tenancy.ErrNoTenant
 	}
 	budget := capacityGridAdmission{window.MemoryBytes / 4, window.WorkUnits / 4}
 	if !budget.debit(int64(len(members)), 4096, 4096) {
-		return none, errCapacityCounterInput
+		return nil, errCapacityCounterInput
 	}
 	inputs := make([]capacityBillingMember, 0, len(members))
 	for _, member := range members {
 		if err := ctx.Err(); err != nil {
-			return none, err
+			return nil, err
 		}
 		source := member.source
 		if source.TenantID != tenant.String() || len(member.in) != len(member.out) ||
 			!budget.debit(int64(len(member.in)), 1024, 1024) {
-			return none, errCapacityCounterInput
+			return nil, errCapacityCounterInput
 		}
 		input := capacityBillingMember{tenant: source.TenantID, context: source.ContextID, router: source.DeviceID, iface: source.InterfaceID,
 			source: source.AgentID + "/" + source.SourceRef, incarnation: source.SourceAssignedAt.Format(time.RFC3339Nano) + "/" + source.AgentAssignedAt.Format(time.RFC3339Nano),
@@ -72,12 +85,7 @@ func CalculateCapacityMeasuredP95(ctx context.Context, window CapacityMeasuremen
 		}
 		inputs = append(inputs, input)
 	}
-	fact, err := capacityBillingP95(ctx, capacityBillingWindow{from: window.From, to: window.To, mode: capacityBillingMode(direction),
-		memoryBytes: window.MemoryBytes / 2, workUnits: window.WorkUnits / 2}, inputs)
-	if err != nil {
-		return none, err
-	}
-	return CapacityMeasuredPercentile{fact: fact, direction: direction}, nil
+	return inputs, nil
 }
 
 type CapacityBillResult struct {

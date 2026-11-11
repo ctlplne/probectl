@@ -71,53 +71,12 @@ func capacityBillingP95(ctx context.Context, window capacityBillingWindow, membe
 	if err != nil {
 		return none, err
 	}
-	type memberKey struct{ context, router, iface string }
-	seen := make(map[memberKey]struct{}, len(members))
-	in, out := make([]*big.Rat, count), make([]*big.Rat, count)
-	missingIn, missingOut := make([]bool, count), make([]bool, count)
-	for i := range count {
-		if err := ctx.Err(); err != nil {
-			return none, err
-		}
-		in[i], out[i] = new(big.Rat), new(big.Rat)
+	totals, err := sumCapacityBillingMembers(ctx, window, members, count)
+	if err != nil {
+		return none, err
 	}
-	for _, member := range members {
-		key := memberKey{member.context, member.router, member.iface}
-		if _, duplicate := seen[key]; duplicate {
-			return none, errCapacityCounterInput
-		}
-		seen[key] = struct{}{}
-		for i, sample := range member.samples {
-			if err := ctx.Err(); err != nil {
-				return none, err
-			}
-			from := window.from.Add(time.Duration(i) * 5 * time.Minute)
-			to := from.Add(5 * time.Minute)
-			if to.After(window.to) {
-				to = window.to
-			}
-			for direction, rate := range []capacityCounterRate{sample.in, sample.out} {
-				value, observed, err := capacityBillingBytes(ctx, rate, from, to)
-				if err != nil {
-					return none, err
-				}
-				switch direction {
-				case 0:
-					if observed {
-						in[i].Add(in[i], value)
-					} else {
-						missingIn[i] = true
-					}
-				case 1:
-					if observed {
-						out[i].Add(out[i], value)
-					} else {
-						missingOut[i] = true
-					}
-				}
-			}
-		}
-	}
+	in, out := totals.in, totals.out
+	missingIn, missingOut := totals.missingIn, totals.missingOut
 	result := capacityBillingPercentile{tenant: tenant.String(), from: window.from, to: window.to, expected: count}
 	for i := range count {
 		if err := ctx.Err(); err != nil {

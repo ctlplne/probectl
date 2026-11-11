@@ -1314,3 +1314,10 @@ The internal source-to-percentile and bill comparison path preserves rational
 values, sums distinct circuit members before ranking, and withholds amounts for
 incomplete required coverage. This does not yet expose a complete measured
 billing or forecast operation on the financial configuration surfaces above.
+
+The counter-backed forecast adapter uses those same summed grids for its exact
+trend plus weekly pattern. Its interval is an `in_sample_residual_envelope`,
+not a calibrated confidence level. The selected future horizon and capacity
+threshold are explicit; a threshold not reached in that horizon has no invented
+date. `max_directional_percentiles` returns separate inbound/outbound forecasts,
+while `interval_max` and `interval_sum` forecast their stated per-interval series.
