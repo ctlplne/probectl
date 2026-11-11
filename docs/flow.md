@@ -1387,3 +1387,12 @@ charge quadratic rational arithmetic; they do not allocate that amount of
 memory or increase the history read budget. The same finite query timeout,
 tenant fairness and complete-result memory admission remain. This admits the
 complete two-week weekly training workload rather than shortening its samples.
+
+Original routing witnesses use the collector's configured `queue_size` record
+admission (at least one configured `batch_size`) for the restricted evidence
+worker backlog. Queue slots do not multiply that retained-record allowance.
+One active batch is additional, as on the raw flush path. Metadata and routing
+witness RPCs still run in one worker, raw delivery never waits for them, and
+actual overload remains counted as `evidence_queue_drops`; an unattested record
+never gains routing facts. This preserves admitted bursts instead of losing
+per-record provenance behind a fixed one-batch metadata queue.

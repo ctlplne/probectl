@@ -54,8 +54,8 @@ func (c *Collector) RefreshEvidenceAfterRotation() {
 	}
 }
 
-// evidenceLoop has one worker and a one-batch queue so a slow restricted RPC
-// never stalls the raw flow bus. Every eligible source is submitted in bounded
+// evidenceLoop has one worker and a record-admitted queue so a slow restricted
+// RPC never stalls the raw flow bus. Every eligible source is submitted in bounded
 // 64-claim transport pages, once per source per refresh or retry interval.
 func (c *Collector) evidenceLoop(ctx context.Context) {
 	lastAccepted := make(map[evidenceSource]time.Time)
@@ -123,6 +123,9 @@ func (c *Collector) evidenceLoop(ctx context.Context) {
 		case receipts := <-c.faultQueue:
 			c.sendFlowFaults(ctx, receipts, lastFault, pendingFault)
 		case batch := <-c.evidenceQueue:
+			if c.evidenceRecordLimit > 0 {
+				c.evidenceQueuedRecords.Add(-int64(len(batch)))
+			}
 			processIdentity(batch)
 			c.sendRoutingWitnesses(ctx, batch)
 		}
@@ -313,4 +316,35 @@ func (c *Collector) flowEvidenceClaims(batch []Record, lastAccepted,
 		keys = append(keys, key)
 	}
 	return claims, keys
+}
+
+// enqueueEvidence bounds retained records rather than multiplying a batch
+// ceiling by its channel slots. Channel publication remains nonblocking. The
+// worker releases queued admission when it begins the one active batch.
+func (c *Collector) enqueueEvidence(batch []Record) bool {
+	size := int64(len(batch))
+	limited := c.evidenceRecordLimit > 0
+	if limited {
+		if size > c.evidenceRecordLimit {
+			return false
+		}
+		for {
+			queued := c.evidenceQueuedRecords.Load()
+			if queued > c.evidenceRecordLimit-size {
+				return false
+			}
+			if c.evidenceQueuedRecords.CompareAndSwap(queued, queued+size) {
+				break
+			}
+		}
+	}
+	select {
+	case c.evidenceQueue <- batch:
+		return true
+	default:
+		if limited {
+			c.evidenceQueuedRecords.Add(-size)
+		}
+		return false
+	}
 }

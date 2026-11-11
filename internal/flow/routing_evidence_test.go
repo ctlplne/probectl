@@ -191,3 +191,87 @@ func TestFlowRoutingWitnessProducerRefusesForeignUnconfiguredAndPartialMetadata(
 		t.Fatal("partial RPC response counted as a complete routing witness", stats)
 	}
 }
+
+func TestFlowRoutingWitnessQueuePreservesAdmittedBurstWithoutBlockingRaw(t *testing.T) {
+	at := time.Now().UTC()
+	raw := &routingRawCapture{}
+	sink := &routingWitnessCapture{entered: make(chan []*agentv1.FlowRoutingWitness, 8), release: make(chan struct{})}
+	cfg := &Config{TenantID: witnessTenant, AgentID: witnessAgent, BatchSize: 1, QueueSize: 4}
+	cfg.Evidence.Exporters = []string{"192.0.2.1"}
+	c := &Collector{cfg: cfg, emit: raw, log: slog.New(slog.NewTextHandler(io.Discard, nil)), clock: func() time.Time { return at }}
+	c.WithEntityEvidence(sink)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { defer close(done); c.evidenceLoop(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	first := routingEvidenceRecordForTest(at)
+	c.flushBatch(ctx, []Record{first})
+	select {
+	case <-sink.entered:
+	case <-time.After(time.Second):
+		t.Fatal("first original witness did not reach the blocked RPC")
+	}
+	flushed := make(chan struct{})
+	go func() {
+		for i := uint64(1); i <= 4; i++ {
+			record := first
+			record.Bytes = i
+			c.flushBatch(ctx, []Record{record})
+		}
+		close(flushed)
+	}()
+	select {
+	case <-flushed:
+	case <-time.After(time.Second):
+		t.Fatal("admitted witness backlog blocked raw flow delivery")
+	}
+	if raw.count.Load() != 5 || c.stats.EvidenceQueueDrops.Load() != 0 {
+		t.Fatal("admitted raw burst lost original routing witnesses behind the one-batch queue", raw.count.Load(), c.stats.EvidenceQueueDrops.Load())
+	}
+	close(sink.release)
+	for range 4 {
+		select {
+		case witness := <-sink.entered:
+			if len(witness) != 1 {
+				t.Fatal("complete queued witness changed population", len(witness))
+			}
+		case <-time.After(time.Second):
+			t.Fatal("admitted original witness was discarded")
+		}
+	}
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	for c.stats.RoutingWitnessReceipts.Load() != 5 {
+		select {
+		case <-deadline.C:
+			t.Fatal("complete admitted witness population did not finish")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	if c.stats.RoutingWitnessErrors.Load() != 0 || c.stats.DroppedRecords.Load() != 0 {
+		t.Fatal("admitted source burst changed raw delivery or reported false witness success")
+	}
+}
+
+func TestFlowRoutingWitnessBacklogCountsRecordsInsteadOfBatchSlots(t *testing.T) {
+	for _, scenario := range []struct {
+		name         string
+		queue, batch int
+	}{{"configured backlog", 8, 4}, {"one full configured batch", 1, 4}} {
+		t.Run(scenario.name, func(t *testing.T) {
+			cfg := &Config{TenantID: witnessTenant, AgentID: witnessAgent, QueueSize: scenario.queue, BatchSize: scenario.batch}
+			c := &Collector{cfg: cfg}
+			c.WithEntityEvidence(&routingWitnessCapture{})
+			limit := max(scenario.queue, scenario.batch)
+			batches := limit / scenario.batch
+			for range batches {
+				if !c.enqueueEvidence(make([]Record, scenario.batch)) {
+					t.Fatal("complete admitted batch was narrowed")
+				}
+			}
+			if c.enqueueEvidence([]Record{{}}) || c.evidenceQueuedRecords.Load() != int64(limit) || len(c.evidenceQueue) != batches {
+				t.Fatal("channel slots multiplied record admission or rejected an admitted full batch", c.evidenceQueuedRecords.Load(), len(c.evidenceQueue))
+			}
+		})
+	}
+}

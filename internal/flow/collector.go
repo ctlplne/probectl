@@ -102,15 +102,17 @@ type Collector struct {
 	sourceACLs map[string][]netip.Prefix // protocol name -> allowed exporter CIDRs
 	done       chan struct{}
 
-	qualityMu        sync.Mutex
-	quality          map[qualityKey]*qualityWindow
-	qualityEvictedAt time.Time
-	qualityInterval  time.Duration
-	evidence         EvidenceEmitter
-	evidenceQueue    chan []Record
-	faultQueue       chan []QualityReceipt
-	evidenceReset    chan struct{}
-	evidenceSources  map[string]struct{}
+	qualityMu             sync.Mutex
+	quality               map[qualityKey]*qualityWindow
+	qualityEvictedAt      time.Time
+	qualityInterval       time.Duration
+	evidence              EvidenceEmitter
+	evidenceQueue         chan []Record
+	evidenceRecordLimit   int64
+	evidenceQueuedRecords atomic.Int64
+	faultQueue            chan []QualityReceipt
+	evidenceReset         chan struct{}
+	evidenceSources       map[string]struct{}
 }
 
 // EvidenceEmitter sends only bounded canonical observations through the
@@ -126,7 +128,12 @@ func (c *Collector) WithEntityEvidence(emitter EvidenceEmitter) {
 	if emitter == nil {
 		return
 	}
-	c.evidenceQueue = make(chan []Record, 1)
+	// Reuse configured collector admission for provenance bursts. One full
+	// configured batch always fits; a slow RPC never blocks raw delivery.
+	limit := max(1, c.cfg.QueueSize, c.cfg.BatchSize)
+	c.evidenceRecordLimit = int64(limit)
+	c.evidenceQueuedRecords.Store(0)
+	c.evidenceQueue = make(chan []Record, limit)
 	c.faultQueue = make(chan []QualityReceipt, 1)
 	c.evidenceReset = make(chan struct{}, 1)
 	c.evidenceSources = make(map[string]struct{}, len(c.cfg.Evidence.Exporters))
@@ -424,11 +431,7 @@ func (c *Collector) flushBatch(ctx context.Context, batch []Record) {
 	}
 	c.stats.Records.Add(uint64(len(batch)))
 	if c.evidence != nil {
-		// The queue is intentionally one batch deep. A slow evidence RPC can
-		// lose an optional join, but cannot block raw flow bus delivery.
-		select {
-		case c.evidenceQueue <- batch:
-		default:
+		if !c.enqueueEvidence(batch) {
 			c.stats.EvidenceQueueDrops.Add(1)
 			if counter, ok := c.evidence.(interface{ QueueDrop() }); ok {
 				counter.QueueDrop()
