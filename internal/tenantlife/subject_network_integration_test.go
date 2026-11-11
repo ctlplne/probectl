@@ -13,6 +13,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,7 +69,6 @@ func TestNetworkSubjectPostgresKeepsNeighboursAndTenantIsolation(t *testing.T) {
 		}
 	}
 	engine := New(pool, nil, nil, nil, nil, "fixture backups expire", nil)
-	policy := subjectPostgresTablePolicies["entity_source_contexts"]
 	wanted := map[string]bool{}
 	for value := range all {
 		wanted[value] = true
@@ -97,21 +98,28 @@ func TestNetworkSubjectPostgresKeepsNeighboursAndTenantIsolation(t *testing.T) {
 			}
 		}
 		var output bytes.Buffer
-		count, err := engine.exportClassifiedSubjectRows(tenancy.WithTenant(ctx, tenancy.ID(tenants[0])), tenants[0], "entity_source_contexts", policy, newSubjectAliasSet(tc.subject), &output)
-		if err != nil || count != int64(len(tc.match)) {
-			t.Fatal("network export lost complete matches or selected neighbours", tc.subject, count, err)
+		if _, err := engine.ExportSubject(ctx, tenants[0], tc.subject, &output, false); err != nil {
+			t.Fatal("network portability export", tc.subject, err)
 		}
-		decoder := json.NewDecoder(&output)
+		files := readTarGz(t, output.Bytes())
+		decoder := json.NewDecoder(strings.NewReader(files["postgres/entity_source_contexts.jsonl"]))
 		seen := map[string]bool{}
-		for range tc.match {
+		for {
 			var row struct {
 				Tenant string `json:"tenant_id"`
 				Source string `json:"source_ref"`
 			}
-			if err := decoder.Decode(&row); err != nil || row.Tenant != tenants[0] || seen[row.Source] {
+			err := decoder.Decode(&row)
+			if err == io.EOF {
+				break
+			}
+			if err != nil || row.Tenant != tenants[0] || seen[row.Source] {
 				t.Fatal("network export tenant/row identity", err)
 			}
 			seen[row.Source] = true
+		}
+		if len(seen) != len(tc.match) {
+			t.Fatal("network export lost complete matches or selected neighbours", tc.subject, len(seen), len(tc.match))
 		}
 		for _, value := range tc.match {
 			if !seen[value] {

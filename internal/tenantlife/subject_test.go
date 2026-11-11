@@ -431,7 +431,7 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 }
 
 func TestSafeContainsIdentifierRejectsGenericFreeform(t *testing.T) {
-	for _, value := range []string{"read", "active", "admin", "Read-only administrator"} {
+	for _, value := range []string{"read", "active", "admin", "Read-only administrator", "fe80::1%en 1"} {
 		if isSafeContainsIdentifier(value) {
 			t.Errorf("%q was accepted for substring subject matching", value)
 		}
@@ -440,6 +440,8 @@ func TestSafeContainsIdentifierRejectsGenericFreeform(t *testing.T) {
 		"alice@example.test",
 		"00000000-0000-0000-0000-000000000123",
 		"192.0.2.10",
+		"1.1.1.1",
+		"::1",
 		"2001:db8::10",
 		"spiffe://probectl/tenant/t/agent/a",
 	} {

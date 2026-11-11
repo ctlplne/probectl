@@ -616,32 +616,27 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 	}
 	tctx := tenancy.WithTenant(x.ctx, tenancy.ID(x.tenantID))
 	var flowAliases subjectAliasSet
-	for _, table := range tables {
-		if flowQuerySubjectTable(table) || table == "entity_evidence" || table == "dashboard_report_artifacts" || table == "dashboard_report_artifact_chunks" {
-			if err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-				captured, err := e.captureSubjectAliases(ctx, sc, x.subject)
-				flowAliases = captured.aliases
-				return err
-			}); err != nil {
-				return fmt.Errorf("tenantlife: capture flow configuration export aliases: %w", err)
-			}
-			break
-		}
+	if err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		captured, err := e.captureSubjectAliases(ctx, sc, x.subject)
+		flowAliases = captured.aliases
+		return err
+	}); err != nil {
+		return fmt.Errorf("tenantlife: capture subject export aliases: %w", err)
 	}
 	subject := []byte(strings.ToLower(x.subject))
 	subjectHash := audit.SubjectErasureHash(x.tenantID, x.subject)
 	for _, table := range tables {
 		policy := policies[table]
-		if table == "entity_evidence" || table == "dashboard_report_artifacts" || table == "dashboard_report_artifact_chunks" {
+		if policy.disposition == subjectTableDeleteMatches && !flowQuerySubjectTable(table) || policy.disposition == subjectTableReportChunks {
 			count, err := streamPlaneToTar(x.tw, "postgres/"+table+".jsonl", x.man.ExportedAt, x.redact, x.pol, func(w io.Writer) (int64, error) {
 				return e.exportClassifiedSubjectRows(tctx, x.tenantID, table, policy, flowAliases, w)
 			})
 			if err != nil {
-				return fmt.Errorf("tenantlife: subject report export %s: %w", table, err)
+				return fmt.Errorf("tenantlife: classified subject export %s: %w", table, err)
 			}
 			if count > 0 {
 				x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: policy.plane, Status: SubjectStatusExported, Rows: count,
-					Notes: "explicit subject evidence fields or generator/schedule-owner-scoped reports and relational chunks"})
+					Notes: "same classified subject fields as erasure; report owners and chunks use tenant-composite parents"})
 			}
 			continue
 		}
@@ -1764,13 +1759,18 @@ func (e *Engine) captureSubjectAliases(
 
 func isSafeContainsIdentifier(value string) bool {
 	value = strings.TrimSpace(value)
-	if len(value) < 8 || strings.IndexFunc(value, func(r rune) bool {
+	if strings.IndexFunc(value, func(r rune) bool {
 		return r == ' ' || r == '\t' || r == '\n' || r == '\r'
 	}) >= 0 {
 		return false
 	}
+	// A parsed address is unambiguous even when its valid spelling is
+	// shorter than an opaque directory alias (for example ::1 or 1.1.1.1).
 	if _, err := netip.ParseAddr(value); err == nil {
 		return true
+	}
+	if len(value) < 8 {
+		return false
 	}
 	if isUUIDString(value) {
 		return true

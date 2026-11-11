@@ -18,11 +18,11 @@ import (
 // prefixes. Other directory aliases retain their existing literal-text policy.
 func literalSubjectPattern(value string) (string, bool) {
 	value = strings.TrimSpace(value)
-	if address, err := netip.ParseAddr(value); err == nil {
-		return networkSubjectPattern(address), true
-	}
 	if !isSafeContainsIdentifier(value) {
 		return "", false
+	}
+	if address, err := netip.ParseAddr(value); err == nil {
+		return networkSubjectPattern(address), true
 	}
 	return "(?i)" + regexp.QuoteMeta(value), true
 }
