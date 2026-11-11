@@ -488,7 +488,7 @@
     }
   ],
   "verification": {
-    "workflow_jobs": 71,
+    "workflow_jobs": 70,
     "workflow_jobs_source": "scripts/count_workflow_jobs.py --total",
     "rca_eval": {
       "blocking": true,
