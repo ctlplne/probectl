@@ -128,7 +128,7 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 		zero := uint32(0)
 		l.input = entity.CounterCaptureInput{ConfiguredTarget: "192.0.2.1", PollStartedAt: at, PollCompletedAt: at.Add(time.Nanosecond), PointCount: 2}
 		for _, name := range []string{device.MetricIfInOctets, device.MetricIfOutOctets} {
-			l.metrics = append(l.metrics, device.Metric{TenantID: l.tenant, AgentID: sender, Device: "192.0.2.1", Source: device.SourceSNMP, IfIndex: 7, Name: name, At: at, ExactCounter: &device.CounterValue{Value: ^uint64(0) - uint64(i), Width: 64, UptimeTicks: &zero, DiscontinuityTicks: &zero, PollStartedAt: at, PollCompletedAt: at.Add(time.Nanosecond)}})
+			l.metrics = append(l.metrics, device.Metric{TenantID: l.tenant, AgentID: sender, Device: "192.0.2.1", Source: device.SourceSNMP, IfIndex: 7, Name: name, At: at, ExactCounter: &device.CounterValue{Value: ^uint64(0) - uint64(i), Width: 64, UptimeTicks: zero, DiscontinuityTicks: zero, UptimeKnown: true, DiscontinuityKnown: true, PollStartedAt: at, PollCompletedAt: at.Add(time.Nanosecond)}})
 		}
 		probe := &counterPublicationProbe{check: func(ctx context.Context, msg bus.Message) error {
 			if msg.Topic != bus.DeviceCountersTopic {

@@ -30,7 +30,7 @@ func counterBatchFixture(tenant string) *devicev1.DeviceMetricBatch {
 				value = ^uint64(0)
 			}
 			metric := Metric{TenantID: tenant, AgentID: "same-agent", Device: "192.0.2.1", Source: SourceSNMP, IfIndex: uint32(width), Name: name, At: start,
-				ExactCounter: &CounterValue{Value: value, Width: width, UptimeTicks: &zero, DiscontinuityTicks: &zero, PollStartedAt: start, PollCompletedAt: start.Add(123 * time.Nanosecond)}}
+				ExactCounter: &CounterValue{Value: value, Width: width, UptimeTicks: zero, DiscontinuityTicks: zero, UptimeKnown: true, DiscontinuityKnown: true, PollStartedAt: start, PollCompletedAt: start.Add(123 * time.Nanosecond)}}
 			metrics = append(metrics, metric.ToProto())
 		}
 	}
