@@ -56,7 +56,7 @@ func TestCapacityCounterRatesKeepExactWideValuesBothWrapWidthsAndObservedZero(t 
 
 func TestCapacityCounterRatesRefuseResetAmbiguousAndUnprovenInputsWithoutInventedZeros(t *testing.T) {
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID("red"))
-	for _, scenario := range []string{"legacy-rounded", "missing-continuity", "source-replaced", "reset", "width-changed", "capacity-missing", "capacity-changed", "over-capacity", "rising-hidden-wrap", "falling-multiple-wraps", "wide-capacity-overflow"} {
+	for _, scenario := range []string{"legacy-rounded", "missing-continuity", "source-replaced", "reset", "width-changed", "capacity-missing", "capacity-changed", "over-capacity", "rising-hidden-wrap", "falling-multiple-wraps", "exact32-hidden-wrap-boundary", "exact64-hidden-wrap-boundary", "wide-capacity-overflow"} {
 		t.Run(scenario, func(t *testing.T) {
 			before, after := capacityCounterPair("red")
 			want := ""
@@ -86,6 +86,17 @@ func TestCapacityCounterRatesRefuseResetAmbiguousAndUnprovenInputsWithoutInvente
 				}
 				before.maxBitsPerSecond, after.maxBitsPerSecond = 100_000_000_000, 100_000_000_000
 				after.at = before.at.Add(5 * time.Minute)
+				want = "ambiguous_counter_wraps"
+			case "exact32-hidden-wrap-boundary", "exact64-hidden-wrap-boundary":
+				before.octets, after.octets = 0, 0
+				if scenario == "exact32-hidden-wrap-boundary" {
+					before.width, after.width = 32, 32
+					before.maxBitsPerSecond, after.maxBitsPerSecond = 8<<32, 8<<32
+					after.at = before.at.Add(time.Second)
+				} else {
+					before.maxBitsPerSecond, after.maxBitsPerSecond = 1<<63, 1<<63
+					after.at = before.at.Add(16 * time.Second)
+				}
 				want = "ambiguous_counter_wraps"
 			case "wide-capacity-overflow":
 				before.maxBitsPerSecond, after.maxBitsPerSecond = ^uint64(0), ^uint64(0)
