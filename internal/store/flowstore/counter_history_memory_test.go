@@ -138,7 +138,7 @@ func TestCounterHistoryMemoryPortabilityAndErasureKeepNeighbourAndSibling(t *tes
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenants[0]))
 	var exported bytes.Buffer
 	if n, err := memory.ExportCounterSubject(ctx, tenants[0], "192.0.2.1", &exported); err != nil || n != 4 {
-		t.Fatal("subject export lost its exact four points or included the neighbour", n, err)
+		t.Fatal("subject export lost its exact four points or included the neighbor", n, err)
 	}
 	decoder := json.NewDecoder(&exported)
 	var count int
@@ -168,7 +168,7 @@ func TestCounterHistoryMemoryPortabilityAndErasureKeepNeighbourAndSibling(t *tes
 		own := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		want := int64(8 - 4*(1-i))
 		if n, err := memory.ExportCounterTenant(own, tenant, io.Discard); err != nil || n != want {
-			t.Fatal("erasure changed a prefix neighbour or a sibling tenant", tenant, n, want, err)
+			t.Fatal("erasure changed a prefix neighbor or a sibling tenant", tenant, n, want, err)
 		}
 	}
 	cutoff := counterHistoryRows(t, tenants[0])[0].PollStartedAt.Add(time.Second)

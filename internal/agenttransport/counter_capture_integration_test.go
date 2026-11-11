@@ -107,7 +107,6 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 		}
 		bound := tenancy.WithTenant(ctx, tenancy.ID(tenant.ID))
 		if err := tenancy.InTenant(bound, pool, func(ctx context.Context, sc tenancy.Scope) error {
-
 			if i == 1 {
 				_, err := (store.Agents{}).Register(ctx, sc, lanes[0].sender, "foreign-counter-agent", "192.0.2.1", "fixture", crypto.AgentSPIFFEID(tenant.ID, lanes[0].sender), nil)
 				var rejection *pgconn.PgError
