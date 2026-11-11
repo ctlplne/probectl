@@ -41,6 +41,19 @@ message DeviceMetric {
   // for tenant-local path/topology correlation and bounded identity-conflict
   // evidence. Never contains credentials.
   repeated string interface_addresses = 12; // -> "probectl.device.interface.address"
+
+  // Original typed counter; absent is unknown, never an observed zero.
+  DeviceCounter exact_counter = 13;
+}
+
+// Raw observation metadata, never a continuity or current-source grant.
+message DeviceCounter {
+  uint64 value = 1;
+  uint32 width = 2; // original ASN.1 counter domain: 32 or 64
+  optional uint32 uptime_ticks = 3; // zero is an observed value when present
+  optional uint32 discontinuity_ticks = 4;
+  int64 poll_started_at_unix_nano = 5; // zero means unreported
+  int64 poll_completed_at_unix_nano = 6;
 }
 
 // DeviceMetricBatch is the bus payload on probectl.device.metrics: one

@@ -2068,6 +2068,12 @@ the old way (**SNMP v2c/v3**), listens for authenticated **SNMP traps**, and
 subscribes the modern streaming way (**gNMI/OpenConfig**). Polling/subscription
 samples normalize into one `DeviceMetric` shape and publish to
 `probectl.device.metrics` (tenant-keyed). An explicitly configured SNMP target
+also publishes original typed counters to `probectl.device.counters`, including
+decreases omitted by the legacy metrics filter. This separate tenant lane keeps
+full 32/64-bit values, optional uptime/discontinuity ticks and poll bounds for
+capacity processing. Bus delivery alone does not attest the sender or qualify a
+bill check; current source verification and stored-history reads are required.
+An explicitly configured target
 with `neighbors: true` also publishes a bounded LLDP/CDP snapshot to
 `probectl.device.neighbors`; it never scans for devices or opens a follow-up
 session. Each LLDP/CDP attempt separately publishes a stable, non-secret

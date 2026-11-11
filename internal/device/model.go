@@ -66,7 +66,6 @@ type Metric struct {
 	// ExactCounter retains the original typed integer before the legacy TSDB
 	// float conversion. Absence is not zero. It proves neither continuity nor
 	// current source authority; the capacity reader must establish both.
-	// Additive bus transport and exact history are separate integration work.
 	ExactCounter *CounterValue
 }
 
@@ -83,7 +82,7 @@ type CounterValue struct {
 
 // ToProto maps onto the bus/storage schema.
 func (m Metric) ToProto() *devicev1.DeviceMetric {
-	return &devicev1.DeviceMetric{
+	out := &devicev1.DeviceMetric{
 		TenantId:      m.TenantID,
 		AgentId:       m.AgentID,
 		DeviceAddress: m.Device,
@@ -100,6 +99,24 @@ func (m Metric) ToProto() *devicev1.DeviceMetric {
 			m.InterfaceAddresses...,
 		),
 	}
+	if m.ExactCounter != nil {
+		out.ExactCounter = &devicev1.DeviceCounter{Value: m.ExactCounter.Value, Width: m.ExactCounter.Width}
+		if m.ExactCounter.UptimeKnown {
+			ticks := m.ExactCounter.UptimeTicks
+			out.ExactCounter.UptimeTicks = &ticks
+		}
+		if m.ExactCounter.DiscontinuityKnown {
+			ticks := m.ExactCounter.DiscontinuityTicks
+			out.ExactCounter.DiscontinuityTicks = &ticks
+		}
+		if !m.ExactCounter.PollStartedAt.IsZero() {
+			out.ExactCounter.PollStartedAtUnixNano = m.ExactCounter.PollStartedAt.UnixNano()
+		}
+		if !m.ExactCounter.PollCompletedAt.IsZero() {
+			out.ExactCounter.PollCompletedAtUnixNano = m.ExactCounter.PollCompletedAt.UnixNano()
+		}
+	}
+	return out
 }
 
 // Interface is one device interface as discovered by the SNMP poll — the

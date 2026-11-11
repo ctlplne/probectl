@@ -60,6 +60,12 @@ const FlowIngestQualityTopic = "probectl.flow.ingest-quality"
 // consumes it and lands the samples in the TSDB.
 const DeviceMetricsTopic = "probectl.device.metrics"
 
+// DeviceCountersTopic preserves original typed SNMP counters, including
+// decreases, for capacity processing independently of the legacy TSDB filter.
+// Payload: devicev1.DeviceMetricBatch; consumers must use exact_counter and
+// independently verify current sender/source authority, never the legacy value.
+const DeviceCountersTopic = "probectl.device.counters"
+
 // DeviceNeighborsTopic carries bounded, read-only LLDP/CDP snapshots from the
 // device collector. Payload: devicev1.DeviceNeighborSnapshot.
 const DeviceNeighborsTopic = "probectl.device.neighbors"
@@ -165,7 +171,7 @@ func TenantLaneTopics() []string {
 	return []string{
 		NetworkResultsTopic, EndpointResultsTopic, RUMEventsTopic,
 		FlowEventsTopic, FlowIngestQualityTopic,
-		DeviceMetricsTopic, DeviceNeighborsTopic, DeviceCollectionOutcomesTopic,
+		DeviceMetricsTopic, DeviceCountersTopic, DeviceNeighborsTopic, DeviceCollectionOutcomesTopic,
 		DeviceTrapEventsTopic,
 		EBPFFlowsTopic, BGPEventsTopic,
 		OTLPMetricsTopic, OTLPTracesTopic, OTLPLogsTopic,
