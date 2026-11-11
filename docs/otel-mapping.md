@@ -217,8 +217,8 @@ snapshot validity and mandatory audit work. They are separate from database
 client durations. CSV preparation ends before transport writes; query success
 is not an external delivery receipt.
 
-For each fixed operation `plan`, `query`, `comparison`, `page`, `comparison_page`, and
-`csv_prepare`:
+For each fixed operation `plan`, `query`, `comparison`, `page`, `comparison_page`,
+`csv_prepare`, and `peering_estimate`:
 
 | OTel name | Instrument / unit | Prometheus mapping |
 | --- | --- | --- |

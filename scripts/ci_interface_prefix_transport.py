@@ -97,6 +97,8 @@ UNIT = {
         "TestSNMPPollSkipsExtraPrefixFetchWithoutEvidenceChannel",
     ),
     "internal/ai/mcp": (
+        "TestPeeringNativeToolKeepsExactInputsTenantAndEverySourcePermission",
+        "TestPeeringNativeFinalEncodingRetainsFairnessAndExactCountersWithTextRedaction",
         "TestNativeRoutingASNsKeepStructuredPathsAndMandatoryTextRedaction",
         "TestBGPRoutingNativeToolsKeepCompleteInputAndTenantUserBoundary",
         "TestBGPRoutingNativeParserRefusesAuthorityHintsAndIncompleteReplacement",
@@ -104,10 +106,12 @@ UNIT = {
         "TestInterfaceRoleNativeExplanationRequiresEverySourceBeforeBackend",
     ),
     "internal/cli": (
+        "TestPeeringCLIAndGeneratedSDKKeepExactTenantBoundInputsAndQualifiedOutput",
         "TestInterfaceRoleCLIUsesOwnedRoutesAndExactDecimalRevision",
         "TestInterfaceRoleCompletePolicyReachesNamedRawCLIAndGeneratedSDK",
     ),
     "internal/control": (
+        "TestPeeringNativeProjectionKeepsWholePublicContractAndExactMetadata",
         "TestPeeringAPIKeepsExactPublicIdentitiesAndQualifiedCompleteOutput",
         "TestPeeringHTTPRefusesTenantAndAuthorityHintsBeforeServiceReads",
         "TestPeeringSummaryCombinesTransitBeforeP95AndKeepsUnknownVolumes",

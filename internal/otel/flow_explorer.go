@@ -18,7 +18,7 @@ type FlowExplorerMetricSet struct {
 // FlowExplorerOperations returns the fixed service boundaries shared by every
 // transport. Internal comparison/coverage passes do not become extra queries.
 func FlowExplorerOperations() []string {
-	return []string{"plan", "query", "comparison", "page", "comparison_page", "csv_prepare"}
+	return []string{"plan", "query", "comparison", "page", "comparison_page", "csv_prepare", "peering_estimate"}
 }
 
 // FlowExplorerOutcomes is a fixed cardinality set, never dependency error text.
@@ -31,7 +31,7 @@ func FlowExplorerOutcomes() []string {
 // Unknown or caller-supplied names cannot create instrument/label cardinality.
 func FlowExplorerMetrics(operation string) (FlowExplorerMetricSet, bool) {
 	switch operation {
-	case "plan", "query", "comparison", "page", "comparison_page", "csv_prepare":
+	case "plan", "query", "comparison", "page", "comparison_page", "csv_prepare", "peering_estimate":
 		prefix := "probectl.flow.explorer." + operation
 		return FlowExplorerMetricSet{Operations: prefix + ".operations", Duration: prefix + ".duration", Active: prefix + ".active"}, true
 	default:

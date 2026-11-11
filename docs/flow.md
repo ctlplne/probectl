@@ -1147,4 +1147,61 @@ Only active operational ports can establish the exact ASN + IX + LAN tuple.
 Public membership grants no tenant access, owned interface identity, current
 route or established peering. The estimate must combine it with current
 tenant-owned FX-4 role/interface and routing evidence. This input is preview;
-the complete peering-estimate service and real joined-flow proof remain pending.
+the shared read-only estimate is exposed as a preview; complete real joined-flow, lifecycle and physical-sender qualification remains required.
+
+
+### Preview peering estimate
+
+`POST /v1/flows/peering-estimate`, `probectl peering estimate`, the typed REST
+clients and native `flow_peering_estimate` use the same current-authority
+service. The caller needs a current tenant user with `flow.read`, `ai.query`,
+`entities.read`, `metrics.read` and `events.read`, including current credential
+and context/source restrictions. Tenant and router ownership are never accepted
+from the body. The current canonical interface must be on the selected IX LAN
+and have an effective IX role, with complete current public prefix and membership
+evidence. These inputs establish eligibility, not an operational peering session.
+
+```sh
+probectl peering estimate --body-file peering-selection.json --json
+```
+
+```json
+{
+  "context_id": "22222222-2222-4222-8222-222222222222",
+  "interface_id": "33333333-3333-4333-8333-333333333333",
+  "peer_asn": 64500,
+  "ix_id": "71",
+  "ix_lan_id": "11",
+  "direction": "inbound",
+  "from": "2026-11-01T00:00:00Z",
+  "to": "2026-11-02T00:00:00Z",
+  "bucket_seconds": 300,
+  "dataseries": "auto"
+}
+```
+
+Replace the example identities with owned resources and the public IDs of the
+selected exchange. IX/LAN IDs and output counters/rates are exact decimal
+strings, including values above JavaScript's safe integer range. No fixed day
+cap is applied; retained source coverage and configured finite query admission
+remain enforced. The default range is the last hour.
+
+Inbound estimates use the original source-prefix path and ingress interface;
+outbound uses the original destination-prefix path and egress interface. Both
+router and explicitly labelled public capture paths retain their original
+source authority; a newer RIB cannot refill an old capture. The ordinary flow
+registry exposes those provenance fields for detailed inspection.
+
+The service retains every owned-router input, including unknown interfaces,
+and separately reports eligible, nonmatching, ambiguous and unavailable transit
+bytes. It combines all known eligible bytes in each interval **before** p95,
+then also reports each transit interface independently. A final partial interval
+uses its actual duration. Read `bits_per_second_numerator` /
+`bits_per_second_denominator` for the exact rate; never sum per-interface p95s.
+
+Missing observed intervals have no p95. Complete observed inputs describe the
+retained query population only, not lossless network telemetry. A known-eligible
+p95 with `complete_routing_classification: false` excludes the explicitly
+reported unknown volumes. It is neither guaranteed savings nor a forwarding,
+routing-policy or live-session claim. The response remains labelled preview
+while complete real-source and served-surface qualification is outstanding.

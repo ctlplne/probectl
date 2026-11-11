@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"net/http"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
 )
 
@@ -112,10 +114,33 @@ func (s *Server) handlePeeringEstimate(w http.ResponseWriter, r *http.Request) e
 	if err := decodeJSONLimit(r, flow.MaxPlanGrammarBytes, &input); err != nil {
 		return err
 	}
+	release, err := s.beginPeeringQuery(r.Context(), actor)
+	if err != nil {
+		if errors.Is(err, fairness.ErrQueryConcurrency) || errors.Is(err, fairness.ErrQueryBudget) {
+			w.Header().Set("Retry-After", "1")
+			return apierror.RateLimited("tenant peering query allowance exceeded; retry shortly")
+		}
+		return err
+	}
+	defer release()
 	result, err := s.runPeeringEstimate(r.Context(), actor, input)
 	if err != nil {
 		return err
 	}
 	writeJSON(w, http.StatusOK, result)
 	return nil
+}
+
+func (s *Server) beginPeeringQuery(ctx context.Context, actor *auth.Principal) (func(), error) {
+	ctx, err := bindFlowRoleContext(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.authorizeNativeFlow(ctx, actor); err != nil {
+		return nil, err
+	}
+	if s.fairnessGate == nil {
+		return nil, apierror.Unavailable("peering query admission is unavailable")
+	}
+	return s.fairnessGate.BeginQuery(ctx, actor.TenantID)
 }

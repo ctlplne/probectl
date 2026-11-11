@@ -26,7 +26,9 @@ type peeringEstimateRequest struct {
 
 // estimatePeeringTraffic is the shared service entry point. No transport may
 // accept private projection/digest/completeness values as source authority.
-func (s *Server) estimatePeeringTraffic(ctx context.Context, actor *auth.Principal, request peeringEstimateRequest) (peeringEstimateResult, error) {
+func (s *Server) estimatePeeringTraffic(ctx context.Context, actor *auth.Principal, request peeringEstimateRequest) (_ peeringEstimateResult, operationErr error) {
+	finish := s.beginFlowOperation(ctx, "peering_estimate")
+	defer func() { finish(operationErr) }()
 	none := peeringEstimateResult{}
 	ctx, err := bindFlowRoleContext(ctx, actor)
 	if err != nil {
@@ -46,14 +48,8 @@ func (s *Server) estimatePeeringTraffic(ctx context.Context, actor *auth.Princip
 	if err := s.authorizeNativeFlow(ctx, actor); err != nil {
 		return none, err
 	}
-	if s.fairnessGate == nil {
-		return none, apierror.Unavailable("peering query admission is unavailable")
-	}
-	release, err := s.fairnessGate.BeginQuery(ctx, actor.TenantID)
-	if err != nil {
-		return none, err
-	}
-	defer release()
+	// Transports retain admission through their final response encoding, as
+	// for the existing native flow services; this service rechecks authority.
 	batch, err := flowstore.NewPlanBatch(ctx, s.flowStore, actor.TenantID, 1, 1)
 	if err != nil {
 		return none, flowExplorerStoreError(err)

@@ -115,7 +115,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     status: 'partial',
     source: 'contract:features',
   },
-  // Additive routing fields and peering membership input remain preview.
+  // Additive routing fields and the qualified peering estimate remain preview.
   // The shared Explorer schema owns routing field reach.
   { id: 'F17', name: 'Flow analytics', status: 'delivered', source: 'contract:features' },
   // Current interface-role explanations, local IX prefixes and Explorer roles remain preview until complete source/served/router qualification.
