@@ -175,17 +175,22 @@ func (Roles) ListPageFiltered(ctx context.Context, s tenancy.Scope, nameFilter s
 
 // AddPermission grants a catalog permission to a role (idempotent).
 func (Roles) AddPermission(ctx context.Context, s tenancy.Scope, roleID, permissionKey string) error {
-	_, err := s.Q.Exec(ctx,
-		`INSERT INTO role_permissions (tenant_id, role_id, permission_key) VALUES ($1, $2, $3)
-		 ON CONFLICT (role_id, permission_key) DO NOTHING`,
-		s.Tenant.String(), roleID, permissionKey)
+	var granted string
+	err := s.Q.QueryRow(ctx,
+		`INSERT INTO role_permissions (tenant_id, role_id, permission_key)
+         SELECT r.tenant_id,r.id,$3 FROM roles r WHERE r.tenant_id=$1 AND r.id=$2
+         ON CONFLICT (role_id,permission_key) DO UPDATE SET permission_key=EXCLUDED.permission_key
+         WHERE role_permissions.tenant_id=EXCLUDED.tenant_id RETURNING permission_key`,
+		s.Tenant.String(), roleID, permissionKey).Scan(&granted)
 	return err
 }
 
 // Permissions returns the permission keys granted to a role.
 func (Roles) Permissions(ctx context.Context, s tenancy.Scope, roleID string) ([]string, error) {
 	rows, err := s.Q.Query(ctx,
-		`SELECT permission_key FROM role_permissions WHERE role_id = $1 ORDER BY permission_key`, roleID)
+		`SELECT rp.permission_key FROM role_permissions rp
+         JOIN roles r ON r.tenant_id=rp.tenant_id AND r.id=rp.role_id
+         WHERE rp.tenant_id=$1 AND rp.role_id=$2 ORDER BY rp.permission_key`, s.Tenant.String(), roleID)
 	if err != nil {
 		return nil, err
 	}

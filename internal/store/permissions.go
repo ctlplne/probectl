@@ -31,11 +31,12 @@ func (Permissions) ForSubject(ctx context.Context, s tenancy.Scope, subjectType,
 	rows, err := s.Q.Query(ctx,
 		`SELECT DISTINCT rp.permission_key, rb.scope_type, COALESCE(rb.scope_id::text, '')
 		 FROM role_bindings rb
-		 JOIN role_permissions rp ON rp.role_id = rb.role_id
-		 WHERE rb.subject_type = $1 AND rb.subject_id = $2
+		 JOIN roles r ON r.id=rb.role_id AND r.tenant_id=rb.tenant_id
+		 JOIN role_permissions rp ON rp.role_id=r.id AND rp.tenant_id=r.tenant_id
+		 WHERE rb.tenant_id=$3 AND rb.subject_type = $1 AND rb.subject_id = $2
 		   AND ($1 <> 'user' OR EXISTS (
-		         SELECT 1 FROM users u WHERE u.id = rb.subject_id::uuid AND u.status = 'active'))
-		 ORDER BY rp.permission_key, rb.scope_type, COALESCE(rb.scope_id::text, '')`, subjectType, subjectID)
+		         SELECT 1 FROM users u WHERE u.tenant_id=rb.tenant_id AND u.id=rb.subject_id::uuid AND u.status='active'))
+		 ORDER BY rp.permission_key, rb.scope_type, COALESCE(rb.scope_id::text, '')`, subjectType, subjectID, s.Tenant.String())
 	if err != nil {
 		return nil, err
 	}

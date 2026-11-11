@@ -323,3 +323,10 @@ default; viewer/editor roles require explicit financial delegation. A custom
 role can receive read access without edit access. These grants cover recorded
 terms and revisions; counter telemetry still requires its own current source
 and tenant authorization.
+
+Role grants and bindings reference a parent role in the same tenant, enforced
+by composite tenant/role foreign keys in pooled storage and physical silos.
+Permission reads also require matching parent ownership, including for legacy
+rows. An upgrade or silo catch-up refuses inconsistent historical references
+without deleting or reassigning them; an operator must resolve those records
+before retrying validation.

@@ -100,6 +100,7 @@ func ProvisionPlan(schema string, tenantTables []string) []string {
 		plan = append(plan, provisionTablePlan(schema, t)...)
 	}
 	plan = append(plan, entityRegistryForeignKeyPlan(schema, tenantTables)...)
+	plan = append(plan, rbacRoleReferencePlan(schema, tenantTables)...)
 	plan = append(plan, entityMetadataCheckPlan(schema, tenantTables)...)
 	plan = append(plan, interfaceRoleStoragePlan(schema, tenantTables)...)
 	plan = append(plan, deviceCounterStoragePlan(schema, tenantTables)...)
@@ -628,6 +629,7 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 		)
 	}
 	plan = append(plan, entityRegistryForeignKeyPlan(schema, cat.TenantTables)...)
+	plan = append(plan, rbacRoleReferencePlan(schema, cat.TenantTables)...)
 	plan = append(plan, entityMetadataCheckPlan(schema, cat.TenantTables)...)
 	plan = append(plan, interfaceRoleStoragePlan(schema, cat.TenantTables)...)
 	plan = append(plan, deviceCounterStoragePlan(schema, cat.TenantTables)...)
