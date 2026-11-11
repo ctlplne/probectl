@@ -40,6 +40,9 @@ func TestCapacityAgreementNativeToolsKeepExactTermsAndSeparateTenantFinancialGra
 		p := principal(tenant, "flow.agreements.read", "flow.agreements.write")
 		p.UserID = "financial-reader"
 		for _, tool := range capacityAgreementTools {
+			if tool.name == "capacity_forecast" {
+				continue
+			}
 			args := map[string]any{}
 			if tool.name != "capacity_agreements_list" && tool.name != "capacity_agreement_create" {
 				args["id"] = tagWriteTestID
@@ -98,5 +101,34 @@ func TestCapacityAgreementNativeArgumentsRefuseAuthorityHintsAndAmbiguousOperati
 		if _, err := decodeCapacityAgreementCommand(json.RawMessage(input.raw), input.name, 8<<20); err == nil {
 			t.Fatal("native financial input accepted authority or a different operation shape", input)
 		}
+	}
+}
+
+func TestCapacityForecastNativeSeparatesTelemetryFromFinancialPermission(t *testing.T) {
+	backend := &capacityAgreementProbe{}
+	schemas := NativeFlowSchemas{}
+	for _, tool := range capacityAgreementTools {
+		schemas[tool.name] = json.RawMessage(`{"type":"object"}`)
+	}
+	server := newTestServer(&fakeBackend{}, testGate(), WithCapacityAgreementBackend(backend, schemas, 8<<20))
+	args := map[string]any{"forecast": flow.CapacityForecastRequest{Target: flow.CapacityTarget{Kind: "interface", ContextID: tagWriteTestID, InterfaceID: tagWriteTestID}, From: "2026-10-01T00:00:00Z", To: "2026-10-15T00:00:00Z", Until: "2026-10-20T00:00:00Z", Direction: "in", CapacityBPS: "9007199254740993.000000000001", MaximumPollGap: "5m", PhysicalBounds: []flow.CapacityPhysicalBound{{ContextID: tagWriteTestID, InterfaceID: tagWriteTestID, MaxBPS: "18446744073709551615"}}}}
+	for _, tenant := range []string{"red", "blue"} {
+		actor := principal(tenant, "flow.read")
+		actor.UserID = "telemetry-reader"
+		before := len(backend.tenants)
+		response := handle(t, server, actor, 1, "tools/call", map[string]any{"name": "capacity_forecast", "arguments": args})
+		if len(backend.tenants) != before+1 || backend.tenants[before] != tenant || resultOf(t, response)["isError"] == true || backend.command.Forecast == nil || backend.command.Forecast.CapacityBPS != "9007199254740993.000000000001" {
+			t.Fatal("nonfinancial native forecast lost tenant or exact threshold", response)
+		}
+		actor = principal(tenant, "flow.agreements.read")
+		actor.UserID = "terms-reader"
+		before = len(backend.tenants)
+		handle(t, server, actor, 2, "tools/call", map[string]any{"name": "capacity_forecast", "arguments": args})
+		if len(backend.tenants) != before {
+			t.Fatal("financial permission granted telemetry access")
+		}
+	}
+	if _, err := decodeCapacityAgreementCommand(json.RawMessage(`{"forecast":{},"id":"`+tagWriteTestID+`"}`), "capacity_forecast", 8<<20); err == nil {
+		t.Fatal("forecast accepted unrelated financial selector")
 	}
 }

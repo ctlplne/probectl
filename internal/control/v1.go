@@ -291,6 +291,7 @@ func (s *Server) flowRoutes() []apiRoute {
 		{http.MethodGet, "/v1/flows/ingest-quality", s.handleFlowIngestQuality, permFlowRead},
 		{http.MethodGet, "/v1/flows/top", s.handleFlowTop, permFlowRead},
 		{http.MethodGet, "/v1/flows/capacity", s.handleFlowCapacity, permFlowRead},
+		{http.MethodPost, "/v1/flows/capacity/forecast", s.handleCapacityForecast, permFlowRead},
 		{http.MethodGet, "/v1/flows/capacity/agreements", s.handleCapacityAgreementList, permFlowAgreementsRead},
 		{http.MethodPost, "/v1/flows/capacity/agreements", s.handleCapacityAgreementSave, permFlowAgreementsWrite},
 		{http.MethodGet, "/v1/flows/capacity/agreements/{id}", s.handleCapacityAgreementGet, permFlowAgreementsRead},

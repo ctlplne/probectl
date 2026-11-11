@@ -512,6 +512,53 @@ export interface CapacityBillingPeriod {
   to: string
 }
 
+export interface CapacityForecastInput {
+  capacity_bps: string
+  direction: "in" | "out" | "max_directional_percentiles" | "interval_max" | "interval_sum"
+  from: string
+  maximum_poll_gap: string
+  physical_bounds: CapacityPhysicalBound[]
+  target: CapacityTarget
+  to: string
+  until: string
+}
+
+export interface CapacityForecastMeasurement {
+  as_of: string
+  forecasts: CapacityForecastResult[]
+  maximum_poll_gap: string
+  members: CapacityBillMember[]
+  membership_basis: "current_member_set_applied_to_complete_period"
+  source_valid_until: string
+  target: CapacityTarget
+}
+
+export interface CapacityForecastResult {
+  capacity_denominator: string
+  capacity_numerator: string
+  central: CapacityRunoutInterval
+  counter_model: string
+  coverage_complete: boolean
+  direction: string
+  earliest: CapacityRunoutInterval
+  expected_samples: number
+  from: string
+  interval_method: string
+  last_sample_exceeded: boolean
+  last_sample_known: boolean
+  latest: CapacityRunoutInterval
+  model: string
+  observed_exceedances: number
+  observed_samples: number
+  reason?: string
+  target: string
+  to: string
+  trained: boolean
+  trend_bps_per_day_denominator?: string
+  trend_bps_per_day_numerator?: string
+  until: string
+}
+
 export interface CapacityPercentileResult {
   bps_denominator?: string
   bps_numerator?: string
@@ -530,6 +577,12 @@ export interface CapacityPhysicalBound {
   context_id: string
   interface_id: string
   max_bps: string
+}
+
+export interface CapacityRunoutInterval {
+  from?: string
+  reached: boolean
+  to?: string
 }
 
 export interface CapacityTarget {
@@ -4084,6 +4137,12 @@ export interface ListCapacityAgreementRevisionsRequest {
 
 export type ListCapacityAgreementRevisionsResponse = CapacityAgreementPage
 
+export interface ForecastCapacityRequest {
+  body: CapacityForecastInput
+}
+
+export type ForecastCapacityResponse = CapacityForecastMeasurement
+
 export interface ListFlowIngestQualityRequest {
   agentId?: string
   exporter?: string
@@ -5955,6 +6014,12 @@ export class ProbectlSDKClient {
     if (request.after !== undefined) query.set("after", String(request.after))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListCapacityAgreementRevisionsResponse>("GET", path, query, undefined)
+  }
+
+  async forecastCapacity(request: ForecastCapacityRequest): Promise<ForecastCapacityResponse> {
+    let path = "/v1/flows/capacity/forecast"
+    const query = new URLSearchParams()
+    return this.requestJSON<ForecastCapacityResponse>("POST", path, query, request.body)
   }
 
   async listFlowIngestQuality(request: ListFlowIngestQualityRequest = {}): Promise<ListFlowIngestQualityResponse> {

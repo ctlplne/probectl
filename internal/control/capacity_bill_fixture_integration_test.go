@@ -27,6 +27,10 @@ import (
 // mTLS receipts: the real sender/witness writer has its separate standing proof.
 // The serving root exercises real RLS/receipt joins and exact retained counters.
 func seedCapacityBillingMonth(f *roleExplanationAPIFixture, memory *flowstore.Memory, tenant string, from, to time.Time) {
+	seedCapacityCounterPeriod(f, memory, tenant, from, to, false)
+}
+
+func seedCapacityCounterPeriod(f *roleExplanationAPIFixture, memory *flowstore.Memory, tenant string, from, to time.Time, growing bool) {
 	f.t.Helper()
 	assigned := from.Add(-time.Hour)
 	var captured time.Time
@@ -60,7 +64,7 @@ func seedCapacityBillingMonth(f *roleExplanationAPIFixture, memory *flowstore.Me
 	ctx := tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant))
 	inputBudget := flowstore.CounterBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20, Timeout: time.Minute}
 	inValue, outValue := uint64(1<<32-1000), ^uint64(0)-999
-	ticks, phase := uint32(100000), uint64(1)
+	ticks, phase, step := uint32(100000), uint64(1), uint64(0)
 	count := int(to.Sub(from) / (5 * time.Minute))
 	for i := 0; i <= count; i++ {
 		at := from.Add(time.Duration(i) * 5 * time.Minute)
@@ -91,10 +95,17 @@ func seedCapacityBillingMonth(f *roleExplanationAPIFixture, memory *flowstore.Me
 		if err := memory.InsertCounterPoll(ctx, rows, inputBudget); err != nil {
 			f.t.Fatal(err)
 		}
-		inValue = (inValue + phase*30000) % (1 << 32)
+		if growing {
+			bps := 8_000_000 + 800*step + 400 + 80*(step%288)
+			inValue = (inValue + bps*300/8) % (1 << 32)
+			outValue += 4_000_000 * 300 / 8
+		} else {
+			inValue = (inValue + phase*30000) % (1 << 32)
+			outValue += 600000
+		}
+		step++
 		phase = phase%20 + 1
 		ticks += 30000
-		outValue += 600000
 	}
 	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 		if _, err := sc.Q.Exec(ctx, `INSERT INTO device_counter_captures(tenant_id,capture_key,captured_at)

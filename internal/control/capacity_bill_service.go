@@ -35,7 +35,7 @@ func (s *Server) checkCapacityAgreementBill(op capacityAgreementOperation, id st
 	if !available {
 		return none, flowstore.ErrCounterHistoryUnavailable
 	}
-	query, err := capacityBillCounterQuery(before, parameters, flowstore.CounterBudget{MemoryBytes: op.budget.MemoryBytes / 4, WorkUnits: op.budget.ReadBytes, Timeout: op.budget.ExecutionLimit})
+	query, err := capacityBillCounterQuery(before.capacityCounterPlan, parameters, flowstore.CounterBudget{MemoryBytes: op.budget.MemoryBytes / 4, WorkUnits: op.budget.ReadBytes, Timeout: op.budget.ExecutionLimit})
 	if err != nil {
 		return none, err
 	}
@@ -50,7 +50,7 @@ func (s *Server) checkCapacityAgreementBill(op capacityAgreementOperation, id st
 		return none, err
 	}
 	window := flow.CapacityMeasurementWindow{From: before.period.From, To: before.period.To, MaximumPollGap: parameters.gap, MemoryBytes: op.budget.MemoryBytes / 2, WorkUnits: op.budget.MemoryBytes}
-	members, err := measureCapacityBillMembers(ctx, before, rows, window, op.budget.MemoryBytes/4)
+	members, err := measureCapacityBillMembers(ctx, before.capacityCounterPlan, rows, window, op.budget.MemoryBytes/4)
 	if err != nil {
 		return none, err
 	}
@@ -96,7 +96,7 @@ func capacityBillRowsInWindow(rows []flowstore.CounterRow, query flowstore.Count
 	return nil
 }
 
-func measureCapacityBillMembers(ctx context.Context, plan capacityBillPlan, rows []flowstore.CounterRow, window flow.CapacityMeasurementWindow, retainedBytes int64) ([]flow.CapacityMeasuredMember, error) {
+func measureCapacityBillMembers(ctx context.Context, plan capacityCounterPlan, rows []flowstore.CounterRow, window flow.CapacityMeasurementWindow, retainedBytes int64) ([]flow.CapacityMeasuredMember, error) {
 	if int64(len(rows)) > retainedBytes/1024 || int64(len(plan.members)) > retainedBytes/4096 {
 		return nil, flowstore.ErrCounterHistoryBudget
 	}
@@ -123,7 +123,7 @@ func measureCapacityBillMembers(ctx context.Context, plan capacityBillPlan, rows
 	}
 	measured := make([]flow.CapacityMeasuredMember, 0, len(plan.members))
 	for i, member := range plan.members {
-		source := flow.CapacityCounterSource{TenantID: plan.agreement.TenantID, ContextID: member.target.Source.ContextID, DeviceID: member.target.Source.DeviceID, InterfaceID: member.target.InterfaceID,
+		source := flow.CapacityCounterSource{TenantID: plan.tenant, ContextID: member.target.Source.ContextID, DeviceID: member.target.Source.DeviceID, InterfaceID: member.target.InterfaceID,
 			AgentID: member.target.Source.AgentID, SourceRef: member.target.Source.SourceRef, SourceAssignedAt: member.target.Source.SourceAssignedAt, AgentAssignedAt: member.target.Source.AgentAssignedAt,
 			InterfaceCreatedAt: member.target.CreatedAt, PhysicalMaxBPS: member.maximum}
 		result, err := flow.MeasureCapacityCounterMember(ctx, source, window, points[i])

@@ -75,6 +75,9 @@ type cliCoverage struct {
 }
 
 var surfaceCommands = map[string]surfaceCommand{
+	"capacity": {Name: "capacity", Summary: "counter-backed capacity forecasts", Ops: map[string]apiOp{
+		"forecast": {Method: http.MethodPost, Path: "/v1/flows/capacity/forecast", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "read-only current interface/circuit forecast; --body-file supplies target, complete from/to/until, direction, exact capacity_bps, maximum_poll_gap and physical_bounds; no financial grant required"},
+	}},
 	"capacity-agreements": {Name: "capacity-agreements", Summary: "tenant financial terms and immutable capacity agreement revisions", Ops: map[string]apiOp{
 		"list":      {Method: http.MethodGet, Path: "/v1/flows/capacity/agreements", ExactJSON: true, Description: "page current financial terms with --query after=... --query limit=...; requires flow.agreements.read"},
 		"get":       {Method: http.MethodGet, Path: "/v1/flows/capacity/agreements/{id}", ArgName: "id", ExactJSON: true, Description: "read current terms, or choose --query version=... or --query at=RFC3339"},

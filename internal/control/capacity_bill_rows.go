@@ -26,12 +26,12 @@ func capacityBillSource(source flowstore.CounterSource, index uint32) capacityBi
 	return capacityBillSourceKey{source.ContextID, source.DeviceID, source.AgentID, source.SourceRef, source.SourceAssignedAt.UnixNano(), source.AgentAssignedAt.UnixNano(), index}
 }
 
-func capacityBillCounterQuery(plan capacityBillPlan, parameters capacityBillParameters, budget flowstore.CounterBudget) (flowstore.CounterQuery, error) {
+func capacityBillCounterQuery(plan capacityCounterPlan, parameters capacityBillParameters, budget flowstore.CounterBudget) (flowstore.CounterQuery, error) {
 	from := plan.period.From.Add(-parameters.gap)
 	if !from.Before(plan.period.From) || from.UnixNano() <= 0 || !time.Unix(0, from.UnixNano()).Equal(from) {
 		return flowstore.CounterQuery{}, flowstore.ErrCounterHistoryInput
 	}
-	query := flowstore.CounterQuery{TenantID: plan.agreement.TenantID, From: from, To: plan.period.To, Budget: budget}
+	query := flowstore.CounterQuery{TenantID: plan.tenant, From: from, To: plan.period.To, Budget: budget}
 	groups := map[capacityBillSourceKey]int{}
 	for _, member := range plan.members {
 		key := capacityBillSource(member.target.Source, 0)
@@ -45,7 +45,7 @@ func capacityBillCounterQuery(plan capacityBillPlan, parameters capacityBillPara
 	return query, nil
 }
 
-func validateCapacityBillRows(ctx context.Context, sc tenancy.Scope, reader *store.DeviceCounterCaptures, plan capacityBillPlan, rows []flowstore.CounterRow, memoryBytes int64) error {
+func validateCapacityCounterRows(ctx context.Context, sc tenancy.Scope, reader *store.DeviceCounterCaptures, plan capacityCounterPlan, rows []flowstore.CounterRow, memoryBytes int64) error {
 	if memoryBytes <= 0 || int64(len(plan.members)) > memoryBytes/4096 {
 		return flowstore.ErrCounterHistoryBudget
 	}

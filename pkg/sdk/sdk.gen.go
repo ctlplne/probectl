@@ -598,6 +598,53 @@ type CapacityBillingPeriod struct {
 	To             string `json:"to"`
 }
 
+type CapacityForecastInput struct {
+	CapacityBps    string                  `json:"capacity_bps"`
+	Direction      string                  `json:"direction"`
+	From           string                  `json:"from"`
+	MaximumPollGap string                  `json:"maximum_poll_gap"`
+	PhysicalBounds []CapacityPhysicalBound `json:"physical_bounds"`
+	Target         CapacityTarget          `json:"target"`
+	To             string                  `json:"to"`
+	Until          string                  `json:"until"`
+}
+
+type CapacityForecastMeasurement struct {
+	AsOf             string                   `json:"as_of"`
+	Forecasts        []CapacityForecastResult `json:"forecasts"`
+	MaximumPollGap   string                   `json:"maximum_poll_gap"`
+	Members          []CapacityBillMember     `json:"members"`
+	MembershipBasis  string                   `json:"membership_basis"`
+	SourceValidUntil string                   `json:"source_valid_until"`
+	Target           CapacityTarget           `json:"target"`
+}
+
+type CapacityForecastResult struct {
+	CapacityDenominator       string                 `json:"capacity_denominator"`
+	CapacityNumerator         string                 `json:"capacity_numerator"`
+	Central                   CapacityRunoutInterval `json:"central"`
+	CounterModel              string                 `json:"counter_model"`
+	CoverageComplete          bool                   `json:"coverage_complete"`
+	Direction                 string                 `json:"direction"`
+	Earliest                  CapacityRunoutInterval `json:"earliest"`
+	ExpectedSamples           int                    `json:"expected_samples"`
+	From                      string                 `json:"from"`
+	IntervalMethod            string                 `json:"interval_method"`
+	LastSampleExceeded        bool                   `json:"last_sample_exceeded"`
+	LastSampleKnown           bool                   `json:"last_sample_known"`
+	Latest                    CapacityRunoutInterval `json:"latest"`
+	Model                     string                 `json:"model"`
+	ObservedExceedances       int                    `json:"observed_exceedances"`
+	ObservedSamples           int                    `json:"observed_samples"`
+	Reason                    string                 `json:"reason,omitempty"`
+	Target                    string                 `json:"target"`
+	To                        string                 `json:"to"`
+	Trained                   bool                   `json:"trained"`
+	TrendBpsPerDayDenominator string                 `json:"trend_bps_per_day_denominator,omitempty"`
+	TrendBpsPerDayNumerator   string                 `json:"trend_bps_per_day_numerator,omitempty"`
+	Until                     string                 `json:"until"`
+}
+
 // Exact rational bps over the complete five-minute grid. Missing required coverage withholds the percentile, rather than reducing the population or filling zeros.
 type CapacityPercentileResult struct {
 	BpsDenominator  string `json:"bps_denominator,omitempty"`
@@ -617,6 +664,12 @@ type CapacityPhysicalBound struct {
 	ContextId   string `json:"context_id"`
 	InterfaceId string `json:"interface_id"`
 	MaxBps      string `json:"max_bps"`
+}
+
+type CapacityRunoutInterval struct {
+	From    string `json:"from,omitempty"`
+	Reached bool   `json:"reached"`
+	To      string `json:"to,omitempty"`
 }
 
 // Interface requires context_id and interface_id only. Circuit requires tag_id and a complete nonempty tag_value only. References bind to current-tenant inventory; they confer no telemetry authority.
@@ -6116,6 +6169,21 @@ func (c *Client) ListCapacityAgreementRevisions(ctx context.Context, req ListCap
 	}
 	var out CapacityAgreementPage
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Forecast one complete current interface or circuit from original counters
+type ForecastCapacityRequest struct {
+	Body *CapacityForecastInput `json:"-"`
+}
+
+func (c *Client) ForecastCapacity(ctx context.Context, req ForecastCapacityRequest) (*CapacityForecastMeasurement, error) {
+	path := "/v1/flows/capacity/forecast"
+	query := url.Values{}
+	var out CapacityForecastMeasurement
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

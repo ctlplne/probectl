@@ -416,7 +416,7 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: AI_LIVE_RECEIPT,
   },
   {
-    capability: 'Recorded capacity agreements and immutable financial revisions',
+    capability: 'Counter-backed capacity forecasts, measured bills and recorded agreements',
     featureIds: ['F13', 'F17'],
     sprint: 'FX-6',
     kind: 'native',
@@ -426,6 +426,12 @@ export const SURFACES: SurfaceDecl[] = [
       'openapi:/v1/flows/capacity/agreements',
       'openapi:/v1/flows/capacity/agreements/{id}',
       'openapi:/v1/flows/capacity/agreements/{id}/revisions',
+      'openapi:/v1/flows/capacity/agreements/{id}/check',
+      'openapi:/v1/flows/capacity/forecast',
+      'file:web/src/routes/CapacityForecastCheck.tsx',
+      'file:web/src/routes/CapacityBillCheck.tsx',
+      'cli:probectl capacity forecast',
+      'cli:probectl capacity-agreements check',
       'cli:probectl capacity-agreements list',
       'cli:probectl capacity-agreements revisions',
     ],
@@ -434,7 +440,7 @@ export const SURFACES: SurfaceDecl[] = [
       evidence: [
         'test:web/src/test/capacity-agreements.test.tsx:financial screen keeps exact revisions',
       ],
-      note: 'Financial configuration screen is implemented. Served two-tenant browser/accessibility proof and complete source-backed capacity acceptance remain required; no measured billing or runout claim.',
+      note: 'Configuration, measured billing and forecast screens are implemented in preview. Complete current-source service and browser/accessibility proofs plus original SNMP, lifecycle and exact-main acceptance remain required; implementation is not completed qualification.',
     },
   },
   {

@@ -25,6 +25,7 @@ import {
 } from '../components'
 import { Page } from './RoutePage'
 import { CapacityBillCheck } from './CapacityBillCheck'
+import { CapacityForecastCheck } from './CapacityForecastCheck'
 import styles from './flowExplorer.module.css'
 
 const base = '/flows/capacity/agreements'
@@ -55,9 +56,10 @@ export function CapacityAgreementsPage() {
   ])
   return (
     <Page
-      title="Capacity agreements"
-      subtitle="Record commercial terms separately from telemetry and physical link capacity."
+      title="Capacity planning"
+      subtitle="Forecast observed traffic and compare measured bills with separately recorded commercial terms."
     >
+      {permissions.includes('flow.read') && <CapacityForecastCheck key={`forecast/${identity}`} />}
       {permissions.includes('flow.agreements.read') ? (
         <AgreementWorkspace
           key={identity}

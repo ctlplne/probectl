@@ -23,6 +23,7 @@ type CapacityAgreementCommand struct {
 	Version    string                            `json:"version,omitempty"`
 	At         string                            `json:"at,omitempty"`
 	Definition *flow.CapacityAgreementDefinition `json:"definition,omitempty"`
+	Forecast   *flow.CapacityForecastRequest     `json:"forecast,omitempty"`
 	Check      *flow.CapacityBillRequest         `json:"check,omitempty"`
 }
 
@@ -34,6 +35,7 @@ var capacityAgreementTools = []struct {
 	name, description string
 	write             bool
 }{
+	{"capacity_forecast", "Forecast a complete current interface or tagged circuit from original counters, with explicit training, horizon, threshold and physical bounds. No financial permission or terms are required. Missing coverage withholds trained runout; intervals are empirical residual envelopes.", false},
 	{"capacity_agreements_list", "Page current tenant financial agreements; complete pages have resource admission and no total catalog ceiling.", false},
 	{"capacity_agreement_bill_check", "Check complete-month measured p95, commit, overage and exact invoice difference against recorded terms and all current members. Explicit physical bounds and original counter receipts are required; incomplete coverage withholds amounts.", false},
 	{"capacity_agreement_get", "Read current, exact recorded or effective agreement terms. Version and effective instant are mutually exclusive.", false},
@@ -54,6 +56,15 @@ func decodeCapacityAgreementCommand(raw json.RawMessage, name string, limit int)
 		return CapacityAgreementCommand{}, err
 	}
 	none := CapacityAgreementCommand{}
+	if name == "capacity_forecast" {
+		if input.Forecast == nil || input.ID != "" || input.Check != nil || input.Definition != nil || input.After != "" || input.Limit != nil || input.Version != "" || input.At != "" {
+			return none, argErr("forecast requires only complete forecast input, never financial or authority hints")
+		}
+		return input, nil
+	}
+	if input.Forecast != nil {
+		return none, argErr("forecast input is accepted only by the forecast tool")
+	}
 	needsID := name != "capacity_agreements_list" && name != "capacity_agreement_create"
 	if (needsID && !validTagWriteID(input.ID)) || (!needsID && input.ID != "") {
 		return none, argErr("a canonical current-tenant agreement ID is required only for an existing agreement")
@@ -115,6 +126,9 @@ func WithCapacityAgreementBackend(backend CapacityAgreementBackend, schemas Nati
 		s.nativeEnabled = true
 		for _, item := range capacityAgreementTools {
 			permission := "flow.agreements.read"
+			if item.name == "capacity_forecast" {
+				permission = "flow.read"
+			}
 			var extra []string
 			if item.write {
 				permission, extra = "flow.agreements.write", []string{"flow.agreements.read"}

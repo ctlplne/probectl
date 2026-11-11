@@ -1312,8 +1312,7 @@ the result, so a changed tag revision or member set requires a fresh calculation
 
 The internal source-to-percentile and bill comparison path preserves rational
 values, sums distinct circuit members before ranking, and withholds amounts for
-incomplete required coverage. The complete-month bill check is described below; public forecast operations
-remain in progress.
+incomplete required coverage. The complete-month bill check is described below; forecast operations are described below.
 
 The counter-backed forecast adapter uses those same summed grids for its exact
 trend plus weekly pattern. Its interval is an `in_sample_residual_envelope`,
@@ -1359,3 +1358,25 @@ with the same input as REST. It uses the same tenant-scoped service, current
 financial/context permissions and original source receipts; the existing MCP
 consent, exact transport credential refresh and full PII/PAN redaction remain.
 Names, assumptions, invoice terms and computed amounts have no redaction bypass.
+
+`POST /v1/flows/capacity/forecast` and `probectl --json capacity forecast
+--body-file forecast.json` train a measured forecast without financial access.
+Input contains canonical `target`, complete RFC3339 `from`/`to` training bounds,
+a later `until` horizon, `direction`, exact positive decimal `capacity_bps`,
+`maximum_poll_gap` and complete `physical_bounds`. The threshold, physical wrap
+bounds and any recorded financial commit are independent assumptions. The
+caller needs current `flow.read`, `entities.read` and `metrics.read` for every
+selected context; tagged circuits also need `tags.read`.
+
+The native `capacity_forecast` tool takes the same input under `forecast` and
+keeps current transport authority, consent and full redaction. The Capacity
+planning screen provides the independent forecast form to telemetry readers;
+financial terms remain hidden without their separate permission. Both surfaces
+retain all directional models, exact fractions, full training coverage, source
+clocks and current member assumptions. `max_directional_percentiles` forecasts
+the two directional series separately. Missing coverage or weekly repetitions
+withholds training; an unreached threshold has no date within the selected
+horizon. The trend-plus-weekly model reports an empirical in-sample residual
+envelope, never a calibrated confidence probability. These operations remain
+preview pending the complete original sender, served-surface and lifecycle
+acceptance; a modeled history test is not physical SNMP proof.

@@ -34,12 +34,16 @@ type capacityBillMemberPlan struct {
 	target  store.DeviceCounterInterface
 	maximum uint64
 }
+type capacityCounterPlan struct {
+	tenant  string
+	period  flow.CapacityBillingPeriod
+	circuit *store.CapacityCircuitSnapshot
+	members []capacityBillMemberPlan
+	asOf    time.Time
+}
 type capacityBillPlan struct {
+	capacityCounterPlan
 	agreement flow.CapacityAgreement
-	period    flow.CapacityBillingPeriod
-	circuit   *store.CapacityCircuitSnapshot
-	members   []capacityBillMemberPlan
-	asOf      time.Time
 }
 
 func capacityBillInput(input flow.CapacityBillRequest, memoryBytes int64) (capacityBillParameters, error) {
@@ -52,15 +56,25 @@ func capacityBillInput(input flow.CapacityBillRequest, memoryBytes int64) (capac
 	if err != nil {
 		return none, apierror.Validation("an RFC3339 instant selecting the billing period is required")
 	}
-	gap, err := time.ParseDuration(input.MaximumPollGap)
+	parameters, err := capacityCounterInput(input.MaximumPollGap, input.PhysicalBounds, memoryBytes)
+	if err != nil {
+		return none, err
+	}
+	parameters.at = at
+	return parameters, nil
+}
+
+func capacityCounterInput(gapText string, bounds []flow.CapacityPhysicalBound, memoryBytes int64) (capacityBillParameters, error) {
+	none := capacityBillParameters{}
+	gap, err := time.ParseDuration(gapText)
 	if err != nil || gap <= 0 {
 		return none, apierror.Validation("a positive maximum counter poll gap is required")
 	}
-	if memoryBytes <= 0 || int64(len(input.PhysicalBounds)) > memoryBytes/4096 {
+	if memoryBytes <= 0 || int64(len(bounds)) > memoryBytes/4096 {
 		return none, apierror.TooLarge("complete physical assumptions exceed resource admission")
 	}
-	parameters := capacityBillParameters{at: at, gap: gap, bounds: make(map[capacityBillMemberKey]uint64, len(input.PhysicalBounds))}
-	for _, bound := range input.PhysicalBounds {
+	parameters := capacityBillParameters{gap: gap, bounds: make(map[capacityBillMemberKey]uint64, len(bounds))}
+	for _, bound := range bounds {
 		for _, id := range []string{bound.ContextID, bound.InterfaceID} {
 			parsed, err := gouuid.Parse(id)
 			if err != nil || parsed == gouuid.Nil || parsed.String() != id {
@@ -103,7 +117,7 @@ func (s *Server) capacityBillSnapshot(ctx context.Context, op capacityAgreementO
 		if previous != nil && !sameCapacityBillPlan(*previous, result) {
 			return apierror.Unavailable("capacity terms, membership or source authority changed; retry")
 		}
-		return validateCapacityBillRows(ctx, sc, store.NewDeviceCounterCaptures(s.pool), result, rows, op.budget.MemoryBytes/8)
+		return validateCapacityCounterRows(ctx, sc, store.NewDeviceCounterCaptures(s.pool), result.capacityCounterPlan, rows, op.budget.MemoryBytes/8)
 	})
 	if err != nil {
 		return none, err
@@ -133,43 +147,51 @@ func (s *Server) capacityBillPlanInScope(ctx context.Context, sc tenancy.Scope, 
 			return none, apierror.Validation("the selected recorded terms must cover the complete billing period")
 		}
 	}
+	plan, err := s.capacityCounterPlanInScope(ctx, sc, principal, agreement.Definition.Target, period, parameters, op.budget)
+	if err != nil {
+		return none, err
+	}
+	return capacityBillPlan{capacityCounterPlan: plan, agreement: agreement}, nil
+}
+
+func (s *Server) capacityCounterPlanInScope(ctx context.Context, sc tenancy.Scope, principal *auth.Principal, target flow.CapacityTarget, period flow.CapacityBillingPeriod, parameters capacityBillParameters, budget flowstore.ExplorerBudget, additionalPermissions ...string) (capacityCounterPlan, error) {
 	authorize := func(ctx context.Context, record entity.ContextRecord) error {
 		if record.TenantID != principal.TenantID {
 			return entity.ErrScopeMismatch
 		}
-		for _, permission := range []string{ai.PermEntitiesRead, ai.PermMetricsRead} {
+		for _, permission := range append([]string{ai.PermEntitiesRead, ai.PermMetricsRead}, additionalPermissions...) {
 			if err := s.authorize(ctx, principal, permission, auth.RBACGlobal, entityContextResource(record)); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	plan := capacityBillPlan{agreement: agreement, period: period, members: []capacityBillMemberPlan{}}
-	members, circuit, err := s.capacityBillMembersInScope(ctx, sc, principal, agreement.Definition.Target, op.budget.MemoryBytes/16, authorize)
+	plan := capacityCounterPlan{tenant: principal.TenantID, period: period, members: []capacityBillMemberPlan{}}
+	members, circuit, err := s.capacityBillMembersInScope(ctx, sc, principal, target, budget.MemoryBytes/16, authorize)
 	if err != nil {
-		return none, err
+		return capacityCounterPlan{}, err
 	}
 	plan.circuit = circuit
-	if int64(len(members)) > op.budget.MemoryBytes/(32*4096) {
-		return none, apierror.TooLarge("complete capacity members exceed resource admission")
+	if int64(len(members)) > budget.MemoryBytes/(32*4096) {
+		return capacityCounterPlan{}, apierror.TooLarge("complete capacity members exceed resource admission")
 	}
 	if len(members) == 0 || len(members) != len(parameters.bounds) {
-		return none, apierror.Validation("physical upper bounds must cover the complete current member set")
+		return capacityCounterPlan{}, apierror.Validation("physical upper bounds must cover the complete current member set")
 	}
 	reader := store.NewDeviceCounterCaptures(s.pool)
 	for _, member := range members {
 		maximum := parameters.bounds[capacityBillMemberKey{member.Scope.ContextID, member.InterfaceID}]
 		if maximum == 0 {
-			return none, apierror.Validation("physical upper bounds must cover the complete current member set")
+			return capacityCounterPlan{}, apierror.Validation("physical upper bounds must cover the complete current member set")
 		}
 		target, err := reader.CurrentInterfaceInScope(ctx, sc, member.Scope, member.InterfaceID)
 		if err != nil {
-			return none, err
+			return capacityCounterPlan{}, err
 		}
 		plan.members = append(plan.members, capacityBillMemberPlan{target: target, maximum: maximum})
 	}
 	if err := sc.Q.QueryRow(ctx, `SELECT transaction_timestamp()`).Scan(&plan.asOf); err != nil {
-		return none, err
+		return capacityCounterPlan{}, err
 	}
 	return plan, nil
 }
@@ -205,7 +227,14 @@ func (s *Server) capacityBillMembersInScope(ctx context.Context, sc tenancy.Scop
 
 func sameCapacityBillPlan(a, b capacityBillPlan) bool {
 	if a.agreement.ID != b.agreement.ID || a.agreement.TenantID != b.agreement.TenantID || a.agreement.Version != b.agreement.Version ||
-		a.agreement.CurrentVersion != b.agreement.CurrentVersion || a.agreement.Definition != b.agreement.Definition || a.agreement.TargetPresent != b.agreement.TargetPresent || len(a.members) != len(b.members) {
+		a.agreement.CurrentVersion != b.agreement.CurrentVersion || a.agreement.Definition != b.agreement.Definition || a.agreement.TargetPresent != b.agreement.TargetPresent {
+		return false
+	}
+	return sameCapacityCounterPlan(a.capacityCounterPlan, b.capacityCounterPlan)
+}
+
+func sameCapacityCounterPlan(a, b capacityCounterPlan) bool {
+	if a.tenant != b.tenant || len(a.members) != len(b.members) {
 		return false
 	}
 	if !a.period.From.Equal(b.period.From) || !a.period.To.Equal(b.period.To) || a.period.Timezone != b.period.Timezone ||

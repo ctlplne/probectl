@@ -16,6 +16,8 @@ import type {
   CapacityAgreementInput,
   CapacityAgreementBill,
   CapacityBillInput,
+  CapacityForecastInput,
+  CapacityForecastMeasurement,
   CapacityAgreementPage,
 } from '../api/sdk.gen'
 import { CapacityAgreementsPage } from '../routes/CapacityAgreementsPage'
@@ -56,7 +58,15 @@ const page = (tenant: string): CapacityAgreementPage => ({
   as_of: '2026-11-01T01:00:00Z',
 })
 
-function Harness({ switched, write = true }: { switched?: () => void; write?: boolean }) {
+function Harness({
+  switched,
+  write = true,
+  forecastOnly = false,
+}: {
+  switched?: () => void
+  write?: boolean
+  forecastOnly?: boolean
+}) {
   const [tenant, setTenant] = useState('red')
   const [allowed, setAllowed] = useState(true)
   return (
@@ -66,7 +76,9 @@ function Harness({ switched, write = true }: { switched?: () => void; write?: bo
         tenants: [],
         user: { id: `${tenant}-reader`, name: 'Financial reader', email: 'reader@local.test' },
         permissions: allowed
-          ? ['flow.agreements.read', ...(write ? ['flow.agreements.write'] : [])]
+          ? forecastOnly
+            ? ['flow.read']
+            : ['flow.agreements.read', ...(write ? ['flow.agreements.write'] : [])]
           : [],
         switchTenant: () => {},
         signOut: () => {},
@@ -99,7 +111,7 @@ function mount(props: Parameters<typeof Harness>[0] = {}) {
 function fixture(answer: (url: URL, init?: RequestInit) => Promise<Response>) {
   const fallback = defaultFetch()
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
-    if (pathOf(input).startsWith(base))
+    if (pathOf(input).startsWith('/v1/flows/capacity/'))
       return answer(new URL(String(input), 'https://local.test'), init)
     return fallback(input, init)
   })
@@ -444,4 +456,152 @@ test('late measured bills cannot cross tenant changes and withdrawn authority cl
   expect(screen.queryByRole('region', { name: 'Measured billing result' })).not.toBeInTheDocument()
   expect(screen.queryByText('blue WAN')).not.toBeInTheDocument()
   expect(screen.queryByLabelText('Member 1 physical upper bound (bps)')).not.toBeInTheDocument()
+})
+
+function forecastResult(tenant: string): CapacityForecastMeasurement {
+  const central = { reached: true, from: '2026-10-18T01:00:00Z', to: '2026-10-18T01:05:00Z' }
+  return {
+    target: {
+      kind: 'interface',
+      context_id: item(tenant).definition.target.context_id,
+      interface_id: item(tenant).definition.target.interface_id,
+    },
+    members: measuredBill(tenant).members,
+    maximum_poll_gap: '5m',
+    membership_basis: 'current_member_set_applied_to_complete_period',
+    as_of: '2026-10-15T00:00:01Z',
+    source_valid_until: '2099-11-01T00:00:00Z',
+    forecasts: [
+      {
+        target: `${tenant}-current-interface`,
+        direction: 'in',
+        counter_model: 'poll_start_mean_overlap',
+        model: 'weighted_linear_weekly_5m_v1',
+        interval_method: 'in_sample_residual_envelope',
+        from: '2026-10-01T00:00:00Z',
+        to: '2026-10-15T00:00:00Z',
+        until: '2026-10-20T00:00:00Z',
+        expected_samples: 4032,
+        observed_samples: 4032,
+        coverage_complete: true,
+        trained: true,
+        capacity_numerator: '9007199254740993000000000000000001',
+        capacity_denominator: '1000000000000000000',
+        trend_bps_per_day_numerator: '230400',
+        trend_bps_per_day_denominator: '1',
+        observed_exceedances: 0,
+        last_sample_known: true,
+        last_sample_exceeded: false,
+        central,
+        earliest: central,
+        latest: central,
+      },
+    ],
+  }
+}
+function fillForecast() {
+  for (const [label, value] of [
+    ['Forecast routing context ID', item('red').definition.target.context_id!],
+    ['Forecast canonical interface ID', item('red').definition.target.interface_id!],
+    ['Forecast training from', '2026-10-01T00:00:00.123456789Z'],
+    ['Forecast training to', '2026-10-15T00:00:00.123456789Z'],
+    ['Forecast horizon', '2026-10-20T00:00:00.123456789Z'],
+    ['Forecast threshold (bps)', '9007199254740993.000000000000000001'],
+    ['Forecast member 1 routing context ID', item('red').definition.target.context_id!],
+    ['Forecast member 1 interface ID', item('red').definition.target.interface_id!],
+    ['Forecast member 1 physical bound (bps)', '18446744073709551615'],
+  ])
+    fireEvent.change(screen.getByLabelText(label), { target: { value } })
+}
+
+test.each(['light', 'dark'])(
+  'independent forecast keeps exact thresholds and complete accessible %s result',
+  async (theme) => {
+    const previous = Object.getOwnPropertyDescriptor(window, 'localStorage')
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      enumerable: true,
+      value: { getItem: () => theme, setItem: vi.fn() },
+    })
+    let sent: CapacityForecastInput | undefined
+    const result = forecastResult('red')
+    fixture(async (url, init) => {
+      if (url.pathname === '/v1/flows/capacity/forecast') {
+        sent = JSON.parse(String(init?.body)) as CapacityForecastInput
+        return jsonResponse(result)
+      }
+      throw new Error('telemetry-only forecast must not read financial endpoints')
+    })
+    try {
+      const view = mount({ forecastOnly: true })
+      fillForecast()
+      expect(screen.queryByRole('button', { name: 'Record agreement' })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Forecast runout' }))
+      const region = await screen.findByRole('region', { name: 'Measured forecast result' })
+      expect(sent?.capacity_bps).toBe('9007199254740993.000000000000000001')
+      expect(sent?.from).toBe('2026-10-01T00:00:00.123456789Z')
+      expect(sent?.physical_bounds[0].max_bps).toBe('18446744073709551615')
+      expect(
+        within(region).getByText('9007199254740993000000000000000001 / 1000000000000000000'),
+      ).toBeInTheDocument()
+      expect(within(region).getByText('4032 / 4032')).toBeInTheDocument()
+      expect(within(region).getByText('in_sample_residual_envelope')).toBeInTheDocument()
+      expect(await axe(view.container)).toHaveNoViolations()
+      result.forecasts[0] = {
+        ...result.forecasts[0],
+        trained: false,
+        coverage_complete: false,
+        observed_samples: 4030,
+        reason: 'training_coverage_incomplete',
+        central: { reached: false },
+        earliest: { reached: false },
+        latest: { reached: false },
+        trend_bps_per_day_numerator: undefined,
+        trend_bps_per_day_denominator: undefined,
+      }
+      fireEvent.click(screen.getByRole('button', { name: 'Forecast runout' }))
+      await screen.findByText('training_coverage_incomplete')
+      expect(
+        screen.queryByText('2026-10-18T01:00:00Z to 2026-10-18T01:05:00Z (end exclusive)'),
+      ).not.toBeInTheDocument()
+      expect(screen.getByText('4032 / 4030')).toBeInTheDocument()
+    } finally {
+      if (previous) Object.defineProperty(window, 'localStorage', previous)
+      else Reflect.deleteProperty(window, 'localStorage')
+    }
+  },
+)
+
+test('late forecasts cannot cross tenant identities or survive current grant withdrawal', async () => {
+  let tenant = 'red'
+  let late: ((response: Response) => void) | undefined
+  fixture(async (url) => {
+    if (url.pathname !== '/v1/flows/capacity/forecast')
+      throw new Error('unexpected financial fetch')
+    if (tenant === 'red')
+      return new Promise<Response>((resolve) => {
+        late = resolve
+      })
+    return jsonResponse(forecastResult('blue'))
+  })
+  mount({
+    forecastOnly: true,
+    switched: () => {
+      tenant = 'blue'
+    },
+  })
+  fillForecast()
+  fireEvent.click(screen.getByRole('button', { name: 'Forecast runout' }))
+  await waitFor(() => expect(late).toBeDefined())
+  fireEvent.click(screen.getByRole('button', { name: 'Switch financial tenant' }))
+  await act(async () => {
+    late!(jsonResponse(forecastResult('red')))
+  })
+  expect(screen.queryByRole('region', { name: 'Measured forecast result' })).not.toBeInTheDocument()
+  fillForecast()
+  fireEvent.click(screen.getByRole('button', { name: 'Forecast runout' }))
+  await screen.findByRole('region', { name: 'Measured forecast result' })
+  fireEvent.click(screen.getByRole('button', { name: 'Withdraw financial permission' }))
+  expect(screen.queryByRole('region', { name: 'Measured forecast result' })).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Forecast threshold (bps)')).not.toBeInTheDocument()
 })

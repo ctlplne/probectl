@@ -14737,6 +14737,66 @@
           }
         }
       }
+    },
+    "/v1/flows/capacity/forecast": {
+      "post": {
+        "operationId": "forecastCapacity",
+        "summary": "Forecast one complete current interface or circuit from original counters",
+        "tags": [
+          "flows"
+        ],
+        "x-required-permission": "flow.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "description": "Read-only, no financial grant. Requires current flow.read plus current entities.read and metrics.read in every source context; circuits also require tags.read. The exact complete training interval and explicit forecast horizon are never shortened. Source identity and original poll receipts are validated under tenant RLS before and after exact trend plus weekly training. Current circuit members are applied across the entire training window, not historical membership. Physical bounds, maximum poll gap and forecast threshold are distinct explicit assumptions. Missing training coverage or missing weekly repetitions withholds a trained runout. The interval is an in-sample residual envelope, not a calibrated confidence probability; unreached thresholds have no invented runout date. Finite query resources and current credential/source checks apply to complete output, without retained results or remediation.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapacityForecastInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "200": {
+            "description": "Complete measured forecast, model, coverage, explicit assumptions and source clocks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacityForecastMeasurement"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -28219,6 +28279,230 @@
           "membership_basis"
         ],
         "description": "Current canonical member set applied to the complete selected period, not a historical tag-membership claim. Traffic before a member current identity/source binding remains unknown. Source clock is an upper bound, not a frozen read grant."
+      },
+      "CapacityForecastInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/CapacityTarget"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out",
+              "max_directional_percentiles",
+              "interval_max",
+              "interval_sum"
+            ]
+          },
+          "capacity_bps": {
+            "type": "string",
+            "description": "Positive exact decimal forecast threshold, independent of physical bounds or financial commit."
+          },
+          "maximum_poll_gap": {
+            "type": "string"
+          },
+          "physical_bounds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapacityPhysicalBound"
+            }
+          }
+        },
+        "required": [
+          "target",
+          "from",
+          "to",
+          "until",
+          "direction",
+          "capacity_bps",
+          "maximum_poll_gap",
+          "physical_bounds"
+        ]
+      },
+      "CapacityRunoutInterval": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reached": {
+            "type": "boolean"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "reached"
+        ]
+      },
+      "CapacityForecastResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "counter_model": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "interval_method": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "capacity_numerator": {
+            "type": "string"
+          },
+          "capacity_denominator": {
+            "type": "string"
+          },
+          "trend_bps_per_day_numerator": {
+            "type": "string"
+          },
+          "trend_bps_per_day_denominator": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expected_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "observed_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "observed_exceedances": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "coverage_complete": {
+            "type": "boolean"
+          },
+          "trained": {
+            "type": "boolean"
+          },
+          "last_sample_known": {
+            "type": "boolean"
+          },
+          "last_sample_exceeded": {
+            "type": "boolean"
+          },
+          "central": {
+            "$ref": "#/components/schemas/CapacityRunoutInterval"
+          },
+          "earliest": {
+            "$ref": "#/components/schemas/CapacityRunoutInterval"
+          },
+          "latest": {
+            "$ref": "#/components/schemas/CapacityRunoutInterval"
+          }
+        },
+        "required": [
+          "target",
+          "direction",
+          "counter_model",
+          "model",
+          "interval_method",
+          "from",
+          "to",
+          "until",
+          "expected_samples",
+          "observed_samples",
+          "observed_exceedances",
+          "coverage_complete",
+          "trained",
+          "last_sample_known",
+          "last_sample_exceeded",
+          "capacity_numerator",
+          "capacity_denominator",
+          "central",
+          "earliest",
+          "latest"
+        ]
+      },
+      "CapacityForecastMeasurement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/CapacityTarget"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapacityBillMember"
+            }
+          },
+          "forecasts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapacityForecastResult"
+            }
+          },
+          "maximum_poll_gap": {
+            "type": "string"
+          },
+          "membership_basis": {
+            "type": "string",
+            "enum": [
+              "current_member_set_applied_to_complete_period"
+            ]
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source_valid_until": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "target",
+          "members",
+          "forecasts",
+          "maximum_poll_gap",
+          "membership_basis",
+          "as_of",
+          "source_valid_until"
+        ]
       }
     }
   }
