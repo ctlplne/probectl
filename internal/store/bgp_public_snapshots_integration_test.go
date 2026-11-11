@@ -64,6 +64,13 @@ func TestPublicSnapshotStagingKeepsWholeTenantManifestReplayRollbackAndEmptyWith
 		})
 		input := advance(tenant, base)
 		input.SenderSerial = f.serials[tenant+"role-listener"]
+		lease := profile.LeaseDuration
+		profile.LeaseDuration = 0
+		refused, leaseErr := stage(tenant, input, false)
+		profile.LeaseDuration = lease
+		if !errors.Is(leaseErr, ErrBGPRoutingBudget) || !reflect.DeepEqual(refused, BGPPublicSnapshotStageResult{}) {
+			t.Fatal("new public source accepted a missing replacement lease", refused, leaseErr)
+		}
 		out, err := stage(tenant, input, false)
 		if err != nil || out.Status != "staged" || out.ID != input.ObservationID || len(out.Views) != 3 {
 			t.Fatal("whole owned public manifest failed private staging", out, err)

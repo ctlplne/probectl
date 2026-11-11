@@ -671,6 +671,20 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-read-replacement-lease": (
+        "internal/store/bgp_public_snapshot_plan.go",
+        "var digest [32]byte",
+        "var digest [32]byte\n\tif profile.LeaseDuration <= 0 { return nil, digest, profile, ErrBGPRoutingBudget }",
+        "TestPublicSnapshotManifestIdentityDoesNotRequireAReplacementLease", "",
+        "immutable public manifest required a new lease or changed original source identity",
+    ),
+    "public-create-missing-lease": (
+        "internal/store/bgp_public_snapshots.go",
+        "if profile.LeaseDuration <= 0 {",
+        "if false && profile.LeaseDuration <= 0 {",
+        "TestPublicSnapshotStagingKeepsWholeTenantManifestReplayRollbackAndEmptyWithdrawal", "",
+        "new public source accepted a missing replacement lease",
+    ),
     "peering-target-current-grants": (
         "internal/control/peering_target_store.go",
         "if !allowed {",
