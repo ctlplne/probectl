@@ -242,7 +242,7 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 	}); err == nil {
 		t.Fatal("application role could mutate recorded revisions")
 	}
-	proveCapacityAgreementSubjectLifecycle(t, ctx, pool, service, tenants, heads)
+	proveCapacityAgreementSubjectLifecycle(ctx, t, pool, service, tenants, heads)
 	if err := tenancy.InTenant(red, pool, func(ctx context.Context, scope tenancy.Scope) error {
 		_, err := scope.Q.Exec(ctx, `DELETE FROM entities WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, tenants[0], area, iface)
 		return err
@@ -275,7 +275,7 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 	t.Log("real-integration: PostgreSQL app-role FORCE-RLS, reused tenant-owned IDs, exact terms/effective nanos, immutable revisions/CAS and inventory retirement without financial data loss; telemetry/source/surface proof remains separate")
 }
 
-func proveCapacityAgreementSubjectLifecycle(t *testing.T, ctx context.Context, pool *pgxpool.Pool, service *flow.PostgresCapacityAgreements, tenants [2]string, heads [2]flow.CapacityAgreement) {
+func proveCapacityAgreementSubjectLifecycle(ctx context.Context, t *testing.T, pool *pgxpool.Pool, service *flow.PostgresCapacityAgreements, tenants [2]string, heads [2]flow.CapacityAgreement) {
 	t.Helper()
 	var agreements [2]flow.CapacityAgreement
 	for i, tenant := range tenants {
