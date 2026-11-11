@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
@@ -39,5 +40,30 @@ func TestPeeringNativeProjectionKeepsWholePublicContractAndExactMetadata(t *test
 	schemas, err := peeringToolOption(&Server{})
 	if err != nil || schemas == nil {
 		t.Fatal("peering native schema diverged from the API", err)
+	}
+}
+
+func TestPeeringNativeUnprovenSelectorsRetainMandatoryPIIRedaction(t *testing.T) {
+	_, request, target, _ := peeringSummaryFixture(t)
+	target.Target = request.Target
+	target.Eligible = false
+	target.Reason = "source_unavailable"
+	value := projectPeeringResponse(peeringEstimateResult{Target: target, Direction: "inbound", Reason: "source_unavailable"})
+	// A caller can supply any canonical positive int64 before a public source
+	// proves it is an IX identity. It must not become trusted metadata merely
+	// because parsing succeeded. The card is the standing synthetic PAN fixture.
+	value.Target.IXID = "4111111111111111"
+	raw, err := marshalNativePeeringResponse(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := ai.NewEgressGate(nil, nil, ai.RedactionPolicy{})
+	redacted := gate.RedactForTenant(string(raw), request.Target.Scope.TenantID)
+	var decoded flow.PeeringEstimateResponse
+	if err := json.Unmarshal([]byte(redacted), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Target.IXID == value.Target.IXID {
+		t.Fatal("unproven peering selector bypassed mandatory PAN redaction")
 	}
 }
