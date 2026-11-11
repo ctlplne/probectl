@@ -34,6 +34,7 @@ func TestCounterHistoryTransportPublishesOnlyCompleteAcknowledgedPollsAndReaderR
 						http.Error(w, "query fields require multipart transport", http.StatusBadRequest)
 						return
 					}
+					r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 					if err := r.ParseMultipartForm(1 << 20); err != nil {
 						t.Error(err)
 						return

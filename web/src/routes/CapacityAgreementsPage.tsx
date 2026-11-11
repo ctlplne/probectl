@@ -438,16 +438,17 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
                 <Select
                   label="Agreement target"
                   value={draft.target.kind}
+                  options={[
+                    { value: 'interface', label: 'Interface' },
+                    { value: 'circuit', label: 'Tagged circuit' },
+                  ]}
                   onChange={(e) =>
                     change(
                       'target',
                       e.target.value === 'interface' ? { kind: 'interface' } : { kind: 'circuit' },
                     )
                   }
-                >
-                  <option value="interface">Interface</option>
-                  <option value="circuit">Tagged circuit</option>
-                </Select>
+                />
                 {draft.target.kind === 'interface' ? (
                   <>
                     <Field
@@ -505,16 +506,20 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
                 <Select
                   label="Billing direction"
                   value={draft.direction}
+                  options={[
+                    { value: 'in', label: 'Inbound' },
+                    { value: 'out', label: 'Outbound' },
+                    {
+                      value: 'max_directional_percentiles',
+                      label: 'Larger directional percentile',
+                    },
+                    { value: 'interval_max', label: 'Larger direction per interval' },
+                    { value: 'interval_sum', label: 'Sum directions per interval' },
+                  ]}
                   onChange={(e) =>
                     change('direction', e.target.value as CapacityAgreementDefinition['direction'])
                   }
-                >
-                  <option value="in">Inbound</option>
-                  <option value="out">Outbound</option>
-                  <option value="max_directional_percentiles">Larger directional percentile</option>
-                  <option value="interval_max">Larger direction per interval</option>
-                  <option value="interval_sum">Sum directions per interval</option>
-                </Select>
+                />
                 <Field
                   label="Currency"
                   required
