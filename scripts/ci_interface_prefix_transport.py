@@ -250,6 +250,7 @@ UNIT = {
         "TestPublicSnapshotMessageRefusesLatePartialShapeBudgetAndForeignScope",
         "TestPublicSnapshotFreshnessUsesOriginalClockAndIndependentAuthorityLimits",
         "TestPublicSnapshotManifestKeepsBothFamiliesWholeIdentityExactClocksAndEmptyPresence",
+        "TestPublicSnapshotManifestIdentityDoesNotRequireAReplacementLease",
         "TestPublicSnapshotManifestRefusesLatePartialBudgetAndForeignTenantBeforeStorage",
         "TestPublicRoutingAuthorityRequiresTenantBeforeStorageAndCompleteAssignment",
         "TestPublicRoutingMetadataKeepsWholeSourceIdentityWithoutInventedBMP",
