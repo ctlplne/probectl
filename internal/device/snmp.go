@@ -162,12 +162,16 @@ func dialSNMP(dev Target, cred Credential) (snmpConn, error) {
 // HOST-RESOURCES CPU/memory, optional sensors. Every table degrades
 // independently — a vendor that lacks a MIB simply yields fewer metrics.
 func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent string, now time.Time) ([]Metric, Inventory, error) {
+	started := time.Now()
 	inv := Inventory{Device: dev.Address, Interfaces: map[uint32]Interface{}}
 	if peer, ok := conn.(interface{ peerAddress() netip.Addr }); ok {
 		inv.peerAddress = peer.peerAddress()
 	}
 	base := Metric{TenantID: tenant, AgentID: agent, Device: dev.Address, Source: SourceSNMP, At: now}
 	var out []Metric
+	var uptimeTicks uint32
+	var uptimeKnown bool
+	uptimeCount := 0
 
 	// System group: identity + uptime. Total failure here means the device is
 	// unreachable/misauthenticated — that IS an error (the caller counts it).
@@ -176,6 +180,14 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 		return nil, inv, fmt.Errorf("device %s: system group: %w", dev.Address, err)
 	}
 	for _, p := range pdus {
+		if p.Name == oidSysUpTime {
+			uptimeCount++
+			value, valid := snmpExactUnsigned(p.Value, 32)
+			uptimeKnown = uptimeCount == 1 && p.Type == gosnmp.TimeTicks && valid
+			if uptimeKnown {
+				uptimeTicks = uint32(value)
+			}
+		}
 		switch {
 		case strings.HasPrefix(p.Name, oidSysName[:len(oidSysName)-2]):
 			inv.SysName = pduString(p)
@@ -249,6 +261,7 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 			counters[idx][col.name] = counterMetric{value: pduFloat(p), exact: snmpExactCounter(p, col.width)}
 		})
 	}
+	discontinuities, discontinuityComplete := snmpCounterDiscontinuities(ctx, conn, inv.Interfaces)
 
 	// ipAddrTable: interface addresses (the hop-correlation key).
 	_ = conn.BulkWalk(oidIPAdEntIfIndex, func(p gosnmp.SnmpPDU) error {
@@ -374,6 +387,23 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 		})
 	}
 
+	completed := now.Add(time.Since(started))
+	for i := range out {
+		counter := out[i].ExactCounter
+		if counter == nil {
+			continue
+		}
+		counter.UptimeKnown = uptimeKnown
+		if uptimeKnown {
+			counter.UptimeTicks = uptimeTicks
+		}
+		if ticks, present := discontinuities[out[i].IfIndex]; discontinuityComplete && present {
+			counter.DiscontinuityTicks, counter.DiscontinuityKnown = ticks, true
+		}
+		if !now.IsZero() {
+			counter.PollStartedAt, counter.PollCompletedAt = now, completed
+		}
+	}
 	return out, inv, nil
 }
 

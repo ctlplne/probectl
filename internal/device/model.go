@@ -75,6 +75,10 @@ type Metric struct {
 type CounterValue struct {
 	Value uint64
 	Width uint32
+	// Presence is independent of the numeric value: zero ticks are valid.
+	UptimeTicks, DiscontinuityTicks uint32
+	UptimeKnown, DiscontinuityKnown bool
+	PollStartedAt, PollCompletedAt  time.Time
 }
 
 // ToProto maps onto the bus/storage schema.

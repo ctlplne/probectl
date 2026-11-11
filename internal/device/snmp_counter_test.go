@@ -20,11 +20,11 @@ func TestSNMPExactCountersKeepTypedFullWidthZeroAndRefuseRoundedOrForgedValues(t
 		width uint32
 		want  *CounterValue
 	}{
-		{"wide64", gosnmp.SnmpPDU{Type: gosnmp.Counter64, Value: uint64(1<<53 + 1)}, 64, &CounterValue{1<<53 + 1, 64}},
-		{"max64", gosnmp.SnmpPDU{Type: gosnmp.Counter64, Value: ^uint64(0)}, 64, &CounterValue{^uint64(0), 64}},
-		{"max32", gosnmp.SnmpPDU{Type: gosnmp.Counter32, Value: uint32(1<<32 - 1)}, 32, &CounterValue{1<<32 - 1, 32}},
-		{"zero", gosnmp.SnmpPDU{Type: gosnmp.Counter32, Value: uint(0)}, 32, &CounterValue{0, 32}},
-		{"signed-nonnegative-decoder", gosnmp.SnmpPDU{Type: gosnmp.Counter32, Value: int64(42)}, 32, &CounterValue{42, 32}},
+		{"wide64", gosnmp.SnmpPDU{Type: gosnmp.Counter64, Value: uint64(1<<53 + 1)}, 64, &CounterValue{Value: 1<<53 + 1, Width: 64}},
+		{"max64", gosnmp.SnmpPDU{Type: gosnmp.Counter64, Value: ^uint64(0)}, 64, &CounterValue{Value: ^uint64(0), Width: 64}},
+		{"max32", gosnmp.SnmpPDU{Type: gosnmp.Counter32, Value: uint32(1<<32 - 1)}, 32, &CounterValue{Value: 1<<32 - 1, Width: 32}},
+		{"zero", gosnmp.SnmpPDU{Type: gosnmp.Counter32, Value: uint(0)}, 32, &CounterValue{Value: 0, Width: 32}},
+		{"signed-nonnegative-decoder", gosnmp.SnmpPDU{Type: gosnmp.Counter32, Value: int64(42)}, 32, &CounterValue{Value: 42, Width: 32}},
 		{"rounded", gosnmp.SnmpPDU{Type: gosnmp.Counter64, Value: float64(1 << 53)}, 64, nil},
 		{"negative", gosnmp.SnmpPDU{Type: gosnmp.Counter64, Value: int64(-1)}, 64, nil},
 		{"text", gosnmp.SnmpPDU{Type: gosnmp.Counter64, Value: "9007199254740993"}, 64, nil},
@@ -70,9 +70,9 @@ func TestSNMPPollKeepsExactHCAndPerInterface32BitFallbackInBothTenants(t *testin
 		for _, scenario := range []struct {
 			iface, name string
 			want        CounterValue
-		}{{"eth0", MetricIfInOctets, CounterValue{1<<53 + 1, 64}}, {"eth0", MetricIfOutOctets, CounterValue{^uint64(0), 64}}, {"eth1", MetricIfInOctets, CounterValue{1<<32 - 1, 32}}, {"eth1", MetricIfOutOctets, CounterValue{0, 32}}} {
+		}{{"eth0", MetricIfInOctets, CounterValue{Value: 1<<53 + 1, Width: 64}}, {"eth0", MetricIfOutOctets, CounterValue{Value: ^uint64(0), Width: 64}}, {"eth1", MetricIfInOctets, CounterValue{Value: 1<<32 - 1, Width: 32}}, {"eth1", MetricIfOutOctets, CounterValue{Value: 0, Width: 32}}} {
 			metric := find(t, metrics, scenario.name, scenario.iface)
-			if metric.ExactCounter == nil || *metric.ExactCounter != scenario.want || seen[scenario.iface+scenario.name] != 1 {
+			if metric.ExactCounter == nil || metric.ExactCounter.Value != scenario.want.Value || metric.ExactCounter.Width != scenario.want.Width || seen[scenario.iface+scenario.name] != 1 {
 				t.Fatal("SNMP poll rounded full counters, replaced HC width or omitted an interface-specific fallback", scenario, metric.ExactCounter, seen)
 			}
 		}
