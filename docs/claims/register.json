@@ -544,15 +544,21 @@
     "docs/security/threat-model.md",
     "docs/alerting.md",
     "docs/explorer.md",
-    "docs/features/interface-roles.md"
+    "docs/features/interface-roles.md",
+    "docs/data-retention.md"
    ],
    "code": [
     "internal/tenancy/writefence.go",
     "internal/tenancy/posture.go",
-    "migrations"
+    "migrations",
+    "internal/flow/capacity_agreements_pg.go",
+    "internal/store/flowstore/counter_history_schema.go",
+    "internal/store/flowstore/counter_history_lifecycle.go"
    ],
    "proof": [
-    "make:test-isolation"
+    "make:test-isolation",
+    "test:internal/flow#TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit",
+    "test:internal/store/flowstore#TestCounterHistoryClickHouseRealWholePollsAndReaderLifecycle"
    ]
   },
   {
