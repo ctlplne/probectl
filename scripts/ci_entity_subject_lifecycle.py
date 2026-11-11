@@ -24,12 +24,12 @@ CONTROLS = (
     ),
     (
         "predicate := subjectTableMatchPredicate(policy)",
-        'predicate := subjectTableMatchPredicate(policy)\n\tif policy.agentAddressMembers { return "(($2::text[] IS NULL AND FALSE) OR ($3::text[] IS NULL AND FALSE) OR ($4::inet[] IS NULL AND FALSE))" }',
+        'predicate := subjectTableMatchPredicate(policy)\n\tif policy.agentAddressMembers { return "(($2::text[] IS NULL AND FALSE) OR ($3::text[] IS NULL AND FALSE) OR ($4::text[] IS NULL AND FALSE) OR ($5::inet[] IS NULL AND FALSE))" }',
         "entity evidence erasure retained subject metadata",
     ),
     (
-        "subject_address.value = ANY($4::inet[])",
-        "($4::inet[] IS NULL OR TRUE) AND host(subject_address.value) ILIKE ANY($3::text[])",
+        "subject_address.value = ANY($5::inet[])",
+        "EXISTS (SELECT 1 FROM unnest($5::inet[]) weak_subject(value) WHERE host(subject_address.value) LIKE host(weak_subject.value) || '%')",
         "entity evidence export selected unrelated rows",
     ),
 )

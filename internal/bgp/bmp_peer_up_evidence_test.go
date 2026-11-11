@@ -21,7 +21,7 @@ import (
 
 func TestBMPPeerUpEvidenceRefusesForeignIncompleteAndUnboundSources(t *testing.T) {
 	const tenant = "11111111-1111-4111-8111-111111111111"
-	for _, name := range []string{"foreign tenant", "missing serial", "no admitted session", "truncated OPEN", "incomplete tail", "ASN mismatch", "unknown flags", "multicast peer", "non-global peer", "fabricated Loc-RIB", "budget", "cancelled"} {
+	for _, name := range []string{"foreign tenant", "missing serial", "no admitted session", "truncated OPEN", "incomplete tail", "ASN mismatch", "unknown flags", "multicast peer", "non-global peer", "fabricated Loc-RIB", "budget", "canceled"} {
 		t.Run(name, func(t *testing.T) {
 			listener := NewBMPListener(nil, nil, "", nil, WithBMPTenantLane(tenant, "same-lane"), WithBMPEntityEvidence("same-listener", fakeBMPEvidence{}))
 			frame := observedPeerUpFrame(t, "2001:db8::7", 4294967295)
@@ -52,7 +52,7 @@ func TestBMPPeerUpEvidenceRefusesForeignIncompleteAndUnboundSources(t *testing.T
 				frame[6] = 3
 			case "budget":
 				listener.routingStateBytes = 1
-			case "cancelled":
+			case "canceled":
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()
@@ -110,7 +110,7 @@ func observedPeerUpFrame(t *testing.T, address string, asn uint32) []byte {
 }
 
 // Real mTLS listener; issued-identity verifier and restricted RPC receiver are
-// modeled. No route UPDATE is sent: neighbour identity must be independent of
+// modeled. No route UPDATE is sent: neighbor identity must be independent of
 // the legacy route-event parser's AFI/ADD-PATH support.
 func TestBMPPeerUpEvidenceKeepsBothFamiliesAndTenantBoundOrigins(t *testing.T) {
 	for _, tenant := range []string{"11111111-1111-4111-8111-111111111111", "66666666-6666-4666-8666-666666666666"} {
@@ -150,7 +150,7 @@ func TestBMPPeerUpEvidenceKeepsBothFamiliesAndTenantBoundOrigins(t *testing.T) {
 						}
 					}
 				case <-time.After(5 * time.Second):
-					t.Fatal("physical Peer Up did not publish independent neighbour evidence", address)
+					t.Fatal("physical Peer Up did not publish independent neighbor evidence", address)
 				}
 			}
 		})

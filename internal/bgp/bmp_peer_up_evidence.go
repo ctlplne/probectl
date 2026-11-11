@@ -30,7 +30,7 @@ func (l *BMPListener) queuePhysicalPeerUpEvidence(ctx context.Context, id bmpIde
 		return ErrBMPPeerUp
 	}
 	// Non-global views need their own operator-bound context. A fabricated
-	// Loc-RIB peer is not a physical neighbour; retain its separate staging.
+	// Loc-RIB peer is not a physical neighbor; retain its separate staging.
 	if payload[0] != 0 {
 		return nil
 	}

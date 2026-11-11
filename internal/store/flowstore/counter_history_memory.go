@@ -208,7 +208,7 @@ func newCounterSubjectMatch(subject string) (counterSubjectMatch, error) {
 	if subject == "" || strings.TrimSpace(subject) != subject || !utf8.ValidString(subject) {
 		return counterSubjectMatch{}, ErrCounterHistoryInput
 	}
-	out := counterSubjectMatch{literal: subject}
+	out := counterSubjectMatch{literal: strings.ToLower(subject)}
 	if source, ok := govern.SubjectNetworkPattern(subject); ok {
 		address, _ := govern.SubjectNetworkExactPattern(subject)
 		var err error
@@ -227,7 +227,7 @@ func (m counterSubjectMatch) matches(row CounterRow) bool {
 	if m.address != nil {
 		return m.address.MatchString(row.AgentID) || m.source.MatchString(row.SourceRef)
 	}
-	return strings.ToLower(row.AgentID) == strings.ToLower(m.literal) || strings.ToLower(row.SourceRef) == strings.ToLower(m.literal)
+	return strings.ToLower(row.AgentID) == m.literal || strings.ToLower(row.SourceRef) == m.literal
 }
 
 func matchCounterSubjects(subjects []string) (func(CounterRow) bool, error) {

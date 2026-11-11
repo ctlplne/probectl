@@ -25,6 +25,22 @@ func (e *Engine) WithCounterHistory(history flowstore.CounterHistory, retentionD
 	return e
 }
 
+func (e *Engine) eraseTenantCounters(ctx context.Context, tenant string, att *Attestation) {
+	if e.counterHistory == nil {
+		return
+	}
+	remaining, err := e.counterHistory.DeleteCounterTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), tenant)
+	if err != nil {
+		att.Stores = append(att.Stores, StoreResult{Store: "device_counters", Deleted: -1, Notes: err.Error()})
+		att.Complete = false
+		return
+	}
+	att.Stores = append(att.Stores, StoreResult{Store: "device_counters", VerifiedZero: remaining == 0, Notes: "remaining=" + fmt.Sprint(remaining)})
+	if remaining != 0 {
+		att.Complete = false
+	}
+}
+
 func (e *Engine) exportSubjectCounters(x *subjectExportContext) error {
 	if e.counterHistory == nil {
 		return nil

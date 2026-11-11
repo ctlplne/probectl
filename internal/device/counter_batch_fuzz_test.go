@@ -46,10 +46,10 @@ func FuzzDeviceCounterBatch(f *testing.F) {
 		if _, err := ParseCounterBatch(t.Context(), foreign, raw, budget, budget); err == nil {
 			t.Fatal("raw tenant entered a foreign bus lane")
 		}
-		cancelled, cancel := context.WithCancel(t.Context())
+		canceled, cancel := context.WithCancel(t.Context())
 		cancel()
-		if _, err := ParseCounterBatch(cancelled, tenant, raw, budget, budget); err == nil {
-			t.Fatal("cancelled admission succeeded")
+		if _, err := ParseCounterBatch(canceled, tenant, raw, budget, budget); err == nil {
+			t.Fatal("canceled admission succeeded")
 		}
 		for _, point := range got.Metrics {
 			if point.TenantId != tenant || point.AgentId != got.Sender || point.DeviceAddress != got.Input.ConfiguredTarget || point.ExactCounter == nil {

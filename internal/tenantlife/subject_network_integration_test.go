@@ -130,7 +130,7 @@ func TestNetworkSubjectPostgresKeepsNeighboursAndTenantIsolation(t *testing.T) {
 			seen[row.Source] = true
 		}
 		if len(seen) != len(tc.match) {
-			t.Fatal("network export lost complete matches or selected neighbours", tc.subject, len(seen), len(tc.match))
+			t.Fatal("network export lost complete matches or selected neighbors", tc.subject, len(seen), len(tc.match))
 		}
 		for _, value := range tc.match {
 			if !seen[value] {
@@ -173,7 +173,7 @@ func TestNetworkSubjectPostgresKeepsNeighboursAndTenantIsolation(t *testing.T) {
 					expected = all
 				}
 				if len(kept) != len(expected) {
-					t.Fatal("erasure changed a neighbour or sibling tenant", tc.subject, lane, len(kept), len(expected))
+					t.Fatal("erasure changed a neighbor or sibling tenant", tc.subject, lane, len(kept), len(expected))
 				}
 				for value := range expected {
 					if !kept[value] {

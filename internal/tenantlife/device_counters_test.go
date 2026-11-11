@@ -35,6 +35,30 @@ func counterLifecycleFixture(t *testing.T, history *flowstore.Memory, tenant str
 	}
 }
 
+func TestDeviceCounterTenantErasureVerifiesOnlyOwnedHistory(t *testing.T) {
+	const red = "11111111-1111-4111-8111-111111111111"
+	const blue = "66666666-6666-4666-8666-666666666666"
+	history := flowstore.NewMemory()
+	for _, tenant := range []string{red, blue} {
+		counterLifecycleFixture(t, history, tenant, time.Now().Add(-time.Hour))
+	}
+	engine := New(nil, nil, nil, nil, nil, "", testLog()).WithCounterHistory(history, 90)
+	att := Attestation{Complete: true}
+	engine.eraseTenantCounters(t.Context(), red, &att)
+	if !att.Complete || len(att.Stores) != 1 || att.Stores[0].Store != "device_counters" || !att.Stores[0].VerifiedZero {
+		t.Fatal("counter erasure did not attest an empty owned store", att)
+	}
+	for _, tenant := range []string{red, blue} {
+		want := int64(1)
+		if tenant == red {
+			want = 0
+		}
+		if n, err := history.ExportCounterTenant(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), tenant, io.Discard); err != nil || n != want {
+			t.Fatal("tenant erasure left owned history or changed a sibling", tenant, n, want, err)
+		}
+	}
+}
+
 func TestDeviceCounterLifecycleExportsAndErasesOnlyValidatedTenantSubject(t *testing.T) {
 	const red = "11111111-1111-4111-8111-111111111111"
 	const blue = "66666666-6666-4666-8666-666666666666"

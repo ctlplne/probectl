@@ -43,7 +43,7 @@ var dataInventory = []DataInventoryEntry{
 		Processors:     []string{"complete original integer poll admission", "current mTLS sender witness and source incarnation", "ClickHouse reader row policies and whole-poll commit markers", "govern redaction during portability export"},
 		ExportBehavior: "Tenant and stable-alias subject exports stream device_counters.jsonl with decimal integer strings; incomplete polls remain private",
 		TenantDelete:   "DeleteCounterTenant verifies points and completion markers absent using control authority",
-		SubjectDelete:  "DeleteCounterSubjects removes matching sender/source aliases inside the tenant under the source lifecycle barrier, preserving IP prefix neighbours and case-sensitive IPv6 zones",
+		SubjectDelete:  "DeleteCounterSubjects removes matching sender/source aliases inside the tenant under the source lifecycle barrier, preserving IP prefix neighbors and case-sensitive IPv6 zones",
 	},
 	{
 		ID:             "probe-results",

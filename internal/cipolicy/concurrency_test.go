@@ -18,7 +18,7 @@ import (
 // last 30 ci runs on main: 26 canceled, 3 failed, ZERO successes, ever. A branch
 // that can never conclude can never be released.
 //
-// Main pushes share one non-cancelling running lane and a replaceable pending
+// Main pushes share one non-canceling running lane and a replaceable pending
 // slot. Protected full/manual runs keep independent groups even while pending.
 func TestMainRunsAreNeverCanceledInProgress(t *testing.T) {
 	ci := readWorkflow(t, "ci.yml")

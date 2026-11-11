@@ -501,17 +501,7 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 	} else {
 		att.Stores = append(att.Stores, StoreResult{Store: "flows", VerifiedZero: true, Notes: "store not deployed"})
 	}
-	if e.counterHistory != nil {
-		remaining, err := e.counterHistory.DeleteCounterTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), tenantID)
-		if err != nil {
-			fail("device_counters", err.Error())
-		} else {
-			att.Stores = append(att.Stores, StoreResult{Store: "device_counters", VerifiedZero: remaining == 0, Notes: "remaining=" + fmt.Sprint(remaining)})
-			if remaining != 0 {
-				att.Complete = false
-			}
-		}
-	}
+	e.eraseTenantCounters(ctx, tenantID, &att)
 
 	// Endpoint event history carries SSIDs, gateway/session targets, and
 	// attribution labels; erase it as a first-class tenant store.

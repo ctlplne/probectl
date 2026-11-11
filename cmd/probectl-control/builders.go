@@ -377,7 +377,7 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	}
 	s.flowStore = flowStore
 	closers = append(closers, func() { _ = flowStore.Close() })
-	if memory, ok := flowStore.(*flowstore.Memory); ok {
+	if memory, ok := flowStore.(*flowstore.Memory); ok && (cfg.DeviceCounterTenantMemoryBytes != 0 || cfg.DeviceCounterTotalMemoryBytes != 0) {
 		if err := memory.WithCounterMemoryBudget(int64(cfg.DeviceCounterTenantMemoryBytes), int64(cfg.DeviceCounterTotalMemoryBytes)); err != nil {
 			return fail(fmt.Errorf("counter memory admission: %w", err))
 		}

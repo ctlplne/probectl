@@ -49,7 +49,7 @@ func proveFRRSelectedGoldenFlowFields(t *testing.T, st *shipped.Stack, lab *rout
 	var lastPeerError error
 	t.Cleanup(func() {
 		if t.Failed() {
-			t.Logf("independent router neighbours: wanted=%v current=%+v error=%v", nextHops, lastPeers, lastPeerError)
+			t.Logf("independent router neighbors: wanted=%v current=%+v error=%v", nextHops, lastPeers, lastPeerError)
 		}
 	})
 	shipped.Await(t, "current independently authenticated router neighbors before golden ingestion", time.Minute, func() bool {
