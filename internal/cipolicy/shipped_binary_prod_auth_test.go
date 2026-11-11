@@ -41,8 +41,8 @@ func TestShippedBinaryRefusesDevAuth(t *testing.T) {
 }
 
 // TestE2EDrivesTheReleaseImageInProductionAuth pins TQ-03's acceptance: a
-// verify-all job builds the release image the way image-scan does (no build
-// tags, the core edition), the black-box e2e runs THAT image in session auth
+// build-images job builds the release image (no build tags, the core edition),
+// the black-box e2e verifies and runs THAT image in session auth
 // against a real IdP, and nothing under test/e2e can reach the dev-auth bypass
 // — `grep -E 'devauth|AUTH_MODE=dev|DEV_AUTH_ACK' test/e2e` returns nothing.
 func TestE2EDrivesTheReleaseImageInProductionAuth(t *testing.T) {
@@ -52,20 +52,35 @@ func TestE2EDrivesTheReleaseImageInProductionAuth(t *testing.T) {
 	}
 	job := jobBlock(t, ci, "e2e")
 	for _, want := range []string{
-		"file: deploy/docker/Dockerfile",
-		"COMPONENT=probectl-control",
-		"EDITION=core",
-		"load: true",
-		"PROBECTL_E2E_IMAGE:",
+		"needs: build-images",
+		`gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"`,
+		`--name "image-probectl-control-$GITHUB_SHA"`,
+		"python3 scripts/ci_image.py load",
+		`--receipt "$RUNNER_TEMP/probectl-image/image-proof.json"`,
+		"--component probectl-control --edition core --tag probectl/probectl-control:e2e",
+		"PROBECTL_E2E_IMAGE: probectl/probectl-control:e2e",
 		"run: make e2e",
 	} {
 		if !strings.Contains(job, want) {
-			t.Errorf("TQ-03: ci.yml's e2e job must build and test the release image (%q missing)", want)
+			t.Errorf("TQ-03: ci.yml's e2e job must verify and test the exact release image (%q missing)", want)
+		}
+	}
+	producer := jobBlock(t, ci, "build-images")
+	for _, want := range []string{
+		"component: probectl-control, dockerfile: deploy/docker/Dockerfile, buildComponent: probectl-control }",
+		"COMPONENT=${{ matrix.buildComponent }}",
+		"EDITION=${{ matrix.edition || 'core' }}",
+		"outputs: type=docker,",
+		"python3 scripts/ci_image.py produce",
+		"name: image-${{ matrix.component }}-${{ github.sha }}",
+	} {
+		if !strings.Contains(producer, want) {
+			t.Errorf("TQ-03: release image producer lost %q", want)
 		}
 	}
 	for _, forbidden := range []string{"GO_TAGS", "push: true", "LICENSE_PUBKEYS_B64"} {
-		if strings.Contains(job, forbidden) {
-			t.Errorf("TQ-03: ci.yml's e2e job must test the image as shipped and never publish it (found %q)", forbidden)
+		if strings.Contains(job, forbidden) || strings.Contains(producer, forbidden) {
+			t.Errorf("TQ-03: CI must test the image as shipped and never publish it (found %q)", forbidden)
 		}
 	}
 

@@ -107,8 +107,15 @@ def coalesce(api, repository, source_id, receipt, save):
     if workflow.get("path") != CI_PATH or workflow.get("state") != "active":
         raise ValueError("ordinary CI workflow identity is not established")
     anchor = api.run(source_id)
-    if not ordinary(anchor, repository, workflow_id) or anchor.get("conclusion") == "cancelled":
-        raise ValueError("source must be an uncancelled, first-attempt ordinary main CI run")
+    if not ordinary(anchor, repository, workflow_id):
+        raise ValueError("source must be a first-attempt ordinary main CI run")
+    # Several queued start notifications can arrive after a newer source has
+    # already superseded this run. That is an expected no-op, not a controller
+    # failure, and must never grant this stale source cancellation authority.
+    if anchor.get("conclusion") == "cancelled":
+        receipt["status"] = "unchanged: source already canceled"
+        save()
+        return
     # Require the existing qualification/pin/permission checks before replacing
     # older work. This does not add an acceptance gate or wait for the full run.
     jobs = api.evidence(source_id)["jobs"]
@@ -199,6 +206,27 @@ class CoalescingTests(unittest.TestCase):
             receipt = {"cancelled_development": []}
             coalesce(api, self.repo, 20, receipt, lambda: api.saved.append(deepcopy(receipt)))
             self.assertEqual(len(api.posts), expected)
+
+    def test_canceled_source_is_a_noop_before_reading_or_changing_other_runs(self):
+        test = self
+
+        class Superseded:
+            root = "repos/" + test.repo
+
+            def api(self, path, method="GET"):
+                test.assertEqual(method, "GET")
+                test.assertEqual(path, self.root + "/actions/workflows/ci.yml")
+                return {"id": 5, "path": CI_PATH, "state": "active"}
+
+            def run(self, run_id):
+                test.assertEqual(run_id, 20)
+                return dict(test.anchor, status="completed", conclusion="cancelled")
+
+        receipt = {"cancelled_development": []}
+        saved = []
+        coalesce(Superseded(), self.repo, 20, receipt, lambda: saved.append(deepcopy(receipt)))
+        self.assertEqual(receipt["cancelled_development"], [])
+        self.assertEqual(saved, [{"cancelled_development": [], "status": "unchanged: source already canceled"}])
 
 
 def main():
