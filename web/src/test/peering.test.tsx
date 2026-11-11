@@ -169,7 +169,7 @@ for (const theme of ['light', 'dark']) {
       const references = within(result).getByRole('textbox', {
         name: 'All membership sources (5001)',
         hidden: true,
-      }) as HTMLTextAreaElement
+      })
       expect(references.value.split('\n')).toHaveLength(5001)
       expect(references.value).toContain('red-membership-5000')
       expect(document.documentElement).toHaveAttribute('data-theme', theme)

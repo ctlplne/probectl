@@ -39,7 +39,7 @@ func TestPeeringTrafficRealStoreKeepsWholeTenantStatesDirectionsAndOriginalClock
 			}
 		}
 		for _, direction := range []string{"inbound", "outbound"} {
-			query.Data = peeringDataWithClockForTest(t, ctx, query.Data, direction, 0)
+			query.Data = peeringDataWithClockForTest(ctx, t, query.Data, direction, 0)
 			for _, series := range []string{"raw", "rollup"} {
 				query.DataSeries = series
 				want, err := memory.PeeringTraffic(ctx, query)
@@ -48,13 +48,13 @@ func TestPeeringTrafficRealStoreKeepsWholeTenantStatesDirectionsAndOriginalClock
 				}
 				got, err := store.PeeringTraffic(ctx, query)
 				if err != nil || !reflect.DeepEqual(got.Buckets, want.Buckets) || got.InputDigest != want.InputDigest || got.RoleDigest != want.RoleDigest || got.Source != series {
-					t.Fatal("actual peering query lost complete owned tenant states, directions, counters or partial intervals", series, direction, err)
+					t.Fatal("actual peering query lost complete owned tenant states, directions, counters or partial intervals", series, direction, err, "source", got.Source, "got", got.Buckets, "want", want.Buckets, "digests", got.InputDigest == want.InputDigest, got.RoleDigest == want.RoleDigest)
 				}
 			}
 		}
 		// A retained key under a different original clock is unavailable; it
 		// cannot acquire the matching state's eligibility from another epoch.
-		query.Data = peeringDataWithClockForTest(t, ctx, query.Data, "inbound", 1)
+		query.Data = peeringDataWithClockForTest(ctx, t, query.Data, "inbound", 1)
 		query.DataSeries = "raw"
 		want, err := memory.PeeringTraffic(ctx, query)
 		if err != nil {
@@ -67,7 +67,7 @@ func TestPeeringTrafficRealStoreKeepsWholeTenantStatesDirectionsAndOriginalClock
 	}
 }
 
-func peeringDataWithClockForTest(t *testing.T, ctx context.Context, data *PeeringQueryData, direction string, delta int64) *PeeringQueryData {
+func peeringDataWithClockForTest(ctx context.Context, t *testing.T, data *PeeringQueryData, direction string, delta int64) *PeeringQueryData {
 	t.Helper()
 	rows := make([]RoutingProjection, 0, len(data.states))
 	for key, states := range data.states {
