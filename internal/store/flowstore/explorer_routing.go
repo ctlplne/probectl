@@ -41,6 +41,9 @@ type RoutingProjection struct {
 	// capture reader. A matching hint still requires identical context,
 	// fields and sources. It never grants or replaces source authority.
 	FactsID [32]byte
+	// Peering is populated only by the current-authority peering reader.
+	// Ordinary query projection deliberately does not turn it into a grant.
+	Peering *PeeringRoutingMatch `json:"-"`
 }
 
 // RoutingQueryProof is private server receipt material, excluded from result

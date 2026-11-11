@@ -214,6 +214,8 @@ UNIT = {
         "TestBMPUpdateFrameRefusesMissingMalformedSourceAndWholeOperationAdmission",
     ),
     "internal/store": (
+        "TestPeeringCaptureMatchKeepsOriginalStructuredPathsAndTenantBeforeAdmission",
+        "TestPeeringCaptureMatchKeepsPublicProvenanceAndExplicitAbsence",
         "TestRoutingRPKICaptureKeepsWholeEvidenceOriginalClockAndTenantBoundary",
         "TestRoutingRPKICaptureRefusesForgedStalePartialAndUnadmittedEvidence",
         "TestRoutingRPKICapturePreservesUnknownPublicOriginsAndCompleteNotFound",
@@ -319,6 +321,7 @@ INTEGRATION = {
         "TestPublicRoutingSnapshotSchemaKeepsEmptyRIBTenantSourceAndBoundViewIdentity",
         "TestPublicRoutingStagingKeepsTenantPrivateOwnedMetadataAndAtomicReplacement",
         "TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges",
+        "TestPeeringCaptureReaderKeepsCurrentTargetTenantAndOriginalSourceAuthority",
         "TestRoutingCaptureRepositoryKeepsFirstTenantSnapshotAndErasureTombstone",
         "TestRoutingOperatorConfigurationKeepsTenantPolicyCASAndAtomicAudit",
         "TestRoutingBindingManifestKeepsTenantEpochTargetsAndWholeAdmission",
@@ -700,6 +703,20 @@ ROUTING_WRITE_CONTROLS = {
         "for _, path := range paths[:min(1, len(paths))] {\n\t\tfor _, segment := range path {\n\t\t\tif err := ctx.Err();",
         "TestPeeringPathsRefuseMalformedLateUnadmittedAndCanceledEvidence", "",
         "matching first path hid malformed late peering evidence",
+    ),
+    "peering-capture-context": (
+        "internal/store/bgp_routing_capture_query_batch.go",
+        "if err := authorize(ctx, record); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tpreauthorized = record.ContextID",
+        "if err := authorize(ctx, record); false && err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tpreauthorized = record.ContextID",
+        "TestPeeringCaptureReaderKeepsCurrentTargetTenantAndOriginalSourceAuthority", "",
+        "empty peering selection or tiny budget bypassed current context authority",
+    ),
+    "peering-capture-router": (
+        "internal/store/bgp_routing_capture_query_batch.go",
+        "AND facts.searchable_body#>>'{data,Owner,RouterID}'=$4",
+        "AND $4::text<>''",
+        "TestPeeringCaptureReaderKeepsCurrentTargetTenantAndOriginalSourceAuthority", "",
+        "peering reader selected captures from another canonical router",
     ),
     "peering-target-lan": (
         "internal/control/peering_target.go",
