@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -46,9 +47,22 @@ func TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95(t *testing.T) {
 	}
 	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "neighbor "+lab.ip["edge"]+" shutdown", "-c", "bmp targets probectl", "-c", "bmp monitor ipv4 unicast loc-rib", "-c", "bmp monitor ipv6 unicast loc-rib", "-c", "bmp stats interval 1000", "-c", "end")
 	// The new direct transit has no inherited single-prefix export filter.
-	// Retain and verify the complete three-prefix source, including the routes
-	// outside this particular peering traffic selection.
-	lab.awaitRoutes(t, "rtr-a", map[string]string{prefixA: path(edgeASN, originA), prefixB: path(edgeASN, originB), prefixDecoy: path(edgeASN, originDecoy)})
+	// Retain all three announcements, including those outside this traffic
+	// selection. Unlike the original one-peer lab this router also has real
+	// alternate paths; the Loc-RIB lookup below checks its selected path.
+	wantRoutes := map[string]string{prefixA: path(edgeASN, originA), prefixB: path(edgeASN, originB), prefixDecoy: path(edgeASN, originDecoy)}
+	shipped.Await(t, "complete peering router announcements with alternate transits", time.Minute, func() bool {
+		got := lab.routes(t, "rtr-a")
+		if len(got) != len(wantRoutes) {
+			return false
+		}
+		for prefix, want := range wantRoutes {
+			if !slices.Contains(got[prefix], want) {
+				return false
+			}
+		}
+		return true
+	})
 	community := startRouterSNMP(t, lab, "rtr-a")
 	for i := range links {
 		index := queryEdgeSNMP(t, lab.name+"-rtr-a-snmp", community, ".1.3.6.1.2.1.4.20.1.2."+links[i].routerIP)
