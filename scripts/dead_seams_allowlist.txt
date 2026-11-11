@@ -36,6 +36,9 @@ symbol github.com/ctlplne/probectl/internal/store/chmigrate.CheckAll — the Cli
 symbol github.com/ctlplne/probectl/internal/store/chclient.Params — ClickHouse query-parameter helper consumed by store integration suites
 
 # ---- integration-suite fixtures over the tenant store layer -----------------
+symbol github.com/ctlplne/probectl/internal/flow.CapacityMeasuredMember.Source — original-counter source-adapter integration assertion: inspects the immutable measured member's canonical tenant/interface, not a source read or authority constructor
+symbol github.com/ctlplne/probectl/internal/flow.CapacityMeasuredMember.Samples — original-counter source-adapter integration assertion: reads every exact resampled value, coverage state and 32/64-bit wrap; production billing and forecasting consume the same private grids directly
+symbol github.com/ctlplne/probectl/internal/store.DeviceCounterCaptures.LookupWitnessInScope — application-role original-receipt integration assertion: tests the existing snapshot's contradictory-tenant, rotation and revocation boundaries; serving uses the complete-set LookupWitnessesInScope path
 symbol github.com/ctlplne/probectl/internal/store.Tenants.Create — integration fixture: suites provision real tenants through the RLS path
 symbol github.com/ctlplne/probectl/internal/store.Tenants.UpdateStatus — integration fixture: lifecycle suites drive tenant status through the RLS path
 symbol github.com/ctlplne/probectl/internal/store.Tests.List — integration fixture: suites read back seeded synthetic tests through RLS
