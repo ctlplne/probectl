@@ -21,6 +21,8 @@ func TestPeeringCaptureMatchKeepsOriginalStructuredPathsAndTenantBeforeAdmission
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		lookup := routingCaptureFixture(t)
 		lookup.Owner.TenantID = tenant
+		lookup.Source.Route.Source.Scope = lookup.Owner.Scope
+		lookup.Destination.Route.Source.Scope = lookup.Owner.Scope
 		path := lookup.Source.Route.Paths[0]
 		path.Segments = []BGPRoutingSegment{{Kind: 2, Values: []uint32{64500, peer, peer}}}
 		lookup.Source.Route.Paths = []BGPRoutingChange{path}

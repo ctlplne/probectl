@@ -15,6 +15,7 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
+// BGPPeeringCaptureTarget is an operator-owned query selection, not sender proof.
 type BGPPeeringCaptureTarget struct {
 	entity.Scope
 	RouterID string
