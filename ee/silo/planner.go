@@ -102,6 +102,7 @@ func ProvisionPlan(schema string, tenantTables []string) []string {
 	plan = append(plan, entityRegistryForeignKeyPlan(schema, tenantTables)...)
 	plan = append(plan, entityMetadataCheckPlan(schema, tenantTables)...)
 	plan = append(plan, interfaceRoleStoragePlan(schema, tenantTables)...)
+	plan = append(plan, deviceCounterStoragePlan(schema, tenantTables)...)
 	plan = append(plan, bgpRoutingStoragePlan(schema, tenantTables)...)
 	plan = append(plan, entityNetworkPrefixCheckPlan(schema, tenantTables)...)
 	plan = append(plan, tagStoragePlan(schema, tenantTables, true)...)
@@ -456,7 +457,7 @@ func tableRolePlan(quotedTable, table string) []string {
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
 			"GRANT SELECT, INSERT ON " + quotedTable + " TO probectl_provider",
 		}
-	case "dashboard_report_artifacts", "dashboard_report_artifact_chunks", "bgp_flow_capture_objects", "bgp_flow_capture_receipts", "bgp_flow_capture_payloads", "bgp_flow_capture_intents", "bgp_flow_capture_intent_payloads":
+	case "dashboard_report_artifacts", "dashboard_report_artifact_chunks", "bgp_flow_capture_objects", "bgp_flow_capture_receipts", "bgp_flow_capture_payloads", "bgp_flow_capture_intents", "bgp_flow_capture_intent_payloads", "device_counter_captures", "device_counter_capture_sources":
 		return []string{
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_app",
 			"GRANT SELECT, INSERT, DELETE ON " + quotedTable + " TO probectl_app",
@@ -628,6 +629,7 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 	plan = append(plan, entityRegistryForeignKeyPlan(schema, cat.TenantTables)...)
 	plan = append(plan, entityMetadataCheckPlan(schema, cat.TenantTables)...)
 	plan = append(plan, interfaceRoleStoragePlan(schema, cat.TenantTables)...)
+	plan = append(plan, deviceCounterStoragePlan(schema, cat.TenantTables)...)
 	plan = append(plan, bgpRoutingStoragePlan(schema, cat.TenantTables)...)
 	plan = append(plan, entityNetworkPrefixCheckPlan(schema, cat.TenantTables)...)
 	plan = append(plan, tagStoragePlan(schema, cat.TenantTables, false)...)

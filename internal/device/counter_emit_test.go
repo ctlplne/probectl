@@ -132,7 +132,7 @@ func TestExactCounterCaptureRefusesMixedScopeOwnsMetadataAndKeepsLegacyOnFailure
 	cancel()
 	runtime.emitExactCounters(canceled, []Metric{base})
 	if len(capture.raw) != 1 {
-		t.Fatal("cancelled counter capture published original facts")
+		t.Fatal("canceled counter capture published original facts")
 	}
 	capture = &rawCounterCapture{fail: true}
 	runtime = counterCaptureRuntime("red", capture)

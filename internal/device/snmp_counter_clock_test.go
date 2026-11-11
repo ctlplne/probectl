@@ -155,6 +155,6 @@ func TestSNMPCounterClockRefusesPartialMalformedDuplicateOrAbsentEvidence(t *tes
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
 	if values, complete := snmpCounterDiscontinuities(canceled, conn, map[uint32]Interface{1: {Index: 1}}); complete || values != nil {
-		t.Fatal("cancelled counter clock walk retained partial evidence", values, complete)
+		t.Fatal("canceled counter clock walk retained partial evidence", values, complete)
 	}
 }

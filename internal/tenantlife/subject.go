@@ -332,6 +332,13 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		contains: []string{"definition"},
 	},
 	"interface_role_overrides": {plane: "postgres:interface_role_overrides", disposition: subjectTableNoSubject},
+	// Hash-only first receipts prevent erased source witnesses from being
+	// refilled. All subject-bearing source selectors live in the cascade payload.
+	"device_counter_captures": {plane: "postgres:device_counter_captures", disposition: subjectTableNoSubject},
+	"device_counter_capture_sources": {
+		plane: "postgres:device_counter_capture_sources", disposition: subjectTableDeleteMatches,
+		exact: []string{"agent_id"}, contains: []string{"source_ref"},
+	},
 	// Routing source identifiers can name an administratively registered
 	// subject. Removing a matching generation cascades its complete routes.
 	"bgp_routing_views": {

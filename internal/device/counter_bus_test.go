@@ -158,7 +158,7 @@ func TestExactCounterBusRefusesMixedTenantSenderAndMalformedWholeBatches(t *test
 		canceled, cancel := context.WithCancel(t.Context())
 		cancel()
 		if err := emitter.EmitCounters(canceled, []Metric{base}); err == nil || len(backend.records) != 1 {
-			t.Fatal("cancelled counter delivery escaped onto the bus", err)
+			t.Fatal("canceled counter delivery escaped onto the bus", err)
 		}
 	}
 }
