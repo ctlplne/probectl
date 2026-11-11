@@ -222,6 +222,7 @@ func awaitFRRSelectedPath(t *testing.T, pool *pgxpool.Pool, reg edgeFlowRegistra
 // different repairs; none is permission to extend the wait or weaken the path.
 func logFRRRoutingState(t *testing.T, pool *pgxpool.Pool, reg edgeFlowRegistration) {
 	t.Helper()
+	defer logFRRCaptureState(t, pool, reg)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(reg.tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
@@ -247,5 +248,47 @@ func logFRRRoutingState(t *testing.T, pool *pgxpool.Pool, reg edgeFlowRegistrati
 	})
 	if err != nil {
 		t.Logf("selected-RIB fixture state unavailable: %v", err)
+	}
+}
+
+// Failure-only, tenant-scoped aggregate diagnostics separate missing original
+// witness finalization from immutable unavailable captures and read-time denial.
+// No route replacement, timing change or assertion relaxation is involved.
+func logFRRCaptureState(t *testing.T, pool *pgxpool.Pool, reg edgeFlowRegistration) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(reg.tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+		rows, err := sc.Q.Query(ctx, `SELECT outcome,count(*),min(captured_at_unix_nanos),max(captured_at_unix_nanos)
+          FROM bgp_flow_capture_receipts WHERE tenant_id=$1 GROUP BY outcome ORDER BY outcome`, reg.tenantID)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var outcome string
+			var count, first, last int64
+			if err := rows.Scan(&outcome, &count, &first, &last); err != nil {
+				rows.Close()
+				return err
+			}
+			t.Logf("original routing receipt outcome=%s count=%d first=%d last=%d", outcome, count, first, last)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		var intents, payloads int64
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*),count(p.flow_key) FROM bgp_flow_capture_intents i
+          LEFT JOIN bgp_flow_capture_intent_payloads p ON (p.tenant_id,p.flow_key)=(i.tenant_id,i.flow_key)
+          LEFT JOIN bgp_flow_capture_receipts r ON (r.tenant_id,r.flow_key)=(i.tenant_id,i.flow_key)
+          WHERE i.tenant_id=$1 AND r.flow_key IS NULL`, reg.tenantID).Scan(&intents, &payloads); err != nil {
+			return err
+		}
+		t.Logf("unfinalized original routing intents=%d with retained candidate=%d", intents, payloads)
+		return nil
+	})
+	if err != nil {
+		t.Logf("original routing capture diagnostics unavailable: %v", err)
 	}
 }

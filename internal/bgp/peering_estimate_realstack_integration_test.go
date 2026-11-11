@@ -84,6 +84,14 @@ func TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95(t *testing.T) {
 	second := registerSecondRouterTenant(t, st, first)
 	second = registerEdgeFlowEvidence(t, st, lab.ip["rtr-a"], second)
 	registrations := []edgeFlowRegistration{first, second}
+	pool := st.ApplicationReadPool(t)
+	t.Cleanup(func() {
+		if t.Failed() {
+			for _, reg := range registrations {
+				logFRRRoutingState(t, pool, reg)
+			}
+		}
+	})
 	ids := make([]map[uint32]string, 2)
 	listeners := make([]*bgpTenant, 2)
 	bindings := make([]store.BGPRoutingBindingConfiguration, 2)
@@ -97,7 +105,7 @@ func TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95(t *testing.T) {
 		listeners[lane] = startRouterBMPEvidenceListenerNamed(t, st, lab, reg, reg.deviceID, "peering-"+strconv.Itoa(lane))
 		bindings[lane] = putFRRSelectedRIBBinding(t, st, reg, listeners[lane], lab.ip["rtr-a"], "", true)
 		listeners[lane].reconnectBMP()
-		awaitFRRSelectedPath(t, st.ApplicationReadPool(t), reg, "203.0.113.1", prefixA, []uint32{edgeASN, originA}, netip.MustParseAddr(links[0].peerIP))
+		awaitFRRSelectedPath(t, pool, reg, "203.0.113.1", prefixA, []uint32{edgeASN, originA}, netip.MustParseAddr(links[0].peerIP))
 		putRoleRouterPolicy(t, st, reg, entity.InterfaceRolePolicyRecord{}, []uint32{edgeASN, rtrBASN}, nil)
 		awaitRoleRouterLabels(t, st, reg, links, ids[lane])
 		destinations[lane] = startShippedRouterFlow(t, st, lab, reg, lab.ip["rtr-a"])
