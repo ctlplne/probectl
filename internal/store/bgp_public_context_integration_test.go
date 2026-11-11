@@ -182,7 +182,7 @@ func TestPublicContextLookupKeepsWholeAssignedCohortTenantAndPrefixAbsence(t *te
 		t.Fatal("public RIB rotation refilled original facts or lost its complete empty contributor", rotated, err)
 	}
 	write(a, func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET expires_at=clock_timestamp()-interval '1 second' WHERE tenant_id=$1 AND context_id=$2 AND source_kind='public_bgp' AND source_ref=$3`, a, f.contextID, refs[1])
+		_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET expires_at=clock_timestamp() WHERE tenant_id=$1 AND context_id=$2 AND source_kind='public_bgp' AND source_ref=$3`, a, f.contextID, refs[1])
 		return err
 	})
 	if current(a, &original) {
