@@ -170,6 +170,8 @@ for (const theme of ['light', 'dark']) {
         name: 'All membership sources (5001)',
         hidden: true,
       })
+      if (!(references instanceof HTMLTextAreaElement))
+        throw new Error('Complete peering references must remain in their accessible text area.')
       expect(references.value.split('\n')).toHaveLength(5001)
       expect(references.value).toContain('red-membership-5000')
       expect(document.documentElement).toHaveAttribute('data-theme', theme)
