@@ -125,14 +125,14 @@ func readPublicSnapshotLongestPrefix(ctx context.Context, sc tenancy.Scope, sour
 			return netip.Prefix{}, nil, err
 		}
 		if present {
-			paths, err := readPublicSnapshotPrefixPaths(ctx, sc, source, prefix, header, peers, profile)
+			paths, err := readPublicSnapshotPrefixPaths(ctx, sc, source, id, prefix, header, peers, profile)
 			return prefix, paths, err
 		}
 	}
 	return netip.Prefix{}, nil, ErrBGPRoutingRouteMissing
 }
 
-func readPublicSnapshotPrefixPaths(ctx context.Context, sc tenancy.Scope, source BGPPublicRoutingSource, prefix netip.Prefix, header publicSnapshotWriteState, peers []publicSnapshotReadPeer, profile BGPRoutingBudget) ([]BGPPublicRoutingPath, error) {
+func readPublicSnapshotPrefixPaths(ctx context.Context, sc tenancy.Scope, source BGPPublicRoutingSource, id string, prefix netip.Prefix, header publicSnapshotWriteState, peers []publicSnapshotReadPeer, profile BGPRoutingBudget) ([]BGPPublicRoutingPath, error) {
 	afi := uint16(2)
 	if prefix.Addr().Is4() {
 		afi = 1
