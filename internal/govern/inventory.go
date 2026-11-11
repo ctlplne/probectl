@@ -34,6 +34,18 @@ type DataInventoryEntry struct {
 
 var dataInventory = []DataInventoryEntry{
 	{
+		ID: "device-counter-history", Store: "Exact original device counter polls and completion markers", Plane: "device",
+		Owner:      "internal/device, internal/store/flowstore, internal/tenantlife",
+		Home:       "ClickHouse probectl_device_counters and probectl_device_counter_polls, or tenant-partitioned memory",
+		Categories: []Category{CatIPAddress, CatAttributeMap}, DataClasses: []Class{ClassPII, ClassInternal},
+		Retention:      "Existing tenant flow_retention_days, falling back to PROBECTL_FLOW_RETENTION_DAYS; zero explicitly keeps history forever",
+		RetentionOwner: "internal/tenantlife",
+		Processors:     []string{"complete original integer poll admission", "current mTLS sender witness and source incarnation", "ClickHouse reader row policies and whole-poll commit markers", "govern redaction during portability export"},
+		ExportBehavior: "Tenant and stable-alias subject exports stream device_counters.jsonl with decimal integer strings; incomplete polls remain private",
+		TenantDelete:   "DeleteCounterTenant verifies points and completion markers absent using control authority",
+		SubjectDelete:  "DeleteCounterSubjects removes matching sender/source aliases inside the tenant under the source lifecycle barrier, preserving IP prefix neighbours and case-sensitive IPv6 zones",
+	},
+	{
 		ID:             "probe-results",
 		Store:          "Synthetic/canary probe results and metric series",
 		Plane:          "active-testing",

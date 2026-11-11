@@ -21,6 +21,7 @@ import (
 )
 
 var ErrCounterBatchInvalid = errors.New("device: complete scoped exact counter batch required")
+var ErrCounterBatchBudget = errors.New("device: complete exact counter poll exceeds resource admission")
 
 const defaultCounterResourceBytes int64 = 2 << 30
 
@@ -44,15 +45,21 @@ func ParseCounterBatch(ctx context.Context, tenant string, raw []byte, memoryByt
 	size := int64(len(raw))
 	// Repeated short address strings amplify slice allocations even when
 	// there is only one metric. Reserve wire expansion as well as point cost.
-	if size == 0 || memoryBytes <= 0 || workUnits <= 0 || size > memoryBytes/64 || size > workUnits/64 {
+	if size == 0 || memoryBytes <= 0 || workUnits <= 0 {
 		return none, ErrCounterBatchInvalid
+	}
+	if size > memoryBytes/64 || size > workUnits/64 {
+		return none, ErrCounterBatchBudget
 	}
 	count, err := counterBatchWireCount(ctx, raw)
 	if err != nil {
 		return none, err
 	}
-	if count == 0 || count > math.MaxUint32 || int64(count) > (memoryBytes-size*64)/1024 || int64(count) > (workUnits-size*64)/1024 {
+	if count == 0 || count > math.MaxUint32 {
 		return none, ErrCounterBatchInvalid
+	}
+	if int64(count) > (memoryBytes-size*64)/1024 || int64(count) > (workUnits-size*64)/1024 {
+		return none, ErrCounterBatchBudget
 	}
 	batch := &devicev1.DeviceMetricBatch{}
 	if err := proto.Unmarshal(raw, batch); err != nil || len(batch.ProtoReflect().GetUnknown()) != 0 || len(batch.Metrics) != count {

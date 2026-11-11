@@ -22,6 +22,8 @@ import (
 // Rows are bounded (FIFO eviction) so an unconsumed dev deployment cannot grow
 // without limit.
 type Memory struct {
+	counterMu          sync.Mutex
+	counters           counterMemoryState
 	mu                 sync.Mutex
 	rows               []memoryRow
 	seen               map[string]int

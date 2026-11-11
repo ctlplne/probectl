@@ -190,20 +190,22 @@ type IRAttributionLifecycle interface {
 
 // Engine runs exports, erasures, and retention sweeps.
 type Engine struct {
-	pool              *pgxpool.Pool
-	flows             flowstore.Store
-	objects           objectstore.Store
-	tsdbW             tsdb.Writer
-	paths             PathDeleter // optional (WithPaths)
-	topo              TopologyDeleter
-	topoRetention     TopologyRetentionPruner
-	endpointRetention EndpointRetentionPruner
-	endpointEvents    endpointstore.Store
-	otel              OtelDeleter // optional (WithOtel) — OTLP trace/log store
-	ebpf              EBPFDeleter // optional (WithEBPF) — eBPF L7 edge store
-	sessions          SessionRetentionPruner
-	sessionReplayTTL  time.Duration
-	flowSnapshots     interface {
+	pool                 *pgxpool.Pool
+	flows                flowstore.Store
+	counterHistory       flowstore.CounterHistory
+	counterRetentionDays int
+	objects              objectstore.Store
+	tsdbW                tsdb.Writer
+	paths                PathDeleter // optional (WithPaths)
+	topo                 TopologyDeleter
+	topoRetention        TopologyRetentionPruner
+	endpointRetention    EndpointRetentionPruner
+	endpointEvents       endpointstore.Store
+	otel                 OtelDeleter // optional (WithOtel) — OTLP trace/log store
+	ebpf                 EBPFDeleter // optional (WithEBPF) — eBPF L7 edge store
+	sessions             SessionRetentionPruner
+	sessionReplayTTL     time.Duration
+	flowSnapshots        interface {
 		Invalidate(context.Context, string, func(context.Context) error) error
 	}
 	// aiAnswerRetention is the same tenant-scoped prune seam as the Postgres
@@ -498,6 +500,17 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 		}
 	} else {
 		att.Stores = append(att.Stores, StoreResult{Store: "flows", VerifiedZero: true, Notes: "store not deployed"})
+	}
+	if e.counterHistory != nil {
+		remaining, err := e.counterHistory.DeleteCounterTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), tenantID)
+		if err != nil {
+			fail("device_counters", err.Error())
+		} else {
+			att.Stores = append(att.Stores, StoreResult{Store: "device_counters", VerifiedZero: remaining == 0, Notes: "remaining=" + fmt.Sprint(remaining)})
+			if remaining != 0 {
+				att.Complete = false
+			}
+		}
 	}
 
 	// Endpoint event history carries SSIDs, gateway/session targets, and
@@ -1609,6 +1622,7 @@ func (e *Engine) sweepRetentionPolicies(ctx context.Context, policies []retentio
 			e.sweepSessionRetention(ctx, p),
 			e.sweepFlowSnapshotRetention(ctx, p),
 			e.sweepFlowRetention(ctx, p),
+			e.sweepCounterRetention(ctx, p),
 			e.sweepOtelRetention(ctx, p),
 			e.sweepEBPFRetention(ctx, p),
 			e.sweepPathRetention(ctx, p),

@@ -129,6 +129,11 @@ func buildMCPFlowSources(cfg *config.Config, log *slog.Logger, db *store.DB, pat
 		return fail(fmt.Errorf("mcp flow store: %w", err))
 	}
 	closers = append(closers, func() { _ = flows.Close() })
+	if memory, ok := flows.(*flowstore.Memory); ok {
+		if err := memory.WithCounterMemoryBudget(int64(cfg.DeviceCounterTenantMemoryBytes), int64(cfg.DeviceCounterTotalMemoryBytes)); err != nil {
+			return fail(fmt.Errorf("counter memory admission: %w", err))
+		}
+	}
 	if ch, ok := flowstore.ClickHouseStore(flows); ok {
 		ch.WithRouter(func(ctx context.Context, tenant string) (flowstore.Target, error) {
 			target, err := tenancy.CurrentRouter().TargetsFor(ctx, tenant)

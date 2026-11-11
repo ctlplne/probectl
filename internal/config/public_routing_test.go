@@ -41,3 +41,32 @@ func TestPublicRoutingAdmissionIsFiniteRaiseableObservableAndOffline(t *testing.
 		}
 	}
 }
+
+func TestDeviceCounterHistoryAdmissionIsRaiseableAndTenantFair(t *testing.T) {
+	cfg, err := Load(envFunc(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DeviceCounterMemoryBytes != 2<<30 || cfg.DeviceCounterWorkUnits != 4<<30 || cfg.DeviceCounterTimeout != time.Minute || cfg.DeviceCounterTenantMemoryBytes != 1<<30 || cfg.DeviceCounterTotalMemoryBytes != 4<<30 {
+		t.Fatal("counter history lost finite defaults")
+	}
+	values := map[string]string{"PROBECTL_DEVICE_COUNTER_MEMORY_BYTES": "1099511627776", "PROBECTL_DEVICE_COUNTER_WORK_UNITS": "2199023255552", "PROBECTL_DEVICE_COUNTER_TENANT_MEMORY_BYTES": "1099511627776", "PROBECTL_DEVICE_COUNTER_TOTAL_MEMORY_BYTES": "2199023255552", "PROBECTL_DEVICE_COUNTER_TIMEOUT": "10m"}
+	raised, err := Load(envFunc(values))
+	if err != nil || raised.DeviceCounterMemoryBytes != 1<<40 || raised.DeviceCounterWorkUnits != 2<<40 || raised.DeviceCounterTenantMemoryBytes != 1<<40 || raised.DeviceCounterTotalMemoryBytes != 2<<40 || raised.DeviceCounterTimeout != 10*time.Minute {
+		t.Fatal("complete counter workload resources were clamped", err)
+	}
+	seen := map[string]bool{}
+	for _, attribute := range raised.LogValue().Group() {
+		seen[attribute.Key] = true
+	}
+	for _, key := range []string{"device_counter_memory_bytes", "device_counter_work_units", "device_counter_timeout", "device_counter_tenant_memory_bytes", "device_counter_total_memory_bytes"} {
+		if !seen[key] {
+			t.Fatal("counter resource policy is not observable", key)
+		}
+	}
+	for _, values := range []map[string]string{{"PROBECTL_DEVICE_COUNTER_MEMORY_BYTES": "0"}, {"PROBECTL_DEVICE_COUNTER_WORK_UNITS": "-1"}, {"PROBECTL_DEVICE_COUNTER_TIMEOUT": "0s"}, {"PROBECTL_DEVICE_COUNTER_TOTAL_MEMORY_BYTES": "1"}} {
+		if _, err := Load(envFunc(values)); err == nil {
+			t.Fatal("invalid or unfair counter resources reached startup", values)
+		}
+	}
+}

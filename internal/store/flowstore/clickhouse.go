@@ -331,7 +331,7 @@ func (c *ClickHouse) WithReader(client *http.Client) *ClickHouse {
 // migration left one (it holds the same tenants' rows and the reader's
 // default-database grant reaches it).
 func (c *ClickHouse) readerPolicyTables(ctx context.Context) ([]string, error) {
-	tables := []string{sharedFlowsTable, sharedFlowRollupsTable}
+	tables := []string{sharedFlowsTable, sharedFlowRollupsTable, sharedCounterHistoryTable, sharedCounterPollTable}
 	ok, err := c.tableExists(ctx, "", preDedupName(sharedFlowsTable))
 	if err != nil {
 		return nil, fmt.Errorf("flowstore: pre-dedup probe: %w", err)
@@ -428,6 +428,7 @@ func chMigrationsFor(table string) []chmigrate.Migration {
 		},
 		fullRollupMigration(table, rollupTable, rollupView),
 		routingCaptureMigration(table, rollupTable, rollupView),
+		counterHistoryMigration(table),
 	}
 }
 

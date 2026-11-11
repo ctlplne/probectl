@@ -539,6 +539,7 @@ func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w 
 	for _, step := range []func(*subjectExportContext) error{
 		e.exportSubjectPostgres,
 		e.exportSubjectFlows,
+		e.exportSubjectCounters,
 		e.exportSubjectOtel,
 		e.exportSubjectTSDB,
 		e.exportSubjectTopology,
@@ -578,13 +579,14 @@ func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w 
 }
 
 type subjectExportContext struct {
-	ctx      context.Context
-	tenantID string
-	subject  string
-	tw       *tar.Writer
-	man      *SubjectManifest
-	pol      govern.Policy
-	redact   bool
+	counterAliases []string
+	ctx            context.Context
+	tenantID       string
+	subject        string
+	tw             *tar.Writer
+	man            *SubjectManifest
+	pol            govern.Policy
+	redact         bool
 }
 
 func (x *subjectExportContext) writeJSONL(path string, buf *bytes.Buffer, rows int64) error {
@@ -623,6 +625,7 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 	}); err != nil {
 		return fmt.Errorf("tenantlife: capture subject export aliases: %w", err)
 	}
+	x.counterAliases = flowAliases.values()
 	subject := []byte(strings.ToLower(x.subject))
 	subjectHash := audit.SubjectErasureHash(x.tenantID, x.subject)
 	for _, table := range tables {
@@ -918,6 +921,7 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		rep.Complete = false
 	}
 
+	counterAliases := []string{subject}
 	destructiveSubjectValidated := false
 	if e.pool != nil {
 		deleted, aliases, err := e.eraseSubjectPostgres(
@@ -932,6 +936,7 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		} else {
 			rep.Planes = append(rep.Planes, deleted...)
 			destructiveSubjectValidated = true
+			counterAliases = aliases
 			rep.Planes = append(rep.Planes, SubjectPlaneResult{
 				Plane: "audit", Status: SubjectStatusProjected, Projected: true,
 				Notes: fmt.Sprintf("append-only privacy.subject_erase markers recorded atomically for %d stable subject aliases", len(aliases)),
@@ -958,6 +963,7 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 	}
 
 	mutate := func(ctx context.Context) error {
+		e.eraseSubjectCounters(ctx, tenantID, counterAliases, &rep)
 		e.eraseSubjectTelemetry(ctx, tenantID, subject, &rep)
 		if !subjectErasurePlanesComplete(rep.Planes) {
 			return fmt.Errorf("tenantlife: source erasure incomplete; result cache remains invalidated")

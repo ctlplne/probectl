@@ -203,6 +203,11 @@ type Config struct {
 	BGPRoutingStateBytes           int
 	BGPRoutingCaptureStateBytes    int
 	DeviceCounterCaptureStateBytes int
+	DeviceCounterMemoryBytes       int
+	DeviceCounterWorkUnits         int
+	DeviceCounterTimeout           time.Duration
+	DeviceCounterTenantMemoryBytes int
+	DeviceCounterTotalMemoryBytes  int
 	PublicRoutingMaxAge            time.Duration
 
 	// Version-skew policy (S34): the control plane rejects agents outside the
@@ -2308,6 +2313,11 @@ func (c *Config) LogValue() slog.Value {
 		slog.Int("bgp_routing_state_bytes", c.BGPRoutingStateBytes),
 		slog.Int("bgp_routing_capture_state_bytes", c.BGPRoutingCaptureStateBytes),
 		slog.Int("device_counter_capture_state_bytes", c.DeviceCounterCaptureStateBytes),
+		slog.Int("device_counter_memory_bytes", c.DeviceCounterMemoryBytes),
+		slog.Int("device_counter_work_units", c.DeviceCounterWorkUnits),
+		slog.Duration("device_counter_timeout", c.DeviceCounterTimeout),
+		slog.Int("device_counter_tenant_memory_bytes", c.DeviceCounterTenantMemoryBytes),
+		slog.Int("device_counter_total_memory_bytes", c.DeviceCounterTotalMemoryBytes),
 		slog.Duration("public_routing_max_age", c.PublicRoutingMaxAge),
 		slog.Bool("flow_enrich_rpki", c.FlowEnrichRPKIFile != ""),
 		slog.Duration("flow_enrich_rpki_max_age", c.FlowEnrichRPKIMaxAge),

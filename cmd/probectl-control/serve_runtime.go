@@ -686,6 +686,7 @@ func (rt *serveRuntime) lifecyclePathStore() pathstore.Store {
 }
 
 func (rt *serveRuntime) startIngestConsumers() {
+	rt.g.Go(rt.runDeviceCounterConsumer)
 	if snap, err := loadBusLaneSnapshot(rt.gctx); err == nil {
 		rt.nsTenants = snap.tenants
 		if len(snap.namespaces) > 0 {

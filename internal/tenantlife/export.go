@@ -64,6 +64,7 @@ type Manifest struct {
 	Tables         map[string]int64 `json:"tables"` // table -> row count
 	Flows          int64            `json:"flows"`
 	RetainedFlows  int64            `json:"retained_flows"`
+	DeviceCounters int64            `json:"device_counters"`
 	EndpointEvents int64            `json:"endpoint_events"`
 	OtelSpans      int64            `json:"otel_spans"`
 	OtelLogs       int64            `json:"otel_logs"`
@@ -215,6 +216,16 @@ func (e *Engine) exportBundle(ctx context.Context, tenantID string, w io.Writer,
 		}
 		man.RetainedFlows = n
 		man.Notes = append(man.Notes, "flow_rollups.jsonl preserves retained input and coverage_version. Raw and retained sources can overlap; their physical row counts must not be added as traffic totals. coverage_version=0 identifies older hourly input with unavailable fields; version1 retains complete input.")
+	}
+
+	if e.counterHistory != nil {
+		n, err := streamPlaneToTar(tw, "device_counters.jsonl", man.ExportedAt, redact, pol, func(w io.Writer) (int64, error) {
+			return e.counterHistory.ExportCounterTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), tenantID, w)
+		})
+		if err != nil {
+			return man, fmt.Errorf("tenantlife: export device counters: %w", err)
+		}
+		man.DeviceCounters = n
 	}
 
 	// 2b) Durable endpoint/DEM event history (tenant-scoped by the store).

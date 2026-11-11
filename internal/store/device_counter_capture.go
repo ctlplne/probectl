@@ -128,7 +128,7 @@ func (s *DeviceCounterCaptures) CaptureAuthenticated(ctx context.Context, sender
 			return err
 		}
 		if exists {
-			capture, err := lookupDeviceCounterWitness(ctx, sc, key)
+			capture, err := lookupDeviceCounterWitness(ctx, sc, key, false)
 			result = capture.CounterCaptureReference
 			return err // missing erased payload is never refilled
 		}
@@ -174,15 +174,15 @@ func (s *DeviceCounterCaptures) LookupWitness(ctx context.Context, claimedSender
 	var capture DeviceCounterCapture
 	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		capture, err = lookupDeviceCounterWitness(ctx, sc, key)
+		capture, err = lookupDeviceCounterWitness(ctx, sc, key, false)
 		return err
 	})
 	return capture, err
 }
 
-func lookupDeviceCounterWitness(ctx context.Context, sc tenancy.Scope, key [32]byte) (DeviceCounterCapture, error) {
+func lookupDeviceCounterWitness(ctx context.Context, sc tenancy.Scope, key [32]byte, lock bool) (DeviceCounterCapture, error) {
 	result := DeviceCounterCapture{CounterCaptureReference: entity.CounterCaptureReference{Key: key}, Scope: entity.Scope{TenantID: sc.Tenant.String()}}
-	err := sc.Q.QueryRow(ctx, `SELECT c.captured_at,p.context_id::text,p.device_id::text,p.sender_serial,p.source_assigned_at,p.agent_assigned_at
+	sql := `SELECT c.captured_at,p.context_id::text,p.device_id::text,p.sender_serial,p.source_assigned_at,p.agent_assigned_at
         FROM device_counter_captures c JOIN device_counter_capture_sources p USING(tenant_id,capture_key)
         JOIN entity_source_contexts m ON (m.tenant_id,m.agent_id,m.source_kind,m.source_ref)=(p.tenant_id,p.agent_id,p.source_kind,p.source_ref)
           AND m.context_id=p.context_id AND m.anchor_entity_id=p.device_id AND m.assigned_at=p.source_assigned_at
@@ -198,7 +198,15 @@ func lookupDeviceCounterWitness(ctx context.Context, sc tenancy.Scope, key [32]b
           AND EXISTS(SELECT 1 FROM agent_identities live WHERE live.tenant_id=p.tenant_id AND live.agent_id=p.agent_id
               AND live.spiffe_id=origin.spiffe_id AND live.revoked_at IS NULL AND live.not_after>statement_timestamp())
           AND NOT EXISTS(SELECT 1 FROM agent_identities revoked WHERE revoked.tenant_id=p.tenant_id AND revoked.agent_id=p.agent_id
-              AND revoked.revoked_at IS NOT NULL AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')`, sc.Tenant.String(), key[:]).
+              AND revoked.revoked_at IS NOT NULL AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')`
+	if lock {
+		// Immutable receipt/payload tables deliberately grant no UPDATE;
+		// PostgreSQL row-lock SELECTs require that privilege. The caller's
+		// tenant audit lock fences direct erasure, while these mutable parent
+		// locks prevent source/device cascades and identity revocation.
+		sql += " FOR SHARE OF m,a,n,origin,epoch"
+	}
+	err := sc.Q.QueryRow(ctx, sql, sc.Tenant.String(), key[:]).
 		Scan(&result.CapturedAt, &result.Scope.ContextID, &result.DeviceID, &result.SenderSerial, &result.SourceAssignedAt, &result.AgentAssignedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DeviceCounterCapture{}, ErrCounterCaptureUnavailable

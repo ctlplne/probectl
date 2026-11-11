@@ -112,7 +112,7 @@ func TestFlowRoutingCaptureCHWireRetainsCompleteReferencesAndExpiry(t *testing.T
 	}
 	for _, table := range []string{sharedFlowsTable, "probectl_t_abc." + sharedFlowsTable} {
 		migrations := chMigrationsFor(table)
-		if last := migrations[len(migrations)-1]; last.Version != 7 || !strings.Contains(last.Statements[0], "ALTER TABLE "+table+" ADD COLUMN IF NOT EXISTS") {
+		if capture := migrations[6]; capture.Version != 7 || !strings.Contains(capture.Statements[0], "ALTER TABLE "+table+" ADD COLUMN IF NOT EXISTS") {
 			t.Fatal("routed tenant capture schema omitted pooled or siloed catch-up")
 		}
 	}

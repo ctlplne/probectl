@@ -2097,6 +2097,27 @@ checked separately, and revocation still closes the witness.
 Only actual data-erasure transitions advance the poll replay cutoff, through
 completion; an unrelated report-cache generation change preserves original
 poll timestamps. An in-progress erasure cannot clear its marker early.
+Exact counter history uses the existing flow-store backend and reader isolation.
+Failed partial ClickHouse inserts stay private until the complete original poll
+has been verified and committed; retries keep its original values and clocks.
+`PROBECTL_DEVICE_COUNTER_MEMORY_BYTES` (2 GiB),
+`PROBECTL_DEVICE_COUNTER_WORK_UNITS` (4 GiB) and
+`PROBECTL_DEVICE_COUNTER_TIMEOUT` (1 minute) admit a complete operation. Raise
+them together for the intended workload; no poll, query period or export is
+silently shortened. Lightweight memory storage separately admits retained bytes
+using `PROBECTL_DEVICE_COUNTER_TENANT_MEMORY_BYTES` (1 GiB per tenant) and
+`PROBECTL_DEVICE_COUNTER_TOTAL_MEMORY_BYTES` (4 GiB total, at least the tenant
+budget). It refuses new whole polls rather than evicting prior observations.
+All resources are positive and logged at startup. History publication requires
+the existing authenticated sender witness. Publication uses a separate PostgreSQL
+verifier pool (at most four connections, no prewarmed minimum), with the same
+credentials and TLS as the main pool, so source locks cannot starve a cold
+silo-router refresh of its main-pool connection. Counter history follows the
+existing tenant flow-retention policy, falling back to
+`PROBECTL_FLOW_RETENTION_DAYS`; zero explicitly keeps history forever. Tenant
+and subject erasure verify both counter points and poll commit markers.
+Portability bundles include `device_counters.jsonl`, using decimal strings for
+integer words and nanosecond clocks so JSON consumers cannot round them.
 The device-agent YAML keys `counter_memory_bytes` and `counter_work_units`
 bound whole-poll wire validation (each defaults to 2 GiB; zero uses the default).
 Raise these positive resources when the intended complete poll needs more;

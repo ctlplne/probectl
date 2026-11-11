@@ -377,6 +377,11 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	}
 	s.flowStore = flowStore
 	closers = append(closers, func() { _ = flowStore.Close() })
+	if memory, ok := flowStore.(*flowstore.Memory); ok {
+		if err := memory.WithCounterMemoryBudget(int64(cfg.DeviceCounterTenantMemoryBytes), int64(cfg.DeviceCounterTotalMemoryBytes)); err != nil {
+			return fail(fmt.Errorf("counter memory admission: %w", err))
+		}
+	}
 	// SCALE-016: flow is the platform's highest-volume table. Keep-forever is a
 	// legitimate choice (compliance) but must be a LOUD, explicit one — never
 	// the silent default that grows the store unbounded.
@@ -1340,6 +1345,9 @@ func startHAAndTenantLifecycle(
 		lifeEngine.WithTopology(td)
 	}
 	lifeEngine.WithDerivedIdentityRetentionDays(cfg.DerivedIdentityRetentionDays)
+	if history, ok := flowstore.CounterHistoryOf(flowStore); ok {
+		lifeEngine.WithCounterHistory(history, cfg.FlowRetentionDays)
+	}
 	lifeEngine.WithSessionRetention(store.NewSessions(db.Pool()), cfg.SessionTTL)
 	if od, ok := otelStore.(tenantlife.OtelDeleter); ok {
 		lifeEngine.WithOtel(od)

@@ -65,6 +65,54 @@ func TestDeviceCounterWitnessPreservesPollAcrossCacheOnlyInvalidation(t *testing
 	}
 }
 
+func TestDeviceCounterPublicationUsesCurrentWitnessWithoutExhaustingRouterPool(t *testing.T) {
+	fixtures := deviceCounterFixtures(t)
+	settings := fixtures[0].pool.Config()
+	settings.MaxConns, settings.MinConns = 1, 0
+	main, err := pgxpool.NewWithConfig(t.Context(), settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(main.Close)
+	verifier, err := pgxpool.NewWithConfig(t.Context(), settings.Copy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(verifier.Close)
+	guard := NewDeviceCounterCaptures(verifier)
+	for _, fixture := range fixtures {
+		ref, err := fixture.service.CaptureAuthenticated(fixture.ctx(t.Context()), fixture.sender, fixture.serial, fixture.digest, fixture.input, 1<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(fixture.ctx(t.Context()), 5*time.Second)
+		called := false
+		err = guard.PublishUnderWitness(ctx, fixture.sender, fixture.digest, fixture.input, 90, func(ctx context.Context, witness DeviceCounterCapture) error {
+			called = true
+			if witness.Key != ref.Key || witness.Scope.TenantID != fixture.tenant || witness.DeviceID != fixture.device || witness.SenderSerial != fixture.serial {
+				return errors.New("publication changed certified source provenance")
+			}
+			// Exercise the DB connection a cold/expired router refresh needs
+			// while the independent verifier transaction remains open.
+			var one int
+			return main.QueryRow(ctx, `SELECT 1`).Scan(&one)
+		})
+		cancel()
+		if err != nil || !called {
+			t.Fatal("current whole-poll publication exhausted the one-connection main/router pool", called, err)
+		}
+		inTenant(t.Context(), t, fixture.pool, fixture.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `UPDATE entity_source_contexts SET assigned_at=clock_timestamp() WHERE tenant_id=$1 AND agent_id=$2`, fixture.tenant, fixture.sender)
+			return err
+		})
+		called = false
+		err = guard.PublishUnderWitness(fixture.ctx(t.Context()), fixture.sender, fixture.digest, fixture.input, 90, func(context.Context, DeviceCounterCapture) error { called = true; return nil })
+		if !errors.Is(err, ErrCounterCaptureUnavailable) || called {
+			t.Fatal("a rebound source reached counter history publication", called, err)
+		}
+	}
+}
+
 func TestDeviceCounterErasureFenceKeepsLegacyWritersAndWholeTransition(t *testing.T) {
 	for _, legacy := range []bool{false, true} {
 		t.Run(fmt.Sprint("legacy=", legacy), func(t *testing.T) {
