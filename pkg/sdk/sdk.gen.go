@@ -2657,6 +2657,76 @@ type PathSnapshot struct {
 	Path       Path   `json:"path"`
 }
 
+type PeeringEstimateCoverage struct {
+	CompleteObservedInputs        bool `json:"complete_observed_inputs"`
+	CompleteRoutingClassification bool `json:"complete_routing_classification"`
+	ExpectedIntervals             int  `json:"expected_intervals"`
+	ObservedIntervals             int  `json:"observed_intervals"`
+}
+
+// Hypothetical peering selection only. Tenant, router, roles, source identity and completeness are resolved from current authenticated server state. IX/LAN IDs use exact decimal strings. Default range is the last hour; no fixed historical day cap.
+type PeeringEstimateInput struct {
+	BucketSeconds int    `json:"bucket_seconds,omitempty"`
+	ContextId     string `json:"context_id"`
+	Dataseries    string `json:"dataseries,omitempty"`
+	Direction     string `json:"direction"`
+	From          string `json:"from,omitempty"`
+	InterfaceId   string `json:"interface_id"`
+	IxId          string `json:"ix_id"`
+	IxLanId       string `json:"ix_lan_id"`
+	PeerAsn       int    `json:"peer_asn"`
+	To            string `json:"to,omitempty"`
+}
+
+// Preview estimate over observed query inputs only. All original routing match states and unmapped volumes are counted. Missing observed intervals have no p95; partial routing evidence is explicit beside known-eligible p95. Complete observed inputs do not assert lossless network telemetry, a live peer/session, forwarding policy or guaranteed savings.
+type PeeringEstimateResponse struct {
+	BucketSeconds    int                      `json:"bucket_seconds"`
+	Bytes            map[string]string        `json:"bytes"`
+	ContractVersion  string                   `json:"contract_version"`
+	Coverage         PeeringEstimateCoverage  `json:"coverage"`
+	Direction        string                   `json:"direction"`
+	From             string                   `json:"from"`
+	Interpretation   string                   `json:"interpretation"`
+	KnownEligibleP95 PeeringRateEstimate      `json:"known_eligible_p95,omitempty"`
+	Preview          bool                     `json:"preview"`
+	Reason           string                   `json:"reason"`
+	Source           string                   `json:"source,omitempty"`
+	Target           PeeringEstimateTarget    `json:"target"`
+	To               string                   `json:"to"`
+	Transit          []PeeringTransitEstimate `json:"transit"`
+}
+
+type PeeringEstimateTarget struct {
+	AsOf              string   `json:"as_of,omitempty"`
+	ContextId         string   `json:"context_id"`
+	Eligible          bool     `json:"eligible"`
+	InterfaceId       string   `json:"interface_id"`
+	IxId              string   `json:"ix_id"`
+	IxLanId           string   `json:"ix_lan_id"`
+	MembershipSources []string `json:"membership_sources"`
+	MembershipVersion string   `json:"membership_version,omitempty"`
+	PeerAsn           int      `json:"peer_asn"`
+	PrefixSources     []string `json:"prefix_sources"`
+	PrefixVersion     string   `json:"prefix_version,omitempty"`
+	Reason            string   `json:"reason"`
+	RouterId          string   `json:"router_id,omitempty"`
+	ValidUntil        string   `json:"valid_until,omitempty"`
+}
+
+type PeeringRateEstimate struct {
+	BitsPerSecondDenominator string `json:"bits_per_second_denominator"`
+	BitsPerSecondNumerator   string `json:"bits_per_second_numerator"`
+	Intervals                int    `json:"intervals"`
+	NonzeroIntervals         int    `json:"nonzero_intervals"`
+	Rank                     int    `json:"rank"`
+	SelectedIntervalBytes    string `json:"selected_interval_bytes"`
+}
+
+type PeeringTransitEstimate struct {
+	InterfaceId      string              `json:"interface_id"`
+	KnownEligibleP95 PeeringRateEstimate `json:"known_eligible_p95"`
+}
+
 // A safe, non-executing action within the self-hosted deployment.
 type ReadinessAction struct {
 	Href  string `json:"href"`
@@ -5803,6 +5873,21 @@ func (c *Client) ListFlowIngestQuality(ctx context.Context, req ListFlowIngestQu
 	}
 	var out FlowIngestQualityResponse
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Estimate hypothetical peering over owned observed transit traffic
+type EstimateFlowPeeringRequest struct {
+	Body *PeeringEstimateInput `json:"-"`
+}
+
+func (c *Client) EstimateFlowPeering(ctx context.Context, req EstimateFlowPeeringRequest) (*PeeringEstimateResponse, error) {
+	path := "/v1/flows/peering-estimate"
+	query := url.Values{}
+	var out PeeringEstimateResponse
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

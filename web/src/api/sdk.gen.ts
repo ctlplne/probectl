@@ -2528,6 +2528,74 @@ export interface PathSnapshot {
   path: Path
 }
 
+export interface PeeringEstimateCoverage {
+  complete_observed_inputs: boolean
+  complete_routing_classification: boolean
+  expected_intervals: number
+  observed_intervals: number
+}
+
+export interface PeeringEstimateInput {
+  bucket_seconds?: number
+  context_id: string
+  dataseries?: "auto" | "raw" | "rollup"
+  direction: "inbound" | "outbound"
+  from?: string
+  interface_id: string
+  ix_id: string
+  ix_lan_id: string
+  peer_asn: number
+  to?: string
+}
+
+export interface PeeringEstimateResponse {
+  bucket_seconds: number
+  bytes: { [key: string]: string }
+  contract_version: "probectl.peering-estimate.v1"
+  coverage: PeeringEstimateCoverage
+  direction: "inbound" | "outbound"
+  from: string
+  interpretation: string
+  known_eligible_p95?: PeeringRateEstimate
+  preview: boolean
+  reason: string
+  source?: string
+  target: PeeringEstimateTarget
+  to: string
+  transit: PeeringTransitEstimate[]
+}
+
+export interface PeeringEstimateTarget {
+  as_of?: string
+  context_id: string
+  eligible: boolean
+  interface_id: string
+  ix_id: string
+  ix_lan_id: string
+  membership_sources: string[]
+  membership_version?: string
+  peer_asn: number
+  prefix_sources: string[]
+  prefix_version?: string
+  reason: string
+  router_id?: string
+  valid_until?: string
+}
+
+export interface PeeringRateEstimate {
+  bits_per_second_denominator: string
+  bits_per_second_numerator: string
+  intervals: number
+  nonzero_intervals: number
+  rank: number
+  selected_interval_bytes: string
+}
+
+export interface PeeringTransitEstimate {
+  interface_id: string
+  known_eligible_p95: PeeringRateEstimate
+}
+
 export interface ReadinessAction {
   href: string
   kind: "navigate" | "download"
@@ -3853,6 +3921,12 @@ export interface ListFlowIngestQualityRequest {
 }
 
 export type ListFlowIngestQualityResponse = FlowIngestQualityResponse
+
+export interface EstimateFlowPeeringRequest {
+  body: PeeringEstimateInput
+}
+
+export type EstimateFlowPeeringResponse = PeeringEstimateResponse
 
 export interface FlowTopTalkersRequest {
   by?: "src" | "dst" | "pair" | "src_asn" | "dst_asn" | "as_name" | "src_country" | "dst_country" | "port" | "protocol" | "exporter"
@@ -5666,6 +5740,12 @@ export class ProbectlSDKClient {
     if (request.state !== undefined) query.set("state", String(request.state))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListFlowIngestQualityResponse>("GET", path, query, undefined)
+  }
+
+  async estimateFlowPeering(request: EstimateFlowPeeringRequest): Promise<EstimateFlowPeeringResponse> {
+    let path = "/v1/flows/peering-estimate"
+    const query = new URLSearchParams()
+    return this.requestJSON<EstimateFlowPeeringResponse>("POST", path, query, request.body)
   }
 
   async flowTopTalkers(request: FlowTopTalkersRequest = {}): Promise<FlowTopTalkersResponse> {
