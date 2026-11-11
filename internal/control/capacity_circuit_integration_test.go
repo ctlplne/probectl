@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -30,7 +30,7 @@ import (
 // not original counter availability, historical membership or served billing.
 func TestCapacityCircuitKeepsCompleteEffectiveMembersAndCurrentTenantAuthority(t *testing.T) {
 	f := newRoleExplanationAPIFixture(t)
-	tagID, otherContext, otherDevice, otherInterface := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	tagID, otherContext, otherDevice, otherInterface := gouuid.NewString(), gouuid.NewString(), gouuid.NewString(), gouuid.NewString()
 	value := strings.Repeat("跨域🚀", 4097)
 	actors := map[string]*auth.Principal{}
 	assignments := map[string]string{}
@@ -42,7 +42,7 @@ func TestCapacityCircuitKeepsCompleteEffectiveMembersAndCurrentTenantAuthority(t
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_definitions(tenant_id,id,key) VALUES($1,$2,'capacity_circuit')`, tenant, tagID); err != nil {
 				return err
 			}
-			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES($1,$2,$3,$4,'other site','other VRF')`, tenant, otherContext, uuid.NewString(), uuid.NewString()); err != nil {
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES($1,$2,$3,$4,'other site','other VRF')`, tenant, otherContext, gouuid.NewString(), gouuid.NewString()); err != nil {
 				return err
 			}
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entities(tenant_id,context_id,id,kind,label) VALUES($1,$2,$3,'device','other circuit device')`, tenant, otherContext, otherDevice); err != nil {
