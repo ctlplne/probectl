@@ -1914,9 +1914,23 @@ def routing_control_package(root):
     return matches.pop()
 
 
-def bgp_routing_write_controls():
+PEERING_UNIT_CONTROLS = (
+    "peering-native-unproven-selector", "peering-native-permissions", "peering-native-admission",
+    "peering-partial-duration", "peering-summary-combine", "peering-summary-coverage",
+    "peering-traffic-owner", "peering-traffic-states", "peering-query-state-digest",
+    "peering-query-key-clock", "peering-query-target-scope", "peering-path-unordered",
+    "peering-path-consensus", "peering-path-complete", "peering-role-router",
+    "peering-role-current", "peering-target-scope", "peering-target-lan", "peering-target-freshness",
+)
+
+
+def bgp_routing_write_controls(peering_unit=False):
     out = Path("artifacts/interface-prefix-transport").resolve()
-    for name, (file, seam, replacement, root, child, marker) in ROUTING_WRITE_CONTROLS.items():
+    names = PEERING_UNIT_CONTROLS if peering_unit else (
+        name for name in ROUTING_WRITE_CONTROLS if name not in PEERING_UNIT_CONTROLS
+    )
+    for name in names:
+        file, seam, replacement, root, child, marker = ROUTING_WRITE_CONTROLS[name]
         source = Path(file).resolve()
         original = source.read_text()
         assert original.count(seam) == (2 if name in ("routing-final-authority", "routing-birth-epoch") else 1)
@@ -1925,7 +1939,7 @@ def bgp_routing_write_controls():
         overlay = out / (name + ".json")
         overlay.write_text(json.dumps({"Replace": {str(source): str(mutant)}}))
         package = routing_control_package(root)
-        result = execute(package, (root,), name, integration=True,
+        result = execute(package, (root,), name, integration=not peering_unit,
                          overlay=overlay, child=child)
         if not report_regression_failed_on_assertion(
             result.stdout, result.returncode, package=PREFIX + package,
@@ -2762,6 +2776,9 @@ def main(integration, flow_integration=False):
         configuration_silo_lock_control()
         routing_shipped_witness_omission_control()
     if not integration:
+        # These exact controls need no database. Run the native privacy and
+        # authorization checks in the unit phase alongside their positives.
+        bgp_routing_write_controls(peering_unit=True)
         bmp_routing_transport_controls()
         peering_interval_combination_control()
         snmp_dual_stack_address_control()
