@@ -49,6 +49,7 @@ import { FlowViewLibrary } from './FlowViewLibrary'
 import { FlowFilterLibrary } from './FlowFilterLibrary'
 import { EntityCurrentPivot } from './EntityCurrentPivot'
 import { FlowRoleSources } from './FlowRoleSources'
+import { PeeringEstimateCard } from './PeeringEstimateCard'
 import { flowRoleResultReadable } from './flowRoleSourcePolicy'
 import { observedIPs } from './entityObservedIPs'
 import { Page } from './RoutePage'
@@ -674,6 +675,7 @@ function FlowWorkspace({ identity }: { identity: string }) {
             {busy && <p role="status">Flow request running…</p>}
           </CardBody>
         </Card>
+        <PeeringEstimateCard />
         <FlowFilterLibrary
           identity={identity}
           page={filters}

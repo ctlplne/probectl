@@ -770,6 +770,20 @@ ROUTING_WRITE_CONTROLS = {
         "TestPeeringSummaryKeepsMissingIntervalsUnprovenAndRefusesLateCorruption", "",
         "peering service manufactured observed zeros for a missing interval",
     ),
+    "peering-native-permissions": (
+        "internal/ai/mcp/peering.go",
+        'ExtraPermissions: []string{"ai.query", "entities.read", "metrics.read", "events.read"}',
+        'ExtraPermissions: []string{"ai.query", "entities.read", "metrics.read"}',
+        "TestPeeringNativeToolKeepsExactInputsTenantAndEverySourcePermission", "",
+        "native peering bypassed a source-plane grant",
+    ),
+    "peering-native-admission": (
+        "internal/ai/mcp/peering.go",
+        "Admit: admit",
+        "Admit: nil",
+        "TestPeeringNativeFinalEncodingRetainsFairnessAndExactCountersWithTextRedaction", "",
+        "peering admission released before final encoding",
+    ),
     "peering-traffic-states": (
         "internal/store/flowstore/peering_traffic.go",
         "state: query.Data.stateForRow(row)",

@@ -2,6 +2,21 @@
   display: grid;
   gap: var(--space-4);
 }
+.referenceText {
+  display: block;
+  width: 100%;
+  margin-block: var(--space-2) var(--space-4);
+  padding: var(--space-3);
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  font: inherit;
+}
+.referenceText:focus-visible {
+  outline: var(--focus-ring-width) solid hsl(var(--focus));
+  outline-offset: var(--focus-ring-offset);
+}
 .roleSources {
   min-width: 0;
   overflow-wrap: anywhere;
