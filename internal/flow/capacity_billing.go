@@ -73,13 +73,13 @@ func capacityBillingP95(ctx context.Context, window capacityBillingWindow, membe
 	}
 	type memberKey struct{ context, router, iface string }
 	seen := make(map[memberKey]struct{}, len(members))
-	in, out := make([]*big.Int, count), make([]*big.Int, count)
+	in, out := make([]*big.Rat, count), make([]*big.Rat, count)
 	missingIn, missingOut := make([]bool, count), make([]bool, count)
 	for i := range count {
 		if err := ctx.Err(); err != nil {
 			return none, err
 		}
-		in[i], out[i] = new(big.Int), new(big.Int)
+		in[i], out[i] = new(big.Rat), new(big.Rat)
 	}
 	for _, member := range members {
 		key := memberKey{member.context, member.router, member.iface}
@@ -149,8 +149,9 @@ func capacityBillingP95(ctx context.Context, window capacityBillingWindow, membe
 		}
 		from := window.from.Add(time.Duration(i) * 5 * time.Minute)
 		elapsed := min(5*time.Minute, window.to.Sub(from))
-		inRates[i] = new(big.Rat).SetFrac(new(big.Int).Mul(in[i], big.NewInt(8_000_000_000)), big.NewInt(int64(elapsed)))
-		outRates[i] = new(big.Rat).SetFrac(new(big.Int).Mul(out[i], big.NewInt(8_000_000_000)), big.NewInt(int64(elapsed)))
+		scale := new(big.Rat).SetFrac(big.NewInt(8_000_000_000), big.NewInt(int64(elapsed)))
+		inRates[i] = new(big.Rat).Mul(in[i], scale)
+		outRates[i] = new(big.Rat).Mul(out[i], scale)
 	}
 	values := inRates
 	switch window.mode {
@@ -219,6 +220,7 @@ func admitCapacityBilling(ctx context.Context, tenant string, window capacityBil
 				return 0, errCapacityCounterInput
 			}
 		}
+		memberWords := int64(1)
 		for _, sample := range member.samples {
 			if err := ctx.Err(); err != nil {
 				return 0, err
@@ -231,7 +233,7 @@ func admitCapacityBilling(ctx context.Context, tenant string, window capacityBil
 				// cost, not just string-copy cost. Charge a quadratic word bound
 				// before parsing rather than clipping exact counter magnitudes.
 				words := int64(1)
-				for _, value := range []string{rate.bytes, rate.numerator, rate.denominator, rate.reason} {
+				for _, value := range []string{rate.bytes, rate.bytesDenominator, rate.numerator, rate.denominator, rate.reason} {
 					if !debit(int64(len(value)), 32, 32) {
 						return 0, errCapacityCounterInput
 					}
@@ -240,26 +242,32 @@ func admitCapacityBilling(ctx context.Context, tenant string, window capacityBil
 				if words > work/64 || !debit(words, 1, words*64) {
 					return 0, errCapacityCounterInput
 				}
-				widestWords = max(widestWords, words)
+				memberWords = max(memberWords, words)
 			}
 		}
+		// Distinct fractional denominators can multiply during circuit sums;
+		// bound their complete combined width, not only the widest member.
+		if memberWords > memory/128 || memberWords > work/128 {
+			return 0, errCapacityCounterInput
+		}
+		widestWords += memberWords
 	}
 	// Member summation can add log2(member count) bits. Cover comparisons and
 	// cross-products of the resulting rational rates throughout both sorts.
 	widestWords += int64(bits.Len(uint(len(members))))/64 + 1
 	sortWork := int64(bits.Len64(uint64(count))) * 64
-	if widestWords > work/sortWork || widestWords > work/(sortWork*widestWords) || !debit(count, 1, sortWork*widestWords*widestWords) {
+	if widestWords > memory/128 || widestWords > work/sortWork || widestWords > work/(sortWork*widestWords) || !debit(count, widestWords*128, sortWork*widestWords*widestWords) {
 		return 0, errCapacityCounterInput
 	}
 	return int(count), nil
 }
 
-func capacityBillingBytes(ctx context.Context, rate capacityCounterRate, from, to time.Time) (*big.Int, bool, error) {
+func capacityBillingBytes(ctx context.Context, rate capacityCounterRate, from, to time.Time) (*big.Rat, bool, error) {
 	if !rate.from.Equal(from) || !rate.to.Equal(to) {
 		return nil, false, errCapacityCounterInput
 	}
 	if !rate.observed {
-		if rate.reason == "" || rate.bytes != "" || rate.numerator != "" || rate.denominator != "" || rate.wrapped {
+		if rate.reason == "" || rate.bytes != "" || rate.bytesDenominator != "" || rate.numerator != "" || rate.denominator != "" || rate.wrapped {
 			return nil, false, errCapacityCounterInput
 		}
 		return nil, false, nil
@@ -267,8 +275,12 @@ func capacityBillingBytes(ctx context.Context, rate capacityCounterRate, from, t
 	if rate.reason != "" {
 		return nil, false, errCapacityCounterInput
 	}
-	values := make([]*big.Int, 0, 3)
-	for _, text := range []string{rate.bytes, rate.numerator, rate.denominator} {
+	byteDenominator := rate.bytesDenominator
+	if byteDenominator == "" {
+		byteDenominator = "1"
+	}
+	values := make([]*big.Int, 0, 4)
+	for _, text := range []string{rate.bytes, rate.numerator, rate.denominator, byteDenominator} {
 		if text == "" || (len(text) > 1 && text[0] == '0') {
 			return nil, false, errCapacityCounterInput
 		}
@@ -286,13 +298,14 @@ func capacityBillingBytes(ctx context.Context, rate capacityCounterRate, from, t
 		}
 		values = append(values, value)
 	}
-	if values[2].Sign() == 0 {
+	if values[2].Sign() == 0 || values[3].Sign() == 0 {
 		return nil, false, errCapacityCounterInput
 	}
 	left := new(big.Int).Mul(values[1], big.NewInt(int64(to.Sub(from))))
+	left.Mul(left, values[3])
 	right := new(big.Int).Mul(new(big.Int).Mul(new(big.Int).Set(values[0]), big.NewInt(8_000_000_000)), values[2])
 	if left.Cmp(right) != 0 {
 		return nil, false, errCapacityCounterInput
 	}
-	return values[0], true, nil
+	return new(big.Rat).SetFrac(values[0], values[3]), true, nil
 }

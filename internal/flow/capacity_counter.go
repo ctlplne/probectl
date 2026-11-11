@@ -34,6 +34,7 @@ type capacityCounterPoint struct {
 type capacityCounterRate struct {
 	from, to                      time.Time
 	bytes, numerator, denominator string
+	bytesDenominator              string // Empty means whole observed octets; gridding may produce an exact fraction.
 	reason                        string
 	observed, wrapped             bool
 }
