@@ -1,8 +1,10 @@
 # Complete CI qualification
 
 The `ci` workflow runs all its standing checks on a main push or pull request.
-Development runs can be superseded; a cancelled, skipped or unexecuted required
-check remains unverified. A compile or image-build pass alone is insufficient.
+Running full CI is never canceled by a newer push. Main has one running run
+and one pending slot; a newer queued push replaces only that pending slot.
+Canceled, skipped or unexecuted required checks remain unverified. A compile or
+image-build pass alone is insufficient.
 
 For a feature checkpoint or final qualification, dispatch the same complete
 workflow on the exact current main SHA:
@@ -28,19 +30,13 @@ the exact pushed main SHA together with their original item-specific evidence.
 Security and CodeQL continue on every push and remain independent of development
 coalescing. This workflow does not publish an image, release or tag.
 
-`ci-development` receives CI-start metadata and executes only the trusted
-default-branch checkout. Once the source run's existing `action-pins` validation
-succeeds, it can request normal cancellation of older first-attempt `ci.yml`
-main pushes whose SHA is a verified ancestor. It excludes manual qualification,
-reruns, tags, schedules, releases, foreign repositories and other workflows.
-An active protected run's SHA is also excluded. Security-scan and CodeQL retain
-their independent runs on every push.
-
-The `ci-development-<run-id>-<attempt>` artifact retains cancellation receipts,
-pre-cancellation job conclusions, artifact identities and run links for 90 days.
-Cancellation does not delete GitHub's existing logs or artifacts and does not
-create evidence for steps that never ran. Required incomplete checks remain owed
-to the complete pinned qualification.
+Main uses GitHub's native single pending slot with `cancel-in-progress: false`.
+The previous cancellation controller is removed. The stable main concurrency
+identifier preserves the existing lane through migration; it does not select
+the checkout SHA. Keep pushing while a full run finishes: the newest pending
+push then runs all checks. Manual qualification, schedules and tags retain
+unique run groups; security, CodeQL and release workflows are unchanged.
+See [GitHub's concurrency semantics](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency).
 
 The existing typecheck, production bundle, bundle budget and real control-plane
 UI-embed compile run early in `web-build`. Image matrices and release-image E2E

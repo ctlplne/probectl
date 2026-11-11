@@ -37,6 +37,20 @@ def qualification(event, ref, head, requested, checkout):
 
 
 class QualificationTests(unittest.TestCase):
+    def test_main_queue_never_cancels_running_ci_and_keeps_protected_lanes_separate(self):
+        workflow = Path(".github/workflows/ci.yml").read_text()
+        concurrency = workflow.split("\nconcurrency:\n", 1)[1].split("\nenv:\n", 1)[0]
+        self.assertRegex(concurrency, r"(?m)^  cancel-in-progress: false$")
+        self.assertRegex(concurrency, r"(?m)^  queue: single$")
+        # Keep the existing lane identifier through the transition: a new
+        # group would run concurrently with the old queued/running main run.
+        self.assertIn("'619e37b0b601671b90840237c34c9d8ecb88087d'", concurrency)
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/main'", concurrency)
+        self.assertIn("github.event_name == 'pull_request' && github.ref", concurrency)
+        self.assertIn("format('protected-{0}', github.run_id)", concurrency)
+        self.assertFalse(Path(".github/workflows/ci-development.yml").exists())
+        self.assertFalse(Path("scripts/ci_development.py").exists())
+
     def test_full_run_keeps_exact_main_and_source_identity(self):
         head = "a" * 40
         proof = qualification("workflow_dispatch", "refs/heads/main", head, head, head)

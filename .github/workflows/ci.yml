@@ -14,13 +14,15 @@ on:
 permissions:
   contents: read
 
-# PR updates retain their normal concurrency group. Main development remains
-# keyed by SHA here: explicit, evidenced coalescing must preserve full manual
-# qualification. Every manual/scheduled/tag run has its own group, including
-# while pending; GitHub must not replace a protected pending run either.
+# Main has one running full run and one replaceable pending run. Preserve the
+# established main lane key so its existing run drains before the next starts;
+# this constant is a concurrency identifier, not a checkout/qualification pin.
+# Never cancel running CI. Every manual/scheduled/tag run retains its own group,
+# including while pending; protected runs cannot replace one another either.
 concurrency:
-  group: ci-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || github.event_name == 'pull_request' && github.ref || format('protected-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && '619e37b0b601671b90840237c34c9d8ecb88087d' || github.event_name == 'pull_request' && github.ref || format('protected-{0}', github.run_id) }}
+  cancel-in-progress: false
+  queue: single
 
 env:
   # Exact patch pin, in lockstep with go.work + go.mod (`go 1.26.11` /
@@ -45,7 +47,6 @@ jobs:
           QUALIFICATION_SHA: ${{ inputs.qualification_sha }}
         run: |
           python3 scripts/ci_qualification.py --selftest
-          python3 scripts/ci_development.py --selftest
           python3 scripts/ci_image.py --selftest
           python3 scripts/ci_qualification.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
