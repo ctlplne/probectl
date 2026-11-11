@@ -10,9 +10,12 @@ package flowstore
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -20,13 +23,21 @@ import (
 )
 
 func TestCounterHistoryClickHouseRealWholePollsAndReaderLifecycle(t *testing.T) {
-	store := explorerIntegrationStore(t)
+	store := explorerIntegrationStore(t, func(client *http.Client) {
+		next := client.Transport
+		if next == nil {
+			next = http.DefaultTransport
+		}
+		client.Transport = counterHistoryFixtureDiagnostics{next: next, test: t}
+	})
 	t.Cleanup(func() { _ = store.Close() })
 	tenants := []string{uuid.NewString(), uuid.NewString()}
 	for _, tenant := range tenants {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		t.Cleanup(func() {
-			if _, err := store.DeleteCounterTenant(ctx, tenant); err != nil {
+			cleanup, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if _, err := store.DeleteCounterTenant(tenancy.WithTenant(cleanup, tenancy.ID(tenant)), tenant); err != nil {
 				t.Error(err)
 			}
 		})
@@ -88,4 +99,29 @@ func TestCounterHistoryClickHouseRealWholePollsAndReaderLifecycle(t *testing.T) 
 		}
 	}
 	t.Log("real-integration: modeled complete original counter polls through actual ClickHouse, exact uint64/nanoseconds, interrupted-prefix invisibility, retries, independent reader row policies and tenant/subject/retention verification; physical sender is separate")
+}
+
+type counterHistoryFixtureDiagnostics struct {
+	next http.RoundTripper
+	test *testing.T
+}
+
+func (d counterHistoryFixtureDiagnostics) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := d.next.RoundTrip(request)
+	if err != nil {
+		d.test.Logf("counter fixture transport error: %v", err)
+	}
+	if err == nil && response.StatusCode >= http.StatusBadRequest {
+		// Controlled fixture data only. Retain the stream for the original
+		// reader; production errors continue to withhold backend diagnostics.
+		prefix, readErr := io.ReadAll(io.LimitReader(response.Body, 16<<10))
+		response.Body = &counterHistoryFixtureBody{Reader: io.MultiReader(bytes.NewReader(prefix), response.Body), Closer: response.Body}
+		d.test.Logf("counter fixture HTTP status=%d body=%s read_error=%v", response.StatusCode, prefix, readErr)
+	}
+	return response, err
+}
+
+type counterHistoryFixtureBody struct {
+	io.Reader
+	io.Closer
 }

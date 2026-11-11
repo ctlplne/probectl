@@ -75,7 +75,7 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 			if _, err := scope.Q.Exec(ctx, `INSERT INTO entities(tenant_id,context_id,id,kind,label) VALUES($1,$2,$3,'device','same router')`, tenant.ID, area, router); err != nil {
 				return err
 			}
-			_, err := scope.Q.Exec(ctx, `INSERT INTO entities(tenant_id,context_id,id,kind,label,parent_entity_id,interface_index) VALUES($1,$2,$3,'interface','same port',$4,7)`, tenant.ID, area, iface, router)
+			_, err := scope.Q.Exec(ctx, `INSERT INTO entities(tenant_id,context_id,id,kind,label,parent_entity_id,source_agent_id,configured_ref,interface_index) VALUES($1,$2,$3,'interface','same port',$4,'capacity-snmp','192.0.2.1',7)`, tenant.ID, area, iface, router)
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -112,7 +112,7 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 		for {
 			page, err := service.ListCapacityAgreements(bound, "operator", flow.CapacityAgreementList{After: after, Limit: 1})
 			if err != nil || len(page.Items) != 1 || page.AsOf.IsZero() {
-				t.Fatal("agreement catalogue lost a complete page", page, err)
+				t.Fatal("agreement catalog lost a complete page", page, err)
 			}
 			item := page.Items[0]
 			if seen[item.ID] || item.TenantID != tenant || item.Definition.UnitPrice != heads[i].Definition.UnitPrice || len(seen) >= 2 {
@@ -121,7 +121,7 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 			seen[item.ID] = true
 			if !page.HasMore {
 				if page.Next != "" || len(seen) != 2 {
-					t.Fatal("agreement catalogue ended before its full population", page)
+					t.Fatal("agreement catalog ended before its full population", page)
 				}
 				break
 			}
@@ -155,7 +155,7 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 	red := tenancy.WithTenant(ctx, tenancy.ID(tenants[0]))
 	foreignInterface := newID()
 	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenants[1])), pool, func(ctx context.Context, scope tenancy.Scope) error {
-		_, err := scope.Q.Exec(ctx, `INSERT INTO entities(tenant_id,context_id,id,kind,label,parent_entity_id,interface_index) VALUES($1,$2,$3,'interface','foreign-only port',$4,8)`, tenants[1], area, foreignInterface, router)
+		_, err := scope.Q.Exec(ctx, `INSERT INTO entities(tenant_id,context_id,id,kind,label,parent_entity_id,source_agent_id,configured_ref,interface_index) VALUES($1,$2,$3,'interface','foreign-only port',$4,'capacity-snmp','192.0.2.1',8)`, tenants[1], area, foreignInterface, router)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -216,7 +216,7 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 	}
 	firstPage, err := service.ListCapacityAgreementRevisions(red, "operator", heads[0].ID, flow.CapacityAgreementList{Limit: 1})
 	if err != nil || len(firstPage.Items) != 1 || firstPage.Items[0].Version != "2" || !firstPage.HasMore || firstPage.Next != "2" {
-		t.Fatal("revision catalogue lost recording order or its continuation", firstPage, err)
+		t.Fatal("revision catalog lost recording order or its continuation", firstPage, err)
 	}
 	lastPage, err := service.ListCapacityAgreementRevisions(red, "operator", heads[0].ID, flow.CapacityAgreementList{After: firstPage.Next, Limit: 1})
 	if err != nil || len(lastPage.Items) != 1 || lastPage.Items[0].Version != "1" || lastPage.Items[0].CurrentVersion != "2" || lastPage.HasMore || lastPage.Next != "" {

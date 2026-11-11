@@ -15,7 +15,7 @@ import (
 
 // ListCapacityAgreements returns complete current definitions from one tenant
 // snapshot. The UUID seek cursor confers no authority and is reapplied only
-// inside that tenant's FORCE-RLS lane. Pagination has no total-catalogue cap.
+// inside that tenant's FORCE-RLS lane. Pagination has no total-catalog cap.
 func (s *PostgresCapacityAgreements) ListCapacityAgreements(ctx context.Context, actor string, input CapacityAgreementList) (CapacityAgreementPage, error) {
 	return s.list(ctx, actor, "", input)
 }
