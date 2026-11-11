@@ -489,7 +489,7 @@
     }
   ],
   "limits": {
-    "execution_seconds": 5,
+    "execution_seconds": 60,
     "grammar_bytes": 2097152,
     "interface_items": 10000,
     "intermediate_groups": 500000,

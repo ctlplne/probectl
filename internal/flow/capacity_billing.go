@@ -99,16 +99,19 @@ func capacityBillingP95(ctx context.Context, window capacityBillingWindow, membe
 				if err != nil {
 					return none, err
 				}
-				if direction == 0 {
+				switch direction {
+				case 0:
 					if observed {
 						in[i].Add(in[i], value)
 					} else {
 						missingIn[i] = true
 					}
-				} else if observed {
-					out[i].Add(out[i], value)
-				} else {
-					missingOut[i] = true
+				case 1:
+					if observed {
+						out[i].Add(out[i], value)
+					} else {
+						missingOut[i] = true
+					}
 				}
 			}
 		}
@@ -119,9 +122,10 @@ func capacityBillingP95(ctx context.Context, window capacityBillingWindow, membe
 			return none, err
 		}
 		missing := missingIn[i] || missingOut[i]
-		if window.mode == capacityBillingIn {
+		switch window.mode {
+		case capacityBillingIn:
 			missing = missingIn[i]
-		} else if window.mode == capacityBillingOut {
+		case capacityBillingOut:
 			missing = missingOut[i]
 		}
 		if missing {

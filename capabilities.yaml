@@ -121,7 +121,7 @@ capabilities:
     docs: {refs: ["file:docs/bgp.md#BGP & routing monitoring"]}
     config_keys: {refs: ["config:PROBECTL_BGP_ANALYZER_CONFIG", "config:PROBECTL_BMP_LISTEN_ADDR"]}
     telemetry: {refs: ["file:internal/bgp"]}
-    real_stack_proof: {refs: ["test:internal/bgp/realstack_integration_test.go#TestBGPMonitoringRealStack", "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors"]}
+    real_stack_proof: {refs: ["test:internal/bgp/realstack_integration_test.go#TestBGPMonitoringRealStack", "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors", "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBJoinsShippedProtocolGoldenFields", "test:internal/bgp/peering_estimate_realstack_integration_test.go#TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95"]}
     migration: {refs: ["file:migrations/0136_entity_registry.sql"]}
 
   - id: F7
@@ -309,7 +309,7 @@ capabilities:
     docs: {refs: ["file:docs/flow.md#Flow analytics", "file:docs/explorer.md#Stateless flow questions"]}
     config_keys: {refs: ["config:PROBECTL_FLOW_CONFIG", "config:PROBECTL_FLOW_NETFLOW_LISTEN", "config:PROBECTL_FLOW_QUERY_TIMEOUT", "config:PROBECTL_FLOW_QUERY_LIBRARY_BYTES", "config:PROBECTL_FLOW_QUERY_MAX_READ_BYTES", "config:PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES", "config:PROBECTL_FLOW_ENRICH_IX_MEMBERSHIP_FILE", "config:PROBECTL_FLOW_ENRICH_IX_MEMBERSHIP_MAX_AGE"]}
     telemetry: {refs: ["file:internal/flow", "file:internal/control/explorer_flow_metrics.go"]}
-    real_stack_proof: {refs: ["test:internal/control/tenant_isolation_multistore_integration_test.go#TestTwoTenantMultiStoreIsolationSurvivesSubstitution", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack"]}
+    real_stack_proof: {refs: ["test:internal/control/tenant_isolation_multistore_integration_test.go#TestTwoTenantMultiStoreIsolationSurvivesSubstitution", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack", "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBJoinsShippedProtocolGoldenFields", "test:internal/bgp/peering_estimate_realstack_integration_test.go#TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95"]}
     migration: {refs: ["file:migrations/0132_flow_query_filters.sql", "file:migrations/0133_flow_snapshots.sql", "file:migrations/0134_flow_query_views.sql", "file:migrations/0171_flow_snapshot_row_capacity.sql", "file:migrations/0173_flow_snapshot_manifest_capacity.sql", "file:migrations/0136_entity_registry.sql"]}
 
   # F18's real-stack receipt runs each tenant's shipped probectl-device-agent
@@ -335,7 +335,7 @@ capabilities:
     docs: {refs: ["file:docs/features/interface-roles.md#Interface role configuration", "file:docs/device-telemetry.md#Device / streaming telemetry", "file:docs/nms-import.md#Incumbent NMS import"]}
     config_keys: {refs: ["config:PROBECTL_DEVICE_CONFIG", "config:PROBECTL_DEVICE_TARGET", "config:PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE", "config:PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE"]}
     telemetry: {refs: ["file:internal/device"]}
-    real_stack_proof: {refs: ["test:internal/bgp/interface_role_realstack_integration_test.go#TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride", "test:internal/control/interface_role_explanation_integration_test.go#TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority", "test:internal/device/realstack_integration_test.go#TestDeviceTelemetryRealStack", "test:internal/store/nmsimport_vendor_integration_test.go#TestNMSVendorLiveImportTwoTenants", "test:internal/control/nmsimport_export_integration_test.go#TestNMSImportExportPreviewRoutesKeepVendorPagesInOneTenant"]}
+    real_stack_proof: {refs: ["test:internal/bgp/interface_role_realstack_integration_test.go#TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride", "test:internal/control/interface_role_explanation_integration_test.go#TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority", "test:internal/device/realstack_integration_test.go#TestDeviceTelemetryRealStack", "test:internal/store/nmsimport_vendor_integration_test.go#TestNMSVendorLiveImportTwoTenants", "test:internal/control/nmsimport_export_integration_test.go#TestNMSImportExportPreviewRoutesKeepVendorPagesInOneTenant", "test:internal/bgp/peering_estimate_realstack_integration_test.go#TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95"]}
     migration: {refs: ["file:migrations/0066_device_neighbor_evidence.sql", "file:migrations/0067_device_collection_outcomes.sql", "file:migrations/0126_device_traps.sql", "file:migrations/0136_entity_registry.sql", "file:migrations/0141_nms_import_plans.sql"]}
 
   - id: F19

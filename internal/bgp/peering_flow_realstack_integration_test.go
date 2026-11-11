@@ -209,12 +209,12 @@ func routingProtocolGoldens(t *testing.T, exporter string) []routingProtocolGold
 	}
 	data := func(n uint16, ipv6 bool) []byte {
 		id := uint16(256)
-		addresses := routingGoldenWire(t, source, destination)
+		body := routingGoldenWire(t, source, destination)
 		if ipv6 {
 			id++
-			addresses = routingGoldenWire(t, source6, destination6)
+			body = routingGoldenWire(t, source6, destination6)
 		}
-		body := append(addresses, routingGoldenWire(t, uint16(41000)+n, uint16(443), uint8(6), uint32(n)*1000, uint32(n)*10)...)
+		body = append(body, routingGoldenWire(t, uint16(41000)+n, uint16(443), uint8(6), uint32(n)*1000, uint32(n)*10)...)
 		return append(routingGoldenWire(t, id, routingGoldenHalf(t, 4+len(body))), body...)
 	}
 	netflow := func(n uint16, sequence uint32, ipv6 bool) []byte {

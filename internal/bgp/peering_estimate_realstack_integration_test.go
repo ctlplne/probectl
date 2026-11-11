@@ -258,7 +258,8 @@ func peeringRouterIPFIX(t *testing.T, start time.Time, interval int, multiplier 
 		}
 		records = append(records, routingGoldenWire(t, [4]byte{203, 0, 113, 1}, [4]byte{203, 0, 113, 2}, routingGoldenHalf(t, 42000+2*interval+link), uint16(443), uint8(6), volume, uint64(10), index, index, uint64(start.UnixMilli()), uint64(start.Add(time.Second).UnixMilli()))...)
 	}
-	body := append(template, routingGoldenWire(t, uint16(258), routingGoldenHalf(t, 4+len(records)))...)
+	body := template
+	body = append(body, routingGoldenWire(t, uint16(258), routingGoldenHalf(t, 4+len(records)))...)
 	body = append(body, records...)
 	return append(routingGoldenWire(t, uint16(10), routingGoldenHalf(t, 16+len(body)), routingGoldenWord(t, time.Now().Unix()), routingGoldenWord(t, int64(2*interval)), uint32(4294967295)), body...)
 }
