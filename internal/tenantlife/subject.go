@@ -1377,16 +1377,15 @@ func subjectTableSortKey(table string) string {
 // Aliases are internal SQL identifiers, never request input. Schedule identity
 // is meaningful only with the parent tenant, even though FORCE RLS applies too.
 func subjectReportOwnerPredicate(alias string) string {
-	return `(lower(COALESCE(` + alias + `.generated_by,''))=ANY($2::text[])
+	return `(` + subjectExactPredicate(alias+`.generated_by`) + `
  OR EXISTS (SELECT 1 FROM dashboard_report_schedules report_schedule
  WHERE report_schedule.tenant_id=` + alias + `.tenant_id AND report_schedule.id=` + alias + `.schedule_id
- AND lower(COALESCE(report_schedule.owner_id,''))=ANY($2::text[])))`
+	AND ` + subjectExactPredicate(`report_schedule.owner_id`) + `))`
 }
 
 func subjectTableMatchPredicate(policy subjectTablePolicy) string {
-	// Reference both arrays for every policy so the prepared statement has a
-	// stable three-argument shape even when this table uses only one match mode.
-	// Typed agent address members add a fourth inet-array argument.
+	// Stable tenant + ordinary exact + text + typed-network exact arguments.
+	// Explicit agent address members add a fifth inet-array argument.
 	var parts []string
 	if policy.disposition == subjectTableReportChunks {
 		return `(($3::text[] IS NULL AND FALSE) OR EXISTS (
@@ -1398,14 +1397,13 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 		return `(($3::text[] IS NULL AND FALSE) OR ` + subjectReportOwnerPredicate("subject_row") + `)`
 	}
 	if len(policy.exact) == 0 {
-		parts = append(parts, `($2::text[] IS NULL AND FALSE)`)
+		parts = append(parts, `($2::text[] IS NULL AND FALSE)`, `($4::text[] IS NULL AND FALSE)`)
 	}
 	if len(policy.contains) == 0 {
 		parts = append(parts, `($3::text[] IS NULL AND FALSE)`)
 	}
 	for _, column := range policy.exact {
-		parts = append(parts,
-			`lower(COALESCE(subject_row.`+pgIdent(column)+`::text, '')) = ANY($2::text[])`)
+		parts = append(parts, subjectExactPredicate(`subject_row.`+pgIdent(column)))
 	}
 	for _, column := range policy.contains {
 		parts = append(parts, `EXISTS (
@@ -1417,16 +1415,17 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 	if policy.agentAddressMembers {
 		parts = append(parts, `EXISTS (
  SELECT 1 FROM unnest(subject_row.agent_addresses) AS subject_address(value)
- WHERE subject_address.value = ANY($4::inet[]))`, `EXISTS (
+ WHERE subject_address.value = ANY($5::inet[]))`, `EXISTS (
  SELECT 1 FROM jsonb_array_elements(COALESCE(subject_row.snmp_interface_prefixes,'[]'::jsonb)) AS subject_prefix(value)
  WHERE lower(subject_prefix.value->>'prefix') = ANY($2::text[])
-    OR (subject_prefix.value->>'prefix')::inet = ANY($4::inet[]))`)
+    OR (subject_prefix.value->>'prefix')::inet = ANY($5::inet[]))`)
 	}
 	return "(" + strings.Join(parts, " OR ") + ")"
 }
 
 func subjectTableMatchArgs(tenant string, aliases subjectAliasSet, policy subjectTablePolicy) []any {
-	args := []any{tenant, aliases.normalizedValues(), aliases.safeContainsPatterns()}
+	plain, network := aliases.exactSubjectValues()
+	args := []any{tenant, plain, aliases.safeContainsPatterns(), network}
 	if policy.agentAddressMembers {
 		args = append(args, aliases.addresses)
 	}
@@ -1545,6 +1544,11 @@ func newSubjectAliasSet(subject string) subjectAliasSet {
 func (a *subjectAliasSet) add(value string) {
 	value = strings.TrimSpace(value)
 	normalized := strings.ToLower(value)
+	if address, err := netip.ParseAddr(value); err == nil {
+		// An IPv6 zone is part of the source identity and is case-sensitive.
+		// Different valid spellings of the same address still share one alias.
+		normalized = address.Unmap().String()
+	}
 	if normalized == "" {
 		return
 	}
@@ -1567,8 +1571,12 @@ func (a subjectAliasSet) values() []string {
 }
 
 func (a subjectAliasSet) normalizedValues() []string {
-	out := make([]string, 0, len(a.valuesByNormalized))
-	for value := range a.valuesByNormalized {
+	unique := map[string]bool{}
+	for _, value := range a.valuesByNormalized {
+		unique[strings.ToLower(value)] = true
+	}
+	out := make([]string, 0, len(unique))
+	for value := range unique {
 		out = append(out, value)
 	}
 	sort.Strings(out)

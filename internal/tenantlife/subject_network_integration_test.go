@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +89,16 @@ func TestNetworkSubjectPostgresKeepsNeighboursAndTenantIsolation(t *testing.T) {
 				var got bool
 				if err := pool.QueryRow(ctx, `SELECT $1::text ~ $2::text`, value, pattern).Scan(&got); err != nil || got != group.match {
 					t.Fatal("PostgreSQL network matcher", tc.subject, value, got, group.match, err)
+				}
+				// Exact identity fields must also preserve zones and equivalent
+				// address forms. Case-folding a zone can delete another source.
+				policy := subjectTablePolicy{exact: []string{"source_ref"}}
+				args := subjectTableMatchArgs(tenants[0], newSubjectAliasSet(tc.subject), policy)
+				query := fmt.Sprintf(`SELECT subject_row.tenant_id=$1 AND %s FROM (SELECT $1::text tenant_id,$%d::text source_ref) subject_row`, subjectTableMatchPredicate(policy), len(args)+1)
+				address, parseErr := netip.ParseAddr(value)
+				expected := parseErr == nil && address.Unmap() == netip.MustParseAddr(tc.subject).Unmap()
+				if err := pool.QueryRow(ctx, query, append(args, value)...).Scan(&got); err != nil || got != expected {
+					t.Fatal("exact network identity conflated zones or lost an address", tc.subject, value, got, expected, err)
 				}
 			}
 		}

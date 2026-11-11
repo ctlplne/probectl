@@ -58,8 +58,18 @@ func TestNetworkSubjectCannotUseUnboundedSubstringDeletion(t *testing.T) {
 		policy := subjectPostgresTablePolicies["device_counter_capture_sources"]
 		predicate := subjectTableMatchPredicate(policy)
 		args := subjectTableMatchArgs("11111111-1111-4111-8111-111111111111", aliases, policy)
-		if !strings.Contains(predicate, "~ subject_pattern.value") || strings.Contains(predicate, "ILIKE") || len(args) != 3 {
+		if !strings.Contains(predicate, "~ subject_pattern.value") || strings.Contains(predicate, "ILIKE") || len(args) != 4 {
 			t.Fatal("source deletion has no bound complete network-identity matcher")
 		}
+	}
+}
+
+func TestNetworkSubjectAliasesPreserveDistinctZones(t *testing.T) {
+	aliases := newSubjectAliasSet("fe80::1%en1")
+	aliases.add("FE80:0::1%EN1")
+	aliases.add("fe80:0:0:0:0:0:0:1%en1")
+	plain, network := aliases.exactSubjectValues()
+	if len(aliases.values()) != 2 || len(plain) != 0 || len(network) != 2 {
+		t.Fatal("address aliases collapsed distinct case-sensitive zones or duplicated an equivalent address")
 	}
 }
