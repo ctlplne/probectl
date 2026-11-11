@@ -215,6 +215,66 @@ func (f counterCaptureFixture) ctx(ctx context.Context) context.Context {
 	return tenancy.WithTenant(ctx, tenancy.ID(f.tenant))
 }
 
+func TestDeviceCounterScopedReaderKeepsRotationAndTenantBoundary(t *testing.T) {
+	fixtures := deviceCounterFixtures(t)
+	var original [2]entity.CounterCaptureReference
+	for i, f := range fixtures {
+		var err error
+		original[i], err = f.service.CaptureAuthenticated(f.ctx(t.Context()), f.sender, f.serial, f.digest, f.input, 1<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inTenant(t.Context(), t, f.pool, f.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			got, err := f.service.LookupWitnessInScope(ctx, sc, f.sender, f.digest, f.input)
+			if err != nil || got.CounterCaptureReference != original[i] || got.Scope.TenantID != f.tenant {
+				return fmt.Errorf("existing tenant snapshot lost its original witness: %w", err)
+			}
+			foreign := tenancy.WithTenant(ctx, tenancy.ID(fixtures[1-i].tenant))
+			if _, err := f.service.LookupWitnessInScope(foreign, sc, f.sender, f.digest, f.input); !errors.Is(err, entity.ErrScopeMismatch) {
+				return fmt.Errorf("contradictory context crossed the witness SQL scope: %w", err)
+			}
+			return nil
+		})
+	}
+	red, blue := fixtures[0], fixtures[1]
+	// Model elapsed certificate lifetime after the immutable first capture,
+	// without changing the host clock or inventing a new capture timestamp.
+	if _, err := red.pool.Exec(t.Context(), `UPDATE agent_identities SET not_after=clock_timestamp() WHERE tenant_id=$1 AND agent_id=$2 AND serial=$3`, red.tenant, red.sender, red.serial); err != nil {
+		t.Fatal("update own issued-identity lifetime fixture", err)
+	}
+	if _, err := red.service.LookupWitness(red.ctx(t.Context()), red.sender, red.digest, red.input); !errors.Is(err, ErrCounterCaptureUnavailable) {
+		t.Fatal("history without a current issued source identity remained readable", err)
+	}
+	renewed, err := crypto.UUIDv4()
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed = strings.ReplaceAll(renewed, "-", "")
+	if err := NewAgentIdentities(red.pool).Record(t.Context(), red.tenant, red.sender, crypto.EntitySPIFFEID(red.tenant, red.sender), renewed, time.Now().Add(time.Hour), red.serial); err != nil {
+		t.Fatal(err)
+	}
+	inTenant(t.Context(), t, red.pool, red.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		got, err := red.service.LookupWitnessInScope(ctx, sc, red.sender, red.digest, red.input)
+		if err != nil || got.CounterCaptureReference != original[0] || got.SenderSerial != red.serial {
+			return fmt.Errorf("normal source rotation replaced or hid original history: %w", err)
+		}
+		return nil
+	})
+	if _, _, err := NewAgentIdentities(red.pool).RevokeAgent(t.Context(), red.tenant, red.sender, "fixture-revocation"); err != nil {
+		t.Fatal(err)
+	}
+	inTenant(t.Context(), t, red.pool, red.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		if _, err := red.service.LookupWitnessInScope(ctx, sc, red.sender, red.digest, red.input); !errors.Is(err, ErrCounterCaptureUnavailable) {
+			return fmt.Errorf("revoked source remained a historical reader witness: %w", err)
+		}
+		return nil
+	})
+	if sibling, err := blue.service.LookupWitness(blue.ctx(t.Context()), blue.sender, blue.digest, blue.input); err != nil || sibling.CounterCaptureReference != original[1] {
+		t.Fatal("source expiry or revocation changed sibling history", sibling, err)
+	}
+	t.Log("real-integration: TLS PostgreSQL app-role scope and retained first capture with modeled issued identities/expiry; source mTLS and served actor authorization remain separate")
+}
+
 func TestDeviceCounterWitnessUsesOriginalPollAndStableFirstCapture(t *testing.T) {
 	f := deviceCounterFixtures(t)[0]
 	ctx := f.ctx(t.Context())

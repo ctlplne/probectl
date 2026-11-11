@@ -180,6 +180,22 @@ func (s *DeviceCounterCaptures) LookupWitness(ctx context.Context, claimedSender
 	return capture, err
 }
 
+// LookupWitnessInScope joins the caller's existing application-role snapshot.
+// A service can authorize the current user and canonical context in that same
+// transaction before resolving original poll selectors. The witness remains
+// source provenance, not a reusable actor or telemetry read grant.
+func (s *DeviceCounterCaptures) LookupWitnessInScope(ctx context.Context, sc tenancy.Scope, claimedSender string, digest [32]byte, input entity.CounterCaptureInput) (DeviceCounterCapture, error) {
+	tenant, bound := tenancy.FromContext(ctx)
+	if !bound || sc.Q == nil || tenant != sc.Tenant {
+		return DeviceCounterCapture{}, entity.ErrScopeMismatch
+	}
+	key, err := s.key(ctx, claimedSender, digest, input)
+	if err != nil {
+		return DeviceCounterCapture{}, err
+	}
+	return lookupDeviceCounterWitness(ctx, sc, key, false)
+}
+
 func lookupDeviceCounterWitness(ctx context.Context, sc tenancy.Scope, key [32]byte, lock bool) (DeviceCounterCapture, error) {
 	result := DeviceCounterCapture{CounterCaptureReference: entity.CounterCaptureReference{Key: key}, Scope: entity.Scope{TenantID: sc.Tenant.String()}}
 	sql := `SELECT c.captured_at,p.context_id::text,p.device_id::text,p.sender_serial,p.source_assigned_at,p.agent_assigned_at
