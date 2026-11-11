@@ -40,7 +40,7 @@ type apiRoute struct {
 }
 
 func (s *Server) apiRoutes() []apiRoute {
-	return append([]apiRoute{
+	routes := []apiRoute{
 		{http.MethodGet, "/v1/tests", s.handleListTests, permTestRead},
 		{http.MethodPost, "/v1/tests", s.handleCreateTest, permTestWrite},
 		{http.MethodGet, "/v1/tests/{id}", s.handleGetTest, permTestRead},
@@ -143,17 +143,6 @@ func (s *Server) apiRoutes() []apiRoute {
 		// D-43/D-64: the tenant's L7 capture redaction floor — a core setting.
 		{http.MethodGet, "/v1/ebpf/l7-capture-policy", s.handleL7CapturePolicyGet, permGovernanceRead},
 		{http.MethodPut, "/v1/ebpf/l7-capture-policy", s.handleL7CapturePolicyPut, permGovernanceWrite},
-		{http.MethodGet, "/v1/flows/ingest-quality", s.handleFlowIngestQuality, permFlowRead},
-		{http.MethodGet, "/v1/flows/top", s.handleFlowTop, permFlowRead},
-		{http.MethodGet, "/v1/flows/capacity", s.handleFlowCapacity, permFlowRead},
-		{http.MethodGet, "/v1/flows/capacity/agreements", s.handleCapacityAgreementList, permFlowAgreementsRead},
-		{http.MethodPost, "/v1/flows/capacity/agreements", s.handleCapacityAgreementSave, permFlowAgreementsWrite},
-		{http.MethodGet, "/v1/flows/capacity/agreements/{id}", s.handleCapacityAgreementGet, permFlowAgreementsRead},
-		{http.MethodPut, "/v1/flows/capacity/agreements/{id}", s.handleCapacityAgreementSave, permFlowAgreementsWrite},
-		{http.MethodDelete, "/v1/flows/capacity/agreements/{id}", s.handleCapacityAgreementDelete, permFlowAgreementsWrite},
-		{http.MethodGet, "/v1/flows/capacity/agreements/{id}/revisions", s.handleCapacityAgreementList, permFlowAgreementsRead},
-		{http.MethodPost, "/v1/flows/peering-estimate", s.handlePeeringEstimate, permFlowRead},
-		{http.MethodGet, "/v1/flows/anomalies", s.handleFlowAnomalies, permFlowRead},
 		{http.MethodGet, "/v1/otlp/traces", s.handleOTLPTraces, permMetricsRead},
 		{http.MethodGet, "/v1/otlp/logs", s.handleOTLPLogs, permMetricsRead},
 		{http.MethodGet, "/v1/otlp-tokens", s.handleOTLPTokenList, permMetricsRead},
@@ -291,7 +280,26 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/dashboard-report-artifacts", s.handleListDashboardReportArtifacts, permMetricsRead},
 		{http.MethodGet, "/v1/dashboard-report-artifacts/{id}", s.handleDownloadDashboardReportArtifact, permMetricsRead},
 		{http.MethodGet, "/v1/me", s.handleMe, ""},
-	}, append(s.tagRoutes(), s.interfaceRoleRoutes()...)...)
+	}
+	routes = append(routes, s.flowRoutes()...)
+	routes = append(routes, s.tagRoutes()...)
+	return append(routes, s.interfaceRoleRoutes()...)
+}
+
+func (s *Server) flowRoutes() []apiRoute {
+	return []apiRoute{
+		{http.MethodGet, "/v1/flows/ingest-quality", s.handleFlowIngestQuality, permFlowRead},
+		{http.MethodGet, "/v1/flows/top", s.handleFlowTop, permFlowRead},
+		{http.MethodGet, "/v1/flows/capacity", s.handleFlowCapacity, permFlowRead},
+		{http.MethodGet, "/v1/flows/capacity/agreements", s.handleCapacityAgreementList, permFlowAgreementsRead},
+		{http.MethodPost, "/v1/flows/capacity/agreements", s.handleCapacityAgreementSave, permFlowAgreementsWrite},
+		{http.MethodGet, "/v1/flows/capacity/agreements/{id}", s.handleCapacityAgreementGet, permFlowAgreementsRead},
+		{http.MethodPut, "/v1/flows/capacity/agreements/{id}", s.handleCapacityAgreementSave, permFlowAgreementsWrite},
+		{http.MethodDelete, "/v1/flows/capacity/agreements/{id}", s.handleCapacityAgreementDelete, permFlowAgreementsWrite},
+		{http.MethodGet, "/v1/flows/capacity/agreements/{id}/revisions", s.handleCapacityAgreementList, permFlowAgreementsRead},
+		{http.MethodPost, "/v1/flows/peering-estimate", s.handlePeeringEstimate, permFlowRead},
+		{http.MethodGet, "/v1/flows/anomalies", s.handleFlowAnomalies, permFlowRead},
+	}
 }
 
 // inTenant runs fn inside the caller's tenant — resolved from the authenticated

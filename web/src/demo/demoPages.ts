@@ -714,6 +714,44 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
       ],
     ),
   },
+  '/capacity': {
+    path: '/capacity',
+    kicker: 'Operator financial terms',
+    title: 'Capacity agreements',
+    description:
+      'Illustrative operator-entered terms and immutable revisions. These samples are not measured bills or forecasts.',
+    metrics: [
+      metric('Agreements', '3', 'Sample interface and circuit terms', 'info'),
+      metric('Billing day', '1', 'UTC calendar in these examples', 'neutral'),
+      metric('Revision history', 'Complete', 'Prior terms remain visible', 'success'),
+      metric('Measurement', 'Not connected', 'No live counters in demo mode', 'warning'),
+    ],
+    primary: table(
+      'Sample capacity agreements',
+      'Exact operator terms; the prices are invented for this tour.',
+      ['Target', 'Direction', 'Commit (bps)', 'Rate per Mbps'],
+      [
+        row('agreement-transit', ['Transit A interface', 'Outbound', '1000000000', '0.25']),
+        row('agreement-backup', ['Backup interface', 'Inbound', '500000000', '0.30']),
+        row('agreement-circuit', ['Metro circuit', 'Interval sum', '2000000000', '0.20']),
+      ],
+    ),
+    secondary: table(
+      'Sample revision history',
+      'Terms are effective from the stated instant; the demo cannot save or delete them.',
+      ['Target', 'Revision', 'Effective from', 'State'],
+      [
+        row('revision-transit-2', ['Transit A interface', '2', '2026-11-01T00:00:00Z', 'Current']),
+        row('revision-transit-1', [
+          'Transit A interface',
+          '1',
+          '2026-10-01T00:00:00Z',
+          'Historical',
+        ]),
+        row('revision-circuit-1', ['Metro circuit', '1', '2026-11-01T00:00:00Z', 'Current']),
+      ],
+    ),
+  },
   '/dashboards': {
     path: '/dashboards',
     kicker: 'Operator overview',
