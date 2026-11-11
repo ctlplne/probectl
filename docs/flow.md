@@ -1302,6 +1302,14 @@ stay unknown. Counter wraps need a unique interpretation under a separately
 recorded physical upper bound for the entire requested window. No commit value
 or current advertised link speed silently supplies that historical assumption.
 
+Circuit membership uses the existing effective-tag precedence across all
+canonical interface contexts in the tenant. It includes contexts without flow
+exporters. Manual and reviewed imported values, names, addresses and current
+SNMP rules retain the same semantics as subject tag resolution. A required
+unreadable context or ambiguous current source facts refuses the complete
+calculation; neither is silently omitted. Membership is re-read before use of
+the result, so a changed tag revision or member set requires a fresh calculation.
+
 The internal source-to-percentile and bill comparison path preserves rational
 values, sums distinct circuit members before ranking, and withholds amounts for
 incomplete required coverage. This does not yet expose a complete measured
