@@ -34,6 +34,16 @@ type DataInventoryEntry struct {
 
 var dataInventory = []DataInventoryEntry{
 	{
+		ID: "capacity-agreements", Store: "Operator-recorded circuit/interface terms and immutable revisions", Plane: "flow",
+		Owner: "internal/flow, internal/tenantlife", Home: "PostgreSQL flow_capacity_agreements, flow_capacity_agreement_revisions and flow_capacity_agreement_refs",
+		Categories: []Category{CatFreeText, CatAttributeMap}, DataClasses: []Class{ClassPII, ClassConfidential},
+		Retention:      "Recorded configuration remains until explicit agreement, subject or tenant deletion; inventory retirement removes only the live reference",
+		RetentionOwner: "internal/tenantlife", Processors: []string{"FORCE-RLS and tenant-scoped inventory foreign keys", "immutable exact terms and effective nanoseconds", "atomic configuration audit without duplicating editor identities in terms", "govern redaction during portability export"},
+		ExportBehavior: "Tenant exports include header, recorded revisions and normalized references; subject exports use typed matches before governed JSONL serialization",
+		TenantDelete:   "Tenant-owned PostgreSQL erasure cascades all agreement state",
+		SubjectDelete:  "Matching revision text is erased; deleting a current matching revision cascades its agreement, while retired inventory alone preserves financial terms",
+	},
+	{
 		ID: "device-counter-history", Store: "Exact original device counter polls and completion markers", Plane: "device",
 		Owner:      "internal/device, internal/store/flowstore, internal/tenantlife",
 		Home:       "ClickHouse probectl_device_counters and probectl_device_counter_polls, or tenant-partitioned memory",

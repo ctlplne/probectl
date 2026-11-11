@@ -47,6 +47,8 @@ type capacityBillingWindow struct {
 }
 
 type capacityBillingPercentile struct {
+	tenant                      string
+	from, to                    time.Time
 	numerator, denominator      string
 	expected, observed, missing int
 	rank                        int
@@ -116,7 +118,7 @@ func capacityBillingP95(ctx context.Context, window capacityBillingWindow, membe
 			}
 		}
 	}
-	result := capacityBillingPercentile{expected: count}
+	result := capacityBillingPercentile{tenant: tenant.String(), from: window.from, to: window.to, expected: count}
 	for i := range count {
 		if err := ctx.Err(); err != nil {
 			return none, err

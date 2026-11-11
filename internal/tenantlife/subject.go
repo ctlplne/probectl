@@ -331,7 +331,10 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		plane: "postgres:interface_role_policies", disposition: subjectTableDeleteMatches,
 		contains: []string{"definition"},
 	},
-	"interface_role_overrides": {plane: "postgres:interface_role_overrides", disposition: subjectTableNoSubject},
+	"interface_role_overrides":          {plane: "postgres:interface_role_overrides", disposition: subjectTableNoSubject},
+	"flow_capacity_agreements":          {plane: "postgres:flow_capacity_agreements", disposition: subjectTableNoSubject},
+	"flow_capacity_agreement_revisions": {plane: "postgres:flow_capacity_agreement_revisions", disposition: subjectTableDeleteMatches, contains: []string{"definition"}},
+	"flow_capacity_agreement_refs":      {plane: "postgres:flow_capacity_agreement_refs", disposition: subjectTableNoSubject},
 	// Hash-only first receipts prevent erased source witnesses from being
 	// refilled. All subject-bearing source selectors live in the cascade payload.
 	"device_counter_captures": {plane: "postgres:device_counter_captures", disposition: subjectTableNoSubject},
