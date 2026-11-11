@@ -1416,7 +1416,7 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 		parts = append(parts, `EXISTS (
 	SELECT 1
 	  FROM unnest($3::text[]) AS subject_pattern(value)
-	 WHERE COALESCE(subject_row.`+pgIdent(column)+`::text, '') ILIKE subject_pattern.value ESCAPE '!'
+ WHERE COALESCE(subject_row.`+pgIdent(column)+`::text, '') ~ subject_pattern.value
 )`)
 	}
 	if policy.agentAddressMembers {
@@ -1584,8 +1584,8 @@ func (a subjectAliasSet) safeContainsPatterns() []string {
 	values := a.values()
 	out := make([]string, 0, len(values))
 	for _, value := range values {
-		if isSafeContainsIdentifier(value) {
-			out = append(out, literalILikeContainsPattern(value))
+		if pattern, ok := literalSubjectPattern(value); ok {
+			out = append(out, pattern)
 		}
 	}
 	return out
