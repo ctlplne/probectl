@@ -47,7 +47,7 @@ func chargePublicRoutingCapturePath(ctx context.Context, path BGPPublicRoutingPa
 	if err := routingBatchCharge(budget, 1024, 256); err != nil {
 		return err
 	}
-	for _, value := range []string{path.View.ID, path.View.Generation, path.Peer.Feed, path.Peer.Format, path.Peer.Collector, path.Peer.Cursor} {
+	for _, value := range []string{path.SnapshotID, path.View.ID, path.View.Generation, path.Peer.Feed, path.Peer.Format, path.Peer.Collector, path.Peer.Cursor} {
 		if err := routingCaptureStringCharge(ctx, budget, value); err != nil {
 			return err
 		}

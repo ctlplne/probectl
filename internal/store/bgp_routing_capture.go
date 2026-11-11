@@ -162,7 +162,7 @@ func decodeRoutingCapture(ctx context.Context, objects routingCaptureObjects, bu
 	if err := readRoutingCaptureObject(objects.clocks, &clocks); err != nil {
 		return BGPRoutingFlowLookup{}, err
 	}
-	if (facts.Version != 1 && facts.Version != 2 && facts.Version != 3) || clocks.Version != facts.Version || facts.Kind != "routing_facts" || clocks.Kind != "routing_clocks" || facts.TenantID != tenant.String() || clocks.TenantID != tenant.String() || clocks.FactsDigest != objects.facts.digest || routingCaptureVersion(facts.Data) != facts.Version {
+	if (facts.Version != 1 && facts.Version != 2 && facts.Version != 3 && facts.Version != 4) || clocks.Version != facts.Version || facts.Kind != "routing_facts" || clocks.Kind != "routing_clocks" || facts.TenantID != tenant.String() || clocks.TenantID != tenant.String() || clocks.FactsDigest != objects.facts.digest || routingCaptureVersion(facts.Data) != facts.Version {
 		return BGPRoutingFlowLookup{}, errRoutingCaptureFormat
 	}
 	result := facts.Data

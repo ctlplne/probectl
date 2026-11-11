@@ -29,6 +29,17 @@ type routingCapturePublicClock struct {
 }
 
 func routingCaptureVersion(lookup BGPRoutingFlowLookup) int {
+	for _, side := range []*BGPRoutingFlowSide{&lookup.Source, &lookup.Destination} {
+		if side.Public != nil {
+			for _, source := range side.Public.Sources {
+				for _, path := range source.Paths {
+					if path.SnapshotID != "" {
+						return 4
+					}
+				}
+			}
+		}
+	}
 	if lookup.Source.RPKI != nil || lookup.Destination.RPKI != nil {
 		return 3
 	}
@@ -214,7 +225,17 @@ func validateCapturedPublicSource(ctx context.Context, scope entity.Scope, sourc
 		if err := routingBatchCharge(&budget, 256, 256); err != nil {
 			return err
 		}
-		if !validPublicRoutingPeer(path.Peer) || publicRoutingSourceRef(path.Peer) != source.Source.SourceRef || path.View.Generation != source.SnapshotID || path.Path.Prefix != source.Prefix || path.Path.Withdraw || validateRoutingChange(path.Path, afi) != nil {
+		// Snapshot and view generations are independent storage identities.
+		// Old v2/v3 facts lacked this association and admitted only equal IDs;
+		// preserve their existing decode rule without rewriting original facts.
+		snapshot := path.SnapshotID
+		if snapshot == "" {
+			snapshot = path.View.Generation
+		}
+		if !validPublicRoutingPeer(path.Peer) || publicRoutingSourceRef(path.Peer) != source.Source.SourceRef || snapshot != source.SnapshotID || path.Path.Prefix != source.Prefix || path.Path.Withdraw || validateRoutingChange(path.Path, afi) != nil {
+			return errRoutingCaptureFormat
+		}
+		if canonical, err := validRegistryUUID(path.View.Generation); err != nil || canonical != path.View.Generation {
 			return errRoutingCaptureFormat
 		}
 		if canonical, err := validRegistryUUID(path.View.ID); err != nil || canonical != path.View.ID {

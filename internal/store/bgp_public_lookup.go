@@ -20,9 +20,10 @@ import (
 // BGPPublicRoutingPath retains the peer and view for every complete path.
 // Public collectors describe internet visibility, never router selection.
 type BGPPublicRoutingPath struct {
-	View BGPRoutingViewRef
-	Peer BGPPublicRoutingPeer
-	Path BGPRoutingChange
+	SnapshotID string `json:",omitempty"`
+	View       BGPRoutingViewRef
+	Peer       BGPPublicRoutingPeer
+	Path       BGPRoutingChange
 }
 
 type BGPPublicRoutingLookup struct {
@@ -162,7 +163,7 @@ func readPublicSnapshotPrefixPaths(ctx context.Context, sc tenancy.Scope, source
 			return nil, err
 		}
 		for _, path := range paths {
-			result = append(result, BGPPublicRoutingPath{View: peer.BGPRoutingViewRef, Peer: peer.Peer, Path: path})
+			result = append(result, BGPPublicRoutingPath{SnapshotID: id, View: peer.BGPRoutingViewRef, Peer: peer.Peer, Path: path})
 		}
 	}
 	if len(result) == 0 {

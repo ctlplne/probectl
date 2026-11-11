@@ -127,6 +127,37 @@ func TestPublicCaptureKeepsCompletePrefixAbsenceAndRefusesPartialForeignOrForged
 	}
 }
 
+func TestPublicCaptureKeepsDistinctSnapshotAndViewGenerationWithoutLegacyRewrite(t *testing.T) {
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(routingCaptureTenant))
+	input := publicCaptureFixture(t)
+	source := &input.Source.Public.Sources[0]
+	source.SnapshotID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	for i := range source.Paths {
+		source.Paths[i].SnapshotID = source.SnapshotID
+		if source.Paths[i].View.Generation == source.SnapshotID {
+			t.Fatal("independent snapshot/generation fixture accidentally aliases identities")
+		}
+	}
+	input.Source.Public.Paths = append([]BGPPublicRoutingPath(nil), source.Paths...)
+	objects, err := freezeRoutingCapture(ctx, input, publicCaptureBudget())
+	if err != nil || !bytes.Contains([]byte(objects.facts.payload), []byte(`"version":4`)) {
+		t.Fatal("public capture conflated its snapshot with an independent view generation", err)
+	}
+	got, err := decodeRoutingCapture(ctx, objects, publicCaptureBudget())
+	if err != nil || !reflect.DeepEqual(got, input) {
+		t.Fatal("public capture changed original snapshot/view identities or clocks", err)
+	}
+	// Keep both copies consistent: refusal must come from the source binding,
+	// rather than only the selected-path equality check.
+	for _, invalid := range []string{"", "not-a-generation", "00000000-0000-0000-0000-000000000000"} {
+		source.Paths[0].View.Generation = invalid
+		input.Source.Public.Paths[0].View.Generation = invalid
+		if _, err := freezeRoutingCapture(ctx, input, publicCaptureBudget()); err == nil {
+			t.Fatal("public capture accepted a malformed original view generation")
+		}
+	}
+}
+
 func TestPublicCaptureRejectsClockCohortOmissionsAndVersionDowngrades(t *testing.T) {
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(routingCaptureTenant))
 	objects, err := freezeRoutingCapture(ctx, publicCaptureFixture(t), publicCaptureBudget())

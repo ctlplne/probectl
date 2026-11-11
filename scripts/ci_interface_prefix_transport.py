@@ -251,6 +251,7 @@ UNIT = {
         "TestPublicSnapshotFreshnessUsesOriginalClockAndIndependentAuthorityLimits",
         "TestPublicSnapshotManifestKeepsBothFamiliesWholeIdentityExactClocksAndEmptyPresence",
         "TestPublicSnapshotManifestIdentityDoesNotRequireAReplacementLease",
+        "TestPublicCaptureKeepsDistinctSnapshotAndViewGenerationWithoutLegacyRewrite",
         "TestPublicSnapshotManifestRefusesLatePartialBudgetAndForeignTenantBeforeStorage",
         "TestPublicRoutingAuthorityRequiresTenantBeforeStorageAndCompleteAssignment",
         "TestPublicRoutingMetadataKeepsWholeSourceIdentityWithoutInventedBMP",
@@ -672,6 +673,13 @@ def bgp_routing_generation_control():
 
 
 ROUTING_WRITE_CONTROLS = {
+    "public-capture-snapshot-generation": (
+        "internal/store/bgp_public_capture.go",
+        'snapshot := path.SnapshotID',
+        'snapshot := path.View.Generation',
+        "TestPublicCaptureKeepsDistinctSnapshotAndViewGenerationWithoutLegacyRewrite", "",
+        "public capture conflated its snapshot with an independent view generation",
+    ),
     "public-read-replacement-lease": (
         "internal/store/bgp_public_snapshot_plan.go",
         "var digest [32]byte",
