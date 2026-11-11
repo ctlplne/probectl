@@ -53,6 +53,7 @@ func TestPeeringNativeUnprovenSelectorsRetainMandatoryPIIRedaction(t *testing.T)
 	// proves it is an IX identity. It must not become trusted metadata merely
 	// because parsing succeeded. The card is the standing synthetic PAN fixture.
 	value.Target.IXID = "4111111111111111"
+	value.Target.LANID = value.Target.IXID
 	raw, err := marshalNativePeeringResponse(value)
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +64,7 @@ func TestPeeringNativeUnprovenSelectorsRetainMandatoryPIIRedaction(t *testing.T)
 	if err := json.Unmarshal([]byte(redacted), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Target.IXID == value.Target.IXID {
+	if decoded.Target.IXID == value.Target.IXID || decoded.Target.LANID == value.Target.LANID {
 		t.Fatal("unproven peering selector bypassed mandatory PAN redaction")
 	}
 }

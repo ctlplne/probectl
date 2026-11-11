@@ -1205,3 +1205,7 @@ p95 with `complete_routing_classification: false` excludes the explicitly
 reported unknown volumes. It is neither guaranteed savings nor a forwarding,
 routing-policy or live-session claim. The response remains labelled preview
 while complete real-source and served-surface qualification is outstanding.
+
+Native MCP preserves exact numeric IX/LAN identities only after current public
+evidence proves the complete target. Unavailable targets retain untrusted
+caller selections, which remain subject to mandatory text redaction.

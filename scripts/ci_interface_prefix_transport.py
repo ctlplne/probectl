@@ -113,6 +113,7 @@ UNIT = {
     "internal/control": (
         "TestPeeringNativeProjectionKeepsWholePublicContractAndExactMetadata",
         "TestPeeringAPIKeepsExactPublicIdentitiesAndQualifiedCompleteOutput",
+        "TestPeeringNativeUnprovenSelectorsRetainMandatoryPIIRedaction",
         "TestPeeringHTTPRefusesTenantAndAuthorityHintsBeforeServiceReads",
         "TestPeeringSummaryCombinesTransitBeforeP95AndKeepsUnknownVolumes",
         "TestPeeringSummaryKeepsMissingIntervalsUnprovenAndRefusesLateCorruption",
@@ -778,6 +779,13 @@ ROUTING_WRITE_CONTROLS = {
         'ExtraPermissions: []string{"ai.query", "entities.read", "metrics.read"}',
         "TestPeeringNativeToolKeepsExactInputsTenantAndEverySourcePermission", "",
         "native peering bypassed a source-plane grant",
+    ),
+    "peering-native-unproven-selector": (
+        "internal/control/mcp_peering.go",
+        "if value.Target.Eligible {",
+        "if true {",
+        "TestPeeringNativeUnprovenSelectorsRetainMandatoryPIIRedaction", "",
+        "unproven peering selector bypassed mandatory PAN redaction",
     ),
     "peering-native-admission": (
         "internal/ai/mcp/peering.go",

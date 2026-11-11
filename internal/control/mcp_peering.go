@@ -43,11 +43,11 @@ func nativePeeringRateValue(value flow.PeeringRateEstimate) nativePeeringRate {
 func marshalNativePeeringResponse(value flow.PeeringEstimateResponse) (json.RawMessage, error) {
 	type target struct {
 		flow.PeeringEstimateTarget
-		ContextID   mcp.NativeRoleUUID     `json:"context_id"`
-		InterfaceID mcp.NativeRoleUUID     `json:"interface_id"`
-		RouterID    mcp.NativeRoleUUID     `json:"router_id,omitempty"`
-		IXID        mcp.NativeRoleRevision `json:"ix_id"`
-		LANID       mcp.NativeRoleRevision `json:"ix_lan_id"`
+		ContextID   mcp.NativeRoleUUID `json:"context_id"`
+		InterfaceID mcp.NativeRoleUUID `json:"interface_id"`
+		RouterID    mcp.NativeRoleUUID `json:"router_id,omitempty"`
+		IXID        any                `json:"ix_id"`
+		LANID       any                `json:"ix_lan_id"`
 	}
 	type transit struct {
 		InterfaceID mcp.NativeRoleUUID `json:"interface_id"`
@@ -59,7 +59,14 @@ func marshalNativePeeringResponse(value flow.PeeringEstimateResponse) (json.RawM
 		Bytes   map[string]mcp.NativePeeringCounter `json:"bytes"`
 		P95     *nativePeeringRate                  `json:"known_eligible_p95,omitempty"`
 		Transit []transit                           `json:"transit"`
-	}{PeeringEstimateResponse: value, Target: target{value.Target, mcp.NativeRoleUUID(value.Target.ContextID), mcp.NativeRoleUUID(value.Target.InterfaceID), mcp.NativeRoleUUID(value.Target.RouterID), mcp.NativeRoleRevision(value.Target.IXID), mcp.NativeRoleRevision(value.Target.LANID)}, Bytes: map[string]mcp.NativePeeringCounter{}, Transit: make([]transit, 0, len(value.Transit))}
+	}{PeeringEstimateResponse: value, Target: target{value.Target, mcp.NativeRoleUUID(value.Target.ContextID), mcp.NativeRoleUUID(value.Target.InterfaceID), mcp.NativeRoleUUID(value.Target.RouterID), value.Target.IXID, value.Target.LANID}, Bytes: map[string]mcp.NativePeeringCounter{}, Transit: make([]transit, 0, len(value.Transit))}
+	// Unavailable targets still contain caller selections. Preserve numeric
+	// identities through text redaction only after current public evidence
+	// proved the complete target; syntactic validity alone is not provenance.
+	if value.Target.Eligible {
+		out.Target.IXID = mcp.NativeRoleRevision(value.Target.IXID)
+		out.Target.LANID = mcp.NativeRoleRevision(value.Target.LANID)
+	}
 	for name, count := range value.Bytes {
 		out.Bytes[name] = mcp.NativePeeringCounter(count)
 	}
