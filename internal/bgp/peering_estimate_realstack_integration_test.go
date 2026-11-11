@@ -136,6 +136,7 @@ func TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95(t *testing.T) {
 			t.Fatal("source-joined peering accepted the sibling tenant's canonical target")
 		}
 	}
+	provePeeringRouterStdio(t, st, registrations, ids, links, input)
 	// An operator withdraws A's exact live routing delegation; neither the
 	// existing socket nor captured history can authorize the former result.
 	putFRRSelectedRIBBinding(t, st, first, listeners[0], lab.ip["rtr-a"], bindings[0].Manifest.Epoch, false)
@@ -145,7 +146,7 @@ func TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95(t *testing.T) {
 	if code, out := read(1, input); code != http.StatusOK || !peeringRouterHandMatches(out, second, ids[1], links, 1) {
 		t.Fatal("routing delegation withdrawal damaged the sibling tenant's complete estimate", code)
 	}
-	t.Log("real-integration: FRR selected RIB + same-kernel SNMP + issued IPFIX/evidence mTLS + app-role PG/RLS + Kafka/ClickHouse + HTTPS/CLI; generated delayed-export twenty-interval two-transit hand101/303Gbps, both directions, missing-input/foreign-target/current-delegation controls; synthetic IX, no historical forwarding or live peering claim")
+	t.Log("real-integration: FRR selected RIB + same-kernel SNMP + issued IPFIX/evidence mTLS + app-role PG/RLS + Kafka/ClickHouse + HTTPS/CLI and shipped modern/legacy stdio; generated delayed-export twenty-interval two-transit hand101/303Gbps, both directions, missing-input/foreign-target/current-token/current-delegation controls; synthetic IX, no historical forwarding or live peering claim")
 }
 
 func peeringRouterHandMatches(out flow.PeeringEstimateResponse, reg edgeFlowRegistration, ids map[uint32]string, links []roleRouterLink, lane int) bool {
