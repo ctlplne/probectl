@@ -293,6 +293,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// context and all its independent telemetry because one label matched.
 	"entity_contexts":           {plane: "postgres:entity_contexts", disposition: subjectTableNoSubject},
 	"entity_path_test_contexts": {plane: "postgres:entity_path_test_contexts", disposition: subjectTableNoSubject},
+	"entity_path_targets":       {plane: "postgres:entity_path_targets", disposition: subjectTableNoSubject},
 	"entity_test_contexts":      {plane: "postgres:entity_test_contexts", disposition: subjectTableNoSubject},
 	"entity_agent_contexts": {
 		plane: "postgres:entity_agent_contexts", disposition: subjectTableDeleteMatches,

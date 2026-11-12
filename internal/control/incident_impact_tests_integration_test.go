@@ -13,11 +13,12 @@ import (
 	"errors"
 	"testing"
 
+	gouuid "github.com/google/uuid"
+
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
-	gouuid "github.com/google/uuid"
 )
 
 func TestIncidentConfiguredTestsKeepExplicitCurrentTenantBindings(t *testing.T) {
@@ -76,9 +77,14 @@ func TestIncidentConfiguredTestsKeepExplicitCurrentTenantBindings(t *testing.T) 
 		})
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			registry := store.NewEntityRegistry(f.pool)
+			// A retarget deliberately deletes path authority, even when the
+			// destination is subsequently restored. Rebind explicitly.
+			if err := registry.AssignPathTestContext(ctx, sc, node.TestID, f.contextID); err != nil {
+				return err
+			}
 			for range 9 {
 				id := gouuid.NewString()
-				if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,type,target,interval_seconds,timeout_seconds,params,enabled) VALUES($1,$2,'explicit configured member','icmp','192.0.2.1',30,2,'{}',true)`, tenant, id); err != nil {
+				if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,type,target,interval_seconds,timeout_seconds,params,enabled) VALUES($1,$2,'explicit configured member '||$2::uuid::text,'icmp','192.0.2.1',30,2,'{}',true)`, tenant, id); err != nil {
 					return err
 				}
 				if err := registry.AssignPathTestContext(ctx, sc, id, f.contextID); err != nil {

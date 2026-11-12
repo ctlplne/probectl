@@ -108,6 +108,7 @@ func ProvisionPlan(schema string, tenantTables []string) []string {
 	plan = append(plan, bgpRoutingStoragePlan(schema, tenantTables)...)
 	plan = append(plan, entityNetworkPrefixCheckPlan(schema, tenantTables)...)
 	plan = append(plan, tagStoragePlan(schema, tenantTables, true)...)
+	plan = append(plan, pathTargetContextPlan(schema, tenantTables)...)
 	plan = append(plan, reportArtifactStoragePlan(schema, tenantTables)...)
 	return plan
 }
@@ -637,6 +638,7 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 	plan = append(plan, bgpRoutingStoragePlan(schema, cat.TenantTables)...)
 	plan = append(plan, entityNetworkPrefixCheckPlan(schema, cat.TenantTables)...)
 	plan = append(plan, tagStoragePlan(schema, cat.TenantTables, false)...)
+	plan = append(plan, pathTargetContextPlan(schema, cat.TenantTables)...)
 	plan = append(plan, reportArtifactStoragePlan(schema, cat.TenantTables)...)
 	return plan
 }

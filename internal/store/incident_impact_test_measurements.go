@@ -10,8 +10,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/jackc/pgx/v5"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -56,6 +57,11 @@ func (Incidents) IncidentICMPMeasurementsInScope(ctx context.Context, sc tenancy
 	if !to.After(from) || maxBytes < 4096 || int64(len(sources)) > maxBytes/1024 {
 		return nil, ErrIncidentImpactBudget
 	}
+	for _, source := range sources {
+		if source.TenantID != bound.String() {
+			return nil, entity.ErrScopeMismatch
+		}
+	}
 	generation, err := incidentImpactSourceGenerationInScope(ctx, sc)
 	if err != nil {
 		return nil, err
@@ -63,9 +69,6 @@ func (Incidents) IncidentICMPMeasurementsInScope(ctx context.Context, sc tenancy
 	var contexts, entities, agents, tests []string
 	selected := map[incidentImpactTestKey]IncidentConfiguredTest{}
 	for _, source := range sources {
-		if source.TenantID != bound.String() {
-			return nil, entity.ErrScopeMismatch
-		}
 		if source.SourceGeneration != generation {
 			return nil, sourceepoch.ErrInvalidating
 		}
@@ -209,6 +212,11 @@ func (Incidents) RecheckIncidentTestMeasurementsInScope(ctx context.Context, sc 
 	if maxBytes < 4096 || int64(len(reads)) > maxBytes/512 {
 		return ErrIncidentImpactBudget
 	}
+	for _, read := range reads {
+		if read.TenantID != bound.String() {
+			return entity.ErrScopeMismatch
+		}
+	}
 	generation, err := incidentImpactSourceGenerationInScope(ctx, sc)
 	if err != nil {
 		return err
@@ -218,9 +226,6 @@ func (Incidents) RecheckIncidentTestMeasurementsInScope(ctx context.Context, sc 
 	for _, read := range reads {
 		if read.SourceGeneration != generation {
 			return sourceepoch.ErrInvalidating
-		}
-		if read.TenantID != bound.String() {
-			return entity.ErrScopeMismatch
 		}
 		for _, id := range []string{read.ContextID, read.EvidenceID} {
 			if _, err := validRegistryUUID(id); err != nil {

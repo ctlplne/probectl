@@ -24,6 +24,8 @@ type tagIndexTarget struct {
 }
 
 var tagIndexTargets = []tagIndexTarget{
+	{table: "entity_path_test_contexts", name: "entity_path_test_target_context_idx",
+		columns: []string{"tenant_id", "path_target", "context_id"}, nonUnique: true},
 	{table: "entities", name: "entities_tenant_context_id_kind_uidx",
 		columns: []string{"tenant_id", "context_id", "id", "kind"}},
 	{table: "entity_source_contexts", name: "entity_sources_tenant_context_identity_uidx",

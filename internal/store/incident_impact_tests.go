@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/store/sourceepoch"
@@ -104,14 +106,14 @@ func readIncidentConfiguredTests(ctx context.Context, sc tenancy.Scope, contexts
  JOIN entity_source_contexts m ON m.tenant_id=$1 AND m.context_id=r.context_id AND m.anchor_entity_id=r.entity_id AND m.source_kind='path_agent'
  JOIN entities node ON (node.tenant_id,node.context_id,node.id)=($1,r.context_id,r.entity_id)
  JOIN entity_agent_contexts a ON (a.tenant_id,a.context_id,a.agent_id)=(m.tenant_id,m.context_id,m.agent_id)
- JOIN tests t ON t.tenant_id=$1 AND t.id::text=m.source_ref AND t.enabled
+ JOIN tests t ON t.tenant_id=$1 AND t.id=CASE WHEN m.source_ref ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN m.source_ref::uuid END AND t.enabled
  JOIN entity_test_contexts c ON (c.tenant_id,c.context_id,c.test_id)=(m.tenant_id,m.context_id,t.id)
  JOIN entity_path_test_contexts p ON (p.tenant_id,p.context_id,p.test_id)=(c.tenant_id,c.context_id,c.test_id)
  WHERE m.tenant_id=$1 AND a.tenant_id=$1 AND node.tenant_id=$1 AND c.tenant_id=$1 AND p.tenant_id=$1
  AND GREATEST(node.created_at,m.assigned_at,a.assigned_at,c.assigned_at,p.assigned_at,t.updated_at)<=transaction_timestamp()
  AND (m.expires_at IS NULL OR m.expires_at>transaction_timestamp())
  AND (a.expires_at IS NULL OR a.expires_at>transaction_timestamp())
- ORDER BY m.context_id,m.anchor_entity_id,t.id,m.agent_id LIMIT $5`, sc.Tenant.String(), contexts, entities, maxBytes/8, maxBytes/1024+1)
+ ORDER BY m.context_id,m.anchor_entity_id,t.id,m.agent_id LIMIT $5`, pgx.QueryExecModeDescribeExec, sc.Tenant.String(), contexts, entities, maxBytes/8, maxBytes/1024+1)
 	if err != nil {
 		return nil, err
 	}

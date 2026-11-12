@@ -67,7 +67,7 @@ func TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant(t *t
 	initial := map[string][]store.IncidentTestMeasurement{}
 	for lane, tenant := range f.tenants {
 		values, err := read(tenant, from, to, 16<<20)
-		if err != nil || len(values) != 3 {
+		if err != nil || len(values) != 4 {
 			t.Fatal("complete own retained measurements were lost", len(values), err)
 		}
 		down := 0
@@ -79,7 +79,7 @@ func TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant(t *t
 				down++
 			}
 		}
-		if down != 2-lane {
+		if down != 3-lane {
 			t.Fatal("a sibling tenant supplied observed test outcomes", down)
 		}
 		if err := recheck(tenant, values); err != nil {
@@ -90,7 +90,9 @@ func TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant(t *t
 			t.Fatal("whole-history memory refusal returned a prefix", values, err)
 		}
 	}
-	if err := recheck(f.tenants[0], initial[f.tenants[1]]); !errors.Is(err, entity.ErrScopeMismatch) {
+	foreign := append([]store.IncidentTestMeasurement(nil), initial[f.tenants[1]]...)
+	foreign[0].SourceGeneration++
+	if err := recheck(f.tenants[0], foreign); !errors.Is(err, entity.ErrScopeMismatch) {
 		t.Fatal("foreign original selectors borrowed the tenant snapshot", err)
 	}
 	a, b := f.tenants[0], f.tenants[1]
@@ -152,7 +154,7 @@ func TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant(t *t
 			t.Fatal(err)
 		}
 		values, err := read(tenant, old.Add(-time.Minute), old.Add(time.Minute), 16<<20)
-		if err != nil || len(values) != 3 {
+		if err != nil || len(values) != 4 {
 			t.Fatal("expired original certificates erased valid retained observations", len(values), err)
 		}
 		for _, value := range values {
@@ -167,7 +169,7 @@ func TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant(t *t
 		return err
 	})
 	values, err := read(a, old.Add(-time.Minute), old.Add(time.Minute), 16<<20)
-	if err != nil || len(values) != 3 {
+	if err != nil || len(values) != 4 {
 		t.Fatal("source withdrawal hid unavailable-coverage accounting", len(values), err)
 	}
 	for _, value := range values {
@@ -175,7 +177,7 @@ func TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant(t *t
 			t.Fatal("revoked current sender revived historical test measurements")
 		}
 	}
-	if values, err := read(b, old.Add(-time.Minute), old.Add(time.Minute), 16<<20); err != nil || len(values) != 3 || !values[0].Available {
+	if values, err := read(b, old.Add(-time.Minute), old.Add(time.Minute), 16<<20); err != nil || len(values) != 4 || !values[0].Available {
 		t.Fatal("sender revocation affected the sibling tenant", len(values), err)
 	}
 	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {

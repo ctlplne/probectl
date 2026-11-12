@@ -1668,8 +1668,8 @@ jobs:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
         run: |
           go test -race -p=1 -tags=integration -count=1 -timeout=8m -v \
-            -run='^(TestIncidentImpactInputsKeepCompleteCitationsAndTenantScope|TestCapturedFlowOwnersKeepOriginalIdentityAcrossRefreshAndRefuseReassignment|TestIncidentImpactSourcesKeepCurrentDeviceInterfaceAndTenantAuthority|TestIncidentConfiguredTestsKeepExplicitCurrentTenantBindings|TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant|TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation)$' \
-            ./internal/store ./internal/control
+            -run='^(TestSharedPathTargetKeepsOneContextConcurrentWritersAndCleanup|TestSharedPathTargetsKeepSiloContextOnProvisionAndCatchup|TestIncidentImpactInputsKeepCompleteCitationsAndTenantScope|TestCapturedFlowOwnersKeepOriginalIdentityAcrossRefreshAndRefuseReassignment|TestIncidentImpactSourcesKeepCurrentDeviceInterfaceAndTenantAuthority|TestIncidentConfiguredTestsKeepExplicitCurrentTenantBindings|TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant|TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation)$' \
+            ./internal/store ./internal/control ./ee/silo
       - name: Complete dependency notification publication
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"

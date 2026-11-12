@@ -362,7 +362,7 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 		"flow_snapshots",
 		"flow_snapshot_epochs",
 		"entity_contexts",
-		"entity_path_test_contexts",
+		"entity_path_test_contexts", "entity_path_targets",
 		"entity_test_contexts",
 		"entity_agent_contexts",
 		"entity_source_contexts",
@@ -407,7 +407,7 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 		t.Fatalf("roles disposition = %d, want explicit no-subject classification", byName["roles"])
 	}
 	for _, table := range []string{
-		"entity_contexts", "entity_path_test_contexts", "entity_test_contexts", "entity_links",
+		"entity_contexts", "entity_path_test_contexts", "entity_path_targets", "entity_test_contexts", "entity_links",
 		"nms_import_sources", "nms_import_plans", "nms_import_pages",
 		"nms_import_capture_steps", "nms_import_rows", "nms_import_provenance",
 		"nms_import_groups", "nms_import_group_members", "nms_import_poll_proposals",

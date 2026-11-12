@@ -103,9 +103,14 @@ Path rounds written before the PostgreSQL-clock marker shipped retain their raw
 history but cannot pass the current join, even if an old control-plane clock
 dated one after an assignment. New discovery rows carry that server-owned
 marker through pooled and siloed ClickHouse path tables.
-Path rounds are keyed by tenant and normalized destination. Only one test per
-destination can hold a context binding; another test for that host must use
-the same existing path view or wait until the first binding is removed.
+Path rounds are keyed by tenant and normalized destination. Multiple tests may
+bind the same destination when they share its one canonical context. A
+FORCE-RLS target anchor and compound per-test foreign key enforce that invariant
+in storage, including concurrent writes and managed silos. A test in another
+context cannot borrow the shared trace. Each test keeps its own assignment
+clock, and still requires a discovery that began after that binding. Removing
+the last binding also removes its unused target anchor.
+
 Changing a test's target clears its old context binding in the test-update
 transaction. The operator assigns a context for the new destination.
 
