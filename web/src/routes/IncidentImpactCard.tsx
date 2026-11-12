@@ -226,23 +226,27 @@ function ImpactCustomers({ result }: { result: IncidentImpactResponse }) {
         rows={result.customers.slice(page * 200, (page + 1) * 200)}
         rowKey={(row) => JSON.stringify([row.context_id, row.value])}
         columns={[
-          { key: 'value', header: 'Customer', cell: (row) => row.value },
+          { key: 'value', header: 'Customer', render: (row) => row.value },
           {
             key: 'context',
             header: 'Routing context',
-            cell: (row) => <code>{row.context_id}</code>,
+            render: (row) => <code>{row.context_id}</code>,
           },
           {
             key: 'current',
             header: 'Current scaled bytes',
-            cell: (row) => row.current_observed_totals?.scaled_bytes ?? 'Unavailable',
+            render: (row) => row.current_observed_totals?.scaled_bytes ?? 'Unavailable',
           },
           {
             key: 'previous',
             header: 'Previous scaled bytes',
-            cell: (row) => row.previous_observed_totals?.scaled_bytes ?? 'Unavailable',
+            render: (row) => row.previous_observed_totals?.scaled_bytes ?? 'Unavailable',
           },
-          { key: 'prefixes', header: 'Prefix citations', cell: (row) => row.prefix_ids.join(', ') },
+          {
+            key: 'prefixes',
+            header: 'Prefix citations',
+            render: (row) => row.prefix_ids.join(', '),
+          },
         ]}
       />
       <div className={styles.actions}>
