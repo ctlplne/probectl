@@ -43,6 +43,10 @@ func tagStoragePlan(schema string, tables []string, addIndexes bool) []string {
 				q+`."entities" (tenant_id, context_id, id, kind)`,
 			`CREATE UNIQUE INDEX IF NOT EXISTS "entity_sources_tenant_context_identity_uidx" ON `+
 				q+`."entity_source_contexts" (tenant_id, context_id, agent_id, source_kind, source_ref)`)
+		if owned["entity_evidence"] {
+			plan = append(plan, `CREATE INDEX IF NOT EXISTS "entity_evidence_tenant_source_latest_idx" ON `+
+				q+`."entity_evidence" (tenant_id,context_id,agent_id,source_kind,configured_ref,observed_at DESC,id)`)
+		}
 	}
 	plan = append(plan, `INSERT INTO `+q+`."entity_test_contexts" (tenant_id,test_id,context_id)
 SELECT tenant_id,test_id,context_id FROM `+q+`."entity_path_test_contexts"

@@ -66,10 +66,12 @@ func (s *EntityRegistry) ReadICMPHealthInScope(ctx context.Context, sc tenancy.S
 // erasure, exact-sender and executable-definition SQL door.
 // Transfer admission precedes JSON decoding. LIMIT 1 selects the latest
 // sample; EXISTS checks all equal-clock candidates for conflicting evidence.
+// Metadata joins bind the same exact source keys used by the latest-row WHERE,
+// allowing point lookups even while a fresh tenant's statistics are incomplete.
 func currentICMPHealthSQL(population ...bool) string {
 	agentParameter, sourceParameter, entityParameter, sizeParameter := "$3", "$4", "$5", "$6"
 	if len(population) > 0 && population[0] {
-		agentParameter, sourceParameter, entityParameter, sizeParameter = "requested.agent_id", "requested.source_ref", "requested.entity_id", "$4"
+		agentParameter, sourceParameter, entityParameter, sizeParameter = "requested.agent_id", "requested.source_ref", "requested.entity_id", "$6"
 	}
 	return `SELECT e.id::text,e.observation_id::text,e.entity_id::text,
  e.alias_kind,e.alias_value,e.source_ref,e.sender_serial,e.observed_at,
@@ -105,18 +107,18 @@ func currentICMPHealthSQL(population ...bool) string {
          AND source_kind='path_agent' AND configured_ref=` + sourceParameter + `
        ORDER BY observed_at DESC,id LIMIT 1) e
  LEFT JOIN entity_source_contexts m ON
-   (m.tenant_id,m.context_id,m.agent_id,m.source_kind,m.source_ref)=
-   (e.tenant_id,e.context_id,e.agent_id,e.source_kind,e.configured_ref)
+   m.tenant_id=$1 AND m.context_id=$2 AND m.agent_id=` + agentParameter + `
+   AND m.source_kind='path_agent' AND m.source_ref=` + sourceParameter + `
  LEFT JOIN entity_agent_contexts a ON
-   (a.tenant_id,a.context_id,a.agent_id)=(e.tenant_id,e.context_id,e.agent_id)
+   a.tenant_id=$1 AND a.context_id=$2 AND a.agent_id=` + agentParameter + `
  LEFT JOIN agent_identities sender ON
-   (sender.tenant_id,sender.agent_id,sender.serial)=(e.tenant_id,e.agent_id,e.sender_serial)
- LEFT JOIN flow_snapshot_epochs epoch ON epoch.tenant_id=e.tenant_id
- LEFT JOIN tests t ON t.tenant_id=e.tenant_id AND t.id=` + sourceParameter + `::uuid
+   sender.tenant_id=$1 AND sender.agent_id=` + agentParameter + ` AND sender.serial=e.sender_serial
+ LEFT JOIN flow_snapshot_epochs epoch ON epoch.tenant_id=$1
+ LEFT JOIN tests t ON t.tenant_id=$1 AND t.id=` + sourceParameter + `::uuid
  LEFT JOIN entity_path_test_contexts p ON
-   (p.tenant_id,p.test_id,p.context_id)=(t.tenant_id,t.id,e.context_id)
+   p.tenant_id=$1 AND p.test_id=` + sourceParameter + `::uuid AND p.context_id=$2
  LEFT JOIN entity_test_contexts c ON
-   (c.tenant_id,c.test_id,c.context_id)=(t.tenant_id,t.id,e.context_id)`
+   c.tenant_id=$1 AND c.test_id=` + sourceParameter + `::uuid AND c.context_id=$2`
 }
 
 type icmpHealthRecord struct {

@@ -19,6 +19,8 @@ import (
 type tagIndexTarget struct {
 	table, name string
 	columns     []string
+	nonUnique   bool
+	descending  map[string]bool
 }
 
 var tagIndexTargets = []tagIndexTarget{
@@ -26,11 +28,14 @@ var tagIndexTargets = []tagIndexTarget{
 		columns: []string{"tenant_id", "context_id", "id", "kind"}},
 	{table: "entity_source_contexts", name: "entity_sources_tenant_context_identity_uidx",
 		columns: []string{"tenant_id", "context_id", "agent_id", "source_kind", "source_ref"}},
+	{table: "entity_evidence", name: "entity_evidence_tenant_source_latest_idx",
+		columns:   []string{"tenant_id", "context_id", "agent_id", "source_kind", "configured_ref", "observed_at", "id"},
+		nonUnique: true, descending: map[string]bool{"observed_at": true}},
 }
 
-// ensureTagStorageIndexes builds only missing FK targets on an existing silo.
-// It runs before CatchUpPlan's transaction creates/grants tag tables, so an
-// active tenant cannot write a newly visible assignment without its typed FKs.
+// ensureTagStorageIndexes builds missing entity/tag access paths on an existing
+// silo. It runs before CatchUpPlan's transaction creates/grants tag tables, so
+// an active tenant cannot write an assignment without its typed FK targets.
 // CREATE INDEX CONCURRENTLY keeps existing entity writers available.
 func (p *Provisioner) ensureTagStorageIndexes(ctx context.Context, schema string, cat Catalog) error {
 	if len(tagStoragePlan(schema, cat.TenantTables, false)) == 0 {
@@ -54,6 +59,12 @@ func (p *Provisioner) ensureTagStorageIndexes(ctx context.Context, schema string
 }
 
 func (p *Provisioner) ensureTagIndex(ctx context.Context, schema string, target tagIndexTarget) error {
+	expected := append([]string(nil), target.columns...)
+	for i, column := range target.columns {
+		if target.descending[column] {
+			expected[i] += " DESC"
+		}
+	}
 	inspect := func() (exists, valid, correct bool, err error) {
 		var table string
 		var unique, usable, unpredicated bool
@@ -74,8 +85,8 @@ func (p *Provisioner) ensureTagIndex(ctx context.Context, schema string, target 
 		if err != nil {
 			return false, false, false, fmt.Errorf("silo: inspect tag index %s: %w", target.name, err)
 		}
-		return true, usable, table == target.table && unique && unpredicated &&
-			slices.Equal(columns, target.columns), nil
+		return true, usable, table == target.table && unique != target.nonUnique && unpredicated &&
+			slices.Equal(columns, expected), nil
 	}
 	exists, valid, correct, err := inspect()
 	if err != nil {
@@ -96,9 +107,16 @@ func (p *Provisioner) ensureTagIndex(ctx context.Context, schema string, target 
 	columns := make([]string, len(target.columns))
 	for i, column := range target.columns {
 		columns[i] = quoteIdent(column)
+		if target.descending[column] {
+			columns[i] += " DESC"
+		}
+	}
+	unique := "UNIQUE "
+	if target.nonUnique {
+		unique = ""
 	}
 	if _, err := p.ddlPool().Exec(ctx,
-		"CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "+quoteIdent(target.name)+
+		"CREATE "+unique+"INDEX CONCURRENTLY IF NOT EXISTS "+quoteIdent(target.name)+
 			" ON "+quoteIdent(schema)+"."+quoteIdent(target.table)+
 			" ("+strings.Join(columns, ",")+")"); err != nil {
 		return fmt.Errorf("silo: build tag index %s: %w", target.name, err)

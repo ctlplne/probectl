@@ -8,7 +8,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -52,12 +51,10 @@ func (s *EntityRegistry) ReadICMPHealthPopulationInScope(ctx context.Context, sc
 		return nil, entity.ErrInvalidClaim
 	}
 	keys := make([]entity.SourceKey, len(requests))
-	type reference struct {
-		AgentID   string `json:"agent_id"`
-		SourceRef string `json:"source_ref"`
-		EntityID  string `json:"entity_id"`
-	}
-	references := make([]reference, len(requests))
+	agents := make([]string, len(requests))
+	sources := make([]string, len(requests))
+	entities := make([]string, len(requests))
+	remaining := maxBytes - int64(len(keys))*2048
 	for i, request := range requests {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -73,20 +70,16 @@ func (s *EntityRegistry) ReadICMPHealthPopulationInScope(ctx context.Context, sc
 			return nil, err
 		}
 		keys[i] = key
-		references[i] = reference{AgentID: key.AgentID, SourceRef: key.SourceRef, EntityID: request.EntityID}
-	}
-	body, err := json.Marshal(references)
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(body))*4 > maxBytes-int64(len(keys))*2048 {
-		return nil, ErrAlertDependencyBudget
+		if err := chargeEntityPopulationInput(&remaining, key.AgentID, key.SourceRef, request.EntityID); err != nil {
+			return nil, err
+		}
+		agents[i], sources[i], entities[i] = key.AgentID, key.SourceRef, request.EntityID
 	}
 	query := `WITH requested AS (
- SELECT ordinality,value->>'agent_id' AS agent_id,value->>'source_ref' AS source_ref,(value->>'entity_id')::uuid AS entity_id
- FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS input(value,ordinality)
+ SELECT ordinality,agent_id AS agent_id,source_ref,entity_id
+ FROM unnest($3::text[],$4::text[],$5::uuid[]) WITH ORDINALITY AS input(agent_id,source_ref,entity_id,ordinality)
  ) SELECT requested.ordinality,measured.* FROM requested JOIN LATERAL (` + currentICMPHealthSQL(true) + `) AS measured ON true ORDER BY requested.ordinality`
-	rows, err := sc.Q.Query(ctx, query, want.TenantID, want.ContextID, body, maxBytes/int64(len(keys))/16)
+	rows, err := sc.Q.Query(ctx, query, want.TenantID, want.ContextID, agents, sources, entities, maxBytes/int64(len(keys))/16)
 	if err != nil {
 		return nil, err
 	}
@@ -130,38 +123,27 @@ func ResolveAliasPopulationInScope(ctx context.Context, sc tenancy.Scope, scope 
 		return nil, err
 	}
 	keys := make([]entity.AliasKey, len(aliases))
-	type reference struct {
-		Kind  string `json:"kind"`
-		Value string `json:"value"`
-	}
-	references := make([]reference, len(aliases))
+	kinds := make([]string, len(aliases))
+	values := make([]string, len(aliases))
+	remaining := maxBytes - int64(len(keys))*1024
 	for i, alias := range aliases {
 		key, err := alias.Normalize()
 		if err != nil {
 			return nil, err
 		}
-		if int64(len(key.Value)) > (maxBytes/int64(len(aliases))-2048)/4 {
-			return nil, ErrAlertDependencyBudget
+		if err := chargeEntityPopulationInput(&remaining, string(key.Kind), key.Value); err != nil {
+			return nil, err
 		}
-		keys[i] = key
-		references[i] = reference{Kind: string(key.Kind), Value: key.Value}
-	}
-	body, err := json.Marshal(references)
-	if err != nil {
-		return nil, err
-	}
-	remaining := maxBytes - int64(len(keys))*1024 - int64(len(body))*4
-	if remaining < 0 {
-		return nil, ErrAlertDependencyBudget
+		keys[i], kinds[i], values[i] = key, string(key.Kind), key.Value
 	}
 	query := `WITH requested AS (
- SELECT value->>'kind' AS kind,value->>'value' AS alias_value,ordinality
- FROM jsonb_array_elements($3::jsonb) WITH ORDINALITY AS input(value,ordinality)
+ SELECT kind,alias_value,ordinality
+ FROM unnest($3::text[],$4::text[]) WITH ORDINALITY AS input(kind,alias_value,ordinality)
  ) SELECT requested.ordinality,resolved.* FROM requested
  JOIN LATERAL (` + currentAliasResolutionSQL(true) + `) AS resolved(
  evidence_id,entity_id,entity_kind,source,source_ref,agent_id,source_kind,configured_ref,observed_at,support_evidence_id) ON true
  ORDER BY requested.ordinality,resolved.entity_id`
-	rows, err := sc.Q.Query(ctx, query, want.TenantID, want.ContextID, body)
+	rows, err := sc.Q.Query(ctx, query, want.TenantID, want.ContextID, kinds, values)
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +174,19 @@ func ResolveAliasPopulationInScope(ctx context.Context, sc tenancy.Scope, scope 
 		out[i] = value
 	}
 	return out, nil
+}
+
+// Typed arrays expose the complete request count to PostgreSQL's planner;
+// jsonb_array_elements otherwise estimates a fixed 100 rows for any population.
+// Charge all encoded values before transfer, with fixed per-row admission above.
+func chargeEntityPopulationInput(remaining *int64, values ...string) error {
+	for _, value := range values {
+		if *remaining < 0 || int64(len(value)) > *remaining/4 {
+			return ErrAlertDependencyBudget
+		}
+		*remaining -= 4 * int64(len(value))
+	}
+	return nil
 }
 
 func scanPopulationAliasRow(rows pgx.Rows, want entity.Scope, keys []entity.AliasKey, remaining *int64) (int, entity.Claim, error) {
