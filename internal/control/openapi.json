@@ -19555,6 +19555,11 @@
       "AlertRule": {
         "type": "object",
         "properties": {
+          "has_dependency_policy": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "A notification dependency policy is configured. Presence alone does not establish a current hold or authorize source reads; detection and collection remain active."
+          },
           "has_tag_filter": {
             "type": "boolean",
             "readOnly": true,

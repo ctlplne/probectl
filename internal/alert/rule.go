@@ -119,6 +119,9 @@ type Rule struct {
 	Match  map[string]string `json:"match,omitempty"`
 	// Full configuration is loaded per rule after tenant query admission.
 	HasTagFilter bool `json:"has_tag_filter,omitempty"`
+	// Presence is metadata only; current policy and source authority are loaded
+	// separately under tenant admission before any notification may be held.
+	HasDependencyPolicy bool `json:"has_dependency_policy,omitempty"`
 
 	Type RuleType `json:"type"`
 

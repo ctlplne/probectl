@@ -22,7 +22,7 @@ type AlertRules struct{}
 
 const alertRuleCols = `id::text, tenant_id::text, name, enabled, metric, match_labels,
 	type, comparison, threshold, window_n, sensitivity, for_n, renotify_seconds,
-	severity, channels, created_at, updated_at, trap_match, (tag_filter IS NOT NULL)`
+	severity, channels, created_at, updated_at, trap_match, (tag_filter IS NOT NULL), (dependency_policy IS NOT NULL)`
 
 // channelSecretAAD binds sealed channel secrets to their column (the tenant
 // binding rides tenantcrypto.BindAAD inside the sealer).
@@ -73,7 +73,7 @@ func scanAlertRule(row interface{ Scan(...any) error }, r *alert.Rule) error {
 	var typ, cmp, sev string
 	if err := row.Scan(&r.ID, &r.TenantID, &r.Name, &r.Enabled, &r.Metric, &match,
 		&typ, &cmp, &r.Threshold, &r.Window, &r.Sensitivity, &r.ForN, &r.RenotifySeconds,
-		&sev, &channels, &r.CreatedAt, &r.UpdatedAt, &trap, &r.HasTagFilter); err != nil {
+		&sev, &channels, &r.CreatedAt, &r.UpdatedAt, &trap, &r.HasTagFilter, &r.HasDependencyPolicy); err != nil {
 		return err
 	}
 	r.Trap = nil

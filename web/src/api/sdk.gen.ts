@@ -285,6 +285,7 @@ export interface AlertRule {
   created_at?: string
   enabled?: boolean
   for_n?: number
+  has_dependency_policy?: boolean
   has_tag_filter?: boolean
   id?: string
   match?: { [key: string]: string }

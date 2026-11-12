@@ -223,7 +223,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// opaque group keys and structural rule IDs are not subject selectors.
 	"alert_rules": {
 		plane: "postgres:alert_rules", disposition: subjectTableDeleteMatches,
-		contains: []string{"tag_filter", "query_source"},
+		contains: []string{"tag_filter", "query_source", "dependency_policy"},
 	},
 	"audit_events": {plane: "audit", disposition: subjectTableProjectMatches},
 	"audit_subject_erasures": {

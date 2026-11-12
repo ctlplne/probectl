@@ -362,25 +362,26 @@ type AlertRequest struct {
 }
 
 type AlertRule struct {
-	Channels        []ChannelSpec     `json:"channels,omitempty"`
-	Comparison      string            `json:"comparison,omitempty"`
-	CreatedAt       string            `json:"created_at,omitempty"`
-	Enabled         *bool             `json:"enabled,omitempty"`
-	ForN            int               `json:"for_n,omitempty"`
-	HasTagFilter    *bool             `json:"has_tag_filter,omitempty"`
-	Id              string            `json:"id,omitempty"`
-	Match           map[string]string `json:"match,omitempty"`
-	Metric          string            `json:"metric,omitempty"`
-	Name            string            `json:"name,omitempty"`
-	RenotifySeconds int               `json:"renotify_seconds,omitempty"`
-	Sensitivity     float64           `json:"sensitivity,omitempty"`
-	Severity        string            `json:"severity,omitempty"`
-	TenantId        string            `json:"tenant_id,omitempty"`
-	Threshold       float64           `json:"threshold,omitempty"`
-	Trap            *AlertTrapMatch   `json:"trap,omitempty"`
-	Type            string            `json:"type,omitempty"`
-	UpdatedAt       string            `json:"updated_at,omitempty"`
-	Window          int               `json:"window,omitempty"`
+	Channels            []ChannelSpec     `json:"channels,omitempty"`
+	Comparison          string            `json:"comparison,omitempty"`
+	CreatedAt           string            `json:"created_at,omitempty"`
+	Enabled             *bool             `json:"enabled,omitempty"`
+	ForN                int               `json:"for_n,omitempty"`
+	HasDependencyPolicy *bool             `json:"has_dependency_policy,omitempty"`
+	HasTagFilter        *bool             `json:"has_tag_filter,omitempty"`
+	Id                  string            `json:"id,omitempty"`
+	Match               map[string]string `json:"match,omitempty"`
+	Metric              string            `json:"metric,omitempty"`
+	Name                string            `json:"name,omitempty"`
+	RenotifySeconds     int               `json:"renotify_seconds,omitempty"`
+	Sensitivity         float64           `json:"sensitivity,omitempty"`
+	Severity            string            `json:"severity,omitempty"`
+	TenantId            string            `json:"tenant_id,omitempty"`
+	Threshold           float64           `json:"threshold,omitempty"`
+	Trap                *AlertTrapMatch   `json:"trap,omitempty"`
+	Type                string            `json:"type,omitempty"`
+	UpdatedAt           string            `json:"updated_at,omitempty"`
+	Window              int               `json:"window,omitempty"`
 }
 
 type AlertTagFilter struct {

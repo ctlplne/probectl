@@ -42,9 +42,9 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 	// source service would execute it. Only the configured subject fields match.
 	for _, tenant := range []string{red, blue} {
 		if err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
-			for i := range 3 {
+			for i := range 4 {
 				id := flowQueryUUID(t)
-				query, tag := any(nil), any(nil)
+				query, tag, dependency := any(nil), any(nil), any(nil)
 				switch i {
 				case 0:
 					raw, err := json.Marshal(map[string]any{"owner_user_id": owner, "version": 1})
@@ -59,9 +59,15 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 					if tenant == red {
 						id = owner // structural UUID collision is not ownership.
 					}
+				case 3:
+					raw, err := json.Marshal(map[string]any{"owner_user_id": owner, "version": 1})
+					if err != nil {
+						return err
+					}
+					dependency = string(raw)
 				}
-				if _, err := sc.Q.Exec(ctx, `INSERT INTO alert_rules(tenant_id,id,name,metric,type,comparison,threshold,query_source,tag_filter)
- VALUES($1,$2,$3,'probectl_explorer_query_condition','threshold','gte',1,$4::jsonb,$5::jsonb)`, tenant, id, id, query, tag); err != nil {
+				if _, err := sc.Q.Exec(ctx, `INSERT INTO alert_rules(tenant_id,id,name,metric,type,comparison,threshold,query_source,tag_filter,dependency_policy)
+ VALUES($1,$2,$3,'probectl_explorer_query_condition','threshold','gte',1,$4::jsonb,$5::jsonb,$6::jsonb)`, tenant, id, id, query, tag, dependency); err != nil {
 					return err
 				}
 			}
@@ -76,7 +82,7 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 		t.Fatal(err)
 	}
 	body := strings.TrimSpace(readTarGz(t, archive.Bytes())["postgres/alert_rules.jsonl"])
-	if body == "" || strings.Count(body, "\n") != 1 || strings.Contains(body, blue) || strings.Contains(body, "evilquery-owner") {
+	if body == "" || strings.Count(body, "\n") != 2 || strings.Contains(body, blue) || strings.Contains(body, "evilquery-owner") {
 		t.Fatal("subject export omitted bound alert config or included unrelated/foreign rules")
 	}
 	appendMarker := engine.appendSubjectErasure
@@ -87,7 +93,7 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 	if _, _, err := engine.eraseSubjectPostgres(t.Context(), red, subject, "privacy-admin", "owned query-alert rollback"); !errors.Is(err, injected) {
 		t.Fatal("audit refusal did not fail closed", err)
 	}
-	if got := countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, red); got != 3 {
+	if got := countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, red); got != 4 {
 		t.Fatal("failed audit committed alert configuration deletion", got)
 	}
 	engine.appendSubjectErasure = appendMarker
@@ -96,7 +102,7 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 		t.Fatal(err)
 	}
 	paid := subjectPlanesByName(planes)["postgres:alert_rules"]
-	if paid.Deleted != 2 || paid.Remaining != 0 || countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, red) != 1 || countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, blue) != 3 {
+	if paid.Deleted != 3 || paid.Remaining != 0 || countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, red) != 1 || countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, blue) != 4 {
 		t.Fatal("subject config survived or another tenant/unrelated rule changed", paid)
 	}
 	t.Log("real-integration: app-role Postgres/RLS subject export, complete config deletion and audit rollback; no scheduler or served-surface claim")
