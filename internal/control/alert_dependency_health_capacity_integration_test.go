@@ -44,14 +44,16 @@ func TestDependencyHealthCompleteTwentyThousandCurrentSourcePopulation(t *testin
 			}
 		}
 	})
-	for _, tenant := range d.f.tenants {
+	for lane, tenant := range d.f.tenants {
 		rows, graph := seedDependencyHealthPopulation(t, d, tenant, 20_000)
+		t.Logf("seeded complete current-source population: tenant lane %d", lane)
 		d.f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			policy := &alert.DependencyPolicy{ContextID: d.f.contextID, FreshnessSeconds: 300, Graph: graph}
 			snapshot, health, err := d.f.server.dependencyHealthSnapshot(ctx, sc, policy, 512<<20)
 			if err != nil || !snapshot.Complete || len(snapshot.Vertices) != len(rows) || len(health) != len(rows) || len(snapshot.Causes) != 1 {
 				t.Fatal("complete current source population was refused or shortened", len(health), err)
 			}
+			t.Logf("read complete current-source population: tenant lane %d", lane)
 			decider, err := alert.PrepareDependencyNotifications(ctx, snapshot, 512<<20, 512<<20)
 			if err != nil {
 				t.Fatal(err)
@@ -114,6 +116,7 @@ func seedDependencyHealthPopulation(t *testing.T, d *dependencyRoutingFixture, t
 		if err := sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at); err != nil {
 			return err
 		}
+		at = at.UTC().Truncate(time.Microsecond) // same canonical form as the evidence writer
 		for i := range rows {
 			row := &rows[i]
 			definition := testspec.ExecutableDefinition{ID: row.TestID, Type: "icmp", Target: row.Target, IntervalSeconds: 30, TimeoutSeconds: 2,
