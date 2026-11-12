@@ -106,7 +106,7 @@ func (s *Server) publishDependencyRoots(ctx context.Context, sc tenancy.Scope, r
 		if decision.Held() {
 			continue
 		}
-		if err := s.publishDependencyRoot(ctx, sc, policy, attempt, decision, node, health[node.EntityID], publication); err != nil {
+		if err := s.publishDependencyRoot(ctx, sc, policy, attempt, decision, node, health[node.EntityID], maxBytes, publication); err != nil {
 			return nil, err
 		}
 		published[decision.NotificationFingerprint()] = true
@@ -140,7 +140,7 @@ func dependencyRootCandidate(rule alert.Rule, attempt alert.DependencyAttempt, n
 	return attempt.NotificationDue && attempt.Alert.State == alert.StateFiring && dependencyReachabilityAttempt(rule, attempt, node, value)
 }
 
-func (s *Server) publishDependencyRoot(ctx context.Context, sc tenancy.Scope, policy *alert.DependencyPolicy, attempt alert.DependencyAttempt, decision alert.DependencyDecision, node alert.DependencyNodeInput, value store.ICMPHealth, publication *dependencyIncidentPublication) error {
+func (s *Server) publishDependencyRoot(ctx context.Context, sc tenancy.Scope, policy *alert.DependencyPolicy, attempt alert.DependencyAttempt, decision alert.DependencyDecision, node alert.DependencyNodeInput, value store.ICMPHealth, maxBytes int64, publication *dependencyIncidentPublication) error {
 	sig := signalFromAlert(attempt.Alert)
 	sig.Target = value.Observation.Alias.Value
 	sig.Attributes["test_id"], sig.Attributes["agent_id"] = value.Observation.Source.SourceRef, value.Observation.Source.AgentID
@@ -151,16 +151,48 @@ func (s *Server) publishDependencyRoot(ctx context.Context, sc tenancy.Scope, po
 	if st.identity.EntityID == "" {
 		return alert.ErrDependencyEvidence
 	}
+	inc, err := appendCurrentDependencyRoot(ctx, sc, policy, sig, node, maxBytes, publication)
+	if err != nil {
+		return err
+	}
+	if inc != nil {
+		return audit.TenantRecord(ctx, sc, policy.OwnerUserID, "alert.dependency.root_published", attempt.Alert.RuleID, map[string]any{"incident_id": inc.ID, "execution": "background"})
+	}
 	correlator := incident.NewCorrelator(st, publication.window, s.log, incident.WithObserver(func(_ context.Context, inc *incident.Incident, opened bool) {
 		if publication.pending != nil {
 			*publication.pending = append(*publication.pending, dependencyIncidentEvent{incident: inc, opened: opened})
 		}
 	}))
-	inc, err := correlator.Ingest(ctx, sig)
+	inc, err = correlator.Ingest(ctx, sig)
 	if err != nil {
 		return err
 	}
 	return audit.TenantRecord(ctx, sc, policy.OwnerUserID, "alert.dependency.root_published", attempt.Alert.RuleID, map[string]any{"incident_id": inc.ID, "execution": "background"})
+}
+
+// A current canonical root remains the same open case when its notification
+// cadence exceeds the ordinary cross-plane correlation window. The caller
+// already holds the tenant correlation and current source/owner boundaries.
+// Never pick among ambiguous cases or override an operator's detachment.
+func appendCurrentDependencyRoot(ctx context.Context, sc tenancy.Scope, policy *alert.DependencyPolicy, sig incident.Signal, node alert.DependencyNodeInput, maxBytes int64, publication *dependencyIncidentPublication) (*incident.Incident, error) {
+	cases, err := (store.Incidents{}).DependencyCauseIncidents(ctx, sc, policy.ContextID, []string{node.EntityID}, maxBytes)
+	if err != nil || cases[node.EntityID] == "" {
+		return nil, err
+	}
+	sig.IdentityLookupAttempted = true
+	sig.IdentityContextID, sig.IdentityEntityID = policy.ContextID, node.EntityID
+	overrides, err := (store.Incidents{}).ActiveCorrelationOverrides(ctx, sc, sig)
+	if err != nil || len(overrides) != 0 {
+		return nil, err
+	}
+	parent := cases[node.EntityID]
+	sig.Attributes["correlation.state"], sig.Attributes["correlation.parent_incident_id"] = "grouped", parent
+	sig.Attributes["correlation.reason"] = "current_verified_dependency_root"
+	inc, err := (store.Incidents{}).AppendSignal(ctx, sc, parent, sig)
+	if err == nil && publication.pending != nil {
+		*publication.pending = append(*publication.pending, dependencyIncidentEvent{incident: inc})
+	}
+	return inc, err
 }
 
 func dependencyRootResolution(rule alert.Rule, attempt alert.DependencyAttempt, node alert.DependencyNodeInput, value store.ICMPHealth) bool {

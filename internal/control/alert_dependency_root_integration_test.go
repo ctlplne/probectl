@@ -202,3 +202,44 @@ func TestDependencyRootRecoveryFirstAppearsAfterLeaderRestart(t *testing.T) {
 		})
 	}
 }
+
+func TestDependencyRootRenotificationKeepsExistingCanonicalCase(t *testing.T) {
+	d := seedDependencyRoutingFixture(t)
+	for _, tenant := range d.f.tenants {
+		d.f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `UPDATE incidents SET started_at=now()-interval '1 hour',last_seen_at=now()-interval '1 hour' WHERE tenant_id=$1 AND id=$2`, tenant, d.cases[tenant])
+			return err
+		})
+		node := d.graphs[tenant].Nodes[0]
+		at := d.f.observedAt(tenant)
+		attempt := alert.DependencyAttempt{
+			Alert: alert.Alert{TenantID: tenant, RuleID: d.rules[tenant].ID, RuleName: d.rules[tenant].Name, Metric: d.rules[tenant].Metric,
+				State: alert.StateFiring, At: at, Labels: map[string]string{"test_id": node.TestID, "agent_id": node.AgentID}},
+			NotificationDue: true, FiringSince: at.Add(-time.Hour), LastNotified: at.Add(-time.Hour), RuleUpdatedAt: d.rules[tenant].UpdatedAt,
+		}
+		observed := 0
+		router := d.f.server.alertDependencyRouter(tenancy.ID(tenant), dependencyIncidentPublication{observer: func(_ context.Context, inc *incident.Incident, opened bool) {
+			if inc.ID != d.cases[tenant] || inc.TenantID != tenant || opened {
+				t.Fatal("renotification opened or borrowed a different canonical case", inc.ID, opened)
+			}
+			observed++
+		}})
+		out, err := router(t.Context(), *d.rules[tenant], []alert.DependencyAttempt{attempt})
+		if err != nil || len(out) != 1 || !out[0].IncidentPublished || observed != 1 {
+			t.Fatal("renotification lost the current canonical root after the correlation window", len(out), observed, err)
+		}
+		d.f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var count, signals int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM incidents WHERE tenant_id=$1 AND entity_context_id=$2 AND entity_id=$3`, tenant, d.f.contextID, node.EntityID).Scan(&count); err != nil {
+				return err
+			}
+			if err := sc.Q.QueryRow(ctx, `SELECT signal_count FROM incidents WHERE tenant_id=$1 AND id=$2`, tenant, d.cases[tenant]).Scan(&signals); err != nil {
+				return err
+			}
+			if count != 1 || signals != 1 {
+				t.Fatal("renotification duplicated or failed to update its canonical case", count, signals)
+			}
+			return nil
+		})
+	}
+}
