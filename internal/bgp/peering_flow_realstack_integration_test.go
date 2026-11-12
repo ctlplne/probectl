@@ -37,15 +37,15 @@ import (
 func proveFRRSelectedGoldenFlowFields(t *testing.T, st *shipped.Stack, lab *routingLab, own, sibling edgeFlowRegistration, nextHops []netip.Addr) {
 	t.Helper()
 	// This source leg has no SNMP identity inference. The operator must bind
-	// each exporter to its own canonical router before the first immutable
-	// capture; assigning a VRF alone cannot attest router ownership.
-	for _, reg := range []edgeFlowRegistration{own, sibling} {
-		requireRoleSourceBinding(t, st, reg, map[string]string{
-			"agent_id": reg.agentID, "source_kind": "flow_exporter",
-			"source_ref": lab.ip["rtr-a"], "context_id": reg.contextID,
-			"anchor_entity_id": reg.deviceID,
-		})
-	}
+	// the actual exporter to its canonical router before the first immutable
+	// capture; assigning a VRF alone cannot attest router ownership. Only own
+	// sends the seven original goldens. The sibling is a BGP-only tenant here
+	// and has no raw collector identity to bind.
+	requireRoleSourceBinding(t, st, own, map[string]string{
+		"agent_id": own.agentID, "source_kind": "flow_exporter",
+		"source_ref": lab.ip["rtr-a"], "context_id": own.contextID,
+		"anchor_entity_id": own.deviceID,
+	})
 	// Next-hop ASN needs independent current neighbor evidence. Establish it
 	// before the first immutable flow capture; never warm up by discarding a
 	// flow or infer this ASN from the selected AS path.
