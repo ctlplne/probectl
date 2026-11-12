@@ -129,6 +129,15 @@ type SignalIdentityResolver interface {
 	ResolveSignalIdentity(context.Context, AuthenticatedIdentitySource, Signal) (IdentityResolution, error)
 }
 
+// CurrentEvidenceIdentityResolver is implemented only by a trusted background
+// adapter which already holds the tenant correlation transaction and current
+// source/owner locks. It derives identity from verified stored observations,
+// never from signal fields or a reconstructed TLS connection. Transport stores
+// continue to require AuthenticatedIdentitySource from the live mTLS peer.
+type CurrentEvidenceIdentityResolver interface {
+	ResolveCurrentEvidenceIdentity(context.Context, Signal) (IdentityResolution, error)
+}
+
 // Observer is notified of an incident lifecycle transition during Ingest: opened
 // is true when the signal opened a NEW incident, false when it was correlated
 // into an existing one. It runs after the store commits and after the tenant
@@ -340,22 +349,11 @@ func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal,
 			return prior, false, nil
 		}
 	}
-	if source != nil {
-		sig.IdentityLookupAttempted = true
-		if resolver, ok := st.(SignalIdentityResolver); ok {
-			identity, err := resolver.ResolveSignalIdentity(ctx, *source, sig)
-			switch {
-			case err != nil:
-				c.log.Warn("incident identity lookup unavailable; keeping signal ungrouped",
-					"tenant_id", sig.TenantID, "plane", sig.Plane)
-			case identity.EntityID == "" || identity.ContextID != "":
-				sig.IdentityContextID, sig.IdentityEntityID = identity.ContextID, identity.EntityID
-			default:
-				c.log.Warn("incident identity lookup returned incomplete tuple; keeping signal ungrouped",
-					"tenant_id", sig.TenantID, "plane", sig.Plane)
-			}
-		}
+	identified, err := c.resolveStoreIdentity(ctx, st, sig, source)
+	if err != nil {
+		return nil, false, err
 	}
+	sig = identified
 	overrides, err := st.ActiveCorrelationOverrides(ctx, sig.TenantID, sig)
 	if err != nil {
 		// An unavailable override store must be loud: silently ignoring operator
@@ -404,6 +402,36 @@ func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal,
 	c.log.Info("opened incident",
 		"incident_id", created.ID, "plane", sig.Plane, "kind", sig.Kind, "tenant_id", sig.TenantID)
 	return updated, true, nil
+}
+
+func (c *Correlator) resolveStoreIdentity(ctx context.Context, st Store, sig Signal, source *AuthenticatedIdentitySource) (Signal, error) {
+	if source != nil {
+		sig.IdentityLookupAttempted = true
+		if resolver, ok := st.(SignalIdentityResolver); ok {
+			identity, err := resolver.ResolveSignalIdentity(ctx, *source, sig)
+			switch {
+			case err != nil:
+				c.log.Warn("incident identity lookup unavailable; keeping signal ungrouped",
+					"tenant_id", sig.TenantID, "plane", sig.Plane)
+			case identity.EntityID == "" || identity.ContextID != "":
+				sig.IdentityContextID, sig.IdentityEntityID = identity.ContextID, identity.EntityID
+			default:
+				c.log.Warn("incident identity lookup returned incomplete tuple; keeping signal ungrouped",
+					"tenant_id", sig.TenantID, "plane", sig.Plane)
+			}
+		}
+	} else if resolver, ok := st.(CurrentEvidenceIdentityResolver); ok {
+		identity, err := resolver.ResolveCurrentEvidenceIdentity(ctx, sig)
+		if err != nil {
+			return sig, err
+		}
+		if identity.ContextID == "" || identity.EntityID == "" {
+			return sig, errors.New("incident: current stored source identity is incomplete")
+		}
+		sig.IdentityLookupAttempted = true
+		sig.IdentityContextID, sig.IdentityEntityID = identity.ContextID, identity.EntityID
+	}
+	return sig, nil
 }
 
 func excludedByOverride(incidentID string, overrides []CorrelationOverride) bool {

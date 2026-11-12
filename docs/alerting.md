@@ -555,7 +555,12 @@ when a complete current graph and sender-bound complete ICMP echo loss prove
 that failed upstream elements cover every dependency path. Each cause must have
 a current canonical upstream incident. Held signals remain attached to those
 incidents, and undelivered notification state is committed in the same tenant
-transaction. A working alternative, independent symptom, unknown/stale/conflicting
+transaction. A due, source-proven root firing creates or updates its canonical
+case through the normal correlator before child relationships are published.
+Existing connector observers run only after the outer transaction commits.
+Recovery updates that canonical case and releases a still-failing child;
+an undelivered held child does not create a fictitious resolution incident.
+A working alternative, independent symptom, unknown/stale/conflicting
 source or unavailable authority keeps ordinary delivery. Persistent downstream
 firings resume delivery after the upstream recovers; the original incident
 timeline records the release. Context-only configuration does not enable holding.

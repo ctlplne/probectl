@@ -33,18 +33,19 @@ func (en *Engine) needsDependencyRouting(rule Rule) bool {
 	return en.dependencyRouter != nil && rule.HasDependencyPolicy || en.dependencyRules[rule.ID]
 }
 
-// A persisted held marker is an incident-visible episode, independently of
-// whether it previously delivered. Restore it before evaluating a
-// current sample so a recovered series closes without sending a fictitious
+// Persisted firing-since proves an active episode, independently of delivery.
+// Restore ordinary delivered roots as well as held children before a current
+// sample so a recovered series closes without sending a fictitious
 // resolution, and a still-failing series retains its original episode clock.
 func (en *Engine) dependencyBeforeSample(rule Rule, s Sample) (time.Time, bool) {
 	en.mu.Lock()
 	defer en.mu.Unlock()
 	key := stateKey(rule.ID, s.Labels)
 	st := en.states[key]
-	if restored, ok := en.restoredNotify[key]; st == nil && ok && restoredDependencyHeld(restored) && !restored.FiringSince.IsZero() {
+	if restored, ok := en.restoredNotify[key]; st == nil && ok && !restored.FiringSince.IsZero() {
 		st = en.stateForLocked(rule, s.Labels)
-		st.firing, st.dependencyRestored = true, true
+		st.firing = true
+		st.dependencyRestored = restoredDependencyHeld(restored) || restored.Dependency != nil && restored.LastNotified.IsZero()
 		st.since, st.breachCount = restored.FiringSince, requiredBreaches(rule)
 		st.lastNotified = restored.LastNotified
 		delete(en.restoredNotify, key)

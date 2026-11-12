@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -26,9 +28,11 @@ import (
 // policy as interactive metadata reads. Missing admission refuses tagged rules;
 // legacy rules retain their existing tenant-bound source.
 type AlertTagDependencies struct {
-	Gate      *fairness.Gate
-	FlowStore flowstore.Store
-	Queries   *Server
+	Gate             *fairness.Gate
+	FlowStore        flowstore.Store
+	Queries          *Server
+	IncidentWindow   time.Duration
+	IncidentObserver incident.Observer
 }
 
 type alertTagAuthority struct {

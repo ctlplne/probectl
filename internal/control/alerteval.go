@@ -309,7 +309,7 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 	// tenant-bound pool; the source is bound to this evaluator's tenant.
 	opts := []alert.EngineOption{alert.WithTrapSource(trapSource{traps: store.NewDeviceTraps(pool), tenant: tenant.String()})}
 	if tagDeps.Queries != nil {
-		opts = append(opts, alert.WithDependencyRouter(tagDeps.Queries.alertDependencyRouter(tenant)))
+		opts = append(opts, alert.WithDependencyRouter(tagDeps.Queries.alertDependencyRouter(tenant, dependencyIncidentPublication{window: tagDeps.IncidentWindow, observer: tagDeps.IncidentObserver})))
 	}
 	if sink != nil {
 		opts = append(opts, alert.WithAlertSink(sink))

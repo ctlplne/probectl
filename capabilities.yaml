@@ -150,8 +150,8 @@ capabilities:
     status: delivered
     owner: platform/release
     # Dependency routing is preview: current sender-bound source reads and
-    # existing canonical parent cases; physical lab qualification is separate.
-    engine: {refs: ["file:internal/alert", "file:internal/control/alert_dependency_router.go"]}
+    # canonical root/child publication; physical lab qualification is separate.
+    engine: {refs: ["file:internal/alert", "file:internal/control/alert_dependency_router.go", "file:internal/control/alert_dependency_root.go"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildAlertEvaluatorSupervisor("]}
     api: {refs: ["api:GET /v1/alerts", "api:GET /v1/alerts/active", "api:GET /v1/alerts/rules/{id}/query-group", "api:GET /v1/alerts/rules/{id}/query-source", "api:PUT /v1/alerts/rules/{id}/query-source", "api:DELETE /v1/alerts/rules/{id}/query-source", "api:GET /v1/alerts/rules/{id}/dependency-policy", "api:PUT /v1/alerts/rules/{id}/dependency-policy", "api:DELETE /v1/alerts/rules/{id}/dependency-policy"]}
     cli: {refs: ["cli:probectl alert list", "cli:probectl alert active", "cli:probectl alert query-group", "cli:probectl alert query-source", "cli:probectl alert query-source-set", "cli:probectl alert query-source-clear", "cli:probectl alert dependency-policy", "cli:probectl alert dependency-policy-set", "cli:probectl alert dependency-policy-clear"]}

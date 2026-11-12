@@ -178,10 +178,17 @@ func TestDependencyRouterPublishesCurrentTwoTenantHoldsAndReleases(t *testing.T)
 			return count
 		}
 		evaluate()
-		if len(mail.subjects) != 1 || ordinary != 1 || len(eval.Engine().Active()) != 2 || countHeld() != 1 {
+		if len(mail.subjects) != 1 || ordinary != 0 || len(eval.Engine().Active()) != 2 || countHeld() != 1 {
 			t.Fatal("router did not keep one upstream delivery and visible held downstream", mail.subjects, ordinary, len(eval.Engine().Active()), countHeld())
 		}
 		d.f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var root int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM incident_signals WHERE tenant_id=$1 AND incident_id=$2 AND kind='alert.firing' AND entity_id=$3 AND identity_lookup_attempted`, tenant, d.cases[tenant], d.graphs[tenant].Nodes[0].EntityID).Scan(&root); err != nil {
+				return err
+			}
+			if root != 1 {
+				t.Fatal("ordinary root was acknowledged without a canonical persisted signal", root)
+			}
 			var held int
 			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM alert_notifications WHERE tenant_id=$1 AND firing_since IS NOT NULL AND last_notified='0001-01-01'::timestamptz`, tenant).Scan(&held); err != nil {
 				return err

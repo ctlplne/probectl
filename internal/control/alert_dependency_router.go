@@ -23,7 +23,7 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-func (s *Server) alertDependencyRouter(tenant tenancy.ID) alert.DependencyRouter {
+func (s *Server) alertDependencyRouter(tenant tenancy.ID, publication ...dependencyIncidentPublication) alert.DependencyRouter {
 	return func(ctx context.Context, rule alert.Rule, attempts []alert.DependencyAttempt) ([]alert.DependencyOutcome, error) {
 		if s == nil || s.pool == nil || s.fairnessGate == nil || tenant.String() == "" || rule.TenantID != tenant.String() {
 			return nil, alert.ErrDependencyEvidence
@@ -42,17 +42,27 @@ func (s *Server) alertDependencyRouter(tenant tenancy.ID) alert.DependencyRouter
 			return nil, err
 		}
 		defer release()
+		var pending []dependencyIncidentEvent
+		cfg := dependencyIncidentPublication{pending: &pending}
+		if len(publication) > 0 {
+			cfg.window, cfg.observer = publication[0].window, publication[0].observer
+		}
 		var outcomes []alert.DependencyOutcome
 		err = tenancy.InTenant(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 			return (store.AlertRules{}).WithDependencyPublication(ctx, sc, rule.ID, rule.UpdatedAt, budget.MemoryBytes/8,
 				func(ctx context.Context, sc tenancy.Scope, policy *alert.DependencyPolicy) error {
 					var publishErr error
-					outcomes, publishErr = s.publishDependencyAttempts(ctx, sc, rule, policy, attempts, budget.MemoryBytes/2)
+					outcomes, publishErr = s.publishDependencyAttempts(ctx, sc, rule, policy, attempts, budget.MemoryBytes/2, &cfg)
 					return publishErr
 				})
 		})
 		if err != nil {
 			return nil, err // no successful prefix or uncommitted acknowledgement
+		}
+		if cfg.observer != nil {
+			for _, event := range pending {
+				cfg.observer(ctx, event.incident, event.opened)
+			}
 		}
 		return outcomes, nil
 	}
@@ -60,7 +70,7 @@ func (s *Server) alertDependencyRouter(tenant tenancy.ID) alert.DependencyRouter
 
 // All evidence and effects share the current tenant transaction. No decoded
 // parent, stale read credential or numeric metric label grants a hold.
-func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope, rule alert.Rule, policy *alert.DependencyPolicy, attempts []alert.DependencyAttempt, maxBytes int64) ([]alert.DependencyOutcome, error) {
+func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope, rule alert.Rule, policy *alert.DependencyPolicy, attempts []alert.DependencyAttempt, maxBytes int64, publication ...*dependencyIncidentPublication) ([]alert.DependencyOutcome, error) {
 	ceiling, err := policy.CredentialCeiling(sc.Tenant.String())
 	if err != nil {
 		return nil, err
@@ -80,6 +90,14 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 		return nil, err
 	}
 	graph, health, err := s.dependencyHealthSnapshot(ctx, sc, policy, maxBytes/2)
+	if err != nil {
+		return nil, err
+	}
+	cfg := &dependencyIncidentPublication{}
+	if len(publication) > 0 && publication[0] != nil {
+		cfg = publication[0]
+	}
+	roots, err := s.publishDependencyRoots(ctx, sc, rule, policy, &graph, health, attempts, maxBytes/2, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -116,10 +134,14 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 			return nil, err
 		}
 		out[i].Decision = decision
+		out[i].IncidentPublished = roots[decision.NotificationFingerprint()]
 		if !decision.Held() {
 			if attempt.PreviouslyHeld && matched {
 				if err := publishReleasedDependency(ctx, sc, policy.OwnerUserID, attempt, decision, sig, maxBytes/4); err != nil {
 					return nil, err
+				}
+				if attempt.Alert.State == alert.StateResolved && attempt.LastNotified.IsZero() {
+					out[i].IncidentPublished = true // closes the existing visible parent; no fictitious child incident
 				}
 			}
 			continue
