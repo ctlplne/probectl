@@ -1528,7 +1528,7 @@ jobs:
         run: |
           python3 scripts/ci_entity_subject_lifecycle.py --selftest
           python3 scripts/ci_entity_subject_lifecycle.py
-          go test -v -tags=integration -count=1 -timeout=5m -run '^TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary$' ./internal/tenantlife
+          go test -v -tags=integration -count=1 -timeout=5m -run '^(TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary|TestFlowQuerySubject.*)$' ./internal/tenantlife
       - name: Exact counter sender and capacity agreement PostgreSQL proof
         # These roots require the existing TLS database and issued mTLS test
         # identities, independently of browser packages and rendered proofs.

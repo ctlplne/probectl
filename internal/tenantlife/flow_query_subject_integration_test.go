@@ -23,6 +23,98 @@ import (
 	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
+func TestFlowQuerySubjectStructuralReferencesDoNotOwnSavedConfiguration(t *testing.T) {
+	admin := itPool(t)
+	t.Cleanup(admin.Close)
+	testsupport.LockPostgresPublicCatalog(t, admin)
+	pool := flowQueryRuntime(t, admin)
+	red := mkTenant(t, admin, "probectl-qa-beta-reference-red-"+flowQueryUUID(t))
+	blue := mkTenant(t, admin, "probectl-qa-beta-reference-blue-"+flowQueryUUID(t))
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.Background(), `DELETE FROM tenants WHERE id=ANY($1::uuid[])`, []string{red, blue}); err != nil {
+			t.Error(err)
+		}
+	})
+	const subject = "saved-owner@example.test"
+	var owner string
+	if err := admin.QueryRow(t.Context(), `INSERT INTO users(tenant_id,email,display_name,status,user_name)VALUES($1,$2,'Owner','active',$2)RETURNING id::text`, red, subject).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	for _, tenant := range []string{red, blue} {
+		for i := range 5 {
+			id := fmt.Sprintf("00000000-0000-4000-8000-%012x", i+1)
+			expression := map[string]any{"match": "all", "saved": []any{map[string]any{"id": owner, "mode": "include"}}}
+			tags := map[string]string{"tag.role": owner}
+			switch i {
+			case 0: // Only structural saved-filter/tag UUID references.
+			case 1: // Personal selection value, even though it is a UUID.
+				expression["conditions"] = []any{map[string]any{"field": "tag.role", "op": "eq", "values": []string{owner}}}
+			case 2: // Unknown fields must not conceal personal data.
+				expression["future"] = map[string]any{"saved": []any{map[string]any{"id": owner}}}
+			case 3: // Known nested references are structural too.
+				expression = map[string]any{"groups": []any{expression}}
+			case 4: // Malformed references retain subject-bearing text.
+				expression["saved"] = []any{map[string]any{"id": subject, "mode": "include"}}
+				tags["tag.role"] = subject
+			}
+			raw, err := json.Marshal(expression)
+			if err != nil {
+				t.Fatal(err)
+			}
+			definition, err := json.Marshal(map[string]any{"name": "Owned configuration", "visibility": "tenant", "time": map[string]any{}, "plan": map[string]any{"filter": expression}, "tag_ids": tags})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := admin.Exec(t.Context(), `INSERT INTO flow_query_filters(tenant_id,id,name,expression,version,updated_by,created_at,updated_at)VALUES($1,$2,'Owned configuration',$3::jsonb,1,'other-owner',now(),now())`, tenant, id, raw); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := admin.Exec(t.Context(), `INSERT INTO flow_query_views(tenant_id,id,owner_id,name,visibility,definition,version,created_at,updated_at)VALUES($1,$2,'other-owner','Owned configuration','tenant',$3::jsonb,1,now(),now())`, tenant, id, definition); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	engine := New(pool, nil, nil, nil, nil, "owned fixture backups", testLog())
+	var archive bytes.Buffer
+	if _, err := engine.ExportSubject(t.Context(), red, subject, &archive, false); err != nil {
+		t.Fatal(err)
+	}
+	files := readTarGz(t, archive.Bytes())
+	for _, table := range []string{"flow_query_filters", "flow_query_views"} {
+		body := strings.TrimSpace(files["postgres/"+table+".jsonl"])
+		if strings.Count(body, "\n") != 2 || strings.Contains(body, "00000000-0000-4000-8000-000000000001") || strings.Contains(body, "00000000-0000-4000-8000-000000000004") || strings.Contains(body, blue) {
+			t.Errorf("structural references selected unrelated configuration: %s rows=%d, want3", table, strings.Count(body, "\n")+1)
+		}
+	}
+	appendMarker := engine.appendSubjectErasure
+	injected := errors.New("owned structural reference audit refusal")
+	engine.appendSubjectErasure = func(context.Context, tenancy.Scope, string, string, string) (audit.Event, error) {
+		return audit.Event{}, injected
+	}
+	if _, _, err := engine.eraseSubjectPostgres(t.Context(), red, subject, "privacy-admin", "owned reference rollback"); !errors.Is(err, injected) {
+		t.Fatal("reference erasure did not refuse audit failure", err)
+	}
+	for _, table := range []string{"flow_query_filters", "flow_query_views"} {
+		if countRows(t, admin, `SELECT count(*) FROM `+pgIdent(table)+` WHERE tenant_id=$1`, red) != 5 || countRows(t, admin, `SELECT count(*) FROM `+pgIdent(table)+` WHERE tenant_id=$1`, blue) != 5 {
+			t.Fatal("audit refusal committed configuration loss", table)
+		}
+	}
+	engine.appendSubjectErasure = appendMarker
+	planes, _, err := engine.eraseSubjectPostgres(t.Context(), red, subject, "privacy-admin", "owned structural reference regression")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPlane := subjectPlanesByName(planes)
+	for _, table := range []string{"flow_query_filters", "flow_query_views"} {
+		if got := byPlane["postgres:"+table]; got.Deleted != 3 || got.Remaining != 0 {
+			t.Error("saved configuration exact subject deletion failed", table, got)
+		}
+		if countRows(t, admin, `SELECT count(*) FROM `+pgIdent(table)+` WHERE tenant_id=$1`, blue) != 5 ||
+			countRows(t, admin, `SELECT count(*) FROM `+pgIdent(table)+` WHERE tenant_id=$1 AND id=ANY($2::uuid[])`, red, []string{"00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000004"}) != 2 {
+			t.Error("unrelated structural references or sibling configuration were deleted", table)
+		}
+	}
+}
+
 func TestFlowQuerySubjectPostgresDecodedExportErasureAndRollback(t *testing.T) {
 	admin := itPool(t)
 	t.Cleanup(admin.Close)

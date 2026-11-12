@@ -424,8 +424,9 @@ full criteria are read separately so large values do not expand bulk rule reads.
 Criteria and their configuring user reference participate in subject export
 and verified erasure. Matching configuration is removed with its rule inside
 the tenant's audited erasure transaction; unrelated and other-tenant rules
-remain. Structural rule IDs and opaque saved-query group keys are not subject
-selectors.
+remain. Structural rule IDs, known context/view/tag/scope UUID references and
+opaque saved-query group keys are not subject selectors. Personal selection
+values and unknown or malformed retained fields remain subject-bearing.
 
 The authenticated active user needs current alert write and tag/test/metric read
 grants to configure this selection. The evaluator reloads that user's current

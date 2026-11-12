@@ -8,6 +8,7 @@ package tenantlife
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -34,7 +35,22 @@ func TestFlowQuerySubjectDecodedDocumentsAndNearMatches(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := scan.matches(t.Context(), false, []byte(test.document))
+			document := []byte(test.document)
+			if table == "flow_query_filters" || table == "flow_query_views" {
+				// Match the SQL projection: name/description precede the
+				// complete expression or definition document.
+				var part []json.RawMessage
+				if err := json.Unmarshal(document, &part); err != nil {
+					t.Fatal(err)
+				}
+				fields := make([]json.RawMessage, len(subjectPostgresTablePolicies[table].contains))
+				fields[len(fields)-1] = part[0]
+				document, err = json.Marshal(fields)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := scan.matches(t.Context(), false, document)
 			if err != nil || got != test.want {
 				t.Fatalf("%s subject=%q: match=%v want=%v err=%v", table, test.subject, got, test.want, err)
 			}
@@ -57,8 +73,11 @@ func TestFlowQuerySubjectExactOwnerCannotHideIncompleteDocument(t *testing.T) {
 			t.Fatal("matching owner certified an incomplete document", err)
 		}
 	}
-	if got, err := scan.matches(t.Context(), true, []byte(`["unrelated"]`)); !got || err != nil {
+	if got, err := scan.matches(t.Context(), true, []byte(`[null,"unrelated"]`)); !got || err != nil {
 		t.Fatal("exact owner was lost", err)
+	}
+	if got, err := scan.matches(t.Context(), true, []byte(`["unrelated"]`)); got || !errors.Is(err, govern.ErrSubjectDocument) {
+		t.Fatal("matching owner certified an incomplete classified column set", err)
 	}
 	budget := govern.DefaultSubjectDocumentBudget()
 	budget.Bytes = 1
@@ -78,5 +97,30 @@ func TestFlowQuerySubjectExactOwnerCannotHideIncompleteDocument(t *testing.T) {
 		if _, err := newFlowQuerySubjectScan(table, newSubjectAliasSet("bob@example.test")); err == nil {
 			t.Fatal("non-configuration table entered the decoder", table)
 		}
+	}
+}
+
+func TestFlowQuerySubjectStructuralProjectionKeepsUnknownKeysAndExactNumbers(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	raw := []byte(`["Owned",{"tag_ids":{"tag.role":"` + id + `"},"plan":{"filter":{"groups":[{"saved":[{"id":"` + id + `"}]}]}},"future":{"id":"` + id + `"},"exact":9007199254740993123456789}]`)
+	before := string(raw)
+	projected, changed, err := projectSavedQuerySubject(t.Context(), "flow_query_views", raw)
+	if err != nil || !changed || string(raw) != before || !strings.Contains(string(projected), `9007199254740993123456789`) || !strings.Contains(string(projected), `"future":{"id":"`+id+`"}`) {
+		t.Fatal("structural projection altered original/exact/unknown data", err)
+	}
+	scan, err := newFlowQuerySubjectScan("flow_query_views", newSubjectAliasSet(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := scan.matches(t.Context(), false, raw); err != nil || !got {
+		t.Fatal("an unknown identity field was hidden by reference projection", err)
+	}
+	scan, err = newFlowQuerySubjectScan("flow_query_views", newSubjectAliasSet("bob@example.test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	personalKey := []byte(`["Owned",{"tag_ids":{"tag.bob@example.test":"` + id + `"}}]`)
+	if got, err := scan.matches(t.Context(), false, personalKey); err != nil || !got {
+		t.Fatal("a personal tag key was hidden with its structural value", err)
 	}
 }

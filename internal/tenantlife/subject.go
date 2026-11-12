@@ -406,6 +406,8 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// rather than DSAR per-subject data, removed on full-tenant erase via CASCADE.
 	"device_syslog": {plane: "postgres:device_syslog", disposition: subjectTableNoSubject},
 	// Saved expressions can contain addresses or operator-entered identities.
+	// Known saved-filter/tag UUID references are structural; the decoded
+	// selector preserves criteria, personal keys and unknown/invalid values.
 	// Remove matching configuration on subject erasure; full erasure discovers
 	// the tenant-owned table and exports/deletes it through the ordinary path.
 	"flow_query_filters": {

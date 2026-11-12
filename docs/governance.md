@@ -107,6 +107,14 @@ The redaction *mechanism* is **core** (the `?redact=true` toggle works on any
 deployment with the PII-floor default). The `governance` feature adds **per-tenant
 policy** — custom classifications, a custom floor, and forced export redaction.
 
+Saved query/filter and alert subject selection distinguishes personal values
+from structural references. An owner's identity, selection criteria and retained
+unknown or malformed values can select a row. Known UUID references to a saved
+filter/view, immutable tag, dependency context or hierarchy scope do not make
+unrelated configuration belong to that person. Matching rows remain complete in
+portable exports (with requested/required redaction), and erasure stays inside
+the tenant's audited transaction.
+
 ## The governance policy + composed view
 
 The provider plane exposes one place for a tenant's data governance

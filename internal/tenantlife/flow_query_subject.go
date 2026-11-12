@@ -222,6 +222,17 @@ func (scan *flowQuerySubjectScan) matches(ctx context.Context, exact bool, docum
 	if err != nil {
 		return false, err
 	}
+	projected, changed, err := projectSavedQuerySubject(ctx, scan.table, document)
+	defer clear(projected)
+	if err != nil {
+		return false, err
+	}
+	if changed {
+		matched, err = scan.document.MatchJSON(ctx, projected)
+		if err != nil {
+			return false, err
+		}
+	}
 	return exact || matched, nil
 }
 
