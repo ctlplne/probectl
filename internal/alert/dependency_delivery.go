@@ -161,7 +161,7 @@ func (en *Engine) applyDependencyDelivery(ctx context.Context, rule Rule, entry 
 	}
 	// Never send a resolution for a firing that was held from its first
 	// attempt. Existing delivered episodes retain ordinary resolve behavior.
-	send := entry.attempt.NotificationDue && !(a.State == StateResolved && entry.attempt.PreviouslyHeld && entry.lastNotified.IsZero())
+	send := entry.attempt.NotificationDue && (a.State != StateResolved || !entry.attempt.PreviouslyHeld || !entry.lastNotified.IsZero())
 	if send && en.notifier != nil {
 		en.notifier.Deliver(ctx, rule, a)
 	}

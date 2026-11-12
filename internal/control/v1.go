@@ -60,31 +60,6 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/agents/{id}", s.handleGetAgent, permAgentRead},
 		{http.MethodPatch, "/v1/agents/{id}", s.handlePatchAgent, permAgentWrite},
 		{http.MethodDelete, "/v1/agents/{id}", s.handleDeleteAgent, permAgentWrite},
-		{http.MethodGet, "/v1/alerts", s.handleListAlerts, permAlertRead},
-		{http.MethodPost, "/v1/alerts", s.handleCreateAlert, permAlertWrite},
-		{http.MethodPost, "/v1/alerts/test-channel", s.handleAlertChannelTest, permAlertWrite},
-		{http.MethodGet, "/v1/alerts/active", s.handleListActiveAlerts, permAlertRead},
-		{http.MethodGet, "/v1/alerts/active/{fingerprint}/workflow", s.handleAlertWorkflow, permAlertRead},
-		{http.MethodPost, "/v1/alerts/active/silence", s.handleSilenceAlert, permAlertWrite},
-		{http.MethodPost, "/v1/alerts/active/ack", s.handleAckAlert, permAlertWrite},
-		{http.MethodGet, "/v1/alerts/maintenance", s.handleListMaintenanceWindows, permAlertRead},
-		{http.MethodPost, "/v1/alerts/maintenance", s.handleUpsertMaintenanceWindow, permAlertWrite},
-		{http.MethodPost, "/v1/alerts/maintenance/preview", s.handlePreviewMaintenanceWindows, permAlertRead},
-		{http.MethodDelete, "/v1/alerts/maintenance/{id}", s.handleDeleteMaintenanceWindow, permAlertWrite},
-		{http.MethodGet, "/v1/alerts/{id}/evaluations", s.handleListAlertEvaluations, permAlertRead},
-		{http.MethodGet, "/v1/alerts/rules/{id}/tag-filter", s.handleGetAlertTagFilter, permAlertRead},
-		{http.MethodPut, "/v1/alerts/rules/{id}/tag-filter", s.handlePutAlertTagFilter, permAlertWrite},
-		{http.MethodDelete, "/v1/alerts/rules/{id}/tag-filter", s.handleDeleteAlertTagFilter, permAlertWrite},
-		{http.MethodGet, "/v1/alerts/rules/{id}/query-group", s.handleGetAlertQueryGroup, permAlertRead},
-		{http.MethodGet, "/v1/alerts/rules/{id}/query-source", s.handleGetAlertQuerySource, permAlertRead},
-		{http.MethodPut, "/v1/alerts/rules/{id}/query-source", s.handlePutAlertQuerySource, permAlertWrite},
-		{http.MethodDelete, "/v1/alerts/rules/{id}/query-source", s.handleDeleteAlertQuerySource, permAlertWrite},
-		{http.MethodGet, "/v1/alerts/rules/{id}/dependency-policy", s.handleGetAlertDependencyPolicy, permAlertRead},
-		{http.MethodPut, "/v1/alerts/rules/{id}/dependency-policy", s.handlePutAlertDependencyPolicy, permAlertWrite},
-		{http.MethodDelete, "/v1/alerts/rules/{id}/dependency-policy", s.handleDeleteAlertDependencyPolicy, permAlertWrite},
-		{http.MethodGet, "/v1/alerts/{id}", s.handleGetAlert, permAlertRead},
-		{http.MethodPut, "/v1/alerts/{id}", s.handleUpdateAlert, permAlertWrite},
-		{http.MethodDelete, "/v1/alerts/{id}", s.handleDeleteAlert, permAlertWrite},
 		{http.MethodGet, "/v1/incidents", s.handleListIncidents, permIncidentRead},
 		{http.MethodGet, "/v1/incidents/{id}", s.handleGetIncident, permIncidentRead},
 		{http.MethodGet, "/v1/incidents/{id}/changes", s.handleIncidentChanges, permIncidentRead},
@@ -288,9 +263,40 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/dashboard-report-artifacts/{id}", s.handleDownloadDashboardReportArtifact, permMetricsRead},
 		{http.MethodGet, "/v1/me", s.handleMe, ""},
 	}
+	routes = append(routes, s.alertRoutes()...)
 	routes = append(routes, s.flowRoutes()...)
 	routes = append(routes, s.tagRoutes()...)
 	return append(routes, s.interfaceRoleRoutes()...)
+}
+
+func (s *Server) alertRoutes() []apiRoute {
+	return []apiRoute{
+		{http.MethodGet, "/v1/alerts", s.handleListAlerts, permAlertRead},
+		{http.MethodPost, "/v1/alerts", s.handleCreateAlert, permAlertWrite},
+		{http.MethodPost, "/v1/alerts/test-channel", s.handleAlertChannelTest, permAlertWrite},
+		{http.MethodGet, "/v1/alerts/active", s.handleListActiveAlerts, permAlertRead},
+		{http.MethodGet, "/v1/alerts/active/{fingerprint}/workflow", s.handleAlertWorkflow, permAlertRead},
+		{http.MethodPost, "/v1/alerts/active/silence", s.handleSilenceAlert, permAlertWrite},
+		{http.MethodPost, "/v1/alerts/active/ack", s.handleAckAlert, permAlertWrite},
+		{http.MethodGet, "/v1/alerts/maintenance", s.handleListMaintenanceWindows, permAlertRead},
+		{http.MethodPost, "/v1/alerts/maintenance", s.handleUpsertMaintenanceWindow, permAlertWrite},
+		{http.MethodPost, "/v1/alerts/maintenance/preview", s.handlePreviewMaintenanceWindows, permAlertRead},
+		{http.MethodDelete, "/v1/alerts/maintenance/{id}", s.handleDeleteMaintenanceWindow, permAlertWrite},
+		{http.MethodGet, "/v1/alerts/{id}/evaluations", s.handleListAlertEvaluations, permAlertRead},
+		{http.MethodGet, "/v1/alerts/rules/{id}/tag-filter", s.handleGetAlertTagFilter, permAlertRead},
+		{http.MethodPut, "/v1/alerts/rules/{id}/tag-filter", s.handlePutAlertTagFilter, permAlertWrite},
+		{http.MethodDelete, "/v1/alerts/rules/{id}/tag-filter", s.handleDeleteAlertTagFilter, permAlertWrite},
+		{http.MethodGet, "/v1/alerts/rules/{id}/query-group", s.handleGetAlertQueryGroup, permAlertRead},
+		{http.MethodGet, "/v1/alerts/rules/{id}/query-source", s.handleGetAlertQuerySource, permAlertRead},
+		{http.MethodPut, "/v1/alerts/rules/{id}/query-source", s.handlePutAlertQuerySource, permAlertWrite},
+		{http.MethodDelete, "/v1/alerts/rules/{id}/query-source", s.handleDeleteAlertQuerySource, permAlertWrite},
+		{http.MethodGet, "/v1/alerts/rules/{id}/dependency-policy", s.handleGetAlertDependencyPolicy, permAlertRead},
+		{http.MethodPut, "/v1/alerts/rules/{id}/dependency-policy", s.handlePutAlertDependencyPolicy, permAlertWrite},
+		{http.MethodDelete, "/v1/alerts/rules/{id}/dependency-policy", s.handleDeleteAlertDependencyPolicy, permAlertWrite},
+		{http.MethodGet, "/v1/alerts/{id}", s.handleGetAlert, permAlertRead},
+		{http.MethodPut, "/v1/alerts/{id}", s.handleUpdateAlert, permAlertWrite},
+		{http.MethodDelete, "/v1/alerts/{id}", s.handleDeleteAlert, permAlertWrite},
+	}
 }
 
 func (s *Server) flowRoutes() []apiRoute {

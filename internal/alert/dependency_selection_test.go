@@ -103,10 +103,10 @@ func TestTopologyDependencySelectionRequiresCurrentTenantAndCompleteEvidence(t *
 		if out, err := selectDependencyHold(ctx, own, dependencyTarget, true, dependencyBudget{memory: 1, work: 1}); err == nil || !reflect.DeepEqual(out, dependencySelection{}) {
 			t.Fatal("refused admission returned partial routing authority", out, err)
 		}
-		cancelled, cancel := context.WithCancel(ctx)
+		canceled, cancel := context.WithCancel(ctx)
 		cancel()
-		if out, err := selectDependencyHold(cancelled, own, dependencyTarget, true, budget); !errors.Is(err, context.Canceled) || !reflect.DeepEqual(out, dependencySelection{}) {
-			t.Fatal("cancelled current read published a hold", out, err)
+		if out, err := selectDependencyHold(canceled, own, dependencyTarget, true, budget); !errors.Is(err, context.Canceled) || !reflect.DeepEqual(out, dependencySelection{}) {
+			t.Fatal("canceled current read published a hold", out, err)
 		}
 	}
 }
