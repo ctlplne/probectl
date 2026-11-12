@@ -70,7 +70,14 @@ func (s *icmpProbeState) read(ctx context.Context, conn icmpProbeConn, deadline 
 	}
 	// One sentinel byte detects oversized replies; complete configured payloads
 	// above the old Ethernet-sized buffer remain supported.
-	buffer := make([]byte, 8+len(s.payload)+1)
+	bufferBytes := 8 + len(s.payload) + 1
+	if s.raw && !s.v6 {
+		// Linux net.IPConn reads the outer IPv4 header into this same
+		// buffer before stripping it. Reserve the protocol's maximum IHL
+		// (15 four-byte words), so a valid echo is not truncated first.
+		bufferBytes += 15 * 4
+	}
+	buffer := make([]byte, bufferBytes)
 	for ctx.Err() == nil && time.Now().Before(deadline) {
 		n, peer, err := conn.ReadFrom(buffer)
 		if err != nil {

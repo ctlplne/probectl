@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"strings"
@@ -243,5 +244,50 @@ func TestICMPMeasurementRetainsSequenceAboveWireRange(t *testing.T) {
 	}
 	if !facts.Complete() || facts.Transmitted != 65537 || facts.Replies != 1 || rtts[65536] < 0 || rtts[0] >= 0 {
 		t.Fatal("the wrapped wire sequence was attributed to a different request", facts)
+	}
+}
+
+// Linux net.IPConn reads the outer IPv4 header into the supplied buffer,
+// then strips that header. Truncation has already happened at that point.
+// This socket contract reproduces the kernel/stdlib boundary independently
+// of the collector's echo matching and nonce checks.
+type ipv4HeaderMeasurementSocket struct {
+	*icmpMeasurementSocket
+	headerBytes int
+}
+
+func (s *ipv4HeaderMeasurementSocket) ReadFrom(buffer []byte) (int, net.Addr, error) {
+	select {
+	case packet := <-s.packets:
+		s.readPackets++
+		raw := make([]byte, s.headerBytes+len(packet))
+		raw[0] = 0x40 | byte(s.headerBytes/4)
+		copy(raw[s.headerBytes:], packet)
+		n := copy(buffer, raw)
+		if n < s.headerBytes {
+			return 0, nil, errors.New("IPv4 fixture header truncated")
+		}
+		copy(buffer, buffer[s.headerBytes:])
+		return n - s.headerBytes, s.peer, nil
+	case <-s.done:
+		return 0, nil, os.ErrDeadlineExceeded
+	}
+}
+func TestRawICMPv4KeepsCompleteEchoAcrossOuterHeaders(t *testing.T) {
+	for _, headerBytes := range []int{20, 60} {
+		t.Run(fmt.Sprint(headerBytes), func(t *testing.T) {
+			socket := &ipv4HeaderMeasurementSocket{icmpMeasurementSocket: newICMPMeasurementSocket(t, "reply", false), headerBytes: headerBytes}
+			probe := &icmpCanary{count: 1, payload: 4096, timeout: 80 * time.Millisecond}
+			rtts, _, facts, err := probe.probe(t.Context(), socket, true, false, net.ParseIP("192.0.2.1"), time.Now())
+			if err != nil || socket.readPackets != 1 || !facts.Complete() || facts.Replies != 1 || rtts[0] < 0 {
+				t.Fatal("raw IPv4 stripped a truncated echo and reported false loss", headerBytes, facts, err)
+			}
+		})
+	}
+	socket := &ipv4HeaderMeasurementSocket{icmpMeasurementSocket: newICMPMeasurementSocket(t, "oversized", false), headerBytes: 60}
+	probe := &icmpCanary{count: 1, payload: 4096, timeout: 80 * time.Millisecond}
+	rtts, _, facts, err := probe.probe(t.Context(), socket, true, false, net.ParseIP("192.0.2.1"), time.Now())
+	if err != nil || socket.readPackets != 1 || facts.Replies != 0 || rtts[0] >= 0 {
+		t.Fatal("outer-header headroom accepted an oversized echo", facts, err)
 	}
 }
