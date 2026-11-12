@@ -502,6 +502,41 @@ def selftest():
     assert not report_regression_failed_on_assertion("compiler error", 1, **options)
     unrelated = [dict(row, Test="TestRoutingStageClientPreservesCompleteRequestAndRequiresPrivateReceipt") if "Test" in row else row for row in control]
     assert not report_regression_failed_on_assertion(encode(unrelated), 1, **options)
+    _, _, _, family_root, _, family_marker = ROUTING_WRITE_CONTROLS["flow-capture-row-scope"]
+    family_package = PREFIX + "internal/store/flowstore"
+    family = [{"Package": family_package, "Test": family_root, "Action": "run"}]
+    for name, result in FLOW_CAPTURE_ROW_SCOPE_CHILDREN.items():
+        selected = family_root + "/" + name
+        family.append({"Package": family_package, "Test": selected, "Action": "run"})
+        if result == "fail":
+            family.append({"Package": family_package, "Test": selected,
+                           "Action": "output", "Output": family_marker})
+        family.append({"Package": family_package, "Test": selected, "Action": result})
+    family += [{"Package": family_package, "Test": family_root, "Action": "fail"},
+               {"Package": family_package, "Action": "fail"}]
+    options = {"package": family_package, "root": family_root, "marker": family_marker,
+               "child": "", "child_results": FLOW_CAPTURE_ROW_SCOPE_CHILDREN}
+    assert report_regression_failed_on_assertion(encode(family), 1, **options)
+    assert not report_regression_failed_on_assertion(encode(family), 0, **options)
+    for name, result in FLOW_CAPTURE_ROW_SCOPE_CHILDREN.items():
+        selected = family_root + "/" + name
+        assert not report_regression_failed_on_assertion(
+            encode([row for row in family if row.get("Test") != selected]), 1, **options)
+        for replacement in ("skip", "pass" if result == "fail" else "fail"):
+            broken = [dict(row, Action=replacement)
+                      if row.get("Test") == selected and row["Action"] == result else row
+                      for row in family]
+            assert not report_regression_failed_on_assertion(encode(broken), 1, **options)
+        duplicated = family + [{"Package": family_package, "Test": selected, "Action": "run"}]
+        assert not report_regression_failed_on_assertion(encode(duplicated), 1, **options)
+        if result == "fail":
+            broken = [dict(row, Output="unrelated assertion")
+                      if row.get("Test") == selected and row["Action"] == "output" else row
+                      for row in family]
+            assert not report_regression_failed_on_assertion(encode(broken), 1, **options)
+    assert not report_regression_failed_on_assertion(
+        encode(family + [{"Package": family_package, "Test": family_root + "/unexpected", "Action": "fail"}]),
+        1, **options)
     print("Prefix transport classifier refuses missing, skipped and unrelated proof")
 
 
@@ -1946,6 +1981,13 @@ PEERING_UNIT_CONTROLS = (
     "peering-role-current", "peering-target-scope", "peering-target-lan", "peering-target-freshness",
 )
 
+FLOW_CAPTURE_ROW_SCOPE_CHILDREN = {
+    "missing_digest": "pass", "missing_clock": "pass",
+    "negative_clock": "pass", "uppercase_digest": "pass",
+    "missing_key": "fail", "foreign_tenant": "fail", "foreign_sender": "fail",
+    "changed_tuple": "fail", "truncated_key": "fail", "wrong_key": "fail",
+}
+
 
 def bgp_routing_write_controls(peering_unit=False):
     out = Path("artifacts/interface-prefix-transport").resolve()
@@ -1967,6 +2009,7 @@ def bgp_routing_write_controls(peering_unit=False):
         if not report_regression_failed_on_assertion(
             result.stdout, result.returncode, package=PREFIX + package,
             root=root, child=child, marker=marker,
+            child_results=FLOW_CAPTURE_ROW_SCOPE_CHILDREN if name == "flow-capture-row-scope" else None,
         ):
             raise RuntimeError(name + " did not fail its exact assertion")
 

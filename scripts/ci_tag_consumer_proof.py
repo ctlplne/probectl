@@ -79,8 +79,14 @@ def report_regression_failed_on_assertion(
     marker: str = REPORT_ASSERTION,
     package: str = PACKAGE,
     child: str = "success",
+    child_results: dict[str, str] | None = None,
 ) -> bool:
     """A compiler error, skip, unrelated assertion or passing run is not proof."""
+    if child_results is not None:
+        return regression_family_failed_on_assertion(
+            output, returncode, package=package, root=root, marker=marker,
+            child_results=child_results,
+        )
     runs = failures = child_runs = child_failures = package_failures = 0
     assertion = False
     selected = root + "/" + child if child else root
@@ -113,6 +119,49 @@ def report_regression_failed_on_assertion(
         returncode != 0
         and runs == failures == child_runs == child_failures == package_failures == 1
         and assertion
+    )
+
+
+def regression_family_failed_on_assertion(
+    output: str, returncode: int, *, package: str, root: str, marker: str,
+    child_results: dict[str, str],
+) -> bool:
+    """Require the complete declared mixture of failed and preserved children."""
+    expected = {root: "fail", **{root + "/" + name: result
+                                for name, result in child_results.items()}}
+    if not child_results or "fail" not in child_results.values() or any(
+        result not in ("pass", "fail") for result in child_results.values()
+    ):
+        return False
+    runs, completed, assertions = {}, {}, set()
+    package_failures = 0
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except (ValueError, TypeError):
+            return False
+        if not isinstance(event, dict) or event.get("Package") != package:
+            return False
+        name, action = event.get("Test", ""), event.get("Action")
+        if action == "skip" or (name and name not in expected):
+            return False
+        if name:
+            if action == "run":
+                runs[name] = runs.get(name, 0) + 1
+            if action in ("pass", "fail"):
+                if action != expected[name]:
+                    return False
+                completed[name] = completed.get(name, 0) + 1
+            if action == "output" and marker in event.get("Output", ""):
+                assertions.add(name)
+        else:
+            if action in ("pass", "skip"):
+                return False
+            package_failures += action == "fail"
+    return returncode != 0 and package_failures == 1 and all(
+        runs.get(name) == completed.get(name) == 1
+        and (result == "pass" or name == root or name in assertions)
+        for name, result in expected.items()
     )
 
 
