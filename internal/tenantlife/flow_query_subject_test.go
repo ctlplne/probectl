@@ -120,6 +120,15 @@ func TestFlowQuerySubjectStructuralProjectionKeepsUnknownKeysAndExactNumbers(t *
 		t.Fatal(err)
 	}
 	personalKey := []byte(`["Owned",{"tag_ids":{"tag.bob@example.test":"` + id + `"}}]`)
+	if got, err := scan.matches(t.Context(), false, personalKey); err != nil || got {
+		t.Fatal("a distinct prefixed email key was treated as the same subject", err)
+	}
+	// The complete key is a different person's email. Removing its structural
+	// UUID value must preserve that key for the actual subject's own request.
+	scan, err = newFlowQuerySubjectScan("flow_query_views", newSubjectAliasSet("tag.bob@example.test"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got, err := scan.matches(t.Context(), false, personalKey); err != nil || !got {
 		t.Fatal("a personal tag key was hidden with its structural value", err)
 	}
