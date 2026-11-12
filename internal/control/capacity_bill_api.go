@@ -25,6 +25,11 @@ func (s *Server) handleCapacityAgreementBill(w http.ResponseWriter, r *http.Requ
 		return capacityAgreementAPIError(err)
 	}
 	defer op.done()
+	// Keep the socket alive for the admitted calculation and response, even
+	// when the ordinary listener write timeout is shorter.
+	if deadline, ok := op.request.Context().Deadline(); ok {
+		_ = http.NewResponseController(w).SetWriteDeadline(deadline.Add(15 * time.Second))
+	}
 	var input flow.CapacityBillRequest
 	if err := decodeJSONLimit(op.request, op.budget.MemoryBytes/64, &input); err != nil {
 		return err

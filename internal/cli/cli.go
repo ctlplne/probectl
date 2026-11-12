@@ -187,6 +187,9 @@ var longRequests = []struct {
 	{http.MethodPost, "/provider/v1/tenants", 5 * time.Minute},
 	{http.MethodPost, "/v1/tests/{id}/path", 150 * time.Second},
 	{http.MethodPost, "/v1/ai/ask", 90 * time.Second},
+	// Complete counter history uses the server's one-minute default plus transport margin.
+	{http.MethodPost, "/v1/flows/capacity/agreements/{id}/check", 75 * time.Second},
+	{http.MethodPost, "/v1/flows/capacity/forecast", 75 * time.Second},
 }
 
 // requestBudget is the time a request may take: the server's budget for a

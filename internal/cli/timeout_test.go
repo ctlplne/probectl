@@ -43,7 +43,7 @@ func TestLongOperationsOutliveTheDefaultRequestBudget(t *testing.T) {
 	run := func(args ...string) (int, string) {
 		var stdout, stderr bytes.Buffer
 		code := RunWithStdin(append([]string{"--json"}, args...), func(k string) string { return env[k] },
-			strings.NewReader(""), &stdout, &stderr)
+			strings.NewReader(`{}`), &stdout, &stderr)
 		return code, stdout.String() + stderr.String()
 	}
 	for _, args := range [][]string{
@@ -56,6 +56,8 @@ func TestLongOperationsOutliveTheDefaultRequestBudget(t *testing.T) {
 		{"tenant", "erase", "tn_1", "--body", `{"confirm":"acme"}`},
 		{"test", "path", "t_1", "--body", `{}`},
 		{"ai", "ask", "--body", `{"question":"why is checkout slow?"}`},
+		{"capacity-agreements", "check", "agreement_1", "--body-file", "-"},
+		{"capacity", "forecast", "--body-file", "-"},
 	} {
 		if code, out := run(args...); code != 0 {
 			t.Errorf("probectl %s was cut off by the default budget: exit %d: %s", strings.Join(args, " "), code, out)

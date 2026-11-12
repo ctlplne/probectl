@@ -98,7 +98,9 @@ func TestCapacityForecastServesKnownGrowthWithoutFinancialAccessAndKeepsCurrentT
 			}
 		}
 	}
-	socket := httptest.NewTLSServer(f.server.Handler())
+	socket := httptest.NewUnstartedServer(f.server.Handler())
+	socket.Config.WriteTimeout = 15 * time.Second // production ordinary listener budget
+	socket.StartTLS()
 	t.Cleanup(socket.Close)
 	ca := filepath.Join(t.TempDir(), "served-ca.pem")
 	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: socket.Certificate().Raw}), 0600); err != nil {
