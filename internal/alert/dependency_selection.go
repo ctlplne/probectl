@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -66,78 +67,129 @@ func (b *dependencyBudget) charge(memory, work int64) error {
 	return nil
 }
 
-// selectDependencyHold finds a complete cut of currently failed ancestors.
-// A healthy alternative path means ordinary delivery; a graph cycle, missing
-// source or stale parent is unknown evidence and cannot justify suppression.
-// Independent symptoms are never made dependent merely by physical adjacency.
-func selectDependencyHold(ctx context.Context, graph dependencySnapshot, target string, reachabilitySymptom bool, budget dependencyBudget) (dependencySelection, error) {
+// preparedDependencyGraph owns an immutable, current operation snapshot. Cuts
+// are computed in topological order once, rather than walking every ancestor
+// again for every firing series. Output size still consumes shared admission.
+type preparedDependencyGraph struct {
+	tenant, contextID string
+	at, until         time.Time
+	nodes             map[string]dependencyVertex
+	causes            map[string]dependencyCause
+	cuts              map[string][]dependencyCause
+	budget            dependencyBudget
+}
+
+func prepareDependencyGraph(ctx context.Context, graph dependencySnapshot, budget dependencyBudget) (*preparedDependencyGraph, error) {
 	if err := ctx.Err(); err != nil {
-		return dependencySelection{}, err
+		return nil, err
 	}
 	tenant, ok := tenancy.FromContext(ctx)
 	if !ok || tenant.String() != graph.TenantID || !canonicalQueryID(graph.TenantID) || !canonicalQueryID(graph.ContextID) {
-		return dependencySelection{}, tenancy.ErrNoTenant
+		return nil, tenancy.ErrNoTenant
 	}
-	if !graph.Complete || graph.At.IsZero() || !canonicalQueryID(target) || len(graph.Vertices) == 0 {
-		return dependencySelection{}, ErrDependencyEvidence
+	if !graph.Complete || graph.At.IsZero() || len(graph.Vertices) == 0 {
+		return nil, ErrDependencyEvidence
 	}
 	if err := budget.charge(4096, 4096); err != nil {
-		return dependencySelection{}, err
+		return nil, err
 	}
-	nodes := make(map[string]dependencyVertex)
-	children := make(map[string][]string)
-	remaining := make(map[string]int)
-	for _, vertex := range graph.Vertices {
+	p := &preparedDependencyGraph{tenant: graph.TenantID, contextID: graph.ContextID, at: graph.At,
+		nodes: map[string]dependencyVertex{}, causes: map[string]dependencyCause{}, cuts: map[string][]dependencyCause{}, budget: budget}
+	children, remaining, err := p.indexVertices(ctx, graph.Vertices)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.indexCauses(ctx, graph.Causes); err != nil {
+		return nil, err
+	}
+	if err := p.buildCuts(ctx, children, remaining); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (p *preparedDependencyGraph) indexVertices(ctx context.Context, vertices []dependencyVertex) (map[string][]string, map[string]int, error) {
+	children := map[string][]string{}
+	remaining := map[string]int{}
+	for _, v := range vertices {
 		if err := ctx.Err(); err != nil {
-			return dependencySelection{}, err
+			return nil, nil, err
 		}
-		if !canonicalQueryID(vertex.EntityID) || !vertex.FreshUntil.After(graph.At) {
-			return dependencySelection{}, ErrDependencyEvidence
+		if !canonicalQueryID(v.EntityID) || !v.FreshUntil.After(p.at) {
+			return nil, nil, ErrDependencyEvidence
 		}
-		if _, exists := nodes[vertex.EntityID]; exists {
-			return dependencySelection{}, ErrDependencyEvidence
+		if _, exists := p.nodes[v.EntityID]; exists {
+			return nil, nil, ErrDependencyEvidence
 		}
-		if err := budget.charge(512, 512); err != nil {
-			return dependencySelection{}, err
+		if err := p.budget.charge(768, 768); err != nil {
+			return nil, nil, err
 		}
-		nodes[vertex.EntityID] = vertex
-		remaining[vertex.EntityID] = len(vertex.Parents)
-		parents := make(map[string]bool)
-		for _, parent := range vertex.Parents {
-			if err := budget.charge(256, 256); err != nil {
-				return dependencySelection{}, err
+		parents := map[string]bool{}
+		for _, parent := range v.Parents {
+			if err := p.budget.charge(256, 256); err != nil {
+				return nil, nil, err
 			}
-			if !canonicalQueryID(parent) || parents[parent] || parent == vertex.EntityID {
-				return dependencySelection{}, ErrDependencyEvidence
+			if !canonicalQueryID(parent) || parents[parent] || parent == v.EntityID {
+				return nil, nil, ErrDependencyEvidence
 			}
 			parents[parent] = true
-			children[parent] = append(children[parent], vertex.EntityID)
+			children[parent] = append(children[parent], v.EntityID)
 		}
-	}
-	if _, exists := nodes[target]; !exists {
-		return dependencySelection{}, ErrDependencyEvidence
+		v.Parents = slices.Clone(v.Parents)
+		p.nodes[v.EntityID] = v
+		remaining[v.EntityID] = len(v.Parents)
+		if p.until.IsZero() || v.FreshUntil.Before(p.until) {
+			p.until = v.FreshUntil
+		}
 	}
 	for parent := range children {
-		if _, exists := nodes[parent]; !exists {
-			return dependencySelection{}, ErrDependencyEvidence
+		if _, exists := p.nodes[parent]; !exists {
+			return nil, nil, ErrDependencyEvidence
 		}
 	}
-	// Topological validation is iterative: a legitimate deep chain must not
-	// overflow the call stack, and cycles must not be mistaken for blocked paths.
-	queue := make([]string, 0)
+	return children, remaining, nil
+}
+
+func (p *preparedDependencyGraph) indexCauses(ctx context.Context, causes []dependencyCause) error {
+	for _, cause := range causes {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := p.budget.charge(512, 512); err != nil {
+			return err
+		}
+		if cause.TenantID != p.tenant || cause.ContextID != p.contextID || !canonicalQueryID(cause.IncidentID) || cause.ObservedAt.IsZero() || cause.ObservedAt.After(p.at) || !cause.FreshUntil.After(p.at) {
+			return ErrDependencyEvidence
+		}
+		if _, exists := p.nodes[cause.EntityID]; !exists {
+			return ErrDependencyEvidence
+		}
+		if _, exists := p.causes[cause.EntityID]; exists {
+			return ErrDependencyEvidence
+		}
+		p.causes[cause.EntityID] = cause
+		p.until = minDependencyTime(p.until, cause.FreshUntil)
+	}
+	return nil
+}
+
+func (p *preparedDependencyGraph) buildCuts(ctx context.Context, children map[string][]string, remaining map[string]int) error {
+	queue := make([]string, 0, len(p.nodes))
 	for id, count := range remaining {
 		if count == 0 {
 			queue = append(queue, id)
 		}
 	}
-	visited := 0
-	for len(queue) > 0 {
+	for index := 0; index < len(queue); index++ {
 		if err := ctx.Err(); err != nil {
-			return dependencySelection{}, err
+			return err
 		}
-		id := queue[0]
-		queue = queue[1:]
-		visited++
+		id := queue[index]
+		cut, err := p.parentCut(ctx, p.nodes[id].Parents)
+		if err != nil {
+			return err
+		}
+		p.cuts[id] = cut
 		for _, child := range children[id] {
 			remaining[child]--
 			if remaining[child] == 0 {
@@ -145,57 +197,75 @@ func selectDependencyHold(ctx context.Context, graph dependencySnapshot, target 
 			}
 		}
 	}
-	if visited != len(nodes) {
+	if len(queue) != len(p.nodes) {
+		return ErrDependencyEvidence
+	}
+	return nil
+}
+
+func (p *preparedDependencyGraph) parentCut(ctx context.Context, parents []string) ([]dependencyCause, error) {
+	if len(parents) == 0 {
+		return nil, nil
+	}
+	selected := map[string]dependencyCause{}
+	for _, parent := range parents {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		var causes []dependencyCause
+		if own, down := p.causes[parent]; down {
+			causes = []dependencyCause{own}
+		} else {
+			causes = p.cuts[parent]
+		}
+		if len(causes) == 0 {
+			return nil, nil
+		} // a current independent root path
+		for _, cause := range causes {
+			if err := p.budget.charge(0, 256); err != nil {
+				return nil, err
+			}
+			if _, exists := selected[cause.EntityID]; !exists {
+				if err := p.budget.charge(512, 0); err != nil {
+					return nil, err
+				}
+				selected[cause.EntityID] = cause
+			}
+		}
+	}
+	cut := make([]dependencyCause, 0, len(selected))
+	for _, cause := range selected {
+		cut = append(cut, cause)
+	}
+	sort.Slice(cut, func(i, j int) bool { return cut[i].EntityID < cut[j].EntityID })
+	return cut, nil
+}
+
+func (p *preparedDependencyGraph) selectHold(ctx context.Context, target string, reachability bool) (dependencySelection, error) {
+	if err := ctx.Err(); err != nil {
+		return dependencySelection{}, err
+	}
+	tenant, ok := tenancy.FromContext(ctx)
+	if !ok || tenant.String() != p.tenant {
+		return dependencySelection{}, tenancy.ErrNoTenant
+	}
+	if _, exists := p.nodes[target]; !exists {
 		return dependencySelection{}, ErrDependencyEvidence
 	}
-	causes := make(map[string]dependencyCause)
-	for _, cause := range graph.Causes {
-		if err := budget.charge(512, 512); err != nil {
-			return dependencySelection{}, err
-		}
-		if cause.TenantID != graph.TenantID || cause.ContextID != graph.ContextID || !canonicalQueryID(cause.IncidentID) || cause.ObservedAt.IsZero() || cause.ObservedAt.After(graph.At) || !cause.FreshUntil.After(graph.At) {
-			return dependencySelection{}, ErrDependencyEvidence
-		}
-		if _, exists := nodes[cause.EntityID]; !exists {
-			return dependencySelection{}, ErrDependencyEvidence
-		}
-		if _, duplicate := causes[cause.EntityID]; duplicate {
-			return dependencySelection{}, ErrDependencyEvidence
-		}
-		causes[cause.EntityID] = cause
-	}
-	out := dependencySelection{At: graph.At}
-	if !reachabilitySymptom {
-		out.Reason = "the symptom is independent of upstream reachability"
+	out := dependencySelection{At: p.at, Reason: "the symptom is independent of upstream reachability"}
+	if !reachability {
 		return out, nil
 	}
-	queue = append(queue, target)
-	seen := make(map[string]bool)
-	for len(queue) > 0 {
-		if err := ctx.Err(); err != nil {
-			return dependencySelection{}, err
-		}
-		id := queue[0]
-		queue = queue[1:]
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		if cause, down := causes[id]; down && id != target {
-			out.Causes = append(out.Causes, cause)
-			continue
-		}
-		vertex := nodes[id]
-		if len(vertex.Parents) == 0 {
-			return dependencySelection{At: graph.At, Reason: "a current upstream path remains independent of the failed elements"}, nil
-		}
-		queue = append(queue, vertex.Parents...)
+	causes := p.cuts[target]
+	if len(causes) == 0 {
+		out.Reason = "a current upstream path remains independent of the failed elements"
+		return out, nil
 	}
-	if len(out.Causes) == 0 {
-		return dependencySelection{}, ErrDependencyEvidence
+	if err := p.budget.charge(int64(len(causes))*512, int64(len(causes))*256); err != nil {
+		return dependencySelection{}, err
 	}
-	sort.Slice(out.Causes, func(i, j int) bool { return out.Causes[i].EntityID < out.Causes[j].EntityID })
 	out.Held = true
 	out.Reason = "current upstream failures cover every observed dependency path"
+	out.Causes = slices.Clone(causes)
 	return out, nil
 }

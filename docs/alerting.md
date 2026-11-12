@@ -563,6 +563,9 @@ Hold state survives a leader restart independently of earlier notification
 delivery. Each upstream outage has its own transition, so an already-delivered
 episode can be held again without losing its earlier release history. A stored
 marker never replaces fresh source evidence or current authorization.
+Each evaluation validates one complete graph snapshot for the whole rule
+population. All series share its finite memory/work admission; exhaustion
+rolls back the batch and retains ordinary delivery rather than holding a prefix.
 Collection, detection, enabled state and the existing rule predicate are preserved.
 
 Setting requires current `alert.write`, `topology.read`, `entities.read`,

@@ -110,3 +110,13 @@ func TestTopologyDependencySelectionRequiresCurrentTenantAndCompleteEvidence(t *
 		}
 	}
 }
+
+// selectDependencyHold preserves the single-decision door for callers which
+// do not evaluate a population. The production router prepares once per batch.
+func selectDependencyHold(ctx context.Context, graph dependencySnapshot, target string, reachabilitySymptom bool, budget dependencyBudget) (dependencySelection, error) {
+	p, err := prepareDependencyGraph(ctx, graph, budget)
+	if err != nil {
+		return dependencySelection{}, err
+	}
+	return p.selectHold(ctx, target, reachabilitySymptom)
+}

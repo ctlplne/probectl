@@ -83,6 +83,10 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 	if err != nil {
 		return nil, err
 	}
+	decider, err := alert.PrepareDependencyNotifications(ctx, graph, maxBytes/2, maxBytes/2)
+	if err != nil {
+		return nil, err
+	}
 	nodes := make(map[string]alert.DependencyNodeInput, len(policy.Graph.Nodes))
 	for _, node := range policy.Graph.Nodes {
 		nodes[node.TestID] = node
@@ -107,7 +111,7 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 		if len(overrides) != 0 {
 			reachability = false // explicit operator detachment always wins
 		}
-		decision, err := alert.DecideDependencyNotification(ctx, attempt, graph, node.EntityID, reachability, maxBytes/2, maxBytes/2)
+		decision, err := decider.Decide(ctx, attempt, node.EntityID, reachability)
 		if err != nil {
 			return nil, err
 		}

@@ -70,45 +70,39 @@ func (d DependencyDecision) ContextID() string         { return d.contextID }
 func (d DependencyDecision) Reason() string            { return d.selection.Reason }
 func (d DependencyDecision) Causes() []DependencyCause { return slices.Clone(d.selection.Causes) }
 
-// DecideDependencyNotification accepts operation-local evidence resolved by
-// the trusted source adapter, never decoded hold authority. The adapter must
-// retain current source/owner locks through durable publication.
-func DecideDependencyNotification(ctx context.Context, attempt DependencyAttempt, graph DependencySnapshot, target string, reachabilitySymptom bool, memoryBytes, workUnits int64) (DependencyDecision, error) {
-	return decideDependencyNotification(ctx, attempt, graph, target, reachabilitySymptom, memoryBytes, workUnits)
+// DependencyDecider belongs to one serialized router operation. Its shared
+// budget covers the whole population; callers cannot reuse it across tenants
+// or retain authority beyond the original source snapshot's validity.
+type DependencyDecider struct{ graph *preparedDependencyGraph }
+
+func PrepareDependencyNotifications(ctx context.Context, graph DependencySnapshot, memoryBytes, workUnits int64) (*DependencyDecider, error) {
+	p, err := prepareDependencyGraph(ctx, graph, dependencyBudget{memory: memoryBytes, work: workUnits})
+	if err != nil {
+		return nil, err
+	}
+	return &DependencyDecider{graph: p}, nil
 }
 
-func decideDependencyNotification(ctx context.Context, attempt DependencyAttempt, graph dependencySnapshot, target string, reachabilitySymptom bool, memoryBytes, workUnits int64) (DependencyDecision, error) {
+func (decider *DependencyDecider) Decide(ctx context.Context, attempt DependencyAttempt, target string, reachabilitySymptom bool) (DependencyDecision, error) {
 	a := attempt.Alert
 	tenant, ok := tenancy.FromContext(ctx)
-	if !ok || tenant.String() != a.TenantID || graph.TenantID != a.TenantID || !canonicalQueryID(a.RuleID) || a.State != StateFiring && a.State != StateResolved {
+	if decider == nil || decider.graph == nil || !ok || tenant.String() != a.TenantID || decider.graph.tenant != a.TenantID || !canonicalQueryID(a.RuleID) || a.State != StateFiring && a.State != StateResolved {
 		return DependencyDecision{}, ErrDependencyEvidence
 	}
-	if err := ctx.Err(); err != nil {
+	p := decider.graph
+	if err := admitDependencyDecisionLabels(ctx, a.Labels, &p.budget); err != nil {
 		return DependencyDecision{}, err
 	}
-	budget := dependencyBudget{memory: memoryBytes, work: workUnits}
-	if err := admitDependencyDecisionLabels(ctx, a.Labels, &budget); err != nil {
-		return DependencyDecision{}, err
-	}
-	selected, err := selectDependencyHold(ctx, graph, target, reachabilitySymptom, budget)
+	selected, err := p.selectHold(ctx, target, reachabilitySymptom)
 	if err != nil {
 		return DependencyDecision{}, err
 	}
-	until := graph.Vertices[0].FreshUntil
-	for _, vertex := range graph.Vertices {
-		until = minDependencyTime(until, vertex.FreshUntil)
-	}
-	for _, cause := range graph.Causes {
-		until = minDependencyTime(until, cause.FreshUntil)
-	}
 	if a.State == StateResolved {
-		// A resolution never starts a new held firing. Its original parent
-		// references can still close the visible incident relationship.
 		selected.Held = false
 		selected.Reason = "the dependent alert resolved"
 	}
-	return DependencyDecision{selection: selected, tenant: a.TenantID, contextID: graph.ContextID,
-		key: stateKey(a.RuleID, a.Labels), labels: maps.Clone(a.Labels), state: a.State, validUntil: until, ruleUpdatedAt: attempt.RuleUpdatedAt}, nil
+	return DependencyDecision{selection: selected, tenant: a.TenantID, contextID: p.contextID,
+		key: stateKey(a.RuleID, a.Labels), labels: maps.Clone(a.Labels), state: a.State, validUntil: p.until, ruleUpdatedAt: attempt.RuleUpdatedAt}, nil
 }
 
 func admitDependencyDecisionLabels(ctx context.Context, labels map[string]string, budget *dependencyBudget) error {

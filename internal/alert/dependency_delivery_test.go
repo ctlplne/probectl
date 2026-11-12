@@ -301,3 +301,11 @@ func TestTopologyDependencyExpiredTrapWithoutPriorDeliveryOnlyClosesTheIncident(
 func withDependencyRouter(router DependencyRouter) EngineOption {
 	return func(en *Engine) { en.dependencyRouter = router }
 }
+
+func decideDependencyNotification(ctx context.Context, attempt DependencyAttempt, graph dependencySnapshot, target string, reachabilitySymptom bool, memoryBytes, workUnits int64) (DependencyDecision, error) {
+	decider, err := PrepareDependencyNotifications(ctx, graph, memoryBytes, workUnits)
+	if err != nil {
+		return DependencyDecision{}, err
+	}
+	return decider.Decide(ctx, attempt, target, reachabilitySymptom)
+}
