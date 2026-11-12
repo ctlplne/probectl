@@ -83,13 +83,27 @@ func TestNativeFlowExplorerRealStack(t *testing.T) {
 		lane.do(t, st, http.MethodGet, "/v1/explorer/flow-views/"+lanes[1-i].view, nil, nil, http.StatusNotFound)
 	}
 	mcpAddr := shipped.FreeAddr(t)
-	st.RestartControl(t, "native-flow-mcp", map[string]string{"PROBECTL_MCP_HTTP_ADDR": mcpAddr, "PROBECTL_MCP_TLS_CERT_FILE": st.ServerCert, "PROBECTL_MCP_TLS_KEY_FILE": st.ServerKey, "PROBECTL_ALERT_EVAL_INTERVAL": "1s"})
+	queryEnv := map[string]string{"PROBECTL_MCP_HTTP_ADDR": mcpAddr, "PROBECTL_MCP_TLS_CERT_FILE": st.ServerCert, "PROBECTL_MCP_TLS_KEY_FILE": st.ServerKey, "PROBECTL_ALERT_EVAL_INTERVAL": "1s"}
+	st.RestartControl(t, "native-flow-mcp", queryEnv)
 	for i, lane := range lanes {
 		lane.proveMCP(t, st, mcpAddr, lanes[1-i], at)
 	}
 	var queryAlerts []nativeQueryAlert
 	t.Run("saved-query-alerts", func(t *testing.T) { queryAlerts = proveNativeSavedQueryAlerts(t, st, mcpAddr, lanes) })
 	t.Run("saved-query-new-groups", func(t *testing.T) { proveNativeSavedQueryNewGroups(t, st, queryAlerts) })
+	var costSources []nativeQueryAlert
+	t.Run("saved-query-save-cost-source", func(t *testing.T) { costSources = prepareNativeSavedQueryCostSources(t, st, queryAlerts) })
+	if len(costSources) == 2 {
+		// The parent owns both processes. A child cleanup must not stop the
+		// restored control plane before the independent report proof runs.
+		limited := map[string]string{"PROBECTL_FLOW_QUERY_MAX_READ_ROWS": "1"}
+		for key, value := range queryEnv {
+			limited[key] = value
+		}
+		st.RestartControl(t, "native-query-save-cost", limited)
+		t.Run("saved-query-save-cost", func(t *testing.T) { proveNativeSavedQuerySaveCost(t, st, costSources) })
+		st.RestartControl(t, "native-query-after-save-cost", queryEnv)
+	}
 	t.Run("saved-source-reports", func(t *testing.T) {
 		proveNativeSourceReports(t, st, mcpAddr, lanes)
 	})

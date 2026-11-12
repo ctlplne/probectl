@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/incident"
@@ -479,4 +480,60 @@ func nativeASKey(t *testing.T, p *nativeQueryAlert, asn string) string {
 		t.Fatal("baseline lookup handle unavailable", err)
 	}
 	return decisions[0].Key
+}
+
+// Freeze the already-proven wire population before the operator lowers its
+// resource allowance. The same absolute source cannot age out during restart.
+func prepareNativeSavedQueryCostSources(t *testing.T, st *shipped.Stack, proofs []nativeQueryAlert) []nativeQueryAlert {
+	t.Helper()
+	if len(proofs) != 2 {
+		t.Fatal("physical save-cost proof requires both original source lanes")
+	}
+	out := append([]nativeQueryAlert(nil), proofs...)
+	for i := range out {
+		p := &out[i]
+		plan, _, err := flow.MaterializeQueryView(p.view.Definition, time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.lane.do(t, st, http.MethodPost, "/v1/explorer/flow-views", map[string]any{"definition": flow.QueryViewDefinition{Name: "Save-cost wire source " + p.lane.name, Visibility: "private", Time: flow.QueryViewTime{Mode: "absolute"}, Plan: plan}}, &p.view, http.StatusCreated)
+		if len(p.lane.query(t, st, plan).Rows) < 2 {
+			t.Fatal("physical save-cost source lacks multiple independently retained rows")
+		}
+	}
+	return out
+}
+
+func proveNativeSavedQuerySaveCost(t *testing.T, st *shipped.Stack, sources []nativeQueryAlert) {
+	t.Helper()
+	for _, source := range sources {
+		var before, after struct {
+			Items []alert.Rule `json:"items"`
+		}
+		source.lane.do(t, st, http.MethodGet, "/v1/alerts", nil, &before, http.StatusOK)
+		input := alert.QueryRuleInput{Name: "Over-cost actual source " + source.lane.name, QuerySource: alert.QuerySourceInput{ViewID: source.view.ID, ViewVersion: source.view.Version, EverySeconds: 60, Condition: alert.QueryCondition{Mode: "new_group"}}}
+		var refusal struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		source.lane.do(t, st, http.MethodPost, "/v1/alerts", input, &refusal, http.StatusUnprocessableEntity)
+		if refusal.Error.Code != string(apierror.CodeFlowQueryBudget) {
+			t.Fatal("physical save did not refuse the actual source cost", refusal.Error.Code)
+		}
+		source.lane.do(t, st, http.MethodGet, "/v1/alerts", nil, &after, http.StatusOK)
+		ids := make(map[string]bool, len(before.Items))
+		for _, item := range before.Items {
+			ids[item.ID] = true
+		}
+		if len(before.Items) != len(after.Items) {
+			t.Fatal("refused physical source save retained a partial alert")
+		}
+		for _, item := range after.Items {
+			if !ids[item.ID] {
+				t.Fatal("refused physical source save replaced an existing alert")
+			}
+		}
+	}
+	t.Log("real-integration: both frozen actual wire populations exceed the operator's one-row read budget; alert creation refuses with the resource-budget code and leaves both tenant rule sets unchanged")
 }
