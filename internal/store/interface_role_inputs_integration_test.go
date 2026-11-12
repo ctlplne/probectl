@@ -118,9 +118,21 @@ func (f *roleInputsFixture) in(tenant string, fn func(context.Context, tenancy.S
 		f.t.Fatal(err)
 	}
 }
+
+// Modeled observations follow the same database clock that issued their
+// credentials and assignments; host/container scheduling cannot predate them.
+func (f *roleInputsFixture) observedAt(tenant string) time.Time {
+	f.t.Helper()
+	var at time.Time
+	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&at)
+	})
+	return at.UTC().Truncate(time.Microsecond)
+}
+
 func (f *roleInputsFixture) poll(tenant, description string, prefixes []entity.SNMPInterfacePrefix) string {
 	f.t.Helper()
-	at := time.Now().UTC().Truncate(time.Microsecond)
+	at := f.observedAt(tenant)
 	source := entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"}
 	root := gouuid.NewString()
 	claims := []entity.Observation{
@@ -140,7 +152,7 @@ func (f *roleInputsFixture) peer(tenant string, asn uint32) {
 func (f *roleInputsFixture) peerAtAddress(tenant, address string, asn uint32) {
 	f.t.Helper()
 	claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-listener", Kind: entity.BMPPeer, SourceRef: "role-router"},
-		Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("%s/as%d", address, asn)}, SourceRef: fmt.Sprintf("bmp:router:role-router:peer-asn:%d", asn), OriginSerial: f.serials[tenant+"role-router"], ObservedAt: time.Now().UTC().Truncate(time.Microsecond)}
+		Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("%s/as%d", address, asn)}, SourceRef: fmt.Sprintf("bmp:router:role-router:peer-asn:%d", asn), OriginSerial: f.serials[tenant+"role-router"], ObservedAt: f.observedAt(tenant)}
 	accepted, unresolved, err := NewEntityRegistry(f.pool).WriteEvidenceBatch(tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant)), "role-listener", f.serials[tenant+"role-listener"], []entity.Observation{claim})
 	if err != nil || accepted != 1 || unresolved != 0 {
 		f.t.Fatal("owned BMP observation was not accepted", accepted, unresolved, err)

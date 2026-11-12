@@ -56,10 +56,10 @@ func TestRoutingFlowCaptureRequiresUniqueCurrentExporterAndKeepsTenantRoutes(t *
 	check(0)
 	check(1)
 	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
-		var observed, expired time.Time
+		var observed, expired, checkedAt time.Time
 		err := sc.Q.QueryRow(ctx, `UPDATE entity_evidence SET expires_at=clock_timestamp()-interval '1 microsecond'
- WHERE tenant_id=$1 AND alias_kind='bmp_peer_id' RETURNING observed_at,expires_at`, f.tenants[0]).Scan(&observed, &expired)
-		if err == nil && (!expired.After(observed) || !expired.Before(time.Now())) {
+ WHERE tenant_id=$1 AND alias_kind='bmp_peer_id' RETURNING observed_at,expires_at,clock_timestamp()`, f.tenants[0]).Scan(&observed, &expired, &checkedAt)
+		if err == nil && (!expired.After(observed) || !expired.Before(checkedAt)) {
 			t.Fatal("neighbor expiry fixture changed the observation or retained a live lease", observed, expired)
 		}
 		return err
@@ -121,7 +121,7 @@ func routingFlowFixtureAssignment(t *testing.T, f *roleInputsFixture, tenant, ag
 
 func routingFlowFixtureEvidence(t *testing.T, f *roleInputsFixture, tenant, agent, serial, exporter string) {
 	t.Helper()
-	claim := entity.Observation{ID: uuid.NewString(), Source: entity.SourceKey{AgentID: agent, Kind: entity.FlowExporter, SourceRef: exporter}, Alias: entity.AliasKey{Kind: entity.FlowExporterAlias, Value: exporter + "/ipfix/4294967295"}, SourceRef: "flow:ipfix:domain:4294967295", ObservedAt: time.Now().UTC().Truncate(time.Microsecond)}
+	claim := entity.Observation{ID: uuid.NewString(), Source: entity.SourceKey{AgentID: agent, Kind: entity.FlowExporter, SourceRef: exporter}, Alias: entity.AliasKey{Kind: entity.FlowExporterAlias, Value: exporter + "/ipfix/4294967295"}, SourceRef: "flow:ipfix:domain:4294967295", ObservedAt: f.observedAt(tenant)}
 	accepted, unresolved, err := NewEntityRegistry(f.pool).WriteEvidenceBatch(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), agent, serial, []entity.Observation{claim})
 	if err != nil || accepted != 1 || unresolved != 0 {
 		t.Fatal("current explicit flow evidence was not accepted", accepted, unresolved, err)
