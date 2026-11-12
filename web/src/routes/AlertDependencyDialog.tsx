@@ -10,7 +10,9 @@ import { useAuth } from '../auth/useAuth'
 import type { AlertRule } from '../api/alerts'
 import {
   alertDependencyContexts,
-  alertDependencyPolicy,
+  getAlertDependencyPolicy,
+  putAlertDependencyPolicy,
+  clearAlertDependencyPolicy,
   type AlertDependencyPolicyState,
   type EntityContext,
 } from '../api/alertDependencies'
@@ -120,13 +122,17 @@ function DependencyContents({
     setPaging(false)
     setState({ kind: 'loading' })
     try {
-      const value = await alertDependencyPolicy(
-        tenantID,
-        rule.id,
-        method,
-        controller.signal,
-        method === 'PUT' ? { context_id: contextID, freshness_seconds: seconds } : undefined,
-      )
+      const value =
+        method === 'GET'
+          ? await getAlertDependencyPolicy(tenantID, rule.id, controller.signal)
+          : method === 'PUT'
+            ? await putAlertDependencyPolicy(
+                tenantID,
+                rule.id,
+                { context_id: contextID, freshness_seconds: seconds },
+                controller.signal,
+              )
+            : await clearAlertDependencyPolicy(tenantID, rule.id, controller.signal)
       if (controller.signal.aborted) return
       if (value.rule_id !== rule.id || value.configured !== Boolean(value.policy))
         throw new Error('current rule identity unavailable')

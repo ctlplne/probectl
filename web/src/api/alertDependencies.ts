@@ -17,22 +17,40 @@ export type {
   EntityContext,
 } from './sdk.gen'
 
-export function alertDependencyPolicy(
-  tenantID: string,
-  ruleID: string,
-  method: 'GET' | 'PUT' | 'DELETE',
-  signal: AbortSignal,
-  input?: AlertDependencyPolicyInput,
-) {
-  const headers: Record<string, string> = { 'X-Probectl-Tenant': tenantID }
-  if (input) headers['Content-Type'] = 'application/json'
+export function getAlertDependencyPolicy(tenantID: string, ruleID: string, signal: AbortSignal) {
   return apiFetch<AlertDependencyPolicyState>(
     `/alerts/rules/${encodeURIComponent(ruleID)}/dependency-policy`,
     {
-      method,
       signal,
-      headers,
-      ...(input ? { body: JSON.stringify(input) } : {}),
+      headers: { 'X-Probectl-Tenant': tenantID },
+    },
+  )
+}
+
+export function putAlertDependencyPolicy(
+  tenantID: string,
+  ruleID: string,
+  input: AlertDependencyPolicyInput,
+  signal: AbortSignal,
+) {
+  return apiFetch<AlertDependencyPolicyState>(
+    `/alerts/rules/${encodeURIComponent(ruleID)}/dependency-policy`,
+    {
+      method: 'PUT',
+      signal,
+      headers: { 'X-Probectl-Tenant': tenantID, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    },
+  )
+}
+
+export function clearAlertDependencyPolicy(tenantID: string, ruleID: string, signal: AbortSignal) {
+  return apiFetch<AlertDependencyPolicyState>(
+    `/alerts/rules/${encodeURIComponent(ruleID)}/dependency-policy`,
+    {
+      method: 'DELETE',
+      signal,
+      headers: { 'X-Probectl-Tenant': tenantID },
     },
   )
 }

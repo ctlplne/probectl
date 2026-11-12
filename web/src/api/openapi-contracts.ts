@@ -29,6 +29,34 @@ export interface APICallContract {
 
 export const API_CALL_CONTRACTS = [
   {
+    file: 'api/alertDependencies.ts',
+    method: 'GET',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/dependency-policy`',
+    response: 'AlertDependencyPolicyState',
+    generated: 'GetAlertDependencyPolicyResponse',
+  },
+  {
+    file: 'api/alertDependencies.ts',
+    method: 'PUT',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/dependency-policy`',
+    response: 'AlertDependencyPolicyState',
+    generated: 'SetAlertDependencyPolicyResponse',
+  },
+  {
+    file: 'api/alertDependencies.ts',
+    method: 'DELETE',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/dependency-policy`',
+    response: 'AlertDependencyPolicyState',
+    generated: 'ClearAlertDependencyPolicyResponse',
+  },
+  {
+    file: 'api/alertDependencies.ts',
+    method: 'GET',
+    path: '`/entity-contexts?${query.toString()}`',
+    response: 'EntityContextPage',
+    generated: 'ListEntityContextsResponse',
+  },
+  {
     file: 'api/peering.ts',
     method: 'GET',
     path: '`/entity-contexts?${query}`',
