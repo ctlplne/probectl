@@ -414,7 +414,7 @@ describe('alerting surface (S-FE1)', () => {
       await screen.findByRole('table', { name: 'Alert rules' })
       await userEvent.click(screen.getAllByRole('button', { name: 'Details' })[0])
       const panel = await screen.findByRole('region', { name: 'Notification dependency' })
-      expect(within(panel).getByText(stateName.replaceAll('_', ' '))).toBeInTheDocument()
+      expect(within(panel).getByText(stateName.replace(/_/g, ' '))).toBeInTheDocument()
       expect(within(panel).getByText('Collection and detection remain active.')).toBeInTheDocument()
       if (disclosed) {
         const link = within(panel).getByRole('link', {

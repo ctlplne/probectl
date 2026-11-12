@@ -75,6 +75,15 @@ func (s *EntityRegistry) ReadICMPHealthPopulationInScope(ctx context.Context, sc
 		}
 		agents[i], sources[i], entities[i] = key.AgentID, key.SourceRef, request.EntityID
 	}
+	// A one-source graph needs no array plan. Keep it on the same exact-source
+	// reader used to verify capture-time sender and current authority checks.
+	if len(keys) == 1 {
+		value, err := s.ReadICMPHealthInScope(ctx, sc, want, keys[0], requests[0].EntityID, freshness, maxBytes)
+		if err != nil {
+			return nil, err
+		}
+		return []ICMPHealth{value}, nil
+	}
 	query := `WITH requested AS (
  SELECT ordinality,agent_id AS agent_id,source_ref,entity_id
  FROM unnest($3::text[],$4::text[],$5::uuid[]) WITH ORDINALITY AS input(agent_id,source_ref,entity_id,ordinality)

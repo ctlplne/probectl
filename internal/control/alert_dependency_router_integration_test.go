@@ -477,6 +477,10 @@ func TestDependencyHealthPopulationKeepsExactSourcesAndTenantScope(t *testing.T)
 				if err != nil || values[i].State != "down" || values[i].EvidenceID != one.EvidenceID || values[i].SenderSerial != one.SenderSerial || !reflect.DeepEqual(values[i].Observation, one.Observation) || !values[i].FreshUntil.Equal(one.FreshUntil) {
 					t.Fatal("pipelining changed exact current-source evidence", i, err)
 				}
+				single, err := registry.ReadICMPHealthPopulationInScope(ctx, sc, scope, []store.ICMPHealthRequest{request}, time.Minute, 1<<20)
+				if err != nil || len(single) != 1 || single[0].EvidenceID != one.EvidenceID || !reflect.DeepEqual(single[0].Observation, one.Observation) {
+					t.Fatal("single-source population changed exact current-source evidence", i, err)
+				}
 				aliases = append(aliases, values[i].Observation.Alias)
 			}
 			resolved, err := store.ResolveAliasPopulationInScope(ctx, sc, scope, aliases, 1<<20)

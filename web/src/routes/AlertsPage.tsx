@@ -586,7 +586,7 @@ function ActiveAlertDetail({
               <section className={styles.postmortemContext} aria-label="Notification dependency">
                 <h4>Notification dependency</h4>
                 <Badge tone={dependency.state === 'held' ? 'info' : 'neutral'}>
-                  {dependency.state.replaceAll('_', ' ')}
+                  {dependency.state.replace(/_/g, ' ')}
                 </Badge>
                 <p>{dependency.reason}</p>
                 <span>Collection and detection remain active.</span>

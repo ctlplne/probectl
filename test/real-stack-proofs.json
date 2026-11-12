@@ -2,6 +2,20 @@
   "schema": "probectl.real-stack-proofs/v1",
   "proofs": [
     {
+      "ref": "test:internal/control/alert_dependency_workflow_integration_test.go#TestDependencyWorkflowExplainsCurrentTenantHoldAndWithdrawals",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
+      "ref": "test:internal/control/alert_dependency_workflow_native_integration_test.go#TestDependencyWorkflowNativeUsesCurrentTenantEvidence",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
       "ref": "test:internal/control/audit_isolation_integration_test.go#TestTwoTenantAndProviderAuditStreamsIsolateAndContainTampering",
       "profile": "integration",
       "capabilities": [
