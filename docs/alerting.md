@@ -546,6 +546,10 @@ vantages are refused. A physical link cannot automatically create a dependency.
 All references must match current tenant-owned entities, enabled tests and
 explicit agent/source/test contexts. There is no graph population or depth cap;
 the operation admits complete input against its memory and execution budget.
+REST and native configuration use the existing query memory profile for complete
+input admission. The CLI accepts complete bodies through `--body-file`; a memory
+refusal is explicit and stores no prefix. Each tenant uses its existing query
+slot and rate budget, including configuration writes.
 This preview stores configuration metadata only; topology-based notification
 holding, incident attachment and recovery release are not yet available.
 Collection, detection, enabled state and the existing rule predicate are preserved.

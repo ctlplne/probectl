@@ -26,6 +26,7 @@ import (
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/remediation"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/store/pathstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -162,7 +163,7 @@ func newMCPServer(
 			if schemas, err := alertDependencyToolSchemas(); err != nil {
 				log.Error("MCP alert dependency schemas are unavailable", "error_class", mcp.ErrorClass(err))
 			} else {
-				options = append(options, mcp.WithAlertDependencyBackend(mcpTagMutationBackend{server: src.NativeFlow}, schemas))
+				options = append(options, mcp.WithAlertDependencyBackend(mcpTagMutationBackend{server: src.NativeFlow}, schemas, int(flowstore.ExplorerQueryBudget(src.NativeFlow.flowStore).MemoryBytes/64)))
 			}
 			if schemas, err := alertTagToolSchemas(); err != nil {
 				log.Error("MCP alert tag schemas are unavailable", "error_class", mcp.ErrorClass(err))

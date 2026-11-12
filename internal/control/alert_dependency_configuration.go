@@ -94,6 +94,16 @@ func (s *Server) setAlertDependencyPolicy(ctx context.Context, actor *auth.Princ
 	if err != nil {
 		return alert.DependencyPolicyState{}, err
 	}
+	if ctx.Value(dependencyWriteLeaseKey{}) != actor.TenantID {
+		if s.fairnessGate == nil {
+			return alert.DependencyPolicyState{}, apierror.Unavailable("dependency configuration admission is unavailable")
+		}
+		release, err := s.fairnessGate.BeginQuery(ctx, actor.TenantID)
+		if err != nil {
+			return alert.DependencyPolicyState{}, tagQueryAdmissionError(err)
+		}
+		defer release()
+	}
 	input, err = alert.NormalizeDependencyPolicyInput(input)
 	if err != nil {
 		return alert.DependencyPolicyState{}, apierror.Validation("dependency policy requires its exact context and a finite positive source freshness").Wrap(err)
@@ -191,7 +201,7 @@ func (s *Server) readAlertDependencyPolicy(ctx context.Context, actor *auth.Prin
 	}
 	release, err := s.fairnessGate.BeginQuery(ctx, actor.TenantID)
 	if err != nil {
-		return alert.DependencyPolicyState{}, err
+		return alert.DependencyPolicyState{}, tagQueryAdmissionError(err)
 	}
 	defer release()
 	var out alert.DependencyPolicyState

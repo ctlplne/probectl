@@ -25,7 +25,7 @@ type AlertDependencyBackend interface {
 	AlertDependencyClear(context.Context, *auth.Principal, AlertTagFilterClearInput) (alert.DependencyPolicyState, error)
 }
 
-func WithAlertDependencyBackend(backend AlertDependencyBackend, schemas map[string]json.RawMessage) Option {
+func WithAlertDependencyBackend(backend AlertDependencyBackend, schemas map[string]json.RawMessage, inputBytes ...int) Option {
 	return func(s *Server) {
 		if backend == nil {
 			return
@@ -34,6 +34,13 @@ func WithAlertDependencyBackend(backend AlertDependencyBackend, schemas map[stri
 			if !json.Valid(schemas[name]) {
 				return
 			}
+		}
+		limit := s.nativeRequestBytes()
+		if len(inputBytes) > 0 {
+			limit = inputBytes[0]
+		}
+		if limit <= 0 {
+			return
 		}
 		tools := []Tool{
 			{Name: "alert_dependency_get", Permission: "alert.read", ExtraPermissions: []string{"topology.read", "entities.read"}, Description: "Read an owned rule's notification dependency configuration under your current source grants. Presence is not current hold evidence.", Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
@@ -45,9 +52,9 @@ func WithAlertDependencyBackend(backend AlertDependencyBackend, schemas map[stri
 				}
 				return backend.AlertDependencyGet(ctx, p, input.RuleID)
 			}},
-			{Name: "alert_dependency_set", Permission: "alert.write", ExtraPermissions: []string{"topology.read", "entities.read", "test.read", "metrics.read"}, Description: "Configure an owned rule's routing context and finite source freshness. Stores only your read capability ceiling; collection and detection remain active.", Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
+			{Name: "alert_dependency_set", Permission: "alert.write", ExtraPermissions: []string{"topology.read", "entities.read", "test.read", "metrics.read"}, Description: "Configure an owned rule's context, finite source freshness and optional complete directed canonical graph with exact same-vantage ICMP sources. Stores only your read capability ceiling; collection and detection remain active.", Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
 				var input AlertDependencyInput
-				if err := decodeNativeArgs(raw, &input); err != nil || !validAlertTagRuleID(input.RuleID) || input.Input == nil {
+				if err := decodeBoundedNativeArgs(raw, &input, min(limit, s.nativeRequestBytes())); err != nil || !validAlertTagRuleID(input.RuleID) || input.Input == nil {
 					return nil, argErr("an owned rule and complete dependency configuration are required")
 				}
 				normalized, err := alert.NormalizeDependencyPolicyInput(*input.Input)

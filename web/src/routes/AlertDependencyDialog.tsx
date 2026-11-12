@@ -222,7 +222,7 @@ function DependencyContents({
     <>
       <Modal open title={`Dependency context: ${rule.name}`} onClose={onClose}>
         <p>
-          Preview: choose the routing context and source freshness for dependency handling.
+          Preview: choose the routing context, source freshness and optional directed dependencies.
           Notification holding is not active in this build.
         </p>
         {canRead ? (

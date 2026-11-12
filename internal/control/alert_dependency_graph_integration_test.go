@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -31,7 +31,7 @@ import (
 func seedDependencyGraphFixture(t *testing.T) (*roleExplanationAPIFixture, map[string]*alert.Rule, *alert.DependencyGraphInput) {
 	t.Helper()
 	f, rules := newDependencyAPIFixture(t)
-	agent, rootTest, childTest := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	agent, rootTest, childTest := gouuid.NewString(), gouuid.NewString(), gouuid.NewString()
 	graph := &alert.DependencyGraphInput{Nodes: []alert.DependencyNodeInput{
 		{EntityID: f.routerID, AgentID: agent, TestID: rootTest, Parents: []string{}},
 		{EntityID: f.otherRouter, AgentID: agent, TestID: childTest, Parents: []string{f.routerID}},
@@ -43,7 +43,7 @@ func seedDependencyGraphFixture(t *testing.T) (*roleExplanationAPIFixture, map[s
 			}
 			registry := store.NewEntityRegistry(f.pool)
 			for _, node := range graph.Nodes {
-				if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,type,target,interval_seconds,timeout_seconds,params,enabled) VALUES($1,$2,'dependency ICMP','icmp','127.0.0.1',30,2,'{}',true)`, tenant, node.TestID); err != nil {
+				if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,type,target,interval_seconds,timeout_seconds,params,enabled) VALUES($1,$2,'dependency ICMP','icmp','127.0.0.1',30,2,'{"allow_private_targets":"true"}',true)`, tenant, node.TestID); err != nil {
 					return err
 				}
 				if err := registry.AssignPathTestContext(ctx, sc, node.TestID, f.contextID); err != nil {
