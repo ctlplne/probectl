@@ -29,13 +29,13 @@ rislive = [
 dev = [
   "pytest==8.4.2",
   "pytest-cov==7.1.0",
-  "ruff==0.15.16",
+  "ruff==0.17.4",
   "black==25.11.0",
   # Constrain Black's already-vetted transitive packages so fresh resolution
   # retains the hash-locked versions instead of adopting new minor releases.
-  "platformdirs==4.13.6",
-  "mypy-extensions==1.1.0",
-  "hypothesis==6.141.1",
+  "platformdirs==4.14.5",
+  "mypy-extensions==1.2.0",
+  "hypothesis==6.170.15",
 ]
 
 [tool.hatch.build.targets.wheel]
