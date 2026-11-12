@@ -336,11 +336,17 @@ function ActiveAlertDetail({
         <dd>{alert.reason}</dd>
         <dt>Metric</dt>
         <dd>
-          {alert.metric}
+          {alert.metric === savedQueryAlertMetric ? 'Saved Explorer query' : alert.metric}
           {alert.labels && labelText(alert.labels) ? ` {${labelText(alert.labels)}}` : ''}
         </dd>
         <dt>Value</dt>
-        <dd>{alert.value}</dd>
+        <dd>
+          {alert.metric === savedQueryAlertMetric
+            ? alert.value === 1
+              ? 'Condition met'
+              : 'Condition not met'
+            : alert.value}
+        </dd>
         <dt>Firing since</dt>
         <dd>
           <DateTime value={alert.since} />
@@ -1287,7 +1293,8 @@ export function AlertsPage() {
     {
       key: 'series',
       header: 'Series',
-      render: (a) => `${a.metric}${labelText(a.labels) ? ` {${labelText(a.labels)}}` : ''}`,
+      render: (a) =>
+        `${a.metric === savedQueryAlertMetric ? 'Saved Explorer query' : a.metric}${labelText(a.labels) ? ` {${labelText(a.labels)}}` : ''}`,
     },
     { key: 'value', header: 'Value', numeric: true, render: (a) => String(a.value) },
     { key: 'since', header: 'Since', render: (a) => <DateTime value={a.since} /> },
@@ -1305,16 +1312,22 @@ export function AlertsPage() {
 
   const ruleColumns: Column<AlertRule>[] = [
     { key: 'name', header: 'Name', render: (r) => r.name },
-    { key: 'metric', header: 'Metric', render: (r) => r.metric },
+    {
+      key: 'metric',
+      header: 'Metric',
+      render: (r) => (r.metric === savedQueryAlertMetric ? 'Saved Explorer query' : r.metric),
+    },
     {
       key: 'condition',
       header: 'Condition',
       render: (r) =>
-        r.type === 'trap'
-          ? trapCondition(r.trap)
-          : r.type === 'threshold'
-            ? `${r.comparison ?? 'gt'} ${r.threshold ?? 0}`
-            : `baseline ±${r.sensitivity ?? 3}σ`,
+        r.metric === savedQueryAlertMetric
+          ? 'Saved grouped condition'
+          : r.type === 'trap'
+            ? trapCondition(r.trap)
+            : r.type === 'threshold'
+              ? `${r.comparison ?? 'gt'} ${r.threshold ?? 0}`
+              : `baseline ±${r.sensitivity ?? 3}σ`,
     },
     {
       key: 'severity',

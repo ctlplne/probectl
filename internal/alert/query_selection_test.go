@@ -44,7 +44,7 @@ func TestSavedQueryAlertEngineFiresOnceAndResolvesOnlyACompleteDeparture(t *test
 		if i == 1 {
 			want = 0
 		}
-		if err != nil || len(acted) != want || len(acted) == 1 && acted[0].State != StateFiring {
+		if err != nil || len(acted) != want || len(acted) == 1 && (acted[0].State != StateFiring || acted[0].Reason != "saved-query condition met") {
 			t.Fatal("query group did not fire exactly once", acted, err)
 		}
 	}

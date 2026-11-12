@@ -83,10 +83,13 @@ func TestNativeFlowExplorerRealStack(t *testing.T) {
 		lane.do(t, st, http.MethodGet, "/v1/explorer/flow-views/"+lanes[1-i].view, nil, nil, http.StatusNotFound)
 	}
 	mcpAddr := shipped.FreeAddr(t)
-	st.RestartControl(t, "native-flow-mcp", map[string]string{"PROBECTL_MCP_HTTP_ADDR": mcpAddr, "PROBECTL_MCP_TLS_CERT_FILE": st.ServerCert, "PROBECTL_MCP_TLS_KEY_FILE": st.ServerKey})
+	st.RestartControl(t, "native-flow-mcp", map[string]string{"PROBECTL_MCP_HTTP_ADDR": mcpAddr, "PROBECTL_MCP_TLS_CERT_FILE": st.ServerCert, "PROBECTL_MCP_TLS_KEY_FILE": st.ServerKey, "PROBECTL_ALERT_EVAL_INTERVAL": "1s"})
 	for i, lane := range lanes {
 		lane.proveMCP(t, st, mcpAddr, lanes[1-i], at)
 	}
+	t.Run("saved-query-alerts", func(t *testing.T) {
+		proveNativeSavedQueryAlerts(t, st, mcpAddr, lanes)
+	})
 	t.Run("saved-source-reports", func(t *testing.T) {
 		proveNativeSourceReports(t, st, mcpAddr, lanes)
 	})

@@ -157,7 +157,7 @@ capabilities:
     docs: {refs: ["file:docs/alerting.md#Alerting"]}
     config_keys: {refs: ["config:PROBECTL_ALERT_EVAL_INTERVAL"]}
     telemetry: {refs: ["file:internal/alert"]}
-    real_stack_proof: {refs: ["test:internal/alert/realstack_integration_test.go#TestAlertingRealStack"]}
+    real_stack_proof: {refs: ["test:internal/alert/realstack_integration_test.go#TestAlertingRealStack", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack"]}
     migration: {refs: ["file:migrations/0011_alert_rules.sql", "file:migrations/0043_alert_ops.sql", "file:migrations/0065_alert_evaluation_receipts.sql", "file:migrations/0127_alert_rules_trap_match.sql", "file:migrations/0194_alert_query_sources.sql"]}
 
   - id: F9

@@ -563,9 +563,16 @@ func (en *Engine) breached(rule Rule, st *seriesState, s Sample) evaluationDecis
 		}
 	default: // Threshold
 		b := breaches(rule.Comparison, value, rule.Threshold)
+		reason := fmt.Sprintf("%s=%g %s %g", rule.Metric, value, rule.Comparison, rule.Threshold)
+		if rule.Metric == QueryMetric {
+			reason = "saved-query condition not met"
+			if b {
+				reason = "saved-query condition met"
+			}
+		}
 		return evaluationDecision{
 			breached: b,
-			reason:   fmt.Sprintf("%s=%g %s %g", rule.Metric, value, rule.Comparison, rule.Threshold),
+			reason:   reason,
 			expectation: EvaluationExpectation{
 				Kind: Threshold, Comparison: rule.Comparison, Threshold: floatRef(rule.Threshold),
 			},
