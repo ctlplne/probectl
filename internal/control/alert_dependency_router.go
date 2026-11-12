@@ -37,6 +37,8 @@ func (s *Server) alertDependencyRouter(tenant tenancy.ID, publication ...depende
 		}
 		ctx, cancel := context.WithTimeout(tenancy.WithTenant(ctx, tenant), budget.ExecutionLimit)
 		defer cancel()
+		ctx, flush := scopedABACDenial(ctx)
+		defer flush(s)
 		release, err := s.fairnessGate.BeginQuery(ctx, tenant.String())
 		if err != nil {
 			return nil, err

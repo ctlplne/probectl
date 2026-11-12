@@ -42,6 +42,8 @@ func (b mcpTagMutationBackend) AlertDependencyClear(ctx context.Context, actor *
 }
 
 func (b mcpTagMutationBackend) AlertDependencyWorkflow(ctx context.Context, actor *auth.Principal, fingerprint string) (*alert.DependencyWorkflow, error) {
+	ctx, flush := scopedABACDenial(ctx)
+	defer flush(b.server)
 	r, err := b.request(ctx, actor, "read", "/v1/alerts/active/"+url.PathEscape(fingerprint)+"/workflow")
 	if err != nil {
 		return nil, err

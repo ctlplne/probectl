@@ -87,6 +87,8 @@ func alertDependencyStoreError(err error) error {
 }
 
 func (s *Server) setAlertDependencyPolicy(ctx context.Context, actor *auth.Principal, id string, input alert.DependencyPolicyInput) (alert.DependencyPolicyState, error) {
+	ctx, flush := scopedABACDenial(ctx)
+	defer flush(s)
 	if err := validateAlertTagRuleID(id); err != nil {
 		return alert.DependencyPolicyState{}, err
 	}
@@ -156,6 +158,8 @@ func (s *Server) setAlertDependencyPolicy(ctx context.Context, actor *auth.Princ
 }
 
 func (s *Server) clearAlertDependencyPolicy(ctx context.Context, actor *auth.Principal, id string) (alert.DependencyPolicyState, error) {
+	ctx, flush := scopedABACDenial(ctx)
+	defer flush(s)
 	if err := validateAlertTagRuleID(id); err != nil {
 		return alert.DependencyPolicyState{}, err
 	}
@@ -183,6 +187,8 @@ func (s *Server) clearAlertDependencyPolicy(ctx context.Context, actor *auth.Pri
 }
 
 func (s *Server) readAlertDependencyPolicy(ctx context.Context, actor *auth.Principal, id string) (alert.DependencyPolicyState, error) {
+	ctx, flush := scopedABACDenial(ctx)
+	defer flush(s)
 	if err := validateAlertTagRuleID(id); err != nil {
 		return alert.DependencyPolicyState{}, err
 	}

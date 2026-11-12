@@ -295,6 +295,9 @@ type alertWorkflowResponse struct {
 // operator audit receipts and (when supplied) a freshly tenant-authorized
 // incident plus its persisted on-call/ticket delivery links.
 func (s *Server) handleAlertWorkflow(w http.ResponseWriter, r *http.Request) error {
+	ctx, flush := scopedABACDenial(r.Context())
+	defer flush(s)
+	r = r.WithContext(ctx)
 	src, _, err := s.alertStateFor(r)
 	if err != nil {
 		return err
