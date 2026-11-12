@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"slices"
 	"time"
 
@@ -96,11 +97,11 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 		return nil, err
 	}
 	if err := store.LockDependencySourcesInScope(ctx, sc, policy.ContextID, policy.Graph, maxBytes/2); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dependency publication source locks: %w", err)
 	}
 	graph, health, err := s.dependencyHealthSnapshot(ctx, sc, policy, maxBytes/2)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dependency publication health snapshot: %w", err)
 	}
 	cfg := &dependencyIncidentPublication{}
 	if len(publication) > 0 && publication[0] != nil {
@@ -108,7 +109,7 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 	}
 	roots, err := s.publishDependencyRoots(ctx, sc, rule, policy, &graph, health, attempts, maxBytes/2, cfg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dependency publication roots: %w", err)
 	}
 	decider, err := alert.PrepareDependencyNotifications(ctx, graph, maxBytes/2, maxBytes/2)
 	if err != nil {
@@ -133,7 +134,7 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 		sig.IdentityContextID, sig.IdentityEntityID = policy.ContextID, node.EntityID
 		overrides, err := (store.Incidents{}).ActiveCorrelationOverrides(ctx, sc, sig)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("dependency publication child policy %d of %d: %w", i+1, len(attempts), err)
 		}
 		if len(overrides) != 0 {
 			reachability = false // explicit operator detachment always wins
@@ -156,7 +157,7 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 			continue
 		}
 		if err := publishHeldDependency(ctx, sc, policy.OwnerUserID, attempt, decision, sig, maxBytes/4); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("dependency publication held child %d of %d: %w", i+1, len(attempts), err)
 		}
 		out[i].IncidentPublished, out[i].NotificationStatePublished = true, true
 	}
