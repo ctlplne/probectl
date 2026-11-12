@@ -91,11 +91,10 @@ BEGIN
     END IF;
     EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY',parent_table);
     EXECUTE format('ALTER TABLE %s FORCE ROW LEVEL SECURITY',parent_table);
-    IF NOT EXISTS(SELECT 1 FROM pg_policy WHERE polrelid=parent_oid AND polname='tenant_isolation') THEN
-        EXECUTE format('CREATE POLICY tenant_isolation ON %s
+    EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %s',parent_table);
+    EXECUTE format('CREATE POLICY tenant_isolation ON %s
             USING(tenant_id=NULLIF(current_setting(''probectl.tenant_id'',true),'''')::uuid)
             WITH CHECK(tenant_id=NULLIF(current_setting(''probectl.tenant_id'',true),'''')::uuid)',parent_table);
-    END IF;
     -- Mirror existing table ACLs, preserving FORCE-RLS on every runtime write.
     FOR permission IN SELECT CASE WHEN acl.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(acl.grantee) END grantee,
             acl.privilege_type
@@ -148,14 +147,16 @@ BEGIN
     EXECUTE format('ALTER TABLE %s VALIDATE CONSTRAINT entity_path_test_target_context_fk',child_table);
     -- The former unique index also served cleanup and deferred FK checks.
     -- Preserve that access path without preserving its one-test restriction.
-    -- LIKE may already have cloned a suitable nonunique index under a new name.
+    -- Migration0199 builds the pooled index online; existing private schemas
+    -- prepare it online before provisioning/catch-up. Fresh LIKE tables copy
+    -- it under a new name. Never build an index under this DDL transaction.
     IF NOT EXISTS(SELECT 1 FROM pg_index idx JOIN pg_class relation ON relation.oid=idx.indexrelid
         JOIN pg_am method ON method.oid=relation.relam
         WHERE idx.indrelid=child_oid AND idx.indisvalid AND idx.indisready AND NOT idx.indisunique
           AND idx.indpred IS NULL AND idx.indexprs IS NULL AND idx.indnkeyatts>=2 AND method.amname='btree'
           AND pg_get_indexdef(idx.indexrelid,1,true)='tenant_id'
           AND pg_get_indexdef(idx.indexrelid,2,true)='path_target') THEN
-        EXECUTE format('CREATE INDEX entity_path_test_target_context_idx ON %s(tenant_id,path_target,context_id)',child_table);
+        RAISE EXCEPTION 'path target reference index must be prepared online' USING ERRCODE='23514';
     END IF;
     -- Validate replacement integrity before removing single-test admission.
     EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS entity_path_target_one_context',child_table);
