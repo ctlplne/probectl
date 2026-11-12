@@ -90,7 +90,24 @@ func TestNativeFlowExplorerRealStack(t *testing.T) {
 	}
 	var queryAlerts []nativeQueryAlert
 	t.Run("saved-query-alerts", func(t *testing.T) { queryAlerts = proveNativeSavedQueryAlerts(t, st, mcpAddr, lanes) })
-	t.Run("saved-query-new-groups", func(t *testing.T) { proveNativeSavedQueryNewGroups(t, st, queryAlerts) })
+	var ownedQueryRules [][2]string
+	defer func() {
+		// Run before Stack's process cleanups, including processes created by
+		// later restarts. Child-owned cleanup would end the firing episode early.
+		for _, owned := range ownedQueryRules {
+			code, _ := st.Do(t, owned[0], http.MethodDelete, "/v1/alerts/"+owned[1], nil)
+			if code != http.StatusNoContent && code != http.StatusNotFound {
+				t.Error("owned novelty alert cleanup refused", code)
+			}
+		}
+	}()
+	cleanupQuery := func(cookie, id string) {
+		ownedQueryRules = append(ownedQueryRules, [2]string{cookie, id})
+	}
+	if t.Run("saved-query-new-groups", func(child *testing.T) { proveNativeSavedQueryNewGroups(child, st, queryAlerts, cleanupQuery) }) {
+		st.RestartControl(t, "native-query-novelty-restart", queryEnv)
+		t.Run("saved-query-new-group-restart-exit", func(t *testing.T) { proveNativeSavedQueryNewGroupRestartAndExit(t, st, queryAlerts) })
+	}
 	var costSources []nativeQueryAlert
 	t.Run("saved-query-save-cost-source", func(t *testing.T) { costSources = prepareNativeSavedQueryCostSources(t, st, queryAlerts) })
 	if len(costSources) == 2 {

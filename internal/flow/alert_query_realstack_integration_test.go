@@ -43,6 +43,7 @@ type nativeQueryAlert struct {
 	high         uint32
 	nextSequence uint32
 	fingerprint  string
+	since        time.Time
 }
 
 // This extends the existing real collector/Dex/PG/ClickHouse receipt. Both
@@ -313,7 +314,7 @@ func (p *nativeQueryAlert) call(t *testing.T, st *shipped.Stack, addr, name stri
 // The same actual source proves novelty, cadence preservation and top-set exit.
 // The original new-AS row must still be retained at resolution, so expiry or
 // source edits cannot substitute for eviction from the selected top ten.
-func proveNativeSavedQueryNewGroups(t *testing.T, st *shipped.Stack, proofs []nativeQueryAlert) {
+func proveNativeSavedQueryNewGroups(t *testing.T, st *shipped.Stack, proofs []nativeQueryAlert, cleanup func(string, string)) {
 	t.Helper()
 	if len(proofs) != 2 {
 		t.Fatal("original real threshold source prerequisites did not execute")
@@ -328,7 +329,7 @@ func proveNativeSavedQueryNewGroups(t *testing.T, st *shipped.Stack, proofs []na
 		plan.Metrics = plan.Metrics[:1]
 		plan.DataSeries = "raw"
 		plan.RowLimit, plan.PageSize = 10, 10
-		p.lane.do(t, st, http.MethodPost, "/v1/explorer/flow-views", map[string]any{"definition": flow.QueryViewDefinition{Name: "New AS " + p.lane.name, Visibility: "private", Time: flow.QueryViewTime{Mode: "lookback", LookbackSeconds: 60}, Plan: plan}}, &p.view, http.StatusCreated)
+		p.lane.do(t, st, http.MethodPost, "/v1/explorer/flow-views", map[string]any{"definition": flow.QueryViewDefinition{Name: "New AS " + p.lane.name, Visibility: "private", Time: flow.QueryViewTime{Mode: "lookback", LookbackSeconds: 300}, Plan: plan}}, &p.view, http.StatusCreated)
 		shipped.Await(t, "retained actual initial source AS before warming", 20*time.Second, func() bool {
 			current, _, err := flow.MaterializeQueryView(p.view.Definition, time.Now().UTC())
 			if err != nil {
@@ -343,13 +344,7 @@ func proveNativeSavedQueryNewGroups(t *testing.T, st *shipped.Stack, proofs []na
 		})
 		input := alert.QueryRuleInput{Name: "New selected AS " + p.lane.name, QuerySource: alert.QuerySourceInput{ViewID: p.view.ID, ViewVersion: p.view.Version, EverySeconds: 1, Condition: alert.QueryCondition{Mode: "new_group"}}}
 		p.lane.do(t, st, http.MethodPost, "/v1/alerts", input, &p.rule, http.StatusCreated)
-		ruleID, cookie := p.rule.ID, p.lane.cookie
-		t.Cleanup(func() {
-			code, _ := st.Do(t, cookie, http.MethodDelete, "/v1/alerts/"+ruleID, nil)
-			if code != http.StatusNoContent && code != http.StatusNotFound {
-				t.Error("owned novelty alert cleanup refused", code)
-			}
-		})
+		cleanup(p.lane.cookie, p.rule.ID)
 		var configured alert.QuerySourceState
 		shipped.Await(t, "actual initial complete novelty baseline", 30*time.Second, func() bool {
 			p.lane.do(t, st, http.MethodGet, "/v1/alerts/rules/"+p.rule.ID+"/query-source", nil, &configured, http.StatusOK)
@@ -386,6 +381,7 @@ func proveNativeSavedQueryNewGroups(t *testing.T, st *shipped.Stack, proofs []na
 					found++
 					p.group = item.Labels["query_group"]
 					p.fingerprint = item.EvaluationFingerprint
+					p.since = item.Since
 				}
 			}
 			if found > 1 {
@@ -427,6 +423,32 @@ func proveNativeSavedQueryNewGroups(t *testing.T, st *shipped.Stack, proofs []na
 		if !entered.ConditionMet || fired != 1 || resolved != 0 {
 			t.Fatal("cadence-only edit invented a novelty resolution or repeat", entered, fired, resolved)
 		}
+	}
+}
+
+func proveNativeSavedQueryNewGroupRestartAndExit(t *testing.T, st *shipped.Stack, proofs []nativeQueryAlert) {
+	t.Helper()
+	for i := range proofs {
+		p := &proofs[i]
+		shipped.Await(t, "restored actual still-firing novelty episode", 30*time.Second, func() bool {
+			var active struct {
+				Items []alert.ActiveAlert `json:"items"`
+			}
+			p.lane.do(t, st, http.MethodGet, "/v1/alerts/active", nil, &active, http.StatusOK)
+			for _, item := range active.Items {
+				if item.RuleID == p.rule.ID {
+					if item.Labels["query_group"] != p.group || item.EvaluationFingerprint != p.fingerprint || !item.Since.Truncate(time.Microsecond).Equal(p.since.Truncate(time.Microsecond)) {
+						t.Fatal("control restart changed the original actual novelty episode", item)
+					}
+					return true
+				}
+			}
+			return false
+		})
+		fired, resolved := p.transitions(t, st)
+		if fired != 1 || resolved != 0 {
+			t.Fatal("control restart repeated or resolved the original actual novelty episode", fired, resolved)
+		}
 		for asn := uint16(64514); asn < 64524; asn++ {
 			p.lane.sendAlertASWire(t, 100, p.nextSequence, asn)
 			p.nextSequence++
@@ -438,6 +460,7 @@ func proveNativeSavedQueryNewGroups(t *testing.T, st *shipped.Stack, proofs []na
 			}
 			return fired == 1 && resolved == 1
 		})
+		var entered alert.QueryGroupInspection
 		p.lane.do(t, st, http.MethodGet, "/v1/alerts/rules/"+p.rule.ID+"/query-group?group="+p.group, nil, &entered, http.StatusOK)
 		if entered.Present || entered.ConditionMet || len(entered.Dimensions) != 0 {
 			t.Fatal("departed top-set identity leaked another group or remained firing", entered)
@@ -465,7 +488,7 @@ func proveNativeSavedQueryNewGroups(t *testing.T, st *shipped.Stack, proofs []na
 		p := &proofs[i]
 		p.lane.do(t, st, http.MethodDelete, "/v1/alerts/"+p.rule.ID, nil, nil, http.StatusNoContent)
 	}
-	t.Log("real-integration: two tenant-bound raw senders warm one AS, add a new top-ten AS, preserve its episode across a cadence-only edit, then resolve once on complete top-ten eviction while the original row remains retained; no source edit or timeout manufactures clearance")
+	t.Log("real-integration: two tenant-bound raw senders warm one AS, add a new top-ten AS, preserve its episode across a cadence-only edit and actual control restart, then resolve once on complete top-ten eviction while the original row remains retained; no source edit or timeout manufactures clearance")
 }
 
 // The digest is only a lookup handle for independently known wire dimensions;
