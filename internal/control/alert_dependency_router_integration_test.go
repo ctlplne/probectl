@@ -507,6 +507,17 @@ func TestDependencyHealthPopulationKeepsExactSourcesAndTenantScope(t *testing.T)
 			if err != nil || unknown[len(unknown)-1].State != "unknown" {
 				t.Fatal("missing source inherited a different source's health", err)
 			}
+			requests[len(requests)-1].Source.SourceRef = d.graphs[tenant].Nodes[len(requests)-1].TestID
+			requests[0].Source.SourceRef = guuid.NewString()
+			unknown, err = registry.ReadICMPHealthPopulationInScope(ctx, sc, scope, requests, time.Minute, 1<<20)
+			if err != nil || unknown[0].State != "unknown" || unknown[len(unknown)-1].Observation.Source.SourceRef != requests[len(requests)-1].Source.SourceRef {
+				t.Fatal("sparse source rows changed another request's evidence", err)
+			}
+			sparse := []entity.AliasKey{aliases[0], {Kind: entity.AddressAlias, Value: "203.0.113.254"}, aliases[len(aliases)-1]}
+			missing, err := store.ResolveAliasPopulationInScope(ctx, sc, scope, sparse, 1<<20)
+			if err != nil || len(missing) != len(sparse) || missing[0].EntityID != d.graphs[tenant].Nodes[0].EntityID || missing[1].Status == entity.Resolved || missing[2].EntityID != d.graphs[tenant].Nodes[len(requests)-1].EntityID {
+				t.Fatal("sparse alias rows borrowed another request's identity", err)
+			}
 			aliases[len(aliases)-1] = entity.AliasKey{Kind: entity.AddressAlias, Value: "invalid-address"}
 			if out, err := store.ResolveAliasPopulationInScope(ctx, sc, scope, aliases, 1<<20); err == nil || len(out) != 0 {
 				t.Fatal("invalid final alias returned a successful prefix")

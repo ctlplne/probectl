@@ -316,7 +316,11 @@ func ResolveAliasInScope(ctx context.Context, sc tenancy.Scope,
 
 // Population lookup uses this exact query too: ambiguity and independent
 // current support must not depend on the number of aliases in an operation.
-func currentAliasResolutionSQL() string {
+func currentAliasResolutionSQL(population ...bool) string {
+	kindParameter, valueParameter := "$3", "$4"
+	if len(population) > 0 && population[0] {
+		kindParameter, valueParameter = "requested.kind", "requested.alias_value"
+	}
 	return `
 			SELECT DISTINCT ON (resolved_node.id)
 			       e.id::text, resolved_node.id::text, resolved_node.kind, e.source, e.source_ref,
@@ -339,7 +343,7 @@ func currentAliasResolutionSQL() string {
 		       (a.tenant_id, a.agent_id, a.context_id) =
 		       (m.tenant_id, m.agent_id, m.context_id)
 			 WHERE e.tenant_id = $1 AND e.context_id = $2
-			   AND e.alias_kind = $3 AND e.alias_value = $4
+			   AND e.alias_kind = ` + kindParameter + ` AND e.alias_value = ` + valueParameter + `
 			   AND ` + currentPhysicalNeighborSQL + `
 			   AND e.observed_at <= statement_timestamp()
 			   AND (e.expires_at IS NULL OR e.expires_at > statement_timestamp())
@@ -399,6 +403,10 @@ func scanAliasResolution(rows pgx.Rows, err error, want entity.Scope, key entity
 	if err := rows.Err(); err != nil {
 		return entity.Resolution{}, err
 	}
+	return resolveAliasClaims(want, key, claims)
+}
+
+func resolveAliasClaims(want entity.Scope, key entity.AliasKey, claims []entity.Claim) (entity.Resolution, error) {
 	more := len(claims) > 3
 	if more {
 		claims = claims[:3]
