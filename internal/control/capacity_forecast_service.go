@@ -7,10 +7,15 @@
 package control
 
 import (
+	"context"
+	"errors"
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
@@ -18,11 +23,16 @@ func (s *Server) measureCapacityForecast(op capacityForecastOperation, input flo
 	none := flow.CapacityForecastMeasurement{}
 	ctx := op.request.Context()
 	finish := s.beginFlowOperation(ctx, "capacity_forecast")
-	defer func() { finish(operationErr) }()
+	phase := "input"
+	defer func() {
+		finish(operationErr)
+		s.logCapacityForecastFailure(ctx, phase, operationErr)
+	}()
 	parameters, err := capacityForecastInput(ctx, input, op.budget)
 	if err != nil {
 		return none, err
 	}
+	phase = "current_source"
 	before, err := s.capacityForecastSnapshot(ctx, op.actor, parameters, op.budget, nil, nil)
 	if err != nil {
 		return none, err
@@ -35,6 +45,7 @@ func (s *Server) measureCapacityForecast(op capacityForecastOperation, input flo
 	if err != nil {
 		return none, err
 	}
+	phase = "counter_history"
 	rows, err := history.CounterPoints(ctx, query)
 	if err != nil {
 		return none, err
@@ -42,6 +53,7 @@ func (s *Server) measureCapacityForecast(op capacityForecastOperation, input flo
 	if err := capacityBillRowsInWindow(rows, query); err != nil {
 		return none, err
 	}
+	phase = "original_receipts"
 	if _, err := s.capacityForecastSnapshot(ctx, op.actor, parameters, op.budget, &before, rows); err != nil {
 		return none, err
 	}
@@ -50,6 +62,7 @@ func (s *Server) measureCapacityForecast(op capacityForecastOperation, input flo
 		return none, err
 	}
 	window := flow.CapacityMeasurementWindow{From: parameters.from, To: parameters.to, MaximumPollGap: parameters.counter.gap, MemoryBytes: op.budget.MemoryBytes / 2, WorkUnits: workUnits}
+	phase = "member_measurement"
 	members, err := measureCapacityBillMembers(ctx, before, rows, window, op.budget.MemoryBytes/4)
 	if err != nil {
 		return none, err
@@ -58,10 +71,12 @@ func (s *Server) measureCapacityForecast(op capacityForecastOperation, input flo
 	if parameters.target.Kind == "circuit" {
 		label = parameters.target.TagID + ":" + parameters.target.TagValue
 	}
+	phase = "forecast_model"
 	forecasts, err := flow.ForecastCapacityMeasured(ctx, window, label, parameters.direction, parameters.capacity, parameters.until, members)
 	if err != nil {
 		return none, err
 	}
+	phase = "publication_source"
 	after, err := s.capacityForecastSnapshot(ctx, op.actor, parameters, op.budget, &before, rows)
 	if err != nil {
 		return none, err
@@ -80,4 +95,22 @@ func (s *Server) measureCapacityForecast(op capacityForecastOperation, input flo
 		result.Members = append(result.Members, flow.CapacityBillMember{ContextID: member.target.Scope.ContextID, DeviceID: member.target.Source.DeviceID, InterfaceID: member.target.InterfaceID, IfIndex: member.target.IfIndex, PhysicalMaxBPS: strconv.FormatUint(member.maximum, 10), ObservedNotBefore: notBefore})
 	}
 	return result, ctx.Err()
+}
+
+func (s *Server) logCapacityForecastFailure(ctx context.Context, phase string, err error) {
+	if err == nil {
+		return
+	}
+	// Fixed phases and error classes expose no counter values, source
+	// identities, SQL text or credential material. Keep the original whole
+	// workload; diagnostics must not turn a refusal into success.
+	state := ""
+	var postgres *pgconn.PgError
+	if errors.As(err, &postgres) {
+		state = postgres.SQLState()
+	}
+	s.log.WarnContext(ctx, "capacity forecast measurement failed", "phase", phase,
+		"outcome", flowOperationOutcome(err), "sqlstate", state,
+		"deadline_exceeded", errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded),
+		"receipt_unavailable", errors.Is(err, store.ErrCounterCaptureUnavailable))
 }

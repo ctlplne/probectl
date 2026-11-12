@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -37,6 +38,13 @@ import (
 // new issued-transport sender proof.
 func TestCapacityForecastServesKnownGrowthWithoutFinancialAccessAndKeepsCurrentTenants(t *testing.T) {
 	f := newRoleExplanationAPIFixture(t)
+	var diagnostics bytes.Buffer
+	f.server.log = slog.New(slog.NewTextHandler(&diagnostics, nil))
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Log(diagnostics.String())
+		}
+	})
 	f.server.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	probe := &capacityCounterHistoryProbe{Memory: flowstore.NewMemory()}
 	f.server.flowStore = probe
