@@ -377,6 +377,9 @@ type Config struct {
 
 	// Alerting (S16): how often the engine evaluates enabled rules over the TSDB.
 	AlertEvalInterval time.Duration
+	// Complete dependency publication includes current source/graph validation
+	// and atomic incident/notification storage, under its own finite deadline.
+	AlertDependencyPublicationTimeout time.Duration
 	// Alert email delivery (the "email" channel type). AlertSMTPAddr
 	// (host:port) turns the channel on; empty keeps it off and the notifier
 	// reports "no mail sender is configured". TLS is mandatory in both modes
@@ -1295,6 +1298,10 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.CMDBMemoryBytes = l.intRange("PROBECTL_CMDB_MEMORY_BYTES", 512<<20, 1, int(^uint(0)>>1))
 	cfg.CMDBNetBoxTenantMap = l.netBoxTenantMap()
 	cfg.AlertEvalInterval = l.dur("PROBECTL_ALERT_EVAL_INTERVAL", 30*time.Second)
+	cfg.AlertDependencyPublicationTimeout = l.dur("PROBECTL_ALERT_DEPENDENCY_PUBLICATION_TIMEOUT", 5*time.Minute)
+	if cfg.AlertDependencyPublicationTimeout <= 0 {
+		l.errf("PROBECTL_ALERT_DEPENDENCY_PUBLICATION_TIMEOUT: must be positive")
+	}
 	cfg.ProvisionReapInterval = l.dur("PROBECTL_PROVISION_REAP_INTERVAL", 15*time.Minute)
 	cfg.ProvisionReapAfter = l.dur("PROBECTL_PROVISION_REAP_AFTER", 24*time.Hour)
 	cfg.ProvisionReapMax = l.intRange("PROBECTL_PROVISION_REAP_MAX", 25, 1, 1000)
@@ -2307,6 +2314,7 @@ func (c *Config) LogValue() slog.Value {
 		slog.String("bus_mode", c.BusMode),
 		slog.String("tsdb_mode", c.TSDBMode),
 		slog.Int("flow_query_library_bytes", c.FlowQueryLibraryBytes),
+		slog.Duration("alert_dependency_publication_timeout", c.AlertDependencyPublicationTimeout),
 		slog.Int("agent_max_receive_bytes", c.AgentMaxReceiveBytes),
 		slog.Int("public_routing_memory_bytes", c.PublicRoutingMemoryBytes),
 		slog.Int("public_routing_work_units", c.PublicRoutingWorkUnits),

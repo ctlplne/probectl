@@ -35,7 +35,14 @@ func (s *Server) alertDependencyRouter(tenant tenancy.ID, publication ...depende
 		if len(attempts) == 0 || int64(len(attempts)) > budget.MemoryBytes/4096 {
 			return nil, store.ErrAlertDependencyBudget
 		}
-		ctx, cancel := context.WithTimeout(tenancy.WithTenant(ctx, tenant), budget.ExecutionLimit)
+		timeout := 5 * time.Minute
+		if s.cfg != nil && s.cfg.AlertDependencyPublicationTimeout != 0 {
+			timeout = s.cfg.AlertDependencyPublicationTimeout
+		}
+		if timeout <= 0 {
+			return nil, store.ErrAlertDependencyBudget
+		}
+		ctx, cancel := context.WithTimeout(tenancy.WithTenant(ctx, tenant), timeout)
 		defer cancel()
 		ctx, flush := scopedABACDenial(ctx)
 		defer flush(s)

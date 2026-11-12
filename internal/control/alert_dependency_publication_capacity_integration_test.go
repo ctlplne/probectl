@@ -11,6 +11,7 @@ package control
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/store"
@@ -33,7 +34,8 @@ func TestDependencyRouterCompleteTwentyThousandDurableHolds(t *testing.T) {
 			}
 		}
 	})
-	for _, tenant := range d.f.tenants {
+	for lane, tenant := range d.f.tenants {
+		seededAt := time.Now()
 		rows, graph := seedDependencyHealthPopulation(t, d, tenant, 20_000)
 		d.f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			rule := d.rules[tenant]
@@ -52,6 +54,7 @@ func TestDependencyRouterCompleteTwentyThousandDurableHolds(t *testing.T) {
 				})
 			return err
 		})
+		t.Logf("complete publication source/policy setup: tenant lane %d, elapsed %s", lane, time.Since(seededAt))
 		attempts := make([]alert.DependencyAttempt, len(rows))
 		for i, row := range rows {
 			attempts[i] = alert.DependencyAttempt{
@@ -61,9 +64,10 @@ func TestDependencyRouterCompleteTwentyThousandDurableHolds(t *testing.T) {
 				NotificationDue: true, FiringSince: row.Measurement.CompletedAt, RuleUpdatedAt: d.rules[tenant].UpdatedAt,
 			}
 		}
+		publicationStarted := time.Now()
 		out, err := d.f.server.alertDependencyRouter(tenancy.ID(tenant))(t.Context(), *d.rules[tenant], attempts)
 		if err != nil || len(out) != len(rows) {
-			t.Fatal("complete durable publication was refused or shortened", len(out), err)
+			t.Fatal("complete durable publication was refused or shortened", len(out), time.Since(publicationStarted), err)
 		}
 		d.f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			notifications, err := (store.AlertNotifications{}).List(ctx, sc)
