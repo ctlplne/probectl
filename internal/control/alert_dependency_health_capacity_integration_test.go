@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -85,13 +85,13 @@ func seedDependencyHealthPopulation(t *testing.T, d *dependencyRoutingFixture, t
 	rows := make([]dependencyHealthPopulationRow, count)
 	graph := &alert.DependencyGraphInput{}
 	for i := range rows {
-		node := alert.DependencyNodeInput{EntityID: uuid.NewString(), AgentID: d.graphs[tenant].Nodes[0].AgentID, TestID: uuid.NewString(), Parents: []string{}}
+		node := alert.DependencyNodeInput{EntityID: gouuid.NewString(), AgentID: d.graphs[tenant].Nodes[0].AgentID, TestID: gouuid.NewString(), Parents: []string{}}
 		if i == 0 {
 			node.EntityID = d.graphs[tenant].Nodes[0].EntityID
 		} else {
 			node.Parents = []string{rows[i-1].EntityID}
 		}
-		rows[i] = dependencyHealthPopulationRow{DependencyNodeInput: node, Target: fmt.Sprintf("2001:db8::%x", i+1), EvidenceID: uuid.NewString(), ObservationID: uuid.NewString()}
+		rows[i] = dependencyHealthPopulationRow{DependencyNodeInput: node, Target: fmt.Sprintf("2001:db8::%x", i+1), EvidenceID: gouuid.NewString(), ObservationID: gouuid.NewString()}
 		graph.Nodes = append(graph.Nodes, node)
 	}
 	seed, err := json.Marshal(rows)
