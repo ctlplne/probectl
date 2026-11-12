@@ -79,7 +79,9 @@ func (s *EntityRegistry) ReadICMPHealthPopulationInScope(ctx context.Context, sc
  SELECT ordinality,agent_id AS agent_id,source_ref,entity_id
  FROM unnest($3::text[],$4::text[],$5::uuid[]) WITH ORDINALITY AS input(agent_id,source_ref,entity_id,ordinality)
  ) SELECT requested.ordinality,measured.* FROM requested JOIN LATERAL (` + currentICMPHealthSQL(true) + `) AS measured ON true ORDER BY requested.ordinality`
-	rows, err := sc.Q.Query(ctx, query, want.TenantID, want.ContextID, agents, sources, entities, maxBytes/int64(len(keys))/16)
+	// Replan this complete population; a cached generic plan cannot estimate
+	// the current array lengths when rules have very different source counts.
+	rows, err := sc.Q.Query(ctx, query, pgx.QueryExecModeDescribeExec, want.TenantID, want.ContextID, agents, sources, entities, maxBytes/int64(len(keys))/16)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +145,7 @@ func ResolveAliasPopulationInScope(ctx context.Context, sc tenancy.Scope, scope 
  JOIN LATERAL (` + currentAliasResolutionSQL(true) + `) AS resolved(
  evidence_id,entity_id,entity_kind,source,source_ref,agent_id,source_kind,configured_ref,observed_at,support_evidence_id) ON true
  ORDER BY requested.ordinality,resolved.entity_id`
-	rows, err := sc.Q.Query(ctx, query, want.TenantID, want.ContextID, kinds, values)
+	rows, err := sc.Q.Query(ctx, query, pgx.QueryExecModeDescribeExec, want.TenantID, want.ContextID, kinds, values)
 	if err != nil {
 		return nil, err
 	}
