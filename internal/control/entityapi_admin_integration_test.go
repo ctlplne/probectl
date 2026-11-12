@@ -224,8 +224,7 @@ func TestEntityAdminAssignmentIsTenantAndContextBound(t *testing.T) {
 		crypto.EntitySPIFFEID(a, agentA), entitySerial, time.Now().Add(time.Hour), ""); err != nil {
 		t.Fatalf("seed MCP evidence identity: %v", err)
 	}
-	if accepted, unresolved, err := writeEntityEvidenceBatchForTest(store.NewEntityRegistry(db.Pool()),
-		tenancy.WithTenant(context.Background(), tenancy.ID(a)), agentA, entitySerial,
+	if accepted, unresolved, err := writeEntityEvidenceBatchForTest(tenancy.WithTenant(context.Background(), tenancy.ID(a)), store.NewEntityRegistry(db.Pool()), agentA, entitySerial,
 		[]entity.Observation{{ID: uuid(t), Source: entity.SourceKey{
 			AgentID: agentA, Kind: entity.DeviceTarget, SourceRef: "10.42.0.1"},
 			Alias:     entity.AliasKey{Kind: entity.AddressAlias, Value: "10.42.0.1"},
@@ -237,8 +236,7 @@ func TestEntityAdminAssignmentIsTenantAndContextBound(t *testing.T) {
 		crypto.EntitySPIFFEID(b, agentB), blueSerial, time.Now().Add(time.Hour), ""); err != nil {
 		t.Fatalf("seed blue evidence identity: %v", err)
 	}
-	if accepted, unresolved, err := writeEntityEvidenceBatchForTest(store.NewEntityRegistry(db.Pool()),
-		tenancy.WithTenant(context.Background(), tenancy.ID(b)), agentB, blueSerial,
+	if accepted, unresolved, err := writeEntityEvidenceBatchForTest(tenancy.WithTenant(context.Background(), tenancy.ID(b)), store.NewEntityRegistry(db.Pool()), agentB, blueSerial,
 		[]entity.Observation{{ID: uuid(t), Source: entity.SourceKey{
 			AgentID: agentB, Kind: entity.DeviceTarget, SourceRef: "10.42.0.1"},
 			Alias:     entity.AliasKey{Kind: entity.AddressAlias, Value: "10.42.0.1"},

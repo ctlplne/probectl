@@ -159,7 +159,7 @@ func (f *roleExplanationAPIFixture) poll(tenant, description string, prefixes []
 		{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: "7"}, SourceRef: "snmp:ifIndex:7", InterfaceDescription: description, ObservedAt: at},
 		{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "10.42.0.2"}, SourceRef: "snmp:ifIndex:7", ObservedAt: at},
 	}
-	accepted, unresolved, err := writeEntityEvidenceBatchForTest(store.NewEntityRegistry(f.pool), tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant)), source.AgentID, f.serials[tenant+source.AgentID], claims)
+	accepted, unresolved, err := writeEntityEvidenceBatchForTest(tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant)), store.NewEntityRegistry(f.pool), source.AgentID, f.serials[tenant+source.AgentID], claims)
 	if err != nil || accepted != len(claims) || unresolved != 0 {
 		f.t.Fatal("owned complete poll was not accepted", accepted, unresolved, err)
 	}
@@ -172,7 +172,7 @@ func (f *roleExplanationAPIFixture) peerAtAddress(tenant, address string, asn ui
 	f.t.Helper()
 	claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-listener", Kind: entity.BMPPeer, SourceRef: "role-router"},
 		Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("%s/as%d", address, asn)}, SourceRef: fmt.Sprintf("bmp:router:role-router:peer-asn:%d", asn), OriginSerial: f.serials[tenant+"role-router"], ObservedAt: f.observedAt(tenant)}
-	accepted, unresolved, err := writeEntityEvidenceBatchForTest(store.NewEntityRegistry(f.pool), tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant)), "role-listener", f.serials[tenant+"role-listener"], []entity.Observation{claim})
+	accepted, unresolved, err := writeEntityEvidenceBatchForTest(tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant)), store.NewEntityRegistry(f.pool), "role-listener", f.serials[tenant+"role-listener"], []entity.Observation{claim})
 	if err != nil || accepted != 1 || unresolved != 0 {
 		f.t.Fatal("owned BMP observation was not accepted", accepted, unresolved, err)
 	}
@@ -491,7 +491,7 @@ func TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmissio
 
 // writeEntityEvidenceBatchForTest retains the legacy assertion vocabulary
 // while exercising the shipped committed receipt API.
-func writeEntityEvidenceBatchForTest(registry *store.EntityRegistry, ctx context.Context, agent, serial string, claims []entity.Observation) (int, int, error) {
+func writeEntityEvidenceBatchForTest(ctx context.Context, registry *store.EntityRegistry, agent, serial string, claims []entity.Observation) (int, int, error) {
 	receipt, err := registry.WriteEvidenceBatchReceipt(ctx, agent, serial, claims)
 	return receipt.Accepted, receipt.Unresolved, err
 }

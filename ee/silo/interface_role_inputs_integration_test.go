@@ -124,12 +124,12 @@ func TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority(t *testing.T)
 					{ID: uuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: "7"}, SourceRef: "snmp:ifIndex:7", InterfaceDescription: "owned-" + tenant, ObservedAt: at},
 					{ID: uuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "10.42.0.2"}, SourceRef: "snmp:ifIndex:7", ObservedAt: at},
 				}
-				count, unresolved, err := writeEntityEvidenceBatchForTest(store.NewEntityRegistry(pool), tenancy.WithTenant(ctx, tenancy.ID(tenant)), source.AgentID, serials[tenant+source.AgentID], claims)
+				count, unresolved, err := writeEntityEvidenceBatchForTest(tenancy.WithTenant(ctx, tenancy.ID(tenant)), store.NewEntityRegistry(pool), source.AgentID, serials[tenant+source.AgentID], claims)
 				if err != nil || count != len(claims) || unresolved != 0 {
 					t.Fatal("managed role source writer lost complete owned observations", count, unresolved, err)
 				}
 				peer := entity.Observation{ID: uuid.NewString(), Source: entity.SourceKey{AgentID: "role-listener", Kind: entity.BMPPeer, SourceRef: "role-router"}, Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("10.42.0.1/as%d", 64496+lane)}, SourceRef: fmt.Sprintf("bmp:router:role-router:peer-asn:%d", 64496+lane), OriginSerial: serials[tenant+"role-router"], ObservedAt: at}
-				count, unresolved, err = writeEntityEvidenceBatchForTest(store.NewEntityRegistry(pool), tenancy.WithTenant(ctx, tenancy.ID(tenant)), "role-listener", serials[tenant+"role-listener"], []entity.Observation{peer})
+				count, unresolved, err = writeEntityEvidenceBatchForTest(tenancy.WithTenant(ctx, tenancy.ID(tenant)), store.NewEntityRegistry(pool), "role-listener", serials[tenant+"role-listener"], []entity.Observation{peer})
 				if err != nil || count != 1 || unresolved != 0 {
 					t.Fatal("managed role source writer lost current BMP origin", count, unresolved, err)
 				}
@@ -219,7 +219,7 @@ func TestInterfaceRoleInputsFollowManagedAndHybridCurrentAuthority(t *testing.T)
 
 // writeEntityEvidenceBatchForTest retains the legacy assertion vocabulary
 // while exercising the shipped committed receipt API.
-func writeEntityEvidenceBatchForTest(registry *store.EntityRegistry, ctx context.Context, agent, serial string, claims []entity.Observation) (int, int, error) {
+func writeEntityEvidenceBatchForTest(ctx context.Context, registry *store.EntityRegistry, agent, serial string, claims []entity.Observation) (int, int, error) {
 	receipt, err := registry.WriteEvidenceBatchReceipt(ctx, agent, serial, claims)
 	return receipt.Accepted, receipt.Unresolved, err
 }

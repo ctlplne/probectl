@@ -70,7 +70,7 @@ func TestExplorerInterfaceTagsUseAttestedIndicesUnderOwnedExporter(t *testing.T)
 				entity.Observation{ID: uuid(t), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "192.0.2.10"}, SourceRef: "snmp:ifIndex:7", ObservedAt: at})
 		}
 		claims = append(claims, entity.Observation{ID: uuid(t), Source: source, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: "8"}, SourceRef: "snmp:ifIndex:8", InterfaceName: "output-port", ObservedAt: at})
-		accepted, unresolved, err := writeEntityEvidenceBatchForTest(store.NewEntityRegistry(f.db.Pool()), tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.agents[tenant], f.serials[tenant], claims)
+		accepted, unresolved, err := writeEntityEvidenceBatchForTest(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), store.NewEntityRegistry(f.db.Pool()), f.agents[tenant], f.serials[tenant], claims)
 		if err != nil || accepted != len(claims) || unresolved != 0 {
 			t.Fatalf("current interface poll: %d/%d %v", accepted, unresolved, err)
 		}
