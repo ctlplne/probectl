@@ -26,7 +26,7 @@ import (
 
 const maxEvidencePackageBytes = 64 << 20
 
-func cmdIncidentWithStdin(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+func cmdIncident(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" {
 		printIncidentUsage(stderr)
 		return 2

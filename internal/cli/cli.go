@@ -133,7 +133,7 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 	case "audit":
 		return cmdAudit(cfg, rest[1:], stdin, stdout, stderr)
 	case "incident":
-		return cmdIncidentWithStdin(cfg, rest[1:], stdin, stdout, stderr)
+		return cmdIncident(cfg, rest[1:], stdin, stdout, stderr)
 	case "api":
 		return cmdAPIWithStdin(cfg, rest[1:], stdin, stdout, stderr)
 	case "verify-bundle":
