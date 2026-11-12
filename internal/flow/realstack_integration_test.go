@@ -87,9 +87,9 @@ func TestNativeFlowExplorerRealStack(t *testing.T) {
 	for i, lane := range lanes {
 		lane.proveMCP(t, st, mcpAddr, lanes[1-i], at)
 	}
-	t.Run("saved-query-alerts", func(t *testing.T) {
-		proveNativeSavedQueryAlerts(t, st, mcpAddr, lanes)
-	})
+	var queryAlerts []nativeQueryAlert
+	t.Run("saved-query-alerts", func(t *testing.T) { queryAlerts = proveNativeSavedQueryAlerts(t, st, mcpAddr, lanes) })
+	t.Run("saved-query-new-groups", func(t *testing.T) { proveNativeSavedQueryNewGroups(t, st, queryAlerts) })
 	t.Run("saved-source-reports", func(t *testing.T) {
 		proveNativeSourceReports(t, st, mcpAddr, lanes)
 	})
