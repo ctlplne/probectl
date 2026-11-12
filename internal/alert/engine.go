@@ -146,8 +146,8 @@ func (en *Engine) RestoreNotifications(ns map[string]NotifyState) {
 	}
 	for key, st := range ns {
 		if st.Dependency != nil {
-			copy := *st.Dependency
-			st.Dependency = &copy
+			dependency := *st.Dependency
+			st.Dependency = &dependency
 		}
 		en.restoredNotify[key] = st
 		if restoredDependencyHeld(st) && !st.FiringSince.IsZero() {
@@ -705,7 +705,7 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, d
 		// can never suppress a genuinely new episode. The resolve hook deletes the
 		// durable row for the same reason.
 		st.lastNotified = time.Time{}
-		if en.onResolve != nil && !(en.dependencyRouter != nil && rule.HasDependencyPolicy || en.dependencyRules[rule.ID]) {
+		if en.onResolve != nil && (en.dependencyRouter == nil || !rule.HasDependencyPolicy) && !en.dependencyRules[rule.ID] {
 			// Delete the persisted op + notification state so a future episode
 			// starts clean.
 			go en.onResolve(key)
