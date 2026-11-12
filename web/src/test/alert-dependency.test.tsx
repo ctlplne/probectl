@@ -135,7 +135,7 @@ test('dependency context editor keeps later pages and full duration values with 
 })
 
 test('dependency context response from a previous tenant is discarded and write-only removal reads no old policy', async () => {
-  let resolveOld: ((value: Response) => void) | undefined
+  const oldResponse: { resolve?: (value: Response) => void } = {}
   const calls: Array<{ tenant: string | null; method: string }> = []
   vi.stubGlobal(
     'fetch',
@@ -147,7 +147,7 @@ test('dependency context response from a previous tenant is discarded and write-
       if (path.includes('/entity-contexts')) return jsonResponse({ items: [context(tenant ?? '')] })
       if (method === 'GET' && tenant === 'tenant-a')
         return new Promise<Response>((resolve) => {
-          resolveOld = resolve
+          oldResponse.resolve = resolve
         })
       return jsonResponse(state(method !== 'DELETE', 800))
     }),
@@ -155,11 +155,11 @@ test('dependency context response from a previous tenant is discarded and write-
   const user = userEvent.setup(),
     view = fixture()
   await user.click(screen.getByRole('button', { name: 'Load current dependency settings' }))
-  await waitFor(() => expect(resolveOld).toBeDefined())
+  await waitFor(() => expect(oldResponse.resolve).toBeDefined())
   view.rerender(identity('tenant-b'))
   await user.click(screen.getByRole('button', { name: 'Load current dependency settings' }))
   expect(await screen.findByLabelText('Source freshness in seconds')).toHaveValue(800)
-  resolveOld?.(jsonResponse(state(true, 1234)))
+  oldResponse.resolve?.(jsonResponse(state(true, 1234)))
   await waitFor(() => expect(screen.getByLabelText('Source freshness in seconds')).toHaveValue(800))
   expect(calls.filter((call) => call.tenant === 'tenant-a')).toHaveLength(1)
   view.rerender(identity('tenant-b', ['alert.write']))
