@@ -15,7 +15,7 @@ import "github.com/ctlplne/probectl/internal/auth"
 func alertSubjectDocumentSQL(column string) string {
 	document := "subject_row." + pgIdent(column)
 	trimmed := document
-	projection := "'{}'::jsonb"
+	var projection string
 	switch column {
 	case "query_source":
 		trimmed = alertSubjectWithoutUUIDReference(document, "view_id")
