@@ -54,6 +54,18 @@ func TestRoutingCaptureServiceSealsCurrentExporterBeforeRetriesAndSourceChanges(
 	}
 	for lane, tenant := range f.tenants {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		// Exercise the capture-time guard itself. Final publication also
+		// checks sender ownership, so testing only the complete service can
+		// conceal an omitted check at this earlier boundary.
+		if err := tenancy.InTenantReadSnapshot(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := (BGPRouting{}).lookupFlowInScope(ctx, sc, input, "other-authenticated-agent", routingViewBudget())
+			if !errors.Is(err, entity.ErrScopeMismatch) {
+				t.Fatal("authenticated sender selected another agent's canonical router", err)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
 		first[lane], err = service.CaptureAuthenticated(ctx, "routing-flow", rawDigest, input, routingViewBudget())
 		if err != nil || first[lane].Key == ([32]byte{}) || first[lane].CapturedAt.IsZero() {
 			t.Fatal("current owned flow did not seal its routing capture", lane, err)
