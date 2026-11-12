@@ -504,8 +504,10 @@ No bearer, session, attribute grant or durable MFA assertion is stored.
 
 A revised/deleted/private source, revoked owner, incomplete coverage, timeout or
 cost refusal withholds evaluation; none resolves a firing group. Explicitly
-use **Bind current revision** and save the source to resume. Clearing a source also clears its opaque
-baseline and disables the rule, and requires only current `alert.write`.
+use **Bind current revision** and save the source to resume. Saving the same source or changing only its cadence preserves the complete
+baseline and anchors its next due time to the last admitted read. A changed
+view, condition, owner or credential ceiling starts a new baseline. Clearing a
+source also clears its opaque baseline and disables the rule, and requires only current `alert.write`.
 Reading configuration requires `alert.read`, `ai.query`, `flow.read` and current
 saved-view visibility. Source-specific tags, routing and context permissions are
 checked wherever the saved plan needs them. Tenant-owned rules and sources use

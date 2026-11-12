@@ -169,6 +169,9 @@ func alertQueryEncode(value any, maxBytes int64) (string, error) {
 // SetQuerySource is only configuration persistence. The caller must first run
 // the complete source plan under current source authority/cost admission and
 // recheck its authority in this writer transaction, recording the domain audit.
+// Re-saving the same source or changing only cadence preserves the complete
+// baseline. Different view/condition/owner/credential ceiling resets it. The
+// due time stays relative to the last admitted read, with exact interval text.
 // Legacy metric/trap rules cannot accidentally acquire a different data path.
 func (AlertRules) SetQuerySource(ctx context.Context, sc tenancy.Scope, id string, expected time.Time, source *alert.QuerySource, maxBytes int64, publication func(context.Context, tenancy.Scope) error) (*alert.Rule, error) {
 	if err := alertQueryScope(ctx, sc, expected, maxBytes); err != nil {
@@ -184,7 +187,9 @@ func (AlertRules) SetQuerySource(ctx context.Context, sc tenancy.Scope, id strin
 		return nil, err
 	}
 	var encoded any
+	everySeconds := int64(0)
 	if source != nil {
+		everySeconds = source.EverySeconds
 		if err := source.Validate(); err != nil {
 			return nil, err
 		}
@@ -199,12 +204,15 @@ func (AlertRules) SetQuerySource(ctx context.Context, sc tenancy.Scope, id strin
 	}
 	var out alert.Rule
 	err := scanAlertRule(sc.Q.QueryRow(ctx, `UPDATE alert_rules SET query_source=$4::jsonb,
- query_group_state=NULL,query_state_version=0,query_next_eval_at=NULL,
+ query_group_state=CASE WHEN query_source-'every_seconds'=$4::jsonb-'every_seconds' THEN query_group_state ELSE NULL END,
+ query_state_version=CASE WHEN query_source-'every_seconds'=$4::jsonb-'every_seconds' THEN query_state_version ELSE 0 END,
+ query_next_eval_at=CASE WHEN query_source-'every_seconds'=$4::jsonb-'every_seconds' AND query_next_eval_at IS NOT NULL
+   THEN query_next_eval_at-((query_source->>'every_seconds')||' seconds')::interval+($6::bigint::text||' seconds')::interval ELSE NULL END,
  enabled=CASE WHEN $4::jsonb IS NULL THEN false ELSE enabled END,updated_at=clock_timestamp()
  WHERE tenant_id=$1 AND id=$2 AND updated_at=$3
  AND ($4::jsonb IS NULL OR (type='threshold' AND metric=$5 AND comparison='gte' AND threshold=1
      AND trap_match IS NULL AND tag_filter IS NULL)) RETURNING `+alertRuleCols,
-		sc.Tenant.String(), id, expected, encoded, alert.QueryMetric), &out)
+		sc.Tenant.String(), id, expected, encoded, alert.QueryMetric, everySeconds), &out)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAlertQueryChanged
 	}

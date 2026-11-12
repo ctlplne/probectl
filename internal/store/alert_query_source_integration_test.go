@@ -117,6 +117,20 @@ func TestAlertSavedQueryStateKeepsTenantParentsVersionsAndCompleteGroups(t *test
 				t.Fatal("unadmitted stored payload was transferred as a successful prefix", got, err)
 			}
 			current.stored = got
+
+			for _, seconds := range []int64{60, 90} {
+				configuration := current.source
+				configuration.EverySeconds = seconds
+				current.rule, err = (AlertRules{}).SetQuerySource(ctx, sc, current.rule.ID, current.rule.UpdatedAt, &configuration, maxBytes, publication)
+				if err != nil {
+					return err
+				}
+				preserved, err := (AlertRules{}).GetQuerySource(ctx, sc, current.rule.ID, current.rule.UpdatedAt, maxBytes)
+				if err != nil || preserved == nil || preserved.StateVersion != 1 || len(preserved.State.Keys) != 32 || !preserved.State.At.Equal(current.next.At) || preserved.NextAt == nil || !preserved.NextAt.Equal(current.next.At.Add(time.Duration(seconds)*time.Second)) {
+					t.Fatal("same source/cadence edit erased the complete baseline or shifted its actual read clock", preserved, err)
+				}
+				current.source, current.stored = configuration, preserved
+			}
 			following := current.next
 			following.At = following.At.Add(time.Minute)
 			if err := (AlertRules{}).CommitQueryState(ctx, sc, current.rule.ID, current.rule.UpdatedAt, *current.stored, following, maxBytes, nil); err == nil {
@@ -179,6 +193,59 @@ func TestAlertSavedQueryStateKeepsTenantParentsVersionsAndCompleteGroups(t *test
 		fresh, err := (AlertRules{}).GetQuerySource(ctx, sc, a.rule.ID, a.rule.UpdatedAt, maxBytes)
 		if err != nil || fresh == nil || fresh.State.Initialized || fresh.StateVersion != 0 || fresh.NextAt != nil {
 			t.Fatal("explicit rebinding revived a different revision's baseline", fresh, err)
+		}
+		return nil
+	})
+	inTenant(t.Context(), t, pool, b.tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		source := b.source
+		source.Condition = alert.QueryCondition{Mode: "new_group"}
+		source.EverySeconds = 60
+		rule, err := (AlertRules{}).SetQuerySource(ctx, sc, b.rule.ID, b.rule.UpdatedAt, &source, maxBytes, publication)
+		if err != nil {
+			return err
+		}
+		stored, err := (AlertRules{}).GetQuerySource(ctx, sc, rule.ID, rule.UpdatedAt, maxBytes)
+		if err != nil {
+			return err
+		}
+		base := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Minute)
+		for i := range 2 {
+			snapshot := alert.QueryGroupSnapshot{TenantID: b.tenant, ViewID: source.ViewID, ViewVersion: source.ViewVersion, At: base.Add(time.Duration(i) * time.Second), Complete: true, Groups: []alert.QueryGroup{{Dimensions: map[string]string{"src_asn": "64512"}}}}
+			if i == 1 {
+				snapshot.Groups = append(snapshot.Groups, alert.QueryGroup{Dimensions: map[string]string{"src_asn": "64513"}})
+			}
+			_, next, err := alert.EvaluateQueryGroups(ctx, source.Binding(b.tenant, rule.ID), snapshot, stored.State, alert.QueryGroupBudget{MemoryBytes: maxBytes, WorkUnits: maxBytes})
+			if err != nil {
+				return err
+			}
+			if err := (AlertRules{}).CommitQueryState(ctx, sc, rule.ID, rule.UpdatedAt, *stored, next, maxBytes, publication); err != nil {
+				return err
+			}
+			stored, err = (AlertRules{}).GetQuerySource(ctx, sc, rule.ID, rule.UpdatedAt, maxBytes)
+			if err != nil {
+				return err
+			}
+		}
+		if len(stored.State.Novel) != 1 {
+			t.Fatal("fixture did not establish one actual modeled novel group")
+		}
+		source.EverySeconds = 90
+		rule, err = (AlertRules{}).SetQuerySource(ctx, sc, rule.ID, rule.UpdatedAt, &source, maxBytes, publication)
+		if err != nil {
+			return err
+		}
+		preserved, err := (AlertRules{}).GetQuerySource(ctx, sc, rule.ID, rule.UpdatedAt, maxBytes)
+		if err != nil || preserved == nil || preserved.StateVersion != 2 || len(preserved.State.Novel) != 1 || preserved.State.Novel[0] != stored.State.Novel[0] {
+			t.Fatal("schedule edit invented novelty resolution", preserved, err)
+		}
+		source.ReadGrants = append(source.ReadGrants, alert.QueryReadGrant{Permission: "metrics.read", ScopeType: auth.ScopeTenant})
+		rule, err = (AlertRules{}).SetQuerySource(ctx, sc, rule.ID, rule.UpdatedAt, &source, maxBytes, publication)
+		if err != nil {
+			return err
+		}
+		reset, err := (AlertRules{}).GetQuerySource(ctx, sc, rule.ID, rule.UpdatedAt, maxBytes)
+		if err != nil || reset == nil || reset.StateVersion != 0 || reset.State.Initialized || reset.NextAt != nil {
+			t.Fatal("changed credential ceiling reused an earlier read population", reset, err)
 		}
 		return nil
 	})

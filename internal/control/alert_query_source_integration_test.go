@@ -184,8 +184,10 @@ func TestSavedQueryAlertAPIKeepsCurrentSourceAuthorityAndTwoTenants(t *testing.T
 		if out, err := s.setAlertQuerySource(ctx, limited, current.rule.ID, current.input); err == nil || out.Configured {
 			t.Fatal("fresh broad role widened a limited configuring credential", out, err)
 		}
-		// Rebind makes evaluation due, then revoke the actual owner's source role.
-		state, err = s.setAlertQuerySource(ctx, current.actor, current.rule.ID, current.input)
+		// A changed predicate makes evaluation due, then revoke the actual owner's source role.
+		rebound := current.input
+		rebound.Condition.Threshold = "51"
+		state, err = s.setAlertQuerySource(ctx, current.actor, current.rule.ID, rebound)
 		if err != nil {
 			t.Fatal(err)
 		}
