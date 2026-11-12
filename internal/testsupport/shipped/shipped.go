@@ -592,7 +592,7 @@ buffer:
 	cfg := s.write(t, "agent-"+name+".yaml", []byte(full), 0o600)
 	// Each agent's metrics listener gets its own port (the default is shared).
 	return s.start(t, "agent-"+name, s.Agent, []string{"-config", cfg},
-		[]string{"PROBECTL_AGENT_METRICS_ADDR=" + freeAddr(t)})
+		[]string{"PROBECTL_AGENT_METRICS_ADDR=127.0.0.1:0"})
 }
 
 // Binary builds another shipped binary from this tree, once per stack. The
@@ -610,12 +610,14 @@ func (s *Stack) Binary(t *testing.T, name string) string {
 // StartCollector runs a shipped collector that publishes straight to the bus
 // with config as its YAML config file. envPrefix is its environment prefix
 // (PROBECTL_FLOW, PROBECTL_EBPF, PROBECTL_ENDPOINT): its metrics listener gets
-// its own port, and it may use the dev stack's plaintext Kafka.
+// its own kernel-assigned port, and it may use the dev stack's plaintext Kafka.
+// Do not choose then release a metrics port before the child binds it: another
+// collector or outgoing connection can claim that port in the startup gap.
 func (s *Stack) StartCollector(t *testing.T, binary, name, envPrefix, config string) string {
 	t.Helper()
 	cfg := s.write(t, name+".yaml", []byte(config), 0o600)
 	return s.start(t, name, s.Binary(t, binary), []string{"-config", cfg}, []string{
-		envPrefix + "_METRICS_ADDR=" + freeAddr(t),
+		envPrefix + "_METRICS_ADDR=127.0.0.1:0",
 		envPrefix + "_BUS_ALLOW_PLAINTEXT=true",
 	})
 }

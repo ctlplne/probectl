@@ -35,7 +35,7 @@ func TestDependencyDenialReleasesPublicationBeforeDurableAudit(t *testing.T) {
 			for _, tenant := range d.f.tenants {
 				var series []tsdb.Series
 				for _, node := range d.graphs[tenant].Nodes {
-					series = append(series, tsdb.Series{Metric: d.rules[tenant].Metric, Labels: map[string]string{"test_id": node.TestID, "agent_id": node.AgentID}, Value: 0})
+					series = append(series, tsdb.Series{Metric: d.rules[tenant].Metric, Labels: map[string]string{"tenant_id": tenant, "test_id": node.TestID, "agent_id": node.AgentID}, Value: 0})
 				}
 				eval, ok := BuildAlertEvaluator(d.f.pool, fakeQuerier{rows: series}, alert.ChannelDeps{Mail: &dependencyRoutingMail{}}, time.Second, tenancy.ID(tenant), nil, d.f.server.log,
 					AlertTagDependencies{Gate: d.f.server.fairnessGate, FlowStore: d.f.server.flowStore, Queries: d.f.server})
