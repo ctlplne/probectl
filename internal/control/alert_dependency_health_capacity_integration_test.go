@@ -31,6 +31,7 @@ type dependencyHealthPopulationRow struct {
 
 func TestDependencyHealthCompleteTwentyThousandCurrentSourcePopulation(t *testing.T) {
 	d := seedDependencyRoutingFixture(t)
+	observedPool := dependencyPopulationObservedPool(t, d.f.pool)
 	// Bulk cleanup is confined to these fixture tenants and runs before their
 	// parent cleanup. It does not stand in for tenant-lifecycle acceptance.
 	t.Cleanup(func() {
@@ -47,7 +48,7 @@ func TestDependencyHealthCompleteTwentyThousandCurrentSourcePopulation(t *testin
 	for lane, tenant := range d.f.tenants {
 		rows, graph := seedDependencyHealthPopulation(t, d, tenant, 20_000)
 		t.Logf("seeded complete current-source population: tenant lane %d", lane)
-		d.f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), observedPool, func(ctx context.Context, sc tenancy.Scope) error {
 			policy := &alert.DependencyPolicy{ContextID: d.f.contextID, FreshnessSeconds: 300, Graph: graph}
 			snapshot, health, err := d.f.server.dependencyHealthSnapshot(ctx, sc, policy, 512<<20)
 			if err != nil || !snapshot.Complete || len(snapshot.Vertices) != len(rows) || len(health) != len(rows) || len(snapshot.Causes) != 1 {
@@ -78,6 +79,9 @@ func TestDependencyHealthCompleteTwentyThousandCurrentSourcePopulation(t *testin
 			}
 			return nil
 		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Log("real-integration: all 20,000 current source/alias/canonical-case reads and decisions in each RLS tenant; evidence and initial cases modeled, not physical senders or durable full-population publication")
 }
