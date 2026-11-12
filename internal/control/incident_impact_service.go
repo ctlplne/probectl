@@ -14,7 +14,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -24,7 +24,17 @@ import (
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
-func (s *Server) incidentImpact(ctx context.Context, actor *auth.Principal, id string, input incident.ImpactInput) (_ incident.ImpactResponse, operationErr error) {
+func (s *Server) incidentImpact(ctx context.Context, actor *auth.Principal, id string, input incident.ImpactInput) (incident.ImpactResponse, error) {
+	return s.computeIncidentImpact(ctx, actor, id, input, nil)
+}
+
+// captured receives the complete final server snapshot only on success. It
+// lets signed exports check their incident header without accepting a caller's
+// digest, membership list or reusable source grant.
+func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principal, id string, input incident.ImpactInput, captured **store.IncidentImpactInputs) (_ incident.ImpactResponse, operationErr error) {
+	if captured != nil {
+		*captured = nil
+	}
 	finish := s.beginFlowOperation(ctx, "incident_impact")
 	defer func() { finish(operationErr) }()
 	none := incident.ImpactResponse{}
@@ -32,8 +42,8 @@ func (s *Server) incidentImpact(ctx context.Context, actor *auth.Principal, id s
 	if err != nil {
 		return none, err
 	}
-	parsed, err := uuid.Parse(id)
-	if err != nil || parsed == uuid.Nil || parsed.String() != id {
+	parsed, err := gouuid.Parse(id)
+	if err != nil || parsed == gouuid.Nil || parsed.String() != id {
 		return none, apierror.Validation("canonical incident identity is required")
 	}
 	if input.From.IsZero() || input.To.IsZero() {
@@ -59,41 +69,9 @@ func (s *Server) incidentImpact(ctx context.Context, actor *auth.Principal, id s
 	if err != nil {
 		return none, err
 	}
-	sources := []flowstore.IncidentTrafficSource{}
-	for _, source := range before.sources {
-		sources = append(sources, source.Selections...)
-	}
-	periods := [2]incident.ImpactPeriod{
-		{From: plan.From, To: plan.To, Coverage: "unavailable_source", Captures: []incident.ImpactCaptureCitation{}},
-		{From: previousFrom, To: previousTo, Coverage: "unavailable_source", Captures: []incident.ImpactCaptureCitation{}},
-	}
-	var rows [2][]flowstore.Row
-	if len(sources) > 0 {
-		for i, period := range periods {
-			periods[i].Coverage = "no_observed_records"
-			rows[i], err = batch.IncidentTrafficRows(flowstore.IncidentTrafficQuery{TenantID: actor.TenantID, From: period.From, To: period.To, Series: plan.DataSeries, Sources: sources})
-			if err != nil {
-				return none, flowExplorerStoreError(err)
-			}
-		}
-	}
-	reads := []flowstore.RoutingCaptureRead{}
-	readsByKey := map[[32]byte]flowstore.RoutingCaptureRead{}
-	for _, period := range rows {
-		selected, err := flowstore.IncidentTrafficCaptureReferences(ctx, actor.TenantID, period, budget.MemoryBytes/8)
-		if err != nil {
-			return none, flowExplorerStoreError(err)
-		}
-		for _, read := range selected {
-			if old, found := readsByKey[read.Ref.Key]; found {
-				if old != read {
-					return none, apierror.Unavailable("original flow capture selectors disagree")
-				}
-				continue // Comparison windows may legitimately overlap.
-			}
-			readsByKey[read.Ref.Key] = read
-			reads = append(reads, read)
-		}
+	rows, periods, reads, err := readIncidentImpactTraffic(ctx, actor.TenantID, batch, before, plan, previousFrom, previousTo, budget.MemoryBytes/8)
+	if err != nil {
+		return none, err
 	}
 	observed, err := s.loadIncidentImpactSnapshot(ctx, actor, id, reads, budget)
 	if err != nil {
@@ -164,36 +142,8 @@ func (s *Server) incidentImpact(ctx context.Context, actor *auth.Principal, id s
 		return none, apierror.Unavailable("current incident or original capture authority changed; retry")
 	}
 	if tagData != nil {
-		currentTags, err := s.loadIncidentImpactTags(ctx, actor, after, input.CustomerTagKey)
-		if err != nil {
+		if err := s.recheckIncidentImpactCustomers(ctx, actor, after, input.CustomerTagKey, rows, owners, tagData, result, budget.MemoryBytes/8); err != nil {
 			return none, err
-		}
-		currentCustomers, unclassified, err := summarizeIncidentCustomers(ctx, actor.TenantID, input.CustomerTagKey, rows, owners, currentTags, budget.MemoryBytes/8)
-		if err != nil {
-			return none, flowExplorerStoreError(err)
-		}
-		revision, err := currentTags.Revision(actor.TenantID)
-		if err != nil {
-			return none, err
-		}
-		originalPolicy, err := tagData.ContextAuthorization(actor.TenantID)
-		if err != nil {
-			return none, err
-		}
-		currentPolicy, err := currentTags.ContextAuthorization(actor.TenantID)
-		if err != nil {
-			return none, err
-		}
-		oldBody, err := json.Marshal(result.Customers)
-		if err != nil {
-			return none, err
-		}
-		newBody, err := json.Marshal(currentCustomers)
-		if err != nil {
-			return none, err
-		}
-		if revision != result.CustomerTagRevision || originalPolicy != currentPolicy || unclassified != result.UnclassifiedRecords || string(oldBody) != string(newBody) {
-			return none, apierror.Unavailable("customer prefix membership or disclosure authority changed; retry")
 		}
 	}
 	for _, source := range after.sources {
@@ -215,7 +165,51 @@ func (s *Server) incidentImpact(ctx context.Context, actor *auth.Principal, id s
 	if err := ctx.Err(); err != nil {
 		return none, err
 	}
+	if captured != nil {
+		*captured = after.inputs
+	}
 	return result, nil
+}
+
+func readIncidentImpactTraffic(ctx context.Context, tenant string, batch *flowstore.PlanBatch, before incidentImpactSnapshot, plan flow.QueryPlan, previousFrom, previousTo time.Time, captureBytes int64) ([2][]flowstore.Row, [2]incident.ImpactPeriod, []flowstore.RoutingCaptureRead, error) {
+	sources := []flowstore.IncidentTrafficSource{}
+	for _, source := range before.sources {
+		sources = append(sources, source.Selections...)
+	}
+	periods := [2]incident.ImpactPeriod{
+		{From: plan.From, To: plan.To, Coverage: "unavailable_source", Captures: []incident.ImpactCaptureCitation{}},
+		{From: previousFrom, To: previousTo, Coverage: "unavailable_source", Captures: []incident.ImpactCaptureCitation{}},
+	}
+	var rows [2][]flowstore.Row
+	var err error
+	if len(sources) > 0 {
+		for i, period := range periods {
+			periods[i].Coverage = "no_observed_records"
+			rows[i], err = batch.IncidentTrafficRows(flowstore.IncidentTrafficQuery{TenantID: tenant, From: period.From, To: period.To, Series: plan.DataSeries, Sources: sources})
+			if err != nil {
+				return rows, periods, nil, flowExplorerStoreError(err)
+			}
+		}
+	}
+	reads := []flowstore.RoutingCaptureRead{}
+	readsByKey := map[[32]byte]flowstore.RoutingCaptureRead{}
+	for _, period := range rows {
+		selected, err := flowstore.IncidentTrafficCaptureReferences(ctx, tenant, period, captureBytes)
+		if err != nil {
+			return rows, periods, nil, flowExplorerStoreError(err)
+		}
+		for _, read := range selected {
+			if old, found := readsByKey[read.Ref.Key]; found {
+				if old != read {
+					return rows, periods, nil, apierror.Unavailable("original flow capture selectors disagree")
+				}
+				continue // Comparison windows may legitimately overlap.
+			}
+			readsByKey[read.Ref.Key] = read
+			reads = append(reads, read)
+		}
+	}
+	return rows, periods, reads, nil
 }
 
 type incidentTrafficCounters struct{ rawBytes, rawPackets, scaledBytes, scaledPackets big.Int }

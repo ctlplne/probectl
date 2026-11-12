@@ -20,19 +20,20 @@ import (
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/evidence"
+	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/httpbody"
 )
 
 const maxEvidencePackageBytes = 64 << 20
 
-func cmdIncident(cfg Config, args []string, stdout, stderr io.Writer) int {
+func cmdIncidentWithStdin(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" {
 		printIncidentUsage(stderr)
 		return 2
 	}
 	switch args[0] {
 	case "export":
-		return cmdIncidentExport(cfg, args[1:], stdout, stderr)
+		return cmdIncidentExportWithStdin(cfg, args[1:], stdin, stdout, stderr)
 	case "verify":
 		return cmdIncidentVerify(args[1:], stdout, stderr)
 	case "ungroup":
@@ -40,17 +41,17 @@ func cmdIncident(cfg Config, args []string, stdout, stderr io.Writer) int {
 	case "reverse-override":
 		return cmdIncidentCorrelationOverride(cfg, true, args[1:], stdout, stderr)
 	default:
-		return cmdSurface(cfg, surfaceCommands["incident"], args, stdout, stderr)
+		return cmdSurfaceWithStdin(cfg, surfaceCommands["incident"], args, stdin, stdout, stderr)
 	}
 }
 
 func printIncidentUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  probectl incident export <incident-id> [--out package.json]")
+	fmt.Fprintln(w, "  probectl incident export <incident-id> [--body JSON | --body-file <file|->] [--out package.json]")
 	fmt.Fprintln(w, "  probectl incident verify <package.json> [--trusted-key-fingerprint sha256:...]")
 	fmt.Fprintln(w, "  probectl incident ungroup <incident-id> <signal-id> --reason <text>")
 	fmt.Fprintln(w, "  probectl incident reverse-override <incident-id> <override-id> --reason <text>")
-	fmt.Fprintln(w, "  probectl incident <list|get|update|changes|journal|journal-append|cis|share|shared> ...")
+	fmt.Fprintln(w, "  probectl incident <list|get|update|impact|changes|journal|journal-append|cis|share|shared> ...")
 }
 
 func cmdIncidentCorrelationOverride(cfg Config, reverse bool, args []string, stdout, stderr io.Writer) int {
@@ -99,7 +100,7 @@ func cmdIncidentCorrelationOverride(cfg Config, reverse bool, args []string, std
 	return printGeneric(stdout, out, cfg.JSON, op.Method)
 }
 
-func cmdIncidentExport(cfg Config, args []string, stdout, stderr io.Writer) int {
+func cmdIncidentExportWithStdin(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		fmt.Fprintln(stderr, "incident export: missing <incident-id>")
 		return 2
@@ -108,6 +109,8 @@ func cmdIncidentExport(cfg Config, args []string, stdout, stderr io.Writer) int 
 	fs := flag.NewFlagSet("incident export", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	outPath := fs.String("out", "", "write the exact signed package to this owner-only file")
+	bodyRaw := fs.String("body", "", "optional export selections as JSON; impact is recomputed by the server")
+	bodyFile := fs.String("body-file", "", "export selections file; - reads stdin")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -115,8 +118,25 @@ func cmdIncidentExport(cfg Config, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintln(stderr, "incident export: unexpected arguments")
 		return 2
 	}
+	var body any
+	var err error
+	rawSet, fileSet := false, false
+	fs.Visit(func(f *flag.Flag) { rawSet = rawSet || f.Name == "body"; fileSet = fileSet || f.Name == "body-file" })
+	if rawSet && fileSet {
+		fmt.Fprintln(stderr, "--body and --body-file cannot be combined")
+		return 2
+	}
+	if fileSet {
+		body, err = readRequestBody(*bodyFile, stdin, int64(flow.MaxPlanGrammarBytes), true, false)
+	} else if rawSet {
+		body, err = parseExactBody([]byte(*bodyRaw), int64(flow.MaxPlanGrammarBytes), false)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "incident export selections: "+err.Error())
+		return 2
+	}
 	path := strings.ReplaceAll(surfaceCommands["incident"].Ops["export"].Path, "{id}", url.PathEscape(incidentID))
-	raw, err := newClient(cfg).raw(http.MethodPost, path, nil, maxEvidencePackageBytes)
+	raw, err := newClient(cfg).raw(http.MethodPost, path, body, maxEvidencePackageBytes)
 	if err != nil {
 		return fail(stderr, err)
 	}

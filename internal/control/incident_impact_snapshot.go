@@ -30,7 +30,11 @@ type incidentImpactSnapshot struct {
 // Deterministic impact reads have their own source permissions. They never
 // acquire AI or routing-analysis authority as a side effect of incident.read.
 func (s *Server) authorizeIncidentImpact(ctx context.Context, actor *auth.Principal, resource map[string]string) error {
-	for _, permission := range []string{permIncidentRead, permFlowRead, "entities.read", "metrics.read", "events.read"} {
+	permissions := []string{permIncidentRead, permFlowRead, "entities.read", "metrics.read", "events.read"}
+	if exporting, _ := ctx.Value(incidentImpactExportKey{}).(bool); exporting {
+		permissions = append(permissions, permAIQuery)
+	}
+	for _, permission := range permissions {
 		if err := s.authorize(ctx, actor, permission, auth.RBACGlobal, resource); err != nil {
 			return err
 		}

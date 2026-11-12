@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { apiFetch } from '../api/client'
 import type { Incident } from '../api/incidents'
+import { useExportIncidentEvidence } from '../api/incidents'
 import type { IncidentImpactPeriod, IncidentImpactResponse } from '../api/sdk.gen'
 import { Button, Card, CardBody, CardHeader, ErrorState, Field, Table } from '../components'
 import { DateTime } from '../time/DateTime'
@@ -47,8 +48,19 @@ export function IncidentImpactCard({ incident }: { incident: Incident }) {
 }
 
 function IncidentImpactForm({ incident }: { incident: Incident }) {
+  const { permissions } = useAuth()
+  const exportEvidence = useExportIncidentEvidence(incident.id)
   const [from, setFrom] = useState(incident.started_at)
   const [to, setTo] = useState(() => {
+    const started = Date.parse(incident.started_at),
+      last = Date.parse(incident.last_seen_at)
+    if (
+      incident.last_seen_at !== incident.started_at &&
+      Number.isFinite(started) &&
+      Number.isFinite(last) &&
+      last >= started
+    )
+      return incident.last_seen_at
     const end = Math.max(
       Date.parse(incident.last_seen_at),
       Date.parse(incident.started_at) + 60_000,
@@ -59,6 +71,7 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
   const [result, setResult] = useState<IncidentImpactResponse>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [exported, setExported] = useState(false)
   const lifetime = useRef({
     active: true,
     epoch: 0,
@@ -70,6 +83,7 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
     setResult(undefined)
     setError('')
     setBusy(false)
+    setExported(false)
   }
   useEffect(() => {
     const current = lifetime.current
@@ -109,10 +123,9 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
     lifetime.current.request = request
     setBusy(true)
     try {
-      const start = new Date(from),
-        end = new Date(to)
-      if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start)
-        throw new Error('Choose an increasing from/to window with explicit UTC offsets.')
+      const start = from.trim(),
+        end = to.trim()
+      if (!start || !end) throw new Error('Choose a from/to window with explicit UTC offsets.')
       const value = await apiFetch<IncidentImpactResponse>(
         `/incidents/${encodeURIComponent(incident.id)}/impact`,
         {
@@ -120,8 +133,8 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
           headers: { 'Content-Type': 'application/json' },
           signal: request.signal,
           body: JSON.stringify({
-            from: start.toISOString(),
-            to: end.toISOString(),
+            from: start,
+            to: end,
             dataseries: 'auto',
             ...(customer ? { customer_tag_key: customer } : {}),
           }),
@@ -133,6 +146,47 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
       if (lifetime.current.active && lifetime.current.epoch === epoch && !request.signal.aborted)
         setError(reason instanceof Error ? reason.message : 'Incident impact is unavailable.')
     } finally {
+      if (lifetime.current.active && lifetime.current.epoch === epoch) setBusy(false)
+    }
+  }
+  async function exportSigned() {
+    const epoch = ++lifetime.current.epoch
+    lifetime.current.request?.abort()
+    const request = new AbortController()
+    lifetime.current.request = request
+    setBusy(true)
+    setError('')
+    setExported(false)
+    try {
+      const bytes = await exportEvidence.mutateAsync({
+        impact: {
+          from: from.trim(),
+          to: to.trim(),
+          dataseries: 'auto',
+          ...(customer ? { customer_tag_key: customer } : {}),
+        },
+        signal: request.signal,
+      })
+      if (!lifetime.current.active || lifetime.current.epoch !== epoch || request.signal.aborted)
+        return
+      const blob = new Blob([bytes as BlobPart], { type: 'application/vnd.probectl.evidence+json' })
+      const href = URL.createObjectURL(blob)
+      try {
+        const anchor = document.createElement('a')
+        anchor.href = href
+        anchor.download = `probectl-incident-${incident.id}-impact-evidence.json`
+        anchor.click()
+      } finally {
+        URL.revokeObjectURL(href)
+      }
+      setExported(true)
+    } catch (reason) {
+      if (lifetime.current.active && lifetime.current.epoch === epoch && !request.signal.aborted)
+        setError(
+          reason instanceof Error ? reason.message : 'Signed impact evidence is unavailable.',
+        )
+    } finally {
+      exportEvidence.reset()
       if (lifetime.current.active && lifetime.current.epoch === epoch) setBusy(false)
     }
   }
@@ -169,7 +223,7 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
         </div>
         <div className={styles.actions}>
           <Button type="submit" disabled={busy}>
-            {busy ? 'Comparing…' : 'Compare incident impact'}
+            {busy && !exportEvidence.isPending ? 'Comparing…' : 'Compare incident impact'}
           </Button>
         </div>
       </form>
@@ -192,6 +246,21 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
             Unclassified observed records: {result.unclassified_records}.
           </p>
           <ImpactCustomers result={result} />
+          {permissions.includes('ai.query') && (
+            <div className={styles.actions}>
+              <Button disabled={busy} onClick={() => void exportSigned()}>
+                {exportEvidence.isPending
+                  ? 'Preparing signed evidence…'
+                  : 'Export signed impact evidence'}
+              </Button>
+            </div>
+          )}
+          {exported && (
+            <p role="status">
+              Downloaded a fresh signed evidence package. Verify it offline and pin the operator's
+              signing-key fingerprint.
+            </p>
+          )}
           <details>
             <summary>Complete source and capture citations</summary>
             <pre className={styles.referenceText}>
@@ -270,6 +339,9 @@ function ImpactPeriod({ title, period }: { title: string; period: IncidentImpact
       <h3>{title}</h3>
       <p>
         <DateTime value={period.from} /> through <DateTime value={period.to} /> (exclusive)
+      </p>
+      <p>
+        <code>{period.from}</code> through <code>{period.to}</code> (exclusive)
       </p>
       <p>
         {coverageLabels[period.coverage] ?? 'Coverage is unavailable'}; attested records:{' '}

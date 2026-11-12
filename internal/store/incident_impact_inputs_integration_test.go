@@ -96,7 +96,7 @@ func TestIncidentImpactInputsKeepCompleteCitationsAndTenantScope(t *testing.T) {
 		f := fixtures[tenant]
 		err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 			out, err := (Incidents{}).ImpactInputs(ctx, sc, f.incident, 2<<20)
-			if err != nil || out == nil || out.TenantID != tenant || out.IncidentID != f.incident || out.RootUnresolved || len(out.Entities) != len(entities) || len(out.UnresolvedSignalIDs) != 1 || out.UnresolvedSignalIDs[0] != f.unresolved {
+			if err != nil || out == nil || out.TenantID != tenant || out.IncidentID != f.incident || out.SignalCount != len(entities)+2 || out.RootUnresolved || len(out.Entities) != len(entities) || len(out.UnresolvedSignalIDs) != 1 || out.UnresolvedSignalIDs[0] != f.unresolved {
 				t.Fatal("complete impact input was shortened, mis-scoped or trusted attributes", out, err)
 			}
 			for _, ref := range out.Entities {

@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -133,4 +134,39 @@ func summarizeIncidentCustomers(ctx context.Context, tenant, key string, rows [2
 		return slices.Compare([]string{a.ContextID, a.Value}, []string{b.ContextID, b.Value})
 	})
 	return out, unclassified, nil
+}
+
+func (s *Server) recheckIncidentImpactCustomers(ctx context.Context, actor *auth.Principal, after incidentImpactSnapshot, key string, rows [2][]flowstore.Row, owners map[string]store.CapturedFlowOwner, tagData *flowstore.TagQueryData, result incident.ImpactResponse, maxBytes int64) error {
+	currentTags, err := s.loadIncidentImpactTags(ctx, actor, after, key)
+	if err != nil {
+		return err
+	}
+	currentCustomers, unclassified, err := summarizeIncidentCustomers(ctx, actor.TenantID, key, rows, owners, currentTags, maxBytes)
+	if err != nil {
+		return flowExplorerStoreError(err)
+	}
+	revision, err := currentTags.Revision(actor.TenantID)
+	if err != nil {
+		return err
+	}
+	originalPolicy, err := tagData.ContextAuthorization(actor.TenantID)
+	if err != nil {
+		return err
+	}
+	currentPolicy, err := currentTags.ContextAuthorization(actor.TenantID)
+	if err != nil {
+		return err
+	}
+	oldBody, err := json.Marshal(result.Customers)
+	if err != nil {
+		return err
+	}
+	newBody, err := json.Marshal(currentCustomers)
+	if err != nil {
+		return err
+	}
+	if revision != result.CustomerTagRevision || originalPolicy != currentPolicy || unclassified != result.UnclassifiedRecords || string(oldBody) != string(newBody) {
+		return apierror.Unavailable("customer prefix membership or disclosure authority changed; retry")
+	}
+	return nil
 }

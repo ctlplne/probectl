@@ -36,10 +36,30 @@ including current context and credential restrictions. It requires no AI query
 grant. The existing flow cost policy and tenant fairness admit the complete
 operation; a refused operation returns no truncated prefix.
 
-This extension remains preview. Test/SLO customer membership, inclusion in the
-signed evidence package, original real-flow/week-baseline proof and complete
-served/native/accessibility qualification remain pending. The existing signed
-package contract below is unchanged.
+The card can download a signed package with the selected impact comparison.
+The existing export endpoint accepts an optional `impact` selection object:
+
+```json
+{"impact":{"from":"2026-11-12T10:00:00.123456789Z","to":"2026-11-12T10:15:00.123456789Z","customer_tag_key":"customer"}}
+```
+
+```sh
+probectl incident export <incident-id> --body-file selections.json --out incident-evidence.json
+```
+
+The server recomputes the comparison under current reader, source and original
+capture authority. It includes one complete content-addressed impact attachment;
+clients cannot supply counters or claim a reusable source grant. Timestamp text
+retains nanoseconds. Export keeps its existing `ai.query` requirement because it
+also gathers cited RCA; the deterministic comparison above needs no AI grant.
+Current report memory/output configuration admits complete signed output, and
+refuses the whole export if resources are insufficient. Increase the configured
+allowance for the intended complete workload rather than truncating it.
+
+This extension remains preview. Test/SLO customer membership, original
+real-flow/week-baseline proof and complete served/native/accessibility
+qualification remain pending. Signing preserves observations and their declared
+coverage; it does not turn a weekly difference into a causal loss estimate.
 
 ## Signed package contents
 
@@ -49,6 +69,7 @@ package contract below is unchanged.
 - one canonical JSON manifest;
 - one content-addressed JSON attachment for every retained, redacted incident
   signal;
+- an optional complete impact attachment when selections are supplied;
 - a detached Ed25519 signature over the exact manifest bytes;
 - the public key and its SHA-256 fingerprint.
 

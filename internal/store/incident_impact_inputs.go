@@ -35,6 +35,7 @@ type IncidentImpactInputs struct {
 	ResolvedAt            *time.Time
 	RootUnresolved        bool
 	SourceGeneration      int64
+	SignalCount           int
 	Entities              []IncidentImpactEntity
 	UnresolvedSignalIDs   []string
 }
@@ -59,10 +60,10 @@ func (Incidents) ImpactInputs(ctx context.Context, sc tenancy.Scope, id string, 
 	var verified bool
 	out := &IncidentImpactInputs{TenantID: bound.String(), IncidentID: id,
 		Entities: []IncidentImpactEntity{}, UnresolvedSignalIDs: []string{}}
-	if err := sc.Q.QueryRow(ctx, `SELECT started_at,last_seen_at,resolved_at,
+	if err := sc.Q.QueryRow(ctx, `SELECT started_at,last_seen_at,resolved_at,signal_count,
 		entity_context_id::text,entity_id::text,identity_lookup_attempted
 		FROM incidents WHERE tenant_id=$1 AND id=$2`, bound.String(), id).
-		Scan(&out.StartedAt, &out.LastSeenAt, &out.ResolvedAt, &rootContext, &rootEntity, &verified); err != nil {
+		Scan(&out.StartedAt, &out.LastSeenAt, &out.ResolvedAt, &out.SignalCount, &rootContext, &rootEntity, &verified); err != nil {
 		return nil, notFound("incident", err)
 	}
 	remaining := maxBytes - 512

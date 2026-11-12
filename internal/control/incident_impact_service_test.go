@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/incident"
@@ -25,8 +25,8 @@ import (
 
 func TestIncidentImpactExactObservedCountersAndCustomerUnion(t *testing.T) {
 	at := time.Now().UTC().Add(-time.Minute)
-	contextID, router := uuid.NewString(), uuid.NewString()
-	for _, tenant := range []string{uuid.NewString(), uuid.NewString()} {
+	contextID, router := gouuid.NewString(), gouuid.NewString()
+	for _, tenant := range []string{gouuid.NewString(), gouuid.NewString()} {
 		var key [32]byte
 		key[0] = 1
 		row := flowstore.Row{TenantID: tenant, AgentID: "owned-flow", Exporter: "192.0.2.1", Protocol: "ipfix", ObsDomain: math.MaxUint32,
@@ -40,12 +40,12 @@ func TestIncidentImpactExactObservedCountersAndCustomerUnion(t *testing.T) {
 		if err != nil || out.AttestedRecords != 1 || len(out.Captures) != 1 || out.ObservedTotals == nil || out.ObservedTotals.RawBytes != "18446744073709551615" || out.ObservedTotals.ScaledBytes != "55340232221128654845" || out.ObservedTotals.ScaledPackets != "21" {
 			t.Fatal("exact observation was overflowed, rounded or multiplied", out, err)
 		}
-		prefixIDs := []string{uuid.NewString(), uuid.NewString()}
+		prefixIDs := []string{gouuid.NewString(), gouuid.NewString()}
 		var prefixes []tags.PrefixProjection
 		for i, network := range []string{"203.0.113.0/24", "198.51.100.0/24"} {
 			prefixes = append(prefixes, tags.PrefixProjection{Scope: tags.Scope{TenantID: tenant, ContextID: contextID}, ID: prefixIDs[i], Network: netip.MustParsePrefix(network), Values: map[string]string{"customer": "owned-" + tenant}})
 		}
-		data, err := flowstore.NewTagQueryData(tenant, 1, []tags.Definition{{TenantID: tenant, ID: uuid.NewString(), Key: "customer"}}, []tags.ExporterProjection{{Exporter: row.Exporter, ContextID: contextID}}, 1<<20, flowstore.TagQuerySources{Context: t.Context(), Prefixes: prefixes})
+		data, err := flowstore.NewTagQueryData(tenant, 1, []tags.Definition{{TenantID: tenant, ID: gouuid.NewString(), Key: "customer"}}, []tags.ExporterProjection{{Exporter: row.Exporter, ContextID: contextID}}, 1<<20, flowstore.TagQuerySources{Context: t.Context(), Prefixes: prefixes})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -61,7 +61,7 @@ func TestIncidentImpactExactObservedCountersAndCustomerUnion(t *testing.T) {
 			t.Fatal("missing original coverage was rendered as healthy zero", missing, err)
 		}
 		foreign := row
-		foreign.TenantID = uuid.NewString()
+		foreign.TenantID = gouuid.NewString()
 		if _, err := summarizeIncidentTraffic(t.Context(), tenant, period, []flowstore.Row{foreign}, owners, 1<<20); err == nil {
 			t.Fatal("foreign raw row crossed the impact boundary")
 		}
@@ -74,7 +74,7 @@ func TestIncidentImpactExactObservedCountersAndCustomerUnion(t *testing.T) {
 }
 
 func TestNativeIncidentImpactPreservesComputedSignedCounters(t *testing.T) {
-	value := incident.ImpactResponse{IncidentID: uuid.NewString(), ObservedByteChange: "-55340232221128654845", Members: []incident.ImpactMember{}, Customers: []incident.ImpactCustomer{}, UnresolvedSignalIDs: []string{}}
+	value := incident.ImpactResponse{IncidentID: gouuid.NewString(), ObservedByteChange: "-55340232221128654845", Members: []incident.ImpactMember{}, Customers: []incident.ImpactCustomer{}, UnresolvedSignalIDs: []string{}}
 	body, err := marshalNativeIncidentImpact(value)
 	if err != nil {
 		t.Fatal(err)

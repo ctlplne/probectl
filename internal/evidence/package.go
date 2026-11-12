@@ -144,6 +144,7 @@ type BuildInput struct {
 	CreatedAt  time.Time
 	Conclusion string
 	Grounded   bool
+	Impact     *incident.ImpactResponse
 }
 
 // Build creates a deterministic manifest and content-addressed attachments
@@ -200,6 +201,17 @@ func Build(in BuildInput) (Manifest, []Attachment, error) {
 		refs = allEvidence
 	}
 	statements = append(statements, Statement{ID: "conclusion", Text: conclusion, Class: class, EvidenceIDs: refs})
+	// The RCA ran before this deterministic comparison. Its conclusion may
+	// cite only the signal evidence it actually used, never this later input.
+	if in.Impact != nil {
+		record, attachment, err := impactEvidence(in.Incident.ID, *in.Impact)
+		if err != nil {
+			return Manifest{}, nil, err
+		}
+		records = append(records, record)
+		attachments = append(attachments, attachment)
+		statements = append(statements, Statement{ID: "incident-impact", Text: record.Summary, Class: "fact", EvidenceIDs: []string{record.ID}})
+	}
 
 	tenantDigest := digest([]byte(in.TenantID))
 	packageSeed, _ := json.Marshal(struct {

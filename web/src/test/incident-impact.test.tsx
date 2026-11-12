@@ -10,6 +10,7 @@ import { expect, test, vi } from 'vitest'
 import { Providers } from '../App'
 import { AuthContext } from '../auth/AuthProvider'
 import { IncidentImpactCard } from '../routes/IncidentImpactCard'
+import { TimeProvider } from '../time/TimeProvider'
 import type { Incident } from '../api/incidents'
 import type { IncidentImpactResponse } from '../api/sdk.gen'
 import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
@@ -84,7 +85,7 @@ function response(tenant: string): IncidentImpactResponse {
   }
 }
 
-function Harness() {
+function Harness({ canExport = false }: { canExport?: boolean }) {
   const [tenant, setTenant] = useState('red')
   const [allowed, setAllowed] = useState(true)
   return (
@@ -93,16 +94,20 @@ function Harness() {
         tenant: { id: tenant, name: tenant, slug: tenant },
         tenants: [],
         user: { id: 'reader', name: 'Reader', email: 'reader@local.test' },
-        permissions: allowed ? permissions : ['incident.read'],
+        permissions: allowed
+          ? [...permissions, ...(canExport ? ['ai.query'] : [])]
+          : ['incident.read'],
         switchTenant: () => {},
         signOut: () => {},
       }}
     >
-      <main>
-        <button onClick={() => setTenant('blue')}>Switch impact tenant</button>
-        <button onClick={() => setAllowed(false)}>Withdraw impact access</button>
-        <IncidentImpactCard incident={incident} />
-      </main>
+      <TimeProvider>
+        <main>
+          <button onClick={() => setTenant('blue')}>Switch impact tenant</button>
+          <button onClick={() => setAllowed(false)}>Withdraw impact access</button>
+          <IncidentImpactCard incident={incident} />
+        </main>
+      </TimeProvider>
     </AuthContext.Provider>
   )
 }
@@ -131,8 +136,8 @@ for (const theme of ['light', 'dark'])
     await screen.findByRole('region', { name: 'Incident impact result' })
     expect(selected).toMatchObject({
       customer_tag_key: 'customer',
-      from: '2026-11-01T00:00:00.000Z',
-      to: '2026-11-01T00:01:00.000Z',
+      from: incident.started_at,
+      to: incident.last_seen_at,
     })
     expect(screen.getAllByText('55340232221128654845').length).toBeGreaterThan(0)
     expect(screen.getByText('red customer 000')).toBeInTheDocument()
@@ -173,4 +178,95 @@ test('late incident impact completion cannot disclose the previous tenant', asyn
   expect(screen.queryByRole('region', { name: 'Incident impact result' })).not.toBeInTheDocument()
   expect(screen.queryByText('red customer 000')).not.toBeInTheDocument()
   view.unmount()
+})
+
+test('impact query and signed export preserve a one-nanosecond window and discard a late foreign download', async () => {
+  const fallback = defaultFetch()
+  const from = '2026-11-01T00:00:00.123456789Z',
+    to = '2026-11-01T00:00:00.123456790Z'
+  let selected: Record<string, string> | undefined
+  let exported: { impact: Record<string, string> } | undefined
+  let finish: ((value: Response) => void) | undefined
+  let signal: AbortSignal | undefined
+  const create = vi.fn(() => 'blob:owned-impact')
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  const revoke = vi.fn()
+  const originalRevoke = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL')
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revoke })
+  const original = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: create })
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+    if (pathOf(input) === `/v1/incidents/${id}/impact`) {
+      selected = JSON.parse(String(init?.body))
+      const value = response('red')
+      value.current.from = from
+      value.current.to = to
+      return Promise.resolve(jsonResponse(value))
+    }
+    if (pathOf(input) === `/v1/incidents/${id}/exports`) {
+      exported = JSON.parse(String(init?.body))
+      signal = init?.signal ?? undefined
+      return new Promise<Response>((resolve) => {
+        finish = resolve
+      })
+    }
+    return fallback(input, init)
+  })
+  const view = render(
+    <Providers>
+      <Harness canExport />
+    </Providers>,
+  )
+  try {
+    fireEvent.change(screen.getByLabelText('Impact from (ISO 8601 with offset)'), {
+      target: { value: from },
+    })
+    fireEvent.change(screen.getByLabelText('Impact to (exclusive, ISO 8601 with offset)'), {
+      target: { value: to },
+    })
+    fireEvent.change(screen.getByLabelText('Customer tag key (optional)'), {
+      target: { value: 'customer' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Compare incident impact' }))
+    await screen.findByRole('region', { name: 'Incident impact result' })
+    expect(selected).toMatchObject({ from, to, customer_tag_key: 'customer' })
+    expect(screen.getByText(from)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Export signed impact evidence' }))
+    await waitFor(() => expect(finish).toBeDefined())
+    expect(exported).toEqual({
+      impact: { from, to, dataseries: 'auto', customer_tag_key: 'customer' },
+    })
+    await act(async () => {
+      finish?.(jsonResponse({ signing: {}, attachments: [], manifest: {} }))
+    })
+    await screen.findByText(
+      "Downloaded a fresh signed evidence package. Verify it offline and pin the operator's signing-key fingerprint.",
+    )
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(click).toHaveBeenCalledTimes(1)
+    expect(revoke).toHaveBeenCalledWith('blob:owned-impact')
+    create.mockClear()
+    click.mockClear()
+    finish = undefined
+    fireEvent.click(screen.getByRole('button', { name: 'Export signed impact evidence' }))
+    await waitFor(() => expect(finish).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'Switch impact tenant' }))
+    expect(signal?.aborted).toBe(true)
+    await act(async () => {
+      finish?.(jsonResponse({ signing: {}, attachments: [], manifest: {} }))
+    })
+    expect(create).not.toHaveBeenCalled()
+    expect(
+      screen.queryByText(
+        "Downloaded a fresh signed evidence package. Verify it offline and pin the operator's signing-key fingerprint.",
+      ),
+    ).not.toBeInTheDocument()
+  } finally {
+    view.unmount()
+    click.mockRestore()
+    if (originalRevoke) Object.defineProperty(URL, 'revokeObjectURL', originalRevoke)
+    else Reflect.deleteProperty(URL, 'revokeObjectURL')
+    if (original) Object.defineProperty(URL, 'createObjectURL', original)
+    else Reflect.deleteProperty(URL, 'createObjectURL')
+  }
 })

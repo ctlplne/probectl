@@ -2210,6 +2210,10 @@ export interface IncidentCorrelationOverrideReverse {
   reason: string
 }
 
+export interface IncidentEvidenceExportInput {
+  impact?: IncidentImpactInput
+}
+
 export interface IncidentEvidencePackage {
   attachments: JsonObject[]
   manifest: JsonObject
@@ -4543,6 +4547,7 @@ export type ReverseIncidentCorrelationOverrideResponse = IncidentCorrelationOver
 
 export interface ExportIncidentEvidenceRequest {
   id: string
+  body?: IncidentEvidenceExportInput
 }
 
 export type ExportIncidentEvidenceResponse = IncidentEvidencePackage
@@ -6502,7 +6507,7 @@ export class ProbectlSDKClient {
     let path = "/v1/incidents/{id}/exports"
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<ExportIncidentEvidenceResponse>("POST", path, query, undefined)
+    return this.requestJSON<ExportIncidentEvidenceResponse>("POST", path, query, request.body)
   }
 
   async getIncidentImpact(request: GetIncidentImpactRequest): Promise<GetIncidentImpactResponse> {

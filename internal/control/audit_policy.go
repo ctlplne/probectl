@@ -174,6 +174,7 @@ var auditExportRoutes = map[string]bool{
 }
 
 var auditSensitiveReadRoutes = map[string]bool{
+	"POST /v1/incidents/{id}/impact":                                   true,
 	"POST /v1/tags/tests/resolve":                                      true,
 	"POST /v1/entity-contexts/{context_id}/tag-imports/netbox/preview": true,
 	"POST /v1/audit/ir/{event_ref}/reveal":                             true,

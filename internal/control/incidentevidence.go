@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -33,6 +34,10 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 	p := auth.PrincipalFrom(r.Context())
 	if p == nil || p.TenantID == "" {
 		return apierror.Unauthorized("authentication required")
+	}
+	input, err := decodeIncidentEvidenceExport(r)
+	if err != nil {
+		return err
 	}
 	reason, err := s.decide(r.Context(), p, permAIQuery, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: p.TenantID})
 	if err != nil {
@@ -72,12 +77,45 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 	}
 
 	pol := redactionPolicy(s.cfg)
+	var impact *incident.ImpactResponse
+	if input.Impact != nil {
+		release, err := s.beginIncidentImpactQuery(r.Context(), p)
+		if err != nil {
+			return err
+		}
+		defer release()
+		// RCA executes first; impact's final current-source/reader check is
+		// immediately before packaging rather than before a model call.
+		impact, err = s.exportIncidentImpact(r.Context(), p, inc, *input.Impact)
+		if err != nil {
+			return err
+		}
+	}
 	redactedIncident := redactIncidentForShare(*inc, pol, p.TenantID)
 	redactedAnswer := redactAnswerForShare(answer, pol, p.TenantID)
+	var impactProfile staticReportProfile
+	if impact != nil {
+		impactProfile, err = s.staticReportOperation()
+		if err != nil {
+			return apierror.Unavailable("incident evidence output admission is unavailable")
+		}
+		impactBytes, err := json.Marshal(impact)
+		if err != nil {
+			return err
+		}
+		incidentBytes, err := json.Marshal(redactedIncident)
+		if err != nil {
+			return err
+		}
+		if int64(len(impactBytes))+int64(len(incidentBytes)) > impactProfile.budget.MemoryBytes/16 {
+			return apierror.Validation("complete incident evidence exceeds configured report rendering memory; increase the report memory allowance")
+		}
+	}
 	manifest, attachments, err := evidence.Build(evidence.BuildInput{
 		TenantID: p.TenantID, Incident: redactedIncident, CreatedAt: time.Now().UTC(),
 		Conclusion: redactedAnswer.RootCause,
 		Grounded:   redactedAnswer.RootCauseGrounded && !redactedAnswer.InsufficientEvidence,
+		Impact:     impact,
 	})
 	if err != nil {
 		return apierror.Internal("incident evidence manifest failed").Wrap(err)
@@ -86,10 +124,14 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		return apierror.Internal("incident evidence signing failed").Wrap(err)
 	}
+	if impact != nil && int64(len(packageJSON)) > impactProfile.output.Bytes {
+		return apierror.Validation("complete incident evidence exceeds configured report output bytes; increase the report output allowance")
+	}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		return s.recordAudit(ctx, sc, r, "incident.evidence_export", manifest.PackageID, map[string]any{
 			"incident_id": inc.ID, "contract": evidence.ContractVersion,
 			"evidence_count": len(manifest.Evidence), "statements": len(manifest.Statements),
+			"impact_included": impact != nil,
 		})
 	}); err != nil {
 		return err

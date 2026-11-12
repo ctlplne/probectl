@@ -3459,6 +3459,16 @@
       "post": {
         "x-required-permission": "incident.read",
         "operationId": "exportIncidentEvidence",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentEvidenceExportInput"
+              }
+            }
+          }
+        },
         "summary": "Export an immutable signed incident evidence package",
         "description": "Builds a redacted probectl-evidence/v1 package whose factual statements resolve to content-addressed evidence records. The canonical manifest is signed with the deployment's stable Ed25519 evidence key and can be verified completely offline. The embedded public key proves integrity; verify its fingerprint out of band to prove operator identity. In addition to incident.read, ai.query is re-authorized tenant-first before evidence gathering.",
         "tags": [
@@ -15516,6 +15526,16 @@
       }
     },
     "schemas": {
+      "IncidentEvidenceExportInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "impact": {
+            "$ref": "#/components/schemas/IncidentImpactInput"
+          }
+        },
+        "description": "Optional impact selections only. The server recomputes complete current-authorized impact after RCA and includes it in the signed evidence package; supplied outputs are never accepted."
+      },
       "IncidentImpactInput": {
         "type": "object",
         "additionalProperties": false,

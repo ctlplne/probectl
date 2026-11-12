@@ -2342,6 +2342,11 @@ type IncidentCorrelationOverrideReverse struct {
 	Reason string `json:"reason"`
 }
 
+// Optional impact selections only. The server recomputes complete current-authorized impact after RCA and includes it in the signed evidence package; supplied outputs are never accepted.
+type IncidentEvidenceExportInput struct {
+	Impact IncidentImpactInput `json:"impact,omitempty"`
+}
+
 type IncidentEvidencePackage struct {
 	Attachments []map[string]any `json:"attachments"`
 	Manifest    map[string]any   `json:"manifest"`
@@ -7073,7 +7078,8 @@ func (c *Client) ReverseIncidentCorrelationOverride(ctx context.Context, req Rev
 
 // Export an immutable signed incident evidence package
 type ExportIncidentEvidenceRequest struct {
-	Id string `json:"-"`
+	Id   string                       `json:"-"`
+	Body *IncidentEvidenceExportInput `json:"-"`
 }
 
 func (c *Client) ExportIncidentEvidence(ctx context.Context, req ExportIncidentEvidenceRequest) (*IncidentEvidencePackage, error) {
@@ -7084,7 +7090,7 @@ func (c *Client) ExportIncidentEvidence(ctx context.Context, req ExportIncidentE
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out IncidentEvidencePackage
-	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

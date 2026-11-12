@@ -7,6 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, apiFetchBytes, isApiStatus } from './client'
 import type { Answer } from './ai'
+import type { IncidentImpactInput } from './sdk.gen'
 
 export type Severity = 'info' | 'warning' | 'critical'
 export type IncidentStatus = 'open' | 'resolved'
@@ -219,10 +220,16 @@ export function useCreateIncidentShare(id: string | undefined) {
 /** Downloads the exact signed bytes of a probectl-evidence/v1 package. */
 export function useExportIncidentEvidence(id: string | undefined) {
   return useMutation({
-    mutationFn: () =>
+    gcTime: 0,
+    mutationFn: (selection?: { impact: IncidentImpactInput; signal?: AbortSignal }) =>
       apiFetchBytes(`/incidents/${encodeURIComponent(id ?? '')}/exports`, {
         method: 'POST',
-        headers: { Accept: 'application/vnd.probectl.evidence+json' },
+        headers: {
+          Accept: 'application/vnd.probectl.evidence+json',
+          ...(selection ? { 'Content-Type': 'application/json' } : {}),
+        },
+        body: selection ? JSON.stringify({ impact: selection.impact }) : undefined,
+        signal: selection?.signal,
       }),
   })
 }
