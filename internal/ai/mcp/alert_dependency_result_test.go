@@ -104,4 +104,13 @@ func TestDependencyWorkflowNativeResultPreservesOnlyValidatedReferences(t *testi
 	if _, err := server.redactedToolResult(id, value, true); err == nil {
 		t.Fatal("unvalidated source reference bypassed text redaction")
 	}
+	value, err = dependencyWorkflowNativeResult(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = server.redactedToolResult(id, value, true)
+	var absent alert.DependencyWorkflow
+	if err != nil || json.Unmarshal(result["structuredContent"].(json.RawMessage), &absent) != nil || absent.State != "ordinary" || absent.ContextID != "" || len(absent.Causes) != 0 {
+		t.Fatal("unconfigured active series lacked an explicit source-free routing explanation", err)
+	}
 }

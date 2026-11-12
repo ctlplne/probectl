@@ -86,8 +86,11 @@ type nativeDependencyWorkflow struct {
 }
 
 func dependencyWorkflowNativeResult(state *alert.DependencyWorkflow, err error) (any, error) {
-	if err != nil || state == nil {
+	if err != nil {
 		return nil, err
+	}
+	if state == nil {
+		return nativeDependencyWorkflow{State: "ordinary", Reason: "No dependency configuration is present for this active series."}, nil
 	}
 	out := nativeDependencyWorkflow{State: state.State, Reason: state.Reason, ContextID: NativeRoleUUID(state.ContextID), EntityID: NativeRoleUUID(state.EntityID),
 		EvidenceID: NativeRoleUUID(state.EvidenceID), ObservationID: NativeRoleUUID(state.ObservationID), AsOf: state.AsOf, FreshUntil: state.FreshUntil}

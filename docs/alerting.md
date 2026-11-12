@@ -617,4 +617,6 @@ required before the preview is promoted.
 
 Native MCP `alert_dependency_workflow` inspects the same active-series explanation
 using an exact `fingerprint`; its structured canonical references remain usable
-while free text retains the normal egress redaction policy.
+while free text retains the normal egress redaction policy. An active series
+without current dependency configuration returns an explicit `ordinary`
+explanation without source details, including after configuration is cleared.

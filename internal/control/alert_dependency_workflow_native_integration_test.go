@@ -53,6 +53,18 @@ func TestDependencyWorkflowNativeUsesCurrentTenantEvidence(t *testing.T) {
 			}
 			call(dependencyOtherTenant(d.f.tenants, tenant), "alert_dependency_workflow", map[string]any{"fingerprint": child.Fingerprint}, nil, false)
 		}
+		var cleared alert.DependencyPolicyState
+		modern(tenant, "alert_dependency_clear", map[string]any{"rule_id": d.rules[tenant].ID, "confirmed": true}, &cleared, true)
+		if cleared.Configured {
+			t.Fatal("native clear retained dependency configuration")
+		}
+		for _, call := range []func(string, string, any, any, bool){modern, legacy} {
+			var absent alert.DependencyWorkflow
+			call(tenant, "alert_dependency_workflow", map[string]any{"fingerprint": child.Fingerprint}, &absent, true)
+			if absent.State != "ordinary" || absent.Reason == "" || absent.ContextID != "" || absent.EvidenceID != "" || len(absent.Causes) != 0 {
+				t.Fatal("cleared policy revived old held source authority or omitted its explanation", absent)
+			}
+		}
 	}
 	t.Log("real-integration: both authenticated HTTPS native wire versions and paired PG/RLS tenants; source observations and delivery sink modeled")
 }
