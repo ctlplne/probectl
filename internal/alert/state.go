@@ -16,10 +16,12 @@ import (
 // by its label set), so debounce (ForN), firing, and dedupe/renotify are
 // per-series rather than per-rule.
 type seriesState struct {
-	breachCount  int
-	firing       bool
-	lastNotified time.Time
-	base         *baseline // baseline rules only
+	breachCount        int
+	firing             bool
+	lastNotified       time.Time
+	dependency         *DependencyDecision
+	dependencyRestored bool
+	base               *baseline // baseline rules only
 
 	// Rendered state for the active-alert surface (S-FE1), written on each
 	// evaluation so the API reflects engine truth.

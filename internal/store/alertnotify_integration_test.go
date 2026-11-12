@@ -40,6 +40,13 @@ func TestAlertNotificationsStoreIsolationAndLifecycle(t *testing.T) {
 	first := since.Add(15 * time.Second)
 
 	inTenant(ctx, t, pool, a.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := (AlertNotifications{}).Upsert(ctx, sc, AlertNotification{Fingerprint: fp, FiringSince: since}); err != nil {
+			t.Fatalf("persist held firing: %v", err)
+		}
+		held, err := (AlertNotifications{}).List(ctx, sc)
+		if err != nil || len(held) != 1 || !held[0].LastNotified.IsZero() || !held[0].FiringSince.Equal(since) {
+			t.Fatalf("held episode lost its original clock or became a delivered notification: %+v err=%v", held, err)
+		}
 		if err := (AlertNotifications{}).Upsert(ctx, sc, AlertNotification{Fingerprint: fp, FiringSince: since, LastNotified: first}); err != nil {
 			t.Fatalf("upsert: %v", err)
 		}

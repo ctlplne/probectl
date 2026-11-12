@@ -30,6 +30,9 @@ type Alert struct {
 	Comparison Comparison
 	Reason     string
 	At         time.Time
+	// Internal incident routing only. A wire payload cannot nominate a parent
+	// or supply suppression authority, and channels expose no source references.
+	Dependency *DependencyDecision `json:"-"`
 }
 
 // WebhookPayloadVersion identifies the outbound webhook schema.

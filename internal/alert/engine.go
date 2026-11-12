@@ -66,7 +66,9 @@ type Engine struct {
 	sink func(context.Context, Alert) // optional: every acted alert is forwarded here
 	// evaluationSink records a bounded explanation after tenant-scoped metric
 	// evaluation. A persistence failure is logged but never blocks alerting.
-	evaluationSink EvaluationSink
+	evaluationSink   EvaluationSink
+	dependencyRouter DependencyRouter
+	dependencyRules  map[string]bool
 
 	mu     sync.Mutex
 	states map[string]*seriesState
@@ -101,7 +103,9 @@ type Engine struct {
 // on every notification and rehydrated into a newly-elected singleton leader so
 // a continuously-firing alert is not re-notified across failover (RTO-20).
 type NotifyState struct {
-	FiringSince  time.Time
+	FiringSince time.Time
+	// Zero preserves an incident-visible firing that has not been externally
+	// notified. Its current dependency evidence is re-derived after restart.
 	LastNotified time.Time
 }
 
@@ -139,6 +143,9 @@ func (en *Engine) RestoreNotifications(ns map[string]NotifyState) {
 	}
 	for key, st := range ns {
 		en.restoredNotify[key] = st
+		if st.LastNotified.IsZero() && !st.FiringSince.IsZero() {
+			en.rememberDependencyRuleLocked(strings.SplitN(key, "|", 2)[0])
+		}
 	}
 }
 
@@ -267,6 +274,11 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	en.mu.Unlock()
 
 	var acted []Alert
+	if en.needsDependencyRouting(rule) {
+		acted = en.evaluateDependencyRule(ctx, rule, read)
+		en.pruneDepartedQueryGroups(departed)
+		return append(acted, en.resolveRestoredTraps(ctx, rule)...), nil
+	}
 	for _, s := range read.Samples {
 		alert, notify, receipt, pending := en.evalSample(rule, s, read.TagSelection)
 		en.recordEvaluation(ctx, receipt)
@@ -314,14 +326,15 @@ func (en *Engine) resolveRestoredTraps(ctx context.Context, rule Rule) []Alert {
 		return nil
 	}
 	type stale struct {
-		key    string
-		labels map[string]string
-		reason string
+		key           string
+		labels        map[string]string
+		reason        string
+		neverNotified bool
 	}
 	var due []stale
 	prefix := rule.ID + "|"
 	en.mu.Lock()
-	for key := range en.restoredNotify {
+	for key, notification := range en.restoredNotify {
 		if !strings.HasPrefix(key, prefix) {
 			continue
 		}
@@ -329,7 +342,8 @@ func (en *Engine) resolveRestoredTraps(ctx context.Context, rule Rule) []Alert {
 		if live && (st.firing || st.breachCount > 0) {
 			continue // still held (or still debouncing): the state machine owns it
 		}
-		item := stale{key: key, labels: labelsFromStateKey(key, prefix), reason: staleTrapReason}
+		item := stale{key: key, labels: labelsFromStateKey(key, prefix), reason: staleTrapReason,
+			neverNotified: notification.LastNotified.IsZero() && !notification.FiringSince.IsZero()}
 		if live {
 			item.labels = st.labels
 			if st.lastReason != "" {
@@ -357,7 +371,13 @@ func (en *Engine) resolveRestoredTraps(ctx context.Context, rule Rule) []Alert {
 			Reason:           d.reason,
 			Labels:           receiptLabels(d.labels),
 		})
-		en.deliver(ctx, rule, a)
+		if d.neverNotified {
+			if en.sink != nil {
+				en.sink(ctx, a)
+			}
+		} else {
+			en.deliver(ctx, rule, a)
+		}
 		if en.onResolve != nil {
 			en.onResolve(d.key) // drop the persisted notification + op rows
 		}
