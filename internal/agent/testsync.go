@@ -8,8 +8,6 @@ package agent
 
 import (
 	"context"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -339,7 +337,11 @@ func (s *testSyncer) admitOne(t testsync.Test, seen map[string]bool) (string, ce
 	if err != nil {
 		return "invalid_test", centralDef{}
 	}
-	return "", centralDef{id: t.ID, hash: testHash(t), sched: scheduled{canary: c, interval: interval, testID: t.ID}}
+	hash, err := testsync.DefinitionHash(t)
+	if err != nil {
+		return "invalid_test", centralDef{}
+	}
+	return "", centralDef{id: t.ID, hash: hash, sched: scheduled{canary: c, interval: interval, testID: t.ID}}
 }
 
 // privateTarget reports a target whose host is a literal private, loopback,
@@ -376,17 +378,6 @@ func copyParams(p map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-// testHash identifies a test's definition so an unchanged test keeps running
-// across bundle versions.
-func testHash(t testsync.Test) string {
-	raw, err := json.Marshal(t)
-	if err != nil {
-		return t.ID
-	}
-	h := crypto.Hash(raw)
-	return hex.EncodeToString(h)
 }
 
 // persist writes the verified signed bundle atomically, owner-only.
