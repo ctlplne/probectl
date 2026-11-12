@@ -151,7 +151,7 @@ func (f *roleExplanationAPIFixture) in(tenant string, fn func(context.Context, t
 }
 func (f *roleExplanationAPIFixture) poll(tenant, description string, prefixes []entity.SNMPInterfacePrefix) string {
 	f.t.Helper()
-	at := time.Now().UTC().Truncate(time.Microsecond)
+	at := f.observedAt(tenant)
 	source := entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"}
 	root := gouuid.NewString()
 	claims := []entity.Observation{
@@ -171,11 +171,24 @@ func (f *roleExplanationAPIFixture) peer(tenant string, asn uint32) {
 func (f *roleExplanationAPIFixture) peerAtAddress(tenant, address string, asn uint32) {
 	f.t.Helper()
 	claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-listener", Kind: entity.BMPPeer, SourceRef: "role-router"},
-		Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("%s/as%d", address, asn)}, SourceRef: fmt.Sprintf("bmp:router:role-router:peer-asn:%d", asn), OriginSerial: f.serials[tenant+"role-router"], ObservedAt: time.Now().UTC().Truncate(time.Microsecond)}
+		Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("%s/as%d", address, asn)}, SourceRef: fmt.Sprintf("bmp:router:role-router:peer-asn:%d", asn), OriginSerial: f.serials[tenant+"role-router"], ObservedAt: f.observedAt(tenant)}
 	accepted, unresolved, err := writeEntityEvidenceBatchForTest(store.NewEntityRegistry(f.pool), tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant)), "role-listener", f.serials[tenant+"role-listener"], []entity.Observation{claim})
 	if err != nil || accepted != 1 || unresolved != 0 {
 		f.t.Fatal("owned BMP observation was not accepted", accepted, unresolved, err)
 	}
+}
+
+// The fixture seeds its sender and assignments in Postgres. Use that authority
+// clock for its modeled observation, so a fast non-race run cannot backdate a
+// sample before a binding because the local container clock leads the host.
+// Actual-sender clock/freshness controls are proved by the transport roots.
+func (f *roleExplanationAPIFixture) observedAt(tenant string) time.Time {
+	f.t.Helper()
+	var observed time.Time
+	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&observed)
+	})
+	return observed
 }
 
 // Verified TLS, real bearer authentication/current role grants, actual evidence
