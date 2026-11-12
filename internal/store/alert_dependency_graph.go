@@ -8,8 +8,9 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -43,17 +44,14 @@ func ValidateDependencyGraphInScope(ctx context.Context, sc tenancy.Scope, conte
 	if err := graph.Validate(); err != nil {
 		return err
 	}
-	raw, err := json.Marshal(graph.Nodes)
-	if err != nil {
-		return err
-	}
+	refs := dependencyGraphReferences(graph)
 	var matched int
 	// Bind each complete input reference to its unique source key first. The
 	// OFFSET 0 preserves that parameterized lookup: flattening eight joined
-	// populations can multiply devices by tests before applying the JSON keys.
+	// populations can multiply devices by tests before applying the exact keys.
 	// This is no row limit; every declared node must produce its one source.
-	err = sc.Q.QueryRow(ctx, `SELECT count(*) FROM jsonb_to_recordset($3::jsonb)
- AS ref(entity_id uuid,agent_id uuid,test_id uuid)
+	err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM unnest($3::uuid[],$4::text[],$5::uuid[])
+ AS ref(entity_id,agent_id,test_id)
  JOIN LATERAL (
    SELECT 1 FROM entity_source_contexts m
    WHERE m.tenant_id=$1::uuid AND m.context_id=$2::uuid
@@ -65,7 +63,7 @@ func ValidateDependencyGraphInScope(ctx context.Context, sc tenancy.Scope, conte
        WHERE (n.tenant_id,n.context_id,n.id)=(m.tenant_id,m.context_id,ref.entity_id)
          AND n.kind='device')
      AND EXISTS(SELECT 1 FROM agents g
-       WHERE (g.tenant_id,g.id)=(m.tenant_id,ref.agent_id) AND g.status<>'revoked')
+       WHERE (g.tenant_id,g.id)=(m.tenant_id,ref.agent_id::uuid) AND g.status<>'revoked')
      AND EXISTS(SELECT 1 FROM tests t
        JOIN entity_path_test_contexts p ON
          (p.tenant_id,p.context_id,p.test_id)=(t.tenant_id,m.context_id,t.id)
@@ -77,8 +75,8 @@ func ValidateDependencyGraphInScope(ctx context.Context, sc tenancy.Scope, conte
          AND a.assigned_at<=statement_timestamp()
          AND (a.expires_at IS NULL OR a.expires_at>statement_timestamp()))
    OFFSET 0
- ) current_source ON true`,
-		sc.Tenant.String(), contextID, raw).Scan(&matched)
+ ) current_source ON true`, pgx.QueryExecModeDescribeExec,
+		sc.Tenant.String(), contextID, refs.entities, refs.agents, refs.tests).Scan(&matched)
 	if err != nil {
 		return fmt.Errorf("current dependency reference lookup: %w", err)
 	}
@@ -86,4 +84,23 @@ func ValidateDependencyGraphInScope(ctx context.Context, sc tenancy.Scope, conte
 		return ErrAlertDependencyChanged
 	}
 	return ctx.Err()
+}
+
+type dependencyReferences struct {
+	entities, agents, tests []string
+}
+
+// The graph has already passed finite admission and complete UUID/edge
+// validation. Transfer only its source keys, exposing the population to the
+// planner without repeatedly encoding every parent edge in lock queries.
+func dependencyGraphReferences(graph *alert.DependencyGraphInput) dependencyReferences {
+	refs := dependencyReferences{
+		entities: make([]string, len(graph.Nodes)),
+		agents:   make([]string, len(graph.Nodes)),
+		tests:    make([]string, len(graph.Nodes)),
+	}
+	for i, node := range graph.Nodes {
+		refs.entities[i], refs.agents[i], refs.tests[i] = node.EntityID, node.AgentID, node.TestID
+	}
+	return refs
 }

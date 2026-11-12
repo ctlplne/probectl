@@ -9,9 +9,10 @@ package store
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/incident"
@@ -37,41 +38,41 @@ func LockDependencySourcesInScope(ctx context.Context, sc tenancy.Scope, context
 	if err := graph.Validate(); err != nil {
 		return err
 	}
-	refs, err := json.Marshal(graph.Nodes)
-	if err != nil {
-		return err
-	}
+	refs := dependencyGraphReferences(graph)
+	const requested = `WITH refs AS (
+ SELECT * FROM unnest($3::uuid[],$4::text[],$5::uuid[]) AS input(entity_id,agent_id,test_id)
+ ) `
 	remaining := maxBytes / 256
 	for _, query := range []string{
 		`SELECT 1 FROM agents g WHERE g.tenant_id=$1 AND $2::uuid IS NOT NULL
- AND g.id IN (SELECT (ref->>'agent_id')::uuid FROM jsonb_array_elements($3::jsonb) ref)
+ AND g.id IN (SELECT agent_id::uuid FROM refs)
  ORDER BY g.id FOR SHARE OF g`,
 		`SELECT 1 FROM agent_identities i WHERE i.tenant_id=$1 AND $2::uuid IS NOT NULL
- AND i.agent_id IN (SELECT ref->>'agent_id' FROM jsonb_array_elements($3::jsonb) ref)
+ AND i.agent_id IN (SELECT agent_id FROM refs)
  ORDER BY i.id FOR SHARE OF i`,
 		`SELECT 1 FROM tests t WHERE t.tenant_id=$1 AND $2::uuid IS NOT NULL
- AND t.id IN (SELECT (ref->>'test_id')::uuid FROM jsonb_array_elements($3::jsonb) ref)
+ AND t.id IN (SELECT test_id FROM refs)
  ORDER BY t.id FOR SHARE OF t`,
 		`SELECT 1 FROM entity_contexts c WHERE c.tenant_id=$1 AND c.id=$2
- AND jsonb_typeof($3::jsonb)='array' FOR SHARE OF c`,
+ FOR SHARE OF c`,
 		`SELECT 1 FROM entities n WHERE n.tenant_id=$1 AND n.context_id=$2
- AND n.id IN (SELECT (ref->>'entity_id')::uuid FROM jsonb_array_elements($3::jsonb) ref)
+ AND n.id IN (SELECT entity_id FROM refs)
  ORDER BY n.id FOR SHARE OF n`,
 		`SELECT 1 FROM entity_agent_contexts a WHERE a.tenant_id=$1 AND a.context_id=$2
- AND a.agent_id IN (SELECT ref->>'agent_id' FROM jsonb_array_elements($3::jsonb) ref)
+ AND a.agent_id IN (SELECT agent_id FROM refs)
  ORDER BY a.agent_id FOR SHARE OF a`,
 		`SELECT 1 FROM entity_source_contexts m WHERE m.tenant_id=$1 AND m.context_id=$2
- AND m.source_kind='path_agent' AND EXISTS(SELECT 1 FROM jsonb_array_elements($3::jsonb) ref
- WHERE (m.agent_id,m.source_ref)=(ref->>'agent_id',ref->>'test_id'))
+ AND m.source_kind='path_agent' AND EXISTS(SELECT 1 FROM refs
+ WHERE (m.agent_id,m.source_ref)=(refs.agent_id,refs.test_id::text))
  ORDER BY m.agent_id,m.source_ref FOR SHARE OF m`,
 		`SELECT 1 FROM entity_test_contexts c WHERE c.tenant_id=$1 AND c.context_id=$2
- AND c.test_id IN (SELECT (ref->>'test_id')::uuid FROM jsonb_array_elements($3::jsonb) ref)
+ AND c.test_id IN (SELECT test_id FROM refs)
  ORDER BY c.test_id FOR SHARE OF c`,
 		`SELECT 1 FROM entity_path_test_contexts p WHERE p.tenant_id=$1 AND p.context_id=$2
- AND p.test_id IN (SELECT (ref->>'test_id')::uuid FROM jsonb_array_elements($3::jsonb) ref)
+ AND p.test_id IN (SELECT test_id FROM refs)
  ORDER BY p.test_id FOR SHARE OF p`,
 	} {
-		rows, err := sc.Q.Query(ctx, query, sc.Tenant.String(), contextID, refs)
+		rows, err := sc.Q.Query(ctx, requested+query, pgx.QueryExecModeDescribeExec, sc.Tenant.String(), contextID, refs.entities, refs.agents, refs.tests)
 		if err != nil {
 			return err
 		}
