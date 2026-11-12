@@ -11,11 +11,13 @@ import (
 	"encoding/json"
 	"math"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
 	gouuid "github.com/google/uuid"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
@@ -86,5 +88,42 @@ func TestNativeIncidentImpactPreservesComputedSignedCounters(t *testing.T) {
 	var count string
 	if err := json.Unmarshal(parsed["observed_scaled_byte_change"], &count); err != nil || count != value.ObservedByteChange {
 		t.Fatal("native response narrowed the exact signed weekly change", count, err)
+	}
+}
+
+func TestNativeIncidentImpactPreservesStoredCitationsAndRedactsLabels(t *testing.T) {
+	const id = "40000000-0000-4004-8000-abcdefabcdef"
+	const digest = "4111111111111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	source := "evidence/" + id
+	capture := incident.ImpactCaptureCitation{Key: digest, ContextID: id, RouterID: id, OriginalSourceID: source, CurrentSourceID: source}
+	value := incident.ImpactResponse{IncidentID: id,
+		Current:   incident.ImpactPeriod{Captures: []incident.ImpactCaptureCitation{capture}},
+		Previous:  incident.ImpactPeriod{Captures: []incident.ImpactCaptureCitation{}},
+		Members:   []incident.ImpactMember{{ContextID: id, EntityID: id, SignalIDs: []string{id}, SourceIDs: []string{source}}},
+		Customers: []incident.ImpactCustomer{{ContextID: id, PrefixIDs: []string{id}, TestIDs: []string{}, SLOIDs: []string{}, CaptureKeys: []string{digest}, Value: "password=private-fixture 192.0.2.1 card=4111-1111-1111-1111 " + id}},
+	}
+	body, err := marshalNativeIncidentImpact(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redacted := ai.RedactTextForTenant(string(body), ai.DefaultRedaction, id)
+	var got incident.ImpactResponse
+	if err := json.Unmarshal([]byte(redacted), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Current.Captures) != 1 || got.Current.Captures[0].Key != digest || got.Current.Captures[0].OriginalSourceID != source || got.Current.Captures[0].CurrentSourceID != source || len(got.Members) != 1 || len(got.Members[0].SourceIDs) != 1 || got.Members[0].SourceIDs[0] != source || len(got.Customers) != 1 || len(got.Customers[0].CaptureKeys) != 1 || got.Customers[0].CaptureKeys[0] != digest {
+		t.Fatal("native impact redaction changed a stored canonical citation", got.Current.Captures, got.Members, got.Customers)
+	}
+	if strings.Contains(redacted, "private-fixture") || strings.Contains(redacted, "192.0.2.1") || strings.Contains(redacted, "4111-1111-1111-1111") || got.Customers[0].Value == value.Customers[0].Value || !strings.Contains(redacted, "[secret:") || !strings.Contains(redacted, "[pan:") {
+		t.Fatal("native citation encoding exempted operator-owned labels from redaction")
+	}
+}
+
+func TestNativeIncidentImpactRejectsUntrustedCitationShapes(t *testing.T) {
+	for _, source := range []string{"", "collector/40000000-0000-4004-8000-abcdefabcdef", "evidence/password=private", "evidence/40000000-0000-4004-8000-ABCDEFABCDEF", "evidence/40000000-0000-4004-8000-abcdefabcdef/label"} {
+		value := incident.ImpactResponse{IncidentID: gouuid.NewString(), Members: []incident.ImpactMember{{SourceIDs: []string{source}}}}
+		if body, err := marshalNativeIncidentImpact(value); err == nil || body != nil {
+			t.Fatal("untrusted source acquired canonical metadata encoding", source, err)
+		}
 	}
 }

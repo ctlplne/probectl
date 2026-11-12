@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/ctlplne/probectl/internal/ai/mcp"
@@ -31,6 +32,23 @@ func (b mcpIncidentImpactBackend) IncidentImpact(ctx context.Context, actor *aut
 }
 
 type nativeIncidentChange string
+
+// This projection accepts only the canonical evidence PK read from current
+// tenant storage, not the collector's source_ref, observation ID or a label.
+// Other native source vocabularies retain their existing text redaction.
+type nativeIncidentEvidenceSource string
+
+func (source nativeIncidentEvidenceSource) MarshalJSON() ([]byte, error) {
+	id, ok := strings.CutPrefix(string(source), "evidence/")
+	if !ok || id == "" {
+		return nil, errors.New("invalid canonical incident evidence source")
+	}
+	encoded, err := mcp.NativeRoleUUID(id).MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	return append(append([]byte(`"evidence/`), encoded[1:len(encoded)-1]...), '"'), nil
+}
 
 func (value nativeIncidentChange) MarshalJSON() ([]byte, error) {
 	text := string(value)
@@ -66,8 +84,11 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 	}
 	type capture struct {
 		incident.ImpactCaptureCitation
-		ContextID mcp.NativeRoleUUID `json:"context_id"`
-		RouterID  mcp.NativeRoleUUID `json:"router_id"`
+		Key              mcp.NativeRoleDigest         `json:"key"`
+		ContextID        mcp.NativeRoleUUID           `json:"context_id"`
+		RouterID         mcp.NativeRoleUUID           `json:"router_id"`
+		OriginalSourceID nativeIncidentEvidenceSource `json:"original_source_id"`
+		CurrentSourceID  nativeIncidentEvidenceSource `json:"current_source_id"`
 	}
 	type period struct {
 		incident.ImpactPeriod
@@ -77,24 +98,26 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 	projectPeriod := func(input incident.ImpactPeriod) period {
 		out := period{input, projectCounters(input.ObservedTotals), make([]capture, 0, len(input.Captures))}
 		for _, item := range input.Captures {
-			out.Captures = append(out.Captures, capture{item, mcp.NativeRoleUUID(item.ContextID), mcp.NativeRoleUUID(item.RouterID)})
+			out.Captures = append(out.Captures, capture{item, mcp.NativeRoleDigest(item.Key), mcp.NativeRoleUUID(item.ContextID), mcp.NativeRoleUUID(item.RouterID), nativeIncidentEvidenceSource(item.OriginalSourceID), nativeIncidentEvidenceSource(item.CurrentSourceID)})
 		}
 		return out
 	}
 	type member struct {
 		incident.ImpactMember
-		ContextID mcp.NativeRoleUUID   `json:"context_id"`
-		EntityID  mcp.NativeRoleUUID   `json:"entity_id"`
-		SignalIDs []mcp.NativeRoleUUID `json:"signal_ids"`
+		ContextID mcp.NativeRoleUUID             `json:"context_id"`
+		EntityID  mcp.NativeRoleUUID             `json:"entity_id"`
+		SignalIDs []mcp.NativeRoleUUID           `json:"signal_ids"`
+		SourceIDs []nativeIncidentEvidenceSource `json:"source_ids"`
 	}
 	type customer struct {
 		incident.ImpactCustomer
-		ContextID mcp.NativeRoleUUID   `json:"context_id"`
-		PrefixIDs []mcp.NativeRoleUUID `json:"prefix_ids"`
-		TestIDs   []mcp.NativeRoleUUID `json:"test_ids"`
-		SLOIDs    []mcp.NativeRoleUUID `json:"slo_ids"`
-		Current   *counters            `json:"current_observed_totals,omitempty"`
-		Previous  *counters            `json:"previous_observed_totals,omitempty"`
+		ContextID   mcp.NativeRoleUUID     `json:"context_id"`
+		PrefixIDs   []mcp.NativeRoleUUID   `json:"prefix_ids"`
+		TestIDs     []mcp.NativeRoleUUID   `json:"test_ids"`
+		SLOIDs      []mcp.NativeRoleUUID   `json:"slo_ids"`
+		CaptureKeys []mcp.NativeRoleDigest `json:"capture_keys"`
+		Current     *counters              `json:"current_observed_totals,omitempty"`
+		Previous    *counters              `json:"previous_observed_totals,omitempty"`
 	}
 	out := struct {
 		incident.ImpactResponse
@@ -108,10 +131,18 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 	}{
 		ImpactResponse: value, IncidentID: mcp.NativeRoleUUID(value.IncidentID), Current: projectPeriod(value.Current), Previous: projectPeriod(value.Previous), Members: []member{}, Unresolved: ids(value.UnresolvedSignalIDs), Customers: []customer{}, Change: nativeIncidentChange(value.ObservedByteChange)}
 	for _, item := range value.Members {
-		out.Members = append(out.Members, member{item, mcp.NativeRoleUUID(item.ContextID), mcp.NativeRoleUUID(item.EntityID), ids(item.SignalIDs)})
+		sources := make([]nativeIncidentEvidenceSource, len(item.SourceIDs))
+		for i, id := range item.SourceIDs {
+			sources[i] = nativeIncidentEvidenceSource(id)
+		}
+		out.Members = append(out.Members, member{item, mcp.NativeRoleUUID(item.ContextID), mcp.NativeRoleUUID(item.EntityID), ids(item.SignalIDs), sources})
 	}
 	for _, item := range value.Customers {
-		out.Customers = append(out.Customers, customer{item, mcp.NativeRoleUUID(item.ContextID), ids(item.PrefixIDs), ids(item.TestIDs), ids(item.SLOIDs), projectCounters(item.Current), projectCounters(item.Previous)})
+		keys := make([]mcp.NativeRoleDigest, len(item.CaptureKeys))
+		for i, key := range item.CaptureKeys {
+			keys[i] = mcp.NativeRoleDigest(key)
+		}
+		out.Customers = append(out.Customers, customer{item, mcp.NativeRoleUUID(item.ContextID), ids(item.PrefixIDs), ids(item.TestIDs), ids(item.SLOIDs), keys, projectCounters(item.Current), projectCounters(item.Previous)})
 	}
 	return json.Marshal(out)
 }
