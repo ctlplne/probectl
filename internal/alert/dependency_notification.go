@@ -9,6 +9,7 @@ package alert
 import (
 	"context"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -24,6 +25,24 @@ type DependencyAttempt struct {
 	FiringSince     time.Time
 	LastNotified    time.Time
 	RuleUpdatedAt   time.Time
+}
+
+// DependencyNotificationState is durable episode bookkeeping on the existing
+// notification row. It never supplies evidence, source grants or hold authority.
+// A fresh source decision is required after every reload and before delivery.
+type DependencyNotificationState struct {
+	Held         bool
+	TransitionID string
+}
+
+func (state DependencyNotificationState) Validate() error {
+	if !state.Held && state.TransitionID == "" {
+		return nil // explicitly clear current bookkeeping, without source reads
+	}
+	if !canonicalQueryID(state.TransitionID) {
+		return ErrDependencyEvidence
+	}
+	return nil
 }
 
 // DependencyDecision is opaque outside this package. The source adapter must
@@ -42,6 +61,21 @@ type DependencyDecision struct {
 }
 
 func (d DependencyDecision) Held() bool { return d.selection.Held }
+
+// NotificationFingerprint is the exact engine-owned series key. Publication
+// uses it only in the same tenant transaction as the incident relationship.
+func (d DependencyDecision) NotificationFingerprint() string { return d.key }
+
+func (d DependencyDecision) ContextID() string         { return d.contextID }
+func (d DependencyDecision) Reason() string            { return d.selection.Reason }
+func (d DependencyDecision) Causes() []DependencyCause { return slices.Clone(d.selection.Causes) }
+
+// DecideDependencyNotification accepts operation-local evidence resolved by
+// the trusted source adapter, never decoded hold authority. The adapter must
+// retain current source/owner locks through durable publication.
+func DecideDependencyNotification(ctx context.Context, attempt DependencyAttempt, graph DependencySnapshot, target string, reachabilitySymptom bool, memoryBytes, workUnits int64) (DependencyDecision, error) {
+	return decideDependencyNotification(ctx, attempt, graph, target, reachabilitySymptom, memoryBytes, workUnits)
+}
 
 func decideDependencyNotification(ctx context.Context, attempt DependencyAttempt, graph dependencySnapshot, target string, reachabilitySymptom bool, memoryBytes, workUnits int64) (DependencyDecision, error) {
 	a := attempt.Alert
@@ -118,6 +152,12 @@ type DependencyOutcome struct {
 }
 
 type DependencyRouter func(context.Context, Rule, []DependencyAttempt) ([]DependencyOutcome, error)
+
+// WithDependencyRouter installs the deployment's tenant-bound publication
+// adapter. An unavailable/incomplete result retains ordinary delivery.
+func WithDependencyRouter(router DependencyRouter) EngineOption {
+	return func(en *Engine) { en.dependencyRouter = router }
+}
 
 func (d DependencyDecision) matches(a Alert, now time.Time) bool {
 	return d.tenant == a.TenantID && d.key == stateKey(a.RuleID, a.Labels) && maps.Equal(d.labels, a.Labels) && d.state == a.State &&

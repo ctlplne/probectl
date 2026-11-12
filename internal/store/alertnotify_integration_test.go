@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -85,4 +87,89 @@ func TestAlertNotificationsStoreIsolationAndLifecycle(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+func TestAlertDependencyNotificationStateKeepsSharedEpisodeKeysAndClears(t *testing.T) {
+	ctx := t.Context()
+	pool := setup(ctx, t)
+	t.Cleanup(pool.Close)
+	var tenants []string
+	for _, lane := range []string{"a", "b"} {
+		tenant, err := NewTenants(pool).Create(ctx, fmt.Sprintf("dep-state-%s-%d", lane, time.Now().UnixNano()), "Dependency state")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tenants = append(tenants, tenant.ID)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM tenants WHERE id=ANY($1::uuid[])`, tenants); err != nil {
+			t.Error(err)
+		}
+	})
+	transition, err := crypto.UUIDv4()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := "same-rule|same-series"
+	since := time.Now().UTC().Truncate(time.Microsecond)
+	for i, tenant := range tenants {
+		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			held := i == 0
+			n := AlertNotification{Fingerprint: fingerprint, FiringSince: since, LastNotified: since.Add(time.Second), Dependency: &alert.DependencyNotificationState{Held: held, TransitionID: transition}}
+			if err := (AlertNotifications{}).Upsert(ctx, sc, n); err != nil {
+				return err
+			}
+			got, err := (AlertNotifications{}).Get(ctx, sc, fingerprint)
+			if err != nil || got == nil || got.Dependency == nil || got.Dependency.Held != held || got.Dependency.TransitionID != transition {
+				t.Fatal("shared keys or transition crossed tenant state", got, err)
+			}
+			var visible int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM alert_notifications WHERE fingerprint=$1`, fingerprint).Scan(&visible); err != nil {
+				return err
+			}
+			if visible != 1 {
+				t.Fatal("storage RLS did not confine shared notification keys", visible)
+			}
+			other := tenants[1-i]
+			if got, err := (AlertNotifications{}).Get(tenancy.WithTenant(ctx, tenancy.ID(other)), sc, fingerprint); err == nil || got != nil {
+				t.Fatal("foreign context borrowed a notification scope", got, err)
+			}
+			// An ordinary timestamp update in the same episode preserves the
+			// source publisher's marker; an explicit ordinary-delivery decision
+			// clears held but retains a known transition even with a zero clock.
+			n.Dependency = nil
+			if err := (AlertNotifications{}).Upsert(ctx, sc, n); err != nil {
+				return err
+			}
+			got, err = (AlertNotifications{}).Get(ctx, sc, fingerprint)
+			if err != nil || got.Dependency == nil || got.Dependency.Held != held {
+				t.Fatal("ordinary timestamp update erased dependency bookkeeping", got, err)
+			}
+			n.LastNotified = time.Time{}
+			n.Dependency = &alert.DependencyNotificationState{}
+			if err := (AlertNotifications{}).Upsert(ctx, sc, n); err != nil {
+				return err
+			}
+			got, err = (AlertNotifications{}).Get(ctx, sc, fingerprint)
+			if err != nil || got.Dependency == nil || got.Dependency.Held || got.Dependency.TransitionID != transition || !got.LastNotified.IsZero() {
+				t.Fatal("explicit clear became an ambiguous legacy held marker", got, err)
+			}
+			for _, bad := range []alert.DependencyNotificationState{{Held: true}, {Held: true, TransitionID: "00000000-0000-0000-0000-000000000000"}, {TransitionID: "untrusted"}} {
+				n.Dependency = &bad
+				if err := (AlertNotifications{}).Upsert(ctx, sc, n); err == nil {
+					t.Fatal("invalid transition acquired durable state", bad)
+				}
+			}
+			n.Dependency = nil
+			n.FiringSince = since.Add(time.Minute)
+			if err := (AlertNotifications{}).Upsert(ctx, sc, n); err != nil {
+				return err
+			}
+			got, err = (AlertNotifications{}).Get(ctx, sc, fingerprint)
+			if err != nil || got.Dependency != nil {
+				t.Fatal("old transition leaked into the next episode", got, err)
+			}
+			return nil
+		})
+	}
 }

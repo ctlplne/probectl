@@ -107,6 +107,9 @@ type NotifyState struct {
 	// Zero preserves an incident-visible firing that has not been externally
 	// notified. Its current dependency evidence is re-derived after restart.
 	LastNotified time.Time
+	// Held is independent of last-notified: an already-delivered episode may
+	// acquire a current upstream dependency before the leader restarts.
+	Dependency *DependencyNotificationState
 }
 
 // RestoredOp is one persisted silence/ack awaiting its series to fire again.
@@ -142,8 +145,12 @@ func (en *Engine) RestoreNotifications(ns map[string]NotifyState) {
 		en.restoredNotify = map[string]NotifyState{}
 	}
 	for key, st := range ns {
+		if st.Dependency != nil {
+			copy := *st.Dependency
+			st.Dependency = &copy
+		}
 		en.restoredNotify[key] = st
-		if st.LastNotified.IsZero() && !st.FiringSince.IsZero() {
+		if restoredDependencyHeld(st) && !st.FiringSince.IsZero() {
 			en.rememberDependencyRuleLocked(strings.SplitN(key, "|", 2)[0])
 		}
 	}
@@ -698,7 +705,7 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, d
 		// can never suppress a genuinely new episode. The resolve hook deletes the
 		// durable row for the same reason.
 		st.lastNotified = time.Time{}
-		if en.onResolve != nil {
+		if en.onResolve != nil && !(en.dependencyRouter != nil && rule.HasDependencyPolicy || en.dependencyRules[rule.ID]) {
 			// Delete the persisted op + notification state so a future episode
 			// starts clean.
 			go en.onResolve(key)

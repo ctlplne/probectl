@@ -9,6 +9,7 @@ package alert
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"time"
 
@@ -17,28 +18,33 @@ import (
 
 // ErrDependencyEvidence refuses incomplete, stale or unadmitted hold authority.
 var ErrDependencyEvidence = errors.New("alert: complete current dependency evidence is unavailable")
+var ErrDependencyBudget = fmt.Errorf("%w: operation resource admission refused", ErrDependencyEvidence)
 
 // These are operation-local evidence, not caller-supplied authorization. The
 // adapter must resolve canonical registry parents in a tenant storage scope,
 // capture current sources and recheck that authority before publication.
-type dependencyVertex struct {
+type DependencyVertex struct {
 	EntityID   string
 	Parents    []string
 	FreshUntil time.Time
 }
 
-type dependencyCause struct {
+type DependencyCause struct {
 	TenantID, ContextID, EntityID, IncidentID string
 	ObservedAt, FreshUntil                    time.Time
 }
 
-type dependencySnapshot struct {
+type DependencySnapshot struct {
 	TenantID, ContextID string
 	At                  time.Time
 	Complete            bool
-	Vertices            []dependencyVertex
-	Causes              []dependencyCause
+	Vertices            []DependencyVertex
+	Causes              []DependencyCause
 }
+
+type dependencyVertex = DependencyVertex
+type dependencyCause = DependencyCause
+type dependencySnapshot = DependencySnapshot
 
 type dependencySelection struct {
 	Held   bool
@@ -53,7 +59,7 @@ type dependencyBudget struct{ memory, work int64 }
 
 func (b *dependencyBudget) charge(memory, work int64) error {
 	if memory < 0 || work < 0 || memory > b.memory || work > b.work {
-		return ErrDependencyEvidence
+		return ErrDependencyBudget
 	}
 	b.memory -= memory
 	b.work -= work

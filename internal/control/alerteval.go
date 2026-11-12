@@ -308,6 +308,9 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 	// D-61: trap rules read the tenant's stored traps through the same
 	// tenant-bound pool; the source is bound to this evaluator's tenant.
 	opts := []alert.EngineOption{alert.WithTrapSource(trapSource{traps: store.NewDeviceTraps(pool), tenant: tenant.String()})}
+	if tagDeps.Queries != nil {
+		opts = append(opts, alert.WithDependencyRouter(tagDeps.Queries.alertDependencyRouter(tenant)))
+	}
 	if sink != nil {
 		opts = append(opts, alert.WithAlertSink(sink))
 	}
@@ -358,7 +361,7 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 			if len(notifs) > 0 {
 				ns := make(map[string]alert.NotifyState, len(notifs))
 				for _, n := range notifs {
-					ns[n.Fingerprint] = alert.NotifyState{FiringSince: n.FiringSince, LastNotified: n.LastNotified}
+					ns[n.Fingerprint] = alert.NotifyState{FiringSince: n.FiringSince, LastNotified: n.LastNotified, Dependency: n.Dependency}
 				}
 				engine.RestoreNotifications(ns)
 				log.Info("alert notification state restored", "tenant", tenant.String(), "series", len(notifs))
@@ -391,7 +394,7 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 		if err := tenancy.InTenant(tenancy.WithTenant(hctx, tenant), pool,
 			func(ctx context.Context, sc tenancy.Scope) error {
 				return (store.AlertNotifications{}).Upsert(ctx, sc, store.AlertNotification{
-					Fingerprint: key, FiringSince: ns.FiringSince, LastNotified: ns.LastNotified,
+					Fingerprint: key, FiringSince: ns.FiringSince, LastNotified: ns.LastNotified, Dependency: ns.Dependency,
 				})
 			}); err != nil {
 			log.Warn("alert notification-state persist failed", "tenant", tenant.String(), "fingerprint", key, "error", err.Error())

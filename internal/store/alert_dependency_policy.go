@@ -20,7 +20,31 @@ import (
 )
 
 var ErrAlertDependencyChanged = errors.New("alert dependency configuration changed")
-var ErrAlertDependencyBudget = errors.New("alert dependency operation memory admission refused")
+var ErrAlertDependencyBudget = alert.ErrDependencyBudget
+
+// WithDependencyPublication holds the existing lifecycle/rule/audit boundary
+// while a background adapter reads current policy, sources and grants, then
+// publishes incident/notification state through this same FORCE-RLS scope.
+// It neither grants read authority nor commits the surrounding transaction.
+func (rules AlertRules) WithDependencyPublication(ctx context.Context, sc tenancy.Scope, id string, expected time.Time, maxBytes int64, publish func(context.Context, tenancy.Scope, *alert.DependencyPolicy) error) error {
+	if err := alertQueryScope(ctx, sc, expected, maxBytes); err != nil {
+		return err
+	}
+	if publish == nil {
+		return alert.ErrDependencyEvidence
+	}
+	if err := lockAlertQueryRule(ctx, sc, id, expected); err != nil {
+		return err
+	}
+	policy, err := rules.GetDependencyPolicy(ctx, sc, id, expected, maxBytes)
+	if err != nil {
+		return err
+	}
+	if policy == nil || policy.Graph == nil {
+		return alert.ErrDependencyEvidence
+	}
+	return publish(ctx, sc, policy)
+}
 
 // GetDependencyPolicy admits configuration bytes before transfer or decoding.
 // It supplies no source grant; the actual reader must recheck current authority.

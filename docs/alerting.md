@@ -550,8 +550,19 @@ REST and native configuration use the existing query memory profile for complete
 input admission. The CLI accepts complete bodies through `--body-file`; a memory
 refusal is explicit and stores no prefix. Each tenant uses its existing query
 slot and rate budget, including configuration writes.
-This preview stores configuration metadata only; topology-based notification
-holding, incident attachment and recovery release are not yet available.
+This preview can hold a configured rule's downstream reachability notifications
+when a complete current graph and sender-bound complete ICMP echo loss prove
+that failed upstream elements cover every dependency path. Each cause must have
+a current canonical upstream incident. Held signals remain attached to those
+incidents, and undelivered notification state is committed in the same tenant
+transaction. A working alternative, independent symptom, unknown/stale/conflicting
+source or unavailable authority keeps ordinary delivery. Persistent downstream
+firings resume delivery after the upstream recovers; the original incident
+timeline records the release. Context-only configuration does not enable holding.
+Hold state survives a leader restart independently of earlier notification
+delivery. Each upstream outage has its own transition, so an already-delivered
+episode can be held again without losing its earlier release history. A stored
+marker never replaces fresh source evidence or current authorization.
 Collection, detection, enabled state and the existing rule predicate are preserved.
 
 Setting requires current `alert.write`, `topology.read`, `entities.read`,
@@ -562,6 +573,10 @@ graph, with current per-node ABAC checks. Clearing requires current
 `alert.write` and does not require previous source access. Tenant isolation is
 enforced on the existing FORCE-RLS alert rows. Stored read ceilings carry no
 token, MFA assertion or role snapshot, and source authority is checked afresh.
+Holding also requires `incident.read` in the configuring credential's captured
+read ceiling and in the owner's current grants for each source. Re-save after
+granting a permission that the configuring credential did not carry. Explicit
+incident ungrouping overrides take precedence over dependency grouping.
 
 In Alerts, a rule's **Dependency context** action loads current settings and
 pages through owned routing contexts. Set the source freshness and save
@@ -570,8 +585,9 @@ without changing detection.
 The optional directed graph JSON editor preserves all nodes and parent edges;
 changing routing context clears its graph so references cannot silently move.
 Tenant, user or permission changes discard the
-editor's previous values and pending requests. The editor identifies this as
-configuration preview until notification routing is available.
+editor's previous values and pending requests. Notification dependency routing
+remains preview; its current source is complete ICMP reachability, and existing
+canonical upstream incidents provide the visible parent cases.
 
 CLI: `probectl alert dependency-policy`, `dependency-policy-set` and
 `dependency-policy-clear`. Native MCP: `alert_dependency_get`,

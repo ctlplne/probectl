@@ -8,6 +8,7 @@ package alert
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -32,8 +33,8 @@ func (en *Engine) needsDependencyRouting(rule Rule) bool {
 	return en.dependencyRouter != nil && rule.HasDependencyPolicy || en.dependencyRules[rule.ID]
 }
 
-// A persisted zero last-notified with a firing-since is an incident-visible
-// previously held episode, not a delivered notification. Restore it before evaluating a
+// A persisted held marker is an incident-visible episode, independently of
+// whether it previously delivered. Restore it before evaluating a
 // current sample so a recovered series closes without sending a fictitious
 // resolution, and a still-failing series retains its original episode clock.
 func (en *Engine) dependencyBeforeSample(rule Rule, s Sample) (time.Time, bool) {
@@ -41,10 +42,11 @@ func (en *Engine) dependencyBeforeSample(rule Rule, s Sample) (time.Time, bool) 
 	defer en.mu.Unlock()
 	key := stateKey(rule.ID, s.Labels)
 	st := en.states[key]
-	if restored, ok := en.restoredNotify[key]; st == nil && ok && restored.LastNotified.IsZero() && !restored.FiringSince.IsZero() {
+	if restored, ok := en.restoredNotify[key]; st == nil && ok && restoredDependencyHeld(restored) && !restored.FiringSince.IsZero() {
 		st = en.stateForLocked(rule, s.Labels)
 		st.firing, st.dependencyRestored = true, true
 		st.since, st.breachCount = restored.FiringSince, requiredBreaches(rule)
+		st.lastNotified = restored.LastNotified
 		delete(en.restoredNotify, key)
 		if op, ok := en.restored[key]; ok {
 			delete(en.restored, key)
@@ -55,9 +57,19 @@ func (en *Engine) dependencyBeforeSample(rule Rule, s Sample) (time.Time, bool) 
 		}
 	}
 	if st == nil {
+		if restored, ok := en.restoredNotify[key]; ok {
+			return restored.LastNotified, false
+		}
 		return time.Time{}, false
 	}
 	return st.lastNotified, st.dependency != nil && st.dependency.Held() || st.dependencyRestored
+}
+
+func restoredDependencyHeld(state NotifyState) bool {
+	if state.Dependency != nil {
+		return state.Dependency.Held
+	}
+	return state.LastNotified.IsZero() // compatibility with the original marker
 }
 
 func (en *Engine) dependencyCandidate(rule Rule, s Sample, acted Alert, notify bool, receipt *EvaluationReceipt) (Alert, time.Time, bool) {
@@ -115,7 +127,13 @@ func (en *Engine) routeDependencies(ctx context.Context, rule Rule, attempts []D
 	}
 	// No stale or successful prefix can justify hiding a notification. Do not
 	// log adapter errors: they may contain source or SQL values.
-	en.log.WarnContext(ctx, "alert dependency routing unavailable; ordinary delivery retained", "tenant_id", rule.TenantID, "rule_id", rule.ID)
+	reason := "source_or_publication_unavailable"
+	if errors.Is(err, ErrDependencyBudget) {
+		reason = "resource_admission"
+	} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		reason = "deadline_or_canceled"
+	}
+	en.log.WarnContext(ctx, "alert dependency routing unavailable; ordinary delivery retained", "tenant_id", rule.TenantID, "rule_id", rule.ID, "reason", reason)
 	return nil
 }
 
@@ -169,7 +187,15 @@ func (en *Engine) applyDependencyDelivery(ctx context.Context, rule Rule, entry 
 		en.sink(ctx, a)
 	}
 	if entry.pending != nil && en.onNotify != nil {
+		entry.pending.state.Dependency = &DependencyNotificationState{}
 		en.onNotify(entry.pending.key, entry.pending.state)
+	} else if entry.attempt.PreviouslyHeld && a.State == StateFiring && en.onNotify != nil {
+		en.onNotify(entry.key, NotifyState{FiringSince: entry.since, LastNotified: entry.lastNotified, Dependency: &DependencyNotificationState{}})
+	}
+	if a.State == StateResolved && en.onResolve != nil {
+		// The router must consume and close durable dependency state before
+		// cleanup. Do not leave an old asynchronous delete racing a new episode.
+		en.onResolve(entry.key)
 	}
 	return a, entry.attempt.NotificationDue || entry.attempt.PreviouslyHeld
 }

@@ -223,7 +223,8 @@ function DependencyContents({
       <Modal open title={`Dependency context: ${rule.name}`} onClose={onClose}>
         <p>
           Preview: choose the routing context, source freshness and optional directed dependencies.
-          Notification holding is not active in this build.
+          Verified upstream failures can hold downstream reachability notifications. Collection and
+          detection keep running.
         </p>
         {canRead ? (
           <Button disabled={state.kind === 'loading'} onClick={() => void perform('GET')}>
