@@ -69,6 +69,7 @@ type Result struct {
 	Duration   time.Duration      `json:"duration"`
 	Metrics    map[string]float64 `json:"metrics,omitempty"`
 	Attributes map[string]string  `json:"attributes,omitempty"`
+	ICMP       *ICMPMeasurement   `json:"-"` // collector-local evidence; ordinary bus JSON cannot supply it
 }
 
 // Factory builds a canary instance from its configuration.

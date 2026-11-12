@@ -753,6 +753,7 @@ schedule `interval` and reply `timeout` are canary fields; the rest are `params`
 | --------------- | ------- | ----------------------------------------------------------------------- |
 | `count`         | `5`     | echo requests per probe (continuous mode defaults to the interval in s) |
 | `payload_bytes` | `56`    | ICMP data bytes (minimum 8)                                             |
+| `read_buffer_bytes` | `1048576` | per-probe socket receive-buffer request; adjustable to the workload, subject to kernel limits |
 | `dscp`          | `0`     | DSCP marking 0–63 on outgoing packets (best-effort by platform)         |
 | `mode`          | `batch` | `batch` (back-to-back) or `continuous` (1 packet/sec)                   |
 | `privileged`    | `false` | `true` prefers raw sockets; default is unprivileged datagram ICMP       |
@@ -764,9 +765,24 @@ traffic class rides*, e.g. probing with the voice marking to see what voice sees
 
 It emits `probectl_probe_loss_ratio`, `probectl_probe_rtt_{min,avg,max,stddev}_ms`,
 `probectl_probe_jitter_ms`, and `probectl_probe_packets_{sent,received}`. A probe with
-100% loss reports `success=false` (target unreachable); partial loss is a success
-with a non-zero loss ratio. **Continuous mode** records a per-second drop-timing
-record as result attributes (`icmp.dropped_seqs`, `icmp.drop_send_offsets_ms`) —
+100% loss reports `success=false`; partial loss is a success with a non-zero
+loss ratio. `packets.sent` counts only complete successful socket writes, not
+configured requests. `packets.requested`, `packets.attempted` and
+`packets.send_errors` distinguish the intended batch from local send failures;
+`measurement.complete` is 1 only after every requested packet was transmitted
+and the full reply window completed (or every reply arrived), with no local IO
+error or cancellation. No `loss.ratio` is emitted when nothing was sent. Local
+send/read errors are incomplete measurements, not proof that the target is down.
+Replies must contain the entire original challenge and configured payload,
+including payloads larger than an Ethernet frame. The receive-buffer request is
+reported as `socket.read_buffer.requested_bytes`; kernel limits may reduce the
+actual queue. Failure to configure it is an internal socket error, not measured
+loss. This changes only the probe socket, never global host settings.
+IPv6 anycast replies may have
+a different unicast source address, as allowed by
+[RFC 4443 §4.2](https://www.rfc-editor.org/rfc/rfc4443.html#section-4.2).
+**Continuous mode** records a per-second drop-timing
+record as result attributes (`probectl.icmp.dropped_seqs`, `probectl.icmp.drop_send_offsets_ms`) —
 carried as OTel attributes, not TSDB labels, so they don't widen cardinality.
 
 **Privileges.** By default the agent uses **unprivileged** datagram ICMP

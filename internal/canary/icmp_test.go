@@ -102,23 +102,23 @@ func TestNewICMPParams(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := got.(*icmpCanary)
-	if c.count != 5 || c.payload != 56 || c.continuous || c.timeout != 3*time.Second {
+	if c.count != 5 || c.payload != 56 || c.readBuffer != 1<<20 || c.continuous || c.timeout != 3*time.Second {
 		t.Errorf("defaults wrong: %+v", c)
 	}
 
 	got, err = NewICMP(Config{Type: "icmp", Target: "h", Interval: 8 * time.Second, Params: map[string]string{
-		"payload_bytes": "100", "dscp": "46", "mode": "continuous",
+		"payload_bytes": "100", "dscp": "46", "mode": "continuous", "read_buffer_bytes": "2097152",
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c = got.(*icmpCanary)
-	if !c.continuous || c.spacing != time.Second || c.count != 8 || c.payload != 100 || c.dscp != 46 {
+	if !c.continuous || c.spacing != time.Second || c.count != 8 || c.payload != 100 || c.dscp != 46 || c.readBuffer != 2<<20 {
 		t.Errorf("continuous config wrong: %+v", c)
 	}
 
 	for _, bad := range []map[string]string{
-		{"count": "0"}, {"payload_bytes": "4"}, {"dscp": "64"}, {"count": "x"}, {"mode": "weird"},
+		{"count": "0"}, {"payload_bytes": "4"}, {"dscp": "64"}, {"count": "x"}, {"mode": "weird"}, {"read_buffer_bytes": "0"}, {"read_buffer_bytes": "2147483648"},
 	} {
 		if _, err := NewICMP(Config{Type: "icmp", Target: "h", Params: bad}); err == nil {
 			t.Errorf("params %v should be rejected", bad)
