@@ -14,10 +14,6 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-type DependencyGraph = dependencySnapshot
-type DependencyNode = dependencyVertex
-type DependencyCause = dependencyCause
-
 // DependencyAttempt is engine-owned input, never a wire or authorization
 // document. One router invocation covers the complete rule population so it
 // can share current evidence and resource admission across all its series.
@@ -45,16 +41,9 @@ type DependencyDecision struct {
 	ruleUpdatedAt time.Time
 }
 
-func (d DependencyDecision) Held() bool            { return d.selection.Held }
-func (d DependencyDecision) Reason() string        { return d.selection.Reason }
-func (d DependencyDecision) AsOf() time.Time       { return d.selection.At }
-func (d DependencyDecision) ContextID() string     { return d.contextID }
-func (d DependencyDecision) ValidUntil() time.Time { return d.validUntil }
-func (d DependencyDecision) Causes() []DependencyCause {
-	return append([]DependencyCause(nil), d.selection.Causes...)
-}
+func (d DependencyDecision) Held() bool { return d.selection.Held }
 
-func DecideDependencyNotification(ctx context.Context, attempt DependencyAttempt, graph DependencyGraph, target string, reachabilitySymptom bool, memoryBytes, workUnits int64) (DependencyDecision, error) {
+func decideDependencyNotification(ctx context.Context, attempt DependencyAttempt, graph dependencySnapshot, target string, reachabilitySymptom bool, memoryBytes, workUnits int64) (DependencyDecision, error) {
 	a := attempt.Alert
 	tenant, ok := tenancy.FromContext(ctx)
 	if !ok || tenant.String() != a.TenantID || graph.TenantID != a.TenantID || !canonicalQueryID(a.RuleID) || a.State != StateFiring && a.State != StateResolved {
@@ -129,10 +118,6 @@ type DependencyOutcome struct {
 }
 
 type DependencyRouter func(context.Context, Rule, []DependencyAttempt) ([]DependencyOutcome, error)
-
-func WithDependencyRouter(router DependencyRouter) EngineOption {
-	return func(en *Engine) { en.dependencyRouter = router }
-}
 
 func (d DependencyDecision) matches(a Alert, now time.Time) bool {
 	return d.tenant == a.TenantID && d.key == stateKey(a.RuleID, a.Labels) && maps.Equal(d.labels, a.Labels) && d.state == a.State &&

@@ -41,7 +41,7 @@ func newDependencyEngineFixture(tenant string) *dependencyEngineFixture {
 	}
 }
 
-func (f *dependencyEngineFixture) graph() DependencyGraph {
+func (f *dependencyEngineFixture) graph() dependencySnapshot {
 	graph := dependencyFixture(f.tenant)
 	graph.At = f.now
 	for i := range graph.Vertices {
@@ -65,7 +65,7 @@ func (f *dependencyEngineFixture) leader(t *testing.T) *Engine {
 		}
 		out := make([]DependencyOutcome, len(attempts))
 		for i, attempt := range attempts {
-			decision, err := DecideDependencyNotification(ctx, attempt, f.graph(), dependencyTarget, !f.independent, 1<<20, 1<<20)
+			decision, err := decideDependencyNotification(ctx, attempt, f.graph(), dependencyTarget, !f.independent, 1<<20, 1<<20)
 			if err != nil {
 				return nil, err
 			}
@@ -82,7 +82,7 @@ func (f *dependencyEngineFixture) leader(t *testing.T) *Engine {
 		}
 		return out, nil
 	}
-	en := NewEngine(f.source, NewNotifier(ChannelDeps{Mail: f.mail}, discard()), discard(), WithDependencyRouter(router), WithAlertSink(func(_ context.Context, a Alert) {
+	en := NewEngine(f.source, NewNotifier(ChannelDeps{Mail: f.mail}, discard()), discard(), withDependencyRouter(router), WithAlertSink(func(_ context.Context, a Alert) {
 		if a.TenantID != f.tenant {
 			t.Fatal("ordinary incident sink crossed its tenant")
 		}
@@ -188,7 +188,7 @@ func TestTopologyDependencyEngineKeepsIndependentAndUnverifiedDeliveryOrdinary(t
 			return out, nil
 		},
 		"expired": func(out []DependencyOutcome) ([]DependencyOutcome, error) {
-			out[0].Decision.validUntil = out[0].Decision.AsOf()
+			out[0].Decision.validUntil = out[0].Decision.selection.At
 			return out, nil
 		},
 		"unavailable": func([]DependencyOutcome) ([]DependencyOutcome, error) {
@@ -227,7 +227,7 @@ func TestTopologyDependencyDecisionBindsExactLabelsBeyondTheLegacyStateKey(t *te
 	if stateKey(a.RuleID, a.Labels) != stateKey(b.RuleID, b.Labels) {
 		t.Fatal("fixture no longer exercises the legacy state-key ambiguity")
 	}
-	decision, err := DecideDependencyNotification(ctx, DependencyAttempt{Alert: a}, graph, dependencyTarget, true, 1<<20, 1<<20)
+	decision, err := decideDependencyNotification(ctx, DependencyAttempt{Alert: a}, graph, dependencyTarget, true, 1<<20, 1<<20)
 	if err != nil || !decision.matches(a, graph.At) || decision.matches(b, graph.At) {
 		t.Fatal("dependency authority moved between distinct label populations", err)
 	}
@@ -238,10 +238,10 @@ func TestTopologyDependencyDecisionAdmitsCompleteLabelBytesBeforeCopying(t *test
 	graph := dependencyFixture(dependencyTenantA)
 	a := Alert{TenantID: dependencyTenantA, RuleID: dependencyRoom, State: StateFiring, Labels: map[string]string{"complete_value": strings.Repeat("x", 1<<20)}}
 	attempt := DependencyAttempt{Alert: a}
-	if _, err := DecideDependencyNotification(ctx, attempt, graph, dependencyTarget, true, 64<<10, 64<<10); !errors.Is(err, ErrDependencyEvidence) {
+	if _, err := decideDependencyNotification(ctx, attempt, graph, dependencyTarget, true, 64<<10, 64<<10); !errors.Is(err, ErrDependencyEvidence) {
 		t.Fatal("complete label bytes bypassed operation admission", err)
 	}
-	decision, err := DecideDependencyNotification(ctx, attempt, graph, dependencyTarget, true, 16<<20, 16<<20)
+	decision, err := decideDependencyNotification(ctx, attempt, graph, dependencyTarget, true, 16<<20, 16<<20)
 	if err != nil || !decision.Held() || !decision.matches(a, graph.At) {
 		t.Fatal("raising operator admission did not retain the complete original value", err)
 	}
@@ -294,4 +294,10 @@ func TestTopologyDependencyExpiredTrapWithoutPriorDeliveryOnlyClosesTheIncident(
 			t.Fatal("expired unnotified trap sent a false resolution or lost its incident closure", acted, visible, mail.sent, err)
 		}
 	}
+}
+
+// The source adapter is not wired yet; keep the test-only engine installer
+// private until a shipping caller supplies trusted current dependency evidence.
+func withDependencyRouter(router DependencyRouter) EngineOption {
+	return func(en *Engine) { en.dependencyRouter = router }
 }
