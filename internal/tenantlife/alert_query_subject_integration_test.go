@@ -39,6 +39,7 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 	if err := admin.QueryRow(t.Context(), `INSERT INTO users(tenant_id,email,display_name,status,user_name)VALUES($1,$2,'Owner','active',$2) RETURNING id::text`, red, subject).Scan(&owner); err != nil {
 		t.Fatal(err)
 	}
+	matchedIDs, unrelatedIDs := map[string]bool{}, map[string]bool{}
 	// Legacy/future configuration must remain erasable even when no current
 	// source service would execute it. Only the configured subject fields match.
 	for _, tenant := range []string{red, blue} {
@@ -143,6 +144,14 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 					}
 					dependency = string(raw)
 				}
+				if tenant == red {
+					switch i {
+					case 0, 1, 3, 7, 8, 10, 11, 14:
+						matchedIDs[id] = true
+					default:
+						unrelatedIDs[id] = true
+					}
+				}
 				if _, err := sc.Q.Exec(ctx, `INSERT INTO alert_rules(tenant_id,id,name,metric,type,comparison,threshold,query_source,tag_filter,dependency_policy)
  VALUES($1,$2,$3,'probectl_explorer_query_condition','threshold','gte',1,$4::jsonb,$5::jsonb,$6::jsonb)`, tenant, id, id, query, tag, dependency); err != nil {
 					return err
@@ -161,6 +170,35 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 	body := strings.TrimSpace(readTarGz(t, archive.Bytes())["postgres/alert_rules.jsonl"])
 	if body == "" || strings.Count(body, "\n") != 7 || strings.Contains(body, blue) || strings.Contains(body, "evilquery-owner") {
 		t.Errorf("subject export rows=%d, want8 without unrelated or foreign rules", strings.Count(body, "\n")+1)
+	}
+	exported := map[string]bool{}
+	for _, line := range strings.Split(body, "\n") {
+		var row struct {
+			ID, TenantID string
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(line), &fields); err != nil {
+			t.Error("portable alert row is not complete JSON", err)
+			continue
+		}
+		if err := json.Unmarshal(fields["id"], &row.ID); err != nil {
+			t.Error(err)
+		}
+		if err := json.Unmarshal(fields["tenant_id"], &row.TenantID); err != nil {
+			t.Error(err)
+		}
+		if !matchedIDs[row.ID] || exported[row.ID] || row.TenantID != red {
+			t.Error("subject export selected an unrelated, duplicate or foreign rule")
+		}
+		exported[row.ID] = true
+		if len(fields["query_source"]) == 0 || len(fields["tag_filter"]) == 0 || len(fields["dependency_policy"]) == 0 {
+			t.Error("portable row lost original configuration columns")
+		}
+	}
+	for id := range matchedIDs {
+		if !exported[id] {
+			t.Error("portable export omitted a subject-bearing rule")
+		}
 	}
 	appendMarker := engine.appendSubjectErasure
 	injected := errors.New("owned query-alert audit refusal")
@@ -181,6 +219,29 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 	paid := subjectPlanesByName(planes)["postgres:alert_rules"]
 	if paid.Deleted != 8 || paid.Remaining != 0 || countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, red) != 7 || countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, blue) != 15 {
 		t.Fatal("subject config survived or another tenant/unrelated rule changed", paid)
+	}
+	if err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(red)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+		rows, err := sc.Q.Query(ctx, `SELECT id::text FROM alert_rules WHERE tenant_id=$1`, red)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			if !unrelatedIDs[id] || matchedIDs[id] {
+				t.Error("subject rule survived or an unrelated rule was replaced")
+			}
+			delete(unrelatedIDs, id)
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(unrelatedIDs) != 0 {
+		t.Error("an unrelated structural-reference rule was deleted")
 	}
 	t.Log("real-integration: app-role Postgres/RLS subject export, complete config deletion and audit rollback; no scheduler or served-surface claim")
 }
