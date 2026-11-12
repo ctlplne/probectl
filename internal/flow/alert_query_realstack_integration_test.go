@@ -69,7 +69,7 @@ func proveNativeSavedQueryAlerts(t *testing.T, st *shipped.Stack, addr string, l
 			UserID string `json:"user_id"`
 		}
 		lane.do(t, st, http.MethodGet, "/v1/me", nil, &me, http.StatusOK)
-		issued := strings.Split(strings.TrimSpace(st.Subcommand(t, "mcp-token", "--tenant", lane.id, "--user", me.UserID, "--scope", "read,write,ai.query", "--expires-days", "1")), "\n")
+		issued := strings.Split(strings.TrimSpace(st.Subcommand(t, "mcp-token", "--tenant", lane.id, "--user", me.UserID, "--scope", "read,alert.write,ai.query", "--expires-days", "1")), "\n")
 		p.token = issued[len(issued)-1]
 		input := alert.QueryRuleInput{Name: "Saved query " + lane.name, QuerySource: alert.QuerySourceInput{ViewID: p.view.ID, ViewVersion: p.view.Version, EverySeconds: 1, Condition: alert.QueryCondition{Mode: "threshold", Metric: "bytes:total", Comparison: alert.GT, Threshold: "500"}}}
 		if i == 0 {
@@ -301,8 +301,20 @@ func (p *nativeQueryAlert) call(t *testing.T, st *shipped.Stack, addr, name stri
 			Structured json.RawMessage `json:"structuredContent"`
 		} `json:"result"`
 	}
-	if json.Unmarshal(raw, &result) != nil || len(result.Error) != 0 || result.Result.IsError != wantError {
-		t.Fatal("query alert native result did not match required authority", name, wantError)
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatal("query alert native JSON response unavailable", name)
+	}
+	var protocolError struct {
+		Code int `json:"code"`
+	}
+	if len(result.Error) != 0 {
+		_ = json.Unmarshal(result.Error, &protocolError)
+	}
+	if len(result.Error) != 0 || result.Result.IsError != wantError {
+		// Public protocol code and Boolean outcome only; never print the
+		// token, query values or a server error message/body.
+		t.Fatal("query alert native result did not match required authority", name,
+			"protocol_code", protocolError.Code, "tool_error", result.Result.IsError, "want_error", wantError)
 	}
 	if !wantError && out != nil {
 		if err := json.Unmarshal(result.Result.Structured, out); err != nil {
