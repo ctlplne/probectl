@@ -21,11 +21,11 @@ import (
 func TestTopologyDependencyNativeConfigurationKeepsCurrentTenantsAndReadCeilings(t *testing.T) {
 	for _, wire := range []string{"2026-07-28", "2025-11-25"} {
 		t.Run(wire, func(t *testing.T) {
-			f, rules, graph := seedDependencyGraphFixture(t)
+			f, rules, graphs := seedDependencyGraphFixture(t)
 			seedInterfaceRoleMCPConsent(f)
 			call := interfaceRoleNativeTLSCaller(t, f, wire)
-			input := alert.DependencyPolicyInput{ContextID: f.contextID, FreshnessSeconds: 300, Graph: graph}
 			for i, tenant := range f.tenants {
+				input := alert.DependencyPolicyInput{ContextID: f.contextID, FreshnessSeconds: 300, Graph: graphs[tenant]}
 				id, foreign := rules[tenant].ID, rules[f.tenants[1-i]].ID
 				var state alert.DependencyPolicyState
 				call(tenant, "alert_dependency_set", map[string]any{"rule_id": id, "input": input}, &state, true)

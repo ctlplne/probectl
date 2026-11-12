@@ -52,12 +52,16 @@ type roleExplanationAPIFixture struct {
 	serials                                       map[string]string
 }
 
-func newRoleExplanationAPIFixture(t *testing.T) *roleExplanationAPIFixture {
+func newRoleExplanationAPIFixture(t *testing.T, logs ...*slog.Logger) *roleExplanationAPIFixture {
 	t.Helper()
 	_, db := setupAPIServerWithLatest(t, nil)
 	pool := db.Pool()
 	cfg := &config.Config{AuthMode: "session", HSTSEnabled: true, HSTSMaxAge: time.Hour}
-	srv := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), db, pool, nil, nil).WithTenantStatus(NewTenantStatusCache(pool, 0))
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if len(logs) > 0 && logs[0] != nil {
+		log = logs[0]
+	}
+	srv := New(cfg, log, db, pool, nil, nil).WithTenantStatus(NewTenantStatusCache(pool, 0))
 	testsupport.LockPostgresPublicCatalog(t, pool)
 	f := &roleExplanationAPIFixture{t: t, pool: pool, server: srv, tokens: map[string]string{}, users: map[string]string{}, roles: map[string]string{}, contextID: gouuid.NewString(), routerID: gouuid.NewString(), interfaceID: gouuid.NewString(), otherRouter: gouuid.NewString(), serials: map[string]string{}}
 	t.Cleanup(func() {
@@ -155,7 +159,7 @@ func (f *roleExplanationAPIFixture) poll(tenant, description string, prefixes []
 		{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: "7"}, SourceRef: "snmp:ifIndex:7", InterfaceDescription: description, ObservedAt: at},
 		{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "10.42.0.2"}, SourceRef: "snmp:ifIndex:7", ObservedAt: at},
 	}
-	accepted, unresolved, err := store.NewEntityRegistry(f.pool).WriteEvidenceBatch(tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant)), source.AgentID, f.serials[tenant+source.AgentID], claims)
+	accepted, unresolved, err := writeEntityEvidenceBatchForTest(store.NewEntityRegistry(f.pool), tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant)), source.AgentID, f.serials[tenant+source.AgentID], claims)
 	if err != nil || accepted != len(claims) || unresolved != 0 {
 		f.t.Fatal("owned complete poll was not accepted", accepted, unresolved, err)
 	}
@@ -168,7 +172,7 @@ func (f *roleExplanationAPIFixture) peerAtAddress(tenant, address string, asn ui
 	f.t.Helper()
 	claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-listener", Kind: entity.BMPPeer, SourceRef: "role-router"},
 		Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("%s/as%d", address, asn)}, SourceRef: fmt.Sprintf("bmp:router:role-router:peer-asn:%d", asn), OriginSerial: f.serials[tenant+"role-router"], ObservedAt: time.Now().UTC().Truncate(time.Microsecond)}
-	accepted, unresolved, err := store.NewEntityRegistry(f.pool).WriteEvidenceBatch(tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant)), "role-listener", f.serials[tenant+"role-listener"], []entity.Observation{claim})
+	accepted, unresolved, err := writeEntityEvidenceBatchForTest(store.NewEntityRegistry(f.pool), tenancy.WithTenant(f.t.Context(), tenancy.ID(tenant)), "role-listener", f.serials[tenant+"role-listener"], []entity.Observation{claim})
 	if err != nil || accepted != 1 || unresolved != 0 {
 		f.t.Fatal("owned BMP observation was not accepted", accepted, unresolved, err)
 	}
@@ -470,4 +474,11 @@ func TestInterfaceRoleExplanationEvaluatesCompleteSavedPolicyWithDefaultAdmissio
 	if res.StatusCode != http.StatusOK || json.Unmarshal(raw, &out) != nil || out.Role != entity.InterfaceRoleBackbone || out.Reason != "description_rule" || len(out.Sources) != 2 {
 		t.Fatal("complete saved role policy cannot be explained under the default profile", res.StatusCode, string(raw))
 	}
+}
+
+// writeEntityEvidenceBatchForTest retains the legacy assertion vocabulary
+// while exercising the shipped committed receipt API.
+func writeEntityEvidenceBatchForTest(registry *store.EntityRegistry, ctx context.Context, agent, serial string, claims []entity.Observation) (int, int, error) {
+	receipt, err := registry.WriteEvidenceBatchReceipt(ctx, agent, serial, claims)
+	return receipt.Accepted, receipt.Unresolved, err
 }

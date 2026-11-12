@@ -69,7 +69,7 @@ func TestEntityEvidenceSubjectErasureRejectsLateSenderReplay(t *testing.T) {
 	claim := entity.Observation{ID: observationID, Source: entity.SourceKey{AgentID: sender, Kind: entity.AgentSite, SourceRef: sender}, Alias: entity.AliasKey{Kind: entity.AgentSiteAlias, Value: "neutral-site"}, SourceRef: "agent:label:site", ObservedAt: observed, AgentAddresses: []netip.Addr{netip.MustParseAddr("192.0.2.7")}}
 	registry := store.NewEntityRegistry(pool)
 	for lane, tenant := range tenants {
-		if accepted, unresolved, err := registry.WriteEvidenceBatch(tenancy.WithTenant(ctx, tenancy.ID(tenant)), sender, serials[lane], []entity.Observation{claim}); err != nil || accepted != 1 || unresolved != 0 {
+		if accepted, unresolved, err := writeEntityEvidenceBatchForTest(registry, tenancy.WithTenant(ctx, tenancy.ID(tenant)), sender, serials[lane], []entity.Observation{claim}); err != nil || accepted != 1 || unresolved != 0 {
 			t.Fatal("issued source seed refused", accepted, unresolved, err)
 		}
 	}
@@ -86,7 +86,7 @@ func TestEntityEvidenceSubjectErasureRejectsLateSenderReplay(t *testing.T) {
 	if plane.Deleted != 1 || plane.Remaining != 0 {
 		t.Fatal("subject handler did not erase the original personal metadata", plane)
 	}
-	accepted, unresolved, err := registry.WriteEvidenceBatch(tenancy.WithTenant(ctx, tenancy.ID(tenants[0])), sender, serials[0], []entity.Observation{claim})
+	accepted, unresolved, err := writeEntityEvidenceBatchForTest(registry, tenancy.WithTenant(ctx, tenancy.ID(tenants[0])), sender, serials[0], []entity.Observation{claim})
 	if err != nil || accepted != 0 || unresolved != 1 {
 		t.Errorf("full subject erasure allowed old sender data back: accepted=%d unresolved=%d err=%v", accepted, unresolved, err)
 	}
@@ -116,7 +116,14 @@ func TestEntityEvidenceSubjectErasureRejectsLateSenderReplay(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&fresh.ObservedAt); err != nil {
 		t.Fatal(err)
 	}
-	if accepted, unresolved, err := registry.WriteEvidenceBatch(tenancy.WithTenant(ctx, tenancy.ID(tenants[0])), sender, serials[0], []entity.Observation{fresh}); err != nil || accepted != 1 || unresolved != 0 {
+	if accepted, unresolved, err := writeEntityEvidenceBatchForTest(registry, tenancy.WithTenant(ctx, tenancy.ID(tenants[0])), sender, serials[0], []entity.Observation{fresh}); err != nil || accepted != 1 || unresolved != 0 {
 		t.Fatal("fresh post-erasure collection was blocked", accepted, unresolved, err)
 	}
+}
+
+// writeEntityEvidenceBatchForTest retains the legacy assertion vocabulary
+// while exercising the shipped committed receipt API.
+func writeEntityEvidenceBatchForTest(registry *store.EntityRegistry, ctx context.Context, agent, serial string, claims []entity.Observation) (int, int, error) {
+	receipt, err := registry.WriteEvidenceBatchReceipt(ctx, agent, serial, claims)
+	return receipt.Accepted, receipt.Unresolved, err
 }

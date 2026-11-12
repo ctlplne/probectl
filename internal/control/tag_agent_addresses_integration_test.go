@@ -95,7 +95,7 @@ func TestAgentCIDRTagsRESTAndMCPUseAttestedFactsAndCurrentContextGrants(t *testi
 	for _, tenant := range []string{a, b} {
 		read(tenant, 0) // A hostname that looks like an IP is not evidence.
 		item := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agents[tenant], Kind: entity.AgentSite, SourceRef: agents[tenant]}, Alias: entity.AliasKey{Kind: entity.AgentSiteAlias, Value: "operator-site"}, SourceRef: "agent:label:site", ObservedAt: time.Now(), AgentAddresses: []netip.Addr{netip.MustParseAddr("10.2.0.7")}}
-		if accepted, unresolved, err := store.NewEntityRegistry(db.Pool()).WriteEvidenceBatch(tenancy.WithTenant(ctx, tenancy.ID(tenant)), agents[tenant], serials[tenant], []entity.Observation{item}); err != nil || accepted != 1 || unresolved != 0 {
+		if accepted, unresolved, err := writeEntityEvidenceBatchForTest(store.NewEntityRegistry(db.Pool()), tenancy.WithTenant(ctx, tenancy.ID(tenant)), agents[tenant], serials[tenant], []entity.Observation{item}); err != nil || accepted != 1 || unresolved != 0 {
 			t.Fatalf("agent source fixture %d/%d: %v", accepted, unresolved, err)
 		}
 		read(tenant, 1)

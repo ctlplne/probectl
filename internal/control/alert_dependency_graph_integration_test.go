@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -28,22 +29,26 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-func seedDependencyGraphFixture(t *testing.T) (*roleExplanationAPIFixture, map[string]*alert.Rule, *alert.DependencyGraphInput) {
+func seedDependencyGraphFixture(t *testing.T, logs ...*slog.Logger) (*roleExplanationAPIFixture, map[string]*alert.Rule, map[string]*alert.DependencyGraphInput) {
 	t.Helper()
-	f, rules := newDependencyAPIFixture(t)
-	agent, rootTest, childTest := gouuid.NewString(), gouuid.NewString(), gouuid.NewString()
-	graph := &alert.DependencyGraphInput{Nodes: []alert.DependencyNodeInput{
-		{EntityID: f.routerID, AgentID: agent, TestID: rootTest, Parents: []string{}},
-		{EntityID: f.otherRouter, AgentID: agent, TestID: childTest, Parents: []string{f.routerID}},
-	}}
+	f, rules := newDependencyAPIFixture(t, logs...)
+	graphs := map[string]*alert.DependencyGraphInput{}
 	for _, tenant := range f.tenants {
+		agent := gouuid.NewString() // registered agents are bound to one tenant
+		rootTest, childTest := gouuid.NewString(), gouuid.NewString()
+		graph := &alert.DependencyGraphInput{Nodes: []alert.DependencyNodeInput{
+			{EntityID: f.routerID, AgentID: agent, TestID: rootTest, Parents: []string{}},
+			{EntityID: f.otherRouter, AgentID: agent, TestID: childTest, Parents: []string{f.routerID}},
+		}}
+		graphs[tenant] = graph
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			if _, err := (store.Agents{}).Register(ctx, sc, agent, "dependency-agent", "127.0.0.1", "fixture", crypto.AgentSPIFFEID(tenant, agent), nil); err != nil {
 				return err
 			}
 			registry := store.NewEntityRegistry(f.pool)
-			for _, node := range graph.Nodes {
-				if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,type,target,interval_seconds,timeout_seconds,params,enabled) VALUES($1,$2,'dependency ICMP','icmp','127.0.0.1',30,2,'{"allow_private_targets":"true"}',true)`, tenant, node.TestID); err != nil {
+			for i, node := range graph.Nodes {
+				target := []string{"192.0.2.1", "192.0.2.2"}[i]
+				if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,type,target,interval_seconds,timeout_seconds,params,enabled) VALUES($1,$2,'dependency ICMP '||$2::uuid::text,'icmp',$3,30,2,'{"allow_private_targets":"true"}',true)`, tenant, node.TestID, target); err != nil {
 					return err
 				}
 				if err := registry.AssignPathTestContext(ctx, sc, node.TestID, f.contextID); err != nil {
@@ -56,12 +61,12 @@ func seedDependencyGraphFixture(t *testing.T) (*roleExplanationAPIFixture, map[s
 			return nil
 		})
 	}
-	return f, rules, graph
+	return f, rules, graphs
 }
 
 func TestDependencyGraphServesCompleteCurrentTenantReferences(t *testing.T) {
-	f, rules, graph := seedDependencyGraphFixture(t)
-	rootTest, childTest := graph.Nodes[0].TestID, graph.Nodes[1].TestID
+	f, rules, graphs := seedDependencyGraphFixture(t)
+	rootTest, childTest := graphs[f.tenants[0]].Nodes[0].TestID, graphs[f.tenants[1]].Nodes[1].TestID
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	call := func(tenant, method string, input *alert.DependencyGraphInput, want int) *alert.DependencyPolicyState {
@@ -98,6 +103,7 @@ func TestDependencyGraphServesCompleteCurrentTenantReferences(t *testing.T) {
 		return &state
 	}
 	for _, tenant := range f.tenants {
+		graph := graphs[tenant]
 		for _, method := range []string{http.MethodPut, http.MethodGet} {
 			state := call(tenant, method, graph, http.StatusOK)
 			if !state.Configured || state.Policy == nil || !reflect.DeepEqual(state.Policy.Graph, graph) {
@@ -105,14 +111,15 @@ func TestDependencyGraphServesCompleteCurrentTenantReferences(t *testing.T) {
 			}
 		}
 	}
-	// A missing current reference must not be satisfied by the identical IDs
-	// still present in the sibling tenant. All other references stay intact.
+	call(f.tenants[0], http.MethodPut, graphs[f.tenants[1]], http.StatusConflict)
+	// A missing current reference must not borrow the sibling's registered
+	// sources, despite equal canonical/context IDs and overlapping addresses.
 	f.in(f.tenants[0], func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := sc.Q.Exec(ctx, `DELETE FROM entity_path_test_contexts WHERE test_id=$1`, rootTest)
 		return err
 	})
 	call(f.tenants[0], http.MethodGet, nil, http.StatusConflict)
-	call(f.tenants[0], http.MethodPut, graph, http.StatusConflict)
+	call(f.tenants[0], http.MethodPut, graphs[f.tenants[0]], http.StatusConflict)
 	call(f.tenants[1], http.MethodGet, nil, http.StatusOK)
 	// Source-specific ABAC applies to every node, beyond the context-level
 	// decision. A current write grant can still clear without reading sources.
@@ -126,7 +133,7 @@ func TestDependencyGraphServesCompleteCurrentTenantReferences(t *testing.T) {
 		return err
 	})
 	call(f.tenants[1], http.MethodGet, nil, http.StatusForbidden)
-	call(f.tenants[1], http.MethodPut, graph, http.StatusForbidden)
+	call(f.tenants[1], http.MethodPut, graphs[f.tenants[1]], http.StatusForbidden)
 	for _, tenant := range f.tenants {
 		state := call(tenant, http.MethodDelete, nil, http.StatusOK)
 		if state.Configured || state.Policy != nil {

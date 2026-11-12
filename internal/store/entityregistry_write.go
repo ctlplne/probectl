@@ -35,17 +35,6 @@ type EvidenceBatchReceipt struct {
 	Accepted, Unresolved, ICMPMeasurements int
 }
 
-// WriteEvidenceBatch persists operator-anchored claims, or an unanchored
-// flow/BMP device backed by one exact independent current SNMP observation. The caller must
-// supply authenticatedAgentID from a verified evidence SVID; tenant comes from
-// ctx, while context and canonical entity come from the current FORCE-RLS
-// source/agent assignments. An unanchored source with no unique support stays
-// unresolved; the collector never chooses an entity ID.
-func (s *EntityRegistry) WriteEvidenceBatch(ctx context.Context, authenticatedAgentID, certificateSerial string, raw []entity.Observation) (int, int, error) {
-	receipt, err := s.WriteEvidenceBatchReceipt(ctx, authenticatedAgentID, certificateSerial, raw)
-	return receipt.Accepted, receipt.Unresolved, err
-}
-
 // WriteEvidenceBatchReceipt returns committed counts for generic claims and
 // retained typed metadata. Retention never renews a replay's current authority.
 func (s *EntityRegistry) WriteEvidenceBatchReceipt(ctx context.Context, authenticatedAgentID, certificateSerial string, raw []entity.Observation) (EvidenceBatchReceipt, error) {

@@ -16,11 +16,13 @@ import (
 	guuid "github.com/google/uuid"
 )
 
-// These types are used ONLY for server-created role metadata loaded after
-// tenant/current-user authorization. Their JSON values are unchanged. Escaped
+// These types are used ONLY for server-created metadata or canonical
+// configuration references validated in storage after tenant/current-user
+// authorization. Their JSON values are unchanged. Escaped
 // separators/digits prevent a random identifier or revision's numeric prefix
-// being mistaken for PII by text redaction. No arbitrary text, sender IDs or
-// operator rule patterns receive this encoding; their full redaction remains.
+// being mistaken for PII by text redaction. No arbitrary text, unverified
+// sender/evidence strings or operator rule patterns receive this encoding;
+// their full redaction remains.
 type NativeRoleUUID string
 
 type NativeRoleRevision string

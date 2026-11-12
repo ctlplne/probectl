@@ -97,7 +97,7 @@ func newTagImportSubjectFixture(t *testing.T) *tagImportSubjectFixture {
 			{ID: uuid(t), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "192.0.2.10"}, SourceRef: "snmp:ifIndex:7", ObservedAt: at},
 			{ID: uuid(t), Source: entity.SourceKey{AgentID: agent, Kind: entity.AgentSite, SourceRef: agent}, Alias: entity.AliasKey{Kind: entity.AgentSiteAlias, Value: "operator-site"}, SourceRef: "agent:label:site", ObservedAt: at, AgentAddresses: []netip.Addr{netip.MustParseAddr("192.0.2.10")}},
 		}
-		if accepted, unresolved, err := store.NewEntityRegistry(db.Pool()).WriteEvidenceBatch(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), agent, serial, claims); err != nil || accepted != len(claims) || unresolved != 0 {
+		if accepted, unresolved, err := writeEntityEvidenceBatchForTest(store.NewEntityRegistry(db.Pool()), tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), agent, serial, claims); err != nil || accepted != len(claims) || unresolved != 0 {
 			t.Fatalf("current source setup %d/%d: %v", accepted, unresolved, err)
 		}
 		var interfaceID string

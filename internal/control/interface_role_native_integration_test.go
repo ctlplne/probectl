@@ -164,8 +164,8 @@ func interfaceRoleNativeTLSCaller(t *testing.T, f *roleExplanationAPIFixture, wi
 				} `json:"content"`
 			} `json:"result"`
 		}
-		if json.Unmarshal(raw, &reply) != nil {
-			t.Fatal("native role response is not a complete RPC frame", response.StatusCode)
+		if err := json.Unmarshal(raw, &reply); err != nil {
+			t.Fatalf("native %s %s response is not a complete RPC frame: status=%d bytes=%d: %v", wire, tool, response.StatusCode, len(raw), err)
 		}
 		ok := response.StatusCode == http.StatusOK && len(reply.Error) == 0 && !reply.Result.IsError && len(reply.Result.Data) > 0 && string(reply.Result.Data) != "null"
 		if ok != wantOK {

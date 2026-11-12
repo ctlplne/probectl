@@ -9,6 +9,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -47,23 +48,39 @@ func ValidateDependencyGraphInScope(ctx context.Context, sc tenancy.Scope, conte
 		return err
 	}
 	var matched int
+	// Bind each complete input reference to its unique source key first. The
+	// OFFSET 0 preserves that parameterized lookup: flattening eight joined
+	// populations can multiply devices by tests before applying the JSON keys.
+	// This is no row limit; every declared node must produce its one source.
 	err = sc.Q.QueryRow(ctx, `SELECT count(*) FROM jsonb_to_recordset($3::jsonb)
  AS ref(entity_id uuid,agent_id uuid,test_id uuid)
- JOIN entities n ON (n.tenant_id,n.context_id,n.id)=($1::uuid,$2::uuid,ref.entity_id) AND n.kind='device'
- JOIN agents g ON (g.tenant_id,g.id)=(n.tenant_id,ref.agent_id) AND g.status<>'revoked'
- JOIN tests t ON (t.tenant_id,t.id)=(n.tenant_id,ref.test_id) AND t.enabled AND t.type='icmp'
- JOIN entity_path_test_contexts p ON (p.tenant_id,p.context_id,p.test_id)=(n.tenant_id,n.context_id,t.id)
- JOIN entity_test_contexts c ON (c.tenant_id,c.context_id,c.test_id)=(p.tenant_id,p.context_id,p.test_id)
- JOIN entity_source_contexts m ON
-   (m.tenant_id,m.context_id,m.agent_id,m.source_kind,m.source_ref,m.anchor_entity_id)=
-   (n.tenant_id,n.context_id,ref.agent_id::text,'path_agent',ref.test_id::text,n.id)
- JOIN entity_agent_contexts a ON (a.tenant_id,a.context_id,a.agent_id)=(m.tenant_id,m.context_id,m.agent_id)
- WHERE m.assigned_at<=statement_timestamp() AND a.assigned_at<=statement_timestamp()
-   AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())
-   AND (a.expires_at IS NULL OR a.expires_at>statement_timestamp())`,
+ JOIN LATERAL (
+   SELECT 1 FROM entity_source_contexts m
+   WHERE m.tenant_id=$1::uuid AND m.context_id=$2::uuid
+     AND m.agent_id=ref.agent_id::text AND m.source_kind='path_agent'
+     AND m.source_ref=ref.test_id::text AND m.anchor_entity_id=ref.entity_id
+     AND m.assigned_at<=statement_timestamp()
+     AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())
+     AND EXISTS(SELECT 1 FROM entities n
+       WHERE (n.tenant_id,n.context_id,n.id)=(m.tenant_id,m.context_id,ref.entity_id)
+         AND n.kind='device')
+     AND EXISTS(SELECT 1 FROM agents g
+       WHERE (g.tenant_id,g.id)=(m.tenant_id,ref.agent_id) AND g.status<>'revoked')
+     AND EXISTS(SELECT 1 FROM tests t
+       JOIN entity_path_test_contexts p ON
+         (p.tenant_id,p.context_id,p.test_id)=(t.tenant_id,m.context_id,t.id)
+       JOIN entity_test_contexts c ON
+         (c.tenant_id,c.context_id,c.test_id)=(p.tenant_id,p.context_id,p.test_id)
+       WHERE (t.tenant_id,t.id)=(m.tenant_id,ref.test_id) AND t.enabled AND t.type='icmp')
+     AND EXISTS(SELECT 1 FROM entity_agent_contexts a
+       WHERE (a.tenant_id,a.context_id,a.agent_id)=(m.tenant_id,m.context_id,m.agent_id)
+         AND a.assigned_at<=statement_timestamp()
+         AND (a.expires_at IS NULL OR a.expires_at>statement_timestamp()))
+   OFFSET 0
+ ) current_source ON true`,
 		sc.Tenant.String(), contextID, raw).Scan(&matched)
 	if err != nil {
-		return err
+		return fmt.Errorf("current dependency reference lookup: %w", err)
 	}
 	if matched != len(graph.Nodes) {
 		return ErrAlertDependencyChanged

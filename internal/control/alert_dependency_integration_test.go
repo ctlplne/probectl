@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -28,9 +29,9 @@ import (
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
 
-func newDependencyAPIFixture(t *testing.T) (*roleExplanationAPIFixture, map[string]*alert.Rule) {
+func newDependencyAPIFixture(t *testing.T, logs ...*slog.Logger) (*roleExplanationAPIFixture, map[string]*alert.Rule) {
 	t.Helper()
-	f := newRoleExplanationAPIFixture(t)
+	f := newRoleExplanationAPIFixture(t, logs...)
 	f.server.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil)).WithFlowStore(flowstore.NewMemory())
 	rules := map[string]*alert.Rule{}
 	for _, tenant := range f.tenants {
