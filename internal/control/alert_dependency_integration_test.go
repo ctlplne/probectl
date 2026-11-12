@@ -75,7 +75,7 @@ func TestTopologyDependencyConfigurationServesCurrentTwoTenantAuthority(t *testi
 			t.Fatal("CLI lost complete dependency configuration", state, err)
 		}
 	}
-	request := func(tenant, method, id string, body any, want int) {
+	request := func(tenant, headerTenant, method, id string, body any, want int) {
 		t.Helper()
 		raw, err := json.Marshal(body)
 		if err != nil {
@@ -86,7 +86,7 @@ func TestTopologyDependencyConfigurationServesCurrentTwoTenantAuthority(t *testi
 			t.Fatal(err)
 		}
 		r.Header.Set("Authorization", "Bearer "+f.tokens[tenant])
-		r.Header.Set("X-Probectl-Tenant", f.tenants[1]) // cannot select a tenant
+		r.Header.Set("X-Probectl-Tenant", headerTenant)
 		r.Header.Set("Content-Type", "application/json")
 		response, err := socket.Client().Do(r)
 		if err != nil {
@@ -100,7 +100,8 @@ func TestTopologyDependencyConfigurationServesCurrentTwoTenantAuthority(t *testi
 	for i, tenant := range f.tenants {
 		foreign := f.tenants[1-i]
 		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
-			request(tenant, method, rules[foreign].ID, input, http.StatusNotFound)
+			request(tenant, foreign, method, rules[tenant].ID, input, http.StatusUnauthorized)
+			request(tenant, tenant, method, rules[foreign].ID, input, http.StatusNotFound)
 		}
 		// Stored ceilings cannot retain a permission withdrawn from the current
 		// reader, and ordinary alert.write can still remove the policy.
@@ -108,9 +109,9 @@ func TestTopologyDependencyConfigurationServesCurrentTwoTenantAuthority(t *testi
 			_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key='topology.read'`, tenant, f.roles[tenant])
 			return err
 		})
-		request(tenant, http.MethodGet, rules[tenant].ID, nil, http.StatusForbidden)
-		request(tenant, http.MethodPut, rules[tenant].ID, input, http.StatusForbidden)
-		request(tenant, http.MethodDelete, rules[tenant].ID, nil, http.StatusOK)
+		request(tenant, tenant, http.MethodGet, rules[tenant].ID, nil, http.StatusForbidden)
+		request(tenant, tenant, http.MethodPut, rules[tenant].ID, input, http.StatusForbidden)
+		request(tenant, tenant, http.MethodDelete, rules[tenant].ID, nil, http.StatusOK)
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			current, err := (store.AlertRules{}).Get(ctx, sc, rules[tenant].ID)
 			if err != nil {
