@@ -363,6 +363,8 @@ var surfaceCommands = map[string]surfaceCommand{
 		"set-settings": {Method: http.MethodPut, Path: "/v1/identity/settings"},
 	}},
 	"incident": {Name: "incident", Summary: "incidents and correlations", Ops: map[string]apiOp{
+		"impact": {Method: http.MethodPost, Path: "/v1/incidents/{id}/impact", ArgName: "id", ExactJSON: true,
+			Description: "compare complete observed incident traffic with the same window a week earlier, with current-source and customer-prefix citations"},
 		"list":   {Method: http.MethodGet, Path: "/v1/incidents"},
 		"get":    {Method: http.MethodGet, Path: "/v1/incidents/{id}", ArgName: "id"},
 		"update": {Method: http.MethodPatch, Path: "/v1/incidents/{id}", ArgName: "id"},

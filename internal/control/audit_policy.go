@@ -321,6 +321,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"DELETE /v1/alerts/{id}":                                              auditExplicit(auditFacetMutation, "alert.delete"),
 	"GET /v1/incidents":                                                   auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/incidents/{id}":                                              auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/incidents/{id}/impact":                                      auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/incidents/{id}/changes":                                      auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/incidents/{id}/journal":                                      auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/incidents/{id}/journal":                                     auditExplicit(auditFacetMutation, "incident.journal_append"),

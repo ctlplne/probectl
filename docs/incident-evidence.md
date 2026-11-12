@@ -5,7 +5,43 @@ share is a library card that can expire; an evidence package is a sealed copy of
 the book. Expiring or revoking the card does not rewrite a copy that was already
 exported.
 
-## What is signed
+## Observed impact comparison (preview)
+
+The incident room's **Traffic and customer impact** card, `POST
+/v1/incidents/{id}/impact`, `probectl incident impact <id> --body '<JSON>'`,
+and native MCP `incident_impact` compare an explicit half-open window with
+the same-duration window seven days earlier. Request example:
+
+```json
+{"from":"2026-11-12T10:00:00Z","to":"2026-11-12T10:15:00Z","customer_tag_key":"customer"}
+```
+
+The service reads every persisted canonical incident member and signal citation.
+Current exporter ownership and attested interface bindings select measurement
+points; original capture receipts and continuous current ownership authorize
+their observations. Shared router/interface selections count an observation
+once. Separate exporters remain separate measurement points. Counters use exact
+decimal strings, including sampling-adjusted values larger than 64 bits.
+
+Selecting a customer-tag key adds cited closest-prefix membership. Source and
+destination matches for the same customer count the observation once. Empty or
+ambiguous closer prefixes block broader annotations. Customer pages retain the
+complete returned population. Missing original coverage and an empty baseline
+stay explicitly unavailable. A weekly change describes observed traffic rather
+than causally assigning every missing byte to an incident.
+
+Requires a current tenant user and `incident.read`, `flow.read`, `entities.read`,
+`metrics.read`, `events.read`, plus `tags.read` for customer classification,
+including current context and credential restrictions. It requires no AI query
+grant. The existing flow cost policy and tenant fairness admit the complete
+operation; a refused operation returns no truncated prefix.
+
+This extension remains preview. Test/SLO customer membership, inclusion in the
+signed evidence package, original real-flow/week-baseline proof and complete
+served/native/accessibility qualification remain pending. The existing signed
+package contract below is unchanged.
+
+## Signed package contents
 
 `POST /v1/incidents/{id}/exports`, the incident-room download button, and
 `probectl incident export <id>` all return the same bytes:

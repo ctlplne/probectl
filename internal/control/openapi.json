@@ -77,6 +77,68 @@
     }
   ],
   "paths": {
+    "/v1/incidents/{id}/impact": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "post": {
+        "operationId": "getIncidentImpact",
+        "summary": "Compare observed incident traffic and cited customer-prefix impact",
+        "tags": [
+          "incidents"
+        ],
+        "x-required-permission": "incident.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "description": "Read-only deterministic impact under current tenant user/credential, incident.read, flow.read, entities.read, metrics.read and events.read; customer labels additionally require tags.read. No AI-query permission is required. Complete canonical incident membership and uniquely owned attested exporter/interface sources select observations; original captures and current ownership are rechecked before disclosure. Sampling-adjusted counters are exact decimal strings. Missing original evidence stays unavailable; weekly differences are observations, not causally attributed losses. Preview currently covers observed flow-prefix customers; affected-test/SLO membership and physical-flow qualification remain pending. No truncated output.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentImpactInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Exact observed attested counters and cited membership, with explicit coverage gaps.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentImpactResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/flows/peering-estimate": {
       "post": {
         "operationId": "estimateFlowPeering",
@@ -15454,6 +15516,364 @@
       }
     },
     "schemas": {
+      "IncidentImpactInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dataseries": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "raw",
+              "rollup"
+            ]
+          },
+          "customer_tag_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "description": "Explicit half-open comparison window and optional owned customer-tag key. Tenant, complete incident membership and current source authority are server-derived. The previous window has the same duration exactly seven days earlier."
+      },
+      "IncidentImpactCounters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "raw_bytes": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "raw_packets": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "scaled_bytes": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "scaled_packets": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        },
+        "required": [
+          "raw_bytes",
+          "raw_packets",
+          "scaled_bytes",
+          "scaled_packets"
+        ]
+      },
+      "IncidentImpactCaptureCitation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "router_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "original_source_id": {
+            "type": "string"
+          },
+          "current_source_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "captured_at",
+          "context_id",
+          "router_id",
+          "original_source_id",
+          "current_source_id"
+        ]
+      },
+      "IncidentImpactPeriod": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "attested_records": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unverified_records": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "coverage": {
+            "type": "string"
+          },
+          "observed_totals": {
+            "$ref": "#/components/schemas/IncidentImpactCounters"
+          },
+          "captures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentImpactCaptureCitation"
+            }
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "attested_records",
+          "unverified_records",
+          "coverage",
+          "captures"
+        ]
+      },
+      "IncidentImpactMember": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "incident_root": {
+            "type": "boolean"
+          },
+          "signal_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "reason": {
+            "type": "string"
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "context_id",
+          "entity_id",
+          "incident_root",
+          "signal_ids",
+          "reason",
+          "source_ids"
+        ]
+      },
+      "IncidentImpactCustomer": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tag_key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "prefix_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "test_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "slo_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "capture_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "current_observed_totals": {
+            "$ref": "#/components/schemas/IncidentImpactCounters"
+          },
+          "previous_observed_totals": {
+            "$ref": "#/components/schemas/IncidentImpactCounters"
+          }
+        },
+        "required": [
+          "tag_key",
+          "value",
+          "context_id",
+          "prefix_ids",
+          "test_ids",
+          "slo_ids",
+          "capture_keys"
+        ]
+      },
+      "IncidentImpactResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "probectl.incident-impact.v1"
+          },
+          "preview": {
+            "type": "boolean"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "evaluated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current": {
+            "$ref": "#/components/schemas/IncidentImpactPeriod"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/IncidentImpactPeriod"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentImpactMember"
+            }
+          },
+          "unresolved_root": {
+            "type": "boolean"
+          },
+          "unresolved_signal_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "customers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentImpactCustomer"
+            }
+          },
+          "customer_coverage": {
+            "type": "string"
+          },
+          "customer_tag_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "unclassified_records": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "observed_scaled_byte_change": {
+            "type": "string",
+            "pattern": "^-?[0-9]+$"
+          },
+          "interpretation": {
+            "type": "string"
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "contract_version",
+          "preview",
+          "incident_id",
+          "evaluated_at",
+          "current",
+          "previous",
+          "members",
+          "unresolved_root",
+          "unresolved_signal_ids",
+          "customers",
+          "customer_coverage",
+          "unclassified_records",
+          "interpretation"
+        ]
+      },
+      "IncidentImpactCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dataseries": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "raw",
+              "rollup"
+            ]
+          },
+          "customer_tag_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "incident_id",
+          "from",
+          "to"
+        ],
+        "description": "Explicit half-open comparison window and optional owned customer-tag key. Tenant, complete incident membership and current source authority are server-derived. The previous window has the same duration exactly seven days earlier."
+      },
       "PeeringEstimateInput": {
         "type": "object",
         "additionalProperties": false,

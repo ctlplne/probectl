@@ -101,9 +101,10 @@ type tagPrefixRange struct {
 	winner     *tagPrefixCandidate
 }
 type tagPrefixCandidate struct {
-	network netip.Prefix
-	values  map[string]string
-	active  bool
+	network   netip.Prefix
+	values    map[string]string
+	active    bool
+	subjectID string
 }
 type tagPrefixEvent struct {
 	at        tagPrefixNumber
@@ -181,8 +182,9 @@ func buildTagPrefixRanges(ctx context.Context, tenant string, vocabulary flow.Qu
 		key := networkKey{input.ContextID, input.Network}
 		if old := networks[key]; old != nil {
 			old.values = nil
+			old.subjectID = ""
 		} else {
-			networks[key] = &tagPrefixCandidate{network: input.Network, values: values}
+			networks[key] = &tagPrefixCandidate{network: input.Network, values: values, subjectID: input.ID}
 		}
 	}
 	groups := map[tagPrefixGroup][]*tagPrefixCandidate{}

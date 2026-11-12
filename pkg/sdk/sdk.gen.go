@@ -2348,6 +2348,90 @@ type IncidentEvidencePackage struct {
 	Signing     map[string]any   `json:"signing"`
 }
 
+type IncidentImpactCaptureCitation struct {
+	CapturedAt       string `json:"captured_at"`
+	ContextId        string `json:"context_id"`
+	CurrentSourceId  string `json:"current_source_id"`
+	Key              string `json:"key"`
+	OriginalSourceId string `json:"original_source_id"`
+	RouterId         string `json:"router_id"`
+}
+
+// Explicit half-open comparison window and optional owned customer-tag key. Tenant, complete incident membership and current source authority are server-derived. The previous window has the same duration exactly seven days earlier.
+type IncidentImpactCommand struct {
+	CustomerTagKey string `json:"customer_tag_key,omitempty"`
+	Dataseries     string `json:"dataseries,omitempty"`
+	From           string `json:"from"`
+	IncidentId     string `json:"incident_id"`
+	To             string `json:"to"`
+}
+
+type IncidentImpactCounters struct {
+	RawBytes      string `json:"raw_bytes"`
+	RawPackets    string `json:"raw_packets"`
+	ScaledBytes   string `json:"scaled_bytes"`
+	ScaledPackets string `json:"scaled_packets"`
+}
+
+type IncidentImpactCustomer struct {
+	CaptureKeys            []string               `json:"capture_keys"`
+	ContextId              string                 `json:"context_id"`
+	CurrentObservedTotals  IncidentImpactCounters `json:"current_observed_totals,omitempty"`
+	PrefixIds              []string               `json:"prefix_ids"`
+	PreviousObservedTotals IncidentImpactCounters `json:"previous_observed_totals,omitempty"`
+	SloIds                 []string               `json:"slo_ids"`
+	TagKey                 string                 `json:"tag_key"`
+	TestIds                []string               `json:"test_ids"`
+	Value                  string                 `json:"value"`
+}
+
+// Explicit half-open comparison window and optional owned customer-tag key. Tenant, complete incident membership and current source authority are server-derived. The previous window has the same duration exactly seven days earlier.
+type IncidentImpactInput struct {
+	CustomerTagKey string `json:"customer_tag_key,omitempty"`
+	Dataseries     string `json:"dataseries,omitempty"`
+	From           string `json:"from"`
+	To             string `json:"to"`
+}
+
+type IncidentImpactMember struct {
+	ContextId    string   `json:"context_id"`
+	EntityId     string   `json:"entity_id"`
+	IncidentRoot bool     `json:"incident_root"`
+	Kind         string   `json:"kind,omitempty"`
+	Reason       string   `json:"reason"`
+	SignalIds    []string `json:"signal_ids"`
+	SourceIds    []string `json:"source_ids"`
+}
+
+type IncidentImpactPeriod struct {
+	AttestedRecords   int                             `json:"attested_records"`
+	Captures          []IncidentImpactCaptureCitation `json:"captures"`
+	Coverage          string                          `json:"coverage"`
+	From              string                          `json:"from"`
+	ObservedTotals    IncidentImpactCounters          `json:"observed_totals,omitempty"`
+	To                string                          `json:"to"`
+	UnverifiedRecords int                             `json:"unverified_records"`
+}
+
+type IncidentImpactResponse struct {
+	ContractVersion          string                   `json:"contract_version"`
+	Current                  IncidentImpactPeriod     `json:"current"`
+	CustomerCoverage         string                   `json:"customer_coverage"`
+	CustomerTagRevision      int                      `json:"customer_tag_revision,omitempty"`
+	Customers                []IncidentImpactCustomer `json:"customers"`
+	EvaluatedAt              string                   `json:"evaluated_at"`
+	IncidentId               string                   `json:"incident_id"`
+	Interpretation           string                   `json:"interpretation"`
+	Members                  []IncidentImpactMember   `json:"members"`
+	ObservedScaledByteChange string                   `json:"observed_scaled_byte_change,omitempty"`
+	Preview                  bool                     `json:"preview"`
+	Previous                 IncidentImpactPeriod     `json:"previous"`
+	UnclassifiedRecords      int                      `json:"unclassified_records"`
+	UnresolvedRoot           bool                     `json:"unresolved_root"`
+	UnresolvedSignalIds      []string                 `json:"unresolved_signal_ids"`
+	ValidUntil               string                   `json:"valid_until,omitempty"`
+}
+
 type IncidentJournalAppendRequest struct {
 	Body     string                          `json:"body"`
 	Citation *IncidentJournalCitationRequest `json:"citation,omitempty"`
@@ -7001,6 +7085,26 @@ func (c *Client) ExportIncidentEvidence(ctx context.Context, req ExportIncidentE
 	query := url.Values{}
 	var out IncidentEvidencePackage
 	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Compare observed incident traffic and cited customer-prefix impact
+type GetIncidentImpactRequest struct {
+	Id   string               `json:"-"`
+	Body *IncidentImpactInput `json:"-"`
+}
+
+func (c *Client) GetIncidentImpact(ctx context.Context, req GetIncidentImpactRequest) (*IncidentImpactResponse, error) {
+	path := "/v1/incidents/{id}/impact"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out IncidentImpactResponse
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

@@ -320,6 +320,13 @@
         "F17",
         "F18"
       ]
+    },
+    {
+      "ref": "test:internal/control/incident_impact_integration_test.go#TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation",
+      "profile": "integration",
+      "capabilities": [
+        "F9"
+      ]
     }
   ]
 }

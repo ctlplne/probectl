@@ -102,6 +102,21 @@ func (s *Server) loadFlowTagQuerySnapshot(ctx context.Context, principal *auth.P
 	if err := s.authorizeNativeFlow(ctx, principal); err != nil {
 		return nil, err
 	}
+	return s.loadAuthorizedFlowTagQuerySnapshot(ctx, principal, subjects, facts)
+}
+
+// The caller supplies its operation's source authorization and current actor.
+// Native Explorer keeps its AI gate above; deterministic incident impact uses
+// its own incident/source gates. This reader always enforces flow/tag/subject
+// disclosure itself and never accepts a public permission-bypass flag.
+func (s *Server) loadAuthorizedFlowTagQuerySnapshot(ctx context.Context, principal *auth.Principal, subjects []string, facts bool) (*flowstore.TagQueryData, error) {
+	if principal == nil || principal.TenantID == "" {
+		return nil, apierror.Unauthorized("tenant identity required for tag queries")
+	}
+	if err := s.authorize(ctx, principal, permFlowRead, auth.RBACGlobal,
+		map[string]string{auth.ResourceTenantKey: principal.TenantID}); err != nil {
+		return nil, err
+	}
 	if err := s.authorize(ctx, principal, permTagsRead, auth.RBACGlobal,
 		map[string]string{auth.ResourceTenantKey: principal.TenantID}); err != nil {
 		return nil, err

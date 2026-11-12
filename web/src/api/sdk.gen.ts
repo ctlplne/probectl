@@ -2216,6 +2216,88 @@ export interface IncidentEvidencePackage {
   signing: JsonObject
 }
 
+export interface IncidentImpactCaptureCitation {
+  captured_at: string
+  context_id: string
+  current_source_id: string
+  key: string
+  original_source_id: string
+  router_id: string
+}
+
+export interface IncidentImpactCommand {
+  customer_tag_key?: string
+  dataseries?: "auto" | "raw" | "rollup"
+  from: string
+  incident_id: string
+  to: string
+}
+
+export interface IncidentImpactCounters {
+  raw_bytes: string
+  raw_packets: string
+  scaled_bytes: string
+  scaled_packets: string
+}
+
+export interface IncidentImpactCustomer {
+  capture_keys: string[]
+  context_id: string
+  current_observed_totals?: IncidentImpactCounters
+  prefix_ids: string[]
+  previous_observed_totals?: IncidentImpactCounters
+  slo_ids: string[]
+  tag_key: string
+  test_ids: string[]
+  value: string
+}
+
+export interface IncidentImpactInput {
+  customer_tag_key?: string
+  dataseries?: "auto" | "raw" | "rollup"
+  from: string
+  to: string
+}
+
+export interface IncidentImpactMember {
+  context_id: string
+  entity_id: string
+  incident_root: boolean
+  kind?: string
+  reason: string
+  signal_ids: string[]
+  source_ids: string[]
+}
+
+export interface IncidentImpactPeriod {
+  attested_records: number
+  captures: IncidentImpactCaptureCitation[]
+  coverage: string
+  from: string
+  observed_totals?: IncidentImpactCounters
+  to: string
+  unverified_records: number
+}
+
+export interface IncidentImpactResponse {
+  contract_version: string
+  current: IncidentImpactPeriod
+  customer_coverage: string
+  customer_tag_revision?: number
+  customers: IncidentImpactCustomer[]
+  evaluated_at: string
+  incident_id: string
+  interpretation: string
+  members: IncidentImpactMember[]
+  observed_scaled_byte_change?: string
+  preview: boolean
+  previous: IncidentImpactPeriod
+  unclassified_records: number
+  unresolved_root: boolean
+  unresolved_signal_ids: string[]
+  valid_until?: string
+}
+
 export interface IncidentJournalAppendRequest {
   body: string
   citation?: IncidentJournalCitationRequest | null
@@ -4465,6 +4547,13 @@ export interface ExportIncidentEvidenceRequest {
 
 export type ExportIncidentEvidenceResponse = IncidentEvidencePackage
 
+export interface GetIncidentImpactRequest {
+  id: string
+  body: IncidentImpactInput
+}
+
+export type GetIncidentImpactResponse = IncidentImpactResponse
+
 export interface ListIncidentJournalRequest {
   id: string
 }
@@ -6414,6 +6503,13 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<ExportIncidentEvidenceResponse>("POST", path, query, undefined)
+  }
+
+  async getIncidentImpact(request: GetIncidentImpactRequest): Promise<GetIncidentImpactResponse> {
+    let path = "/v1/incidents/{id}/impact"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetIncidentImpactResponse>("POST", path, query, request.body)
   }
 
   async listIncidentJournal(request: ListIncidentJournalRequest): Promise<ListIncidentJournalResponse> {

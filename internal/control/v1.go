@@ -62,6 +62,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodDelete, "/v1/agents/{id}", s.handleDeleteAgent, permAgentWrite},
 		{http.MethodGet, "/v1/incidents", s.handleListIncidents, permIncidentRead},
 		{http.MethodGet, "/v1/incidents/{id}", s.handleGetIncident, permIncidentRead},
+		{http.MethodPost, "/v1/incidents/{id}/impact", s.handleIncidentImpact, permIncidentRead},
 		{http.MethodGet, "/v1/incidents/{id}/changes", s.handleIncidentChanges, permIncidentRead},
 		{http.MethodGet, "/v1/incidents/{id}/journal", s.handleListIncidentJournal, permIncidentRead},
 		{http.MethodPost, "/v1/incidents/{id}/journal", s.handleAppendIncidentJournal, permIncidentWrite},

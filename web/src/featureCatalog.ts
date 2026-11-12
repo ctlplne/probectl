@@ -79,6 +79,8 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F9',
     name: 'Dashboards and incident timeline',
+    // Traffic/customer-prefix impact is an extension in preview; test/SLO
+    // attribution, signed impact export and real-flow qualification are owed.
     status: 'delivered',
     source: 'contract:features',
   },
