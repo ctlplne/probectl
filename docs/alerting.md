@@ -549,6 +549,13 @@ Setting requires current `alert.write`, `topology.read`, `entities.read`,
 enforced on the existing FORCE-RLS alert rows. Stored read ceilings carry no
 token, MFA assertion or role snapshot, and source authority is checked afresh.
 
+In Alerts, a rule's **Dependency context** action loads current settings and
+pages through owned routing contexts. Set the source freshness and save
+explicitly, or confirm **Clear dependency settings** to remove configuration
+without changing detection. Tenant, user or permission changes discard the
+editor's previous values and pending requests. The editor identifies this as
+configuration preview until notification routing is available.
+
 CLI: `probectl alert dependency-policy`, `dependency-policy-set` and
 `dependency-policy-clear`. Native MCP: `alert_dependency_get`,
 `alert_dependency_set` and `alert_dependency_clear`; native clear requires

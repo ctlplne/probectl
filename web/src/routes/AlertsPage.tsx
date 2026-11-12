@@ -67,6 +67,7 @@ import { alertRuleAsCode, maintenanceWindowAsCode } from './codeExport'
 import { pivotHref } from './pivotContext'
 import { useAuth } from '../auth/useAuth'
 import { AlertTagFilterDialog } from './AlertTagFilterDialog'
+import { AlertDependencyDialog } from './AlertDependencyDialog'
 import { AlertQuerySourceDialog } from './AlertQuerySourceDialog'
 import { AlertQueryGroupPanel } from './AlertQueryGroupPanel'
 import { savedQueryAlertMetric } from '../api/alerts'
@@ -1204,6 +1205,10 @@ export function AlertsPage() {
     null,
   )
   const [queryEditing, setQueryEditing] = useState<AlertRule | true | null>(null)
+  const [dependencyEditing, setDependencyEditing] = useState<{
+    rule: AlertRule
+    scope: string
+  } | null>(null)
   const [creating, setCreating] = useState(false)
   const [editingWindow, setEditingWindow] = useState<MaintenanceWindow | null>(null)
   const [creatingWindow, setCreatingWindow] = useState(false)
@@ -1351,6 +1356,16 @@ export function AlertsPage() {
           <Button size="sm" variant="ghost" disabled={!canWrite} onClick={() => setEditing(r)}>
             Edit
           </Button>
+          {permissions.includes('alert.read') || canWrite ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Dependency settings for ${r.name}`}
+              onClick={() => setDependencyEditing({ rule: r, scope: metadataScope })}
+            >
+              Dependency context{r.has_dependency_policy ? ' · configured' : ''}
+            </Button>
+          ) : null}
           {r.metric === savedQueryAlertMetric ? (
             <Button size="sm" variant="ghost" onClick={() => setQueryEditing(r)}>
               Saved query source
@@ -1655,6 +1670,12 @@ export function AlertsPage() {
         <AlertTagFilterDialog
           rule={metadataEditing.rule}
           onClose={() => setMetadataEditing(null)}
+        />
+      ) : null}
+      {dependencyEditing?.scope === metadataScope ? (
+        <AlertDependencyDialog
+          rule={dependencyEditing.rule}
+          onClose={() => setDependencyEditing(null)}
         />
       ) : null}
       {creatingWindow ? <MaintenanceWindowForm onClose={() => setCreatingWindow(false)} /> : null}
