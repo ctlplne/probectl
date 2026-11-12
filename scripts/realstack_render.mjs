@@ -178,7 +178,9 @@ async function main() {
         continue;
       }
       const scope = step.within ? page.locator(step.within) : page;
-      const control = scope.getByRole(step.role ?? "button", { name: step.click, exact: true });
+      const control = step.summary
+        ? scope.locator("summary").filter({ hasText: new RegExp(`^${step.click.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) })
+        : scope.getByRole(step.role ?? "button", { name: step.click, exact: true });
       try {
         if (step.download) {
           const [download] = await Promise.all([
@@ -192,7 +194,7 @@ async function main() {
           await control.click({ timeout: remaining() });
         }
       } catch (err) {
-        result.missing.push(`click ${step.role ?? "button"} "${step.click}": ${String(err).split("\n")[0]}`);
+        result.missing.push(`click ${step.summary ? "summary" : step.role ?? "button"} "${step.click}": ${String(err).split("\n")[0]}`);
         break;
       }
       await awaitTexts(step.expect, step.expectWithin);

@@ -271,7 +271,7 @@ func (lane *nativeLane) sendAlertASWire(t *testing.T, quantity, sequence uint32,
 
 func (p *nativeQueryAlert) call(t *testing.T, st *shipped.Stack, addr, name string, args, out any, wantError bool) {
 	t.Helper()
-	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": name, "arguments": args}})
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": name, "arguments": args, "_meta": map[string]any{"io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": map[string]any{}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func (p *nativeQueryAlert) call(t *testing.T, st *shipped.Stack, addr, name stri
 	defer response.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
 	if err != nil || response.StatusCode != http.StatusOK {
-		t.Fatal("query alert native response unavailable")
+		t.Fatal("query alert native response unavailable", response.StatusCode, err)
 	}
 	var result struct {
 		Error  json.RawMessage `json:"error"`

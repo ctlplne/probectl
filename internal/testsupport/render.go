@@ -72,11 +72,14 @@ type RenderControl struct {
 // link with the download attribute) and saves the file at that path; Within
 // looks for the control only inside the one element that CSS selector matches
 // (a dialog whose button shares the name of the control that opened it).
+// Summary selects a native <summary> by exact text instead of an ARIA role;
+// Playwright does not assign that element an implicit button role.
 type RenderStep struct {
-	Click  string   `json:"click,omitempty"`
-	Role   string   `json:"role,omitempty"`
-	Within string   `json:"within,omitempty"`
-	Expect []string `json:"expect,omitempty"`
+	Click   string   `json:"click,omitempty"`
+	Role    string   `json:"role,omitempty"`
+	Summary bool     `json:"summary,omitempty"`
+	Within  string   `json:"within,omitempty"`
+	Expect  []string `json:"expect,omitempty"`
 	// ExpectWithin scopes this step's expected/absent text only. Within
 	// continues to scope the click, whose toast may be outside that element.
 	ExpectWithin string   `json:"expectWithin,omitempty"`
