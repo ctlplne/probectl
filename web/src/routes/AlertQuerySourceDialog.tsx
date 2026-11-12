@@ -16,7 +16,7 @@ import {
   type AlertQuerySourceInput,
   type AlertQuerySourceState,
 } from '../api/alerts'
-import { useFlowQueryViews } from '../api/flowViews'
+import { useFlowQueryView, useFlowQueryViews } from '../api/flowViews'
 import {
   Button,
   ConfirmDialog,
@@ -259,6 +259,19 @@ function QuerySourceEditor({
   const [search, setSearch] = useState('')
   const views = useFlowQueryViews({ after, search, sort: 'name' }, identity)
   const selected = views.data?.items.find((item) => item.id === value.view_id)
+  const current = useFlowQueryView(value.view_id || undefined, identity)
+  const source = current.data?.id === value.view_id ? current.data : selected
+  const metrics = (source?.definition.plan?.metrics ?? []).map((metric) => ({
+    value: `${metric.measure}:${metric.calculation}`,
+    label: `${metric.measure} · ${metric.calculation}`,
+  }))
+  const metricOptions = [{ value: '', label: 'Choose a metric from this query' }, ...metrics]
+  if (value.condition.metric && !metrics.some((metric) => metric.value === value.condition.metric))
+    metricOptions.push({
+      value: value.condition.metric,
+      label: `Saved metric: ${value.condition.metric} (choose a current metric)`,
+    })
+
   const options = [
     { value: '', label: 'Choose a saved Explorer query' },
     ...(views.data?.items ?? []).map((item) => ({
@@ -298,6 +311,15 @@ function QuerySourceEditor({
         required
       />
       <p>Bound revision: {value.view_version || 'choose a query'}</p>
+      {source && source.version !== value.view_version ? (
+        <Button type="button" onClick={() => onChange({ ...value, view_version: source.version })}>
+          Bind current revision {source.version}
+        </Button>
+      ) : null}
+      {current.isError ? (
+        <ErrorState description="Current saved-query metadata is unavailable. Refresh the source after checking its visibility and permissions." />
+      ) : null}
+
       <div className={styles.actionsRow}>
         <Button type="button" disabled={!after} onClick={() => setAfter(undefined)}>
           First page
@@ -323,19 +345,24 @@ function QuerySourceEditor({
             condition:
               e.target.value === 'new_group'
                 ? { mode: 'new_group' }
-                : { mode: 'threshold', metric: 'bytes:total', comparison: 'gt', threshold: '0' },
+                : {
+                    mode: 'threshold',
+                    metric: metrics[0]?.value ?? '',
+                    comparison: 'gt',
+                    threshold: '0',
+                  },
           })
         }
       />
       {condition.mode === 'threshold' ? (
         <>
-          <Field
-            label="Exact saved-plan metric key"
+          <Select
+            label="Query metric"
             value={condition.metric ?? ''}
+            options={metricOptions}
             onChange={(e) =>
               onChange({ ...value, condition: { ...condition, metric: e.target.value } })
             }
-            hint="Use a metric present in the saved query, for example bytes:total."
             required
           />
           <Select

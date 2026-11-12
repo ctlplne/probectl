@@ -7,12 +7,14 @@
 package control
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -124,5 +126,16 @@ func TestSavedQueryCurrentGroupInspectionKeepsExactFactsAndExplicitAbsence(t *te
 	absent, err := inspectAlertQueryGroup(ctx, rule, source, capture, strings.Repeat("f", 64), 1<<20)
 	if err != nil || absent.Present || absent.ConditionMet || absent.ExactValue != "" || len(absent.Dimensions) != 0 {
 		t.Fatal("absent current group exposed another group's facts", absent, err)
+	}
+}
+
+func TestSavedQueryInvalidMetricReturnsValidationWithoutPartialSnapshot(t *testing.T) {
+	tenant, view := "11111111-1111-4111-8111-111111111111", "33333333-3333-4333-8333-333333333333"
+	source := alert.QuerySource{ViewID: view, ViewVersion: "1", Condition: alert.QueryCondition{Mode: "threshold", Metric: "bytes:missing", Comparison: alert.GT, Threshold: "1"}}
+	capture := &reportFlowCapture{TenantID: tenant, ObservedAt: time.Now().UTC(), Results: []capturedReportFlow{{TenantID: tenant, ID: view, Version: "1", Period: "current", Result: flowstore.PlanResult{Query: flow.QueryPlan{Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total"}}}, Coverage: &flowstore.PlanSourceCoverage{CompleteInputs: true}}}}}
+	snapshot, err := alertQuerySnapshot(t.Context(), tenant, source, capture, 1<<20)
+	var domain *apierror.Error
+	if !errors.As(err, &domain) || domain.Kind != apierror.KindValidation || !reflect.DeepEqual(snapshot, alert.QueryGroupSnapshot{}) {
+		t.Fatal("invalid source metric was an internal error or a partial success", snapshot, err)
 	}
 }

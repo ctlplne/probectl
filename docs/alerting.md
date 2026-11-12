@@ -487,8 +487,8 @@ suite; every broad suite and coverage floor remains mandatory.
 Choose **Create query alert** in Alerts, select a saved Explorer query and its
 exact revision, then choose a per-group threshold or **new group** condition.
 The threshold is an exact decimal string: wide counters never round through a
-floating-point value. The metric key must exist in the saved plan, for example
-`bytes:total`. New-group mode warms the first complete selected top set without
+floating-point value. Choose a metric from the saved query in the UI; API/CLI keys must exist in
+the saved plan, for example `bytes:total`. New-group mode warms the first complete selected top set without
 firing; a newly selected group stays breaching while it remains in that set.
 The saved query controls its time window, dimensions, top set, filters and
 matrix. Summary Other buckets may satisfy a threshold but are not new identities.
@@ -504,7 +504,7 @@ No bearer, session, attribute grant or durable MFA assertion is stored.
 
 A revised/deleted/private source, revoked owner, incomplete coverage, timeout or
 cost refusal withholds evaluation; none resolves a firing group. Explicitly
-rebind the current revision to resume. Clearing a source also clears its opaque
+use **Bind current revision** and save the source to resume. Clearing a source also clears its opaque
 baseline and disables the rule, and requires only current `alert.write`.
 Reading configuration requires `alert.read`, `ai.query`, `flow.read` and current
 saved-view visibility. Source-specific tags, routing and context permissions are

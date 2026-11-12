@@ -129,7 +129,7 @@ func alertQuerySnapshot(ctx context.Context, tenant string, source alert.QuerySo
 		return alert.QueryGroupSnapshot{}, apierror.Unavailable("complete saved-query source coverage is required for alert evaluation")
 	}
 	if err := source.Condition.Validate(current.Result.Query.Metrics); err != nil {
-		return alert.QueryGroupSnapshot{}, err
+		return alert.QueryGroupSnapshot{}, apierror.Validation("the condition metric must exist in the saved query").Wrap(err)
 	}
 	groups, err := alertResultGroups(ctx, source.Condition, current.Result, memory)
 	if err != nil {

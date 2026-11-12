@@ -95,20 +95,18 @@ function backend() {
         tenant,
         body: init?.body ? JSON.parse(String(init.body)) : undefined,
       })
-      if (path.includes('/explorer/flow-views'))
-        return jsonResponse({
-          items: [
-            {
-              id: viewID,
-              version: revision,
-              owner_id: 'owner',
-              definition: {
-                name: 'Source AS query',
-                plan: { metrics: [{ measure: 'bytes', calculation: 'total', role: 'primary' }] },
-              },
-            },
-          ],
-        })
+      if (path.includes('/explorer/flow-views')) {
+        const item = {
+          id: viewID,
+          version: revision,
+          owner_id: 'owner',
+          definition: {
+            name: 'Source AS query',
+            plan: { metrics: [{ measure: 'bytes', calculation: 'total', role: 'primary' }] },
+          },
+        }
+        return jsonResponse(path.includes('/flow-views/') ? item : { items: [item] })
+      }
       if (path.includes('/query-group?'))
         return jsonResponse({
           kind: 'current_query_group',
@@ -226,4 +224,66 @@ test('current group inspection exposes useful exact facts only in the current te
   view.rerender(identity('tenant-b', ['alert.read']))
   expect(screen.queryByText('64513')).toBeNull()
   expect(screen.queryByRole('button', { name: 'Inspect current group' })).toBeNull()
+})
+
+test('stale saved-query source explicitly rebinds its current exact revision', async () => {
+  const currentRevision = '9007199254740994'
+  const writes: Array<unknown> = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input)
+      if (path.includes('/explorer/flow-views')) {
+        const item = {
+          id: viewID,
+          version: currentRevision,
+          owner_id: 'owner',
+          definition: {
+            name: 'Source AS query',
+            plan: {
+              metrics: [
+                { measure: 'bytes', calculation: 'total', role: 'primary' },
+                { measure: 'packets', calculation: 'rate', role: 'additional' },
+              ],
+            },
+          },
+        }
+        return jsonResponse(path.includes('/flow-views/') ? item : { items: [item] })
+      }
+      if (init?.method === 'PUT') writes.push(JSON.parse(String(init.body)))
+      return jsonResponse({
+        rule_id: ruleID,
+        configured: true,
+        stale_revision: true,
+        rule_updated_at: '2026-11-12T00:00:00Z',
+        source: {
+          view_id: viewID,
+          view_version: revision,
+          every_seconds: 60,
+          condition: {
+            mode: 'threshold',
+            metric: 'bytes:total',
+            comparison: 'gt',
+            threshold: exact,
+          },
+        },
+      })
+    }),
+  )
+  const user = userEvent.setup()
+  fixture()
+  await user.click(screen.getByRole('button', { name: 'Load current source' }))
+  const bind = await screen.findByRole('button', {
+    name: `Bind current revision ${currentRevision}`,
+  })
+  await user.click(bind)
+  await user.selectOptions(screen.getByLabelText('Query metric'), 'packets:rate')
+  await user.click(screen.getByRole('button', { name: 'Save current source' }))
+  await waitFor(() => expect(writes).toHaveLength(1))
+  expect(writes[0]).toEqual({
+    view_id: viewID,
+    view_version: currentRevision,
+    every_seconds: 60,
+    condition: { mode: 'threshold', metric: 'packets:rate', comparison: 'gt', threshold: exact },
+  })
 })
