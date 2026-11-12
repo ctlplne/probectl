@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -141,6 +143,30 @@ func TestSavedQueryAlertAPIKeepsCurrentSourceAuthorityAndTwoTenants(t *testing.T
 	}
 	for i, current := range lanes {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(current.actor.TenantID))
+		var legacy *alert.Rule
+		if err := tenancy.InTenant(ctx, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			legacy, err = (store.AlertRules{}).Create(ctx, sc, alert.Rule{Name: "Existing metric", Enabled: true, Type: alert.Threshold, Metric: "probectl_probe_loss_ratio", Comparison: alert.GT, Threshold: 0.5, Severity: alert.SeverityWarning})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		var domain *apierror.Error
+		if out, err := s.setAlertQuerySource(ctx, current.actor, legacy.ID, current.input); !errors.As(err, &domain) || domain.Kind != apierror.KindValidation || out.Configured {
+			t.Fatal("a query source replaced an ordinary metric rule", out, err)
+		}
+		if out, err := s.clearAlertQuerySource(ctx, current.actor, legacy.ID); !errors.As(err, &domain) || domain.Kind != apierror.KindNotFound || out.Configured {
+			t.Fatal("a query-source clear disabled an ordinary metric rule", out, err)
+		}
+		if err := tenancy.InTenantReadSnapshot(ctx, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			stored, err := (store.AlertRules{}).Get(ctx, sc, legacy.ID)
+			if err == nil && (stored.Metric != legacy.Metric || !stored.Enabled || !stored.UpdatedAt.Equal(legacy.UpdatedAt)) {
+				return fmt.Errorf("refused source transition changed the ordinary rule")
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
 		state, err := s.readAlertQuerySource(ctx, current.actor, current.rule.ID)
 		if err != nil || !state.Configured || state.Source == nil || state.Source.ViewID != current.view.ID {
 			t.Fatal("complete own source configuration unavailable", state, err)
@@ -179,6 +205,24 @@ func TestSavedQueryAlertAPIKeepsCurrentSourceAuthorityAndTwoTenants(t *testing.T
 		if next, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule); err != nil || !next.Skip || len(next.Samples) != 0 {
 			t.Fatal("not-due read executed or invented health", next, err)
 		}
+		// Scheduler polling is metadata work, not an admitted flow query. Even
+		// repeated not-due ticks must leave the tenant's only query token intact.
+		func() {
+			previous := s.fairnessGate
+			defer func() { s.fairnessGate = previous }()
+			one := fairness.NewGate(fairness.Policy{QueriesPerMin: 6, BurstSeconds: 10, QueryConcurrency: 1}, nil).WithNow(func() time.Time { return at })
+			s.WithFairness(one)
+			for range 2 {
+				if next, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule); err != nil || !next.Skip {
+					t.Fatal("not-due scheduler tick spent the tenant's source query admission", next, err)
+				}
+			}
+			release, err := one.BeginQuery(ctx, current.actor.TenantID)
+			if err != nil {
+				t.Fatal("not-due polling starved the actual tenant query", err)
+			}
+			release()
+		}()
 		// A saved source does not delegate a credential's absent read grant.
 		limited := auth.PrincipalWithPermissionGrants(&auth.Principal{TenantID: current.actor.TenantID, UserID: current.actor.UserID, ViaBearerToken: true}, []auth.PermissionGrant{{Permission: permAlertWrite, ScopeType: auth.ScopeTenant}})
 		if out, err := s.setAlertQuerySource(ctx, limited, current.rule.ID, current.input); err == nil || out.Configured {

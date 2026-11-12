@@ -34,11 +34,28 @@ func (s *Server) readAlertQueryRule(ctx context.Context, tenant string, rule ale
 	}
 	ctx, cancel := context.WithTimeout(tenancy.WithTenant(ctx, tenancy.ID(tenant)), budget.ExecutionLimit)
 	defer cancel()
+	// The bounded RLS metadata probe does not decode configuration or read
+	// telemetry. Polling a source that is not due must not spend the tenant's
+	// interactive/source query tokens and starve real scheduled work.
+	var due bool
+	err := tenancy.InTenantReadSnapshot(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		due, err = (store.AlertRules{}).QuerySourceDue(ctx, sc, rule.ID, rule.UpdatedAt, time.Now().UTC())
+		return err
+	})
+	if err != nil {
+		return alert.RuleMetricRead{}, err
+	}
+	if !due {
+		return alert.RuleMetricRead{Skip: true}, nil
+	}
 	release, err := s.fairnessGate.BeginQuery(ctx, tenant)
 	if err != nil {
 		return alert.RuleMetricRead{}, err
 	}
 	defer release()
+	// Recheck due/configuration after admission: another worker can complete a
+	// read while this one is waiting, and its state must still win publication.
 	configuration, due, err := s.loadAlertQueryRule(ctx, rule, budget.MemoryBytes/8)
 	if err != nil {
 		return alert.RuleMetricRead{}, err
