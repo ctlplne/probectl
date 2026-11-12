@@ -50,6 +50,10 @@ func currentICMPDefinition(ctx context.Context, sc tenancy.Scope, claim entity.O
 	if err := json.Unmarshal(params, &test.Params); err != nil {
 		return false, err
 	}
+	return matchesICMPDefinition(claim, test, updated, pathTarget, pathAssigned, contextAssigned)
+}
+
+func matchesICMPDefinition(claim entity.Observation, test testspec.ExecutableDefinition, updated time.Time, pathTarget string, pathAssigned, contextAssigned time.Time) (bool, error) {
 	if path.TargetHost(test.Target) != pathTarget || claim.ICMP.StartedAt.Before(updated) ||
 		claim.ICMP.StartedAt.Before(pathAssigned) || claim.ICMP.StartedAt.Before(contextAssigned) {
 		return false, nil

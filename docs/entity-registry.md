@@ -193,6 +193,15 @@ nearby addresses and the other tenant intact. Observations before the existing
 erasure cutoff cannot recreate deleted evidence. Dependency notification
 routing remains a preview and still needs complete current graph/incident proof.
 
+The internal current-health reader selects the newest measurement for one exact
+agent/test in an explicit tenant/context. It reads the live test definition,
+canonical anchor, both context assignments, issued sender and erasure cutoff in
+one database snapshot. A newer incomplete sample replaces older health, and
+conflicting equal-clock samples remain unknown. Only a complete transmitted
+batch with a completed reply window and no local IO failure can establish
+reachability or total echo loss. Stale, unadmitted, disabled, rebound or revoked
+sources remain unknown; a source snapshot alone never authorizes a hold.
+
 The configured-target SNMP address observation may also carry bounded raw
 `sysName` and `sysDescr` metadata. These fields never select identity or context.
 Raw system-name presence distinguishes a legacy omission from an explicit
