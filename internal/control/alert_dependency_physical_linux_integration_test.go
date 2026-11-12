@@ -82,10 +82,11 @@ func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T)
 			t.Fatal("physical alert evaluation failed", err)
 		}
 	}
-	sample := func(lane *dependencyPhysicalLane) {
+	sample := func(lane *dependencyPhysicalLane) []dependencyPhysicalMeasurement {
 		t.Helper()
-		sampleDependencyPhysical(t, d, lane.tenant, lane.network.source, lane.definitions, lane.client, writer)
+		measurements := sampleDependencyPhysical(t, d, lane.tenant, lane.network.source, lane.definitions, lane.client, writer)
 		evaluate(lane)
+		return measurements
 	}
 	var lanes []*dependencyPhysicalLane
 	for _, tenant := range d.f.tenants {
@@ -95,9 +96,18 @@ func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T)
 		lane.relay, lane.mail = transport.mail(t)
 		lane.evaluator = build(lane)
 		lanes = append(lanes, lane)
-		sample(lane)
+		baseline := sample(lane)
+		for i, measurement := range baseline {
+			if !measurement.Result.Success {
+				for _, args := range [][]string{{"-n", lane.network.source, "route", "get", lane.definitions[i].Target}, {"-n", lane.network.router, "route", "show"}} {
+					out, err := exec.CommandContext(t.Context(), "ip", args...).CombinedOutput()
+					t.Logf("owned physical baseline route: %s; error=%v", out, err)
+				}
+				t.Fatalf("healthy physical collector target %s failed: error=%q measurement=%+v", lane.definitions[i].Target, measurement.Result.Error, measurement.Measurement)
+			}
+		}
 		if len(lane.relay.Messages()) != 0 || len(lane.evaluator.Engine().Active()) != 0 {
-			t.Fatal("healthy physical network emitted an alert")
+			t.Fatalf("healthy physical network emitted an alert: messages=%d active=%+v baseline=%+v", len(lane.relay.Messages()), lane.evaluator.Engine().Active(), baseline)
 		}
 	}
 	for laneIndex, lane := range lanes {

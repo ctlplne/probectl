@@ -153,11 +153,13 @@ func dependencyPhysicalDefinitions(t *testing.T, d *dependencyRoutingFixture, te
 	return definitions
 }
 
-func sampleDependencyPhysical(t *testing.T, d *dependencyRoutingFixture, tenant string, ns string, definitions []testspec.ExecutableDefinition, client *agent.EvidenceClient, writer tsdb.Writer) {
+func sampleDependencyPhysical(t *testing.T, d *dependencyRoutingFixture, tenant string, ns string, definitions []testspec.ExecutableDefinition, client *agent.EvidenceClient, writer tsdb.Writer) []dependencyPhysicalMeasurement {
 	t.Helper()
 	sender := d.graphs[tenant].Nodes[0].AgentID
+	measurements := make([]dependencyPhysicalMeasurement, 0, len(definitions))
 	for i, definition := range definitions {
 		value := collectDependencyPhysical(t, ns, definition)
+		measurements = append(measurements, value)
 		m := value.Measurement
 		if i < len(d.graphs[tenant].Nodes) {
 			digest, err := testspec.DefinitionHash(definition)
@@ -187,4 +189,5 @@ func sampleDependencyPhysical(t *testing.T, d *dependencyRoutingFixture, tenant 
 			t.Fatal(err)
 		}
 	}
+	return measurements
 }
