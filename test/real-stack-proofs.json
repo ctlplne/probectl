@@ -2,6 +2,13 @@
   "schema": "probectl.real-stack-proofs/v1",
   "proofs": [
     {
+      "ref": "test:internal/control/alert_dependency_physical_linux_integration_test.go#TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
       "ref": "test:internal/control/alert_dependency_workflow_integration_test.go#TestDependencyWorkflowExplainsCurrentTenantHoldAndWithdrawals",
       "profile": "integration",
       "capabilities": [
