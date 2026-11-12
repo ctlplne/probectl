@@ -257,6 +257,7 @@
       "ref": "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack",
       "profile": "integration",
       "capabilities": [
+        "F8",
         "F17",
         "F9"
       ]

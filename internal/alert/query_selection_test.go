@@ -70,9 +70,10 @@ func TestSavedQueryAlertEngineRestoresNotificationAndResolvesAcrossRestart(t *te
 			at := time.Now().UTC().Add(-time.Minute)
 			key := stateKey(rule.ID, sample.Labels)
 			engine.RestoreNotifications(map[string]NotifyState{key: {FiringSince: at, LastNotified: at}})
-			if current == "absent" {
+			switch current {
+			case "absent":
 				source.read.Samples = nil
-			} else if current == "nonbreaching" {
+			case "nonbreaching":
 				source.read.Samples[0].Value = 0
 			}
 			acted, err := engine.Evaluate(t.Context(), rule)

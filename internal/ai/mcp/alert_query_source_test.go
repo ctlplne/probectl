@@ -97,13 +97,12 @@ func TestSavedQueryAlertMCPRequiresSourceGrantsAndPreservesTenantArguments(t *te
 		if group["isError"] == true || len(b.tenants) != before+1 || b.tenants[before] != tenant {
 			t.Fatal("current group inspection lost actual caller tenant", group)
 		}
-
 	}
-	clear := principal("tenant-a", "alert.write")
-	clear.UserID = "writer"
+	clearActor := principal("tenant-a", "alert.write")
+	clearActor.UserID = "writer"
 	for _, confirmed := range []bool{false, true} {
 		before := len(b.tenants)
-		out := resultOf(t, handle(t, s, clear, 5, "tools/call", map[string]any{"name": "alert_query_source_clear", "arguments": map[string]any{"rule_id": id, "confirmed": confirmed}}))
+		out := resultOf(t, handle(t, s, clearActor, 5, "tools/call", map[string]any{"name": "alert_query_source_clear", "arguments": map[string]any{"rule_id": id, "confirmed": confirmed}}))
 		if confirmed && (out["isError"] == true || len(b.tenants) != before+1) || !confirmed && (out["isError"] != true || len(b.tenants) != before) {
 			t.Fatal("clear confirmation or write-only removal failed", out)
 		}
