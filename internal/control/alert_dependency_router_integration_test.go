@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -446,4 +447,73 @@ func TestDependencyRouterClosesHeldResolutionBeforeDroppingState(t *testing.T) {
 			return nil
 		})
 	}
+}
+
+func TestDependencyHealthPopulationKeepsExactSourcesAndTenantScope(t *testing.T) {
+	d := seedDependencyRoutingFixture(t)
+	for _, tenant := range d.f.tenants {
+		d.f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			scope := entity.Scope{TenantID: tenant, ContextID: d.f.contextID}
+			registry := store.NewEntityRegistry(d.f.pool)
+			var requests []store.ICMPHealthRequest
+			var aliases []entity.AliasKey
+			for _, node := range d.graphs[tenant].Nodes {
+				requests = append(requests, store.ICMPHealthRequest{EntityID: node.EntityID,
+					Source: entity.SourceKey{AgentID: node.AgentID, Kind: entity.PathAgent, SourceRef: node.TestID}})
+			}
+			values, err := registry.ReadICMPHealthPopulationInScope(ctx, sc, scope, requests, time.Minute, 1<<20)
+			if err != nil || len(values) != len(requests) {
+				t.Fatal("complete population unavailable", err)
+			}
+			for i, request := range requests {
+				one, err := registry.ReadICMPHealthInScope(ctx, sc, scope, request.Source, request.EntityID, time.Minute, 1<<20)
+				if err != nil || values[i].State != "down" || values[i].EvidenceID != one.EvidenceID || values[i].SenderSerial != one.SenderSerial || !reflect.DeepEqual(values[i].Observation, one.Observation) || !values[i].FreshUntil.Equal(one.FreshUntil) {
+					t.Fatal("pipelining changed exact current-source evidence", i, err)
+				}
+				aliases = append(aliases, values[i].Observation.Alias)
+			}
+			resolved, err := store.ResolveAliasPopulationInScope(ctx, sc, scope, aliases, 1<<20)
+			if err != nil || len(resolved) != len(requests) {
+				t.Fatal("complete alias population unavailable", err)
+			}
+			var entityIDs []string
+			for i, resolution := range resolved {
+				one, err := store.ResolveAliasInScope(ctx, sc, scope, aliases[i])
+				if err != nil || !reflect.DeepEqual(resolution, one) || resolution.Status != entity.Resolved || resolution.EntityID != requests[i].EntityID {
+					t.Fatal("pipelining changed canonical ambiguity/support", i, err)
+				}
+				entityIDs = append(entityIDs, requests[i].EntityID)
+			}
+			cases, err := (store.Incidents{}).DependencyCauseIncidents(ctx, sc, scope.ContextID, entityIDs, 1<<20)
+			if err != nil || len(cases) != 1 || cases[requests[0].EntityID] != d.cases[tenant] {
+				t.Fatal("case population borrowed another tenant or lost its root", err)
+			}
+			foreign := tenancy.WithTenant(ctx, tenancy.ID(dependencyOtherTenant(d.f.tenants, tenant)))
+			if out, err := registry.ReadICMPHealthPopulationInScope(foreign, sc, scope, requests, time.Minute, 1<<20); err == nil || len(out) != 0 {
+				t.Fatal("foreign context borrowed a storage scope")
+			}
+			if out, err := store.ResolveAliasPopulationInScope(foreign, sc, scope, aliases, 1<<20); err == nil || len(out) != 0 {
+				t.Fatal("foreign alias context borrowed a storage scope")
+			}
+			requests[len(requests)-1].Source.SourceRef = guuid.NewString()
+			unknown, err := registry.ReadICMPHealthPopulationInScope(ctx, sc, scope, requests, time.Minute, 1<<20)
+			if err != nil || unknown[len(unknown)-1].State != "unknown" {
+				t.Fatal("missing source inherited a different source's health", err)
+			}
+			aliases[len(aliases)-1] = entity.AliasKey{Kind: entity.AddressAlias, Value: "invalid-address"}
+			if out, err := store.ResolveAliasPopulationInScope(ctx, sc, scope, aliases, 1<<20); err == nil || len(out) != 0 {
+				t.Fatal("invalid final alias returned a successful prefix")
+			}
+			return nil
+		})
+	}
+}
+
+func dependencyOtherTenant(tenants []string, own string) string {
+	for _, tenant := range tenants {
+		if tenant != own {
+			return tenant
+		}
+	}
+	return ""
 }

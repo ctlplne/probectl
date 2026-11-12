@@ -217,37 +217,48 @@ func (s *Server) dependencyIncidentAuthority(ctx context.Context, sc tenancy.Sco
 func (s *Server) dependencyHealthSnapshot(ctx context.Context, sc tenancy.Scope, policy *alert.DependencyPolicy, maxBytes int64) (alert.DependencySnapshot, map[string]store.ICMPHealth, error) {
 	graph := alert.DependencySnapshot{TenantID: sc.Tenant.String(), ContextID: policy.ContextID, Complete: true}
 	health := make(map[string]store.ICMPHealth, len(policy.Graph.Nodes))
-	perNode := maxBytes / int64(len(policy.Graph.Nodes))
-	if perNode < 16<<10 {
-		return graph, nil, store.ErrAlertDependencyBudget
-	}
 	scope := entity.Scope{TenantID: sc.Tenant.String(), ContextID: policy.ContextID}
 	registry := store.NewEntityRegistry(s.pool)
-	for _, node := range policy.Graph.Nodes {
-		value, err := registry.ReadICMPHealthInScope(ctx, sc, scope,
-			entity.SourceKey{AgentID: node.AgentID, Kind: entity.PathAgent, SourceRef: node.TestID}, node.EntityID, time.Duration(policy.FreshnessSeconds)*time.Second, perNode)
-		if err != nil {
-			return graph, nil, err
-		}
+	requests := make([]store.ICMPHealthRequest, len(policy.Graph.Nodes))
+	for i, node := range policy.Graph.Nodes {
+		requests[i] = store.ICMPHealthRequest{Source: entity.SourceKey{AgentID: node.AgentID, Kind: entity.PathAgent, SourceRef: node.TestID}, EntityID: node.EntityID}
+	}
+	values, err := registry.ReadICMPHealthPopulationInScope(ctx, sc, scope, requests, time.Duration(policy.FreshnessSeconds)*time.Second, maxBytes-maxBytes/4)
+	if err != nil {
+		return graph, nil, err
+	}
+	aliases := make([]entity.AliasKey, len(values))
+	for i, value := range values {
 		if value.State != "up" && value.State != "down" {
 			return graph, nil, alert.ErrDependencyEvidence
 		}
-		resolved, err := store.ResolveAliasInScope(ctx, sc, scope, value.Observation.Alias)
-		if err != nil {
-			return graph, nil, err
-		}
-		if resolved.Status != entity.Resolved || resolved.MoreCandidates || resolved.EntityID != node.EntityID {
+		aliases[i] = value.Observation.Alias
+	}
+	resolved, err := store.ResolveAliasPopulationInScope(ctx, sc, scope, aliases, maxBytes/4)
+	if err != nil {
+		return graph, nil, err
+	}
+	down := make([]string, 0, len(values))
+	for i, node := range policy.Graph.Nodes {
+		value := values[i]
+		if resolved[i].Status != entity.Resolved || resolved[i].MoreCandidates || resolved[i].EntityID != node.EntityID {
 			return graph, nil, alert.ErrDependencyEvidence
+		}
+		if value.State == "down" {
+			down = append(down, node.EntityID)
 		}
 		health[node.EntityID] = value
 		graph.Vertices = append(graph.Vertices, alert.DependencyVertex{EntityID: node.EntityID, Parents: node.Parents, FreshUntil: value.FreshUntil})
-		if value.State == "down" {
-			id, err := (store.Incidents{}).DependencyCauseIncident(ctx, sc, policy.ContextID, node.EntityID)
-			if err != nil {
-				return graph, nil, err
-			}
-			if id != "" {
-				graph.Causes = append(graph.Causes, alert.DependencyCause{TenantID: scope.TenantID, ContextID: scope.ContextID, EntityID: node.EntityID, IncidentID: id, ObservedAt: value.Observation.ObservedAt, FreshUntil: value.FreshUntil})
+	}
+	if len(down) > 0 {
+		cases, err := (store.Incidents{}).DependencyCauseIncidents(ctx, sc, policy.ContextID, down, maxBytes/4)
+		if err != nil {
+			return graph, nil, err
+		}
+		for _, id := range down {
+			if incidentID := cases[id]; incidentID != "" {
+				value := health[id]
+				graph.Causes = append(graph.Causes, alert.DependencyCause{TenantID: scope.TenantID, ContextID: scope.ContextID, EntityID: id, IncidentID: incidentID, ObservedAt: value.Observation.ObservedAt, FreshUntil: value.FreshUntil})
 			}
 		}
 	}

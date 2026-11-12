@@ -309,8 +309,14 @@ func ResolveAliasInScope(ctx context.Context, sc tenancy.Scope,
 	if err != nil {
 		return entity.Resolution{}, err
 	}
-	var claims []entity.Claim
-	rows, err := sc.Q.Query(ctx, `
+	rows, err := sc.Q.Query(ctx, currentAliasResolutionSQL(), want.TenantID, want.ContextID, string(key.Kind), key.Value)
+	return scanAliasResolution(rows, err, want, key)
+}
+
+// Population lookup uses this exact query too: ambiguity and independent
+// current support must not depend on the number of aliases in an operation.
+func currentAliasResolutionSQL() string {
+	return `
 			SELECT DISTINCT ON (resolved_node.id)
 			       e.id::text, resolved_node.id::text, resolved_node.kind, e.source, e.source_ref,
 		       e.agent_id, e.source_kind, e.configured_ref, e.observed_at,
@@ -327,13 +333,13 @@ func ResolveAliasInScope(ctx context.Context, sc tenancy.Scope,
 			       (e.tenant_id, e.context_id, e.agent_id, e.source_kind, e.configured_ref)
 		     AND ((e.support_evidence_id IS NULL AND
 		           m.anchor_entity_id = COALESCE(n.parent_entity_id,e.entity_id))
-		          OR (m.anchor_entity_id IS NULL AND `+currentInferredSupportSQL("e")+`))
+		          OR (m.anchor_entity_id IS NULL AND ` + currentInferredSupportSQL("e") + `))
 		  JOIN entity_agent_contexts a ON
 		       (a.tenant_id, a.agent_id, a.context_id) =
 		       (m.tenant_id, m.agent_id, m.context_id)
 			 WHERE e.tenant_id = $1 AND e.context_id = $2
 			   AND e.alias_kind = $3 AND e.alias_value = $4
-			   AND `+currentPhysicalNeighborSQL+`
+			   AND ` + currentPhysicalNeighborSQL + `
 			   AND e.observed_at <= statement_timestamp()
 			   AND (e.expires_at IS NULL OR e.expires_at > statement_timestamp())
 			   AND m.assigned_at <= statement_timestamp()
@@ -366,10 +372,14 @@ func ResolveAliasInScope(ctx context.Context, sc tenancy.Scope,
 			          AND origin.issued_at <= e.observed_at
 			          AND origin.not_after > statement_timestamp()))
 			 ORDER BY resolved_node.id, e.observed_at DESC, e.id
-			 LIMIT 4`, want.TenantID, want.ContextID, string(key.Kind), key.Value)
+			 LIMIT 4`
+}
+
+func scanAliasResolution(rows pgx.Rows, err error, want entity.Scope, key entity.AliasKey) (entity.Resolution, error) {
 	if err != nil {
 		return entity.Resolution{}, err
 	}
+	var claims []entity.Claim
 	defer rows.Close()
 	for rows.Next() {
 		var claim entity.Claim

@@ -96,32 +96,53 @@ func LockDependencySourcesInScope(ctx context.Context, sc tenancy.Scope, context
 	return ValidateDependencyGraphInScope(ctx, sc, contextID, graph, maxBytes)
 }
 
-// DependencyCauseIncident returns a single current canonical upstream case.
+// DependencyCauseIncidents returns at most one current canonical case per source.
 // Ambiguity is not resolved by recency or a UUID winner. RLS, context and
 // canonical identity all apply before considering the case a hold cause.
-func (Incidents) DependencyCauseIncident(ctx context.Context, sc tenancy.Scope, contextID, entityID string) (string, error) {
+func (Incidents) DependencyCauseIncidents(ctx context.Context, sc tenancy.Scope, contextID string, entityIDs []string, maxBytes int64) (map[string]string, error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || bound != sc.Tenant || sc.Q == nil {
-		return "", alert.ErrDependencyEvidence
+		return nil, alert.ErrDependencyEvidence
 	}
-	rows, err := sc.Q.Query(ctx, `SELECT id::text FROM incidents
- WHERE tenant_id=$1 AND entity_context_id=$2 AND entity_id=$3
+	if len(entityIDs) == 0 || int64(len(entityIDs)) > maxBytes/512 {
+		return nil, ErrAlertDependencyBudget
+	}
+	if _, err := validRegistryUUID(contextID); err != nil {
+		return nil, err
+	}
+	for _, id := range entityIDs {
+		if _, err := validRegistryUUID(id); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := sc.Q.Query(ctx, `SELECT entity_id::text,id::text FROM incidents
+ WHERE tenant_id=$1 AND entity_context_id=$2 AND entity_id=ANY($3::uuid[])
  AND identity_lookup_attempted AND status='open'
- ORDER BY id FOR UPDATE`, sc.Tenant.String(), contextID, entityID)
+ ORDER BY entity_id,id FOR UPDATE`, sc.Tenant.String(), contextID, entityIDs)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer rows.Close()
-	var id string
+	out := make(map[string]string, len(entityIDs))
+	remaining := maxBytes / 512
 	for rows.Next() {
-		if id != "" {
-			return "", alert.ErrDependencyEvidence
+		remaining--
+		if remaining < 0 {
+			return nil, ErrAlertDependencyBudget
 		}
-		if err := rows.Scan(&id); err != nil {
-			return "", err
+		var entityID, id string
+		if err := rows.Scan(&entityID, &id); err != nil {
+			return nil, err
 		}
+		if out[entityID] != "" {
+			return nil, alert.ErrDependencyEvidence
+		}
+		out[entityID] = id
 	}
-	return id, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // DependencyParentIncidents is only a history lookup for an already-authorized

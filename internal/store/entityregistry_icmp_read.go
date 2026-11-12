@@ -59,18 +59,15 @@ func (s *EntityRegistry) ReadICMPHealthInScope(ctx context.Context, sc tenancy.S
 		return unknown, err
 	}
 
-	var out ICMPHealth
-	var body, params []byte
-	var observedEntity, aliasKind, profileID, profileType, target, pathTarget string
-	var current, conflict bool
-	var updated, pathAssigned, contextAssigned time.Time
-	var until time.Time
-	var test testspec.ExecutableDefinition
-	out.Observation.Source = key
-	// Transfer admission precedes JSON decoding. LIMIT 1 selects the latest
-	// sample, not a truncated population: the EXISTS examines every equal-clock
-	// candidate, including a different entity, sender, target or unknown payload.
-	err = sc.Q.QueryRow(ctx, `SELECT e.id::text,e.observation_id::text,e.entity_id::text,
+	return scanICMPHealth(sc.Q.QueryRow(ctx, currentICMPHealthSQL(), want.TenantID, want.ContextID, key.AgentID, key.SourceRef, entityID, maxBytes/16), key, entityID, freshness)
+}
+
+// Keep the single-source and population readers on the identical current,
+// erasure, exact-sender and executable-definition SQL door.
+// Transfer admission precedes JSON decoding. LIMIT 1 selects the latest
+// sample; EXISTS checks all equal-clock candidates for conflicting evidence.
+func currentICMPHealthSQL() string {
+	return `SELECT e.id::text,e.observation_id::text,e.entity_id::text,
  e.alias_kind,e.alias_value,e.source_ref,e.sender_serial,e.observed_at,
  CASE WHEN octet_length(e.icmp_measurement::text)<=$6 THEN e.icmp_measurement END,
  statement_timestamp(),
@@ -81,7 +78,7 @@ func (s *EntityRegistry) ReadICMPHealthInScope(ctx context.Context, sc tenancy.S
          (e.tenant_id,e.context_id,e.agent_id,e.source_kind,e.configured_ref,e.observed_at)
      AND ROW(other.entity_id,other.alias_kind,other.alias_value,other.source_ref,other.sender_serial,other.icmp_measurement)
          IS DISTINCT FROM ROW(e.entity_id,e.alias_kind,e.alias_value,e.source_ref,e.sender_serial,e.icmp_measurement)),
- COALESCE(`+currentEntityEvidenceSQL()+`
+ COALESCE(` + currentEntityEvidenceSQL() + `
    AND e.entity_id=$5 AND e.source_ref='icmp:configured-test'
    AND e.alias_kind='address' AND e.icmp_measurement IS NOT NULL
    AND m.anchor_entity_id=e.entity_id
@@ -115,13 +112,24 @@ func (s *EntityRegistry) ReadICMPHealthInScope(ctx context.Context, sc tenancy.S
  LEFT JOIN entity_path_test_contexts p ON
    (p.tenant_id,p.test_id,p.context_id)=(t.tenant_id,t.id,e.context_id)
  LEFT JOIN entity_test_contexts c ON
-   (c.tenant_id,c.test_id,c.context_id)=(t.tenant_id,t.id,e.context_id)`,
-		want.TenantID, want.ContextID, key.AgentID, key.SourceRef, entityID, maxBytes/16).
-		Scan(&out.EvidenceID, &out.Observation.ID, &observedEntity, &aliasKind,
-			&out.Observation.Alias.Value, &out.Observation.SourceRef, &out.SenderSerial,
-			&out.Observation.ObservedAt, &body, &out.AsOf, &until, &conflict, &current,
-			&profileID, &profileType, &target, &test.IntervalSeconds, &test.TimeoutSeconds,
-			&params, &updated, &pathTarget, &pathAssigned, &contextAssigned)
+   (c.tenant_id,c.test_id,c.context_id)=(t.tenant_id,t.id,e.context_id)`
+}
+
+func scanICMPHealth(row pgx.Row, key entity.SourceKey, entityID string, freshness time.Duration) (ICMPHealth, error) {
+	unknown := ICMPHealth{State: "unknown", Reason: "unavailable"}
+	var out ICMPHealth
+	var body, params []byte
+	var observedEntity, aliasKind, profileID, profileType, target, pathTarget string
+	var current, conflict bool
+	var updated, pathAssigned, contextAssigned time.Time
+	var until time.Time
+	var test testspec.ExecutableDefinition
+	out.Observation.Source = key
+	err := row.Scan(&out.EvidenceID, &out.Observation.ID, &observedEntity, &aliasKind,
+		&out.Observation.Alias.Value, &out.Observation.SourceRef, &out.SenderSerial,
+		&out.Observation.ObservedAt, &body, &out.AsOf, &until, &conflict, &current,
+		&profileID, &profileType, &target, &test.IntervalSeconds, &test.TimeoutSeconds,
+		&params, &updated, &pathTarget, &pathAssigned, &contextAssigned)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return unknown, nil
 	}
