@@ -25,9 +25,10 @@ import (
 )
 
 type scheduled struct {
-	canary   canary.Canary
-	interval time.Duration
-	testID   string
+	canary         canary.Canary
+	interval       time.Duration
+	testID         string
+	definitionHash string
 }
 
 const resultEnvelopeSchemaVersion uint32 = 1
@@ -68,12 +69,13 @@ func newResultID() string {
 // applyCentral replaces at runtime by diff — a test whose definition did not
 // change keeps its goroutine and cadence.
 type Host struct {
-	scheduled []scheduled
-	buffer    *Buffer
-	tenantID  string
-	agentID   string
-	log       *slog.Logger
-	metrics   *agentmetrics.Runtime
+	scheduled     []scheduled
+	buffer        *Buffer
+	tenantID      string
+	agentID       string
+	log           *slog.Logger
+	metrics       *agentmetrics.Runtime
+	probeEvidence *probeEvidenceQueue
 
 	mu      sync.Mutex
 	runCtx  context.Context // set while Run is active; nil before and after
@@ -277,6 +279,9 @@ func (h *Host) probe(ctx context.Context, s scheduled) {
 	}
 	if h.metrics != nil {
 		h.metrics.SetBufferDepth(h.buffer.Len())
+	}
+	if h.probeEvidence != nil {
+		h.enqueueProbeEvidence(s, res)
 	}
 	// RESIL-009: warn early when the store-and-forward buffer is approaching
 	// either bound (records or on-disk bytes) — a control-plane outage is filling

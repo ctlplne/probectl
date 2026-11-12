@@ -55,7 +55,7 @@ func (c *EvidenceClient) SubmitRoutingMessage(ctx context.Context, raw *agentv1.
 		return nil, err
 	}
 	receipt := response.GetRoutingMessage()
-	if receipt == nil || hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetFlowRouting() != nil || response.GetAccepted() != 0 || response.GetUnresolved() != 0 || response.GetFaultsPersisted() != 0 || response.GetRouting() != nil ||
+	if receipt == nil || hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetFlowRouting() != nil || response.GetAccepted() != 0 || response.GetUnresolved() != 0 || response.GetFaultsPersisted() != 0 || response.GetIcmpMeasurementsPersisted() != 0 || response.GetRouting() != nil ||
 		receipt.Generation != raw.Generation || receipt.Sequence != raw.Sequence {
 		return nil, ErrEvidenceBatchInvalid
 	}

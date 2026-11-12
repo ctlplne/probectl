@@ -216,3 +216,12 @@ func (c *icmpCanary) setReadBuffer(conn *icmp.PacketConn, v6 bool) error {
 	}
 	return buffered.SetReadBuffer(c.readBuffer)
 }
+
+// ICMPRequestedPackets returns the actual compiled-in ICMP profile population,
+// including continuous-mode defaults. Zero means a different canary type.
+func ICMPRequestedPackets(probe Canary) uint64 {
+	if icmp, ok := probe.(*icmpCanary); ok && icmp.count > 0 {
+		return uint64(icmp.count)
+	}
+	return 0
+}

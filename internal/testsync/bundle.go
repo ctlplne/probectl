@@ -27,18 +27,12 @@ import (
 	"fmt"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/testspec"
 )
 
 // Test is the minimal, agent-executable view of a synthetic test (the bundle
 // does not carry control-plane-only metadata like timestamps).
-type Test struct {
-	ID              string            `json:"id"`
-	Type            string            `json:"type"`
-	Target          string            `json:"target"`
-	IntervalSeconds int               `json:"interval_seconds"`
-	TimeoutSeconds  int               `json:"timeout_seconds"`
-	Params          map[string]string `json:"params,omitempty"`
-}
+type Test = testspec.ExecutableDefinition
 
 // Bundle is the signed payload: a tenant's enabled tests at a monotonically
 // increasing epoch. The agent applies a bundle only if its epoch is newer than

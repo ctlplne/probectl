@@ -268,6 +268,27 @@ message EntityEvidenceObservation {
   optional string system_name = 19; // raw bounded sysName; absent is legacy, present empty clears
   AgentAddressSnapshot agent_addresses = 20; // agent_site claim only; complete local IP metadata
   SnmpInterfacePrefixSnapshot snmp_interface_prefixes = 21; // configured-target device address claim only
+  IcmpMeasurement icmp = 22; // current configured test; never ordinary result metrics
+}
+
+// Collector IO facts on the existing evidence-only mTLS plane. The receiver
+// derives tenant/agent and checks the exact current enabled test definition,
+// source/context/anchor and certificate window before retaining this metadata.
+// Local failure/cancellation remains unknown health, never upstream-down proof.
+message IcmpMeasurement {
+  uint32 version = 1;
+  string definition_hash = 2;
+  int64 started_unix_nanos = 3;
+  int64 completed_unix_nanos = 4;
+  uint32 requested = 5;
+  uint32 attempted = 6;
+  uint32 transmitted = 7;
+  uint32 replies = 8;
+  uint32 send_errors = 9;
+  bool read_complete = 10;
+  bool canceled = 11;
+  bool io_failed = 12;
+  repeated string responders = 13;
 }
 
 // A bounded fault observation shares the evidence-only RPC and live mTLS
@@ -427,4 +448,5 @@ message SubmitEntityEvidenceResponse {
   PublicRoutingStagingReceipt public_routing = 7;
   PublicRoutingMessageReceipt public_routing_message = 8;
   DeviceCounterCapture device_counter = 9;
+  uint32 icmp_measurements_persisted = 10; // typed metadata retained, not a generic address ack
 }

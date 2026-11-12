@@ -27,6 +27,7 @@ import (
 	"github.com/ctlplne/probectl/internal/canary"
 	"github.com/ctlplne/probectl/internal/crypto"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
+	"github.com/ctlplne/probectl/internal/testspec"
 	"github.com/ctlplne/probectl/internal/testsync"
 )
 
@@ -337,11 +338,11 @@ func (s *testSyncer) admitOne(t testsync.Test, seen map[string]bool) (string, ce
 	if err != nil {
 		return "invalid_test", centralDef{}
 	}
-	hash, err := testsync.DefinitionHash(t)
+	hash, err := testspec.DefinitionHash(t)
 	if err != nil {
 		return "invalid_test", centralDef{}
 	}
-	return "", centralDef{id: t.ID, hash: hash, sched: scheduled{canary: c, interval: interval, testID: t.ID}}
+	return "", centralDef{id: t.ID, hash: hash, sched: scheduled{canary: c, interval: interval, testID: t.ID, definitionHash: hash}}
 }
 
 // privateTarget reports a target whose host is a literal private, loopback,

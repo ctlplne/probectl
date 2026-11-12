@@ -193,7 +193,7 @@ type Meta struct {
 	HeartbeatInterval Duration          `yaml:"heartbeat_interval"`
 }
 
-// EvidenceConfig opts the synthetic agent's observed site label into the
+// EvidenceConfig opts the synthetic agent's site and ICMP observations into the
 // restricted D-179 identity RPC. This certificate is separate from the agent
 // plane's test/heartbeat/result SVID and cannot call those methods.
 type EvidenceConfig struct {

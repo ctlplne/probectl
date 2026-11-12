@@ -210,6 +210,7 @@ func run() error {
 			return fmt.Errorf("site evidence certificate does not match the registered agent tenant and ID")
 		}
 		a.WithSiteEvidence(client)
+		a.WithProbeEvidence(client)
 	}
 
 	// Automatic SVID rotation (Sprint 11): rotate the on-disk identity at

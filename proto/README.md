@@ -18,7 +18,7 @@ upstream schemas are vendored so probectl interoperates with the real ecosystem.
 
 | File | Package | What it carries |
 | ---- | ------- | --------------- |
-| `probectl/agent/v1/agent.proto` | `probectl.agent.v1` | `AgentService` — Register / Attest / Heartbeat, streaming result RPCs, and one bounded `SubmitEntityEvidence` RPC for canonical observations and fault signals on the evidence-only mTLS certificate plane |
+| `probectl/agent/v1/agent.proto` | `probectl.agent.v1` | `AgentService` — Register / Attest / Heartbeat, streaming result RPCs, and one bounded `SubmitEntityEvidence` RPC for canonical observations, typed current-test ICMP measurement metadata and fault signals on the evidence-only mTLS certificate plane |
 | `probectl/result/v1/result.proto` | `probectl.result.v1` | the canonical probe-result envelope (`Result` / `ResultBatch`), modeled on OTel resource + network semantic conventions; tenant carried as `probectl.tenant.id` |
 | `probectl/bgp/v1/bgp.proto` | `probectl.bgp.v1` | `BGPEvent` / `BGPEventBatch` — the canonical form the Go bridge republishes from the Python analyzer |
 | `probectl/flow/v1/flow.proto` | `probectl.flow.v1` | `FlowRecord` / `FlowBatch` plus `FlowIngestQualityReceipt` / batch — device/cloud records and bounded secret-free per-exporter ingest health |

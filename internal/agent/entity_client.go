@@ -160,6 +160,7 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 				SystemName:                item.SystemName,
 				AgentAddresses:            addresses,
 				SnmpInterfacePrefixes:     prefixes,
+				Icmp:                      encodeICMPMeasurement(item.ICMP),
 				NeighborProtocol:          item.NeighborProtocol,
 				NeighborLocalIfIndex:      item.NeighborLocalIfIndex,
 				NeighborLocalPortId:       item.NeighborLocalPortID,
@@ -209,7 +210,7 @@ func (c *EvidenceClient) Submit(ctx context.Context, observations []entity.Obser
 	if err != nil {
 		return 0, 0, err
 	}
-	if hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetFlowRouting() != nil {
+	if hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetFlowRouting() != nil || !validICMPEvidenceReceipt(request, response) {
 		return 0, 0, ErrEvidenceBatchInvalid
 	}
 	return int(response.GetAccepted()), int(response.GetUnresolved()), nil
@@ -271,7 +272,7 @@ func (c *EvidenceClient) SubmitFaults(ctx context.Context, raw []entity.FaultObs
 	if err != nil {
 		return 0, err
 	}
-	if hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetFlowRouting() != nil || int(response.GetFaultsPersisted()) != len(raw) {
+	if hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetFlowRouting() != nil || response.GetIcmpMeasurementsPersisted() != 0 || int(response.GetFaultsPersisted()) != len(raw) {
 		return 0, ErrEvidenceBatchInvalid
 	}
 	return len(raw), nil

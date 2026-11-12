@@ -23,6 +23,7 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
+	"github.com/ctlplne/probectl/internal/testspec"
 	"github.com/ctlplne/probectl/internal/version"
 )
 
@@ -79,7 +80,16 @@ func New(cfg *Config, reg *canary.Registry, log *slog.Logger) (*Agent, error) {
 		if err != nil {
 			return nil, err
 		}
-		sched = append(sched, scheduled{canary: c, interval: cc.Interval.Std(), testID: cc.TestID})
+		digest := ""
+		if cc.TestID != "" && cc.Interval.Std()%time.Second == 0 && cc.Timeout.Std()%time.Second == 0 {
+			digest, err = testspec.DefinitionHash(testspec.ExecutableDefinition{ID: cc.TestID, Type: cc.Type,
+				Target: cc.Target, IntervalSeconds: int(cc.Interval.Std() / time.Second),
+				TimeoutSeconds: int(cc.Timeout.Std() / time.Second), Params: cc.Params})
+			if err != nil {
+				return nil, err
+			}
+		}
+		sched = append(sched, scheduled{canary: c, interval: cc.Interval.Std(), testID: cc.TestID, definitionHash: digest})
 	}
 	host := &Host{scheduled: sched, buffer: buffer, tenantID: id.TenantID, agentID: id.AgentID, log: log}
 	a := &Agent{cfg: cfg, log: log, buffer: buffer, host: host, reg: reg, tenantID: id.TenantID, agentID: id.AgentID}
@@ -124,6 +134,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { a.host.Run(gctx); return nil })
 	g.Go(func() error { return a.forward(gctx) })
+	if a.host.probeEvidence != nil {
+		g.Go(func() error { a.host.runProbeEvidence(gctx); return nil })
+	}
 	if a.siteEvidence != nil && a.cfg.Agent.Labels["site"] != "" {
 		g.Go(func() error { a.runSiteEvidence(gctx); return nil })
 	}

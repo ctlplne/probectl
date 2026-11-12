@@ -35,7 +35,7 @@ func TestPublicRoutingClientKeepsOriginalFramesAndRequiresExclusiveReceipts(t *t
 	if got, err := client.SubmitPublicRoutingMessage(t.Context(), message); err != nil || !proto.Equal(got, receipt) || !proto.Equal(stub.request.PublicRoutingMessage, message) {
 		t.Fatal("public routing client changed original record or sequence", got, err)
 	}
-	for _, response := range []*agentv1.SubmitEntityEvidenceResponse{nil, {}, {PublicRoutingMessage: receipt, FaultsPersisted: 1}, {PublicRoutingMessage: receipt, FlowRouting: &agentv1.FlowRoutingCaptureBatch{}}, {PublicRoutingMessage: receipt, PublicRouting: stage}, {PublicRoutingMessage: &agentv1.PublicRoutingMessageReceipt{Status: "applied", SnapshotId: id, Sequence: 2}}, {PublicRoutingMessage: &agentv1.PublicRoutingMessageReceipt{Status: "invalidated", SnapshotId: id, Sequence: 1}}} {
+	for _, response := range []*agentv1.SubmitEntityEvidenceResponse{nil, {}, {PublicRoutingMessage: receipt, FaultsPersisted: 1}, {PublicRoutingMessage: receipt, IcmpMeasurementsPersisted: 1}, {PublicRoutingMessage: receipt, FlowRouting: &agentv1.FlowRoutingCaptureBatch{}}, {PublicRoutingMessage: receipt, PublicRouting: stage}, {PublicRoutingMessage: &agentv1.PublicRoutingMessageReceipt{Status: "applied", SnapshotId: id, Sequence: 2}}, {PublicRoutingMessage: &agentv1.PublicRoutingMessageReceipt{Status: "invalidated", SnapshotId: id, Sequence: 1}}} {
 		stub.response = response
 		if _, err := client.SubmitPublicRoutingMessage(t.Context(), message); err == nil {
 			t.Fatal("public routing message accepted a foreign, mixed or invalidated receipt")

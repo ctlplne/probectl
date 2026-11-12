@@ -40,6 +40,7 @@ func TestFlowRoutingClientRequiresCompleteOrderedCertifiedReceipts(t *testing.T)
 		t.Fatal("flow witness receipt retained mutable transport storage")
 	}
 	for _, mutate := range []func(*agentv1.SubmitEntityEvidenceResponse){
+		func(v *agentv1.SubmitEntityEvidenceResponse) { v.IcmpMeasurementsPersisted = 1 },
 		func(v *agentv1.SubmitEntityEvidenceResponse) { v.FlowRouting = nil },
 		func(v *agentv1.SubmitEntityEvidenceResponse) { v.FlowRouting.Captures = v.FlowRouting.Captures[:1] },
 		func(v *agentv1.SubmitEntityEvidenceResponse) { v.FlowRouting.Captures[0] = nil },

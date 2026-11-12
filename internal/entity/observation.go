@@ -44,6 +44,7 @@ type Observation struct {
 	AgentAddresses []netip.Addr
 	// SNMPInterfacePrefixes is one complete optional prefix table on the
 	// configured-target address claim only. Nil is unavailable, never a clear.
+	ICMP                  *ICMPMeasurement
 	SNMPInterfacePrefixes []SNMPInterfacePrefix
 	NeighborProtocol      string
 	NeighborLocalIfIndex  uint32
@@ -123,6 +124,10 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 	}
 	// PostgreSQL timestamps store microseconds. Canonicalize before the
 	// idempotency comparison so a nanosecond input replays identically.
+	o.ICMP, err = normalizeICMPMeasurement(o)
+	if err != nil {
+		return Observation{}, err
+	}
 	o.ObservedAt = o.ObservedAt.UTC().Truncate(time.Microsecond)
 	return o, nil
 }

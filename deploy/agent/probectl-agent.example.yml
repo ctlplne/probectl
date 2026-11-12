@@ -30,9 +30,11 @@ agent:
     site: iad-branch-07
   heartbeat_interval: 30s
 
-# Optional FX-2 canonical site evidence. Issue a separate entity-plane SVID
+# Optional canonical site and ICMP measurement evidence. Issue a separate entity-plane SVID
 # for this registered agent and assign its agent_site source to a site/context
-# in Admin. The ordinary agent certificate above cannot call the evidence RPC.
+# in Admin. Bound ICMP tests additionally use path_agent assignments keyed by
+# their current test UUID and explicit test/context binding. The ordinary agent
+# certificate above cannot call the evidence RPC.
 # evidence:
 #   control_addr: control.probectl.local:9443
 #   cert_file: /var/lib/probectl-agent/entity-identity/cert.pem

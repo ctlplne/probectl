@@ -111,6 +111,9 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 		if item == nil {
 			return nil, status.Error(codes.InvalidArgument, "evidence observation is missing")
 		}
+		if item.GetIcmp() != nil && len(item.ProtoReflect().GetUnknown()) != 0 {
+			return nil, status.Error(codes.InvalidArgument, "unsupported ICMP observation fields")
+		}
 		var addresses []netip.Addr
 		if item.AgentAddresses != nil {
 			addresses, err = entity.ParseAgentAddressSnapshot(item.AgentAddresses.Addresses)
@@ -121,6 +124,10 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 		prefixes, err := parseSNMPPrefixEvidence(item.SnmpInterfacePrefixes)
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, "invalid complete SNMP interface prefix snapshot")
+		}
+		icmp, err := parseICMPMeasurement(item.GetIcmp())
+		if err != nil {
+			return nil, err
 		}
 		observations = append(observations, entity.Observation{
 			ID: item.GetObservationId(),
@@ -138,6 +145,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 			SystemName:            item.SystemName,
 			AgentAddresses:        addresses,
 			SNMPInterfacePrefixes: prefixes,
+			ICMP:                  icmp,
 			NeighborProtocol:      item.GetNeighborProtocol(),
 			NeighborLocalIfIndex:  item.GetNeighborLocalIfIndex(),
 			NeighborLocalPortID:   item.GetNeighborLocalPortId(),
@@ -148,14 +156,14 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 			ObservedAt:            time.Unix(0, item.GetObservedUnixNanos()),
 		})
 	}
-	var accepted, unresolved int
+	var accepted, unresolved, icmpRetained int
 	if len(observations) > 0 {
 		err = tenancy.FencedTenantWrite(ctx, svc.fence, id.TenantID,
 			entity.ErrScopeMismatch, func(ctx context.Context) error {
-				var writeErr error
-				accepted, unresolved, writeErr = store.NewEntityRegistry(svc.pool).
-					WriteEvidenceBatch(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)),
+				receipt, writeErr := store.NewEntityRegistry(svc.pool).
+					WriteEvidenceBatchReceipt(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)),
 						id.AgentID, serial, observations)
+				accepted, unresolved, icmpRetained = receipt.Accepted, receipt.Unresolved, receipt.ICMPMeasurements
 				return writeErr
 			})
 		if err != nil {
@@ -188,7 +196,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	if svc.log != nil {
 		svc.log.Info("entity evidence batch processed", "tenant_id", id.TenantID,
 			"agent_id", id.AgentID, "accepted", accepted, "unresolved", unresolved,
-			"faults_persisted", faultsPersisted)
+			"faults_persisted", faultsPersisted, "icmp_measurements_persisted", icmpRetained)
 	}
 	if counter := svc.entityEvidenceObservations["accepted"]; counter != nil {
 		counter.Add(uint64(accepted))
@@ -206,7 +214,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	}
 	return &agentv1.SubmitEntityEvidenceResponse{
 		Accepted: uint32(accepted), Unresolved: uint32(unresolved),
-		FaultsPersisted: uint32(faultsPersisted),
+		FaultsPersisted: uint32(faultsPersisted), IcmpMeasurementsPersisted: uint32(icmpRetained),
 	}, nil
 }
 

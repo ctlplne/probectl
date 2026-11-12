@@ -1437,7 +1437,9 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
  WHERE subject_address.value = ANY($5::inet[]))`, `EXISTS (
  SELECT 1 FROM jsonb_array_elements(COALESCE(subject_row.snmp_interface_prefixes,'[]'::jsonb)) AS subject_prefix(value)
  WHERE lower(subject_prefix.value->>'prefix') = ANY($2::text[])
-    OR (subject_prefix.value->>'prefix')::inet = ANY($5::inet[]))`)
+    OR (subject_prefix.value->>'prefix')::inet = ANY($5::inet[]))`, `EXISTS (
+ SELECT 1 FROM jsonb_array_elements_text(COALESCE(subject_row.icmp_measurement->'responders','[]'::jsonb)) AS subject_responder(value)
+ WHERE subject_responder.value::inet = ANY($5::inet[]))`)
 	}
 	return "(" + strings.Join(parts, " OR ") + ")"
 }

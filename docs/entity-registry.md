@@ -160,6 +160,39 @@ does not appear in public raw-evidence projections. Current ordinary agent
 identity and the complete evidence sender/source/context predicate remain
 required before tags can use the private address facts.
 
+### ICMP collector facts (preview)
+
+A `path_agent` source can retain typed ICMP measurement metadata on its address
+observation. Its configured reference is the current enabled test UUID. The
+receiver checks the exact executable-definition digest, packet population and
+explicit test/context binding under the same tenant transaction as the issued
+sender certificate and operator-owned canonical device anchor. Both collection
+clocks must follow the current credential and assignments; literal targets must
+match the observed destination. The actual responder set preserves IPv6 anycast
+replies from a different unicast address.
+
+The metadata records requested, attempted, transmitted and received packets,
+local send errors, reply-window completion, cancellation and local IO failure.
+Incomplete IO remains unknown health. Ordinary result metrics cannot provide
+this evidence. A typed retention receipt is required: a legacy server's generic
+address acknowledgment cannot certify that it retained the measurement. Exact
+UUID retries preserve every normalized field and original clock.
+
+The optional agent `evidence` configuration enables background delivery. Current
+observations are coalesced per test definition; the existing `buffer.max_records`
+and positive `buffer.max_bytes` values bound pending plus in-flight memory. A
+records-only disk setting uses the normal 256 MiB memory budget. Exhaustion
+refuses a whole observation, logs usage and increments the existing error metric;
+probes and ordinary buffered results continue. Retry never replaces newer
+unknown/healthy data with an older failure. No additional retained agent queue
+or listener is created.
+
+The original metadata uses the existing evidence lifecycle and tenant boundary.
+Subject export/erasure matches responder IPs exactly, including IPv6, and keeps
+nearby addresses and the other tenant intact. Observations before the existing
+erasure cutoff cannot recreate deleted evidence. Dependency notification
+routing remains a preview and still needs complete current graph/incident proof.
+
 The configured-target SNMP address observation may also carry bounded raw
 `sysName` and `sysDescr` metadata. These fields never select identity or context.
 Raw system-name presence distinguishes a legacy omission from an explicit

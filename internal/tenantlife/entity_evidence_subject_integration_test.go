@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/store/flowsnapshot"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport"
@@ -55,6 +56,10 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 		{uuid.NewString(), "snmp_interface_prefixes", "2001:db8::7/128"},
 		{uuid.NewString(), "snmp_interface_prefixes", "2001:db8::70/128"},
 		{uuid.NewString(), "snmp_interface_prefixes", "192.0.2.0/24"},
+		{uuid.NewString(), "icmp", "192.0.2.7"},
+		{uuid.NewString(), "icmp", "192.0.2.70"},
+		{uuid.NewString(), "icmp", "2001:db8::7"},
+		{uuid.NewString(), "icmp", "2001:db8::70"},
 	}
 	contextID, entityID := uuid.NewString(), uuid.NewString()
 	generations := make(map[string]int64)
@@ -67,7 +72,8 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 				return err
 			}
 			for _, row := range samples {
-				var name, description, addresses, prefixes any
+				var name, description, addresses, prefixes, icmp, observed any
+				aliasValue := "neutral-alias"
 				kind, alias, sourceRef, configured := "device_target", "address", "snmp:configured-target", "neutral-target"
 				switch row.field {
 				case "snmp_system_name":
@@ -79,10 +85,23 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 					kind, alias, sourceRef, configured = "agent_site", "agent_site_id", "agent:label:site", "neutral-agent"
 				case "snmp_interface_prefixes":
 					prefixes = fmt.Sprintf(`[{"if_index":1,"prefix":%q,"on_link":true}]`, row.value)
+				case "icmp":
+					kind, alias, sourceRef, configured = "path_agent", "address", "icmp:configured-test", contextID
+					aliasValue = "192.0.2.200"
+					if strings.Contains(row.value, ":") {
+						aliasValue = "2001:db8::200"
+					}
+					end := time.Now().UTC().Truncate(time.Microsecond)
+					observed = end
+					body, err := json.Marshal(entity.ICMPMeasurement{Version: 1, DefinitionHash: strings.Repeat("a", 64), StartedAt: end.Add(-time.Second), CompletedAt: end, Requested: 3, Attempted: 3, Transmitted: 3, Replies: 1, ReadComplete: true, Responders: []string{row.value}})
+					if err != nil {
+						return err
+					}
+					icmp = body
 				}
 				_, err := sc.Q.Exec(ctx, `INSERT INTO entity_evidence
- (tenant_id,context_id,id,observation_id,entity_id,alias_kind,alias_value,source,source_ref,agent_id,source_kind,configured_ref,sender_serial,observed_at,snmp_system_name,snmp_system_description,agent_addresses,snmp_interface_prefixes)
- VALUES($1,$2,$3,$3,$4,$5,'neutral-alias','lifecycle-component',$6,'neutral-agent',$7,$8,'abc',statement_timestamp(),$9,$10,$11::inet[],$12::jsonb)`, tenant, contextID, row.id, entityID, alias, sourceRef, kind, configured, name, description, addresses, prefixes)
+ (tenant_id,context_id,id,observation_id,entity_id,alias_kind,alias_value,source,source_ref,agent_id,source_kind,configured_ref,sender_serial,observed_at,snmp_system_name,snmp_system_description,agent_addresses,snmp_interface_prefixes,icmp_measurement)
+ VALUES($1,$2,$3,$3,$4,$5,$15,'lifecycle-component',$6,'neutral-agent',$7,$8,'abc',COALESCE($14::timestamptz,statement_timestamp()),$9,$10,$11::inet[],$12::jsonb,$13::jsonb)`, tenant, contextID, row.id, entityID, alias, sourceRef, kind, configured, name, description, addresses, prefixes, icmp, observed, aliasValue)
 				if err != nil {
 					return err
 				}
@@ -106,8 +125,8 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 		indexes []int
 	}{
 		{person, []int{0, 1}},
-		{"192.0.2.7", []int{2, 7}},
-		{"2001:0db8:0:0:0:0:0:7", []int{4, 9}},
+		{"192.0.2.7", []int{2, 7, 12}},
+		{"2001:0db8:0:0:0:0:0:7", []int{4, 9, 14}},
 	} {
 		want := map[string]bool{}
 		for _, index := range query.indexes {
@@ -124,8 +143,9 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 				continue
 			}
 			var row struct {
-				ID       string `json:"id"`
-				Tenant   string `json:"tenant_id"`
+				ICMP     *entity.ICMPMeasurement `json:"icmp_measurement"`
+				ID       string                  `json:"id"`
+				Tenant   string                  `json:"tenant_id"`
 				Prefixes []struct {
 					IfIndex uint32 `json:"if_index"`
 					Prefix  string `json:"prefix"`
@@ -139,6 +159,9 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 				t.Fatal("entity evidence export selected unrelated rows")
 			}
 			for _, expected := range samples {
+				if expected.id == row.ID && expected.field == "icmp" && (row.ICMP == nil || len(row.ICMP.Responders) != 1 || row.ICMP.Responders[0] != expected.value || row.ICMP.Requested != 3 || row.ICMP.Replies != 1) {
+					t.Fatal("ICMP evidence portability omitted or changed original metadata")
+				}
 				if expected.id == row.ID && expected.field == "snmp_interface_prefixes" {
 					if len(row.Prefixes) != 1 || row.Prefixes[0].IfIndex != 1 || row.Prefixes[0].Prefix != expected.value || !row.Prefixes[0].OnLink {
 						t.Fatal("prefix evidence portability omitted or changed original metadata")

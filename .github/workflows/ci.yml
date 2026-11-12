@@ -1537,7 +1537,7 @@ jobs:
         run: |
           set -euo pipefail
           result=0
-          go test -v -tags=integration -count=1 -timeout=5m -run '^TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication$' ./internal/agenttransport || result=1
+          go test -v -tags=integration -count=1 -timeout=5m -run '^(TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication|TestICMPMeasurementRealMTLSKeepsCurrentDefinitionTenantAndReplay)$' ./internal/agenttransport || result=1
           go test -v -tags=integration -count=1 -timeout=5m -run '^(TestDeviceCounter(WitnessUsesOriginalPollAndStableFirstCapture|ScopedReaderKeepsRotationAndTenantBoundary|BatchWitnessesKeepCompleteOriginalSetAndTenantBoundary)|TestEnsureSystemRolesSeedsAFreshTenantIdempotently|TestCapacityAgreementRoleMigrationKeepsPrivateSchemasAndExplicitDelegation|TestRoleGrantsBindParentTenantBeforeInsertUpdateAndPermissionRead)$' ./internal/store || result=1
           go test -v -tags=integration -count=1 -timeout=5m -run '^TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit$' ./internal/flow || result=1
           go test -v -tags=integration -count=1 -timeout=5m -run '^TestSiloRoleReferencesKeepTenantOnProvisionCatchupAndLegacyRefusal$' ./ee/silo || result=1

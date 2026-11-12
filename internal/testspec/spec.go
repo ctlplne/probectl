@@ -6,7 +6,7 @@
 
 // Package testspec is the canonical schema for a probectl synthetic-test
 // (canary) configuration: the field set, the valid types, defaults, and
-// validation. It is dependency-free so every producer of a test config — the
+// validation. It has no storage/control-plane imports so every producer of a test config — the
 // REST API (S9), AI test authoring + auto-discovery (S26) — validates against the
 // SAME schema, so an authored or discovered config can never be valid in one
 // place and rejected in another.

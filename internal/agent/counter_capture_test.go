@@ -37,6 +37,7 @@ func TestCounterWitnessClientBindsCertificateTenantSenderAndWholeReceipt(t *test
 		t.Fatal("counter witness changed original source or population")
 	}
 	for _, mutate := range []func(*agentv1.SubmitEntityEvidenceResponse){
+		func(r *agentv1.SubmitEntityEvidenceResponse) { r.IcmpMeasurementsPersisted = 1 },
 		func(r *agentv1.SubmitEntityEvidenceResponse) { r.DeviceCounter = nil },
 		func(r *agentv1.SubmitEntityEvidenceResponse) { r.DeviceCounter.Key[0] ^= 255 },
 		func(r *agentv1.SubmitEntityEvidenceResponse) { r.DeviceCounter.CapturedUnixNanos = 0 },

@@ -79,7 +79,7 @@ func validPublicRoutingNonce(raw string) bool {
 }
 
 func publicRoutingOnlyResponse(response *agentv1.SubmitEntityEvidenceResponse) bool {
-	return response != nil && response.GetAccepted() == 0 && response.GetUnresolved() == 0 && response.GetFaultsPersisted() == 0 && response.GetRouting() == nil && response.GetRoutingMessage() == nil && response.GetFlowRouting() == nil && response.GetDeviceCounter() == nil && len(response.ProtoReflect().GetUnknown()) == 0
+	return response != nil && response.GetAccepted() == 0 && response.GetUnresolved() == 0 && response.GetFaultsPersisted() == 0 && response.GetIcmpMeasurementsPersisted() == 0 && response.GetRouting() == nil && response.GetRoutingMessage() == nil && response.GetFlowRouting() == nil && response.GetDeviceCounter() == nil && len(response.ProtoReflect().GetUnknown()) == 0
 }
 
 func (c *EvidenceClient) submitPublicRouting(ctx context.Context, request *agentv1.SubmitEntityEvidenceRequest) (*agentv1.SubmitEntityEvidenceResponse, error) {
