@@ -10557,7 +10557,7 @@
         "tags": [
           "alerts"
         ],
-        "description": "Joins the caller tenant's current evaluator truth to immutable acknowledge/silence audit receipts and, when incident_id is supplied and the caller holds incident.read (enforced and ABAC-audited) and it is freshly authorized through tenant RLS, the linked incident plus persisted on-call/ticket delivery receipts. An unavailable fingerprint or cross-tenant incident id fails closed.",
+        "description": "Joins the caller tenant's current evaluator truth to immutable acknowledge/silence audit receipts and, when incident_id is supplied and the caller holds incident.read (enforced and ABAC-audited) and it is freshly authorized through tenant RLS, the linked incident plus persisted on-call/ticket delivery receipts. An unavailable fingerprint or cross-tenant incident id fails closed. For an active rule with dependency configuration, dependency explains current notification routing after rechecking the live reader and captured/current policy-owner source and incident permissions. A durable held marker alone never proves current routing. withheld returns no source identities; recheck_required never establishes a current hold; pending means current evidence has not been durably published as a hold.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -10621,6 +10621,82 @@
                     },
                     "connector_running": {
                       "type": "boolean"
+                    },
+                    "dependency": {
+                      "type": "object",
+                      "required": [
+                        "state",
+                        "reason"
+                      ],
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "held",
+                            "pending",
+                            "ordinary",
+                            "recheck_required",
+                            "withheld"
+                          ]
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "context_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "entity_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "evidence_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "observation_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "as_of": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "fresh_until": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "causes": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "entity_id",
+                              "incident_id",
+                              "observed_at",
+                              "fresh_until"
+                            ],
+                            "properties": {
+                              "entity_id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "incident_id": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "observed_at": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "fresh_until": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            }
+                          }
+                        }
+                      }
                     }
                   }
                 }

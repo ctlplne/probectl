@@ -281,6 +281,7 @@ function ActiveAlertDetail({
   )
   const selectionAccess = canReadSelection ? evaluations.data?.tag_selection_access : 'withheld'
   const workflow = useAlertWorkflow(alert.fingerprint, linkedIncident?.id)
+  const dependency = workflow.data?.dependency
   const operationReceipts = useMemo(() => {
     const receipts = [...(workflow.data?.operations ?? [])]
     const append = (
@@ -580,6 +581,40 @@ function ActiveAlertDetail({
                 <strong>Durable receipts blocked</strong>
                 <Link to="/docs/api#alerting-setup">Wire the Postgres alert store</Link>
               </div>
+            ) : null}
+            {dependency ? (
+              <section className={styles.postmortemContext} aria-label="Notification dependency">
+                <h4>Notification dependency</h4>
+                <Badge tone={dependency.state === 'held' ? 'info' : 'neutral'}>
+                  {dependency.state.replaceAll('_', ' ')}
+                </Badge>
+                <p>{dependency.reason}</p>
+                <span>Collection and detection remain active.</span>
+                {dependency.as_of && dependency.fresh_until ? (
+                  <span>
+                    Checked <DateTime value={dependency.as_of} /> · evidence valid until{' '}
+                    <DateTime value={dependency.fresh_until} />
+                  </span>
+                ) : null}
+                {dependency.evidence_id ? <code>Evidence: {dependency.evidence_id}</code> : null}
+                {(dependency.causes ?? []).map((cause) => (
+                  <Link
+                    key={cause.incident_id}
+                    to={pivotHref('/incidents', {
+                      incidentId: cause.incident_id,
+                      from: cause.observed_at,
+                      to: dependency.as_of ?? alert.last_seen_at,
+                      filters: {},
+                      returnTo,
+                    })}
+                  >
+                    {dependency.state === 'held'
+                      ? 'Held under upstream incident'
+                      : 'Current upstream incident'}{' '}
+                    {cause.incident_id}
+                  </Link>
+                ))}
+              </section>
             ) : null}
             <ol className={styles.receipts} aria-label="Immutable alert operation receipts">
               {operationReceipts.map((operation) => {

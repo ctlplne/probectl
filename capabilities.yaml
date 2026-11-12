@@ -150,16 +150,16 @@ capabilities:
     status: delivered
     owner: platform/release
     # Dependency routing is preview: current sender-bound source reads and
-    # canonical root/child publication; physical lab qualification is separate.
+    # canonical root/child publication; current-authority workflow explanations; physical lab qualification is separate.
     engine: {refs: ["file:internal/alert", "file:internal/control/alert_dependency_router.go", "file:internal/control/alert_dependency_root.go"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildAlertEvaluatorSupervisor("]}
-    api: {refs: ["api:GET /v1/alerts", "api:GET /v1/alerts/active", "api:GET /v1/alerts/rules/{id}/query-group", "api:GET /v1/alerts/rules/{id}/query-source", "api:PUT /v1/alerts/rules/{id}/query-source", "api:DELETE /v1/alerts/rules/{id}/query-source", "api:GET /v1/alerts/rules/{id}/dependency-policy", "api:PUT /v1/alerts/rules/{id}/dependency-policy", "api:DELETE /v1/alerts/rules/{id}/dependency-policy"]}
-    cli: {refs: ["cli:probectl alert list", "cli:probectl alert active", "cli:probectl alert query-group", "cli:probectl alert query-source", "cli:probectl alert query-source-set", "cli:probectl alert query-source-clear", "cli:probectl alert dependency-policy", "cli:probectl alert dependency-policy-set", "cli:probectl alert dependency-policy-clear"]}
+    api: {refs: ["api:GET /v1/alerts", "api:GET /v1/alerts/active", "api:GET /v1/alerts/active/{fingerprint}/workflow", "api:GET /v1/alerts/rules/{id}/query-group", "api:GET /v1/alerts/rules/{id}/query-source", "api:PUT /v1/alerts/rules/{id}/query-source", "api:DELETE /v1/alerts/rules/{id}/query-source", "api:GET /v1/alerts/rules/{id}/dependency-policy", "api:PUT /v1/alerts/rules/{id}/dependency-policy", "api:DELETE /v1/alerts/rules/{id}/dependency-policy"]}
+    cli: {refs: ["cli:probectl alert list", "cli:probectl alert active", "cli:probectl alert workflow", "cli:probectl alert query-group", "cli:probectl alert query-source", "cli:probectl alert query-source-set", "cli:probectl alert query-source-clear", "cli:probectl alert dependency-policy", "cli:probectl alert dependency-policy-set", "cli:probectl alert dependency-policy-clear"]}
     ui: {refs: ["ui:F8@/alerts"]}
     docs: {refs: ["file:docs/alerting.md#Alerting"]}
     config_keys: {refs: ["config:PROBECTL_ALERT_EVAL_INTERVAL"]}
     telemetry: {refs: ["file:internal/alert"]}
-    real_stack_proof: {refs: ["test:internal/alert/realstack_integration_test.go#TestAlertingRealStack", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack"]}
+    real_stack_proof: {refs: ["test:internal/alert/realstack_integration_test.go#TestAlertingRealStack", "test:internal/control/alert_dependency_workflow_integration_test.go#TestDependencyWorkflowExplainsCurrentTenantHoldAndWithdrawals", "test:internal/control/alert_dependency_workflow_native_integration_test.go#TestDependencyWorkflowNativeUsesCurrentTenantEvidence", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack"]}
     migration: {refs: ["file:migrations/0011_alert_rules.sql", "file:migrations/0043_alert_ops.sql", "file:migrations/0065_alert_evaluation_receipts.sql", "file:migrations/0127_alert_rules_trap_match.sql", "file:migrations/0194_alert_query_sources.sql", "file:migrations/0195_alert_dependency_policy.sql", "file:migrations/0197_alert_dependency_notification_state.sql"]}
 
   - id: F9

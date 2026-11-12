@@ -601,3 +601,20 @@ CLI: `probectl alert dependency-policy`, `dependency-policy-set` and
 `dependency-policy-clear`. Native MCP: `alert_dependency_get`,
 `alert_dependency_set` and `alert_dependency_clear`; native clear requires
 `confirmed:true`. Configuration is included in subject export and erasure.
+
+The active alert's **Notification dependency** panel and
+`probectl alert workflow FINGERPRINT` read the same workflow response.
+`held` means the exact episode's persisted hold and parent relationships still
+match complete current evidence. `pending` is a current decision awaiting durable
+publication. `recheck_required` never certifies a hold from old bookkeeping, and
+`ordinary` means the current source decision does not hold delivery. The panel
+links exact verified upstream incident IDs; it does not infer a parent from an
+address match. Both the live reader and the policy owner's captured/current
+source and incident permissions must pass. `withheld` omits source identities and
+causes after permission withdrawal. These are inspection semantics; physical
+sender/recovery, full population publication and both-theme qualification remain
+required before the preview is promoted.
+
+Native MCP `alert_dependency_workflow` inspects the same active-series explanation
+using an exact `fingerprint`; its structured canonical references remain usable
+while free text retains the normal egress redaction policy.

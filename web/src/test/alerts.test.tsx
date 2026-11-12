@@ -9,7 +9,12 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
-import type { ActiveAlert, AlertRule, MaintenanceWindow } from '../api/alerts'
+import type {
+  ActiveAlert,
+  AlertDependencyWorkflow,
+  AlertRule,
+  MaintenanceWindow,
+} from '../api/alerts'
 
 /** A stateful stub standing in for the S16 backend: rules CRUD + an "engine"
  *  whose silence/ack mutations return engine truth (the UI must render what
@@ -118,6 +123,7 @@ function alertsBackend() {
     },
     channelTests: [] as Record<string, unknown>[],
     connectorTests: [] as string[],
+    workflowDependency: undefined as AlertDependencyWorkflow | undefined,
     workflowOperations: [] as Array<{
       action: 'acknowledged' | 'silenced' | 'unsilenced'
       actor: string
@@ -237,6 +243,7 @@ function alertsBackend() {
     if (url.includes('/v1/alerts/active/fp-1/workflow') && method === 'GET') {
       return jsonResponse({
         alert: state.active[0],
+        dependency: state.workflowDependency,
         operations: state.workflowOperations,
         incident: {
           id: 'inc-alert',
@@ -377,6 +384,54 @@ describe('alerting surface (S-FE1)', () => {
     expect(within(dialog).getByRole('button', { name: 'Load current criteria' })).toBeEnabled()
     expect(state.requests.filter((r) => r.method !== 'GET')).toHaveLength(0)
   })
+
+  test.each(['held', 'pending', 'recheck_required', 'withheld'] as const)(
+    'renders the server dependency state %s without inventing a held parent',
+    async (stateName) => {
+      const { fetcher, state } = alertsBackend()
+      const disclosed = stateName === 'held' || stateName === 'pending'
+      state.workflowDependency = {
+        state: stateName,
+        reason: 'Current routing explanation from the server.',
+        ...(disclosed
+          ? {
+              evidence_id: 'source-evidence',
+              as_of: '2026-06-04T12:00:00Z',
+              fresh_until: '2026-06-04T12:05:00Z',
+              causes: [
+                {
+                  entity_id: 'upstream-node',
+                  incident_id: 'verified-upstream',
+                  observed_at: '2026-06-04T12:00:00Z',
+                  fresh_until: '2026-06-04T12:05:00Z',
+                },
+              ],
+            }
+          : {}),
+      }
+      vi.stubGlobal('fetch', fetcher)
+      renderApp('/alerts', { me: { permissions: ['alert.read', 'incident.read'] } })
+      await screen.findByRole('table', { name: 'Alert rules' })
+      await userEvent.click(screen.getAllByRole('button', { name: 'Details' })[0])
+      const panel = await screen.findByRole('region', { name: 'Notification dependency' })
+      expect(within(panel).getByText(stateName.replaceAll('_', ' '))).toBeInTheDocument()
+      expect(within(panel).getByText('Collection and detection remain active.')).toBeInTheDocument()
+      if (disclosed) {
+        const link = within(panel).getByRole('link', {
+          name:
+            stateName === 'held'
+              ? 'Held under upstream incident verified-upstream'
+              : 'Current upstream incident verified-upstream',
+        })
+        expect(link.getAttribute('href')).toContain('verified-upstream')
+        expect(within(panel).getByText('Evidence: source-evidence')).toBeInTheDocument()
+      } else {
+        expect(within(panel).queryByRole('link')).not.toBeInTheDocument()
+        expect(within(panel).queryByText(/source-evidence/)).not.toBeInTheDocument()
+      }
+      expect(state.requests.filter((r) => r.method !== 'GET')).toHaveLength(0)
+    },
+  )
 
   test('read-only alert viewers cannot open write forms or send mutations', async () => {
     const { fetcher, state } = alertsBackend()

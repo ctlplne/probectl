@@ -69,3 +69,39 @@ func TestDependencyNativeResultKeepsCompleteReferencesAndTextRedaction(t *testin
 		t.Fatal("malformed reference acquired structural metadata encoding")
 	}
 }
+
+func TestDependencyWorkflowNativeResultPreservesOnlyValidatedReferences(t *testing.T) {
+	const id = "40000000-0000-4004-8000-abcdefabcdef"
+	state := &alert.DependencyWorkflow{State: "held", Reason: "password=local-fixture-only " + id,
+		ContextID: id, EntityID: id, EvidenceID: id, ObservationID: id,
+		Causes: []alert.DependencyWorkflowCause{{EntityID: id, IncidentID: id}}}
+	value, err := dependencyWorkflowNativeResult(state, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := nativeProbeServer(&nativeBackendProbe{}, nil)
+	result, err := server.redactedToolResult(id, value, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := result["structuredContent"].(json.RawMessage)
+	var got alert.DependencyWorkflow
+	if err := json.Unmarshal(raw, &got); err != nil || got.ContextID != id || got.EntityID != id || got.EvidenceID != id || got.ObservationID != id || len(got.Causes) != 1 || got.Causes[0].IncidentID != id {
+		t.Fatal("native workflow damaged canonical references", err)
+	}
+	if bytes.Contains(raw, []byte("local-fixture-only")) || got.Reason == state.Reason || !bytes.Contains(raw, []byte("[pan:")) {
+		t.Fatal("native workflow exempted free text from redaction")
+	}
+	denied := errors.New("current source refused")
+	if value, err := dependencyWorkflowNativeResult(state, denied); value != nil || !errors.Is(err, denied) {
+		t.Fatal("denied workflow disclosed a successful prefix")
+	}
+	state.EvidenceID = "password=untrusted"
+	value, err = dependencyWorkflowNativeResult(state, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.redactedToolResult(id, value, true); err == nil {
+		t.Fatal("unvalidated source reference bypassed text redaction")
+	}
+}

@@ -65,3 +65,34 @@ func dependencyNativeResult(state alert.DependencyPolicyState, err error) (any, 
 	}
 	return out, nil
 }
+
+type nativeDependencyWorkflowCause struct {
+	EntityID   NativeRoleUUID `json:"entity_id"`
+	IncidentID NativeRoleUUID `json:"incident_id"`
+	ObservedAt time.Time      `json:"observed_at"`
+	FreshUntil time.Time      `json:"fresh_until"`
+}
+
+type nativeDependencyWorkflow struct {
+	State         string                          `json:"state"`
+	Reason        string                          `json:"reason"`
+	ContextID     NativeRoleUUID                  `json:"context_id,omitempty"`
+	EntityID      NativeRoleUUID                  `json:"entity_id,omitempty"`
+	EvidenceID    NativeRoleUUID                  `json:"evidence_id,omitempty"`
+	ObservationID NativeRoleUUID                  `json:"observation_id,omitempty"`
+	AsOf          *time.Time                      `json:"as_of,omitempty"`
+	FreshUntil    *time.Time                      `json:"fresh_until,omitempty"`
+	Causes        []nativeDependencyWorkflowCause `json:"causes,omitempty"`
+}
+
+func dependencyWorkflowNativeResult(state *alert.DependencyWorkflow, err error) (any, error) {
+	if err != nil || state == nil {
+		return nil, err
+	}
+	out := nativeDependencyWorkflow{State: state.State, Reason: state.Reason, ContextID: NativeRoleUUID(state.ContextID), EntityID: NativeRoleUUID(state.EntityID),
+		EvidenceID: NativeRoleUUID(state.EvidenceID), ObservationID: NativeRoleUUID(state.ObservationID), AsOf: state.AsOf, FreshUntil: state.FreshUntil}
+	for _, cause := range state.Causes {
+		out.Causes = append(out.Causes, nativeDependencyWorkflowCause{EntityID: NativeRoleUUID(cause.EntityID), IncidentID: NativeRoleUUID(cause.IncidentID), ObservedAt: cause.ObservedAt, FreshUntil: cause.FreshUntil})
+	}
+	return out, nil
+}

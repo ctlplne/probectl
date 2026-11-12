@@ -288,6 +288,7 @@ type alertWorkflowResponse struct {
 	EvaluatorRunning   bool                     `json:"evaluator_running"`
 	PersistenceRunning bool                     `json:"persistence_running"`
 	ConnectorRunning   bool                     `json:"connector_running"`
+	Dependency         *alertDependencyWorkflow `json:"dependency,omitempty"`
 }
 
 // handleAlertWorkflow joins the engine's current state to durable, immutable
@@ -334,13 +335,17 @@ func (s *Server) handleAlertWorkflow(w http.ResponseWriter, r *http.Request) err
 			return err
 		}
 	}
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+	if err := s.inTenant(r.WithContext(tenancy.WithSiloTableLock(r.Context())), func(ctx context.Context, sc tenancy.Scope) error {
 		events, err := audit.ListAlertWorkflow(ctx, sc, fingerprint, 200)
 		if err != nil {
 			return err
 		}
 		for _, ev := range events {
 			resp.Operations = append(resp.Operations, alertWorkflowOperationFromAudit(ev))
+		}
+		resp.Dependency, err = s.dependencyWorkflowInScope(ctx, sc, auth.PrincipalFrom(r.Context()), active)
+		if err != nil {
+			return err
 		}
 		if incidentID == "" {
 			return nil

@@ -25,6 +25,10 @@ type AlertDependencyBackend interface {
 	AlertDependencyClear(context.Context, *auth.Principal, AlertTagFilterClearInput) (alert.DependencyPolicyState, error)
 }
 
+type AlertDependencyWorkflowBackend interface {
+	AlertDependencyWorkflow(context.Context, *auth.Principal, string) (*alert.DependencyWorkflow, error)
+}
+
 func WithAlertDependencyBackend(backend AlertDependencyBackend, schemas map[string]json.RawMessage, inputBytes ...int) Option {
 	return func(s *Server) {
 		if backend == nil {
@@ -71,6 +75,17 @@ func WithAlertDependencyBackend(backend AlertDependencyBackend, schemas map[stri
 				}
 				return dependencyNativeResult(backend.AlertDependencyClear(ctx, p, input))
 			}},
+		}
+		if workflow, ok := backend.(AlertDependencyWorkflowBackend); ok && json.Valid(schemas["alert_dependency_workflow"]) {
+			tools = append(tools, Tool{Name: "alert_dependency_workflow", Permission: "alert.read", ExtraPermissions: []string{"topology.read", "entities.read", "test.read", "metrics.read", "incident.read"}, Description: "Explain an active series' notification dependency using current source and reader/owner authority. A stored marker is never current hold evidence.", Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
+				var input struct {
+					Fingerprint string `json:"fingerprint"`
+				}
+				if err := decodeNativeArgs(raw, &input); err != nil || input.Fingerprint == "" {
+					return nil, argErr("an owned active alert fingerprint is required")
+				}
+				return dependencyWorkflowNativeResult(workflow.AlertDependencyWorkflow(ctx, p, input.Fingerprint))
+			}})
 		}
 		for _, tool := range tools {
 			// The domain backend owns query admission; a second lease here

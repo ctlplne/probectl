@@ -318,6 +318,24 @@ export interface AlertWorkflow {
   evaluator_running: boolean
   persistence_running: boolean
   connector_running: boolean
+  dependency?: AlertDependencyWorkflow
+}
+
+export interface AlertDependencyWorkflow {
+  state: 'held' | 'pending' | 'ordinary' | 'recheck_required' | 'withheld'
+  reason: string
+  context_id?: string
+  entity_id?: string
+  evidence_id?: string
+  observation_id?: string
+  as_of?: string
+  fresh_until?: string
+  causes?: Array<{
+    entity_id: string
+    incident_id: string
+    observed_at: string
+    fresh_until: string
+  }>
 }
 
 export interface AlertActionResponse extends ActiveAlert {
