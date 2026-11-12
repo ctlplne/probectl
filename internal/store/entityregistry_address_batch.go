@@ -9,6 +9,8 @@ package store
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -40,6 +42,9 @@ func (s *EntityRegistry) ResolveAddresses(ctx context.Context, raw entity.Scope,
 	claims := make(map[string][]entity.Claim, len(unique))
 	if len(unique) > 0 {
 		err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			// Bind evidence to one requested address before metadata joins. The
+			// barrier retains that point lookup under incomplete tenant statistics;
+			// it removes no candidates. Replan for this invocation's array length.
 			rows, err := sc.Q.Query(ctx, `
 			SELECT keys.alias_value, e.id::text, e.projected_entity_id::text, e.projected_kind,
 			       e.source, e.source_ref, e.agent_id, e.source_kind,
@@ -49,17 +54,23 @@ func (s *EntityRegistry) ResolveAddresses(ctx context.Context, raw entity.Scope,
 				  JOIN LATERAL (
 				      SELECT DISTINCT ON (resolved_node.id) item.*,
 				             resolved_node.id AS projected_entity_id,resolved_node.kind AS projected_kind
-				        FROM entity_evidence item
+				        FROM (
+				          SELECT * FROM entity_evidence
+				           WHERE tenant_id=$1 AND context_id=$2
+				             AND alias_kind='address' AND alias_value=keys.alias_value
+				             AND observed_at<=statement_timestamp()
+				             AND (expires_at IS NULL OR expires_at>statement_timestamp())
+				          OFFSET 0
+				        ) item
 				        JOIN entities node ON
-				             (node.tenant_id,node.context_id,node.id)=
-				             (item.tenant_id,item.context_id,item.entity_id)
+				             node.tenant_id=$1 AND node.context_id=$2 AND node.id=item.entity_id
 				        JOIN entities resolved_node ON
-				             (resolved_node.tenant_id,resolved_node.context_id,resolved_node.id)=
-				             (item.tenant_id,item.context_id,
-				              COALESCE(node.parent_entity_id,item.entity_id))
+				             resolved_node.tenant_id=$1 AND resolved_node.context_id=$2
+				             AND resolved_node.id=COALESCE(node.parent_entity_id,item.entity_id)
 				        JOIN entity_source_contexts m ON
-				             (m.tenant_id,m.context_id,m.agent_id,m.source_kind,m.source_ref)=
-				             (item.tenant_id,item.context_id,item.agent_id,item.source_kind,item.configured_ref)
+				             m.tenant_id=$1 AND m.context_id=$2
+				             AND (m.agent_id,m.source_kind,m.source_ref)=
+				             (item.agent_id,item.source_kind,item.configured_ref)
 		         AND ((item.support_evidence_id IS NULL AND
 		               (m.anchor_entity_id=item.entity_id OR EXISTS (
 			              SELECT 1 FROM entities child
@@ -68,13 +79,8 @@ func (s *EntityRegistry) ResolveAddresses(ctx context.Context, raw entity.Scope,
 		                 AND child.parent_entity_id=m.anchor_entity_id)))
 		              OR (m.anchor_entity_id IS NULL AND `+currentInferredSupportSQL("item")+`))
 				        JOIN entity_agent_contexts a ON
-				             (a.tenant_id,a.agent_id,a.context_id)=
-				             (m.tenant_id,m.agent_id,m.context_id)
-				       WHERE item.tenant_id=$1 AND item.context_id=$2
-				         AND item.alias_kind='address' AND item.alias_value=keys.alias_value
-				         AND item.observed_at <= statement_timestamp()
-				         AND (item.expires_at IS NULL OR item.expires_at > statement_timestamp())
-				         AND m.assigned_at <= statement_timestamp()
+				             a.tenant_id=$1 AND a.context_id=$2 AND a.agent_id=m.agent_id
+				       WHERE m.assigned_at <= statement_timestamp()
 				         AND m.assigned_at <= item.observed_at
 				         AND (m.expires_at IS NULL OR m.expires_at > statement_timestamp())
 				         AND a.assigned_at <= statement_timestamp()
@@ -105,7 +111,7 @@ func (s *EntityRegistry) ResolveAddresses(ctx context.Context, raw entity.Scope,
 				       ORDER BY resolved_node.id, item.observed_at DESC, item.id
 				       LIMIT 4
 				  ) e ON true
-				 ORDER BY keys.alias_value,e.projected_entity_id`, want.TenantID, want.ContextID, unique)
+				 ORDER BY keys.alias_value,e.projected_entity_id`, pgx.QueryExecModeDescribeExec, want.TenantID, want.ContextID, unique)
 			if err != nil {
 				return err
 			}
