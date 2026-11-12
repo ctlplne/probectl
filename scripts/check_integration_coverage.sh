@@ -61,7 +61,10 @@ run_gate() {
     if ! ( cd "$repo_root" && "$go_cmd" test -tags integration -count=1 \
             -coverprofile="$prof" "./$pkg/" ) >"$tmp/log" 2>&1; then
       printf '%-28s %8s %7s   %s\n' "$pkg" "-" "$floor" "TEST-FAIL"
-      tail -5 "$tmp/log" >&2
+      # Test failures can end with a large rendered DOM or locator dump. The
+      # final five lines hide the failing test and assertion; retain the actual
+      # captured failure before the temporary directory is removed.
+      cat "$tmp/log" >&2
       fails=$((fails + 1))
       continue
     fi
