@@ -76,7 +76,7 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	pol := redactionPolicy(s.cfg)
+	pol := incidentEvidenceTenantPolicy(redactionPolicy(s.cfg), p.TenantID)
 	var impact *incident.ImpactResponse
 	if input.Impact != nil {
 		release, err := s.beginIncidentImpactQuery(r.Context(), p)

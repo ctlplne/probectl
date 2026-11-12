@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"regexp"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -118,6 +119,7 @@ func requireImpactIncidentHeader(tenant string, inc *incident.Incident, snapshot
 }
 
 func redactIncidentImpact(value incident.ImpactResponse, pol ai.RedactionPolicy, tenant string) (incident.ImpactResponse, error) {
+	pol = incidentEvidenceTenantPolicy(pol, tenant)
 	// A typed copy preserves mathematical counters, canonical UUIDs and
 	// hashes while applying current privacy policy to human-owned labels.
 	body, err := json.Marshal(value)
@@ -137,4 +139,14 @@ func redactIncidentImpact(value incident.ImpactResponse, pol ai.RedactionPolicy,
 		}
 	}
 	return out, nil
+}
+
+// The signed handoff omits the raw tenant identity even when it is embedded
+// in operator-owned prose or annotations. Preserve canonical citation IDs and
+// exact counter strings; apply the existing keyed redactor only to label text.
+func incidentEvidenceTenantPolicy(pol ai.RedactionPolicy, tenant string) ai.RedactionPolicy {
+	if tenant != "" {
+		pol.CustomPatterns = append(append([]*regexp.Regexp(nil), pol.CustomPatterns...), regexp.MustCompile("(?i)"+regexp.QuoteMeta(tenant)))
+	}
+	return pol
 }

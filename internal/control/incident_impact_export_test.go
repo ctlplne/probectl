@@ -22,16 +22,16 @@ func TestImpactExportRedactsLabelsWithoutChangingCountersOrCallerSnapshot(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := incident.ImpactResponse{Customers: []incident.ImpactCustomer{{TagKey: "customer", Value: "alice@example.test 203.0.113.9", ContextID: "11111111-1111-4111-8111-111111111111", PrefixIDs: []string{"22222222-2222-4222-8222-222222222222"}}},
+	input := incident.ImpactResponse{Customers: []incident.ImpactCustomer{{TagKey: "customer", Value: "alice@example.test 203.0.113.9 owned-tenant OWNED-TENANT", ContextID: "11111111-1111-4111-8111-111111111111", PrefixIDs: []string{"22222222-2222-4222-8222-222222222222"}}},
 		Current: incident.ImpactPeriod{ObservedTotals: &incident.ImpactCounters{RawBytes: "18446744073709551615", RawPackets: "7", ScaledBytes: "55340232221128654845", ScaledPackets: "21"}}, ObservedByteChange: "-55340232221128654845"}
 	output, err := redactIncidentImpact(input, ai.RedactionPolicy{MaskIPs: true, MaskPII: true, TokenKey: key}, "owned-tenant")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(output.Customers[0].Value, "alice@example.test") || strings.Contains(output.Customers[0].Value, "203.0.113.9") || output.Customers[0].Value == input.Customers[0].Value {
+	if strings.Contains(strings.ToLower(output.Customers[0].Value), "owned-tenant") || strings.Contains(output.Customers[0].Value, "alice@example.test") || strings.Contains(output.Customers[0].Value, "203.0.113.9") || output.Customers[0].Value == input.Customers[0].Value {
 		t.Fatal("export retained unredacted customer labels", output.Customers)
 	}
-	if input.Customers[0].Value != "alice@example.test 203.0.113.9" || output.Customers[0].ContextID != input.Customers[0].ContextID || output.Customers[0].PrefixIDs[0] != input.Customers[0].PrefixIDs[0] || *output.Current.ObservedTotals != *input.Current.ObservedTotals || output.ObservedByteChange != input.ObservedByteChange {
+	if input.Customers[0].Value != "alice@example.test 203.0.113.9 owned-tenant OWNED-TENANT" || output.Customers[0].ContextID != input.Customers[0].ContextID || output.Customers[0].PrefixIDs[0] != input.Customers[0].PrefixIDs[0] || *output.Current.ObservedTotals != *input.Current.ObservedTotals || output.ObservedByteChange != input.ObservedByteChange {
 		t.Fatal("export changed exact counters, canonical citations or the caller snapshot")
 	}
 }

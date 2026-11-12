@@ -175,7 +175,30 @@ func TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation(t *testing
 			t.Fatal("served impact package did not verify offline", err)
 		}
 		if verified.TenantScopeDigest == "" || bytes.Contains(raw, []byte(tenant)) {
-			t.Fatal("served package lost its private tenant binding")
+			var document any
+			if err := json.Unmarshal(raw, &document); err != nil {
+				t.Fatal(err)
+			}
+			var paths []string
+			var inspect func(any, string)
+			inspect = func(value any, path string) {
+				switch v := value.(type) {
+				case string:
+					if strings.Contains(v, tenant) {
+						paths = append(paths, path)
+					}
+				case map[string]any:
+					for key, child := range v {
+						inspect(child, path+"."+key)
+					}
+				case []any:
+					for i, child := range v {
+						inspect(child, path+"["+strconv.Itoa(i)+"]")
+					}
+				}
+			}
+			inspect(document, "package")
+			t.Fatal("served package lost its private tenant binding; raw identity field paths", paths)
 		}
 		var pkg evidence.Package
 		if err := json.Unmarshal(raw, &pkg); err != nil {

@@ -94,6 +94,9 @@ Every record also carries mandatory provenance:
 | `missing_intervals` | known gaps; an empty list does not overclaim source health |
 
 The manifest contains a one-way tenant-scope digest, never the raw tenant ID.
+Operator-owned annotation and incident text also masks literal tenant identifiers,
+including when optional IP or PII masking is disabled. Canonical citation IDs and
+exact decimal counters retain their types and values.
 The API still reads through the tenant-scoped transaction/RLS boundary before
 packaging; a foreign incident ID and a missing ID have the same 404 response.
 
