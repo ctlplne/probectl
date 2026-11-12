@@ -167,17 +167,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 				return writeErr
 			})
 		if err != nil {
-			switch {
-			case errors.Is(err, store.ErrEvidenceIdentityInactive):
-				return nil, status.Error(codes.Unauthenticated, "evidence identity is not active")
-			case errors.Is(err, entity.ErrInvalidClaim), errors.Is(err, entity.ErrInvalidAlias),
-				errors.Is(err, entity.ErrInvalidSource):
-				return nil, status.Error(codes.InvalidArgument, "invalid entity evidence observation")
-			case errors.Is(err, entity.ErrConflictingEvidence):
-				return nil, status.Error(codes.AlreadyExists, "observation ID was reused for different evidence")
-			default:
-				return nil, status.Error(codes.Unavailable, "entity evidence write failed")
-			}
+			return nil, entityEvidenceWriteError(err)
 		}
 	}
 	faultsPersisted, err := svc.persistEntityFaults(ctx, id.TenantID, faults)
@@ -267,4 +257,19 @@ func parseSNMPPrefixEvidence(snapshot *agentv1.SnmpInterfacePrefixSnapshot) ([]e
 		rows = append(rows, entity.SNMPInterfacePrefix{IfIndex: row.IfIndex, Prefix: prefix, OnLink: row.OnLink})
 	}
 	return entity.NormalizeSNMPInterfacePrefixes(rows)
+}
+
+// entityEvidenceWriteError preserves the public classification of a rejected
+// atomic evidence write. The transport never publishes internal store details.
+func entityEvidenceWriteError(err error) error {
+	switch {
+	case errors.Is(err, store.ErrEvidenceIdentityInactive):
+		return status.Error(codes.Unauthenticated, "evidence identity is not active")
+	case errors.Is(err, entity.ErrInvalidClaim), errors.Is(err, entity.ErrInvalidAlias), errors.Is(err, entity.ErrInvalidSource):
+		return status.Error(codes.InvalidArgument, "invalid entity evidence observation")
+	case errors.Is(err, entity.ErrConflictingEvidence):
+		return status.Error(codes.AlreadyExists, "observation ID was reused for different evidence")
+	default:
+		return status.Error(codes.Unavailable, "entity evidence write failed")
+	}
 }
