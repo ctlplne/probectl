@@ -40,14 +40,20 @@ func (p *preparedAlertQuery) Close() {
 }
 
 func alertQueryReadGrants(actor *auth.Principal) []alert.QueryReadGrant {
+	return alertReadGrants(actor, func(permission string) bool {
+		return permission == permAIQuery || reportFlowReadPermission(permission)
+	})
+}
+
+func alertReadGrants(actor *auth.Principal, allowed func(string) bool) []alert.QueryReadGrant {
 	selected := map[auth.PermissionGrant]bool{}
 	for _, grant := range actor.PermissionGrants {
-		if grant.Permission == permAIQuery || reportFlowReadPermission(grant.Permission) {
+		if allowed(grant.Permission) {
 			selected[grant] = true
 		}
 	}
 	for permission, granted := range actor.Permissions {
-		if granted && (permission == permAIQuery || reportFlowReadPermission(permission)) {
+		if granted && allowed(permission) {
 			selected[auth.PermissionGrant{Permission: permission, ScopeType: auth.ScopeTenant}] = true
 		}
 	}

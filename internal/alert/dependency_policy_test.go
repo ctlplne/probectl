@@ -32,6 +32,7 @@ func TestTopologyDependencyPolicyRetainsOnlyAReadCeilingAndFiniteFreshness(t *te
 		}
 		for _, mutate := range []func(*DependencyPolicy){
 			func(p *DependencyPolicy) { p.ReadGrants[0].Permission = "alert.write" },
+			func(p *DependencyPolicy) { p.ReadGrants[0].Permission = "device.read" },
 			func(p *DependencyPolicy) { p.ReadGrants[0].Permission = "remediation.approve" },
 			func(p *DependencyPolicy) { p.ReadGrants[0].ScopeType = auth.ScopeTenant },
 			func(p *DependencyPolicy) { p.ReadGrants[0].ScopeID = "foreign hierarchy name" },

@@ -170,6 +170,18 @@ export interface AlertChannelTestResponse {
   type: "webhook" | "email"
 }
 
+export interface AlertDependencyPolicyInput {
+  context_id: string
+  freshness_seconds?: number
+}
+
+export interface AlertDependencyPolicyState {
+  configured: boolean
+  policy?: AlertDependencyPolicyInput
+  rule_id: string
+  rule_updated_at: string
+}
+
 export interface AlertEvaluationExpectation {
   comparison?: "gt" | "lt" | "gte" | "lte" | "eq" | "neq"
   kind: "threshold" | "baseline"
@@ -3407,6 +3419,25 @@ export interface DeleteMaintenanceWindowRequest {
 
 export type DeleteMaintenanceWindowResponse = void
 
+export interface GetAlertDependencyPolicyRequest {
+  id: string
+}
+
+export type GetAlertDependencyPolicyResponse = AlertDependencyPolicyState
+
+export interface SetAlertDependencyPolicyRequest {
+  id: string
+  body: AlertDependencyPolicyInput
+}
+
+export type SetAlertDependencyPolicyResponse = AlertDependencyPolicyState
+
+export interface ClearAlertDependencyPolicyRequest {
+  id: string
+}
+
+export type ClearAlertDependencyPolicyResponse = AlertDependencyPolicyState
+
 export interface GetAlertQueryGroupRequest {
   id: string
   group: string
@@ -5235,6 +5266,27 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async getAlertDependencyPolicy(request: GetAlertDependencyPolicyRequest): Promise<GetAlertDependencyPolicyResponse> {
+    let path = "/v1/alerts/rules/{id}/dependency-policy"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetAlertDependencyPolicyResponse>("GET", path, query, undefined)
+  }
+
+  async setAlertDependencyPolicy(request: SetAlertDependencyPolicyRequest): Promise<SetAlertDependencyPolicyResponse> {
+    let path = "/v1/alerts/rules/{id}/dependency-policy"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<SetAlertDependencyPolicyResponse>("PUT", path, query, request.body)
+  }
+
+  async clearAlertDependencyPolicy(request: ClearAlertDependencyPolicyRequest): Promise<ClearAlertDependencyPolicyResponse> {
+    let path = "/v1/alerts/rules/{id}/dependency-policy"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ClearAlertDependencyPolicyResponse>("DELETE", path, query, undefined)
   }
 
   async getAlertQueryGroup(request: GetAlertQueryGroupRequest): Promise<GetAlertQueryGroupResponse> {

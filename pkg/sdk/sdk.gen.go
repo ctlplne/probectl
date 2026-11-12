@@ -248,6 +248,18 @@ type AlertChannelTestResponse struct {
 	Type     string `json:"type"`
 }
 
+type AlertDependencyPolicyInput struct {
+	ContextId        string `json:"context_id"`
+	FreshnessSeconds int    `json:"freshness_seconds,omitempty"`
+}
+
+type AlertDependencyPolicyState struct {
+	Configured    bool                       `json:"configured"`
+	Policy        AlertDependencyPolicyInput `json:"policy,omitempty"`
+	RuleId        string                     `json:"rule_id"`
+	RuleUpdatedAt string                     `json:"rule_updated_at"`
+}
+
 type AlertEvaluationExpectation struct {
 	Comparison string  `json:"comparison,omitempty"`
 	Kind       string  `json:"kind"`
@@ -3922,6 +3934,64 @@ func (c *Client) DeleteMaintenanceWindow(ctx context.Context, req DeleteMaintena
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Read notification dependency configuration
+type GetAlertDependencyPolicyRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetAlertDependencyPolicy(ctx context.Context, req GetAlertDependencyPolicyRequest) (*AlertDependencyPolicyState, error) {
+	path := "/v1/alerts/rules/{id}/dependency-policy"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertDependencyPolicyState
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Configure an owned notification dependency context
+type SetAlertDependencyPolicyRequest struct {
+	Id   string                      `json:"-"`
+	Body *AlertDependencyPolicyInput `json:"-"`
+}
+
+func (c *Client) SetAlertDependencyPolicy(ctx context.Context, req SetAlertDependencyPolicyRequest) (*AlertDependencyPolicyState, error) {
+	path := "/v1/alerts/rules/{id}/dependency-policy"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertDependencyPolicyState
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Clear notification dependency configuration while preserving detection
+type ClearAlertDependencyPolicyRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) ClearAlertDependencyPolicy(ctx context.Context, req ClearAlertDependencyPolicyRequest) (*AlertDependencyPolicyState, error) {
+	path := "/v1/alerts/rules/{id}/dependency-policy"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertDependencyPolicyState
+	if err := c.doJSON(ctx, http.MethodDelete, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Inspect one current saved-query group under current source grants

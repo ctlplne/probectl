@@ -64,6 +64,20 @@ func (b mcpTagMutationBackend) AlertQuerySourceClear(ctx context.Context, p *aut
 }
 
 func alertQueryToolSchemas() (map[string]json.RawMessage, error) {
+	id := map[string]any{"type": "string", "format": "uuid"}
+	object := func(properties map[string]any, required ...string) any {
+		return map[string]any{"type": "object", "additionalProperties": false, "properties": properties, "required": required}
+	}
+	return alertConfigurationToolSchemas(map[string]any{
+		"alert_query_group_get":    object(map[string]any{"rule_id": id, "group": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "rule_id", "group"),
+		"alert_query_create":       map[string]any{"$ref": "#/components/schemas/SavedQueryAlertCreateInput"},
+		"alert_query_source_get":   object(map[string]any{"rule_id": id}, "rule_id"),
+		"alert_query_source_set":   object(map[string]any{"rule_id": id, "input": map[string]any{"$ref": "#/components/schemas/AlertQuerySourceInput"}}, "rule_id", "input"),
+		"alert_query_source_clear": object(map[string]any{"rule_id": id, "confirmed": map[string]any{"type": "boolean", "const": true}}, "rule_id", "confirmed"),
+	})
+}
+
+func alertConfigurationToolSchemas(inputs map[string]any) (map[string]json.RawMessage, error) {
 	var document struct {
 		Components struct {
 			Schemas map[string]json.RawMessage `json:"schemas"`
@@ -72,15 +86,5 @@ func alertQueryToolSchemas() (map[string]json.RawMessage, error) {
 	if err := json.Unmarshal(openapiJSON, &document); err != nil {
 		return nil, err
 	}
-	id := map[string]any{"type": "string", "format": "uuid"}
-	object := func(properties map[string]any, required ...string) any {
-		return map[string]any{"type": "object", "additionalProperties": false, "properties": properties, "required": required}
-	}
-	return nativeMCPInputSchemas(document.Components.Schemas, map[string]any{
-		"alert_query_group_get":    object(map[string]any{"rule_id": id, "group": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "rule_id", "group"),
-		"alert_query_create":       map[string]any{"$ref": "#/components/schemas/SavedQueryAlertCreateInput"},
-		"alert_query_source_get":   object(map[string]any{"rule_id": id}, "rule_id"),
-		"alert_query_source_set":   object(map[string]any{"rule_id": id, "input": map[string]any{"$ref": "#/components/schemas/AlertQuerySourceInput"}}, "rule_id", "input"),
-		"alert_query_source_clear": object(map[string]any{"rule_id": id, "confirmed": map[string]any{"type": "boolean", "const": true}}, "rule_id", "confirmed"),
-	})
+	return nativeMCPInputSchemas(document.Components.Schemas, inputs)
 }

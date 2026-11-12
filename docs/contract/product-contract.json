@@ -57,7 +57,7 @@
       ],
       "name": "Alerting",
       "status": "delivered",
-      "evidence": "`internal/alert`; silences/acks persist through `migrations/0043_alert_ops.sql`, `internal/store/alertops.go`, `internal/control/alertsactive.go`, `internal/control/alerteval.go`; saved Explorer query extension is preview (`internal/control/alert_query_source.go`, `migrations/0194_alert_query_sources.sql`), with original real-flow and complete surface qualification still owed"
+      "evidence": "`internal/alert`; silences/acks persist through `migrations/0043_alert_ops.sql`, `internal/store/alertops.go`, `internal/control/alertsactive.go`, `internal/control/alerteval.go`; saved Explorer query extension is preview (`internal/control/alert_query_source.go`, `migrations/0194_alert_query_sources.sql`), with original real-flow and complete surface qualification still owed; dependency configuration metadata is preview (`internal/control/alert_dependency_configuration.go`, `migrations/0195_alert_dependency_policy.sql`), without notification holding, incident attachment or recovery release"
     },
     {
       "ids": [

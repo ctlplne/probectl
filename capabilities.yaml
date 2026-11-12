@@ -151,14 +151,14 @@ capabilities:
     owner: platform/release
     engine: {refs: ["file:internal/alert"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildAlertEvaluatorSupervisor("]}
-    api: {refs: ["api:GET /v1/alerts", "api:GET /v1/alerts/active", "api:GET /v1/alerts/rules/{id}/query-group", "api:GET /v1/alerts/rules/{id}/query-source", "api:PUT /v1/alerts/rules/{id}/query-source", "api:DELETE /v1/alerts/rules/{id}/query-source"]}
-    cli: {refs: ["cli:probectl alert list", "cli:probectl alert active", "cli:probectl alert query-group", "cli:probectl alert query-source", "cli:probectl alert query-source-set", "cli:probectl alert query-source-clear"]}
+    api: {refs: ["api:GET /v1/alerts", "api:GET /v1/alerts/active", "api:GET /v1/alerts/rules/{id}/query-group", "api:GET /v1/alerts/rules/{id}/query-source", "api:PUT /v1/alerts/rules/{id}/query-source", "api:DELETE /v1/alerts/rules/{id}/query-source", "api:GET /v1/alerts/rules/{id}/dependency-policy", "api:PUT /v1/alerts/rules/{id}/dependency-policy", "api:DELETE /v1/alerts/rules/{id}/dependency-policy"]}
+    cli: {refs: ["cli:probectl alert list", "cli:probectl alert active", "cli:probectl alert query-group", "cli:probectl alert query-source", "cli:probectl alert query-source-set", "cli:probectl alert query-source-clear", "cli:probectl alert dependency-policy", "cli:probectl alert dependency-policy-set", "cli:probectl alert dependency-policy-clear"]}
     ui: {refs: ["ui:F8@/alerts"]}
     docs: {refs: ["file:docs/alerting.md#Alerting"]}
     config_keys: {refs: ["config:PROBECTL_ALERT_EVAL_INTERVAL"]}
     telemetry: {refs: ["file:internal/alert"]}
     real_stack_proof: {refs: ["test:internal/alert/realstack_integration_test.go#TestAlertingRealStack", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack"]}
-    migration: {refs: ["file:migrations/0011_alert_rules.sql", "file:migrations/0043_alert_ops.sql", "file:migrations/0065_alert_evaluation_receipts.sql", "file:migrations/0127_alert_rules_trap_match.sql", "file:migrations/0194_alert_query_sources.sql"]}
+    migration: {refs: ["file:migrations/0011_alert_rules.sql", "file:migrations/0043_alert_ops.sql", "file:migrations/0065_alert_evaluation_receipts.sql", "file:migrations/0127_alert_rules_trap_match.sql", "file:migrations/0194_alert_query_sources.sql", "file:migrations/0195_alert_dependency_policy.sql"]}
 
   - id: F9
     name: Dashboards and incident timeline

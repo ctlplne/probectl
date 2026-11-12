@@ -197,6 +197,7 @@ export interface AlertRule {
   name: string
   enabled: boolean
   has_tag_filter?: boolean
+  has_dependency_policy?: boolean
   metric: string
   match?: Record<string, string>
   type: 'threshold' | 'baseline' | 'trap'
@@ -216,7 +217,7 @@ export interface AlertRule {
 /** The create/update body (server validates; id/timestamps are server-owned). */
 export type AlertRuleInput = Omit<
   AlertRule,
-  'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'has_tag_filter'
+  'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'has_tag_filter' | 'has_dependency_policy'
 >
 
 export interface ActiveAlert {

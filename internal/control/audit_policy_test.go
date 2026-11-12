@@ -47,7 +47,7 @@ func TestAuditPolicyMatrixCoversRequiredRoutes(t *testing.T) {
 }
 
 func TestSavedQueryReadRoutesRefuseUnauditedAccess(t *testing.T) {
-	for _, resource := range []string{"query-source", "query-group?group=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} {
+	for _, resource := range []string{"query-source", "query-group?group=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dependency-policy"} {
 		for _, tenant := range []string{"11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"} {
 			t.Run(resource+"/"+tenant, func(t *testing.T) {
 				s := testServer(nil)

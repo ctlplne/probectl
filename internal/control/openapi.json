@@ -2214,6 +2214,214 @@
         ]
       }
     },
+    "/v1/alerts/rules/{id}/dependency-policy": {
+      "get": {
+        "operationId": "getAlertDependencyPolicy",
+        "summary": "Read notification dependency configuration",
+        "x-required-permission": "alert.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current dependency configuration, without stored owner/grants or source evidence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertDependencyPolicyState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Tenant identity comes from authentication; FORCE-RLS scopes the rule, current active owner and routing context. Configuration retains only the configuring read capability ceiling, never tokens, MFA or role snapshots. Every mutation is audited. This preview operation manages configuration metadata only; it does not assert a current notification hold.",
+        "x-additional-permissions": [
+          "topology.read",
+          "entities.read"
+        ]
+      },
+      "put": {
+        "operationId": "setAlertDependencyPolicy",
+        "summary": "Configure an owned notification dependency context",
+        "x-required-permission": "alert.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current dependency configuration, without stored owner/grants or source evidence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertDependencyPolicyState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Tenant identity comes from authentication; FORCE-RLS scopes the rule, current active owner and routing context. Configuration retains only the configuring read capability ceiling, never tokens, MFA or role snapshots. Every mutation is audited. This preview operation manages configuration metadata only; it does not assert a current notification hold.",
+        "x-additional-permissions": [
+          "topology.read",
+          "entities.read",
+          "test.read",
+          "metrics.read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertDependencyPolicyInput"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "clearAlertDependencyPolicy",
+        "summary": "Clear notification dependency configuration while preserving detection",
+        "x-required-permission": "alert.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "200": {
+            "description": "Current dependency configuration, without stored owner/grants or source evidence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertDependencyPolicyState"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tenant identity comes from authentication; FORCE-RLS scopes the rule, current active owner and routing context. Configuration retains only the configuring read capability ceiling, never tokens, MFA or role snapshots. Every mutation is audited. This preview operation manages configuration metadata only; it does not assert a current notification hold. Requires current alert.write only and preserves enabled state, metric, predicate and source configuration."
+      }
+    },
     "/v1/alerts/rules/{id}/query-source": {
       "get": {
         "operationId": "getAlertQuerySource",
@@ -19549,6 +19757,51 @@
             "$ref": "#/components/schemas/AlertTagFilterEditorSchema",
             "readOnly": true,
             "description": "Present on an authorized metadata GET only; omitted from set/clear replies."
+          }
+        }
+      },
+      "AlertDependencyPolicyInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "context_id"
+        ],
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "freshness_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "maximum": 9223372036,
+            "default": 300,
+            "description": "Positive source freshness in seconds; omitted or zero uses 300. Maximum is the signed nanosecond duration representation, not a product population ceiling."
+          }
+        }
+      },
+      "AlertDependencyPolicyState": {
+        "type": "object",
+        "required": [
+          "rule_id",
+          "rule_updated_at",
+          "configured"
+        ],
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rule_updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/AlertDependencyPolicyInput"
           }
         }
       },

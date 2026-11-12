@@ -532,3 +532,23 @@ is labelled a fresh query, not a historical firing receipt. Read the same data
 with `GET /v1/alerts/rules/{id}/query-group?group=HANDLE`, CLI
 `probectl alert query-group ID --query group=HANDLE`, or native MCP
 `alert_query_group_get`. Historical source-value reconstruction remains unproven.
+
+## Notification dependency configuration (preview)
+
+`GET|PUT|DELETE /v1/alerts/rules/{id}/dependency-policy` manages a rule's
+operator-owned `context_id` and `freshness_seconds` (default 300 seconds).
+This preview stores configuration metadata only; topology-based notification
+holding, incident attachment and recovery release are not yet available.
+Collection, detection, enabled state and the existing rule predicate are preserved.
+
+Setting requires current `alert.write`, `topology.read`, `entities.read`,
+`test.read` and `metrics.read` in that context. Reads require
+`alert.read`, `topology.read` and `entities.read`; clearing requires current
+`alert.write` and does not require previous source access. Tenant isolation is
+enforced on the existing FORCE-RLS alert rows. Stored read ceilings carry no
+token, MFA assertion or role snapshot, and source authority is checked afresh.
+
+CLI: `probectl alert dependency-policy`, `dependency-policy-set` and
+`dependency-policy-clear`. Native MCP: `alert_dependency_get`,
+`alert_dependency_set` and `alert_dependency_clear`; native clear requires
+`confirmed:true`. Configuration is included in subject export and erasure.

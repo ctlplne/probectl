@@ -66,7 +66,7 @@ func (policy DependencyPolicy) Validate() error {
 	}
 	for _, grant := range policy.ReadGrants {
 		switch grant.Permission {
-		case "topology.read", "entities.read", "test.read", "metrics.read", "device.read", "flow.read", "bgp.read":
+		case "topology.read", "entities.read", "test.read", "metrics.read", "events.read", "flow.read", "incident.read":
 		default:
 			return ErrDependencyEvidence
 		}
