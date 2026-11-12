@@ -59,26 +59,28 @@ func (p *Provisioner) ensureTagStorageIndexes(ctx context.Context, schema string
 }
 
 func (p *Provisioner) ensureTagIndex(ctx context.Context, schema string, target tagIndexTarget) error {
-	expected := append([]string(nil), target.columns...)
+	expectedDescending := make([]bool, len(target.columns))
 	for i, column := range target.columns {
-		if target.descending[column] {
-			expected[i] += " DESC"
-		}
+		expectedDescending[i] = target.descending[column]
 	}
 	inspect := func() (exists, valid, correct bool, err error) {
 		var table string
 		var unique, usable, unpredicated bool
 		var columns []string
+		var descending []bool
+		// The column-only deparser omits ASC/DESC; inspect ordering separately.
 		err = p.ddlPool().QueryRow(ctx, `SELECT t.relname,i.indisunique,i.indisvalid,
 			i.indpred IS NULL,ARRAY(
 				SELECT pg_get_indexdef(i.indexrelid,n,true)
+				FROM generate_series(1,i.indnkeyatts) n ORDER BY n),
+			ARRAY(SELECT pg_index_column_has_property(i.indexrelid,n,'desc')
 				FROM generate_series(1,i.indnkeyatts) n ORDER BY n)
 			FROM pg_class x
 			JOIN pg_namespace ns ON ns.oid=x.relnamespace
 			JOIN pg_index i ON i.indexrelid=x.oid
 			JOIN pg_class t ON t.oid=i.indrelid
 			WHERE ns.nspname=$1 AND x.relname=$2`, schema, target.name).
-			Scan(&table, &unique, &usable, &unpredicated, &columns)
+			Scan(&table, &unique, &usable, &unpredicated, &columns, &descending)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, false, false, nil
 		}
@@ -86,7 +88,8 @@ func (p *Provisioner) ensureTagIndex(ctx context.Context, schema string, target 
 			return false, false, false, fmt.Errorf("silo: inspect tag index %s: %w", target.name, err)
 		}
 		return true, usable, table == target.table && unique != target.nonUnique && unpredicated &&
-			slices.Equal(columns, expected), nil
+			slices.Equal(columns, target.columns) &&
+			(len(target.descending) == 0 || slices.Equal(descending, expectedDescending)), nil
 	}
 	exists, valid, correct, err := inspect()
 	if err != nil {

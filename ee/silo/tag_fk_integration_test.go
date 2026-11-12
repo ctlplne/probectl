@@ -350,7 +350,10 @@ func assertLatestSourceIndex(t *testing.T, pool *pgxpool.Pool, schema string) in
 	err := pool.QueryRow(t.Context(), `SELECT i.indexrelid::bigint,i.indisvalid,NOT i.indisunique,
 		ARRAY(SELECT pg_get_indexdef(i.indexrelid,n,true)
 		      FROM generate_series(1,i.indnkeyatts) n ORDER BY n)=
-		ARRAY['tenant_id','context_id','agent_id','source_kind','configured_ref','observed_at DESC','id']::text[]
+		ARRAY['tenant_id','context_id','agent_id','source_kind','configured_ref','observed_at','id']::text[]
+		AND ARRAY(SELECT pg_index_column_has_property(i.indexrelid,n,'desc')
+		      FROM generate_series(1,i.indnkeyatts) n ORDER BY n)=
+		ARRAY[false,false,false,false,false,true,false]
 		FROM pg_index i JOIN pg_class x ON x.oid=i.indexrelid
 		JOIN pg_namespace ns ON ns.oid=x.relnamespace
 		WHERE ns.nspname=$1 AND x.relname='entity_evidence_tenant_source_latest_idx'
