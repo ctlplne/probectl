@@ -221,6 +221,8 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// Metadata and saved-query rules retain a configuring user reference and
 	// user-entered selection values. Decode these documents for subject erasure;
 	// opaque group keys and structural rule IDs are not subject selectors.
+	// The decoded scanner projects known version1 context/view/hierarchy and
+	// tag-binding references out of selection; matching exports keep whole rows.
 	"alert_rules": {
 		plane: "postgres:alert_rules", disposition: subjectTableDeleteMatches,
 		contains: []string{"tag_filter", "query_source", "dependency_policy"},

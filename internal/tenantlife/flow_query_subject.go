@@ -40,7 +40,11 @@ func newFlowQuerySubjectScan(table string, aliases subjectAliasSet) (*flowQueryS
 		exact = append(exact, `lower(COALESCE(subject_row.`+pgIdent(column)+`::text,''))=ANY($2::text[])`)
 	}
 	for _, column := range policy.contains {
-		documents = append(documents, "subject_row."+pgIdent(column))
+		document := "subject_row." + pgIdent(column)
+		if table == "alert_rules" {
+			document = alertSubjectDocumentSQL(column)
+		}
+		documents = append(documents, document)
 	}
 	if table == "bgp_flow_capture_objects" {
 		// Only source identifiers are subject-bearing. Numeric routes, evidence
