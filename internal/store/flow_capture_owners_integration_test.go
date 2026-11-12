@@ -44,7 +44,7 @@ func TestCapturedFlowOwnersKeepOriginalIdentityAcrossRefreshAndRefuseReassignmen
 		calls := 0
 		allow := func(_ context.Context, record entity.ContextRecord, source InterfaceRoleFlowBinding) error {
 			calls++
-			if record.TenantID != tenant || record.ContextID != f.contextID || source.Scope.TenantID != tenant ||
+			if record.TenantID != tenant || record.ContextID != f.contextID || source.TenantID != tenant ||
 				source.ContextID != f.contextID || source.RouterID != f.routerID || source.AgentID != "routing-flow" ||
 				source.Exporter != input.Exporter || source.Protocol != input.Protocol || source.Domain != input.Domain {
 				t.Fatal("flow owner authorization received a foreign or incomplete source selector")

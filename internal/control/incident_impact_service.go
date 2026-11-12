@@ -265,15 +265,16 @@ func summarizeIncidentTraffic(ctx context.Context, tenant string, period inciden
 	slices.SortFunc(period.Captures, func(a, b incident.ImpactCaptureCitation) int {
 		return slices.Compare([]string{a.Key}, []string{b.Key})
 	})
-	if period.AttestedRecords > 0 {
+	switch {
+	case period.AttestedRecords > 0:
 		period.ObservedTotals = totals.response()
 		period.Coverage = "observed_attested_records"
 		if period.UnverifiedRecords > 0 {
 			period.Coverage = "partial_capture_coverage"
 		}
-	} else if len(rows) > 0 {
+	case len(rows) > 0:
 		period.Coverage = "unavailable_original_capture"
-	} else if period.Coverage != "unavailable_source" {
+	case period.Coverage != "unavailable_source":
 		period.Coverage = "no_observed_records"
 	}
 	return period, nil

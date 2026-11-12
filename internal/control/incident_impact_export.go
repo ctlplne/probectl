@@ -45,9 +45,9 @@ func decodeIncidentEvidenceExport(r *http.Request) (incidentEvidenceExportInput,
 	if len(bytes.TrimSpace(data)) == 0 {
 		return input, nil
 	}
-	copy := r.Clone(r.Context())
-	copy.Body = io.NopCloser(bytes.NewReader(data))
-	if err := decodeJSONLimit(copy, flow.MaxPlanGrammarBytes, &input); err != nil {
+	request := r.Clone(r.Context())
+	request.Body = io.NopCloser(bytes.NewReader(data))
+	if err := decodeJSONLimit(request, flow.MaxPlanGrammarBytes, &input); err != nil {
 		return input, err
 	}
 	return input, nil
