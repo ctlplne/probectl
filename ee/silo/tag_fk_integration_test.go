@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport"
@@ -54,6 +55,9 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 			t.Errorf("remove tag fixture tenants: %v", err)
 		}
 	})
+	assertLatestSourceIndex(t, pool, "public")
+	assertLatestSourceIndex(t, pool, SchemaName(a))
+	siblingIndex := assertLatestSourceIndex(t, pool, SchemaName(b))
 	schemaA, schemaB := quoteIdent(SchemaName(a)), quoteIdent(SchemaName(b))
 	contextA, contextOther, contextB := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	seedContext := func(schema, tenant, routingContext string) {
@@ -296,6 +300,7 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 	for _, index := range []string{
 		"entities_tenant_context_id_kind_uidx",
 		"entity_sources_tenant_context_identity_uidx",
+		"entity_evidence_tenant_source_latest_idx",
 	} {
 		if _, err := pool.Exec(ctx, `DROP INDEX `+schemaA+`.`+quoteIdent(index)); err != nil {
 			t.Fatalf("simulate pre-tag silo index %s: %v", index, err)
@@ -306,6 +311,10 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 	}
 	if err := prov.CatchUpSchema(ctx, a); err != nil {
 		t.Fatalf("second tag silo catch-up was not idempotent: %v", err)
+	}
+	assertLatestSourceIndex(t, pool, SchemaName(a))
+	if assertLatestSourceIndex(t, pool, SchemaName(b)) != siblingIndex {
+		t.Fatal("catching up one silo replaced the sibling's source index")
 	}
 	var copied int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM `+schemaA+`.entity_test_contexts
@@ -330,6 +339,27 @@ func TestTagSiloStorageRejectsForeignKindContextAndTenant(t *testing.T) {
 		WHERE tenant_id=$1 AND test_id=$2`, a, pathTestID).Scan(&copied); err != nil || copied != 0 {
 		t.Fatalf("retarget kept a stale general context: %d, %v", copied, err)
 	}
+}
+
+// Public migration, new-silo cloning and old-silo catch-up must all retain the
+// tenant-leading latest-source ordering without imposing source uniqueness.
+func assertLatestSourceIndex(t *testing.T, pool *pgxpool.Pool, schema string) int64 {
+	t.Helper()
+	var oid int64
+	var valid, nonUnique, ordered bool
+	err := pool.QueryRow(t.Context(), `SELECT i.indexrelid::bigint,i.indisvalid,NOT i.indisunique,
+		ARRAY(SELECT pg_get_indexdef(i.indexrelid,n,true)
+		      FROM generate_series(1,i.indnkeyatts) n ORDER BY n)=
+		ARRAY['tenant_id','context_id','agent_id','source_kind','configured_ref','observed_at DESC','id']::text[]
+		FROM pg_index i JOIN pg_class x ON x.oid=i.indexrelid
+		JOIN pg_namespace ns ON ns.oid=x.relnamespace
+		WHERE ns.nspname=$1 AND x.relname='entity_evidence_tenant_source_latest_idx'
+		AND i.indrelid=to_regclass(format('%I.entity_evidence',$1)) AND i.indpred IS NULL`, schema).
+		Scan(&oid, &valid, &nonUnique, &ordered)
+	if err != nil || !valid || !nonUnique || !ordered {
+		t.Fatalf("latest-source index is absent, invalid or has the wrong tenant/order shape in %s: %v", schema, err)
+	}
+	return oid
 }
 
 // A tag snapshot reads several tables. The first read must hold all silo

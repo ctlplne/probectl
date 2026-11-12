@@ -110,7 +110,9 @@ test('dependency context editor keeps later pages and full duration values with 
   )
   const user = userEvent.setup()
   fixture()
-  expect(screen.getByText(/Verified upstream failures can hold downstream reachability/)).toBeInTheDocument()
+  expect(
+    screen.getByText(/Verified upstream failures can hold downstream reachability/),
+  ).toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'Load current dependency settings' }))
   await screen.findByLabelText('Dependency routing context')
   await user.click(screen.getByRole('button', { name: 'Load more contexts' }))
