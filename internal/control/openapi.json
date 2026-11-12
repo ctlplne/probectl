@@ -2265,6 +2265,9 @@
           "409": {
             "$ref": "#/components/responses/ErrorResponse"
           },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "422": {
             "$ref": "#/components/responses/ErrorResponse"
           },
@@ -2275,7 +2278,7 @@
             "$ref": "#/components/responses/ErrorResponse"
           }
         },
-        "description": "Tenant identity comes from authentication; FORCE-RLS scopes the rule, current active owner and routing context. Configuration retains only the configuring read capability ceiling, never tokens, MFA or role snapshots. Every mutation is audited. This preview operation manages configuration metadata only; it does not assert a current notification hold.",
+        "description": "Tenant identity comes from authentication; FORCE-RLS scopes the rule, current active owner and routing context. Configuration retains only the configuring read capability ceiling, never tokens, MFA or role snapshots. Every mutation is audited. This preview operation manages configuration metadata only; it does not assert a current notification hold. A configured directed graph additionally requires current test.read and metrics.read for each canonical node; missing or withdrawn references return conflict. Complete configuration memory refusal returns 413; no partial graph is stored.",
         "x-additional-permissions": [
           "topology.read",
           "entities.read"
@@ -2331,6 +2334,9 @@
           "409": {
             "$ref": "#/components/responses/ErrorResponse"
           },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "422": {
             "$ref": "#/components/responses/ErrorResponse"
           },
@@ -2341,7 +2347,7 @@
             "$ref": "#/components/responses/ErrorResponse"
           }
         },
-        "description": "Tenant identity comes from authentication; FORCE-RLS scopes the rule, current active owner and routing context. Configuration retains only the configuring read capability ceiling, never tokens, MFA or role snapshots. Every mutation is audited. This preview operation manages configuration metadata only; it does not assert a current notification hold.",
+        "description": "Tenant identity comes from authentication; FORCE-RLS scopes the rule, current active owner and routing context. Configuration retains only the configuring read capability ceiling, never tokens, MFA or role snapshots. Every mutation is audited. This preview operation manages configuration metadata only; it does not assert a current notification hold. A configured directed graph additionally requires current test.read and metrics.read for each canonical node; missing or withdrawn references return conflict. Complete configuration memory refusal returns 413; no partial graph is stored.",
         "x-additional-permissions": [
           "topology.read",
           "entities.read",
@@ -19760,6 +19766,56 @@
           }
         }
       },
+      "AlertDependencyGraphInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "nodes"
+        ],
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/AlertDependencyNodeInput"
+            },
+            "description": "Complete operator-declared directed graph. Population and depth are admitted by operation memory and deadlines, not truncated."
+          }
+        }
+      },
+      "AlertDependencyNodeInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entity_id",
+          "agent_id",
+          "test_id",
+          "parents"
+        ],
+        "properties": {
+          "entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "test_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parents": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "uniqueItems": true,
+            "description": "Canonical parent device IDs in this graph; [] marks an independent root. Every connected source must use the same agent vantage."
+          }
+        }
+      },
       "AlertDependencyPolicyInput": {
         "type": "object",
         "additionalProperties": false,
@@ -19778,6 +19834,13 @@
             "maximum": 9223372036,
             "default": 300,
             "description": "Positive source freshness in seconds; omitted or zero uses 300. Maximum is the signed nanosecond duration representation, not a product population ceiling."
+          },
+          "graph": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/AlertDependencyGraphInput" },
+              { "type": "null" }
+            ],
+            "description": "Optional complete directed canonical dependencies and exact ICMP sources. Omitted context-only settings cannot authorize notification holding. References are rechecked against current tenant storage and current read authority."
           }
         }
       },

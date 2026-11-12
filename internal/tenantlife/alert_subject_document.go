@@ -22,7 +22,7 @@ func alertSubjectDocumentSQL(column string) string {
 		projection = alertSubjectReadGrantsSQL(document)
 	case "dependency_policy":
 		trimmed = alertSubjectWithoutUUIDReference(document, "context_id")
-		projection = alertSubjectReadGrantsSQL(document)
+		projection = `(` + alertSubjectReadGrantsSQL(document) + `) || (` + alertSubjectDependencyGraphSQL(document) + `)`
 	case "tag_filter":
 		projection = alertSubjectTagBindingsSQL(document)
 	default:
@@ -30,6 +30,27 @@ func alertSubjectDocumentSQL(column string) string {
 	}
 	return `(CASE WHEN jsonb_typeof(` + document + `)='object' AND ` + document + `->'version'='1'::jsonb
  THEN (` + trimmed + `) || (` + projection + `) ELSE ` + document + ` END)`
+}
+
+func alertSubjectDependencyGraphSQL(document string) string {
+	node := `subject_dependency_node.value`
+	trimmed := node
+	for _, field := range []string{"entity_id", "agent_id", "test_id"} {
+		trimmed = alertSubjectWithoutUUIDReference(trimmed, field)
+	}
+	return `(CASE WHEN jsonb_typeof(` + document + `->'graph')='object'
+ AND jsonb_typeof(` + document + `->'graph'->'nodes')='array'
+ THEN jsonb_build_object('graph', (` + document + `->'graph') || jsonb_build_object('nodes',(
+ SELECT COALESCE(jsonb_agg(CASE WHEN jsonb_typeof(` + node + `)='object'
+ THEN (` + trimmed + `) || (CASE WHEN jsonb_typeof(` + node + `->'parents')='array'
+   THEN jsonb_build_object('parents', (SELECT COALESCE(jsonb_agg(CASE
+      WHEN ` + alertSubjectUUIDValueSQL(`subject_dependency_parent.value`) + `
+      THEN 'null'::jsonb ELSE subject_dependency_parent.value END ORDER BY subject_dependency_parent.ordinal),'[]'::jsonb)
+     FROM jsonb_array_elements(` + node + `->'parents') WITH ORDINALITY AS subject_dependency_parent(value,ordinal)))
+   ELSE '{}'::jsonb END)
+ ELSE ` + node + ` END ORDER BY subject_dependency_node.ordinal),'[]'::jsonb)
+ FROM jsonb_array_elements(` + document + `->'graph'->'nodes') WITH ORDINALITY AS subject_dependency_node(value,ordinal))))
+ ELSE '{}'::jsonb END)`
 }
 
 func alertSubjectReadGrantsSQL(document string) string {

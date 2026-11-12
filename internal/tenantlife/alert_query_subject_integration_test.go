@@ -44,7 +44,7 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 	// source service would execute it. Only the configured subject fields match.
 	for _, tenant := range []string{red, blue} {
 		if err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
-			for i := range 15 {
+			for i := range 18 {
 				id := flowQueryUUID(t)
 				query, tag, dependency := any(nil), any(nil), any(nil)
 				switch i {
@@ -143,10 +143,23 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 						return err
 					}
 					dependency = string(raw)
+				case 15, 16, 17:
+					node := map[string]any{"entity_id": owner, "agent_id": owner, "test_id": owner, "parents": []string{owner}}
+					if i == 16 {
+						node["personal_note"] = subject
+					}
+					if i == 17 {
+						node["parents"] = []string{subject}
+					}
+					raw, err := json.Marshal(map[string]any{"version": 1, "owner_user_id": flowQueryUUID(t), "graph": map[string]any{"nodes": []any{node}}})
+					if err != nil {
+						return err
+					}
+					dependency = string(raw)
 				}
 				if tenant == red {
 					switch i {
-					case 0, 1, 3, 7, 8, 10, 11, 14:
+					case 0, 1, 3, 7, 8, 10, 11, 14, 16, 17:
 						matchedIDs[id] = true
 					default:
 						unrelatedIDs[id] = true
@@ -168,8 +181,8 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 		t.Fatal(err)
 	}
 	body := strings.TrimSpace(readTarGz(t, archive.Bytes())["postgres/alert_rules.jsonl"])
-	if body == "" || strings.Count(body, "\n") != 7 || strings.Contains(body, blue) || strings.Contains(body, "evilquery-owner") {
-		t.Errorf("subject export rows=%d, want8 without unrelated or foreign rules", strings.Count(body, "\n")+1)
+	if body == "" || strings.Count(body, "\n") != 9 || strings.Contains(body, blue) || strings.Contains(body, "evilquery-owner") {
+		t.Errorf("subject export rows=%d, want10 without unrelated or foreign rules", strings.Count(body, "\n")+1)
 	}
 	exported := map[string]bool{}
 	for _, line := range strings.Split(body, "\n") {
@@ -208,7 +221,7 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 	if _, _, err := engine.eraseSubjectPostgres(t.Context(), red, subject, "privacy-admin", "owned query-alert rollback"); !errors.Is(err, injected) {
 		t.Fatal("audit refusal did not fail closed", err)
 	}
-	if got := countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, red); got != 15 {
+	if got := countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, red); got != 18 {
 		t.Fatal("failed audit committed alert configuration deletion", got)
 	}
 	engine.appendSubjectErasure = appendMarker
@@ -217,7 +230,7 @@ func TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary(t *t
 		t.Fatal(err)
 	}
 	paid := subjectPlanesByName(planes)["postgres:alert_rules"]
-	if paid.Deleted != 8 || paid.Remaining != 0 || countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, red) != 7 || countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, blue) != 15 {
+	if paid.Deleted != 10 || paid.Remaining != 0 || countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, red) != 8 || countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, blue) != 18 {
 		t.Fatal("subject config survived or another tenant/unrelated rule changed", paid)
 	}
 	if err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(red)), pool, func(ctx context.Context, sc tenancy.Scope) error {

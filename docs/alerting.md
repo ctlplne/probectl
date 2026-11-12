@@ -538,13 +538,23 @@ with `GET /v1/alerts/rules/{id}/query-group?group=HANDLE`, CLI
 
 `GET|PUT|DELETE /v1/alerts/rules/{id}/dependency-policy` manages a rule's
 operator-owned `context_id` and `freshness_seconds` (default 300 seconds).
+An optional `graph.nodes` array names canonical device `entity_id`, assigned
+`agent_id`, current ICMP `test_id` and an explicit `parents` array for each node.
+An empty parents array marks an independent root. Every parent must be present;
+cycles, duplicate entities/sources and connected probes from different agent
+vantages are refused. A physical link cannot automatically create a dependency.
+All references must match current tenant-owned entities, enabled tests and
+explicit agent/source/test contexts. There is no graph population or depth cap;
+the operation admits complete input against its memory and execution budget.
 This preview stores configuration metadata only; topology-based notification
 holding, incident attachment and recovery release are not yet available.
 Collection, detection, enabled state and the existing rule predicate are preserved.
 
 Setting requires current `alert.write`, `topology.read`, `entities.read`,
 `test.read` and `metrics.read` in that context. Reads require
-`alert.read`, `topology.read` and `entities.read`; clearing requires current
+`alert.read`, `topology.read` and `entities.read`.
+`test.read` and `metrics.read` are also required when inspecting a configured
+graph, with current per-node ABAC checks. Clearing requires current
 `alert.write` and does not require previous source access. Tenant isolation is
 enforced on the existing FORCE-RLS alert rows. Stored read ceilings carry no
 token, MFA assertion or role snapshot, and source authority is checked afresh.
@@ -552,7 +562,10 @@ token, MFA assertion or role snapshot, and source authority is checked afresh.
 In Alerts, a rule's **Dependency context** action loads current settings and
 pages through owned routing contexts. Set the source freshness and save
 explicitly, or confirm **Clear dependency settings** to remove configuration
-without changing detection. Tenant, user or permission changes discard the
+without changing detection.
+The optional directed graph JSON editor preserves all nodes and parent edges;
+changing routing context clears its graph so references cannot silently move.
+Tenant, user or permission changes discard the
 editor's previous values and pending requests. The editor identifies this as
 configuration preview until notification routing is available.
 

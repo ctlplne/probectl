@@ -20,6 +20,7 @@ import (
 )
 
 var ErrAlertDependencyChanged = errors.New("alert dependency configuration changed")
+var ErrAlertDependencyBudget = errors.New("alert dependency operation memory admission refused")
 
 // GetDependencyPolicy admits configuration bytes before transfer or decoding.
 // It supplies no source grant; the actual reader must recheck current authority.
@@ -45,7 +46,7 @@ func (AlertRules) GetDependencyPolicy(ctx context.Context, sc tenancy.Scope, id 
 		return nil, nil
 	}
 	if size > maxBytes/8 || len(raw) == 0 {
-		return nil, alert.ErrDependencyEvidence
+		return nil, ErrAlertDependencyBudget
 	}
 	var out alert.DependencyPolicy
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -80,7 +81,7 @@ func (AlertRules) SetDependencyPolicy(ctx context.Context, sc tenancy.Scope, id 
 			return nil, err
 		}
 		if int64(len(body)) > maxBytes/8 {
-			return nil, alert.ErrDependencyEvidence
+			return nil, ErrAlertDependencyBudget
 		}
 		encoded = string(body)
 	}
@@ -99,6 +100,9 @@ func (AlertRules) SetDependencyPolicy(ctx context.Context, sc tenancy.Scope, id 
 			return nil, ErrAlertDependencyChanged
 		}
 		if err != nil {
+			return nil, err
+		}
+		if err := ValidateDependencyGraphInScope(ctx, sc, policy.ContextID, policy.Graph, maxBytes); err != nil {
 			return nil, err
 		}
 	}

@@ -13,6 +13,7 @@ import {
   getAlertDependencyPolicy,
   putAlertDependencyPolicy,
   clearAlertDependencyPolicy,
+  parseDependencyGraph,
   type AlertDependencyPolicyState,
   type EntityContext,
 } from '../api/alertDependencies'
@@ -24,6 +25,7 @@ import {
   LoadingState,
   Modal,
   Select,
+  TextArea,
 } from '../components'
 import { DateTime } from '../time/DateTime'
 import styles from './alerts.module.css'
@@ -76,6 +78,7 @@ function DependencyContents({
   const [paging, setPaging] = useState(false)
   const [contextID, setContextID] = useState('')
   const [freshness, setFreshness] = useState('300')
+  const [graphText, setGraphText] = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
   const request = useRef<AbortController | undefined>(undefined)
   const pageRequest = useRef<AbortController | undefined>(undefined)
@@ -100,6 +103,7 @@ function DependencyContents({
     setCursor('')
     setContextID('')
     setFreshness('300')
+    setGraphText('')
   }
   const owned = (items: EntityContext[]) => {
     if (items.some((item) => item.tenant_id !== tenantID || !item.context_id))
@@ -110,7 +114,17 @@ function DependencyContents({
   const knownContext =
     contexts.some((item) => item.context_id === contextID) ||
     (state.kind === 'ready' && state.value.policy?.context_id === contextID)
-  const valid = Boolean(contextID && knownContext && Number.isSafeInteger(seconds) && seconds > 0)
+  let graph: ReturnType<typeof parseDependencyGraph>
+  let graphError: string | undefined
+  try {
+    graph = parseDependencyGraph(graphText)
+  } catch {
+    graphError =
+      'Enter the complete graph with canonical device, agent and ICMP test IDs and parent arrays.'
+  }
+  const valid = Boolean(
+    contextID && knownContext && Number.isSafeInteger(seconds) && seconds > 0 && !graphError,
+  )
 
   const perform = async (method: 'GET' | 'PUT' | 'DELETE') => {
     if (method === 'GET' ? !canRead : method === 'PUT' ? !canSave || !valid : !canClear) return
@@ -129,7 +143,7 @@ function DependencyContents({
             ? await putAlertDependencyPolicy(
                 tenantID,
                 rule.id,
-                { context_id: contextID, freshness_seconds: seconds },
+                { context_id: contextID, freshness_seconds: seconds, ...(graph ? { graph } : {}) },
                 controller.signal,
               )
             : await clearAlertDependencyPolicy(tenantID, rule.id, controller.signal)
@@ -146,6 +160,7 @@ function DependencyContents({
       else {
         setContextID(value.policy?.context_id ?? '')
         setFreshness(String(value.policy?.freshness_seconds ?? 300))
+        setGraphText(value.policy?.graph ? JSON.stringify(value.policy.graph, null, 2) : '')
       }
       setState(method === 'DELETE' ? { kind: 'cleared' } : { kind: 'ready', value })
       setConfirmClear(false)
@@ -246,7 +261,10 @@ function DependencyContents({
             <Select
               label="Dependency routing context"
               value={contextID}
-              onChange={(event) => setContextID(event.target.value)}
+              onChange={(event) => {
+                setContextID(event.target.value)
+                setGraphText('')
+              }}
               disabled={!canSave}
               options={contextOptions}
             />
@@ -263,6 +281,17 @@ function DependencyContents({
               value={freshness}
               onChange={(event) => setFreshness(event.target.value)}
               disabled={!canSave}
+            />
+            <TextArea
+              label="Directed dependency graph (JSON)"
+              value={graphText}
+              onChange={(event) => setGraphText(event.target.value)}
+              disabled={!canSave}
+              rows={8}
+              error={graphError}
+              hint={
+                'Optional: {"nodes":[{"entity_id":"device UUID","agent_id":"agent UUID","test_id":"ICMP test UUID","parents":[]}]}. Use device IDs from Entities and assigned source IDs from its evidence. Parents name other devices in this graph; connected probes must share an agent vantage. Leave blank for context-only settings. Changing context clears the graph.'
+              }
             />
             <Button type="submit" disabled={!canSave || !valid || paging}>
               Save dependency settings

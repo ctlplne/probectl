@@ -170,9 +170,21 @@ export interface AlertChannelTestResponse {
   type: "webhook" | "email"
 }
 
+export interface AlertDependencyGraphInput {
+  nodes: AlertDependencyNodeInput[]
+}
+
+export interface AlertDependencyNodeInput {
+  agent_id: string
+  entity_id: string
+  parents: string[]
+  test_id: string
+}
+
 export interface AlertDependencyPolicyInput {
   context_id: string
   freshness_seconds?: number
+  graph?: AlertDependencyGraphInput | null
 }
 
 export interface AlertDependencyPolicyState {

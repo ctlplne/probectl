@@ -17,8 +17,9 @@ import (
 // evaluation or remediation. A context selects current operator-owned identity
 // and dependency sources; an address cannot implicitly select a context.
 type DependencyPolicyInput struct {
-	ContextID        string `json:"context_id"`
-	FreshnessSeconds int64  `json:"freshness_seconds"`
+	ContextID        string                `json:"context_id"`
+	FreshnessSeconds int64                 `json:"freshness_seconds"`
+	Graph            *DependencyGraphInput `json:"graph,omitempty"`
 }
 
 type DependencyPolicyState struct {
@@ -38,6 +39,9 @@ func NormalizeDependencyPolicyInput(input DependencyPolicyInput) (DependencyPoli
 	if input.FreshnessSeconds <= 0 || input.FreshnessSeconds > math.MaxInt64/int64(time.Second) {
 		return DependencyPolicyInput{}, ErrDependencyEvidence
 	}
+	if err := input.Graph.Validate(); err != nil {
+		return DependencyPolicyInput{}, err
+	}
 	return input, nil
 }
 
@@ -45,15 +49,16 @@ func NormalizeDependencyPolicyInput(input DependencyPolicyInput) (DependencyPoli
 // and read ceiling come only from its authenticated configuring credential.
 // Every use must intersect them with current user/RBAC/ABAC/source authority.
 type DependencyPolicy struct {
-	Version          int              `json:"version"`
-	OwnerUserID      string           `json:"owner_user_id"`
-	ContextID        string           `json:"context_id"`
-	FreshnessSeconds int64            `json:"freshness_seconds"`
-	ReadGrants       []QueryReadGrant `json:"read_grants"`
+	Version          int                   `json:"version"`
+	OwnerUserID      string                `json:"owner_user_id"`
+	ContextID        string                `json:"context_id"`
+	FreshnessSeconds int64                 `json:"freshness_seconds"`
+	ReadGrants       []QueryReadGrant      `json:"read_grants"`
+	Graph            *DependencyGraphInput `json:"graph,omitempty"`
 }
 
 func (policy DependencyPolicy) Input() DependencyPolicyInput {
-	return DependencyPolicyInput{ContextID: policy.ContextID, FreshnessSeconds: policy.FreshnessSeconds}
+	return DependencyPolicyInput{ContextID: policy.ContextID, FreshnessSeconds: policy.FreshnessSeconds, Graph: policy.Graph}
 }
 
 func (policy DependencyPolicy) Validate() error {

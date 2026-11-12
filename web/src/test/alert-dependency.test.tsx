@@ -191,3 +191,39 @@ test('dependency context editor refuses a foreign context page without publishin
   expect(screen.queryByLabelText('Dependency routing context')).toBeNull()
   expect(screen.queryByText(/Site tenant-b/)).toBeNull()
 })
+
+test('dependency graph editor preserves every source and parent and rejects malformed JSON before saving', async () => {
+  const graph = {
+    nodes: [
+      { entity_id: firstID, agent_id: ruleID, test_id: firstID, parents: [] },
+      { entity_id: nextID, agent_id: ruleID, test_id: nextID, parents: [firstID] },
+    ],
+  }
+  const writes: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/entity-contexts'))
+        return jsonResponse({ items: [context('tenant-a')] })
+      const method = init?.method ?? 'GET'
+      if (method === 'PUT') writes.push(JSON.parse(String(init?.body)))
+      return jsonResponse({
+        ...state(true),
+        policy: { context_id: firstID, freshness_seconds: 300, graph },
+      })
+    }),
+  )
+  const user = userEvent.setup()
+  fixture()
+  await user.click(screen.getByRole('button', { name: 'Load current dependency settings' }))
+  const editor = await screen.findByLabelText('Directed dependency graph (JSON)')
+  expect(JSON.parse((editor as HTMLTextAreaElement).value)).toEqual(graph)
+  fireEvent.change(editor, { target: { value: '{"nodes":[]' } })
+  expect(screen.getByRole('button', { name: 'Save dependency settings' })).toBeDisabled()
+  expect(writes).toHaveLength(0)
+  fireEvent.change(editor, { target: { value: JSON.stringify(graph) } })
+  await user.click(screen.getByRole('button', { name: 'Save dependency settings' }))
+  await waitFor(() =>
+    expect(writes).toEqual([{ context_id: firstID, freshness_seconds: 300, graph }]),
+  )
+})

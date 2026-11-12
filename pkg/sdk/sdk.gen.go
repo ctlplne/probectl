@@ -248,9 +248,21 @@ type AlertChannelTestResponse struct {
 	Type     string `json:"type"`
 }
 
+type AlertDependencyGraphInput struct {
+	Nodes []AlertDependencyNodeInput `json:"nodes"`
+}
+
+type AlertDependencyNodeInput struct {
+	AgentId  string   `json:"agent_id"`
+	EntityId string   `json:"entity_id"`
+	Parents  []string `json:"parents"`
+	TestId   string   `json:"test_id"`
+}
+
 type AlertDependencyPolicyInput struct {
-	ContextId        string `json:"context_id"`
-	FreshnessSeconds int    `json:"freshness_seconds,omitempty"`
+	ContextId        string                     `json:"context_id"`
+	FreshnessSeconds int                        `json:"freshness_seconds,omitempty"`
+	Graph            *AlertDependencyGraphInput `json:"graph,omitempty"`
 }
 
 type AlertDependencyPolicyState struct {

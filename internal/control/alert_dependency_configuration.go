@@ -34,7 +34,7 @@ func dependencySourcePermission(permission string) bool {
 // All source publication uses this scope, never a second connection or a stored
 // role. The caller owns lifecycle/audit ordering and passes the actual credential
 // (a captured read ceiling for background work, a live reader for inspection).
-func (s *Server) dependencyContextAuthority(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, contextID string, sources bool) error {
+func (s *Server) dependencyContextAuthority(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, contextID string, sources bool, graph *alert.DependencyGraphInput, maxBytes int64) error {
 	if actor == nil || actor.TenantID != sc.Tenant.String() || actor.UserID == "" {
 		return apierror.Forbidden("current dependency source identity is unavailable")
 	}
@@ -59,10 +59,27 @@ func (s *Server) dependencyContextAuthority(ctx context.Context, sc tenancy.Scop
 			return err
 		}
 	}
+	if graph != nil {
+		for _, node := range graph.Nodes {
+			resource := entityContextResource(record)
+			resource["entity_id"], resource["agent_id"], resource["test_id"] = node.EntityID, node.AgentID, node.TestID
+			for _, permission := range permissions {
+				if err := s.authorize(ctx, principal, permission, auth.RBACGlobal, resource); err != nil {
+					return err
+				}
+			}
+		}
+		if err := store.ValidateDependencyGraphInScope(ctx, sc, contextID, graph, maxBytes); err != nil {
+			return err
+		}
+	}
 	return ctx.Err()
 }
 
 func alertDependencyStoreError(err error) error {
+	if errors.Is(err, store.ErrAlertDependencyBudget) {
+		return apierror.TooLarge("complete dependency configuration exceeds this operation's admitted memory; increase the deployment query memory budget").Wrap(err)
+	}
 	if errors.Is(err, store.ErrAlertDependencyChanged) {
 		return apierror.Conflict("alert dependency configuration changed; refresh before retrying").Wrap(err)
 	}
@@ -81,7 +98,7 @@ func (s *Server) setAlertDependencyPolicy(ctx context.Context, actor *auth.Princ
 	if err != nil {
 		return alert.DependencyPolicyState{}, apierror.Validation("dependency policy requires its exact context and a finite positive source freshness").Wrap(err)
 	}
-	policy := alert.DependencyPolicy{Version: 1, OwnerUserID: actor.UserID, ContextID: input.ContextID, FreshnessSeconds: input.FreshnessSeconds, ReadGrants: alertReadGrants(actor, dependencySourcePermission)}
+	policy := alert.DependencyPolicy{Version: 1, OwnerUserID: actor.UserID, ContextID: input.ContextID, FreshnessSeconds: input.FreshnessSeconds, Graph: input.Graph, ReadGrants: alertReadGrants(actor, dependencySourcePermission)}
 	ceiling, err := policy.CredentialCeiling(actor.TenantID)
 	if err != nil {
 		return alert.DependencyPolicyState{}, apierror.Forbidden("the configuring credential must carry dependency source read capabilities").Wrap(err)
@@ -98,12 +115,20 @@ func (s *Server) setAlertDependencyPolicy(ctx context.Context, actor *auth.Princ
 		if err != nil {
 			return err
 		}
+		// Authorize every proposed reference before storage existence checks.
+		// Publication repeats this after the lifecycle/rule/audit locks, so a
+		// concurrent owner or source withdrawal cannot reuse this preliminary read.
+		if policy.Graph != nil {
+			if err := s.dependencyContextAuthority(ctx, sc, ceiling, policy.ContextID, true, policy.Graph, budget.MemoryBytes/8); err != nil {
+				return err
+			}
+		}
 		updated, err = (store.AlertRules{}).SetDependencyPolicy(ctx, sc, id, current.UpdatedAt, &policy, budget.MemoryBytes/8,
 			func(ctx context.Context, sc tenancy.Scope) error {
 				if err := s.publishAlertQuery(ctx, sc, actor, nil); err != nil {
 					return err
 				}
-				return s.dependencyContextAuthority(ctx, sc, ceiling, policy.ContextID, true)
+				return s.dependencyContextAuthority(ctx, sc, ceiling, policy.ContextID, true, policy.Graph, budget.MemoryBytes/8)
 			})
 		if err != nil {
 			return err
@@ -183,7 +208,7 @@ func (s *Server) readAlertDependencyPolicy(ctx context.Context, actor *auth.Prin
 		if policy == nil {
 			return nil
 		}
-		if err := s.dependencyContextAuthority(ctx, sc, actor, policy.ContextID, false); err != nil {
+		if err := s.dependencyContextAuthority(ctx, sc, actor, policy.ContextID, policy.Graph != nil, policy.Graph, budget.MemoryBytes/8); err != nil {
 			return err
 		}
 		input := policy.Input()

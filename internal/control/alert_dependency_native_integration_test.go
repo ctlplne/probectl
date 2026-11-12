@@ -10,6 +10,7 @@ package control
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/alert"
@@ -20,19 +21,19 @@ import (
 func TestTopologyDependencyNativeConfigurationKeepsCurrentTenantsAndReadCeilings(t *testing.T) {
 	for _, wire := range []string{"2026-07-28", "2025-11-25"} {
 		t.Run(wire, func(t *testing.T) {
-			f, rules := newDependencyAPIFixture(t)
+			f, rules, graph := seedDependencyGraphFixture(t)
 			seedInterfaceRoleMCPConsent(f)
 			call := interfaceRoleNativeTLSCaller(t, f, wire)
-			input := alert.DependencyPolicyInput{ContextID: f.contextID, FreshnessSeconds: 300}
+			input := alert.DependencyPolicyInput{ContextID: f.contextID, FreshnessSeconds: 300, Graph: graph}
 			for i, tenant := range f.tenants {
 				id, foreign := rules[tenant].ID, rules[f.tenants[1-i]].ID
 				var state alert.DependencyPolicyState
 				call(tenant, "alert_dependency_set", map[string]any{"rule_id": id, "input": input}, &state, true)
-				if state.RuleID != id || !state.Configured || state.Policy == nil || *state.Policy != input {
+				if state.RuleID != id || !state.Configured || !reflect.DeepEqual(state.Policy, &input) {
 					t.Fatal("native configuration lost its current tenant/context", state)
 				}
 				call(tenant, "alert_dependency_get", map[string]any{"rule_id": id}, &state, true)
-				if state.RuleID != id || !state.Configured || state.Policy == nil || *state.Policy != input {
+				if state.RuleID != id || !state.Configured || !reflect.DeepEqual(state.Policy, &input) {
 					t.Fatal("native inspection lost complete current configuration", state)
 				}
 				call(tenant, "alert_dependency_get", map[string]any{"rule_id": foreign}, nil, false)
