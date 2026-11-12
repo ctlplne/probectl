@@ -55,7 +55,12 @@ func (s *EntityRegistry) WriteEvidenceBatch(ctx context.Context, authenticatedAg
 		claims = append(claims, claim)
 	}
 	accepted, unresolved := 0, 0
+	ctx = tenancy.WithSiloTableLock(ctx)
 	err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		invalidating, cutoff, err := entityEvidenceLifecycleScope(ctx, sc)
+		if err != nil {
+			return err
+		}
 		// Hold the exact issued SVID row until the evidence transaction ends.
 		// A concurrent DELETE/revocation must finish before this write or wait
 		// until it commits; the earlier RPC lookup alone has a replay race.
@@ -75,6 +80,10 @@ func (s *EntityRegistry) WriteEvidenceBatch(ctx context.Context, authenticatedAg
 			return err
 		}
 		for _, claim := range claims {
+			if invalidating || claim.ObservedAt.Before(cutoff) {
+				unresolved++
+				continue
+			}
 			if claim.ObservedAt.Before(senderIssuedAt) || !claim.ObservedAt.Before(senderNotAfter) {
 				// An SVID attests only observations inside its issuance window.
 				// Raw telemetry remains on its original lane.
