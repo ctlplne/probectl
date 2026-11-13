@@ -49,7 +49,7 @@ func TestIncidentImpactExportCLIAndSDKKeepSelectionsAndSignedBytes(t *testing.T)
 				t.Error("signed impact request changed its tenant or route")
 			}
 			var selected sdk.IncidentEvidenceExportInput
-			if err := json.NewDecoder(r.Body).Decode(&selected); err != nil || !selected.Impact.IncludeTests || selected.Impact.CustomerTagKey != "customer" || selected.Impact.From != at.Add(-time.Minute).Format(time.RFC3339Nano) || selected.Impact.To != at.Format(time.RFC3339Nano) {
+			if err := json.NewDecoder(r.Body).Decode(&selected); err != nil || selected.Impact.IncludeTests == nil || !*selected.Impact.IncludeTests || selected.Impact.CustomerTagKey != "customer" || selected.Impact.From != at.Add(-time.Minute).Format(time.RFC3339Nano) || selected.Impact.To != at.Format(time.RFC3339Nano) {
 				t.Error("signed impact request changed exact selections", selected, err)
 			}
 			w.Header().Set("Content-Type", "application/vnd.probectl.evidence+json")
