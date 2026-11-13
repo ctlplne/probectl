@@ -111,7 +111,7 @@ func seedVerdictRealHTTPTest(t *testing.T, f *roleExplanationAPIFixture, tenant,
 		if _, err := (store.Agents{}).Register(ctx, sc, sender, "verdict HTTPS "+sender, "127.0.0.1", "fixture", crypto.AgentSPIFFEID(tenant, sender), nil); err != nil {
 			return err
 		}
-		if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,type,target,interval_seconds,timeout_seconds,params,enabled) VALUES($1,$2,'actual HTTPS verdict','http',$3,30,5,$4::jsonb,true)`, tenant, definition.ID, target, params); err != nil {
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO tests(tenant_id,id,name,type,target,interval_seconds,timeout_seconds,params,enabled) VALUES($1,$2,'actual HTTPS verdict '||$2::uuid::text,'http',$3,30,5,$4::jsonb,true)`, tenant, definition.ID, target, params); err != nil {
 			return err
 		}
 		registry := store.NewEntityRegistry(f.pool)

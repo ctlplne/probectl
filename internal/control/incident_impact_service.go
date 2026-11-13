@@ -182,6 +182,10 @@ func (s *Server) computeIncidentImpactWithPublication(ctx context.Context, actor
 	testSelection.history, testSelection.original = false, observed.testReads
 	exporting, _ := ctx.Value(incidentImpactExportKey{}).(bool)
 	validate := func(ctx context.Context) error {
+		ctx, err := bindFlowRoleContext(ctx, actor)
+		if err != nil {
+			return err
+		}
 		if exporting {
 			ctx = context.WithValue(ctx, incidentImpactExportKey{}, true)
 		}
