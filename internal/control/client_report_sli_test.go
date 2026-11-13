@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	googleuuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/slo"
@@ -25,7 +25,7 @@ import (
 
 func clientReportSLIFixture(t *testing.T, tenant string) (context.Context, store.IncidentConfiguredTest, time.Time, time.Time) {
 	t.Helper()
-	source := store.IncidentConfiguredTest{TenantID: tenant, SourceGeneration: 1, ContextID: uuid.NewString(), EntityID: uuid.NewString(), TestID: uuid.NewString(), AgentID: "original-sender", Name: "monthly availability", Type: "http", Target: "https://example.test/"}
+	source := store.IncidentConfiguredTest{TenantID: tenant, SourceGeneration: 1, ContextID: googleuuid.NewString(), EntityID: googleuuid.NewString(), TestID: googleuuid.NewString(), AgentID: "original-sender", Name: "monthly availability", Type: "http", Target: "https://example.test/"}
 	source.Definition = testspec.ExecutableDefinition{ID: source.TestID, Type: source.Type, Target: source.Target, IntervalSeconds: 30, TimeoutSeconds: 5}
 	from := time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)
 	return tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), source, from, from.AddDate(0, 1, 0)
@@ -39,12 +39,12 @@ func clientReportSLIRead(source store.IncidentConfiguredTest, index uint64, at t
 }
 
 func TestClientReportSLIsKeepCompleteMonthAndConfiguredWindowsWithoutRetainingExecutions(t *testing.T) {
-	tenant := uuid.NewString()
+	tenant := googleuuid.NewString()
 	ctx, source, from, to := clientReportSLIFixture(t, tenant)
 	definitions := []slo.SLO{
 		{TenantID: tenant, Name: "long-window", TestID: source.TestID, Window: 45 * 24 * time.Hour, Objective: .5},
 		{TenantID: tenant, Name: "last-day", TestID: source.TestID, Window: 24 * time.Hour, Objective: .999},
-		{TenantID: tenant, Name: "no-samples", TestID: uuid.NewString(), Window: 7 * 24 * time.Hour, Objective: .999},
+		{TenantID: tenant, Name: "no-samples", TestID: googleuuid.NewString(), Window: 7 * 24 * time.Hour, Objective: .999},
 	}
 	a, err := newClientReportSLIAccumulator(ctx, tenant, []store.IncidentConfiguredTest{source}, definitions, from, to, 256<<10, 1_000_000)
 	if err != nil {
@@ -97,7 +97,7 @@ func TestClientReportSLIsKeepCompleteMonthAndConfiguredWindowsWithoutRetainingEx
 }
 
 func TestClientReportSLIsRefuseForeignChangedAndPartialSources(t *testing.T) {
-	aTenant, bTenant := uuid.NewString(), uuid.NewString()
+	aTenant, bTenant := googleuuid.NewString(), googleuuid.NewString()
 	ctx, source, from, to := clientReportSLIFixture(t, aTenant)
 	for _, name := range []string{"foreign context", "foreign observation", "changed generation", "unselected source", "duplicate original", "work admission"} {
 		t.Run(name, func(t *testing.T) {
@@ -115,7 +115,7 @@ func TestClientReportSLIsRefuseForeignChangedAndPartialSources(t *testing.T) {
 			case "changed generation":
 				read.SourceGeneration++
 			case "unselected source":
-				read.TestID = uuid.NewString()
+				read.TestID = googleuuid.NewString()
 			case "duplicate original":
 				if err := a.observe(ctx, read); err != nil {
 					t.Fatal(err)
