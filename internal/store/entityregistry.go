@@ -337,8 +337,9 @@ func currentAliasPopulationSQL(configured bool) string {
 		probeGuard = "TRUE"
 	}
 	selection := "SELECT DISTINCT ON (requested.ordinality,resolved_node.id) requested.ordinality,"
-	fromClause := `requested JOIN entity_evidence e ON e.tenant_id=$1 AND e.context_id=$2
- AND e.alias_kind=requested.kind AND e.alias_value=requested.alias_value`
+	fromClause := `requested JOIN LATERAL (SELECT item.* FROM entity_evidence item
+ WHERE item.tenant_id=$1 AND item.context_id=$2 AND item.alias_kind=requested.kind
+ AND item.alias_value=requested.alias_value OFFSET 0) e ON true`
 	candidates := currentAliasResolutionQuerySQL("requested.kind", "requested.alias_value", probeGuard, selection, fromClause, "requested.ordinality,resolved_node.id,e.observed_at DESC,e.id")
 	return `WITH requested AS (
  SELECT kind,alias_value,ordinality
@@ -355,22 +356,19 @@ func currentAliasResolutionQuerySQL(kindParameter, valueParameter, probeGuard, s
 		       e.agent_id, e.source_kind, e.configured_ref, e.observed_at,
 		       COALESCE(e.support_evidence_id::text,'')
 			 FROM ` + fromClause + `
-			  JOIN entities n ON (n.tenant_id, n.context_id, n.id) =
-			                     (e.tenant_id, e.context_id, e.entity_id)
-		  JOIN entities resolved_node ON (resolved_node.tenant_id,resolved_node.context_id,resolved_node.id)=
-		       (e.tenant_id,e.context_id,
-		        COALESCE(CASE WHEN e.alias_kind='address' THEN n.parent_entity_id END,
-		                 e.entity_id))
-		  JOIN entity_source_contexts m ON
-			       (m.tenant_id, m.context_id, m.agent_id, m.source_kind, m.source_ref) =
-			       (e.tenant_id, e.context_id, e.agent_id, e.source_kind, e.configured_ref)
-		     AND ((e.support_evidence_id IS NULL AND
+			  JOIN LATERAL (SELECT n.* FROM entities n
+            WHERE (n.tenant_id,n.context_id,n.id)=(e.tenant_id,e.context_id,e.entity_id) OFFSET 0) n ON true
+          JOIN LATERAL (SELECT resolved_node.* FROM entities resolved_node
+            WHERE (resolved_node.tenant_id,resolved_node.context_id,resolved_node.id)=
+            (e.tenant_id,e.context_id,COALESCE(CASE WHEN e.alias_kind='address' THEN n.parent_entity_id END,e.entity_id)) OFFSET 0) resolved_node ON true
+          JOIN LATERAL (SELECT m.* FROM entity_source_contexts m
+            WHERE (m.tenant_id,m.context_id,m.agent_id,m.source_kind,m.source_ref)=
+            (e.tenant_id,e.context_id,e.agent_id,e.source_kind,e.configured_ref) OFFSET 0) m ON ((e.support_evidence_id IS NULL AND
 		           m.anchor_entity_id = COALESCE(n.parent_entity_id,e.entity_id))
 		          OR (m.anchor_entity_id IS NULL AND ` + currentInferredSupportSQL("e") + `))
-		  JOIN entity_agent_contexts a ON
-		       (a.tenant_id, a.agent_id, a.context_id) =
-		       (m.tenant_id, m.agent_id, m.context_id)
-			 WHERE e.tenant_id = $1 AND e.context_id = $2
+		  JOIN LATERAL (SELECT a.* FROM entity_agent_contexts a
+            WHERE (a.tenant_id,a.agent_id,a.context_id)=(m.tenant_id,m.agent_id,m.context_id) OFFSET 0) a ON true
+             WHERE e.tenant_id = $1 AND e.context_id = $2
 			   AND e.alias_kind = ` + kindParameter + ` AND e.alias_value = ` + valueParameter + `
 			   AND ` + probeGuard + `
 			   AND ` + currentPhysicalNeighborSQL + `

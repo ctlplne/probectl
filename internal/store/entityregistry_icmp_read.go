@@ -73,7 +73,7 @@ func currentICMPHealthSQL(population ...bool) string {
 	if len(population) > 0 && population[0] {
 		agentParameter, sourceParameter, entityParameter = "requested.agent_id", "requested.source_ref", "requested.entity_id"
 	}
-	return "SELECT " + currentICMPHealthColumnsSQL(entityParameter, sizeParameter) + " FROM " + currentICMPLatestSQL(agentParameter, sourceParameter) + " e" + currentICMPHealthJoinsSQL(agentParameter, sourceParameter)
+	return "SELECT " + currentICMPHealthColumnsSQL(entityParameter, sizeParameter) + " FROM " + currentICMPLatestSQL(agentParameter, sourceParameter) + " e" + currentICMPHealthJoinsSQL(agentParameter, sourceParameter, sourceParameter+"::uuid")
 }
 
 // Keep metadata joins outside the per-source latest-row lookup. Planning all
@@ -81,11 +81,11 @@ func currentICMPHealthSQL(population ...bool) string {
 // per requested source when the freshly populated tenant has sparse statistics.
 func currentICMPHealthPopulationSQL() string {
 	return `WITH requested AS (
- SELECT ordinality,agent_id AS agent_id,source_ref,entity_id
- FROM unnest($3::text[],$4::text[],$5::uuid[]) WITH ORDINALITY AS input(agent_id,source_ref,entity_id,ordinality)
+ SELECT ordinality,agent_id AS agent_id,source_ref,entity_id,source_uuid
+ FROM unnest($3::text[],$4::text[],$5::uuid[],$7::uuid[]) WITH ORDINALITY AS input(agent_id,source_ref,entity_id,source_uuid,ordinality)
  ) SELECT requested.ordinality,` + currentICMPHealthColumnsSQL("requested.entity_id", "$6") +
 		" FROM requested JOIN LATERAL " + currentICMPLatestSQL("requested.agent_id", "requested.source_ref") + " e ON true" +
-		currentICMPHealthJoinsSQL("requested.agent_id", "requested.source_ref") + " ORDER BY requested.ordinality"
+		currentICMPHealthJoinsSQL("requested.agent_id", "requested.source_ref", "requested.source_uuid") + " ORDER BY requested.ordinality"
 }
 
 func currentICMPHealthColumnsSQL(entityParameter, sizeParameter string) string {
@@ -127,21 +127,21 @@ func currentICMPLatestSQL(agentParameter, sourceParameter string) string {
        ORDER BY observed_at DESC,id LIMIT 1)`
 }
 
-func currentICMPHealthJoinsSQL(agentParameter, sourceParameter string) string {
+// OFFSET 0 retains each exact-key metadata probe under the requested source.
+// Fresh tenant statistics must not reverse these into tenant-wide outer loops.
+func currentICMPHealthJoinsSQL(agentParameter, sourceParameter, sourceUUIDParameter string) string {
 	return `
- LEFT JOIN entity_source_contexts m ON
-   m.tenant_id=$1 AND m.context_id=$2 AND m.agent_id=` + agentParameter + `
-   AND m.source_kind='path_agent' AND m.source_ref=` + sourceParameter + `
- LEFT JOIN entity_agent_contexts a ON
-   a.tenant_id=$1 AND a.context_id=$2 AND a.agent_id=` + agentParameter + `
- LEFT JOIN agent_identities sender ON
-   sender.tenant_id=$1 AND sender.agent_id=` + agentParameter + ` AND sender.serial=e.sender_serial
+ LEFT JOIN LATERAL (SELECT m.* FROM entity_source_contexts m
+ WHERE m.tenant_id=$1 AND m.context_id=$2 AND m.agent_id=` + agentParameter + `
+ AND m.source_kind='path_agent' AND m.source_ref=` + sourceParameter + ` OFFSET 0) m ON true
+ LEFT JOIN LATERAL (SELECT a.* FROM entity_agent_contexts a
+ WHERE a.tenant_id=$1 AND a.context_id=$2 AND a.agent_id=` + agentParameter + ` OFFSET 0) a ON true
+ LEFT JOIN LATERAL (SELECT sender.* FROM agent_identities sender
+ WHERE sender.tenant_id=$1 AND sender.agent_id=` + agentParameter + ` AND sender.serial=e.sender_serial OFFSET 0) sender ON true
  LEFT JOIN flow_snapshot_epochs epoch ON epoch.tenant_id=$1
- LEFT JOIN tests t ON t.tenant_id=$1 AND t.id=` + sourceParameter + `::uuid
- LEFT JOIN entity_path_test_contexts p ON
-   p.tenant_id=$1 AND p.test_id=` + sourceParameter + `::uuid AND p.context_id=$2
- LEFT JOIN entity_test_contexts c ON
-   c.tenant_id=$1 AND c.test_id=` + sourceParameter + `::uuid AND c.context_id=$2`
+ LEFT JOIN LATERAL (SELECT t.* FROM tests t WHERE t.tenant_id=$1 AND t.id=` + sourceUUIDParameter + ` OFFSET 0) t ON true
+ LEFT JOIN LATERAL (SELECT p.* FROM entity_path_test_contexts p WHERE p.tenant_id=$1 AND p.test_id=` + sourceUUIDParameter + ` AND p.context_id=$2 OFFSET 0) p ON true
+ LEFT JOIN LATERAL (SELECT c.* FROM entity_test_contexts c WHERE c.tenant_id=$1 AND c.test_id=` + sourceUUIDParameter + ` AND c.context_id=$2 OFFSET 0) c ON true`
 }
 
 // This reader already joins the exact source, agent assignment and issued

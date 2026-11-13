@@ -87,7 +87,7 @@ func (s *EntityRegistry) ReadICMPHealthPopulationInScope(ctx context.Context, sc
 	query := currentICMPHealthPopulationSQL()
 	// Replan this complete population; a cached generic plan cannot estimate
 	// the current array lengths when rules have very different source counts.
-	rows, err := sc.Q.Query(ctx, query, pgx.QueryExecModeDescribeExec, want.TenantID, want.ContextID, agents, sources, entities, maxBytes/int64(len(keys))/16)
+	rows, err := sc.Q.Query(ctx, query, pgx.QueryExecModeDescribeExec, want.TenantID, want.ContextID, agents, sources, entities, maxBytes/int64(len(keys))/16, sources)
 	if err != nil {
 		return nil, err
 	}
