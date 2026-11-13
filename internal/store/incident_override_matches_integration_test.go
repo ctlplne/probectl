@@ -85,7 +85,7 @@ func TestCanonicalOverrideBatchKeepsExactShapeTenantReversalAndMutationLock(t *t
 			if err != nil {
 				return err
 			}
-			defer other.Rollback(ctx)
+			defer func() { _ = other.Rollback(ctx) }()
 			for _, candidate := range tenants {
 				var acquired bool
 				if err := other.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended('incident:'||$1::text,0))`, candidate).Scan(&acquired); err != nil {

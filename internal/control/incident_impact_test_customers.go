@@ -138,10 +138,10 @@ func mergeIncidentTestCustomers(ctx context.Context, tenant, key string, metadat
 		if remaining < 0 {
 			return nil, flowstore.ErrExplorerBudget
 		}
-		copy := customer
-		copy.PrefixIDs, copy.TestIDs, copy.SLOIDs = slices.Clone(copy.PrefixIDs), slices.Clone(copy.TestIDs), slices.Clone(copy.SLOIDs)
-		copy.CaptureKeys, copy.EvidenceIDs, copy.TagIDs = slices.Clone(copy.CaptureKeys), slices.Clone(copy.EvidenceIDs), slices.Clone(copy.TagIDs)
-		items[identity{customer.ContextID, customer.Value}] = &copy
+		cloned := customer
+		cloned.PrefixIDs, cloned.TestIDs, cloned.SLOIDs = slices.Clone(cloned.PrefixIDs), slices.Clone(cloned.TestIDs), slices.Clone(cloned.SLOIDs)
+		cloned.CaptureKeys, cloned.EvidenceIDs, cloned.TagIDs = slices.Clone(cloned.CaptureKeys), slices.Clone(cloned.EvidenceIDs), slices.Clone(cloned.TagIDs)
+		items[identity{customer.ContextID, customer.Value}] = &cloned
 	}
 	for _, test := range tests {
 		if err := ctx.Err(); err != nil {
