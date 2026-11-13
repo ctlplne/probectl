@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -143,12 +144,37 @@ func (p *releaseFlowReport) preparePacketPrefixCustomers(t *testing.T) {
 
 func (p *releaseFlowReport) assertPacketIdentity(t *testing.T, foreign *releaseFlowReport) {
 	t.Helper()
-	endpoint := "/v1/entities/resolve?context_id=" + p.packetContext + "&kind=flow_exporter_id&value=127.0.0.1"
+
+	base := "/v1/entities/resolve?context_id=" + p.packetContext
+	endpoint := ""
 	waitFor(t, "actual packet exporter canonical identity", 30*time.Second, func() bool {
-		var resolved entity.Resolution
-		p.api.json(t, http.StatusOK, http.MethodGet, endpoint, nil, &resolved)
-		return resolved.Status == entity.Resolved && !resolved.MoreCandidates && resolved.EntityID == p.packetEntity &&
-			resolved.Scope.TenantID == p.tenant && resolved.Scope.ContextID == p.packetContext
+		var address entity.Resolution
+		p.api.json(t, http.StatusOK, http.MethodGet, base+"&kind=address&value=127.0.0.1", nil, &address)
+		if address.Status != entity.Resolved || address.MoreCandidates || address.EntityID != p.packetEntity || address.Scope.TenantID != p.tenant || address.Scope.ContextID != p.packetContext {
+			return false
+		}
+		for _, claim := range address.Candidates {
+			if claim.SourceKey != (entity.SourceKey{AgentID: p.packetAgent, Kind: entity.FlowExporter, SourceRef: "127.0.0.1"}) {
+				continue
+			}
+			// The collector's original provenance supplies the observed domain.
+			// A bare address is not a protocol/domain exporter identity.
+			parts := strings.Split(claim.SourceRef, ":")
+			if len(parts) != 4 || parts[0] != "flow" || parts[1] != "ipfix" || parts[2] != "domain" {
+				continue
+			}
+			domain, err := strconv.ParseUint(parts[3], 10, 32)
+			if err != nil || strconv.FormatUint(domain, 10) != parts[3] {
+				continue
+			}
+			endpoint = base + "&kind=flow_exporter_id&value=" + url.QueryEscape("127.0.0.1/ipfix/"+parts[3])
+			var resolved entity.Resolution
+			p.api.json(t, http.StatusOK, http.MethodGet, endpoint, nil, &resolved)
+			if resolved.Status == entity.Resolved && !resolved.MoreCandidates && resolved.EntityID == p.packetEntity && resolved.Scope.TenantID == p.tenant && resolved.Scope.ContextID == p.packetContext {
+				return true
+			}
+		}
+		return false
 	})
 	code, body := foreign.api.do(t, http.MethodGet, endpoint, nil)
 	if code != http.StatusNotFound || bytes.Contains(body, []byte(p.packetEntity)) {
