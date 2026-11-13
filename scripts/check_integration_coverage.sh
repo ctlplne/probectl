@@ -58,7 +58,7 @@ run_gate() {
   while IFS=$'\t' read -r pkg floor; do
     [ -n "$pkg" ] || continue
     local prof="$tmp/${pkg//\//_}.out" pct
-    if ! ( cd "$repo_root" && "$go_cmd" test -tags integration -count=1 \
+    if ! ( cd "$repo_root" && "$go_cmd" test -tags integration -count=1 -timeout=60m \
             -coverprofile="$prof" "./$pkg/" ) >"$tmp/log" 2>&1; then
       printf '%-28s %8s %7s   %s\n' "$pkg" "-" "$floor" "TEST-FAIL"
       # Test failures can end with a large rendered DOM or locator dump. The
