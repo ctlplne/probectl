@@ -17,13 +17,16 @@ import (
 )
 
 type tagIndexTarget struct {
-	table, name string
-	columns     []string
-	nonUnique   bool
-	descending  map[string]bool
+	table, name     string
+	columns         []string
+	nonUnique       bool
+	allowEquivalent bool
+	descending      map[string]bool
 }
 
 var tagIndexTargets = []tagIndexTarget{
+	{table: "entities", name: "entities_tenant_context_parent_idx",
+		columns: []string{"tenant_id", "context_id", "parent_entity_id"}, nonUnique: true, allowEquivalent: true},
 	{table: "entity_path_test_contexts", name: "entity_path_test_target_context_idx",
 		columns: []string{"tenant_id", "path_target", "context_id"}, nonUnique: true},
 	{table: "entities", name: "entities_tenant_context_id_kind_uidx",
@@ -102,6 +105,30 @@ func (p *Provisioner) ensureTagIndex(ctx context.Context, schema string, target 
 	}
 	if exists && valid {
 		return nil
+	}
+	if !exists && target.nonUnique && target.allowEquivalent {
+		// LIKE INCLUDING ALL gives a fresh silo equivalent access paths with
+		// generated names. Reuse a complete valid nonunique lookup instead of
+		// building a duplicate merely to obtain the preparation name. A wrong
+		// named index was already refused above; unique FK targets stay strict.
+		var equivalent bool
+		err := p.ddlPool().QueryRow(ctx, `SELECT EXISTS(
+		 SELECT 1 FROM pg_index i JOIN pg_class t ON t.oid=i.indrelid
+		 JOIN pg_namespace ns ON ns.oid=t.relnamespace
+		 JOIN pg_class x ON x.oid=i.indexrelid JOIN pg_am am ON am.oid=x.relam
+		 WHERE ns.nspname=$1 AND t.relname=$2 AND i.indisvalid AND NOT i.indisunique
+		 AND i.indpred IS NULL AND am.amname='btree' AND i.indnkeyatts=cardinality($3::text[])
+		 AND ARRAY(SELECT pg_get_indexdef(i.indexrelid,n,true)
+		 FROM generate_series(1,i.indnkeyatts) n ORDER BY n)=$3::text[]
+		 AND ($4::boolean OR ARRAY(SELECT pg_index_column_has_property(i.indexrelid,n,'desc')
+		 FROM generate_series(1,i.indnkeyatts) n ORDER BY n)=$5::boolean[]))`,
+			schema, target.table, target.columns, len(target.descending) == 0, expectedDescending).Scan(&equivalent)
+		if err != nil {
+			return fmt.Errorf("silo: inspect equivalent lookup %s: %w", target.name, err)
+		}
+		if equivalent {
+			return nil
+		}
 	}
 	if exists {
 		if _, err := p.ddlPool().Exec(ctx,

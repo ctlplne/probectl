@@ -55,6 +55,51 @@ func TestEntityRegistrySiloForeignKeysRejectForeignContext(t *testing.T) {
 		}
 	})
 	contextA, contextOther := uuid.NewString(), uuid.NewString()
+	parentIndexes := func(tenant string) []string {
+		t.Helper()
+		rows, err := pool.Query(ctx, `SELECT x.relname FROM pg_index i
+ JOIN pg_class x ON x.oid=i.indexrelid JOIN pg_class t ON t.oid=i.indrelid
+ JOIN pg_namespace ns ON ns.oid=t.relnamespace JOIN pg_am am ON am.oid=x.relam
+ WHERE ns.nspname=$1 AND t.relname='entities' AND i.indisvalid AND NOT i.indisunique
+ AND i.indpred IS NULL AND am.amname='btree' AND i.indnkeyatts=3
+ AND ARRAY(SELECT pg_get_indexdef(i.indexrelid,n,true)
+ FROM generate_series(1,i.indnkeyatts) n ORDER BY n)=ARRAY['tenant_id','context_id','parent_entity_id']`, SchemaName(tenant))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var names []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Fatal(err)
+			}
+			names = append(names, name)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if len(names) != 1 {
+			t.Fatal("silo parent cascade requires one complete valid lookup", tenant, names)
+		}
+		return names
+	}
+	for _, tenant := range []string{a, b} {
+		parentIndexes(tenant)
+		if err := prov.CatchUpSchema(ctx, tenant); err != nil {
+			t.Fatal("replay complete parent lookup", err)
+		}
+		parentIndexes(tenant) // reuse the inherited index without duplication
+	}
+	missingParentIndex := parentIndexes(a)[0]
+	if _, err := pool.Exec(ctx, "DROP INDEX CONCURRENTLY "+quoteIdent(SchemaName(a))+"."+quoteIdent(missingParentIndex)); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.CatchUpSchema(ctx, a); err != nil {
+		t.Fatal("repair old silo parent lookup", err)
+	}
+	parentIndexes(a)
+	parentIndexes(b)
 	site, vrf := uuid.NewString(), uuid.NewString()
 	entityA, entityOther, entityB := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	seed := func(tenant, routingContext, vrfID, entityID string) {
