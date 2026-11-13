@@ -127,8 +127,12 @@ func TestSharedPathTargetKeepsOneContextConcurrentWritersAndCleanup(t *testing.T
 				continue
 			}
 			var constraint *pgconn.PgError
-			if !errors.As(err, &constraint) || !((constraint.Code == "23505" && constraint.ConstraintName == "entity_path_target_one_context") ||
-				(constraint.Code == "23503" && constraint.ConstraintName == "entity_path_test_target_context_fk") || constraint.Code == "40001" || constraint.Code == "40P01") {
+			if !errors.As(err, &constraint) {
+				t.Fatal("conflicting writer failed for an unrelated reason", err)
+			}
+			allowed := (constraint.Code == "23505" && constraint.ConstraintName == "entity_path_target_one_context") ||
+				(constraint.Code == "23503" && constraint.ConstraintName == "entity_path_test_target_context_fk") || constraint.Code == "40001" || constraint.Code == "40P01"
+			if !allowed {
 				t.Fatal("conflicting writer failed for an unrelated reason", err)
 			}
 		}
