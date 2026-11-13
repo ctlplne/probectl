@@ -89,6 +89,14 @@ func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t
 			if err := json.Unmarshal(raw, &result); err != nil {
 				t.Fatal(err)
 			}
+			if result.UnresolvedSignalIDs == nil {
+				t.Fatal("required unresolved reference array serialized as null")
+			}
+			for _, member := range result.Members {
+				if member.SignalIDs == nil || member.SourceIDs == nil {
+					t.Fatal("required member reference array serialized as null")
+				}
+			}
 		}
 		return response.StatusCode, result
 	}

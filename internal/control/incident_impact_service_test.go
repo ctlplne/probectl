@@ -76,7 +76,7 @@ func TestIncidentImpactExactObservedCountersAndCustomerUnion(t *testing.T) {
 }
 
 func TestNativeIncidentImpactPreservesComputedSignedCounters(t *testing.T) {
-	value := incident.ImpactResponse{IncidentID: gouuid.NewString(), ObservedByteChange: "-55340232221128654845", Members: []incident.ImpactMember{}, Customers: []incident.ImpactCustomer{}, UnresolvedSignalIDs: []string{}}
+	value := incident.ImpactResponse{ContractVersion: "probectl.incident-impact.v1", IncidentID: gouuid.NewString(), ObservedByteChange: "-55340232221128654845", Members: []incident.ImpactMember{}, Customers: []incident.ImpactCustomer{}, UnresolvedSignalIDs: []string{}}
 	body, err := marshalNativeIncidentImpact(value)
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +96,7 @@ func TestNativeIncidentImpactPreservesStoredCitationsAndRedactsLabels(t *testing
 	const digest = "4111111111111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	source := "evidence/" + id
 	capture := incident.ImpactCaptureCitation{Key: digest, ContextID: id, RouterID: id, OriginalSourceID: source, CurrentSourceID: source}
-	value := incident.ImpactResponse{IncidentID: id,
+	value := incident.ImpactResponse{ContractVersion: "probectl.incident-impact.v1", IncidentID: id,
 		Current:   incident.ImpactPeriod{Captures: []incident.ImpactCaptureCitation{capture}},
 		Previous:  incident.ImpactPeriod{Captures: []incident.ImpactCaptureCitation{}},
 		Members:   []incident.ImpactMember{{ContextID: id, EntityID: id, SignalIDs: []string{id}, SourceIDs: []string{source}}},
@@ -121,9 +121,31 @@ func TestNativeIncidentImpactPreservesStoredCitationsAndRedactsLabels(t *testing
 
 func TestNativeIncidentImpactRejectsUntrustedCitationShapes(t *testing.T) {
 	for _, source := range []string{"", "collector/40000000-0000-4004-8000-abcdefabcdef", "evidence/password=private", "evidence/40000000-0000-4004-8000-ABCDEFABCDEF", "evidence/40000000-0000-4004-8000-abcdefabcdef/label"} {
-		value := incident.ImpactResponse{IncidentID: gouuid.NewString(), Members: []incident.ImpactMember{{SourceIDs: []string{source}}}}
+		value := incident.ImpactResponse{ContractVersion: "probectl.incident-impact.v1", IncidentID: gouuid.NewString(), Members: []incident.ImpactMember{{SourceIDs: []string{source}}}}
 		if body, err := marshalNativeIncidentImpact(value); err == nil || body != nil {
 			t.Fatal("untrusted source acquired canonical metadata encoding", source, err)
+		}
+	}
+}
+
+func TestNativeIncidentImpactPreservesContractVersionAndRedactsProse(t *testing.T) {
+	value := incident.ImpactResponse{ContractVersion: "probectl.incident-impact.v1", IncidentID: gouuid.NewString(), Customers: []incident.ImpactCustomer{{ContextID: gouuid.NewString(), Value: "host.example password=private-fixture 192.0.2.1"}}}
+	body, err := marshalNativeIncidentImpact(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redacted := ai.RedactTextForTenant(string(body), ai.DefaultRedaction, "owned-tenant")
+	var got incident.ImpactResponse
+	if err := json.Unmarshal([]byte(redacted), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ContractVersion != value.ContractVersion || len(got.Customers) != 1 || strings.Contains(got.Customers[0].Value, "private-fixture") || strings.Contains(got.Customers[0].Value, "192.0.2.1") {
+		t.Fatal("native impact changed its server contract or exempted operator prose")
+	}
+	for _, contract := range []string{"", "probectl.incident-impact.v2", "password=private-fixture", "host.example"} {
+		value.ContractVersion = contract
+		if body, err := marshalNativeIncidentImpact(value); err == nil || body != nil {
+			t.Fatal("arbitrary contract text acquired structural encoding")
 		}
 	}
 }

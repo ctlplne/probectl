@@ -104,7 +104,7 @@ func (s *Server) computeIncidentImpactWithPublication(ctx context.Context, actor
 	result := incident.ImpactResponse{ContractVersion: "probectl.incident-impact.v1", Preview: true,
 		IncidentID: id, EvaluatedAt: time.Now().UTC(), Current: periods[0], Previous: periods[1],
 		Members: []incident.ImpactMember{}, UnresolvedRoot: before.inputs.RootUnresolved,
-		UnresolvedSignalIDs: slices.Clone(before.inputs.UnresolvedSignalIDs), Customers: []incident.ImpactCustomer{}, CustomerCoverage: "not_evaluated",
+		UnresolvedSignalIDs: append([]string{}, before.inputs.UnresolvedSignalIDs...), Customers: []incident.ImpactCustomer{}, CustomerCoverage: "not_evaluated",
 		TestCoverage:   "not_evaluated",
 		SLOCoverage:    "not_evaluated",
 		Interpretation: "Exact counters for observed, originally attested measurement points; distinct exporters are distinct observations. Missing source/capture coverage is unavailable, not zero. Sampling scales observed counters and does not prove complete telemetry. A weekly traffic decrease does not establish incident-caused loss. Test outcomes describe original executions, not an upstream cause or a rolling SLO-budget verdict."}
@@ -128,7 +128,7 @@ func (s *Server) computeIncidentImpactWithPublication(ctx context.Context, actor
 	}
 	for _, source := range observed.sources {
 		result.Members = append(result.Members, incident.ImpactMember{ContextID: source.Member.ContextID, EntityID: source.Member.EntityID,
-			Kind: string(source.Kind), IncidentRoot: source.Member.IncidentRoot, SignalIDs: slices.Clone(source.Member.SignalIDs), Reason: source.Reason, SourceIDs: slices.Clone(source.Evidence)})
+			Kind: string(source.Kind), IncidentRoot: source.Member.IncidentRoot, SignalIDs: append([]string{}, source.Member.SignalIDs...), Reason: source.Reason, SourceIDs: append([]string{}, source.Evidence...)})
 	}
 	var testTagData *incidentTestCustomerTags
 	if tagData != nil {

@@ -55,7 +55,7 @@ func TestIncidentSLOInputsUseProducerSelectorsOriginalFailuresAndTenant(t *testi
 		if err != nil || strings.Contains(string(body), "credential") || strings.Contains(string(body), "reader:") {
 			t.Fatal("secret-bearing executable selectors escaped into citations", string(body), err)
 		}
-		native, err := marshalNativeIncidentImpact(incident.ImpactResponse{IncidentID: googleuuid.NewString(), SLOs: values})
+		native, err := marshalNativeIncidentImpact(incident.ImpactResponse{ContractVersion: "probectl.incident-impact.v1", IncidentID: googleuuid.NewString(), SLOs: values})
 		if err != nil {
 			t.Fatal("an arbitrary OpenSLO name was forced into UUID identity", err)
 		}

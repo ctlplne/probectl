@@ -61,7 +61,7 @@ func TestIncidentTestComparisonKeepsOriginalOutcomesUnknownIOAndExactCitations(t
 	if period.Packets.Lost != "18446744073709551616" {
 		t.Fatal("packet math narrowed the complete population", period.Packets)
 	}
-	value := incident.ImpactResponse{IncidentID: googleuuid.NewString(), Tests: result}
+	value := incident.ImpactResponse{ContractVersion: "probectl.incident-impact.v1", IncidentID: googleuuid.NewString(), Tests: result}
 	encoded, err := marshalNativeIncidentImpact(value)
 	if err != nil {
 		t.Fatal(err)

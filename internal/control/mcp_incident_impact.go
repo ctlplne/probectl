@@ -33,6 +33,21 @@ func (b mcpIncidentImpactBackend) IncidentImpact(ctx context.Context, actor *aut
 
 type nativeIncidentChange string
 
+// Only the server's exact contract constant receives structural encoding.
+// Arbitrary labels, hostnames and other source prose retain normal redaction.
+type nativeIncidentImpactContract string
+
+func (value nativeIncidentImpactContract) MarshalJSON() ([]byte, error) {
+	if value != "probectl.incident-impact.v1" {
+		return nil, errors.New("invalid server incident impact contract")
+	}
+	raw, err := json.Marshal(string(value))
+	if err != nil {
+		return nil, err
+	}
+	return []byte(strings.ReplaceAll(string(raw), ".", `\u002e`)), nil
+}
+
 // This projection accepts only the canonical evidence PK read from current
 // tenant storage, not the collector's source_ref, observation ID or a label.
 // Other native source vocabularies retain their existing text redaction.
@@ -123,17 +138,18 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 	}
 	out := struct {
 		incident.ImpactResponse
-		IncidentID mcp.NativeRoleUUID         `json:"incident_id"`
-		Current    period                     `json:"current"`
-		Previous   period                     `json:"previous"`
-		Members    []member                   `json:"members"`
-		Unresolved []mcp.NativeRoleUUID       `json:"unresolved_signal_ids"`
-		Customers  []customer                 `json:"customers"`
-		Change     nativeIncidentChange       `json:"observed_scaled_byte_change,omitempty"`
-		Tests      []nativeIncidentImpactTest `json:"tests,omitempty"`
-		SLOs       []nativeIncidentSLO        `json:"slos,omitempty"`
+		ContractVersion nativeIncidentImpactContract `json:"contract_version"`
+		IncidentID      mcp.NativeRoleUUID           `json:"incident_id"`
+		Current         period                       `json:"current"`
+		Previous        period                       `json:"previous"`
+		Members         []member                     `json:"members"`
+		Unresolved      []mcp.NativeRoleUUID         `json:"unresolved_signal_ids"`
+		Customers       []customer                   `json:"customers"`
+		Change          nativeIncidentChange         `json:"observed_scaled_byte_change,omitempty"`
+		Tests           []nativeIncidentImpactTest   `json:"tests,omitempty"`
+		SLOs            []nativeIncidentSLO          `json:"slos,omitempty"`
 	}{
-		ImpactResponse: value, IncidentID: mcp.NativeRoleUUID(value.IncidentID), Current: projectPeriod(value.Current), Previous: projectPeriod(value.Previous), Members: []member{}, Unresolved: ids(value.UnresolvedSignalIDs), Customers: []customer{}, Change: nativeIncidentChange(value.ObservedByteChange)}
+		ImpactResponse: value, ContractVersion: nativeIncidentImpactContract(value.ContractVersion), IncidentID: mcp.NativeRoleUUID(value.IncidentID), Current: projectPeriod(value.Current), Previous: projectPeriod(value.Previous), Members: []member{}, Unresolved: ids(value.UnresolvedSignalIDs), Customers: []customer{}, Change: nativeIncidentChange(value.ObservedByteChange)}
 	for _, item := range value.Members {
 		sources := make([]nativeIncidentEvidenceSource, len(item.SourceIDs))
 		for i, id := range item.SourceIDs {
