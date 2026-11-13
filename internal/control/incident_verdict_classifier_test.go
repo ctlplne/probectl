@@ -117,7 +117,7 @@ func TestIncidentVerdictKeepsOriginalContradictionsAndCoverage(t *testing.T) {
 			in.tests[1].source.Definition.Target = in.tests[1].source.Target
 		}},
 		{"cross-origin final", func(in *incidentVerdictEvidence) { in.tests[1].reads[0].Outcome.HTTPResponse.SameOrigin = false }},
-		{"cancelled", func(in *incidentVerdictEvidence) { in.tests[1].reads[0].Outcome.Canceled = true }},
+		{"canceled", func(in *incidentVerdictEvidence) { in.tests[1].reads[0].Outcome.Canceled = true }},
 		{"no temporal overlap", func(in *incidentVerdictEvidence) {
 			read := &in.tests[1].reads[0]
 			read.ObservedAt = read.ObservedAt.Add(10 * time.Second)

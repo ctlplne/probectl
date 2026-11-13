@@ -27,7 +27,7 @@ import (
 
 type interfaceStateTestAuthorizer = func(context.Context, entity.ContextRecord, store.IncidentImpactEntity) error
 
-func proveIncidentInterfaceStateReaders(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, contextID, routerID string, client *agent.EvidenceClient, original entity.Observation) ([]store.IncidentInterfaceStateSource, []store.IncidentInterfaceStateMeasurement, interfaceStateTestAuthorizer) {
+func proveIncidentInterfaceStateReaders(ctx context.Context, t *testing.T, pool *pgxpool.Pool, tenant, contextID, routerID string, client *agent.EvidenceClient, original entity.Observation) ([]store.IncidentInterfaceStateSource, []store.IncidentInterfaceStateMeasurement, interfaceStateTestAuthorizer) {
 	t.Helper()
 	// A later unavailable point must survive the complete read. It cannot
 	// inherit an earlier state merely because the identity is unchanged.
@@ -77,11 +77,12 @@ func proveIncidentInterfaceStateReaders(t *testing.T, ctx context.Context, pool 
 			if read.TenantID != tenant || read.ContextID != contextID || read.EntityID != interfaceID || read.AgentID != original.Source.AgentID || read.EvidenceID == "" || read.CaptureDigest == ([32]byte{}) {
 				return errors.New("interface state receipt crossed tenant/source scope")
 			}
-			if read.ObservationID == original.ID && read.Available && read.State != nil && *read.State.OperStatus == *original.SNMPInterfaceState.OperStatus && *read.State.AdminStatus == *original.SNMPInterfaceState.AdminStatus {
+			switch {
+			case read.ObservationID == original.ID && read.Available && read.State != nil && *read.State.OperStatus == *original.SNMPInterfaceState.OperStatus && *read.State.AdminStatus == *original.SNMPInterfaceState.AdminStatus:
 				available++
-			} else if read.ObservationID == missing.ID && !read.Available && read.State == nil {
+			case read.ObservationID == missing.ID && !read.Available && read.State == nil:
 				unavailable++
-			} else {
+			default:
 				return errors.New("state history invented a value, omitted a gap or borrowed a sibling")
 			}
 		}
@@ -148,7 +149,7 @@ func proveIncidentInterfaceStateReaders(t *testing.T, ctx context.Context, pool 
 	return sources, reads, authorize
 }
 
-func proveIncidentInterfaceStateRevocation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant string, sources []store.IncidentInterfaceStateSource, reads []store.IncidentInterfaceStateMeasurement, authorize interfaceStateTestAuthorizer) {
+func proveIncidentInterfaceStateRevocation(ctx context.Context, t *testing.T, pool *pgxpool.Pool, tenant string, sources []store.IncidentInterfaceStateSource, reads []store.IncidentInterfaceStateMeasurement, authorize interfaceStateTestAuthorizer) {
 	t.Helper()
 	if err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 		err := (store.Incidents{}).RecheckInterfaceStateMeasurementsInScope(ctx, sc, sources, reads, 1<<20, authorize)

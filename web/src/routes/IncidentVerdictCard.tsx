@@ -199,7 +199,7 @@ function VerdictForm({ incident }: { incident: Incident }) {
 }
 
 function readable(reason: string) {
-  return reason.replaceAll('_', ' ')
+  return reason.replace(/_/g, ' ')
 }
 function Citations({ title, values }: { title: string; values: IncidentVerdictCitation[] }) {
   return (

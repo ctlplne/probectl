@@ -9,8 +9,9 @@ package control
 import (
 	"context"
 	"encoding/hex"
-	gouuid "github.com/google/uuid"
 	"time"
+
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"

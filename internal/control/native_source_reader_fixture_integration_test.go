@@ -12,15 +12,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/ctlplne/probectl/internal/config"
-	"github.com/ctlplne/probectl/internal/store/pathstore"
-	"github.com/ctlplne/probectl/internal/tenancy"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/store/pathstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func interfaceRoleNativeTLSCaller(t *testing.T, f *roleExplanationAPIFixture, wire string) func(tenant, tool string, args any, target any, wantOK bool) {
