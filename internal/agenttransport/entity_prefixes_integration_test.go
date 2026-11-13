@@ -177,6 +177,7 @@ func TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata(t *testing
 		if accepted, unresolved, err := client.Submit(ctx, []entity.Observation{stateClaim}); err != nil || accepted != 1 || unresolved != 0 {
 			t.Fatal("refused mutation changed the retained original state", accepted, unresolved, err)
 		}
+		stateSources, stateReads, stateAuthorize := proveIncidentInterfaceStateReaders(t, ctx, pool, tenant.ID, contextID, routerID, client, stateClaim)
 		unownedState := stateClaim
 		unownedState.ID, unownedState.Source.SourceRef = newUUID(t), "192.0.2.8"
 		if accepted, unresolved, err := client.Submit(ctx, []entity.Observation{unownedState}); err != nil || accepted != 0 || unresolved != 1 {
@@ -200,5 +201,6 @@ func TestSNMPPrefixRealMTLSKeepsTenantSenderReplayAndCompleteMetadata(t *testing
 		if _, _, err := client.Submit(ctx, []entity.Observation{stateClaim}); status.Code(err) != codes.Unauthenticated {
 			t.Fatal("revoked exact evidence credential republished interface state", err)
 		}
+		proveIncidentInterfaceStateRevocation(t, ctx, pool, tenant.ID, stateSources, stateReads, stateAuthorize)
 	}
 }
