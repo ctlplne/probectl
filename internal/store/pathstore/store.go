@@ -37,6 +37,10 @@ type HistoryQuery struct {
 	To    time.Time
 	Limit int
 	IDs   []string
+	// MaxBytes selects a complete operation-local read instead of a browser
+	// page. Positive admission returns every matching retained round or an
+	// error, never a plausible prefix. Zero retains the paged API behavior.
+	MaxBytes int64
 }
 
 type discoveryStartedAtKey struct{}

@@ -76,9 +76,39 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 	if got.TraceCount != 2 || got.MaxHops != 8 || roundsA[0].Path.TraceCount != 2 || roundsB[0].Path.TraceCount != 7 {
 		t.Fatalf("cross-tenant discovery metadata: latest A=%+v history A=%+v B=%+v", got, roundsA, roundsB)
 	}
+	// Incident source joins consume the whole admitted history, not the
+	// browser's default page. Write both populations through the real store.
+	var population []PathItem
+	for i := range 256 {
+		for _, tenant := range []string{ta, tb} {
+			ip, traces := "198.51.100.10", 2
+			if tenant == tb {
+				ip, traces = "192.0.2.99", 7
+			}
+			population = append(population, PathItem{TenantID: tenant, P: mk(ip, traces), ObservedAt: now.Add(-time.Minute).Add(time.Duration(i) * time.Millisecond), TrustedDiscoveryTime: true})
+		}
+	}
+	if err := c.SaveBatch(ctx, population); err != nil {
+		t.Fatal("complete two-tenant path population", err)
+	}
+	for _, tenant := range []string{ta, tb} {
+		rounds, err := c.History(ctx, tenant, target, HistoryQuery{Limit: 1, MaxBytes: 16 << 20})
+		if err != nil || len(rounds) != 257 {
+			t.Fatal("complete history inherited a page or lost rounds", len(rounds), err)
+		}
+		want := "198.51.100.10"
+		if tenant == tb {
+			want = "192.0.2.99"
+		}
+		for _, round := range rounds {
+			if round.Path.TargetIP != want {
+				t.Fatal("complete ClickHouse history crossed tenant storage scope")
+			}
+		}
+	}
 	// Replaying B's stable round ID in A's authenticated scope must be a
 	// clean miss. path_id is never authorization by itself.
-	foreign, err := c.History(ctx, ta, target, HistoryQuery{IDs: []string{roundsB[0].ID}})
+	foreign, err := c.History(ctx, ta, target, HistoryQuery{IDs: []string{roundsB[0].ID}, MaxBytes: 16 << 20})
 	if err != nil || len(foreign) != 0 {
 		t.Fatalf("CROSS-TENANT HISTORY LEAK: rounds=%+v err=%v", foreign, err)
 	}

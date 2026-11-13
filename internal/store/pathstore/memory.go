@@ -139,11 +139,14 @@ func (m *Memory) Latest(_ context.Context, tenantID, target string) (*path.Path,
 }
 
 // History returns newest-first rounds from only the requested tenant+target.
-func (m *Memory) History(_ context.Context, tenantID, target string, q HistoryQuery) ([]Snapshot, error) {
+func (m *Memory) History(ctx context.Context, tenantID, target string, q HistoryQuery) ([]Snapshot, error) {
 	if tenantID == "" {
 		return nil, ErrNoTenant
 	}
-	limit := historyLimit(q.Limit)
+	ctx, limit, remaining, err := admitHistory(ctx, q)
+	if err != nil {
+		return nil, err
+	}
 	requested := make(map[string]bool, len(q.IDs))
 	for _, id := range q.IDs {
 		requested[id] = true
@@ -153,6 +156,9 @@ func (m *Memory) History(_ context.Context, tenantID, target string, q HistoryQu
 	rounds := m.saved[tenantID]
 	out := make([]Snapshot, 0, min(limit, len(rounds)))
 	for i := len(rounds) - 1; i >= 0 && len(out) < limit; i-- {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		round := rounds[i]
 		if round.Path.Target != target {
 			continue
@@ -164,6 +170,11 @@ func (m *Memory) History(_ context.Context, tenantID, target string, q HistoryQu
 		} else if (!q.From.IsZero() && round.ObservedAt.Before(q.From)) ||
 			(!q.To.IsZero() && round.ObservedAt.After(q.To)) {
 			continue
+		}
+		if q.MaxBytes > 0 {
+			if err := chargeHistorySnapshot(ctx, &remaining, round); err != nil {
+				return nil, err
+			}
 		}
 		round.Path = clonePath(&round.Path)
 		out = append(out, round)

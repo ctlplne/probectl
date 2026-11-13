@@ -858,7 +858,10 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 	if err != nil {
 		return nil, err
 	}
-	limit := historyLimit(q.Limit)
+	ctx, limit, remaining, err := admitHistory(ctx, q)
+	if err != nil {
+		return nil, err
+	}
 	params := chParams{
 		"tenant": tenantID,
 		"target": target,
@@ -887,9 +890,20 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 			where += " AND ts<={to:DateTime64(3)}"
 		}
 	}
+	if q.MaxBytes > 0 {
+		// Keep the exact query boundaries against millisecond stored points.
+		// Rounding either selector down can silently omit an included point.
+		if !q.From.IsZero() {
+			params["from"] = q.From.UTC().Format("2006-01-02 15:04:05.000000000")
+		}
+		if !q.To.IsZero() {
+			params["to"] = q.To.UTC().Format("2006-01-02 15:04:05.000000000")
+		}
+		where = strings.ReplaceAll(where, "DateTime64(3)", "DateTime64(9)")
+	}
 	metaRows, err := c.queryScoped(ctx, t, tenantID,
 		"SELECT path_id, any(target_ip) AS target_ip, any(mode) AS mode, any(trace_count) AS trace_count, any(max_hops) AS max_hops, any(fidelity_version) AS fidelity_version, any(probe_transport) AS probe_transport, any(acquisition_mode) AS acquisition_mode, any(timing_source) AS timing_source, any(hop_visibility) AS hop_visibility, any(kernel_timestamping) AS kernel_timestamping, any(hardware_timestamping) AS hardware_timestamping, min(discovery_clock_verified) AS discovery_clock_verified, max(ts) AS observed_at FROM "+hopsT+
-			" WHERE "+where+" GROUP BY path_id ORDER BY observed_at DESC, path_id DESC LIMIT {limit:UInt32}",
+			" WHERE "+where+" GROUP BY path_id ORDER BY observed_at DESC, path_id DESC LIMIT {limit:UInt64}",
 		params)
 	if err != nil {
 		return nil, err
@@ -897,13 +911,22 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 	if len(metaRows) == 0 {
 		return []Snapshot{}, nil
 	}
+	if q.MaxBytes > 0 && len(metaRows) >= limit {
+		return nil, ErrHistoryBudget
+	}
 
 	snapshots := make([]Snapshot, 0, len(metaRows))
 	byID := make(map[string]*Snapshot, len(metaRows))
 	for _, row := range metaRows {
 		id := chToString(row["path_id"])
 		if id == "" {
+			if q.MaxBytes > 0 {
+				return nil, fmt.Errorf("pathstore: complete history has an invalid round identity")
+			}
 			continue
+		}
+		if _, found := byID[id]; found && q.MaxBytes > 0 {
+			return nil, fmt.Errorf("pathstore: complete history has a duplicate round identity")
 		}
 		snapshots = append(snapshots, Snapshot{
 			ID:                   id,
@@ -941,6 +964,9 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		id := chToString(row["path_id"])
 		snapshot := byID[id]
 		if snapshot == nil {
+			if q.MaxBytes > 0 {
+				return nil, fmt.Errorf("pathstore: complete history has an unselected hop round")
+			}
 			continue
 		}
 		byTTL := hopsByPath[id]
@@ -994,6 +1020,15 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 			snapshot.Path.Links = append(snapshot.Path.Links, path.Link{
 				TTL: chToInt(row["ttl"]), From: chToString(row["from_ip"]), To: chToString(row["to_ip"]),
 			})
+		} else if q.MaxBytes > 0 {
+			return nil, fmt.Errorf("pathstore: complete history has an unselected link round")
+		}
+	}
+	if q.MaxBytes > 0 {
+		for _, snapshot := range snapshots {
+			if err := chargeHistorySnapshot(ctx, &remaining, snapshot); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return snapshots, nil
@@ -1105,7 +1140,16 @@ func (c *ClickHouse) doQuery(ctx context.Context, conn *chclient.Conn, base, u s
 	// RED-003a/SCALE-001: bound the response read — a huge/malicious ClickHouse
 	// body must not be buffered unbounded (all-tenant memory DoS). Fails closed
 	// (ErrResponseTooLarge) on overflow instead of allocating the body.
-	body, err := chclient.ReadResponseBody(resp.Body)
+	var body []byte
+	if budget, ok := ctx.Value(historyWireBudgetKey{}).(*historyWireBudget); ok {
+		if budget.remaining <= 0 {
+			return nil, ErrHistoryBudget
+		}
+		body, err = chclient.ReadResponseBodyBounded(resp.Body, budget.remaining)
+		budget.remaining -= int64(len(body))
+	} else {
+		body, err = chclient.ReadResponseBody(resp.Body)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("pathstore: clickhouse query: %w", err)
 	}
