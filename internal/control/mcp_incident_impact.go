@@ -121,13 +121,14 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 	}
 	out := struct {
 		incident.ImpactResponse
-		IncidentID mcp.NativeRoleUUID   `json:"incident_id"`
-		Current    period               `json:"current"`
-		Previous   period               `json:"previous"`
-		Members    []member             `json:"members"`
-		Unresolved []mcp.NativeRoleUUID `json:"unresolved_signal_ids"`
-		Customers  []customer           `json:"customers"`
-		Change     nativeIncidentChange `json:"observed_scaled_byte_change,omitempty"`
+		IncidentID mcp.NativeRoleUUID         `json:"incident_id"`
+		Current    period                     `json:"current"`
+		Previous   period                     `json:"previous"`
+		Members    []member                   `json:"members"`
+		Unresolved []mcp.NativeRoleUUID       `json:"unresolved_signal_ids"`
+		Customers  []customer                 `json:"customers"`
+		Change     nativeIncidentChange       `json:"observed_scaled_byte_change,omitempty"`
+		Tests      []nativeIncidentImpactTest `json:"tests,omitempty"`
 	}{
 		ImpactResponse: value, IncidentID: mcp.NativeRoleUUID(value.IncidentID), Current: projectPeriod(value.Current), Previous: projectPeriod(value.Previous), Members: []member{}, Unresolved: ids(value.UnresolvedSignalIDs), Customers: []customer{}, Change: nativeIncidentChange(value.ObservedByteChange)}
 	for _, item := range value.Members {
@@ -144,6 +145,7 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 		}
 		out.Customers = append(out.Customers, customer{item, mcp.NativeRoleUUID(item.ContextID), ids(item.PrefixIDs), ids(item.TestIDs), ids(item.SLOIDs), keys, projectCounters(item.Current), projectCounters(item.Previous)})
 	}
+	out.Tests = nativeIncidentImpactTests(value.Tests)
 	return json.Marshal(out)
 }
 

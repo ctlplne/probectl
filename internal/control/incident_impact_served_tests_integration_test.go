@@ -1,0 +1,131 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+//go:build integration || isolation
+
+package control
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
+)
+
+func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t *testing.T) {
+	d := seedDependencyRoutingFixture(t)
+	f := d.f
+	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	ids := map[string]string{}
+	for lane, tenant := range f.tenants {
+		d.observe(t, tenant, 0, lane == 1)
+		ids[tenant] = uuid.NewString()
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			for _, permission := range []string{permIncidentRead, permFlowRead} {
+				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
+					return err
+				}
+			}
+			if _, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, tenant, f.roles[tenant], permTestRead); err != nil {
+				return err
+			}
+			_, err := sc.Q.Exec(ctx, `INSERT INTO incidents(tenant_id,id,title,entity_context_id,entity_id,identity_lookup_attempted) VALUES($1,$2,'test comparison',$3,$4,true)`, tenant, ids[tenant], f.contextID, d.graphs[tenant].Nodes[0].EntityID)
+			return err
+		})
+	}
+	socket := httptest.NewTLSServer(f.server.Handler())
+	t.Cleanup(socket.Close)
+	request := func(tenant, id string, tests bool) (int, incident.ImpactResponse) {
+		t.Helper()
+		body, err := json.Marshal(incident.ImpactInput{From: time.Now().UTC().Add(-time.Minute), To: time.Now().UTC(), IncludeTests: tests})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, socket.URL+"/v1/incidents/"+id+"/impact", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+f.tokens[tenant])
+		req.Header.Set("Content-Type", "application/json")
+		response, err := socket.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		raw, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result incident.ImpactResponse
+		if response.StatusCode == http.StatusOK {
+			if err := json.Unmarshal(raw, &result); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return response.StatusCode, result
+	}
+	for lane, tenant := range f.tenants {
+		if status, _ := request(tenant, ids[tenant], true); status != http.StatusForbidden {
+			t.Fatal("incident permission implicitly disclosed tests", status)
+		}
+		if status, result := request(tenant, ids[tenant], false); status != http.StatusOK || result.TestCoverage != "not_evaluated" || len(result.Tests) != 0 {
+			t.Fatal("traffic-only caller acquired test authority or lost existing behavior", status, result)
+		}
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			return (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permTestRead)
+		})
+		status, result := request(tenant, ids[tenant], true)
+		if status != http.StatusOK || len(result.Tests) != 1 || result.Tests[0].TestID != d.graphs[tenant].Nodes[0].TestID || result.ValidUntil == nil {
+			t.Fatal("served comparison lost owned complete original history or expiry", status, result)
+		}
+		current, previous := result.Tests[0].Current, result.Tests[0].Previous
+		if current.Successful != lane || current.Failed != 2-lane || current.Unknown != 0 || len(current.Observations) != 2 || len(previous.Observations) != 0 || previous.Packets != nil || previous.Coverage != "no_retained_observations" {
+			t.Fatal("sibling outcomes, missing baseline or local IO became measured health", current, previous)
+		}
+		if status, _ := request(tenant, ids[f.tenants[1-lane]], true); status == http.StatusOK {
+			t.Fatal("served comparison disclosed the sibling incident", status)
+		}
+	}
+	a, b := f.tenants[0], f.tenants[1]
+	var deniedID string
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		policy, err := (store.ABACPolicies{}).Create(ctx, sc, auth.Policy{Name: "deny selected test", Enabled: true, Effect: auth.PolicyDeny, Permission: permTestRead, Resource: map[string]string{"test_id": d.graphs[a].Nodes[0].TestID}, Priority: 100})
+		if err == nil {
+			deniedID = policy.ID
+		}
+		return err
+	})
+	if status, result := request(a, ids[a], true); status != http.StatusForbidden || len(result.Tests) != 0 {
+		t.Fatal("per-test ABAC denial returned an allowed population prefix", status, result)
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		return (store.ABACPolicies{}).Delete(ctx, sc, deniedID)
+	})
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, a, f.roles[a], permTestRead)
+		return err
+	})
+	if status, _ := request(a, ids[a], true); status != http.StatusForbidden {
+		t.Fatal("stale credential retained withdrawn current test permission", status)
+	}
+	if status, result := request(b, ids[b], true); status != http.StatusOK || len(result.Tests) != 1 {
+		t.Fatal("permission withdrawal changed sibling test evidence", status, result)
+	}
+	t.Log("real-integration: served HTTPS/current-user/paired app-role PG-RLS comparisons and permission withdrawal; probe rows are modeled, physical G4a and SLO/customer attribution remain owed")
+}

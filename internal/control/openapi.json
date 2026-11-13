@@ -15536,6 +15536,174 @@
         },
         "description": "Optional impact selections only. The server recomputes complete current-authorized impact after RCA and includes it in the signed evidence package; supplied outputs are never accepted."
       },
+      "IncidentImpactTestPackets": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "requested": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "transmitted": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "received": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "lost": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Present only for a complete ICMP observation or aggregate of complete observations; incomplete local IO does not establish loss."
+          }
+        },
+        "required": [
+          "requested",
+          "transmitted",
+          "received"
+        ]
+      },
+      "IncidentImpactTestObservation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "successful",
+              "failed",
+              "unknown",
+              "canceled"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "packets": {
+            "$ref": "#/components/schemas/IncidentImpactTestPackets"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "digest",
+          "observed_at",
+          "status",
+          "reason"
+        ]
+      },
+      "IncidentImpactTestPeriod": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "coverage": {
+            "type": "string"
+          },
+          "successful": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknown": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "canceled": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "packets": {
+            "$ref": "#/components/schemas/IncidentImpactTestPackets"
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentImpactTestObservation"
+            }
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "coverage",
+          "successful",
+          "failed",
+          "unknown",
+          "canceled",
+          "observations"
+        ]
+      },
+      "IncidentImpactTest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "test_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "definition_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "current": {
+            "$ref": "#/components/schemas/IncidentImpactTestPeriod"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/IncidentImpactTestPeriod"
+          }
+        },
+        "required": [
+          "context_id",
+          "entity_id",
+          "test_id",
+          "agent_id",
+          "name",
+          "type",
+          "definition_digest",
+          "current",
+          "previous"
+        ]
+      },
       "IncidentImpactInput": {
         "type": "object",
         "additionalProperties": false,
@@ -15558,6 +15726,10 @@
           },
           "customer_tag_key": {
             "type": "string"
+          },
+          "include_tests": {
+            "type": "boolean",
+            "description": "Include complete original configured-test comparisons. Requires current test.read for each owning context and test; metadata alone does not establish measured impact."
           }
         },
         "required": [
@@ -15841,6 +16013,16 @@
           "valid_until": {
             "type": "string",
             "format": "date-time"
+          },
+          "tests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentImpactTest"
+            }
+          },
+          "test_coverage": {
+            "type": "string",
+            "description": "not_evaluated unless include_tests was requested; current explicit sources are configuration, and only cited original observations establish outcomes."
           }
         },
         "required": [
@@ -15856,7 +16038,8 @@
           "customers",
           "customer_coverage",
           "unclassified_records",
-          "interpretation"
+          "interpretation",
+          "test_coverage"
         ]
       },
       "IncidentImpactCommand": {
@@ -15885,6 +16068,10 @@
           },
           "customer_tag_key": {
             "type": "string"
+          },
+          "include_tests": {
+            "type": "boolean",
+            "description": "Include complete original configured-test comparisons. Requires current test.read for each owning context and test; metadata alone does not establish measured impact."
           }
         },
         "required": [

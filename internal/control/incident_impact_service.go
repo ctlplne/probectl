@@ -65,7 +65,9 @@ func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principa
 	}
 	defer batch.Close()
 	ctx = batch.Context()
-	before, err := s.loadIncidentImpactSnapshot(ctx, actor, id, nil, budget)
+	testSelection := incidentImpactTestSelection{input: input}
+	testSelection.input.From, testSelection.input.To = plan.From, plan.To
+	before, err := s.loadIncidentImpactSnapshot(ctx, actor, id, nil, budget, testSelection)
 	if err != nil {
 		return none, err
 	}
@@ -73,7 +75,8 @@ func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principa
 	if err != nil {
 		return none, err
 	}
-	observed, err := s.loadIncidentImpactSnapshot(ctx, actor, id, reads, budget)
+	testSelection.history = input.IncludeTests
+	observed, err := s.loadIncidentImpactSnapshot(ctx, actor, id, reads, budget, testSelection)
 	if err != nil {
 		return none, err
 	}
@@ -110,7 +113,15 @@ func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principa
 		IncidentID: id, EvaluatedAt: time.Now().UTC(), Current: periods[0], Previous: periods[1],
 		Members: []incident.ImpactMember{}, UnresolvedRoot: before.inputs.RootUnresolved,
 		UnresolvedSignalIDs: slices.Clone(before.inputs.UnresolvedSignalIDs), Customers: []incident.ImpactCustomer{}, CustomerCoverage: "not_evaluated",
-		Interpretation: "Exact counters for observed, originally attested measurement points; distinct exporters are distinct observations. Missing source/capture coverage is unavailable, not zero. Sampling scales observed counters and does not prove complete telemetry. A weekly traffic decrease does not establish incident-caused loss."}
+		TestCoverage:   "not_evaluated",
+		Interpretation: "Exact counters for observed, originally attested measurement points; distinct exporters are distinct observations. Missing source/capture coverage is unavailable, not zero. Sampling scales observed counters and does not prove complete telemetry. A weekly traffic decrease does not establish incident-caused loss. Test outcomes describe original executions, not an upstream cause or a rolling SLO-budget verdict."}
+	if input.IncludeTests {
+		result.Tests, err = summarizeIncidentTests(ctx, actor.TenantID, observed.tests, observed.testReads, plan.From, plan.To, budget.MemoryBytes/8)
+		if err != nil {
+			return none, flowExplorerStoreError(err)
+		}
+		result.TestCoverage = "current_explicit_sources_original_observations"
+	}
 	for _, source := range observed.sources {
 		result.Members = append(result.Members, incident.ImpactMember{ContextID: source.Member.ContextID, EntityID: source.Member.EntityID,
 			Kind: string(source.Kind), IncidentRoot: source.Member.IncidentRoot, SignalIDs: slices.Clone(source.Member.SignalIDs), Reason: source.Reason, SourceIDs: slices.Clone(source.Evidence)})
@@ -134,7 +145,8 @@ func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principa
 	}
 	// Refresh current credential, source, assignment and erasure authority for
 	// the original retained selectors. This does not execute another flow query.
-	after, err := s.loadIncidentImpactSnapshot(ctx, actor, id, reads, budget)
+	testSelection.history, testSelection.original = false, observed.testReads
+	after, err := s.loadIncidentImpactSnapshot(ctx, actor, id, reads, budget, testSelection)
 	if err != nil {
 		return none, err
 	}
@@ -146,14 +158,8 @@ func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principa
 			return none, err
 		}
 	}
-	for _, source := range after.sources {
-		if !source.ValidUntil.IsZero() && !source.ValidUntil.After(time.Now().UTC()) {
-			return none, apierror.Unavailable("incident source evidence expired; retry")
-		}
-		if !source.ValidUntil.IsZero() && (result.ValidUntil == nil || source.ValidUntil.Before(*result.ValidUntil)) {
-			until := source.ValidUntil
-			result.ValidUntil = &until
-		}
+	if err := bindIncidentImpactValidUntil(&result, after); err != nil {
+		return none, err
 	}
 	body, err := json.Marshal(result)
 	if err != nil {

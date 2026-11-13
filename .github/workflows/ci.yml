@@ -1528,7 +1528,7 @@ jobs:
         run: |
           python3 scripts/ci_entity_subject_lifecycle.py --selftest
           python3 scripts/ci_entity_subject_lifecycle.py
-          go test -v -p=1 -tags=integration -count=1 -timeout=5m -run '^(TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary|TestFlowQuerySubject.*|TestEntityEvidenceCannotRepublishBeforeErasureCutoff|TestEntityEvidenceSubjectErasureRejectsLateSenderReplay)$' ./internal/tenantlife ./internal/store
+          go test -v -p=1 -tags=integration -count=1 -timeout=5m -run '^(TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary|TestFlowQuerySubject.*|TestEntityEvidenceCannotRepublishBeforeErasureCutoff|TestEntityEvidenceSubjectErasureRejectsLateSenderReplay|TestConfiguredTestReferencesSurviveSubjectErasureWithoutHidingPersonalText|TestEntityEvidenceSubjectMetadataExportErasureAndIsolation)$' ./internal/tenantlife ./internal/store
       - name: Permit unprivileged datagram ICMP (DPR-221 — the loopback probe tests need a socket)
         # DPR-221: TestICMPLoopback (both 127.0.0.1 and ::1) and TestRunLoopback
         # died on "icmp: open socket: socket: permission denied". Both deliberately
@@ -1552,7 +1552,7 @@ jobs:
         run: |
           set -euo pipefail
           result=0
-          go test -v -tags=integration -count=1 -timeout=5m -run '^(TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication|TestICMPMeasurementRealMTLSKeepsCurrentDefinitionTenantAndReplay)$' ./internal/agenttransport || result=1
+          go test -v -tags=integration -count=1 -timeout=5m -run '^(TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication|TestICMPMeasurementRealMTLSKeepsCurrentDefinitionTenantAndReplay|TestConfiguredProbeOutcomeRealHTTPSMTLSKeepsTenantDefinitionHistoryAndReplay)$' ./internal/agenttransport || result=1
           go test -v -tags=integration -count=1 -timeout=5m -run '^(TestDeviceCounter(WitnessUsesOriginalPollAndStableFirstCapture|ScopedReaderKeepsRotationAndTenantBoundary|BatchWitnessesKeepCompleteOriginalSetAndTenantBoundary)|TestEnsureSystemRolesSeedsAFreshTenantIdempotently|TestCapacityAgreementRoleMigrationKeepsPrivateSchemasAndExplicitDelegation|TestRoleGrantsBindParentTenantBeforeInsertUpdateAndPermissionRead)$' ./internal/store || result=1
           go test -v -tags=integration -count=1 -timeout=5m -run '^TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit$' ./internal/flow || result=1
           go test -v -tags=integration -count=1 -timeout=5m -run '^TestSiloRoleReferencesKeepTenantOnProvisionCatchupAndLegacyRefusal$' ./ee/silo || result=1
@@ -1668,7 +1668,7 @@ jobs:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
         run: |
           go test -race -p=1 -tags=integration -count=1 -timeout=8m -v \
-            -run='^(TestSharedPathTargetKeepsOneContextConcurrentWritersAndCleanup|TestSharedPathTargetsKeepSiloContextOnProvisionAndCatchup|TestIncidentImpactInputsKeepCompleteCitationsAndTenantScope|TestCapturedFlowOwnersKeepOriginalIdentityAcrossRefreshAndRefuseReassignment|TestIncidentImpactSourcesKeepCurrentDeviceInterfaceAndTenantAuthority|TestIncidentConfiguredTestsKeepExplicitCurrentTenantBindings|TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant|TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation)$' \
+            -run='^(TestSharedPathTargetKeepsOneContextConcurrentWritersAndCleanup|TestSharedPathTargetsKeepSiloContextOnProvisionAndCatchup|TestIncidentImpactInputsKeepCompleteCitationsAndTenantScope|TestCapturedFlowOwnersKeepOriginalIdentityAcrossRefreshAndRefuseReassignment|TestIncidentImpactSourcesKeepCurrentDeviceInterfaceAndTenantAuthority|TestIncidentConfiguredTestsKeepExplicitCurrentTenantBindings|TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant|TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation|TestProbeOutcomesKeepSiloTypedChecksAndTenantOnProvisionAndCatchup|TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission)$' \
             ./internal/store ./internal/control ./ee/silo
       - name: Complete dependency notification publication
         env:

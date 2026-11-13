@@ -138,6 +138,10 @@ func redactIncidentImpact(value incident.ImpactResponse, pol ai.RedactionPolicy,
 			customer.SLOIDs[j] = ai.RedactTextForTenant(customer.SLOIDs[j], pol, tenant)
 		}
 	}
+	for i := range out.Tests {
+		out.Tests[i].Name = ai.RedactTextForTenant(out.Tests[i].Name, pol, tenant)
+		out.Tests[i].AgentID = ai.RedactTextForTenant(out.Tests[i].AgentID, pol, tenant)
+	}
 	return out, nil
 }
 

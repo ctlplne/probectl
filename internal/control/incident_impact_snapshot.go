@@ -14,6 +14,7 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -25,6 +26,14 @@ type incidentImpactSnapshot struct {
 	sources                     []store.IncidentImpactSource
 	owners                      []store.CapturedFlowOwner
 	sourceDigest, captureDigest string
+	tests                       []store.IncidentConfiguredTest
+	testReads                   []store.IncidentTestMeasurement
+}
+
+type incidentImpactTestSelection struct {
+	input    incident.ImpactInput
+	history  bool
+	original []store.IncidentTestMeasurement
 }
 
 // Deterministic impact reads have their own source permissions. They never
@@ -42,7 +51,7 @@ func (s *Server) authorizeIncidentImpact(ctx context.Context, actor *auth.Princi
 	return ctx.Err()
 }
 
-func (s *Server) loadIncidentImpactSnapshot(ctx context.Context, actor *auth.Principal, id string, reads []flowstore.RoutingCaptureRead, budget flowstore.ExplorerBudget) (incidentImpactSnapshot, error) {
+func (s *Server) loadIncidentImpactSnapshot(ctx context.Context, actor *auth.Principal, id string, reads []flowstore.RoutingCaptureRead, budget flowstore.ExplorerBudget, testSelection incidentImpactTestSelection) (incidentImpactSnapshot, error) {
 	none := incidentImpactSnapshot{}
 	ctx, err := bindFlowRoleContext(ctx, actor)
 	if err != nil {
@@ -74,6 +83,11 @@ func (s *Server) loadIncidentImpactSnapshot(ctx context.Context, actor *auth.Pri
 		if err := s.authorizeIncidentImpact(ctx, principal, resource); err != nil {
 			return err
 		}
+		if testSelection.input.IncludeTests {
+			if err := s.authorize(ctx, principal, permTestRead, auth.RBACGlobal, resource); err != nil {
+				return err
+			}
+		}
 		limit := budget.MemoryBytes / 4
 		inputs, err := (store.Incidents{}).ImpactInputs(ctx, sc, id, limit)
 		if err != nil {
@@ -101,6 +115,11 @@ func (s *Server) loadIncidentImpactSnapshot(ctx context.Context, actor *auth.Pri
 			return err
 		}
 		result = incidentImpactSnapshot{authority: current, inputs: inputs, sources: sources, sourceDigest: hex.EncodeToString(digest)}
+		if testSelection.input.IncludeTests {
+			if err := s.loadIncidentImpactTestsInScope(ctx, principal, sc, id, &result, testSelection, budget.MemoryBytes/8); err != nil {
+				return err
+			}
+		}
 		if len(reads) == 0 {
 			return nil
 		}

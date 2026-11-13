@@ -15,6 +15,7 @@ type ImpactInput struct {
 	To             time.Time `json:"to"`
 	DataSeries     string    `json:"dataseries,omitempty"`
 	CustomerTagKey string    `json:"customer_tag_key,omitempty"`
+	IncludeTests   bool      `json:"include_tests,omitempty"`
 }
 
 // Counter strings preserve raw and sampling-adjusted values beyond uint64
@@ -85,4 +86,49 @@ type ImpactResponse struct {
 	UnclassifiedRecords int              `json:"unclassified_records"`
 	ObservedByteChange  string           `json:"observed_scaled_byte_change,omitempty"`
 	Interpretation      string           `json:"interpretation"`
+	Tests               []ImpactTest     `json:"tests,omitempty"`
+	TestCoverage        string           `json:"test_coverage"`
+}
+
+type ImpactTestPackets struct {
+	Requested   string `json:"requested"`
+	Transmitted string `json:"transmitted"`
+	Received    string `json:"received"`
+	Lost        string `json:"lost,omitempty"`
+}
+
+type ImpactTestObservation struct {
+	EvidenceID string             `json:"evidence_id"`
+	Digest     string             `json:"digest"`
+	ObservedAt time.Time          `json:"observed_at"`
+	Status     string             `json:"status"`
+	Reason     string             `json:"reason"`
+	Packets    *ImpactTestPackets `json:"packets,omitempty"`
+}
+
+type ImpactTestPeriod struct {
+	From         time.Time               `json:"from"`
+	To           time.Time               `json:"to"`
+	Coverage     string                  `json:"coverage"`
+	Successful   int                     `json:"successful"`
+	Failed       int                     `json:"failed"`
+	Unknown      int                     `json:"unknown"`
+	Canceled     int                     `json:"canceled"`
+	Packets      *ImpactTestPackets      `json:"packets,omitempty"`
+	Observations []ImpactTestObservation `json:"observations"`
+}
+
+// A configured test supplies identity, not evidence that an incident hit it.
+// Only the cited original observations supply measured outcomes. The windows
+// are independent comparisons, not a network-cause or rolling-budget verdict.
+type ImpactTest struct {
+	ContextID        string           `json:"context_id"`
+	EntityID         string           `json:"entity_id"`
+	TestID           string           `json:"test_id"`
+	AgentID          string           `json:"agent_id"`
+	Name             string           `json:"name"`
+	Type             string           `json:"type"`
+	DefinitionDigest string           `json:"definition_digest"`
+	Current          ImpactTestPeriod `json:"current"`
+	Previous         ImpactTestPeriod `json:"previous"`
 }
