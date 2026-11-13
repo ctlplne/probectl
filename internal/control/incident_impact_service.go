@@ -94,22 +94,7 @@ func (s *Server) computeIncidentImpactWithPublication(ctx context.Context, actor
 	if err != nil {
 		return none, err
 	}
-	owners := map[string]store.CapturedFlowOwner{}
-	coverage := incidentImpactSourceCoverage(observed.sources)
-	for _, owner := range observed.owners {
-		owners[hex.EncodeToString(owner.Reference.Key[:])] = owner
-	}
-	// Interface indices are local identities beneath their original router.
-	// Do not assign an older observation to an interface created/rebound later.
-	for _, period := range rows {
-		for _, row := range period {
-			owner, found := owners[row.RoutingCaptureKey]
-			if found && owner.Available && !coverage.covers(row, owner) {
-				owner.Available = false
-				owners[row.RoutingCaptureKey] = owner
-			}
-		}
-	}
+	owners := bindIncidentTrafficCoverage(observed, rows)
 	for i := range periods {
 		periods[i], err = summarizeIncidentTraffic(ctx, actor.TenantID, periods[i], rows[i], owners, budget.MemoryBytes/8)
 		if err != nil {
@@ -228,6 +213,26 @@ func (s *Server) computeIncidentImpactWithPublication(ctx context.Context, actor
 	}
 
 	return result, nil
+}
+
+func bindIncidentTrafficCoverage(observed incidentImpactSnapshot, rows [2][]flowstore.Row) map[string]store.CapturedFlowOwner {
+	owners := map[string]store.CapturedFlowOwner{}
+	coverage := incidentImpactSourceCoverage(observed.sources)
+	for _, owner := range observed.owners {
+		owners[hex.EncodeToString(owner.Reference.Key[:])] = owner
+	}
+	// Interface indices are local identities beneath their original router.
+	// Do not assign an older observation to an interface created/rebound later.
+	for _, period := range rows {
+		for _, row := range period {
+			owner, found := owners[row.RoutingCaptureKey]
+			if found && owner.Available && !coverage.covers(row, owner) {
+				owner.Available = false
+				owners[row.RoutingCaptureKey] = owner
+			}
+		}
+	}
+	return owners
 }
 
 func readIncidentImpactTraffic(ctx context.Context, tenant string, batch *flowstore.PlanBatch, before incidentImpactSnapshot, plan flow.QueryPlan, previousFrom, previousTo time.Time, captureBytes int64) ([2][]flowstore.Row, [2]incident.ImpactPeriod, []flowstore.RoutingCaptureRead, error) {
