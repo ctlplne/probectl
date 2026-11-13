@@ -9,11 +9,13 @@ package control
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"sync"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/slo"
@@ -23,17 +25,19 @@ import (
 )
 
 type clientReportCapture struct {
-	TenantID     string
-	From, To     time.Time
-	Sources      []store.IncidentConfiguredTest
-	Definitions  []slo.SLO
-	SLOEnabled   bool
-	Availability []clientReportAvailability
-	SLOs         []clientReportSLO
-	Tables       []reporting.CSVTable
-	Events       *clientReportEventCapture
-	InputsDigest string
-	release      func()
+	TenantID      string
+	From, To      time.Time
+	Sources       []store.IncidentConfiguredTest
+	Definitions   []slo.SLO
+	SLOEnabled    bool
+	Availability  []clientReportAvailability
+	SLOs          []clientReportSLO
+	Tables        []reporting.CSVTable
+	Events        *clientReportEventCapture
+	Verdicts      []clientReportVerdict
+	InputsDigest  string
+	retainedBytes int64
+	release       func()
 }
 
 func (c *clientReportCapture) close() {
@@ -126,11 +130,8 @@ func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Pri
 	if err != nil {
 		return nil, err
 	}
-	result.Tables, err = projectClientReportSLIs(ctx, result.TenantID, from, to, result.Availability, result.SLOs, budget.MemoryBytes/8)
-	if err != nil {
-		return nil, err
-	}
-	digest, err := hashFlowRoleInputs(ctx, nil, struct {
+	state := struct {
+		Domain       string
 		TenantID     string
 		From, To     time.Time
 		Sources      []store.IncidentConfiguredTest
@@ -139,9 +140,36 @@ func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Pri
 		Availability []clientReportAvailability
 		SLOs         []clientReportSLO
 		Events       *clientReportEventCapture
-	}{result.TenantID, from, to, result.Sources, result.Definitions, result.SLOEnabled, result.Availability, result.SLOs, result.Events}, budget.MemoryBytes/4)
+	}{"probectl.client-report.inputs.v1", result.TenantID, from, to, result.Sources, result.Definitions, result.SLOEnabled, result.Availability, result.SLOs, result.Events}
+	body, err := json.Marshal(state)
 	if err != nil {
 		return nil, err
+	}
+	// Retained source state and a full projection share occupy at most half
+	// the operation. Rendering/final rechecks keep the other half available.
+	result.retainedBytes = 4096 + 8*int64(len(body)) + budget.MemoryBytes/8
+	remaining := budget.MemoryBytes/2 - result.retainedBytes
+	if remaining <= 0 {
+		return nil, store.ErrClientReportBudget
+	}
+	before := remaining
+	result.Verdicts, err = s.captureClientReportVerdicts(ctx, actor, result, &remaining)
+	if err != nil {
+		return nil, err
+	}
+	result.retainedBytes += before - remaining
+	result.Tables, err = projectClientReportSLIs(ctx, result.TenantID, from, to, result.Availability, result.SLOs, budget.MemoryBytes/16)
+	if err != nil {
+		return nil, err
+	}
+	eventTables, err := projectClientReportEvents(ctx, result, budget.MemoryBytes/16)
+	if err != nil {
+		return nil, err
+	}
+	result.Tables = append(result.Tables, eventTables...)
+	digest := crypto.Hash(body)
+	for _, verdict := range result.Verdicts {
+		digest = crypto.Hash(append(digest, []byte(verdict.SourceDigest)...))
 	}
 	result.InputsDigest = hex.EncodeToString(digest)
 	return result, nil

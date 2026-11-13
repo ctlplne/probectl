@@ -10,6 +10,8 @@ package control
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -21,6 +23,7 @@ import (
 	"github.com/ctlplne/probectl/internal/change"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/evidence"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store"
@@ -32,12 +35,18 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	d := seedDependencyRoutingFixture(t)
 	f := d.f
 	f.server.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	private, public, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.server.WithEvidenceSigningKey(private)
 	at := time.Now().UTC()
 	from, to, err := reporting.ClientReportMonth("", at)
 	if err != nil {
 		t.Fatal(err)
 	}
 	actors := map[string]*auth.Principal{}
+	finalizers := map[string]incidentEvidenceFinalizer{}
 	for lane, tenant := range f.tenants {
 		for range lane + 1 {
 			d.observe(t, tenant, 0, lane == 1)
@@ -75,7 +84,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		}
 		capture.close()
 		capture.close()
-		if capture.TenantID != tenant || len(capture.Sources) != 2 || len(capture.Availability) != 2 || len(capture.Tables) != 2 || len(capture.InputsDigest) != 64 {
+		if capture.TenantID != tenant || len(capture.Sources) != 2 || len(capture.Availability) != 2 || len(capture.Tables) != 5 || len(capture.InputsDigest) != 64 {
 			t.Fatal("month capture lost source population or provenance")
 		}
 		if capture.Events == nil || len(capture.Events.Incidents) != 1 || capture.Events.Incidents[0].ID != d.cases[tenant] || len(capture.Events.IncidentLineage[d.cases[tenant]]) != 64 || len(capture.Events.Changes) != 2 {
@@ -85,6 +94,21 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			if event.TenantID != tenant {
 				t.Fatal("monthly event capture included another tenant")
 			}
+		}
+		if len(capture.Verdicts) != 1 || capture.Verdicts[0].IncidentID != d.cases[tenant] || capture.Verdicts[0].publication == nil || capture.retainedBytes <= 0 {
+			t.Fatal("monthly incident omitted its classified verdict, signed package or final authority check")
+		}
+		manifest, err := evidence.Verify(capture.Verdicts[0].SignedPackage)
+		if err != nil || manifest.Incident.ID != d.cases[tenant] || manifest.Contract != evidence.ContractVersion || manifest.TenantScopeDigest != "sha256:"+hex.EncodeToString(crypto.Hash([]byte(tenant))) {
+			t.Fatal("monthly incident package failed existing offline verification", err)
+		}
+		var signed evidence.Package
+		if err := json.Unmarshal(capture.Verdicts[0].SignedPackage, &signed); err != nil || signed.Signing.PublicKey != string(public) {
+			t.Fatal("monthly package changed the configured trusted signing identity", err)
+		}
+		finalizers[tenant] = capture.Verdicts[0].publication
+		if err := capture.Verdicts[0].publication(ctx); err != nil {
+			t.Fatal("unchanged monthly source failed final disclosure check", err)
 		}
 		foundRoot := false
 		for _, row := range capture.Availability {
@@ -104,6 +128,26 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		for _, table := range capture.Tables {
 			if table.TenantID != tenant {
 				t.Fatal("another tenant entered a monthly table")
+			}
+			if table.ID == "client-evidence" {
+				rows := 0
+				if err := table.WalkRows(ctx, func(row []string) error {
+					decoded, err := base64.StdEncoding.DecodeString(row[8])
+					if err != nil {
+						return err
+					}
+					manifest, err := evidence.Verify(decoded)
+					if err != nil {
+						return err
+					}
+					if manifest.Incident.ID != d.cases[tenant] || row[2] != manifest.PackageID || row[3] != hex.EncodeToString(crypto.Hash(decoded)) {
+						return errors.New("evidence index changed the complete signed envelope or scope")
+					}
+					rows++
+					return nil
+				}); err != nil || rows != 1 {
+					t.Fatal("offline evidence index was omitted or changed", err)
+				}
 			}
 		}
 		foreign := tenancy.WithTenant(ctx, tenancy.ID(f.tenants[1-lane]))
@@ -146,7 +190,13 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	if !ok || domain.Kind != apierror.KindForbidden || result != nil {
 		t.Fatal("stale actor retained withdrawn source permission or returned a partial capture", err)
 	}
+	if err := finalizers[a](ctx); err == nil {
+		t.Fatal("signed monthly verdict retained withdrawn permission at final disclosure")
+	}
 	ctx = tenancy.WithTenant(t.Context(), tenancy.ID(b))
+	if err := finalizers[b](ctx); err != nil {
+		t.Fatal("another tenant's permission loss invalidated a retained signed verdict", err)
+	}
 	result, err = f.server.captureClientReportSources(ctx, actors[b], "", at, flowstore.DefaultExplorerBudget())
 	if err != nil || result == nil || len(result.Availability) != 2 {
 		t.Fatal("permission withdrawal crossed tenant storage/current-authority boundary", err)

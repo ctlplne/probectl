@@ -272,6 +272,16 @@ func (s *Server) computeIncidentVerdictWithHeader(ctx context.Context, actor *au
 }
 
 func (s *Server) computeIncidentVerdictWithPublication(ctx context.Context, actor *auth.Principal, id string, from, to time.Time, maxBytes int64, captured **store.IncidentImpactInputs, publication *incidentEvidenceFinalizer) (incident.FaultVerdict, error) {
+	return s.computeRetainedIncidentVerdict(ctx, actor, id, from, to, maxBytes, captured, publication, nil)
+}
+
+// Reports retain the same original selectors and finalizer as incident exports.
+// This optional operation-local snapshot supports memory accounting; it grants
+// no authority and never enters an artifact or a future reader's context.
+func (s *Server) computeRetainedIncidentVerdict(ctx context.Context, actor *auth.Principal, id string, from, to time.Time, maxBytes int64, captured **store.IncidentImpactInputs, publication *incidentEvidenceFinalizer, retained **incidentVerdictSnapshot) (incident.FaultVerdict, error) {
+	if retained != nil {
+		*retained = nil
+	}
 	if publication != nil {
 		*publication = nil
 	}
@@ -335,6 +345,9 @@ func (s *Server) computeIncidentVerdictWithPublication(ctx context.Context, acto
 	}
 	if publication != nil {
 		*publication = validate
+	}
+	if retained != nil {
+		*retained = &before
 	}
 
 	return result, nil
