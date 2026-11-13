@@ -84,7 +84,7 @@ func currentICMPHealthSQL(population ...bool) string {
          (e.tenant_id,e.context_id,e.agent_id,e.source_kind,e.configured_ref,e.observed_at)
      AND ROW(other.entity_id,other.alias_kind,other.alias_value,other.source_ref,other.sender_serial,other.icmp_measurement)
          IS DISTINCT FROM ROW(e.entity_id,e.alias_kind,e.alias_value,e.source_ref,e.sender_serial,e.icmp_measurement)),
- COALESCE(` + currentEntityEvidenceSQL(false) + `
+ COALESCE(` + currentDirectICMPSourceSQL + `
    AND e.entity_id=` + entityParameter + ` AND e.source_ref='icmp:configured-test'
    AND e.alias_kind='address' AND e.icmp_measurement IS NOT NULL
    AND m.anchor_entity_id=e.entity_id
@@ -120,6 +120,29 @@ func currentICMPHealthSQL(population ...bool) string {
  LEFT JOIN entity_test_contexts c ON
    c.tenant_id=$1 AND c.test_id=` + sourceParameter + `::uuid AND c.context_id=$2`
 }
+
+// This reader already joins the exact source, agent assignment and issued
+// sender. ICMP requires its device anchor directly, with no inferred support
+// or physical-neighbour alias. Reuse those joins instead of planning the
+// registry's unreachable BMP/inferred-link subqueries for every source.
+// All current-source, revocation and original observation clocks remain here.
+const currentDirectICMPSourceSQL = `
+ e.source_kind='path_agent' AND e.support_evidence_id IS NULL
+ AND (e.bmp_peer_session IS NULL OR e.bmp_peer_session->>'state'='up')
+ AND e.observed_at<=statement_timestamp()
+ AND (e.expires_at IS NULL OR e.expires_at>statement_timestamp())
+ AND m.anchor_entity_id=e.entity_id
+ AND m.assigned_at<=statement_timestamp() AND m.assigned_at<=e.observed_at
+ AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())
+ AND a.assigned_at<=statement_timestamp() AND a.assigned_at<=e.observed_at
+ AND (a.expires_at IS NULL OR a.expires_at>statement_timestamp())
+ AND NOT EXISTS (SELECT 1 FROM agent_identities revoked
+   WHERE revoked.tenant_id=e.tenant_id AND revoked.agent_id=e.agent_id
+     AND revoked.revoked_at IS NOT NULL
+     AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')
+ AND sender.spiffe_id='spiffe://probectl/tenant/' || e.tenant_id::text || '/entity/' || e.agent_id
+ AND sender.revoked_at IS NULL AND sender.issued_at<=e.observed_at
+ AND sender.not_after>statement_timestamp()`
 
 type icmpHealthRecord struct {
 	out                                                                   ICMPHealth
