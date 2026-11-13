@@ -33,7 +33,7 @@ func TestConfiguredProbeOutcomeKeepsExactTestAndOriginalClock(t *testing.T) {
 		"wrong source ref":          func(o *Observation) { o.SourceRef = "icmp:configured-test" },
 		"uppercase identity":        func(o *Observation) { o.Alias.Value = strings.ToUpper(id) },
 		"bad digest":                func(o *Observation) { o.Outcome.DefinitionHash = "not-a-definition" },
-		"future version":            func(o *Observation) { o.Outcome.Version = 2 },
+		"future version":            func(o *Observation) { o.Outcome.Version = 3 },
 		"ICMP relabel":              func(o *Observation) { o.Outcome.CanaryType = "icmp" },
 		"raw label":                 func(o *Observation) { o.Outcome.CanaryType = "password=private" },
 		"backwards clock":           func(o *Observation) { o.Outcome.StartedAt = end.Add(time.Second) },

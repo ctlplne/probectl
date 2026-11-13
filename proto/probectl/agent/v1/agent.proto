@@ -302,6 +302,14 @@ message ProbeOutcome {
   int64 completed_unix_nanos = 5;
   bool success = 6;
   bool canceled = 7;
+  ProbeHttpResponse http_response = 8; // version 2 only; primary request, never posture-only
+}
+
+// No URLs, errors, bodies, certificates or claimed provider identity.
+message ProbeHttpResponse {
+  uint32 status_code = 1;
+  bool tls_verified = 2;
+  bool same_origin = 3;
 }
 
 // A bounded fault observation shares the evidence-only RPC and live mTLS

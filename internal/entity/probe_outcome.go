@@ -16,13 +16,21 @@ import (
 // loss, an upstream root cause, a tenant, or current source authority. Raw
 // errors, response bodies, targets and secret-bearing parameters are excluded.
 type ProbeOutcome struct {
-	Version        int       `json:"version"`
-	DefinitionHash string    `json:"definition_hash"`
-	CanaryType     string    `json:"canary_type"`
-	StartedAt      time.Time `json:"started_at"`
-	CompletedAt    time.Time `json:"completed_at"`
-	Success        bool      `json:"success"`
-	Canceled       bool      `json:"canceled"`
+	Version        int                `json:"version"`
+	DefinitionHash string             `json:"definition_hash"`
+	CanaryType     string             `json:"canary_type"`
+	StartedAt      time.Time          `json:"started_at"`
+	CompletedAt    time.Time          `json:"completed_at"`
+	Success        bool               `json:"success"`
+	Canceled       bool               `json:"canceled"`
+	HTTPResponse   *ProbeHTTPResponse `json:"http_response,omitempty"`
+}
+
+// ProbeHTTPResponse contains primary request facts, never raw response content.
+type ProbeHTTPResponse struct {
+	StatusCode  int  `json:"status_code"`
+	TLSVerified bool `json:"tls_verified"`
+	SameOrigin  bool `json:"same_origin"`
 }
 
 func normalizeProbeOutcome(o Observation) (*ProbeOutcome, error) {
@@ -34,7 +42,7 @@ func normalizeProbeOutcome(o Observation) (*ProbeOutcome, error) {
 	}
 	m := *o.Outcome
 	digest, err := hex.DecodeString(m.DefinitionHash)
-	if err != nil || len(digest) != 32 || hex.EncodeToString(digest) != m.DefinitionHash || m.Version != 1 || m.CanaryType == "" || m.CanaryType == "icmp" || len(m.CanaryType) > 128 {
+	if err != nil || len(digest) != 32 || hex.EncodeToString(digest) != m.DefinitionHash || m.CanaryType == "" || m.CanaryType == "icmp" || len(m.CanaryType) > 128 {
 		return nil, ErrInvalidClaim
 	}
 	for _, r := range m.CanaryType {
@@ -42,6 +50,20 @@ func normalizeProbeOutcome(o Observation) (*ProbeOutcome, error) {
 		if !allowed {
 			return nil, ErrInvalidClaim
 		}
+	}
+	switch m.Version {
+	case 1:
+		if m.HTTPResponse != nil {
+			return nil, ErrInvalidClaim
+		}
+	case 2:
+		if m.CanaryType != "http" || m.HTTPResponse == nil || m.HTTPResponse.StatusCode < 100 || m.HTTPResponse.StatusCode > 999 {
+			return nil, ErrInvalidClaim
+		}
+		response := *m.HTTPResponse
+		m.HTTPResponse = &response
+	default:
+		return nil, ErrInvalidClaim
 	}
 	if m.StartedAt.IsZero() || m.CompletedAt.IsZero() || m.CompletedAt.Before(m.StartedAt) || !m.CompletedAt.UTC().Truncate(time.Microsecond).Equal(o.ObservedAt.UTC().Truncate(time.Microsecond)) {
 		return nil, ErrInvalidClaim

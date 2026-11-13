@@ -239,7 +239,7 @@ transaction. An HTTP test needs no path-trace binding. Retargeting or removing
 the general assignment withdraws authority; an address or a bus result cannot
 create it.
 
-Each retained outcome contains only its version, exact definition digest,
+Version 1 outcomes contain only their version, exact definition digest,
 canary type, original runtime start/completion, success and cancellation. Raw
 errors, response bodies, targets and secret-bearing parameters are excluded.
 Each execution keeps its own observation UUID; a later success cannot replace
@@ -247,6 +247,17 @@ an earlier failure in the delivery queue. Pending and in-flight outcomes share
 the existing finite record/byte admission. Delivery retries require an explicit
 typed retention count, and the same UUID cannot rewrite the stored body.
 Legacy generic acknowledgments do not acknowledge typed metadata.
+
+Version 2 HTTP outcomes also retain the primary response's numeric status,
+verified TLS flag and whether its final origin equals the configured origin.
+Nonstandard status values accepted by the HTTP transport are preserved.
+Posture-only TLS handshakes create no primary response fact. These fields come
+from the collector's actual request, never result attributes or ordinary bus
+JSON. Wrong versions, unknown fields and malformed values fail closed. Version
+1 bodies remain byte-compatible and readable. These are original observations,
+not a verdict about a provider or fault location. Upgrade the control plane
+before agents that emit version 2: an older receiver refuses new typed evidence
+without acknowledging or downgrading it.
 
 This is observed application-test evidence, not packet-loss measurement, an
 upstream cause or a rolling SLO-budget verdict. Cancellation is unavailable

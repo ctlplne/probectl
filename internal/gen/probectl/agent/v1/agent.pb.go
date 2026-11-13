@@ -1883,6 +1883,7 @@ type ProbeOutcome struct {
 	CompletedUnixNanos int64                  `protobuf:"varint,5,opt,name=completed_unix_nanos,json=completedUnixNanos,proto3" json:"completed_unix_nanos,omitempty"`
 	Success            bool                   `protobuf:"varint,6,opt,name=success,proto3" json:"success,omitempty"`
 	Canceled           bool                   `protobuf:"varint,7,opt,name=canceled,proto3" json:"canceled,omitempty"`
+	HttpResponse       *ProbeHttpResponse     `protobuf:"bytes,8,opt,name=http_response,json=httpResponse,proto3" json:"http_response,omitempty"` // version 2 only; primary request, never posture-only
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -1966,6 +1967,74 @@ func (x *ProbeOutcome) GetCanceled() bool {
 	return false
 }
 
+func (x *ProbeOutcome) GetHttpResponse() *ProbeHttpResponse {
+	if x != nil {
+		return x.HttpResponse
+	}
+	return nil
+}
+
+// No URLs, errors, bodies, certificates or claimed provider identity.
+type ProbeHttpResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StatusCode    uint32                 `protobuf:"varint,1,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
+	TlsVerified   bool                   `protobuf:"varint,2,opt,name=tls_verified,json=tlsVerified,proto3" json:"tls_verified,omitempty"`
+	SameOrigin    bool                   `protobuf:"varint,3,opt,name=same_origin,json=sameOrigin,proto3" json:"same_origin,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProbeHttpResponse) Reset() {
+	*x = ProbeHttpResponse{}
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProbeHttpResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProbeHttpResponse) ProtoMessage() {}
+
+func (x *ProbeHttpResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProbeHttpResponse.ProtoReflect.Descriptor instead.
+func (*ProbeHttpResponse) Descriptor() ([]byte, []int) {
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ProbeHttpResponse) GetStatusCode() uint32 {
+	if x != nil {
+		return x.StatusCode
+	}
+	return 0
+}
+
+func (x *ProbeHttpResponse) GetTlsVerified() bool {
+	if x != nil {
+		return x.TlsVerified
+	}
+	return false
+}
+
+func (x *ProbeHttpResponse) GetSameOrigin() bool {
+	if x != nil {
+		return x.SameOrigin
+	}
+	return false
+}
+
 // A bounded fault observation shares the evidence-only RPC and live mTLS
 // sender. No tenant, agent, context, canonical entity or arbitrary severity is
 // accepted from the payload; the server derives those or leaves identity
@@ -1984,7 +2053,7 @@ type EntityFaultObservation struct {
 
 func (x *EntityFaultObservation) Reset() {
 	*x = EntityFaultObservation{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[28]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1996,7 +2065,7 @@ func (x *EntityFaultObservation) String() string {
 func (*EntityFaultObservation) ProtoMessage() {}
 
 func (x *EntityFaultObservation) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[28]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2009,7 +2078,7 @@ func (x *EntityFaultObservation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EntityFaultObservation.ProtoReflect.Descriptor instead.
 func (*EntityFaultObservation) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{28}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *EntityFaultObservation) GetObservationId() string {
@@ -2070,7 +2139,7 @@ type BmpRoutingPeerUp struct {
 
 func (x *BmpRoutingPeerUp) Reset() {
 	*x = BmpRoutingPeerUp{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[29]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2082,7 +2151,7 @@ func (x *BmpRoutingPeerUp) String() string {
 func (*BmpRoutingPeerUp) ProtoMessage() {}
 
 func (x *BmpRoutingPeerUp) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[29]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2095,7 +2164,7 @@ func (x *BmpRoutingPeerUp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BmpRoutingPeerUp.ProtoReflect.Descriptor instead.
 func (*BmpRoutingPeerUp) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{29}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *BmpRoutingPeerUp) GetObservationId() string {
@@ -2153,7 +2222,7 @@ type BmpRoutingMessage struct {
 
 func (x *BmpRoutingMessage) Reset() {
 	*x = BmpRoutingMessage{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[30]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2165,7 +2234,7 @@ func (x *BmpRoutingMessage) String() string {
 func (*BmpRoutingMessage) ProtoMessage() {}
 
 func (x *BmpRoutingMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[30]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2178,7 +2247,7 @@ func (x *BmpRoutingMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BmpRoutingMessage.ProtoReflect.Descriptor instead.
 func (*BmpRoutingMessage) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{30}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *BmpRoutingMessage) GetConfiguredRef() string {
@@ -2248,7 +2317,7 @@ type BmpRoutingMessageReceipt struct {
 
 func (x *BmpRoutingMessageReceipt) Reset() {
 	*x = BmpRoutingMessageReceipt{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[31]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2260,7 +2329,7 @@ func (x *BmpRoutingMessageReceipt) String() string {
 func (*BmpRoutingMessageReceipt) ProtoMessage() {}
 
 func (x *BmpRoutingMessageReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[31]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2273,7 +2342,7 @@ func (x *BmpRoutingMessageReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BmpRoutingMessageReceipt.ProtoReflect.Descriptor instead.
 func (*BmpRoutingMessageReceipt) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{31}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *BmpRoutingMessageReceipt) GetStatus() string {
@@ -2307,7 +2376,7 @@ type BmpRoutingStagingReceipt struct {
 
 func (x *BmpRoutingStagingReceipt) Reset() {
 	*x = BmpRoutingStagingReceipt{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[32]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2319,7 +2388,7 @@ func (x *BmpRoutingStagingReceipt) String() string {
 func (*BmpRoutingStagingReceipt) ProtoMessage() {}
 
 func (x *BmpRoutingStagingReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[32]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2332,7 +2401,7 @@ func (x *BmpRoutingStagingReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BmpRoutingStagingReceipt.ProtoReflect.Descriptor instead.
 func (*BmpRoutingStagingReceipt) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{32}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *BmpRoutingStagingReceipt) GetStatus() string {
@@ -2361,7 +2430,7 @@ type BmpRoutingViewReference struct {
 
 func (x *BmpRoutingViewReference) Reset() {
 	*x = BmpRoutingViewReference{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[33]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2373,7 +2442,7 @@ func (x *BmpRoutingViewReference) String() string {
 func (*BmpRoutingViewReference) ProtoMessage() {}
 
 func (x *BmpRoutingViewReference) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[33]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2386,7 +2455,7 @@ func (x *BmpRoutingViewReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BmpRoutingViewReference.ProtoReflect.Descriptor instead.
 func (*BmpRoutingViewReference) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{33}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *BmpRoutingViewReference) GetId() string {
@@ -2432,7 +2501,7 @@ type PublicRoutingPeerTable struct {
 
 func (x *PublicRoutingPeerTable) Reset() {
 	*x = PublicRoutingPeerTable{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[34]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2444,7 +2513,7 @@ func (x *PublicRoutingPeerTable) String() string {
 func (*PublicRoutingPeerTable) ProtoMessage() {}
 
 func (x *PublicRoutingPeerTable) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[34]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2457,7 +2526,7 @@ func (x *PublicRoutingPeerTable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublicRoutingPeerTable.ProtoReflect.Descriptor instead.
 func (*PublicRoutingPeerTable) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{34}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *PublicRoutingPeerTable) GetObservationId() string {
@@ -2507,7 +2576,7 @@ type PublicRoutingMessage struct {
 
 func (x *PublicRoutingMessage) Reset() {
 	*x = PublicRoutingMessage{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[35]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2519,7 +2588,7 @@ func (x *PublicRoutingMessage) String() string {
 func (*PublicRoutingMessage) ProtoMessage() {}
 
 func (x *PublicRoutingMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[35]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2532,7 +2601,7 @@ func (x *PublicRoutingMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublicRoutingMessage.ProtoReflect.Descriptor instead.
 func (*PublicRoutingMessage) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{35}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *PublicRoutingMessage) GetConfiguredRef() string {
@@ -2594,7 +2663,7 @@ type PublicRoutingStagingReceipt struct {
 
 func (x *PublicRoutingStagingReceipt) Reset() {
 	*x = PublicRoutingStagingReceipt{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[36]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2606,7 +2675,7 @@ func (x *PublicRoutingStagingReceipt) String() string {
 func (*PublicRoutingStagingReceipt) ProtoMessage() {}
 
 func (x *PublicRoutingStagingReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[36]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2619,7 +2688,7 @@ func (x *PublicRoutingStagingReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublicRoutingStagingReceipt.ProtoReflect.Descriptor instead.
 func (*PublicRoutingStagingReceipt) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{36}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *PublicRoutingStagingReceipt) GetStatus() string {
@@ -2647,7 +2716,7 @@ type PublicRoutingMessageReceipt struct {
 
 func (x *PublicRoutingMessageReceipt) Reset() {
 	*x = PublicRoutingMessageReceipt{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[37]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2659,7 +2728,7 @@ func (x *PublicRoutingMessageReceipt) String() string {
 func (*PublicRoutingMessageReceipt) ProtoMessage() {}
 
 func (x *PublicRoutingMessageReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[37]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2672,7 +2741,7 @@ func (x *PublicRoutingMessageReceipt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublicRoutingMessageReceipt.ProtoReflect.Descriptor instead.
 func (*PublicRoutingMessageReceipt) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{37}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *PublicRoutingMessageReceipt) GetStatus() string {
@@ -2713,7 +2782,7 @@ type FlowRoutingWitness struct {
 
 func (x *FlowRoutingWitness) Reset() {
 	*x = FlowRoutingWitness{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[38]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2725,7 +2794,7 @@ func (x *FlowRoutingWitness) String() string {
 func (*FlowRoutingWitness) ProtoMessage() {}
 
 func (x *FlowRoutingWitness) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[38]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2738,7 +2807,7 @@ func (x *FlowRoutingWitness) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowRoutingWitness.ProtoReflect.Descriptor instead.
 func (*FlowRoutingWitness) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{38}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *FlowRoutingWitness) GetRawDigest() []byte {
@@ -2793,7 +2862,7 @@ type FlowRoutingWitnessBatch struct {
 
 func (x *FlowRoutingWitnessBatch) Reset() {
 	*x = FlowRoutingWitnessBatch{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[39]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2805,7 +2874,7 @@ func (x *FlowRoutingWitnessBatch) String() string {
 func (*FlowRoutingWitnessBatch) ProtoMessage() {}
 
 func (x *FlowRoutingWitnessBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[39]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2818,7 +2887,7 @@ func (x *FlowRoutingWitnessBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowRoutingWitnessBatch.ProtoReflect.Descriptor instead.
 func (*FlowRoutingWitnessBatch) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{39}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *FlowRoutingWitnessBatch) GetContractVersion() string {
@@ -2847,7 +2916,7 @@ type FlowRoutingCapture struct {
 
 func (x *FlowRoutingCapture) Reset() {
 	*x = FlowRoutingCapture{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[40]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2859,7 +2928,7 @@ func (x *FlowRoutingCapture) String() string {
 func (*FlowRoutingCapture) ProtoMessage() {}
 
 func (x *FlowRoutingCapture) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[40]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2872,7 +2941,7 @@ func (x *FlowRoutingCapture) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowRoutingCapture.ProtoReflect.Descriptor instead.
 func (*FlowRoutingCapture) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{40}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *FlowRoutingCapture) GetKey() []byte {
@@ -2898,7 +2967,7 @@ type FlowRoutingCaptureBatch struct {
 
 func (x *FlowRoutingCaptureBatch) Reset() {
 	*x = FlowRoutingCaptureBatch{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[41]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2910,7 +2979,7 @@ func (x *FlowRoutingCaptureBatch) String() string {
 func (*FlowRoutingCaptureBatch) ProtoMessage() {}
 
 func (x *FlowRoutingCaptureBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[41]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2923,7 +2992,7 @@ func (x *FlowRoutingCaptureBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowRoutingCaptureBatch.ProtoReflect.Descriptor instead.
 func (*FlowRoutingCaptureBatch) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{41}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *FlowRoutingCaptureBatch) GetCaptures() []*FlowRoutingCapture {
@@ -2949,7 +3018,7 @@ type DeviceCounterWitness struct {
 
 func (x *DeviceCounterWitness) Reset() {
 	*x = DeviceCounterWitness{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[42]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2961,7 +3030,7 @@ func (x *DeviceCounterWitness) String() string {
 func (*DeviceCounterWitness) ProtoMessage() {}
 
 func (x *DeviceCounterWitness) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[42]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2974,7 +3043,7 @@ func (x *DeviceCounterWitness) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceCounterWitness.ProtoReflect.Descriptor instead.
 func (*DeviceCounterWitness) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{42}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *DeviceCounterWitness) GetContractVersion() string {
@@ -3029,7 +3098,7 @@ type DeviceCounterCapture struct {
 
 func (x *DeviceCounterCapture) Reset() {
 	*x = DeviceCounterCapture{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[43]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3041,7 +3110,7 @@ func (x *DeviceCounterCapture) String() string {
 func (*DeviceCounterCapture) ProtoMessage() {}
 
 func (x *DeviceCounterCapture) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[43]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3054,7 +3123,7 @@ func (x *DeviceCounterCapture) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceCounterCapture.ProtoReflect.Descriptor instead.
 func (*DeviceCounterCapture) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{43}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *DeviceCounterCapture) GetKey() []byte {
@@ -3087,7 +3156,7 @@ type SubmitEntityEvidenceRequest struct {
 
 func (x *SubmitEntityEvidenceRequest) Reset() {
 	*x = SubmitEntityEvidenceRequest{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[44]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3099,7 +3168,7 @@ func (x *SubmitEntityEvidenceRequest) String() string {
 func (*SubmitEntityEvidenceRequest) ProtoMessage() {}
 
 func (x *SubmitEntityEvidenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[44]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3112,7 +3181,7 @@ func (x *SubmitEntityEvidenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitEntityEvidenceRequest.ProtoReflect.Descriptor instead.
 func (*SubmitEntityEvidenceRequest) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{44}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *SubmitEntityEvidenceRequest) GetObservations() []*EntityEvidenceObservation {
@@ -3190,7 +3259,7 @@ type SubmitEntityEvidenceResponse struct {
 
 func (x *SubmitEntityEvidenceResponse) Reset() {
 	*x = SubmitEntityEvidenceResponse{}
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[45]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3202,7 +3271,7 @@ func (x *SubmitEntityEvidenceResponse) String() string {
 func (*SubmitEntityEvidenceResponse) ProtoMessage() {}
 
 func (x *SubmitEntityEvidenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_agent_v1_agent_proto_msgTypes[45]
+	mi := &file_probectl_agent_v1_agent_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3215,7 +3284,7 @@ func (x *SubmitEntityEvidenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitEntityEvidenceResponse.ProtoReflect.Descriptor instead.
 func (*SubmitEntityEvidenceResponse) Descriptor() ([]byte, []int) {
-	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{45}
+	return file_probectl_agent_v1_agent_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *SubmitEntityEvidenceResponse) GetAccepted() uint32 {
@@ -3443,7 +3512,7 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\tio_failed\x18\f \x01(\bR\bioFailed\x12\x1e\n" +
 	"\n" +
 	"responders\x18\r \x03(\tR\n" +
-	"responders\"\x88\x02\n" +
+	"responders\"\xd3\x02\n" +
 	"\fProbeOutcome\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12'\n" +
 	"\x0fdefinition_hash\x18\x02 \x01(\tR\x0edefinitionHash\x12\x1f\n" +
@@ -3452,7 +3521,14 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x12started_unix_nanos\x18\x04 \x01(\x03R\x10startedUnixNanos\x120\n" +
 	"\x14completed_unix_nanos\x18\x05 \x01(\x03R\x12completedUnixNanos\x12\x18\n" +
 	"\asuccess\x18\x06 \x01(\bR\asuccess\x12\x1a\n" +
-	"\bcanceled\x18\a \x01(\bR\bcanceled\"\xf2\x01\n" +
+	"\bcanceled\x18\a \x01(\bR\bcanceled\x12I\n" +
+	"\rhttp_response\x18\b \x01(\v2$.probectl.agent.v1.ProbeHttpResponseR\fhttpResponse\"x\n" +
+	"\x11ProbeHttpResponse\x12\x1f\n" +
+	"\vstatus_code\x18\x01 \x01(\rR\n" +
+	"statusCode\x12!\n" +
+	"\ftls_verified\x18\x02 \x01(\bR\vtlsVerified\x12\x1f\n" +
+	"\vsame_origin\x18\x03 \x01(\bR\n" +
+	"sameOrigin\"\xf2\x01\n" +
 	"\x16EntityFaultObservation\x12%\n" +
 	"\x0eobservation_id\x18\x01 \x01(\tR\robservationId\x12\x1f\n" +
 	"\vsource_kind\x18\x02 \x01(\tR\n" +
@@ -3599,7 +3675,7 @@ func file_probectl_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_probectl_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_probectl_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
+var file_probectl_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_probectl_agent_v1_agent_proto_goTypes = []any{
 	(A2ARole)(0),                         // 0: probectl.agent.v1.A2ARole
 	(*RegisterRequest)(nil),              // 1: probectl.agent.v1.RegisterRequest
@@ -3630,30 +3706,31 @@ var file_probectl_agent_v1_agent_proto_goTypes = []any{
 	(*EntityEvidenceObservation)(nil),    // 26: probectl.agent.v1.EntityEvidenceObservation
 	(*IcmpMeasurement)(nil),              // 27: probectl.agent.v1.IcmpMeasurement
 	(*ProbeOutcome)(nil),                 // 28: probectl.agent.v1.ProbeOutcome
-	(*EntityFaultObservation)(nil),       // 29: probectl.agent.v1.EntityFaultObservation
-	(*BmpRoutingPeerUp)(nil),             // 30: probectl.agent.v1.BmpRoutingPeerUp
-	(*BmpRoutingMessage)(nil),            // 31: probectl.agent.v1.BmpRoutingMessage
-	(*BmpRoutingMessageReceipt)(nil),     // 32: probectl.agent.v1.BmpRoutingMessageReceipt
-	(*BmpRoutingStagingReceipt)(nil),     // 33: probectl.agent.v1.BmpRoutingStagingReceipt
-	(*BmpRoutingViewReference)(nil),      // 34: probectl.agent.v1.BmpRoutingViewReference
-	(*PublicRoutingPeerTable)(nil),       // 35: probectl.agent.v1.PublicRoutingPeerTable
-	(*PublicRoutingMessage)(nil),         // 36: probectl.agent.v1.PublicRoutingMessage
-	(*PublicRoutingStagingReceipt)(nil),  // 37: probectl.agent.v1.PublicRoutingStagingReceipt
-	(*PublicRoutingMessageReceipt)(nil),  // 38: probectl.agent.v1.PublicRoutingMessageReceipt
-	(*FlowRoutingWitness)(nil),           // 39: probectl.agent.v1.FlowRoutingWitness
-	(*FlowRoutingWitnessBatch)(nil),      // 40: probectl.agent.v1.FlowRoutingWitnessBatch
-	(*FlowRoutingCapture)(nil),           // 41: probectl.agent.v1.FlowRoutingCapture
-	(*FlowRoutingCaptureBatch)(nil),      // 42: probectl.agent.v1.FlowRoutingCaptureBatch
-	(*DeviceCounterWitness)(nil),         // 43: probectl.agent.v1.DeviceCounterWitness
-	(*DeviceCounterCapture)(nil),         // 44: probectl.agent.v1.DeviceCounterCapture
-	(*SubmitEntityEvidenceRequest)(nil),  // 45: probectl.agent.v1.SubmitEntityEvidenceRequest
-	(*SubmitEntityEvidenceResponse)(nil), // 46: probectl.agent.v1.SubmitEntityEvidenceResponse
-	nil,                                  // 47: probectl.agent.v1.RegisterRequest.LabelsEntry
-	nil,                                  // 48: probectl.agent.v1.AttestRequest.PlatformEntry
+	(*ProbeHttpResponse)(nil),            // 29: probectl.agent.v1.ProbeHttpResponse
+	(*EntityFaultObservation)(nil),       // 30: probectl.agent.v1.EntityFaultObservation
+	(*BmpRoutingPeerUp)(nil),             // 31: probectl.agent.v1.BmpRoutingPeerUp
+	(*BmpRoutingMessage)(nil),            // 32: probectl.agent.v1.BmpRoutingMessage
+	(*BmpRoutingMessageReceipt)(nil),     // 33: probectl.agent.v1.BmpRoutingMessageReceipt
+	(*BmpRoutingStagingReceipt)(nil),     // 34: probectl.agent.v1.BmpRoutingStagingReceipt
+	(*BmpRoutingViewReference)(nil),      // 35: probectl.agent.v1.BmpRoutingViewReference
+	(*PublicRoutingPeerTable)(nil),       // 36: probectl.agent.v1.PublicRoutingPeerTable
+	(*PublicRoutingMessage)(nil),         // 37: probectl.agent.v1.PublicRoutingMessage
+	(*PublicRoutingStagingReceipt)(nil),  // 38: probectl.agent.v1.PublicRoutingStagingReceipt
+	(*PublicRoutingMessageReceipt)(nil),  // 39: probectl.agent.v1.PublicRoutingMessageReceipt
+	(*FlowRoutingWitness)(nil),           // 40: probectl.agent.v1.FlowRoutingWitness
+	(*FlowRoutingWitnessBatch)(nil),      // 41: probectl.agent.v1.FlowRoutingWitnessBatch
+	(*FlowRoutingCapture)(nil),           // 42: probectl.agent.v1.FlowRoutingCapture
+	(*FlowRoutingCaptureBatch)(nil),      // 43: probectl.agent.v1.FlowRoutingCaptureBatch
+	(*DeviceCounterWitness)(nil),         // 44: probectl.agent.v1.DeviceCounterWitness
+	(*DeviceCounterCapture)(nil),         // 45: probectl.agent.v1.DeviceCounterCapture
+	(*SubmitEntityEvidenceRequest)(nil),  // 46: probectl.agent.v1.SubmitEntityEvidenceRequest
+	(*SubmitEntityEvidenceResponse)(nil), // 47: probectl.agent.v1.SubmitEntityEvidenceResponse
+	nil,                                  // 48: probectl.agent.v1.RegisterRequest.LabelsEntry
+	nil,                                  // 49: probectl.agent.v1.AttestRequest.PlatformEntry
 }
 var file_probectl_agent_v1_agent_proto_depIdxs = []int32{
-	47, // 0: probectl.agent.v1.RegisterRequest.labels:type_name -> probectl.agent.v1.RegisterRequest.LabelsEntry
-	48, // 1: probectl.agent.v1.AttestRequest.platform:type_name -> probectl.agent.v1.AttestRequest.PlatformEntry
+	48, // 0: probectl.agent.v1.RegisterRequest.labels:type_name -> probectl.agent.v1.RegisterRequest.LabelsEntry
+	49, // 1: probectl.agent.v1.AttestRequest.platform:type_name -> probectl.agent.v1.AttestRequest.PlatformEntry
 	13, // 2: probectl.agent.v1.PollCoordinationResponse.task:type_name -> probectl.agent.v1.A2ATask
 	0,  // 3: probectl.agent.v1.A2ATask.role:type_name -> probectl.agent.v1.A2ARole
 	20, // 4: probectl.agent.v1.ReportL7PostureRequest.posture:type_name -> probectl.agent.v1.L7CapturePosture
@@ -3662,50 +3739,51 @@ var file_probectl_agent_v1_agent_proto_depIdxs = []int32{
 	25, // 7: probectl.agent.v1.EntityEvidenceObservation.snmp_interface_prefixes:type_name -> probectl.agent.v1.SnmpInterfacePrefixSnapshot
 	27, // 8: probectl.agent.v1.EntityEvidenceObservation.icmp:type_name -> probectl.agent.v1.IcmpMeasurement
 	28, // 9: probectl.agent.v1.EntityEvidenceObservation.probe_outcome:type_name -> probectl.agent.v1.ProbeOutcome
-	34, // 10: probectl.agent.v1.BmpRoutingStagingReceipt.views:type_name -> probectl.agent.v1.BmpRoutingViewReference
-	39, // 11: probectl.agent.v1.FlowRoutingWitnessBatch.observations:type_name -> probectl.agent.v1.FlowRoutingWitness
-	41, // 12: probectl.agent.v1.FlowRoutingCaptureBatch.captures:type_name -> probectl.agent.v1.FlowRoutingCapture
-	26, // 13: probectl.agent.v1.SubmitEntityEvidenceRequest.observations:type_name -> probectl.agent.v1.EntityEvidenceObservation
-	29, // 14: probectl.agent.v1.SubmitEntityEvidenceRequest.faults:type_name -> probectl.agent.v1.EntityFaultObservation
-	30, // 15: probectl.agent.v1.SubmitEntityEvidenceRequest.routing_peer_up:type_name -> probectl.agent.v1.BmpRoutingPeerUp
-	31, // 16: probectl.agent.v1.SubmitEntityEvidenceRequest.routing_message:type_name -> probectl.agent.v1.BmpRoutingMessage
-	40, // 17: probectl.agent.v1.SubmitEntityEvidenceRequest.flow_routing:type_name -> probectl.agent.v1.FlowRoutingWitnessBatch
-	35, // 18: probectl.agent.v1.SubmitEntityEvidenceRequest.public_routing_peer_table:type_name -> probectl.agent.v1.PublicRoutingPeerTable
-	36, // 19: probectl.agent.v1.SubmitEntityEvidenceRequest.public_routing_message:type_name -> probectl.agent.v1.PublicRoutingMessage
-	43, // 20: probectl.agent.v1.SubmitEntityEvidenceRequest.device_counter:type_name -> probectl.agent.v1.DeviceCounterWitness
-	33, // 21: probectl.agent.v1.SubmitEntityEvidenceResponse.routing:type_name -> probectl.agent.v1.BmpRoutingStagingReceipt
-	32, // 22: probectl.agent.v1.SubmitEntityEvidenceResponse.routing_message:type_name -> probectl.agent.v1.BmpRoutingMessageReceipt
-	42, // 23: probectl.agent.v1.SubmitEntityEvidenceResponse.flow_routing:type_name -> probectl.agent.v1.FlowRoutingCaptureBatch
-	37, // 24: probectl.agent.v1.SubmitEntityEvidenceResponse.public_routing:type_name -> probectl.agent.v1.PublicRoutingStagingReceipt
-	38, // 25: probectl.agent.v1.SubmitEntityEvidenceResponse.public_routing_message:type_name -> probectl.agent.v1.PublicRoutingMessageReceipt
-	44, // 26: probectl.agent.v1.SubmitEntityEvidenceResponse.device_counter:type_name -> probectl.agent.v1.DeviceCounterCapture
-	1,  // 27: probectl.agent.v1.AgentService.Register:input_type -> probectl.agent.v1.RegisterRequest
-	3,  // 28: probectl.agent.v1.AgentService.Attest:input_type -> probectl.agent.v1.AttestRequest
-	5,  // 29: probectl.agent.v1.AgentService.Heartbeat:input_type -> probectl.agent.v1.HeartbeatRequest
-	7,  // 30: probectl.agent.v1.AgentService.StreamConfig:input_type -> probectl.agent.v1.StreamConfigRequest
-	9,  // 31: probectl.agent.v1.AgentService.StreamResults:input_type -> probectl.agent.v1.StreamResultsRequest
-	11, // 32: probectl.agent.v1.AgentService.PollCoordination:input_type -> probectl.agent.v1.PollCoordinationRequest
-	14, // 33: probectl.agent.v1.AgentService.ReportEndpoint:input_type -> probectl.agent.v1.ReportEndpointRequest
-	16, // 34: probectl.agent.v1.AgentService.FetchTestBundle:input_type -> probectl.agent.v1.FetchTestBundleRequest
-	18, // 35: probectl.agent.v1.AgentService.FetchL7Policy:input_type -> probectl.agent.v1.FetchL7PolicyRequest
-	21, // 36: probectl.agent.v1.AgentService.ReportL7Posture:input_type -> probectl.agent.v1.ReportL7PostureRequest
-	45, // 37: probectl.agent.v1.AgentService.SubmitEntityEvidence:input_type -> probectl.agent.v1.SubmitEntityEvidenceRequest
-	2,  // 38: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
-	4,  // 39: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
-	6,  // 40: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
-	8,  // 41: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
-	10, // 42: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
-	12, // 43: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
-	15, // 44: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
-	17, // 45: probectl.agent.v1.AgentService.FetchTestBundle:output_type -> probectl.agent.v1.FetchTestBundleResponse
-	19, // 46: probectl.agent.v1.AgentService.FetchL7Policy:output_type -> probectl.agent.v1.FetchL7PolicyResponse
-	22, // 47: probectl.agent.v1.AgentService.ReportL7Posture:output_type -> probectl.agent.v1.ReportL7PostureResponse
-	46, // 48: probectl.agent.v1.AgentService.SubmitEntityEvidence:output_type -> probectl.agent.v1.SubmitEntityEvidenceResponse
-	38, // [38:49] is the sub-list for method output_type
-	27, // [27:38] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	29, // 10: probectl.agent.v1.ProbeOutcome.http_response:type_name -> probectl.agent.v1.ProbeHttpResponse
+	35, // 11: probectl.agent.v1.BmpRoutingStagingReceipt.views:type_name -> probectl.agent.v1.BmpRoutingViewReference
+	40, // 12: probectl.agent.v1.FlowRoutingWitnessBatch.observations:type_name -> probectl.agent.v1.FlowRoutingWitness
+	42, // 13: probectl.agent.v1.FlowRoutingCaptureBatch.captures:type_name -> probectl.agent.v1.FlowRoutingCapture
+	26, // 14: probectl.agent.v1.SubmitEntityEvidenceRequest.observations:type_name -> probectl.agent.v1.EntityEvidenceObservation
+	30, // 15: probectl.agent.v1.SubmitEntityEvidenceRequest.faults:type_name -> probectl.agent.v1.EntityFaultObservation
+	31, // 16: probectl.agent.v1.SubmitEntityEvidenceRequest.routing_peer_up:type_name -> probectl.agent.v1.BmpRoutingPeerUp
+	32, // 17: probectl.agent.v1.SubmitEntityEvidenceRequest.routing_message:type_name -> probectl.agent.v1.BmpRoutingMessage
+	41, // 18: probectl.agent.v1.SubmitEntityEvidenceRequest.flow_routing:type_name -> probectl.agent.v1.FlowRoutingWitnessBatch
+	36, // 19: probectl.agent.v1.SubmitEntityEvidenceRequest.public_routing_peer_table:type_name -> probectl.agent.v1.PublicRoutingPeerTable
+	37, // 20: probectl.agent.v1.SubmitEntityEvidenceRequest.public_routing_message:type_name -> probectl.agent.v1.PublicRoutingMessage
+	44, // 21: probectl.agent.v1.SubmitEntityEvidenceRequest.device_counter:type_name -> probectl.agent.v1.DeviceCounterWitness
+	34, // 22: probectl.agent.v1.SubmitEntityEvidenceResponse.routing:type_name -> probectl.agent.v1.BmpRoutingStagingReceipt
+	33, // 23: probectl.agent.v1.SubmitEntityEvidenceResponse.routing_message:type_name -> probectl.agent.v1.BmpRoutingMessageReceipt
+	43, // 24: probectl.agent.v1.SubmitEntityEvidenceResponse.flow_routing:type_name -> probectl.agent.v1.FlowRoutingCaptureBatch
+	38, // 25: probectl.agent.v1.SubmitEntityEvidenceResponse.public_routing:type_name -> probectl.agent.v1.PublicRoutingStagingReceipt
+	39, // 26: probectl.agent.v1.SubmitEntityEvidenceResponse.public_routing_message:type_name -> probectl.agent.v1.PublicRoutingMessageReceipt
+	45, // 27: probectl.agent.v1.SubmitEntityEvidenceResponse.device_counter:type_name -> probectl.agent.v1.DeviceCounterCapture
+	1,  // 28: probectl.agent.v1.AgentService.Register:input_type -> probectl.agent.v1.RegisterRequest
+	3,  // 29: probectl.agent.v1.AgentService.Attest:input_type -> probectl.agent.v1.AttestRequest
+	5,  // 30: probectl.agent.v1.AgentService.Heartbeat:input_type -> probectl.agent.v1.HeartbeatRequest
+	7,  // 31: probectl.agent.v1.AgentService.StreamConfig:input_type -> probectl.agent.v1.StreamConfigRequest
+	9,  // 32: probectl.agent.v1.AgentService.StreamResults:input_type -> probectl.agent.v1.StreamResultsRequest
+	11, // 33: probectl.agent.v1.AgentService.PollCoordination:input_type -> probectl.agent.v1.PollCoordinationRequest
+	14, // 34: probectl.agent.v1.AgentService.ReportEndpoint:input_type -> probectl.agent.v1.ReportEndpointRequest
+	16, // 35: probectl.agent.v1.AgentService.FetchTestBundle:input_type -> probectl.agent.v1.FetchTestBundleRequest
+	18, // 36: probectl.agent.v1.AgentService.FetchL7Policy:input_type -> probectl.agent.v1.FetchL7PolicyRequest
+	21, // 37: probectl.agent.v1.AgentService.ReportL7Posture:input_type -> probectl.agent.v1.ReportL7PostureRequest
+	46, // 38: probectl.agent.v1.AgentService.SubmitEntityEvidence:input_type -> probectl.agent.v1.SubmitEntityEvidenceRequest
+	2,  // 39: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
+	4,  // 40: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
+	6,  // 41: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
+	8,  // 42: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
+	10, // 43: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
+	12, // 44: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
+	15, // 45: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
+	17, // 46: probectl.agent.v1.AgentService.FetchTestBundle:output_type -> probectl.agent.v1.FetchTestBundleResponse
+	19, // 47: probectl.agent.v1.AgentService.FetchL7Policy:output_type -> probectl.agent.v1.FetchL7PolicyResponse
+	22, // 48: probectl.agent.v1.AgentService.ReportL7Posture:output_type -> probectl.agent.v1.ReportL7PostureResponse
+	47, // 49: probectl.agent.v1.AgentService.SubmitEntityEvidence:output_type -> probectl.agent.v1.SubmitEntityEvidenceResponse
+	39, // [39:50] is the sub-list for method output_type
+	28, // [28:39] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_probectl_agent_v1_agent_proto_init() }
@@ -3720,7 +3798,7 @@ func file_probectl_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_agent_v1_agent_proto_rawDesc), len(file_probectl_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   48,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

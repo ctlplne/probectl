@@ -132,6 +132,9 @@ func probeEvidenceMemory(observation entity.Observation) int64 {
 	size := int64(1024 + 4*(len(observation.ID)+len(observation.Source.AgentID)+len(observation.Source.SourceRef)+len(observation.Alias.Value)+len(probeEvidenceDefinition(observation))))
 	if observation.Outcome != nil {
 		size += int64(256 + 4*len(observation.Outcome.CanaryType))
+		if observation.Outcome.HTTPResponse != nil {
+			size += 256
+		}
 	}
 	if observation.ICMP != nil {
 		for _, address := range observation.ICMP.Responders {
@@ -159,6 +162,13 @@ func (h *Host) configuredProbeObservation(schedule scheduled, result canary.Resu
 	observation := entity.Observation{ID: id, Source: entity.SourceKey{AgentID: h.agentID, Kind: entity.PathAgent, SourceRef: schedule.testID},
 		Alias: entity.AliasKey{Kind: entity.ConfiguredTestAlias, Value: schedule.testID}, SourceRef: "probe:configured-test", ObservedAt: completed,
 		Outcome: &entity.ProbeOutcome{Version: 1, DefinitionHash: schedule.definitionHash, CanaryType: result.Type, StartedAt: result.StartedAt, CompletedAt: completed, Success: result.Success}}
+	if result.HTTP != nil {
+		if result.Type != "http" || result.HTTP.StatusCode < 100 || result.HTTP.StatusCode > 999 {
+			return entity.Observation{}, ErrEvidenceBatchInvalid
+		}
+		observation.Outcome.Version = 2
+		observation.Outcome.HTTPResponse = &entity.ProbeHTTPResponse{StatusCode: result.HTTP.StatusCode, TLSVerified: result.HTTP.TLSVerified, SameOrigin: result.HTTP.SameOrigin}
+	}
 	return observation.Normalize(time.Now())
 }
 

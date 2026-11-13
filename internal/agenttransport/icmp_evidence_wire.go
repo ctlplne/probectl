@@ -37,5 +37,12 @@ func parseProbeOutcome(m *agentv1.ProbeOutcome) (*entity.ProbeOutcome, error) {
 	if len(m.ProtoReflect().GetUnknown()) != 0 {
 		return nil, status.Error(codes.InvalidArgument, "unsupported configured outcome fields")
 	}
-	return &entity.ProbeOutcome{Version: int(m.Version), DefinitionHash: m.DefinitionHash, CanaryType: m.CanaryType, StartedAt: time.Unix(0, m.StartedUnixNanos), CompletedAt: time.Unix(0, m.CompletedUnixNanos), Success: m.Success, Canceled: m.Canceled}, nil
+	out := &entity.ProbeOutcome{Version: int(m.Version), DefinitionHash: m.DefinitionHash, CanaryType: m.CanaryType, StartedAt: time.Unix(0, m.StartedUnixNanos), CompletedAt: time.Unix(0, m.CompletedUnixNanos), Success: m.Success, Canceled: m.Canceled}
+	if response := m.GetHttpResponse(); response != nil {
+		if len(response.ProtoReflect().GetUnknown()) != 0 || response.GetStatusCode() < 100 || response.GetStatusCode() > 999 {
+			return nil, status.Error(codes.InvalidArgument, "unsupported primary HTTP response fields")
+		}
+		out.HTTPResponse = &entity.ProbeHTTPResponse{StatusCode: int(response.GetStatusCode()), TLSVerified: response.GetTlsVerified(), SameOrigin: response.GetSameOrigin()}
+	}
+	return out, nil
 }

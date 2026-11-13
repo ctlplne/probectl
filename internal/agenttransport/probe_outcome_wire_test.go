@@ -24,4 +24,13 @@ func TestProbeOutcomeWireRefusesUnknownMetadataFields(t *testing.T) {
 	if _, err := parseProbeOutcome(raw); status.Code(err) != codes.InvalidArgument {
 		t.Fatal("unknown metadata accepted as complete current outcome", err)
 	}
+	raw = &agentv1.ProbeOutcome{Version: 2, HttpResponse: &agentv1.ProbeHttpResponse{StatusCode: 503, TlsVerified: true, SameOrigin: true}}
+	got, err := parseProbeOutcome(raw)
+	if err != nil || got.HTTPResponse == nil || got.HTTPResponse.StatusCode != 503 || !got.HTTPResponse.TLSVerified || !got.HTTPResponse.SameOrigin {
+		t.Fatal("primary HTTP response was not decoded exactly", got, err)
+	}
+	raw.HttpResponse.ProtoReflect().SetUnknown([]byte{0x98, 0x06, 1})
+	if _, err := parseProbeOutcome(raw); status.Code(err) != codes.InvalidArgument {
+		t.Fatal("unknown nested HTTP metadata was accepted", err)
+	}
 }

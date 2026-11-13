@@ -18,11 +18,14 @@ import (
 	"github.com/ctlplne/probectl/internal/canary"
 )
 
-type outcomeCanary struct{ success bool }
+type outcomeCanary struct {
+	success  bool
+	response *canary.HTTPMeasurement
+}
 
 func (p *outcomeCanary) Describe() canary.Spec { return canary.Spec{Type: "http"} }
 func (p *outcomeCanary) Run(context.Context) (canary.Result, error) {
-	return canary.Result{Type: "http", Success: p.success, StartedAt: time.Unix(1, 0), Duration: 99 * time.Hour, Error: "password=untrusted-response", Attributes: map[string]string{"probectl.test.id": "other-test", "definition_hash": "other-definition", "agent_id": "other-agent"}}, nil
+	return canary.Result{Type: "http", Success: p.success, HTTP: p.response, StartedAt: time.Unix(1, 0), Duration: 99 * time.Hour, Error: "password=untrusted-response", Attributes: map[string]string{"probectl.test.id": "other-test", "definition_hash": "other-definition", "agent_id": "other-agent"}}, nil
 }
 
 func TestConfiguredProbeEvidenceKeepsEveryOutcomeRuntimeIdentityAndClock(t *testing.T) {
@@ -66,5 +69,31 @@ func TestConfiguredProbeEvidenceKeepsEveryOutcomeRuntimeIdentityAndClock(t *test
 	host.probe(t.Context(), local)
 	if batch := host.probeEvidence.take(); len(batch) != 0 {
 		t.Fatal("local-only result invented a canonical test binding")
+	}
+}
+
+func TestHTTPOutcomeEvidenceKeepsRuntimeSourceAndPrimaryResponse(t *testing.T) {
+	buffer, err := openBuffer(t.TempDir(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := &Host{buffer: buffer, tenantID: "owned-tenant", agentID: "owned-agent", log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	(&Agent{host: host, buffer: buffer}).WithProbeEvidence(&blockedProbeEvidence{})
+	probe := &outcomeCanary{response: &canary.HTTPMeasurement{StatusCode: 503, TLSVerified: true, SameOrigin: true}}
+	schedule := scheduled{canary: probe, interval: time.Minute, testID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", definitionHash: strings.Repeat("a", 64)}
+	host.probe(t.Context(), schedule)
+	probe.response.StatusCode = 777
+	batch := host.probeEvidence.take()
+	if len(batch) != 1 {
+		t.Fatal("primary response was not retained once", len(batch))
+	}
+	defer host.probeEvidence.release(batch)
+	original := batch[0].observation
+	if original.Source.AgentID != host.agentID || original.Source.SourceRef != schedule.testID || original.Outcome.Version != 2 || original.Outcome.HTTPResponse == nil || original.Outcome.HTTPResponse.StatusCode != 503 || !original.Outcome.HTTPResponse.TLSVerified || !original.Outcome.HTTPResponse.SameOrigin {
+		t.Fatal("HTTP facts lost their original collector or runtime source", original)
+	}
+	wire := encodeProbeOutcome(original.Outcome)
+	if wire.GetHttpResponse() == nil || wire.GetHttpResponse().GetStatusCode() != 503 || !wire.GetHttpResponse().GetTlsVerified() || !wire.GetHttpResponse().GetSameOrigin() {
+		t.Fatal("wire lost the typed primary response")
 	}
 }

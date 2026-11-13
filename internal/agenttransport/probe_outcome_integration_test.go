@@ -99,7 +99,11 @@ func TestConfiguredProbeOutcomeRealHTTPSMTLSKeepsTenantDefinitionHistoryAndRepla
 		}
 		completed := result.StartedAt.Add(result.Duration)
 		claim := entity.Observation{ID: id, Source: entity.SourceKey{AgentID: lanes[lane].sender, Kind: entity.PathAgent, SourceRef: definition.ID}, Alias: entity.AliasKey{Kind: entity.ConfiguredTestAlias, Value: definition.ID}, SourceRef: "probe:configured-test", ObservedAt: completed,
-			Outcome: &entity.ProbeOutcome{Version: 1, DefinitionHash: digest, CanaryType: definition.Type, StartedAt: result.StartedAt, CompletedAt: completed, Success: result.Success}}
+			Outcome: &entity.ProbeOutcome{Version: 2, DefinitionHash: digest, CanaryType: definition.Type, StartedAt: result.StartedAt, CompletedAt: completed, Success: result.Success}}
+		if result.HTTP == nil || !result.HTTP.TLSVerified || !result.HTTP.SameOrigin || result.HTTP.StatusCode != int(responseCode.Load()) {
+			t.Fatal("actual primary response facts were absent", result.HTTP)
+		}
+		claim.Outcome.HTTPResponse = &entity.ProbeHTTPResponse{StatusCode: result.HTTP.StatusCode, TLSVerified: result.HTTP.TLSVerified, SameOrigin: result.HTTP.SameOrigin}
 		claim, err = claim.Normalize(time.Now())
 		if err != nil {
 			t.Fatal(err)
@@ -201,6 +205,35 @@ func TestConfiguredProbeOutcomeRealHTTPSMTLSKeepsTenantDefinitionHistoryAndRepla
 	if _, _, err := lanes[0].client.Submit(ctx, []entity.Observation{changed}); status.Code(err) != codes.AlreadyExists {
 		t.Fatal("same UUID changed retained outcome", err)
 	}
+	for name, mutate := range map[string]func(*entity.ProbeHTTPResponse){
+		"status": func(r *entity.ProbeHTTPResponse) { r.StatusCode = 777 },
+		"TLS":    func(r *entity.ProbeHTTPResponse) { r.TLSVerified = false },
+		"origin": func(r *entity.ProbeHTTPResponse) { r.SameOrigin = false },
+	} {
+		changed := claims[0]
+		outcome := *changed.Outcome
+		response := *outcome.HTTPResponse
+		mutate(&response)
+		outcome.HTTPResponse = &response
+		changed.Outcome = &outcome
+		if _, _, err := lanes[0].client.Submit(ctx, []entity.Observation{changed}); status.Code(err) != codes.AlreadyExists {
+			t.Fatal("same UUID rewrote primary response facts", name, err)
+		}
+	}
+	in(0, func(ctx context.Context, sc tenancy.Scope) error {
+		var body []byte
+		if err := sc.Q.QueryRow(ctx, `SELECT probe_outcome FROM entity_evidence WHERE tenant_id=$1 AND observation_id=$2`, lanes[0].tenant, claims[0].ID).Scan(&body); err != nil {
+			return err
+		}
+		var original entity.ProbeOutcome
+		if err := json.Unmarshal(body, &original); err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(&original, claims[0].Outcome) {
+			t.Fatal("refused replay changed the retained original HTTP facts")
+		}
+		return nil
+	})
 	in(0, func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := sc.Q.Exec(ctx, `UPDATE tests SET params=jsonb_set(params,'{expect_status}','"503"'::jsonb),updated_at=clock_timestamp() WHERE tenant_id=$1 AND id=$2`, lanes[0].tenant, lanes[0].definition.ID)
 		return err

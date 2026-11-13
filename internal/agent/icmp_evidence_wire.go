@@ -26,7 +26,11 @@ func encodeProbeOutcome(m *entity.ProbeOutcome) *agentv1.ProbeOutcome {
 	if m == nil {
 		return nil
 	}
-	return &agentv1.ProbeOutcome{Version: uint32(m.Version), DefinitionHash: m.DefinitionHash, CanaryType: m.CanaryType, StartedUnixNanos: m.StartedAt.UnixNano(), CompletedUnixNanos: m.CompletedAt.UnixNano(), Success: m.Success, Canceled: m.Canceled}
+	out := &agentv1.ProbeOutcome{Version: uint32(m.Version), DefinitionHash: m.DefinitionHash, CanaryType: m.CanaryType, StartedUnixNanos: m.StartedAt.UnixNano(), CompletedUnixNanos: m.CompletedAt.UnixNano(), Success: m.Success, Canceled: m.Canceled}
+	if m.HTTPResponse != nil {
+		out.HttpResponse = &agentv1.ProbeHttpResponse{StatusCode: uint32(m.HTTPResponse.StatusCode), TlsVerified: m.HTTPResponse.TLSVerified, SameOrigin: m.HTTPResponse.SameOrigin}
+	}
+	return out
 }
 
 // Every accepted typed observation needs its own retained-family receipt.

@@ -54,6 +54,10 @@ func TestProbeOutcomesKeepSiloTypedChecksAndTenantOnProvisionAndCatchup(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	httpBody, err := json.Marshal(entity.ProbeOutcome{Version: 2, DefinitionHash: strings.Repeat("a", 64), CanaryType: "http", StartedAt: end.Add(-time.Second), CompletedAt: end, HTTPResponse: &entity.ProbeHTTPResponse{StatusCode: 503, TLSVerified: true, SameOrigin: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	exec := func(query string, args ...any) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, query, args...); err != nil {
@@ -65,6 +69,10 @@ func TestProbeOutcomesKeepSiloTypedChecksAndTenantOnProvisionAndCatchup(t *testi
 			t.Fatal(err)
 		}
 		schema := quoteIdent(SchemaName(tenant))
+		selectedBody := body
+		if lane == 0 {
+			selectedBody = httpBody
+		}
 		exec(`INSERT INTO `+schema+`.entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label) VALUES($1,$2,$2,$2,'neutral-site','neutral-vrf')`, tenant, contextID)
 		exec(`INSERT INTO `+schema+`.entities(tenant_id,context_id,id,kind,label) VALUES($1,$2,$3,'device','neutral-device')`, tenant, contextID, entityID)
 		exec(`INSERT INTO `+schema+`.entity_evidence(tenant_id,context_id,id,observation_id,entity_id,alias_kind,alias_value,source,source_ref,agent_id,source_kind,configured_ref,observed_at,sender_serial)
@@ -82,12 +90,12 @@ func TestProbeOutcomesKeepSiloTypedChecksAndTenantOnProvisionAndCatchup(t *testi
 			}
 		}
 		exec(`INSERT INTO `+schema+`.entity_evidence(tenant_id,context_id,id,observation_id,entity_id,alias_kind,alias_value,source,source_ref,agent_id,source_kind,configured_ref,observed_at,sender_serial,probe_outcome)
- VALUES($1,$2,$3,$3,$4,'configured_test_id',$5,'lifecycle-component','probe:configured-test','neutral-agent','path_agent',$5,$6,'abc',$7::jsonb)`, tenant, contextID, evidenceID, entityID, testID, end, body)
+ VALUES($1,$2,$3,$3,$4,'configured_test_id',$5,'lifecycle-component','probe:configured-test','neutral-agent','path_agent',$5,$6,'abc',$7::jsonb)`, tenant, contextID, evidenceID, entityID, testID, end, selectedBody)
 		var legacyTime time.Time
 		if err := pool.QueryRow(ctx, `SELECT observed_at FROM `+schema+`.entity_evidence WHERE tenant_id=$1 AND id=$2 AND probe_outcome IS NULL`, tenant, legacyID).Scan(&legacyTime); err != nil || !legacyTime.Equal(end) {
 			t.Fatal("outcome catch-up changed legacy evidence", legacyTime, err)
 		}
-		for _, mutation := range []string{
+		mutations := []string{
 			`probe_outcome=probe_outcome-'success'`,
 			`probe_outcome=jsonb_set(probe_outcome,'{canary_type}','"icmp"'::jsonb)`,
 			`probe_outcome=jsonb_set(probe_outcome,'{definition_hash}','"bad"'::jsonb)`,
@@ -97,7 +105,16 @@ func TestProbeOutcomesKeepSiloTypedChecksAndTenantOnProvisionAndCatchup(t *testi
 			`alias_kind='address'`,
 			`alias_value='different-test'`,
 			`observed_at=observed_at+interval '1 second'`,
-		} {
+		}
+		if lane == 0 {
+			mutations = append(mutations,
+				`probe_outcome=probe_outcome-'http_response'`,
+				`probe_outcome=jsonb_set(probe_outcome,'{version}','1'::jsonb)`,
+				`probe_outcome=jsonb_set(probe_outcome,'{http_response,status_code}','1000'::jsonb)`,
+				`probe_outcome=jsonb_set(probe_outcome,'{http_response,tls_verified}','"true"'::jsonb)`,
+				`probe_outcome=jsonb_set(probe_outcome,'{http_response,claimed_host}','"untrusted"'::jsonb)`)
+		}
+		for _, mutation := range mutations {
 			_, err := pool.Exec(ctx, `UPDATE `+schema+`.entity_evidence SET `+mutation+` WHERE tenant_id=$1 AND id=$2`, tenant, evidenceID)
 			var constraint *pgconn.PgError
 			if !errors.As(err, &constraint) || constraint.Code != "23514" {
@@ -135,7 +152,11 @@ func TestProbeOutcomesKeepSiloTypedChecksAndTenantOnProvisionAndCatchup(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, string(migration)); err != nil {
+	httpMigration, err := migrations.FS.ReadFile("0204_http_primary_response_outcomes.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(migration)+"\n"+string(httpMigration)); err != nil {
 		t.Fatal("outcome migration replay with accepted pooled/silo rows", err)
 	}
 	t.Log("real-integration: paired managed-silo fresh/catch-up/replay typed constraints and qualified app-role RLS; direct rows prove storage, not sender attestation")
