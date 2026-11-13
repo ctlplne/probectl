@@ -159,7 +159,6 @@ func sampleDependencyPhysical(t *testing.T, d *dependencyRoutingFixture, tenant 
 	measurements := make([]dependencyPhysicalMeasurement, 0, len(definitions))
 	for i, definition := range definitions {
 		value := collectDependencyPhysical(t, ns, definition)
-		measurements = append(measurements, value)
 		m := value.Measurement
 		if i < len(d.graphs[tenant].Nodes) {
 			digest, err := testspec.DefinitionHash(definition)
@@ -178,7 +177,9 @@ func sampleDependencyPhysical(t *testing.T, d *dependencyRoutingFixture, tenant 
 			if accepted, unresolved, err := client.Submit(t.Context(), []entity.Observation{claim}); err != nil || accepted != 1 || unresolved != 0 {
 				t.Fatal("real physical sender evidence was refused", accepted, unresolved, err)
 			}
+			value.EvidenceID = claim.ID
 		}
+		measurements = append(measurements, value)
 		success := float64(0)
 		if value.Result.Success {
 			success = 1

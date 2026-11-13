@@ -42,6 +42,8 @@ type dependencyPhysicalLane struct {
 	relay       *testsupport.SMTPServer
 	mail        alert.MailSender
 	evaluator   *alert.Evaluator
+	impactFrom  time.Time
+	measured    [][]dependencyPhysicalMeasurement
 }
 
 func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T) {
@@ -58,6 +60,7 @@ func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T)
 		}
 	}
 	d := seedDependencyRoutingFixture(t)
+	prepareDependencyPhysicalImpact(t, d)
 	transport := startDependencyPhysicalTransport(t, d)
 	writer, err := tsdb.New("memory", "")
 	if err != nil {
@@ -85,6 +88,7 @@ func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T)
 	sample := func(lane *dependencyPhysicalLane) []dependencyPhysicalMeasurement {
 		t.Helper()
 		measurements := sampleDependencyPhysical(t, d, lane.tenant, lane.network.source, lane.definitions, lane.client, writer)
+		lane.measured = append(lane.measured, measurements)
 		evaluate(lane)
 		return measurements
 	}
@@ -93,6 +97,7 @@ func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T)
 		lane := &dependencyPhysicalLane{tenant: tenant, network: newDependencyPhysicalNetwork(t)}
 		lane.client = transport.sender(t, d, tenant)
 		lane.definitions = dependencyPhysicalDefinitions(t, d, tenant)
+		lane.impactFrom = time.Now().UTC()
 		lane.relay, lane.mail = transport.mail(t)
 		lane.evaluator = build(lane)
 		lanes = append(lanes, lane)
@@ -124,6 +129,7 @@ func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T)
 		if err != nil || room == nil || room.TenantId != lane.tenant || room.SignalCount != 2 || len(room.Signals) != 2 {
 			t.Fatal("verified HTTPS incident room hid the physical downstream alert", room, err)
 		}
+		assertDependencyPhysicalImpact(t, d, lane, client, parent)
 		lane.evaluator = build(lane)
 		evaluate(lane)
 		if len(lane.relay.Messages()) != 1 {
@@ -253,6 +259,7 @@ func dependencyPhysicalLoss(t *testing.T, ns, dev string, down bool) {
 type dependencyPhysicalMeasurement struct {
 	Result      canary.Result
 	Measurement *canary.ICMPMeasurement
+	EvidenceID  string `json:"-"`
 }
 
 // The same compiled-in collector runs in the source namespace. Its IO facts

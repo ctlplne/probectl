@@ -182,5 +182,5 @@ func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t
 	if status, result := request(b, ids[b], true); status != http.StatusOK || len(result.Tests) != 1 {
 		t.Fatal("permission withdrawal changed sibling test evidence", status, result)
 	}
-	t.Log("real-integration: served HTTPS/current-user/paired app-role PG-RLS comparisons and permission withdrawal; probe rows are modeled, physical G4a and SLO/customer attribution remain owed")
+	t.Log("real-integration: served HTTPS/current-user/paired app-role PG-RLS test, SLO-input and customer-tag comparisons with permission withdrawal; probe rows are modeled, physical G4a qualification remains owed")
 }
