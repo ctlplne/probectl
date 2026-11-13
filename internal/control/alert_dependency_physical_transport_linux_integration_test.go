@@ -177,7 +177,14 @@ func sampleDependencyPhysical(t *testing.T, d *dependencyRoutingFixture, tenant 
 			if accepted, unresolved, err := client.Submit(t.Context(), []entity.Observation{claim}); err != nil || accepted != 1 || unresolved != 0 {
 				t.Fatal("real physical sender evidence was refused", accepted, unresolved, err)
 			}
-			value.EvidenceID = claim.ID
+			// The RPC observation UUID identifies the sender's replay. Impact
+			// cites the server's evidence row UUID. Resolve that exact accepted
+			// observation through the application-role tenant scope; do not
+			// manufacture a row or substitute another physical measurement.
+			d.f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+				return sc.Q.QueryRow(ctx, `SELECT id::text FROM entity_evidence
+ WHERE tenant_id=$1 AND agent_id=$2 AND observation_id=$3 AND configured_ref=$4`, tenant, sender, claim.ID, definition.ID).Scan(&value.EvidenceID)
+			})
 		}
 		measurements = append(measurements, value)
 		success := float64(0)

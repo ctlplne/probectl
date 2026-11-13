@@ -364,7 +364,7 @@ test('impact query and signed export preserve a one-nanosecond window and discar
     fireEvent.click(screen.getByRole('button', { name: 'Export signed impact evidence' }))
     await waitFor(() => expect(finish).toBeDefined())
     expect(exported).toEqual({
-      impact: { from, to, dataseries: 'auto', customer_tag_key: 'customer' },
+      impact: { from, to, dataseries: 'auto', include_tests: false, customer_tag_key: 'customer' },
     })
     await act(async () => {
       finish?.(jsonResponse({ signing: {}, attachments: [], manifest: {} }))
