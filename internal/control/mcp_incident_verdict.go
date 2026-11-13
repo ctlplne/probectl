@@ -35,6 +35,24 @@ func (b mcpIncidentVerdictBackend) IncidentVerdict(ctx context.Context, actor *a
 // unescaped version otherwise resemble a hostname to the ordinary PII masker.
 type nativeIncidentVerdictContract string
 
+type nativeIncidentPathRound string
+
+func (value nativeIncidentPathRound) MarshalJSON() ([]byte, error) {
+	if _, err := (incident.VerdictCitation{SourceKind: "control_plane_path", PathRoundID: string(value), AgentID: "control_plane"}).SourceReference(); err != nil {
+		return nil, err
+	}
+	var out strings.Builder
+	out.WriteByte('"')
+	for _, character := range string(value) {
+		if character >= '0' && character <= '9' {
+			out.WriteString(`\u003`)
+		}
+		out.WriteRune(character)
+	}
+	out.WriteByte('"')
+	return []byte(out.String()), nil
+}
+
 func (value nativeIncidentVerdictContract) MarshalJSON() ([]byte, error) {
 	if value != "probectl.incident-verdict.v1" {
 		return nil, errors.New("invalid server incident verdict contract")
@@ -51,15 +69,16 @@ func (value nativeIncidentVerdictContract) MarshalJSON() ([]byte, error) {
 func marshalNativeIncidentVerdict(value incident.FaultVerdict) (json.RawMessage, error) {
 	type citation struct {
 		incident.VerdictCitation
-		ContextID  mcp.NativeRoleUUID   `json:"context_id"`
-		EntityID   mcp.NativeRoleUUID   `json:"entity_id"`
-		EvidenceID mcp.NativeRoleUUID   `json:"evidence_id"`
-		Digest     mcp.NativeRoleDigest `json:"digest"`
+		ContextID   mcp.NativeRoleUUID      `json:"context_id"`
+		EntityID    mcp.NativeRoleUUID      `json:"entity_id"`
+		EvidenceID  mcp.NativeRoleUUID      `json:"evidence_id,omitempty"`
+		PathRoundID nativeIncidentPathRound `json:"path_round_id,omitempty"`
+		Digest      mcp.NativeRoleDigest    `json:"digest"`
 	}
 	project := func(items []incident.VerdictCitation) []citation {
 		out := make([]citation, 0, len(items))
 		for _, item := range items {
-			out = append(out, citation{item, mcp.NativeRoleUUID(item.ContextID), mcp.NativeRoleUUID(item.EntityID), mcp.NativeRoleUUID(item.EvidenceID), mcp.NativeRoleDigest(item.Digest)})
+			out = append(out, citation{VerdictCitation: item, ContextID: mcp.NativeRoleUUID(item.ContextID), EntityID: mcp.NativeRoleUUID(item.EntityID), EvidenceID: mcp.NativeRoleUUID(item.EvidenceID), PathRoundID: nativeIncidentPathRound(item.PathRoundID), Digest: mcp.NativeRoleDigest(item.Digest)})
 		}
 		return out
 	}

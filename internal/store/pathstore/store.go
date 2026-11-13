@@ -24,10 +24,11 @@ var ErrNoTenant = errors.New("pathstore: tenant_id is required (refusing an unsc
 // is never sufficient authorization because every read is also constrained by
 // tenant_id and target in the store.
 type Snapshot struct {
-	ID                   string    `json:"id"`
-	ObservedAt           time.Time `json:"observed_at"`
-	Path                 path.Path `json:"path"`
-	TrustedDiscoveryTime bool      `json:"-"` // captured from the binding database before tracing
+	ID                   string     `json:"id"`
+	ObservedAt           time.Time  `json:"observed_at"`
+	CompletedAt          *time.Time `json:"completed_at,omitempty"`
+	Path                 path.Path  `json:"path"`
+	TrustedDiscoveryTime bool       `json:"-"` // captured from the binding database before tracing
 }
 
 // HistoryQuery bounds a snapshot read. IDs are used by stable shared views;
@@ -44,6 +45,26 @@ type HistoryQuery struct {
 }
 
 type discoveryStartedAtKey struct{}
+type discoveryCompletedAtKey struct{}
+
+// WithDiscoveryCompletedAt carries the server's database-clock reading after
+// tracing. Absence stays unknown; neither a flush clock nor start implies it.
+func WithDiscoveryCompletedAt(ctx context.Context, completedAt time.Time) context.Context {
+	return context.WithValue(ctx, discoveryCompletedAtKey{}, completedAt.UTC())
+}
+
+func discoveryCompletedAt(ctx context.Context) time.Time {
+	value, _ := ctx.Value(discoveryCompletedAtKey{}).(time.Time)
+	return value
+}
+
+func retainedCompletion(start time.Time, trusted bool, completed time.Time) *time.Time {
+	if !trusted || completed.IsZero() || completed.Before(start) {
+		return nil
+	}
+	value := completed.UTC()
+	return &value
+}
 
 // WithDiscoveryStartedAt carries the control plane's PostgreSQL clock reading
 // from before a trace began. Path/context bindings use that same clock, so a

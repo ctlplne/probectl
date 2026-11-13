@@ -33,6 +33,7 @@ type IncidentConfiguredTest struct {
 	ValidUntil                           *time.Time
 	MeasurementIdentityUntil             *time.Time
 	Definition                           testspec.ExecutableDefinition
+	PathBinding                          *PathTestBinding
 }
 
 // ConfiguredImpactTestsInScope reads the complete enabled, explicitly anchored
@@ -100,7 +101,7 @@ func readIncidentConfiguredTests(ctx context.Context, sc tenancy.Scope, contexts
  AND identity.spiffe_id='spiffe://probectl/tenant/'||$1::text||'/entity/'||m.agent_id
  AND identity.issued_at<=transaction_timestamp() AND identity.not_after>transaction_timestamp() AND identity.revoked_at IS NULL
  AND NOT EXISTS(SELECT 1 FROM agent_identities revoked WHERE revoked.tenant_id=$1 AND revoked.agent_id=m.agent_id
- AND revoked.revoked_at IS NOT NULL AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete'))
+ AND revoked.revoked_at IS NOT NULL AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')),p.assigned_at
  FROM requested r
  LEFT JOIN flow_snapshot_epochs epoch ON epoch.tenant_id=$1
  JOIN entity_source_contexts m ON m.tenant_id=$1 AND m.context_id=r.context_id AND m.anchor_entity_id=r.entity_id AND m.source_kind='path_agent'
@@ -125,7 +126,8 @@ func readIncidentConfiguredTests(ctx context.Context, sc tenancy.Scope, contexts
 		var item IncidentConfiguredTest
 		var name, target, pathTarget *string
 		var params []byte
-		if err := rows.Scan(&item.ContextID, &item.EntityID, &item.TestID, &item.AgentID, &item.Type, &name, &target, &pathTarget, &item.CurrentSince, &item.ValidUntil, &item.Definition.IntervalSeconds, &item.Definition.TimeoutSeconds, &params, &item.MeasurementIdentityUntil); err != nil {
+		var pathAssigned *time.Time
+		if err := rows.Scan(&item.ContextID, &item.EntityID, &item.TestID, &item.AgentID, &item.Type, &name, &target, &pathTarget, &item.CurrentSince, &item.ValidUntil, &item.Definition.IntervalSeconds, &item.Definition.TimeoutSeconds, &params, &item.MeasurementIdentityUntil, &pathAssigned); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -144,6 +146,9 @@ func readIncidentConfiguredTests(ctx context.Context, sc tenancy.Scope, contexts
 		remaining -= cost
 		if item.Type == "icmp" && path.TargetHost(*target) != *pathTarget {
 			continue
+		}
+		if pathAssigned != nil && !pathAssigned.IsZero() && *pathTarget != "" && path.TargetHost(*target) == *pathTarget {
+			item.PathBinding = &PathTestBinding{Scope: entity.Scope{TenantID: item.TenantID, ContextID: item.ContextID}, Target: *pathTarget, AssignedAt: *pathAssigned}
 		}
 		item.Definition.ID, item.Definition.Type, item.Definition.Target = item.TestID, item.Type, item.Target
 		if err := json.Unmarshal(params, &item.Definition.Params); err != nil {

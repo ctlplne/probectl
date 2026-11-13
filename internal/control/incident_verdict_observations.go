@@ -22,10 +22,10 @@ import (
 // themselves. This compares the immutable digest and all public source keys;
 // final source readers still recheck the digest against the stored document.
 func admitVerdictOriginal(citation incident.VerdictCitation, seen map[string]incident.VerdictCitation, remaining *int64) (bool, error) {
-	if citation.EvidenceID == "" || citation.AgentID == "" || citation.ContextID == "" || citation.EntityID == "" || citation.Digest == strings.Repeat("0", 64) {
+	key, err := citation.SourceReference()
+	if err != nil || citation.AgentID == "" || citation.ContextID == "" || citation.EntityID == "" || citation.Digest == strings.Repeat("0", 64) {
 		return false, errIncidentVerdictInput
 	}
-	key := citation.EvidenceID
 	identity := citation
 	identity.Reason = ""
 	if old, found := seen[key]; found {

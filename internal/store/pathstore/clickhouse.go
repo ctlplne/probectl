@@ -337,6 +337,10 @@ func chMigrationsFor(hopsV1, linksV1, hopsV2, linksV2 string) []chmigrate.Migrat
 		{Version: 6, Name: "path_verified_discovery_clock", Statements: []string{
 			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS discovery_clock_verified UInt8 DEFAULT 0",
 		}},
+		{Version: 7, Name: "path_discovery_completion_clock", Statements: []string{
+			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS discovery_started_at Nullable(DateTime64(9, 'UTC')) DEFAULT NULL",
+			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS discovery_completed_at Nullable(DateTime64(9, 'UTC')) DEFAULT NULL",
+		}},
 	}
 }
 
@@ -428,6 +432,8 @@ type hopRow struct {
 	KernelTimestamping     uint8    `json:"kernel_timestamping"`
 	HardwareTimestamping   uint8    `json:"hardware_timestamping"`
 	DiscoveryClockVerified uint8    `json:"discovery_clock_verified"`
+	DiscoveryCompletedAt   *string  `json:"discovery_completed_at"`
+	DiscoveryStartedAt     *string  `json:"discovery_started_at"`
 	TS                     string   `json:"ts"`
 	TTL                    int      `json:"ttl"`
 	Responder              string   `json:"responder"`
@@ -452,7 +458,17 @@ type linkRow struct {
 
 // hopRows and linkRows are one discovery round as stored: the rows SaveBatch
 // inserts, and the rows every backend's tenant export emits.
-func hopRows(tenantID, pathID, ts string, trustedDiscoveryTime bool, p *path.Path) []hopRow {
+func hopRows(tenantID, pathID, ts string, trustedDiscoveryTime bool, p *path.Path, completed ...time.Time) []hopRow {
+	var completion *string
+	var started *string
+	if len(completed) > 1 && trustedDiscoveryTime && !completed[1].IsZero() {
+		value := completed[1].UTC().Format("2006-01-02 15:04:05.000000000")
+		started = &value
+	}
+	if len(completed) != 0 && trustedDiscoveryTime && !completed[0].IsZero() {
+		value := completed[0].UTC().Format("2006-01-02 15:04:05.000000000")
+		completion = &value
+	}
 	fidelity := path.MeasurementFidelity{}
 	if p.MeasurementFidelity != nil {
 		fidelity = *p.MeasurementFidelity
@@ -472,6 +488,8 @@ func hopRows(tenantID, pathID, ts string, trustedDiscoveryTime bool, p *path.Pat
 				HopVisibility: fidelity.HopVisibility, KernelTimestamping: boolByte(fidelity.KernelTimestamping),
 				HardwareTimestamping:   boolByte(fidelity.HardwareTimestamping),
 				DiscoveryClockVerified: boolByte(trustedDiscoveryTime),
+				DiscoveryCompletedAt:   completion,
+				DiscoveryStartedAt:     started,
 				TS:                     ts, TTL: h.TTL, Responder: n.IP, Sent: n.Sent, Received: n.Received, LossRatio: n.LossRatio,
 				RTTMin: n.RTTMinMs, RTTAvg: n.RTTAvgMs, RTTMax: n.RTTMaxMs, MPLS: labels,
 			})
@@ -537,6 +555,7 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 	observedAt, trusted := discoveryStartedAt(ctx)
 	return c.SaveBatch(ctx, []PathItem{{
 		TenantID: tenantID, P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
+		CompletedAt: discoveryCompletedAt(ctx),
 	}})
 }
 
@@ -576,7 +595,11 @@ func (c *ClickHouse) SaveBatch(ctx context.Context, items []PathItem) error {
 		}
 		ts := formatCHTime(observedAt)
 		henc, lenc := json.NewEncoder(&b.hops), json.NewEncoder(&b.links)
-		for _, row := range hopRows(it.TenantID, pathID, ts, it.TrustedDiscoveryTime, it.P) {
+		var completed time.Time
+		if value := retainedCompletion(observedAt, it.TrustedDiscoveryTime, it.CompletedAt); value != nil {
+			completed = *value
+		}
+		for _, row := range hopRows(it.TenantID, pathID, ts, it.TrustedDiscoveryTime, it.P, completed, observedAt) {
 			if err := henc.Encode(row); err != nil {
 				return err
 			}
@@ -899,10 +922,20 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		if !q.To.IsZero() {
 			params["to"] = q.To.UTC().Format("2006-01-02 15:04:05.000000000")
 		}
-		where = strings.ReplaceAll(where, "DateTime64(3)", "DateTime64(9)")
+		where = strings.ReplaceAll(where, "DateTime64(3)", "DateTime64(9,'UTC')")
+		where = strings.ReplaceAll(where, "ts>=", "coalesce(discovery_started_at,ts)>=")
+		where = strings.ReplaceAll(where, "ts<=", "coalesce(discovery_started_at,ts)<=")
+		if len(q.IDs) == 0 && !q.From.IsZero() {
+			params["from_index"] = formatCHTime(q.From.Truncate(time.Millisecond))
+			where += " AND ts>={from_index:DateTime64(3)}"
+		}
+		if len(q.IDs) == 0 && !q.To.IsZero() {
+			params["to_index"] = formatCHTime(q.To.Truncate(time.Millisecond).Add(time.Millisecond))
+			where += " AND ts<{to_index:DateTime64(3)}"
+		}
 	}
 	metaRows, err := c.queryScoped(ctx, t, tenantID,
-		"SELECT path_id, any(target_ip) AS target_ip, any(mode) AS mode, any(trace_count) AS trace_count, any(max_hops) AS max_hops, any(fidelity_version) AS fidelity_version, any(probe_transport) AS probe_transport, any(acquisition_mode) AS acquisition_mode, any(timing_source) AS timing_source, any(hop_visibility) AS hop_visibility, any(kernel_timestamping) AS kernel_timestamping, any(hardware_timestamping) AS hardware_timestamping, min(discovery_clock_verified) AS discovery_clock_verified, max(ts) AS observed_at FROM "+hopsT+
+		"SELECT path_id, any(target_ip) AS target_ip, any(mode) AS mode, any(trace_count) AS trace_count, any(max_hops) AS max_hops, any(fidelity_version) AS fidelity_version, any(probe_transport) AS probe_transport, any(acquisition_mode) AS acquisition_mode, any(timing_source) AS timing_source, any(hop_visibility) AS hop_visibility, any(kernel_timestamping) AS kernel_timestamping, any(hardware_timestamping) AS hardware_timestamping, min(discovery_clock_verified) AS discovery_clock_verified, coalesce(max(discovery_started_at),max(ts)) AS observed_at, any(discovery_completed_at) AS discovery_completed_at, toUInt8(countIf(isNull(discovery_completed_at))=0 AND uniqExact(discovery_completed_at)=1 AND countIf(isNull(discovery_started_at))=0 AND uniqExact(discovery_started_at)=1) AS completion_clock_complete FROM "+hopsT+
 			" WHERE "+where+" GROUP BY path_id ORDER BY observed_at DESC, path_id DESC LIMIT {limit:UInt64}",
 		params)
 	if err != nil {
@@ -938,6 +971,10 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 				MeasurementFidelity: fidelityFromRow(row),
 			},
 		})
+		if chToInt(row["completion_clock_complete"]) == 1 {
+			completed := parseCHTime(row["discovery_completed_at"])
+			snapshots[len(snapshots)-1].CompletedAt = retainedCompletion(snapshots[len(snapshots)-1].ObservedAt, snapshots[len(snapshots)-1].TrustedDiscoveryTime, completed)
+		}
 		byID[id] = &snapshots[len(snapshots)-1]
 	}
 	if len(snapshots) == 0 {
@@ -1063,7 +1100,7 @@ func formatCHTime(value time.Time) string {
 
 func parseCHTime(value any) time.Time {
 	raw := chToString(value)
-	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.000", "2006-01-02 15:04:05"} {
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05.000", "2006-01-02 15:04:05"} {
 		if parsed, err := time.Parse(layout, raw); err == nil {
 			return parsed.UTC()
 		}

@@ -85,7 +85,8 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 			if tenant == tb {
 				ip, traces = "192.0.2.99", 7
 			}
-			population = append(population, PathItem{TenantID: tenant, P: mk(ip, traces), ObservedAt: now.Add(-time.Minute).Add(time.Duration(i) * time.Millisecond), TrustedDiscoveryTime: true})
+			started := now.Add(-time.Minute).Add(time.Duration(i) * time.Millisecond)
+			population = append(population, PathItem{TenantID: tenant, P: mk(ip, traces), ObservedAt: started, CompletedAt: started.Add(123 * time.Nanosecond), TrustedDiscoveryTime: true})
 		}
 	}
 	if err := c.SaveBatch(ctx, population); err != nil {
@@ -100,10 +101,29 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 		if tenant == tb {
 			want = "192.0.2.99"
 		}
+		completed := 0
 		for _, round := range rounds {
 			if round.Path.TargetIP != want {
 				t.Fatal("complete ClickHouse history crossed tenant storage scope")
 			}
+			if round.CompletedAt != nil {
+				completed++
+				if round.CompletedAt.Sub(round.ObservedAt) != 123*time.Nanosecond {
+					t.Fatal("retained path execution clock lost nanoseconds")
+				}
+			}
+		}
+		if completed != 256 {
+			t.Fatal("completion clocks were omitted or fabricated for legacy rounds", completed)
+		}
+		point := rounds[0]
+		narrow, err := c.History(ctx, tenant, target, HistoryQuery{From: point.ObservedAt, To: point.ObservedAt.Add(time.Nanosecond), MaxBytes: 16 << 20})
+		if err != nil || len(narrow) != 1 || narrow[0].ID != point.ID {
+			t.Fatal("exact complete selector lost its included millisecond point", len(narrow), err)
+		}
+		empty, err := c.History(ctx, tenant, target, HistoryQuery{From: point.ObservedAt.Add(time.Nanosecond), To: point.ObservedAt.Add(2 * time.Nanosecond), MaxBytes: 16 << 20})
+		if err != nil || len(empty) != 0 {
+			t.Fatal("complete selector rounded an excluded point into the window", len(empty), err)
 		}
 	}
 	// Replaying B's stable round ID in A's authenticated scope must be a

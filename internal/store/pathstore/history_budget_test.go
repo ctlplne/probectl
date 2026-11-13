@@ -30,7 +30,7 @@ func TestCompleteClickHouseHistoryUsesScopedBudgetAndExactClock(t *testing.T) {
 			continue
 		}
 		found = true
-		if !strings.Contains(query, "tenant_id={tenant:String}") || !strings.Contains(query, "/*param_tenant=tenant-a*/") || !strings.Contains(query, "DateTime64(9)") || !strings.Contains(query, ".000000001") || !strings.Contains(query, ".000000002") || strings.Contains(query, "/*param_limit=1*/") {
+		if !strings.Contains(query, "tenant_id={tenant:String}") || !strings.Contains(query, "/*param_tenant=tenant-a*/") || !strings.Contains(query, "DateTime64(9,'UTC')") || !strings.Contains(query, ".000000001") || !strings.Contains(query, ".000000002") || strings.Contains(query, "/*param_limit=1*/") {
 			t.Fatal("complete path selector lost tenant, exact time or memory-derived admission")
 		}
 	}

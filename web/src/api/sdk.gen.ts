@@ -2460,9 +2460,11 @@ export interface IncidentVerdictCitation {
   context_id: string
   digest: string
   entity_id: string
-  evidence_id: string
+  evidence_id?: string
   observed_at: string
+  path_round_id?: string
   reason: string
+  source_kind?: "entity_evidence" | "control_plane_path"
 }
 
 export interface IncidentVerdictCommand {
@@ -2971,6 +2973,7 @@ export interface PathMeasurementFidelity {
 }
 
 export interface PathSnapshot {
+  completed_at?: string | null
   id: string
   observed_at: string
   path: Path

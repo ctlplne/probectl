@@ -68,7 +68,8 @@ func validateVerdictEvidence(incidentID string, verdict incident.FaultVerdict) e
 		}
 		for _, citations := range [][]incident.VerdictCitation{hypothesis.For, hypothesis.Against} {
 			for _, citation := range citations {
-				if citation.ContextID == "" || citation.EntityID == "" || citation.EvidenceID == "" || citation.AgentID == "" || citation.Digest == "" || citation.ObservedAt.Before(verdict.From) || !citation.ObservedAt.Before(verdict.To) {
+				_, err := citation.SourceReference()
+				if err != nil || citation.ContextID == "" || citation.EntityID == "" || citation.AgentID == "" || citation.Digest == "" || citation.ObservedAt.Before(verdict.From) || !citation.ObservedAt.Before(verdict.To) {
 					return invalid
 				}
 			}

@@ -42,7 +42,21 @@ function response(tenant: string): IncidentVerdictResponse {
       (domain) => ({
         domain,
         confidence: 'insufficient' as const,
-        against: [],
+        against:
+          domain === 'carrier'
+            ? [
+                {
+                  context_id: id,
+                  entity_id: id,
+                  source_kind: 'control_plane_path' as const,
+                  path_round_id: '01234567890123456789abcdefabcdef',
+                  agent_id: 'control_plane',
+                  digest: 'b'.repeat(64),
+                  observed_at: incident.last_seen_at,
+                  reason: 'control_plane_terminal_reply_not_an_agent_path',
+                },
+              ]
+            : [],
         missing: [`${domain}_coverage_unavailable`],
         for:
           domain === 'your_network'
@@ -120,6 +134,8 @@ for (const theme of ['light', 'dark'])
       expect(screen.getByRole('region', { name })).toBeInTheDocument()
     expect(screen.getByText('carrier coverage unavailable')).toBeInTheDocument()
     expect(screen.getByText('insufficient original evidence')).toBeInTheDocument()
+    expect(screen.getByText('Control-plane path round')).toBeInTheDocument()
+    expect(screen.getByText('01234567890123456789abcdefabcdef')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Withdraw verdict access' }))
     expect(screen.queryByText('red-source')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Evaluate fault domain' })).not.toBeInTheDocument()

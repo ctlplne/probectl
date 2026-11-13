@@ -261,7 +261,9 @@ function Citations({ title, values }: { title: string; values: IncidentVerdictCi
       {values.length ? (
         <ol className={styles.roleSources}>
           {values.map((value) => (
-            <li key={value.evidence_id}>
+            <li
+              key={`${value.source_kind ?? 'entity_evidence'}:${value.path_round_id ?? value.evidence_id}`}
+            >
               {readable(value.reason)} · <DateTime value={value.observed_at} />
               <details>
                 <summary>Original observation</summary>
@@ -274,10 +276,18 @@ function Citations({ title, values }: { title: string; values: IncidentVerdictCi
                     <dt>Entity</dt>
                     <dd>{value.entity_id}</dd>
                   </div>
-                  <div>
-                    <dt>Evidence</dt>
-                    <dd>{value.evidence_id}</dd>
-                  </div>
+                  {value.evidence_id ? (
+                    <div>
+                      <dt>Evidence</dt>
+                      <dd>{value.evidence_id}</dd>
+                    </div>
+                  ) : null}
+                  {value.path_round_id ? (
+                    <div>
+                      <dt>Control-plane path round</dt>
+                      <dd>{value.path_round_id}</dd>
+                    </div>
+                  ) : null}
                   <div>
                     <dt>Agent</dt>
                     <dd>{value.agent_id}</dd>

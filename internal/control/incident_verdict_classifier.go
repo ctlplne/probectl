@@ -44,6 +44,7 @@ type incidentVerdictEvidence struct {
 	from, to   time.Time
 	interfaces []incidentVerdictInterface
 	tests      []incidentVerdictTest
+	paths      []incidentVerdictPath
 }
 
 // classifyIncidentVerdict currently evaluates original local interface states
@@ -58,7 +59,7 @@ func classifyIncidentVerdict(ctx context.Context, input incidentVerdictEvidence,
 	if input.from.IsZero() || !input.to.After(input.from) || input.to.After(time.Now().UTC()) {
 		return none, errIncidentVerdictInput
 	}
-	if maxBytes < 4096 || int64(len(input.interfaces))+int64(len(input.tests)) > maxBytes/2048 {
+	if maxBytes < 4096 || int64(len(input.interfaces))+int64(len(input.tests))+int64(len(input.paths)) > maxBytes/2048 {
 		return none, store.ErrIncidentImpactBudget
 	}
 	result := incident.FaultVerdict{Domain: incident.FaultUnknown, Confidence: "insufficient",
@@ -76,6 +77,9 @@ func classifyIncidentVerdict(ctx context.Context, input incidentVerdictEvidence,
 	}
 	remote, err := classifyIncidentRemoteResponses(ctx, input, seen, &remaining, &result.Hypotheses[3])
 	if err != nil {
+		return none, err
+	}
+	if err := classifyIncidentControlPlanePaths(ctx, input, seen, &remaining, result.Hypotheses); err != nil {
 		return none, err
 	}
 	result.Hypotheses[1].Missing = append(result.Hypotheses[1].Missing, "original_carrier_failure_and_current_asn_handoff")
@@ -127,11 +131,16 @@ func validateIncidentVerdictScope(ctx context.Context, input incidentVerdictEvid
 			}
 		}
 	}
+	for _, item := range input.paths {
+		if item.source.TenantID != input.tenantID || item.binding.Scope.TenantID != input.tenantID || item.binding.Scope.ContextID != item.source.ContextID {
+			return entity.ErrScopeMismatch
+		}
+	}
 	return ctx.Err()
 }
 
 func chargeVerdictCitation(remaining *int64, citation incident.VerdictCitation) error {
-	cost := int64(1024) + 8*int64(len(citation.ContextID)+len(citation.EntityID)+len(citation.EvidenceID)+len(citation.AgentID)+len(citation.Digest)+len(citation.Reason))
+	cost := int64(1024) + 8*int64(len(citation.ContextID)+len(citation.EntityID)+len(citation.EvidenceID)+len(citation.SourceKind)+len(citation.PathRoundID)+len(citation.AgentID)+len(citation.Digest)+len(citation.Reason))
 	if cost > *remaining {
 		return store.ErrIncidentImpactBudget
 	}
@@ -148,10 +157,12 @@ func sortVerdictCitations(items []incident.VerdictCitation) {
 		if c := a.ObservedAt.Compare(b.ObservedAt); c != 0 {
 			return c
 		}
-		if a.EvidenceID < b.EvidenceID {
+		left, _ := a.SourceReference()
+		right, _ := b.SourceReference()
+		if left < right {
 			return -1
 		}
-		if a.EvidenceID > b.EvidenceID {
+		if left > right {
 			return 1
 		}
 		return 0

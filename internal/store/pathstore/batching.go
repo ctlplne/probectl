@@ -58,6 +58,7 @@ type pendingPath struct {
 	tenantID             string
 	p                    *path.Path
 	observedAt           time.Time
+	completedAt          time.Time
 	trustedDiscoveryTime bool
 }
 
@@ -82,6 +83,7 @@ type PathItem struct {
 	TenantID             string
 	P                    *path.Path
 	ObservedAt           time.Time // discovery start, never the later batch flush time
+	CompletedAt          time.Time // database clock after tracing; zero is unavailable
 	TrustedDiscoveryTime bool      // true only for a PostgreSQL-clock capture
 }
 
@@ -114,6 +116,7 @@ func (b *BatchingSaver) Save(ctx context.Context, tenantID string, p *path.Path)
 	b.pending = append(b.pending, pendingPath{
 		tenantID: tenantID, p: p, observedAt: observedAt,
 		trustedDiscoveryTime: trusted,
+		completedAt:          discoveryCompletedAt(ctx),
 	})
 	full := len(b.pending) >= b.max
 	if b.timer == nil && !full {
@@ -186,7 +189,7 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 		items := make([]PathItem, len(batch))
 		for i, q := range batch {
 			items[i] = PathItem{TenantID: q.tenantID, P: q.p, ObservedAt: q.observedAt,
-				TrustedDiscoveryTime: q.trustedDiscoveryTime}
+				TrustedDiscoveryTime: q.trustedDiscoveryTime, CompletedAt: q.completedAt}
 		}
 		fenced, err := pbs.SaveBatchPartitioned(ctx, items)
 		var partial *PartialBatchError
@@ -236,7 +239,7 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 		items := make([]PathItem, len(batch))
 		for i, q := range batch {
 			items[i] = PathItem{TenantID: q.tenantID, P: q.p, ObservedAt: q.observedAt,
-				TrustedDiscoveryTime: q.trustedDiscoveryTime}
+				TrustedDiscoveryTime: q.trustedDiscoveryTime, CompletedAt: q.completedAt}
 		}
 		if err := bs.SaveBatch(ctx, items); err != nil {
 			var partial *PartialBatchError
@@ -257,7 +260,12 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 		return
 	}
 	for _, q := range batch {
-		if err := b.inner.Save(ctx, q.tenantID, q.p); err != nil {
+		itemCtx := ctx
+		if q.trustedDiscoveryTime {
+			itemCtx = WithDiscoveryStartedAt(itemCtx, q.observedAt)
+		}
+		itemCtx = WithDiscoveryCompletedAt(itemCtx, q.completedAt)
+		if err := b.inner.Save(itemCtx, q.tenantID, q.p); err != nil {
 			b.lost.Add(1)
 			b.log.Error("PATH SAVE LOST", "tenant", q.tenantID, "error", err.Error())
 			continue

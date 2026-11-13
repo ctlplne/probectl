@@ -196,7 +196,14 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 	}
 	normalizePathCollections(p)
 	stampPathVantage(p)
-	if err := s.pathStore.Save(pathstore.WithDiscoveryStartedAt(r.Context(), discoveryStartedAt), tid, p); err != nil {
+	var discoveryCompletedAt time.Time
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&discoveryCompletedAt)
+	}); err != nil || discoveryCompletedAt.Before(discoveryStartedAt) || discoveryCompletedAt.IsZero() {
+		return apierror.Unavailable("path discovery completion clock unavailable")
+	}
+	saveCtx := pathstore.WithDiscoveryCompletedAt(pathstore.WithDiscoveryStartedAt(r.Context(), discoveryStartedAt), discoveryCompletedAt)
+	if err := s.pathStore.Save(saveCtx, tid, p); err != nil {
 		return apierror.Internal("path save failed").Wrap(err)
 	}
 	// Fold the discovery into the dependency graph (S43): the path plane

@@ -2591,13 +2591,15 @@ type IncidentShareSelection struct {
 }
 
 type IncidentVerdictCitation struct {
-	AgentId    string `json:"agent_id"`
-	ContextId  string `json:"context_id"`
-	Digest     string `json:"digest"`
-	EntityId   string `json:"entity_id"`
-	EvidenceId string `json:"evidence_id"`
-	ObservedAt string `json:"observed_at"`
-	Reason     string `json:"reason"`
+	AgentId     string `json:"agent_id"`
+	ContextId   string `json:"context_id"`
+	Digest      string `json:"digest"`
+	EntityId    string `json:"entity_id"`
+	EvidenceId  string `json:"evidence_id,omitempty"`
+	ObservedAt  string `json:"observed_at"`
+	PathRoundId string `json:"path_round_id,omitempty"`
+	Reason      string `json:"reason"`
+	SourceKind  string `json:"source_kind,omitempty"`
 }
 
 type IncidentVerdictCommand struct {
@@ -3113,9 +3115,10 @@ type PathMeasurementFidelity struct {
 
 // One immutable path-discovery round. The opaque ID is always read under tenant_id and target scope.
 type PathSnapshot struct {
-	Id         string `json:"id"`
-	ObservedAt string `json:"observed_at"`
-	Path       Path   `json:"path"`
+	CompletedAt *string `json:"completed_at,omitempty"`
+	Id          string  `json:"id"`
+	ObservedAt  string  `json:"observed_at"`
+	Path        Path    `json:"path"`
 }
 
 type PeeringEstimateCoverage struct {

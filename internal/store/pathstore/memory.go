@@ -31,6 +31,7 @@ func (m *Memory) Save(ctx context.Context, tenantID string, p *path.Path) error 
 	observedAt, trusted := discoveryStartedAt(ctx)
 	return m.SaveBatch(ctx, []PathItem{{
 		TenantID: tenantID, P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
+		CompletedAt: discoveryCompletedAt(ctx),
 	}})
 }
 
@@ -56,6 +57,7 @@ func (m *Memory) SaveBatch(_ context.Context, items []PathItem) error {
 		m.saved[item.TenantID] = append(m.saved[item.TenantID], Snapshot{
 			ID: id, ObservedAt: observedAt, Path: clonePath(item.P),
 			TrustedDiscoveryTime: item.TrustedDiscoveryTime,
+			CompletedAt:          retainedCompletion(observedAt, item.TrustedDiscoveryTime, item.CompletedAt),
 		})
 	}
 	return nil
@@ -81,8 +83,12 @@ func (m *Memory) ExportTenantHops(_ context.Context, tenantID string, w io.Write
 	enc := json.NewEncoder(w)
 	var n int64
 	for _, round := range m.rounds(tenantID) {
+		var completed time.Time
+		if round.CompletedAt != nil {
+			completed = *round.CompletedAt
+		}
 		for _, row := range hopRows(tenantID, round.ID, formatCHTime(round.ObservedAt),
-			round.TrustedDiscoveryTime, &round.Path) {
+			round.TrustedDiscoveryTime, &round.Path, completed, round.ObservedAt) {
 			if err := enc.Encode(row); err != nil {
 				return n, err
 			}
@@ -116,6 +122,10 @@ func (m *Memory) rounds(tenantID string) []Snapshot {
 	out := make([]Snapshot, 0, len(m.saved[tenantID]))
 	for _, round := range m.saved[tenantID] {
 		round.Path = clonePath(&round.Path)
+		if round.CompletedAt != nil {
+			value := *round.CompletedAt
+			round.CompletedAt = &value
+		}
 		out = append(out, round)
 	}
 	return out
@@ -177,6 +187,10 @@ func (m *Memory) History(ctx context.Context, tenantID, target string, q History
 			}
 		}
 		round.Path = clonePath(&round.Path)
+		if round.CompletedAt != nil {
+			value := *round.CompletedAt
+			round.CompletedAt = &value
+		}
 		out = append(out, round)
 	}
 	return out, nil

@@ -206,6 +206,18 @@ Re-evaluate after that deadline or after changing tenant/access context. Queries
 use the deployment's finite query memory/deadline and tenant fairness policy;
 an incomplete admitted population is never rendered as a plausible prefix.
 
+When an explicitly bound test has retained path rounds, the verdict reads the
+complete admitted window and keeps the original round IDs in
+`control_plane_path` citations. These traces ran on the control-plane host;
+they do not describe an agent's route. A measured destination reply supplies
+limited contrary evidence, while unanswered intermediate hops cannot establish
+a carrier or wider-internet failure. Legacy rounds without the trusted discovery
+clock, completion clock and measurement-fidelity receipt remain unavailable for
+this inference. Both ends of the original execution must fall inside the selected
+window; a later reply cannot acquire an earlier incident timestamp.
+The final publication check reads the same selected rounds and current test/path
+bindings, without replacing them with a newer discovery.
+
 To include this result in the signed incident package, send the selection
 `{"verdict":{"from":"2026-11-01T00:00:00Z","to":"2026-11-01T01:00:00Z"}}`
 to `POST /v1/incidents/{id}/exports`, or pass it to

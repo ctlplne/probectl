@@ -22,14 +22,16 @@ import (
 )
 
 type incidentVerdictSnapshot struct {
-	inputs   *store.IncidentImpactInputs
-	sources  []store.IncidentInterfaceStateSource
-	tests    []store.IncidentConfiguredTest
-	roles    []store.InterfaceRoleInputs
-	states   []store.IncidentInterfaceStateMeasurement
-	outcomes []store.IncidentTestMeasurement
-	evidence incidentVerdictEvidence
-	digest   string
+	inputs       *store.IncidentImpactInputs
+	sources      []store.IncidentInterfaceStateSource
+	tests        []store.IncidentConfiguredTest
+	roles        []store.InterfaceRoleInputs
+	states       []store.IncidentInterfaceStateMeasurement
+	outcomes     []store.IncidentTestMeasurement
+	evidence     incidentVerdictEvidence
+	digest       string
+	pathBindings []incidentVerdictPathBinding
+	pathGroups   []incidentVerdictPathGroup
 }
 
 func (s *Server) authorizeIncidentVerdict(ctx context.Context, actor *auth.Principal, resource map[string]string) error {
@@ -127,7 +129,7 @@ func (s *Server) loadIncidentVerdictSnapshot(ctx context.Context, actor *auth.Pr
 		if err != nil {
 			return err
 		}
-		return s.joinIncidentVerdictSnapshot(ctx, sc, principal, &out, limit)
+		return s.joinIncidentVerdictSnapshot(ctx, sc, principal, &out, limit, original)
 	})
 	if err != nil {
 		return none, err
@@ -137,7 +139,7 @@ func (s *Server) loadIncidentVerdictSnapshot(ctx context.Context, actor *auth.Pr
 
 // Join on compound canonical keys. Same-tenant address/name similarity cannot
 // introduce an incident member, interface, configured test or source agent.
-func (s *Server) joinIncidentVerdictSnapshot(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, snapshot *incidentVerdictSnapshot, limit int64) error {
+func (s *Server) joinIncidentVerdictSnapshot(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, snapshot *incidentVerdictSnapshot, limit int64, original *incidentVerdictSnapshot) error {
 	digest, err := hashFlowRoleInputs(ctx, nil, struct {
 		Inputs  *store.IncidentImpactInputs
 		Sources []store.IncidentInterfaceStateSource
@@ -180,6 +182,16 @@ func (s *Server) joinIncidentVerdictSnapshot(ctx context.Context, sc tenancy.Sco
 	for _, source := range snapshot.tests {
 		key := source.ContextID + ":" + source.EntityID + ":" + source.AgentID + ":" + source.TestID
 		snapshot.evidence.tests = append(snapshot.evidence.tests, incidentVerdictTest{source: source, reads: testReads[key]})
+	}
+	if err := s.loadIncidentVerdictPaths(ctx, snapshot, original, limit); err != nil {
+		return err
+	}
+	digest, err = hashFlowRoleInputs(ctx, digest, struct {
+		Bindings []incidentVerdictPathBinding
+		Groups   []incidentVerdictPathGroup
+	}{snapshot.pathBindings, snapshot.pathGroups}, limit)
+	if err != nil {
+		return err
 	}
 	snapshot.digest = hex.EncodeToString(digest)
 	return ctx.Err()

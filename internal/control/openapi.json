@@ -15678,16 +15678,66 @@
           },
           "reason": {
             "type": "string"
+          },
+          "source_kind": {
+            "type": "string",
+            "enum": [
+              "entity_evidence",
+              "control_plane_path"
+            ],
+            "description": "Absent means entity_evidence. control_plane_path is a control-plane-host observation, never an agent vantage."
+          },
+          "path_round_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$",
+            "description": "Original opaque path-store round ID, selected in the current tenant/context and rechecked without replacing its history."
           }
         },
         "required": [
           "context_id",
           "entity_id",
-          "evidence_id",
           "agent_id",
           "digest",
           "observed_at",
           "reason"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "evidence_id"
+            ],
+            "properties": {
+              "source_kind": {
+                "enum": [
+                  "entity_evidence"
+                ]
+              }
+            },
+            "not": {
+              "required": [
+                "path_round_id"
+              ]
+            }
+          },
+          {
+            "required": [
+              "source_kind",
+              "path_round_id"
+            ],
+            "properties": {
+              "source_kind": {
+                "const": "control_plane_path"
+              },
+              "agent_id": {
+                "const": "control_plane"
+              }
+            },
+            "not": {
+              "required": [
+                "evidence_id"
+              ]
+            }
+          }
         ]
       },
       "IncidentVerdictHypothesis": {
@@ -20000,6 +20050,14 @@
           },
           "path": {
             "$ref": "#/components/schemas/Path"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Server database clock after discovery, when retained. Missing legacy completion remains unavailable, never inferred from the start or batch flush."
           }
         },
         "required": [
