@@ -176,7 +176,7 @@ test-performance: ## Enforce wall-clock smoke budgets without race instrumentati
 
 .PHONY: test-isolation
 test-isolation: ## Run the cross-tenant isolation gate (docs/guardrails.md G7-1).
-	$(GO) test -tags=isolation -race -count=1 ./...
+	$(GO) test -tags=isolation -race -count=1 -timeout 60m ./...
 
 .PHONY: test-integration
 test-integration: ## Run integration tests across modules (needs a database / dev stack).

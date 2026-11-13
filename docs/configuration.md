@@ -472,6 +472,10 @@ authority. The background queue reuses `buffer.max_records` and positive
 budget when disk bytes are unbounded. Queue admission failures are observable
 and leave ordinary probes/result delivery running. See
 [ICMP collector facts](entity-registry.md#icmp-collector-facts-preview).
+Evidence delivery has a one-minute finite RPC deadline, including background
+queue delivery, so complete admitted outcome documents can finish verified
+persistence. Earlier caller deadlines and cancellation still take precedence;
+the wire, queue-memory and per-tenant byte admissions remain independent.
 Non-ICMP outcomes retain each observed success, failure or cancellation separately;
 they do not imply packet loss or authorize dependency holds. See
 [configured-test outcomes](entity-registry.md#configured-test-outcomes-preview).

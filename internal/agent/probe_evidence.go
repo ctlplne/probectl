@@ -264,7 +264,7 @@ func (h *Host) runProbeEvidence(ctx context.Context) {
 		for i, item := range batch {
 			observations[i] = item.observation
 		}
-		call, cancel := context.WithTimeout(ctx, 5*time.Second)
+		call, cancel := context.WithTimeout(ctx, evidenceDeliveryTimeout)
 		accepted, unresolved, err := q.emitter.Submit(call, observations)
 		cancel()
 		if err == nil && (accepted < 0 || unresolved < 0 || accepted > len(batch) || unresolved != len(batch)-accepted) {

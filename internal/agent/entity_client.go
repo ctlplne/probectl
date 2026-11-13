@@ -36,6 +36,12 @@ type EvidenceClient struct {
 	addr, certFile, keyFile, caFile, serverName string
 }
 
+// Complete configured-test outcomes share the same bounded transport as
+// small identity claims. Encoding, verified persistence and the receipt for a
+// fully admitted 16 MiB document must not inherit the old five-second budget.
+// A caller's earlier deadline or cancellation always wins.
+const evidenceDeliveryTimeout = time.Minute
+
 // DialEntityEvidence refuses a missing or wrong-plane SVID before any network
 // call. A rotated certificate may change serial, but never tenant/agent/plane.
 func DialEntityEvidence(addr, certFile, keyFile, caFile, serverName string) (*EvidenceClient, error) {
@@ -222,7 +228,7 @@ func (c *EvidenceClient) Submit(ctx context.Context, observations []entity.Obser
 	if err != nil {
 		return 0, 0, err
 	}
-	callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	callCtx, cancel := context.WithTimeout(ctx, evidenceDeliveryTimeout)
 	defer cancel()
 	c.mu.RLock()
 	svc := c.svc
@@ -284,7 +290,7 @@ func (c *EvidenceClient) SubmitFaults(ctx context.Context, raw []entity.FaultObs
 			Kind: string(fault.Kind), ObservedUnixNanos: fault.ObservedAt.UnixNano(),
 		})
 	}
-	callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	callCtx, cancel := context.WithTimeout(ctx, evidenceDeliveryTimeout)
 	defer cancel()
 	c.mu.RLock()
 	svc := c.svc
