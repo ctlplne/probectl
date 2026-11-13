@@ -18,6 +18,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/change"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -42,7 +43,20 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			d.observe(t, tenant, 0, lane == 1)
 		}
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permTestRead); err != nil {
+			for _, permission := range []string{permTestRead, permChangeRead} {
+				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
+					return err
+				}
+			}
+			if _, err := sc.Q.Exec(ctx, `UPDATE incidents SET started_at=$3,last_seen_at=$3 WHERE tenant_id=$1 AND id=$2`, tenant, d.cases[tenant], from.Add(2*time.Hour)); err != nil {
+				return err
+			}
+			if _, err := (store.ChangeEvents{}).Create(ctx, sc, change.Event{Source: "generic", Kind: change.KindDeploy, Title: "month for " + tenant, OccurredAt: from.Add(time.Hour)}); err != nil {
+				return err
+			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO device_configs(tenant_id,device,version,content,content_hash,previous_hash,drifted,observed_at,archived_at)
+ VALUES($1,'same-report-device',1,'redacted model previous',$3,'',false,$2::timestamptz-interval '1 day',$2),
+ ($1,'same-report-device',2,'redacted model current',$4,$3,true,$2::timestamptz+interval '1 hour',$2)`, tenant, from, strings.Repeat("a", 64), strings.Repeat("b", 64)); err != nil {
 				return err
 			}
 			current, err := readCurrentUserAuthorityScope(ctx, sc, f.users[tenant])
@@ -55,7 +69,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	}
 	for lane, tenant := range f.tenants {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
-		capture, err := f.server.captureClientReportTests(ctx, actors[tenant], "", at, flowstore.DefaultExplorerBudget())
+		capture, err := f.server.captureClientReportSources(ctx, actors[tenant], "", at, flowstore.DefaultExplorerBudget())
 		if err != nil {
 			t.Fatal("complete backdated-month capture failed", err)
 		}
@@ -63,6 +77,14 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		capture.close()
 		if capture.TenantID != tenant || len(capture.Sources) != 2 || len(capture.Availability) != 2 || len(capture.Tables) != 2 || len(capture.InputsDigest) != 64 {
 			t.Fatal("month capture lost source population or provenance")
+		}
+		if capture.Events == nil || len(capture.Events.Incidents) != 1 || capture.Events.Incidents[0].ID != d.cases[tenant] || len(capture.Events.IncidentLineage[d.cases[tenant]]) != 64 || len(capture.Events.Changes) != 2 {
+			t.Fatal("whole monthly incident, stored change or config-drift input was omitted")
+		}
+		for _, event := range capture.Events.Changes {
+			if event.TenantID != tenant {
+				t.Fatal("monthly event capture included another tenant")
+			}
 		}
 		foundRoot := false
 		for _, row := range capture.Availability {
@@ -85,7 +107,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			}
 		}
 		foreign := tenancy.WithTenant(ctx, tenancy.ID(f.tenants[1-lane]))
-		if result, err := f.server.captureClientReportTests(foreign, actors[tenant], "", at, flowstore.DefaultExplorerBudget()); !errors.Is(err, entity.ErrScopeMismatch) || result != nil {
+		if result, err := f.server.captureClientReportSources(foreign, actors[tenant], "", at, flowstore.DefaultExplorerBudget()); !errors.Is(err, entity.ErrScopeMismatch) || result != nil {
 			t.Fatal("capture adopted another request's tenant", err)
 		}
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
@@ -102,22 +124,35 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	}
 	a, b := f.tenants[0], f.tenants[1]
 	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, a, f.roles[a], permTestRead)
+		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, a, f.roles[a], permChangeRead)
 		return err
 	})
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(a))
-	result, err := f.server.captureClientReportTests(ctx, actors[a], "", at, flowstore.DefaultExplorerBudget())
+	result, err := f.server.captureClientReportSources(ctx, actors[a], "", at, flowstore.DefaultExplorerBudget())
 	domain, ok := apierror.As(err)
+	if !ok || domain.Kind != apierror.KindForbidden || result != nil {
+		t.Fatal("stale actor retained withdrawn change permission or returned a test-only prefix", err)
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		return (store.Roles{}).AddPermission(ctx, sc, f.roles[a], permChangeRead)
+	})
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, a, f.roles[a], permTestRead)
+		return err
+	})
+	ctx = tenancy.WithTenant(t.Context(), tenancy.ID(a))
+	result, err = f.server.captureClientReportSources(ctx, actors[a], "", at, flowstore.DefaultExplorerBudget())
+	domain, ok = apierror.As(err)
 	if !ok || domain.Kind != apierror.KindForbidden || result != nil {
 		t.Fatal("stale actor retained withdrawn source permission or returned a partial capture", err)
 	}
 	ctx = tenancy.WithTenant(t.Context(), tenancy.ID(b))
-	result, err = f.server.captureClientReportTests(ctx, actors[b], "", at, flowstore.DefaultExplorerBudget())
+	result, err = f.server.captureClientReportSources(ctx, actors[b], "", at, flowstore.DefaultExplorerBudget())
 	if err != nil || result == nil || len(result.Availability) != 2 {
 		t.Fatal("permission withdrawal crossed tenant storage/current-authority boundary", err)
 	}
 	result.close()
-	t.Log("real-integration: complete backdated calendar-month capture through application-role PG/RLS, current actor/source/definition, expired original serials plus renewed current identities, distinct paired counts, tenant refusal and withdrawn current permission with sibling survival; historical clocks/outcomes modeled, full pack/publication/delivery and real senders remain owed")
+	t.Log("real-integration: complete backdated calendar-month capture through application-role PG/RLS, current actor/source/definition, expired original serials plus renewed current identities, distinct paired counts, whole incident/change/config inputs, tenant refusal and withdrawn current permission with sibling survival; historical clocks/outcomes modeled, full pack/publication/delivery and real senders remain owed")
 }
 
 func backdateClientReportOriginals(t *testing.T, d *dependencyRoutingFixture, tenant string, from time.Time) {

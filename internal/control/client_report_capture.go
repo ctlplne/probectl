@@ -22,7 +22,7 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-type clientReportTestCapture struct {
+type clientReportCapture struct {
 	TenantID     string
 	From, To     time.Time
 	Sources      []store.IncidentConfiguredTest
@@ -31,11 +31,12 @@ type clientReportTestCapture struct {
 	Availability []clientReportAvailability
 	SLOs         []clientReportSLO
 	Tables       []reporting.CSVTable
+	Events       *clientReportEventCapture
 	InputsDigest string
 	release      func()
 }
 
-func (c *clientReportTestCapture) close() {
+func (c *clientReportCapture) close() {
 	if c != nil && c.release != nil {
 		c.release()
 	}
@@ -45,7 +46,7 @@ func (c *clientReportTestCapture) close() {
 // selection, current credential ceiling and the complete original scan share
 // one RLS read snapshot. It changes neither live health nor historical sender
 // validity: the common original reader owns both existing certificate checks.
-func (s *Server) captureClientReportTests(ctx context.Context, actor *auth.Principal, month string, at time.Time, budget flowstore.ExplorerBudget) (_ *clientReportTestCapture, captureErr error) {
+func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Principal, month string, at time.Time, budget flowstore.ExplorerBudget) (_ *clientReportCapture, captureErr error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || actor == nil || actor.UserID == "" || bound.String() != actor.TenantID {
 		return nil, entity.ErrScopeMismatch
@@ -70,7 +71,7 @@ func (s *Server) captureClientReportTests(ctx context.Context, actor *auth.Princ
 	if err != nil {
 		return nil, err
 	}
-	result := &clientReportTestCapture{TenantID: actor.TenantID, From: from, To: to, release: sync.OnceFunc(release)}
+	result := &clientReportCapture{TenantID: actor.TenantID, From: from, To: to, release: sync.OnceFunc(release)}
 	defer func() {
 		if captureErr != nil {
 			result.close()
@@ -116,6 +117,10 @@ func (s *Server) captureClientReportTests(ctx context.Context, actor *auth.Princ
 			return err
 		}
 		result.Availability, result.SLOs, err = accumulator.finish(ctx)
+		if err != nil {
+			return err
+		}
+		result.Events, err = s.captureClientReportEventsInScope(ctx, sc, principal, from, to, budget.MemoryBytes/4)
 		return err
 	})
 	if err != nil {
@@ -133,7 +138,8 @@ func (s *Server) captureClientReportTests(ctx context.Context, actor *auth.Princ
 		SLOEnabled   bool
 		Availability []clientReportAvailability
 		SLOs         []clientReportSLO
-	}{result.TenantID, from, to, result.Sources, result.Definitions, result.SLOEnabled, result.Availability, result.SLOs}, budget.MemoryBytes/4)
+		Events       *clientReportEventCapture
+	}{result.TenantID, from, to, result.Sources, result.Definitions, result.SLOEnabled, result.Availability, result.SLOs, result.Events}, budget.MemoryBytes/4)
 	if err != nil {
 		return nil, err
 	}
