@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	gouuid "github.com/google/uuid"
 
@@ -117,15 +118,17 @@ func TestDependencyGraphCompleteTwentyThousandNodeServedPopulation(t *testing.T)
 			t.Fatal(err)
 		}
 		client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
+		started := time.Now()
 		stored, err := client.SetAlertDependencyPolicy(t.Context(), sdk.SetAlertDependencyPolicyRequest{Id: rules[tenant].ID, Body: &sdkInput})
 		if err != nil || stored == nil || !reflect.DeepEqual(stored.Policy.Graph, sdkInput.Graph) {
 			t.Fatal("complete SDK graph was refused or changed", err)
 		}
-		t.Log("complete SDK graph passed", tenant)
+		t.Log("complete SDK graph passed", tenant, "elapsed", time.Since(started))
 		var stdout, stderr bytes.Buffer
 		getenv := func(key string) string {
 			return map[string]string{"PROBECTL_API_URL": socket.URL, "PROBECTL_API_TOKEN": f.tokens[tenant], "PROBECTL_CA_FILE": ca}[key]
 		}
+		started = time.Now()
 		if code := cli.RunWithStdin([]string{"--json", "alert", "dependency-policy-set", rules[tenant].ID, "--body-file", "-"}, getenv, bytes.NewReader(body), &stdout, &stderr); code != 0 {
 			t.Fatal("complete CLI graph failed", code, stderr.String())
 		}
@@ -133,7 +136,7 @@ func TestDependencyGraphCompleteTwentyThousandNodeServedPopulation(t *testing.T)
 		if err := json.Unmarshal(stdout.Bytes(), &state); err != nil || state.Policy == nil || !reflect.DeepEqual(state.Policy.Graph, graph) {
 			t.Fatal("CLI lost graph nodes or edges", err)
 		}
-		t.Log("complete CLI graph passed", tenant)
+		t.Log("complete CLI graph passed", tenant, "elapsed", time.Since(started))
 	}
 	seedInterfaceRoleMCPConsent(f)
 	for _, wire := range []string{"2026-07-28", "2025-11-25"} {

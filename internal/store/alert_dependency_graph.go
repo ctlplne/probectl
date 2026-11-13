@@ -49,7 +49,11 @@ func ValidateDependencyGraphInScope(ctx context.Context, sc tenancy.Scope, conte
 	// Bind each complete input reference to its unique source key first. The
 	// OFFSET 0 preserves that parameterized lookup: flattening eight joined
 	// populations can multiply devices by tests before applying the exact keys.
-	// This is no row limit; every declared node must produce its one source.
+	// Test, path and general-context membership are independent exact-key
+	// existence checks. Joining those complete populations inside one EXISTS
+	// permits a context-wide join for each node instead of three unique probes.
+	// OFFSET 0 keeps these lookups parameterized; it drops no input or result.
+	// Every declared node must still produce its one current owned source.
 	err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM unnest($3::uuid[],$4::text[],$5::uuid[])
  AS ref(entity_id,agent_id,test_id)
  JOIN LATERAL (
@@ -65,11 +69,14 @@ func ValidateDependencyGraphInScope(ctx context.Context, sc tenancy.Scope, conte
      AND EXISTS(SELECT 1 FROM agents g
        WHERE (g.tenant_id,g.id)=(m.tenant_id,ref.agent_id::uuid) AND g.status<>'revoked')
      AND EXISTS(SELECT 1 FROM tests t
-       JOIN entity_path_test_contexts p ON
-         (p.tenant_id,p.context_id,p.test_id)=(t.tenant_id,m.context_id,t.id)
-       JOIN entity_test_contexts c ON
-         (c.tenant_id,c.context_id,c.test_id)=(p.tenant_id,p.context_id,p.test_id)
-       WHERE (t.tenant_id,t.id)=(m.tenant_id,ref.test_id) AND t.enabled AND t.type='icmp')
+	       WHERE (t.tenant_id,t.id)=(m.tenant_id,ref.test_id) AND t.enabled AND t.type='icmp'
+	       OFFSET 0)
+	     AND EXISTS(SELECT 1 FROM entity_path_test_contexts p
+	       WHERE (p.tenant_id,p.context_id,p.test_id)=(m.tenant_id,m.context_id,ref.test_id)
+	       OFFSET 0)
+	     AND EXISTS(SELECT 1 FROM entity_test_contexts c
+	       WHERE (c.tenant_id,c.context_id,c.test_id)=(m.tenant_id,m.context_id,ref.test_id)
+	       OFFSET 0)
      AND EXISTS(SELECT 1 FROM entity_agent_contexts a
        WHERE (a.tenant_id,a.context_id,a.agent_id)=(m.tenant_id,m.context_id,m.agent_id)
          AND a.assigned_at<=statement_timestamp()
