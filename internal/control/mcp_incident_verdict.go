@@ -9,6 +9,8 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -27,6 +29,21 @@ func (b mcpIncidentVerdictBackend) IncidentVerdict(ctx context.Context, actor *a
 		return nil, err
 	}
 	return marshalNativeIncidentVerdict(result)
+}
+
+// Only this fixed server contract receives structural encoding. Dots in an
+// unescaped version otherwise resemble a hostname to the ordinary PII masker.
+type nativeIncidentVerdictContract string
+
+func (value nativeIncidentVerdictContract) MarshalJSON() ([]byte, error) {
+	if value != "probectl.incident-verdict.v1" {
+		return nil, errors.New("invalid server incident verdict contract")
+	}
+	raw, err := json.Marshal(string(value))
+	if err != nil {
+		return nil, err
+	}
+	return []byte(strings.ReplaceAll(string(raw), ".", `\u002e`)), nil
 }
 
 // Only server-selected canonical UUIDs and computed document digests get
@@ -53,9 +70,10 @@ func marshalNativeIncidentVerdict(value incident.FaultVerdict) (json.RawMessage,
 	}
 	out := struct {
 		incident.FaultVerdict
-		IncidentID mcp.NativeRoleUUID `json:"incident_id"`
-		Hypotheses []hypothesis       `json:"hypotheses"`
-	}{FaultVerdict: value, IncidentID: mcp.NativeRoleUUID(value.IncidentID), Hypotheses: []hypothesis{}}
+		ContractVersion nativeIncidentVerdictContract `json:"contract_version"`
+		IncidentID      mcp.NativeRoleUUID            `json:"incident_id"`
+		Hypotheses      []hypothesis                  `json:"hypotheses"`
+	}{FaultVerdict: value, ContractVersion: nativeIncidentVerdictContract(value.ContractVersion), IncidentID: mcp.NativeRoleUUID(value.IncidentID), Hypotheses: []hypothesis{}}
 	for _, item := range value.Hypotheses {
 		out.Hypotheses = append(out.Hypotheses, hypothesis{item, project(item.For), project(item.Against)})
 	}

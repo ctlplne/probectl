@@ -45,7 +45,7 @@ func proveIncidentVerdictServedReaders(t *testing.T, f *roleExplanationAPIFixtur
 			t.Fatal(err)
 		}
 		if got.ContractVersion != "probectl.incident-verdict.v1" || !got.Preview || got.IncidentID != id || got.ValidUntil == nil {
-			t.Fatal("served verdict lost its contract or authority deadline")
+			t.Fatalf("served verdict metadata: contract=%q preview=%v same_incident=%v deadline=%v", got.ContractVersion, got.Preview, got.IncidentID == id, got.ValidUntil != nil)
 		}
 		var expected incident.FaultVerdict
 		encoded, _ := json.Marshal(want)
