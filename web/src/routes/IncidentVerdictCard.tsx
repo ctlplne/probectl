@@ -282,6 +282,18 @@ function Citations({ title, values }: { title: string; values: IncidentVerdictCi
                       <dd>{value.evidence_id}</dd>
                     </div>
                   ) : null}
+                  {value.peer_asn !== undefined ? (
+                    <div>
+                      <dt>Carrier ASN</dt>
+                      <dd>AS{value.peer_asn}</dd>
+                    </div>
+                  ) : null}
+                  {value.handoff_interface_id ? (
+                    <div>
+                      <dt>Hand-off interface</dt>
+                      <dd>{value.handoff_interface_id}</dd>
+                    </div>
+                  ) : null}
                   {value.path_round_id ? (
                     <div>
                       <dt>Control-plane path round</dt>

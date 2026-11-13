@@ -6,11 +6,21 @@
 
 package incident
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/google/uuid"
+)
 
 // SourceReference keeps original observation namespaces distinct. A path's
 // opaque round ID is never relabelled as an entity-evidence UUID or an agent.
 func (c VerdictCitation) SourceReference() (string, error) {
+	if c.PeerASN != 0 || c.HandoffInterfaceID != "" {
+		id, err := uuid.Parse(c.HandoffInterfaceID)
+		if c.PeerASN == 0 || err != nil || id == uuid.Nil || id.String() != c.HandoffInterfaceID || c.SourceKind == "control_plane_path" {
+			return "", errors.New("invalid carrier handoff reference")
+		}
+	}
 	switch c.SourceKind {
 	case "", "entity_evidence":
 		if c.EvidenceID != "" && c.PathRoundID == "" {

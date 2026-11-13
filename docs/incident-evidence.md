@@ -185,7 +185,8 @@ current `incident.read`, `entities.read`, `metrics.read`, `events.read` and
 `test.read`; the native tool also uses the existing tenant egress consent and
 redaction controls. It does not require an AI query or remote model.
 
-This preview reads original interface-state and primary HTTPS observations.
+This preview reads original interface-state, physical BMP neighbour lifecycle
+and primary HTTPS observations.
 A directly implicated, currently owned backbone interface must have original
 administrative-up and operational-down evidence. A role label alone supplies
 no failure measurement. Remote-service corroboration requires overlapping
@@ -194,8 +195,19 @@ verified TLS and original server-error responses. A timeout, missing response,
 posture-only TLS handshake or cross-origin redirect supplies no such proof.
 
 Every response retains all four hypotheses, their supporting and contradicting
-original citations, missing coverage and the selected window. Carrier and
-wider-internet source evidence are not connected in this preview. Thin,
+original citations, missing coverage and the selected window. Carrier
+corroboration requires an original neighbour Hold Timer Expired notification,
+an enabled, operationally healthy hand-off, healthy local backbone coverage,
+and complete overlapping network losses from different agents to different
+external destinations. Current provider-AS declarations and a complete observed
+on-link prefix/interface binding must place the event at that canonical hand-off;
+a declaration or binding observed only after the event supplies no such proof.
+Carrier citations retain the full peer ASN and `handoff_interface_id`. Successful
+external replies, peer-up/monitoring withdrawal, administrative shutdown and
+incomplete receive work prevent this corroboration. These are evidence-based
+carrier hand-off observations, not proof of the provider's internal root cause.
+Wider-internet positive classification still needs its own independent localized
+path proof; absent intermediate replies never substitute for it. Thin,
 contradictory or unresolved incident coverage returns `unknown`. The label
 `remote_service` describes observed service failure; it does not identify a
 SaaS provider or attribute its internal root cause. Confidence is an evidence

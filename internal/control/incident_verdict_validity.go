@@ -42,6 +42,13 @@ func incidentVerdictSnapshotStillCurrent(snapshot incidentVerdictSnapshot, resul
 			}
 		}
 	}
+	for _, read := range snapshot.peerSessions {
+		if read.SourceCurrent && read.Session != nil {
+			if err := include(read.ValidUntil); err != nil {
+				return err
+			}
+		}
+	}
 	for _, source := range snapshot.tests {
 		for _, until := range []*time.Time{source.ValidUntil, source.MeasurementIdentityUntil} {
 			if err := include(until); err != nil {

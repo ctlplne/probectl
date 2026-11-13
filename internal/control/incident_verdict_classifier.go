@@ -31,7 +31,9 @@ type incidentVerdictInterface struct {
 	reads  []store.IncidentInterfaceStateMeasurement
 	// Direct membership is derived from the complete incident's canonical
 	// root/signal references, not an address or the router's whole inventory.
-	direct bool
+	direct     bool
+	roleInputs store.InterfaceRoleInputs
+	peerReads  []store.IncidentPeerSessionMeasurement
 }
 
 type incidentVerdictTest struct {
@@ -47,10 +49,10 @@ type incidentVerdictEvidence struct {
 	paths      []incidentVerdictPath
 }
 
-// classifyIncidentVerdict currently evaluates original local interface states
-// and primary HTTPS responses. Carrier and wider-internet remain explicitly
-// unavailable until their own current routing/path readers supply proof. A
-// transit label, missing hop, route change or public overlap cannot stand in.
+// classifyIncidentVerdict evaluates original local state, carrier hand-off
+// failures and primary HTTPS responses. Wider-internet remains unavailable
+// without its own localized independent path proof. A transit label, missing
+// hop, route change or public overlap cannot stand in.
 func classifyIncidentVerdict(ctx context.Context, input incidentVerdictEvidence, maxBytes int64) (incident.FaultVerdict, error) {
 	none := incident.FaultVerdict{}
 	if err := validateIncidentVerdictScope(ctx, input); err != nil {
@@ -82,11 +84,16 @@ func classifyIncidentVerdict(ctx context.Context, input incidentVerdictEvidence,
 	if err := classifyIncidentControlPlanePaths(ctx, input, seen, &remaining, result.Hypotheses); err != nil {
 		return none, err
 	}
-	result.Hypotheses[1].Missing = append(result.Hypotheses[1].Missing, "original_carrier_failure_and_current_asn_handoff")
+	carrier, err := classifyIncidentCarrier(ctx, input, seen, &remaining, result.Hypotheses[0], &result.Hypotheses[1])
+	if err != nil {
+		return none, err
+	}
 	result.Hypotheses[2].Missing = append(result.Hypotheses[2].Missing, "independent_current_internet_path_failure")
 	switch {
-	case local && remote:
+	case local && remote || carrier && (local || remote):
 		result.Reason = "competing_fault_domains"
+	case carrier:
+		result.Domain, result.Confidence, result.Reason = incident.FaultCarrier, "corroborated", "original_handoff_neighbor_failure_and_independent_network_loss"
 	case local:
 		result.Domain, result.Confidence, result.Reason = incident.FaultYourNetwork, "direct", "original_unplanned_local_interface_down"
 	case remote:
@@ -95,6 +102,8 @@ func classifyIncidentVerdict(ctx context.Context, input incidentVerdictEvidence,
 	for i := range result.Hypotheses {
 		sortVerdictCitations(result.Hypotheses[i].For)
 		sortVerdictCitations(result.Hypotheses[i].Against)
+		result.Hypotheses[i].For = slices.Compact(result.Hypotheses[i].For)
+		result.Hypotheses[i].Against = slices.Compact(result.Hypotheses[i].Against)
 		slices.Sort(result.Hypotheses[i].Missing)
 		result.Hypotheses[i].Missing = slices.Compact(result.Hypotheses[i].Missing)
 	}
@@ -112,6 +121,11 @@ func validateIncidentVerdictScope(ctx context.Context, input incidentVerdictEvid
 		if item.source.TenantID != input.tenantID || item.role.TenantID != input.tenantID ||
 			item.role.ContextID != item.source.ContextID || item.role.InterfaceID != item.source.EntityID {
 			return entity.ErrScopeMismatch
+		}
+		for _, read := range item.peerReads {
+			if read.TenantID != input.tenantID || read.ContextID != item.source.ContextID || read.RouterID != item.source.RouterID || read.SourceGeneration != item.source.SourceGeneration || item.roleInputs.Policy.Scope != item.roleInputs.Scope || item.roleInputs.Scope.TenantID != input.tenantID || item.roleInputs.Scope.ContextID != item.source.ContextID || item.roleInputs.RouterID != item.source.RouterID || item.roleInputs.InterfaceID != item.source.EntityID {
+				return entity.ErrScopeMismatch
+			}
 		}
 		for _, read := range item.reads {
 			if read.TenantID != input.tenantID || read.ContextID != item.source.ContextID || read.EntityID != item.source.EntityID ||
@@ -140,7 +154,7 @@ func validateIncidentVerdictScope(ctx context.Context, input incidentVerdictEvid
 }
 
 func chargeVerdictCitation(remaining *int64, citation incident.VerdictCitation) error {
-	cost := int64(1024) + 8*int64(len(citation.ContextID)+len(citation.EntityID)+len(citation.EvidenceID)+len(citation.SourceKind)+len(citation.PathRoundID)+len(citation.AgentID)+len(citation.Digest)+len(citation.Reason))
+	cost := int64(1024) + 8*int64(len(citation.ContextID)+len(citation.EntityID)+len(citation.EvidenceID)+len(citation.SourceKind)+len(citation.PathRoundID)+len(citation.AgentID)+len(citation.Digest)+len(citation.Reason)+len(citation.HandoffInterfaceID))
 	if cost > *remaining {
 		return store.ErrIncidentImpactBudget
 	}

@@ -29,15 +29,17 @@ const (
 // Source readers must recheck the original document and current authority at
 // publication; a citation is never a reusable grant.
 type VerdictCitation struct {
-	ContextID   string    `json:"context_id"`
-	EntityID    string    `json:"entity_id"`
-	EvidenceID  string    `json:"evidence_id,omitempty"`
-	SourceKind  string    `json:"source_kind,omitempty"`
-	PathRoundID string    `json:"path_round_id,omitempty"`
-	AgentID     string    `json:"agent_id"`
-	Digest      string    `json:"digest"`
-	ObservedAt  time.Time `json:"observed_at"`
-	Reason      string    `json:"reason"`
+	ContextID          string    `json:"context_id"`
+	EntityID           string    `json:"entity_id"`
+	EvidenceID         string    `json:"evidence_id,omitempty"`
+	SourceKind         string    `json:"source_kind,omitempty"`
+	PathRoundID        string    `json:"path_round_id,omitempty"`
+	PeerASN            uint32    `json:"peer_asn,omitempty"`
+	HandoffInterfaceID string    `json:"handoff_interface_id,omitempty"`
+	AgentID            string    `json:"agent_id"`
+	Digest             string    `json:"digest"`
+	ObservedAt         time.Time `json:"observed_at"`
+	Reason             string    `json:"reason"`
 }
 
 type VerdictHypothesis struct {

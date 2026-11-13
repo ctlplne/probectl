@@ -43,22 +43,9 @@ func explainInterfaceRoleInputs(ctx context.Context, in store.InterfaceRoleInput
 		facts.SourceID, facts.SourceActive, facts.Clock = snmp.SourceID, true, roleInputClock(snmp.InterfaceRoleEvidenceClock)
 		facts.Addresses, description = snmp.Addresses, snmp.Description
 		if in.Override == nil && snmp.Prefixes != nil {
-			if err := budget.charge(ctx, len(snmp.Prefixes), 128, 1); err != nil {
+			prefixes, bindings, err := interfaceRoleAssociationInputs(ctx, in, &budget)
+			if err != nil {
 				return none, err
-			}
-			if err := budget.charge(ctx, len(snmp.Bindings), 512, 1); err != nil {
-				return none, err
-			}
-			prefixes := interfaceRolePrefixSnapshot{Scope: in.Scope, RouterID: in.RouterID,
-				SourceID: snmp.PrefixSourceID, Clock: roleInputClock(snmp.PrefixClock), SourceActive: true, Complete: true}
-			for _, row := range snmp.Prefixes {
-				prefixes.Rows = append(prefixes.Rows, interfaceRolePrefixRow{IfIndex: row.IfIndex, Prefix: row.Prefix, OnLink: row.OnLink})
-			}
-			bindings := make([]interfaceRoleInterfaceBinding, 0, len(snmp.Bindings))
-			for _, binding := range snmp.Bindings {
-				bindings = append(bindings, interfaceRoleInterfaceBinding{Scope: in.Scope, RouterID: in.RouterID,
-					InterfaceID: binding.InterfaceID, SourceID: binding.SourceID, IfIndex: binding.IfIndex,
-					SourceActive: true, Clock: roleInputClock(binding.InterfaceRoleEvidenceClock)})
 			}
 			unresolved := false
 			for _, observed := range in.Peers {
@@ -122,4 +109,31 @@ func sameInterfaceRoleInputs(a, b store.InterfaceRoleInputs) bool {
 		x.SourceID == y.SourceID && x.PrefixSourceID == y.PrefixSourceID && x.Description == y.Description &&
 		(x.Prefixes == nil) == (y.Prefixes == nil) && slices.Equal(x.Addresses, y.Addresses) &&
 		slices.Equal(x.Prefixes, y.Prefixes) && slices.Equal(x.Bindings, y.Bindings)
+}
+
+// One current complete prefix/binding projection serves both role explanation
+// and interpretation of original lifecycle events; neither grants identity.
+func interfaceRoleAssociationInputs(ctx context.Context, in store.InterfaceRoleInputs, budget *interfaceRoleBudget) (interfaceRolePrefixSnapshot, []interfaceRoleInterfaceBinding, error) {
+	snmp := in.SNMP
+	if snmp == nil || snmp.Prefixes == nil {
+		return interfaceRolePrefixSnapshot{}, nil, entity.ErrInvalidClaim
+	}
+	if err := budget.charge(ctx, len(snmp.Prefixes), 128, 1); err != nil {
+		return interfaceRolePrefixSnapshot{}, nil, err
+	}
+	if err := budget.charge(ctx, len(snmp.Bindings), 512, 1); err != nil {
+		return interfaceRolePrefixSnapshot{}, nil, err
+	}
+	prefixes := interfaceRolePrefixSnapshot{Scope: in.Scope, RouterID: in.RouterID,
+		SourceID: snmp.PrefixSourceID, Clock: roleInputClock(snmp.PrefixClock), SourceActive: true, Complete: true}
+	for _, row := range snmp.Prefixes {
+		prefixes.Rows = append(prefixes.Rows, interfaceRolePrefixRow{IfIndex: row.IfIndex, Prefix: row.Prefix, OnLink: row.OnLink})
+	}
+	bindings := make([]interfaceRoleInterfaceBinding, 0, len(snmp.Bindings))
+	for _, binding := range snmp.Bindings {
+		bindings = append(bindings, interfaceRoleInterfaceBinding{Scope: in.Scope, RouterID: in.RouterID,
+			InterfaceID: binding.InterfaceID, SourceID: binding.SourceID, IfIndex: binding.IfIndex,
+			SourceActive: true, Clock: roleInputClock(binding.InterfaceRoleEvidenceClock)})
+	}
+	return prefixes, bindings, nil
 }

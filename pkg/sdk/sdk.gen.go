@@ -2591,15 +2591,17 @@ type IncidentShareSelection struct {
 }
 
 type IncidentVerdictCitation struct {
-	AgentId     string `json:"agent_id"`
-	ContextId   string `json:"context_id"`
-	Digest      string `json:"digest"`
-	EntityId    string `json:"entity_id"`
-	EvidenceId  string `json:"evidence_id,omitempty"`
-	ObservedAt  string `json:"observed_at"`
-	PathRoundId string `json:"path_round_id,omitempty"`
-	Reason      string `json:"reason"`
-	SourceKind  string `json:"source_kind,omitempty"`
+	AgentId            string `json:"agent_id"`
+	ContextId          string `json:"context_id"`
+	Digest             string `json:"digest"`
+	EntityId           string `json:"entity_id"`
+	EvidenceId         string `json:"evidence_id,omitempty"`
+	HandoffInterfaceId string `json:"handoff_interface_id,omitempty"`
+	ObservedAt         string `json:"observed_at"`
+	PathRoundId        string `json:"path_round_id,omitempty"`
+	PeerAsn            int    `json:"peer_asn,omitempty"`
+	Reason             string `json:"reason"`
+	SourceKind         string `json:"source_kind,omitempty"`
 }
 
 type IncidentVerdictCommand struct {

@@ -131,6 +131,9 @@ func (s *Server) loadIncidentVerdictSnapshot(ctx context.Context, actor *auth.Pr
 			}
 			if err == nil {
 				err = (store.Incidents{}).RecheckPeerSessionMeasurementsInScope(ctx, sc, out.sources, original.peerSessions, limit, authorize)
+				if err == nil {
+					out.peerSessions = original.peerSessions
+				}
 			}
 		}
 		if err != nil {
@@ -159,6 +162,11 @@ func (s *Server) joinIncidentVerdictSnapshot(ctx context.Context, sc tenancy.Sco
 	for _, member := range snapshot.inputs.Entities {
 		members[member.ContextID+":"+member.EntityID] = true
 	}
+	peerReads := map[string][]store.IncidentPeerSessionMeasurement{}
+	for _, read := range snapshot.peerSessions {
+		key := read.ContextID + ":" + read.RouterID
+		peerReads[key] = append(peerReads[key], read)
+	}
 	stateReads := map[string][]store.IncidentInterfaceStateMeasurement{}
 	for _, read := range snapshot.states {
 		key := read.ContextID + ":" + read.EntityID
@@ -179,7 +187,7 @@ func (s *Server) joinIncidentVerdictSnapshot(ctx context.Context, sc tenancy.Sco
 			return err
 		}
 		snapshot.roles = append(snapshot.roles, fingerprint)
-		snapshot.evidence.interfaces = append(snapshot.evidence.interfaces, incidentVerdictInterface{source: source, role: role, reads: stateReads[key], direct: true})
+		snapshot.evidence.interfaces = append(snapshot.evidence.interfaces, incidentVerdictInterface{source: source, role: role, reads: stateReads[key], direct: true, roleInputs: fingerprint, peerReads: peerReads[source.ContextID+":"+source.RouterID]})
 	}
 	testReads := map[string][]store.IncidentTestMeasurement{}
 	for _, read := range snapshot.outcomes {

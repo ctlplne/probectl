@@ -69,16 +69,17 @@ func (value nativeIncidentVerdictContract) MarshalJSON() ([]byte, error) {
 func marshalNativeIncidentVerdict(value incident.FaultVerdict) (json.RawMessage, error) {
 	type citation struct {
 		incident.VerdictCitation
-		ContextID   mcp.NativeRoleUUID      `json:"context_id"`
-		EntityID    mcp.NativeRoleUUID      `json:"entity_id"`
-		EvidenceID  mcp.NativeRoleUUID      `json:"evidence_id,omitempty"`
-		PathRoundID nativeIncidentPathRound `json:"path_round_id,omitempty"`
-		Digest      mcp.NativeRoleDigest    `json:"digest"`
+		ContextID          mcp.NativeRoleUUID      `json:"context_id"`
+		EntityID           mcp.NativeRoleUUID      `json:"entity_id"`
+		EvidenceID         mcp.NativeRoleUUID      `json:"evidence_id,omitempty"`
+		PathRoundID        nativeIncidentPathRound `json:"path_round_id,omitempty"`
+		HandoffInterfaceID mcp.NativeRoleUUID      `json:"handoff_interface_id,omitempty"`
+		Digest             mcp.NativeRoleDigest    `json:"digest"`
 	}
 	project := func(items []incident.VerdictCitation) []citation {
 		out := make([]citation, 0, len(items))
 		for _, item := range items {
-			out = append(out, citation{VerdictCitation: item, ContextID: mcp.NativeRoleUUID(item.ContextID), EntityID: mcp.NativeRoleUUID(item.EntityID), EvidenceID: mcp.NativeRoleUUID(item.EvidenceID), PathRoundID: nativeIncidentPathRound(item.PathRoundID), Digest: mcp.NativeRoleDigest(item.Digest)})
+			out = append(out, citation{VerdictCitation: item, ContextID: mcp.NativeRoleUUID(item.ContextID), EntityID: mcp.NativeRoleUUID(item.EntityID), EvidenceID: mcp.NativeRoleUUID(item.EvidenceID), PathRoundID: nativeIncidentPathRound(item.PathRoundID), HandoffInterfaceID: mcp.NativeRoleUUID(item.HandoffInterfaceID), Digest: mcp.NativeRoleDigest(item.Digest)})
 		}
 		return out
 	}

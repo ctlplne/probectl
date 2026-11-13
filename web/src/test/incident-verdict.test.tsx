@@ -71,7 +71,21 @@ function response(tenant: string): IncidentVerdictResponse {
                   reason: 'original_admin_up_oper_down_local_interface',
                 },
               ]
-            : [],
+            : domain === 'carrier'
+              ? [
+                  {
+                    context_id: id,
+                    entity_id: id,
+                    evidence_id: id,
+                    agent_id: `${tenant}-peer`,
+                    digest: 'c'.repeat(64),
+                    observed_at: incident.last_seen_at,
+                    reason: 'original_carrier_neighbor_hold_timer_expired',
+                    peer_asn: 4294967295,
+                    handoff_interface_id: id,
+                  },
+                ]
+              : [],
       }),
     ),
   }
@@ -129,6 +143,8 @@ for (const theme of ['light', 'dark'])
     })
     fireEvent.click(screen.getByRole('button', { name: 'Evaluate fault domain' }))
     expect(await screen.findByText('red-source')).toBeInTheDocument()
+    expect(screen.getByText('AS4294967295')).toBeInTheDocument()
+    expect(screen.getByText('Hand-off interface')).toBeInTheDocument()
     expect(selected).toEqual({ from: start, to: end })
     for (const name of ['Your network', 'Carrier', 'Wider internet', 'Remote service'])
       expect(screen.getByRole('region', { name })).toBeInTheDocument()

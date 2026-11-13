@@ -15652,6 +15652,7 @@
       "IncidentVerdictCitation": {
         "type": "object",
         "additionalProperties": false,
+        "dependentRequired": {"peer_asn": ["handoff_interface_id"], "handoff_interface_id": ["peer_asn"]},
         "properties": {
           "context_id": {
             "type": "string",
@@ -15664,6 +15665,18 @@
           "evidence_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "peer_asn": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 4294967295,
+            "description": "Original physical peer ASN with its current declared carrier hand-off; absent on other evidence."
+          },
+          "handoff_interface_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Current canonical hand-off bound by complete observed prefix and interface ownership, paired with peer_asn."
           },
           "agent_id": {
             "type": "string"

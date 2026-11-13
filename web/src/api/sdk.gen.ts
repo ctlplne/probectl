@@ -2461,8 +2461,10 @@ export interface IncidentVerdictCitation {
   digest: string
   entity_id: string
   evidence_id?: string
+  handoff_interface_id?: string
   observed_at: string
   path_round_id?: string
+  peer_asn?: number
   reason: string
   source_kind?: "entity_evidence" | "control_plane_path"
 }
