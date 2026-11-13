@@ -33,6 +33,7 @@ type releaseFlowReport struct {
 	packetContext, packetEntity, packetTag, packetRule, packetValue             string
 	packetPrefixCustomer                                                        string
 	body, frozen                                                                []byte
+	packetImpactInput, packetImpact                                             json.RawMessage
 }
 
 // Generated NetFlow wire -> actual registered collector -> TLS/SASL Kafka ->
@@ -194,7 +195,7 @@ func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key,
 	}
 	if packet {
 		for i := range proofs {
-			proofs[i].provePacketFaultImpact(t, &proofs[1-i], at)
+			proofs[i].provePacketFaultImpact(t, &proofs[1-i], at, command, ca)
 		}
 		t.Log("real packet report sources: actual softflowd IPFIX capture, exact selected packet/IP-byte counters, query-time rule history, registered collectors, TLS/SASL Kafka, HTTPS ClickHouse, encrypted snapshots and stored reports, paired API/CLI and foreign refusals passed; no hardware claim")
 	} else {

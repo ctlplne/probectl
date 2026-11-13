@@ -17,7 +17,7 @@ import (
 	"github.com/ctlplne/probectl/internal/otel"
 )
 
-func (p *releaseFlowReport) provePacketFaultImpact(t *testing.T, foreign *releaseFlowReport, at time.Time) {
+func (p *releaseFlowReport) provePacketFaultImpact(t *testing.T, foreign *releaseFlowReport, at time.Time, command, ca string) {
 	t.Helper()
 	// Keep the shipped three-minute silence threshold. This is an actual
 	// stopped exporter and a live collector, not a seeded incident or clock.
@@ -66,7 +66,7 @@ func (p *releaseFlowReport) provePacketFaultImpact(t *testing.T, foreign *releas
 	input := incident.ImpactInput{From: at.Add(-time.Minute), To: time.Now().UTC(), CustomerTagKey: "packet_prefix_customer"}
 	var impact incident.ImpactResponse
 	endpoint := "/v1/incidents/" + p.packetIncident + "/impact"
-	p.api.json(t, http.StatusOK, http.MethodPost, endpoint, input, &impact)
+	p.packetImpact = p.api.json(t, http.StatusOK, http.MethodPost, endpoint, input, &impact)
 	if impact.IncidentID != p.packetIncident || impact.UnresolvedRoot || len(impact.UnresolvedSignalIDs) != 0 ||
 		len(impact.Members) != 1 || impact.Members[0].ContextID != p.packetContext || impact.Members[0].EntityID != p.packetEntity || !impact.Members[0].IncidentRoot || len(impact.Members[0].SignalIDs) == 0 {
 		t.Fatal("real fault impact lost its stored canonical root or original signals")
@@ -116,5 +116,6 @@ func (p *releaseFlowReport) provePacketFaultImpact(t *testing.T, foreign *releas
 	if code, _ := foreign.api.do(t, http.MethodPost, endpoint, input); code != http.StatusNotFound {
 		t.Fatal("real packet incident impact crossed tenant storage", code)
 	}
+	p.provePacketImpactClients(t, input, command, ca, foreign)
 	t.Log("real-integration: stopped softflowd -> collector silence -> mTLS original fault -> one canonical tenant incident -> authenticated packet captures and exact closest-prefix customer; selected4096 requests exact, whole-device flush allowance256 packets; weekly baseline unavailable, original G4a routing/test/SLO/native/export qualification remains separate")
 }

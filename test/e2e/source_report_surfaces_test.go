@@ -44,6 +44,9 @@ func proveReleaseReportSurfaces(t *testing.T, root string, cli func(...string) s
 		if !p.mcpReportLink(t, mcpBase, token, p.tenant, reports[1-i].artifact) {
 			t.Fatal("release reporting native tool disclosed a foreign artifact")
 		}
+		if p.packet {
+			p.provePacketImpactNative(t, mcpBase, token, &reports[1-i])
+		}
 	}
 	for i := range reports {
 		for _, theme := range []string{"light", "dark"} {
