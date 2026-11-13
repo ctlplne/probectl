@@ -50,7 +50,7 @@ func (s *Server) captureClientReportCapacity(ctx context.Context, actor *auth.Pr
 	results := make([]clientReportCapacityCapture, 0, len(definitions))
 	starting := *remaining
 	for _, definition := range definitions {
-		input, err := clientReportCapacityInput(definition, capture.From, capture.To)
+		input, err := clientReportCapacityInput(definition, capture.From, capture.To, capture.Period.Timezone)
 		if err != nil {
 			return nil, err
 		}
@@ -103,16 +103,24 @@ func (s *Server) captureClientReportCapacity(ctx context.Context, actor *auth.Pr
 	return results, nil
 }
 
-func clientReportCapacityInput(definition reporting.ClientReportCapacityTarget, from, to time.Time) (flow.CapacityForecastRequest, error) {
+func clientReportCapacityInput(definition reporting.ClientReportCapacityTarget, from, to time.Time, timezones ...string) (flow.CapacityForecastRequest, error) {
 	months := definition.ForecastMonths
 	if months == 0 {
 		months = 1
 	}
-	if months < 1 || months > (9999-to.Year())*12 {
+	if months < 1 {
 		return flow.CapacityForecastRequest{}, apierror.Validation("monthly capacity requires a positive representable calendar-month forecast horizon")
 	}
+	zone := "UTC"
+	if len(timezones) > 0 && timezones[0] != "" {
+		zone = timezones[0]
+	}
+	until, err := flow.CalendarMonthOffset(context.Background(), to, months, zone, 4096)
+	if err != nil {
+		return flow.CapacityForecastRequest{}, apierror.Validation("monthly capacity horizon must fit the selected civil calendar")
+	}
 	input := flow.CapacityForecastRequest{Target: flow.CapacityTarget{Kind: definition.Target.Kind, ContextID: definition.Target.ContextID, InterfaceID: definition.Target.InterfaceID, TagID: definition.Target.TagID, TagValue: definition.Target.TagValue},
-		From: from.UTC().Format(time.RFC3339Nano), To: to.UTC().Format(time.RFC3339Nano), Until: to.AddDate(0, months, 0).UTC().Format(time.RFC3339Nano), Direction: definition.Direction, CapacityBPS: definition.CapacityBPS, MaximumPollGap: definition.MaximumPollGap, PhysicalBounds: []flow.CapacityPhysicalBound{}}
+		From: from.UTC().Format(time.RFC3339Nano), To: to.UTC().Format(time.RFC3339Nano), Until: until.Format(time.RFC3339Nano), Direction: definition.Direction, CapacityBPS: definition.CapacityBPS, MaximumPollGap: definition.MaximumPollGap, PhysicalBounds: []flow.CapacityPhysicalBound{}}
 	for _, bound := range definition.PhysicalBounds {
 		input.PhysicalBounds = append(input.PhysicalBounds, flow.CapacityPhysicalBound{ContextID: bound.ContextID, InterfaceID: bound.InterfaceID, MaxBPS: bound.MaxBPS})
 	}

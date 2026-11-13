@@ -6,12 +6,15 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
+import type { ClientReportDefinition } from './sdk.gen'
+export type { ClientReportDefinition, ClientReportCapacityTarget } from './sdk.gen'
 
 export type DashboardPreset = 'operator' | 'executive'
 export type ReportFormat = 'pdf' | 'csv'
 export type ReportCadence = 'daily' | 'weekly' | 'monthly'
 
 export interface DashboardDefinition {
+  client_report?: ClientReportDefinition | null
   flow_sources?: Array<{ id: string; version: string }>
   absolute_from?: string
   absolute_to?: string

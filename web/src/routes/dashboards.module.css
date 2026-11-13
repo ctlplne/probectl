@@ -426,3 +426,21 @@
     align-items: flex-start;
   }
 }
+
+.monthlyEditor {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.monthlyTarget {
+  display: grid;
+  gap: var(--space-3);
+  border: var(--border-width-thin) solid hsl(var(--border));
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+}
+
+.monthlyTarget h4 {
+  margin: 0;
+  font-size: var(--font-size-data);
+}

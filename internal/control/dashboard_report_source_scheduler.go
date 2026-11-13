@@ -113,7 +113,7 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 		if _, err := audit.TenantAppend(ctx, sc, dashboardReportSchedulerActor, "dashboard.report_delivery", id, map[string]any{
 			"dashboard_id": view.ID, "schedule_id": schedule.ID, "format": schedule.Format,
 			"destination_id": reportInboxDestination, "redaction_state": document.RedactionState,
-			"body_bytes": artifact.BodyBytes, "body_sha256": artifact.BodySHA256, "source_count": len(definition.FlowSources),
+			"body_bytes": artifact.BodyBytes, "body_sha256": artifact.BodySHA256, "source_count": reportCaptureSourceCount(capture),
 		}); err != nil {
 			return err
 		}

@@ -26,6 +26,7 @@ import (
 )
 
 type clientReportCapture struct {
+	Period           reporting.ClientReportPeriod
 	SourceGeneration int64
 	TenantID         string
 	From, To         time.Time
@@ -58,14 +59,15 @@ func (c *clientReportCapture) close() {
 // selection, current credential ceiling and the complete original scan share
 // one RLS read snapshot. It changes neither live health nor historical sender
 // validity: the common original reader owns both existing certificate checks.
-func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Principal, month string, at time.Time, budget flowstore.ExplorerBudget, capacityTargets ...reporting.ClientReportCapacityTarget) (_ *clientReportCapture, captureErr error) {
+func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor *auth.Principal, definition reporting.ClientReportDefinition, at time.Time, budget flowstore.ExplorerBudget) (_ *clientReportCapture, captureErr error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || actor == nil || actor.UserID == "" || bound.String() != actor.TenantID {
 		return nil, entity.ErrScopeMismatch
 	}
-	from, to, err := reporting.ClientReportMonth(month, at)
+	period, err := reporting.ResolveClientReportPeriod(ctx, definition, at)
+	from, to := period.From, period.To
 	if err != nil {
-		return nil, apierror.Validation("monthly test capture requires a completed UTC calendar month")
+		return nil, apierror.Validation("monthly report period or timezone is invalid")
 	}
 	if s.pool == nil || s.fairnessGate == nil || budget.Validate() != nil {
 		return nil, apierror.Unavailable("monthly report source admission is unavailable")
@@ -85,7 +87,7 @@ func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Pri
 	if err != nil {
 		return nil, err
 	}
-	result := &clientReportCapture{TenantID: actor.TenantID, From: from, To: to, release: sync.OnceFunc(release), access: access}
+	result := &clientReportCapture{Period: period, TenantID: actor.TenantID, From: from, To: to, release: sync.OnceFunc(release), access: access}
 	defer func() {
 		if captureErr != nil {
 			result.close()
@@ -174,7 +176,7 @@ func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Pri
 	}
 	result.retainedBytes += before - remaining
 	before = remaining
-	result.Capacity, err = s.captureClientReportCapacity(ctx, actor, result, capacityTargets, budget, &remaining)
+	result.Capacity, err = s.captureClientReportCapacity(ctx, actor, result, definition.CapacityTargets, budget, &remaining)
 	if err != nil {
 		return nil, err
 	}

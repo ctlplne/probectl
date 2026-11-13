@@ -750,7 +750,7 @@ export interface ChannelSpec {
 
 export interface ClientReportCapacityTarget {
   capacity_bps: string
-  direction: "in" | "out" | "max_directional_percentiles"
+  direction: "in" | "out" | "max_directional_percentiles" | "interval_max" | "interval_sum"
   forecast_months?: number
   maximum_poll_gap: string
   physical_bounds: CapacityPhysicalBound[]
@@ -760,6 +760,8 @@ export interface ClientReportCapacityTarget {
 export interface ClientReportDefinition {
   capacity_targets: ClientReportCapacityTarget[]
   month?: string
+  period?: "completed_month" | "month_to_date"
+  timezone?: string
 }
 
 export interface CollectorConfigHint {

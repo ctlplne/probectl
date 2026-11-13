@@ -42,3 +42,19 @@ func TestClientReportCapacityPreservesInteractiveMFARequirement(t *testing.T) {
 		t.Fatal("monthly capacity bypassed required interactive MFA", err)
 	}
 }
+
+func TestClientReportCapacityHorizonClampsCivilDayAndPreservesDST(t *testing.T) {
+	for _, tc := range []struct{ at, zone, until string }{
+		{"2024-01-31T15:45:00Z", "UTC", "2024-02-29T15:45:00Z"},
+		{"2024-03-01T05:00:00Z", "America/New_York", "2024-04-01T04:00:00Z"},
+	} {
+		to, err := time.Parse(time.RFC3339, tc.at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input, err := clientReportCapacityInput(reporting.ClientReportCapacityTarget{}, to.Add(-24*time.Hour), to, tc.zone)
+		if err != nil || input.Until != tc.until {
+			t.Fatal("civil forecast horizon", input.Until, err)
+		}
+	}
+}

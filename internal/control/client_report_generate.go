@@ -21,15 +21,19 @@ func cleanClientReportDefinition(d *dashboardDefinition) error {
 	if d.ClientReport == nil {
 		return nil
 	}
+	if d.ClientReport.CapacityTargets == nil {
+		d.ClientReport.CapacityTargets = []reporting.ClientReportCapacityTarget{}
+	}
 	if len(d.FlowSources) != 0 || !d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.IsZero() || len(d.Metrics) != 0 {
 		return apierror.Validation("client_report derives its complete monthly bounds and values; omit flow_sources, absolute bounds and metrics")
 	}
-	from, to, err := reporting.ClientReportMonth(d.ClientReport.Month, time.Now().UTC())
+	period, err := reporting.ResolveClientReportPeriod(context.Background(), *d.ClientReport, time.Now().UTC())
+	from, to := period.From, period.To
 	if err != nil {
-		return apierror.Validation("client_report.month must select a completed calendar month")
+		return apierror.Validation("client_report requires a valid timezone and completed month or current month-to-date period")
 	}
 	for _, target := range d.ClientReport.CapacityTargets {
-		if _, err := clientReportCapacityInput(target, from, to); err != nil {
+		if _, err := clientReportCapacityInput(target, from, to, period.Timezone); err != nil {
 			return err
 		}
 	}
@@ -40,7 +44,7 @@ func (s *Server) captureConfiguredReportSources(ctx context.Context, actor *auth
 	if definition.ClientReport == nil {
 		return s.captureReportFlowSources(ctx, actor, definition.FlowSources)
 	}
-	capture, err := s.captureClientReportSources(ctx, actor, definition.ClientReport.Month, at, flowstore.ExplorerQueryBudget(s.flowStore), definition.ClientReport.CapacityTargets...)
+	capture, err := s.captureConfiguredClientReportSources(ctx, actor, *definition.ClientReport, at, flowstore.ExplorerQueryBudget(s.flowStore))
 	if err != nil {
 		return nil, err
 	}

@@ -16,6 +16,7 @@ import {
   useReportSchedules,
   useUpdateReportSchedule,
   type DashboardDefinition,
+  type ClientReportDefinition,
   type DashboardManifest,
   type DashboardManifestImportResponse,
   type DashboardPreset,
@@ -28,6 +29,11 @@ import { useAuth } from '../auth/useAuth'
 import { Badge, Button, Card, CardBody, CardHeader, Field, Select, useToast } from '../components'
 import { DateTime } from '../time/DateTime'
 import { FlowViewLibrary } from './FlowViewLibrary'
+import {
+  MonthlyClientReportEditor,
+  emptyMonthlyReport,
+  validMonthlyReport,
+} from './MonthlyClientReportEditor'
 import styles from './dashboards.module.css'
 
 export function DashboardReportingCard({
@@ -46,6 +52,25 @@ export function DashboardReportingCard({
     hasScopedGrants,
   ])
   const [sourceMode, setSourceMode] = useState(false)
+  const [monthlyMode, setMonthlyMode] = useState(false)
+  const [monthlyDraft, setMonthlyDraft] = useState<{
+    identity: string
+    value: ClientReportDefinition
+  }>({ identity: sourceIdentity, value: emptyMonthlyReport() })
+  const monthlyDefinition =
+    monthlyDraft.identity === sourceIdentity ? monthlyDraft.value : emptyMonthlyReport()
+  const canReadMonthly = [
+    'metrics.read',
+    'entities.read',
+    'test.read',
+    'incident.read',
+    'change.read',
+    'events.read',
+  ].every((permission) => permissions.includes(permission))
+  const canMonthlyCapacity = permissions.includes('flow.read')
+  const validMonthly =
+    validMonthlyReport(monthlyDefinition) &&
+    (monthlyDefinition.capacity_targets.length === 0 || canMonthlyCapacity)
   const [sourceDraft, setSourceDraft] = useState<{
     identity: string
     items: Array<{ id: string; version: string; name: string }>
@@ -143,9 +168,14 @@ export function DashboardReportingCard({
         redaction_state: definition.redaction_state,
         coverage_limitations: definition.coverage_limitations,
       }
-      const savedDefinition: DashboardDefinition = sourceMode
-        ? { ...disclosures, flow_sources: sourceItems.map(({ id, version }) => ({ id, version })) }
-        : definition
+      const savedDefinition: DashboardDefinition = monthlyMode
+        ? { ...disclosures, client_report: monthlyDefinition }
+        : sourceMode
+          ? {
+              ...disclosures,
+              flow_sources: sourceItems.map(({ id, version }) => ({ id, version })),
+            }
+          : definition
       const view = await createDashboard.mutateAsync({
         name,
         preset,
@@ -290,6 +320,33 @@ export function DashboardReportingCard({
               That saved dashboard is unavailable in this tenant or authorization scope.
             </p>
           ) : null}
+          {canReadMonthly ? (
+            <section aria-label="Monthly client report" className={styles.manifestSection}>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={monthlyMode}
+                  disabled={!canWrite}
+                  onChange={(event) => {
+                    setMonthlyMode(event.target.checked)
+                    if (event.target.checked) {
+                      setSourceMode(false)
+                      setCadence('monthly')
+                    }
+                  }}
+                />
+                Build a monthly client pack (preview)
+              </label>
+              {monthlyMode && (
+                <MonthlyClientReportEditor
+                  value={monthlyDefinition}
+                  onChange={(value) => setMonthlyDraft({ identity: sourceIdentity, value })}
+                  disabled={!canWrite}
+                  canCapacity={canMonthlyCapacity}
+                />
+              )}
+            </section>
+          ) : null}
           {canReadSources ? (
             <section aria-label="Report saved flow sources" className={styles.manifestSection}>
               <label className={styles.checkboxLabel}>
@@ -297,7 +354,10 @@ export function DashboardReportingCard({
                   type="checkbox"
                   checked={sourceMode}
                   disabled={!canWrite}
-                  onChange={(event) => setSourceMode(event.target.checked)}
+                  onChange={(event) => {
+                    setSourceMode(event.target.checked)
+                    if (event.target.checked) setMonthlyMode(false)
+                  }}
                 />
                 Build from saved flow queries
               </label>
@@ -365,7 +425,8 @@ export function DashboardReportingCard({
                 !name.trim() ||
                 createDashboard.isPending ||
                 failed ||
-                (sourceMode && (!canReadSources || sourceItems.length === 0))
+                (sourceMode && (!canReadSources || sourceItems.length === 0)) ||
+                (monthlyMode && (!canReadMonthly || !validMonthly))
               }
             >
               {createDashboard.isPending ? 'Saving…' : 'Save dashboard'}
@@ -441,7 +502,22 @@ export function DashboardReportingCard({
             <section className={styles.savedSnapshot} aria-label="Selected saved snapshot">
               <strong>{activeView.name}</strong>
               <span>{activeView.preset} preset</span>
-              {activeView.definition.flow_sources?.length ? (
+              {activeView.definition.client_report ? (
+                <>
+                  <span>
+                    {activeView.definition.client_report.period === 'month_to_date'
+                      ? 'Month to date · partial'
+                      : 'Completed calendar month'}{' '}
+                    · {activeView.definition.client_report.timezone || 'UTC'}
+                  </span>
+                  <span>
+                    {activeView.definition.client_report.month || 'Month resolved at generation'} ·{' '}
+                    {(activeView.definition.client_report.capacity_targets ?? []).length} capacity
+                    targets
+                  </span>
+                  <span>Current source access is checked for every report.</span>
+                </>
+              ) : activeView.definition.flow_sources?.length ? (
                 <span>
                   {activeView.definition.flow_sources.length} saved flow sources; current source
                   access is checked for every report.

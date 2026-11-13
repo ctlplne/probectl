@@ -18113,13 +18113,26 @@
           "month": {
             "type": "string",
             "pattern": "^$|^[0-9]{4}-(0[1-9]|1[0-2])$",
-            "description": "Completed UTC calendar month; omitted selects previous month."
+            "description": "YYYY-MM in the selected timezone. Omitted selects the previous complete month, or the current month for month_to_date. Month-to-date is explicitly partial."
           },
           "capacity_targets": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ClientReportCapacityTarget"
             }
+          },
+          "timezone": {
+            "type": "string",
+            "default": "UTC",
+            "description": "IANA timezone for civil calendar bounds; offline rules, first valid instant for gaps and first occurrence for repeated instants."
+          },
+          "period": {
+            "type": "string",
+            "enum": [
+              "completed_month",
+              "month_to_date"
+            ],
+            "default": "completed_month"
           }
         }
       },
@@ -18142,12 +18155,14 @@
             "enum": [
               "in",
               "out",
-              "max_directional_percentiles"
+              "max_directional_percentiles",
+              "interval_max",
+              "interval_sum"
             ]
           },
           "capacity_bps": {
             "type": "string",
-            "pattern": "^[1-9][0-9]*$"
+            "description": "Positive exact decimal forecast threshold, independent of physical bounds or financial commit."
           },
           "maximum_poll_gap": {
             "type": "string"

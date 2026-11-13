@@ -310,7 +310,12 @@ coverage disclosures:
 {"client_report":{"month":"2026-10","capacity_targets":[]}}
 ```
 
-An omitted month selects the previous complete UTC calendar month. The pack
+An omitted month selects the previous complete calendar month in `timezone`
+(default `UTC`). Set `period` to `month_to_date` for the current month through
+generation time; that output is always labelled partial. IANA timezone rules
+are bundled for offline images. Skipped wall times use the first following
+instant; repeated wall times use their first occurrence. Calendar forecast
+horizons preserve local wall time and clamp absent days in short months. The pack
 contains availability, configured-window SLOs, incidents and deterministic
 verdicts, changes, capacity/runout and a complete offline signed-evidence index.
 An empty capacity target list explicitly makes no capacity/runout claim.
@@ -335,3 +340,10 @@ principal does not acquire an MFA assertion. A refused calculation publishes
 no partial pack. Manifests retain literal capacity references as configuration;
 when importing to another tenant, supply that tenant's canonical references.
 Foreign references never acquire source authority through import.
+
+
+In **Saved views and report delivery**, choose **Build a monthly client pack**,
+select the calendar period/timezone and add canonical capacity targets with
+explicit thresholds and physical member bounds. Save the view, then generate
+PDF/CSV or schedule it through the existing controls. Source drafts reset when
+the tenant or authorization scope changes; the server remains authoritative.

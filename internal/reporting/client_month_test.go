@@ -36,3 +36,25 @@ func TestClientReportMonthUsesCompleteUTCCalendarBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestClientReportPeriodUsesCivilCalendarAndLabelsPartial(t *testing.T) {
+	for _, tc := range []struct {
+		zone, month, kind, at, from, to string
+		partial                         bool
+	}{
+		{"America/New_York", "2024-03", "completed_month", "2024-04-01T04:00:00Z", "2024-03-01T05:00:00Z", "2024-04-01T04:00:00Z", false},
+		{"Asia/Kolkata", "", "completed_month", "2026-11-01T00:15:00+05:30", "2026-09-30T18:30:00Z", "2026-10-31T18:30:00Z", false},
+		{"America/Asuncion", "2017-10", "completed_month", "2017-11-02T00:00:00Z", "2017-10-01T04:00:00Z", "2017-11-01T03:00:00Z", false},
+		{"Asia/Kolkata", "", "month_to_date", "2026-11-14T12:34:00+05:30", "2026-10-31T18:30:00Z", "2026-11-14T07:04:00Z", true},
+		{"UTC", "2024-02", "completed_month", "2024-03-01T00:00:00Z", "2024-02-01T00:00:00Z", "2024-03-01T00:00:00Z", false},
+	} {
+		at, err := time.Parse(time.RFC3339, tc.at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		period, err := ResolveClientReportPeriod(t.Context(), ClientReportDefinition{Month: tc.month, Timezone: tc.zone, Period: tc.kind}, at)
+		if err != nil || period.From.Format(time.RFC3339) != tc.from || period.To.Format(time.RFC3339) != tc.to || period.Partial != tc.partial || period.Timezone != tc.zone || period.Kind != tc.kind {
+			t.Fatalf("civil report period %s/%s: %+v %v", tc.zone, tc.month, period, err)
+		}
+	}
+}

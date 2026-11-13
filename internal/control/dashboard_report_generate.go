@@ -109,7 +109,7 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 		return s.recordAudit(ctx, sc, r.WithContext(ctx), "dashboard.report_export", id, map[string]any{
 			"dashboard_id": view.ID, "format": req.Format, "destination_id": reportInboxDestination,
 			"redaction_state": document.RedactionState, "body_bytes": artifact.BodyBytes, "body_sha256": artifact.BodySHA256,
-			"source_count": len(definition.FlowSources),
+			"source_count": reportCaptureSourceCount(capture),
 		})
 	})
 	if err != nil {
@@ -124,7 +124,22 @@ func sourceReportDocument(view *store.DashboardView, definition dashboardDefinit
 	}
 	if capture.Monthly != nil {
 		provenance := append(append([]string{}, definition.Provenance...), "Monthly original inputs sha256:"+capture.Monthly.InputsDigest)
-		return reporting.Document{Title: view.Name, Preset: view.Preset, TenantName: tenantName, TenantScope: view.TenantID, AbsoluteFrom: capture.Monthly.From, AbsoluteTo: capture.Monthly.To, GeneratedAt: at, GeneratedBy: generator, Provenance: provenance, RedactionState: definition.RedactionState, CoverageLimitations: append(append([]string{}, definition.CoverageLimitations...), "Monthly client pack preview; retained observations do not prove complete scheduled coverage."), Tables: capture.Tables}, nil
+		period, err := reporting.ResolveClientReportPeriod(context.Background(), *definition.ClientReport, at)
+		if capture.monthlyCapture != nil {
+			period = capture.monthlyCapture.Period
+			err = nil
+		}
+		if err != nil {
+			return reporting.Document{}, err
+		}
+		provenance = append(provenance, "Calendar: "+period.Timezone+"; period: "+period.Kind+"; month: "+period.Month)
+		limitations := append([]string{}, definition.CoverageLimitations...)
+		if period.Partial {
+			limitations = append(limitations, "Month to date is partial through "+period.To.Format(time.RFC3339Nano)+"; never a complete calendar month.")
+		}
+		limitations = append(limitations, "Monthly client pack preview; retained observations do not prove complete scheduled coverage.")
+
+		return reporting.Document{Title: view.Name, Preset: view.Preset, TenantName: tenantName, TenantScope: view.TenantID, AbsoluteFrom: capture.Monthly.From, AbsoluteTo: capture.Monthly.To, GeneratedAt: at, GeneratedBy: generator, Provenance: provenance, RedactionState: definition.RedactionState, CoverageLimitations: limitations, Tables: capture.Tables}, nil
 	}
 	from, to := capture.Inputs[0].From, capture.Inputs[0].To
 	for _, input := range capture.Inputs {
@@ -253,4 +268,15 @@ func reportGenerationError(err error) error {
 	default:
 		return err
 	}
+}
+
+func reportCaptureSourceCount(capture *reportFlowCapture) int {
+	if capture.Monthly != nil {
+		return len(capture.Monthly.Bindings)
+	}
+	seen := map[string]bool{}
+	for _, input := range capture.Inputs {
+		seen[input.ID] = true
+	}
+	return len(seen)
 }

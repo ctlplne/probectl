@@ -854,6 +854,8 @@ type ClientReportCapacityTarget struct {
 type ClientReportDefinition struct {
 	CapacityTargets []ClientReportCapacityTarget `json:"capacity_targets"`
 	Month           string                       `json:"month,omitempty"`
+	Period          string                       `json:"period,omitempty"`
+	Timezone        string                       `json:"timezone,omitempty"`
 }
 
 type CollectorConfigHint struct {

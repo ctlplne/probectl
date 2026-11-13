@@ -35,6 +35,8 @@ type ClientReportPhysicalBound struct {
 // ClientReportDefinition selects an immutable month and explicit capacity
 // assumptions. An empty month resolves the previous complete calendar month.
 type ClientReportDefinition struct {
+	Timezone        string                       `json:"timezone,omitempty"`
+	Period          string                       `json:"period,omitempty"`
 	Month           string                       `json:"month,omitempty"`
 	CapacityTargets []ClientReportCapacityTarget `json:"capacity_targets"`
 }

@@ -140,7 +140,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	capacityTarget := reporting.ClientReportCapacityTarget{Target: reporting.ClientReportCapacityRef{Kind: "interface", ContextID: f.contextID, InterfaceID: f.interfaceID}, Direction: "max_directional_percentiles", CapacityBPS: "12000000", MaximumPollGap: "5m", PhysicalBounds: []reporting.ClientReportPhysicalBound{{ContextID: f.contextID, InterfaceID: f.interfaceID, MaxBPS: "50000000"}}, ForecastMonths: 1}
 	for lane, tenant := range f.tenants {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
-		capture, err := f.server.captureClientReportSources(ctx, actors[tenant], "", at, flowstore.DefaultExplorerBudget(), capacityTarget)
+		capture, err := f.server.captureConfiguredClientReportSources(ctx, actors[tenant], reporting.ClientReportDefinition{CapacityTargets: []reporting.ClientReportCapacityTarget{capacityTarget}}, at, flowstore.DefaultExplorerBudget())
 		if err != nil {
 			t.Fatal("complete backdated-month capture failed", err)
 		}
@@ -335,8 +335,61 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		if code != http.StatusOK {
 			t.Fatal("scheduled monthly pack reader", code)
 		}
+
+		for _, kind := range []string{"completed_month", "month_to_date"} {
+			calendar := reporting.ClientReportDefinition{Period: kind, Timezone: "Asia/Kolkata", CapacityTargets: []reporting.ClientReportCapacityTarget{capacityTarget}}
+			if kind == "completed_month" {
+				calendar.Month = from.Format("2006-01")
+			}
+			definition.ClientReport = &calendar
+			code, raw = call(tenant, http.MethodPost, "/v1/dashboards", reporting.DashboardCreateInput{Name: "Zoned monthly pack", Preset: "operator", Definition: definition})
+			if code != http.StatusCreated {
+				t.Fatalf("zoned monthly definition %s %d: %s", kind, code, raw)
+			}
+			var zonedView store.DashboardView
+			if err := json.Unmarshal(raw, &zonedView); err != nil {
+				t.Fatal(err)
+			}
+			started := time.Now().UTC()
+			code, raw = call(tenant, http.MethodPost, "/v1/dashboard-reports", reporting.ReportGenerateInput{DashboardID: zonedView.ID, Format: "csv"})
+			if code != http.StatusCreated {
+				t.Fatalf("zoned monthly generation %s %d: %s", kind, code, raw)
+			}
+			var artifact reportArtifactView
+			if err := json.Unmarshal(raw, &artifact); err != nil {
+				t.Fatal(err)
+			}
+			expected, err := reporting.ResolveClientReportPeriod(t.Context(), calendar, started)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !artifact.AbsoluteFrom.Equal(expected.From) || (kind == "completed_month" && !artifact.AbsoluteTo.Equal(expected.To)) || artifact.AbsoluteTo.After(time.Now().UTC()) || (kind == "month_to_date" && artifact.AbsoluteTo.Before(started)) {
+				t.Fatal("served monthly source lost civil or partial bounds", kind)
+			}
+			partial := false
+			var limitations []string
+			if err := json.Unmarshal(artifact.CoverageLimitations, &limitations); err != nil {
+				t.Fatal(err)
+			}
+			for _, limitation := range limitations {
+				if strings.Contains(limitation, "Month to date is partial") {
+					partial = true
+				}
+			}
+			if partial != (kind == "month_to_date") {
+				t.Fatal("monthly completeness disclosure is false", kind)
+			}
+			code, _ = call(tenant, http.MethodGet, "/v1/dashboard-report-artifacts/"+artifact.ID, nil)
+			if code != http.StatusOK {
+				t.Fatal("zoned monthly reader", code)
+			}
+			code, _ = call(f.tenants[1-lane], http.MethodGet, "/v1/dashboard-report-artifacts/"+artifact.ID, nil)
+			if code != http.StatusNotFound {
+				t.Fatal("zoned monthly pack crossed tenant", code)
+			}
+		}
 		foreign := tenancy.WithTenant(ctx, tenancy.ID(f.tenants[1-lane]))
-		if result, err := f.server.captureClientReportSources(foreign, actors[tenant], "", at, flowstore.DefaultExplorerBudget()); !errors.Is(err, entity.ErrScopeMismatch) || result != nil {
+		if result, err := f.server.captureConfiguredClientReportSources(foreign, actors[tenant], reporting.ClientReportDefinition{}, at, flowstore.DefaultExplorerBudget()); !errors.Is(err, entity.ErrScopeMismatch) || result != nil {
 			t.Fatal("capture adopted another request's tenant", err)
 		}
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
@@ -365,7 +418,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		t.Fatal("stored monthly source withdrawal crossed tenant", code)
 	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(a))
-	result, err := f.server.captureClientReportSources(ctx, actors[a], "", at, flowstore.DefaultExplorerBudget())
+	result, err := f.server.captureConfiguredClientReportSources(ctx, actors[a], reporting.ClientReportDefinition{}, at, flowstore.DefaultExplorerBudget())
 	domain, ok := apierror.As(err)
 	if !ok || domain.Kind != apierror.KindForbidden || result != nil {
 		t.Fatal("stale actor retained withdrawn change permission or returned a test-only prefix", err)
@@ -378,7 +431,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		return err
 	})
 	ctx = tenancy.WithTenant(t.Context(), tenancy.ID(a))
-	result, err = f.server.captureClientReportSources(ctx, actors[a], "", at, flowstore.DefaultExplorerBudget())
+	result, err = f.server.captureConfiguredClientReportSources(ctx, actors[a], reporting.ClientReportDefinition{}, at, flowstore.DefaultExplorerBudget())
 	domain, ok = apierror.As(err)
 	if !ok || domain.Kind != apierror.KindForbidden || result != nil {
 		t.Fatal("stale actor retained withdrawn source permission or returned a partial capture", err)
@@ -390,7 +443,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	if err := finalizers[b](ctx); err != nil {
 		t.Fatal("another tenant's permission loss invalidated a retained signed verdict", err)
 	}
-	result, err = f.server.captureClientReportSources(ctx, actors[b], "", at, flowstore.DefaultExplorerBudget())
+	result, err = f.server.captureConfiguredClientReportSources(ctx, actors[b], reporting.ClientReportDefinition{}, at, flowstore.DefaultExplorerBudget())
 	if err != nil || result == nil || len(result.Availability) != 2 {
 		t.Fatal("permission withdrawal crossed tenant storage/current-authority boundary", err)
 	}

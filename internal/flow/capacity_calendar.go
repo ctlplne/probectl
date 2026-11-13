@@ -78,6 +78,10 @@ func capacityBillingPeriodAt(ctx context.Context, calendar capacityBillingCalend
 func capacityCivilBillingBoundary(ctx context.Context, location *time.Location, year int, month time.Month, day int, work *int64) (time.Time, error) {
 	lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
 	wall := time.Date(year, month, min(day, lastDay), 0, 0, 0, 0, time.UTC)
+	return calendarWallInstant(ctx, location, wall, work)
+}
+
+func calendarWallInstant(ctx context.Context, location *time.Location, wall time.Time, work *int64) (time.Time, error) {
 	// TZif encodes UTC offsets as signed 32-bit seconds. Search its full
 	// representable offset domain, not a guessed +/-24h window or a timezone
 	// allowlist. ZoneBounds skips directly between actual transitions.
@@ -109,4 +113,43 @@ func capacityCivilBillingBoundary(ctx context.Context, location *time.Location, 
 		cursor = end
 	}
 	return time.Time{}, errCapacityCounterInput
+}
+
+// CalendarBoundary shares billing's deterministic civil-time rules with report
+// periods. It performs no tenant/state read and conveys no source authority.
+func CalendarBoundary(ctx context.Context, timezone string, year int, month time.Month, day int, workUnits int64) (time.Time, error) {
+	location, err := calendarLocation(timezone, workUnits)
+	if err != nil || year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31 {
+		return time.Time{}, errCapacityCounterInput
+	}
+	return capacityCivilBillingBoundary(ctx, location, year, month, day, &workUnits)
+}
+
+// CalendarMonthOffset keeps the local wall clock and clamps the original day
+// independently in the destination month. DST gaps use the first following
+// instant; repeated wall times use their first occurrence, as billing does.
+func CalendarMonthOffset(ctx context.Context, at time.Time, months int, timezone string, workUnits int64) (time.Time, error) {
+	location, err := calendarLocation(timezone, workUnits)
+	if err != nil || at.IsZero() || months < 1 {
+		return time.Time{}, errCapacityCounterInput
+	}
+	local := at.In(location)
+	if months > (9999-local.Year())*12+12-int(local.Month()) {
+		return time.Time{}, errCapacityCounterInput
+	}
+	month := time.Date(local.Year(), local.Month()+time.Month(months), 1, 12, 0, 0, 0, time.UTC)
+	lastDay := time.Date(month.Year(), month.Month()+1, 0, 12, 0, 0, 0, time.UTC).Day()
+	wall := time.Date(month.Year(), month.Month(), min(local.Day(), lastDay), local.Hour(), local.Minute(), local.Second(), local.Nanosecond(), time.UTC)
+	return calendarWallInstant(ctx, location, wall, &workUnits)
+}
+
+func calendarLocation(timezone string, work int64) (*time.Location, error) {
+	if timezone == "" || timezone == "Local" || strings.TrimSpace(timezone) != timezone || work <= 0 || int64(len(timezone)) > work {
+		return nil, errCapacityCounterInput
+	}
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		return nil, errCapacityCounterInput
+	}
+	return location, nil
 }
