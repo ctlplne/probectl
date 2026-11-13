@@ -247,17 +247,7 @@ func (r *Runtime) emitSNMPEntityEvidence(ctx context.Context, dev Target, inv In
 			if err != nil {
 				return true
 			}
-			iface := inv.Interfaces[uint32(index)]
-			if iface.OperStatus != 0 || iface.AdminStatus != 0 {
-				state := &entity.SNMPInterfaceState{Version: 1}
-				if iface.OperStatus != 0 {
-					state.OperStatus = &iface.OperStatus
-				}
-				if iface.AdminStatus != 0 {
-					state.AdminStatus = &iface.AdminStatus
-				}
-				observation.SNMPInterfaceState = state
-			}
+			observation.SNMPInterfaceState = snmpOriginalInterfaceState(inv.Interfaces[uint32(index)])
 		}
 		claim, err := observation.Normalize(at)
 		if err != nil {
@@ -389,4 +379,20 @@ func (r *Runtime) withSNMPSystemMetadata(claim entity.Observation, inv Inventory
 		r.stats.EvidenceErrors.Add(1)
 	}
 	return claim
+}
+
+// snmpOriginalInterfaceState keeps column presence independent. In particular,
+// a legacy binary flag cannot invent either original IF-MIB enumeration.
+func snmpOriginalInterfaceState(iface Interface) *entity.SNMPInterfaceState {
+	if iface.OperStatus == 0 && iface.AdminStatus == 0 {
+		return nil
+	}
+	state := &entity.SNMPInterfaceState{Version: 1}
+	if iface.OperStatus != 0 {
+		state.OperStatus = &iface.OperStatus
+	}
+	if iface.AdminStatus != 0 {
+		state.AdminStatus = &iface.AdminStatus
+	}
+	return state
 }

@@ -34,7 +34,7 @@ func TestProductionFunctionComplexityBudget(t *testing.T) {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "vendor":
+			case ".git", "node_modules", "vendor", "artifacts":
 				return filepath.SkipDir
 			}
 			return nil

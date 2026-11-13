@@ -1043,6 +1043,22 @@
     "test:internal/bgp/routing_source_profile_test.go#TestFRRRoutingProfileRefusesUnknownAmbiguousAndUnadmittedSources",
     "test:internal/agenttransport/bgp_routing_stage_integration_test.go#TestRoutingFRRProfileRequiresCurrentOperatorBindingThroughRealMTLS"
    ]
+  },
+  {
+   "id": "CLM-ENTITY-TYPED-HTTP-DOCUMENT",
+   "kind": "capability",
+   "statement": "Typed HTTP version 2 observations reject malformed or unsupported fields before retention, without reinterpreting the byte-compatible version 1 shape.",
+   "pattern": "Wrong versions, unknown fields and malformed values fail closed",
+   "surfaces": [
+    "docs/entity-registry.md"
+   ],
+   "code": [
+    "internal/entity/probe_outcome.go",
+    "internal/agenttransport/icmp_evidence_wire.go"
+   ],
+   "proof": [
+    "test:internal/agenttransport/probe_outcome_wire_test.go#TestProbeOutcomeWireRefusesUnknownMetadataFields"
+   ]
   }
  ]
 }

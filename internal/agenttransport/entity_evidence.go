@@ -106,65 +106,9 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 		}
 		return nil, status.Error(codes.InvalidArgument, "invalid entity fault observation")
 	}
-	observations := make([]entity.Observation, 0, len(items))
-	for _, item := range items {
-		if item == nil {
-			return nil, status.Error(codes.InvalidArgument, "evidence observation is missing")
-		}
-		if (item.GetIcmp() != nil || item.GetProbeOutcome() != nil || item.GetSnmpInterfaceState() != nil) && len(item.ProtoReflect().GetUnknown()) != 0 {
-			return nil, status.Error(codes.InvalidArgument, "unsupported typed probe observation fields")
-		}
-		var addresses []netip.Addr
-		if item.AgentAddresses != nil {
-			addresses, err = entity.ParseAgentAddressSnapshot(item.AgentAddresses.Addresses)
-			if err != nil {
-				return nil, status.Error(codes.InvalidArgument, "invalid agent address snapshot")
-			}
-		}
-		prefixes, err := parseSNMPPrefixEvidence(item.SnmpInterfacePrefixes)
-		if err != nil {
-			return nil, status.Error(codes.InvalidArgument, "invalid complete SNMP interface prefix snapshot")
-		}
-		icmp, err := parseICMPMeasurement(item.GetIcmp())
-		if err != nil {
-			return nil, err
-		}
-		probeOutcome, err := parseProbeOutcome(item.GetProbeOutcome())
-		if err != nil {
-			return nil, err
-		}
-		interfaceState, err := parseSNMPInterfaceState(item.GetSnmpInterfaceState())
-		if err != nil {
-			return nil, err
-		}
-		observations = append(observations, entity.Observation{
-			ID: item.GetObservationId(),
-			Source: entity.SourceKey{
-				AgentID: id.AgentID, Kind: entity.SourceKind(item.GetSourceKind()),
-				SourceRef: item.GetConfiguredRef(),
-			},
-			Alias: entity.AliasKey{
-				Kind: entity.AliasKind(item.GetAliasKind()), Value: item.GetAliasValue(),
-			},
-			SourceRef: item.GetSourceRef(), OriginSerial: item.GetOriginSerial(),
-			InterfaceName:         item.GetInterfaceName(),
-			InterfaceDescription:  item.GetInterfaceDescription(),
-			SNMPInterfaceState:    interfaceState,
-			SystemDescription:     item.GetSystemDescription(),
-			SystemName:            item.SystemName,
-			AgentAddresses:        addresses,
-			SNMPInterfacePrefixes: prefixes,
-			ICMP:                  icmp,
-			Outcome:               probeOutcome,
-			NeighborProtocol:      item.GetNeighborProtocol(),
-			NeighborLocalIfIndex:  item.GetNeighborLocalIfIndex(),
-			NeighborLocalPortID:   item.GetNeighborLocalPortId(),
-			NeighborRemotePortID:  item.GetNeighborRemotePortId(),
-			NeighborChassisID:     item.GetNeighborChassisId(),
-			NeighborDeviceName:    item.GetNeighborDeviceName(),
-			NeighborAddress:       item.GetNeighborManagementAddress(),
-			ObservedAt:            time.Unix(0, item.GetObservedUnixNanos()),
-		})
+	observations, err := parseEntityEvidenceObservations(items, id.AgentID)
+	if err != nil {
+		return nil, err
 	}
 	var accepted, unresolved, icmpRetained, outcomesRetained, statesRetained int
 	if len(observations) > 0 {
@@ -283,4 +227,71 @@ func entityEvidenceWriteError(err error) error {
 	default:
 		return status.Error(codes.Unavailable, "entity evidence write failed")
 	}
+}
+
+// parseEntityEvidenceObservations decodes the complete authenticated batch;
+// any malformed typed document refuses the whole operation before persistence.
+func parseEntityEvidenceObservations(items []*agentv1.EntityEvidenceObservation, agentID string) ([]entity.Observation, error) {
+	observations := make([]entity.Observation, 0, len(items))
+	var err error
+	for _, item := range items {
+		if item == nil {
+			return nil, status.Error(codes.InvalidArgument, "evidence observation is missing")
+		}
+		if (item.GetIcmp() != nil || item.GetProbeOutcome() != nil || item.GetSnmpInterfaceState() != nil) && len(item.ProtoReflect().GetUnknown()) != 0 {
+			return nil, status.Error(codes.InvalidArgument, "unsupported typed probe observation fields")
+		}
+		var addresses []netip.Addr
+		if item.AgentAddresses != nil {
+			addresses, err = entity.ParseAgentAddressSnapshot(item.AgentAddresses.Addresses)
+			if err != nil {
+				return nil, status.Error(codes.InvalidArgument, "invalid agent address snapshot")
+			}
+		}
+		prefixes, err := parseSNMPPrefixEvidence(item.SnmpInterfacePrefixes)
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid complete SNMP interface prefix snapshot")
+		}
+		icmp, err := parseICMPMeasurement(item.GetIcmp())
+		if err != nil {
+			return nil, err
+		}
+		probeOutcome, err := parseProbeOutcome(item.GetProbeOutcome())
+		if err != nil {
+			return nil, err
+		}
+		interfaceState, err := parseSNMPInterfaceState(item.GetSnmpInterfaceState())
+		if err != nil {
+			return nil, err
+		}
+		observations = append(observations, entity.Observation{
+			ID: item.GetObservationId(),
+			Source: entity.SourceKey{
+				AgentID: agentID, Kind: entity.SourceKind(item.GetSourceKind()),
+				SourceRef: item.GetConfiguredRef(),
+			},
+			Alias: entity.AliasKey{
+				Kind: entity.AliasKind(item.GetAliasKind()), Value: item.GetAliasValue(),
+			},
+			SourceRef: item.GetSourceRef(), OriginSerial: item.GetOriginSerial(),
+			InterfaceName:         item.GetInterfaceName(),
+			InterfaceDescription:  item.GetInterfaceDescription(),
+			SNMPInterfaceState:    interfaceState,
+			SystemDescription:     item.GetSystemDescription(),
+			SystemName:            item.SystemName,
+			AgentAddresses:        addresses,
+			SNMPInterfacePrefixes: prefixes,
+			ICMP:                  icmp,
+			Outcome:               probeOutcome,
+			NeighborProtocol:      item.GetNeighborProtocol(),
+			NeighborLocalIfIndex:  item.GetNeighborLocalIfIndex(),
+			NeighborLocalPortID:   item.GetNeighborLocalPortId(),
+			NeighborRemotePortID:  item.GetNeighborRemotePortId(),
+			NeighborChassisID:     item.GetNeighborChassisId(),
+			NeighborDeviceName:    item.GetNeighborDeviceName(),
+			NeighborAddress:       item.GetNeighborManagementAddress(),
+			ObservedAt:            time.Unix(0, item.GetObservedUnixNanos()),
+		})
+	}
+	return observations, nil
 }

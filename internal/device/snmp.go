@@ -323,83 +323,7 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 		}
 	}
 
-	// HOST-RESOURCES CPU: average hrProcessorLoad across cores.
-	var loadSum float64
-	var loadN int
-	walkColumn(conn, oidHrProcessorLoad, func(_ uint32, p gosnmp.SnmpPDU) {
-		loadSum += pduFloat(p)
-		loadN++
-	})
-	if loadN > 0 {
-		m := base
-		m.DeviceName = inv.SysName
-		m.Name, m.Value, m.Unit = MetricCPUUtilization, loadSum/float64(loadN), "percent"
-		out = append(out, m)
-	}
-
-	// HOST-RESOURCES memory: the first hrStorage row whose type is hrStorageRam.
-	type storRow struct{ units, size, used float64 }
-	stor := map[uint32]*storRow{}
-	ramRows := map[uint32]bool{}
-	walkColumn(conn, oidHrStorageType, func(idx uint32, p gosnmp.SnmpPDU) {
-		if strings.TrimPrefix(pduString(p), ".") == strings.TrimPrefix(oidHrStorageTypeRAM, ".") {
-			ramRows[idx] = true
-		}
-	})
-	for _, col := range []struct {
-		oid string
-		set func(*storRow, float64)
-	}{
-		{oidHrStorageAllocUnits, func(r *storRow, v float64) { r.units = v }},
-		{oidHrStorageSize, func(r *storRow, v float64) { r.size = v }},
-		{oidHrStorageUsed, func(r *storRow, v float64) { r.used = v }},
-	} {
-		col := col
-		walkColumn(conn, col.oid, func(idx uint32, p gosnmp.SnmpPDU) {
-			if stor[idx] == nil {
-				stor[idx] = &storRow{}
-			}
-			col.set(stor[idx], pduFloat(p))
-		})
-	}
-	for idx := range ramRows {
-		r := stor[idx]
-		if r == nil || r.units == 0 {
-			continue
-		}
-		mu := base
-		mu.DeviceName = inv.SysName
-		mu.Name, mu.Value, mu.Unit = MetricMemoryUsed, r.used*r.units, "bytes"
-		mt := base
-		mt.DeviceName = inv.SysName
-		mt.Name, mt.Value, mt.Unit = MetricMemoryTotal, r.size*r.units, "bytes"
-		out = append(out, mu, mt)
-		break // one RAM row is the device's memory
-	}
-
-	// Optional entity sensors (temperature only — the broadly comparable one).
-	if dev.Sensors {
-		sensorNames := map[uint32]string{}
-		walkColumn(conn, oidEntPhysicalName, func(idx uint32, p gosnmp.SnmpPDU) {
-			sensorNames[idx] = pduString(p)
-		})
-		celsius := map[uint32]bool{}
-		walkColumn(conn, oidEntPhySensorType, func(idx uint32, p gosnmp.SnmpPDU) {
-			if int(pduFloat(p)) == entPhySensorTypeCelsius {
-				celsius[idx] = true
-			}
-		})
-		walkColumn(conn, oidEntPhySensorValue, func(idx uint32, p gosnmp.SnmpPDU) {
-			if !celsius[idx] {
-				return
-			}
-			m := base
-			m.DeviceName = inv.SysName
-			m.IfIndex, m.IfName = idx, sensorNames[idx]
-			m.Name, m.Value, m.Unit = MetricSensorCelsius, pduFloat(p), "celsius"
-			out = append(out, m)
-		})
-	}
+	out = append(out, pollSNMPHostResources(conn, dev, inv.SysName, base)...)
 
 	completed := now.Add(time.Since(started))
 	for i := range out {
@@ -474,4 +398,87 @@ func boolFloat(b bool) float64 {
 		return 1
 	}
 	return 0
+}
+
+func pollSNMPHostResources(conn snmpConn, dev Target, deviceName string, base Metric) []Metric {
+	var out []Metric
+	// HOST-RESOURCES CPU: average hrProcessorLoad across cores.
+	var loadSum float64
+	var loadN int
+	walkColumn(conn, oidHrProcessorLoad, func(_ uint32, p gosnmp.SnmpPDU) {
+		loadSum += pduFloat(p)
+		loadN++
+	})
+	if loadN > 0 {
+		m := base
+		m.DeviceName = deviceName
+		m.Name, m.Value, m.Unit = MetricCPUUtilization, loadSum/float64(loadN), "percent"
+		out = append(out, m)
+	}
+
+	// HOST-RESOURCES memory: the first hrStorage row whose type is hrStorageRam.
+	type storRow struct{ units, size, used float64 }
+	stor := map[uint32]*storRow{}
+	ramRows := map[uint32]bool{}
+	walkColumn(conn, oidHrStorageType, func(idx uint32, p gosnmp.SnmpPDU) {
+		if strings.TrimPrefix(pduString(p), ".") == strings.TrimPrefix(oidHrStorageTypeRAM, ".") {
+			ramRows[idx] = true
+		}
+	})
+	for _, col := range []struct {
+		oid string
+		set func(*storRow, float64)
+	}{
+		{oidHrStorageAllocUnits, func(r *storRow, v float64) { r.units = v }},
+		{oidHrStorageSize, func(r *storRow, v float64) { r.size = v }},
+		{oidHrStorageUsed, func(r *storRow, v float64) { r.used = v }},
+	} {
+		col := col
+		walkColumn(conn, col.oid, func(idx uint32, p gosnmp.SnmpPDU) {
+			if stor[idx] == nil {
+				stor[idx] = &storRow{}
+			}
+			col.set(stor[idx], pduFloat(p))
+		})
+	}
+	for idx := range ramRows {
+		r := stor[idx]
+		if r == nil || r.units == 0 {
+			continue
+		}
+		mu := base
+		mu.DeviceName = deviceName
+		mu.Name, mu.Value, mu.Unit = MetricMemoryUsed, r.used*r.units, "bytes"
+		mt := base
+		mt.DeviceName = deviceName
+		mt.Name, mt.Value, mt.Unit = MetricMemoryTotal, r.size*r.units, "bytes"
+		out = append(out, mu, mt)
+		break // one RAM row is the device's memory
+	}
+
+	// Optional entity sensors (temperature only — the broadly comparable one).
+	if dev.Sensors {
+		sensorNames := map[uint32]string{}
+		walkColumn(conn, oidEntPhysicalName, func(idx uint32, p gosnmp.SnmpPDU) {
+			sensorNames[idx] = pduString(p)
+		})
+		celsius := map[uint32]bool{}
+		walkColumn(conn, oidEntPhySensorType, func(idx uint32, p gosnmp.SnmpPDU) {
+			if int(pduFloat(p)) == entPhySensorTypeCelsius {
+				celsius[idx] = true
+			}
+		})
+		walkColumn(conn, oidEntPhySensorValue, func(idx uint32, p gosnmp.SnmpPDU) {
+			if !celsius[idx] {
+				return
+			}
+			m := base
+			m.DeviceName = deviceName
+			m.IfIndex, m.IfName = idx, sensorNames[idx]
+			m.Name, m.Value, m.Unit = MetricSensorCelsius, pduFloat(p), "celsius"
+			out = append(out, m)
+		})
+	}
+
+	return out
 }
