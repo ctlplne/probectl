@@ -110,6 +110,12 @@ legacy IPv4 table. A failed or partial
 modern address walk publishes no partial address inventory or complete role-prefix
 epoch. Scoped addresses preserve their device-local zone IDs in raw interface
 metrics and never become unscoped canonical address aliases.
+An SNMP operational-state sample requires an actual INTEGER `ifOperStatus`
+value from 1 through 7. A missing, inaccessible or invalid status row produces
+no status sample; it does not become zero/down. The collector also keeps the
+original IF-MIB enum, so testing, unknown, dormant, not-present and lower-layer
+down remain distinguishable from an explicitly reported down state. See
+[IF-MIB in RFC 2863](https://www.rfc-editor.org/rfc/rfc2863.html).
 Those addresses rebuild local topology/correlation evidence during replay; they
 do not become high-cardinality TSDB labels.
 

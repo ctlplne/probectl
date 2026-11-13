@@ -71,6 +71,8 @@ func (f *fakeConn) Close() error { f.closed = true; return nil }
 
 func pdu(v any) gosnmp.SnmpPDU { return gosnmp.SnmpPDU{Value: v} }
 
+func operStatusPDU(v any) gosnmp.SnmpPDU { return gosnmp.SnmpPDU{Type: gosnmp.Integer, Value: v} }
+
 // healthyConn models a well-behaved switch: 2 interfaces, HC counters, CPU,
 // RAM, a temperature sensor, and an interface address for hop correlation.
 func healthyConn() *fakeConn {
@@ -83,7 +85,7 @@ func healthyConn() *fakeConn {
 		tables: map[string]map[uint32]gosnmp.SnmpPDU{
 			oidIfDescr:         {1: pdu([]byte("GigabitEthernet0/1")), 2: pdu([]byte("GigabitEthernet0/2"))},
 			oidIfName:          {1: pdu([]byte("eth0")), 2: pdu([]byte("eth1"))},
-			oidIfOperStatus:    {1: pdu(1), 2: pdu(2)},
+			oidIfOperStatus:    {1: operStatusPDU(1), 2: operStatusPDU(2)},
 			oidIfHighSpeed:     {1: pdu(uint32(1000)), 2: pdu(uint32(1000))},
 			oidIfHCInOctets:    {1: pdu(uint64(1_000_000)), 2: pdu(uint64(50))},
 			oidIfHCOutOctets:   {1: pdu(uint64(2_000_000)), 2: pdu(uint64(60))},
@@ -214,7 +216,7 @@ func TestPollSNMPGracefulDegradation(t *testing.T) {
 		},
 		tables: map[string]map[uint32]gosnmp.SnmpPDU{
 			oidIfDescr:      {7: pdu([]byte("port7"))},
-			oidIfOperStatus: {7: pdu(1)},
+			oidIfOperStatus: {7: operStatusPDU(1)},
 		},
 	}
 	ms, inv, err := pollSNMP(t.Context(), conn, Target{Address: "192.0.2.9", Transport: TransportSNMPv2c}, "t-a", "a", pollTime)
@@ -230,6 +232,55 @@ func TestPollSNMPGracefulDegradation(t *testing.T) {
 	for _, m := range ms {
 		if m.Name == MetricCPUUtilization || m.Name == MetricMemoryUsed {
 			t.Fatalf("phantom metric from missing MIB: %+v", m)
+		}
+	}
+}
+
+func TestPollSNMPMissingOperationalStatusDoesNotInventDown(t *testing.T) {
+	for name, value := range map[string]any{"absent": nil, "zero": 0, "outside enum": 8, "negative": -1, "fractional": 1.5, "text": "1"} {
+		t.Run(name, func(t *testing.T) {
+			conn := healthyConn()
+			delete(conn.tables, oidIfOperStatus)
+			if value != nil {
+				conn.tables[oidIfOperStatus] = map[uint32]gosnmp.SnmpPDU{1: operStatusPDU(value)}
+			}
+			metrics, inventory, err := pollSNMP(t.Context(), conn, Target{Address: "192.0.2.1", Transport: TransportSNMPv2c}, "tenant-red", "agent-red", pollTime)
+			if err != nil || len(inventory.Interfaces) != 2 {
+				t.Fatal("missing optional status must retain the rest of the poll", err)
+			}
+			for _, metric := range metrics {
+				if metric.Name == MetricIfOperStatus {
+					t.Fatal("missing or invalid ifOperStatus invented a link-state sample", metric.IfIndex, metric.Value)
+				}
+			}
+		})
+	}
+}
+
+func TestPollSNMPOperationalStatusKeepsExactStateAndTenant(t *testing.T) {
+	for _, tenant := range []string{"tenant-red", "tenant-blue"} {
+		for state := uint32(1); state <= 7; state++ {
+			conn := healthyConn()
+			conn.tables[oidIfOperStatus] = map[uint32]gosnmp.SnmpPDU{1: operStatusPDU(int(state))}
+			metrics, inventory, err := pollSNMP(t.Context(), conn, Target{Address: "192.0.2.1", Transport: TransportSNMPv2c}, tenant, "agent-"+tenant, pollTime)
+			if err != nil || inventory.Interfaces[1].OperStatus != state || inventory.Interfaces[1].OperUp != (state == 1) || inventory.Interfaces[2].OperStatus != 0 {
+				t.Fatal("observed IF-MIB enum was lost or invented", state, err)
+			}
+			found := 0
+			for _, metric := range metrics {
+				if metric.TenantID != tenant || metric.AgentID != "agent-"+tenant {
+					t.Fatal("SNMP poll crossed its bound tenant or collector")
+				}
+				if metric.Name == MetricIfOperStatus {
+					found++
+					if metric.IfIndex != 1 || metric.Value != boolFloat(state == 1) {
+						t.Fatal("state sample did not describe its actual interface", metric)
+					}
+				}
+			}
+			if found != 1 {
+				t.Fatal("poll invented an absent sibling status or lost its actual sample", found)
+			}
 		}
 	}
 }

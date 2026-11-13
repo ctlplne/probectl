@@ -222,7 +222,11 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 		setIf(idx, func(e *Interface) { e.Name = pduString(p) })
 	})
 	walkColumn(conn, oidIfOperStatus, func(idx uint32, p gosnmp.SnmpPDU) {
-		setIf(idx, func(e *Interface) { e.OperUp = pduFloat(p) == 1 })
+		value := pduFloat(p)
+		if p.Type != gosnmp.Integer || value < 1 || value > 7 || value != float64(uint32(value)) {
+			return // unavailable or malformed state is never a down observation
+		}
+		setIf(idx, func(e *Interface) { e.OperStatus, e.OperUp = uint32(value), value == 1 })
 	})
 	walkColumn(conn, oidIfHighSpeed, func(idx uint32, p gosnmp.SnmpPDU) {
 		setIf(idx, func(e *Interface) { e.SpeedMbps = uint64(pduFloat(p)) })
@@ -293,7 +297,9 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 			m.ExactCounter = exact
 			out = append(out, m)
 		}
-		mk(MetricIfOperStatus, boolFloat(e.OperUp), "", nil)
+		if e.OperStatus != 0 {
+			mk(MetricIfOperStatus, boolFloat(e.OperUp), "", nil)
+		}
 		if e.SpeedMbps > 0 {
 			// ifHighSpeed is natively Mbps; the metric name says mbps and so
 			// must the unit label (was "bps" — a label-only bug; the VALUE

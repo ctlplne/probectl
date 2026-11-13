@@ -127,7 +127,10 @@ type Interface struct {
 	Descr     string
 	SpeedMbps uint64
 	OperUp    bool
-	Addrs     []netip.Addr // complete IP-MIB table; legacy IPv4 if unsupported
+	// OperStatus preserves an actually returned IF-MIB ifOperStatus value
+	// (1..7). Zero means unavailable; OperUp's zero value is not a down sample.
+	OperStatus uint32
+	Addrs      []netip.Addr // complete IP-MIB table; legacy IPv4 if unsupported
 	// Scoped addresses retain device-local zone IDs in raw metrics. They are
 	// never promoted to globally scoped canonical address aliases.
 	ScopedAddrs []string
