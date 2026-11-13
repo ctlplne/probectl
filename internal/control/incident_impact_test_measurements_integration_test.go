@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -54,7 +55,43 @@ func TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant(t *t
 				return errors.New("owned configured-test source missing")
 			}
 			out, err = (store.Incidents{}).IncidentTestMeasurementsInScope(ctx, sc, sources, from, to, budget)
-			return err
+			if err != nil {
+				return err
+			}
+			streamed := []store.IncidentTestMeasurement{}
+			limits := store.ConfiguredMeasurementScanBudget{MemoryBytes: 8 << 10, ReadBytes: budget, ReadRows: int64(len(out)) + 1}
+			registry := store.NewEntityRegistry(f.pool)
+			if err := registry.WalkConfiguredTestMeasurementsInScope(ctx, sc, sources, from, to, limits, func(item store.IncidentTestMeasurement) error {
+				streamed = append(streamed, item)
+				return nil
+			}); err != nil {
+				return err
+			}
+			expected := []store.IncidentTestMeasurement{}
+			for _, item := range out {
+				if !item.ObservedAt.Before(from) && item.ObservedAt.Before(to) {
+					expected = append(expected, item)
+				}
+			}
+			if !reflect.DeepEqual(expected, streamed) {
+				return errors.New("streaming changed complete original documents, source validity or exact window")
+			}
+			other := f.tenants[0]
+			if other == tenant {
+				other = f.tenants[1]
+			}
+			foreign := tenancy.WithTenant(ctx, tenancy.ID(other))
+			called := false
+			if err := registry.WalkConfiguredTestMeasurementsInScope(foreign, sc, sources, from, to, limits, func(store.IncidentTestMeasurement) error { called = true; return nil }); !errors.Is(err, entity.ErrScopeMismatch) || called {
+				return errors.New("foreign scan borrowed source storage authority")
+			}
+			if len(expected) > 1 {
+				limits.ReadRows = 1
+				if err := registry.WalkConfiguredTestMeasurementsInScope(ctx, sc, sources, from, to, limits, func(store.IncidentTestMeasurement) error { return nil }); !errors.Is(err, store.ErrIncidentImpactBudget) {
+					return errors.New("row admission returned a successful scan prefix")
+				}
+			}
+			return nil
 		})
 		return out, err
 	}

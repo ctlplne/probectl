@@ -60,34 +60,48 @@ func (Incidents) IncidentWindowTestMeasurementsInScope(ctx context.Context, sc t
 }
 
 func incidentTestMeasurementsInScope(ctx context.Context, sc tenancy.Scope, sources []IncidentConfiguredTest, from, to time.Time, maxBytes int64, previousWeek bool) ([]IncidentTestMeasurement, error) {
-	bound, ok := tenancy.FromContext(ctx)
-	if !ok || bound != sc.Tenant || sc.Q == nil {
-		return nil, entity.ErrScopeMismatch
-	}
-	if err := requireRoutingCaptureReadSnapshot(ctx, sc); err != nil {
+	out := []IncidentTestMeasurement{}
+	budget := ConfiguredMeasurementScanBudget{MemoryBytes: maxBytes, ReadBytes: maxBytes, ReadRows: maxBytes / 1024}
+	err := walkIncidentTestMeasurementsInScope(ctx, sc, sources, from, to, budget, previousWeek, true, func(item IncidentTestMeasurement) error { out = append(out, item); return nil })
+	if err != nil {
 		return nil, err
 	}
+	return out, nil
+}
+
+func walkIncidentTestMeasurementsInScope(ctx context.Context, sc tenancy.Scope, sources []IncidentConfiguredTest, from, to time.Time, budget ConfiguredMeasurementScanBudget, previousWeek, retain bool, visit func(IncidentTestMeasurement) error) error {
+	maxBytes := budget.MemoryBytes
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || bound != sc.Tenant || sc.Q == nil {
+		return entity.ErrScopeMismatch
+	}
+	if visit == nil || budget.ReadBytes <= 0 || budget.ReadRows <= 0 || budget.ReadRows == int64(^uint64(0)>>1) {
+		return ErrIncidentImpactBudget
+	}
+	if err := requireRoutingCaptureReadSnapshot(ctx, sc); err != nil {
+		return err
+	}
 	if !to.After(from) || maxBytes < 4096 || int64(len(sources)) > maxBytes/1024 {
-		return nil, ErrIncidentImpactBudget
+		return ErrIncidentImpactBudget
 	}
 	for _, source := range sources {
 		if source.TenantID != bound.String() {
-			return nil, entity.ErrScopeMismatch
+			return entity.ErrScopeMismatch
 		}
 	}
 	generation, err := incidentImpactSourceGenerationInScope(ctx, sc)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	var contexts, entities, agents, tests []string
 	selected := map[incidentImpactTestKey]IncidentConfiguredTest{}
 	for _, source := range sources {
 		if source.SourceGeneration != generation {
-			return nil, sourceepoch.ErrInvalidating
+			return sourceepoch.ErrInvalidating
 		}
 		for _, id := range []string{source.ContextID, source.EntityID, source.TestID} {
 			if _, err := validRegistryUUID(id); err != nil {
-				return nil, err
+				return err
 			}
 		}
 		key := incidentImpactTestKey{source.ContextID, source.EntityID, source.AgentID, source.TestID}
@@ -109,7 +123,7 @@ func incidentTestMeasurementsInScope(ctx context.Context, sc tenancy.Scope, sour
  SELECT * FROM unnest($2::uuid[],$3::uuid[],$4::text[],$5::text[]) AS r(context_id,entity_id,agent_id,test_id))
  SELECT e.context_id::text,e.entity_id::text,e.configured_ref,e.agent_id,e.id::text,e.observation_id::text,
  COALESCE(e.sender_serial,''),e.alias_value,e.source_ref,e.observed_at,e.alias_kind,
- CASE WHEN octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text)<=$10 THEN COALESCE(e.probe_outcome,e.icmp_measurement) END,
+ CASE WHEN octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text)<=$10::bigint THEN COALESCE(e.probe_outcome,e.icmp_measurement) END,
  COALESCE(octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text),0),
  COALESCE(sender.serial=e.sender_serial AND sender.revoked_at IS NULL
  AND sender.spiffe_id='spiffe://probectl/tenant/'||$1::text||'/entity/'||e.agent_id
@@ -119,46 +133,63 @@ func incidentTestMeasurementsInScope(ctx context.Context, sc tenancy.Scope, sour
  LEFT JOIN agent_identities sender ON sender.tenant_id=$1 AND sender.agent_id=e.agent_id AND sender.serial=e.sender_serial
  WHERE e.tenant_id=$1 AND ((e.source_ref='icmp:configured-test' AND e.alias_kind='address') OR (e.source_ref='probe:configured-test' AND e.alias_kind='configured_test_id'))
  AND ((e.observed_at>=$6 AND e.observed_at<$7) OR (e.observed_at>=$8 AND e.observed_at<$9))
- ORDER BY e.context_id,e.entity_id,e.agent_id,e.configured_ref,e.observed_at,e.id LIMIT $11`, pgx.QueryExecModeDescribeExec, bound.String(), contexts, entities, agents, tests, sqlFrom, sqlTo, previousFrom, previousTo, maxBytes/4, maxBytes/1024+1)
+ ORDER BY e.context_id,e.entity_id,e.agent_id,e.configured_ref,e.observed_at,e.id LIMIT $11`, pgx.QueryExecModeDescribeExec, bound.String(), contexts, entities, agents, tests, sqlFrom, sqlTo, previousFrom, previousTo, maxBytes/4, budget.ReadRows+1)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	out := []IncidentTestMeasurement{}
+	remainingReadBytes := budget.ReadBytes
+	readRows := int64(0)
 	remaining := maxBytes - int64(len(selected))*512
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		readRows++
+		if readRows > budget.ReadRows {
+			return ErrIncidentImpactBudget
+		}
 		var item IncidentTestMeasurement
 		var body []byte
 		var size int64
 		var senderValid bool
 		var senderIssued time.Time
 		if err := rows.Scan(&item.ContextID, &item.EntityID, &item.TestID, &item.AgentID, &item.EvidenceID, &item.ObservationID, &item.SenderSerial, &item.Alias, &item.SourceRef, &item.ObservedAt, &item.AliasKind, &body, &size, &senderValid, &senderIssued); err != nil {
-			return nil, err
+			return err
 		}
 		cost := int64(1024+len(item.AgentID)+len(item.SenderSerial)+len(item.Alias)) + 4*int64(len(body))
 		if size > 0 && len(body) == 0 || cost > remaining {
-			return nil, ErrIncidentImpactBudget
+			return ErrIncidentImpactBudget
 		}
-		remaining -= cost
+		readCost := int64(1024+len(item.AgentID)+len(item.SenderSerial)+len(item.Alias)) + size
+		if readCost > remainingReadBytes {
+			return ErrIncidentImpactBudget
+		}
+		remainingReadBytes -= readCost
+		if retain {
+			remaining -= cost
+		}
 		item.TenantID = bound.String()
 		item.SourceGeneration = generation
 		source, found := selected[incidentImpactTestKey{item.ContextID, item.EntityID, item.AgentID, item.TestID}]
 		if !found {
-			return nil, entity.ErrScopeMismatch
+			return entity.ErrScopeMismatch
 		}
 		item.CaptureDigest, err = incidentTestCaptureDigest(item, body)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if err := decodeIncidentTestMeasurement(&item, source, body, senderValid, senderIssued); err != nil {
-			return nil, err
+			return err
 		}
-		out = append(out, item)
+		if err := visit(item); err != nil {
+			return err
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return err
 	}
-	return out, ctx.Err()
+	return ctx.Err()
 }
 
 func incidentTestCaptureDigest(item IncidentTestMeasurement, body []byte) ([32]byte, error) {
@@ -296,7 +327,7 @@ func (Incidents) RecheckIncidentTestMeasurementsInScope(ctx context.Context, sc 
 	rows, err := sc.Q.Query(ctx, `WITH requested AS (SELECT * FROM unnest($2::uuid[],$3::uuid[]) AS r(context_id,id))
  SELECT e.context_id::text,e.entity_id::text,e.configured_ref,e.agent_id,e.id::text,e.observation_id::text,
  COALESCE(e.sender_serial,''),e.alias_value,e.source_ref,e.observed_at,e.alias_kind,
- CASE WHEN octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text)<=$4 THEN COALESCE(e.probe_outcome,e.icmp_measurement) END,COALESCE(octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text),0)
+ CASE WHEN octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text)<=$4::bigint THEN COALESCE(e.probe_outcome,e.icmp_measurement) END,COALESCE(octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text),0)
  FROM requested r JOIN entity_evidence e ON e.tenant_id=$1 AND e.context_id=r.context_id AND e.id=r.id
  WHERE e.tenant_id=$1 AND e.source_kind='path_agent' AND ((e.source_ref='icmp:configured-test' AND e.alias_kind='address') OR (e.source_ref='probe:configured-test' AND e.alias_kind='configured_test_id'))`, pgx.QueryExecModeDescribeExec, bound.String(), contexts, ids, maxBytes/4)
 	if err != nil {
