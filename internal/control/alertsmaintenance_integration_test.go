@@ -122,8 +122,21 @@ func TestAlertWorkflowTenantIsolationAndConnectorReceipt(t *testing.T) {
 	srv, db := setupMaintenanceAPI(t)
 	tenantA := freshTenant(t, db, "alert-workflow-a")
 	tenantB := freshTenant(t, db, "alert-workflow-b")
-	srv.WithAlertState(tenantA, newStubAlertState())
-	srv.WithAlertState(tenantB, newStubAlertState())
+	for _, tenant := range []string{tenantA, tenantB} {
+		state := newStubAlertState()
+		err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			rule, err := (store.AlertRules{}).Create(ctx, sc, alert.Rule{Name: "Workflow RTT", Enabled: true,
+				Metric: state.items["fp-1"].Metric, Type: alert.Threshold, Comparison: alert.GT, Threshold: 100, Severity: alert.SeverityCritical})
+			if err == nil {
+				state.items["fp-1"].RuleID = rule.ID
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv.WithAlertState(tenant, state)
+	}
 	h := srv.Handler()
 
 	for _, tc := range []struct {
