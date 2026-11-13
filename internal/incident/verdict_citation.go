@@ -31,7 +31,7 @@ func (c VerdictCitation) SourceReference() (string, error) {
 			break
 		}
 		for _, ch := range c.PathRoundID {
-			if !(ch >= '0' && ch <= '9' || ch >= 'a' && ch <= 'f') {
+			if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
 				return "", errors.New("invalid original path round identifier")
 			}
 		}

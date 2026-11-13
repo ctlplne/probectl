@@ -22,6 +22,12 @@
     "bgp.parseBGPUpdateFrame": {
       "target": "FuzzBMPRouteMonitoring"
     },
+    "bgp.DecodePhysicalPeerDown": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.DecodePhysicalPeerSession": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
     "bgp.parseBMPPeerDown": {
       "target": "FuzzBMPRouteMonitoring"
     },

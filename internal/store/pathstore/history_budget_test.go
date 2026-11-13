@@ -30,6 +30,9 @@ func TestCompleteClickHouseHistoryUsesScopedBudgetAndExactClock(t *testing.T) {
 			continue
 		}
 		found = true
+		if !strings.Contains(query, "any(p.discovery_completed_at)") || !strings.Contains(query, "countIf(isNull(p.discovery_completed_at))") || !strings.Contains(query, "uniqExact(p.discovery_completed_at)") || !strings.Contains(query, " AS p WHERE ") {
+			t.Fatal("completion-clock aggregate alias shadows raw ClickHouse inputs")
+		}
 		if !strings.Contains(query, "tenant_id={tenant:String}") || !strings.Contains(query, "/*param_tenant=tenant-a*/") || !strings.Contains(query, "DateTime64(9,'UTC')") || !strings.Contains(query, ".000000001") || !strings.Contains(query, ".000000002") || strings.Contains(query, "/*param_limit=1*/") {
 			t.Fatal("complete path selector lost tenant, exact time or memory-derived admission")
 		}

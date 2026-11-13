@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,8 +87,21 @@ func assertPacketImpactJSON(t *testing.T, expected, actual []byte) {
 		delete(value, "evaluated_at")
 		return value
 	}
-	if !reflect.DeepEqual(decode(expected), decode(actual)) {
-		t.Fatal("real packet impact surface changed the complete response")
+	want, got := decode(expected), decode(actual)
+	if !reflect.DeepEqual(want, got) {
+		var fields []string
+		for key, value := range want {
+			if !reflect.DeepEqual(value, got[key]) {
+				fields = append(fields, key)
+			}
+		}
+		for key := range got {
+			if _, exists := want[key]; !exists {
+				fields = append(fields, key)
+			}
+		}
+		slices.Sort(fields)
+		t.Fatal("real packet impact surface changed the complete response; differing fields:", fields)
 	}
 }
 

@@ -9,9 +9,10 @@ package bgp
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/ctlplne/probectl/internal/entity"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/entity"
 )
 
 // Real TLS router/listener; the restricted evidence receiver is modeled.
