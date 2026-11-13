@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	googleuuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -38,8 +38,8 @@ func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t
 	tagIDs := map[string]string{}
 	for lane, tenant := range f.tenants {
 		d.observe(t, tenant, 0, lane == 1)
-		ids[tenant] = uuid.NewString()
-		tagIDs[tenant] = uuid.NewString()
+		ids[tenant] = googleuuid.NewString()
+		tagIDs[tenant] = googleuuid.NewString()
 		definitions = append(definitions, slo.SLO{TenantID: tenant, Name: "owned-objective-" + tenant, Service: "checkout", CanaryType: "icmp", TestID: d.graphs[tenant].Nodes[0].TestID, Objective: 0.999, Window: 24 * time.Hour})
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			for _, permission := range []string{permIncidentRead, permFlowRead, permTagsRead} {
@@ -53,7 +53,7 @@ func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_definitions(tenant_id,id,key) VALUES($1,$2,'customer')`, tenant, tagIDs[tenant]); err != nil {
 				return err
 			}
-			if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_assignments(tenant_id,context_id,id,tag_id,target_kind,test_id,value,source) VALUES($1,$2,$3,$4,'test',$5,$6,'manual')`, tenant, f.contextID, uuid.NewString(), tagIDs[tenant], d.graphs[tenant].Nodes[0].TestID, "customer-"+tenant); err != nil {
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_assignments(tenant_id,context_id,id,tag_id,target_kind,test_id,value,source) VALUES($1,$2,$3,$4,'test',$5,$6,'manual')`, tenant, f.contextID, googleuuid.NewString(), tagIDs[tenant], d.graphs[tenant].Nodes[0].TestID, "customer-"+tenant); err != nil {
 				return err
 			}
 			_, err := sc.Q.Exec(ctx, `INSERT INTO incidents(tenant_id,id,title,entity_context_id,entity_id,identity_lookup_attempted) VALUES($1,$2,'test comparison',$3,$4,true)`, tenant, ids[tenant], f.contextID, d.graphs[tenant].Nodes[0].EntityID)

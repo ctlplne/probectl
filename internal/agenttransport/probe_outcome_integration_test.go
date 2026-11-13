@@ -41,7 +41,7 @@ func TestConfiguredProbeOutcomeRealHTTPSMTLSKeepsTenantDefinitionHistoryAndRepla
 	testsupport.LockPostgresPublicCatalog(t, pool)
 	var responseCode atomic.Int32
 	responseCode.Store(http.StatusOK)
-	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(int(responseCode.Load())) }))
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(int(responseCode.Load())) }))
 	t.Cleanup(target.Close)
 	ca := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: target.Certificate().Raw})
 	caDir := t.TempDir()

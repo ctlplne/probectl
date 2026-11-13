@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	googleuuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -25,13 +25,13 @@ import (
 
 func TestIncidentTestComparisonKeepsOriginalOutcomesUnknownIOAndExactCitations(t *testing.T) {
 	from := time.Now().UTC().Truncate(time.Microsecond)
-	source := store.IncidentConfiguredTest{TenantID: "own", ContextID: uuid.NewString(), EntityID: uuid.NewString(), TestID: uuid.NewString(), AgentID: "person@example.test", Name: "person@example.test", Type: "icmp"}
+	source := store.IncidentConfiguredTest{TenantID: "own", ContextID: googleuuid.NewString(), EntityID: googleuuid.NewString(), TestID: googleuuid.NewString(), AgentID: "person@example.test", Name: "person@example.test", Type: "icmp"}
 	source.Definition = testspec.ExecutableDefinition{ID: source.TestID, Type: "icmp", Target: "192.0.2.1", IntervalSeconds: 30, TimeoutSeconds: 2, Params: map[string]string{}}
 	application := source
-	application.TestID, application.Type = uuid.NewString(), "http"
+	application.TestID, application.Type = googleuuid.NewString(), "http"
 	application.Definition = testspec.ExecutableDefinition{ID: application.TestID, Type: "http", Target: "https://example.test/", IntervalSeconds: 30, TimeoutSeconds: 2, Params: map[string]string{}}
 	read := func(at time.Time) store.IncidentTestMeasurement {
-		return store.IncidentTestMeasurement{TenantID: source.TenantID, ContextID: source.ContextID, EntityID: source.EntityID, TestID: source.TestID, AgentID: source.AgentID, EvidenceID: uuid.NewString(), ObservedAt: at, Available: true, Reason: "original_attested_test_observation"}
+		return store.IncidentTestMeasurement{TenantID: source.TenantID, ContextID: source.ContextID, EntityID: source.EntityID, TestID: source.TestID, AgentID: source.AgentID, EvidenceID: googleuuid.NewString(), ObservedAt: at, Available: true, Reason: "original_attested_test_observation"}
 	}
 	good, loss, local, canceled, previous := read(from), read(from.Add(time.Second)), read(from.Add(2*time.Second)), read(from.Add(3*time.Second)), read(from.Add(-7*24*time.Hour))
 	good.ICMP = &entity.ICMPMeasurement{Requested: 5, Attempted: 5, Transmitted: 5, Replies: 3, ReadComplete: true}
@@ -61,7 +61,7 @@ func TestIncidentTestComparisonKeepsOriginalOutcomesUnknownIOAndExactCitations(t
 	if period.Packets.Lost != "18446744073709551616" {
 		t.Fatal("packet math narrowed the complete population", period.Packets)
 	}
-	value := incident.ImpactResponse{IncidentID: uuid.NewString(), Tests: result}
+	value := incident.ImpactResponse{IncidentID: googleuuid.NewString(), Tests: result}
 	encoded, err := marshalNativeIncidentImpact(value)
 	if err != nil {
 		t.Fatal(err)

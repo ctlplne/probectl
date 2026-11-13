@@ -38,7 +38,8 @@ func normalizeProbeOutcome(o Observation) (*ProbeOutcome, error) {
 		return nil, ErrInvalidClaim
 	}
 	for _, r := range m.CanaryType {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+		allowed := r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-'
+		if !allowed {
 			return nil, ErrInvalidClaim
 		}
 	}

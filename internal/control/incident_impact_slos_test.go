@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	googleuuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -24,7 +24,7 @@ import (
 )
 
 func TestIncidentSLOInputsUseProducerSelectorsOriginalFailuresAndTenant(t *testing.T) {
-	testID, contextID, entityID, evidenceID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	testID, contextID, entityID, evidenceID := googleuuid.NewString(), googleuuid.NewString(), googleuuid.NewString(), googleuuid.NewString()
 	for _, tenant := range []string{"red", "blue"} {
 		source := store.IncidentConfiguredTest{TenantID: tenant, ContextID: contextID, EntityID: entityID, TestID: testID, AgentID: "own-agent", Type: "http", Target: "https://reader:credential@example.test/check"}
 		source.Definition = testspec.ExecutableDefinition{ID: testID, Type: source.Type, Target: source.Target, IntervalSeconds: 30, TimeoutSeconds: 2, Params: map[string]string{}}
@@ -34,7 +34,7 @@ func TestIncidentSLOInputsUseProducerSelectorsOriginalFailuresAndTenant(t *testi
 		}
 		failed := incident.ImpactTestObservation{EvidenceID: evidenceID, Status: "failed"}
 		test := incident.ImpactTest{ContextID: contextID, EntityID: entityID, TestID: testID, AgentID: source.AgentID, Type: source.Type, DefinitionDigest: digest,
-			Current:  incident.ImpactTestPeriod{Observations: []incident.ImpactTestObservation{failed, failed, {EvidenceID: uuid.NewString(), Status: "unknown"}, {EvidenceID: uuid.NewString(), Status: "successful", Packets: &incident.ImpactTestPackets{Lost: "2"}}}},
+			Current:  incident.ImpactTestPeriod{Observations: []incident.ImpactTestObservation{failed, failed, {EvidenceID: googleuuid.NewString(), Status: "unknown"}, {EvidenceID: googleuuid.NewString(), Status: "successful", Packets: &incident.ImpactTestPackets{Lost: "2"}}}},
 			Previous: incident.ImpactTestPeriod{Observations: []incident.ImpactTestObservation{}}}
 		definition := slo.SLO{TenantID: tenant, Name: "checkout-availability", Service: "checkout", CanaryType: "http", Target: "https://REDACTED:REDACTED@example.test/check", Objective: 0.999, Window: 30 * 24 * time.Hour}
 		byID, wrongTarget, wrongType := definition, definition, definition
@@ -55,7 +55,7 @@ func TestIncidentSLOInputsUseProducerSelectorsOriginalFailuresAndTenant(t *testi
 		if err != nil || strings.Contains(string(body), "credential") || strings.Contains(string(body), "reader:") {
 			t.Fatal("secret-bearing executable selectors escaped into citations", string(body), err)
 		}
-		native, err := marshalNativeIncidentImpact(incident.ImpactResponse{IncidentID: uuid.NewString(), SLOs: values})
+		native, err := marshalNativeIncidentImpact(incident.ImpactResponse{IncidentID: googleuuid.NewString(), SLOs: values})
 		if err != nil {
 			t.Fatal("an arbitrary OpenSLO name was forced into UUID identity", err)
 		}

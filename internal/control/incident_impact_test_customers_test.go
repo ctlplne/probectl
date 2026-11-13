@@ -10,7 +10,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/google/uuid"
+	googleuuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/incident"
@@ -22,19 +22,19 @@ import (
 func TestIncidentCustomerUnionKeepsMeasuredTestSLOInputsAndUnknownCoverage(t *testing.T) {
 	for _, tenant := range []string{"red", "blue"} {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
-		area, router, first, second, healthy, tagID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
-		failed, partial := uuid.NewString(), uuid.NewString()
+		area, router, first, second, healthy, tagID := googleuuid.NewString(), googleuuid.NewString(), googleuuid.NewString(), googleuuid.NewString(), googleuuid.NewString(), googleuuid.NewString()
+		failed, partial := googleuuid.NewString(), googleuuid.NewString()
 		test := incident.ImpactTest{ContextID: area, EntityID: router, TestID: first, AgentID: "owned-agent",
 			Current: incident.ImpactTestPeriod{Observations: []incident.ImpactTestObservation{
 				{EvidenceID: failed, Status: "failed"},
 				{EvidenceID: partial, Status: "successful", Packets: &incident.ImpactTestPackets{Lost: "2"}},
-				{EvidenceID: uuid.NewString(), Status: "unknown", Packets: &incident.ImpactTestPackets{Lost: "100"}},
-				{EvidenceID: uuid.NewString(), Status: "canceled"},
+				{EvidenceID: googleuuid.NewString(), Status: "unknown", Packets: &incident.ImpactTestPackets{Lost: "100"}},
+				{EvidenceID: googleuuid.NewString(), Status: "canceled"},
 			}}, Previous: incident.ImpactTestPeriod{Observations: []incident.ImpactTestObservation{{EvidenceID: failed, Status: "failed"}}}}
 		other := test
 		other.TestID, other.Previous = second, incident.ImpactTestPeriod{}
 		other.Current = incident.ImpactTestPeriod{Observations: []incident.ImpactTestObservation{{EvidenceID: partial, Status: "successful", Packets: &incident.ImpactTestPackets{Lost: "2"}}}}
-		unhit := incident.ImpactTest{ContextID: area, EntityID: router, TestID: healthy, AgentID: "owned-agent", Current: incident.ImpactTestPeriod{Observations: []incident.ImpactTestObservation{{EvidenceID: uuid.NewString(), Status: "successful"}}}}
+		unhit := incident.ImpactTest{ContextID: area, EntityID: router, TestID: healthy, AgentID: "owned-agent", Current: incident.ImpactTestPeriod{Observations: []incident.ImpactTestObservation{{EvidenceID: googleuuid.NewString(), Status: "successful"}}}}
 		metadata := &incidentTestCustomerTags{tenant: tenant, revision: 1, items: map[string]tags.SubjectResolution{}}
 		for i, id := range []string{first, second} {
 			value := "traffic-customer"
@@ -44,7 +44,7 @@ func TestIncidentCustomerUnionKeepsMeasuredTestSLOInputsAndUnknownCoverage(t *te
 			metadata.items[id] = tags.SubjectResolution{ContextID: area, TargetKind: "test", TargetID: id, TagRevision: "1", Items: []tags.EffectiveItem{{TagID: tagID, Key: "customer", Value: value, Source: "manual"}}}
 		}
 		objective := incident.ImpactSLO{Name: "checkout-availability", Current: incident.ImpactSLOPeriod{Sources: []incident.ImpactSLOSource{{ContextID: area, EntityID: router, TestID: first, AgentID: "owned-agent", EvidenceIDs: []string{failed}}}}}
-		base := []incident.ImpactCustomer{{TagKey: "customer", Value: "traffic-customer", ContextID: area, PrefixIDs: []string{uuid.NewString()}, TestIDs: []string{}, SLOIDs: []string{}, CaptureKeys: []string{"original-flow"}, Current: &incident.ImpactCounters{RawBytes: "18446744073709551616"}}}
+		base := []incident.ImpactCustomer{{TagKey: "customer", Value: "traffic-customer", ContextID: area, PrefixIDs: []string{googleuuid.NewString()}, TestIDs: []string{}, SLOIDs: []string{}, CaptureKeys: []string{"original-flow"}, Current: &incident.ImpactCounters{RawBytes: "18446744073709551616"}}}
 		out, err := mergeIncidentTestCustomers(ctx, tenant, "customer", metadata, []incident.ImpactTest{test, other, unhit}, []incident.ImpactSLO{objective}, base, 1<<20)
 		if err != nil || len(out) != 2 {
 			t.Fatal("complete customer union unavailable", out, err)
