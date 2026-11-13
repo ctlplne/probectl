@@ -22,6 +22,7 @@ import (
 	"github.com/ctlplne/probectl/internal/a2a"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	"github.com/ctlplne/probectl/internal/incident"
@@ -34,7 +35,7 @@ import (
 // maxRecvBytes is the finite default for each inbound gRPC message (FUZZ-005).
 // Deployments can raise it through the agent transport admission option when
 // a complete original source record needs more wire space.
-const maxRecvBytes = 4 << 20 // 4 MiB
+const maxRecvBytes = entity.MaxICMPMeasurementWireBytes
 
 // gRPC server keepalive / lifetime caps for the agent-transport listener.
 // Without them the server inherits gRPC's permissive defaults: an idle or

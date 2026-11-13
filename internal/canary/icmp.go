@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"sync"
@@ -193,7 +194,11 @@ func (c *icmpCanary) probe(ctx context.Context, conn icmpProbeConn, raw, v6 bool
 	if err != nil {
 		return nil, nil, facts, fmt.Errorf("icmp: probe challenge unavailable: %w", err)
 	}
-	state := icmpProbeState{rtts: make([]time.Duration, c.count), offsets: make([]time.Duration, c.count), sentAt: make([]time.Time, c.count), written: make([]bool, c.count), payload: icmpEchoPayload(tokens[:8], c.payload), challenges: make(map[uint64]int, c.count), id: os.Getpid() & 0xffff, raw: raw, v6: v6, responders: map[string]bool{}}
+	target, ok := netip.AddrFromSlice(dst)
+	if !ok {
+		return nil, nil, facts, errors.New("icmp: invalid resolved probe target")
+	}
+	state := icmpProbeState{rtts: make([]time.Duration, c.count), offsets: make([]time.Duration, c.count), sentAt: make([]time.Time, c.count), written: make([]bool, c.count), payload: icmpEchoPayload(tokens[:8], c.payload), challenges: make(map[uint64]int, c.count), id: os.Getpid() & 0xffff, raw: raw, v6: v6, responders: map[string]bool{}, target: target.Unmap(), networkErrors: make([]*ICMPNetworkError, c.count)}
 	for i := range state.rtts {
 		state.rtts[i], state.offsets[i] = -1, -1
 		challenge := binary.BigEndian.Uint64(tokens[i*8 : (i+1)*8])

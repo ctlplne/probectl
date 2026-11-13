@@ -7,6 +7,7 @@
 package agenttransport
 
 import (
+	"encoding/hex"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -23,11 +24,20 @@ func parseICMPMeasurement(m *agentv1.IcmpMeasurement) (*entity.ICMPMeasurement, 
 	if len(m.ProtoReflect().GetUnknown()) != 0 {
 		return nil, status.Error(codes.InvalidArgument, "unsupported ICMP evidence fields")
 	}
-	return &entity.ICMPMeasurement{Version: int(m.Version), DefinitionHash: m.DefinitionHash,
+	out := &entity.ICMPMeasurement{Version: int(m.Version), DefinitionHash: m.DefinitionHash,
 		StartedAt: time.Unix(0, m.StartedUnixNanos), CompletedAt: time.Unix(0, m.CompletedUnixNanos),
 		Requested: m.Requested, Attempted: m.Attempted, Transmitted: m.Transmitted,
 		Replies: m.Replies, SendErrors: m.SendErrors, ReadComplete: m.ReadComplete,
-		Canceled: m.Canceled, IOFailed: m.IoFailed, Responders: append([]string{}, m.Responders...)}, nil
+		Canceled: m.Canceled, IOFailed: m.IoFailed, Responders: append([]string{}, m.Responders...)}
+	for _, item := range m.NetworkErrors {
+		if item == nil || len(item.ProtoReflect().GetUnknown()) != 0 {
+			return nil, status.Error(codes.InvalidArgument, "unsupported ICMP network error fields")
+		}
+		out.NetworkErrors = append(out.NetworkErrors, entity.ICMPNetworkError{Sequence: item.Sequence,
+			Responder: item.Responder, Type: item.Type, Code: item.Code, ReceivedAt: time.Unix(0, item.ReceivedUnixNanos),
+			PacketDigest: hex.EncodeToString(item.PacketDigest), Conflicting: item.Conflicting})
+	}
+	return out, nil
 }
 
 func parseProbeOutcome(m *agentv1.ProbeOutcome) (*entity.ProbeOutcome, error) {

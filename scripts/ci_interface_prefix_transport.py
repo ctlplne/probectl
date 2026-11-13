@@ -2857,11 +2857,11 @@ def main(integration, flow_integration=False):
         ix_prefix_controls()
         source = Path("internal/agent/entity_client.go")
         original = source.read_text()
-        seam = "if proto.Size(request) > 1<<20 {"
-        assert original.count(seam) == 1
+        seam = "if proto.Size(request) > evidenceRequestWireLimit(request) {"
+        assert original.count(seam) == 2
         try:
             source.write_text(
-                original.replace(seam, "if false && proto.Size(request) > 1<<20 {")
+                original.replace(seam, "if false && proto.Size(request) > evidenceRequestWireLimit(request) {")
             )
             result = execute("internal/agent", (ROOT,), "whole_request_guard_omitted")
         finally:

@@ -7,12 +7,38 @@
 package agent
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
+
+func TestICMPNetworkErrorWireRetainsCompleteConfiguredPopulation(t *testing.T) {
+	const count = 100000
+	at := time.Now().UTC().Truncate(time.Microsecond)
+	measurement := &entity.ICMPMeasurement{Version: 2, DefinitionHash: strings.Repeat("a", 64), StartedAt: at.Add(-time.Second), CompletedAt: at,
+		Requested: count, Attempted: count, Transmitted: count, ReadComplete: true}
+	for i := range count {
+		measurement.NetworkErrors = append(measurement.NetworkErrors, entity.ICMPNetworkError{Sequence: uint32(i),
+			Responder: "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff", Type: 1, Code: 0, ReceivedAt: at, PacketDigest: strings.Repeat("a", 64)})
+	}
+	observation := entity.Observation{ID: "bf806db0-b5ae-4059-998d-97b9c7226a05", Source: entity.SourceKey{AgentID: "agent-one", Kind: entity.PathAgent, SourceRef: "e3fed09f-a38f-4637-9a6d-ef8471b6e7ca"},
+		Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "2001:db8::99"}, SourceRef: "icmp:configured-test", ObservedAt: at, ICMP: measurement}
+	client := &EvidenceClient{agentID: "agent-one", svc: agentv1.NewAgentServiceClient(nil)}
+	request, err := client.encodeEvidence(at, []entity.Observation{observation})
+	if err != nil {
+		t.Fatal("complete configured network-error population refused", err)
+	}
+	t.Logf("complete %d-error wire population: %d bytes", count, proto.Size(request))
+	retained := request.Observations[0].Icmp.NetworkErrors
+	if len(retained) != count || retained[count-1].Sequence != count-1 || len(retained[count-1].PacketDigest) != 32 {
+		t.Fatal("complete population, full sequence or digest was truncated")
+	}
+}
 
 func TestICMPEvidenceReceiptRefusesLegacyOmissionAndUnrelatedPlane(t *testing.T) {
 	request := &agentv1.SubmitEntityEvidenceRequest{Observations: []*agentv1.EntityEvidenceObservation{{Icmp: &agentv1.IcmpMeasurement{Version: 1}}, {Icmp: &agentv1.IcmpMeasurement{Version: 1}}}}

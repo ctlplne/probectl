@@ -32,6 +32,7 @@ type ICMPMeasurement struct {
 	Expected, Attempted, Transmitted, Replies, SendErrors int
 	ReadComplete, Canceled, IOFailed                      bool
 	Responders                                            []string
+	NetworkErrors                                         []ICMPNetworkError
 }
 
 func (m ICMPMeasurement) Complete() bool {
@@ -61,6 +62,8 @@ type icmpProbeState struct {
 	raw, v6       bool
 	readFailed    bool
 	responders    map[string]bool
+	target        netip.Addr
+	networkErrors []*ICMPNetworkError
 }
 
 func (s *icmpProbeState) read(ctx context.Context, conn icmpProbeConn, deadline time.Time) {
@@ -68,13 +71,11 @@ func (s *icmpProbeState) read(ctx context.Context, conn icmpProbeConn, deadline 
 	if s.v6 {
 		protocol = ianaProtoICMPv6
 	}
-	// One sentinel byte detects oversized replies; complete configured payloads
-	// above the old Ethernet-sized buffer remain supported.
-	bufferBytes := 8 + len(s.payload) + 1
+	// A complete ICMP error can quote the original IP header and payload.
+	// Admit the whole IP message plus one sentinel; the echo-only bound below
+	// still rejects oversized echo responses instead of silently truncating them.
+	bufferBytes := 65536
 	if s.raw && !s.v6 {
-		// Linux net.IPConn reads the outer IPv4 header into this same
-		// buffer before stripping it. Reserve the protocol's maximum IHL
-		// (15 four-byte words), so a valid echo is not truncated first.
 		bufferBytes += 15 * 4
 	}
 	buffer := make([]byte, bufferBytes)
@@ -87,12 +88,18 @@ func (s *icmpProbeState) read(ctx context.Context, conn icmpProbeConn, deadline 
 			}
 			return
 		}
-		if n > 8+len(s.payload) {
+		if n > 65535 {
 			continue
 		}
 		receivedAt := time.Now()
 		message, err := icmp.ParseMessage(protocol, buffer[:n])
-		if err != nil || message.Code != 0 {
+		if err != nil {
+			continue
+		}
+		if s.retainNetworkError(message, buffer[:n], peer, receivedAt) {
+			continue
+		}
+		if message.Code != 0 || n > 8+len(s.payload) {
 			continue
 		}
 		if s.v6 && message.Type != ipv6.ICMPTypeEchoReply || !s.v6 && message.Type != ipv4.ICMPTypeEchoReply {
@@ -158,6 +165,11 @@ func (s *icmpProbeState) finish(ctx context.Context, facts ICMPMeasurement, dead
 	facts.ReadComplete = facts.Replies == facts.Expected || !time.Now().Before(deadline)
 	for address := range s.responders {
 		facts.Responders = append(facts.Responders, address)
+	}
+	for _, fact := range s.networkErrors {
+		if fact != nil {
+			facts.NetworkErrors = append(facts.NetworkErrors, *fact)
+		}
 	}
 	sort.Strings(facts.Responders)
 	return facts

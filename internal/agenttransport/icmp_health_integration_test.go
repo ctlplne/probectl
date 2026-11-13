@@ -11,6 +11,7 @@ package agenttransport_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,6 +101,13 @@ func TestICMPHealthCurrentSnapshotAndTenantIsolation(t *testing.T) {
 	loss.ICMP.Replies, loss.ICMP.Responders = 0, []string{}
 	submit(lanes[0], loss)
 	read(lanes[0], "down", time.Minute, memory)
+	read(lanes[1], "up", time.Minute, memory)
+
+	networkError := lanes[0].observe(ctx, t, newUUID(t))
+	networkError.ICMP.Version, networkError.ICMP.Replies, networkError.ICMP.Responders = 2, 0, []string{}
+	networkError.ICMP.NetworkErrors = []entity.ICMPNetworkError{{Responder: "192.0.2.9", Type: 3, ReceivedAt: networkError.ObservedAt, PacketDigest: strings.Repeat("a", 64)}}
+	submit(lanes[0], networkError)
+	read(lanes[0], "unknown", time.Minute, memory) // path error cannot certify router-down health
 	read(lanes[1], "up", time.Minute, memory)
 
 	partial := lanes[0].observe(ctx, t, newUUID(t))

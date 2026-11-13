@@ -9,11 +9,13 @@ package config
 import (
 	"math"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/entity"
 )
 
 func loadPublicRoutingConfig(l *loader, cfg *Config) {
 	maxInt := int(^uint(0) >> 1)
-	cfg.AgentMaxReceiveBytes = l.intRange("PROBECTL_AGENT_MAX_RECEIVE_BYTES", 4<<20, 1, math.MaxInt32)
+	cfg.AgentMaxReceiveBytes = l.intRange("PROBECTL_AGENT_MAX_RECEIVE_BYTES", entity.MaxICMPMeasurementWireBytes, 1, math.MaxInt32)
 	cfg.PublicRoutingMemoryBytes = l.intRange("PROBECTL_PUBLIC_ROUTING_MEMORY_BYTES", 2<<30, 1, maxInt)
 	cfg.PublicRoutingWorkUnits = l.intRange("PROBECTL_PUBLIC_ROUTING_WORK_UNITS", 2<<30, 1, maxInt)
 	cfg.BGPRoutingStateBytes = l.intRange("PROBECTL_BGP_ROUTING_STATE_BYTES", 64<<30, 1, maxInt)

@@ -12,20 +12,13 @@ import (
 	"testing"
 )
 
-// TestExplicitMaxRecvMsgSize: FUZZ-005. The agent-transport gRPC server must set
-// grpc.MaxRecvMsgSize EXPLICITLY (matching the OTLP receiver's 4 MiB) rather than
-// relying on the implicit gRPC default, so the bound is intentional and visible.
-//
-// This is deliberately a source lint, NOT dead weight behind the behavioral
-// test: gRPC's implicit default MaxRecvMsgSize is ALSO 4 MiB, so a running
-// server cannot distinguish "explicit 4 MiB" from "no option set" — the very
-// property FUZZ-005 cares about (explicitness against a future default change)
-// is invisible to behavior. The enforcement of the cap itself is proven
-// end-to-end by TestAgentTransportEnforces4MiBRecvCap in the integration suite.
-// The grep is argument-agnostic so renaming maxRecvBytes does not break it.
+// TestExplicitMaxRecvMsgSize checks that the evidence listener applies a finite,
+// explicit message admission. Complete configured ICMP populations require more
+// room than the unrelated OTLP listener. The real transport test also sends an
+// over-admission frame and verifies decode-layer ResourceExhausted.
 func TestExplicitMaxRecvMsgSize(t *testing.T) {
-	if maxRecvBytes != 4<<20 {
-		t.Fatalf("maxRecvBytes = %d, want 4 MiB (must match the OTLP receiver cap)", maxRecvBytes)
+	if maxRecvBytes != 16<<20 {
+		t.Fatalf("maxRecvBytes = %d, want 16 MiB for complete configured ICMP evidence", maxRecvBytes)
 	}
 	src, err := os.ReadFile("server.go")
 	if err != nil {

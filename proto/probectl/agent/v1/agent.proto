@@ -305,6 +305,19 @@ message IcmpMeasurement {
   bool canceled = 11;
   bool io_failed = 12;
   repeated string responders = 13;
+  repeated IcmpNetworkError network_errors = 14; // version 2; complete challenge-matched outcomes
+}
+
+// Original collector packet provenance, never claimed tenant or ASN authority.
+// Sequence is the full configured probe index, not the 16-bit wire sequence.
+message IcmpNetworkError {
+  uint32 sequence = 1;
+  string responder = 2;
+  uint32 type = 3;
+  uint32 code = 4;
+  int64 received_unix_nanos = 5;
+  bytes packet_digest = 6;
+  bool conflicting = 7;
 }
 
 // Completed synthetic outcome, without raw errors, bodies or secret parameters.

@@ -195,6 +195,10 @@ func (record *icmpHealthRecord) health(key entity.SourceKey, entityID string, fr
 	}
 	m := claim.ICMP
 	record.out.State, record.out.Reason = "unknown", "incomplete measurement"
+	if m.Replies == 0 && len(m.NetworkErrors) != 0 {
+		record.out.Reason = "current terminal network error is not router health"
+		return record.out, nil
+	}
 	if m.Attempted == m.Requested && m.Transmitted == m.Requested && m.SendErrors == 0 && m.ReadComplete && !m.Canceled && !m.IOFailed {
 		record.out.State, record.out.Reason = "up", "current complete echo replies"
 		if m.Replies == 0 {

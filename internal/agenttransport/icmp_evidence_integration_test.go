@@ -15,6 +15,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -222,4 +223,68 @@ func TestICMPMeasurementRealMTLSKeepsCurrentDefinitionTenantAndReplay(t *testing
 	if accepted, unresolved, err := lanes[1].client.Submit(ctx, []entity.Observation{healthySibling}); err != nil || accepted != 1 || unresolved != 0 {
 		t.Fatal("healthy sibling inherited source withdrawal", accepted, unresolved, err)
 	}
+}
+
+// Issued mTLS and real FORCE-RLS persistence; network outcomes are modeled.
+// The raw routed-fault collector proof remains a separate required lab.
+func TestICMPNetworkErrorsRealMTLSRetainsWholePopulationAndTenant(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	pool := setup(ctx, t)
+	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	server := startTestServer(ctx, t, pool, func(s *agenttransport.Server) { s.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil)) })
+	area, router, observationID := newUUID(t), newUUID(t), newUUID(t)
+	lanes := []icmpWireLane{seedICMPWireLane(ctx, t, pool, server, area, router), seedICMPWireLane(ctx, t, pool, server, area, router)}
+	for index, lane := range lanes {
+		lane.definition.Params["count"] = "100000"
+		params, err := json.Marshal(lane.definition.Params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(lane.tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `UPDATE tests SET params=$1::jsonb,updated_at=clock_timestamp() WHERE id=$2`, params, lane.definition.ID)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		digest, err := testspec.DefinitionHash(lane.definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().UTC().Truncate(time.Microsecond)
+		m := &entity.ICMPMeasurement{Version: 2, DefinitionHash: digest, StartedAt: at, CompletedAt: at.Add(time.Microsecond), Requested: 100000, Attempted: 100000, Transmitted: 100000, ReadComplete: true, Responders: []string{}}
+		responder := fmt.Sprintf("192.0.2.%d", index+1)
+		for sequence := range m.Requested {
+			m.NetworkErrors = append(m.NetworkErrors, entity.ICMPNetworkError{Sequence: sequence, Responder: responder, Type: 3, ReceivedAt: m.CompletedAt, PacketDigest: strings.Repeat("a", 64), Conflicting: sequence == 99999})
+		}
+		claim := entity.Observation{ID: observationID, Source: entity.SourceKey{AgentID: lane.sender, Kind: entity.PathAgent, SourceRef: lane.definition.ID}, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: lane.definition.Target}, SourceRef: "icmp:configured-test", ObservedAt: m.CompletedAt, ICMP: m}
+		if accepted, unresolved, err := lane.client.Submit(ctx, []entity.Observation{claim}); err != nil || accepted != 1 || unresolved != 0 {
+			t.Fatal("whole network-error mTLS observation refused", accepted, unresolved, err)
+		}
+		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(lane.tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var body []byte
+			if err := sc.Q.QueryRow(ctx, `SELECT icmp_measurement FROM entity_evidence WHERE observation_id=$1`, observationID).Scan(&body); err != nil {
+				return err
+			}
+			var got entity.ICMPMeasurement
+			if err := json.Unmarshal(body, &got); err != nil {
+				return err
+			}
+			if !reflect.DeepEqual(&got, m) {
+				return fmt.Errorf("original network errors crossed tenant or lost fields")
+			}
+			var foreign int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM entity_evidence WHERE tenant_id=$1`, lanes[1-index].tenant).Scan(&foreign); err != nil {
+				return err
+			}
+			if foreign != 0 {
+				return fmt.Errorf("network error storage bypassed FORCE RLS")
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Log("real-integration: issued evidence mTLS and whole100000-outcome persistence per tenant; source outcomes modeled, routed fault labs owed")
 }

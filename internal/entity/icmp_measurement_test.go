@@ -75,3 +75,48 @@ func TestICMPMeasurementObservationRefusesMalformedSourceAndCounts(t *testing.T)
 		})
 	}
 }
+
+func TestICMPNetworkErrorObservationPreservesCompletePopulation(t *testing.T) {
+	original := icmpObservationFixture()
+	m := original.ICMP
+	m.Version, m.Requested, m.Attempted, m.Transmitted, m.Replies = 2, 100000, 100000, 100000, 0
+	m.Responders = nil
+	for i := m.Requested; i > 0; i-- {
+		m.NetworkErrors = append(m.NetworkErrors, ICMPNetworkError{Sequence: i - 1, Responder: "2001:db8::1", Type: 1,
+			ReceivedAt: m.CompletedAt, PacketDigest: strings.Repeat("a", 64), Conflicting: i == 1})
+	}
+	got, err := original.Normalize(time.Now())
+	if err != nil || len(got.ICMP.NetworkErrors) != 100000 || got.ICMP.NetworkErrors[99999].Sequence != 99999 || !got.ICMP.NetworkErrors[0].Conflicting {
+		t.Fatal("complete configured error population or conflict marker changed", err)
+	}
+	if original.ICMP.NetworkErrors[0].Sequence != 99999 {
+		t.Fatal("normalization mutated the original population")
+	}
+}
+
+func TestICMPNetworkErrorObservationRejectsInvalidEvidence(t *testing.T) {
+	for name, mutate := range map[string]func(*ICMPMeasurement){
+		"legacy version":         func(m *ICMPMeasurement) { m.Version = 1 },
+		"missing outcomes":       func(m *ICMPMeasurement) { m.NetworkErrors = nil },
+		"duplicate sequence":     func(m *ICMPMeasurement) { m.NetworkErrors = append(m.NetworkErrors, m.NetworkErrors[0]) },
+		"outside population":     func(m *ICMPMeasurement) { m.NetworkErrors[0].Sequence = m.Requested },
+		"wrong family":           func(m *ICMPMeasurement) { m.NetworkErrors[0].Responder = "192.0.2.1" },
+		"wrong message type":     func(m *ICMPMeasurement) { m.NetworkErrors[0].Type = 3 },
+		"bad code":               func(m *ICMPMeasurement) { m.NetworkErrors[0].Code = 256 },
+		"noncanonical responder": func(m *ICMPMeasurement) { m.NetworkErrors[0].Responder = "2001:0db8::1" },
+		"bad digest":             func(m *ICMPMeasurement) { m.NetworkErrors[0].PacketDigest = strings.Repeat("A", 64) },
+		"missing digest":         func(m *ICMPMeasurement) { m.NetworkErrors[0].PacketDigest = strings.Repeat("0", 64) },
+		"old outcome":            func(m *ICMPMeasurement) { m.NetworkErrors[0].ReceivedAt = m.StartedAt.Add(-time.Microsecond) },
+		"future outcome":         func(m *ICMPMeasurement) { m.NetworkErrors[0].ReceivedAt = m.CompletedAt.Add(time.Microsecond) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			observation := icmpObservationFixture()
+			observation.ICMP.Version = 2
+			observation.ICMP.NetworkErrors = []ICMPNetworkError{{Responder: "2001:db8::1", Type: 1, ReceivedAt: observation.ObservedAt, PacketDigest: strings.Repeat("a", 64)}}
+			mutate(observation.ICMP)
+			if _, err := observation.Normalize(time.Now()); !errors.Is(err, ErrInvalidClaim) {
+				t.Fatal("invalid network error evidence accepted", err)
+			}
+		})
+	}
+}

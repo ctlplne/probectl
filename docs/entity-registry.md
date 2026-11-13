@@ -187,6 +187,19 @@ required before tags can use the private address facts.
 
 ### ICMP collector facts (preview)
 
+Version 2 additionally retains one terminal network-error outcome per original
+probe index: actual responder, ICMP type/code, receipt clock, whole-packet digest
+and an explicit conflict flag. The collector requires the current run's random
+challenge in the quoted original echo request and verifies the outer checksum;
+short quotes, unrelated probes and unwritten sequences remain unavailable. Full
+probe indices survive the 16-bit wire sequence wrap. Different terminal outcomes
+remain conflicting, never a selected winner. A network error is packet provenance,
+not ASN ownership or router-down authority. Existing tenant/source assignments,
+current test definition, certificate checks, immutable retries and typed retention
+receipts still apply. The finite transport admission supports the complete
+configured population; it never keeps an outcome prefix. Subject export/erasure
+matches these responder addresses exactly through the same tenant-scoped lifecycle.
+
 A `path_agent` source can retain typed ICMP measurement metadata on its address
 observation. Its configured reference is the current enabled test UUID. The
 receiver checks the exact executable-definition digest, packet population and

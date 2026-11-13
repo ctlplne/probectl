@@ -7,6 +7,7 @@
 package agent
 
 import (
+	"encoding/hex"
 	"github.com/ctlplne/probectl/internal/entity"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
@@ -15,11 +16,18 @@ func encodeICMPMeasurement(m *entity.ICMPMeasurement) *agentv1.IcmpMeasurement {
 	if m == nil {
 		return nil
 	}
-	return &agentv1.IcmpMeasurement{Version: uint32(m.Version), DefinitionHash: m.DefinitionHash,
+	out := &agentv1.IcmpMeasurement{Version: uint32(m.Version), DefinitionHash: m.DefinitionHash,
 		StartedUnixNanos: m.StartedAt.UnixNano(), CompletedUnixNanos: m.CompletedAt.UnixNano(),
 		Requested: m.Requested, Attempted: m.Attempted, Transmitted: m.Transmitted,
 		Replies: m.Replies, SendErrors: m.SendErrors, ReadComplete: m.ReadComplete,
 		Canceled: m.Canceled, IoFailed: m.IOFailed, Responders: append([]string(nil), m.Responders...)}
+	for _, item := range m.NetworkErrors {
+		digest, _ := hex.DecodeString(item.PacketDigest) // normalized before encoding
+		out.NetworkErrors = append(out.NetworkErrors, &agentv1.IcmpNetworkError{Sequence: item.Sequence,
+			Responder: item.Responder, Type: item.Type, Code: item.Code, ReceivedUnixNanos: item.ReceivedAt.UnixNano(),
+			PacketDigest: digest, Conflicting: item.Conflicting})
+	}
+	return out
 }
 
 func encodeProbeOutcome(m *entity.ProbeOutcome) *agentv1.ProbeOutcome {

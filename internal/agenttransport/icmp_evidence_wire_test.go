@@ -24,4 +24,12 @@ func TestICMPMeasurementWireRefusesUnknownMetadataFields(t *testing.T) {
 	if _, err := parseICMPMeasurement(raw); status.Code(err) != codes.InvalidArgument {
 		t.Fatal("unknown metadata was accepted as complete current evidence", err)
 	}
+	for _, item := range []*agentv1.IcmpNetworkError{nil, {Responder: "192.0.2.1"}} {
+		if item != nil {
+			item.ProtoReflect().SetUnknown([]byte{0x98, 0x06, 1})
+		}
+		if _, err := parseICMPMeasurement(&agentv1.IcmpMeasurement{Version: 2, NetworkErrors: []*agentv1.IcmpNetworkError{item}}); status.Code(err) != codes.InvalidArgument {
+			t.Fatal("incomplete network error was accepted", err)
+		}
+	}
 }

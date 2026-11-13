@@ -19,19 +19,20 @@ import (
 // sender-bound evidence. Neither a digest nor these counts grants tenant,
 // agent, current-test, context, canonical identity or notification authority.
 type ICMPMeasurement struct {
-	Version        int       `json:"version"`
-	DefinitionHash string    `json:"definition_hash"`
-	StartedAt      time.Time `json:"started_at"`
-	CompletedAt    time.Time `json:"completed_at"`
-	Requested      uint32    `json:"requested"`
-	Attempted      uint32    `json:"attempted"`
-	Transmitted    uint32    `json:"transmitted"`
-	Replies        uint32    `json:"replies"`
-	SendErrors     uint32    `json:"send_errors"`
-	ReadComplete   bool      `json:"read_complete"`
-	Canceled       bool      `json:"canceled"`
-	IOFailed       bool      `json:"io_failed"`
-	Responders     []string  `json:"responders"`
+	Version        int                `json:"version"`
+	DefinitionHash string             `json:"definition_hash"`
+	StartedAt      time.Time          `json:"started_at"`
+	CompletedAt    time.Time          `json:"completed_at"`
+	Requested      uint32             `json:"requested"`
+	Attempted      uint32             `json:"attempted"`
+	Transmitted    uint32             `json:"transmitted"`
+	Replies        uint32             `json:"replies"`
+	SendErrors     uint32             `json:"send_errors"`
+	ReadComplete   bool               `json:"read_complete"`
+	Canceled       bool               `json:"canceled"`
+	IOFailed       bool               `json:"io_failed"`
+	Responders     []string           `json:"responders"`
+	NetworkErrors  []ICMPNetworkError `json:"network_errors,omitempty"`
 }
 
 func normalizeICMPMeasurement(o Observation) (*ICMPMeasurement, error) {
@@ -48,7 +49,7 @@ func normalizeICMPMeasurement(o Observation) (*ICMPMeasurement, error) {
 		return nil, ErrInvalidClaim
 	}
 	digest, err := hex.DecodeString(m.DefinitionHash)
-	if err != nil || len(digest) != 32 || hex.EncodeToString(digest) != m.DefinitionHash || m.Version != 1 ||
+	if err != nil || len(digest) != 32 || hex.EncodeToString(digest) != m.DefinitionHash || (m.Version != 1 && m.Version != 2) ||
 		m.Requested == 0 || m.Attempted > m.Requested || m.Transmitted > m.Attempted ||
 		m.Replies > m.Transmitted || m.SendErrors != m.Attempted-m.Transmitted {
 		return nil, ErrInvalidClaim
@@ -78,5 +79,9 @@ func normalizeICMPMeasurement(o Observation) (*ICMPMeasurement, error) {
 		seen[value], m.Responders[i] = true, value
 	}
 	sort.Strings(m.Responders)
+	m.NetworkErrors, err = normalizeICMPNetworkErrors(m, target)
+	if err != nil {
+		return nil, err
+	}
 	return &m, nil
 }

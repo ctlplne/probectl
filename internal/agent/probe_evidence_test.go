@@ -128,6 +128,26 @@ func TestProbeEvidenceQueueKeepsLatestUnknownAndInflightAdmission(t *testing.T) 
 	t.Fatal("completed RPC retained its admission charge")
 }
 
+func TestProbeEvidenceRetainsOriginalNetworkErrorAndMemoryCharge(t *testing.T) {
+	host, schedule, result, _ := probeQueueFixture(t, "blue", "blue-agent")
+	result.ICMP.Replies, result.ICMP.Responders = 0, nil
+	result.ICMP.NetworkErrors = []canary.ICMPNetworkError{{Sequence: 2, Responder: "192.0.2.1", Type: 3, Code: 1,
+		ReceivedAt: result.ICMP.CompletedAt, PacketDigest: [32]byte{1}, Conflicting: true}}
+	observation, err := host.probeObservation(schedule, result)
+	if err != nil || observation.ICMP.Version != 2 || len(observation.ICMP.NetworkErrors) != 1 {
+		t.Fatal("matched collector network error was not retained", err)
+	}
+	got := observation.ICMP.NetworkErrors[0]
+	if got.Sequence != 2 || got.Responder != "192.0.2.1" || got.Type != 3 || got.Code != 1 || !got.Conflicting || got.PacketDigest[:2] != "01" || !got.ReceivedAt.Equal(result.ICMP.CompletedAt.Truncate(time.Microsecond)) {
+		t.Fatal("original network-error fields changed")
+	}
+	charged := probeEvidenceMemory(observation)
+	observation.ICMP.NetworkErrors = nil
+	if charged-probeEvidenceMemory(observation) < int64(256+4*(len(got.Responder)+len(got.PacketDigest))) {
+		t.Fatal("pending and in-flight admission omitted network errors")
+	}
+}
+
 func TestProbeEvidenceMemoryAndAgentQueuesDoNotBorrowAuthority(t *testing.T) {
 	blue, schedule, result, _ := probeQueueFixture(t, "blue", "blue-agent")
 	red, _, _, _ := probeQueueFixture(t, "red", "red-agent")

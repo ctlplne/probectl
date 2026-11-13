@@ -8,6 +8,7 @@ package agent
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"math"
 	"sync"
@@ -112,6 +113,12 @@ func (h *Host) probeObservation(schedule scheduled, result canary.Result) (entit
 			StartedAt: m.StartedAt, CompletedAt: m.CompletedAt, Requested: uint32(m.Expected), Attempted: uint32(m.Attempted),
 			Transmitted: uint32(m.Transmitted), Replies: uint32(m.Replies), SendErrors: uint32(m.SendErrors),
 			ReadComplete: m.ReadComplete, Canceled: m.Canceled, IOFailed: m.IOFailed, Responders: m.Responders}}
+	if len(m.NetworkErrors) > 0 {
+		observation.ICMP.Version = 2
+		for _, item := range m.NetworkErrors {
+			observation.ICMP.NetworkErrors = append(observation.ICMP.NetworkErrors, entity.ICMPNetworkError{Sequence: item.Sequence, Responder: item.Responder, Type: item.Type, Code: item.Code, ReceivedAt: item.ReceivedAt, PacketDigest: hex.EncodeToString(item.PacketDigest[:]), Conflicting: item.Conflicting})
+		}
+	}
 	return observation.Normalize(time.Now())
 }
 
@@ -137,6 +144,9 @@ func probeEvidenceMemory(observation entity.Observation) int64 {
 		}
 	}
 	if observation.ICMP != nil {
+		for _, item := range observation.ICMP.NetworkErrors {
+			size += int64(256 + 4*(len(item.Responder)+len(item.PacketDigest)))
+		}
 		for _, address := range observation.ICMP.Responders {
 			size += int64(128 + 4*len(address))
 		}

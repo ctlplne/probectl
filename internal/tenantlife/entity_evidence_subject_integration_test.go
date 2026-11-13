@@ -60,6 +60,10 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 		{uuid.NewString(), "icmp", "192.0.2.70"},
 		{uuid.NewString(), "icmp", "2001:db8::7"},
 		{uuid.NewString(), "icmp", "2001:db8::70"},
+		{uuid.NewString(), "icmp_error", "192.0.2.7"},
+		{uuid.NewString(), "icmp_error", "192.0.2.70"},
+		{uuid.NewString(), "icmp_error", "2001:db8::7"},
+		{uuid.NewString(), "icmp_error", "2001:db8::70"},
 	}
 	contextID, entityID := uuid.NewString(), uuid.NewString()
 	generations := make(map[string]int64)
@@ -85,7 +89,7 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 					kind, alias, sourceRef, configured = "agent_site", "agent_site_id", "agent:label:site", "neutral-agent"
 				case "snmp_interface_prefixes":
 					prefixes = fmt.Sprintf(`[{"if_index":1,"prefix":%q,"on_link":true}]`, row.value)
-				case "icmp":
+				case "icmp", "icmp_error":
 					kind, alias, sourceRef, configured = "path_agent", "address", "icmp:configured-test", contextID
 					aliasValue = "192.0.2.200"
 					if strings.Contains(row.value, ":") {
@@ -93,7 +97,16 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 					}
 					end := time.Now().UTC().Truncate(time.Microsecond)
 					observed = end
-					body, err := json.Marshal(entity.ICMPMeasurement{Version: 1, DefinitionHash: strings.Repeat("a", 64), StartedAt: end.Add(-time.Second), CompletedAt: end, Requested: 3, Attempted: 3, Transmitted: 3, Replies: 1, ReadComplete: true, Responders: []string{row.value}})
+					measurement := entity.ICMPMeasurement{Version: 1, DefinitionHash: strings.Repeat("a", 64), StartedAt: end.Add(-time.Second), CompletedAt: end, Requested: 3, Attempted: 3, Transmitted: 3, Replies: 1, ReadComplete: true, Responders: []string{row.value}}
+					if row.field == "icmp_error" {
+						kind := uint32(3)
+						if strings.Contains(row.value, ":") {
+							kind = 1
+						}
+						measurement.Version, measurement.Replies, measurement.Responders = 2, 0, []string{}
+						measurement.NetworkErrors = []entity.ICMPNetworkError{{Sequence: 1, Responder: row.value, Type: kind, ReceivedAt: end, PacketDigest: strings.Repeat("a", 64)}}
+					}
+					body, err := json.Marshal(measurement)
 					if err != nil {
 						return err
 					}
@@ -125,8 +138,8 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 		indexes []int
 	}{
 		{person, []int{0, 1}},
-		{"192.0.2.7", []int{2, 7, 12}},
-		{"2001:0db8:0:0:0:0:0:7", []int{4, 9, 14}},
+		{"192.0.2.7", []int{2, 7, 12, 16}},
+		{"2001:0db8:0:0:0:0:0:7", []int{4, 9, 14, 18}},
 	} {
 		want := map[string]bool{}
 		for _, index := range query.indexes {
@@ -161,6 +174,9 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 			for _, expected := range samples {
 				if expected.id == row.ID && expected.field == "icmp" && (row.ICMP == nil || len(row.ICMP.Responders) != 1 || row.ICMP.Responders[0] != expected.value || row.ICMP.Requested != 3 || row.ICMP.Replies != 1) {
 					t.Fatal("ICMP evidence portability omitted or changed original metadata")
+				}
+				if expected.id == row.ID && expected.field == "icmp_error" && (row.ICMP == nil || row.ICMP.Version != 2 || len(row.ICMP.NetworkErrors) != 1 || row.ICMP.NetworkErrors[0].Responder != expected.value || row.ICMP.NetworkErrors[0].Sequence != 1 || row.ICMP.NetworkErrors[0].PacketDigest != strings.Repeat("a", 64)) {
+					t.Fatal("network-error portability lost original metadata")
 				}
 				if expected.id == row.ID && expected.field == "snmp_interface_prefixes" {
 					if len(row.Prefixes) != 1 || row.Prefixes[0].IfIndex != 1 || row.Prefixes[0].Prefix != expected.value || !row.Prefixes[0].OnLink {

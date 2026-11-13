@@ -255,14 +255,10 @@ func TestRejectsNonMTLS(t *testing.T) {
 	}
 }
 
-// TestAgentTransportEnforces4MiBRecvCap proves FUZZ-005 behaviorally: the
-// server rejects an over-cap message at the gRPC decode layer (ResourceExhausted,
-// before the handler runs) and does NOT trip the cap on a message comfortably
-// under it. Raising maxRecvBytes — or hard-coding a larger explicit cap — lets
-// the 5 MiB message through and fails the first assertion; cutting the cap below
-// ~1 MiB fails the second. It drives real gRPC frames end to end, so renaming
-// maxRecvBytes cannot make it pass vacuously.
-func TestAgentTransportEnforces4MiBRecvCap(t *testing.T) {
+// TestAgentTransportEnforcesDefaultRecvCap proves explicit finite admission
+// behaviorally: an over-cap frame is refused at gRPC decode before any handler,
+// while an ordinary smaller frame reaches the authenticated handler.
+func TestAgentTransportEnforcesDefaultRecvCap(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)
 	defer pool.Close()
@@ -293,9 +289,9 @@ func TestAgentTransportEnforces4MiBRecvCap(t *testing.T) {
 	rpcCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// Over the 4 MiB cap: refused at decode, before the handler, as ResourceExhausted.
-	if _, err := client.Register(rpcCtx, &agentv1.RegisterRequest{Hostname: strings.Repeat("x", 5<<20)}); status.Code(err) != codes.ResourceExhausted {
-		t.Fatalf("a >4 MiB message must be refused with ResourceExhausted, got %v", err)
+	// Over the 16 MiB cap: refused at decode, before the handler, as ResourceExhausted.
+	if _, err := client.Register(rpcCtx, &agentv1.RegisterRequest{Hostname: strings.Repeat("x", 17<<20)}); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("a >16 MiB message must be refused with ResourceExhausted, got %v", err)
 	}
 	// Comfortably under the cap: whatever the handler does, it is NEVER the size cap.
 	if _, err := client.Register(rpcCtx, &agentv1.RegisterRequest{Hostname: strings.Repeat("x", 1<<20)}); status.Code(err) == codes.ResourceExhausted {

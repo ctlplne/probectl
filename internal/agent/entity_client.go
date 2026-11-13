@@ -172,7 +172,7 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 				NeighborDeviceName:        item.NeighborDeviceName,
 				NeighborManagementAddress: item.NeighborAddress,
 			})
-		if proto.Size(request) > 1<<20 {
+		if proto.Size(request) > evidenceRequestWireLimit(request) {
 			return nil, ErrEvidenceBatchInvalid
 		}
 	}
@@ -180,13 +180,25 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 		if item.BmpPeerSession != nil {
 			request.BmpPeerSessions = &agentv1.BmpPeerSessionBatch{Observations: request.Observations}
 			request.Observations = nil
-			if proto.Size(request) > 1<<20 {
+			if proto.Size(request) > evidenceRequestWireLimit(request) {
 				return nil, ErrEvidenceBatchInvalid
 			}
 			break
 		}
 	}
 	return request, nil
+}
+
+// Ordinary identity evidence keeps its current admission. Complete configured
+// network-error populations need a larger finite envelope; the receiver still
+// charges every byte to the independent tenant evidence bucket.
+func evidenceRequestWireLimit(request *agentv1.SubmitEntityEvidenceRequest) int {
+	for _, item := range request.GetObservations() {
+		if item.GetIcmp().GetVersion() == 2 {
+			return entity.MaxICMPMeasurementWireBytes
+		}
+	}
+	return 1 << 20
 }
 
 // Submit sends only source observations; tenant, context and canonical entity
@@ -219,7 +231,7 @@ func (c *EvidenceClient) Submit(ctx context.Context, observations []entity.Obser
 		return 0, 0, ErrEvidenceBatchInvalid
 	}
 	response, err := svc.SubmitEntityEvidence(callCtx, request,
-		grpc.MaxCallSendMsgSize(1<<20), grpc.MaxCallRecvMsgSize(1<<20))
+		grpc.MaxCallSendMsgSize(evidenceRequestWireLimit(request)), grpc.MaxCallRecvMsgSize(1<<20))
 	if err != nil {
 		return 0, 0, err
 	}
