@@ -7,6 +7,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/entity"
 )
 
 const (
@@ -35,7 +38,7 @@ func releasePacketReaders(t *testing.T, sessions []releaseSession, readers []api
 		anonymous.token = ""
 		code, raw := anonymous.do(t, http.MethodPost, "/v1/api-tokens", map[string]any{
 			"name": "real-packet-reports-" + strconv.Itoa(i), "expires_in_hours": 1,
-			"scopes": []string{"tenant.read", "agent.write", "ai.query", "flow.read", "flow.views.write", "metrics.read", "metrics.write", "governance.write", "tags.read", "tags.write"},
+			"scopes": []string{"tenant.read", "agent.write", "entities.read", "ai.query", "flow.read", "flow.views.write", "metrics.read", "metrics.write", "governance.write", "tags.read", "tags.write"},
 		}, "Cookie", "probectl_session="+sessions[i].Cookie)
 		var minted struct{ Token string }
 		if code != http.StatusCreated || json.Unmarshal(raw, &minted) != nil || minted.Token == "" {
@@ -76,8 +79,19 @@ func (p *releaseFlowReport) preparePacketTag(t *testing.T, agent string) {
 		t.Fatal("real packet context changed the credential-derived tenant")
 	}
 	p.packetContext = routing.ContextID
+	var device entity.Record
+	p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/entities", map[string]string{
+		"context_id": p.packetContext, "kind": "device", "label": "real packet source device",
+	}, &device)
+	if device.ID == "" || device.Kind != entity.Device || device.Scope.TenantID != p.tenant || device.Scope.ContextID != p.packetContext {
+		t.Fatal("real packet device changed its authenticated tenant or context")
+	}
+	p.packetEntity = device.ID
+	// Bind before the collector captures any traffic. A later assignment
+	// cannot retroactively give an old packet capture canonical ownership.
 	p.api.json(t, http.StatusOK, http.MethodPut, "/v1/entity-source-contexts", map[string]string{
 		"agent_id": agent, "source_kind": "flow_exporter", "source_ref": "127.0.0.1", "context_id": routing.ContextID,
+		"anchor_entity_id": p.packetEntity,
 	}, nil)
 	var tag, rule struct{ ID string }
 	p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/tags", map[string]string{"key": "packet_customer"}, &tag)
@@ -90,6 +104,21 @@ func (p *releaseFlowReport) preparePacketTag(t *testing.T, agent string) {
 		t.Fatal("real packet rule has no owned identity")
 	}
 	p.packetRule = rule.ID
+}
+
+func (p *releaseFlowReport) assertPacketIdentity(t *testing.T, foreign *releaseFlowReport) {
+	t.Helper()
+	endpoint := "/v1/entities/resolve?context_id=" + p.packetContext + "&kind=flow_exporter_id&value=127.0.0.1"
+	waitFor(t, "actual packet exporter canonical identity", 30*time.Second, func() bool {
+		var resolved entity.Resolution
+		p.api.json(t, http.StatusOK, http.MethodGet, endpoint, nil, &resolved)
+		return resolved.Status == entity.Resolved && !resolved.MoreCandidates && resolved.EntityID == p.packetEntity &&
+			resolved.Scope.TenantID == p.tenant && resolved.Scope.ContextID == p.packetContext
+	})
+	code, body := foreign.api.do(t, http.MethodGet, endpoint, nil)
+	if code != http.StatusNotFound || bytes.Contains(body, []byte(p.packetEntity)) {
+		t.Fatal("packet exporter canonical identity crossed tenant storage", code)
+	}
 }
 
 func (p *releaseFlowReport) retagCapturedHistory(t *testing.T, plan map[string]any) {

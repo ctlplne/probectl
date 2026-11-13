@@ -29,7 +29,7 @@ type releaseFlowReport struct {
 	tenant, address, source, version, snapshot, artifact, dashboard, sourceName string
 	quantity                                                                    uint32
 	packet                                                                      bool
-	packetContext, packetTag, packetRule, packetValue                           string
+	packetContext, packetEntity, packetTag, packetRule, packetValue             string
 	body, frozen                                                                []byte
 }
 
@@ -164,6 +164,9 @@ func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key,
 	}
 	for i := range proofs {
 		p, foreign := &proofs[i], &proofs[1-i]
+		if packet {
+			p.assertPacketIdentity(t, foreign)
+		}
 		for _, path := range []string{"/v1/dashboard-report-artifacts/" + p.artifact, "/v1/explorer/flow-snapshots/" + p.snapshot + "/csv",
 			"/v1/explorer/flow-views/" + p.source} {
 			if status, _ := foreign.api.do(t, http.MethodGet, path, nil, "X-Probectl-Tenant", p.tenant); status != http.StatusUnauthorized {
