@@ -292,9 +292,9 @@ func cmdLifecycle(cfg Config, args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-func cmdDashboardReport(cfg Config, args []string, stdout, stderr io.Writer) int {
+func cmdDashboardReport(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "download" {
-		return cmdSurface(cfg, surfaceCommands["dashboard-report"], args, stdout, stderr)
+		return cmdSurfaceWithStdin(cfg, surfaceCommands["dashboard-report"], args, stdin, stdout, stderr)
 	}
 	return dashboardReportDownload(cfg, args[1:], stdout, stderr)
 }

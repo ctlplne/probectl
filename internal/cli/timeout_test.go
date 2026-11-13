@@ -67,3 +67,28 @@ func TestLongOperationsOutliveTheDefaultRequestBudget(t *testing.T) {
 		t.Errorf("an ordinary call lost the default budget: exit %d: %s", code, out)
 	}
 }
+
+func TestIncidentAndReportQueriesOutliveTheDefaultRequestBudget(t *testing.T) {
+	previous := defaultRequestTimeout
+	defaultRequestTimeout = 75 * time.Millisecond
+	t.Cleanup(func() { defaultRequestTimeout = previous })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	t.Cleanup(server.Close)
+	getenv := func(key string) string {
+		return map[string]string{"PROBECTL_API_URL": server.URL, "PROBECTL_API_TOKEN": "pat_test"}[key]
+	}
+	for _, args := range [][]string{
+		{"incident", "verdict", "case_1", "--body-file", "-"},
+		{"incident", "impact", "case_1", "--body-file", "-"},
+		{"dashboard-report", "generate", "--body-file", "-"},
+	} {
+		var out, diagnostics bytes.Buffer
+		if code := RunWithStdin(append([]string{"--json"}, args...), getenv, strings.NewReader(`{}`), &out, &diagnostics); code != 0 {
+			t.Errorf("admitted query was abandoned at ordinary deadline: %s: %s", strings.Join(args, " "), diagnostics.String())
+		}
+	}
+}

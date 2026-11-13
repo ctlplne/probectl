@@ -121,7 +121,7 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 	case "lifecycle":
 		return cmdLifecycle(cfg, rest[1:], stdout, stderr)
 	case "dashboard-report":
-		return cmdDashboardReport(cfg, rest[1:], stdout, stderr)
+		return cmdDashboardReport(cfg, rest[1:], stdin, stdout, stderr)
 	case "dashboard":
 		return cmdDashboard(cfg, rest[1:], stdin, stdout, stderr)
 	case "device":
@@ -190,6 +190,10 @@ var longRequests = []struct {
 	// Complete counter history uses the server's one-minute default plus transport margin.
 	{http.MethodPost, "/v1/flows/capacity/agreements/{id}/check", 75 * time.Second},
 	{http.MethodPost, "/v1/flows/capacity/forecast", 75 * time.Second},
+	{http.MethodPost, "/v1/incidents/{id}/impact", 75 * time.Second},
+	{http.MethodPost, "/v1/incidents/{id}/verdict", 75 * time.Second},
+	{http.MethodPost, "/v1/incidents/{id}/exports", 75 * time.Second},
+	{http.MethodPost, "/v1/dashboard-reports", 75 * time.Second},
 }
 
 // requestBudget is the time a request may take: the server's budget for a

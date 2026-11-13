@@ -1716,7 +1716,8 @@ longer and lifts its write timeout for the route: export and other downloads
 get 15 minutes, a tenant or subject erasure 15 minutes, a tenant provisioning
 (`provider create-tenant`, `tenant create`) 5 minutes, a path discovery
 (`test path <id> --body`) 150 seconds, and `ai ask` 90 seconds.
-Counter-backed `capacity-agreements check` and `capacity forecast` get 75 seconds
+Counter-backed `capacity-agreements check`, `capacity forecast`, incident
+`impact`, `verdict`, evidence exports and `dashboard-report generate` get 75 seconds
 by default: the server's default one-minute calculation admission plus 15 seconds
 for delivery. Their server write deadline follows the actual admitted execution
 deadline plus 15 seconds. If the operator raises the server execution budget,

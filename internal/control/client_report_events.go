@@ -52,7 +52,7 @@ func (s *Server) captureClientReportEventsInScope(ctx context.Context, sc tenanc
 		}
 		lineage[item.ID] = digest
 	}
-	stored, err := (store.ChangeEvents{}).ClientReportChangesInScope(ctx, sc, from, to, memory/4)
+	changes, err := (store.ChangeEvents{}).ClientReportChangesInScope(ctx, sc, from, to, memory/4)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (s *Server) captureClientReportEventsInScope(ctx context.Context, sc tenanc
 	if err != nil {
 		return nil, err
 	}
-	changes := append(stored, projected...)
+	changes = append(changes, projected...)
 	for _, item := range changes {
 		resource := map[string]string{auth.ResourceTenantKey: actor.TenantID, "change_id": item.ID, "target": item.Target, "prefix": item.Prefix}
 		if err := s.authorize(ctx, actor, permChangeRead, auth.RBACGlobal, resource); err != nil {
