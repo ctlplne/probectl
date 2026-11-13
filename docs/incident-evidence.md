@@ -53,8 +53,14 @@ socket ports, DNS names and browser script start URLs follow the producing
 canary's result identity. OpenSLO names stay names, including non-UUID names.
 Objective ratios and definition digests are preserved in native and signed
 outputs. These selected-window failures do not establish a rolling error-budget
-violation. Missing SLO engines or definitions are explicit. Customer attribution
-for tests and SLOs remains separate preview work.
+violation. Missing SLO engines or definitions are explicit. With a customer-tag
+selection, original test failures and complete measured echo loss also join
+their current effective test tags, including the existing manual/inherited
+precedence. Matching failed SLO inputs name the same tagged customers. Test,
+tag-definition and original evidence IDs accompany these entries; the tag
+revision and current disclosure are rechecked before publication. A test-only
+customer retains unavailable traffic counters. Flow/test overlap contributes
+one customer entry per routing context and value without changing flow totals.
 
 The card can download a signed package with the selected impact comparison.
 The existing export endpoint accepts an optional `impact` selection object:

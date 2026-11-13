@@ -262,7 +262,9 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
           <p>
             {result.customer_coverage === 'not_evaluated'
               ? 'Select a customer tag key to classify observed traffic.'
-              : 'Customer coverage includes observed flow prefixes. Customer attribution for tests and SLOs is pending.'}{' '}
+              : result.customer_coverage === 'observed_flows_and_original_test_inputs'
+                ? 'Customer coverage combines observed flow prefixes and current tags on originally affected tests and SLO inputs. Test-only evidence does not imply observed traffic volume.'
+                : 'Customer coverage includes observed flow prefixes. Select original configured-test outcomes to include test and SLO input attribution.'}{' '}
             Unclassified observed records: {result.unclassified_records}.
           </p>
           <ImpactCustomers result={result} />
@@ -432,7 +434,7 @@ function ImpactCustomers({ result }: { result: IncidentImpactResponse }) {
   return (
     <div className={styles.stack}>
       <Table
-        caption="Cited affected customer traffic"
+        caption="Cited affected customers"
         rows={result.customers.slice(page * 200, (page + 1) * 200)}
         rowKey={(row) => JSON.stringify([row.context_id, row.value])}
         columns={[
@@ -456,6 +458,26 @@ function ImpactCustomers({ result }: { result: IncidentImpactResponse }) {
             key: 'prefixes',
             header: 'Prefix citations',
             render: (row) => row.prefix_ids.join(', '),
+          },
+          {
+            key: 'tests',
+            header: 'Affected test citations',
+            render: (row) => <code>{row.test_ids.join(', ') || 'None'}</code>,
+          },
+          {
+            key: 'slos',
+            header: 'SLO input citations',
+            render: (row) => row.slo_ids.join(', ') || 'None',
+          },
+          {
+            key: 'observations',
+            header: 'Original test evidence',
+            render: (row) => <code>{row.evidence_ids?.join(', ') || 'None'}</code>,
+          },
+          {
+            key: 'tags',
+            header: 'Current tag citations',
+            render: (row) => <code>{row.tag_ids?.join(', ') || 'None'}</code>,
           },
         ]}
       />

@@ -2383,9 +2383,11 @@ type IncidentImpactCustomer struct {
 	CaptureKeys            []string               `json:"capture_keys"`
 	ContextId              string                 `json:"context_id"`
 	CurrentObservedTotals  IncidentImpactCounters `json:"current_observed_totals,omitempty"`
+	EvidenceIds            []string               `json:"evidence_ids,omitempty"`
 	PrefixIds              []string               `json:"prefix_ids"`
 	PreviousObservedTotals IncidentImpactCounters `json:"previous_observed_totals,omitempty"`
 	SloIds                 []string               `json:"slo_ids"`
+	TagIds                 []string               `json:"tag_ids,omitempty"`
 	TagKey                 string                 `json:"tag_key"`
 	TestIds                []string               `json:"test_ids"`
 	Value                  string                 `json:"value"`

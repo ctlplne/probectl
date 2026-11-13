@@ -16033,6 +16033,20 @@
           },
           "previous_observed_totals": {
             "$ref": "#/components/schemas/IncidentImpactCounters"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "tag_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         },
         "required": [

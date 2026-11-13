@@ -375,4 +375,7 @@ selectors and current permissions without running the historical query again.
 The incident room, SDK, CLI JSON input, MCP and signed export share this optional
 selection. Matching current SLO definitions cite failed original inputs using
 the producer's exact selector semantics; they do not infer rolling budget state.
-Test and SLO customer attribution remains a separate preview step.
+Customer classification uses current effective test tags only for original
+failures or complete measured echo loss, and cites the matching SLO failed
+inputs. It requires current tag disclosure for each exact affected test and
+rechecks that metadata before returning; configuration alone is never a hit.

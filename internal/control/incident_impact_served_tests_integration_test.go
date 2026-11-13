@@ -35,17 +35,25 @@ func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t
 	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	ids := map[string]string{}
 	definitions := []slo.SLO{}
+	tagIDs := map[string]string{}
 	for lane, tenant := range f.tenants {
 		d.observe(t, tenant, 0, lane == 1)
 		ids[tenant] = uuid.NewString()
+		tagIDs[tenant] = uuid.NewString()
 		definitions = append(definitions, slo.SLO{TenantID: tenant, Name: "owned-objective-" + tenant, Service: "checkout", CanaryType: "icmp", TestID: d.graphs[tenant].Nodes[0].TestID, Objective: 0.999, Window: 24 * time.Hour})
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			for _, permission := range []string{permIncidentRead, permFlowRead} {
+			for _, permission := range []string{permIncidentRead, permFlowRead, permTagsRead} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
 					return err
 				}
 			}
 			if _, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, tenant, f.roles[tenant], permTestRead); err != nil {
+				return err
+			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_definitions(tenant_id,id,key) VALUES($1,$2,'customer')`, tenant, tagIDs[tenant]); err != nil {
+				return err
+			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO tenant_tag_assignments(tenant_id,context_id,id,tag_id,target_kind,test_id,value,source) VALUES($1,$2,$3,$4,'test',$5,$6,'manual')`, tenant, f.contextID, uuid.NewString(), tagIDs[tenant], d.graphs[tenant].Nodes[0].TestID, "customer-"+tenant); err != nil {
 				return err
 			}
 			_, err := sc.Q.Exec(ctx, `INSERT INTO incidents(tenant_id,id,title,entity_context_id,entity_id,identity_lookup_attempted) VALUES($1,$2,'test comparison',$3,$4,true)`, tenant, ids[tenant], f.contextID, d.graphs[tenant].Nodes[0].EntityID)
@@ -57,7 +65,7 @@ func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t
 	t.Cleanup(socket.Close)
 	request := func(tenant, id string, tests bool) (int, incident.ImpactResponse) {
 		t.Helper()
-		body, err := json.Marshal(incident.ImpactInput{From: time.Now().UTC().Add(-time.Minute), To: time.Now().UTC(), IncludeTests: tests})
+		body, err := json.Marshal(incident.ImpactInput{From: time.Now().UTC().Add(-time.Minute), To: time.Now().UTC(), IncludeTests: tests, CustomerTagKey: "customer"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -125,11 +133,31 @@ func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t
 		if len(failed) != 0 {
 			t.Fatal("SLO citations omitted an original failed input", failed)
 		}
+		if len(result.Customers) != 1 || result.Customers[0].Value != "customer-"+tenant || result.Customers[0].Current != nil || result.Customers[0].Previous != nil || len(result.Customers[0].TestIDs) != 1 || len(result.Customers[0].SLOIDs) != 1 || result.Customers[0].SLOIDs[0] != "owned-objective-"+tenant || len(result.Customers[0].TagIDs) != 1 || result.Customers[0].TagIDs[0] != tagIDs[tenant] || len(result.Customers[0].EvidenceIDs) != 2-lane || result.CustomerCoverage != "observed_flows_and_original_test_inputs" {
+			t.Fatal("served customer attribution invented traffic or borrowed another tenant's test/SLO tags", result.Customers, result.CustomerCoverage)
+		}
 		if status, _ := request(tenant, ids[f.tenants[1-lane]], true); status == http.StatusOK {
 			t.Fatal("served comparison disclosed the sibling incident", status)
 		}
 	}
 	a, b := f.tenants[0], f.tenants[1]
+	var tagDeniedID string
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		policy, err := (store.ABACPolicies{}).Create(ctx, sc, auth.Policy{Name: "deny selected test customer", Enabled: true, Effect: auth.PolicyDeny, Permission: permTagsRead, Resource: map[string]string{"test_id": d.graphs[a].Nodes[0].TestID}, Priority: 100})
+		if err == nil {
+			tagDeniedID = policy.ID
+		}
+		return err
+	})
+	if status, result := request(a, ids[a], true); status != http.StatusForbidden || len(result.Customers) != 0 {
+		t.Fatal("per-test tag denial returned an allowed customer prefix", status, result)
+	}
+	if status, result := request(b, ids[b], true); status != http.StatusOK || len(result.Customers) != 1 {
+		t.Fatal("tag denial changed sibling customer attribution", status, result)
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		return (store.ABACPolicies{}).Delete(ctx, sc, tagDeniedID)
+	})
 	var deniedID string
 	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
 		policy, err := (store.ABACPolicies{}).Create(ctx, sc, auth.Policy{Name: "deny selected test", Enabled: true, Effect: auth.PolicyDeny, Permission: permTestRead, Resource: map[string]string{"test_id": d.graphs[a].Nodes[0].TestID}, Priority: 100})

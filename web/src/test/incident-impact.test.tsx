@@ -167,6 +167,20 @@ test('configured outcome selection keeps every original citation and unknown cov
     },
   ]
   value.slo_coverage = 'observed_failed_sli_inputs_only_not_a_rolling_budget_verdict'
+  value.customer_coverage = 'observed_flows_and_original_test_inputs'
+  value.customers = [
+    {
+      tag_key: 'customer',
+      value: 'Test-only customer',
+      context_id: context,
+      prefix_ids: [],
+      test_ids: [id],
+      slo_ids: ['checkout-availability'],
+      capture_keys: [],
+      evidence_ids: [observations[0].evidence_id],
+      tag_ids: [prefix],
+    },
+  ]
   value.slos = [
     {
       name: 'checkout-availability',
@@ -211,6 +225,8 @@ test('configured outcome selection keeps every original citation and unknown cov
     screen.getByRole('region', { name: 'SLO failed inputs: checkout-availability' }),
   ).toBeInTheDocument()
   expect(screen.getByText('0.9999999999999999')).toBeInTheDocument()
+  expect(screen.getByText('Test-only customer')).toBeInTheDocument()
+  expect(screen.getByRole('columnheader', { name: 'Original test evidence' })).toBeInTheDocument()
   expect(within(current).getByText(observations[0].evidence_id)).toBeInTheDocument()
   expect(within(current).queryByText(observations[200].evidence_id)).not.toBeInTheDocument()
   fireEvent.click(

@@ -138,6 +138,7 @@ func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principa
 		result.Members = append(result.Members, incident.ImpactMember{ContextID: source.Member.ContextID, EntityID: source.Member.EntityID,
 			Kind: string(source.Kind), IncidentRoot: source.Member.IncidentRoot, SignalIDs: slices.Clone(source.Member.SignalIDs), Reason: source.Reason, SourceIDs: slices.Clone(source.Evidence)})
 	}
+	var testTagData *incidentTestCustomerTags
 	if tagData != nil {
 		result.Customers, result.UnclassifiedRecords, err = summarizeIncidentCustomers(ctx, actor.TenantID, input.CustomerTagKey, rows, owners, tagData, budget.MemoryBytes/8)
 		if err != nil {
@@ -148,6 +149,20 @@ func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principa
 			return none, err
 		}
 		result.CustomerCoverage = "observed_flow_prefixes_only_tests_and_slos_not_evaluated"
+		if input.IncludeTests {
+			testTagData, err = s.loadIncidentTestCustomerTags(ctx, actor, observed, input.CustomerTagKey, result.Tests)
+			if err != nil {
+				return none, err
+			}
+			if testTagData.revision != result.CustomerTagRevision {
+				return none, apierror.Unavailable("customer annotations changed between source reads; retry")
+			}
+			result.Customers, err = mergeIncidentTestCustomers(ctx, actor.TenantID, input.CustomerTagKey, testTagData, result.Tests, result.SLOs, result.Customers, budget.MemoryBytes/8)
+			if err != nil {
+				return none, flowExplorerStoreError(err)
+			}
+			result.CustomerCoverage = "observed_flows_and_original_test_inputs"
+		}
 	}
 	if periods[0].Coverage == "observed_attested_records" && periods[1].Coverage == "observed_attested_records" {
 		var current, previous big.Int
@@ -166,7 +181,7 @@ func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principa
 		return none, apierror.Unavailable("current incident or original capture authority changed; retry")
 	}
 	if tagData != nil {
-		if err := s.recheckIncidentImpactCustomers(ctx, actor, after, input.CustomerTagKey, rows, owners, tagData, result, budget.MemoryBytes/8); err != nil {
+		if err := s.recheckIncidentImpactCustomers(ctx, actor, after, input.CustomerTagKey, rows, owners, tagData, testTagData, result, budget.MemoryBytes/8); err != nil {
 			return none, err
 		}
 	}

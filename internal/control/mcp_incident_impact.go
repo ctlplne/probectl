@@ -116,6 +116,8 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 		TestIDs     []mcp.NativeRoleUUID   `json:"test_ids"`
 		SLOIDs      []string               `json:"slo_ids"`
 		CaptureKeys []mcp.NativeRoleDigest `json:"capture_keys"`
+		EvidenceIDs []mcp.NativeRoleUUID   `json:"evidence_ids,omitempty"`
+		TagIDs      []mcp.NativeRoleUUID   `json:"tag_ids,omitempty"`
 		Current     *counters              `json:"current_observed_totals,omitempty"`
 		Previous    *counters              `json:"previous_observed_totals,omitempty"`
 	}
@@ -144,7 +146,7 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 		for i, key := range item.CaptureKeys {
 			keys[i] = mcp.NativeRoleDigest(key)
 		}
-		out.Customers = append(out.Customers, customer{item, mcp.NativeRoleUUID(item.ContextID), ids(item.PrefixIDs), ids(item.TestIDs), item.SLOIDs, keys, projectCounters(item.Current), projectCounters(item.Previous)})
+		out.Customers = append(out.Customers, customer{item, mcp.NativeRoleUUID(item.ContextID), ids(item.PrefixIDs), ids(item.TestIDs), item.SLOIDs, keys, ids(item.EvidenceIDs), ids(item.TagIDs), projectCounters(item.Current), projectCounters(item.Previous)})
 	}
 	out.Tests = nativeIncidentImpactTests(value.Tests)
 	out.SLOs = nativeIncidentSLOs(value.SLOs)

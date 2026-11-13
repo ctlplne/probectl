@@ -136,7 +136,7 @@ func summarizeIncidentCustomers(ctx context.Context, tenant, key string, rows [2
 	return out, unclassified, nil
 }
 
-func (s *Server) recheckIncidentImpactCustomers(ctx context.Context, actor *auth.Principal, after incidentImpactSnapshot, key string, rows [2][]flowstore.Row, owners map[string]store.CapturedFlowOwner, tagData *flowstore.TagQueryData, result incident.ImpactResponse, maxBytes int64) error {
+func (s *Server) recheckIncidentImpactCustomers(ctx context.Context, actor *auth.Principal, after incidentImpactSnapshot, key string, rows [2][]flowstore.Row, owners map[string]store.CapturedFlowOwner, tagData *flowstore.TagQueryData, testTags *incidentTestCustomerTags, result incident.ImpactResponse, maxBytes int64) error {
 	currentTags, err := s.loadIncidentImpactTags(ctx, actor, after, key)
 	if err != nil {
 		return err
@@ -148,6 +148,19 @@ func (s *Server) recheckIncidentImpactCustomers(ctx context.Context, actor *auth
 	revision, err := currentTags.Revision(actor.TenantID)
 	if err != nil {
 		return err
+	}
+	if testTags != nil {
+		currentTests, err := s.loadIncidentTestCustomerTags(ctx, actor, after, key, result.Tests)
+		if err != nil {
+			return err
+		}
+		if currentTests.revision != revision || currentTests.revision != testTags.revision {
+			return apierror.Unavailable("current test customer annotations changed; retry")
+		}
+		currentCustomers, err = mergeIncidentTestCustomers(ctx, actor.TenantID, key, currentTests, result.Tests, result.SLOs, currentCustomers, maxBytes)
+		if err != nil {
+			return flowExplorerStoreError(err)
+		}
 	}
 	originalPolicy, err := tagData.ContextAuthorization(actor.TenantID)
 	if err != nil {
@@ -166,7 +179,7 @@ func (s *Server) recheckIncidentImpactCustomers(ctx context.Context, actor *auth
 		return err
 	}
 	if revision != result.CustomerTagRevision || originalPolicy != currentPolicy || unclassified != result.UnclassifiedRecords || string(oldBody) != string(newBody) {
-		return apierror.Unavailable("customer prefix membership or disclosure authority changed; retry")
+		return apierror.Unavailable("customer membership or disclosure authority changed; retry")
 	}
 	return nil
 }

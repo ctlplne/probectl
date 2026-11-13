@@ -65,6 +65,8 @@ type ImpactCustomer struct {
 	TestIDs     []string        `json:"test_ids"`
 	SLOIDs      []string        `json:"slo_ids"`
 	CaptureKeys []string        `json:"capture_keys"`
+	EvidenceIDs []string        `json:"evidence_ids,omitempty"`
+	TagIDs      []string        `json:"tag_ids,omitempty"`
 	Current     *ImpactCounters `json:"current_observed_totals,omitempty"`
 	Previous    *ImpactCounters `json:"previous_observed_totals,omitempty"`
 }

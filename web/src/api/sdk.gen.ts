@@ -2249,9 +2249,11 @@ export interface IncidentImpactCustomer {
   capture_keys: string[]
   context_id: string
   current_observed_totals?: IncidentImpactCounters
+  evidence_ids?: string[]
   prefix_ids: string[]
   previous_observed_totals?: IncidentImpactCounters
   slo_ids: string[]
+  tag_ids?: string[]
   tag_key: string
   test_ids: string[]
   value: string
