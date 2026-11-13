@@ -32,21 +32,23 @@ type IncidentTestMeasurement struct {
 	ContextID, EntityID, TestID, AgentID    string
 	EvidenceID, ObservationID, SenderSerial string
 	Alias, SourceRef                        string
+	AliasKind                               entity.AliasKind
 	ObservedAt                              time.Time
 	CaptureDigest                           [32]byte
 	Available                               bool
 	Reason                                  string
 	ICMP                                    *entity.ICMPMeasurement
+	Outcome                                 *entity.ProbeOutcome
 }
 
 type incidentImpactTestKey struct{ contextID, entityID, agentID, testID string }
 
-// IncidentICMPMeasurementsInScope reads every retained typed observation in
+// IncidentTestMeasurementsInScope reads every retained typed observation in
 // either selected comparison window. The OR selects overlapping ranges once;
 // each period later counts its own complete population independently. It never
-// scans the intervening week or a display/ranking prefix. Non-ICMP outcome
-// evidence remains a separate, explicitly owed collector extension.
-func (Incidents) IncidentICMPMeasurementsInScope(ctx context.Context, sc tenancy.Scope, sources []IncidentConfiguredTest, from, to time.Time, maxBytes int64) ([]IncidentTestMeasurement, error) {
+// scans the intervening week or a display/ranking prefix. Each source keeps
+// its original typed observation; no raw bus identity becomes a sender proof.
+func (Incidents) IncidentTestMeasurementsInScope(ctx context.Context, sc tenancy.Scope, sources []IncidentConfiguredTest, from, to time.Time, maxBytes int64) ([]IncidentTestMeasurement, error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || bound != sc.Tenant || sc.Q == nil {
 		return nil, entity.ErrScopeMismatch
@@ -72,9 +74,6 @@ func (Incidents) IncidentICMPMeasurementsInScope(ctx context.Context, sc tenancy
 		if source.SourceGeneration != generation {
 			return nil, sourceepoch.ErrInvalidating
 		}
-		if source.Type != "icmp" {
-			continue
-		}
 		for _, id := range []string{source.ContextID, source.EntityID, source.TestID} {
 			if _, err := validRegistryUUID(id); err != nil {
 				return nil, err
@@ -93,16 +92,16 @@ func (Incidents) IncidentICMPMeasurementsInScope(ctx context.Context, sc tenancy
 	rows, err := sc.Q.Query(ctx, `WITH requested AS (
  SELECT * FROM unnest($2::uuid[],$3::uuid[],$4::text[],$5::text[]) AS r(context_id,entity_id,agent_id,test_id))
  SELECT e.context_id::text,e.entity_id::text,e.configured_ref,e.agent_id,e.id::text,e.observation_id::text,
- COALESCE(e.sender_serial,''),e.alias_value,e.source_ref,e.observed_at,
- CASE WHEN octet_length(e.icmp_measurement::text)<=$10 THEN e.icmp_measurement END,
- COALESCE(octet_length(e.icmp_measurement::text),0),
+ COALESCE(e.sender_serial,''),e.alias_value,e.source_ref,e.observed_at,e.alias_kind,
+ CASE WHEN octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text)<=$10 THEN COALESCE(e.probe_outcome,e.icmp_measurement) END,
+ COALESCE(octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text),0),
  COALESCE(sender.serial=e.sender_serial AND sender.revoked_at IS NULL
  AND sender.spiffe_id='spiffe://probectl/tenant/'||$1::text||'/entity/'||e.agent_id
  AND sender.issued_at<=e.observed_at AND sender.not_after>e.observed_at,false),COALESCE(sender.issued_at,'epoch')
  FROM requested r JOIN entity_evidence e ON e.tenant_id=$1 AND e.context_id=r.context_id AND e.entity_id=r.entity_id
  AND e.agent_id=r.agent_id AND e.source_kind='path_agent' AND e.configured_ref=r.test_id
  LEFT JOIN agent_identities sender ON sender.tenant_id=$1 AND sender.agent_id=e.agent_id AND sender.serial=e.sender_serial
- WHERE e.tenant_id=$1 AND e.source_ref='icmp:configured-test' AND e.alias_kind='address'
+ WHERE e.tenant_id=$1 AND ((e.source_ref='icmp:configured-test' AND e.alias_kind='address') OR (e.source_ref='probe:configured-test' AND e.alias_kind='configured_test_id'))
  AND ((e.observed_at>=$6 AND e.observed_at<$7) OR (e.observed_at>=$8 AND e.observed_at<$9))
  ORDER BY e.context_id,e.entity_id,e.agent_id,e.configured_ref,e.observed_at,e.id LIMIT $11`, pgx.QueryExecModeDescribeExec, bound.String(), contexts, entities, agents, tests, from, to, from.Add(-7*24*time.Hour), to.Add(-7*24*time.Hour), maxBytes/8, maxBytes/1024+1)
 	if err != nil {
@@ -117,7 +116,7 @@ func (Incidents) IncidentICMPMeasurementsInScope(ctx context.Context, sc tenancy
 		var size int64
 		var senderValid bool
 		var senderIssued time.Time
-		if err := rows.Scan(&item.ContextID, &item.EntityID, &item.TestID, &item.AgentID, &item.EvidenceID, &item.ObservationID, &item.SenderSerial, &item.Alias, &item.SourceRef, &item.ObservedAt, &body, &size, &senderValid, &senderIssued); err != nil {
+		if err := rows.Scan(&item.ContextID, &item.EntityID, &item.TestID, &item.AgentID, &item.EvidenceID, &item.ObservationID, &item.SenderSerial, &item.Alias, &item.SourceRef, &item.ObservedAt, &item.AliasKind, &body, &size, &senderValid, &senderIssued); err != nil {
 			return nil, err
 		}
 		cost := int64(1024+len(item.AgentID)+len(item.SenderSerial)+len(item.Alias)) + 4*int64(len(body))
@@ -135,7 +134,7 @@ func (Incidents) IncidentICMPMeasurementsInScope(ctx context.Context, sc tenancy
 		if err != nil {
 			return nil, err
 		}
-		if err := decodeIncidentICMPMeasurement(&item, source, body, senderValid, senderIssued); err != nil {
+		if err := decodeIncidentTestMeasurement(&item, source, body, senderValid, senderIssued); err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -151,6 +150,7 @@ func incidentTestCaptureDigest(item IncidentTestMeasurement, body []byte) ([32]b
 	// returned counter prefix or a client-supplied measurement fingerprint.
 	item.CaptureDigest = [32]byte{}
 	item.ICMP = nil
+	item.Outcome = nil
 	item.Available = false
 	item.Reason = ""
 	data, err := json.Marshal(struct {
@@ -163,6 +163,40 @@ func incidentTestCaptureDigest(item IncidentTestMeasurement, body []byte) ([32]b
 	var digest [32]byte
 	copy(digest[:], crypto.Hash(data))
 	return digest, nil
+}
+
+func decodeIncidentTestMeasurement(item *IncidentTestMeasurement, source IncidentConfiguredTest, body []byte, senderValid bool, senderIssued time.Time) error {
+	if source.Type == "icmp" && item.AliasKind == entity.AddressAlias && item.SourceRef == "icmp:configured-test" {
+		return decodeIncidentICMPMeasurement(item, source, body, senderValid, senderIssued)
+	}
+	item.Reason = "unavailable_original_test_observation"
+	if source.Type == "icmp" || item.AliasKind != entity.ConfiguredTestAlias || item.SourceRef != "probe:configured-test" || len(body) == 0 || !senderValid || source.MeasurementIdentityUntil == nil || !source.MeasurementIdentityUntil.After(time.Now().UTC()) {
+		return nil
+	}
+	var measurement entity.ProbeOutcome
+	if err := json.Unmarshal(body, &measurement); err != nil {
+		return err
+	}
+	if measurement.StartedAt.Before(senderIssued) || measurement.StartedAt.Before(source.CurrentSince) {
+		return nil
+	}
+	claim := entity.Observation{ID: item.ObservationID, Source: entity.SourceKey{AgentID: item.AgentID, Kind: entity.PathAgent, SourceRef: item.TestID}, Alias: entity.AliasKey{Kind: item.AliasKind, Value: item.Alias}, SourceRef: item.SourceRef, ObservedAt: item.ObservedAt, Outcome: &measurement}
+	claim, err := claim.Normalize(item.ObservedAt)
+	if errors.Is(err, entity.ErrInvalidClaim) || errors.Is(err, entity.ErrInvalidAlias) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	matched, err := matchesProbeOutcomeDefinition(claim, source.Definition, source.CurrentSince, source.CurrentSince)
+	if err != nil {
+		return err
+	}
+	if !matched {
+		return nil
+	}
+	item.Available, item.Reason, item.Outcome = true, "original_attested_test_observation", claim.Outcome
+	return nil
 }
 
 func decodeIncidentICMPMeasurement(item *IncidentTestMeasurement, source IncidentConfiguredTest, body []byte, senderValid bool, senderIssued time.Time) error {
@@ -245,10 +279,10 @@ func (Incidents) RecheckIncidentTestMeasurementsInScope(ctx context.Context, sc 
 	}
 	rows, err := sc.Q.Query(ctx, `WITH requested AS (SELECT * FROM unnest($2::uuid[],$3::uuid[]) AS r(context_id,id))
  SELECT e.context_id::text,e.entity_id::text,e.configured_ref,e.agent_id,e.id::text,e.observation_id::text,
- COALESCE(e.sender_serial,''),e.alias_value,e.source_ref,e.observed_at,
- CASE WHEN octet_length(e.icmp_measurement::text)<=$4 THEN e.icmp_measurement END,COALESCE(octet_length(e.icmp_measurement::text),0)
+ COALESCE(e.sender_serial,''),e.alias_value,e.source_ref,e.observed_at,e.alias_kind,
+ CASE WHEN octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text)<=$4 THEN COALESCE(e.probe_outcome,e.icmp_measurement) END,COALESCE(octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text),0)
  FROM requested r JOIN entity_evidence e ON e.tenant_id=$1 AND e.context_id=r.context_id AND e.id=r.id
- WHERE e.tenant_id=$1 AND e.source_kind='path_agent' AND e.source_ref='icmp:configured-test' AND e.alias_kind='address'`, pgx.QueryExecModeDescribeExec, bound.String(), contexts, ids, maxBytes/8)
+ WHERE e.tenant_id=$1 AND e.source_kind='path_agent' AND ((e.source_ref='icmp:configured-test' AND e.alias_kind='address') OR (e.source_ref='probe:configured-test' AND e.alias_kind='configured_test_id'))`, pgx.QueryExecModeDescribeExec, bound.String(), contexts, ids, maxBytes/8)
 	if err != nil {
 		return err
 	}
@@ -258,7 +292,7 @@ func (Incidents) RecheckIncidentTestMeasurementsInScope(ctx context.Context, sc 
 		var read IncidentTestMeasurement
 		var body []byte
 		var size int64
-		if err := rows.Scan(&read.ContextID, &read.EntityID, &read.TestID, &read.AgentID, &read.EvidenceID, &read.ObservationID, &read.SenderSerial, &read.Alias, &read.SourceRef, &read.ObservedAt, &body, &size); err != nil {
+		if err := rows.Scan(&read.ContextID, &read.EntityID, &read.TestID, &read.AgentID, &read.EvidenceID, &read.ObservationID, &read.SenderSerial, &read.Alias, &read.SourceRef, &read.ObservedAt, &read.AliasKind, &body, &size); err != nil {
 			return err
 		}
 		read.TenantID = bound.String()

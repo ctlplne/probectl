@@ -56,10 +56,13 @@ func (a *Agent) WithProbeEvidence(emitter SiteEvidenceEmitter) {
 		maxRecords: a.buffer.maxRecords, maxBytes: bytes}
 }
 
-func (h *Host) enqueueProbeEvidence(schedule scheduled, result canary.Result) {
+func (h *Host) enqueueProbeEvidence(ctx context.Context, schedule scheduled, result canary.Result) {
 	observation, err := h.probeObservation(schedule, result)
-	if err == nil && observation.ICMP == nil {
-		return // local-only/non-ICMP tests do not author canonical source evidence
+	if err == nil && observation.ICMP == nil && observation.Outcome == nil {
+		return // local-only tests do not author configured source evidence
+	}
+	if observation.Outcome != nil && ctx.Err() != nil {
+		observation.Outcome.Canceled = true
 	}
 	if err == nil {
 		err = h.probeEvidence.enqueue(observation)
@@ -76,6 +79,9 @@ func (h *Host) enqueueProbeEvidence(schedule scheduled, result canary.Result) {
 }
 
 func (h *Host) probeObservation(schedule scheduled, result canary.Result) (entity.Observation, error) {
+	if result.Type != "icmp" {
+		return h.configuredProbeObservation(schedule, result)
+	}
 	m := result.ICMP
 	if result.Type != "icmp" || schedule.definitionHash == "" || schedule.testID == "" || m == nil {
 		return entity.Observation{}, nil
@@ -109,19 +115,63 @@ func (h *Host) probeObservation(schedule scheduled, result canary.Result) (entit
 	return observation.Normalize(time.Now())
 }
 
+// Generic outcomes are historical observations: keep each ID rather than
+// coalescing a failure into a later success. ICMP retains its current-health
+// queue behavior. Every pending/in-flight record still pays finite admission.
+func probeEvidenceDefinition(observation entity.Observation) string {
+	if observation.Outcome != nil {
+		return observation.Outcome.DefinitionHash
+	}
+	if observation.ICMP != nil {
+		return observation.ICMP.DefinitionHash
+	}
+	return ""
+}
+
 func probeEvidenceMemory(observation entity.Observation) int64 {
-	// Conservative retained object/map/string charge, not a population ceiling.
-	size := int64(1024 + 4*(len(observation.ID)+len(observation.Source.AgentID)+len(observation.Source.SourceRef)+len(observation.Alias.Value)+len(observation.ICMP.DefinitionHash)))
-	for _, address := range observation.ICMP.Responders {
-		size += int64(128 + 4*len(address))
+	size := int64(1024 + 4*(len(observation.ID)+len(observation.Source.AgentID)+len(observation.Source.SourceRef)+len(observation.Alias.Value)+len(probeEvidenceDefinition(observation))))
+	if observation.Outcome != nil {
+		size += int64(256 + 4*len(observation.Outcome.CanaryType))
+	}
+	if observation.ICMP != nil {
+		for _, address := range observation.ICMP.Responders {
+			size += int64(128 + 4*len(address))
+		}
 	}
 	return size
+}
+
+func (h *Host) configuredProbeObservation(schedule scheduled, result canary.Result) (entity.Observation, error) {
+	if schedule.definitionHash == "" || schedule.testID == "" || schedule.canary == nil {
+		return entity.Observation{}, nil
+	}
+	if id, err := uuid.Parse(schedule.testID); err != nil || id == uuid.Nil || id.String() != schedule.testID {
+		return entity.Observation{}, nil
+	}
+	if result.Type != schedule.canary.Describe().Type || result.StartedAt.IsZero() || result.Duration < 0 {
+		return entity.Observation{}, ErrEvidenceBatchInvalid
+	}
+	id, err := crypto.UUIDv4()
+	if err != nil {
+		return entity.Observation{}, err
+	}
+	completed := result.StartedAt.Add(result.Duration)
+	observation := entity.Observation{ID: id, Source: entity.SourceKey{AgentID: h.agentID, Kind: entity.PathAgent, SourceRef: schedule.testID},
+		Alias: entity.AliasKey{Kind: entity.ConfiguredTestAlias, Value: schedule.testID}, SourceRef: "probe:configured-test", ObservedAt: completed,
+		Outcome: &entity.ProbeOutcome{Version: 1, DefinitionHash: schedule.definitionHash, CanaryType: result.Type, StartedAt: result.StartedAt, CompletedAt: completed, Success: result.Success}}
+	return observation.Normalize(time.Now())
 }
 
 func (q *probeEvidenceQueue) enqueue(observation entity.Observation) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	key := observation.Source.SourceRef + "/" + observation.ICMP.DefinitionHash
+	if observation.ICMP == nil && observation.Outcome == nil {
+		return ErrEvidenceBatchInvalid
+	}
+	key := observation.Source.SourceRef + "/" + probeEvidenceDefinition(observation)
+	if observation.Outcome != nil {
+		key += "/" + observation.ID
+	}
 	previous, exists := q.pending[key]
 	if exists && observation.ObservedAt.Before(previous.observation.ObservedAt) {
 		return nil

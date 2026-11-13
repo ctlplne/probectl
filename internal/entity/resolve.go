@@ -87,6 +87,7 @@ const (
 	FlowExporterAlias     AliasKind = "flow_exporter_id"
 	BMPPeerAlias          AliasKind = "bmp_peer_id"
 	PathHopAlias          AliasKind = "path_hop_id"
+	ConfiguredTestAlias   AliasKind = "configured_test_id"
 	AgentSiteAlias        AliasKind = "agent_site_id"
 	SiteAlias             AliasKind = "site_key"
 	CustomerAlias         AliasKind = "customer_key"
@@ -104,6 +105,11 @@ func (a AliasKey) Normalize() (AliasKey, error) {
 		return AliasKey{}, ErrInvalidAlias
 	}
 	switch a.Kind {
+	case ConfiguredTestAlias:
+		id, err := uuid.Parse(value)
+		if err != nil || id == uuid.Nil || id.String() != value {
+			return AliasKey{}, ErrInvalidAlias
+		}
 	case AddressAlias:
 		addr, err := netip.ParseAddr(value)
 		if err != nil || addr.Zone() != "" {

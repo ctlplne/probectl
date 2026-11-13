@@ -8,11 +8,30 @@ package store
 
 import "strings"
 
+// A configured-test alias grants no lasting test binding. Recheck the exact
+// enabled definition and metadata context even in ordinary alias/evidence
+// reads, after the outer tenant/source predicates. Other alias families do not
+// acquire this extra query or a synthetic-test identity.
+const currentConfiguredProbeSQL = `(e.alias_kind<>'configured_test_id' OR EXISTS (
+ SELECT 1 FROM tests configured
+ JOIN entity_test_contexts binding ON (binding.tenant_id,binding.test_id)=(configured.tenant_id,configured.id)
+ JOIN entity_source_contexts probe_source ON
+ (probe_source.tenant_id,probe_source.context_id,probe_source.agent_id,probe_source.source_kind,probe_source.source_ref)=
+ (e.tenant_id,e.context_id,e.agent_id,e.source_kind,e.configured_ref)
+ JOIN entity_agent_contexts probe_agent ON
+ (probe_agent.tenant_id,probe_agent.context_id,probe_agent.agent_id)=(probe_source.tenant_id,probe_source.context_id,probe_source.agent_id)
+ WHERE configured.tenant_id=e.tenant_id AND configured.id=CASE
+ WHEN e.configured_ref ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN e.configured_ref::uuid END
+ AND binding.context_id=e.context_id AND configured.enabled
+ AND configured.type=e.probe_outcome->>'canary_type'
+ AND GREATEST(configured.updated_at,binding.assigned_at,probe_source.assigned_at,probe_agent.assigned_at)
+ <=(e.probe_outcome->>'started_at')::timestamptz))`
+
 // A tag read snapshot keeps one temporal reference as well as one MVCC view.
 // Derive it from the complete predicate, including nested source/support
 // checks, so expiry between SELECTs cannot mix fact epochs in one result.
-func currentEntityEvidenceSnapshotSQL() string {
-	return strings.ReplaceAll(currentEntityEvidenceSQL(), "statement_timestamp()", "transaction_timestamp()")
+func currentEntityEvidenceSnapshotSQL(configured ...bool) string {
+	return strings.ReplaceAll(currentEntityEvidenceSQL(configured...), "statement_timestamp()", "transaction_timestamp()")
 }
 
 // currentEntityEvidenceSQL is the registry's complete current-evidence
@@ -20,8 +39,14 @@ func currentEntityEvidenceSnapshotSQL() string {
 // predicates inside the same FORCE-RLS snapshot; this expression establishes
 // source assignment, anchor/support, sender and BMP-origin validity. Reuse it
 // when deriving tag facts instead of authorizing from historical evidence.
-func currentEntityEvidenceSQL() string {
-	return `(` + currentPhysicalNeighborSQL + `
+func currentEntityEvidenceSQL(configured ...bool) string {
+	probeGuard := currentConfiguredProbeSQL
+	if len(configured) > 0 && !configured[0] {
+		// Only callers that already constrain alias_kind to another family
+		// may omit this lookup; complete evidence lists retain it by default.
+		probeGuard = "TRUE"
+	}
+	return `(` + currentPhysicalNeighborSQL + ` AND ` + probeGuard + `
 			        AND e.observed_at <= statement_timestamp()
 			        AND (e.expires_at IS NULL OR e.expires_at > statement_timestamp())
 			        AND EXISTS (

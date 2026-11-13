@@ -161,6 +161,7 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 				AgentAddresses:            addresses,
 				SnmpInterfacePrefixes:     prefixes,
 				Icmp:                      encodeICMPMeasurement(item.ICMP),
+				ProbeOutcome:              encodeProbeOutcome(item.Outcome),
 				NeighborProtocol:          item.NeighborProtocol,
 				NeighborLocalIfIndex:      item.NeighborLocalIfIndex,
 				NeighborLocalPortId:       item.NeighborLocalPortID,
@@ -272,7 +273,7 @@ func (c *EvidenceClient) SubmitFaults(ctx context.Context, raw []entity.FaultObs
 	if err != nil {
 		return 0, err
 	}
-	if hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetFlowRouting() != nil || response.GetIcmpMeasurementsPersisted() != 0 || int(response.GetFaultsPersisted()) != len(raw) {
+	if hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetFlowRouting() != nil || (response.GetIcmpMeasurementsPersisted() != 0 || response.GetProbeOutcomesPersisted() != 0) || int(response.GetFaultsPersisted()) != len(raw) {
 		return 0, ErrEvidenceBatchInvalid
 	}
 	return len(raw), nil

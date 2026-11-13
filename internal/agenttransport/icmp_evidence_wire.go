@@ -29,3 +29,13 @@ func parseICMPMeasurement(m *agentv1.IcmpMeasurement) (*entity.ICMPMeasurement, 
 		Replies: m.Replies, SendErrors: m.SendErrors, ReadComplete: m.ReadComplete,
 		Canceled: m.Canceled, IOFailed: m.IoFailed, Responders: append([]string{}, m.Responders...)}, nil
 }
+
+func parseProbeOutcome(m *agentv1.ProbeOutcome) (*entity.ProbeOutcome, error) {
+	if m == nil {
+		return nil, nil
+	}
+	if len(m.ProtoReflect().GetUnknown()) != 0 {
+		return nil, status.Error(codes.InvalidArgument, "unsupported configured outcome fields")
+	}
+	return &entity.ProbeOutcome{Version: int(m.Version), DefinitionHash: m.DefinitionHash, CanaryType: m.CanaryType, StartedAt: time.Unix(0, m.StartedUnixNanos), CompletedAt: time.Unix(0, m.CompletedUnixNanos), Success: m.Success, Canceled: m.Canceled}, nil
+}

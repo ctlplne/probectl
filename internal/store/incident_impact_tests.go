@@ -89,10 +89,10 @@ func readIncidentConfiguredTests(ctx context.Context, sc tenancy.Scope, contexts
 	rows, err := sc.Q.Query(ctx, `WITH requested AS (
   SELECT * FROM unnest($2::uuid[],$3::uuid[]) AS r(context_id,entity_id))
  SELECT m.context_id::text,m.anchor_entity_id::text,t.id::text,m.agent_id,t.type,
- CASE WHEN octet_length(t.name)+octet_length(t.target)+octet_length(p.path_target)+octet_length(t.params::text)<=$4 THEN t.name END,
- CASE WHEN octet_length(t.name)+octet_length(t.target)+octet_length(p.path_target)+octet_length(t.params::text)<=$4 THEN t.target END,
- CASE WHEN octet_length(t.name)+octet_length(t.target)+octet_length(p.path_target)+octet_length(t.params::text)<=$4 THEN p.path_target END,
- GREATEST(node.created_at,m.assigned_at,a.assigned_at,c.assigned_at,p.assigned_at,t.updated_at,epoch.observation_not_before),
+ CASE WHEN octet_length(t.name)+octet_length(t.target)+octet_length(COALESCE(p.path_target,''))+octet_length(t.params::text)<=$4 THEN t.name END,
+ CASE WHEN octet_length(t.name)+octet_length(t.target)+octet_length(COALESCE(p.path_target,''))+octet_length(t.params::text)<=$4 THEN t.target END,
+ CASE WHEN octet_length(t.name)+octet_length(t.target)+octet_length(COALESCE(p.path_target,''))+octet_length(t.params::text)<=$4 THEN COALESCE(p.path_target,'') END,
+ GREATEST(node.created_at,m.assigned_at,a.assigned_at,c.assigned_at,CASE WHEN t.type='icmp' THEN p.assigned_at ELSE c.assigned_at END,t.updated_at,epoch.observation_not_before),
  LEAST(m.expires_at,a.expires_at),t.interval_seconds,t.timeout_seconds,
  CASE WHEN octet_length(t.params::text)<=$4 THEN t.params END,
  (SELECT max(identity.not_after) FROM agent_identities identity
@@ -108,9 +108,9 @@ func readIncidentConfiguredTests(ctx context.Context, sc tenancy.Scope, contexts
  JOIN entity_agent_contexts a ON (a.tenant_id,a.context_id,a.agent_id)=(m.tenant_id,m.context_id,m.agent_id)
  JOIN tests t ON t.tenant_id=$1 AND t.id=CASE WHEN m.source_ref ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN m.source_ref::uuid END AND t.enabled
  JOIN entity_test_contexts c ON (c.tenant_id,c.context_id,c.test_id)=(m.tenant_id,m.context_id,t.id)
- JOIN entity_path_test_contexts p ON (p.tenant_id,p.context_id,p.test_id)=(c.tenant_id,c.context_id,c.test_id)
- WHERE m.tenant_id=$1 AND a.tenant_id=$1 AND node.tenant_id=$1 AND c.tenant_id=$1 AND p.tenant_id=$1
- AND GREATEST(node.created_at,m.assigned_at,a.assigned_at,c.assigned_at,p.assigned_at,t.updated_at)<=transaction_timestamp()
+ LEFT JOIN entity_path_test_contexts p ON (p.tenant_id,p.context_id,p.test_id)=(c.tenant_id,c.context_id,c.test_id)
+ WHERE m.tenant_id=$1 AND a.tenant_id=$1 AND node.tenant_id=$1 AND c.tenant_id=$1 AND (t.type<>'icmp' OR p.tenant_id=$1)
+ AND GREATEST(node.created_at,m.assigned_at,a.assigned_at,c.assigned_at,CASE WHEN t.type='icmp' THEN p.assigned_at ELSE c.assigned_at END,t.updated_at)<=transaction_timestamp()
  AND (m.expires_at IS NULL OR m.expires_at>transaction_timestamp())
  AND (a.expires_at IS NULL OR a.expires_at>transaction_timestamp())
  ORDER BY m.context_id,m.anchor_entity_id,t.id,m.agent_id LIMIT $5`, pgx.QueryExecModeDescribeExec, sc.Tenant.String(), contexts, entities, maxBytes/8, maxBytes/1024+1)
@@ -142,7 +142,7 @@ func readIncidentConfiguredTests(ctx context.Context, sc tenancy.Scope, contexts
 			return nil, ErrIncidentImpactBudget
 		}
 		remaining -= cost
-		if path.TargetHost(*target) != *pathTarget {
+		if item.Type == "icmp" && path.TargetHost(*target) != *pathTarget {
 			continue
 		}
 		item.Definition.ID, item.Definition.Type, item.Definition.Target = item.TestID, item.Type, item.Target

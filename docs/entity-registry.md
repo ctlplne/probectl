@@ -227,6 +227,35 @@ explicit operator anchor uses its own assignment and has no inferred support.
 An idempotent replay keeps the original support row even if a delayed SNMP
 observation is now the preferred support for a new claim. The replay cannot
 rewrite historical provenance or create a second evidence row.
+
+### Configured-test outcomes (preview)
+
+The same evidence-only mTLS RPC accepts an optional non-ICMP outcome from a
+registered agent's explicitly assigned `path_agent` test source. A
+`configured_test_id` alias names the exact canonical test UUID. The receiver
+checks the enabled executable definition, general test/context assignment,
+current source anchor, issued sender and erasure cutoff in one tenant
+transaction. An HTTP test needs no path-trace binding. Retargeting or removing
+the general assignment withdraws authority; an address or a bus result cannot
+create it.
+
+Each retained outcome contains only its version, exact definition digest,
+canary type, original runtime start/completion, success and cancellation. Raw
+errors, response bodies, targets and secret-bearing parameters are excluded.
+Each execution keeps its own observation UUID; a later success cannot replace
+an earlier failure in the delivery queue. Pending and in-flight outcomes share
+the existing finite record/byte admission. Delivery retries require an explicit
+typed retention count, and the same UUID cannot rewrite the stored body.
+Legacy generic acknowledgments do not acknowledge typed metadata.
+
+This is observed application-test evidence, not packet-loss measurement, an
+upstream cause or a rolling SLO-budget verdict. Cancellation is unavailable
+health. Historical reads retain original clocks and recheck the current
+definition and source rather than making older observations current. Storage
+and lifecycle use the existing pooled/silo tenant boundary and evidence
+retention. Structural test UUIDs are excluded from personal-text erasure
+matching; actual personal labels and responder IPs retain their normal privacy
+semantics.
 The same rule holds after source rebind or expiry: an exact UUID replay only
 acknowledges the historical row, while any changed collector field is rejected.
 Physical LLDP/CDP evidence requires a current, independently observed remote

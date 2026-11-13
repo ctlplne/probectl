@@ -45,6 +45,7 @@ type Observation struct {
 	// SNMPInterfacePrefixes is one complete optional prefix table on the
 	// configured-target address claim only. Nil is unavailable, never a clear.
 	ICMP                  *ICMPMeasurement
+	Outcome               *ProbeOutcome
 	SNMPInterfacePrefixes []SNMPInterfacePrefix
 	NeighborProtocol      string
 	NeighborLocalIfIndex  uint32
@@ -128,6 +129,10 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 	if err != nil {
 		return Observation{}, err
 	}
+	o.Outcome, err = normalizeProbeOutcome(o)
+	if err != nil {
+		return Observation{}, err
+	}
 	o.ObservedAt = o.ObservedAt.UTC().Truncate(time.Microsecond)
 	return o, nil
 }
@@ -176,6 +181,9 @@ func validateObservationFamily(o Observation) error {
 	case BMPPeer:
 		return validateBMPObservation(o)
 	case PathAgent:
+		if o.Alias.Kind == ConfiguredTestAlias && o.Outcome != nil {
+			return nil
+		}
 		if o.Alias.Kind == AddressAlias || o.Alias.Kind == PathHopAlias {
 			return nil
 		}

@@ -61,7 +61,8 @@ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conna
           AND public.probectl_snmp_prefix_snapshot_valid(snmp_interface_prefixes))) NOT VALID;
 END IF;
 END;
-$entity_snmp_prefix_silo$`, quoteLiteral(child), quoteLiteral(snmpPrefixes), child, quoteIdent(snmpPrefixes))}
+$entity_snmp_prefix_silo$`, quoteLiteral(child), quoteLiteral(snmpPrefixes), child, quoteIdent(snmpPrefixes)),
+			"SELECT public.probectl_install_probe_outcomes(" + quoteLiteral(schema) + ")"}
 	}
 	return nil
 }

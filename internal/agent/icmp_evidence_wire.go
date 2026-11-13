@@ -22,26 +22,39 @@ func encodeICMPMeasurement(m *entity.ICMPMeasurement) *agentv1.IcmpMeasurement {
 		Canceled: m.Canceled, IoFailed: m.IOFailed, Responders: append([]string(nil), m.Responders...)}
 }
 
-// A legacy server can accept the address and discard an unknown metadata
-// field. Require a typed receipt, complete counts and no unrelated plane before
-// acknowledging ICMP evidence; an omitted receipt is not a partial success.
+func encodeProbeOutcome(m *entity.ProbeOutcome) *agentv1.ProbeOutcome {
+	if m == nil {
+		return nil
+	}
+	return &agentv1.ProbeOutcome{Version: uint32(m.Version), DefinitionHash: m.DefinitionHash, CanaryType: m.CanaryType, StartedUnixNanos: m.StartedAt.UnixNano(), CompletedUnixNanos: m.CompletedAt.UnixNano(), Success: m.Success, Canceled: m.Canceled}
+}
+
+// Every accepted typed observation needs its own retained-family receipt.
+// A legacy generic ack, unknown extension or unrelated plane cannot discard
+// metadata while acknowledging success. Explicitly unresolved sources remain
+// unresolved; the count never upgrades them into retained observations.
 func validICMPEvidenceReceipt(request *agentv1.SubmitEntityEvidenceRequest, response *agentv1.SubmitEntityEvidenceResponse) bool {
-	measurements := uint32(0)
-	for _, observation := range request.Observations {
-		if observation.GetIcmp() != nil {
-			measurements++
-		}
-	}
-	if measurements == 0 {
-		return response.GetIcmpMeasurementsPersisted() == 0
-	}
-	if response == nil || len(response.ProtoReflect().GetUnknown()) != 0 ||
-		response.GetFaultsPersisted() != 0 || response.GetRouting() != nil || response.GetRoutingMessage() != nil ||
-		hasPublicRoutingReceipt(response) || response.GetFlowRouting() != nil || response.GetDeviceCounter() != nil {
+	if request == nil || response == nil || len(response.ProtoReflect().GetUnknown()) != 0 || response.GetFaultsPersisted() != 0 || response.GetRouting() != nil || response.GetRoutingMessage() != nil || hasPublicRoutingReceipt(response) || response.GetFlowRouting() != nil || response.GetDeviceCounter() != nil {
 		return false
 	}
+	var icmp, outcomes uint32
+	for _, observation := range request.Observations {
+		if observation == nil || observation.GetIcmp() != nil && observation.GetProbeOutcome() != nil {
+			return false
+		}
+		if observation.GetIcmp() != nil {
+			icmp++
+		}
+		if observation.GetProbeOutcome() != nil {
+			outcomes++
+		}
+	}
 	total := uint32(len(request.Observations))
-	accepted, unresolved, retained := response.GetAccepted(), response.GetUnresolved(), response.GetIcmpMeasurementsPersisted()
-	return accepted <= total && unresolved == total-accepted && retained <= accepted && retained <= measurements &&
-		accepted-retained <= total-measurements && measurements-retained <= unresolved
+	accepted, unresolved := response.GetAccepted(), response.GetUnresolved()
+	retainedICMP, retainedOutcomes := response.GetIcmpMeasurementsPersisted(), response.GetProbeOutcomesPersisted()
+	if accepted > total || unresolved != total-accepted || retainedICMP > icmp || retainedOutcomes > outcomes {
+		return false
+	}
+	retained := retainedICMP + retainedOutcomes
+	return retained <= accepted && accepted-retained <= total-icmp-outcomes && icmp+outcomes-retained <= unresolved
 }

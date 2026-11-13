@@ -5634,7 +5634,7 @@
         "parameters": [
           {"$ref": "#/components/parameters/TenantHeader"},
           {"name": "context_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}},
-          {"name": "kind", "in": "query", "required": true, "schema": {"type": "string", "enum": ["address", "prefix", "snmp_device_id", "snmp_interface_id", "physical_neighbor_id", "flow_exporter_id", "bmp_peer_id", "path_hop_id", "agent_site_id", "site_key", "customer_key", "service_key"]}},
+          {"name": "kind", "in": "query", "required": true, "schema": {"type": "string", "enum": ["address", "prefix", "snmp_device_id", "snmp_interface_id", "physical_neighbor_id", "flow_exporter_id", "bmp_peer_id", "path_hop_id", "configured_test_id", "agent_site_id", "site_key", "customer_key", "service_key"]}},
           {"name": "value", "in": "query", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 1024}}
         ],
         "responses": {

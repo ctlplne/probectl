@@ -56,7 +56,7 @@ func (c *EvidenceClient) StageRoutingPeer(ctx context.Context, raw *agentv1.BmpR
 		return nil, err
 	}
 	receipt := response.GetRouting()
-	if receipt == nil || hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetFlowRouting() != nil || response.GetRoutingMessage() != nil || response.GetAccepted() != 0 || response.GetUnresolved() != 0 || response.GetFaultsPersisted() != 0 || response.GetIcmpMeasurementsPersisted() != 0 {
+	if receipt == nil || hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetFlowRouting() != nil || response.GetRoutingMessage() != nil || response.GetAccepted() != 0 || response.GetUnresolved() != 0 || response.GetFaultsPersisted() != 0 || (response.GetIcmpMeasurementsPersisted() != 0 || response.GetProbeOutcomesPersisted() != 0) {
 		return nil, ErrEvidenceBatchInvalid
 	}
 	switch receipt.Status {

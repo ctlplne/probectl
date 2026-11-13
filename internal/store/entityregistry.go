@@ -310,7 +310,7 @@ func ResolveAliasInScope(ctx context.Context, sc tenancy.Scope,
 	if err != nil {
 		return entity.Resolution{}, err
 	}
-	rows, err := sc.Q.Query(ctx, currentAliasResolutionSQL(), want.TenantID, want.ContextID, string(key.Kind), key.Value)
+	rows, err := sc.Q.Query(ctx, currentAliasResolutionSQL(false, key.Kind == entity.ConfiguredTestAlias), want.TenantID, want.ContextID, string(key.Kind), key.Value)
 	return scanAliasResolution(rows, err, want, key)
 }
 
@@ -320,6 +320,10 @@ func currentAliasResolutionSQL(population ...bool) string {
 	kindParameter, valueParameter := "$3", "$4"
 	if len(population) > 0 && population[0] {
 		kindParameter, valueParameter = "requested.kind", "requested.alias_value"
+	}
+	probeGuard := currentConfiguredProbeSQL
+	if len(population) > 1 && !population[1] {
+		probeGuard = "TRUE" // the normalized requested kinds exclude configured tests
 	}
 	return `
 			SELECT DISTINCT ON (resolved_node.id)
@@ -344,6 +348,7 @@ func currentAliasResolutionSQL(population ...bool) string {
 		       (m.tenant_id, m.agent_id, m.context_id)
 			 WHERE e.tenant_id = $1 AND e.context_id = $2
 			   AND e.alias_kind = ` + kindParameter + ` AND e.alias_value = ` + valueParameter + `
+			   AND ` + probeGuard + `
 			   AND ` + currentPhysicalNeighborSQL + `
 			   AND e.observed_at <= statement_timestamp()
 			   AND (e.expires_at IS NULL OR e.expires_at > statement_timestamp())

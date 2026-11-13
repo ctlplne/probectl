@@ -84,7 +84,7 @@ func currentICMPHealthSQL(population ...bool) string {
          (e.tenant_id,e.context_id,e.agent_id,e.source_kind,e.configured_ref,e.observed_at)
      AND ROW(other.entity_id,other.alias_kind,other.alias_value,other.source_ref,other.sender_serial,other.icmp_measurement)
          IS DISTINCT FROM ROW(e.entity_id,e.alias_kind,e.alias_value,e.source_ref,e.sender_serial,e.icmp_measurement)),
- COALESCE(` + currentEntityEvidenceSQL() + `
+ COALESCE(` + currentEntityEvidenceSQL(false) + `
    AND e.entity_id=` + entityParameter + ` AND e.source_ref='icmp:configured-test'
    AND e.alias_kind='address' AND e.icmp_measurement IS NOT NULL
    AND m.anchor_entity_id=e.entity_id

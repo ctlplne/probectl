@@ -53,7 +53,7 @@ func TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant(t *t
 			if len(sources) != 1 {
 				return errors.New("owned configured-test source missing")
 			}
-			out, err = (store.Incidents{}).IncidentICMPMeasurementsInScope(ctx, sc, sources, from, to, budget)
+			out, err = (store.Incidents{}).IncidentTestMeasurementsInScope(ctx, sc, sources, from, to, budget)
 			return err
 		})
 		return out, err

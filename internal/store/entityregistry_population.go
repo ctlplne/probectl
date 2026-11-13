@@ -136,6 +136,7 @@ func ResolveAliasPopulationInScope(ctx context.Context, sc tenancy.Scope, scope 
 	keys := make([]entity.AliasKey, len(aliases))
 	kinds := make([]string, len(aliases))
 	values := make([]string, len(aliases))
+	configured := false
 	remaining := maxBytes - int64(len(keys))*1024
 	for i, alias := range aliases {
 		key, err := alias.Normalize()
@@ -146,12 +147,13 @@ func ResolveAliasPopulationInScope(ctx context.Context, sc tenancy.Scope, scope 
 			return nil, err
 		}
 		keys[i], kinds[i], values[i] = key, string(key.Kind), key.Value
+		configured = configured || key.Kind == entity.ConfiguredTestAlias
 	}
 	query := `WITH requested AS (
  SELECT kind,alias_value,ordinality
  FROM unnest($3::text[],$4::text[]) WITH ORDINALITY AS input(kind,alias_value,ordinality)
  ) SELECT requested.ordinality,resolved.* FROM requested
- JOIN LATERAL (` + currentAliasResolutionSQL(true) + `) AS resolved(
+ JOIN LATERAL (` + currentAliasResolutionSQL(true, configured) + `) AS resolved(
  evidence_id,entity_id,entity_kind,source,source_ref,agent_id,source_kind,configured_ref,observed_at,support_evidence_id) ON true
  ORDER BY requested.ordinality,resolved.entity_id`
 	rows, err := sc.Q.Query(ctx, query, pgx.QueryExecModeDescribeExec, want.TenantID, want.ContextID, kinds, values)

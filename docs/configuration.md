@@ -462,8 +462,9 @@ operator must assign that `agent_site` source (source reference = agent ID)
 to one context and site anchor before it becomes canonical. Missing or
 unresolved evidence does not stop tests, heartbeat or raw results. Accepted
 site identity refreshes after 12 hours; failures retry after one minute.
-The same `evidence` credentials also enable background ICMP measurement
-attestation for explicitly bound `path_agent` test sources. The server verifies
+The same `evidence` credentials also enable background ICMP measurement and
+non-ICMP configured-test outcome attestation for explicitly bound `path_agent`
+test sources. The server verifies
 the current enabled test definition, test/context binding, certificate and
 canonical source anchor; metrics or a matching address do not supply that
 authority. The background queue reuses `buffer.max_records` and positive
@@ -471,6 +472,9 @@ authority. The background queue reuses `buffer.max_records` and positive
 budget when disk bytes are unbounded. Queue admission failures are observable
 and leave ordinary probes/result delivery running. See
 [ICMP collector facts](entity-registry.md#icmp-collector-facts-preview).
+Non-ICMP outcomes retain each observed success, failure or cancellation separately;
+they do not imply packet loss or authorize dependency holds. See
+[configured-test outcomes](entity-registry.md#configured-test-outcomes-preview).
 
 The same optional worker also collects the process namespace's complete local
 IP set once a minute. It sends address metadata only on a change, certificate

@@ -235,7 +235,9 @@ func (h *Host) probe(ctx context.Context, s scheduled) {
 	if h.metrics != nil {
 		h.metrics.Collection(1)
 	}
+	probeStarted := time.Now()
 	res, err := c.Run(ctx)
+	probeCompleted := time.Now()
 	if err != nil {
 		// A plugin/internal fault — distinct from a probe failure, which is a
 		// Result with Success=false.
@@ -281,7 +283,14 @@ func (h *Host) probe(ctx context.Context, s scheduled) {
 		h.metrics.SetBufferDepth(h.buffer.Len())
 	}
 	if h.probeEvidence != nil {
-		h.enqueueProbeEvidence(s, res)
+		evidenceResult := res
+		if res.Type != "icmp" {
+			// The runtime bounds the executed result, including plugins that
+			// omit their own clocks. Preserve ordinary plugin result semantics.
+			evidenceResult.StartedAt = probeStarted
+			evidenceResult.Duration = probeCompleted.Sub(probeStarted)
+		}
+		h.enqueueProbeEvidence(ctx, s, evidenceResult)
 	}
 	// RESIL-009: warn early when the store-and-forward buffer is approaching
 	// either bound (records or on-disk bytes) — a control-plane outage is filling
