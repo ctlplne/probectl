@@ -241,6 +241,13 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 		return res, nil
 	}
 	defer func() { _ = resp.Body.Close() }()
+	var finalURL *url.URL
+	if resp.Request != nil {
+		finalURL = resp.Request.URL
+	}
+	res.HTTP = &HTTPMeasurement{StatusCode: resp.StatusCode,
+		TLSVerified: resp.TLS != nil && tlsVerified != nil && *tlsVerified,
+		SameOrigin:  sameHTTPProbeOrigin(req.URL, finalURL)}
 
 	n := drainHTTPBody(resp.Body, c.maxBody)
 	total := time.Since(start)

@@ -70,6 +70,7 @@ type Result struct {
 	Metrics    map[string]float64 `json:"metrics,omitempty"`
 	Attributes map[string]string  `json:"attributes,omitempty"`
 	ICMP       *ICMPMeasurement   `json:"-"` // collector-local evidence; ordinary bus JSON cannot supply it
+	HTTP       *HTTPMeasurement   `json:"-"` // primary response facts, never reconstructed from attributes/posture
 }
 
 // Factory builds a canary instance from its configuration.

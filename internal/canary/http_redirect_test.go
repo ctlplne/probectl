@@ -98,8 +98,14 @@ func TestHTTPRedirectVerifiesEachDestinationAndKeepsProbeTrustIsolated(t *testin
 					if hits.Load() != 1 || result.Attributes["probectl.tls.server.verified"] != "true" {
 						t.Fatal("valid destination was not requested through its own verified TLS connection", hits.Load(), result.Attributes["probectl.tls.server.verified"])
 					}
+					if result.HTTP == nil || result.HTTP.StatusCode != http.StatusOK || !result.HTTP.TLSVerified || result.HTTP.SameOrigin {
+						t.Fatal("redirect response facts lost actual TLS or claimed the configured origin", result.HTTP)
+					}
 				} else if hits.Load() != 0 || result.Attributes["http.response.status_code"] != "" {
 					t.Fatal("request reached an unverified redirect destination", hits.Load())
+				}
+				if !scenario.wantSuccess && result.HTTP != nil {
+					t.Fatal("a refused request or posture handshake created primary response facts", result.HTTP)
 				}
 				if result.Target != target.String() || !strings.HasPrefix(result.Attributes["url.full"], target.String()) {
 					t.Fatal("redirect replaced the configured probe identity")
