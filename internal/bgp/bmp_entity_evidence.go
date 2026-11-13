@@ -19,19 +19,20 @@ import (
 )
 
 type bmpPeerEvidence struct {
-	physicalPeerUp  []byte // owned whole physical metadata; decoded by the single evidence worker
-	routingSelector bmpRoutingSelector
-	routingLoss     *atomic.Bool // shared only by one admitted physical source
-	routingMessage  *agentv1.BmpRoutingMessage
-	routingEnd      bool
-	routingPeerUp   *agentv1.BmpRoutingPeerUp // owned raw metadata, separate from peer-claim suppression
-	sessionHandle   uint64                    // listener-owned admitted session, never a BMP payload field
-	tenantID        string
-	routerAgentID   string // from a verified router SVID, not the BMP frame
-	routerSerial    string // exact verified SVID; revocation retires this evidence
-	peerAddress     string
-	peerASN         uint32
-	observedAt      time.Time
+	peerSession       *entity.BMPPeerSession
+	physicalPeerFrame []byte // owned whole physical metadata; decoded by the single evidence worker
+	routingSelector   bmpRoutingSelector
+	routingLoss       *atomic.Bool // shared only by one admitted physical source
+	routingMessage    *agentv1.BmpRoutingMessage
+	routingEnd        bool
+	routingPeerUp     *agentv1.BmpRoutingPeerUp // owned raw metadata, separate from peer-claim suppression
+	sessionHandle     uint64                    // listener-owned admitted session, never a BMP payload field
+	tenantID          string
+	routerAgentID     string // from a verified router SVID, not the BMP frame
+	routerSerial      string // exact verified SVID; revocation retires this evidence
+	peerAddress       string
+	peerASN           uint32
+	observedAt        time.Time
 }
 
 type bmpPeerEvidenceKey struct {
@@ -120,8 +121,8 @@ func (l *BMPListener) evidenceLoop(ctx context.Context) {
 				l.cancelRoutingSession(handle)
 			}
 		case peer := <-l.evidenceQueue:
-			if peer.physicalPeerUp != nil {
-				decoded, err := l.physicalPeerUpEvidence(ctx, peer)
+			if peer.physicalPeerFrame != nil {
+				decoded, err := l.physicalPeerSessionEvidence(ctx, peer)
 				if err != nil {
 					l.log.Warn("bmp physical peer metadata refused; raw collection retained", "tenant_id", peer.tenantID)
 					continue
@@ -137,7 +138,7 @@ func (l *BMPListener) evidenceLoop(ctx context.Context) {
 				peerAddress: peer.peerAddress, peerASN: peer.peerASN,
 				routerSerial: peer.routerSerial}
 			if peer.observedAt.IsZero() || !peer.observedAt.After(now.Add(-bmpEvidenceMaxLag)) ||
-				!lastSent[key].due(now) {
+				(peer.peerSession == nil && !lastSent[key].due(now)) {
 				continue
 			}
 			state := lastSent[key]
@@ -182,10 +183,14 @@ func (l *BMPListener) peerEvidenceClaims(peer bmpPeerEvidence) ([]entity.Observa
 		SourceRef: peer.routerAgentID}
 	provenance := fmt.Sprintf("bmp:router:%s:peer-asn:%d", peer.routerAgentID, peer.peerASN)
 	claims := make([]entity.Observation, 0, 2)
-	for _, alias := range []entity.AliasKey{
+	aliases := []entity.AliasKey{
 		{Kind: entity.AddressAlias, Value: address},
 		{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("%s/as%d", address, peer.peerASN)},
-	} {
+	}
+	if peer.peerSession != nil && peer.peerSession.State != "up" {
+		aliases = aliases[1:]
+	}
+	for _, alias := range aliases {
 		id, err := crypto.UUIDv4()
 		if err != nil {
 			return nil, err
@@ -193,6 +198,9 @@ func (l *BMPListener) peerEvidenceClaims(peer bmpPeerEvidence) ([]entity.Observa
 		claims = append(claims, entity.Observation{ID: id, Source: source,
 			Alias: alias, SourceRef: provenance, OriginSerial: peer.routerSerial,
 			ObservedAt: peer.observedAt})
+		if alias.Kind == entity.BMPPeerAlias {
+			claims[len(claims)-1].BMPPeerSession = peer.peerSession
+		}
 	}
 	return claims, nil
 }

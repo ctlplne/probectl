@@ -15,10 +15,35 @@ func validEntityEvidenceEnvelope(req *agentv1.SubmitEntityEvidenceRequest) bool 
 		return false
 	}
 	count := 0
-	for _, present := range []bool{len(req.Observations)+len(req.Faults) > 0, req.FlowRouting != nil, req.RoutingPeerUp != nil, req.RoutingMessage != nil, req.PublicRoutingPeerTable != nil, req.PublicRoutingMessage != nil, req.DeviceCounter != nil} {
+	for _, present := range []bool{len(req.Observations)+len(req.Faults) > 0, req.FlowRouting != nil, req.RoutingPeerUp != nil, req.RoutingMessage != nil, req.PublicRoutingPeerTable != nil, req.PublicRoutingMessage != nil, req.DeviceCounter != nil, req.BmpPeerSessions != nil} {
 		if present {
 			count++
 		}
 	}
-	return count == 1
+	if count != 1 {
+		return false
+	}
+	if req.BmpPeerSessions != nil {
+		return validBMPPeerSessionEnvelope(req.BmpPeerSessions)
+	}
+	for _, item := range req.Observations {
+		if item.GetBmpPeerSession() != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func validBMPPeerSessionEnvelope(batch *agentv1.BmpPeerSessionBatch) bool {
+	if batch == nil || len(batch.ProtoReflect().GetUnknown()) != 0 || len(batch.Observations) == 0 || len(batch.Observations) > 64 {
+		return false
+	}
+	typed := false
+	for _, item := range batch.Observations {
+		if item == nil || len(item.ProtoReflect().GetUnknown()) != 0 || item.SourceKind != "bmp_peer" || item.Icmp != nil || item.ProbeOutcome != nil || item.SnmpInterfaceState != nil {
+			return false
+		}
+		typed = typed || item.BmpPeerSession != nil
+	}
+	return typed
 }

@@ -372,7 +372,8 @@ func currentAliasResolutionSQL(population ...bool) string {
 			          AND sender.revoked_at IS NULL
 			          AND sender.issued_at <= e.observed_at
 			          AND sender.not_after > statement_timestamp())
-			   AND (e.source_kind <> 'bmp_peer' OR EXISTS (
+			   AND (e.bmp_peer_session IS NULL OR e.bmp_peer_session->>'state'='up')
+ AND (e.source_kind <> 'bmp_peer' OR EXISTS (
 			       SELECT 1 FROM agent_identities origin
 			        WHERE origin.tenant_id=e.tenant_id
 			          AND origin.agent_id=e.configured_ref

@@ -34,6 +34,7 @@ type Observation struct {
 	InterfaceName        string
 	InterfaceDescription string
 	SNMPInterfaceState   *SNMPInterfaceState
+	BMPPeerSession       *BMPPeerSession
 	// SystemDescription is SNMP sysDescr on the configured-target address
 	// observation only. It never identifies an entity or selects a context.
 	SystemDescription string
@@ -92,6 +93,10 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 		return Observation{}, err
 	}
 	o.SNMPInterfaceState, err = normalizeSNMPInterfaceState(o.SNMPInterfaceState)
+	if err != nil {
+		return Observation{}, err
+	}
+	o.BMPPeerSession, err = normalizeBMPPeerSession(o)
 	if err != nil {
 		return Observation{}, err
 	}

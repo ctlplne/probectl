@@ -40,6 +40,12 @@ func currentEntityEvidenceSnapshotSQL(configured ...bool) string {
 // source assignment, anchor/support, sender and BMP-origin validity. Reuse it
 // when deriving tag facts instead of authorizing from historical evidence.
 func currentEntityEvidenceSQL(configured ...bool) string {
+	return `(e.bmp_peer_session IS NULL OR e.bmp_peer_session->>'state'='up') AND ` + currentEntityEvidenceSourceSQL(configured...)
+}
+
+// Lifecycle consumers may inspect a down observation under its current source
+// authority. That is distinct from using it as a fresh canonical identity.
+func currentEntityEvidenceSourceSQL(configured ...bool) string {
 	probeGuard := currentConfiguredProbeSQL
 	if len(configured) > 0 && !configured[0] {
 		// Only callers that already constrain alias_kind to another family

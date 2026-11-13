@@ -59,7 +59,7 @@ func (c *EvidenceClient) CaptureCounters(ctx context.Context, sender string, dig
 	}
 	receipt := response.GetDeviceCounter()
 	if receipt == nil || !bytes.Equal(receipt.Key, expected[:]) || receipt.CapturedUnixNanos <= 0 ||
-		response.GetAccepted() != 0 || response.GetUnresolved() != 0 || response.GetFaultsPersisted() != 0 || (response.GetIcmpMeasurementsPersisted() != 0 || response.GetProbeOutcomesPersisted() != 0 || response.GetInterfaceStatesPersisted() != 0) || response.GetRouting() != nil ||
+		response.GetAccepted() != 0 || response.GetUnresolved() != 0 || response.GetFaultsPersisted() != 0 || (response.GetIcmpMeasurementsPersisted() != 0 || response.GetProbeOutcomesPersisted() != 0 || response.GetInterfaceStatesPersisted() != 0 || response.GetBmpPeerSessionsPersisted() != 0) || response.GetRouting() != nil ||
 		response.GetRoutingMessage() != nil || response.GetFlowRouting() != nil || hasPublicRoutingReceipt(response) ||
 		len(response.ProtoReflect().GetUnknown()) != 0 || len(receipt.ProtoReflect().GetUnknown()) != 0 {
 		return none, ErrEvidenceBatchInvalid

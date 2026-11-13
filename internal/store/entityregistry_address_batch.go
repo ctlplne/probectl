@@ -99,7 +99,8 @@ func (s *EntityRegistry) ResolveAddresses(ctx context.Context, raw entity.Scope,
 			                 AND sender.revoked_at IS NULL
 			                 AND sender.issued_at <= item.observed_at
 			                 AND sender.not_after > statement_timestamp())
-				         AND (item.source_kind <> 'bmp_peer' OR EXISTS (
+				         AND (item.bmp_peer_session IS NULL OR item.bmp_peer_session->>'state'='up')
+ AND (item.source_kind <> 'bmp_peer' OR EXISTS (
 				              SELECT 1 FROM agent_identities origin
 				               WHERE origin.tenant_id=item.tenant_id
 				                 AND origin.agent_id=item.configured_ref

@@ -82,6 +82,9 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	}
 
 	items := req.GetObservations()
+	if req.BmpPeerSessions != nil {
+		items = req.BmpPeerSessions.Observations
+	}
 	rawFaults := req.GetFaults()
 	total := len(items) + len(rawFaults)
 	if total == 0 || total > 64 {
@@ -106,11 +109,11 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 		}
 		return nil, status.Error(codes.InvalidArgument, "invalid entity fault observation")
 	}
-	observations, err := parseEntityEvidenceObservations(items, id.AgentID)
+	observations, err := parseEntityEvidenceObservations(ctx, items, id.AgentID)
 	if err != nil {
 		return nil, err
 	}
-	var accepted, unresolved, icmpRetained, outcomesRetained, statesRetained int
+	var accepted, unresolved, icmpRetained, outcomesRetained, statesRetained, sessionsRetained int
 	if len(observations) > 0 {
 		err = tenancy.FencedTenantWrite(ctx, svc.fence, id.TenantID,
 			entity.ErrScopeMismatch, func(ctx context.Context) error {
@@ -118,6 +121,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 					WriteEvidenceBatchReceipt(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)),
 						id.AgentID, serial, observations)
 				accepted, unresolved, icmpRetained, outcomesRetained, statesRetained = receipt.Accepted, receipt.Unresolved, receipt.ICMPMeasurements, receipt.ProbeOutcomes, receipt.InterfaceStates
+				sessionsRetained = receipt.BMPPeerSessions
 				return writeErr
 			})
 		if err != nil {
@@ -141,7 +145,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 		svc.log.Info("entity evidence batch processed", "tenant_id", id.TenantID,
 			"agent_id", id.AgentID, "accepted", accepted, "unresolved", unresolved,
 			"faults_persisted", faultsPersisted, "icmp_measurements_persisted", icmpRetained, "probe_outcomes_persisted", outcomesRetained,
-			"interface_states_persisted", statesRetained)
+			"interface_states_persisted", statesRetained, "bmp_peer_sessions_persisted", sessionsRetained)
 	}
 	if counter := svc.entityEvidenceObservations["accepted"]; counter != nil {
 		counter.Add(uint64(accepted))
@@ -159,7 +163,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	}
 	return &agentv1.SubmitEntityEvidenceResponse{
 		Accepted: uint32(accepted), Unresolved: uint32(unresolved),
-		FaultsPersisted: uint32(faultsPersisted), IcmpMeasurementsPersisted: uint32(icmpRetained), ProbeOutcomesPersisted: uint32(outcomesRetained), InterfaceStatesPersisted: uint32(statesRetained),
+		FaultsPersisted: uint32(faultsPersisted), IcmpMeasurementsPersisted: uint32(icmpRetained), ProbeOutcomesPersisted: uint32(outcomesRetained), InterfaceStatesPersisted: uint32(statesRetained), BmpPeerSessionsPersisted: uint32(sessionsRetained),
 	}, nil
 }
 
@@ -231,14 +235,14 @@ func entityEvidenceWriteError(err error) error {
 
 // parseEntityEvidenceObservations decodes the complete authenticated batch;
 // any malformed typed document refuses the whole operation before persistence.
-func parseEntityEvidenceObservations(items []*agentv1.EntityEvidenceObservation, agentID string) ([]entity.Observation, error) {
+func parseEntityEvidenceObservations(ctx context.Context, items []*agentv1.EntityEvidenceObservation, agentID string) ([]entity.Observation, error) {
 	observations := make([]entity.Observation, 0, len(items))
 	var err error
 	for _, item := range items {
 		if item == nil {
 			return nil, status.Error(codes.InvalidArgument, "evidence observation is missing")
 		}
-		if (item.GetIcmp() != nil || item.GetProbeOutcome() != nil || item.GetSnmpInterfaceState() != nil) && len(item.ProtoReflect().GetUnknown()) != 0 {
+		if (item.GetIcmp() != nil || item.GetProbeOutcome() != nil || item.GetSnmpInterfaceState() != nil || item.GetBmpPeerSession() != nil) && len(item.ProtoReflect().GetUnknown()) != 0 {
 			return nil, status.Error(codes.InvalidArgument, "unsupported typed probe observation fields")
 		}
 		var addresses []netip.Addr
@@ -264,6 +268,10 @@ func parseEntityEvidenceObservations(items []*agentv1.EntityEvidenceObservation,
 		if err != nil {
 			return nil, err
 		}
+		session, err := parseBMPPeerSession(ctx, item.GetBmpPeerSession())
+		if err != nil {
+			return nil, err
+		}
 		observations = append(observations, entity.Observation{
 			ID: item.GetObservationId(),
 			Source: entity.SourceKey{
@@ -277,6 +285,7 @@ func parseEntityEvidenceObservations(items []*agentv1.EntityEvidenceObservation,
 			InterfaceName:         item.GetInterfaceName(),
 			InterfaceDescription:  item.GetInterfaceDescription(),
 			SNMPInterfaceState:    interfaceState,
+			BMPPeerSession:        session,
 			SystemDescription:     item.GetSystemDescription(),
 			SystemName:            item.SystemName,
 			AgentAddresses:        addresses,

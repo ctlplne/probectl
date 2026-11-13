@@ -41,8 +41,15 @@ func validICMPEvidenceReceipt(request *agentv1.SubmitEntityEvidenceRequest, resp
 	if request == nil || response == nil || len(response.ProtoReflect().GetUnknown()) != 0 || response.GetFaultsPersisted() != 0 || response.GetRouting() != nil || response.GetRoutingMessage() != nil || hasPublicRoutingReceipt(response) || response.GetFlowRouting() != nil || response.GetDeviceCounter() != nil {
 		return false
 	}
-	var icmp, outcomes, states uint32
-	for _, observation := range request.Observations {
+	items := request.Observations
+	if request.BmpPeerSessions != nil {
+		if len(items) != 0 || len(request.BmpPeerSessions.ProtoReflect().GetUnknown()) != 0 {
+			return false
+		}
+		items = request.BmpPeerSessions.Observations
+	}
+	var icmp, outcomes, states, sessions uint32
+	for _, observation := range items {
 		if observation == nil {
 			return false
 		}
@@ -59,17 +66,32 @@ func validICMPEvidenceReceipt(request *agentv1.SubmitEntityEvidenceRequest, resp
 			states++
 			families++
 		}
+		if observation.GetBmpPeerSession() != nil {
+			sessions++
+			families++
+		}
 		if families > 1 {
 			return false
 		}
 	}
-	total := uint32(len(request.Observations))
+	if sessions > 0 && request.BmpPeerSessions == nil {
+		return false
+	}
+	total := uint32(len(items))
 	accepted, unresolved := response.GetAccepted(), response.GetUnresolved()
 	retainedICMP, retainedOutcomes := response.GetIcmpMeasurementsPersisted(), response.GetProbeOutcomesPersisted()
 	retainedStates := response.GetInterfaceStatesPersisted()
-	if accepted > total || unresolved != total-accepted || retainedICMP > icmp || retainedOutcomes > outcomes || retainedStates > states {
+	retainedSessions := response.GetBmpPeerSessionsPersisted()
+	if accepted > total || unresolved != total-accepted || retainedICMP > icmp || retainedOutcomes > outcomes || retainedStates > states || retainedSessions > sessions {
 		return false
 	}
-	retained := retainedICMP + retainedOutcomes + retainedStates
-	return retained <= accepted && accepted-retained <= total-icmp-outcomes-states && icmp+outcomes+states-retained <= unresolved
+	retained := retainedICMP + retainedOutcomes + retainedStates + retainedSessions
+	return retained <= accepted && accepted-retained <= total-icmp-outcomes-states-sessions && icmp+outcomes+states+sessions-retained <= unresolved
+}
+
+func encodeBMPPeerSession(m *entity.BMPPeerSession) *agentv1.BmpPeerSession {
+	if m == nil {
+		return nil
+	}
+	return &agentv1.BmpPeerSession{Frame: append([]byte(nil), m.RawFrame...)}
 }

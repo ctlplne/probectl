@@ -28,6 +28,7 @@ type incidentVerdictSnapshot struct {
 	roles        []store.InterfaceRoleInputs
 	states       []store.IncidentInterfaceStateMeasurement
 	outcomes     []store.IncidentTestMeasurement
+	peerSessions []store.IncidentPeerSessionMeasurement
 	evidence     incidentVerdictEvidence
 	digest       string
 	pathBindings []incidentVerdictPathBinding
@@ -120,10 +121,16 @@ func (s *Server) loadIncidentVerdictSnapshot(ctx context.Context, actor *auth.Pr
 			if err == nil {
 				out.outcomes, err = (store.Incidents{}).IncidentTestMeasurementsInScope(ctx, sc, out.tests, from, to, limit)
 			}
+			if err == nil {
+				out.peerSessions, err = (store.Incidents{}).PeerSessionMeasurementsInScope(ctx, sc, out.sources, from, to, limit, authorize)
+			}
 		} else {
 			err = (store.Incidents{}).RecheckInterfaceStateMeasurementsInScope(ctx, sc, out.sources, original.states, limit, authorize)
 			if err == nil {
 				err = (store.Incidents{}).RecheckIncidentTestMeasurementsInScope(ctx, sc, original.outcomes, limit)
+			}
+			if err == nil {
+				err = (store.Incidents{}).RecheckPeerSessionMeasurementsInScope(ctx, sc, out.sources, original.peerSessions, limit, authorize)
 			}
 		}
 		if err != nil {

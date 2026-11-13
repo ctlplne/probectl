@@ -60,6 +60,26 @@ refuse an oversized complete request rather than truncate rows. Steady-state pre
 [role explanation preview](features/interface-roles.md). Explorer role dimensions
 and complete real-router acceptance remain unfinished.
 
+## Original physical BMP session observations (preview)
+
+The existing restricted evidence mTLS channel retains complete global physical
+Peer Up and Peer Down frames, their digest and receipt time, and the exact
+verified router SVID serial. The receiver derives address, full 32-bit ASN,
+flags, down reason, available FSM event and notification code/subcode from the
+original bytes. A separate typed-retention count distinguishes durable session
+metadata from a generic identity acknowledgment. An exclusive request envelope makes older
+receivers refuse the operation before writing generic identities. Retries preserve the original
+UUID, document and observation clock.
+
+Every actual transition bypasses stable identity refresh suppression. Down
+observations do not publish fresh address or peer-up identity. Reason 5 means
+monitoring withdrawn; Loc-RIB lifecycle stays on its separate routing path.
+Missing frames, source reset and collector loss do not prove carrier failure.
+Current canonical source, sender/router certificates and tenant/context storage
+checks remain necessary. Pooled and private schemas retain the same document
+checks, tenant RLS, export and deletion lifecycle. Carrier attribution still
+requires hand-off ownership and corroborating measurements.
+
 ## Set up a routing context
 
 In **Admin → Canonical entity registry**, create a context with a site name and

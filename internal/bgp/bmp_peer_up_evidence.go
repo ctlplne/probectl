@@ -17,6 +17,10 @@ import (
 // Peer Up attests the address/ASN observed by this admitted router; it says
 // nothing about forwarding, selected routes or continuing session health.
 func (l *BMPListener) queuePhysicalPeerUpEvidence(ctx context.Context, id bmpIdentity, session uint64, payload []byte) error {
+	return l.queuePhysicalPeerFrameEvidence(ctx, id, session, bmpPeerUp, payload)
+}
+
+func (l *BMPListener) queuePhysicalPeerFrameEvidence(ctx context.Context, id bmpIdentity, session uint64, kind byte, payload []byte) error {
 	if l.evidence == nil {
 		return nil
 	}
@@ -39,47 +43,57 @@ func (l *BMPListener) queuePhysicalPeerUpEvidence(ctx context.Context, id bmpIde
 		return ErrBMPPeerUpBudget
 	}
 	raw := make([]byte, bmpCommonHeaderLen+len(payload))
-	raw[0], raw[5] = bmpVersion, bmpPeerUp
+	raw[0], raw[5] = bmpVersion, kind
 	binary.BigEndian.PutUint32(raw[1:5], uint32(len(raw)))
 	copy(raw[bmpCommonHeaderLen:], payload)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !l.queuePeerEvidence(bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: session, physicalPeerUp: raw, observedAt: l.now().UTC()}) {
+	if !l.queuePeerEvidence(bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: session, physicalPeerFrame: raw, observedAt: l.now().UTC()}) {
 		return ErrBMPPeerUpBudget
 	}
 	return nil
 }
 
-// Whole metadata validation runs only in the existing single evidence worker,
+// Whole lifecycle validation runs only in the existing single evidence worker,
 // never in each concurrent socket reader. No partially decoded peer is returned.
-func (l *BMPListener) physicalPeerUpEvidence(ctx context.Context, pending bmpPeerEvidence) (bmpPeerEvidence, error) {
+func (l *BMPListener) physicalPeerSessionEvidence(ctx context.Context, pending bmpPeerEvidence) (bmpPeerEvidence, error) {
 	none := bmpPeerEvidence{}
 	if pending.tenantID != l.laneTenant || pending.routerAgentID == "" || pending.routerSerial == "" || pending.sessionHandle == 0 || pending.observedAt.IsZero() {
 		return none, entity.ErrScopeMismatch
 	}
-	peer, err := parseBMPPeerUp(ctx, pending.physicalPeerUp, PeerMessageBudget{MemoryBytes: l.routingStateBytes, WorkUnits: l.routingStateBytes})
+	peer, err := DecodePhysicalPeerSession(ctx, pending.physicalPeerFrame, PeerMessageBudget{MemoryBytes: l.routingStateBytes, WorkUnits: l.routingStateBytes})
 	if err != nil {
 		return none, err
-	}
-	header := peer.Header
-	if header.PeerType != 0 || header.Flags&^byte(0xf0) != 0 || header.PeerASN == 0 || !header.PeerAddress.IsValid() || header.PeerAddress.IsUnspecified() || header.PeerAddress.IsMulticast() {
-		return none, ErrBMPPeerUp
-	}
-	remote, err := parseRouteOpenCapabilities(peer.ReceivedOpen)
-	if err != nil {
-		return none, err
-	}
-	asn := uint32(binary.BigEndian.Uint16(peer.ReceivedOpen[20:22]))
-	if remote.fourAS {
-		asn = remote.asn
-	}
-	if asn == 0 || asn != header.PeerASN {
-		return none, ErrBMPPeerUp
 	}
 	if err := ctx.Err(); err != nil {
 		return none, err
 	}
 	return bmpPeerEvidence{tenantID: pending.tenantID, routerAgentID: pending.routerAgentID, routerSerial: pending.routerSerial, sessionHandle: pending.sessionHandle,
-		peerAddress: header.PeerAddress.String(), peerASN: asn, observedAt: pending.observedAt}, nil
+		peerAddress: peer.PeerAddress, peerASN: peer.PeerASN, observedAt: pending.observedAt, peerSession: peer}, nil
+}
+
+// Dispatch uses the already rechecked router identity and keeps each source's
+// queue order. Physical facts and routing views have independent semantics.
+func (l *BMPListener) dispatchPeerEvidence(ctx context.Context, id bmpIdentity, session uint64, kind byte, payload []byte) bool {
+	if kind == bmpPeerUp {
+		if err := l.queuePhysicalPeerUpEvidence(ctx, id, session, payload); err != nil {
+			l.log.Warn("bmp physical peer evidence refused; raw collection retained", "tenant_id", id.TenantID)
+		}
+		if err := l.queueRoutingPeerUp(id, session, payload); err != nil {
+			l.loseRoutingEvidence(session)
+			l.log.Warn("bmp routing metadata refused; raw collection retained", "tenant_id", id.TenantID)
+		}
+		return true
+	}
+	if kind == 2 {
+		if err := l.queuePhysicalPeerFrameEvidence(ctx, id, session, kind, payload); err != nil {
+			l.log.Warn("bmp physical peer lifecycle refused; raw collection retained", "tenant_id", id.TenantID)
+		}
+	}
+	if err := l.queueRoutingMessage(id, session, kind, payload); err != nil {
+		l.loseRoutingEvidence(session)
+		l.log.Warn("bmp routing frame refused; raw collection retained", "tenant_id", id.TenantID)
+	}
+	return false
 }

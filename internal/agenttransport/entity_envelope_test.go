@@ -16,6 +16,9 @@ import (
 
 func TestEntityEvidenceEnvelopeKeepsOnePlaneAndRefusesUnknownPublicFields(t *testing.T) {
 	kinds := []func(*agentv1.SubmitEntityEvidenceRequest){
+		func(r *agentv1.SubmitEntityEvidenceRequest) {
+			r.BmpPeerSessions = &agentv1.BmpPeerSessionBatch{Observations: []*agentv1.EntityEvidenceObservation{{SourceKind: "bmp_peer", BmpPeerSession: &agentv1.BmpPeerSession{}}}}
+		},
 		func(r *agentv1.SubmitEntityEvidenceRequest) { r.DeviceCounter = &agentv1.DeviceCounterWitness{} },
 		func(r *agentv1.SubmitEntityEvidenceRequest) {
 			r.Observations = []*agentv1.EntityEvidenceObservation{{}}

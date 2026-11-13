@@ -27,6 +27,7 @@ func loadInterfaceRolePeerInputs(ctx context.Context, sc tenancy.Scope, input In
  SELECT e.agent_id,e.configured_ref,split_part(e.alias_value,'/as',1) AS peer,max(e.observed_at) AS observed
  FROM entity_evidence e WHERE e.tenant_id=$1 AND e.context_id=$2
  AND e.source_kind='bmp_peer' AND e.alias_kind='bmp_peer_id'
+ AND (e.bmp_peer_session IS NULL OR e.bmp_peer_session->>'state'='up')
  AND e.observed_at<=transaction_timestamp()
  GROUP BY e.agent_id,e.configured_ref,split_part(e.alias_value,'/as',1))
  SELECT e.id::text,e.alias_value,e.source_ref,e.configured_ref,e.observed_at,`+interfaceRoleEvidenceExpirySQL()+`
@@ -35,7 +36,7 @@ func loadInterfaceRolePeerInputs(ctx context.Context, sc tenancy.Scope, input In
  (e.agent_id,e.configured_ref,split_part(e.alias_value,'/as',1),e.observed_at) `+interfaceRoleAuthorityJoinsSQL()+`
  WHERE e.tenant_id=$1 AND e.context_id=$2 AND e.entity_id=$3 AND e.source_kind='bmp_peer'
  AND source.anchor_entity_id=$3 AND e.support_evidence_id IS NULL
- AND e.alias_kind='bmp_peer_id' AND `+currentEntityEvidenceSnapshotSQL()+` ORDER BY e.id LIMIT $4`,
+ AND e.alias_kind='bmp_peer_id' AND (e.bmp_peer_session IS NULL OR e.bmp_peer_session->>'state'='up') AND `+currentEntityEvidenceSnapshotSQL()+` ORDER BY e.id LIMIT $4`,
 		input.Scope.TenantID, input.Scope.ContextID, input.RouterID, budget.memory/2048+1)
 	if err != nil {
 		return nil, err

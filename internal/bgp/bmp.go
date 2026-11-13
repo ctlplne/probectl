@@ -833,20 +833,10 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 		if l.identityRevoked(id) {
 			return fmt.Errorf("bgp bmp: registry-revoked router identity refused mid-session (serial %s)", id.Serial)
 		}
-		if msgType == bmpPeerUp {
-			if err := l.queuePhysicalPeerUpEvidence(ctx, id, liveHandle, payload); err != nil {
-				l.log.Warn("bmp physical peer evidence refused; raw collection retained", "tenant_id", id.TenantID)
-			}
-			if err := l.queueRoutingPeerUp(id, liveHandle, payload); err != nil {
-				l.loseRoutingEvidence(liveHandle)
-				l.log.Warn("bmp routing metadata refused; raw collection retained", "tenant_id", id.TenantID)
-			}
+		if l.dispatchPeerEvidence(ctx, id, liveHandle, msgType, payload) {
 			continue
 		}
-		if err := l.queueRoutingMessage(id, liveHandle, msgType, payload); err != nil {
-			l.loseRoutingEvidence(liveHandle)
-			l.log.Warn("bmp routing frame refused; raw collection retained", "tenant_id", id.TenantID)
-		}
+
 		if msgType != bmpRouteMonitoring {
 			l.log.Debug("skipping unsupported bmp message", "tenant_id", id.TenantID, "message_type", msgType)
 			continue

@@ -58,7 +58,7 @@ func TestBMPPeerUpEvidenceRefusesForeignIncompleteAndUnboundSources(t *testing.T
 				cancel()
 			}
 			original := append([]byte{}, frame...)
-			got, err := listener.physicalPeerUpEvidence(ctx, bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: session, physicalPeerUp: frame, observedAt: time.Now()})
+			got, err := listener.physicalPeerSessionEvidence(ctx, bmpPeerEvidence{tenantID: id.TenantID, routerAgentID: id.AgentID, routerSerial: id.Serial, sessionHandle: session, physicalPeerFrame: frame, observedAt: time.Now()})
 			if err == nil || !reflect.DeepEqual(got, bmpPeerEvidence{}) || len(listener.evidenceQueue) != 0 || !bytes.Equal(original, frame) {
 				t.Fatal("refused source exposed or changed physical peer evidence", name, err)
 			}
@@ -78,7 +78,7 @@ func TestBMPPeerUpEvidencePreservesReceiptClockAndOwnedWholeFrame(t *testing.T) 
 	pending := <-listener.evidenceQueue
 	frame[len(frame)-1] ^= 255
 	listener.now = func() time.Time { return first.Add(time.Hour) }
-	got, err := listener.physicalPeerUpEvidence(t.Context(), pending)
+	got, err := listener.physicalPeerSessionEvidence(t.Context(), pending)
 	if err != nil || got.observedAt != first || got.peerAddress != "2001:db8::7" || got.peerASN != 4294967295 {
 		t.Fatal("queued peer was restamped or borrowed mutable source bytes", got, err)
 	}

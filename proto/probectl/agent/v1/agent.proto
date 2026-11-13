@@ -271,6 +271,13 @@ message EntityEvidenceObservation {
   IcmpMeasurement icmp = 22; // current configured test; never ordinary result metrics
   ProbeOutcome probe_outcome = 23; // exact non-ICMP configured test; existing evidence mTLS only
   SnmpInterfaceState snmp_interface_state = 24; // observed interface alias only; absence is unknown
+  BmpPeerSession bmp_peer_session = 25; // complete global physical Up/Down; server derives all fields
+}
+
+// Complete original BMP frame. Tenant, router and source come from verified
+// identities and operator assignments, never peer-header fields.
+message BmpPeerSession {
+  bytes frame = 1;
 }
 
 // Original IF-MIB enums, not an inferred fault or a source/tenant grant.
@@ -465,6 +472,13 @@ message SubmitEntityEvidenceRequest {
   PublicRoutingPeerTable public_routing_peer_table = 6; // exclusive original source metadata
   PublicRoutingMessage public_routing_message = 7; // exclusive original MRT record or EOF/reset
   DeviceCounterWitness device_counter = 8; // exclusive; certified sender only
+  BmpPeerSessionBatch bmp_peer_sessions = 9; // exclusive; legacy receivers must refuse without writing generic identities
+}
+
+// Exclusive wrapper prevents an older receiver from accepting lifecycle facts
+// as generic identity observations after silently dropping an unknown field.
+message BmpPeerSessionBatch {
+  repeated EntityEvidenceObservation observations = 1;
 }
 
 message SubmitEntityEvidenceResponse {
@@ -480,4 +494,5 @@ message SubmitEntityEvidenceResponse {
   uint32 icmp_measurements_persisted = 10; // typed metadata retained, not a generic address ack
   uint32 probe_outcomes_persisted = 11; // retained configured outcomes, not a legacy generic ack
   uint32 interface_states_persisted = 12; // typed original state retained, not a generic identity ack
+  uint32 bmp_peer_sessions_persisted = 13; // typed original lifecycle retained, not an identity ack
 }
