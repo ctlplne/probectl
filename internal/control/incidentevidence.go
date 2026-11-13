@@ -20,6 +20,7 @@ import (
 	"github.com/ctlplne/probectl/internal/evidence"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -38,6 +39,15 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 	input, err := decodeIncidentEvidenceExport(r)
 	if err != nil {
 		return err
+	}
+	if input.Impact != nil || input.Verdict != nil {
+		budget := flowstore.ExplorerOperationBudget(r.Context(), s.flowStore)
+		if err := budget.Validate(); err != nil {
+			return apierror.Unavailable("incident evidence query admission is unavailable")
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), budget.ExecutionLimit)
+		defer cancel()
+		r = r.WithContext(ctx)
 	}
 	reason, err := s.decide(r.Context(), p, permAIQuery, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: p.TenantID})
 	if err != nil {
@@ -78,28 +88,53 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 
 	pol := incidentEvidenceTenantPolicy(redactionPolicy(s.cfg), p.TenantID)
 	var impact *incident.ImpactResponse
-	if input.Impact != nil {
-		release, err := s.beginIncidentImpactQuery(r.Context(), p)
+	var verdict *incident.FaultVerdict
+	var impactPublication, verdictPublication incidentEvidenceFinalizer
+	// One admitted export owns the complete multi-source packaging operation.
+	// Source readers retain their own permission and original-document checks.
+	if input.Impact != nil || input.Verdict != nil {
+		var release func()
+		if input.Impact != nil {
+			release, err = s.beginIncidentImpactQuery(r.Context(), p)
+		} else {
+			release, err = s.beginIncidentVerdictQuery(r.Context(), p)
+		}
 		if err != nil {
 			return err
 		}
 		defer release()
-		// RCA executes first; impact's final current-source/reader check is
-		// immediately before packaging rather than before a model call.
-		impact, err = s.exportIncidentImpact(r.Context(), p, inc, *input.Impact)
+	}
+	if input.Impact != nil {
+		impact, err = s.exportIncidentImpact(r.Context(), p, inc, *input.Impact, &impactPublication)
 		if err != nil {
 			return err
 		}
 	}
+	if input.Verdict != nil {
+		memory := int64(0)
+		if input.Impact != nil {
+			memory = flowstore.ExplorerOperationBudget(r.Context(), s.flowStore).MemoryBytes / 4
+		}
+		verdict, err = s.exportIncidentVerdict(r.Context(), p, inc, *input.Verdict, memory, &verdictPublication)
+		if err != nil {
+			return err
+		}
+	}
+	if impact != nil && impactPublication == nil || verdict != nil && verdictPublication == nil {
+		return apierror.Unavailable("incident export original-source publication check is unavailable")
+	}
 	redactedIncident := redactIncidentForShare(*inc, pol, p.TenantID)
 	redactedAnswer := redactAnswerForShare(answer, pol, p.TenantID)
 	var impactProfile staticReportProfile
-	if impact != nil {
+	if impact != nil || verdict != nil {
 		impactProfile, err = s.staticReportOperation()
 		if err != nil {
 			return apierror.Unavailable("incident evidence output admission is unavailable")
 		}
-		impactBytes, err := json.Marshal(impact)
+		impactBytes, err := json.Marshal(struct {
+			Impact  *incident.ImpactResponse
+			Verdict *incident.FaultVerdict
+		}{impact, verdict})
 		if err != nil {
 			return err
 		}
@@ -116,6 +151,7 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 		Conclusion: redactedAnswer.RootCause,
 		Grounded:   redactedAnswer.RootCauseGrounded && !redactedAnswer.InsufficientEvidence,
 		Impact:     impact,
+		Verdict:    verdict,
 	})
 	if err != nil {
 		return apierror.Internal("incident evidence manifest failed").Wrap(err)
@@ -124,19 +160,29 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		return apierror.Internal("incident evidence signing failed").Wrap(err)
 	}
-	if impact != nil && int64(len(packageJSON)) > impactProfile.output.Bytes {
+	if (impact != nil || verdict != nil) && int64(len(packageJSON)) > impactProfile.output.Bytes {
 		return apierror.Validation("complete incident evidence exceeds configured report output bytes; increase the report output allowance")
+	}
+	// These checks use the original retained selectors, not new histories.
+	// Keep current export/AI permission checks after encoding and signing too.
+	for _, publication := range []incidentEvidenceFinalizer{impactPublication, verdictPublication} {
+		if publication != nil {
+			if err := publication(r.Context()); err != nil {
+				return err
+			}
+		}
 	}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		return s.recordAudit(ctx, sc, r, "incident.evidence_export", manifest.PackageID, map[string]any{
 			"incident_id": inc.ID, "contract": evidence.ContractVersion,
 			"evidence_count": len(manifest.Evidence), "statements": len(manifest.Statements),
-			"impact_included": impact != nil,
+			"impact_included": impact != nil, "verdict_included": verdict != nil,
 		})
 	}); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/vnd.probectl.evidence+json")
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="probectl-incident-%s-evidence.json"`, inc.ID))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(packageJSON)

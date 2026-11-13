@@ -15794,10 +15794,28 @@
         "additionalProperties": false,
         "properties": {
           "impact": {
-            "$ref": "#/components/schemas/IncidentImpactInput"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IncidentImpactInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verdict": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IncidentVerdictInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Recompute the cited fault-domain preview under current source/export permissions and retain it as a complete signed attachment. May accompany impact; neither field supplies evidence or a grant."
           }
         },
-        "description": "Optional impact selections only. The server recomputes complete current-authorized impact after RCA and includes it in the signed evidence package; supplied outputs are never accepted."
+        "description": "Optional server-recomputed impact and/or verdict selections. Outputs and source grants are never accepted from the client. Use the SDK byte-response method when retaining or verifying a signed package."
       },
       "IncidentImpactTestPackets": {
         "type": "object",

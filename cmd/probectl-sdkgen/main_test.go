@@ -164,3 +164,28 @@ func TestNullableReferencedManifestKeepsTypedGoAndTypeScriptShape(t *testing.T) 
 		}
 	}
 }
+
+func TestSignedEvidenceRetainsParsedAndBytePreservingOperations(t *testing.T) {
+	var doc document
+	if err := json.Unmarshal([]byte(`{"paths":{"/exports":{"post":{"operationId":"exportEvidence","responses":{"200":{"content":{"application/json":{"schema":{"type":"object"}},"application/vnd.probectl.evidence+json":{"schema":{"type":"object"}}}}}}},"/ordinary":{"get":{"operationId":"ordinary","responses":{"200":{"content":{"application/json":{"schema":{"type":"object"}}}}}}}}}`), &doc); err != nil {
+		t.Fatal(err)
+	}
+	g := generator{doc: &doc}
+	ops := g.operations()
+	if len(ops) != 3 || ops[0].GoName != "ExportEvidence" || !ops[0].JSONResp || ops[1].GoName != "ExportEvidenceBytes" || !ops[1].RawResp || ops[1].JSONResp || ops[2].GoName != "Ordinary" {
+		t.Fatal("signed export must keep its parsed method and add exactly one raw method", ops)
+	}
+	goSource, err := g.goSDK(ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ExportEvidenceBytes(ctx context.Context", "([]byte, error)", "return c.doRaw(ctx,"} {
+		if !bytes.Contains(goSource, []byte(want)) {
+			t.Fatalf("generated signed export missing byte-preserving Go path %q", want)
+		}
+	}
+	tsSource := g.tsSDK(ops)
+	if !bytes.Contains(tsSource, []byte("exportEvidenceBytes")) || !bytes.Contains(tsSource, []byte("Promise<Response>")) {
+		t.Fatal("signed export lost its raw TypeScript response")
+	}
+}

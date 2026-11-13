@@ -62,7 +62,7 @@ function response(tenant: string): IncidentVerdictResponse {
     ),
   }
 }
-function Harness() {
+function Harness({ canExport = false }: { canExport?: boolean }) {
   const [tenant, setTenant] = useState('red')
   const [allowed, setAllowed] = useState(true)
   return (
@@ -71,7 +71,9 @@ function Harness() {
         tenant: { id: tenant, name: tenant, slug: tenant },
         tenants: [],
         user: { id: 'reader', name: 'Reader', email: 'reader@local.test' },
-        permissions: allowed ? permissions : ['incident.read'],
+        permissions: allowed
+          ? [...permissions, ...(canExport ? ['ai.query'] : [])]
+          : ['incident.read'],
         switchTenant: () => {},
         signOut: () => {},
       }}
@@ -148,4 +150,67 @@ test('late verdict completion cannot disclose the previous tenant', async () => 
   expect(screen.queryByText('red-source')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Evaluate fault domain' })).toBeEnabled()
   view.unmount()
+})
+
+test('signed verdict download retains the exact window and refuses a late tenant export', async () => {
+  const fallback = defaultFetch()
+  const from = '2026-11-01T00:00:00.000000001Z'
+  const to = '2026-11-01T00:00:00.000000002Z'
+  const verdict = { ...response('red'), from, to }
+  const signed = new Uint8Array([123, 32, 34, 110, 34, 58, 57, 125])
+  let selected: unknown
+  let finish: ((value: Response) => void) | undefined
+  let exports = 0
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+    if (pathOf(input) === `/v1/incidents/${id}/verdict`)
+      return Promise.resolve(jsonResponse(verdict))
+    if (pathOf(input) === `/v1/incidents/${id}/exports`) {
+      selected = JSON.parse(String(init?.body))
+      exports++
+      if (exports === 1) return Promise.resolve(new Response(signed))
+      return new Promise<Response>((resolve) => {
+        finish = resolve
+      })
+    }
+    return fallback(input, init)
+  })
+  const create = vi.fn(() => 'blob:verdict')
+  const revoke = vi.fn()
+  const originals = ['createObjectURL', 'revokeObjectURL'].map((key) =>
+    Object.getOwnPropertyDescriptor(URL, key),
+  )
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: create })
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revoke })
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  const view = render(
+    <Providers>
+      <Harness canExport />
+    </Providers>,
+  )
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'Evaluate fault domain' }))
+    const download = await screen.findByRole('button', { name: 'Export signed fault evidence' })
+    fireEvent.click(download)
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1))
+    expect(selected).toEqual({ verdict: { from, to } })
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(revoke).toHaveBeenCalledWith('blob:verdict')
+    expect(await screen.findByText(/Signed evidence downloaded/)).toBeInTheDocument()
+    fireEvent.click(download)
+    await waitFor(() => expect(finish).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'Switch verdict tenant' }))
+    await act(async () => {
+      finish!(new Response(signed))
+    })
+    expect(click).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/Signed evidence downloaded/)).not.toBeInTheDocument()
+  } finally {
+    view.unmount()
+    click.mockRestore()
+    for (const [i, key] of ['createObjectURL', 'revokeObjectURL'].entries()) {
+      if (originals[i]) Object.defineProperty(URL, key, originals[i]!)
+      else Reflect.deleteProperty(URL, key)
+    }
+  }
 })

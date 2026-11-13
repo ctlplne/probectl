@@ -109,7 +109,7 @@ func cmdIncidentExportWithStdin(cfg Config, args []string, stdin io.Reader, stdo
 	fs := flag.NewFlagSet("incident export", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	outPath := fs.String("out", "", "write the exact signed package to this owner-only file")
-	bodyRaw := fs.String("body", "", "optional export selections as JSON; impact is recomputed by the server")
+	bodyRaw := fs.String("body", "", "optional export selections as JSON; impact and verdict are recomputed by the server")
 	bodyFile := fs.String("body-file", "", "export selections file; - reads stdin")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2

@@ -7,7 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, apiFetchBytes, isApiStatus } from './client'
 import type { Answer } from './ai'
-import type { IncidentImpactInput } from './sdk.gen'
+import type { IncidentImpactInput, IncidentVerdictInput } from './sdk.gen'
 
 export type Severity = 'info' | 'warning' | 'critical'
 export type IncidentStatus = 'open' | 'resolved'
@@ -221,14 +221,20 @@ export function useCreateIncidentShare(id: string | undefined) {
 export function useExportIncidentEvidence(id: string | undefined) {
   return useMutation({
     gcTime: 0,
-    mutationFn: (selection?: { impact: IncidentImpactInput; signal?: AbortSignal }) =>
+    mutationFn: (selection?: {
+      impact?: IncidentImpactInput
+      verdict?: IncidentVerdictInput
+      signal?: AbortSignal
+    }) =>
       apiFetchBytes(`/incidents/${encodeURIComponent(id ?? '')}/exports`, {
         method: 'POST',
         headers: {
           Accept: 'application/vnd.probectl.evidence+json',
           ...(selection ? { 'Content-Type': 'application/json' } : {}),
         },
-        body: selection ? JSON.stringify({ impact: selection.impact }) : undefined,
+        body: selection
+          ? JSON.stringify({ impact: selection.impact, verdict: selection.verdict })
+          : undefined,
         signal: selection?.signal,
       }),
   })

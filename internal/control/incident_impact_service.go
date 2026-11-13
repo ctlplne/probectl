@@ -31,7 +31,14 @@ func (s *Server) incidentImpact(ctx context.Context, actor *auth.Principal, id s
 // captured receives the complete final server snapshot only on success. It
 // lets signed exports check their incident header without accepting a caller's
 // digest, membership list or reusable source grant.
-func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principal, id string, input incident.ImpactInput, captured **store.IncidentImpactInputs) (_ incident.ImpactResponse, operationErr error) {
+func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principal, id string, input incident.ImpactInput, captured **store.IncidentImpactInputs) (incident.ImpactResponse, error) {
+	return s.computeIncidentImpactWithPublication(ctx, actor, id, input, captured, nil)
+}
+
+func (s *Server) computeIncidentImpactWithPublication(ctx context.Context, actor *auth.Principal, id string, input incident.ImpactInput, captured **store.IncidentImpactInputs, publication *incidentEvidenceFinalizer) (_ incident.ImpactResponse, operationErr error) {
+	if publication != nil {
+		*publication = nil
+	}
 	if captured != nil {
 		*captured = nil
 	}
@@ -173,34 +180,49 @@ func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principa
 	// Refresh current credential, source, assignment and erasure authority for
 	// the original retained selectors. This does not execute another flow query.
 	testSelection.history, testSelection.original = false, observed.testReads
-	after, err := s.loadIncidentImpactSnapshot(ctx, actor, id, reads, budget, testSelection)
-	if err != nil {
-		return none, err
-	}
-	if observed.sourceDigest != after.sourceDigest || observed.captureDigest != after.captureDigest {
-		return none, apierror.Unavailable("current incident or original capture authority changed; retry")
-	}
-	if tagData != nil {
-		if err := s.recheckIncidentImpactCustomers(ctx, actor, after, input.CustomerTagKey, rows, owners, tagData, testTagData, result, budget.MemoryBytes/8); err != nil {
-			return none, err
+	exporting, _ := ctx.Value(incidentImpactExportKey{}).(bool)
+	validate := func(ctx context.Context) error {
+		if exporting {
+			ctx = context.WithValue(ctx, incidentImpactExportKey{}, true)
 		}
+
+		after, err := s.loadIncidentImpactSnapshot(ctx, actor, id, reads, budget, testSelection)
+		if err != nil {
+			return err
+		}
+		if observed.sourceDigest != after.sourceDigest || observed.captureDigest != after.captureDigest {
+			return apierror.Unavailable("current incident or original capture authority changed; retry")
+		}
+		if tagData != nil {
+			if err := s.recheckIncidentImpactCustomers(ctx, actor, after, input.CustomerTagKey, rows, owners, tagData, testTagData, result, budget.MemoryBytes/8); err != nil {
+				return err
+			}
+		}
+		if err := bindIncidentImpactValidUntil(&result, after); err != nil {
+			return err
+		}
+		body, err := json.Marshal(result)
+		if err != nil {
+			return err
+		}
+		if int64(len(body)) > budget.ResponseBytes {
+			return flowExplorerStoreError(flowstore.ErrExplorerBudget)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if captured != nil {
+			*captured = after.inputs
+		}
+		return nil
 	}
-	if err := bindIncidentImpactValidUntil(&result, after); err != nil {
+	if err := validate(ctx); err != nil {
 		return none, err
 	}
-	body, err := json.Marshal(result)
-	if err != nil {
-		return none, err
+	if publication != nil {
+		*publication = validate
 	}
-	if int64(len(body)) > budget.ResponseBytes {
-		return none, flowExplorerStoreError(flowstore.ErrExplorerBudget)
-	}
-	if err := ctx.Err(); err != nil {
-		return none, err
-	}
-	if captured != nil {
-		*captured = after.inputs
-	}
+
 	return result, nil
 }
 

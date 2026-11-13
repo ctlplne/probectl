@@ -2342,9 +2342,10 @@ type IncidentCorrelationOverrideReverse struct {
 	Reason string `json:"reason"`
 }
 
-// Optional impact selections only. The server recomputes complete current-authorized impact after RCA and includes it in the signed evidence package; supplied outputs are never accepted.
+// Optional server-recomputed impact and/or verdict selections. Outputs and source grants are never accepted from the client. Use the SDK byte-response method when retaining or verifying a signed package.
 type IncidentEvidenceExportInput struct {
-	Impact IncidentImpactInput `json:"impact,omitempty"`
+	Impact  *IncidentImpactInput  `json:"impact,omitempty"`
+	Verdict *IncidentVerdictInput `json:"verdict,omitempty"`
 }
 
 type IncidentEvidencePackage struct {
@@ -7215,6 +7216,22 @@ func (c *Client) ExportIncidentEvidence(ctx context.Context, req ExportIncidentE
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Export an immutable signed incident evidence package (exact signed bytes)
+type ExportIncidentEvidenceBytesRequest struct {
+	Id   string                       `json:"-"`
+	Body *IncidentEvidenceExportInput `json:"-"`
+}
+
+func (c *Client) ExportIncidentEvidenceBytes(ctx context.Context, req ExportIncidentEvidenceBytesRequest) ([]byte, error) {
+	path := "/v1/incidents/{id}/exports"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doRaw(ctx, http.MethodPost, path, query, req.Body)
 }
 
 // Compare observed incident traffic and cited customer-prefix impact

@@ -33,7 +33,11 @@ type incidentVerdictSnapshot struct {
 }
 
 func (s *Server) authorizeIncidentVerdict(ctx context.Context, actor *auth.Principal, resource map[string]string) error {
-	for _, permission := range []string{permIncidentRead, "entities.read", "metrics.read", "events.read", permTestRead} {
+	permissions := []string{permIncidentRead, "entities.read", "metrics.read", "events.read", permTestRead}
+	if exporting, _ := ctx.Value(incidentImpactExportKey{}).(bool); exporting {
+		permissions = append(permissions, permAIQuery)
+	}
+	for _, permission := range permissions {
 		if err := s.authorize(ctx, actor, permission, auth.RBACGlobal, resource); err != nil {
 			return err
 		}
@@ -221,10 +225,23 @@ func (s *Server) incidentVerdictInterfaceRole(ctx context.Context, sc tenancy.Sc
 	return role, inputs, nil
 }
 
-// computeIncidentVerdict is internal until all fault domains and served
-// contracts are wired. The final read reauthorizes actual user/credential,
+// computeIncidentVerdict's final read reauthorizes actual user/credential,
 // complete membership and current source policy, then original selectors.
 func (s *Server) computeIncidentVerdict(ctx context.Context, actor *auth.Principal, id string, from, to time.Time, maxBytes int64) (incident.FaultVerdict, error) {
+	return s.computeIncidentVerdictWithHeader(ctx, actor, id, from, to, maxBytes, nil)
+}
+
+func (s *Server) computeIncidentVerdictWithHeader(ctx context.Context, actor *auth.Principal, id string, from, to time.Time, maxBytes int64, captured **store.IncidentImpactInputs) (incident.FaultVerdict, error) {
+	return s.computeIncidentVerdictWithPublication(ctx, actor, id, from, to, maxBytes, captured, nil)
+}
+
+func (s *Server) computeIncidentVerdictWithPublication(ctx context.Context, actor *auth.Principal, id string, from, to time.Time, maxBytes int64, captured **store.IncidentImpactInputs, publication *incidentEvidenceFinalizer) (incident.FaultVerdict, error) {
+	if publication != nil {
+		*publication = nil
+	}
+	if captured != nil {
+		*captured = nil
+	}
 	none := incident.FaultVerdict{}
 	ctx, err := bindFlowRoleContext(ctx, actor)
 	if err != nil {
@@ -245,13 +262,6 @@ func (s *Server) computeIncidentVerdict(ctx context.Context, actor *auth.Princip
 	if err != nil {
 		return none, err
 	}
-	after, err := s.loadIncidentVerdictSnapshot(ctx, actor, id, from, to, maxBytes/2, &before)
-	if err != nil {
-		return none, err
-	}
-	if before.digest != after.digest {
-		return none, apierror.Unavailable("incident membership or source authority changed; retry")
-	}
 	if before.inputs.RootUnresolved || len(before.inputs.UnresolvedSignalIDs) != 0 {
 		result.Domain, result.Confidence, result.Reason = incident.FaultUnknown, "insufficient", "incomplete_canonical_incident_membership"
 		for i := range result.Hypotheses {
@@ -260,8 +270,36 @@ func (s *Server) computeIncidentVerdict(ctx context.Context, actor *auth.Princip
 	}
 	result.ContractVersion, result.Preview, result.IncidentID = "probectl.incident-verdict.v1", true, id
 	result.EvaluatedAt = time.Now().UTC()
-	if err := incidentVerdictSnapshotStillCurrent(after, &result); err != nil {
+	exporting, _ := ctx.Value(incidentImpactExportKey{}).(bool)
+	validate := func(ctx context.Context) error {
+		if exporting {
+			ctx = context.WithValue(ctx, incidentImpactExportKey{}, true)
+		}
+
+		after, err := s.loadIncidentVerdictSnapshot(ctx, actor, id, from, to, maxBytes/2, &before)
+		if err != nil {
+			return err
+		}
+		if before.digest != after.digest {
+			return apierror.Unavailable("incident membership or source authority changed; retry")
+		}
+		if err := incidentVerdictSnapshotStillCurrent(after, &result); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if captured != nil {
+			*captured = after.inputs
+		}
+		return nil
+	}
+	if err := validate(ctx); err != nil {
 		return none, err
 	}
-	return result, ctx.Err()
+	if publication != nil {
+		*publication = validate
+	}
+
+	return result, nil
 }

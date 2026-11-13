@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { apiFetch } from '../api/client'
-import type { Incident } from '../api/incidents'
+import { useExportIncidentEvidence, type Incident } from '../api/incidents'
 import type { IncidentVerdictCitation, IncidentVerdictResponse } from '../api/sdk.gen'
 import { useAuth } from '../auth/useAuth'
 import { Button, Card, CardBody, CardHeader, ErrorState, Field } from '../components'
@@ -46,6 +46,9 @@ export function IncidentVerdictCard({ incident }: { incident: Incident }) {
 }
 
 function VerdictForm({ incident }: { incident: Incident }) {
+  const { permissions } = useAuth()
+  const exportEvidence = useExportIncidentEvidence(incident.id)
+  const [exported, setExported] = useState(false)
   const [from, setFrom] = useState(incident.started_at)
   const [to, setTo] = useState(() => new Date().toISOString())
   const [result, setResult] = useState<IncidentVerdictResponse>()
@@ -61,6 +64,7 @@ function VerdictForm({ incident }: { incident: Incident }) {
     lifetime.current.request?.abort()
     setResult(undefined)
     setError('')
+    setExported(false)
     setBusy(false)
   }
   useEffect(() => {
@@ -118,6 +122,44 @@ function VerdictForm({ incident }: { incident: Incident }) {
       if (lifetime.current.active && lifetime.current.epoch === epoch) setBusy(false)
     }
   }
+  async function exportSigned() {
+    if (!result) return
+    lifetime.current.request?.abort()
+    const epoch = ++lifetime.current.epoch
+    const request = new AbortController()
+    lifetime.current.request = request
+    setBusy(true)
+    setError('')
+    setExported(false)
+    try {
+      const bytes = await exportEvidence.mutateAsync({
+        verdict: { from: result.from, to: result.to },
+        signal: request.signal,
+      })
+      if (!lifetime.current.active || lifetime.current.epoch !== epoch || request.signal.aborted)
+        return
+      const blob = new Blob([new Uint8Array(bytes)], {
+        type: 'application/vnd.probectl.evidence+json',
+      })
+      const href = URL.createObjectURL(blob)
+      try {
+        const anchor = document.createElement('a')
+        anchor.href = href
+        anchor.download = `probectl-incident-${incident.id}-fault-evidence.json`
+        anchor.click()
+      } finally {
+        URL.revokeObjectURL(href)
+      }
+      setExported(true)
+    } catch (reason) {
+      if (lifetime.current.active && lifetime.current.epoch === epoch && !request.signal.aborted)
+        setError(reason instanceof Error ? reason.message : 'Signed fault evidence is unavailable.')
+    } finally {
+      exportEvidence.reset()
+      if (lifetime.current.active && lifetime.current.epoch === epoch) setBusy(false)
+    }
+  }
+
   return (
     <div className={styles.stack}>
       <p>
@@ -157,6 +199,17 @@ function VerdictForm({ incident }: { incident: Incident }) {
       {error ? <ErrorState title="Fault domain unavailable" description={error} /> : null}
       {result ? (
         <div className={styles.stack} aria-live="polite">
+          {permissions.includes('ai.query') ? (
+            <div className={styles.actions}>
+              <Button type="button" disabled={busy} onClick={() => void exportSigned()}>
+                Export signed fault evidence
+              </Button>
+              <p>The export re-evaluates this window under current permissions.</p>
+            </div>
+          ) : null}
+          {exported ? (
+            <p>Signed evidence downloaded. Verify it with the offline incident verifier.</p>
+          ) : null}
           <p>
             <strong>{labels[result.domain] ?? result.domain}</strong> · {result.confidence} evidence
           </p>

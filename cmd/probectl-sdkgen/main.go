@@ -213,9 +213,38 @@ func (g generator) operations() []operation {
 				RawResp:  rawResp,
 				NoResp:   !jsonResp && !rawResp,
 			})
+			if exact, ok := signedBytesOperation(out[len(out)-1], rawOp.Responses); ok {
+				seen[exact.ID]++
+				out = append(out, exact)
+			}
 		}
 	}
 	return out
+}
+
+// Keep the parsed method for callers inspecting metadata. Signed packages
+// also need a byte-preserving sibling: parsing/re-encoding JSON cannot retain
+// the exact manifest and attachment bytes covered by the signature.
+func signedBytesOperation(input operation, responses map[string]*response) (operation, bool) {
+	if !input.JSONResp || input.RawResp {
+		return operation{}, false
+	}
+	for code, reply := range responses {
+		if !strings.HasPrefix(code, "2") || reply == nil {
+			continue
+		}
+		if _, ok := reply.Content["application/vnd.probectl.evidence+json"]; !ok {
+			continue
+		}
+		input.ID += "Bytes"
+		input.GoName += "Bytes"
+		input.TSName += "Bytes"
+		input.BodyName = input.GoName + "Body"
+		input.Summary += " (exact signed bytes)"
+		input.Resp, input.JSONResp, input.RawResp, input.NoResp = nil, false, true, false
+		return input, true
+	}
+	return operation{}, false
 }
 
 // mergePathParams combines an operation's own parameters with the path-item

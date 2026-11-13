@@ -87,6 +87,7 @@ func TestIncidentVerdictJoinsOriginalInterfaceStatesAndRejectsChangedDocuments(t
 			t.Fatal("nanosecond window lost its original retained point", narrow.Domain, want, err)
 		}
 		proveIncidentVerdictServedReaders(t, f, tenant, value.id, incident.VerdictInput{From: value.from, To: value.to}, got)
+		proveIncidentVerdictSignedExport(t, f, tenant, value.id, incident.VerdictInput{From: value.from, To: value.to}, got)
 		citations := got.Hypotheses[0].For
 		if lane == 1 {
 			citations = got.Hypotheses[0].Against

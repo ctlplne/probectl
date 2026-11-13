@@ -205,4 +205,23 @@ The response's `valid_until`, when present, bounds its current source authority.
 Re-evaluate after that deadline or after changing tenant/access context. Queries
 use the deployment's finite query memory/deadline and tenant fairness policy;
 an incomplete admitted population is never rendered as a plausible prefix.
-The four-domain lab qualification and signed-export inclusion remain pending.
+
+To include this result in the signed incident package, send the selection
+`{"verdict":{"from":"2026-11-01T00:00:00Z","to":"2026-11-01T01:00:00Z"}}`
+to `POST /v1/incidents/{id}/exports`, or pass it to
+`probectl incident export <id> --body-file <file|->`. The incident room's
+**Export signed fault evidence** action uses the evaluated window. Exports
+require `ai.query` in addition to the verdict's source permissions because
+the package also gathers cited RCA. An optional `impact` selection can share
+the same package. The server recomputes both selections and rechecks current
+access and original documents immediately before publication; callers cannot
+supply a verdict as evidence.
+
+The `incident.fault_domain` attachment retains every hypothesis, supporting
+and contradicting citation, missing coverage and original authority deadline.
+It is labelled an inference, or unknown, rather than an independent measurement.
+Use the generated Go `ExportIncidentEvidenceBytes` or TypeScript
+`exportIncidentEvidenceBytes` method for offline verification. The original
+parsed method remains available for inspection; decoding and re-encoding a
+package does not preserve its signed bytes. Pin the expected signer as described
+above. The four-domain lab qualification remains pending.

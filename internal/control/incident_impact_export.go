@@ -23,7 +23,8 @@ import (
 )
 
 type incidentEvidenceExportInput struct {
-	Impact *incident.ImpactInput `json:"impact,omitempty"`
+	Impact  *incident.ImpactInput  `json:"impact,omitempty"`
+	Verdict *incident.VerdictInput `json:"verdict,omitempty"`
 }
 
 // Export already gathers RCA under ai.query. Preserve that stricter source
@@ -53,13 +54,13 @@ func decodeIncidentEvidenceExport(r *http.Request) (incidentEvidenceExportInput,
 	return input, nil
 }
 
-func (s *Server) exportIncidentImpact(ctx context.Context, actor *auth.Principal, inc *incident.Incident, input incident.ImpactInput) (*incident.ImpactResponse, error) {
+func (s *Server) exportIncidentImpact(ctx context.Context, actor *auth.Principal, inc *incident.Incident, input incident.ImpactInput, publication *incidentEvidenceFinalizer) (*incident.ImpactResponse, error) {
 	if actor == nil || inc == nil || inc.TenantID != actor.TenantID {
 		return nil, apierror.Forbidden("incident export requires its current tenant identity")
 	}
 	var snapshot *store.IncidentImpactInputs
 	ctx = context.WithValue(ctx, incidentImpactExportKey{}, true)
-	result, err := s.computeIncidentImpact(ctx, actor, inc.ID, input, &snapshot)
+	result, err := s.computeIncidentImpactWithPublication(ctx, actor, inc.ID, input, &snapshot, publication)
 	if err != nil {
 		return nil, err
 	}

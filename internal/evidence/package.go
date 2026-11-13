@@ -145,6 +145,7 @@ type BuildInput struct {
 	Conclusion string
 	Grounded   bool
 	Impact     *incident.ImpactResponse
+	Verdict    *incident.FaultVerdict
 }
 
 // Build creates a deterministic manifest and content-addressed attachments
@@ -211,6 +212,20 @@ func Build(in BuildInput) (Manifest, []Attachment, error) {
 		records = append(records, record)
 		attachments = append(attachments, attachment)
 		statements = append(statements, Statement{ID: "incident-impact", Text: record.Summary, Class: "fact", EvidenceIDs: []string{record.ID}})
+	}
+
+	if in.Verdict != nil {
+		record, attachment, err := verdictEvidence(in.Incident.ID, *in.Verdict)
+		if err != nil {
+			return Manifest{}, nil, err
+		}
+		records = append(records, record)
+		attachments = append(attachments, attachment)
+		class := "inference"
+		if in.Verdict.Domain == incident.FaultUnknown {
+			class = "unknown"
+		}
+		statements = append(statements, Statement{ID: "incident-fault-domain", Text: record.Summary, Class: class, EvidenceIDs: []string{record.ID}})
 	}
 
 	tenantDigest := digest([]byte(in.TenantID))

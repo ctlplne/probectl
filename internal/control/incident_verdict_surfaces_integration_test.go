@@ -111,6 +111,9 @@ func proveIncidentVerdictForeignReaderRefusal(t *testing.T, f *roleExplanationAP
 	if result, err := client.GetIncidentVerdict(t.Context(), sdk.GetIncidentVerdictRequest{Id: foreignID, Body: &sdk.IncidentVerdictInput{From: input.From.Format(time.RFC3339Nano), To: input.To.Format(time.RFC3339Nano)}}); err == nil || result != nil {
 		t.Fatal("foreign incident returned a generated verdict payload")
 	}
+	if raw, err := client.ExportIncidentEvidenceBytes(t.Context(), sdk.ExportIncidentEvidenceBytesRequest{Id: foreignID, Body: &sdk.IncidentEvidenceExportInput{Verdict: &sdk.IncidentVerdictInput{From: input.From.Format(time.RFC3339Nano), To: input.To.Format(time.RFC3339Nano)}}}); err == nil || len(raw) != 0 {
+		t.Fatal("foreign incident returned signed verdict bytes")
+	}
 	for _, wire := range []string{"2026-07-28", "2025-11-25"} {
 		call := interfaceRoleNativeTLSCaller(t, f, wire)
 		call(tenant, "incident_verdict", map[string]any{"incident_id": foreignID, "from": input.From, "to": input.To}, nil, false)
