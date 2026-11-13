@@ -225,7 +225,7 @@ test('signed verdict download retains the exact window and refuses a late tenant
     view.unmount()
     click.mockRestore()
     for (const [i, key] of ['createObjectURL', 'revokeObjectURL'].entries()) {
-      if (originals[i]) Object.defineProperty(URL, key, originals[i]!)
+      if (originals[i]) Object.defineProperty(URL, key, originals[i])
       else Reflect.deleteProperty(URL, key)
     }
   }
