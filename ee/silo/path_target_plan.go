@@ -20,5 +20,8 @@ func pathTargetContextPlan(schema string, tables []string) []string {
 	if !owned["entity_contexts"] || !owned["entity_path_test_contexts"] {
 		return nil
 	}
-	return []string{"SELECT public.probectl_install_path_target_contexts(" + quoteLiteral(schema) + ")"}
+	plan := []string{"SELECT public.probectl_install_path_target_contexts(" + quoteLiteral(schema) + ")"}
+	// The installer may create a previously absent anchor after the ordinary
+	// per-table recipe. Fence that relation in the same DDL transaction too.
+	return append(plan, tenantWriteFencePlan(quoteIdent(schema)+"."+quoteIdent("entity_path_targets"), "entity_path_targets")...)
 }

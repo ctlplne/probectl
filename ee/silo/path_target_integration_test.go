@@ -152,5 +152,33 @@ func TestSharedPathTargetsKeepSiloContextOnProvisionAndCatchup(t *testing.T) {
 			t.Fatal("last silo test deletion left an anchor", count, err)
 		}
 	}
-	t.Log("real-integration: fresh and pre-anchor silo catch-up, original clock, shared destination context guard, qualified app-role RLS, literal-tenant CHECK and cleanup; no physical sender claim")
+	backfill, err := migrations.FS.ReadFile("0202_path_target_write_fence.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An existing private anchor can predate the fence repair. Replay repairs
+	// that omission without dropping data; the other lane was freshly fenced.
+	exec(`DROP TRIGGER tenant_write_fence ON ` + quoteIdent(SchemaName(tenants[0])) + `.entity_path_targets`)
+	for range 2 {
+		exec(string(backfill))
+	}
+	for lane, tenant := range tenants {
+		schema := quoteIdent(SchemaName(tenant))
+		exec(`INSERT INTO `+schema+`.entity_path_targets(tenant_id,path_target,context_id) VALUES($1,'192.0.2.77',$2)`, tenant, contexts[0])
+		exec(`UPDATE public.tenants SET status='offboarding',audit_write_fenced_at=clock_timestamp() WHERE id=$1`, tenant)
+		for _, query := range []string{
+			`INSERT INTO ` + schema + `.entity_path_targets(tenant_id,path_target,context_id) VALUES($1,'192.0.2.78',$2)`,
+			`UPDATE ` + schema + `.entity_path_targets SET context_id=$2 WHERE tenant_id=$1 AND path_target='192.0.2.77'`,
+		} {
+			_, err := pool.Exec(ctx, query, tenant, contexts[0])
+			var fenced *pgconn.PgError
+			if !errors.As(err, &fenced) || fenced.Code != "55000" {
+				t.Fatal("private anchor write survived tenant erasure fence", err)
+			}
+		}
+		if lane == 0 {
+			exec(`INSERT INTO `+quoteIdent(SchemaName(tenants[1]))+`.entity_path_targets(tenant_id,path_target,context_id) VALUES($1,'192.0.2.78',$2)`, tenants[1], contexts[0])
+		}
+	}
+	t.Log("real-integration: fresh/catch-up and idempotent fence repair, original clock, shared context, qualified RLS, literal-tenant CHECK, cleanup and post-erasure owner INSERT/UPDATE refusal with writable sibling; no physical sender claim")
 }

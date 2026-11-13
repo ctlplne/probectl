@@ -41,6 +41,7 @@ func TestPooledTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 	stamp := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	tenantA := mkTenant(t, pool, "pg-write-fence-a-"+stamp)
 	tenantB := mkTenant(t, pool, "pg-write-fence-b-"+stamp)
+	pathContexts := map[string]string{}
 	assertPublicTenantWriteFenceCoverage(ctx, t, pool)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(
@@ -59,6 +60,15 @@ func TestPooledTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 		)
 	})
 	for _, tenant := range []string{tenantA, tenantB} {
+		pathContexts[tenant] = uuid.NewString()
+		if _, err := pool.Exec(ctx, `INSERT INTO public.entity_contexts(tenant_id,id,site_id,vrf_id,site_label,vrf_label)
+VALUES($1,$2,$3,$4,'fenced site','fenced VRF')`, tenant, pathContexts[tenant], uuid.NewString(), uuid.NewString()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO public.entity_path_targets(tenant_id,path_target,context_id)
+VALUES($1,'192.0.2.77',$2)`, tenant, pathContexts[tenant]); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := pool.Exec(ctx, `INSERT INTO public.dashboard_views(tenant_id,id,owner_id,name,preset,definition)
 VALUES($1,'fenced-view','alice','Owned report','operator','{}')`, tenant); err != nil {
 			t.Fatal(err)
@@ -141,6 +151,17 @@ VALUES($1,'fenced-artifact',0,$2)`, tenantA, []byte("body")); !errors.As(err, &f
 	}
 	if err := appendChunk(tenantB); err != nil {
 		t.Fatalf("sibling chunk INSERT blocked by other tenant's fence: %v", err)
+	}
+	for _, query := range []string{
+		`INSERT INTO public.entity_path_targets(tenant_id,path_target,context_id) VALUES($1,'192.0.2.78',$2)`,
+		`UPDATE public.entity_path_targets SET context_id=$2 WHERE tenant_id=$1 AND path_target='192.0.2.77'`,
+	} {
+		if _, err := pool.Exec(ctx, query, tenantA, pathContexts[tenantA]); !errors.As(err, &fenced) || fenced.Code != "55000" {
+			t.Fatalf("table-owner path anchor write after durable tenant fence=%v, want SQLSTATE55000", err)
+		}
+		if _, err := pool.Exec(ctx, query, tenantB, pathContexts[tenantB]); err != nil {
+			t.Fatalf("sibling path anchor write blocked by tenant fence: %v", err)
+		}
 	}
 
 	if _, err := appendPooledResult(ctx, pool, tenantA); err == nil {
