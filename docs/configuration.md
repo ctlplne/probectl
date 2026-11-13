@@ -923,6 +923,12 @@ breakdown** and captures **TLS handshake details** for the TLS-posture plane (se
 | `max_body_bytes` | integer | `10485760` | cap bytes read per probe (10 MiB) |
 | `allow_private_targets` | `true` \| `false` | `false` | **SSRF-guard override.** Every canary (http/tcp/udp/icmp/dns/voice/browser) denies loopback, RFC1918/ULA, link-local (incl. `169.254.169.254` cloud metadata), CGNAT, multicast and numeric-encoding bypasses by default, enforcing the check on the **resolved** address at dial time (rebind-proof). Setting `true` lifts the guard for that one test — requires the admin-only `test.allow_private` permission, remains subject to tenant ABAC deny policies, and is written to the tenant audit trail |
 
+Each followed HTTPS redirect verifies the actual destination hostname with
+this probe's trust bundle; a certificate for the original hostname cannot
+authorize a different destination. The same bundle applies when an HTTP URL
+redirects to HTTPS. Redirects retain the configured test identity and the
+resolved-address target guard on every connection.
+
 A word on the last row: **SSRF** (server-side request forgery) is the attack
 where someone defines a "test" that makes *your* agent fetch an internal-only
 address — the cloud metadata service, a loopback admin port — and report back

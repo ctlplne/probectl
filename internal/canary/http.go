@@ -174,8 +174,6 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 	)
 	trace := tm.clientTrace(start, &peerAddr)
 
-	transport := c.transport(roots, &tlsState, &tlsVerified)
-
 	reqCtx, cancel := context.WithTimeout(httptrace.WithClientTrace(ctx, trace), c.timeout)
 	defer cancel()
 
@@ -188,7 +186,27 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 		return res, fmt.Errorf("http: build request: %w", err)
 	}
 
-	client := &http.Client{Transport: transport}
+	lastRequest := c
+	client := &http.Client{Transport: httpProbeRoundTripper(func(request *http.Request) (*http.Response, error) {
+		// Redirect destinations keep the configured probe identity, but each
+		// connection must verify its own host with this probe's trust roots.
+		// A transport fixed to the original host accepts the wrong certificate
+		// after a redirect and cannot honor private CAs on HTTP-to-HTTPS hops.
+		destination := *c
+		destination.scheme, destination.host = request.URL.Scheme, request.URL.Hostname()
+		destination.port = request.URL.Port()
+		if destination.port == "" {
+			destination.port = "80"
+			if destination.scheme == "https" {
+				destination.port = "443"
+			}
+		}
+		lastRequest = &destination
+		tlsState, tlsVerified, peerAddr = nil, nil, ""
+		transport := destination.transport(roots, &tlsState, &tlsVerified)
+		defer transport.CloseIdleConnections()
+		return transport.RoundTrip(request)
+	})}
 	if !c.follow {
 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	}
@@ -212,8 +230,8 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 		// deprecated_protocol / weak_cipher posture. This is observe-only — it
 		// records a SIGNAL, never blocks (docs/guardrails.md G7-9) — and it
 		// never lowers the main request's floor or trusts the peer.
-		if c.scheme == "https" && tlsState == nil && !isTimeout(err) {
-			if ps, pv := c.posturePeek(ctx, roots); ps != nil {
+		if lastRequest.scheme == "https" && tlsState == nil && !isTimeout(err) {
+			if ps, pv := lastRequest.posturePeek(ctx, roots); ps != nil {
 				attachTLS(&res, ps, pv, start)
 			}
 		}
@@ -242,6 +260,12 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 		res.Error = fmt.Sprintf("unexpected HTTP status %d (want %s)", resp.StatusCode, describeExpect(c.expect))
 	}
 	return res, nil
+}
+
+type httpProbeRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f httpProbeRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
 func (c *httpCanary) transport(roots *x509.CertPool, tlsState **tls.ConnectionState, tlsVerified **bool) *http.Transport {
