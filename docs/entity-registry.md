@@ -364,3 +364,15 @@ incident timeline and its context tombstone; a tombstoned override does not
 match a new, unrelated device. These correlation rules remain a draft until
 the fault adapter's real sender proof and full FX-2 gate are completed; the
 current pivot is a read-time view, not a historical rewrite.
+
+The incident-impact API accepts `include_tests: true` to compare these original
+observations with the same window one week earlier. This additionally requires
+current `test.read` at the tenant, context and exact test resources. Tests with
+no retained observations stay unavailable; local IO errors and cancellation
+stay unknown. Every returned observation cites its retained evidence UUID and
+body/header digest. The final publication snapshot rechecks those original
+selectors and current permissions without running the historical query again.
+The incident room, SDK, CLI JSON input, MCP and signed export share this optional
+selection. Matching current SLO definitions cite failed original inputs using
+the producer's exact selector semantics; they do not infer rolling budget state.
+Test and SLO customer attribution remains a separate preview step.

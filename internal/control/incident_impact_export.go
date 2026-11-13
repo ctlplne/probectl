@@ -142,6 +142,17 @@ func redactIncidentImpact(value incident.ImpactResponse, pol ai.RedactionPolicy,
 		out.Tests[i].Name = ai.RedactTextForTenant(out.Tests[i].Name, pol, tenant)
 		out.Tests[i].AgentID = ai.RedactTextForTenant(out.Tests[i].AgentID, pol, tenant)
 	}
+	for i := range out.SLOs {
+		item := &out.SLOs[i]
+		item.Name = ai.RedactTextForTenant(item.Name, pol, tenant)
+		item.DisplayName = ai.RedactTextForTenant(item.DisplayName, pol, tenant)
+		item.Service = ai.RedactTextForTenant(item.Service, pol, tenant)
+		for _, period := range []*incident.ImpactSLOPeriod{&item.Current, &item.Previous} {
+			for j := range period.Sources {
+				period.Sources[j].AgentID = ai.RedactTextForTenant(period.Sources[j].AgentID, pol, tenant)
+			}
+		}
+	}
 	return out, nil
 }
 

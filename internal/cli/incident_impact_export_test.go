@@ -30,7 +30,7 @@ func TestIncidentImpactExportCLIAndSDKKeepSelectionsAndSignedBytes(t *testing.T)
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 11, 12, 10, 0, 0, 123456789, time.UTC)
-	input := `{"impact":{"from":"2026-11-12T09:59:00.123456789Z","to":"2026-11-12T10:00:00.123456789Z","customer_tag_key":"customer"}}`
+	input := `{"impact":{"from":"2026-11-12T09:59:00.123456789Z","to":"2026-11-12T10:00:00.123456789Z","customer_tag_key":"customer","include_tests":true}}`
 	for _, tenant := range []string{"tenant-red", "tenant-blue"} {
 		id := "11111111-1111-4111-8111-111111111111"
 		impact := incident.ImpactResponse{ContractVersion: "probectl.incident-impact.v1", IncidentID: id, EvaluatedAt: at,
@@ -49,7 +49,7 @@ func TestIncidentImpactExportCLIAndSDKKeepSelectionsAndSignedBytes(t *testing.T)
 				t.Error("signed impact request changed its tenant or route")
 			}
 			var selected sdk.IncidentEvidenceExportInput
-			if err := json.NewDecoder(r.Body).Decode(&selected); err != nil || selected.Impact.CustomerTagKey != "customer" || selected.Impact.From != at.Add(-time.Minute).Format(time.RFC3339Nano) || selected.Impact.To != at.Format(time.RFC3339Nano) {
+			if err := json.NewDecoder(r.Body).Decode(&selected); err != nil || !selected.Impact.IncludeTests || selected.Impact.CustomerTagKey != "customer" || selected.Impact.From != at.Add(-time.Minute).Format(time.RFC3339Nano) || selected.Impact.To != at.Format(time.RFC3339Nano) {
 				t.Error("signed impact request changed exact selections", selected, err)
 			}
 			w.Header().Set("Content-Type", "application/vnd.probectl.evidence+json")

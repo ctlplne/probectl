@@ -88,6 +88,8 @@ type ImpactResponse struct {
 	Interpretation      string           `json:"interpretation"`
 	Tests               []ImpactTest     `json:"tests,omitempty"`
 	TestCoverage        string           `json:"test_coverage"`
+	SLOs                []ImpactSLO      `json:"slos,omitempty"`
+	SLOCoverage         string           `json:"slo_coverage"`
 }
 
 type ImpactTestPackets struct {

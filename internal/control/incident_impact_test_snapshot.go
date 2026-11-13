@@ -44,6 +44,18 @@ func (s *Server) loadIncidentImpactTestsInScope(ctx context.Context, principal *
 		return err
 	}
 	snapshot.tests, snapshot.sourceDigest = tests, hex.EncodeToString(digest)
+	if s.sloEngine != nil {
+		snapshot.sloEnabled = true
+		snapshot.sloDefinitions = s.sloEngine.SLOsFor(principal.TenantID)
+	}
+	digest, err = hashFlowRoleInputs(ctx, digest, struct {
+		Enabled     bool
+		Definitions any
+	}{snapshot.sloEnabled, snapshot.sloDefinitions}, maxBytes)
+	if err != nil {
+		return err
+	}
+	snapshot.sourceDigest = hex.EncodeToString(digest)
 	if selection.history {
 		snapshot.testReads, err = (store.Incidents{}).IncidentTestMeasurementsInScope(ctx, sc, tests, selection.input.From, selection.input.To, maxBytes)
 		return err

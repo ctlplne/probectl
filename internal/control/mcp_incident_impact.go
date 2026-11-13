@@ -114,7 +114,7 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 		ContextID   mcp.NativeRoleUUID     `json:"context_id"`
 		PrefixIDs   []mcp.NativeRoleUUID   `json:"prefix_ids"`
 		TestIDs     []mcp.NativeRoleUUID   `json:"test_ids"`
-		SLOIDs      []mcp.NativeRoleUUID   `json:"slo_ids"`
+		SLOIDs      []string               `json:"slo_ids"`
 		CaptureKeys []mcp.NativeRoleDigest `json:"capture_keys"`
 		Current     *counters              `json:"current_observed_totals,omitempty"`
 		Previous    *counters              `json:"previous_observed_totals,omitempty"`
@@ -129,6 +129,7 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 		Customers  []customer                 `json:"customers"`
 		Change     nativeIncidentChange       `json:"observed_scaled_byte_change,omitempty"`
 		Tests      []nativeIncidentImpactTest `json:"tests,omitempty"`
+		SLOs       []nativeIncidentSLO        `json:"slos,omitempty"`
 	}{
 		ImpactResponse: value, IncidentID: mcp.NativeRoleUUID(value.IncidentID), Current: projectPeriod(value.Current), Previous: projectPeriod(value.Previous), Members: []member{}, Unresolved: ids(value.UnresolvedSignalIDs), Customers: []customer{}, Change: nativeIncidentChange(value.ObservedByteChange)}
 	for _, item := range value.Members {
@@ -143,9 +144,10 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 		for i, key := range item.CaptureKeys {
 			keys[i] = mcp.NativeRoleDigest(key)
 		}
-		out.Customers = append(out.Customers, customer{item, mcp.NativeRoleUUID(item.ContextID), ids(item.PrefixIDs), ids(item.TestIDs), ids(item.SLOIDs), keys, projectCounters(item.Current), projectCounters(item.Previous)})
+		out.Customers = append(out.Customers, customer{item, mcp.NativeRoleUUID(item.ContextID), ids(item.PrefixIDs), ids(item.TestIDs), item.SLOIDs, keys, projectCounters(item.Current), projectCounters(item.Previous)})
 	}
 	out.Tests = nativeIncidentImpactTests(value.Tests)
+	out.SLOs = nativeIncidentSLOs(value.SLOs)
 	return json.Marshal(out)
 }
 

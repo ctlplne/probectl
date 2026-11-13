@@ -23,6 +23,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/slo"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -33,9 +34,11 @@ func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t
 	f := d.f
 	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	ids := map[string]string{}
+	definitions := []slo.SLO{}
 	for lane, tenant := range f.tenants {
 		d.observe(t, tenant, 0, lane == 1)
 		ids[tenant] = uuid.NewString()
+		definitions = append(definitions, slo.SLO{TenantID: tenant, Name: "owned-objective-" + tenant, Service: "checkout", CanaryType: "icmp", TestID: d.graphs[tenant].Nodes[0].TestID, Objective: 0.999, Window: 24 * time.Hour})
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			for _, permission := range []string{permIncidentRead, permFlowRead} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
@@ -49,6 +52,7 @@ func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t
 			return err
 		})
 	}
+	f.server.WithSLO(slo.NewEngine(definitions))
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	request := func(tenant, id string, tests bool) (int, incident.ImpactResponse) {
@@ -97,6 +101,29 @@ func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t
 		current, previous := result.Tests[0].Current, result.Tests[0].Previous
 		if current.Successful != lane || current.Failed != 2-lane || current.Unknown != 0 || len(current.Observations) != 2 || len(previous.Observations) != 0 || previous.Packets != nil || previous.Coverage != "no_retained_observations" {
 			t.Fatal("sibling outcomes, missing baseline or local IO became measured health", current, previous)
+		}
+		if len(result.SLOs) != 1 || result.SLOs[0].Name != "owned-objective-"+tenant || result.SLOs[0].Current.FailedInputs != 2-lane || result.SLOs[0].Previous.FailedInputs != 0 || result.SLOs[0].ObjectiveRatio != "0.999" {
+			t.Fatal("SLO input evidence borrowed another tenant or invented rolling-budget state", result.SLOs)
+		}
+		failed := map[string]bool{}
+		for _, original := range current.Observations {
+			if original.Status == "failed" {
+				failed[original.EvidenceID] = true
+			}
+		}
+		for _, source := range result.SLOs[0].Current.Sources {
+			if source.ContextID != f.contextID || source.TestID != d.graphs[tenant].Nodes[0].TestID {
+				t.Fatal("SLO citation changed its exact source", source)
+			}
+			for _, id := range source.EvidenceIDs {
+				if !failed[id] {
+					t.Fatal("SLO citation named an unavailable or successful observation", id)
+				}
+				delete(failed, id)
+			}
+		}
+		if len(failed) != 0 {
+			t.Fatal("SLO citations omitted an original failed input", failed)
 		}
 		if status, _ := request(tenant, ids[f.tenants[1-lane]], true); status == http.StatusOK {
 			t.Fatal("served comparison disclosed the sibling incident", status)

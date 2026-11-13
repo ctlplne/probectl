@@ -114,6 +114,7 @@ func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principa
 		Members: []incident.ImpactMember{}, UnresolvedRoot: before.inputs.RootUnresolved,
 		UnresolvedSignalIDs: slices.Clone(before.inputs.UnresolvedSignalIDs), Customers: []incident.ImpactCustomer{}, CustomerCoverage: "not_evaluated",
 		TestCoverage:   "not_evaluated",
+		SLOCoverage:    "not_evaluated",
 		Interpretation: "Exact counters for observed, originally attested measurement points; distinct exporters are distinct observations. Missing source/capture coverage is unavailable, not zero. Sampling scales observed counters and does not prove complete telemetry. A weekly traffic decrease does not establish incident-caused loss. Test outcomes describe original executions, not an upstream cause or a rolling SLO-budget verdict."}
 	if input.IncludeTests {
 		result.Tests, err = summarizeIncidentTests(ctx, actor.TenantID, observed.tests, observed.testReads, plan.From, plan.To, budget.MemoryBytes/8)
@@ -121,6 +122,17 @@ func (s *Server) computeIncidentImpact(ctx context.Context, actor *auth.Principa
 			return none, flowExplorerStoreError(err)
 		}
 		result.TestCoverage = "current_explicit_sources_original_observations"
+		result.SLOCoverage = "unavailable_slo_engine"
+		if observed.sloEnabled {
+			result.SLOs, err = summarizeIncidentSLOs(ctx, actor.TenantID, observed.sloDefinitions, observed.tests, result.Tests, budget.MemoryBytes/8)
+			if err != nil {
+				return none, flowExplorerStoreError(err)
+			}
+			result.SLOCoverage = "observed_failed_sli_inputs_only_not_a_rolling_budget_verdict"
+			if len(observed.sloDefinitions) == 0 {
+				result.SLOCoverage = "no_applicable_slo_definitions"
+			}
+		}
 	}
 	for _, source := range observed.sources {
 		result.Members = append(result.Members, incident.ImpactMember{ContextID: source.Member.ContextID, EntityID: source.Member.EntityID,

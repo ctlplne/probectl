@@ -15,6 +15,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/slo"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -28,6 +29,8 @@ type incidentImpactSnapshot struct {
 	sourceDigest, captureDigest string
 	tests                       []store.IncidentConfiguredTest
 	testReads                   []store.IncidentTestMeasurement
+	sloDefinitions              []slo.SLO
+	sloEnabled                  bool
 }
 
 type incidentImpactTestSelection struct {

@@ -15704,6 +15704,106 @@
           "previous"
         ]
       },
+      "IncidentImpactSLOSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "test_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "context_id",
+          "entity_id",
+          "test_id",
+          "agent_id",
+          "evidence_ids"
+        ]
+      },
+      "IncidentImpactSLOPeriod": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "failed_inputs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentImpactSLOSource"
+            }
+          }
+        },
+        "required": [
+          "failed_inputs",
+          "sources"
+        ]
+      },
+      "IncidentImpactSLO": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "definition_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "objective_ratio": {
+            "type": "string"
+          },
+          "window": {
+            "type": "string"
+          },
+          "basis": {
+            "type": "string"
+          },
+          "current": {
+            "$ref": "#/components/schemas/IncidentImpactSLOPeriod"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/IncidentImpactSLOPeriod"
+          }
+        },
+        "required": [
+          "name",
+          "display_name",
+          "service",
+          "definition_digest",
+          "objective_ratio",
+          "window",
+          "basis",
+          "current",
+          "previous"
+        ]
+      },
       "IncidentImpactInput": {
         "type": "object",
         "additionalProperties": false,
@@ -15729,7 +15829,7 @@
           },
           "include_tests": {
             "type": "boolean",
-            "description": "Include complete original configured-test comparisons. Requires current test.read for each owning context and test; metadata alone does not establish measured impact."
+            "description": "Include complete original configured-test comparisons and matching current SLO failed inputs. Requires current test.read for each owning context and test; metadata alone does not establish measured impact or a rolling budget violation."
           }
         },
         "required": [
@@ -15918,9 +16018,9 @@
           "slo_ids": {
             "type": "array",
             "items": {
-              "type": "string",
-              "format": "uuid"
-            }
+              "type": "string"
+            },
+            "description": "Current OpenSLO names, which are arbitrary names rather than UUIDs."
           },
           "capture_keys": {
             "type": "array",
@@ -16023,6 +16123,16 @@
           "test_coverage": {
             "type": "string",
             "description": "not_evaluated unless include_tests was requested; current explicit sources are configuration, and only cited original observations establish outcomes."
+          },
+          "slos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentImpactSLO"
+            }
+          },
+          "slo_coverage": {
+            "type": "string",
+            "description": "Selected SLO results cite original failed SLI inputs matching current definitions. They do not establish a rolling error-budget violation. Missing engines or observations remain unavailable."
           }
         },
         "required": [
@@ -16071,7 +16181,7 @@
           },
           "include_tests": {
             "type": "boolean",
-            "description": "Include complete original configured-test comparisons. Requires current test.read for each owning context and test; metadata alone does not establish measured impact."
+            "description": "Include complete original configured-test comparisons and matching current SLO failed inputs. Requires current test.read for each owning context and test; metadata alone does not establish measured impact or a rolling budget violation."
           }
         },
         "required": [

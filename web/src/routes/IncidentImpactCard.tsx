@@ -9,7 +9,11 @@ import { useAuth } from '../auth/useAuth'
 import { apiFetch } from '../api/client'
 import type { Incident } from '../api/incidents'
 import { useExportIncidentEvidence } from '../api/incidents'
-import type { IncidentImpactPeriod, IncidentImpactResponse } from '../api/sdk.gen'
+import type {
+  IncidentImpactPeriod,
+  IncidentImpactResponse,
+  IncidentImpactTestPeriod,
+} from '../api/sdk.gen'
 import { Button, Card, CardBody, CardHeader, ErrorState, Field, Table } from '../components'
 import { DateTime } from '../time/DateTime'
 import styles from './flowExplorer.module.css'
@@ -68,6 +72,7 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
     return Number.isFinite(end) ? new Date(end).toISOString() : incident.last_seen_at
   })
   const [customer, setCustomer] = useState('')
+  const [includeTests, setIncludeTests] = useState(false)
   const [result, setResult] = useState<IncidentImpactResponse>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -136,6 +141,7 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
             from: start,
             to: end,
             dataseries: 'auto',
+            include_tests: includeTests,
             ...(customer ? { customer_tag_key: customer } : {}),
           }),
         },
@@ -163,6 +169,7 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
           from: from.trim(),
           to: to.trim(),
           dataseries: 'auto',
+          include_tests: includeTests,
           ...(customer ? { customer_tag_key: customer } : {}),
         },
         signal: request.signal,
@@ -221,6 +228,19 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
             }}
           />
         </div>
+        {permissions.includes('test.read') && (
+          <label>
+            <input
+              type="checkbox"
+              checked={includeTests}
+              onChange={(event) => {
+                changed()
+                setIncludeTests(event.target.checked)
+              }}
+            />{' '}
+            Include original configured-test outcomes
+          </label>
+        )}
         <div className={styles.actions}>
           <Button type="submit" disabled={busy}>
             {busy && !exportEvidence.isPending ? 'Comparing…' : 'Compare incident impact'}
@@ -242,10 +262,70 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
           <p>
             {result.customer_coverage === 'not_evaluated'
               ? 'Select a customer tag key to classify observed traffic.'
-              : 'Customer coverage includes observed flow prefixes. Test and SLO attribution is pending.'}{' '}
+              : 'Customer coverage includes observed flow prefixes. Customer attribution for tests and SLOs is pending.'}{' '}
             Unclassified observed records: {result.unclassified_records}.
           </p>
           <ImpactCustomers result={result} />
+          {result.tests?.map((test) => (
+            <section
+              key={`${test.context_id}/${test.entity_id}/${test.test_id}/${test.agent_id}`}
+              aria-label={`Test outcomes: ${test.name}`}
+            >
+              <h3>
+                {test.name} · {test.type}
+              </h3>
+              <p>
+                Test <code>{test.test_id}</code> on agent <code>{test.agent_id}</code>; definition{' '}
+                <code>{test.definition_digest}</code>.
+              </p>
+              <ImpactTestComparison title="Current test window" period={test.current} />
+              <ImpactTestComparison title="Test window one week earlier" period={test.previous} />
+            </section>
+          ))}
+          {result.slos?.map((slo) => (
+            <section
+              key={`${slo.name}/${slo.definition_digest}`}
+              aria-label={`SLO failed inputs: ${slo.name}`}
+            >
+              <h3>{slo.display_name || slo.name}</h3>
+              <p>
+                Service: {slo.service}. Configured success ratio: <code>{slo.objective_ratio}</code>{' '}
+                over {slo.window}.
+              </p>
+              <p>
+                {slo.current.failed_inputs} original failed inputs in the selected window;{' '}
+                {slo.previous.failed_inputs} one week earlier. These inputs do not establish a
+                rolling error-budget violation.
+              </p>
+              <p>
+                Definition <code>{slo.definition_digest}</code>.
+              </p>
+              <details>
+                <summary>Original failed SLO input citations</summary>
+                <pre className={styles.referenceText}>
+                  {JSON.stringify(
+                    { current: slo.current.sources, previous: slo.previous.sources },
+                    null,
+                    2,
+                  )}
+                </pre>
+              </details>
+            </section>
+          ))}
+          {result.test_coverage !== 'not_evaluated' &&
+            result.slo_coverage === 'unavailable_slo_engine' && (
+              <p>SLO comparisons are unavailable for this deployment.</p>
+            )}
+          {result.slo_coverage === 'no_applicable_slo_definitions' && (
+            <p>No current SLO definitions apply to this tenant.</p>
+          )}
+          {result.slo_coverage === 'observed_failed_sli_inputs_only_not_a_rolling_budget_verdict' &&
+            !result.slos?.length && (
+              <p>
+                No original failed inputs matched the current SLO definitions in these windows. This
+                does not establish a healthy rolling budget.
+              </p>
+            )}
           {permissions.includes('ai.query') && (
             <div className={styles.actions}>
               <Button disabled={busy} onClick={() => void exportSigned()}>
@@ -272,6 +352,8 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
                   customers: result.customers,
                   current_captures: result.current.captures,
                   previous_captures: result.previous.captures,
+                  tests: result.tests,
+                  slos: result.slos,
                 },
                 null,
                 2,
@@ -281,6 +363,65 @@ function IncidentImpactForm({ incident }: { incident: Incident }) {
         </section>
       )}
     </div>
+  )
+}
+
+function ImpactTestComparison({
+  title,
+  period,
+}: {
+  title: string
+  period: IncidentImpactTestPeriod
+}) {
+  const [page, setPage] = useState(0)
+  const pages = Math.max(1, Math.ceil(period.observations.length / 200))
+  return (
+    <section aria-label={title}>
+      <h4>{title}</h4>
+      <p>
+        {period.successful} successful; {period.failed} failed; {period.unknown} unknown, including{' '}
+        {period.canceled} canceled.
+      </p>
+      {period.packets && (
+        <p>
+          Complete echo batches: {period.packets.transmitted} transmitted, {period.packets.received}{' '}
+          received, {period.packets.lost} lost.
+        </p>
+      )}
+      {period.observations.length === 0 && (
+        <p>No retained observations; coverage is unavailable.</p>
+      )}
+      <ul>
+        {period.observations.slice(page * 200, (page + 1) * 200).map((observation) => (
+          <li key={observation.evidence_id}>
+            <DateTime value={observation.observed_at} /> · {observation.status} ·{' '}
+            {observation.reason} · evidence <code>{observation.evidence_id}</code> · digest{' '}
+            <code>{observation.digest}</code>
+          </li>
+        ))}
+      </ul>
+      {pages > 1 && (
+        <div className={styles.actions}>
+          <Button
+            aria-label={`Previous observations for ${title}`}
+            disabled={page === 0}
+            onClick={() => setPage(page - 1)}
+          >
+            Previous
+          </Button>
+          <span>
+            Observation page {page + 1} of {pages}; {period.observations.length} observations total
+          </span>
+          <Button
+            aria-label={`Next observations for ${title}`}
+            disabled={page + 1 >= pages}
+            onClick={() => setPage(page + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      )}
+    </section>
   )
 }
 

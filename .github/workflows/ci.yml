@@ -1677,6 +1677,9 @@ jobs:
           go test -race -p=1 -tags=integration -count=1 -timeout=14m -v \
             -run='^TestDependencyRouterCompleteTwentyThousandDurableHolds$' ./internal/control
       - name: Physical dependency routing and tenant isolation
+        # Independent physical evidence still runs after a publication failure.
+        # The earlier failed step continues to fail this integration job.
+        if: ${{ !cancelled() }}
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
           PROBECTL_TEST_REQUIRE_DEPENDENCY_LAB: "1"

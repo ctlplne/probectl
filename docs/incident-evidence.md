@@ -36,6 +36,26 @@ including current context and credential restrictions. It requires no AI query
 grant. The existing flow cost policy and tenant fairness admit the complete
 operation; a refused operation returns no truncated prefix.
 
+Select **Include original configured-test outcomes**, or add `"include_tests":
+true` to the same JSON selection, to include the explicitly anchored tests on
+the affected entities. This additionally requires current `test.read` for the
+owning contexts and each exact test. Both windows retain every original
+observation's evidence UUID and digest. A test definition without observations
+does not establish an outcome. Complete ICMP batches report exact transmitted,
+received and lost packet counts; incomplete local IO and canceled executions
+remain unknown. Non-ICMP failures describe the application test's outcome and
+do not establish packet loss or an upstream cause. An empty weekly baseline
+stays unavailable. Observation pages preserve the complete returned population,
+which is also present in the complete source citations and signed attachment.
+When SLO definitions are available, the same selection cites the original failed
+test inputs matching their current executable selectors. HTTP userinfo masking,
+socket ports, DNS names and browser script start URLs follow the producing
+canary's result identity. OpenSLO names stay names, including non-UUID names.
+Objective ratios and definition digests are preserved in native and signed
+outputs. These selected-window failures do not establish a rolling error-budget
+violation. Missing SLO engines or definitions are explicit. Customer attribution
+for tests and SLOs remains separate preview work.
+
 The card can download a signed package with the selected impact comparison.
 The existing export endpoint accepts an optional `impact` selection object:
 

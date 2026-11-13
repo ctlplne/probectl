@@ -2234,6 +2234,7 @@ export interface IncidentImpactCommand {
   dataseries?: "auto" | "raw" | "rollup"
   from: string
   incident_id: string
+  include_tests?: boolean
   to: string
 }
 
@@ -2260,6 +2261,7 @@ export interface IncidentImpactInput {
   customer_tag_key?: string
   dataseries?: "auto" | "raw" | "rollup"
   from: string
+  include_tests?: boolean
   to: string
 }
 
@@ -2296,10 +2298,79 @@ export interface IncidentImpactResponse {
   observed_scaled_byte_change?: string
   preview: boolean
   previous: IncidentImpactPeriod
+  slo_coverage?: string
+  slos?: IncidentImpactSLO[]
+  test_coverage: string
+  tests?: IncidentImpactTest[]
   unclassified_records: number
   unresolved_root: boolean
   unresolved_signal_ids: string[]
   valid_until?: string
+}
+
+export interface IncidentImpactSLO {
+  basis: string
+  current: IncidentImpactSLOPeriod
+  definition_digest: string
+  display_name: string
+  name: string
+  objective_ratio: string
+  previous: IncidentImpactSLOPeriod
+  service: string
+  window: string
+}
+
+export interface IncidentImpactSLOPeriod {
+  failed_inputs: number
+  sources: IncidentImpactSLOSource[]
+}
+
+export interface IncidentImpactSLOSource {
+  agent_id: string
+  context_id: string
+  entity_id: string
+  evidence_ids: string[]
+  test_id: string
+}
+
+export interface IncidentImpactTest {
+  agent_id: string
+  context_id: string
+  current: IncidentImpactTestPeriod
+  definition_digest: string
+  entity_id: string
+  name: string
+  previous: IncidentImpactTestPeriod
+  test_id: string
+  type: string
+}
+
+export interface IncidentImpactTestObservation {
+  digest: string
+  evidence_id: string
+  observed_at: string
+  packets?: IncidentImpactTestPackets
+  reason: string
+  status: "successful" | "failed" | "unknown" | "canceled"
+}
+
+export interface IncidentImpactTestPackets {
+  lost?: string
+  received: string
+  requested: string
+  transmitted: string
+}
+
+export interface IncidentImpactTestPeriod {
+  canceled: number
+  coverage: string
+  failed: number
+  from: string
+  observations: IncidentImpactTestObservation[]
+  packets?: IncidentImpactTestPackets
+  successful: number
+  to: string
+  unknown: number
 }
 
 export interface IncidentJournalAppendRequest {
@@ -3962,7 +4033,7 @@ export type CreateCanonicalEntityResponse = EntityRecord
 
 export interface ResolveEntityAliasRequest {
   contextId: string
-  kind: "address" | "prefix" | "snmp_device_id" | "snmp_interface_id" | "physical_neighbor_id" | "flow_exporter_id" | "bmp_peer_id" | "path_hop_id" | "agent_site_id" | "site_key" | "customer_key" | "service_key"
+  kind: "address" | "prefix" | "snmp_device_id" | "snmp_interface_id" | "physical_neighbor_id" | "flow_exporter_id" | "bmp_peer_id" | "path_hop_id" | "configured_test_id" | "agent_site_id" | "site_key" | "customer_key" | "service_key"
   value: string
 }
 

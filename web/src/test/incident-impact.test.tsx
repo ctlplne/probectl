@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { useState } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { Providers } from '../App'
 import { AuthContext } from '../auth/AuthProvider'
@@ -82,10 +82,17 @@ function response(tenant: string): IncidentImpactResponse {
       current_observed_totals: counters,
     })),
     interpretation: 'Exact observed counters with explicit original-source coverage.',
+    test_coverage: 'not_evaluated',
   }
 }
 
-function Harness({ canExport = false }: { canExport?: boolean }) {
+function Harness({
+  canExport = false,
+  canReadTests = false,
+}: {
+  canExport?: boolean
+  canReadTests?: boolean
+}) {
   const [tenant, setTenant] = useState('red')
   const [allowed, setAllowed] = useState(true)
   return (
@@ -95,7 +102,11 @@ function Harness({ canExport = false }: { canExport?: boolean }) {
         tenants: [],
         user: { id: 'reader', name: 'Reader', email: 'reader@local.test' },
         permissions: allowed
-          ? [...permissions, ...(canExport ? ['ai.query'] : [])]
+          ? [
+              ...permissions,
+              ...(canExport ? ['ai.query'] : []),
+              ...(canReadTests ? ['test.read'] : []),
+            ]
           : ['incident.read'],
         switchTenant: () => {},
         signOut: () => {},
@@ -111,6 +122,109 @@ function Harness({ canExport = false }: { canExport?: boolean }) {
     </AuthContext.Provider>
   )
 }
+
+test('configured outcome selection keeps every original citation and unknown coverage', async () => {
+  const fallback = defaultFetch()
+  let selected: Record<string, unknown> | undefined
+  const value = response('red')
+  value.test_coverage = 'current_explicit_sources_original_observations'
+  const observations = Array.from({ length: 201 }, (_, index) => ({
+    evidence_id: `40000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`,
+    digest: 'a'.repeat(64),
+    observed_at: incident.started_at,
+    status: 'failed' as const,
+    reason: 'original_attested_test_observation',
+  }))
+  value.tests = [
+    {
+      context_id: context,
+      entity_id: prefix,
+      test_id: id,
+      agent_id: 'owned-agent',
+      name: 'Owned application',
+      type: 'http',
+      definition_digest: 'b'.repeat(64),
+      current: {
+        from: incident.started_at,
+        to: incident.last_seen_at,
+        coverage: 'observed_attested_test_outcomes',
+        successful: 0,
+        failed: 201,
+        unknown: 0,
+        canceled: 0,
+        observations,
+      },
+      previous: {
+        from: value.previous.from,
+        to: value.previous.to,
+        coverage: 'no_retained_observations',
+        successful: 0,
+        failed: 0,
+        unknown: 0,
+        canceled: 0,
+        observations: [],
+      },
+    },
+  ]
+  value.slo_coverage = 'observed_failed_sli_inputs_only_not_a_rolling_budget_verdict'
+  value.slos = [
+    {
+      name: 'checkout-availability',
+      display_name: 'Checkout objective',
+      service: 'checkout',
+      definition_digest: 'c'.repeat(64),
+      objective_ratio: '0.9999999999999999',
+      window: '24h0m0s',
+      basis: 'observed_failed_sli_inputs_only_not_a_rolling_budget_verdict',
+      current: {
+        failed_inputs: 1,
+        sources: [
+          {
+            context_id: context,
+            entity_id: prefix,
+            test_id: id,
+            agent_id: 'owned-agent',
+            evidence_ids: [observations[0].evidence_id],
+          },
+        ],
+      },
+      previous: { failed_inputs: 0, sources: [] },
+    },
+  ]
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+    if (pathOf(input) === `/v1/incidents/${id}/impact`) {
+      selected = JSON.parse(String(init?.body))
+      return Promise.resolve(jsonResponse(value))
+    }
+    return fallback(input, init)
+  })
+  const view = render(
+    <Providers>
+      <Harness canReadTests />
+    </Providers>,
+  )
+  fireEvent.click(screen.getByLabelText('Include original configured-test outcomes'))
+  fireEvent.click(screen.getByRole('button', { name: 'Compare incident impact' }))
+  const current = await screen.findByRole('region', { name: 'Current test window' })
+  expect(selected?.include_tests).toBe(true)
+  expect(
+    screen.getByRole('region', { name: 'SLO failed inputs: checkout-availability' }),
+  ).toBeInTheDocument()
+  expect(screen.getByText('0.9999999999999999')).toBeInTheDocument()
+  expect(within(current).getByText(observations[0].evidence_id)).toBeInTheDocument()
+  expect(within(current).queryByText(observations[200].evidence_id)).not.toBeInTheDocument()
+  fireEvent.click(
+    within(current).getByRole('button', { name: 'Next observations for Current test window' }),
+  )
+  expect(within(current).getByText(observations[200].evidence_id)).toBeInTheDocument()
+  expect(
+    within(current).getByText('Observation page 2 of 2; 201 observations total'),
+  ).toBeInTheDocument()
+  expect(screen.getByText('No retained observations; coverage is unavailable.')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Switch impact tenant' }))
+  expect(screen.queryByRole('region', { name: 'Current test window' })).not.toBeInTheDocument()
+  view.unmount()
+})
 
 for (const theme of ['light', 'dark'])
   test(`incident impact preserves exact values and every customer page in ${theme}`, async () => {

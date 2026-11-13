@@ -2368,6 +2368,7 @@ type IncidentImpactCommand struct {
 	Dataseries     string `json:"dataseries,omitempty"`
 	From           string `json:"from"`
 	IncidentId     string `json:"incident_id"`
+	IncludeTests   *bool  `json:"include_tests,omitempty"`
 	To             string `json:"to"`
 }
 
@@ -2395,6 +2396,7 @@ type IncidentImpactInput struct {
 	CustomerTagKey string `json:"customer_tag_key,omitempty"`
 	Dataseries     string `json:"dataseries,omitempty"`
 	From           string `json:"from"`
+	IncludeTests   *bool  `json:"include_tests,omitempty"`
 	To             string `json:"to"`
 }
 
@@ -2431,10 +2433,79 @@ type IncidentImpactResponse struct {
 	ObservedScaledByteChange string                   `json:"observed_scaled_byte_change,omitempty"`
 	Preview                  bool                     `json:"preview"`
 	Previous                 IncidentImpactPeriod     `json:"previous"`
+	SloCoverage              string                   `json:"slo_coverage,omitempty"`
+	Slos                     []IncidentImpactSLO      `json:"slos,omitempty"`
+	TestCoverage             string                   `json:"test_coverage"`
+	Tests                    []IncidentImpactTest     `json:"tests,omitempty"`
 	UnclassifiedRecords      int                      `json:"unclassified_records"`
 	UnresolvedRoot           bool                     `json:"unresolved_root"`
 	UnresolvedSignalIds      []string                 `json:"unresolved_signal_ids"`
 	ValidUntil               string                   `json:"valid_until,omitempty"`
+}
+
+type IncidentImpactSLO struct {
+	Basis            string                  `json:"basis"`
+	Current          IncidentImpactSLOPeriod `json:"current"`
+	DefinitionDigest string                  `json:"definition_digest"`
+	DisplayName      string                  `json:"display_name"`
+	Name             string                  `json:"name"`
+	ObjectiveRatio   string                  `json:"objective_ratio"`
+	Previous         IncidentImpactSLOPeriod `json:"previous"`
+	Service          string                  `json:"service"`
+	Window           string                  `json:"window"`
+}
+
+type IncidentImpactSLOPeriod struct {
+	FailedInputs int                       `json:"failed_inputs"`
+	Sources      []IncidentImpactSLOSource `json:"sources"`
+}
+
+type IncidentImpactSLOSource struct {
+	AgentId     string   `json:"agent_id"`
+	ContextId   string   `json:"context_id"`
+	EntityId    string   `json:"entity_id"`
+	EvidenceIds []string `json:"evidence_ids"`
+	TestId      string   `json:"test_id"`
+}
+
+type IncidentImpactTest struct {
+	AgentId          string                   `json:"agent_id"`
+	ContextId        string                   `json:"context_id"`
+	Current          IncidentImpactTestPeriod `json:"current"`
+	DefinitionDigest string                   `json:"definition_digest"`
+	EntityId         string                   `json:"entity_id"`
+	Name             string                   `json:"name"`
+	Previous         IncidentImpactTestPeriod `json:"previous"`
+	TestId           string                   `json:"test_id"`
+	Type             string                   `json:"type"`
+}
+
+type IncidentImpactTestObservation struct {
+	Digest     string                    `json:"digest"`
+	EvidenceId string                    `json:"evidence_id"`
+	ObservedAt string                    `json:"observed_at"`
+	Packets    IncidentImpactTestPackets `json:"packets,omitempty"`
+	Reason     string                    `json:"reason"`
+	Status     string                    `json:"status"`
+}
+
+type IncidentImpactTestPackets struct {
+	Lost        string `json:"lost,omitempty"`
+	Received    string `json:"received"`
+	Requested   string `json:"requested"`
+	Transmitted string `json:"transmitted"`
+}
+
+type IncidentImpactTestPeriod struct {
+	Canceled     int                             `json:"canceled"`
+	Coverage     string                          `json:"coverage"`
+	Failed       int                             `json:"failed"`
+	From         string                          `json:"from"`
+	Observations []IncidentImpactTestObservation `json:"observations"`
+	Packets      IncidentImpactTestPackets       `json:"packets,omitempty"`
+	Successful   int                             `json:"successful"`
+	To           string                          `json:"to"`
+	Unknown      int                             `json:"unknown"`
 }
 
 type IncidentJournalAppendRequest struct {

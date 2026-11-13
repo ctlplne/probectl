@@ -66,12 +66,12 @@ func TestIncidentTestComparisonKeepsOriginalOutcomesUnknownIOAndExactCitations(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded = []byte(ai.RedactText(string(encoded), ai.RedactionPolicy{Emails: true, IPs: true, Hosts: true}))
+	encoded = []byte(ai.RedactTextForTenant(string(encoded), ai.DefaultRedaction, "own"))
 	var decoded incident.ImpactResponse
 	if err := json.Unmarshal(encoded, &decoded); err != nil || len(decoded.Tests) != 2 || decoded.Tests[0].TestID != source.TestID || decoded.Tests[0].Current.Observations[0].EvidenceID != good.EvidenceID || decoded.Tests[0].Current.Packets.Lost != "7" || strings.Contains(string(encoded), "person@example.test") {
 		t.Fatal("native redaction damaged typed math/citations or disclosed labels", string(encoded), err)
 	}
-	private, err := redactIncidentImpact(value, ai.RedactionPolicy{Emails: true}, "own")
+	private, err := redactIncidentImpact(value, ai.DefaultRedaction, "own")
 	if err != nil || private.Tests[0].Name == source.Name || private.Tests[0].AgentID == source.AgentID || private.Tests[0].Current.Observations[0].EvidenceID != good.EvidenceID || value.Tests[0].Name != source.Name {
 		t.Fatal("signed projection changed the source or failed privacy", private, err)
 	}

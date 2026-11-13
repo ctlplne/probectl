@@ -34,7 +34,7 @@ func WithIncidentImpactBackend(backend IncidentImpactBackend, schemas NativeFlow
 		if backend == nil || admit == nil || !json.Valid(schema) {
 			return
 		}
-		tool := Tool{Name: "incident_impact", Description: "Preview observed incident traffic against the same window one week earlier, with original-capture and customer-prefix citations. Optionally include current-authorized original configured-test outcomes. Missing coverage stays unavailable. SLO and test-customer attribution and physical-flow qualification remain pending.",
+		tool := Tool{Name: "incident_impact", Description: "Preview observed incident traffic against the same window one week earlier, with original-capture and customer-prefix citations. Optionally include current-authorized original configured-test outcomes and matched failed SLO inputs, without claiming a rolling budget violation. Missing coverage stays unavailable. Customer attribution for tests/SLOs and physical-flow qualification remain pending.",
 			InputSchema: append(json.RawMessage(nil), schema...), Permission: "incident.read", ExtraPermissions: []string{"flow.read", "entities.read", "metrics.read", "events.read"}, Native: true, RequiresUser: true, Query: true, Admit: admit,
 			Invoke: func(ctx context.Context, actor *auth.Principal, raw json.RawMessage) (any, error) {
 				var command IncidentImpactCommand
