@@ -127,6 +127,9 @@ type Interface struct {
 	Descr     string
 	SpeedMbps uint64
 	OperUp    bool
+	// OperUpKnown preserves an explicitly supplied legacy binary observation.
+	// Exact IF-MIB evidence always uses OperStatus, never this compatibility flag.
+	OperUpKnown bool
 	// OperStatus preserves an actually returned IF-MIB ifOperStatus value
 	// (1..7). Zero means unavailable; OperUp's zero value is not a down sample.
 	OperStatus uint32

@@ -116,6 +116,10 @@ no status sample; it does not become zero/down. The collector also keeps the
 original IF-MIB enum, so testing, unknown, dormant, not-present and lower-layer
 down remain distinguishable from an explicitly reported down state. See
 [IF-MIB in RFC 2863](https://www.rfc-editor.org/rfc/rfc2863.html).
+Discovery review JSON omits `oper_up` when state is unavailable and retains
+the exact `oper_status` and `admin_status` when reported. Offline discovery
+fixtures may still supply an explicit legacy `oper_up` boolean. That stays a
+binary up/not-up observation; it does not invent a more specific IF-MIB enum.
 Those addresses rebuild local topology/correlation evidence during replay; they
 do not become high-cardinality TSDB labels.
 

@@ -227,7 +227,7 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 		if p.Type != gosnmp.Integer || value < 1 || value > 7 || value != float64(uint32(value)) {
 			return // unavailable or malformed state is never a down observation
 		}
-		setIf(idx, func(e *Interface) { e.OperStatus, e.OperUp = uint32(value), value == 1 })
+		setIf(idx, func(e *Interface) { e.OperStatus, e.OperUp, e.OperUpKnown = uint32(value), value == 1, true })
 	})
 	walkColumn(conn, oidIfAdminStatus, func(idx uint32, p gosnmp.SnmpPDU) {
 		value := pduFloat(p)

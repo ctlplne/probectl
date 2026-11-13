@@ -70,12 +70,14 @@ type ClassifierRule struct {
 
 // DiscoveredInterface is the JSON-safe inventory shape shown to the reviewer.
 type DiscoveredInterface struct {
-	Index     uint32   `json:"index"`
-	Name      string   `json:"name,omitempty"`
-	Descr     string   `json:"descr,omitempty"`
-	SpeedMbps uint64   `json:"speed_mbps,omitempty"`
-	OperUp    bool     `json:"oper_up"`
-	Addrs     []string `json:"addrs,omitempty"`
+	Index       uint32   `json:"index"`
+	Name        string   `json:"name,omitempty"`
+	Descr       string   `json:"descr,omitempty"`
+	SpeedMbps   uint64   `json:"speed_mbps,omitempty"`
+	OperUp      *bool    `json:"oper_up,omitempty"`
+	OperStatus  uint32   `json:"oper_status,omitempty"`
+	AdminStatus uint32   `json:"admin_status,omitempty"`
+	Addrs       []string `json:"addrs,omitempty"`
 }
 
 // DiscoveredDevice is a candidate device. It is deliberately not active until
@@ -522,13 +524,34 @@ func LoadDiscoveryFixture(r io.Reader) (FixtureDiscoveryProber, error) {
 				}
 				addrs = append(addrs, addr)
 			}
+			oper, admin := uint32(0), uint32(0)
+			up, known := false, iface.OperUp != nil
+			if known {
+				up = *iface.OperUp
+			}
+			if iface.OperStatus != nil {
+				oper = *iface.OperStatus
+				if oper == 0 || oper > 7 {
+					return nil, fmt.Errorf("device discovery fixture: %s interface %d invalid operational state", d.Address, iface.Index)
+				}
+				if known && up != (oper == 1) {
+					return nil, fmt.Errorf("device discovery fixture: %s interface %d contradictory operational state", d.Address, iface.Index)
+				}
+				up, known = oper == 1, true
+			}
+			if iface.AdminStatus != nil {
+				admin = *iface.AdminStatus
+				if admin == 0 || admin > 3 {
+					return nil, fmt.Errorf("device discovery fixture: %s interface %d invalid administrative state", d.Address, iface.Index)
+				}
+			}
 			inv.Interfaces[iface.Index] = Interface{
 				Index:     iface.Index,
 				Name:      iface.Name,
 				Descr:     iface.Descr,
 				SpeedMbps: iface.SpeedMbps,
-				OperUp:    iface.OperUp,
-				Addrs:     addrs,
+				OperUp:    up, OperUpKnown: known, OperStatus: oper, AdminStatus: admin,
+				Addrs: addrs,
 			}
 		}
 		out[d.Address] = inv
@@ -548,12 +571,14 @@ type discoveryFixtureDevice struct {
 }
 
 type discoveryFixtureInterface struct {
-	Index     uint32   `json:"index"`
-	Name      string   `json:"name,omitempty"`
-	Descr     string   `json:"descr,omitempty"`
-	SpeedMbps uint64   `json:"speed_mbps,omitempty"`
-	OperUp    bool     `json:"oper_up"`
-	Addrs     []string `json:"addrs,omitempty"`
+	Index       uint32   `json:"index"`
+	Name        string   `json:"name,omitempty"`
+	Descr       string   `json:"descr,omitempty"`
+	SpeedMbps   uint64   `json:"speed_mbps,omitempty"`
+	OperUp      *bool    `json:"oper_up,omitempty"`
+	OperStatus  *uint32  `json:"oper_status,omitempty"`
+	AdminStatus *uint32  `json:"admin_status,omitempty"`
+	Addrs       []string `json:"addrs,omitempty"`
 }
 
 func (r ClassifierRule) matches(inv Inventory) bool {
@@ -596,13 +621,30 @@ func discoveredDevice(job DiscoveryJob, inv Inventory, ref DiscoveryCredential, 
 			addrs = append(addrs, addr.String())
 		}
 		sort.Strings(addrs)
+		var up *bool
+		oper, admin := iface.OperStatus, iface.AdminStatus
+		if oper > 7 {
+			oper = 0
+		}
+		if admin > 3 {
+			admin = 0
+		}
+		if oper != 0 {
+			value := oper == 1
+			up = &value
+		} else if iface.OperUpKnown || iface.OperUp {
+			// A legacy explicit binary value stays binary. It cannot invent
+			// one of the six distinct non-up IF-MIB enums.
+			value := iface.OperUp
+			up = &value
+		}
 		interfaces = append(interfaces, DiscoveredInterface{
 			Index:     iface.Index,
 			Name:      iface.Name,
 			Descr:     iface.Descr,
 			SpeedMbps: iface.SpeedMbps,
-			OperUp:    iface.OperUp,
-			Addrs:     addrs,
+			OperUp:    up, OperStatus: oper, AdminStatus: admin,
+			Addrs: addrs,
 		})
 	}
 	sort.Slice(interfaces, func(i, j int) bool { return interfaces[i].Index < interfaces[j].Index })
@@ -763,6 +805,10 @@ func cloneDiscoveryResult(in DiscoveryResult) DiscoveryResult {
 	for i := range out.Devices {
 		out.Devices[i].Interfaces = append([]DiscoveredInterface(nil), in.Devices[i].Interfaces...)
 		for j := range out.Devices[i].Interfaces {
+			if state := out.Devices[i].Interfaces[j].OperUp; state != nil {
+				value := *state
+				out.Devices[i].Interfaces[j].OperUp = &value
+			}
 			out.Devices[i].Interfaces[j].Addrs = append([]string(nil), in.Devices[i].Interfaces[j].Addrs...)
 		}
 	}

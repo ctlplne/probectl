@@ -8,6 +8,7 @@ package device
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/netip"
 	"strings"
@@ -167,6 +168,80 @@ func TestLoadDiscoveryFixture(t *testing.T) {
 	}
 	if inv.SysName != "edge-r1" || inv.Interfaces[1].Addrs[0].String() != "10.0.0.5" {
 		t.Fatalf("fixture inventory = %+v", inv)
+	}
+}
+
+func TestDiscoveryInterfaceStatusDoesNotInventUnavailableState(t *testing.T) {
+	for state := uint32(0); state <= 7; state++ {
+		inv := Inventory{Device: "192.0.2.1", Interfaces: map[uint32]Interface{7: {Index: 7, OperStatus: state, OperUp: state == 1}}}
+		got := discoveredDevice(DiscoveryJob{ID: "status-job", TenantID: "tenant-red"}, inv, DiscoveryCredential{}, "", 0)
+		body, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded struct {
+			Interfaces []map[string]any `json:"interfaces"`
+		}
+		if err := json.Unmarshal(body, &decoded); err != nil || len(decoded.Interfaces) != 1 {
+			t.Fatal("discovery lost its interface", err)
+		}
+		row := decoded.Interfaces[0]
+		up, present := row["oper_up"]
+		if state == 0 {
+			if present || row["oper_status"] != nil {
+				t.Fatal("unavailable discovery state became false/down or a fabricated enum")
+			}
+		} else if !present || up != (state == 1) || row["oper_status"] != float64(state) {
+			t.Fatal("discovery narrowed an actual IF-MIB state", state, row)
+		}
+	}
+}
+
+func TestDiscoveryFixtureKeepsLegacyBinaryAndExactInterfaceStates(t *testing.T) {
+	for _, item := range []struct {
+		input       string
+		known, up   bool
+		oper, admin uint32
+	}{
+		{input: `{"index":7}`},
+		{input: `{"index":7,"oper_up":false}`, known: true},
+		{input: `{"index":7,"oper_up":true}`, known: true, up: true},
+		{input: `{"index":7,"oper_status":7,"admin_status":3}`, known: true, oper: 7, admin: 3},
+		{input: `{"index":7,"oper_status":1,"admin_status":1}`, known: true, up: true, oper: 1, admin: 1},
+	} {
+		fixture, err := LoadDiscoveryFixture(strings.NewReader(`{"devices":[{"address":"192.0.2.1","interfaces":[` + item.input + `]}]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		inventory, err := fixture.Probe(t.Context(), Target{Address: "192.0.2.1", Credential: "ro"}, Credential{Community: "public"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := discoveredDevice(DiscoveryJob{ID: "fixture-state", TenantID: "tenant-red"}, inventory, DiscoveryCredential{}, "", 0).Interfaces[0]
+		if (got.OperUp != nil) != item.known || got.OperUp != nil && *got.OperUp != item.up || got.OperStatus != item.oper || got.AdminStatus != item.admin {
+			t.Fatal("discovery invented or narrowed a legacy binary or exact state", item.input)
+		}
+	}
+}
+
+func TestDiscoveryInterfaceStateCopiesKeepTenantAndStoredValue(t *testing.T) {
+	store := newMemoryDiscoveryStore()
+	for _, tenant := range []string{"tenant-red", "tenant-blue"} {
+		device := discoveredDevice(DiscoveryJob{ID: "same-job", TenantID: tenant}, Inventory{Device: "192.0.2.1", Interfaces: map[uint32]Interface{7: {Index: 7, OperStatus: 2, AdminStatus: 1}}}, DiscoveryCredential{}, "", 0)
+		if err := store.saveDiscoveryResult(DiscoveryResult{TenantID: tenant, JobID: "same-job", Devices: []DiscoveredDevice{device}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, ok := store.getDiscoveryResult("tenant-red", "same-job")
+	if !ok || first.Devices[0].Interfaces[0].OperUp == nil {
+		t.Fatal("own discovery lost an explicit down observation")
+	}
+	*first.Devices[0].Interfaces[0].OperUp = true
+	for _, tenant := range []string{"tenant-red", "tenant-blue"} {
+		got, ok := store.getDiscoveryResult(tenant, "same-job")
+		if !ok || len(got.Devices) != 1 || got.Devices[0].TenantID != tenant || got.Devices[0].Interfaces[0].OperUp == nil || *got.Devices[0].Interfaces[0].OperUp {
+			t.Fatal("caller mutation changed stored or sibling tenant interface state", tenant)
+		}
 	}
 }
 
