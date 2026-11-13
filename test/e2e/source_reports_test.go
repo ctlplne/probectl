@@ -30,6 +30,7 @@ type releaseFlowReport struct {
 	quantity                                                                    uint32
 	packet                                                                      bool
 	packetContext, packetEntity, packetTag, packetRule, packetValue             string
+	packetPrefixCustomer                                                        string
 	body, frozen                                                                []byte
 }
 
@@ -275,7 +276,7 @@ func (p *releaseFlowReport) plan(at time.Time) map[string]any {
 	groups := []string{"src_addr", "exporter"}
 	metrics := []map[string]string{{"measure": "bytes", "calculation": "total", "role": "primary"}, {"measure": "flows", "calculation": "total", "role": "additional"}}
 	if p.packet {
-		groups = append(groups, "protocol", "tag.packet_customer")
+		groups = append(groups, "protocol", "tag.packet_customer", "tag.packet_prefix_customer")
 		metrics = append(metrics, map[string]string{"measure": "packets", "calculation": "total", "role": "additional"})
 	}
 	return map[string]any{"from": at.Add(-time.Minute).Format(time.RFC3339Nano), "to": at.Add(5 * time.Minute).Format(time.RFC3339Nano),

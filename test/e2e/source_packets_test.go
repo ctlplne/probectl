@@ -104,6 +104,38 @@ func (p *releaseFlowReport) preparePacketTag(t *testing.T, agent string) {
 		t.Fatal("real packet rule has no owned identity")
 	}
 	p.packetRule = rule.ID
+	p.preparePacketPrefixCustomers(t)
+}
+
+func (p *releaseFlowReport) preparePacketPrefixCustomers(t *testing.T) {
+	t.Helper()
+	var definition struct{ ID string }
+	p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/tags", map[string]string{"key": "packet_prefix_customer"}, &definition)
+	if definition.ID == "" {
+		t.Fatal("real packet prefix customer definition has no owned identity")
+	}
+	p.packetPrefixCustomer = "prefix-customer-" + p.tenant
+	// The broader current customer overlaps the selected source in both
+	// tenants. Only its most-specific owned prefix may label the real row.
+	for _, prefix := range []struct{ network, value string }{
+		{"127.0.0.2/31", "broader-customer-" + p.tenant},
+		{p.address + "/32", p.packetPrefixCustomer},
+	} {
+		var record entity.Record
+		p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/entities", map[string]string{
+			"context_id": p.packetContext, "kind": "prefix", "label": "real packet customer prefix", "network_prefix": prefix.network,
+		}, &record)
+		if record.ID == "" || record.Kind != entity.Prefix || record.NetworkPrefix != prefix.network || record.Scope.TenantID != p.tenant || record.Scope.ContextID != p.packetContext {
+			t.Fatal("real packet prefix changed its authenticated scope or complete network")
+		}
+		var assignment struct{ ID string }
+		p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/entity-contexts/"+p.packetContext+"/tag-assignments", map[string]string{
+			"tag_id": definition.ID, "target_kind": "prefix", "target_id": record.ID, "value": prefix.value,
+		}, &assignment)
+		if assignment.ID == "" {
+			t.Fatal("real packet prefix customer has no owned assignment")
+		}
+	}
 }
 
 func (p *releaseFlowReport) assertPacketIdentity(t *testing.T, foreign *releaseFlowReport) {
@@ -137,7 +169,7 @@ func (p *releaseFlowReport) retagCapturedHistory(t *testing.T, plan map[string]a
 			t.Fatal("real packet rule changed exact retained packet byte/flow quantities")
 		}
 		group := result.Flow.Rows[0].Group
-		if group["tag.packet_customer"] != p.packetValue || group["protocol"] != "ipfix" || group["exporter"] != "127.0.0.1" || group["src_addr"] != p.address {
+		if group["tag.packet_customer"] != p.packetValue || group["tag.packet_prefix_customer"] != p.packetPrefixCustomer || group["protocol"] != "ipfix" || group["exporter"] != "127.0.0.1" || group["src_addr"] != p.address {
 			t.Fatal("real packet history lost its current rule, actual protocol or owned exporter")
 		}
 	}
@@ -159,7 +191,7 @@ func (p *releaseFlowReport) verifyPacketCSVCells(t *testing.T, row []string, col
 	if cell("packets:total") != strconv.Itoa(releasePacketCount) {
 		t.Fatal("real source report lost independently emitted packet count")
 	}
-	if row[0] == "detail" && (cell("tag.packet_customer") != p.packetValue || cell("protocol") != "ipfix" || cell("exporter") != "127.0.0.1") {
+	if row[0] == "detail" && (cell("tag.packet_customer") != p.packetValue || cell("tag.packet_prefix_customer") != p.packetPrefixCustomer || cell("protocol") != "ipfix" || cell("exporter") != "127.0.0.1") {
 		t.Fatal("real source report lost current rule tag, actual IPFIX or registered loopback exporter")
 	}
 }
