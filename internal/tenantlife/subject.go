@@ -138,12 +138,13 @@ const (
 )
 
 type subjectTablePolicy struct {
-	plane               string
-	disposition         subjectTableDisposition
-	exact               []string
-	contains            []string
-	derivedReports      bool // erase opaque source-aware copies; export stays owner-scoped
-	agentAddressMembers bool // exact typed members, never an array text substring
+	plane                    string
+	disposition              subjectTableDisposition
+	exact                    []string
+	contains                 []string
+	derivedReports           bool // erase opaque source-aware copies; export stays owner-scoped
+	agentAddressMembers      bool // exact typed members, never an array text substring
+	configuredTestReferences bool // structural test UUIDs are not personal text
 }
 
 // subjectPostgresTablePolicies is the fail-closed privacy inventory for the
@@ -309,7 +310,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		contains: []string{"label", "configured_ref"},
 	},
 	"entity_evidence": {
-		plane: "postgres:entity_evidence", disposition: subjectTableDeleteMatches, agentAddressMembers: true,
+		plane: "postgres:entity_evidence", disposition: subjectTableDeleteMatches, agentAddressMembers: true, configuredTestReferences: true,
 		exact: []string{"agent_id", "origin_serial"},
 		contains: []string{"alias_value", "source_ref", "configured_ref", "interface_name", "interface_description",
 			"neighbor_local_port_id", "neighbor_remote_port_id", "neighbor_chassis_id",
@@ -1429,7 +1430,7 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 		parts = append(parts, `EXISTS (
 	SELECT 1
 	  FROM unnest($3::text[]) AS subject_pattern(value)
- WHERE COALESCE(subject_row.`+pgIdent(column)+`::text, '') ~ subject_pattern.value
+ WHERE `+subjectContainsValue(policy, column)+` ~ subject_pattern.value
 )`)
 	}
 	if policy.agentAddressMembers {
@@ -1443,6 +1444,26 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
  WHERE subject_responder.value::inet = ANY($5::inet[]))`)
 	}
 	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
+func subjectContainsValue(policy subjectTablePolicy, column string) string {
+	value := `COALESCE(subject_row.` + pgIdent(column) + `::text, '')`
+	if !policy.configuredTestReferences {
+		return value
+	}
+	switch column {
+	case "alias_value":
+		// The typed outcome CHECK binds this alias to the configured test UUID.
+		return `(CASE WHEN subject_row.alias_kind='configured_test_id' THEN '' ELSE ` + value + ` END)`
+	case "configured_ref":
+		// Path agents name their configured test here. Preserve free-text legacy
+		// references and every other source kind's personal-data matching.
+		return `(CASE WHEN subject_row.source_kind='path_agent'
+ AND subject_row.configured_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+ THEN '' ELSE ` + value + ` END)`
+	default:
+		return value
+	}
 }
 
 func subjectTableMatchArgs(tenant string, aliases subjectAliasSet, policy subjectTablePolicy) []any {
