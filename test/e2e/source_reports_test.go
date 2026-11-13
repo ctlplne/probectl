@@ -25,6 +25,7 @@ import (
 )
 
 type releaseFlowReport struct {
+	packetPrefixEntity, packetAgent, packetIncident                             string
 	api                                                                         api
 	tenant, address, source, version, snapshot, artifact, dashboard, sourceName string
 	quantity                                                                    uint32
@@ -73,7 +74,9 @@ func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key,
 		defer stop()
 		if p.packet {
 			stopExporter := p.sendCapturedPackets(t, address)
-			defer stopExporter()
+			// Stop before the other cohort starts. The collector stays live
+			// to attest actual silence without capturing the next burst.
+			stopExporter()
 		} else {
 			p.send(t, address, i)
 		}
@@ -190,6 +193,9 @@ func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key,
 		}
 	}
 	if packet {
+		for i := range proofs {
+			proofs[i].provePacketFaultImpact(t, &proofs[1-i], at)
+		}
 		t.Log("real packet report sources: actual softflowd IPFIX capture, exact selected packet/IP-byte counters, query-time rule history, registered collectors, TLS/SASL Kafka, HTTPS ClickHouse, encrypted snapshots and stored reports, paired API/CLI and foreign refusals passed; no hardware claim")
 	} else {
 		t.Log("release profile source reports: actual registered collectors, TLS/SASL Kafka, HTTPS ClickHouse, encrypted snapshot objects and Postgres report publication, paired API/builtCLI and foreign refusals passed; generated NetFlow provenance retained")
@@ -208,6 +214,7 @@ func startReleaseReportCollector(t *testing.T, p *releaseFlowReport, collector, 
 	hostname := "release-report-source"
 	if p.packet {
 		hostname = "release-packet-source"
+		p.packetAgent = agent
 	}
 	token := mintEnrollTokenTTL(t, cli, p.tenant, agent, hostname, "10m")
 	var registration struct {

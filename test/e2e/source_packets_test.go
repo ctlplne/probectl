@@ -38,7 +38,7 @@ func releasePacketReaders(t *testing.T, sessions []releaseSession, readers []api
 		anonymous.token = ""
 		code, raw := anonymous.do(t, http.MethodPost, "/v1/api-tokens", map[string]any{
 			"name": "real-packet-reports-" + strconv.Itoa(i), "expires_in_hours": 1,
-			"scopes": []string{"tenant.read", "agent.write", "entities.read", "ai.query", "flow.read", "flow.views.write", "metrics.read", "metrics.write", "governance.write", "tags.read", "tags.write"},
+			"scopes": []string{"tenant.read", "agent.write", "entities.read", "incident.read", "events.read", "ai.query", "flow.read", "flow.views.write", "metrics.read", "metrics.write", "governance.write", "tags.read", "tags.write"},
 		}, "Cookie", "probectl_session="+sessions[i].Cookie)
 		var minted struct{ Token string }
 		if code != http.StatusCreated || json.Unmarshal(raw, &minted) != nil || minted.Token == "" {
@@ -127,6 +127,9 @@ func (p *releaseFlowReport) preparePacketPrefixCustomers(t *testing.T) {
 		}, &record)
 		if record.ID == "" || record.Kind != entity.Prefix || record.NetworkPrefix != prefix.network || record.Scope.TenantID != p.tenant || record.Scope.ContextID != p.packetContext {
 			t.Fatal("real packet prefix changed its authenticated scope or complete network")
+		}
+		if prefix.network == p.address+"/32" {
+			p.packetPrefixEntity = record.ID
 		}
 		var assignment struct{ ID string }
 		p.api.json(t, http.StatusCreated, http.MethodPost, "/v1/entity-contexts/"+p.packetContext+"/tag-assignments", map[string]string{
