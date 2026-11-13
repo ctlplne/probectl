@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
 )
 
@@ -22,11 +23,15 @@ func incidentVerdictRoleInputSize(inputs store.InterfaceRoleInputs) (int64, erro
 	return 4096 + 8*int64(len(body)), nil
 }
 
-func incidentVerdictSnapshotStillCurrent(snapshot incidentVerdictSnapshot) error {
+func incidentVerdictSnapshotStillCurrent(snapshot incidentVerdictSnapshot, result *incident.FaultVerdict) error {
 	now := time.Now().UTC()
 	include := func(until *time.Time) error {
 		if until != nil && !until.After(now) {
 			return apierror.Unavailable("incident verdict source authority expired; retry")
+		}
+		if until != nil && (result.ValidUntil == nil || until.Before(*result.ValidUntil)) {
+			value := *until
+			result.ValidUntil = &value
 		}
 		return nil
 	}
@@ -59,6 +64,9 @@ func incidentVerdictSnapshotStillCurrent(snapshot incidentVerdictSnapshot) error
 			clocks = append(clocks, peer.InterfaceRoleEvidenceClock)
 		}
 		for _, clock := range clocks {
+			if err := include(&clock.ValidUntil); err != nil {
+				return err
+			}
 			if !roleInputClock(clock).current(now) {
 				return apierror.Unavailable("incident verdict role evidence expired; retry")
 			}

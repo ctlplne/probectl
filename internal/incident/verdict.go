@@ -8,6 +8,11 @@ package incident
 
 import "time"
 
+type VerdictInput struct {
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+}
+
 // FaultDomain is a deterministic evidence classification, independent of a
 // remote model. RemoteService deliberately does not name a SaaS provider.
 type FaultDomain string
@@ -44,10 +49,15 @@ type VerdictHypothesis struct {
 // FaultVerdict preserves all hypotheses, including unavailable planes. A
 // confidence is an evidence category, never a calibrated probability.
 type FaultVerdict struct {
-	Domain     FaultDomain         `json:"domain"`
-	Confidence string              `json:"confidence"`
-	Reason     string              `json:"reason"`
-	From       time.Time           `json:"from"`
-	To         time.Time           `json:"to"`
-	Hypotheses []VerdictHypothesis `json:"hypotheses"`
+	ContractVersion string              `json:"contract_version"`
+	Preview         bool                `json:"preview"`
+	IncidentID      string              `json:"incident_id"`
+	EvaluatedAt     time.Time           `json:"evaluated_at"`
+	ValidUntil      *time.Time          `json:"valid_until,omitempty"`
+	Domain          FaultDomain         `json:"domain"`
+	Confidence      string              `json:"confidence"`
+	Reason          string              `json:"reason"`
+	From            time.Time           `json:"from"`
+	To              time.Time           `json:"to"`
+	Hypotheses      []VerdictHypothesis `json:"hypotheses"`
 }

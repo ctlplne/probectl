@@ -77,6 +77,68 @@
     }
   ],
   "paths": {
+    "/v1/incidents/{id}/verdict": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "post": {
+        "operationId": "getIncidentVerdict",
+        "summary": "Read cited fault-domain hypotheses for an incident",
+        "tags": [
+          "incidents"
+        ],
+        "x-required-permission": "incident.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "description": "Read-only deterministic preview under current tenant user/credential and incident.read, entities.read, metrics.read, events.read and test.read. Original local interface states and independently corroborated verified primary HTTPS errors supply the initial rules. Carrier and wider-internet source coverage remain explicitly unavailable in this preview. Contradictory or thin evidence remains unknown. Current membership, source authority and original retained selectors are checked again before disclosure. No remote model or AI-query permission is required. All four hypotheses preserve their supporting, contradicting and missing evidence.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentVerdictInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Complete admitted original citations and explicit unavailable hypothesis coverage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentVerdictResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/incidents/{id}/impact": {
       "parameters": [
         {
@@ -15526,6 +15588,207 @@
       }
     },
     "schemas": {
+      "IncidentVerdictInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "description": "Explicit half-open original-observation window. Tenant, incident membership and source authority are resolved by the server."
+      },
+      "IncidentVerdictCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "incident_id",
+          "from",
+          "to"
+        ]
+      },
+      "IncidentFaultDomain": {
+        "type": "string",
+        "enum": [
+          "unknown",
+          "your_network",
+          "carrier",
+          "wider_internet",
+          "remote_service"
+        ]
+      },
+      "IncidentVerdictConfidence": {
+        "type": "string",
+        "enum": [
+          "insufficient",
+          "corroborated",
+          "direct"
+        ],
+        "description": "Evidence category, not a calibrated probability."
+      },
+      "IncidentVerdictCitation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "evidence_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "context_id",
+          "entity_id",
+          "evidence_id",
+          "agent_id",
+          "digest",
+          "observed_at",
+          "reason"
+        ]
+      },
+      "IncidentVerdictHypothesis": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/IncidentFaultDomain"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/IncidentVerdictConfidence"
+          },
+          "for": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentVerdictCitation"
+            }
+          },
+          "against": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentVerdictCitation"
+            }
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "domain",
+          "confidence",
+          "for",
+          "against",
+          "missing"
+        ]
+      },
+      "IncidentVerdictResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "probectl.incident-verdict.v1"
+          },
+          "preview": {
+            "type": "boolean"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "evaluated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/IncidentFaultDomain"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/IncidentVerdictConfidence"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "hypotheses": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/IncidentVerdictHypothesis"
+            }
+          }
+        },
+        "required": [
+          "contract_version",
+          "preview",
+          "incident_id",
+          "evaluated_at",
+          "from",
+          "to",
+          "domain",
+          "confidence",
+          "reason",
+          "hypotheses"
+        ]
+      },
       "IncidentEvidenceExportInput": {
         "type": "object",
         "additionalProperties": false,

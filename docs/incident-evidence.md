@@ -174,3 +174,35 @@ one incident, preserves one contrary/unknown intermediate-ICMP record, rejects
 cross-tenant access, and verifies the exported package offline. Intermediate
 router silence or response is not reported as terminal loss unless end-to-end
 evidence supports that claim.
+
+### Fault-domain verdict preview
+
+`POST /v1/incidents/{id}/verdict` evaluates an explicit half-open `from`/`to`
+window. The same read is available as `getIncidentVerdict` in the generated
+clients, `probectl incident verdict <id> --body-file <file|->`, the native
+`incident_verdict` tool, and **Fault domain** in the incident room. It requires
+current `incident.read`, `entities.read`, `metrics.read`, `events.read` and
+`test.read`; the native tool also uses the existing tenant egress consent and
+redaction controls. It does not require an AI query or remote model.
+
+This preview reads original interface-state and primary HTTPS observations.
+A directly implicated, currently owned backbone interface must have original
+administrative-up and operational-down evidence. A role label alone supplies
+no failure measurement. Remote-service corroboration requires overlapping
+executions by different authorized agents against the same HTTPS origin, with
+verified TLS and original server-error responses. A timeout, missing response,
+posture-only TLS handshake or cross-origin redirect supplies no such proof.
+
+Every response retains all four hypotheses, their supporting and contradicting
+original citations, missing coverage and the selected window. Carrier and
+wider-internet source evidence are not connected in this preview. Thin,
+contradictory or unresolved incident coverage returns `unknown`. The label
+`remote_service` describes observed service failure; it does not identify a
+SaaS provider or attribute its internal root cause. Confidence is an evidence
+category (`insufficient`, `corroborated`, `direct`), not a probability.
+
+The response's `valid_until`, when present, bounds its current source authority.
+Re-evaluate after that deadline or after changing tenant/access context. Queries
+use the deployment's finite query memory/deadline and tenant fairness policy;
+an incomplete admitted population is never rendered as a plausible prefix.
+The four-domain lab qualification and signed-export inclusion remain pending.

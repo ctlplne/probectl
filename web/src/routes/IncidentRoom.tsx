@@ -57,6 +57,7 @@ import { isApiStatus } from '../api/client'
 import { useAuth } from '../auth/useAuth'
 import { InvestigationJournal } from './InvestigationJournal'
 import { IncidentImpactCard } from './IncidentImpactCard'
+import { IncidentVerdictCard } from './IncidentVerdictCard'
 import { EntityCurrentPivot } from './EntityCurrentPivot'
 import { observedIPs } from './entityObservedIPs'
 
@@ -596,6 +597,7 @@ export function IncidentRoom({
         </Card>
       ) : null}
 
+      {!sharedArtifactID ? <IncidentVerdictCard incident={roomIncident} /> : null}
       {!sharedArtifactID ? <IncidentImpactCard incident={roomIncident} /> : null}
 
       {!sharedArtifactID ? (

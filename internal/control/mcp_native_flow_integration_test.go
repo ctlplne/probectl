@@ -539,46 +539,6 @@ func proveNativeMCPFlowTLSVersion(t *testing.T, admin, pool *pgxpool.Pool, objec
 	}
 }
 
-func proveLegacyMCPInitializationTLS(t *testing.T, socket *httptest.Server, token string) {
-	t.Helper()
-	frames := []string{
-		`{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"owned-pg-client","version":"1"}}}`,
-		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
-	}
-	for index, frame := range frames {
-		r, err := http.NewRequestWithContext(t.Context(), http.MethodPost, socket.URL, strings.NewReader(frame))
-		if err != nil {
-			t.Fatal(err)
-		}
-		r.Header.Set("Authorization", "Bearer "+token)
-		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Accept", "application/json, text/event-stream")
-		r.Header.Set("MCP-Protocol-Version", "2025-11-25")
-		response, err := socket.Client().Do(r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer response.Body.Close()
-		raw, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-		_ = response.Body.Close()
-		if err != nil || response.Header.Get("MCP-Session-Id") != "" {
-			t.Fatal("legacy initialization failed or created session authority")
-		}
-		if index == 0 {
-			var result struct {
-				Result struct {
-					Version string `json:"protocolVersion"`
-				} `json:"result"`
-			}
-			if response.StatusCode != 200 || json.Unmarshal(raw, &result) != nil || result.Result.Version != "2025-11-25" {
-				t.Fatal("actual PG HTTP legacy initialization version mismatch")
-			}
-		} else if response.StatusCode != 202 || len(raw) != 0 {
-			t.Fatal("actual PG HTTP initialized notification not accepted")
-		}
-	}
-}
-
 func proveNativeFlowMetricsTLS(t *testing.T, core *Server, tenantTokens, privateIDs []string) {
 	t.Helper()
 	core.cfg.AuthMode = "session"

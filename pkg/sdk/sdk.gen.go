@@ -2353,6 +2353,8 @@ type IncidentEvidencePackage struct {
 	Signing     map[string]any   `json:"signing"`
 }
 
+type IncidentFaultDomain string
+
 type IncidentImpactCaptureCitation struct {
 	CapturedAt       string `json:"captured_at"`
 	ContextId        string `json:"context_id"`
@@ -2585,6 +2587,52 @@ type IncidentShareRequest struct {
 type IncidentShareSelection struct {
 	Id   string `json:"id"`
 	Kind string `json:"kind"`
+}
+
+type IncidentVerdictCitation struct {
+	AgentId    string `json:"agent_id"`
+	ContextId  string `json:"context_id"`
+	Digest     string `json:"digest"`
+	EntityId   string `json:"entity_id"`
+	EvidenceId string `json:"evidence_id"`
+	ObservedAt string `json:"observed_at"`
+	Reason     string `json:"reason"`
+}
+
+type IncidentVerdictCommand struct {
+	From       string `json:"from"`
+	IncidentId string `json:"incident_id"`
+	To         string `json:"to"`
+}
+
+type IncidentVerdictConfidence string
+
+type IncidentVerdictHypothesis struct {
+	Against    []IncidentVerdictCitation `json:"against"`
+	Confidence IncidentVerdictConfidence `json:"confidence"`
+	Domain     IncidentFaultDomain       `json:"domain"`
+	For        []IncidentVerdictCitation `json:"for"`
+	Missing    []string                  `json:"missing"`
+}
+
+// Explicit half-open original-observation window. Tenant, incident membership and source authority are resolved by the server.
+type IncidentVerdictInput struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+type IncidentVerdictResponse struct {
+	Confidence      IncidentVerdictConfidence   `json:"confidence"`
+	ContractVersion string                      `json:"contract_version"`
+	Domain          IncidentFaultDomain         `json:"domain"`
+	EvaluatedAt     string                      `json:"evaluated_at"`
+	From            string                      `json:"from"`
+	Hypotheses      []IncidentVerdictHypothesis `json:"hypotheses"`
+	IncidentId      string                      `json:"incident_id"`
+	Preview         bool                        `json:"preview"`
+	Reason          string                      `json:"reason"`
+	To              string                      `json:"to"`
+	ValidUntil      string                      `json:"valid_until,omitempty"`
 }
 
 type InterfaceRole string
@@ -7242,6 +7290,26 @@ func (c *Client) CreateIncidentShare(ctx context.Context, req CreateIncidentShar
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out IncidentShareArtifact
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read cited fault-domain hypotheses for an incident
+type GetIncidentVerdictRequest struct {
+	Id   string                `json:"-"`
+	Body *IncidentVerdictInput `json:"-"`
+}
+
+func (c *Client) GetIncidentVerdict(ctx context.Context, req GetIncidentVerdictRequest) (*IncidentVerdictResponse, error) {
+	path := "/v1/incidents/{id}/verdict"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out IncidentVerdictResponse
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}

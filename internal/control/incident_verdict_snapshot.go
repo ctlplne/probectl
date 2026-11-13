@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"encoding/hex"
+	gouuid "github.com/google/uuid"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -228,6 +229,10 @@ func (s *Server) computeIncidentVerdict(ctx context.Context, actor *auth.Princip
 	if err != nil {
 		return none, err
 	}
+	parsed, err := gouuid.Parse(id)
+	if err != nil || parsed == gouuid.Nil || parsed.String() != id {
+		return none, apierror.Validation("canonical incident identity is required")
+	}
 	if from.IsZero() || !to.After(from) || to.After(time.Now().UTC()) {
 		return none, apierror.Validation("explicit past incident verdict from/to are required")
 	}
@@ -252,7 +257,9 @@ func (s *Server) computeIncidentVerdict(ctx context.Context, actor *auth.Princip
 			result.Hypotheses[i].Missing = append(result.Hypotheses[i].Missing, "complete_canonical_incident_membership")
 		}
 	}
-	if err := incidentVerdictSnapshotStillCurrent(after); err != nil {
+	result.ContractVersion, result.Preview, result.IncidentID = "probectl.incident-verdict.v1", true, id
+	result.EvaluatedAt = time.Now().UTC()
+	if err := incidentVerdictSnapshotStillCurrent(after, &result); err != nil {
 		return none, err
 	}
 	return result, ctx.Err()

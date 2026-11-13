@@ -174,6 +174,7 @@ var auditExportRoutes = map[string]bool{
 }
 
 var auditSensitiveReadRoutes = map[string]bool{
+	"POST /v1/incidents/{id}/verdict":                                  true,
 	"POST /v1/incidents/{id}/impact":                                   true,
 	"POST /v1/tags/tests/resolve":                                      true,
 	"POST /v1/entity-contexts/{context_id}/tag-imports/netbox/preview": true,
@@ -323,6 +324,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/incidents":                                                   auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/incidents/{id}":                                              auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/incidents/{id}/impact":                                      auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/incidents/{id}/verdict":                                     auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/incidents/{id}/changes":                                      auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/incidents/{id}/journal":                                      auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/incidents/{id}/journal":                                     auditExplicit(auditFacetMutation, "incident.journal_append"),

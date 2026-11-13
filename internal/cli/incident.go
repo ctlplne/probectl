@@ -51,7 +51,7 @@ func printIncidentUsage(w io.Writer) {
 	fmt.Fprintln(w, "  probectl incident verify <package.json> [--trusted-key-fingerprint sha256:...]")
 	fmt.Fprintln(w, "  probectl incident ungroup <incident-id> <signal-id> --reason <text>")
 	fmt.Fprintln(w, "  probectl incident reverse-override <incident-id> <override-id> --reason <text>")
-	fmt.Fprintln(w, "  probectl incident <list|get|update|impact|changes|journal|journal-append|cis|share|shared> ...")
+	fmt.Fprintln(w, "  probectl incident <list|get|update|impact|verdict|changes|journal|journal-append|cis|share|shared> ...")
 }
 
 func cmdIncidentCorrelationOverride(cfg Config, reverse bool, args []string, stdout, stderr io.Writer) int {

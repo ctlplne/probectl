@@ -18,13 +18,17 @@ import (
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestIncidentVerdictJoinsOriginalInterfaceStatesAndRejectsChangedDocuments(t *testing.T) {
 	f := newRoleExplanationAPIFixture(t)
+	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	seedInterfaceRoleMCPConsent(f)
 	type selected struct {
 		actor    *auth.Principal
 		id       string
@@ -75,6 +79,7 @@ func TestIncidentVerdictJoinsOriginalInterfaceStatesAndRejectsChangedDocuments(t
 		if err != nil || got.Domain != want {
 			t.Fatal("joined original state selected the wrong tenant/domain", got, err)
 		}
+		proveIncidentVerdictServedReaders(t, f, tenant, value.id, incident.VerdictInput{From: value.from, To: value.to}, got)
 		citations := got.Hypotheses[0].For
 		if lane == 1 {
 			citations = got.Hypotheses[0].Against
@@ -84,6 +89,7 @@ func TestIncidentVerdictJoinsOriginalInterfaceStatesAndRejectsChangedDocuments(t
 		}
 	}
 	a, b := f.tenants[0], f.tenants[1]
+	proveIncidentVerdictForeignReaderRefusal(t, f, a, lanes[b].id, incident.VerdictInput{From: lanes[b].from, To: lanes[b].to})
 	value := lanes[a]
 	original := value.before.states[0]
 	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {

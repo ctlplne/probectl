@@ -27,18 +27,6 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-func seedInterfaceRoleMCPConsent(f *roleExplanationAPIFixture) {
-	f.t.Helper()
-	for _, tenant := range f.tenants {
-		if err := tenancy.InProvider(f.t.Context(), f.pool, func(ctx context.Context, q tenancy.Querier) error {
-			_, err := q.Exec(ctx, `INSERT INTO tenant_governance (tenant_id,ai_remote_egress) VALUES($1,true) ON CONFLICT(tenant_id) DO UPDATE SET ai_remote_egress=true`, tenant)
-			return err
-		}); err != nil {
-			f.t.Fatal(err)
-		}
-	}
-}
-
 type interfaceRoleStdioClient struct {
 	input   *io.PipeWriter
 	decoder *json.Decoder

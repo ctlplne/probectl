@@ -2220,6 +2220,8 @@ export interface IncidentEvidencePackage {
   signing: JsonObject
 }
 
+export type IncidentFaultDomain = "unknown" | "your_network" | "carrier" | "wider_internet" | "remote_service"
+
 export interface IncidentImpactCaptureCitation {
   captured_at: string
   context_id: string
@@ -2450,6 +2452,51 @@ export interface IncidentShareRequest {
 export interface IncidentShareSelection {
   id: string
   kind: "evidence" | "entity"
+}
+
+export interface IncidentVerdictCitation {
+  agent_id: string
+  context_id: string
+  digest: string
+  entity_id: string
+  evidence_id: string
+  observed_at: string
+  reason: string
+}
+
+export interface IncidentVerdictCommand {
+  from: string
+  incident_id: string
+  to: string
+}
+
+export type IncidentVerdictConfidence = "insufficient" | "corroborated" | "direct"
+
+export interface IncidentVerdictHypothesis {
+  against: IncidentVerdictCitation[]
+  confidence: IncidentVerdictConfidence
+  domain: IncidentFaultDomain
+  for: IncidentVerdictCitation[]
+  missing: string[]
+}
+
+export interface IncidentVerdictInput {
+  from: string
+  to: string
+}
+
+export interface IncidentVerdictResponse {
+  confidence: IncidentVerdictConfidence
+  contract_version: string
+  domain: IncidentFaultDomain
+  evaluated_at: string
+  from: string
+  hypotheses: IncidentVerdictHypothesis[]
+  incident_id: string
+  preview: boolean
+  reason: string
+  to: string
+  valid_until?: string
 }
 
 export type InterfaceRole = "transit" | "ix_peering" | "private_peering" | "customer" | "backbone" | "other"
@@ -4652,6 +4699,13 @@ export interface CreateIncidentShareRequest {
 
 export type CreateIncidentShareResponse = IncidentShareArtifact
 
+export interface GetIncidentVerdictRequest {
+  id: string
+  body: IncidentVerdictInput
+}
+
+export type GetIncidentVerdictResponse = IncidentVerdictResponse
+
 export interface ListInventoryViewsRequest {
   surface?: "endpoints" | "targets" | "agents" | "incidents" | "alerts" | "explorer"
 }
@@ -6609,6 +6663,13 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<CreateIncidentShareResponse>("POST", path, query, request.body)
+  }
+
+  async getIncidentVerdict(request: GetIncidentVerdictRequest): Promise<GetIncidentVerdictResponse> {
+    let path = "/v1/incidents/{id}/verdict"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetIncidentVerdictResponse>("POST", path, query, request.body)
   }
 
   async listInventoryViews(request: ListInventoryViewsRequest = {}): Promise<ListInventoryViewsResponse> {
