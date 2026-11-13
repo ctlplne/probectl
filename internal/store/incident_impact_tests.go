@@ -86,7 +86,13 @@ func (Incidents) ConfiguredImpactTestsInScope(ctx context.Context, sc tenancy.Sc
 }
 
 func readIncidentConfiguredTests(ctx context.Context, sc tenancy.Scope, contexts, entities []string, members map[string]IncidentImpactEntity, generation, maxBytes int64,
-	authorize func(context.Context, entity.ContextRecord, IncidentImpactEntity, string) error) ([]IncidentConfiguredTest, error) {
+	authorize func(context.Context, entity.ContextRecord, IncidentImpactEntity, string) error, exact ...[]IncidentConfiguredTest) ([]IncidentConfiguredTest, error) {
+	selected := []string{}
+	if len(exact) > 0 {
+		for _, item := range exact[0] {
+			selected = append(selected, clientReportTestKey(item))
+		}
+	}
 	rows, err := sc.Q.Query(ctx, `WITH requested AS (
   SELECT * FROM unnest($2::uuid[],$3::uuid[]) AS r(context_id,entity_id))
  SELECT m.context_id::text,m.anchor_entity_id::text,t.id::text,m.agent_id,t.type,
@@ -114,7 +120,8 @@ func readIncidentConfiguredTests(ctx context.Context, sc tenancy.Scope, contexts
  AND GREATEST(node.created_at,m.assigned_at,a.assigned_at,c.assigned_at,CASE WHEN t.type='icmp' THEN p.assigned_at ELSE c.assigned_at END,t.updated_at)<=transaction_timestamp()
  AND (m.expires_at IS NULL OR m.expires_at>transaction_timestamp())
  AND (a.expires_at IS NULL OR a.expires_at>transaction_timestamp())
- ORDER BY m.context_id,m.anchor_entity_id,t.id,m.agent_id LIMIT $5`, pgx.QueryExecModeDescribeExec, sc.Tenant.String(), contexts, entities, maxBytes/8, maxBytes/1024+1)
+ AND ($6::boolean OR m.context_id::text||':'||m.anchor_entity_id::text||':'||t.id::text||':'||m.agent_id=ANY($7::text[]))
+ ORDER BY m.context_id,m.anchor_entity_id,t.id,m.agent_id LIMIT $5`, pgx.QueryExecModeDescribeExec, sc.Tenant.String(), contexts, entities, maxBytes/8, maxBytes/1024+1, len(exact) == 0, selected)
 	if err != nil {
 		return nil, err
 	}

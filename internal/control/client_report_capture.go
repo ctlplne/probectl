@@ -25,20 +25,21 @@ import (
 )
 
 type clientReportCapture struct {
-	TenantID      string
-	From, To      time.Time
-	Sources       []store.IncidentConfiguredTest
-	Definitions   []slo.SLO
-	SLOEnabled    bool
-	Availability  []clientReportAvailability
-	SLOs          []clientReportSLO
-	Tables        []reporting.CSVTable
-	Events        *clientReportEventCapture
-	Verdicts      []clientReportVerdict
-	Capacity      []clientReportCapacityCapture
-	InputsDigest  string
-	retainedBytes int64
-	release       func()
+	TenantID         string
+	From, To         time.Time
+	Sources          []store.IncidentConfiguredTest
+	Definitions      []slo.SLO
+	SLOEnabled       bool
+	Availability     []clientReportAvailability
+	SLOs             []clientReportSLO
+	Tables           []reporting.CSVTable
+	Events           *clientReportEventCapture
+	Verdicts         []clientReportVerdict
+	Capacity         []clientReportCapacityCapture
+	InputsDigest     string
+	testsPublication incidentEvidenceFinalizer
+	retainedBytes    int64
+	release          func()
 }
 
 func (c *clientReportCapture) close() {
@@ -187,6 +188,14 @@ func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Pri
 		digest = crypto.Hash(append(digest, []byte(capacity.OriginalsDigest)...))
 	}
 	result.InputsDigest = hex.EncodeToString(digest)
+	result.testsPublication = func(final context.Context) error {
+		return tenancy.InTenantReadSnapshot(final, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			return s.revalidateClientReportTestsInScope(ctx, sc, actor, result.Sources, budget.MemoryBytes/8)
+		})
+	}
+	if err := result.testsPublication(ctx); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -197,4 +206,33 @@ func (s *Server) authorizeClientReportTests(ctx context.Context, actor *auth.Pri
 		}
 	}
 	return ctx.Err()
+}
+
+// Final capture reconstructs today's authority from metadata. Neither a frozen
+// principal nor a newly configured unselected test can supply or remove access.
+// These compound source tuples are requirements, never a retained reader grant.
+func (s *Server) revalidateClientReportTestsInScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, sources []store.IncidentConfiguredTest, memory int64) error {
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || bound != sc.Tenant || actor == nil || actor.UserID == "" || actor.TenantID != bound.String() {
+		return entity.ErrScopeMismatch
+	}
+	current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
+	if err != nil {
+		return err
+	}
+	ctx, principal, err := current.requestContext(ctx, actor)
+	if err != nil {
+		return err
+	}
+	if err := s.authorizeClientReportTests(ctx, principal, map[string]string{auth.ResourceTenantKey: principal.TenantID}); err != nil {
+		return err
+	}
+	return store.NewEntityRegistry(s.pool).RecheckClientReportTestsInScope(ctx, sc, sources, memory, func(ctx context.Context, record entity.ContextRecord, member store.IncidentImpactEntity, testID string) error {
+		if record.TenantID != principal.TenantID || record.ContextID != member.ContextID {
+			return entity.ErrScopeMismatch
+		}
+		resource := entityContextResource(record)
+		resource["entity_id"], resource["test_id"] = member.EntityID, testID
+		return s.authorizeClientReportTests(ctx, principal, resource)
+	})
 }

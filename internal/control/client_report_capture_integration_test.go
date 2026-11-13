@@ -298,3 +298,114 @@ func backdateClientReportOriginals(t *testing.T, d *dependencyRoutingFixture, te
 		t.Fatal(err)
 	}
 }
+
+func TestClientReportRetainedTestAuthoritySelectsExactSourcesAndTenant(t *testing.T) {
+	d := seedDependencyRoutingFixture(t)
+	f := d.f
+	sources := map[string][]store.IncidentConfiguredTest{}
+	actors := map[string]*auth.Principal{}
+	for _, tenant := range f.tenants {
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permTestRead); err != nil {
+				return err
+			}
+			current, err := readCurrentUserAuthorityScope(ctx, sc, f.users[tenant])
+			if err == nil {
+				actors[tenant] = auth.ClonePrincipal(current.principal)
+			}
+			return err
+		})
+		err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			sources[tenant], err = store.NewEntityRegistry(f.pool).ClientReportConfiguredTestsInScope(ctx, sc, 1<<20, func(context.Context, entity.ContextRecord, store.IncidentImpactEntity, string) error { return nil })
+			return err
+		})
+		if err != nil || len(sources[tenant]) != 2 {
+			t.Fatal("complete configured source fixture", err)
+		}
+	}
+	check := func(tenant string, selected []store.IncidentConfiguredTest, actor *auth.Principal) error {
+		return tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			return f.server.revalidateClientReportTestsInScope(ctx, sc, actor, selected, 1<<20)
+		})
+	}
+	for _, tenant := range f.tenants {
+		// The other configured test exists but is not part of this frozen source
+		// selection. It must never be passed to the reader's policy callback.
+		selected := sources[tenant][:1]
+		err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			calls := 0
+			err := store.NewEntityRegistry(f.pool).RecheckClientReportTestsInScope(ctx, sc, selected, 1<<20, func(_ context.Context, _ entity.ContextRecord, _ store.IncidentImpactEntity, testID string) error {
+				if testID != "" {
+					calls++
+					if testID != selected[0].TestID {
+						return errors.New("unselected source acquired an access requirement")
+					}
+				}
+				return nil
+			})
+			if err == nil && calls != 1 {
+				return errors.New("captured source was not authorized exactly once")
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal("exact retained selection", err)
+		}
+		if err := check(tenant, selected, actors[tenant]); err != nil {
+			t.Fatal("current authority", err)
+		}
+	}
+	a, b := f.tenants[0], f.tenants[1]
+	if err := check(b, sources[a], actors[b]); !errors.Is(err, entity.ErrScopeMismatch) {
+		t.Fatal("foreign source tuple borrowed reader tenant", err)
+	}
+	if err := check(a, sources[a], actors[b]); !errors.Is(err, entity.ErrScopeMismatch) {
+		t.Fatal("foreign actor borrowed source scope", err)
+	}
+	duplicate := append([]store.IncidentConfiguredTest{sources[a][0]}, sources[a][0])
+	if err := check(a, duplicate, actors[a]); err == nil {
+		t.Fatal("duplicate retained source accepted")
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, a, f.roles[a], permTestRead)
+		return err
+	})
+	if err := check(a, sources[a], actors[a]); err == nil {
+		t.Fatal("stale actor kept withdrawn test read")
+	}
+	if err := check(b, sources[b], actors[b]); err != nil {
+		t.Fatal("permission change crossed tenant", err)
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		return (store.Roles{}).AddPermission(ctx, sc, f.roles[a], permTestRead)
+	})
+	original := sources[a][0]
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE tests SET enabled=false WHERE tenant_id=$1 AND id=$2`, a, original.TestID)
+		return err
+	})
+	if err := check(a, sources[a], actors[a]); err == nil {
+		t.Fatal("disabled source retained report access")
+	}
+	if err := check(b, sources[b], actors[b]); err != nil {
+		t.Fatal("source withdrawal crossed tenant", err)
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE tests SET enabled=true WHERE tenant_id=$1 AND id=$2`, a, original.TestID)
+		return err
+	})
+	if err := check(a, sources[a], actors[a]); err != nil {
+		t.Fatal("unchanged source restoration", err)
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE agent_identities SET revoked_at=now(),revoked_by='report-test' WHERE tenant_id=$1 AND agent_id=$2`, a, original.AgentID)
+		return err
+	})
+	if err := check(a, sources[a], actors[a]); err == nil {
+		t.Fatal("revoked sender retained report access")
+	}
+	if err := check(b, sources[b], actors[b]); err != nil {
+		t.Fatal("revocation crossed tenant", err)
+	}
+}
