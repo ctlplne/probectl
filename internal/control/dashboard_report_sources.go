@@ -373,6 +373,9 @@ func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prep
 			captures = append(captures, reportFlowResult(p.TenantID, value.view, "previous", before, tagAsOf))
 		}
 	}
+	// Prefix-tag joins also consume canonical entity contexts. Preserve their
+	// captured lineage just like role/routing sources; reader checks stay strict.
+	contextSources = contextSources || permissions["entities.read"]
 	result := &reportFlowCapture{TenantID: p.TenantID, Contexts: scope.contexts, ContextsCaptured: scope.captured, ContextSources: contextSources}
 	if typedResults {
 		result.Results = captures
