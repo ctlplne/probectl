@@ -146,13 +146,7 @@ func ResolveAliasPopulationInScope(ctx context.Context, sc tenancy.Scope, scope 
 		keys[i], kinds[i], values[i] = key, string(key.Kind), key.Value
 		configured = configured || key.Kind == entity.ConfiguredTestAlias
 	}
-	query := `WITH requested AS (
- SELECT kind,alias_value,ordinality
- FROM unnest($3::text[],$4::text[]) WITH ORDINALITY AS input(kind,alias_value,ordinality)
- ) SELECT requested.ordinality,resolved.* FROM requested
- JOIN LATERAL (` + currentAliasResolutionSQL(true, configured) + `) AS resolved(
- evidence_id,entity_id,entity_kind,source,source_ref,agent_id,source_kind,configured_ref,observed_at,support_evidence_id) ON true
- ORDER BY requested.ordinality,resolved.entity_id`
+	query := currentAliasPopulationSQL(configured)
 	rows, err := sc.Q.Query(ctx, query, pgx.QueryExecModeDescribeExec, want.TenantID, want.ContextID, kinds, values)
 	if err != nil {
 		return nil, err

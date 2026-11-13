@@ -325,12 +325,36 @@ func currentAliasResolutionSQL(population ...bool) string {
 	if len(population) > 1 && !population[1] {
 		probeGuard = "TRUE" // the normalized requested kinds exclude configured tests
 	}
-	return `
-			SELECT DISTINCT ON (resolved_node.id)
+	return currentAliasResolutionQuerySQL(kindParameter, valueParameter, probeGuard, "SELECT DISTINCT ON (resolved_node.id)", "entity_evidence e", "resolved_node.id, e.observed_at DESC, e.id LIMIT 4")
+}
+
+// Resolve the complete requested population together. The four-candidate
+// sentinel still proves ambiguity; all source, support and origin predicates
+// are shared with the single-alias reader, rather than weakened for batching.
+func currentAliasPopulationSQL(configured bool) string {
+	probeGuard := currentConfiguredProbeSQL
+	if !configured {
+		probeGuard = "TRUE"
+	}
+	selection := "SELECT DISTINCT ON (requested.ordinality,resolved_node.id) requested.ordinality,"
+	fromClause := `requested JOIN entity_evidence e ON e.tenant_id=$1 AND e.context_id=$2
+ AND e.alias_kind=requested.kind AND e.alias_value=requested.alias_value`
+	candidates := currentAliasResolutionQuerySQL("requested.kind", "requested.alias_value", probeGuard, selection, fromClause, "requested.ordinality,resolved_node.id,e.observed_at DESC,e.id")
+	return `WITH requested AS (
+ SELECT kind,alias_value,ordinality
+ FROM unnest($3::text[],$4::text[]) WITH ORDINALITY AS input(kind,alias_value,ordinality)
+ ), candidates(ordinality,evidence_id,entity_id,entity_kind,source,source_ref,agent_id,source_kind,configured_ref,observed_at,support_evidence_id) AS (` + candidates + `),
+ ranked AS (SELECT candidates.*,row_number() OVER(PARTITION BY ordinality ORDER BY entity_id) AS candidate_rank FROM candidates)
+ SELECT ordinality,evidence_id,entity_id,entity_kind,source,source_ref,agent_id,source_kind,configured_ref,observed_at,support_evidence_id
+ FROM ranked WHERE candidate_rank<=4 ORDER BY ordinality,entity_id`
+}
+
+func currentAliasResolutionQuerySQL(kindParameter, valueParameter, probeGuard, selection, fromClause, ordering string) string {
+	return selection + `
 			       e.id::text, resolved_node.id::text, resolved_node.kind, e.source, e.source_ref,
 		       e.agent_id, e.source_kind, e.configured_ref, e.observed_at,
 		       COALESCE(e.support_evidence_id::text,'')
-			  FROM entity_evidence e
+			 FROM ` + fromClause + `
 			  JOIN entities n ON (n.tenant_id, n.context_id, n.id) =
 			                     (e.tenant_id, e.context_id, e.entity_id)
 		  JOIN entities resolved_node ON (resolved_node.tenant_id,resolved_node.context_id,resolved_node.id)=
@@ -382,8 +406,7 @@ func currentAliasResolutionSQL(population ...bool) string {
 			          AND origin.revoked_at IS NULL
 			          AND origin.issued_at <= e.observed_at
 			          AND origin.not_after > statement_timestamp()))
-			 ORDER BY resolved_node.id, e.observed_at DESC, e.id
-			 LIMIT 4`
+			 ORDER BY ` + ordering
 }
 
 func scanAliasResolution(rows pgx.Rows, err error, want entity.Scope, key entity.AliasKey) (entity.Resolution, error) {

@@ -10,7 +10,6 @@ package control
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -21,13 +20,10 @@ import (
 )
 
 type dependencyPopulationSpan struct {
-	phase                   string
-	started                 time.Time
-	elapsed                 time.Duration
-	cost                    float64
-	rows                    int64
-	jit                     json.RawMessage
-	planFailed, queryFailed bool
+	phase       string
+	started     time.Time
+	elapsed     time.Duration
+	queryFailed bool
 }
 
 type dependencyPopulationSpanKey struct{}
@@ -36,29 +32,16 @@ type dependencyPopulationTrace struct {
 	spans []*dependencyPopulationSpan
 }
 
-// EXPLAIN without ANALYZE records the fresh plan, without executing a second
-// source read. Only phase/cost/row/JIT metadata is printed, and only on failure;
-// SQL, bound source values and credentials never enter the output.
-func (trace *dependencyPopulationTrace) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+// Observe only the product query. An in-band EXPLAIN would add a second
+// planning operation to the freshness window being tested. Failure output
+// contains phase/timing/status only, never SQL, bound values or credentials.
+func (trace *dependencyPopulationTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	if !strings.HasPrefix(data.SQL, "WITH requested AS (") {
 		return ctx
 	}
 	span := &dependencyPopulationSpan{phase: "aliases", started: time.Now()}
 	if strings.Contains(data.SQL, "AS agent_id") {
 		span.phase = "health"
-	}
-	var raw []byte
-	err := conn.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+data.SQL, data.Args...).Scan(&raw)
-	var plan []struct {
-		Plan struct {
-			Cost float64 `json:"Total Cost"`
-			Rows int64   `json:"Plan Rows"`
-		} `json:"Plan"`
-		JIT json.RawMessage `json:"JIT"`
-	}
-	span.planFailed = err != nil || json.Unmarshal(raw, &plan) != nil || len(plan) != 1
-	if !span.planFailed {
-		span.cost, span.rows, span.jit = plan[0].Plan.Cost, plan[0].Plan.Rows, plan[0].JIT
 	}
 	trace.mu.Lock()
 	trace.spans = append(trace.spans, span)
@@ -89,8 +72,7 @@ func dependencyPopulationObservedPool(t *testing.T, original *pgxpool.Pool) *pgx
 			trace.mu.Lock()
 			defer trace.mu.Unlock()
 			for _, span := range trace.spans {
-				t.Logf("source population diagnostic: phase=%s elapsed=%s cost=%g estimated_rows=%d jit=%s plan_failed=%t query_failed=%t",
-					span.phase, span.elapsed, span.cost, span.rows, span.jit, span.planFailed, span.queryFailed)
+				t.Logf("source population diagnostic: phase=%s elapsed=%s query_failed=%t", span.phase, span.elapsed, span.queryFailed)
 			}
 		}
 	})
