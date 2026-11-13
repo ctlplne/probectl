@@ -71,9 +71,25 @@ func (s *EntityRegistry) ReadICMPHealthInScope(ctx context.Context, sc tenancy.S
 func currentICMPHealthSQL(population ...bool) string {
 	agentParameter, sourceParameter, entityParameter, sizeParameter := "$3", "$4", "$5", "$6"
 	if len(population) > 0 && population[0] {
-		agentParameter, sourceParameter, entityParameter, sizeParameter = "requested.agent_id", "requested.source_ref", "requested.entity_id", "$6"
+		agentParameter, sourceParameter, entityParameter = "requested.agent_id", "requested.source_ref", "requested.entity_id"
 	}
-	return `SELECT e.id::text,e.observation_id::text,e.entity_id::text,
+	return "SELECT " + currentICMPHealthColumnsSQL(entityParameter, sizeParameter) + " FROM " + currentICMPLatestSQL(agentParameter, sourceParameter) + " e" + currentICMPHealthJoinsSQL(agentParameter, sourceParameter)
+}
+
+// Keep metadata joins outside the per-source latest-row lookup. Planning all
+// source/test/identity joins inside LATERAL can rebuild tenant-wide joins once
+// per requested source when the freshly populated tenant has sparse statistics.
+func currentICMPHealthPopulationSQL() string {
+	return `WITH requested AS (
+ SELECT ordinality,agent_id AS agent_id,source_ref,entity_id
+ FROM unnest($3::text[],$4::text[],$5::uuid[]) WITH ORDINALITY AS input(agent_id,source_ref,entity_id,ordinality)
+ ) SELECT requested.ordinality,` + currentICMPHealthColumnsSQL("requested.entity_id", "$6") +
+		" FROM requested JOIN LATERAL " + currentICMPLatestSQL("requested.agent_id", "requested.source_ref") + " e ON true" +
+		currentICMPHealthJoinsSQL("requested.agent_id", "requested.source_ref") + " ORDER BY requested.ordinality"
+}
+
+func currentICMPHealthColumnsSQL(entityParameter, sizeParameter string) string {
+	return `e.id::text,e.observation_id::text,e.entity_id::text,
  e.alias_kind,e.alias_value,e.source_ref,e.sender_serial,e.observed_at,
  CASE WHEN octet_length(e.icmp_measurement::text)<=` + sizeParameter + ` THEN e.icmp_measurement END,
  statement_timestamp(),
@@ -101,11 +117,18 @@ func currentICMPHealthSQL(population ...bool) string {
  COALESCE(t.interval_seconds,0),COALESCE(t.timeout_seconds,0),
  CASE WHEN octet_length(t.params::text)<=` + sizeParameter + ` THEN t.params END,
  COALESCE(t.updated_at,'epoch'),COALESCE(p.path_target,''),
- COALESCE(p.assigned_at,'epoch'),COALESCE(c.assigned_at,'epoch')
- FROM (SELECT * FROM entity_evidence
+ COALESCE(p.assigned_at,'epoch'),COALESCE(c.assigned_at,'epoch')`
+}
+
+func currentICMPLatestSQL(agentParameter, sourceParameter string) string {
+	return `(SELECT * FROM entity_evidence
        WHERE tenant_id=$1 AND context_id=$2 AND agent_id=` + agentParameter + `
          AND source_kind='path_agent' AND configured_ref=` + sourceParameter + `
-       ORDER BY observed_at DESC,id LIMIT 1) e
+       ORDER BY observed_at DESC,id LIMIT 1)`
+}
+
+func currentICMPHealthJoinsSQL(agentParameter, sourceParameter string) string {
+	return `
  LEFT JOIN entity_source_contexts m ON
    m.tenant_id=$1 AND m.context_id=$2 AND m.agent_id=` + agentParameter + `
    AND m.source_kind='path_agent' AND m.source_ref=` + sourceParameter + `
@@ -123,7 +146,7 @@ func currentICMPHealthSQL(population ...bool) string {
 
 // This reader already joins the exact source, agent assignment and issued
 // sender. ICMP requires its device anchor directly, with no inferred support
-// or physical-neighbour alias. Reuse those joins instead of planning the
+// or physical-neighbor alias. Reuse those joins instead of planning the
 // registry's unreachable BMP/inferred-link subqueries for every source.
 // All current-source, revocation and original observation clocks remain here.
 const currentDirectICMPSourceSQL = `

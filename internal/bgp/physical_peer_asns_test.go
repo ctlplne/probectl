@@ -49,7 +49,7 @@ func TestPhysicalPeerOpenASNsKeepsBothOriginalASNsAndRefusesPartialIdentity(t *t
 			}
 		}
 	}
-	for _, name := range []string{"pseudo peer", "wire ASN contradiction", "header ASN contradiction", "truncated", "down", "no admission", "cancelled"} {
+	for _, name := range []string{"pseudo peer", "wire ASN contradiction", "header ASN contradiction", "truncated", "down", "no admission", "canceled"} {
 		t.Run(name, func(t *testing.T) {
 			raw := physicalOpenPairForTest(64496, 4294967295, true)
 			profile := budget
@@ -67,7 +67,7 @@ func TestPhysicalPeerOpenASNsKeepsBothOriginalASNsAndRefusesPartialIdentity(t *t
 				raw = peerDownFrameForTest(4, nil, false)
 			case "no admission":
 				profile = PeerMessageBudget{MemoryBytes: 1, WorkUnits: 1}
-			case "cancelled":
+			case "canceled":
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()

@@ -23,6 +23,7 @@ import (
 // Exercise the shipping router's admission, locks and final authority check.
 func TestDependencyRouterCompleteTwentyThousandDurableHolds(t *testing.T) {
 	d := seedDependencyRoutingFixture(t)
+	d.f.server.pool = dependencyPopulationObservedPool(t, d.f.pool)
 	t.Cleanup(func() {
 		for _, query := range []string{
 			`DELETE FROM entity_source_contexts WHERE tenant_id=ANY($1::uuid[])`,

@@ -84,10 +84,7 @@ func (s *EntityRegistry) ReadICMPHealthPopulationInScope(ctx context.Context, sc
 		}
 		return []ICMPHealth{value}, nil
 	}
-	query := `WITH requested AS (
- SELECT ordinality,agent_id AS agent_id,source_ref,entity_id
- FROM unnest($3::text[],$4::text[],$5::uuid[]) WITH ORDINALITY AS input(agent_id,source_ref,entity_id,ordinality)
- ) SELECT requested.ordinality,measured.* FROM requested JOIN LATERAL (` + currentICMPHealthSQL(true) + `) AS measured ON true ORDER BY requested.ordinality`
+	query := currentICMPHealthPopulationSQL()
 	// Replan this complete population; a cached generic plan cannot estimate
 	// the current array lengths when rules have very different source counts.
 	rows, err := sc.Q.Query(ctx, query, pgx.QueryExecModeDescribeExec, want.TenantID, want.ContextID, agents, sources, entities, maxBytes/int64(len(keys))/16)
