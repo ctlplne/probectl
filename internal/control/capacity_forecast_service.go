@@ -20,6 +20,22 @@ import (
 )
 
 func (s *Server) measureCapacityForecast(op capacityForecastOperation, input flow.CapacityForecastRequest) (_ flow.CapacityForecastMeasurement, operationErr error) {
+	return s.measureRetainedCapacityForecast(op, input, nil, nil)
+}
+
+type capacityForecastSourceCapture struct {
+	plan       capacityCounterPlan
+	parameters capacityForecastParameters
+	rows       []flowstore.CounterRow
+}
+
+func (s *Server) measureRetainedCapacityForecast(op capacityForecastOperation, input flow.CapacityForecastRequest, publication *incidentEvidenceFinalizer, retained **capacityForecastSourceCapture) (_ flow.CapacityForecastMeasurement, operationErr error) {
+	if publication != nil {
+		*publication = nil
+	}
+	if retained != nil {
+		*retained = nil
+	}
 	none := flow.CapacityForecastMeasurement{}
 	ctx := op.request.Context()
 	finish := s.beginFlowOperation(ctx, "capacity_forecast")
@@ -94,7 +110,19 @@ func (s *Server) measureCapacityForecast(op capacityForecastOperation, input flo
 		}
 		result.Members = append(result.Members, flow.CapacityBillMember{ContextID: member.target.Scope.ContextID, DeviceID: member.target.Source.DeviceID, InterfaceID: member.target.InterfaceID, IfIndex: member.target.IfIndex, PhysicalMaxBPS: strconv.FormatUint(member.maximum, 10), ObservedNotBefore: notBefore})
 	}
-	return result, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return none, err
+	}
+	if publication != nil {
+		*publication = func(ctx context.Context) error {
+			_, err := s.capacityForecastSnapshot(ctx, op.actor, parameters, op.budget, &before, rows)
+			return err
+		}
+	}
+	if retained != nil {
+		*retained = &capacityForecastSourceCapture{plan: before, parameters: parameters, rows: rows}
+	}
+	return result, nil
 }
 
 func (s *Server) logCapacityForecastFailure(ctx context.Context, phase string, err error) {

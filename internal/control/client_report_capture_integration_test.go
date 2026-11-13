@@ -9,11 +9,13 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +36,20 @@ import (
 func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t *testing.T) {
 	d := seedDependencyRoutingFixture(t)
 	f := d.f
+	var diagnostics bytes.Buffer
+	f.server.log = slog.New(slog.NewTextHandler(&diagnostics, nil))
+	t.Cleanup(func() {
+		if t.Failed() {
+			for _, line := range strings.Split(diagnostics.String(), "\n") {
+				if strings.Contains(line, "capacity forecast") {
+					t.Log(line)
+				}
+			}
+		}
+	})
 	f.server.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	memory := flowstore.NewMemory()
+	f.server.WithFlowStore(memory)
 	private, public, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
 		t.Fatal(err)
@@ -47,12 +62,13 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	}
 	actors := map[string]*auth.Principal{}
 	finalizers := map[string]incidentEvidenceFinalizer{}
+	capacityFinalizers := map[string]incidentEvidenceFinalizer{}
 	for lane, tenant := range f.tenants {
 		for range lane + 1 {
 			d.observe(t, tenant, 0, lane == 1)
 		}
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			for _, permission := range []string{permTestRead, permChangeRead} {
+			for _, permission := range []string{permTestRead, permChangeRead, permFlowRead} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
 					return err
 				}
@@ -75,16 +91,18 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			return err
 		})
 		backdateClientReportOriginals(t, d, tenant, from)
+		seedCapacityCounterPeriod(f, memory, tenant, from, to, true)
 	}
+	capacityTarget := reporting.ClientReportCapacityTarget{Target: reporting.ClientReportCapacityRef{Kind: "interface", ContextID: f.contextID, InterfaceID: f.interfaceID}, Direction: "max_directional_percentiles", CapacityBPS: "12000000", MaximumPollGap: "5m", PhysicalBounds: []reporting.ClientReportPhysicalBound{{ContextID: f.contextID, InterfaceID: f.interfaceID, MaxBPS: "50000000"}}, ForecastMonths: 1}
 	for lane, tenant := range f.tenants {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
-		capture, err := f.server.captureClientReportSources(ctx, actors[tenant], "", at, flowstore.DefaultExplorerBudget())
+		capture, err := f.server.captureClientReportSources(ctx, actors[tenant], "", at, flowstore.DefaultExplorerBudget(), capacityTarget)
 		if err != nil {
 			t.Fatal("complete backdated-month capture failed", err)
 		}
 		capture.close()
 		capture.close()
-		if capture.TenantID != tenant || len(capture.Sources) != 2 || len(capture.Availability) != 2 || len(capture.Tables) != 5 || len(capture.InputsDigest) != 64 {
+		if capture.TenantID != tenant || len(capture.Sources) != 2 || len(capture.Availability) != 2 || len(capture.Tables) != 6 || len(capture.InputsDigest) != 64 {
 			t.Fatal("month capture lost source population or provenance")
 		}
 		if capture.Events == nil || len(capture.Events.Incidents) != 1 || capture.Events.Incidents[0].ID != d.cases[tenant] || len(capture.Events.IncidentLineage[d.cases[tenant]]) != 64 || len(capture.Events.Changes) != 2 {
@@ -107,6 +125,15 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			t.Fatal("monthly package changed the configured trusted signing identity", err)
 		}
 		finalizers[tenant] = capture.Verdicts[0].publication
+		if len(capture.Capacity) != 1 || capture.Capacity[0].OriginalRows == "0" || len(capture.Capacity[0].OriginalsDigest) != 64 || len(capture.Capacity[0].Measurement.Forecasts) != 2 || capture.Capacity[0].publication == nil {
+			t.Fatal("monthly capacity lost complete original counters, both directions or final validation")
+		}
+		for _, forecast := range capture.Capacity[0].Measurement.Forecasts {
+			if !forecast.Trained || !forecast.CoverageComplete || !forecast.From.Equal(from) || !forecast.To.Equal(to) || !forecast.Until.Equal(to.AddDate(0, 1, 0)) {
+				t.Fatal("monthly runout changed its full training period or configured horizon", forecast.Reason)
+			}
+		}
+		capacityFinalizers[tenant] = capture.Capacity[0].publication
 		if err := capture.Verdicts[0].publication(ctx); err != nil {
 			t.Fatal("unchanged monthly source failed final disclosure check", err)
 		}
@@ -202,6 +229,16 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		t.Fatal("permission withdrawal crossed tenant storage/current-authority boundary", err)
 	}
 	result.close()
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, a, f.roles[a], permFlowRead)
+		return err
+	})
+	if err := capacityFinalizers[a](tenancy.WithTenant(t.Context(), tenancy.ID(a))); err == nil {
+		t.Fatal("retained capacity evidence bypassed withdrawn current flow permission")
+	}
+	if err := capacityFinalizers[b](ctx); err != nil {
+		t.Fatal("capacity permission change invalidated another tenant", err)
+	}
 	t.Log("real-integration: complete backdated calendar-month capture through application-role PG/RLS, current actor/source/definition, expired original serials plus renewed current identities, distinct paired counts, whole incident/change/config inputs, tenant refusal and withdrawn current permission with sibling survival; historical clocks/outcomes modeled, full pack/publication/delivery and real senders remain owed")
 }
 

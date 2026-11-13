@@ -35,6 +35,7 @@ type clientReportCapture struct {
 	Tables        []reporting.CSVTable
 	Events        *clientReportEventCapture
 	Verdicts      []clientReportVerdict
+	Capacity      []clientReportCapacityCapture
 	InputsDigest  string
 	retainedBytes int64
 	release       func()
@@ -50,7 +51,7 @@ func (c *clientReportCapture) close() {
 // selection, current credential ceiling and the complete original scan share
 // one RLS read snapshot. It changes neither live health nor historical sender
 // validity: the common original reader owns both existing certificate checks.
-func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Principal, month string, at time.Time, budget flowstore.ExplorerBudget) (_ *clientReportCapture, captureErr error) {
+func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Principal, month string, at time.Time, budget flowstore.ExplorerBudget, capacityTargets ...reporting.ClientReportCapacityTarget) (_ *clientReportCapture, captureErr error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || actor == nil || actor.UserID == "" || bound.String() != actor.TenantID {
 		return nil, entity.ErrScopeMismatch
@@ -158,7 +159,13 @@ func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Pri
 		return nil, err
 	}
 	result.retainedBytes += before - remaining
-	result.Tables, err = projectClientReportSLIs(ctx, result.TenantID, from, to, result.Availability, result.SLOs, budget.MemoryBytes/16)
+	before = remaining
+	result.Capacity, err = s.captureClientReportCapacity(ctx, actor, result, capacityTargets, budget, &remaining)
+	if err != nil {
+		return nil, err
+	}
+	result.retainedBytes += before - remaining
+	result.Tables, err = projectClientReportSLIs(ctx, result.TenantID, from, to, result.Availability, result.SLOs, budget.MemoryBytes/32)
 	if err != nil {
 		return nil, err
 	}
@@ -167,9 +174,17 @@ func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Pri
 		return nil, err
 	}
 	result.Tables = append(result.Tables, eventTables...)
+	capacityTable, err := projectClientReportCapacity(ctx, result, budget.MemoryBytes/32)
+	if err != nil {
+		return nil, err
+	}
+	result.Tables = append(result.Tables, capacityTable)
 	digest := crypto.Hash(body)
 	for _, verdict := range result.Verdicts {
 		digest = crypto.Hash(append(digest, []byte(verdict.SourceDigest)...))
+	}
+	for _, capacity := range result.Capacity {
+		digest = crypto.Hash(append(digest, []byte(capacity.OriginalsDigest)...))
 	}
 	result.InputsDigest = hex.EncodeToString(digest)
 	return result, nil
