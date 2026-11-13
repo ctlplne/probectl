@@ -87,6 +87,56 @@ func (AlertNotifications) Get(ctx context.Context, s tenancy.Scope, fingerprint 
 	return &out, err
 }
 
+// GetPopulation locks complete requested episode bookkeeping in one tenant
+// transaction. Missing keys stay absent; no marker grants source authority.
+func (AlertNotifications) GetPopulation(ctx context.Context, s tenancy.Scope, fingerprints []string, maxBytes int64) (map[string]*AlertNotification, error) {
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || bound != s.Tenant || s.Q == nil {
+		return nil, alert.ErrDependencyEvidence
+	}
+	if maxBytes < 4096 || int64(len(fingerprints)) > maxBytes/1024 {
+		return nil, ErrAlertDependencyBudget
+	}
+	remaining := maxBytes
+	wanted := make(map[string]bool, len(fingerprints))
+	for _, fingerprint := range fingerprints {
+		cost := int64(len(fingerprint))
+		if remaining < 1024 || cost > remaining-1024 {
+			return nil, ErrAlertDependencyBudget
+		}
+		remaining -= 1024 + cost
+		if fingerprint == "" || wanted[fingerprint] {
+			return nil, alert.ErrDependencyEvidence
+		}
+		wanted[fingerprint] = true
+	}
+	out := make(map[string]*AlertNotification, len(fingerprints))
+	if len(fingerprints) == 0 {
+		return out, nil
+	}
+	rows, err := s.Q.Query(ctx, `SELECT fingerprint,firing_since,last_notified,dependency_held,dependency_transition::text
+ FROM alert_notifications WHERE tenant_id=$1 AND fingerprint=ANY($2::text[])
+ ORDER BY fingerprint FOR UPDATE`, s.Tenant.String(), fingerprints)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var value AlertNotification
+		if err := scanAlertNotification(rows, &value); err != nil {
+			return nil, err
+		}
+		if !wanted[value.Fingerprint] || out[value.Fingerprint] != nil {
+			return nil, alert.ErrDependencyEvidence
+		}
+		out[value.Fingerprint] = &value
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, ctx.Err()
+}
+
 // Delete removes the notification state (episode resolved).
 func (AlertNotifications) Delete(ctx context.Context, s tenancy.Scope, fingerprint string) error {
 	_, err := s.Q.Exec(ctx, `DELETE FROM alert_notifications WHERE fingerprint = $1`, fingerprint)

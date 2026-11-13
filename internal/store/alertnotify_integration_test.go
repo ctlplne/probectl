@@ -64,11 +64,30 @@ func TestAlertNotificationsStoreIsolationAndLifecycle(t *testing.T) {
 		if !got[0].FiringSince.Equal(since) || !got[0].LastNotified.Equal(renotified) || got[0].Fingerprint != fp {
 			t.Fatalf("persisted notification state = %+v (want since=%v last=%v)", got[0], since, renotified)
 		}
+		population, err := (AlertNotifications{}).GetPopulation(ctx, sc, []string{fp, "absent"}, 1<<20)
+		if err != nil || len(population) != 1 || population[fp] == nil ||
+			!population[fp].FiringSince.Equal(since) || !population[fp].LastNotified.Equal(renotified) {
+			t.Fatal("complete episode read changed original clocks or invented absent keys", population, err)
+		}
+		foreign := tenancy.WithTenant(ctx, tenancy.ID(b.ID))
+		if _, err := (AlertNotifications{}).GetPopulation(foreign, sc, []string{fp}, 1<<20); err != alert.ErrDependencyEvidence {
+			t.Fatal("episode batch accepted a mismatched tenant scope", err)
+		}
+		if _, err := (AlertNotifications{}).GetPopulation(ctx, sc, []string{fp, fp}, 1<<20); err != alert.ErrDependencyEvidence {
+			t.Fatal("episode batch accepted duplicate decision keys", err)
+		}
+		if _, err := (AlertNotifications{}).GetPopulation(ctx, sc, []string{fp}, 4095); err != ErrAlertDependencyBudget {
+			t.Fatal("episode batch escaped finite admission", err)
+		}
 		return nil
 	})
 
 	// Tenant B is isolated: it sees none of tenant A's notification state.
 	inTenant(ctx, t, pool, b.ID, func(ctx context.Context, sc tenancy.Scope) error {
+		population, err := (AlertNotifications{}).GetPopulation(ctx, sc, []string{fp, "absent"}, 1<<20)
+		if err != nil || len(population) != 0 {
+			t.Fatal("episode batch exposed the sibling tenant", population, err)
+		}
 		got, err := (AlertNotifications{}).List(ctx, sc)
 		if err != nil || len(got) != 0 {
 			t.Fatalf("tenant B sees tenant A's notification state: %+v err=%v", got, err)

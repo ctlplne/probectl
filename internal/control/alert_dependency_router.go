@@ -128,6 +128,7 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 		return nil, fmt.Errorf("dependency publication child policies: %w", err)
 	}
 	out := make([]alert.DependencyOutcome, len(attempts))
+	heldKeys := make([]string, 0, len(attempts))
 	for i, attempt := range attempts {
 		if attempt.Alert.TenantID != sc.Tenant.String() || attempt.Alert.RuleID != rule.ID || !attempt.RuleUpdatedAt.Equal(rule.UpdatedAt) || attempt.FiringSince.IsZero() {
 			return nil, alert.ErrDependencyEvidence
@@ -137,7 +138,6 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 			node = policy.Graph.Nodes[0] // independent; never a hold target
 		}
 		reachability := matched && dependencyReachabilityAttempt(rule, attempt, node, health[node.EntityID])
-		sig := signals[i]
 		if overrides[i] {
 			reachability = false // explicit operator detachment always wins
 		}
@@ -147,6 +147,20 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 		}
 		out[i].Decision = decision
 		out[i].IncidentPublished = roots[decision.NotificationFingerprint()]
+		if decision.Held() {
+			heldKeys = append(heldKeys, decision.NotificationFingerprint())
+		}
+	}
+	// The tenant correlation lock already serializes episode publication.
+	// Lock all current held markers once, rather than one network read per
+	// child. The same original decisions and transitions are published below.
+	notifications, err := (store.AlertNotifications{}).GetPopulation(ctx, sc, heldKeys, maxBytes/4)
+	if err != nil {
+		return nil, fmt.Errorf("dependency publication child episodes: %w", err)
+	}
+	for i, attempt := range attempts {
+		_, matched := nodes[attempt.Alert.Labels["test_id"]]
+		decision, sig := out[i].Decision, signals[i]
 		if !decision.Held() {
 			if attempt.PreviouslyHeld && matched {
 				if err := publishReleasedDependency(ctx, sc, policy.OwnerUserID, attempt, decision, sig, maxBytes/4); err != nil {
@@ -158,7 +172,7 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 			}
 			continue
 		}
-		if err := publishHeldDependency(ctx, sc, policy.OwnerUserID, attempt, decision, sig, maxBytes/4); err != nil {
+		if err := publishHeldDependency(ctx, sc, policy.OwnerUserID, attempt, decision, sig, notifications[decision.NotificationFingerprint()], maxBytes/4); err != nil {
 			return nil, fmt.Errorf("dependency publication held child %d of %d: %w", i+1, len(attempts), err)
 		}
 		out[i].IncidentPublished, out[i].NotificationStatePublished = true, true
@@ -329,16 +343,13 @@ func dependencyReachabilityAttempt(rule alert.Rule, attempt alert.DependencyAtte
 		attempt.Alert.Value == 0 && health.State == "down" && agent != "" && agent == node.AgentID
 }
 
-func publishHeldDependency(ctx context.Context, sc tenancy.Scope, owner string, attempt alert.DependencyAttempt, decision alert.DependencyDecision, sig incident.Signal, maxBytes int64) error {
+func publishHeldDependency(ctx context.Context, sc tenancy.Scope, owner string, attempt alert.DependencyAttempt, decision alert.DependencyDecision, sig incident.Signal, notification *store.AlertNotification, maxBytes int64) error {
 	if decision.ContextID() != sig.IdentityContextID || sig.TenantID != sc.Tenant.String() {
 		return alert.ErrDependencyEvidence
 	}
 	key := hex.EncodeToString(crypto.Hash([]byte(sc.Tenant.String() + "|" + decision.NotificationFingerprint())))
 	firingSince := attempt.FiringSince.UTC().Truncate(time.Microsecond)
-	notification, err := (store.AlertNotifications{}).Get(ctx, sc, decision.NotificationFingerprint())
-	if err != nil {
-		return err
-	}
+	var err error
 	parents := make([]string, 0, len(decision.Causes()))
 	for _, cause := range decision.Causes() {
 		parents = append(parents, cause.IncidentID)
