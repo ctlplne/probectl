@@ -72,8 +72,20 @@ func marshalResponse(v *rpcResponse) ([]byte, error) {
 }
 
 func marshal(v *rpcResponse) []byte {
+	b, _ := marshalWithCode(v)
+	return b
+}
+
+// The HTTP status comes from this same bounded encoding, including its
+// fallback. Do not parse a complete large result again to discover its code.
+func marshalWithCode(v *rpcResponse) ([]byte, int) {
+	code := 0
+	if v != nil && v.Error != nil {
+		code = v.Error.Code
+	}
 	b, err := marshalResponse(v)
 	if err != nil {
+		code = codeInternal
 		// Never echo a caller-controlled ID or source error on the exceptional
 		// path. This fixed response itself goes through the same source and
 		// writer budgets.
@@ -83,5 +95,5 @@ func marshal(v *rpcResponse) []byte {
 			false,
 		)
 	}
-	return b
+	return b, code
 }

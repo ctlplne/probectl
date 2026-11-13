@@ -246,6 +246,18 @@ func TestNativeMCPArgumentsRejectAmbiguityAndAuthorityFields(t *testing.T) {
 	if !bytes.Contains(reply, []byte(`"code":-32602`)) || b.calls != before {
 		t.Fatal("duplicate native RPC envelope reached backend")
 	}
+	// Native byte admission may inspect only the registered name, but it
+	// never grants dispatch authority to an ambiguous oversized envelope.
+	socket := httptest.NewTLSServer(server.HTTPHandler(nativeTestAuthenticator{p: nativePrincipal()}))
+	defer socket.Close()
+	large := append(bytes.Repeat([]byte{' '}, 1<<20), raw...)
+	for _, version := range []string{"", legacyProtocolVersion} {
+		response := legacyTLSCall(t, socket, large, "owned", version)
+		body := legacyBody(t, response)
+		if !bytes.Contains(body, []byte(`"error"`)) || b.calls != before {
+			t.Fatal("native byte admission bypassed strict envelope validation", version)
+		}
+	}
 }
 
 type nativeTestAuthenticator struct{ p *auth.Principal }

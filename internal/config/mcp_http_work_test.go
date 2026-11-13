@@ -13,7 +13,7 @@ import (
 
 func TestMCPHTTPWorkCostConfiguration(t *testing.T) {
 	cfg, err := Load(envFunc(nil))
-	if err != nil || cfg.MCPHTTPWorkTimeout != time.Minute || cfg.MCPHTTPActiveRequests != 1024 {
+	if err != nil || cfg.MCPHTTPWorkTimeout != 3*time.Minute || cfg.MCPHTTPActiveRequests != 1024 {
 		t.Fatal("HTTP work defaults absent", err)
 	}
 	cfg, err = Load(envFunc(map[string]string{"PROBECTL_MCP_HTTP_WORK_TIMEOUT": "25h", "PROBECTL_MCP_HTTP_ACTIVE_REQUESTS": "1000001"}))

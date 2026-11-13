@@ -190,20 +190,26 @@ func (s *Server) Handle(ctx context.Context, p *auth.Principal, raw []byte) []by
 }
 
 func (s *Server) handleRequest(ctx context.Context, p *auth.Principal, req rpcRequest, raw []byte) []byte {
-	if len(raw) > 4<<20 && !s.isNativeCall(raw) {
-		return marshal(errorResponse(req.ID, codeInvalidRequest, "request exceeds operation admission"))
+	response, _ := s.handleRequestWithCode(ctx, p, req, raw)
+	return response
+}
+
+func (s *Server) handleRequestWithCode(ctx context.Context, p *auth.Principal, req rpcRequest, raw []byte) ([]byte, int) {
+	native := s.isNativeRequest(req)
+	if len(raw) > 4<<20 && !native {
+		return marshalWithCode(errorResponse(req.ID, codeInvalidRequest, "request exceeds operation admission"))
 	}
-	if req.Method == "tools/call" && s.isNativeCall(raw) {
+	if native {
 		if err := nativeJSONSyntax(raw, s.nativeRequestBytes()); err != nil {
-			return marshal(errorResponse(nil, codeInvalidParams, "invalid native request JSON"))
+			return marshalWithCode(errorResponse(nil, codeInvalidParams, "invalid native request JSON"))
 		}
 		var fields map[string]json.RawMessage
 		if json.Unmarshal(req.Params, &fields) != nil {
-			return marshal(errorResponse(req.ID, codeInvalidParams, "invalid native tool parameters"))
+			return marshalWithCode(errorResponse(req.ID, codeInvalidParams, "invalid native tool parameters"))
 		}
 		for key := range fields {
 			if key != "name" && key != "arguments" && key != "_meta" {
-				return marshal(errorResponse(req.ID, codeInvalidParams, "unknown native tool parameter"))
+				return marshalWithCode(errorResponse(req.ID, codeInvalidParams, "unknown native tool parameter"))
 			}
 		}
 	}
@@ -211,7 +217,7 @@ func (s *Server) handleRequest(ctx context.Context, p *auth.Principal, req rpcRe
 		// The ID is caller-controlled and is echoed by JSON-RPC. Refuse it
 		// before dispatch and omit it from the error so every transport has the
 		// same fixed, bounded response.
-		return marshal(errorResponse(nil, codeInvalidRequest, "request id exceeds size limit"))
+		return marshalWithCode(errorResponse(nil, codeInvalidRequest, "request id exceeds size limit"))
 	}
 	notification := len(req.ID) == 0
 	resp := s.dispatch(ctx, p, req)
@@ -220,16 +226,16 @@ func (s *Server) handleRequest(ctx context.Context, p *auth.Principal, req rpcRe
 		defer resp.finalize()
 	}
 	if notification || resp == nil {
-		return nil
+		return nil, 0
 	}
 	if ctx.Err() != nil {
-		return marshal(s.prepareResponse(req, errorResponse(req.ID, codeUnavailable, "request was canceled")))
+		return marshalWithCode(s.prepareResponse(req, errorResponse(req.ID, codeUnavailable, "request was canceled")))
 	}
-	encoded := marshal(resp)
+	encoded, code := marshalWithCode(resp)
 	if ctx.Err() != nil {
-		return marshal(s.prepareResponse(req, errorResponse(req.ID, codeUnavailable, "request was canceled")))
+		return marshalWithCode(s.prepareResponse(req, errorResponse(req.ID, codeUnavailable, "request was canceled")))
 	}
-	return encoded
+	return encoded, code
 }
 
 func (s *Server) dispatch(ctx context.Context, p *auth.Principal, req rpcRequest) *rpcResponse {
@@ -832,8 +838,18 @@ func toolResult(text string, structured any, isErr bool) map[string]any {
 
 // The larger authenticated body allowance belongs only to declared native tools.
 func (s *Server) isNativeCall(raw []byte) bool {
-	req, failure := s.decodeRPC(raw, false)
-	if failure != nil || req.Method != "tools/call" {
+	// This is byte admission only. The transport decodes the complete envelope
+	// before dispatch, and handleRequest validates every native argument. Do
+	// not repeat that full syntax walk just to find the registered tool name.
+	var req rpcRequest
+	if json.Unmarshal(raw, &req) != nil {
+		return false
+	}
+	return s.isNativeRequest(req)
+}
+
+func (s *Server) isNativeRequest(req rpcRequest) bool {
+	if req.Method != "tools/call" {
 		return false
 	}
 	var params map[string]json.RawMessage

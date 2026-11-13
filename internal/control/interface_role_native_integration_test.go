@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -111,6 +112,7 @@ func interfaceRoleNativeTLSCaller(t *testing.T, f *roleExplanationAPIFixture, wi
 	}
 	return func(tenant, tool string, args any, target any, wantOK bool) {
 		t.Helper()
+		started := time.Now()
 		params := map[string]any{"name": tool, "arguments": args}
 		if wire == "2026-07-28" {
 			params["_meta"] = map[string]any{"io.modelcontextprotocol/protocolVersion": wire, "io.modelcontextprotocol/clientCapabilities": map[string]any{}}
@@ -165,7 +167,7 @@ func interfaceRoleNativeTLSCaller(t *testing.T, f *roleExplanationAPIFixture, wi
 			} `json:"result"`
 		}
 		if err := json.Unmarshal(raw, &reply); err != nil {
-			t.Fatalf("native %s %s response is not a complete RPC frame: status=%d bytes=%d: %v", wire, tool, response.StatusCode, len(raw), err)
+			t.Fatalf("native %s %s response is not a complete RPC frame: status=%d bytes=%d elapsed=%s: %v", wire, tool, response.StatusCode, len(raw), time.Since(started), err)
 		}
 		ok := response.StatusCode == http.StatusOK && len(reply.Error) == 0 && !reply.Result.IsError && len(reply.Result.Data) > 0 && string(reply.Result.Data) != "null"
 		if ok != wantOK {

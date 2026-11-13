@@ -1399,7 +1399,7 @@ func loadAuthIngressConfig(l *loader, cfg *Config) {
 	cfg.MCPRatePerMin = l.intRange("PROBECTL_MCP_RATE_PER_MIN", 120, 0, 100000)
 	cfg.MCPStdioWorkers = l.intRange("PROBECTL_MCP_STDIO_WORKERS", 2, 1, min(int(^uint(0)>>1)/80, 1<<31-2))
 	cfg.MCPStdioQueued = l.intRange("PROBECTL_MCP_STDIO_QUEUED", 8, 1, int(^uint(0)>>1)/24)
-	cfg.MCPHTTPWorkTimeout = l.dur("PROBECTL_MCP_HTTP_WORK_TIMEOUT", time.Minute)
+	cfg.MCPHTTPWorkTimeout = l.dur("PROBECTL_MCP_HTTP_WORK_TIMEOUT", 3*time.Minute)
 	if cfg.MCPHTTPWorkTimeout <= 0 {
 		l.errf("PROBECTL_MCP_HTTP_WORK_TIMEOUT must be positive")
 	}

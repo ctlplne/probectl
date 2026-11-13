@@ -290,6 +290,39 @@ func TestLegacy2025HTTPChangedAuthorityRefusesBeforeEgressSuccess(t *testing.T) 
 }
 
 func TestLegacy2025HTTPDeadlineAndActiveCostAreBounded(t *testing.T) {
+	t.Run("listener-write-budget", func(t *testing.T) {
+		for _, version := range []string{modernProtocolVersion, legacyProtocolVersion} {
+			t.Run(version, func(t *testing.T) {
+				b := &nativeBackendProbe{onQuery: func() { time.Sleep(250 * time.Millisecond) }}
+				s := nativeProbeServer(b, nil)
+				WithHTTPWorkBudget(HTTPWorkBudget{Timeout: 5 * time.Second, ActiveRequests: 2})(s)
+				socket := httptest.NewUnstartedServer(s.HTTPHandler(fakeAuthn{p: nativePrincipal()}))
+				socket.Config.WriteTimeout = 100 * time.Millisecond
+				socket.StartTLS()
+				defer socket.Close()
+				params := map[string]any{"name": "flow_explorer_query", "arguments": map[string]any{"plan": map[string]any{}}}
+				raw := modernRequest("tools/call", params)
+				if version == legacyProtocolVersion {
+					raw = legacyQuery(2, "write-budget")
+				}
+				req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, socket.URL, bytes.NewReader(raw))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for key, value := range map[string]string{"Authorization": "Bearer owned", "Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": version, "Mcp-Method": "tools/call", "Mcp-Name": "flow_explorer_query"} {
+					req.Header.Set(key, value)
+				}
+				response, err := socket.Client().Do(req)
+				if err != nil {
+					t.Fatal("listener cut off admitted native work", err)
+				}
+				body := legacyBody(t, response)
+				if response.StatusCode != http.StatusOK || !bytes.Contains(body, []byte(`"structuredContent"`)) || bytes.Contains(body, []byte(`"error"`)) || b.calls != 1 {
+					t.Fatal("listener deadline lost the complete admitted native result", response.StatusCode)
+				}
+			})
+		}
+	})
 	t.Run("larger-operator-profile", func(t *testing.T) {
 		s := nativeProbeServer(&nativeBackendProbe{}, nil)
 		WithHTTPWorkBudget(HTTPWorkBudget{Timeout: 25 * time.Hour, ActiveRequests: 1000001})(s)

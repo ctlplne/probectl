@@ -36,6 +36,9 @@ func (s *Server) serveLegacyHTTP(w http.ResponseWriter, r *http.Request, authn A
 		return
 	}
 	defer job.finish()
+	if deadline, ok := job.ctx.Deadline(); ok {
+		_ = http.NewResponseController(w).SetWriteDeadline(deadline.Add(httpResponseCloseGrace))
+	}
 	p = principalSnapshot(p)
 	ctx := withPublicationGuard(job.ctx, func(ctx context.Context) error {
 		current, err := authn.Authenticate(ctx, bearer)

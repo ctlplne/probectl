@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+// Work still expires at its original deadline. Leave a bounded interval for
+// the handler and TLS record to close without an expired socket write.
+const httpResponseCloseGrace = 5 * time.Second
+
 // HTTPWorkBudget bounds detached legacy HTTP execution. Native source and
 // tenant fairness/read/memory/render limits remain independent and unchanged.
 type HTTPWorkBudget struct {
@@ -19,7 +23,7 @@ type HTTPWorkBudget struct {
 }
 
 func DefaultHTTPWorkBudget() HTTPWorkBudget {
-	return HTTPWorkBudget{Timeout: time.Minute, ActiveRequests: 1024}
+	return HTTPWorkBudget{Timeout: 3 * time.Minute, ActiveRequests: 1024}
 }
 
 func (b HTTPWorkBudget) Validate() error {

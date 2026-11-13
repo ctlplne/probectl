@@ -12,6 +12,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/httpbody"
@@ -104,6 +105,9 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
+		// A listener's short default must not cut off an authenticated,
+		// admitted large native result before its operator-owned work budget.
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(s.httpWorkBudget.Timeout).Add(httpResponseCloseGrace))
 		limit := int64(1 << 20)
 		if s.nativeEnabled {
 			limit = int64(s.nativeRequestBytes())
@@ -178,7 +182,7 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 				return http.NewResponseController(w).Flush()
 			})
 		}
-		resp := s.handleRequest(requestCtx, p, req, body)
+		resp, code := s.handleRequestWithCode(requestCtx, p, req, body)
 		if req.protocol.modern && r.Context().Err() != nil {
 			return
 		}
@@ -198,11 +202,11 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 		// a client's standard transport-level backoff triggers without having to
 		// parse the JSON-RPC body. Other responses keep HTTP 200 (JSON-RPC
 		// carries their status in the body, the protocol's contract).
-		if rpcErrorCode(resp) == codeRateLimited || rpcErrorCode(resp) == codeModernRateLimited {
+		if code == codeRateLimited || code == codeModernRateLimited {
 			w.Header().Set("Retry-After", "60")
 			w.WriteHeader(http.StatusTooManyRequests)
 		} else if req.protocol.modern {
-			w.WriteHeader(modernHTTPStatus(rpcErrorCode(resp)))
+			w.WriteHeader(modernHTTPStatus(code))
 		}
 		_, _ = w.Write(resp)
 	})
