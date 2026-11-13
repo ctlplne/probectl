@@ -297,3 +297,41 @@ Paired API/compiled CLI refusals and restart survival remain required. Its real 
 mandatory. Generated inputs do not establish hardware-exporter behavior.
 Receipts require successful execution on the candidate; source checks alone do
 not qualify the feature.
+
+
+## Monthly client packs (preview)
+
+Set `definition.client_report` on an owned dashboard to derive a monthly pack
+from the tenant's retained originals. Omit `flow_sources`, caller metrics and
+absolute bounds. For example, alongside the usual provenance, redaction and
+coverage disclosures:
+
+```json
+{"client_report":{"month":"2026-10","capacity_targets":[]}}
+```
+
+An omitted month selects the previous complete UTC calendar month. The pack
+contains availability, configured-window SLOs, incidents and deterministic
+verdicts, changes, capacity/runout and a complete offline signed-evidence index.
+An empty capacity target list explicitly makes no capacity/runout claim.
+Capacity targets use canonical interfaces/circuits, explicit physical bounds,
+an operator threshold and a calendar-month forecast horizon; inventory speed is
+never treated as measured spare capacity. Original counts/digests and exact
+rational values accompany the figures; missing data is explicit.
+
+Use the existing report generate/download API, SDK, CLI and native report tools
+for CSV or PDF. Both formats use immutable tenant-isolated chunks. Private
+version-3 source requirements recheck current reader permissions, context
+attributes, source assignments, definitions, renewed active identities,
+revocation and lifecycle generation before publication and every download.
+Report metadata has no cached grant. Display text applies configured telemetry
+redaction and the unconditional secret floor; signed envelopes and numeric
+provenance stay intact. Verify index envelopes using the configured public key.
+
+Existing owned report schedules use the same monthly source path and retain
+normal delivery and read-only delegation checks. A deployment requiring MFA
+continues to require it for counter-backed capacity calculation; an unattended
+principal does not acquire an MFA assertion. A refused calculation publishes
+no partial pack. Manifests retain literal capacity references as configuration;
+when importing to another tenant, supply that tenant's canonical references.
+Foreign references never acquire source authority through import.

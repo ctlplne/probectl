@@ -148,7 +148,7 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 	if err := cleanDashboardDefinition(&definition); err != nil {
 		return false, err
 	}
-	if len(definition.FlowSources) > 0 {
+	if len(definition.FlowSources) > 0 || definition.ClientReport != nil {
 		return s.materializeSourceReport(ctx, tenantName, item, definition, now)
 	}
 	document := reporting.Document{

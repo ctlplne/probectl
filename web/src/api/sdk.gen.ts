@@ -748,6 +748,20 @@ export interface ChannelSpec {
   url?: string
 }
 
+export interface ClientReportCapacityTarget {
+  capacity_bps: string
+  direction: "in" | "out" | "max_directional_percentiles"
+  forecast_months?: number
+  maximum_poll_gap: string
+  physical_bounds: CapacityPhysicalBound[]
+  target: CapacityTarget
+}
+
+export interface ClientReportDefinition {
+  capacity_targets: ClientReportCapacityTarget[]
+  month?: string
+}
+
 export interface CollectorConfigHint {
   env: { [key: string]: string }
   startup_command?: string
@@ -893,6 +907,7 @@ export interface DashboardCreateRequest {
 export interface DashboardDefinition {
   absolute_from?: string
   absolute_to?: string
+  client_report?: ClientReportDefinition | null
   coverage_limitations: string[]
   flow_sources?: JsonObject[]
   metrics?: { [key: string]: string }
@@ -910,6 +925,7 @@ export interface DashboardManifest {
 export interface DashboardManifestDefinition {
   absolute_from?: string
   absolute_to?: string
+  client_report?: ClientReportDefinition | null
   coverage_limitations: string[]
   flow_sources?: JsonObject[]
   metrics: DashboardManifestMetric[]

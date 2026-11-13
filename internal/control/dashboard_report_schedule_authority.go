@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -55,7 +56,7 @@ func (s *Server) prepareScheduledReportAuthority(r *http.Request, dashboardID st
 	}); err != nil {
 		return nil, err
 	}
-	if len(definition.FlowSources) == 0 {
+	if len(definition.FlowSources) == 0 && definition.ClientReport == nil {
 		return authority, nil
 	}
 	if err := cleanDashboardDefinition(&definition); err != nil {
@@ -72,7 +73,7 @@ func (s *Server) prepareScheduledReportAuthority(r *http.Request, dashboardID st
 	ctx, cancel := context.WithTimeout(tenancy.WithTenant(r.Context(), tenancy.ID(actor.TenantID)), budget.ExecutionLimit)
 	authority.cancel = cancel
 	authority.request = r.WithContext(ctx)
-	capture, err := s.captureReportFlowSources(ctx, actor, definition.FlowSources)
+	capture, err := s.captureConfiguredReportSources(ctx, actor, definition, time.Now().UTC())
 	if err != nil {
 		authority.close()
 		return nil, reportGenerationError(err)

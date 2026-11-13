@@ -8,8 +8,10 @@ package store
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/entity"
@@ -93,11 +95,15 @@ func (*EntityRegistry) ClientReportConfiguredTestsInScope(ctx context.Context, s
 // Current identity may renew; original definition and canonical binding may not
 // silently change. This reads configuration/authority, never stored outcomes.
 func (*EntityRegistry) RecheckClientReportTestsInScope(ctx context.Context, sc tenancy.Scope, expected []IncidentConfiguredTest, maxBytes int64, authorize func(context.Context, entity.ContextRecord, IncidentImpactEntity, string) error) error {
+	return recheckClientReportTests(ctx, sc, expected, maxBytes, authorize, nil)
+}
+
+func recheckClientReportTests(ctx context.Context, sc tenancy.Scope, expected []IncidentConfiguredTest, maxBytes int64, authorize func(context.Context, entity.ContextRecord, IncidentImpactEntity, string) error, digests map[string]string) error {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || bound != sc.Tenant || sc.Q == nil || authorize == nil {
 		return entity.ErrScopeMismatch
 	}
-	if err := requireRoutingCaptureReadSnapshot(ctx, sc); err != nil {
+	if err := requireReportSourceReadScope(ctx, sc); err != nil {
 		return err
 	}
 	if maxBytes < 8192 || int64(len(expected)) > maxBytes/2048 {
@@ -155,15 +161,19 @@ func (*EntityRegistry) RecheckClientReportTestsInScope(ctx context.Context, sc t
 		}
 		// Identity expiry is deliberately excluded: renewed current identities are
 		// valid. Assignment/definition lineage remains the original capture's.
-		a, err := json.Marshal([]any{original.Name, original.Type, original.Target, original.CurrentSince, original.Definition, original.PathBinding})
+		expectedDigest := digests[clientReportTestKey(original)]
+		if digests == nil {
+			var err error
+			expectedDigest, err = clientReportTestDigest(original)
+			if err != nil {
+				return err
+			}
+		}
+		currentDigest, err := clientReportTestDigest(item)
 		if err != nil {
 			return err
 		}
-		b, err := json.Marshal([]any{item.Name, item.Type, item.Target, item.CurrentSince, item.Definition, item.PathBinding})
-		if err != nil {
-			return err
-		}
-		if string(a) != string(b) {
+		if expectedDigest != currentDigest {
 			return errClientReportTestAuthority
 		}
 	}
@@ -174,4 +184,57 @@ var errClientReportTestAuthority = errors.New("monthly report configured test au
 
 func clientReportTestKey(item IncidentConfiguredTest) string {
 	return item.ContextID + ":" + item.EntityID + ":" + item.TestID + ":" + item.AgentID
+}
+
+// ReportTestRequirement keeps identities and a one-way configuration digest,
+// never duplicates test parameters or credentials into a report artifact.
+type ReportTestRequirement struct {
+	TenantID            string `json:"tenant_id"`
+	ContextID           string `json:"context_id"`
+	EntityID            string `json:"entity_id"`
+	TestID              string `json:"test_id"`
+	AgentID             string `json:"agent_id"`
+	SourceGeneration    int64  `json:"generation"`
+	ConfigurationDigest string `json:"configuration_digest"`
+}
+
+// ClientReportTestRequirements freezes only non-secret source requirements.
+func ClientReportTestRequirements(sources []IncidentConfiguredTest) ([]ReportTestRequirement, error) {
+	out := make([]ReportTestRequirement, 0, len(sources))
+	for _, source := range sources {
+		digest, err := clientReportTestDigest(source)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ReportTestRequirement{TenantID: source.TenantID, ContextID: source.ContextID, EntityID: source.EntityID, TestID: source.TestID, AgentID: source.AgentID, SourceGeneration: source.SourceGeneration, ConfigurationDigest: digest})
+	}
+	return out, nil
+}
+
+func clientReportTestDigest(source IncidentConfiguredTest) (string, error) {
+	raw, err := json.Marshal([]any{source.Name, source.Type, source.Target, source.CurrentSince, source.Definition, source.PathBinding})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(crypto.Hash(raw)), nil
+}
+
+// RecheckClientReportTestRequirementsInScope resolves stored selectors using
+// current metadata; the original executable parameters are never persisted.
+func (*EntityRegistry) RecheckClientReportTestRequirementsInScope(ctx context.Context, sc tenancy.Scope, requirements []ReportTestRequirement, memory int64, authorize func(context.Context, entity.ContextRecord, IncidentImpactEntity, string) error) error {
+	if memory < 8192 || int64(len(requirements)) > memory/2048 {
+		return ErrClientReportBudget
+	}
+	selected := make([]IncidentConfiguredTest, 0, len(requirements))
+	digests := map[string]string{}
+	for _, item := range requirements {
+		digest, err := hex.DecodeString(item.ConfigurationDigest)
+		if err != nil || len(digest) != 32 {
+			return errClientReportTestAuthority
+		}
+		source := IncidentConfiguredTest{TenantID: item.TenantID, ContextID: item.ContextID, EntityID: item.EntityID, TestID: item.TestID, AgentID: item.AgentID, SourceGeneration: item.SourceGeneration}
+		selected = append(selected, source)
+		digests[clientReportTestKey(source)] = item.ConfigurationDigest
+	}
+	return recheckClientReportTests(ctx, sc, selected, memory, authorize, digests)
 }

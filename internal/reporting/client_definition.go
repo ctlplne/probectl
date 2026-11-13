@@ -31,3 +31,10 @@ type ClientReportPhysicalBound struct {
 	InterfaceID string `json:"interface_id"`
 	MaxBPS      string `json:"max_bps"`
 }
+
+// ClientReportDefinition selects an immutable month and explicit capacity
+// assumptions. An empty month resolves the previous complete calendar month.
+type ClientReportDefinition struct {
+	Month           string                       `json:"month,omitempty"`
+	CapacityTargets []ClientReportCapacityTarget `json:"capacity_targets"`
+}

@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -76,6 +77,60 @@ func (s *Server) captureClientReportVerdicts(ctx context.Context, actor *auth.Pr
 		}
 		if hex.EncodeToString(digest) != capture.Events.IncidentLineage[item.ID] {
 			return nil, apierror.Unavailable("monthly incident membership changed during capture; retry")
+		}
+
+		for _, source := range retained.tests {
+			capture.sourceKeys = append(capture.sourceKeys, store.ReportSourceKey{ContextID: source.ContextID, AgentID: source.AgentID, Kind: "path_agent", Ref: source.TestID})
+		}
+		for _, source := range retained.sources {
+			if source.Current {
+				capture.sourceKeys = append(capture.sourceKeys, store.ReportSourceKey{ContextID: source.ContextID, AgentID: source.AgentID, Kind: "device_target", Ref: source.ConfiguredRef})
+			}
+		}
+		for _, role := range retained.roles {
+			refs := []string{}
+			if role.SNMP != nil {
+				refs = append(refs, role.SNMP.SourceID)
+				if role.SNMP.PrefixSourceID != "" {
+					refs = append(refs, role.SNMP.PrefixSourceID)
+				}
+				for _, binding := range role.SNMP.Bindings {
+					refs = append(refs, binding.SourceID)
+				}
+			}
+			for _, peer := range role.Peers {
+				refs = append(refs, peer.SourceID)
+			}
+			for _, id := range refs {
+				if id == "" {
+					continue
+				}
+				id, ok := strings.CutPrefix(id, "evidence/")
+				if !ok {
+					return nil, entity.ErrInvalidClaim
+				}
+				capture.evidenceRefs = append(capture.evidenceRefs, store.ReportEvidenceRef{ContextID: role.Scope.ContextID, ID: id})
+			}
+		}
+		for _, session := range retained.peerSessions {
+			if session.SourceCurrent {
+				capture.sourceKeys = append(capture.sourceKeys, store.ReportSourceKey{ContextID: session.ContextID, AgentID: session.AgentID, Kind: "bmp_peer", Ref: session.ConfiguredRef})
+			}
+		}
+		for _, route := range retained.routes {
+			if route.Route == nil {
+				continue
+			}
+			var key store.ReportSourceKey
+			err := tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+				var err error
+				key, err = (store.BGPRouting{}).ReportBaseSourceKeyInScope(ctx, sc, route.Route.Source, store.BGPRoutingBudget{MemoryBytes: remaining / 16, WorkUnits: remaining / 16, StateBytes: remaining / 16})
+				return err
+			})
+			if err != nil {
+				return nil, err
+			}
+			capture.sourceKeys = append(capture.sourceKeys, key)
 		}
 		pol := incidentEvidenceTenantPolicy(redactionPolicy(s.cfg), actor.TenantID)
 		redacted := redactIncidentForShare(item, pol, actor.TenantID)

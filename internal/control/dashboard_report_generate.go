@@ -62,7 +62,7 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 	ctx, cancel := context.WithTimeout(tenancy.WithTenant(r.Context(), tenant), budget.ExecutionLimit)
 	defer cancel()
 	actor := auth.PrincipalFrom(r.Context())
-	capture, err := s.captureReportFlowSources(ctx, actor, definition.FlowSources)
+	capture, err := s.captureConfiguredReportSources(ctx, actor, definition, time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +80,9 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 		return nil, err
 	}
 	defer func() { _ = stage.Close() }()
+	if err := revalidateMonthlyReportOriginals(ctx, capture); err != nil {
+		return nil, err
+	}
 	id, err := crypto.UUIDv4()
 	if err != nil {
 		return nil, err
@@ -116,8 +119,12 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 }
 
 func sourceReportDocument(view *store.DashboardView, definition dashboardDefinition, tenantName, generator string, at time.Time, capture *reportFlowCapture) (reporting.Document, error) {
-	if view == nil || capture == nil || view.TenantID != capture.TenantID || len(capture.Inputs) == 0 || len(capture.Tables) == 0 {
+	if view == nil || capture == nil || view.TenantID != capture.TenantID || len(capture.Inputs) == 0 && capture.Monthly == nil || len(capture.Tables) == 0 {
 		return reporting.Document{}, apierror.Forbidden("report captured source scope is unavailable")
+	}
+	if capture.Monthly != nil {
+		provenance := append(append([]string{}, definition.Provenance...), "Monthly original inputs sha256:"+capture.Monthly.InputsDigest)
+		return reporting.Document{Title: view.Name, Preset: view.Preset, TenantName: tenantName, TenantScope: view.TenantID, AbsoluteFrom: capture.Monthly.From, AbsoluteTo: capture.Monthly.To, GeneratedAt: at, GeneratedBy: generator, Provenance: provenance, RedactionState: definition.RedactionState, CoverageLimitations: append(append([]string{}, definition.CoverageLimitations...), "Monthly client pack preview; retained observations do not prove complete scheduled coverage."), Tables: capture.Tables}, nil
 	}
 	from, to := capture.Inputs[0].From, capture.Inputs[0].To
 	for _, input := range capture.Inputs {
@@ -178,6 +185,9 @@ func (s *Server) validateReportSourcePublication(ctx context.Context, sc tenancy
 	if capture == nil {
 		return apierror.Forbidden("report source capture is unavailable")
 	}
+	if capture.Monthly != nil {
+		return s.revalidateClientReportRequirementsScope(ctx, sc, actor, capture.TenantID, capture.Monthly)
+	}
 	if err := flowsnapshot.MatchSourceGenerationInScope(ctx, sc, capture.SourceGeneration); err != nil {
 		return apierror.Conflict("report sources were invalidated during generation; retry after lifecycle completion").Wrap(err)
 	}
@@ -234,8 +244,8 @@ func (s *Server) validateReportSourcePublication(ctx context.Context, sc tenancy
 
 func reportGenerationError(err error) error {
 	switch {
-	case errors.Is(err, reporting.ErrBodyStageLimit), errors.Is(err, reporting.ErrCSVLimit), errors.Is(err, reporting.ErrPDFLimit), errors.Is(err, context.DeadlineExceeded):
-		return apierror.RateLimited("complete report exceeds the current output or execution budget; narrow its saved sources and retry").Wrap(err)
+	case errors.Is(err, store.ErrClientReportBudget), errors.Is(err, reporting.ErrBodyStageLimit), errors.Is(err, reporting.ErrCSVLimit), errors.Is(err, reporting.ErrPDFLimit), errors.Is(err, context.DeadlineExceeded):
+		return apierror.RateLimited("complete report exceeds the current output or execution budget; increase the corresponding configured admission and retry").Wrap(err)
 	case errors.Is(err, flowsnapshot.ErrInvalidating):
 		return apierror.Conflict("report source lifecycle transition is incomplete; retry after completion").Wrap(err)
 	case errors.Is(err, fairness.ErrQueryConcurrency), errors.Is(err, fairness.ErrQueryBudget):

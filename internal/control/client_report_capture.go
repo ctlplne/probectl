@@ -7,6 +7,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -25,6 +26,7 @@ import (
 )
 
 type clientReportCapture struct {
+	SourceGeneration int64
 	TenantID         string
 	From, To         time.Time
 	Sources          []store.IncidentConfiguredTest
@@ -38,6 +40,10 @@ type clientReportCapture struct {
 	Capacity         []clientReportCapacityCapture
 	InputsDigest     string
 	testsPublication incidentEvidenceFinalizer
+	access           *clientReportAccessCapture
+	sourceKeys       []store.ReportSourceKey
+	evidenceRefs     []store.ReportEvidenceRef
+	bindings         []store.ReportSourceBinding
 	retainedBytes    int64
 	release          func()
 }
@@ -64,6 +70,8 @@ func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Pri
 	if s.pool == nil || s.fairnessGate == nil || budget.Validate() != nil {
 		return nil, apierror.Unavailable("monthly report source admission is unavailable")
 	}
+	access := &clientReportAccessCapture{tenant: actor.TenantID, remaining: budget.MemoryBytes / 32, seen: map[string]bool{}}
+	ctx = context.WithValue(ctx, clientReportAccessKey{}, access)
 	ctx, err = bindFlowRoleContext(ctx, actor)
 	if err != nil {
 		return nil, err
@@ -77,7 +85,7 @@ func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Pri
 	if err != nil {
 		return nil, err
 	}
-	result := &clientReportCapture{TenantID: actor.TenantID, From: from, To: to, release: sync.OnceFunc(release)}
+	result := &clientReportCapture{TenantID: actor.TenantID, From: from, To: to, release: sync.OnceFunc(release), access: access}
 	defer func() {
 		if captureErr != nil {
 			result.close()
@@ -86,6 +94,11 @@ func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Pri
 	ctx, flush := scopedABACDenial(ctx)
 	defer flush(s)
 	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := sc.Q.QueryRow(ctx, `SELECT COALESCE(e.generation,1) FROM (VALUES($1::uuid)) t(id)
+ LEFT JOIN flow_snapshot_epochs e ON e.tenant_id=t.id
+ WHERE NOT COALESCE(e.invalidating OR e.observation_erasing,false)`, sc.Tenant.String()).Scan(&result.SourceGeneration); err != nil {
+			return err
+		}
 		current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
 		if err != nil {
 			return err
@@ -188,14 +201,66 @@ func (s *Server) captureClientReportSources(ctx context.Context, actor *auth.Pri
 		digest = crypto.Hash(append(digest, []byte(capacity.OriginalsDigest)...))
 	}
 	result.InputsDigest = hex.EncodeToString(digest)
+	for _, source := range result.Sources {
+		result.sourceKeys = append(result.sourceKeys, store.ReportSourceKey{ContextID: source.ContextID, AgentID: source.AgentID, Kind: "path_agent", Ref: source.TestID})
+	}
+	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		registry := store.NewEntityRegistry(s.pool)
+		keys, err := registry.ReportEvidenceSourceKeysInScope(ctx, sc, result.evidenceRefs, budget.MemoryBytes/32)
+		if err != nil {
+			return err
+		}
+		result.sourceKeys = append(result.sourceKeys, keys...)
+		result.bindings, err = registry.ReportSourceBindingsInScope(ctx, sc, result.sourceKeys, budget.MemoryBytes/16)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
 	result.testsPublication = func(final context.Context) error {
 		return tenancy.InTenantReadSnapshot(final, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-			return s.revalidateClientReportTestsInScope(ctx, sc, actor, result.Sources, budget.MemoryBytes/8)
+			if err := s.revalidateClientReportTestsInScope(ctx, sc, actor, result.Sources, budget.MemoryBytes/8); err != nil {
+				return err
+			}
+			accumulator, err := newClientReportSLIAccumulator(ctx, result.TenantID, result.Sources, result.Definitions, from, to, budget.MemoryBytes/8, budget.ReadBytes)
+			if err != nil {
+				return err
+			}
+			limits := store.ConfiguredMeasurementScanBudget{MemoryBytes: budget.MemoryBytes / 8, ReadBytes: budget.ReadBytes, ReadRows: int64(budget.ReadRows)}
+			if err := store.NewEntityRegistry(s.pool).WalkConfiguredTestMeasurementsInScope(ctx, sc, result.Sources, accumulator.first, to, limits, func(item store.IncidentTestMeasurement) error { return accumulator.observe(ctx, item) }); err != nil {
+				return err
+			}
+			availability, objectives, err := accumulator.finish(ctx)
+			if err != nil {
+				return err
+			}
+			original, err := json.Marshal([]any{result.Availability, result.SLOs})
+			if err != nil {
+				return err
+			}
+			current, err := json.Marshal([]any{availability, objectives})
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(original, current) {
+				return apierror.Conflict("monthly original availability or SLO population changed during generation; retry")
+			}
+			return ctx.Err()
 		})
 	}
 	if err := result.testsPublication(ctx); err != nil {
 		return nil, err
 	}
+	metadata, err := json.Marshal(result.bindings)
+	if err != nil {
+		return nil, err
+	}
+	result.retainedBytes += 8*int64(len(metadata)) + budget.MemoryBytes/32 - access.remaining
+	if result.retainedBytes > budget.MemoryBytes/2 {
+		return nil, store.ErrClientReportBudget
+	}
+	result.sourceKeys = nil
+	result.evidenceRefs = nil
 	return result, nil
 }
 

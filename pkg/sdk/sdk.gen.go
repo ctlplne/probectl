@@ -842,6 +842,20 @@ type ChannelSpec struct {
 	Url        string   `json:"url,omitempty"`
 }
 
+type ClientReportCapacityTarget struct {
+	CapacityBps    string                  `json:"capacity_bps"`
+	Direction      string                  `json:"direction"`
+	ForecastMonths int                     `json:"forecast_months,omitempty"`
+	MaximumPollGap string                  `json:"maximum_poll_gap"`
+	PhysicalBounds []CapacityPhysicalBound `json:"physical_bounds"`
+	Target         CapacityTarget          `json:"target"`
+}
+
+type ClientReportDefinition struct {
+	CapacityTargets []ClientReportCapacityTarget `json:"capacity_targets"`
+	Month           string                       `json:"month,omitempty"`
+}
+
 type CollectorConfigHint struct {
 	Env            map[string]string `json:"env"`
 	StartupCommand string            `json:"startup_command,omitempty"`
@@ -985,15 +999,16 @@ type DashboardCreateRequest struct {
 	Shared     bool                `json:"shared"`
 }
 
-// Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication.
+// Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants.
 type DashboardDefinition struct {
-	AbsoluteFrom        string            `json:"absolute_from,omitempty"`
-	AbsoluteTo          string            `json:"absolute_to,omitempty"`
-	CoverageLimitations []string          `json:"coverage_limitations"`
-	FlowSources         []map[string]any  `json:"flow_sources,omitempty"`
-	Metrics             map[string]string `json:"metrics,omitempty"`
-	Provenance          []string          `json:"provenance"`
-	RedactionState      string            `json:"redaction_state"`
+	AbsoluteFrom        string                  `json:"absolute_from,omitempty"`
+	AbsoluteTo          string                  `json:"absolute_to,omitempty"`
+	ClientReport        *ClientReportDefinition `json:"client_report,omitempty"`
+	CoverageLimitations []string                `json:"coverage_limitations"`
+	FlowSources         []map[string]any        `json:"flow_sources,omitempty"`
+	Metrics             map[string]string       `json:"metrics,omitempty"`
+	Provenance          []string                `json:"provenance"`
+	RedactionState      string                  `json:"redaction_state"`
 }
 
 type DashboardManifest struct {
@@ -1003,10 +1018,11 @@ type DashboardManifest struct {
 	Spec       DashboardManifestSpec     `json:"spec"`
 }
 
-// Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings.
+// Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants.
 type DashboardManifestDefinition struct {
 	AbsoluteFrom        string                    `json:"absolute_from,omitempty"`
 	AbsoluteTo          string                    `json:"absolute_to,omitempty"`
+	ClientReport        *ClientReportDefinition   `json:"client_report,omitempty"`
 	CoverageLimitations []string                  `json:"coverage_limitations"`
 	FlowSources         []map[string]any          `json:"flow_sources,omitempty"`
 	Metrics             []DashboardManifestMetric `json:"metrics"`

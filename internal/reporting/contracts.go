@@ -16,13 +16,14 @@ type FlowSourceRef struct {
 }
 
 type DashboardDefinition struct {
-	FlowSources         []FlowSourceRef   `json:"flow_sources,omitempty"`
-	AbsoluteFrom        time.Time         `json:"absolute_from"`
-	AbsoluteTo          time.Time         `json:"absolute_to"`
-	Provenance          []string          `json:"provenance"`
-	RedactionState      string            `json:"redaction_state"`
-	CoverageLimitations []string          `json:"coverage_limitations"`
-	Metrics             map[string]string `json:"metrics"`
+	ClientReport        *ClientReportDefinition `json:"client_report,omitempty"`
+	FlowSources         []FlowSourceRef         `json:"flow_sources,omitempty"`
+	AbsoluteFrom        time.Time               `json:"absolute_from"`
+	AbsoluteTo          time.Time               `json:"absolute_to"`
+	Provenance          []string                `json:"provenance"`
+	RedactionState      string                  `json:"redaction_state"`
+	CoverageLimitations []string                `json:"coverage_limitations"`
+	Metrics             map[string]string       `json:"metrics"`
 }
 
 type DashboardCreateInput struct {
@@ -50,6 +51,7 @@ type DashboardManifestSpec struct {
 }
 
 type DashboardManifestDefinition struct {
+	ClientReport        *ClientReportDefinition       `json:"client_report,omitempty"`
 	FlowSources         []DashboardManifestFlowSource `json:"flow_sources,omitempty"`
 	AbsoluteFrom        time.Time                     `json:"absolute_from"`
 	AbsoluteTo          time.Time                     `json:"absolute_to"`

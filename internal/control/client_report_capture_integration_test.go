@@ -12,10 +12,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +45,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	t.Cleanup(func() {
 		if t.Failed() {
 			for _, line := range strings.Split(diagnostics.String(), "\n") {
-				if strings.Contains(line, "capacity forecast") {
+				if strings.Contains(line, "capacity forecast") || strings.Contains(line, "request error") {
 					t.Log(line)
 				}
 			}
@@ -60,15 +64,55 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	if err != nil {
 		t.Fatal(err)
 	}
+	secretBytes, err := crypto.Random(24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
+	sourceAgents := map[string]string{}
 	actors := map[string]*auth.Principal{}
 	finalizers := map[string]incidentEvidenceFinalizer{}
 	capacityFinalizers := map[string]incidentEvidenceFinalizer{}
+	artifacts := map[string]string{}
+	socket := httptest.NewTLSServer(f.server.Handler())
+	defer socket.Close()
+	call := func(tenant, method, path string, input any, tokens ...string) (int, []byte) {
+		t.Helper()
+		var body io.Reader
+		if input != nil {
+			raw, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body = bytes.NewReader(raw)
+		}
+		request, err := http.NewRequestWithContext(t.Context(), method, socket.URL+path, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		token := f.tokens[tenant]
+		if len(tokens) > 0 {
+			token = tokens[0]
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set("Content-Type", "application/json")
+		response, err := socket.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		raw, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response.StatusCode, raw
+	}
 	for lane, tenant := range f.tenants {
 		for range lane + 1 {
 			d.observe(t, tenant, 0, lane == 1)
 		}
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			for _, permission := range []string{permTestRead, permChangeRead, permFlowRead} {
+			for _, permission := range []string{permTestRead, permChangeRead, permFlowRead, permMetricsWrite} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
 					return err
 				}
@@ -76,7 +120,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			if _, err := sc.Q.Exec(ctx, `UPDATE incidents SET started_at=$3,last_seen_at=$3 WHERE tenant_id=$1 AND id=$2`, tenant, d.cases[tenant], from.Add(2*time.Hour)); err != nil {
 				return err
 			}
-			if _, err := (store.ChangeEvents{}).Create(ctx, sc, change.Event{Source: "generic", Kind: change.KindDeploy, Title: "month for " + tenant, OccurredAt: from.Add(time.Hour)}); err != nil {
+			if _, err := (store.ChangeEvents{}).Create(ctx, sc, change.Event{Source: "generic", Kind: change.KindDeploy, Title: "month for " + tenant + " password=" + secret, OccurredAt: from.Add(time.Hour)}); err != nil {
 				return err
 			}
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO device_configs(tenant_id,device,version,content,content_hash,previous_hash,drifted,observed_at,archived_at)
@@ -102,6 +146,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		}
 		capture.close()
 		capture.close()
+		sourceAgents[tenant] = capture.Sources[0].AgentID
 		if capture.TenantID != tenant || len(capture.Sources) != 2 || len(capture.Availability) != 2 || len(capture.Tables) != 6 || len(capture.InputsDigest) != 64 {
 			t.Fatal("month capture lost source population or provenance")
 		}
@@ -177,6 +222,119 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 				}
 			}
 		}
+
+		definition := reporting.DashboardDefinition{ClientReport: &reporting.ClientReportDefinition{Month: from.Format("2006-01"), CapacityTargets: []reporting.ClientReportCapacityTarget{capacityTarget}}, Provenance: []string{"retained monthly originals"}, RedactionState: "metadata only", CoverageLimitations: []string{"modeled history on real PG/RLS; physical sender acceptance separate"}}
+		code, raw := call(tenant, http.MethodPost, "/v1/dashboards", reporting.DashboardCreateInput{Name: "Monthly client pack", Preset: "operator", Shared: true, Definition: definition})
+		if code != http.StatusCreated {
+			t.Fatalf("monthly dashboard create %d: %s", code, raw)
+		}
+		var view store.DashboardView
+		if err := json.Unmarshal(raw, &view); err != nil {
+			t.Fatal(err)
+		}
+		for _, format := range []string{"csv", "pdf"} {
+			code, raw = call(tenant, http.MethodPost, "/v1/dashboard-reports", reporting.ReportGenerateInput{DashboardID: view.ID, Format: format})
+			if code != http.StatusCreated {
+				t.Fatalf("monthly %s generation %d: %s", format, code, raw)
+			}
+			var artifact reportArtifactView
+			if err := json.Unmarshal(raw, &artifact); err != nil {
+				t.Fatal(err)
+			}
+			code, raw = call(tenant, http.MethodGet, "/v1/dashboard-report-artifacts/"+artifact.ID, nil)
+			if code != http.StatusOK {
+				t.Fatalf("monthly %s current reader %d: %s", format, code, raw)
+			}
+			if format == "pdf" {
+				if !bytes.HasPrefix(raw, []byte("%PDF-")) {
+					t.Fatal("served monthly PDF missing")
+				}
+			} else {
+				artifacts[tenant] = artifact.ID
+				if bytes.Contains(raw, []byte(secret)) {
+					t.Fatal("monthly output exposed a secret-shaped source value")
+				}
+				reader := csv.NewReader(bytes.NewReader(raw))
+				reader.FieldsPerRecord = -1
+				rows, err := reader.ReadAll()
+				if err != nil {
+					t.Fatal(err)
+				}
+				verified := 0
+				for _, row := range rows {
+					for _, cell := range row {
+						if !strings.HasPrefix(cell, "eyJ") {
+							continue
+						}
+						envelope, err := base64.StdEncoding.DecodeString(cell)
+						if err != nil {
+							continue
+						}
+						manifest, err := evidence.Verify(envelope)
+						if err != nil {
+							continue
+						}
+						if manifest.Incident.ID != d.cases[tenant] || manifest.TenantScopeDigest != "sha256:"+hex.EncodeToString(crypto.Hash([]byte(tenant))) {
+							t.Fatal("served evidence belonged to another tenant")
+						}
+						verified++
+					}
+				}
+				if verified != 1 {
+					t.Fatal("served CSV lost complete offline signed evidence", verified)
+				}
+			}
+			code, _ = call(f.tenants[1-lane], http.MethodGet, "/v1/dashboard-report-artifacts/"+artifact.ID, nil)
+			if code != http.StatusNotFound {
+				t.Fatal("foreign tenant read generated pack", code)
+			}
+		}
+
+		scheduleInput := reporting.ReportScheduleInput{DashboardID: view.ID, Name: "Monthly client pack delivery", Format: "csv", Cadence: "monthly", DestinationID: reportInboxDestination, FirstRunAt: time.Now().UTC()}
+		restricted, err := auth.RandomToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.NewMCPTokens(f.pool).CreateWithLifetime(t.Context(), tenant, f.users[tenant], "monthly-report-write-only", crypto.Hash([]byte(restricted)), time.Now().Add(time.Hour), []string{permMetricsWrite}); err != nil {
+			t.Fatal(err)
+		}
+		code, _ = call(tenant, http.MethodPost, "/v1/dashboard-report-schedules", scheduleInput, restricted)
+		if code != http.StatusForbidden {
+			t.Fatal("write-only credential delegated monthly source reads", code)
+		}
+		code, raw = call(tenant, http.MethodPost, "/v1/dashboard-report-schedules", scheduleInput)
+		if code != http.StatusCreated {
+			t.Fatalf("monthly schedule preflight %d: %s", code, raw)
+		}
+		var schedule store.ReportSchedule
+		if err := json.Unmarshal(raw, &schedule); err != nil {
+			t.Fatal(err)
+		}
+		supervisor, ok := BuildDashboardReportSupervisor(f.pool, time.Minute, f.server.log)
+		if !ok {
+			t.Fatal("existing report supervisor unavailable")
+		}
+		supervisor.WithReportSources(f.server)
+		deliveredAt := time.Now().UTC()
+		if err := supervisor.materializeTenantReports(t.Context(), tenant, deliveredAt); err != nil {
+			t.Fatal("monthly scheduled pack", err)
+		}
+		if err := supervisor.materializeTenantReports(t.Context(), tenant, deliveredAt); err != nil {
+			t.Fatal("monthly schedule retry", err)
+		}
+		var scheduledID string
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var count int
+			err := sc.Q.QueryRow(ctx, `SELECT count(*),min(id) FROM dashboard_report_artifacts WHERE tenant_id=$1 AND schedule_id=$2`, tenant, schedule.ID).Scan(&count, &scheduledID)
+			if err == nil && count != 1 {
+				return errors.New("monthly schedule retry duplicated or omitted its immutable pack")
+			}
+			return err
+		})
+		code, _ = call(tenant, http.MethodGet, "/v1/dashboard-report-artifacts/"+scheduledID, nil)
+		if code != http.StatusOK {
+			t.Fatal("scheduled monthly pack reader", code)
+		}
 		foreign := tenancy.WithTenant(ctx, tenancy.ID(f.tenants[1-lane]))
 		if result, err := f.server.captureClientReportSources(foreign, actors[tenant], "", at, flowstore.DefaultExplorerBudget()); !errors.Is(err, entity.ErrScopeMismatch) || result != nil {
 			t.Fatal("capture adopted another request's tenant", err)
@@ -198,6 +356,14 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, a, f.roles[a], permChangeRead)
 		return err
 	})
+	code, _ := call(a, http.MethodGet, "/v1/dashboard-report-artifacts/"+artifacts[a], nil)
+	if code != http.StatusNotFound {
+		t.Fatal("stored monthly report retained withdrawn current permission", code)
+	}
+	code, _ = call(b, http.MethodGet, "/v1/dashboard-report-artifacts/"+artifacts[b], nil)
+	if code != http.StatusOK {
+		t.Fatal("stored monthly source withdrawal crossed tenant", code)
+	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(a))
 	result, err := f.server.captureClientReportSources(ctx, actors[a], "", at, flowstore.DefaultExplorerBudget())
 	domain, ok := apierror.As(err)
@@ -239,7 +405,32 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	if err := capacityFinalizers[b](ctx); err != nil {
 		t.Fatal("capacity permission change invalidated another tenant", err)
 	}
-	t.Log("real-integration: complete backdated calendar-month capture through application-role PG/RLS, current actor/source/definition, expired original serials plus renewed current identities, distinct paired counts, whole incident/change/config inputs, tenant refusal and withdrawn current permission with sibling survival; historical clocks/outcomes modeled, full pack/publication/delivery and real senders remain owed")
+
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		for _, permission := range []string{permTestRead, permChangeRead, permFlowRead} {
+			if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[a], permission); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	code, _ = call(a, http.MethodGet, "/v1/dashboard-report-artifacts/"+artifacts[a], nil)
+	if code != http.StatusOK {
+		t.Fatal("restored current source access remained unavailable", code)
+	}
+	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `UPDATE agent_identities SET revoked_at=now(),revoked_by='monthly-report-proof' WHERE tenant_id=$1 AND agent_id=$2`, a, sourceAgents[a])
+		return err
+	})
+	code, _ = call(a, http.MethodGet, "/v1/dashboard-report-artifacts/"+artifacts[a], nil)
+	if code != http.StatusNotFound {
+		t.Fatal("stored pack retained a revoked source", code)
+	}
+	code, _ = call(b, http.MethodGet, "/v1/dashboard-report-artifacts/"+artifacts[b], nil)
+	if code != http.StatusOK {
+		t.Fatal("stored pack revocation crossed tenant", code)
+	}
+	t.Log("real-integration: complete backdated calendar-month capture through application-role PG/RLS, current actor/source/definition, expired original serials plus renewed current identities, distinct paired counts, whole incident/change/config inputs, tenant refusal and withdrawn current permission with sibling survival; historical clocks/outcomes modeled; served CSV/PDF generation/download and signed CSV index verified; owned monthly inbox scheduling/retry and write-only credential refusal verified; full PDF content, native/UI/provider and real senders remain owed")
 }
 
 func backdateClientReportOriginals(t *testing.T, d *dependencyRoutingFixture, tenant string, from time.Time) {

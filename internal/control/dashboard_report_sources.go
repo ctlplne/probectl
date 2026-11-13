@@ -48,6 +48,8 @@ type reportFlowInput struct {
 // The caller owns the capture and must Close after staging/publication. Values
 // are frozen records; the requirements never stand in for current reader grants.
 type reportFlowCapture struct {
+	monthlyCapture   *clientReportCapture
+	Monthly          *clientReportSourceRequirements
 	TenantID         string
 	ObservedAt       time.Time
 	SourceGeneration int64

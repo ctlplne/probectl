@@ -95,7 +95,7 @@ func reportArtifactSourceCapture(tenant string, capture json.RawMessage) error {
 		Version  int    `json:"version"`
 		TenantID string `json:"tenant_id"`
 	}
-	if err := json.Unmarshal(capture, &envelope); err != nil || (envelope.Version != 1 && envelope.Version != 2) || envelope.TenantID != tenant {
+	if err := json.Unmarshal(capture, &envelope); err != nil || (envelope.Version != 1 && envelope.Version != 2 && envelope.Version != 3) || envelope.TenantID != tenant {
 		return ErrReportArtifactIntegrity
 	}
 	return nil

@@ -18103,6 +18103,69 @@
           }
         }
       },
+      "ClientReportDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "capacity_targets"
+        ],
+        "properties": {
+          "month": {
+            "type": "string",
+            "pattern": "^$|^[0-9]{4}-(0[1-9]|1[0-2])$",
+            "description": "Completed UTC calendar month; omitted selects previous month."
+          },
+          "capacity_targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClientReportCapacityTarget"
+            }
+          }
+        }
+      },
+      "ClientReportCapacityTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "direction",
+          "capacity_bps",
+          "maximum_poll_gap",
+          "physical_bounds"
+        ],
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/CapacityTarget"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out",
+              "max_directional_percentiles"
+            ]
+          },
+          "capacity_bps": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "maximum_poll_gap": {
+            "type": "string"
+          },
+          "physical_bounds": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/CapacityPhysicalBound"
+            }
+          },
+          "forecast_months": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1
+          }
+        }
+      },
       "DashboardDefinition": {
         "type": "object",
         "additionalProperties": false,
@@ -18173,9 +18236,19 @@
                 }
               }
             }
+          },
+          "client_report": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ClientReportDefinition"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication.",
+        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants.",
         "oneOf": [
           {
             "required": [
@@ -18186,6 +18259,16 @@
             "properties": {
               "flow_sources": {
                 "maxItems": 0
+              }
+            },
+            "not": {
+              "required": [
+                "client_report"
+              ],
+              "properties": {
+                "client_report": {
+                  "type": "object"
+                }
               }
             }
           },
@@ -18205,6 +18288,35 @@
               },
               "absolute_to": {
                 "const": "0001-01-01T00:00:00Z"
+              }
+            },
+            "not": {
+              "required": [
+                "client_report"
+              ],
+              "properties": {
+                "client_report": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          {
+            "required": [
+              "client_report"
+            ],
+            "properties": {
+              "flow_sources": {
+                "maxItems": 0
+              },
+              "absolute_from": {
+                "const": "0001-01-01T00:00:00Z"
+              },
+              "absolute_to": {
+                "const": "0001-01-01T00:00:00Z"
+              },
+              "client_report": {
+                "$ref": "#/components/schemas/ClientReportDefinition"
               }
             }
           }
@@ -18378,9 +18490,19 @@
                 }
               }
             }
+          },
+          "client_report": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ClientReportDefinition"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "description": "Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings.",
+        "description": "Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants.",
         "oneOf": [
           {
             "required": [
@@ -18390,6 +18512,16 @@
             "properties": {
               "flow_sources": {
                 "maxItems": 0
+              }
+            },
+            "not": {
+              "required": [
+                "client_report"
+              ],
+              "properties": {
+                "client_report": {
+                  "type": "object"
+                }
               }
             }
           },
@@ -18409,6 +18541,35 @@
               },
               "absolute_to": {
                 "const": "0001-01-01T00:00:00Z"
+              }
+            },
+            "not": {
+              "required": [
+                "client_report"
+              ],
+              "properties": {
+                "client_report": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          {
+            "required": [
+              "client_report"
+            ],
+            "properties": {
+              "flow_sources": {
+                "maxItems": 0
+              },
+              "absolute_from": {
+                "const": "0001-01-01T00:00:00Z"
+              },
+              "absolute_to": {
+                "const": "0001-01-01T00:00:00Z"
+              },
+              "client_report": {
+                "$ref": "#/components/schemas/ClientReportDefinition"
               }
             }
           }

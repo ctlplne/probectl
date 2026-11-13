@@ -22,7 +22,7 @@ import (
 // This ceiling delegates only source reads. Actual current user grants and
 // context policies are still intersected at every source/publication check.
 func reportBackgroundSourcePermissions() []string {
-	return []string{"metrics.read", "events.read", permAIQuery, permFlowRead, permTagsRead, "agent.read", "entities.read"}
+	return []string{"metrics.read", "events.read", permAIQuery, permFlowRead, permTagsRead, "agent.read", "entities.read", permTestRead, permIncidentRead, permChangeRead}
 }
 
 func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context, tenantName string, item store.DueDashboardReport, definition dashboardDefinition, now time.Time) (bool, error) {
@@ -48,7 +48,7 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 	if err := server.authorize(ctx, actor, "metrics.read", auth.RBACGlobal, resource); err != nil {
 		return false, err
 	}
-	capture, err := server.captureReportFlowSources(ctx, actor, definition.FlowSources)
+	capture, err := server.captureConfiguredReportSources(ctx, actor, definition, now)
 	if err != nil {
 		return false, err
 	}
@@ -66,6 +66,9 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 		return false, err
 	}
 	defer func() { _ = stage.Close() }()
+	if err := revalidateMonthlyReportOriginals(ctx, capture); err != nil {
+		return false, err
+	}
 	next, err := nextDashboardReportRun(item.Schedule.Cadence, item.Schedule.NextRunAt, now)
 	if err != nil {
 		return false, err

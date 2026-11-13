@@ -127,13 +127,16 @@ func cleanDashboardCreate(req dashboardCreateRequest) (dashboardCreateRequest, e
 }
 
 func cleanDashboardDefinition(d *dashboardDefinition) error {
+	if err := cleanClientReportDefinition(d); err != nil {
+		return err
+	}
 	if err := cleanDashboardFlowSources(d); err != nil {
 		return err
 	}
-	if len(d.FlowSources) == 0 && (d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.After(d.AbsoluteFrom)) {
+	if d.ClientReport == nil && len(d.FlowSources) == 0 && (d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.After(d.AbsoluteFrom)) {
 		return apierror.Validation("definition requires an absolute_from earlier than absolute_to")
 	}
-	if len(d.FlowSources) == 0 && d.AbsoluteTo.Sub(d.AbsoluteFrom) > 366*24*time.Hour {
+	if d.ClientReport == nil && len(d.FlowSources) == 0 && d.AbsoluteTo.Sub(d.AbsoluteFrom) > 366*24*time.Hour {
 		return apierror.Validation("dashboard time range may not exceed 366 days")
 	}
 	d.RedactionState = strings.TrimSpace(d.RedactionState)
@@ -210,7 +213,7 @@ func dashboardManifestToCreateBound(manifest dashboardManifest, bindings map[str
 		Preset: manifest.Spec.Preset,
 		Shared: manifest.Spec.Shared,
 		Definition: dashboardDefinition{
-			FlowSources:         refs,
+			ClientReport: manifest.Spec.Definition.ClientReport, FlowSources: refs,
 			AbsoluteFrom:        manifest.Spec.Definition.AbsoluteFrom,
 			AbsoluteTo:          manifest.Spec.Definition.AbsoluteTo,
 			Provenance:          manifest.Spec.Definition.Provenance,
@@ -239,7 +242,7 @@ func dashboardCreateToManifest(req dashboardCreateRequest) dashboardManifest {
 			Preset: req.Preset,
 			Shared: req.Shared,
 			Definition: dashboardManifestDefinition{
-				FlowSources:         dashboardManifestSourceSlots(req.Definition.FlowSources),
+				ClientReport: req.Definition.ClientReport, FlowSources: dashboardManifestSourceSlots(req.Definition.FlowSources),
 				AbsoluteFrom:        req.Definition.AbsoluteFrom,
 				AbsoluteTo:          req.Definition.AbsoluteTo,
 				Provenance:          req.Definition.Provenance,
@@ -733,7 +736,8 @@ func (s *Server) generateDashboardReportWithStager(r *http.Request, req reportGe
 	}); err != nil {
 		return nil, err
 	}
-	if len(definition.FlowSources) > 0 {
+
+	if len(definition.FlowSources) > 0 || definition.ClientReport != nil {
 		metadata, err := s.generateSourceDashboardReport(r, req, view, definition, tenantName, capturedTenant)
 		if err != nil {
 			return nil, err

@@ -275,6 +275,9 @@ func (s *Server) authorize(ctx context.Context, p *auth.Principal, perm string, 
 	}
 	switch reason {
 	case auth.DecisionAllowed:
+		if capture, ok := ctx.Value(clientReportAccessKey{}).(*clientReportAccessCapture); ok {
+			return capture.record(p, perm, mode, resource)
+		}
 		return nil
 	case auth.DecisionUnauthenticated:
 		return apierror.Unauthorized("authentication required")

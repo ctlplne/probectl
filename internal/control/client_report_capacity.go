@@ -79,6 +79,10 @@ func (s *Server) captureClientReportCapacity(ctx context.Context, actor *auth.Pr
 		if retained == nil || publication == nil {
 			return nil, apierror.Unavailable("monthly capacity original-source validation is unavailable")
 		}
+		for _, member := range retained.plan.members {
+			target := member.target
+			capture.sourceKeys = append(capture.sourceKeys, store.ReportSourceKey{ContextID: target.Source.ContextID, AgentID: target.Source.AgentID, Kind: "device_target", Ref: target.Source.SourceRef})
+		}
 		body, err := clientReportCapacityOriginals(retained, input, measurement)
 		if err != nil {
 			return nil, err

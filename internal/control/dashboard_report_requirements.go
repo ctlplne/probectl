@@ -28,13 +28,14 @@ var errReportSourceRequirements = errors.New("report source requirements are inc
 // This format contains requirements to check against a future reader. It has
 // neither frozen result tables nor any principal, credential or durable grant.
 type reportSourceRequirements struct {
-	Version          int                        `json:"version"`
-	TenantID         string                     `json:"tenant_id"`
-	Inputs           []reportFlowInput          `json:"inputs"`
-	Permissions      []string                   `json:"permissions"`
-	Contexts         []reportContextRequirement `json:"contexts"`
-	ContextsCaptured bool                       `json:"contexts_captured"`
-	ContextSources   bool                       `json:"context_sources,omitempty"`
+	Monthly          *clientReportSourceRequirements `json:"monthly,omitempty"`
+	Version          int                             `json:"version"`
+	TenantID         string                          `json:"tenant_id"`
+	Inputs           []reportFlowInput               `json:"inputs"`
+	Permissions      []string                        `json:"permissions"`
+	Contexts         []reportContextRequirement      `json:"contexts"`
+	ContextsCaptured bool                            `json:"contexts_captured"`
+	ContextSources   bool                            `json:"context_sources,omitempty"`
 }
 
 func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCapture, memoryLimits ...int64) (json.RawMessage, error) {
@@ -49,7 +50,10 @@ func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCap
 	}
 	requirements := reportSourceRequirements{Version: 1, TenantID: capture.TenantID,
 		Inputs: capture.Inputs, Permissions: capture.Permissions,
-		Contexts: capture.Contexts, ContextsCaptured: capture.ContextsCaptured, ContextSources: capture.ContextSources}
+		Contexts: capture.Contexts, ContextsCaptured: capture.ContextsCaptured, ContextSources: capture.ContextSources, Monthly: capture.Monthly}
+	if requirements.Monthly != nil {
+		requirements.Version = 3
+	}
 	if requirements.ContextSources {
 		requirements.Version = 2
 	}
@@ -88,7 +92,7 @@ func parseReportSourceRequirements(ctx context.Context, raw json.RawMessage, mem
 	}
 	return &reportFlowCapture{TenantID: requirements.TenantID, Inputs: requirements.Inputs,
 		Permissions: requirements.Permissions, Contexts: requirements.Contexts,
-		ContextsCaptured: requirements.ContextsCaptured, ContextSources: requirements.ContextSources}, nil
+		ContextsCaptured: requirements.ContextsCaptured, ContextSources: requirements.ContextSources, Monthly: requirements.Monthly}, nil
 }
 
 func reportRequirementUUID(id string) bool {
@@ -99,6 +103,15 @@ func reportRequirementUUID(id string) bool {
 func validateReportSourceRequirements(ctx context.Context, value reportSourceRequirements, memory int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if value.Version == 3 {
+		if value.Monthly == nil || len(value.Inputs) != 0 || len(value.Permissions) != 0 || len(value.Contexts) != 0 || value.ContextsCaptured || value.ContextSources {
+			return errReportSourceRequirements
+		}
+		return validateClientReportRequirements(ctx, value.TenantID, value.Monthly, memory)
+	}
+	if value.Monthly != nil {
+		return errReportSourceRequirements
 	}
 	tenant, ok := tenancy.FromContext(ctx)
 	if !ok || value.Version != 1 && value.Version != 2 || tenant.String() != value.TenantID || !reportRequirementUUID(value.TenantID) ||
