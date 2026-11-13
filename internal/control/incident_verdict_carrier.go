@@ -20,10 +20,10 @@ import (
 // Current transit intent alone is insufficient. Bind the original physical
 // peer event to a complete observed prefix and an owned canonical interface,
 // then require independent contemporaneous loss and healthy local coverage.
-func classifyIncidentCarrier(ctx context.Context, input incidentVerdictEvidence, seen map[string]incident.VerdictCitation, remaining *int64, local incident.VerdictHypothesis, hypothesis *incident.VerdictHypothesis) (bool, error) {
+func classifyIncidentCarrier(ctx context.Context, input incidentVerdictEvidence, seen map[string]incident.VerdictCitation, remaining *int64, hypothesis *incident.VerdictHypothesis) (bool, error) {
 	proven := false
 	for _, item := range input.interfaces {
-		if !item.direct || !item.source.Current || item.role.Role != interfaceRoleTransit || !item.role.SNMPCurrent || !item.role.PrefixCurrent {
+		if (!item.direct && !item.incidentRouter) || !item.source.Current || item.role.Role != interfaceRoleTransit || !item.role.SNMPCurrent || !item.role.PrefixCurrent {
 			continue
 		}
 		if int64(len(item.peerReads)) > *remaining/128 {
@@ -67,7 +67,10 @@ func classifyIncidentCarrier(ctx context.Context, input incidentVerdictEvidence,
 			if err != nil {
 				return false, err
 			}
-			backbone := incidentCarrierLocalCoverage(local, item.source.ContextID, item.source.EntityID, read.ObservedAt, hypothesis)
+			backbone, err := incidentCarrierLocalCoverage(ctx, input, item, read.ObservedAt, seen, remaining, hypothesis)
+			if err != nil {
+				return false, err
+			}
 			loss, err := incidentCarrierNetworkLoss(ctx, input, item, read.ObservedAt, seen, remaining, hypothesis)
 			if err != nil {
 				return false, err
@@ -158,21 +161,47 @@ func incidentCarrierHandoffState(ctx context.Context, item incidentVerdictInterf
 	return true, ctx.Err()
 }
 
-func incidentCarrierLocalCoverage(local incident.VerdictHypothesis, contextID, handoffID string, after time.Time, hypothesis *incident.VerdictHypothesis) bool {
-	for _, citation := range local.For {
-		if citation.ContextID == contextID {
-			hypothesis.Missing = append(hypothesis.Missing, "unambiguous_healthy_local_network")
-			return false
+func incidentCarrierLocalCoverage(ctx context.Context, input incidentVerdictEvidence, handoff incidentVerdictInterface, after time.Time, seen map[string]incident.VerdictCitation, remaining *int64, hypothesis *incident.VerdictHypothesis) (bool, error) {
+	healthy, conflicting, unavailable := false, false, false
+	for _, item := range input.interfaces {
+		if item.source.ContextID != handoff.source.ContextID || item.source.RouterID != handoff.source.RouterID || item.source.EntityID == handoff.source.EntityID || (!item.direct && !item.incidentRouter) || !item.source.Current || !item.role.SNMPCurrent || item.role.Role != interfaceRoleBackbone {
+			continue
 		}
-	}
-	for _, citation := range local.Against {
-		if citation.ContextID == contextID && citation.EntityID != handoffID && !citation.ObservedAt.Before(after) {
+		observed := false
+		for _, read := range item.reads {
+			if read.ObservedAt.Before(after) || !verdictObservationInWindow(read.ObservedAt, input) {
+				continue
+			}
+			observed = true
+			if !read.Available || !read.OriginalSenderValid || read.ObservedAt.Before(item.source.CurrentSince) || read.State == nil || read.State.AdminStatus == nil || read.State.OperStatus == nil {
+				unavailable = true
+				continue
+			}
+			admin, oper := *read.State.AdminStatus, *read.State.OperStatus
+			if admin == 1 && (oper == 2 || oper == 7) {
+				conflicting = true
+				continue
+			}
+			if admin != 1 || oper != 1 {
+				unavailable = true
+				continue
+			}
+			citation := interfaceVerdictCitation(read, "original_healthy_owned_local_backbone")
+			if _, err := admitVerdictOriginal(citation, seen, remaining); err != nil {
+				return false, err
+			}
 			hypothesis.For = append(hypothesis.For, citation)
-			return true
+			healthy = true
+		}
+		if !observed {
+			unavailable = true
 		}
 	}
-	hypothesis.Missing = append(hypothesis.Missing, "contemporaneous_original_healthy_local_network")
-	return false
+	if !healthy || conflicting || unavailable {
+		hypothesis.Missing = append(hypothesis.Missing, "contemporaneous_original_healthy_local_network")
+		return false, nil
+	}
+	return true, ctx.Err()
 }
 
 type incidentCarrierPeerKey struct {

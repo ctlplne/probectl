@@ -175,7 +175,7 @@ func (s *Server) joinIncidentVerdictSnapshot(ctx context.Context, sc tenancy.Sco
 	roleBytes := limit
 	for _, source := range snapshot.sources {
 		key := source.ContextID + ":" + source.EntityID
-		if !members[key] || !source.Current {
+		if (!members[key] && !members[source.ContextID+":"+source.RouterID]) || !source.Current {
 			continue
 		}
 		role, fingerprint, err := s.incidentVerdictInterfaceRole(ctx, sc, actor, source, &roleBytes)
@@ -187,7 +187,7 @@ func (s *Server) joinIncidentVerdictSnapshot(ctx context.Context, sc tenancy.Sco
 			return err
 		}
 		snapshot.roles = append(snapshot.roles, fingerprint)
-		snapshot.evidence.interfaces = append(snapshot.evidence.interfaces, incidentVerdictInterface{source: source, role: role, reads: stateReads[key], direct: true, roleInputs: fingerprint, peerReads: peerReads[source.ContextID+":"+source.RouterID]})
+		snapshot.evidence.interfaces = append(snapshot.evidence.interfaces, incidentVerdictInterface{source: source, role: role, reads: stateReads[key], direct: members[key], incidentRouter: members[source.ContextID+":"+source.RouterID], roleInputs: fingerprint, peerReads: peerReads[source.ContextID+":"+source.RouterID]})
 	}
 	testReads := map[string][]store.IncidentTestMeasurement{}
 	for _, read := range snapshot.outcomes {

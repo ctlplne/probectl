@@ -71,11 +71,20 @@ func carrierVerdictFixture(t *testing.T) (context.Context, incidentVerdictEviden
 }
 
 func TestIncidentCarrierRequiresOriginalASNHandoffAndIndependentNetworkLoss(t *testing.T) {
-	for _, name := range []string{"complete", "no declared ASN", "other ASN", "late policy", "late prefix", "late binding", "late override", "HTTPS reply despite ICMP loss", "no local coverage", "disabled handoff", "same agent", "same destination", "external reply", "incomplete receive", "monitoring withdrawal", "ICMP filtering only", "foreign peer"} {
+	for _, name := range []string{"complete", "router-member handoff", "no canonical membership", "other router healthy", "no declared ASN", "other ASN", "late policy", "late prefix", "late binding", "late override", "HTTPS reply despite ICMP loss", "no local coverage", "disabled handoff", "same agent", "same destination", "external reply", "incomplete receive", "monitoring withdrawal", "ICMP filtering only", "foreign peer"} {
 		t.Run(name, func(t *testing.T) {
 			ctx, input := carrierVerdictFixture(t)
 			peer := &input.interfaces[1].peerReads[0]
 			switch name {
+			case "router-member handoff":
+				input.interfaces[1].direct = false
+				input.interfaces[1].incidentRouter = true
+				input.interfaces[0].direct = false
+				input.interfaces[0].incidentRouter = true
+			case "no canonical membership":
+				input.interfaces[1].direct = false
+			case "other router healthy":
+				input.interfaces[0].source.RouterID = "a0000000-0000-4000-8000-000000000099"
 			case "no declared ASN":
 				input.interfaces[1].roleInputs.Policy.Definition.ProviderASNs = nil
 			case "other ASN":
@@ -127,13 +136,13 @@ func TestIncidentCarrierRequiresOriginalASNHandoffAndIndependentNetworkLoss(t *t
 				return
 			}
 			want := incident.FaultUnknown
-			if name == "complete" {
+			if name == "complete" || name == "router-member handoff" {
 				want = incident.FaultCarrier
 			}
 			if err != nil || got.Domain != want {
 				t.Fatal("carrier result lost its required evidence boundary", name, got.Domain, want, err)
 			}
-			if name == "complete" {
+			if name == "complete" || name == "router-member handoff" {
 				if got.Confidence != "corroborated" || len(got.Hypotheses[1].For) != 5 {
 					t.Fatal("original corroborating evidence was omitted", got.Hypotheses[1])
 				}

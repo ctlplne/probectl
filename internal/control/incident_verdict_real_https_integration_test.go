@@ -90,7 +90,7 @@ func newVerdictEvidenceSender(t *testing.T, f *roleExplanationAPIFixture) func(s
 		if err := store.NewAgentIdentities(f.pool).Record(t.Context(), tenant, sender, identity, leaf.SerialNumber.Text(16), leaf.NotAfter, ""); err != nil {
 			t.Fatal(err)
 		}
-		client, err := agent.DialEntityEvidence(listener.Addr().String(), verdictEvidenceFile(t, dir, sender+".crt", cert), verdictEvidenceFile(t, dir, sender+".key", key), caFile, "localhost")
+		client, err := agent.DialEntityEvidence(listener.Addr().String(), verdictEvidenceFile(t, dir, tenant+"-"+sender+".crt", cert), verdictEvidenceFile(t, dir, tenant+"-"+sender+".key", key), caFile, "localhost")
 		if err != nil {
 			t.Fatal(err)
 		}

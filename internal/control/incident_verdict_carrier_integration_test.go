@@ -162,6 +162,11 @@ func TestIncidentCarrierServesOriginalASNHandoffAndTenantIsolation(t *testing.T)
 			want = incident.FaultUnknown
 		}
 		if err != nil || got.Domain != want {
+			snapshot, debugErr := f.server.loadIncidentVerdictSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), actor, id, at, to, 64<<20, nil)
+			t.Log("carrier snapshot", "sources", len(snapshot.sources), "states", len(snapshot.states), "peers", len(snapshot.peerSessions), "tests", len(snapshot.tests), "outcomes", len(snapshot.outcomes), "interfaces", len(snapshot.evidence.interfaces), "error", debugErr)
+			for _, item := range snapshot.evidence.interfaces {
+				t.Log("owned interface", item.source.EntityID, "current", item.source.Current, "role", item.role.Role, "snmp", item.role.SNMPCurrent, "prefix", item.role.PrefixCurrent, "reads", len(item.reads), "peerReads", len(item.peerReads))
+			}
 			t.Fatal("stored carrier originals selected the wrong tenant/domain", got.Domain, want, err, got.Hypotheses)
 		}
 		found := false

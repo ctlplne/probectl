@@ -31,9 +31,12 @@ type incidentVerdictInterface struct {
 	reads  []store.IncidentInterfaceStateMeasurement
 	// Direct membership is derived from the complete incident's canonical
 	// root/signal references, not an address or the router's whole inventory.
-	direct     bool
-	roleInputs store.InterfaceRoleInputs
-	peerReads  []store.IncidentPeerSessionMeasurement
+	direct bool
+	// incidentRouter is the canonical parent present in the incident, not
+	// inferred membership from a matching IP, label or unrelated device.
+	incidentRouter bool
+	roleInputs     store.InterfaceRoleInputs
+	peerReads      []store.IncidentPeerSessionMeasurement
 }
 
 type incidentVerdictTest struct {
@@ -84,7 +87,7 @@ func classifyIncidentVerdict(ctx context.Context, input incidentVerdictEvidence,
 	if err := classifyIncidentControlPlanePaths(ctx, input, seen, &remaining, result.Hypotheses); err != nil {
 		return none, err
 	}
-	carrier, err := classifyIncidentCarrier(ctx, input, seen, &remaining, result.Hypotheses[0], &result.Hypotheses[1])
+	carrier, err := classifyIncidentCarrier(ctx, input, seen, &remaining, &result.Hypotheses[1])
 	if err != nil {
 		return none, err
 	}
