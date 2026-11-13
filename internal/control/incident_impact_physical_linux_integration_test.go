@@ -45,7 +45,7 @@ func prepareDependencyPhysicalImpact(t *testing.T, d *dependencyRoutingFixture) 
 			return nil
 		})
 	}
-	d.f.server.WithSLO(slo.NewEngine(definitions))
+	d.f.server.WithSLO(slo.NewEngine(definitions).WithClock(time.Now))
 }
 
 // The network fault, collector IO and issued mTLS receipts already belong to

@@ -60,7 +60,7 @@ func TestIncidentImpactServesOriginalTestComparisonsAndCurrentTenantPermission(t
 			return err
 		})
 	}
-	f.server.WithSLO(slo.NewEngine(definitions))
+	f.server.WithSLO(slo.NewEngine(definitions).WithClock(time.Now))
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	request := func(tenant, id string, tests bool) (int, incident.ImpactResponse) {
