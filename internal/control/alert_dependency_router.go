@@ -119,6 +119,14 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 	for _, node := range policy.Graph.Nodes {
 		nodes[node.TestID] = node
 	}
+	signals, err := dependencyPublicationSignals(sc, rule, policy.ContextID, policy.Graph.Nodes[0], nodes, attempts)
+	if err != nil {
+		return nil, err
+	}
+	overrides, err := (store.Incidents{}).ActiveCanonicalOverrideMatches(ctx, sc, signals, maxBytes/2)
+	if err != nil {
+		return nil, fmt.Errorf("dependency publication child policies: %w", err)
+	}
 	out := make([]alert.DependencyOutcome, len(attempts))
 	for i, attempt := range attempts {
 		if attempt.Alert.TenantID != sc.Tenant.String() || attempt.Alert.RuleID != rule.ID || !attempt.RuleUpdatedAt.Equal(rule.UpdatedAt) || attempt.FiringSince.IsZero() {
@@ -129,14 +137,8 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 			node = policy.Graph.Nodes[0] // independent; never a hold target
 		}
 		reachability := matched && dependencyReachabilityAttempt(rule, attempt, node, health[node.EntityID])
-		sig := signalFromAlert(attempt.Alert)
-		sig.IdentityLookupAttempted = true
-		sig.IdentityContextID, sig.IdentityEntityID = policy.ContextID, node.EntityID
-		overrides, err := (store.Incidents{}).ActiveCorrelationOverrides(ctx, sc, sig)
-		if err != nil {
-			return nil, fmt.Errorf("dependency publication child policy %d of %d: %w", i+1, len(attempts), err)
-		}
-		if len(overrides) != 0 {
+		sig := signals[i]
+		if overrides[i] {
 			reachability = false // explicit operator detachment always wins
 		}
 		decision, err := decider.Decide(ctx, attempt, node.EntityID, reachability)
@@ -177,6 +179,23 @@ func (s *Server) publishDependencyAttempts(ctx context.Context, sc tenancy.Scope
 		if !value.FreshUntil.After(publishedAt) || value.Observation.ObservedAt.After(publishedAt) {
 			return nil, alert.ErrDependencyEvidence
 		}
+	}
+	return out, nil
+}
+
+func dependencyPublicationSignals(sc tenancy.Scope, rule alert.Rule, contextID string, fallback alert.DependencyNodeInput, nodes map[string]alert.DependencyNodeInput, attempts []alert.DependencyAttempt) ([]incident.Signal, error) {
+	out := make([]incident.Signal, len(attempts))
+	for i, attempt := range attempts {
+		if attempt.Alert.TenantID != sc.Tenant.String() || attempt.Alert.RuleID != rule.ID || !attempt.RuleUpdatedAt.Equal(rule.UpdatedAt) || attempt.FiringSince.IsZero() {
+			return nil, alert.ErrDependencyEvidence
+		}
+		node, found := nodes[attempt.Alert.Labels["test_id"]]
+		if !found {
+			node = fallback
+		}
+		out[i] = signalFromAlert(attempt.Alert)
+		out[i].IdentityLookupAttempted = true
+		out[i].IdentityContextID, out[i].IdentityEntityID = contextID, node.EntityID
 	}
 	return out, nil
 }
