@@ -32,7 +32,7 @@ const evidenceFreshness = 24 * time.Hour
 // address claims, including idempotent retries. Counts are returned only after
 // the complete tenant transaction commits.
 type EvidenceBatchReceipt struct {
-	Accepted, Unresolved, ICMPMeasurements, ProbeOutcomes int
+	Accepted, Unresolved, ICMPMeasurements, ProbeOutcomes, InterfaceStates int
 }
 
 // WriteEvidenceBatchReceipt returns committed counts for generic claims and
@@ -115,6 +115,9 @@ func (s *EntityRegistry) WriteEvidenceBatchReceipt(ctx context.Context, authenti
 				if claim.Outcome != nil {
 					receipt.ProbeOutcomes++
 				}
+				if claim.SNMPInterfaceState != nil {
+					receipt.InterfaceStates++
+				}
 				continue
 			}
 			authority, ready, err := resolveEvidenceAuthority(ctx, sc, tenant.String(),
@@ -159,6 +162,9 @@ func (s *EntityRegistry) WriteEvidenceBatchReceipt(ctx context.Context, authenti
 			}
 			if claim.Outcome != nil {
 				receipt.ProbeOutcomes++
+			}
+			if claim.SNMPInterfaceState != nil {
+				receipt.InterfaceStates++
 			}
 		}
 		return nil
@@ -433,6 +439,10 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 	if err != nil {
 		return err
 	}
+	interfaceState, err := snmpInterfaceStateDocument(claim)
+	if err != nil {
+		return err
+	}
 	// Random evidence PKs come through internal/crypto. The observation
 	// UUID is a client idempotency key, never the canonical evidence PK.
 	evidenceID, err := newRegistryID()
@@ -448,12 +458,12 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 			  interface_name,interface_description,
 			  neighbor_protocol,neighbor_local_if_index,neighbor_local_port_id,
 			  neighbor_remote_port_id,neighbor_chassis_id,neighbor_device_name,
-			  neighbor_management_address,support_evidence_id,snmp_system_description,snmp_system_name,agent_addresses,snmp_interface_prefixes,icmp_measurement,probe_outcome)
+			  neighbor_management_address,support_evidence_id,snmp_system_description,snmp_system_name,agent_addresses,snmp_interface_prefixes,icmp_measurement,probe_outcome,snmp_interface_state)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
 		        NULLIF($16,'')::text,NULLIF($17,'')::text,NULLIF($18,'')::text,
 		        NULLIF($19,'')::text,NULLIF($20::bigint,0::bigint),NULLIF($21,'')::text,
 		        NULLIF($22,'')::text,NULLIF($23,'')::text,NULLIF($24,'')::text,
-		        NULLIF($25,'')::text,NULLIF($26,'')::uuid,NULLIF($27,'')::text,$28::text,$29::inet[],$30::jsonb,$31::jsonb,$32::jsonb)
+		        NULLIF($25,'')::text,NULLIF($26,'')::uuid,NULLIF($27,'')::text,$28::text,$29::inet[],$30::jsonb,$31::jsonb,$32::jsonb,$33::jsonb)
 			ON CONFLICT (tenant_id,agent_id,source_kind,configured_ref,observation_id)
 			DO NOTHING RETURNING id::text`,
 		tenantID, authority.contextID, evidenceID, claim.ID, endpoint.entityID,
@@ -466,7 +476,7 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 		int64(claim.NeighborLocalIfIndex), claim.NeighborLocalPortID,
 		claim.NeighborRemotePortID, claim.NeighborChassisID,
 		claim.NeighborDeviceName, claim.NeighborAddress, authority.supportID,
-		claim.SystemDescription, claim.SystemName, claim.AgentAddresses, prefixes, icmp, outcome).Scan(&inserted)
+		claim.SystemDescription, claim.SystemName, claim.AgentAddresses, prefixes, icmp, outcome, interfaceState).Scan(&inserted)
 	if err == nil {
 		if endpoint.interfaceClaim {
 			linkID, err := newRegistryID()
@@ -532,6 +542,10 @@ func existingEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID,
 	if err != nil {
 		return false, false, err
 	}
+	interfaceState, err := snmpInterfaceStateDocument(claim)
+	if err != nil {
+		return false, false, err
+	}
 	var same bool
 	err = sc.Q.QueryRow(ctx, `SELECT
 		alias_kind=$6 AND alias_value=$7 AND source_ref=$8 AND observed_at=$9
@@ -551,6 +565,7 @@ func existingEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID,
 		AND snmp_interface_prefixes IS NOT DISTINCT FROM $24::jsonb
 		AND icmp_measurement IS NOT DISTINCT FROM $25::jsonb
         AND probe_outcome IS NOT DISTINCT FROM $26::jsonb
+		AND snmp_interface_state IS NOT DISTINCT FROM $27::jsonb
 		FROM entity_evidence
 		WHERE tenant_id=$1 AND agent_id=$2 AND source_kind=$3
 		  AND configured_ref=$4 AND observation_id=$5
@@ -561,7 +576,7 @@ func existingEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID,
 		claim.InterfaceDescription, claim.NeighborProtocol,
 		int64(claim.NeighborLocalIfIndex), claim.NeighborLocalPortID,
 		claim.NeighborRemotePortID, claim.NeighborChassisID,
-		claim.NeighborDeviceName, claim.NeighborAddress, claim.SystemDescription, claim.SystemName, claim.AgentAddresses, prefixes, icmp, outcome).Scan(&same)
+		claim.NeighborDeviceName, claim.NeighborAddress, claim.SystemDescription, claim.SystemName, claim.AgentAddresses, prefixes, icmp, outcome, interfaceState).Scan(&same)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, false, nil
 	}
@@ -573,6 +588,13 @@ func snmpInterfacePrefixDocument(claim entity.Observation) ([]byte, error) {
 		return nil, nil
 	}
 	return json.Marshal(claim.SNMPInterfacePrefixes)
+}
+
+func snmpInterfaceStateDocument(claim entity.Observation) ([]byte, error) {
+	if claim.SNMPInterfaceState == nil {
+		return nil, nil
+	}
+	return json.Marshal(claim.SNMPInterfaceState)
 }
 
 // resolveNeighborRemote is deliberately stricter than general alias lookup:

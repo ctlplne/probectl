@@ -88,7 +88,7 @@ func (c *EvidenceClient) SubmitFlowRouting(ctx context.Context, raw []*agentv1.F
 		return nil, err
 	}
 	batch := response.GetFlowRouting()
-	if batch == nil || hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetAccepted() != 0 || response.GetUnresolved() != 0 || response.GetFaultsPersisted() != 0 || (response.GetIcmpMeasurementsPersisted() != 0 || response.GetProbeOutcomesPersisted() != 0) || response.GetRouting() != nil || response.GetRoutingMessage() != nil || len(response.ProtoReflect().GetUnknown()) != 0 || len(batch.ProtoReflect().GetUnknown()) != 0 || len(batch.Captures) != len(expected) {
+	if batch == nil || hasPublicRoutingReceipt(response) || response.GetDeviceCounter() != nil || response.GetAccepted() != 0 || response.GetUnresolved() != 0 || response.GetFaultsPersisted() != 0 || (response.GetIcmpMeasurementsPersisted() != 0 || response.GetProbeOutcomesPersisted() != 0 || response.GetInterfaceStatesPersisted() != 0) || response.GetRouting() != nil || response.GetRoutingMessage() != nil || len(response.ProtoReflect().GetUnknown()) != 0 || len(batch.ProtoReflect().GetUnknown()) != 0 || len(batch.Captures) != len(expected) {
 		return nil, ErrEvidenceBatchInvalid
 	}
 	out := make([]*agentv1.FlowRoutingCapture, len(expected))

@@ -225,6 +225,46 @@ func TestSNMPEvidenceUsesConfiguredSourceNotPacketRouting(t *testing.T) {
 	}
 }
 
+func TestSNMPInterfaceStateChangesBypassIdentityRefreshAndKeepAbsence(t *testing.T) {
+	recorded := &recordedDeviceEvidence{}
+	runtime := &Runtime{cfg: &Config{TenantID: "11111111-1111-4111-8111-111111111111",
+		AgentID: "22222222-2222-4222-8222-222222222222"}, evidence: recorded,
+		log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	inv := Inventory{Interfaces: map[uint32]Interface{7: {Index: 7, Name: "wan", OperStatus: 1, AdminStatus: 1}}}
+	now := time.Now().UTC()
+	emit := func() {
+		t.Helper()
+		runtime.emitSNMPEntityEvidence(t.Context(), Target{Address: "192.0.2.1"}, inv, nil, now)
+	}
+	emit()
+	if len(recorded.claims) != 2 || recorded.claims[1].SNMPInterfaceState == nil || *recorded.claims[1].SNMPInterfaceState.OperStatus != 1 || *recorded.claims[1].SNMPInterfaceState.AdminStatus != 1 {
+		t.Fatal("actual interface state did not accompany its configured source")
+	}
+	emit()
+	if len(recorded.claims) != 2 {
+		t.Fatal("unchanged state appended one receipt per poll")
+	}
+	for _, state := range []Interface{{Index: 7, Name: "wan", OperStatus: 7, AdminStatus: 1}, {Index: 7, Name: "wan", OperStatus: 7, AdminStatus: 2}, {Index: 7, Name: "wan"}} {
+		before := len(recorded.claims)
+		inv.Interfaces[7] = state
+		emit()
+		if len(recorded.claims) != before+2 || recorded.claims[before+1].Alias.Kind != entity.SNMPInterfaceAlias || recorded.claims[before+1].Source.SourceRef != "192.0.2.1" {
+			t.Fatal("changed state waited for the identity refresh or lost source binding")
+		}
+		got := recorded.claims[before+1].SNMPInterfaceState
+		if state.OperStatus == 0 {
+			if got != nil {
+				t.Fatal("unavailable state inherited the previous observation")
+			}
+		} else if got == nil || *got.OperStatus != state.OperStatus || *got.AdminStatus != state.AdminStatus {
+			t.Fatal("state transition changed original enums")
+		}
+	}
+	if *recorded.claims[1].SNMPInterfaceState.OperStatus != 1 || *recorded.claims[1].SNMPInterfaceState.AdminStatus != 1 {
+		t.Fatal("later poll rewrote an earlier observation")
+	}
+}
+
 func TestMalformedSNMPInterfaceLabelDoesNotPoisonEvidenceBatch(t *testing.T) {
 	recorded := &recordedDeviceEvidence{}
 	runtime := &Runtime{cfg: &Config{TenantID: "11111111-1111-4111-8111-111111111111",

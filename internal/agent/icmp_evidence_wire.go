@@ -41,24 +41,35 @@ func validICMPEvidenceReceipt(request *agentv1.SubmitEntityEvidenceRequest, resp
 	if request == nil || response == nil || len(response.ProtoReflect().GetUnknown()) != 0 || response.GetFaultsPersisted() != 0 || response.GetRouting() != nil || response.GetRoutingMessage() != nil || hasPublicRoutingReceipt(response) || response.GetFlowRouting() != nil || response.GetDeviceCounter() != nil {
 		return false
 	}
-	var icmp, outcomes uint32
+	var icmp, outcomes, states uint32
 	for _, observation := range request.Observations {
-		if observation == nil || observation.GetIcmp() != nil && observation.GetProbeOutcome() != nil {
+		if observation == nil {
 			return false
 		}
+		families := 0
 		if observation.GetIcmp() != nil {
 			icmp++
+			families++
 		}
 		if observation.GetProbeOutcome() != nil {
 			outcomes++
+			families++
+		}
+		if observation.GetSnmpInterfaceState() != nil {
+			states++
+			families++
+		}
+		if families > 1 {
+			return false
 		}
 	}
 	total := uint32(len(request.Observations))
 	accepted, unresolved := response.GetAccepted(), response.GetUnresolved()
 	retainedICMP, retainedOutcomes := response.GetIcmpMeasurementsPersisted(), response.GetProbeOutcomesPersisted()
-	if accepted > total || unresolved != total-accepted || retainedICMP > icmp || retainedOutcomes > outcomes {
+	retainedStates := response.GetInterfaceStatesPersisted()
+	if accepted > total || unresolved != total-accepted || retainedICMP > icmp || retainedOutcomes > outcomes || retainedStates > states {
 		return false
 	}
-	retained := retainedICMP + retainedOutcomes
-	return retained <= accepted && accepted-retained <= total-icmp-outcomes && icmp+outcomes-retained <= unresolved
+	retained := retainedICMP + retainedOutcomes + retainedStates
+	return retained <= accepted && accepted-retained <= total-icmp-outcomes-states && icmp+outcomes+states-retained <= unresolved
 }

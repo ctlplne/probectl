@@ -29,6 +29,7 @@ func TestProbeOutcomeWireRequiresCompleteTypedReceipt(t *testing.T) {
 		"legacy outcome omission": func(r *agentv1.SubmitEntityEvidenceResponse) { r.ProbeOutcomesPersisted = 0 },
 		"ICMP omission":           func(r *agentv1.SubmitEntityEvidenceResponse) { r.IcmpMeasurementsPersisted = 0 },
 		"extra outcome":           func(r *agentv1.SubmitEntityEvidenceResponse) { r.ProbeOutcomesPersisted = 2 },
+		"unrelated state":         func(r *agentv1.SubmitEntityEvidenceResponse) { r.InterfaceStatesPersisted = 1 },
 		"incomplete population":   func(r *agentv1.SubmitEntityEvidenceResponse) { r.Accepted = 2 },
 		"unrelated fault":         func(r *agentv1.SubmitEntityEvidenceResponse) { r.FaultsPersisted = 1 },
 		"unknown response":        func(r *agentv1.SubmitEntityEvidenceResponse) { r.ProtoReflect().SetUnknown([]byte{0x98, 0x06, 1}) },
@@ -47,5 +48,28 @@ func TestProbeOutcomeWireRequiresCompleteTypedReceipt(t *testing.T) {
 	request.Observations[0].ProbeOutcome = &agentv1.ProbeOutcome{Version: 1}
 	if validICMPEvidenceReceipt(request, good) {
 		t.Fatal("one observation acknowledged two incompatible metadata families")
+	}
+}
+
+func TestSNMPInterfaceStateRequiresItsTypedRetentionReceipt(t *testing.T) {
+	request := &agentv1.SubmitEntityEvidenceRequest{Observations: []*agentv1.EntityEvidenceObservation{
+		{SnmpInterfaceState: &agentv1.SnmpInterfaceState{Version: 1}}, {},
+	}}
+	if !validICMPEvidenceReceipt(request, &agentv1.SubmitEntityEvidenceResponse{Accepted: 2, InterfaceStatesPersisted: 1}) ||
+		!validICMPEvidenceReceipt(request, &agentv1.SubmitEntityEvidenceResponse{Accepted: 1, Unresolved: 1}) {
+		t.Fatal("explicit state retention or unresolved accounting was refused")
+	}
+	for _, reply := range []*agentv1.SubmitEntityEvidenceResponse{
+		{Accepted: 2}, // legacy generic acknowledgment cannot attest a new body
+		{Accepted: 2, InterfaceStatesPersisted: 2},
+		{Accepted: 2, InterfaceStatesPersisted: 1, ProbeOutcomesPersisted: 1},
+	} {
+		if validICMPEvidenceReceipt(request, reply) {
+			t.Fatal("state receipt accepted omission, surplus or another metadata family")
+		}
+	}
+	request.Observations[0].ProbeOutcome = &agentv1.ProbeOutcome{Version: 1}
+	if validICMPEvidenceReceipt(request, &agentv1.SubmitEntityEvidenceResponse{Accepted: 2, InterfaceStatesPersisted: 1}) {
+		t.Fatal("one observation borrowed two typed metadata families")
 	}
 }

@@ -33,6 +33,7 @@ type Observation struct {
 	// never identity keys or routing context selectors.
 	InterfaceName        string
 	InterfaceDescription string
+	SNMPInterfaceState   *SNMPInterfaceState
 	// SystemDescription is SNMP sysDescr on the configured-target address
 	// observation only. It never identifies an entity or selects a context.
 	SystemDescription string
@@ -88,6 +89,10 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 		return Observation{}, err
 	}
 	if err := validateInterfaceObservation(o); err != nil {
+		return Observation{}, err
+	}
+	o.SNMPInterfaceState, err = normalizeSNMPInterfaceState(o.SNMPInterfaceState)
+	if err != nil {
 		return Observation{}, err
 	}
 	if err := validateSystemObservation(o); err != nil {
@@ -285,7 +290,7 @@ func validateInterfaceObservation(o Observation) error {
 			strings.IndexFunc(o.InterfaceDescription, unicode.IsControl) >= 0 {
 			return ErrInvalidClaim
 		}
-	} else if o.InterfaceName != "" || o.InterfaceDescription != "" {
+	} else if o.InterfaceName != "" || o.InterfaceDescription != "" || o.SNMPInterfaceState != nil {
 		return ErrInvalidClaim
 	}
 	return nil

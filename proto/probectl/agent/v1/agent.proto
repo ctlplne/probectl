@@ -270,6 +270,14 @@ message EntityEvidenceObservation {
   SnmpInterfacePrefixSnapshot snmp_interface_prefixes = 21; // configured-target device address claim only
   IcmpMeasurement icmp = 22; // current configured test; never ordinary result metrics
   ProbeOutcome probe_outcome = 23; // exact non-ICMP configured test; existing evidence mTLS only
+  SnmpInterfaceState snmp_interface_state = 24; // observed interface alias only; absence is unknown
+}
+
+// Original IF-MIB enums, not an inferred fault or a source/tenant grant.
+message SnmpInterfaceState {
+  uint32 version = 1;
+  optional uint32 oper_status = 2; // 1..7, absent if that column was unavailable
+  optional uint32 admin_status = 3; // 1..3, absent if that column was unavailable
 }
 
 // Collector IO facts on the existing evidence-only mTLS plane. The receiver
@@ -471,4 +479,5 @@ message SubmitEntityEvidenceResponse {
   DeviceCounterCapture device_counter = 9;
   uint32 icmp_measurements_persisted = 10; // typed metadata retained, not a generic address ack
   uint32 probe_outcomes_persisted = 11; // retained configured outcomes, not a legacy generic ack
+  uint32 interface_states_persisted = 12; // typed original state retained, not a generic identity ack
 }

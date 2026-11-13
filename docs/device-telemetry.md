@@ -655,6 +655,18 @@ SNMP field as provenance. A uniquely mapped interface is a separate entity
 under the operator-anchored device, joined by a `contains` link backed by the
 original poll evidence. The same ifIndex in another tenant, VRF or device
 never selects that interface.
+The same interface claim retains the original optional IF-MIB operational
+state (1–7) and administrative state (1–3). Each unavailable column stays
+absent. A state change or loss of availability bypasses the ordinary identity
+refresh; unchanged state does not add a row on every poll. These facts are
+retained on the sender-authenticated evidence plane, rather than inferred
+from an ordinary bus metric. A down operational state with an administratively
+disabled interface does not establish an unplanned fault.
+Upgrade the control plane before the device agents: the client requires a
+typed state-retention acknowledgment and refuses a legacy generic identity
+acknowledgment. Raw metrics continue on their existing lane when evidence is
+unavailable. This adds source facts; fault-domain verdict qualification remains
+separate.
 An observed interface IP is kept on that interface's evidence page when its
 ifIndex entity exists. Current address resolution projects the parent device
 for flow, BMP and path joins, so the configured target and one of its interface

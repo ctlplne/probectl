@@ -28,6 +28,7 @@ const (
 	// IF-MIB ifTable / ifXTable (per-ifIndex columns).
 	oidIfDescr       = ".1.3.6.1.2.1.2.2.1.2"
 	oidIfOperStatus  = ".1.3.6.1.2.1.2.2.1.8" // 1 = up
+	oidIfAdminStatus = ".1.3.6.1.2.1.2.2.1.7" // 1 up, 2 down, 3 testing
 	oidIfInOctets    = ".1.3.6.1.2.1.2.2.1.10"
 	oidIfInDiscards  = ".1.3.6.1.2.1.2.2.1.13"
 	oidIfInErrors    = ".1.3.6.1.2.1.2.2.1.14"
@@ -227,6 +228,13 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 			return // unavailable or malformed state is never a down observation
 		}
 		setIf(idx, func(e *Interface) { e.OperStatus, e.OperUp = uint32(value), value == 1 })
+	})
+	walkColumn(conn, oidIfAdminStatus, func(idx uint32, p gosnmp.SnmpPDU) {
+		value := pduFloat(p)
+		if p.Type != gosnmp.Integer || value < 1 || value > 3 || value != float64(uint32(value)) {
+			return
+		}
+		setIf(idx, func(e *Interface) { e.AdminStatus = uint32(value) })
 	})
 	walkColumn(conn, oidIfHighSpeed, func(idx uint32, p gosnmp.SnmpPDU) {
 		setIf(idx, func(e *Interface) { e.SpeedMbps = uint64(pduFloat(p)) })

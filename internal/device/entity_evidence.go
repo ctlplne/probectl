@@ -41,10 +41,11 @@ type entityEvidenceSnapshot struct {
 
 func identityFingerprint(target string, inv Inventory, neighbors []NeighborEvidence) string {
 	type interfaceIdentity struct {
-		Index       uint32
-		Name        string
-		Description string
-		Addresses   []string
+		Index                   uint32
+		Name                    string
+		Description             string
+		OperStatus, AdminStatus uint32
+		Addresses               []string
 	}
 	type neighborIdentity struct{ ID, ManagementAddress string }
 	snapshot := struct {
@@ -62,7 +63,7 @@ func identityFingerprint(target string, inv Inventory, neighbors []NeighborEvide
 	sort.Slice(indexes, func(i, j int) bool { return indexes[i] < indexes[j] })
 	for _, index := range indexes {
 		iface := inv.Interfaces[index]
-		entry := interfaceIdentity{Index: index, Name: iface.Name, Description: iface.Descr}
+		entry := interfaceIdentity{Index: index, Name: iface.Name, Description: iface.Descr, OperStatus: iface.OperStatus, AdminStatus: iface.AdminStatus}
 		for _, address := range iface.Addrs {
 			entry.Addresses = append(entry.Addresses, address.String())
 		}
@@ -241,6 +242,23 @@ func (r *Runtime) emitSNMPEntityEvidence(ctx context.Context, dev Target, inv In
 		observation := entity.Observation{ID: id, Source: source,
 			Alias: alias, SourceRef: originalRef, ObservedAt: at,
 			InterfaceName: ifName, InterfaceDescription: ifDescr}
+		if alias.Kind == entity.SNMPInterfaceAlias {
+			index, err := strconv.ParseUint(alias.Value, 10, 32)
+			if err != nil {
+				return true
+			}
+			iface := inv.Interfaces[uint32(index)]
+			if iface.OperStatus != 0 || iface.AdminStatus != 0 {
+				state := &entity.SNMPInterfaceState{Version: 1}
+				if iface.OperStatus != 0 {
+					state.OperStatus = &iface.OperStatus
+				}
+				if iface.AdminStatus != 0 {
+					state.AdminStatus = &iface.AdminStatus
+				}
+				observation.SNMPInterfaceState = state
+			}
+		}
 		claim, err := observation.Normalize(at)
 		if err != nil {
 			return true // untrusted SNMP data cannot reject the other claims

@@ -285,6 +285,21 @@ func TestPollSNMPOperationalStatusKeepsExactStateAndTenant(t *testing.T) {
 	}
 }
 
+func TestPollSNMPAdministrativeStatusRequiresItsOwnObservedColumn(t *testing.T) {
+	for _, value := range []int{0, 1, 2, 3, 4, -1} {
+		conn := healthyConn()
+		conn.tables[oidIfAdminStatus] = map[uint32]gosnmp.SnmpPDU{1: operStatusPDU(value)}
+		_, inventory, err := pollSNMP(t.Context(), conn, Target{Address: "192.0.2.1", Transport: TransportSNMPv2c}, "tenant-red", "agent-red", pollTime)
+		want := uint32(0)
+		if value >= 1 && value <= 3 {
+			want = uint32(value)
+		}
+		if err != nil || inventory.Interfaces[1].AdminStatus != want || inventory.Interfaces[2].AdminStatus != 0 || inventory.Interfaces[1].OperStatus != 1 {
+			t.Fatal("administrative state was guessed from another interface or its operational state", value, err)
+		}
+	}
+}
+
 // TestPollSNMPUnreachable: a failing system group IS an error (reachability /
 // auth check), and the runtime counts it.
 func TestPollSNMPUnreachable(t *testing.T) {
