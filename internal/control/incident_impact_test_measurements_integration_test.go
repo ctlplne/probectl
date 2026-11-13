@@ -86,6 +86,17 @@ func TestIncidentTestMeasurementsKeepOriginalClockCurrentAuthorityAndTenant(t *t
 			t.Fatal("unchanged retained originals failed current publication", err)
 		}
 		initial[tenant] = values
+		point := values[0].ObservedAt
+		narrow, err := read(tenant, point, point.Add(time.Nanosecond), 16<<20)
+		found := false
+		for _, value := range narrow {
+			if value.EvidenceID == values[0].EvidenceID {
+				found = true
+			}
+		}
+		if err != nil || !found {
+			t.Fatal("nanosecond test window lost its exact retained point", err)
+		}
 		if values, err := read(tenant, from, to, 4096); !errors.Is(err, store.ErrIncidentImpactBudget) || values != nil {
 			t.Fatal("whole-history memory refusal returned a prefix", values, err)
 		}

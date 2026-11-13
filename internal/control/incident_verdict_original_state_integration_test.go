@@ -79,6 +79,13 @@ func TestIncidentVerdictJoinsOriginalInterfaceStatesAndRejectsChangedDocuments(t
 		if err != nil || got.Domain != want {
 			t.Fatal("joined original state selected the wrong tenant/domain", got, err)
 		}
+		// A one-nanosecond half-open window still contains the original
+		// microsecond Postgres point at its inclusive lower bound.
+		point := value.before.states[0].ObservedAt
+		narrow, err := f.server.computeIncidentVerdict(ctx, value.actor, value.id, point, point.Add(time.Nanosecond), 128<<20)
+		if err != nil || narrow.Domain != want || len(narrow.Hypotheses[0].For)+len(narrow.Hypotheses[0].Against) != 1 {
+			t.Fatal("nanosecond window lost its original retained point", narrow.Domain, want, err)
+		}
 		proveIncidentVerdictServedReaders(t, f, tenant, value.id, incident.VerdictInput{From: value.from, To: value.to}, got)
 		citations := got.Hypotheses[0].For
 		if lane == 1 {

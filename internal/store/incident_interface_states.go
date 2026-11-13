@@ -67,6 +67,7 @@ func (Incidents) InterfaceStateMeasurementsInScope(ctx context.Context, sc tenan
 		agents, refs = append(agents, source.AgentID), append(refs, source.ConfiguredRef)
 		indices, since = append(indices, strconv.FormatUint(uint64(source.IfIndex), 10)), append(since, source.CurrentSince)
 	}
+	sqlFrom, sqlTo := incidentMeasurementSQLWindow(from, to)
 	remaining := maxBytes / 2
 	rows, err := sc.Q.Query(ctx, `WITH requested AS (
  SELECT * FROM unnest($2::uuid[],$3::uuid[],$4::text[],$5::text[],$6::text[],$7::timestamptz[])
@@ -78,7 +79,7 @@ func (Incidents) InterfaceStateMeasurementsInScope(ctx context.Context, sc tenan
  LEFT JOIN agent_identities sender ON sender.tenant_id=$1 AND sender.agent_id=e.agent_id AND sender.serial=e.sender_serial
  WHERE e.tenant_id=$1 AND e.observed_at>=r.current_since AND e.observed_at>=$8 AND e.observed_at<$9
  ORDER BY e.context_id,e.entity_id,e.observed_at,e.id LIMIT $11`, pgx.QueryExecModeDescribeExec,
-		sc.Tenant.String(), contexts, entities, agents, refs, indices, since, from, to, remaining/8, remaining/1024+1)
+		sc.Tenant.String(), contexts, entities, agents, refs, indices, since, sqlFrom, sqlTo, remaining/8, remaining/1024+1)
 	if err != nil {
 		return nil, err
 	}

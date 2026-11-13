@@ -89,6 +89,7 @@ func (Incidents) IncidentTestMeasurementsInScope(ctx context.Context, sc tenancy
 		agents = append(agents, source.AgentID)
 		tests = append(tests, source.TestID)
 	}
+	sqlFrom, sqlTo := incidentMeasurementSQLWindow(from, to)
 	rows, err := sc.Q.Query(ctx, `WITH requested AS (
  SELECT * FROM unnest($2::uuid[],$3::uuid[],$4::text[],$5::text[]) AS r(context_id,entity_id,agent_id,test_id))
  SELECT e.context_id::text,e.entity_id::text,e.configured_ref,e.agent_id,e.id::text,e.observation_id::text,
@@ -103,7 +104,7 @@ func (Incidents) IncidentTestMeasurementsInScope(ctx context.Context, sc tenancy
  LEFT JOIN agent_identities sender ON sender.tenant_id=$1 AND sender.agent_id=e.agent_id AND sender.serial=e.sender_serial
  WHERE e.tenant_id=$1 AND ((e.source_ref='icmp:configured-test' AND e.alias_kind='address') OR (e.source_ref='probe:configured-test' AND e.alias_kind='configured_test_id'))
  AND ((e.observed_at>=$6 AND e.observed_at<$7) OR (e.observed_at>=$8 AND e.observed_at<$9))
- ORDER BY e.context_id,e.entity_id,e.agent_id,e.configured_ref,e.observed_at,e.id LIMIT $11`, pgx.QueryExecModeDescribeExec, bound.String(), contexts, entities, agents, tests, from, to, from.Add(-7*24*time.Hour), to.Add(-7*24*time.Hour), maxBytes/8, maxBytes/1024+1)
+ ORDER BY e.context_id,e.entity_id,e.agent_id,e.configured_ref,e.observed_at,e.id LIMIT $11`, pgx.QueryExecModeDescribeExec, bound.String(), contexts, entities, agents, tests, sqlFrom, sqlTo, sqlFrom.Add(-7*24*time.Hour), sqlTo.Add(-7*24*time.Hour), maxBytes/8, maxBytes/1024+1)
 	if err != nil {
 		return nil, err
 	}
