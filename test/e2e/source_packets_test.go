@@ -172,7 +172,7 @@ func (p *releaseFlowReport) retagCapturedHistory(t *testing.T, plan map[string]a
 			t.Fatal("real packet rule changed exact retained packet byte/flow quantities")
 		}
 		group := result.Flow.Rows[0].Group
-		if group["tag.packet_customer"] != p.packetValue || group["tag.packet_prefix_customer"] != p.packetPrefixCustomer || group["protocol"] != "ipfix" || group["exporter"] != "127.0.0.1" || group["src_addr"] != p.address {
+		if group["tag.packet_customer"] != p.packetValue || group["tag.src_prefix.packet_prefix_customer"] != p.packetPrefixCustomer || group["protocol"] != "ipfix" || group["exporter"] != "127.0.0.1" || group["src_addr"] != p.address {
 			t.Fatal("real packet history lost its current rule, actual protocol or owned exporter")
 		}
 	}
@@ -194,7 +194,7 @@ func (p *releaseFlowReport) verifyPacketCSVCells(t *testing.T, row []string, col
 	if cell("packets:total") != strconv.Itoa(releasePacketCount) {
 		t.Fatal("real source report lost independently emitted packet count")
 	}
-	if row[0] == "detail" && (cell("tag.packet_customer") != p.packetValue || cell("tag.packet_prefix_customer") != p.packetPrefixCustomer || cell("protocol") != "ipfix" || cell("exporter") != "127.0.0.1") {
+	if row[0] == "detail" && (cell("tag.packet_customer") != p.packetValue || cell("tag.src_prefix.packet_prefix_customer") != p.packetPrefixCustomer || cell("protocol") != "ipfix" || cell("exporter") != "127.0.0.1") {
 		t.Fatal("real source report lost current rule tag, actual IPFIX or registered loopback exporter")
 	}
 }

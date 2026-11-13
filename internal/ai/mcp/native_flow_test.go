@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -253,7 +254,11 @@ func TestNativeMCPArgumentsRejectAmbiguityAndAuthorityFields(t *testing.T) {
 	large := append(bytes.Repeat([]byte{' '}, 1<<20), raw...)
 	for _, version := range []string{"", legacyProtocolVersion} {
 		response := legacyTLSCall(t, socket, large, "owned", version)
-		body := legacyBody(t, response)
+		body, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+		_ = response.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if !bytes.Contains(body, []byte(`"error"`)) || b.calls != before {
 			t.Fatal("native byte admission bypassed strict envelope validation", version)
 		}
