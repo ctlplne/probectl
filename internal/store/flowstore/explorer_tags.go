@@ -34,6 +34,7 @@ type TagQueryData struct {
 	exporterContexts     map[string]string
 	prefixes             map[tagPrefixGroup][]tagPrefixRange
 	contextAuthorization string
+	retainedBytes        int64
 }
 
 // TagQuerySources carries private, current owned metadata, never query input.
@@ -67,7 +68,10 @@ func NewTagQueryData(tenantID string, revision int64, definitions []tags.Definit
 	}
 	result := &TagQueryData{tenantID: tenantID, revision: revision,
 		vocabulary: vocabulary, exporters: make(map[string]map[string]string, len(projections)), exporterContexts: make(map[string]string, len(projections))}
-	used := int64(0)
+	used := int64(4096 + 4096*vocabulary.TagDefinitionCount())
+	if used > maxBytes {
+		return nil, ErrExplorerBudget
+	}
 	contexts := map[string]bool{}
 	for _, projection := range projections {
 		if err := ctx.Err(); err != nil {
@@ -138,7 +142,17 @@ func NewTagQueryData(tenantID string, revision int64, definitions []tags.Definit
 			return nil, err
 		}
 	}
+	result.retainedBytes = used
 	return result, nil
+}
+
+// RetainedBytes includes the complete immutable lookup and its vocabulary,
+// exporter/interface maps and prefix ranges in request-local admission.
+func (d *TagQueryData) RetainedBytes(tenantID string) (int64, error) {
+	if _, err := d.Revision(tenantID); err != nil {
+		return 0, err
+	}
+	return d.retainedBytes, nil
 }
 
 func (d *TagQueryData) Revision(tenantID string) (int64, error) {

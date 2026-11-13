@@ -131,6 +131,9 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 	if out, err := parseBMPPeerUp(ctx, raw, PeerMessageBudget{memory, work}); err != nil && !reflect.DeepEqual(out, PeerUp{}) {
 		t.Fatal("invalid Peer Up exposed partial source metadata")
 	}
+	if out, err := PhysicalPeerOpenASNs(ctx, raw, PeerMessageBudget{memory, work}); err != nil && out != (PhysicalPeerASNs{}) {
+		t.Fatal("invalid physical OPEN exposed partial AS identities")
+	}
 	if out, err := DecodePhysicalPeerSession(ctx, raw, PeerMessageBudget{memory, work}); err != nil && out != nil {
 		t.Fatal("invalid physical peer frame exposed a partial session")
 	}

@@ -100,3 +100,36 @@ func TestSignedVerdictRetainsEveryHypothesisAndTenantBinding(t *testing.T) {
 		t.Fatal("foreign incident verdict entered package")
 	}
 }
+
+func TestSignedVerdictRoutingContextKeepsIdentityAndOriginalFaultWindow(t *testing.T) {
+	at := time.Now().UTC()
+	from := at.Add(-time.Minute)
+	value := incident.FaultVerdict{ContractVersion: "probectl.incident-verdict.v1", Preview: true, IncidentID: "owned-incident", EvaluatedAt: at, From: from, To: at, Domain: incident.FaultWiderInternet, Confidence: "corroborated", Reason: "original_external_routing_errors"}
+	for _, domain := range []incident.FaultDomain{incident.FaultYourNetwork, incident.FaultCarrier, incident.FaultWiderInternet, incident.FaultRemoteService} {
+		h := incident.VerdictHypothesis{Domain: domain, Confidence: "insufficient", For: []incident.VerdictCitation{}, Against: []incident.VerdictCitation{}, Missing: []string{}}
+		if domain == incident.FaultWiderInternet {
+			h.Confidence = "corroborated"
+			h.For = []incident.VerdictCitation{
+				{ContextID: "owned-context", EntityID: "owned-router", EvidenceID: "original-error", AgentID: "agent", Digest: strings.Repeat("a", 64), ObservedAt: from.Add(time.Second), Reason: "original_routing_error"},
+				{ContextID: "owned-context", EntityID: "owned-router", SourceKind: "router_bgp", AgentID: "listener", Digest: strings.Repeat("b", 64), ObservedAt: from.Add(-time.Second), Reason: "original_selected_route_context", Routing: &incident.VerdictRoutingReference{ViewID: "aee337be-624f-440c-9be9-be3e2c19f7c5", GenerationID: "bc646676-f577-4818-8b9a-59f9fa9f71ad", Sequence: "9223372036854775807", OriginASN: 4294967295, AddressesRedacted: true}},
+			}
+		}
+		value.Hypotheses = append(value.Hypotheses, h)
+	}
+	if _, _, err := Build(BuildInput{TenantID: "tenant-red", Incident: incident.Incident{ID: value.IncidentID}, CreatedAt: at, Verdict: &value}); err != nil {
+		t.Fatal("older original context or redacted routing identity was lost", err)
+	}
+	for _, which := range []int{0, 1} {
+		broken := value
+		broken.Hypotheses = append([]incident.VerdictHypothesis(nil), value.Hypotheses...)
+		broken.Hypotheses[2].For = append([]incident.VerdictCitation(nil), value.Hypotheses[2].For...)
+		if which == 0 {
+			broken.Hypotheses[2].For[0].ObservedAt = from.Add(-time.Nanosecond)
+		} else {
+			broken.Hypotheses[2].For[1].ObservedAt = at
+		}
+		if _, _, err := Build(BuildInput{TenantID: "tenant-red", Incident: incident.Incident{ID: value.IncidentID}, CreatedAt: at, Verdict: &broken}); err == nil {
+			t.Fatal("context exception admitted a fault outside the original window or a future routing context")
+		}
+	}
+}

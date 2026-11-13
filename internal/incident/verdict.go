@@ -29,17 +29,18 @@ const (
 // Source readers must recheck the original document and current authority at
 // publication; a citation is never a reusable grant.
 type VerdictCitation struct {
-	ContextID          string    `json:"context_id"`
-	EntityID           string    `json:"entity_id"`
-	EvidenceID         string    `json:"evidence_id,omitempty"`
-	SourceKind         string    `json:"source_kind,omitempty"`
-	PathRoundID        string    `json:"path_round_id,omitempty"`
-	PeerASN            uint32    `json:"peer_asn,omitempty"`
-	HandoffInterfaceID string    `json:"handoff_interface_id,omitempty"`
-	AgentID            string    `json:"agent_id"`
-	Digest             string    `json:"digest"`
-	ObservedAt         time.Time `json:"observed_at"`
-	Reason             string    `json:"reason"`
+	ContextID          string                   `json:"context_id"`
+	EntityID           string                   `json:"entity_id"`
+	EvidenceID         string                   `json:"evidence_id,omitempty"`
+	SourceKind         string                   `json:"source_kind,omitempty"`
+	PathRoundID        string                   `json:"path_round_id,omitempty"`
+	PeerASN            uint32                   `json:"peer_asn,omitempty"`
+	Routing            *VerdictRoutingReference `json:"routing,omitempty"`
+	HandoffInterfaceID string                   `json:"handoff_interface_id,omitempty"`
+	AgentID            string                   `json:"agent_id"`
+	Digest             string                   `json:"digest"`
+	ObservedAt         time.Time                `json:"observed_at"`
+	Reason             string                   `json:"reason"`
 }
 
 type VerdictHypothesis struct {
@@ -64,4 +65,16 @@ type FaultVerdict struct {
 	From            time.Time           `json:"from"`
 	To              time.Time           `json:"to"`
 	Hypotheses      []VerdictHypothesis `json:"hypotheses"`
+}
+
+// VerdictRoutingReference labels current selected-route context separately
+// from original packet evidence; a RIB is not proof of installed forwarding.
+type VerdictRoutingReference struct {
+	ViewID            string `json:"view_id"`
+	GenerationID      string `json:"generation_id"`
+	Sequence          string `json:"sequence"`
+	Prefix            string `json:"prefix,omitempty"`
+	Address           string `json:"address,omitempty"`
+	AddressesRedacted bool   `json:"addresses_redacted,omitempty"`
+	OriginASN         uint32 `json:"origin_asn"`
 }

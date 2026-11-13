@@ -206,9 +206,28 @@ Carrier citations retain the full peer ASN and `handoff_interface_id`. Successfu
 external replies, peer-up/monitoring withdrawal, administrative shutdown and
 incomplete receive work prevent this corroboration. These are evidence-based
 carrier hand-off observations, not proof of the provider's internal root cause.
-Wider-internet positive classification still needs its own independent localized
-path proof; absent intermediate replies never substitute for it. Thin,
-contradictory or unresolved incident coverage returns `unknown`. The label
+Wider-internet corroboration requires complete challenge-matched no-route
+errors from different agents to different external destinations, with enabled,
+healthy local and hand-off observations and an original physical provider Peer
+Up. Both complete OPENs identify the local/provider ASNs. Every error responder
+must be outside the router's complete observed on-link prefixes. All paths in
+the incident router's current complete selected RIB must place its prefix origin
+beyond the local, declared provider and customer ASNs, through that provider.
+Missing/default/ambiguous, stale, withdrawn or later route context supplies no
+positive result. A selected RIB is routing context, not installed forwarding or
+provider-internal root-cause proof. Missing intermediate replies never substitute
+for these original error packets. Thin, contradictory or unresolved incident
+coverage returns `unknown`.
+
+Routing-context citations use their own `router_bgp` namespace with original
+view/generation, exact decimal sequence, complete-context digest and origin ASN.
+Their original context clock may precede the fault window; packet/interface
+fault observations must remain inside it. Export IP masking explicitly withholds
+responder/prefix details while preserving that original identity and digest.
+Native output keeps the existing tenant redaction policy. Queries read the exact
+selected window rather than fetching an unrelated previous-week population.
+Complete configured probe documents consume admitted memory together; a numeric
+wire or display bound never truncates their logical outcomes. The label
 `remote_service` describes observed service failure; it does not identify a
 SaaS provider or attribute its internal root cause. Confidence is an evidence
 category (`insufficient`, `corroborated`, `direct`), not a probability.

@@ -2466,7 +2466,8 @@ export interface IncidentVerdictCitation {
   path_round_id?: string
   peer_asn?: number
   reason: string
-  source_kind?: "entity_evidence" | "control_plane_path"
+  routing?: IncidentVerdictRoutingReference | null
+  source_kind?: "entity_evidence" | "control_plane_path" | "router_bgp"
 }
 
 export interface IncidentVerdictCommand {
@@ -2502,6 +2503,16 @@ export interface IncidentVerdictResponse {
   reason: string
   to: string
   valid_until?: string
+}
+
+export interface IncidentVerdictRoutingReference {
+  address?: string
+  addresses_redacted?: boolean
+  generation_id: string
+  origin_asn: number
+  prefix?: string
+  sequence: string
+  view_id: string
 }
 
 export type InterfaceRole = "transit" | "ix_peering" | "private_peering" | "customer" | "backbone" | "other"

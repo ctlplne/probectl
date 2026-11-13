@@ -90,6 +90,7 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 	var impact *incident.ImpactResponse
 	var verdict *incident.FaultVerdict
 	var impactPublication, verdictPublication incidentEvidenceFinalizer
+	r, retained := s.bindIncidentExportMemory(r, input)
 	// One admitted export owns the complete multi-source packaging operation.
 	// Source readers retain their own permission and original-document checks.
 	if input.Impact != nil || input.Verdict != nil {
@@ -111,9 +112,9 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 		}
 	}
 	if input.Verdict != nil {
-		memory := int64(0)
-		if input.Impact != nil {
-			memory = flowstore.ExplorerOperationBudget(r.Context(), s.flowStore).MemoryBytes / 4
+		memory, err := retained.verdictMemory()
+		if err != nil {
+			return err
 		}
 		verdict, err = s.exportIncidentVerdict(r.Context(), p, inc, *input.Verdict, memory, &verdictPublication)
 		if err != nil {

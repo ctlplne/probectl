@@ -85,7 +85,28 @@ function response(tenant: string): IncidentVerdictResponse {
                     handoff_interface_id: id,
                   },
                 ]
-              : [],
+              : domain === 'wider_internet'
+                ? [
+                    {
+                      context_id: id,
+                      entity_id: id,
+                      source_kind: 'router_bgp' as const,
+                      agent_id: `${tenant}-router`,
+                      digest: 'd'.repeat(64),
+                      observed_at: incident.last_seen_at,
+                      reason:
+                        'current_selected_prefix_origin_beyond_declared_provider_not_forwarding_proof',
+                      routing: {
+                        view_id: id,
+                        generation_id: '22222222-2222-4222-8222-222222222222',
+                        sequence: '9223372036854775807',
+                        address: '2001:db8::7',
+                        prefix: '2001:db8::/64',
+                        origin_asn: 4294967294,
+                      },
+                    },
+                  ]
+                : [],
       }),
     ),
   }
@@ -145,6 +166,11 @@ for (const theme of ['light', 'dark'])
     expect(await screen.findByText('red-source')).toBeInTheDocument()
     expect(screen.getByText('AS4294967295')).toBeInTheDocument()
     expect(screen.getByText('Hand-off interface')).toBeInTheDocument()
+    expect(screen.getByText('Selected routing view')).toBeInTheDocument()
+    expect(
+      screen.getByText('AS4294967294 (routing context, not forwarding proof)'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('2001:db8::7 / 2001:db8::/64')).toBeInTheDocument()
     expect(selected).toEqual({ from: start, to: end })
     for (const name of ['Your network', 'Carrier', 'Wider internet', 'Remote service'])
       expect(screen.getByRole('region', { name })).toBeInTheDocument()

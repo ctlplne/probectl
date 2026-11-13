@@ -2591,17 +2591,18 @@ type IncidentShareSelection struct {
 }
 
 type IncidentVerdictCitation struct {
-	AgentId            string `json:"agent_id"`
-	ContextId          string `json:"context_id"`
-	Digest             string `json:"digest"`
-	EntityId           string `json:"entity_id"`
-	EvidenceId         string `json:"evidence_id,omitempty"`
-	HandoffInterfaceId string `json:"handoff_interface_id,omitempty"`
-	ObservedAt         string `json:"observed_at"`
-	PathRoundId        string `json:"path_round_id,omitempty"`
-	PeerAsn            int    `json:"peer_asn,omitempty"`
-	Reason             string `json:"reason"`
-	SourceKind         string `json:"source_kind,omitempty"`
+	AgentId            string                           `json:"agent_id"`
+	ContextId          string                           `json:"context_id"`
+	Digest             string                           `json:"digest"`
+	EntityId           string                           `json:"entity_id"`
+	EvidenceId         string                           `json:"evidence_id,omitempty"`
+	HandoffInterfaceId string                           `json:"handoff_interface_id,omitempty"`
+	ObservedAt         string                           `json:"observed_at"`
+	PathRoundId        string                           `json:"path_round_id,omitempty"`
+	PeerAsn            int                              `json:"peer_asn,omitempty"`
+	Reason             string                           `json:"reason"`
+	Routing            *IncidentVerdictRoutingReference `json:"routing,omitempty"`
+	SourceKind         string                           `json:"source_kind,omitempty"`
 }
 
 type IncidentVerdictCommand struct {
@@ -2638,6 +2639,16 @@ type IncidentVerdictResponse struct {
 	Reason          string                      `json:"reason"`
 	To              string                      `json:"to"`
 	ValidUntil      string                      `json:"valid_until,omitempty"`
+}
+
+type IncidentVerdictRoutingReference struct {
+	Address           string `json:"address,omitempty"`
+	AddressesRedacted *bool  `json:"addresses_redacted,omitempty"`
+	GenerationId      string `json:"generation_id"`
+	OriginAsn         int    `json:"origin_asn"`
+	Prefix            string `json:"prefix,omitempty"`
+	Sequence          string `json:"sequence"`
+	ViewId            string `json:"view_id"`
 }
 
 type InterfaceRole string

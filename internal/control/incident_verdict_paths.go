@@ -39,7 +39,7 @@ type incidentVerdictPath struct {
 	rounds  []pathstore.Snapshot
 }
 
-func (s *Server) loadIncidentVerdictPaths(ctx context.Context, snapshot, original *incidentVerdictSnapshot, memory int64) error {
+func (s *Server) loadIncidentVerdictPaths(ctx context.Context, snapshot, original *incidentVerdictSnapshot, memory *int64) error {
 	if s.pathStore == nil {
 		return nil
 	}
@@ -51,7 +51,7 @@ func (s *Server) loadIncidentVerdictPaths(ctx context.Context, snapshot, origina
 		}
 	}
 	merged := map[string]int{}
-	remaining := memory
+	remaining := *memory
 	for _, source := range snapshot.tests {
 		if source.PathBinding == nil {
 			snapshot.pathBindings = append(snapshot.pathBindings, incidentVerdictPathBinding{TestID: source.TestID})
@@ -116,6 +116,7 @@ func (s *Server) loadIncidentVerdictPaths(ctx context.Context, snapshot, origina
 		merged[key] = len(snapshot.evidence.paths)
 		snapshot.evidence.paths = append(snapshot.evidence.paths, incidentVerdictPath{source, binding, since, rounds})
 	}
+	*memory = remaining
 	return ctx.Err()
 }
 

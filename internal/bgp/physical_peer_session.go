@@ -29,23 +29,9 @@ func DecodePhysicalPeerSession(ctx context.Context, raw []byte, budget PeerMessa
 	out := &entity.BMPPeerSession{Version: 1}
 	switch raw[5] {
 	case bmpPeerUp:
-		peer, err := parseBMPPeerUp(ctx, raw, budget)
+		peer, _, err := physicalPeerOpenASNs(ctx, raw, budget)
 		if err != nil {
 			return nil, err
-		}
-		if !physicalPeerHeader(peer.Header) {
-			return nil, ErrBMPPeerUp
-		}
-		remote, err := parseRouteOpenCapabilities(peer.ReceivedOpen)
-		if err != nil {
-			return nil, err
-		}
-		asn := uint32(binary.BigEndian.Uint16(peer.ReceivedOpen[20:22]))
-		if remote.fourAS {
-			asn = remote.asn
-		}
-		if asn == 0 || asn != peer.Header.PeerASN {
-			return nil, ErrBMPPeerUp
 		}
 		header, out.State = peer.Header, "up"
 	case 2:
@@ -77,4 +63,53 @@ func DecodePhysicalPeerSession(ctx context.Context, raw []byte, budget PeerMessa
 		return nil, err
 	}
 	return out, ctx.Err()
+}
+
+// PhysicalPeerASNs describes the two complete original OPENs. Neither ASN
+// selects canonical ownership or proves a forwarding path.
+type PhysicalPeerASNs struct{ Local, Remote uint32 }
+
+// PhysicalPeerOpenASNs derives both ASNs from a complete physical Peer Up.
+// It never substitutes a Loc-RIB pseudo-peer, header-only ASN or Down frame.
+func PhysicalPeerOpenASNs(ctx context.Context, raw []byte, budget PeerMessageBudget) (PhysicalPeerASNs, error) {
+	_, asns, err := physicalPeerOpenASNs(ctx, raw, budget)
+	return asns, err
+}
+
+func physicalPeerOpenASNs(ctx context.Context, raw []byte, budget PeerMessageBudget) (PeerUp, PhysicalPeerASNs, error) {
+	peer, err := parseBMPPeerUp(ctx, raw, budget)
+	if err != nil {
+		return PeerUp{}, PhysicalPeerASNs{}, err
+	}
+	if !physicalPeerHeader(peer.Header) {
+		return PeerUp{}, PhysicalPeerASNs{}, ErrBMPPeerUp
+	}
+	local, err := physicalOpenASN(peer.SentOpen)
+	if err != nil {
+		return PeerUp{}, PhysicalPeerASNs{}, err
+	}
+	remote, err := physicalOpenASN(peer.ReceivedOpen)
+	if err != nil || remote != peer.Header.PeerASN {
+		return PeerUp{}, PhysicalPeerASNs{}, ErrBMPPeerUp
+	}
+	if err := ctx.Err(); err != nil {
+		return PeerUp{}, PhysicalPeerASNs{}, err
+	}
+	return peer, PhysicalPeerASNs{Local: local, Remote: remote}, nil
+}
+
+func physicalOpenASN(raw []byte) (uint32, error) {
+	capabilities, err := parseRouteOpenCapabilities(raw)
+	if err != nil {
+		return 0, err
+	}
+	wire := uint32(binary.BigEndian.Uint16(raw[20:22]))
+	asn := wire
+	if capabilities.fourAS {
+		asn = capabilities.asn
+	}
+	if asn == 0 || asn <= 65535 && wire != asn || asn > 65535 && wire != 23456 {
+		return 0, ErrBMPPeerUp
+	}
+	return asn, nil
 }

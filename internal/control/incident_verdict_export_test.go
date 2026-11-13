@@ -41,3 +41,20 @@ func TestVerdictExportRedactsAgentLabelsWithoutChangingOriginalCitations(t *test
 		t.Fatal("redaction modified the caller's source verdict")
 	}
 }
+
+func TestVerdictExportRedactsRoutingIPsAndPreservesOriginalView(t *testing.T) {
+	route := &incident.VerdictRoutingReference{ViewID: "aee337be-624f-440c-9be9-be3e2c19f7c5", GenerationID: "bc646676-f577-4818-8b9a-59f9fa9f71ad", Sequence: "2", Prefix: "2001:db8::/64", Address: "2001:db8::7", OriginASN: 4294967295}
+	citation := incident.VerdictCitation{SourceKind: "router_bgp", Routing: route, Digest: strings.Repeat("a", 64), AgentID: "router"}
+	input := incident.FaultVerdict{Hypotheses: []incident.VerdictHypothesis{{For: []incident.VerdictCitation{citation}}}}
+	output, err := redactIncidentVerdict(input, ai.RedactionPolicy{MaskIPs: true}, "owned-tenant")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := output.Hypotheses[0].For[0].Routing
+	if got == nil || got.ViewID != route.ViewID || got.GenerationID != route.GenerationID || got.Sequence != route.Sequence || got.OriginASN != route.OriginASN || !got.AddressesRedacted || got.Address != "" || got.Prefix != "" {
+		t.Fatal("routing redaction changed original lineage or disclosed an IP")
+	}
+	if route.Address != "2001:db8::7" || route.Prefix != "2001:db8::/64" {
+		t.Fatal("export mutated original routing context")
+	}
+}

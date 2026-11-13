@@ -209,6 +209,15 @@ func (s *Server) computeIncidentImpactWithPublication(ctx context.Context, actor
 		return none, err
 	}
 	if publication != nil {
+		if meter, ok := ctx.Value(incidentExportMemoryKey{}).(*incidentExportMemory); ok {
+			// Include every retained result/source/row/tag and current actor
+			// input captured by the finalizer. Count complete documents, never
+			// a representative page; JSON copies also pay this admission.
+			parts := []any{observed.inputs, observed.sources, observed.owners, observed.tests, observed.testReads, observed.sloDefinitions, rows, reads, owners, tagData, result, actor, input, testSelection}
+			if err := meter.retain(actor.TenantID, tagData, observed, testTagData, parts); err != nil {
+				return none, err
+			}
+		}
 		*publication = validate
 	}
 

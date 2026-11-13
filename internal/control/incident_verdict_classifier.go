@@ -50,12 +50,13 @@ type incidentVerdictEvidence struct {
 	interfaces []incidentVerdictInterface
 	tests      []incidentVerdictTest
 	paths      []incidentVerdictPath
+	routes     map[incidentVerdictRouteKey]incidentVerdictRoute
 }
 
 // classifyIncidentVerdict evaluates original local state, carrier hand-off
-// failures and primary HTTPS responses. Wider-internet remains unavailable
-// without its own localized independent path proof. A transit label, missing
-// hop, route change or public overlap cannot stand in.
+// failures, challenge-matched external routing errors and primary HTTPS
+// responses. A transit label, missing hop, route change or public overlap
+// cannot stand in for the original independently localized observations.
 func classifyIncidentVerdict(ctx context.Context, input incidentVerdictEvidence, maxBytes int64) (incident.FaultVerdict, error) {
 	none := incident.FaultVerdict{}
 	if err := validateIncidentVerdictScope(ctx, input); err != nil {
@@ -91,10 +92,15 @@ func classifyIncidentVerdict(ctx context.Context, input incidentVerdictEvidence,
 	if err != nil {
 		return none, err
 	}
-	result.Hypotheses[2].Missing = append(result.Hypotheses[2].Missing, "independent_current_internet_path_failure")
+	internet, err := classifyIncidentInternet(ctx, input, seen, &remaining, &result.Hypotheses[2])
+	if err != nil {
+		return none, err
+	}
 	switch {
-	case local && remote || carrier && (local || remote):
+	case local && remote || carrier && (local || remote) || internet && (local || remote || carrier):
 		result.Reason = "competing_fault_domains"
+	case internet:
+		result.Domain, result.Confidence, result.Reason = incident.FaultWiderInternet, "corroborated", "independent_original_external_routing_errors_and_healthy_owned_handoff"
 	case carrier:
 		result.Domain, result.Confidence, result.Reason = incident.FaultCarrier, "corroborated", "original_handoff_neighbor_failure_and_independent_network_loss"
 	case local:
@@ -153,11 +159,20 @@ func validateIncidentVerdictScope(ctx context.Context, input incidentVerdictEvid
 			return entity.ErrScopeMismatch
 		}
 	}
+	for key, route := range input.routes {
+		if route.Key != key || route.Route != nil && (route.Route.Source.TenantID != input.tenantID || route.Route.Source.ContextID != key.ContextID || route.Route.Source.RouterID != key.RouterID) {
+			return entity.ErrScopeMismatch
+		}
+	}
 	return ctx.Err()
 }
 
 func chargeVerdictCitation(remaining *int64, citation incident.VerdictCitation) error {
 	cost := int64(1024) + 8*int64(len(citation.ContextID)+len(citation.EntityID)+len(citation.EvidenceID)+len(citation.SourceKind)+len(citation.PathRoundID)+len(citation.AgentID)+len(citation.Digest)+len(citation.Reason)+len(citation.HandoffInterfaceID))
+	if citation.Routing != nil {
+		r := citation.Routing
+		cost += 128 + 8*int64(len(r.ViewID)+len(r.GenerationID)+len(r.Prefix)+len(r.Address))
+	}
 	if cost > *remaining {
 		return store.ErrIncidentImpactBudget
 	}

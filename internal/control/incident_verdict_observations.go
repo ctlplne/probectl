@@ -29,6 +29,12 @@ func admitVerdictOriginal(citation incident.VerdictCitation, seen map[string]inc
 	identity := citation
 	identity.Reason = ""
 	if old, found := seen[key]; found {
+		if old.Routing != nil && identity.Routing != nil {
+			if *old.Routing != *identity.Routing {
+				return false, errIncidentVerdictInput
+			}
+			old.Routing, identity.Routing = nil, nil
+		}
 		if old != identity {
 			return false, errIncidentVerdictInput
 		}

@@ -15,7 +15,10 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-var errBGPRoutingAmbiguousView = errors.New("router has conflicting complete selected views")
+// ErrBGPRoutingAmbiguousView refuses selecting one convenient complete RIB.
+var ErrBGPRoutingAmbiguousView = errors.New("router has conflicting complete selected views")
+
+var errBGPRoutingAmbiguousView = ErrBGPRoutingAmbiguousView
 
 // LookupRouterInScope selects only an independently resolved canonical router in an
 // authorized context. An exporter address, claimed peer ASN or row-supplied

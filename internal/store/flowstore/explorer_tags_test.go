@@ -37,6 +37,13 @@ func TestTagQueryDataBindsTenantAddressAndBudget(t *testing.T) {
 	if _, err := lookup.Value(b, "192.0.2.10", "customer"); !errors.Is(err, ErrTagQueryScope) {
 		t.Fatalf("foreign tenant read tag lookup: %v", err)
 	}
+	retained, err := lookup.RetainedBytes(a)
+	if err != nil || retained < 8192 || retained >= 1<<20 {
+		t.Fatalf("complete lookup retained bytes were not admitted: %d, %v", retained, err)
+	}
+	if _, err := lookup.RetainedBytes(b); !errors.Is(err, ErrTagQueryScope) {
+		t.Fatalf("foreign tenant read lookup accounting: %v", err)
+	}
 	rows, err := lookup.ExternalRows(a, 1<<20)
 	if err != nil || !strings.Contains(string(rows), `"lookup_exporter":"192.0.2.10"`) ||
 		!strings.Contains(string(rows), `"customer":"blue"`) ||

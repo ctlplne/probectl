@@ -262,7 +262,7 @@ function Citations({ title, values }: { title: string; values: IncidentVerdictCi
         <ol className={styles.roleSources}>
           {values.map((value) => (
             <li
-              key={`${value.source_kind ?? 'entity_evidence'}:${value.path_round_id ?? value.evidence_id}`}
+              key={`${value.source_kind ?? 'entity_evidence'}:${value.path_round_id ?? value.evidence_id ?? `${value.routing?.view_id}:${value.routing?.generation_id}:${value.routing?.sequence}:${value.routing?.address}`}`}
             >
               {readable(value.reason)} · <DateTime value={value.observed_at} />
               <details>
@@ -293,6 +293,34 @@ function Citations({ title, values }: { title: string; values: IncidentVerdictCi
                       <dt>Hand-off interface</dt>
                       <dd>{value.handoff_interface_id}</dd>
                     </div>
+                  ) : null}
+                  {value.routing ? (
+                    <>
+                      <div>
+                        <dt>Selected routing view</dt>
+                        <dd>{value.routing.view_id}</dd>
+                      </div>
+                      <div>
+                        <dt>Routing generation / sequence</dt>
+                        <dd>
+                          {value.routing.generation_id} / {value.routing.sequence}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Observed responder / selected prefix</dt>
+                        <dd>
+                          {value.routing.addresses_redacted
+                            ? 'Responder details redacted'
+                            : `${value.routing.address} / ${value.routing.prefix}`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Selected prefix origin</dt>
+                        <dd>
+                          AS{value.routing.origin_asn} (routing context, not forwarding proof)
+                        </dd>
+                      </div>
+                    </>
                   ) : null}
                   {value.path_round_id ? (
                     <div>

@@ -67,8 +67,22 @@ func (value nativeIncidentVerdictContract) MarshalJSON() ([]byte, error) {
 // Only server-selected canonical UUIDs and computed document digests get
 // structural encoding. Agent labels and all other text retain full redaction.
 func marshalNativeIncidentVerdict(value incident.FaultVerdict) (json.RawMessage, error) {
+	type routingReference struct {
+		incident.VerdictRoutingReference
+		ViewID       mcp.NativeRoleUUID     `json:"view_id"`
+		GenerationID mcp.NativeRoleUUID     `json:"generation_id"`
+		Sequence     mcp.NativeRoleRevision `json:"sequence"`
+	}
+	projectRouting := func(input *incident.VerdictRoutingReference) *routingReference {
+		if input == nil {
+			return nil
+		}
+		return &routingReference{*input, mcp.NativeRoleUUID(input.ViewID), mcp.NativeRoleUUID(input.GenerationID), mcp.NativeRoleRevision(input.Sequence)}
+	}
+
 	type citation struct {
 		incident.VerdictCitation
+		Routing            *routingReference       `json:"routing,omitempty"`
 		ContextID          mcp.NativeRoleUUID      `json:"context_id"`
 		EntityID           mcp.NativeRoleUUID      `json:"entity_id"`
 		EvidenceID         mcp.NativeRoleUUID      `json:"evidence_id,omitempty"`
@@ -79,7 +93,7 @@ func marshalNativeIncidentVerdict(value incident.FaultVerdict) (json.RawMessage,
 	project := func(items []incident.VerdictCitation) []citation {
 		out := make([]citation, 0, len(items))
 		for _, item := range items {
-			out = append(out, citation{VerdictCitation: item, ContextID: mcp.NativeRoleUUID(item.ContextID), EntityID: mcp.NativeRoleUUID(item.EntityID), EvidenceID: mcp.NativeRoleUUID(item.EvidenceID), PathRoundID: nativeIncidentPathRound(item.PathRoundID), HandoffInterfaceID: mcp.NativeRoleUUID(item.HandoffInterfaceID), Digest: mcp.NativeRoleDigest(item.Digest)})
+			out = append(out, citation{VerdictCitation: item, Routing: projectRouting(item.Routing), ContextID: mcp.NativeRoleUUID(item.ContextID), EntityID: mcp.NativeRoleUUID(item.EntityID), EvidenceID: mcp.NativeRoleUUID(item.EvidenceID), PathRoundID: nativeIncidentPathRound(item.PathRoundID), HandoffInterfaceID: mcp.NativeRoleUUID(item.HandoffInterfaceID), Digest: mcp.NativeRoleDigest(item.Digest)})
 		}
 		return out
 	}

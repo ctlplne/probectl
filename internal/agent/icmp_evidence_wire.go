@@ -8,6 +8,7 @@ package agent
 
 import (
 	"encoding/hex"
+
 	"github.com/ctlplne/probectl/internal/entity"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )

@@ -20,6 +20,7 @@ import (
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 type incidentEvidenceExportInput struct {
@@ -30,6 +31,57 @@ type incidentEvidenceExportInput struct {
 // Export already gathers RCA under ai.query. Preserve that stricter source
 // permission in both current-authority snapshots of the deterministic read.
 type incidentImpactExportKey struct{}
+
+// Request-local accounting for an export that retains impact publication data
+// while computing a verdict. No allocation profile or grant survives the call.
+type incidentExportMemoryKey struct{}
+type incidentExportMemory struct{ limit, retained int64 }
+
+func (s *Server) bindIncidentExportMemory(r *http.Request, input incidentEvidenceExportInput) (*http.Request, *incidentExportMemory) {
+	if input.Impact == nil || input.Verdict == nil {
+		return r, nil
+	}
+	m := &incidentExportMemory{limit: flowstore.ExplorerOperationBudget(r.Context(), s.flowStore).MemoryBytes}
+	return r.WithContext(context.WithValue(r.Context(), incidentExportMemoryKey{}, m)), m
+}
+
+func (m *incidentExportMemory) verdictMemory() (int64, error) {
+	if m == nil {
+		return 0, nil
+	}
+	if m.retained <= 0 || m.retained >= m.limit {
+		return 0, apierror.Unavailable("combined incident export memory is unavailable")
+	}
+	// Before/after snapshots and classification share the remaining envelope.
+	return (m.limit - m.retained) / 5 * 4, nil
+}
+
+func (m *incidentExportMemory) retain(tenant string, tags *flowstore.TagQueryData, observed incidentImpactSnapshot, testTags *incidentTestCustomerTags, parts []any) error {
+	if observed.authority != nil {
+		parts = append(parts, observed.authority.principal, observed.authority.policies)
+	}
+	if testTags != nil {
+		parts = append(parts, testTags.items, testTags.revision, testTags.tenant)
+	}
+	extra := int64(0)
+	if tags != nil {
+		var err error
+		extra, err = tags.RetainedBytes(tenant)
+		if err != nil {
+			return err
+		}
+	}
+	body, err := json.Marshal(parts)
+	if err != nil {
+		return err
+	}
+	cost := int64(4096) + 8*int64(len(body)) + extra
+	if cost >= m.limit {
+		return flowExplorerStoreError(flowstore.ErrExplorerBudget)
+	}
+	m.retained = cost
+	return nil
+}
 
 func decodeIncidentEvidenceExport(r *http.Request) (incidentEvidenceExportInput, error) {
 	var input incidentEvidenceExportInput

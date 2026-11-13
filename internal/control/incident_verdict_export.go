@@ -32,9 +32,9 @@ func (s *Server) exportIncidentVerdict(ctx context.Context, actor *auth.Principa
 		return nil, apierror.Unavailable("incident verdict export admission is unavailable")
 	}
 	if memory == 0 {
-		memory = budget.MemoryBytes / 2
+		memory = budget.MemoryBytes / 5 * 4
 	}
-	if memory <= 0 || memory > budget.MemoryBytes/2 {
+	if memory <= 0 || memory > budget.MemoryBytes/5*4 {
 		return nil, apierror.Unavailable("incident verdict export memory is unavailable")
 	}
 	ctx = context.WithValue(ctx, incidentImpactExportKey{}, true)
@@ -67,6 +67,9 @@ func redactIncidentVerdict(value incident.FaultVerdict, pol ai.RedactionPolicy, 
 		for _, citations := range [][]incident.VerdictCitation{out.Hypotheses[i].For, out.Hypotheses[i].Against} {
 			for j := range citations {
 				citations[j].AgentID = ai.RedactTextForTenant(citations[j].AgentID, pol, tenant)
+				if route := citations[j].Routing; route != nil && pol.MaskIPs {
+					route.Address, route.Prefix, route.AddressesRedacted = "", "", true
+				}
 			}
 		}
 	}

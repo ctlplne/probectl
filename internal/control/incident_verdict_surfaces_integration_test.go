@@ -12,15 +12,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/cli"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/pkg/sdk"
@@ -38,7 +41,7 @@ func proveIncidentVerdictServedReaders(t *testing.T, f *roleExplanationAPIFixtur
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert := func(raw []byte) {
+	assert := func(raw []byte, want incident.FaultVerdict, surface string) {
 		t.Helper()
 		var got incident.FaultVerdict
 		if err := json.Unmarshal(raw, &got); err != nil {
@@ -54,7 +57,7 @@ func proveIncidentVerdictServedReaders(t *testing.T, f *roleExplanationAPIFixtur
 		}
 		expected.EvaluatedAt = got.EvaluatedAt
 		if !reflect.DeepEqual(got, expected) {
-			t.Fatal("reader changed original hypotheses, citations, scope, coverage or validity", got.Domain, expected.Domain)
+			t.Fatal("reader changed original hypotheses, citations, scope, coverage or validity", surface, verdictReaderDifference(expected, got), got.Domain, expected.Domain)
 		}
 	}
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, socket.URL+"/v1/incidents/"+id+"/verdict", bytes.NewReader(body))
@@ -72,7 +75,7 @@ func proveIncidentVerdictServedReaders(t *testing.T, f *roleExplanationAPIFixtur
 	if err != nil || closeErr != nil || response.StatusCode != http.StatusOK || response.Header.Get("Cache-Control") != "no-store" {
 		t.Fatal("served verdict failed", response.StatusCode, err, closeErr)
 	}
-	assert(raw)
+	assert(raw, want, "REST")
 	client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
 	result, err := client.GetIncidentVerdict(t.Context(), sdk.GetIncidentVerdictRequest{Id: id, Body: &sdk.IncidentVerdictInput{From: input.From.Format(time.RFC3339Nano), To: input.To.Format(time.RFC3339Nano)}})
 	if err != nil {
@@ -82,7 +85,7 @@ func proveIncidentVerdictServedReaders(t *testing.T, f *roleExplanationAPIFixtur
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert(raw)
+	assert(raw, want, "SDK")
 	var stdout, stderr bytes.Buffer
 	getenv := func(key string) string {
 		return map[string]string{"PROBECTL_API_URL": socket.URL, "PROBECTL_API_TOKEN": f.tokens[tenant], "PROBECTL_CA_FILE": ca}[key]
@@ -90,7 +93,7 @@ func proveIncidentVerdictServedReaders(t *testing.T, f *roleExplanationAPIFixtur
 	if code := cli.RunWithStdin([]string{"--json", "incident", "verdict", id, "--body-file", "-"}, getenv, bytes.NewReader(body), &stdout, &stderr); code != 0 {
 		t.Fatal("verified TLS verdict CLI failed", code, stderr.String())
 	}
-	assert(stdout.Bytes())
+	assert(stdout.Bytes(), want, "CLI")
 	for _, wire := range []string{"2026-07-28", "2025-11-25"} {
 		call := interfaceRoleNativeTLSCaller(t, f, wire)
 		var native incident.FaultVerdict
@@ -99,7 +102,26 @@ func proveIncidentVerdictServedReaders(t *testing.T, f *roleExplanationAPIFixtur
 		if err != nil {
 			t.Fatal(err)
 		}
-		assert(raw)
+		var redacted incident.FaultVerdict
+		expectedBody, err := json.Marshal(want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(expectedBody, &redacted); err != nil {
+			t.Fatal(err)
+		}
+		for i := range redacted.Hypotheses {
+			for _, citations := range [][]incident.VerdictCitation{redacted.Hypotheses[i].For, redacted.Hypotheses[i].Against} {
+				for j := range citations {
+					citations[j].AgentID = ai.RedactTextForTenant(citations[j].AgentID, ai.DefaultRedaction, tenant)
+					if route := citations[j].Routing; route != nil {
+						route.Address = ai.RedactTextForTenant(route.Address, ai.DefaultRedaction, tenant)
+						route.Prefix = ai.RedactTextForTenant(route.Prefix, ai.DefaultRedaction, tenant)
+					}
+				}
+			}
+		}
+		assert(raw, redacted, "native "+wire)
 	}
 }
 
@@ -118,4 +140,57 @@ func proveIncidentVerdictForeignReaderRefusal(t *testing.T, f *roleExplanationAP
 		call := interfaceRoleNativeTLSCaller(t, f, wire)
 		call(tenant, "incident_verdict", map[string]any{"incident_id": foreignID, "from": input.From, "to": input.To}, nil, false)
 	}
+}
+
+// Report JSON field paths only: fixture diagnostics must not dump tenant data.
+func verdictReaderDifference(want, got any) string {
+	encode := func(value any) any {
+		body, _ := json.Marshal(value)
+		var out any
+		_ = json.Unmarshal(body, &out)
+		return out
+	}
+	var first func(any, any, string) string
+	first = func(a, b any, path string) string {
+		if reflect.DeepEqual(a, b) {
+			return ""
+		}
+		switch left := a.(type) {
+		case map[string]any:
+			right, ok := b.(map[string]any)
+			if !ok {
+				return path + " (type)"
+			}
+			keys := []string{}
+			for key := range left {
+				keys = append(keys, key)
+			}
+			for key := range right {
+				if _, exists := left[key]; !exists {
+					keys = append(keys, key)
+				}
+			}
+			slices.Sort(keys)
+			for _, key := range keys {
+				if result := first(left[key], right[key], path+"."+key); result != "" {
+					return result
+				}
+			}
+		case []any:
+			right, ok := b.([]any)
+			if !ok {
+				return path + " (type)"
+			}
+			if len(left) != len(right) {
+				return path + " (length)"
+			}
+			for i := range left {
+				if result := first(left[i], right[i], fmt.Sprintf("%s[%d]", path, i)); result != "" {
+					return result
+				}
+			}
+		}
+		return path
+	}
+	return first(encode(want), encode(got), "response")
 }

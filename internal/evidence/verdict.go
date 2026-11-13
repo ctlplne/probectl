@@ -69,7 +69,11 @@ func validateVerdictEvidence(incidentID string, verdict incident.FaultVerdict) e
 		for _, citations := range [][]incident.VerdictCitation{hypothesis.For, hypothesis.Against} {
 			for _, citation := range citations {
 				_, err := citation.SourceReference()
-				if err != nil || citation.ContextID == "" || citation.EntityID == "" || citation.AgentID == "" || citation.Digest == "" || citation.ObservedAt.Before(verdict.From) || !citation.ObservedAt.Before(verdict.To) {
+				clockInScope := !citation.ObservedAt.Before(verdict.From) && citation.ObservedAt.Before(verdict.To)
+				if citation.SourceKind == "router_bgp" && citation.Routing != nil {
+					clockInScope = !citation.ObservedAt.IsZero() && citation.ObservedAt.Before(verdict.To)
+				}
+				if err != nil || citation.ContextID == "" || citation.EntityID == "" || citation.AgentID == "" || citation.Digest == "" || !clockInScope {
 					return invalid
 				}
 			}

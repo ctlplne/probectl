@@ -41,7 +41,7 @@ func (s *Server) queryIncidentVerdict(ctx context.Context, actor *auth.Principal
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	defer cancel()
-	result, err := s.computeIncidentVerdict(ctx, actor, id, input.From, input.To, budget.MemoryBytes/2)
+	result, err := s.computeIncidentVerdict(ctx, actor, id, input.From, input.To, budget.MemoryBytes/5*4)
 	if err != nil {
 		return incident.FaultVerdict{}, flowRoutingQueryError(err)
 	}

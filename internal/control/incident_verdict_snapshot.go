@@ -33,6 +33,7 @@ type incidentVerdictSnapshot struct {
 	digest       string
 	pathBindings []incidentVerdictPathBinding
 	pathGroups   []incidentVerdictPathGroup
+	routes       []incidentVerdictRoute
 }
 
 func (s *Server) authorizeIncidentVerdict(ctx context.Context, actor *auth.Principal, resource map[string]string) error {
@@ -86,7 +87,10 @@ func (s *Server) loadIncidentVerdictSnapshot(ctx context.Context, actor *auth.Pr
 		if err := s.authorizeIncidentVerdict(ctx, principal, map[string]string{auth.ResourceTenantKey: actor.TenantID, "incident_id": id}); err != nil {
 			return err
 		}
-		limit := maxBytes / 8
+		// Ten shares cover retained snapshot families; original ICMP outcomes
+		// receive three. Before/after snapshots plus classification fit the
+		// same captured operation envelope, including complete large probes.
+		limit := maxBytes / 10
 		out.inputs, err = (store.Incidents{}).ImpactInputs(ctx, sc, id, limit)
 		if err != nil {
 			return err
@@ -119,7 +123,7 @@ func (s *Server) loadIncidentVerdictSnapshot(ctx context.Context, actor *auth.Pr
 		if original == nil {
 			out.states, err = (store.Incidents{}).InterfaceStateMeasurementsInScope(ctx, sc, out.sources, from, to, limit, authorize)
 			if err == nil {
-				out.outcomes, err = (store.Incidents{}).IncidentTestMeasurementsInScope(ctx, sc, out.tests, from, to, limit)
+				out.outcomes, err = (store.Incidents{}).IncidentWindowTestMeasurementsInScope(ctx, sc, out.tests, from, to, 3*limit)
 			}
 			if err == nil {
 				out.peerSessions, err = (store.Incidents{}).PeerSessionMeasurementsInScope(ctx, sc, out.sources, from, to, limit, authorize)
@@ -127,7 +131,7 @@ func (s *Server) loadIncidentVerdictSnapshot(ctx context.Context, actor *auth.Pr
 		} else {
 			err = (store.Incidents{}).RecheckInterfaceStateMeasurementsInScope(ctx, sc, out.sources, original.states, limit, authorize)
 			if err == nil {
-				err = (store.Incidents{}).RecheckIncidentTestMeasurementsInScope(ctx, sc, original.outcomes, limit)
+				err = (store.Incidents{}).RecheckIncidentTestMeasurementsInScope(ctx, sc, original.outcomes, 3*limit)
 			}
 			if err == nil {
 				err = (store.Incidents{}).RecheckPeerSessionMeasurementsInScope(ctx, sc, out.sources, original.peerSessions, limit, authorize)
@@ -198,13 +202,18 @@ func (s *Server) joinIncidentVerdictSnapshot(ctx context.Context, sc tenancy.Sco
 		key := source.ContextID + ":" + source.EntityID + ":" + source.AgentID + ":" + source.TestID
 		snapshot.evidence.tests = append(snapshot.evidence.tests, incidentVerdictTest{source: source, reads: testReads[key]})
 	}
-	if err := s.loadIncidentVerdictPaths(ctx, snapshot, original, limit); err != nil {
+	pathAndRouteBytes := limit
+	if err := s.loadIncidentVerdictPaths(ctx, snapshot, original, &pathAndRouteBytes); err != nil {
+		return err
+	}
+	if err := s.loadIncidentVerdictRoutes(ctx, sc, actor, snapshot, original, pathAndRouteBytes); err != nil {
 		return err
 	}
 	digest, err = hashFlowRoleInputs(ctx, digest, struct {
+		Routes   []incidentVerdictRouteFingerprint
 		Bindings []incidentVerdictPathBinding
 		Groups   []incidentVerdictPathGroup
-	}{snapshot.pathBindings, snapshot.pathGroups}, limit)
+	}{incidentVerdictRouteFingerprints(snapshot.routes), snapshot.pathBindings, snapshot.pathGroups}, limit)
 	if err != nil {
 		return err
 	}

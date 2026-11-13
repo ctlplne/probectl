@@ -15649,10 +15649,97 @@
         ],
         "description": "Evidence category, not a calibrated probability."
       },
+      "IncidentVerdictRoutingReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "view_id",
+          "generation_id",
+          "sequence",
+          "origin_asn"
+        ],
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sequence": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "description": "Exact positive signed-64-bit routing sequence in canonical decimal, without browser numeric narrowing."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Complete selected non-default prefix containing the observed responder."
+          },
+          "address": {
+            "type": "string",
+            "description": "Original error responder; subject to export/native IP redaction."
+          },
+          "origin_asn": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "addresses_redacted": {
+            "type": "boolean",
+            "description": "Address/prefix withheld by export policy; original view/generation/sequence/digest identity is preserved."
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "prefix",
+              "address"
+            ],
+            "properties": {
+              "addresses_redacted": {
+                "const": false
+              }
+            }
+          },
+          {
+            "required": [
+              "addresses_redacted"
+            ],
+            "properties": {
+              "addresses_redacted": {
+                "const": true
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "prefix"
+                  ]
+                },
+                {
+                  "required": [
+                    "address"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
       "IncidentVerdictCitation": {
         "type": "object",
         "additionalProperties": false,
-        "dependentRequired": {"peer_asn": ["handoff_interface_id"], "handoff_interface_id": ["peer_asn"]},
+        "dependentRequired": {
+          "peer_asn": [
+            "handoff_interface_id"
+          ],
+          "handoff_interface_id": [
+            "peer_asn"
+          ]
+        },
         "properties": {
           "context_id": {
             "type": "string",
@@ -15696,14 +15783,21 @@
             "type": "string",
             "enum": [
               "entity_evidence",
-              "control_plane_path"
+              "control_plane_path",
+              "router_bgp"
             ],
-            "description": "Absent means entity_evidence. control_plane_path is a control-plane-host observation, never an agent vantage."
+            "description": "Absent means entity_evidence. control_plane_path is a control-plane-host observation, never an agent vantage. router_bgp is current selected-prefix context, never a packet or forwarding proof."
           },
           "path_round_id": {
             "type": "string",
             "pattern": "^[0-9a-f]{32}$",
             "description": "Original opaque path-store round ID, selected in the current tenant/context and rechecked without replacing its history."
+          },
+          "routing": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/IncidentVerdictRoutingReference"},
+              {"type": "null"}
+            ]
           }
         },
         "required": [
@@ -15727,8 +15821,17 @@
               }
             },
             "not": {
-              "required": [
-                "path_round_id"
+              "anyOf": [
+                {
+                  "required": [
+                    "path_round_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "routing"
+                  ]
+                }
               ]
             }
           },
@@ -15746,8 +15849,53 @@
               }
             },
             "not": {
-              "required": [
-                "evidence_id"
+              "anyOf": [
+                {
+                  "required": [
+                    "evidence_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "routing"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "required": [
+              "source_kind",
+              "routing"
+            ],
+            "properties": {
+              "source_kind": {
+                "const": "router_bgp"
+              },
+              "routing": {"$ref": "#/components/schemas/IncidentVerdictRoutingReference"}
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "evidence_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "path_round_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "peer_asn"
+                  ]
+                },
+                {
+                  "required": [
+                    "handoff_interface_id"
+                  ]
+                }
               ]
             }
           }
