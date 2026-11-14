@@ -74,30 +74,32 @@ type reportScheduleCreateRequest = reporting.ReportScheduleInput
 type reportGenerateRequest = reporting.ReportGenerateInput
 
 type reportDestination struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Kind     string `json:"kind"`
-	Outbound bool   `json:"outbound"`
-	Ready    bool   `json:"ready"`
+	Description string `json:"description,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Outbound    bool   `json:"outbound"`
+	Ready       bool   `json:"ready"`
 }
 
 type reportArtifactView struct {
-	ID                  string          `json:"id"`
-	DashboardID         string          `json:"dashboard_id"`
-	ScheduleID          *string         `json:"schedule_id,omitempty"`
-	Format              string          `json:"format"`
-	MediaType           string          `json:"media_type"`
-	Filename            string          `json:"filename"`
-	GeneratedBy         string          `json:"generated_by"`
-	GeneratedAt         time.Time       `json:"generated_at"`
-	AbsoluteFrom        time.Time       `json:"absolute_from"`
-	AbsoluteTo          time.Time       `json:"absolute_to"`
-	Provenance          json.RawMessage `json:"provenance"`
-	RedactionState      string          `json:"redaction_state"`
-	CoverageLimitations json.RawMessage `json:"coverage_limitations"`
-	DownloadURL         string          `json:"download_url"`
-	BodyBytes           int64           `json:"body_bytes,omitempty"`
-	BodySHA256          string          `json:"body_sha256,omitempty"`
+	EmailDelivery       *reporting.ReportEmailDelivery `json:"email_delivery,omitempty"`
+	ID                  string                         `json:"id"`
+	DashboardID         string                         `json:"dashboard_id"`
+	ScheduleID          *string                        `json:"schedule_id,omitempty"`
+	Format              string                         `json:"format"`
+	MediaType           string                         `json:"media_type"`
+	Filename            string                         `json:"filename"`
+	GeneratedBy         string                         `json:"generated_by"`
+	GeneratedAt         time.Time                      `json:"generated_at"`
+	AbsoluteFrom        time.Time                      `json:"absolute_from"`
+	AbsoluteTo          time.Time                      `json:"absolute_to"`
+	Provenance          json.RawMessage                `json:"provenance"`
+	RedactionState      string                         `json:"redaction_state"`
+	CoverageLimitations json.RawMessage                `json:"coverage_limitations"`
+	DownloadURL         string                         `json:"download_url"`
+	BodyBytes           int64                          `json:"body_bytes,omitempty"`
+	BodySHA256          string                         `json:"body_sha256,omitempty"`
 }
 
 func dashboardActorID(r *http.Request) string {
@@ -502,7 +504,7 @@ func cleanSchedule(req reportScheduleCreateRequest) (reportScheduleCreateRequest
 	if req.Cadence != "daily" && req.Cadence != "weekly" && req.Cadence != "monthly" {
 		return req, apierror.Validation("cadence must be daily, weekly, or monthly")
 	}
-	if req.DestinationID != reportInboxDestination {
+	if req.DestinationID == "" {
 		return req, apierror.Validation("destination is not configured for tenant report delivery")
 	}
 	if req.FirstRunAt.IsZero() {
@@ -525,6 +527,13 @@ func (s *Server) handleCreateReportSchedule(w http.ResponseWriter, r *http.Reque
 	}
 	if clean.ProviderTriggerAllowed && !s.providerReportTriggers {
 		return apierror.NotFound("provider report triggering is unavailable")
+	}
+	actor := auth.PrincipalFrom(r.Context())
+	if actor == nil {
+		return apierror.Unauthorized("authentication required")
+	}
+	if err := s.validateReportDestination(actor.TenantID, clean.DestinationID); err != nil {
+		return err
 	}
 	authority, err := s.prepareScheduledReportAuthority(r, clean.DashboardID)
 	if err != nil {
@@ -573,20 +582,30 @@ func (s *Server) handleCreateReportSchedule(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleUpdateReportSchedule(w http.ResponseWriter, r *http.Request) error {
 	var req struct {
-		Enabled                *bool `json:"enabled"`
-		ProviderTriggerAllowed *bool `json:"provider_trigger_allowed"`
+		DestinationID          *string `json:"destination_id"`
+		Enabled                *bool   `json:"enabled"`
+		ProviderTriggerAllowed *bool   `json:"provider_trigger_allowed"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		return err
 	}
-	if req.Enabled == nil && req.ProviderTriggerAllowed == nil {
-		return apierror.Validation("enabled or provider_trigger_allowed must be a boolean")
+	if req.Enabled == nil && req.ProviderTriggerAllowed == nil && req.DestinationID == nil {
+		return apierror.Validation("enabled, provider_trigger_allowed or destination_id is required")
 	}
 	if req.ProviderTriggerAllowed != nil && *req.ProviderTriggerAllowed && !s.providerReportTriggers {
 		return apierror.NotFound("provider report triggering is unavailable")
 	}
+	if req.DestinationID != nil {
+		actor := auth.PrincipalFrom(r.Context())
+		if actor == nil {
+			return apierror.Unauthorized("authentication required")
+		}
+		if err := s.validateReportDestination(actor.TenantID, *req.DestinationID); err != nil {
+			return err
+		}
+	}
 	var authority *scheduledReportAuthority
-	if req.Enabled != nil && *req.Enabled || req.ProviderTriggerAllowed != nil && *req.ProviderTriggerAllowed {
+	if req.DestinationID != nil && *req.DestinationID != reportInboxDestination || req.Enabled != nil && *req.Enabled || req.ProviderTriggerAllowed != nil && *req.ProviderTriggerAllowed {
 		var current *store.ReportSchedule
 		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 			var err error
@@ -616,17 +635,25 @@ func (s *Server) handleUpdateReportSchedule(w http.ResponseWriter, r *http.Reque
 				return err
 			}
 		}
-		var updated *store.ReportSchedule
 		var err error
 		if req.ProviderTriggerAllowed != nil {
-			updated, err = (store.DashboardReports{}).SetScheduleProviderControl(ctx, sc, r.PathValue("id"), dashboardActorID(r), *req.ProviderTriggerAllowed, req.Enabled)
-		} else {
-			updated, err = (store.DashboardReports{}).SetScheduleEnabled(ctx, sc, r.PathValue("id"), dashboardActorID(r), *req.Enabled)
+			_, err = (store.DashboardReports{}).SetScheduleProviderControl(ctx, sc, r.PathValue("id"), dashboardActorID(r), *req.ProviderTriggerAllowed, req.Enabled)
+		} else if req.Enabled != nil {
+			_, err = (store.DashboardReports{}).SetScheduleEnabled(ctx, sc, r.PathValue("id"), dashboardActorID(r), *req.Enabled)
 		}
 		if err != nil {
 			return err
 		}
-		if err := s.recordAudit(ctx, sc, r, "dashboard.report_schedule_update", updated.ID, map[string]any{"enabled": updated.Enabled, "provider_trigger_allowed": updated.ProviderTriggerAllowed}); err != nil {
+		if req.DestinationID != nil {
+			if err := (store.DashboardReports{}).SetReportScheduleDestination(ctx, sc, r.PathValue("id"), dashboardActorID(r), *req.DestinationID); err != nil {
+				return err
+			}
+		}
+		updated, err := (store.DashboardReports{}).GetSchedule(ctx, sc, r.PathValue("id"), dashboardActorID(r))
+		if err != nil {
+			return err
+		}
+		if err := s.recordAudit(ctx, sc, r, "dashboard.report_schedule_update", updated.ID, map[string]any{"enabled": updated.Enabled, "provider_trigger_allowed": updated.ProviderTriggerAllowed, "destination_id": updated.DestinationID}); err != nil {
 			return err
 		}
 		schedule = updated
@@ -647,11 +674,13 @@ func (s *Server) handleListReportSchedules(w http.ResponseWriter, r *http.Reques
 	}); err != nil {
 		return err
 	}
+	actor := auth.PrincipalFrom(r.Context())
+	if actor == nil {
+		return apierror.Unauthorized("authentication required")
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"items": items,
-		"destinations": []reportDestination{{
-			ID: reportInboxDestination, Name: "Tenant report inbox", Kind: "local", Outbound: false, Ready: true,
-		}},
+		"items":                      items,
+		"destinations":               s.reportDestinations(actor.TenantID),
 		"outbound_default":           false,
 		"provider_trigger_available": s.providerReportTriggers,
 	})
@@ -896,7 +925,8 @@ func reportFilename(name, format string, generatedAt time.Time) string {
 
 func artifactView(item store.ReportArtifact) reportArtifactView {
 	return reportArtifactView{
-		ID: item.ID, DashboardID: item.DashboardID, ScheduleID: item.ScheduleID,
+		EmailDelivery: item.EmailDelivery,
+		ID:            item.ID, DashboardID: item.DashboardID, ScheduleID: item.ScheduleID,
 		Format: item.Format, MediaType: item.MediaType, Filename: item.Filename,
 		GeneratedBy: item.GeneratedBy, GeneratedAt: item.GeneratedAt,
 		AbsoluteFrom: item.AbsoluteFrom, AbsoluteTo: item.AbsoluteTo,

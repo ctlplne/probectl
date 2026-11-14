@@ -9,6 +9,7 @@ package config
 import "time"
 
 func loadReportOutputConfig(l *loader, cfg *Config) {
+	cfg.ReportEmailDestinations = l.reportEmailDestinations("PROBECTL_REPORT_EMAIL_DESTINATIONS")
 	maxInt := int(^uint(0)>>1) - 1
 	cfg.ReportRenderMemoryBytes = l.intRange("PROBECTL_REPORT_RENDER_MEMORY_BYTES", 1<<30, 1, maxInt)
 	cfg.ReportOperationTimeout = l.dur("PROBECTL_REPORT_OPERATION_TIMEOUT", time.Minute)

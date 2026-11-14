@@ -107,12 +107,17 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 		if err != nil {
 			return err
 		}
+		if schedule.DestinationID != reportInboxDestination {
+			if err := (store.DashboardReports{}).QueueReportEmail(ctx, sc, id, schedule.DestinationID); err != nil {
+				return err
+			}
+		}
 		if err := (store.DashboardReports{}).MarkScheduleDelivered(ctx, sc, schedule.ID, now, next); err != nil {
 			return err
 		}
 		if _, err := audit.TenantAppend(ctx, sc, dashboardReportSchedulerActor, "dashboard.report_delivery", id, map[string]any{
 			"dashboard_id": view.ID, "schedule_id": schedule.ID, "format": schedule.Format,
-			"destination_id": reportInboxDestination, "redaction_state": document.RedactionState,
+			"destination_id": schedule.DestinationID, "redaction_state": document.RedactionState,
 			"provider_request_id": schedule.ProviderRequestID,
 			"body_bytes":          artifact.BodyBytes, "body_sha256": artifact.BodySHA256, "source_count": reportCaptureSourceCount(capture),
 		}); err != nil {

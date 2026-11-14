@@ -507,6 +507,7 @@ type Config struct {
 	FlowQueryInterfaceItems         int
 	FlowQueryThreads                int
 	FlowQueryLibraryBytes           int
+	ReportEmailDestinations         []ReportEmailDestination
 	ReportCSVRows                   int
 	ReportPDFRows                   int
 	ReportMaxBytes                  int

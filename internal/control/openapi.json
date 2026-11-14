@@ -14376,9 +14376,10 @@
                   },
                   "provider_trigger_allowed": {
                     "type": "boolean"
-                  }
+                  },
+                  "destination_id": {"type":"string","description":"An exact configured tenant destination ID; changing it withdraws pending mail to old recipients."}
                 },
-                "anyOf": [
+                "anyOf": [{"required":["destination_id"]},
                   {
                     "required": [
                       "enabled"
@@ -15600,6 +15601,46 @@
       }
     },
     "schemas": {
+      "ReportEmailDelivery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "destination_id",
+          "state",
+          "attempts"
+        ],
+        "properties": {
+          "destination_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "sent",
+              "withdrawn"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "next_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "delivered_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "IncidentVerdictInput": {
         "type": "object",
         "additionalProperties": false,
@@ -18827,9 +18868,7 @@
           },
           "destination_id": {
             "type": "string",
-            "enum": [
-              "tenant-report-inbox"
-            ]
+            "description": "Choose an exact ID from configured tenant report destinations; inbox is the local default."
           },
           "first_run_at": {
             "type": "string",
@@ -18974,6 +19013,10 @@
                 },
                 "ready": {
                   "type": "boolean"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Recipient disclosure scoped to this tenant."
                 }
               }
             }
@@ -19079,6 +19122,9 @@
             "type": "string",
             "pattern": "^[a-f0-9]{64}$",
             "description": "Expected sealed body SHA256; legacy rows may omit it. Download independently verifies the complete body."
+          },
+          "email_delivery": {
+            "oneOf": [{"$ref":"#/components/schemas/ReportEmailDelivery"},{"type":"null"}]
           }
         }
       },

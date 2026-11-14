@@ -34,18 +34,25 @@ type ReportArtifactMetadata struct {
 const reportArtifactHeaderColumns = `a.id,a.tenant_id::text,a.dashboard_id,a.schedule_id,a.format,
  a.media_type,a.filename,a.generated_by,a.generated_at,a.absolute_from,a.absolute_to,
  a.provenance,a.redaction_state,a.coverage_limitations,a.body_storage,
- COALESCE(a.body_bytes,octet_length(a.content)),COALESCE(encode(a.body_digest,'hex'),'')`
+ COALESCE(a.body_bytes,octet_length(a.content)),COALESCE(encode(a.body_digest,'hex'),''),
+ CASE WHEN a.email_destination_id IS NULL THEN NULL ELSE jsonb_build_object('destination_id',a.email_destination_id,'state',a.email_state,'attempts',a.email_attempts,'next_attempt_at',a.email_next_attempt_at,'delivered_at',a.email_delivered_at) END`
 
 const reportArtifactMetadataColumns = reportArtifactHeaderColumns + `,
  CASE WHEN octet_length(a.source_capture::text)<=67108864 THEN a.source_capture ELSE NULL END`
 
 func scanReportArtifactMetadata(row interface{ Scan(...any) error }, out *ReportArtifactMetadata) error {
-	var provenance, limitations, capture []byte
+	var provenance, limitations, capture, email []byte
 	err := row.Scan(&out.ID, &out.TenantID, &out.DashboardID, &out.ScheduleID, &out.Format,
 		&out.MediaType, &out.Filename, &out.GeneratedBy, &out.GeneratedAt, &out.AbsoluteFrom, &out.AbsoluteTo,
-		&provenance, &out.RedactionState, &limitations, &out.BodyStorage, &out.BodyBytes, &out.BodySHA256, &capture)
+		&provenance, &out.RedactionState, &limitations, &out.BodyStorage, &out.BodyBytes, &out.BodySHA256, &email, &capture)
 	if err != nil {
 		return notFound("dashboard report artifact", err)
+	}
+	out.EmailDelivery = nil
+	if len(email) > 0 {
+		if err := json.Unmarshal(email, &out.EmailDelivery); err != nil {
+			return err
+		}
 	}
 	out.Provenance = append(out.Provenance[:0], provenance...)
 	out.CoverageLimitations = append(out.CoverageLimitations[:0], limitations...)

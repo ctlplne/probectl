@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -93,21 +94,22 @@ type ReportArtifactInput struct {
 }
 
 type ReportArtifact struct {
-	ID                  string          `json:"id"`
-	TenantID            string          `json:"tenant_id"`
-	DashboardID         string          `json:"dashboard_id"`
-	ScheduleID          *string         `json:"schedule_id,omitempty"`
-	Format              string          `json:"format"`
-	MediaType           string          `json:"media_type"`
-	Filename            string          `json:"filename"`
-	Content             []byte          `json:"-"`
-	GeneratedBy         string          `json:"generated_by"`
-	GeneratedAt         time.Time       `json:"generated_at"`
-	AbsoluteFrom        time.Time       `json:"absolute_from"`
-	AbsoluteTo          time.Time       `json:"absolute_to"`
-	Provenance          json.RawMessage `json:"provenance"`
-	RedactionState      string          `json:"redaction_state"`
-	CoverageLimitations json.RawMessage `json:"coverage_limitations"`
+	EmailDelivery       *reporting.ReportEmailDelivery `json:"email_delivery,omitempty"`
+	ID                  string                         `json:"id"`
+	TenantID            string                         `json:"tenant_id"`
+	DashboardID         string                         `json:"dashboard_id"`
+	ScheduleID          *string                        `json:"schedule_id,omitempty"`
+	Format              string                         `json:"format"`
+	MediaType           string                         `json:"media_type"`
+	Filename            string                         `json:"filename"`
+	Content             []byte                         `json:"-"`
+	GeneratedBy         string                         `json:"generated_by"`
+	GeneratedAt         time.Time                      `json:"generated_at"`
+	AbsoluteFrom        time.Time                      `json:"absolute_from"`
+	AbsoluteTo          time.Time                      `json:"absolute_to"`
+	Provenance          json.RawMessage                `json:"provenance"`
+	RedactionState      string                         `json:"redaction_state"`
+	CoverageLimitations json.RawMessage                `json:"coverage_limitations"`
 }
 
 // DueDashboardReport captures one schedule and its currently accessible view.

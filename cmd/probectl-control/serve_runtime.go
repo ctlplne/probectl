@@ -651,8 +651,8 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 	}
 	if reports, ok := control.BuildDashboardReportSupervisor(rt.db.Pool(), time.Minute, rt.log); ok {
 		reports.WithReportSources(rt.srv)
-		if err := rt.singletons.Register("dashboard-report-scheduler", func(ctx context.Context, _ cluster.LeaseToken) error {
-			reports.Run(ctx)
+		if err := rt.singletons.Register("dashboard-report-scheduler", func(ctx context.Context, token cluster.LeaseToken) error {
+			reports.Run(tenancy.WithTxGuard(ctx, cluster.LeaseGuard(token)))
 			return nil
 		}); err != nil {
 			return err

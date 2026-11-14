@@ -204,6 +204,17 @@ bytes. Tenant erasure cascades through views, schedules, artifacts and chunks.
 
 Core configures `tenant-report-inbox` with `outbound_default: false`.
 Unknown destinations fail validation; the UI requires a ready destination.
+Deployment-configured email destinations reuse the existing TLS SMTP relay,
+with explicit tenant-owner selection and recipient disclosure. The inbox keeps
+the immutable report while external delivery retries; changing a schedule
+destination withdraws pending mail to the previous recipients. Delivery already
+in progress may finish. Returning to the local inbox can withdraw pending mail
+even after the owner loses source-read permissions. Body bytes and
+digests remain immutable: only narrow retry-state columns are updatable.
+Before every send, current owner/source grants and complete body integrity are
+rechecked. Pending attempts survive supervisor reconstruction. Stable Message-ID
+helps deduplicate retries, but lost SMTP acknowledgements can cause duplicates.
+Recipient changes produce a new destination ID and cannot redirect an old job.
 
 Create/resume of a source schedule proves the current caller's credential can
 execute every selected source. This bounded preflight runs outside publication,

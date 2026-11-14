@@ -21,6 +21,7 @@ for (const tenant of [
     const reports: Array<Record<string, unknown>> = []
     const schedules: Array<Record<string, unknown>> = []
     const patches: Array<Record<string, unknown>> = []
+    const emailID = `email/${tenant}/recipient-pin`
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -65,6 +66,14 @@ for (const tenant of [
                 name: 'Tenant inbox',
                 kind: 'local',
                 outbound: false,
+                ready: true,
+              },
+              {
+                id: emailID,
+                name: 'Client accounting',
+                description: 'accounting@example.test',
+                kind: 'email',
+                outbound: true,
                 ready: true,
               },
             ],
@@ -178,15 +187,33 @@ for (const tenant of [
     })
     expect(consent).not.toBeChecked()
     await user.click(consent)
+    expect(screen.getByRole('combobox', { name: 'Configured destination' })).toHaveValue(
+      'tenant-report-inbox',
+    )
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Configured destination' }),
+      emailID,
+    )
     await user.click(screen.getByRole('button', { name: 'Schedule delivery' }))
     await waitFor(() => expect(schedules).toHaveLength(1))
     expect(schedules[0]).toMatchObject({
       provider_trigger_allowed: true,
       dashboard_id: 'monthly-view',
-      destination_id: 'tenant-report-inbox',
+      destination_id: emailID,
     })
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Configured destination' }),
+      'tenant-report-inbox',
+    )
+    await user.click(await screen.findByRole('button', { name: /Use selected destination for/ }))
+    await waitFor(() => expect(patches).toEqual([{ destination_id: 'tenant-report-inbox' }]))
     await user.click(await screen.findByRole('button', { name: /Revoke provider trigger for/ }))
-    await waitFor(() => expect(patches).toEqual([{ provider_trigger_allowed: false }]))
+    await waitFor(() =>
+      expect(patches).toEqual([
+        { destination_id: 'tenant-report-inbox' },
+        { provider_trigger_allowed: false },
+      ]),
+    )
     await user.click(screen.getByRole('button', { name: 'Generate PDF' }))
     await waitFor(() => expect(reports).toEqual([{ dashboard_id: 'monthly-view', format: 'pdf' }]))
     await user.selectOptions(

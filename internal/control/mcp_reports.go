@@ -167,9 +167,10 @@ func (b mcpReportBackend) ReportScheduleCreate(ctx context.Context, p *auth.Prin
 }
 func (b mcpReportBackend) ReportScheduleUpdate(ctx context.Context, p *auth.Principal, input mcp.ReportScheduleUpdateInput) (mcp.ReportSchedule, error) {
 	body := struct {
-		Enabled                *bool `json:"enabled,omitempty"`
-		ProviderTriggerAllowed *bool `json:"provider_trigger_allowed,omitempty"`
-	}{input.Enabled, input.ProviderTriggerAllowed}
+		DestinationID          *string `json:"destination_id,omitempty"`
+		Enabled                *bool   `json:"enabled,omitempty"`
+		ProviderTriggerAllowed *bool   `json:"provider_trigger_allowed,omitempty"`
+	}{input.DestinationID, input.Enabled, input.ProviderTriggerAllowed}
 	return invokeReportHandler[mcp.ReportSchedule](ctx, b, p, true, http.MethodPatch, "/v1/dashboard-report-schedules/"+url.PathEscape(input.ID), input.ID, body, b.server.handleUpdateReportSchedule)
 }
 func (b mcpReportBackend) ReportGenerate(ctx context.Context, p *auth.Principal, input reporting.ReportGenerateInput) (mcp.ReportArtifact, error) {

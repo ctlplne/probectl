@@ -214,7 +214,10 @@ func encodedSubject(subject string) string {
 	return mime.QEncoding.Encode("utf-8", headerValue(subject))
 }
 
-func (s *SMTPSender) Send(ctx context.Context, to []string, subject, body string) error {
+func (s *SMTPSender) send(ctx context.Context, to []string, write func(io.Writer) error) error {
+	if s.mode != SMTPStartTLS && s.mode != SMTPImplicitTLS {
+		return fmt.Errorf("smtp: secure transport mode required")
+	}
 	host, _, err := net.SplitHostPort(s.addr)
 	if err != nil {
 		return fmt.Errorf("smtp: invalid address %q: %w", s.addr, err)
@@ -227,6 +230,9 @@ func (s *SMTPSender) Send(ctx context.Context, to []string, subject, body string
 	if err != nil {
 		return fmt.Errorf("smtp: dial: %w", err)
 	}
+	baseConn := conn
+	stop := context.AfterFunc(ctx, func() { _ = baseConn.Close() })
+	defer stop()
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
@@ -265,29 +271,37 @@ func (s *SMTPSender) Send(ctx context.Context, to []string, subject, body string
 	if err != nil {
 		return fmt.Errorf("smtp: data: %w", err)
 	}
-	msg := strings.Builder{}
-	// DPR-243: every header value is sanitized. A header is CRLF-delimited, so a
-	// value carrying \r or \n does not corrupt the header — it ENDS it and starts
-	// another one the attacker chooses (Bcc:, Reply-To:, or a whole second body).
-	// The subject is built from the rule name, which is tenant-supplied free text
-	// arriving through the rule-create API, so this is untrusted input reaching a
-	// protocol control surface: exactly guardrail 12's "fetched content
-	// untrusted", one layer up.
-	fmt.Fprintf(&msg, "From: %s\r\n", headerValue(s.from))
-	fmt.Fprintf(&msg, "To: %s\r\n", headerValue(strings.Join(to, ", ")))
-	fmt.Fprintf(&msg, "Subject: %s\r\n", encodedSubject(subject))
-	msg.WriteString("MIME-Version: 1.0\r\n")
-	msg.WriteString("Content-Type: text/plain; charset=utf-8\r\n\r\n")
-	// The body needs no escaping for structure: Data() returns a
-	// textproto.DotWriter, which dot-stuffs, so a "\r\n.\r\n" in the body cannot
-	// end the DATA section early.
-	msg.WriteString(body)
-	if _, err := io.WriteString(wc, msg.String()); err != nil {
-		_ = wc.Close()
-		return fmt.Errorf("smtp: write: %w", err)
+	if err := write(wc); err != nil {
+		// Closing DATA on a failed stream would accept an incomplete message.
+		// Abort the connection instead; no terminating dot reaches the relay.
+		return err
 	}
 	if err := wc.Close(); err != nil {
 		return fmt.Errorf("smtp: close message: %w", err)
 	}
 	return c.Quit()
+}
+
+func (s *SMTPSender) Send(ctx context.Context, to []string, subject, body string) error {
+	return s.send(ctx, to, func(target io.Writer) error {
+		msg := strings.Builder{}
+		// DPR-243: every header value is sanitized. A header is CRLF-delimited, so a
+		// value carrying \r or \n does not corrupt the header — it ENDS it and starts
+		// another one the attacker chooses (Bcc:, Reply-To:, or a whole second body).
+		// The subject is built from the rule name, which is tenant-supplied free text
+		// arriving through the rule-create API, so this is untrusted input reaching a
+		// protocol control surface: exactly guardrail 12's "fetched content
+		// untrusted", one layer up.
+		fmt.Fprintf(&msg, "From: %s\r\n", headerValue(s.from))
+		fmt.Fprintf(&msg, "To: %s\r\n", headerValue(strings.Join(to, ", ")))
+		fmt.Fprintf(&msg, "Subject: %s\r\n", encodedSubject(subject))
+		msg.WriteString("MIME-Version: 1.0\r\n")
+		msg.WriteString("Content-Type: text/plain; charset=utf-8\r\n\r\n")
+		// The body needs no escaping for structure: Data() returns a
+		// textproto.DotWriter, which dot-stuffs, so a "\r\n.\r\n" in the body cannot
+		// end the DATA section early.
+		msg.WriteString(body)
+		_, err := io.WriteString(target, msg.String())
+		return err
+	})
 }

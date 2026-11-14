@@ -55,7 +55,7 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 				// Catch-up must repair every control, and be idempotent.
 				for _, sql := range []string{
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts ALTER COLUMN content SET NOT NULL`,
-					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation_v5`,
+					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation_v6`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts ADD CONSTRAINT dashboard_report_artifacts_body_representation_v2 CHECK(body_storage='inline') NOT VALID`,
 					`DROP POLICY report_artifact_format ON ` + schema + `.dashboard_report_artifacts`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifact_chunks DROP CONSTRAINT dashboard_report_artifact_chunks_artifact_fk`,
@@ -85,6 +85,21 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 				if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,'same-artifact',0,$2)`, id, []byte("body")); err != nil {
 					t.Fatal("silo rejected own chunk", err)
 				}
+				// Preserve the original version1/2 parents above and add a
+				// separate complete version3 parent in EACH physical silo.
+				if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifacts
+ (tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)
+ VALUES($1,'same-monthly','same-view','csv','text/csv','monthly.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',4,decode(repeat('00',32),'hex'),jsonb_build_object('version',3,'tenant_id',$1::uuid::text))`, id); err != nil {
+					t.Fatal("silo rejected monthly version3 parent", err)
+				}
+				if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,'same-monthly',0,'body')`, id); err != nil {
+					t.Fatal(err)
+				}
+				var stateUpdate, bodyUpdate bool
+				if err := pool.QueryRow(ctx, `SELECT has_column_privilege('probectl_app',$1,'email_state','UPDATE'),has_column_privilege('probectl_app',$1,'content','UPDATE')`, schema+`.dashboard_report_artifacts`).Scan(&stateUpdate, &bodyUpdate); err != nil || !stateUpdate || bodyUpdate {
+					t.Fatal("silo retry-state rights changed body immutability", err)
+				}
+
 				if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifacts
       (tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)
       VALUES($1,'same-static','same-view','csv','text/csv','static.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','document-chunks',4,decode(repeat('00',32),'hex'),NULL)`, id); err != nil {

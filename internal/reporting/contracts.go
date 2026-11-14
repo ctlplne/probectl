@@ -102,3 +102,12 @@ type ReportGenerateInput struct {
 	DashboardID string `json:"dashboard_id"`
 	Format      string `json:"format"`
 }
+
+// ReportEmailDelivery exposes operational state only, never credentials or body.
+type ReportEmailDelivery struct {
+	DestinationID string     `json:"destination_id"`
+	State         string     `json:"state"`
+	Attempts      int64      `json:"attempts"`
+	NextAttemptAt *time.Time `json:"next_attempt_at,omitempty"`
+	DeliveredAt   *time.Time `json:"delivered_at,omitempty"`
+}

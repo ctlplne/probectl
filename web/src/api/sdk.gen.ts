@@ -983,6 +983,7 @@ export interface DashboardReportArtifact {
   coverage_limitations: string[]
   dashboard_id: string
   download_url: string
+  email_delivery?: ReportEmailDelivery | null
   filename: string
   format: "pdf" | "csv"
   generated_at: string
@@ -1023,7 +1024,7 @@ export interface DashboardReportScheduleList {
 export interface DashboardReportScheduleRequest {
   cadence: "daily" | "weekly" | "monthly"
   dashboard_id: string
-  destination_id: "tenant-report-inbox"
+  destination_id: string
   first_run_at?: string
   format: "pdf" | "csv"
   name: string
@@ -3151,6 +3152,14 @@ export interface RemediationProposalRequest {
   rationale?: string
   target?: string
   title: string
+}
+
+export interface ReportEmailDelivery {
+  attempts: number
+  delivered_at?: string | null
+  destination_id: string
+  next_attempt_at?: string | null
+  state: "pending" | "sent" | "withdrawn"
 }
 
 export interface SCIMToken {

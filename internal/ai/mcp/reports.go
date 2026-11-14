@@ -73,11 +73,12 @@ type ReportSchedule struct {
 	UpdatedAt                 time.Time  `json:"updated_at"`
 }
 type ReportDestination struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Kind     string `json:"kind"`
-	Outbound bool   `json:"outbound"`
-	Ready    bool   `json:"ready"`
+	Description string `json:"description,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Outbound    bool   `json:"outbound"`
+	Ready       bool   `json:"ready"`
 }
 type ReportScheduleList struct {
 	ProviderTriggerAvailable bool                `json:"provider_trigger_available"`
@@ -86,27 +87,29 @@ type ReportScheduleList struct {
 	OutboundDefault          bool                `json:"outbound_default"`
 }
 type ReportScheduleUpdateInput struct {
-	ProviderTriggerAllowed *bool  `json:"provider_trigger_allowed,omitempty"`
-	ID                     string `json:"id"`
-	Enabled                *bool  `json:"enabled,omitempty"`
+	DestinationID          *string `json:"destination_id,omitempty"`
+	ProviderTriggerAllowed *bool   `json:"provider_trigger_allowed,omitempty"`
+	ID                     string  `json:"id"`
+	Enabled                *bool   `json:"enabled,omitempty"`
 }
 type ReportArtifact struct {
-	ID                  string    `json:"id"`
-	DashboardID         string    `json:"dashboard_id"`
-	ScheduleID          *string   `json:"schedule_id,omitempty"`
-	Format              string    `json:"format"`
-	MediaType           string    `json:"media_type"`
-	Filename            string    `json:"filename"`
-	GeneratedBy         string    `json:"generated_by"`
-	GeneratedAt         time.Time `json:"generated_at"`
-	AbsoluteFrom        time.Time `json:"absolute_from"`
-	AbsoluteTo          time.Time `json:"absolute_to"`
-	Provenance          []string  `json:"provenance"`
-	RedactionState      string    `json:"redaction_state"`
-	CoverageLimitations []string  `json:"coverage_limitations"`
-	DownloadURL         string    `json:"download_url"`
-	BodyBytes           int64     `json:"body_bytes,omitempty"`
-	BodySHA256          string    `json:"body_sha256,omitempty"`
+	EmailDelivery       *reporting.ReportEmailDelivery `json:"email_delivery,omitempty"`
+	ID                  string                         `json:"id"`
+	DashboardID         string                         `json:"dashboard_id"`
+	ScheduleID          *string                        `json:"schedule_id,omitempty"`
+	Format              string                         `json:"format"`
+	MediaType           string                         `json:"media_type"`
+	Filename            string                         `json:"filename"`
+	GeneratedBy         string                         `json:"generated_by"`
+	GeneratedAt         time.Time                      `json:"generated_at"`
+	AbsoluteFrom        time.Time                      `json:"absolute_from"`
+	AbsoluteTo          time.Time                      `json:"absolute_to"`
+	Provenance          []string                       `json:"provenance"`
+	RedactionState      string                         `json:"redaction_state"`
+	CoverageLimitations []string                       `json:"coverage_limitations"`
+	DownloadURL         string                         `json:"download_url"`
+	BodyBytes           int64                          `json:"body_bytes,omitempty"`
+	BodySHA256          string                         `json:"body_sha256,omitempty"`
 }
 type ReportArtifactListInput struct {
 	Limit  *int   `json:"limit,omitempty"`
@@ -185,7 +188,7 @@ func WithReportBackend(backend ReportBackend, schemas NativeFlowSchemas) Option 
 				return backend.ReportSchedules(ctx, p)
 			}),
 			reportTool("report_schedule_create", "Create an audited local-inbox schedule with current owner authority checked at delivery.", schemas["report_schedule_create"], true, backend.ReportScheduleCreate),
-			reportTool("report_schedule_update", "Explicitly pause/resume an owned schedule or grant/revoke provider monthly triggering; grants require current source authority.", schemas["report_schedule_update"], true, backend.ReportScheduleUpdate),
+			reportTool("report_schedule_update", "Update an owned schedule or configured delivery target; source work and provider-trigger grants require current authority, while local-inbox/provider revocation delegates no source read.", schemas["report_schedule_update"], true, backend.ReportScheduleUpdate),
 			reportTool("report_generate", "Generate a complete audited report under current source, lifecycle and cost checks; fetch binary bytes through the authenticated download URL.", schemas["report_generate"], true, backend.ReportGenerate),
 			reportTool("report_artifacts", "List current-authorized report metadata, never report bytes or stored source grants.", schemas["report_artifacts"], false, func(ctx context.Context, p *auth.Principal, input ReportArtifactListInput) (ReportArtifactList, error) {
 				return backend.ReportArtifacts(ctx, p, input)

@@ -1073,22 +1073,23 @@ type DashboardManifestSpec struct {
 }
 
 type DashboardReportArtifact struct {
-	AbsoluteFrom        string   `json:"absolute_from"`
-	AbsoluteTo          string   `json:"absolute_to"`
-	BodyBytes           int      `json:"body_bytes,omitempty"`
-	BodySha256          string   `json:"body_sha256,omitempty"`
-	CoverageLimitations []string `json:"coverage_limitations"`
-	DashboardId         string   `json:"dashboard_id"`
-	DownloadUrl         string   `json:"download_url"`
-	Filename            string   `json:"filename"`
-	Format              string   `json:"format"`
-	GeneratedAt         string   `json:"generated_at"`
-	GeneratedBy         string   `json:"generated_by"`
-	Id                  string   `json:"id"`
-	MediaType           string   `json:"media_type"`
-	Provenance          []string `json:"provenance"`
-	RedactionState      string   `json:"redaction_state"`
-	ScheduleId          *string  `json:"schedule_id,omitempty"`
+	AbsoluteFrom        string               `json:"absolute_from"`
+	AbsoluteTo          string               `json:"absolute_to"`
+	BodyBytes           int                  `json:"body_bytes,omitempty"`
+	BodySha256          string               `json:"body_sha256,omitempty"`
+	CoverageLimitations []string             `json:"coverage_limitations"`
+	DashboardId         string               `json:"dashboard_id"`
+	DownloadUrl         string               `json:"download_url"`
+	EmailDelivery       *ReportEmailDelivery `json:"email_delivery,omitempty"`
+	Filename            string               `json:"filename"`
+	Format              string               `json:"format"`
+	GeneratedAt         string               `json:"generated_at"`
+	GeneratedBy         string               `json:"generated_by"`
+	Id                  string               `json:"id"`
+	MediaType           string               `json:"media_type"`
+	Provenance          []string             `json:"provenance"`
+	RedactionState      string               `json:"redaction_state"`
+	ScheduleId          *string              `json:"schedule_id,omitempty"`
 }
 
 type DashboardReportSchedule struct {
@@ -3297,6 +3298,14 @@ type RemediationProposalRequest struct {
 	Rationale  string `json:"rationale,omitempty"`
 	Target     string `json:"target,omitempty"`
 	Title      string `json:"title"`
+}
+
+type ReportEmailDelivery struct {
+	Attempts      int     `json:"attempts"`
+	DeliveredAt   *string `json:"delivered_at,omitempty"`
+	DestinationId string  `json:"destination_id"`
+	NextAttemptAt *string `json:"next_attempt_at,omitempty"`
+	State         string  `json:"state"`
 }
 
 // A SCIM bearer-token metadata row. The token hash and plaintext token are never returned from list/get responses.

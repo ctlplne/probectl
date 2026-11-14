@@ -153,8 +153,15 @@ export function DashboardReportingCard({
     providerConsent.identity === sourceIdentity && providerConsent.view === activeID
       ? providerConsent.allowed
       : false
+  const [destinationChoice, setDestinationChoice] = useState({ identity: '', view: '', id: '' })
   const readyDestinations = (schedules.data?.destinations ?? []).filter((item) => item.ready)
-  const destination = readyDestinations[0]
+  const destination =
+    readyDestinations.find(
+      (item) =>
+        destinationChoice.identity === sourceIdentity &&
+        destinationChoice.view === activeID &&
+        item.id === destinationChoice.id,
+    ) ?? readyDestinations[0]
   const firstRun = useMemo(() => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), [])
   const canWrite = permissions.includes('metrics.write')
 
@@ -230,10 +237,26 @@ export function DashboardReportingCard({
       push({
         tone: 'success',
         title: 'Report scheduled',
-        message: `Delivery is confined to ${destination.name}; no outbound default was enabled.`,
+        message: destination.outbound
+          ? `Delivery to ${destination.name} was explicitly selected; a copy remains in this tenant inbox.`
+          : `Delivery is confined to ${destination.name}; no outbound default was enabled.`,
       })
     } catch (error) {
       push({ tone: 'danger', title: 'Could not schedule report', message: String(error) })
+    }
+  }
+
+  async function setScheduleDestination(id: string) {
+    if (!destination) return
+    try {
+      await updateSchedule.mutateAsync({ id, destination_id: destination.id })
+      push({
+        tone: 'success',
+        title: 'Report destination updated',
+        message: 'Pending email to the previous destination was withdrawn.',
+      })
+    } catch (error) {
+      push({ tone: 'danger', title: 'Could not update report destination', message: String(error) })
     }
   }
 
@@ -471,10 +494,20 @@ export function DashboardReportingCard({
             <Select
               label="Configured destination"
               value={destination?.id ?? ''}
-              disabled
+              disabled={!canWrite}
+              onChange={(event) =>
+                setDestinationChoice({
+                  identity: sourceIdentity,
+                  view: activeID,
+                  id: event.target.value,
+                })
+              }
               options={
-                destination
-                  ? [{ value: destination.id, label: `${destination.name} · local` }]
+                readyDestinations.length > 0
+                  ? readyDestinations.map((item) => ({
+                      value: item.id,
+                      label: `${item.name} · ${item.kind}${item.description ? ` · ${item.description}` : ''}`,
+                    }))
                   : [{ value: '', label: 'No configured destination' }]
               }
             />
@@ -717,6 +750,17 @@ export function DashboardReportingCard({
                       ) : (
                         <Badge tone="neutral">Paused</Badge>
                       )}
+                      <Button
+                        disabled={
+                          !canWrite ||
+                          updateSchedule.isPending ||
+                          !destination ||
+                          destination.id === item.destination_id
+                        }
+                        onClick={() => void setScheduleDestination(item.id)}
+                      >
+                        Use selected destination for {item.name}
+                      </Button>
                       {item.provider_trigger_allowed ? (
                         <Button
                           disabled={!canWrite || updateSchedule.isPending}
@@ -766,6 +810,19 @@ export function DashboardReportingCard({
                     <li key={item.id}>
                       <a href={item.download_url}>{item.filename}</a> ·{' '}
                       <DateTime value={item.generated_at} />
+                      {item.email_delivery ? (
+                        <span>
+                          {' '}
+                          · Email {item.email_delivery.state} · attempts{' '}
+                          {item.email_delivery.attempts}
+                          {item.email_delivery.next_attempt_at ? (
+                            <>
+                              ; next attempt{' '}
+                              <DateTime value={item.email_delivery.next_attempt_at} />
+                            </>
+                          ) : null}
+                        </span>
+                      ) : null}
                     </li>
                   ))}
                 </ul>

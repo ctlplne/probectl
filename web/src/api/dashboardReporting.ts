@@ -77,6 +77,7 @@ export interface DashboardManifestImportResponse {
 }
 
 export interface ReportDestination {
+  description?: string
   id: string
   name: string
   kind: string
@@ -104,6 +105,13 @@ export interface ReportSchedule {
 }
 
 export interface ReportArtifact {
+  email_delivery?: {
+    destination_id: string
+    state: 'pending' | 'sent' | 'withdrawn'
+    attempts: number
+    next_attempt_at?: string
+    delivered_at?: string
+  }
   id: string
   dashboard_id: string
   schedule_id?: string
@@ -213,6 +221,7 @@ export function useUpdateReportSchedule() {
       id: string
       enabled?: boolean
       provider_trigger_allowed?: boolean
+      destination_id?: string
     }) =>
       apiFetch<ReportSchedule>(
         `/dashboard-report-schedules/${encodeURIComponent(id)}`,

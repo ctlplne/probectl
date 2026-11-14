@@ -3440,3 +3440,24 @@ budget failure rolls the transaction back. Raise memory, response and execution
 settings coherently for larger complete policies. Native MCP configuration
 requests reuse the existing native source-byte setting; HTTP and stdio apply the
 same admission. See [interface role configuration](features/interface-roles.md).
+
+
+### Tenant report email destinations
+
+`PROBECTL_REPORT_EMAIL_DESTINATIONS` defaults to an empty list. Set a JSON array
+of deployment-managed routes, for example:
+
+```json
+[{"tenant_id":"11111111-1111-4111-8111-111111111111","id":"monthly","name":"Client accounting","recipients":["accounting@example.test"]}]
+```
+
+The existing `PROBECTL_ALERT_SMTP_*` settings secure and authenticate the SMTP
+relay; STARTTLS or implicit TLS with certificate verification is required.
+Tenant report owners explicitly select a ready destination. Requests never
+supply recipient addresses or relay credentials. Destination IDs bind the
+configured tenant and exact recipients; recipient changes require the owner to
+select the new destination. Inbox delivery remains the default. Complete CSV
+and PDF bodies stream as MIME attachments within the report's existing output
+and operation admission. The report inbox retains a copy and exposes pending,
+sent or withdrawn state and attempt timing. Retries reuse one Message-ID;
+SMTP acknowledgement loss can duplicate delivery, so this is at least once.

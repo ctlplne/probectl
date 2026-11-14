@@ -91,7 +91,7 @@ func (s *DashboardReportSupervisor) Tick(ctx context.Context) {
 			continue
 		}
 		now := s.now().UTC()
-		err := s.materializeTenantReports(ctx, tenant.ID, now)
+		err := errors.Join(s.materializeTenantReports(ctx, tenant.ID, now), s.deliverTenantReportEmails(ctx, tenant.ID, now))
 		if err != nil {
 			// Tenant id is routing metadata, not report content. Never log the
 			// saved view, exact values, or artifact bytes.
@@ -139,7 +139,12 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 		return false, apierror.Unavailable("scheduled report renderer is unavailable")
 	}
 	if item.Schedule.DestinationID != reportInboxDestination {
-		return false, apierror.Validation("scheduled report destination is unavailable")
+		if s.sourceServer == nil {
+			return false, apierror.Unavailable("report destination services unavailable")
+		}
+		if err := s.sourceServer.validateReportDestination(tenant.String(), item.Schedule.DestinationID); err != nil {
+			return false, err
+		}
 	}
 	var definition dashboardDefinition
 	if err := json.Unmarshal(item.View.Definition, &definition); err != nil {
@@ -251,13 +256,18 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 		} else if _, err := (store.DashboardReports{}).CreateArtifact(ctx, sc, input); err != nil {
 			return err
 		}
+		if item.Schedule.DestinationID != reportInboxDestination {
+			if err := (store.DashboardReports{}).QueueReportEmail(ctx, sc, artifactID, item.Schedule.DestinationID); err != nil {
+				return err
+			}
+		}
 		if err := (store.DashboardReports{}).MarkScheduleDelivered(ctx, sc, item.Schedule.ID, now, next); err != nil {
 			return err
 		}
 		if _, err := audit.TenantAppend(ctx, sc, dashboardReportSchedulerActor,
 			"dashboard.report_delivery", artifactID, map[string]any{
 				"dashboard_id": item.View.ID, "schedule_id": item.Schedule.ID,
-				"format": item.Schedule.Format, "destination_id": reportInboxDestination,
+				"format": item.Schedule.Format, "destination_id": item.Schedule.DestinationID,
 				"redaction_state": definition.RedactionState,
 				"body_bytes":      receipt.Bytes, "body_sha256": receipt.SHA256,
 			}); err != nil {
