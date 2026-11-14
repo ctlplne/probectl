@@ -119,6 +119,10 @@ func (h *Host) probeObservation(schedule scheduled, result canary.Result) (entit
 			observation.ICMP.NetworkErrors = append(observation.ICMP.NetworkErrors, entity.ICMPNetworkError{Sequence: item.Sequence, Responder: item.Responder, Type: item.Type, Code: item.Code, ReceivedAt: item.ReceivedAt, PacketDigest: hex.EncodeToString(item.PacketDigest[:]), Conflicting: item.Conflicting})
 		}
 	}
+	if m.RoundTripNanos != nil {
+		observation.ICMP.Version = 3
+		observation.ICMP.RoundTrips = &entity.ICMPRoundTrips{Nanos: append([]uint64{}, m.RoundTripNanos...), ExecutionNanos: m.ExecutionNanos}
+	}
 	return observation.Normalize(time.Now())
 }
 

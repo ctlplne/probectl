@@ -306,6 +306,15 @@ message IcmpMeasurement {
   bool io_failed = 12;
   repeated string responders = 13;
   repeated IcmpNetworkError network_errors = 14; // version 2; complete challenge-matched outcomes
+  IcmpRoundTrips round_trips = 15; // version 3; present even when no reply supplied an RTT
+}
+
+// One original application-monotonic RTT per validated echo reply. Packet loss
+// and missing samples are never converted into zero latency. This grants no
+// tenant, current source, test or entity authority.
+message IcmpRoundTrips {
+  repeated uint64 nanos = 1;
+  uint64 execution_nanos = 2; // same monotonic clock; not reconstructed from wall timestamps
 }
 
 // Original collector packet provenance, never claimed tenant or ASN authority.

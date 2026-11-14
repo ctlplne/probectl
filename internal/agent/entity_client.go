@@ -200,7 +200,7 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 // charges every byte to the independent tenant evidence bucket.
 func evidenceRequestWireLimit(request *agentv1.SubmitEntityEvidenceRequest) int {
 	for _, item := range request.GetObservations() {
-		if item.GetIcmp().GetVersion() == 2 {
+		if item.GetIcmp().GetVersion() == 2 || item.GetIcmp().GetVersion() == 3 {
 			return entity.MaxICMPMeasurementWireBytes
 		}
 	}

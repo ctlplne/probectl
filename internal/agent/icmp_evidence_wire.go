@@ -22,6 +22,9 @@ func encodeICMPMeasurement(m *entity.ICMPMeasurement) *agentv1.IcmpMeasurement {
 		Requested: m.Requested, Attempted: m.Attempted, Transmitted: m.Transmitted,
 		Replies: m.Replies, SendErrors: m.SendErrors, ReadComplete: m.ReadComplete,
 		Canceled: m.Canceled, IoFailed: m.IOFailed, Responders: append([]string(nil), m.Responders...)}
+	if m.RoundTrips != nil {
+		out.RoundTrips = &agentv1.IcmpRoundTrips{Nanos: append([]uint64{}, m.RoundTrips.Nanos...), ExecutionNanos: m.RoundTrips.ExecutionNanos}
+	}
 	for _, item := range m.NetworkErrors {
 		digest, _ := hex.DecodeString(item.PacketDigest) // normalized before encoding
 		out.NetworkErrors = append(out.NetworkErrors, &agentv1.IcmpNetworkError{Sequence: item.Sequence,

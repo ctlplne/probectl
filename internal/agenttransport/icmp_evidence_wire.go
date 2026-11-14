@@ -29,6 +29,12 @@ func parseICMPMeasurement(m *agentv1.IcmpMeasurement) (*entity.ICMPMeasurement, 
 		Requested: m.Requested, Attempted: m.Attempted, Transmitted: m.Transmitted,
 		Replies: m.Replies, SendErrors: m.SendErrors, ReadComplete: m.ReadComplete,
 		Canceled: m.Canceled, IOFailed: m.IoFailed, Responders: append([]string{}, m.Responders...)}
+	if m.RoundTrips != nil {
+		if len(m.RoundTrips.ProtoReflect().GetUnknown()) != 0 {
+			return nil, status.Error(codes.InvalidArgument, "unsupported original RTT evidence fields")
+		}
+		out.RoundTrips = &entity.ICMPRoundTrips{Nanos: append([]uint64{}, m.RoundTrips.Nanos...), ExecutionNanos: m.RoundTrips.ExecutionNanos}
+	}
 	for _, item := range m.NetworkErrors {
 		if item == nil || len(item.ProtoReflect().GetUnknown()) != 0 {
 			return nil, status.Error(codes.InvalidArgument, "unsupported ICMP network error fields")

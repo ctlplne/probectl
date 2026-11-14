@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/store"
@@ -45,8 +45,8 @@ func decodeChangeTimelineCursor(encoded string) (changeTimelineCursor, error) {
 	if len(id) > len(prefix) && id[:len(prefix)] == prefix {
 		id = id[len(prefix):]
 	}
-	parsed, err := uuid.Parse(id)
-	if err != nil || parsed == uuid.Nil || parsed.String() != id {
+	parsed, err := gouuid.Parse(id)
+	if err != nil || parsed == gouuid.Nil || parsed.String() != id {
 		return cursor, apierror.BadRequest("invalid change cursor")
 	}
 	return cursor, nil

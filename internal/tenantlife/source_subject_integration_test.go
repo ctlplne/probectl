@@ -82,7 +82,7 @@ func TestOriginalSourceSubjectExportErasurePreservesStructuralReferencesAndTenan
 					}
 					query := `INSERT INTO change_events(tenant_id,id,title,routing_source) VALUES($1,$2,'Original',$3::jsonb)`
 					if table == "alert_rules" {
-						query = `INSERT INTO alert_rules(tenant_id,id,name,metric,type,comparison,threshold,path_health_source) VALUES($1,$2,'Original','probectl_device_path_error_climb','threshold','gte',1,$3::jsonb)`
+						query = `INSERT INTO alert_rules(tenant_id,id,name,metric,type,comparison,threshold,path_health_source) VALUES($1,$2::uuid,'Original '||$2::uuid::text,'probectl_device_path_error_climb','threshold','gte',1,$3::jsonb)`
 					}
 					if _, err := sc.Q.Exec(ctx, query, tenant, id, raw); err != nil {
 						return err

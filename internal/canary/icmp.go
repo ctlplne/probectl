@@ -262,7 +262,7 @@ func (c *icmpCanary) probe(ctx context.Context, conn icmpProbeConn, raw, v6 bool
 		_ = conn.Close()
 	}
 	readers.Wait()
-	facts = state.finish(ctx, facts, deadline)
+	facts = state.finish(ctx, facts, deadline, start)
 	return state.rtts, state.offsets, facts, nil
 }
 

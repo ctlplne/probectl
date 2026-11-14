@@ -33,6 +33,8 @@ type ICMPMeasurement struct {
 	ReadComplete, Canceled, IOFailed                      bool
 	Responders                                            []string
 	NetworkErrors                                         []ICMPNetworkError
+	ExecutionNanos                                        uint64   // original application-monotonic execution duration
+	RoundTripNanos                                        []uint64 // one original application-monotonic sample per validated reply
 }
 
 func (m ICMPMeasurement) Complete() bool {
@@ -157,8 +159,12 @@ func (s *icmpProbeState) received() int {
 	return count
 }
 
-func (s *icmpProbeState) finish(ctx context.Context, facts ICMPMeasurement, deadline time.Time) ICMPMeasurement {
-	facts.CompletedAt = time.Now().UTC()
+func (s *icmpProbeState) finish(ctx context.Context, facts ICMPMeasurement, deadline, started time.Time) ICMPMeasurement {
+	finished := time.Now()
+	facts.CompletedAt = finished.UTC()
+	if elapsed := finished.Sub(started); elapsed >= 0 {
+		facts.ExecutionNanos = uint64(elapsed)
+	}
 	facts.Replies = s.received()
 	facts.Canceled = ctx.Err() != nil
 	facts.IOFailed = facts.IOFailed || s.readFailed
@@ -176,6 +182,12 @@ func (s *icmpProbeState) finish(ctx context.Context, facts ICMPMeasurement, dead
 }
 
 func (c *icmpCanary) measurementResult(res Result, rtts, offsets []time.Duration, facts ICMPMeasurement) Result {
+	facts.RoundTripNanos = make([]uint64, 0, facts.Replies)
+	for _, duration := range rtts {
+		if duration >= 0 {
+			facts.RoundTripNanos = append(facts.RoundTripNanos, uint64(duration))
+		}
+	}
 	res.ICMP = &facts
 	stats := computeLatencyStats(rtts, facts.Transmitted)
 	res.Metrics = stats.latencyMetrics("rtt")

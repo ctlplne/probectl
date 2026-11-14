@@ -7,6 +7,7 @@
 package canary
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -289,5 +290,20 @@ func TestRawICMPv4KeepsCompleteEchoAcrossOuterHeaders(t *testing.T) {
 	rtts, _, facts, err := probe.probe(t.Context(), socket, true, false, net.ParseIP("192.0.2.1"), time.Now())
 	if err != nil || socket.readPackets != 1 || facts.Replies != 0 || rtts[0] >= 0 {
 		t.Fatal("outer-header headroom accepted an oversized echo", facts, err)
+	}
+}
+
+func TestICMPOriginalRTTsRetainEveryValidatedReplyWithoutBusAuthority(t *testing.T) {
+	probe := &icmpCanary{}
+	facts := ICMPMeasurement{Expected: 5, Transmitted: 5, Replies: 3}
+	rtts := []time.Duration{0, -1, time.Duration(9007199254740993), -1, 17 * time.Nanosecond}
+	offsets := []time.Duration{0, 0, 0, 0, 0}
+	result := probe.measurementResult(Result{Attributes: map[string]string{}}, rtts, offsets, facts)
+	if result.ICMP == nil || len(result.ICMP.RoundTripNanos) != 3 || result.ICMP.RoundTripNanos[0] != 0 || result.ICMP.RoundTripNanos[1] != 9007199254740993 || result.ICMP.RoundTripNanos[2] != 17 {
+		t.Fatal("collector RTT values were rounded, clipped or synthesized from loss", result.ICMP)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil || bytes.Contains(raw, []byte("RoundTripNanos")) || bytes.Contains(raw, []byte("round_trips")) {
+		t.Fatal("ordinary result bus acquired typed RTT evidence authority", err)
 	}
 }

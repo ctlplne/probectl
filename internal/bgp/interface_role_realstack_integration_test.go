@@ -91,7 +91,7 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	if err := os.WriteFile(ixFile, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st := shipped.Start(t, shipped.Options{Name: "rolesrouter", TenantBand: 4, Env: map[string]string{"PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE": ixFile}})
+	st := shipped.Start(t, shipped.Options{Name: "rolesrouter", TenantBand: 4, Env: map[string]string{"PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE": ixFile, "PROBECTL_TESTSYNC_SIGNING_KEY_FILE": filepath.Join(t.TempDir(), "testsync-signing-key.pem")}})
 	reg := registerEdgeFlowEvidence(t, st, primary)
 	requireRoleSourceBinding(t, st, reg, map[string]string{"agent_id": reg.agentID, "source_kind": "flow_exporter", "source_ref": primary, "context_id": reg.contextID, "anchor_entity_id": reg.deviceID})
 	deviceAgent := startShippedEdgeSNMP(t, st, reg, "role-primary", primary, community)
@@ -126,7 +126,13 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	awaitRoleRouterFlow(t, st, reg, links, observed)
 
 	t.Run("routed-path-health", func(t *testing.T) {
-		proveRouterPathHealth(t, st, lab, reg, other, []string{deviceAgent, otherAgent}, links[2].peerIP, primary, community)
+		replay := func(t *testing.T, from time.Time) {
+			for _, link := range links {
+				emitRoleRouterTraffic(t, lab, lab.name+"-"+link.name+"-flow", link)
+			}
+			awaitRoleRouterFlow(t, st, reg, links, from)
+		}
+		proveRouterPathHealth(t, st, lab, reg, other, []string{deviceAgent, otherAgent}, links[2].peerIP, primary, community, replay)
 	})
 
 	// Actual operator removal is a negative control for origin authority.

@@ -33,3 +33,26 @@ func TestICMPMeasurementWireRefusesUnknownMetadataFields(t *testing.T) {
 		}
 	}
 }
+
+func TestICMPRoundTripWireRefusesUnknownSampleFieldsAndKeepsEmptyPresence(t *testing.T) {
+	for _, samples := range [][]uint64{nil, {0, 17, 9007199254740993}} {
+		raw := &agentv1.IcmpMeasurement{Version: 3, RoundTrips: &agentv1.IcmpRoundTrips{Nanos: samples}}
+		result, err := parseICMPMeasurement(raw)
+		if err != nil || result.RoundTrips == nil || result.RoundTrips.Nanos == nil || len(result.RoundTrips.Nanos) != len(samples) {
+			t.Fatal("original RTT presence/population changed", err)
+		}
+		for index, value := range samples {
+			if result.RoundTrips.Nanos[index] != value {
+				t.Fatal("original RTT precision lost")
+			}
+		}
+		raw.RoundTrips.ProtoReflect().SetUnknown([]byte{0x98, 0x06, 1})
+		if _, err := parseICMPMeasurement(raw); status.Code(err) != codes.InvalidArgument {
+			t.Fatal("unknown RTT metadata was accepted as complete evidence", err)
+		}
+	}
+	legacy, err := parseICMPMeasurement(&agentv1.IcmpMeasurement{Version: 1})
+	if err != nil || legacy.RoundTrips != nil {
+		t.Fatal("legacy receipt gained invented latency", err)
+	}
+}

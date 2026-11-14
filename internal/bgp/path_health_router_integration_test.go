@@ -9,6 +9,7 @@
 package bgp_test
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	pathstore "github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/testsupport"
@@ -47,7 +49,7 @@ type routerPathHealth struct {
 // is deliberately planted in Net-SNMP's existing override facility; this does
 // not claim a physical CRC fault. Configs are explicitly operator-submitted.
 // Served both-theme and shipped-process/native lifecycle evidence stays separate.
-func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, first, second edgeFlowRegistration, agents []string, target, primary, community string) {
+func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, first, second edgeFlowRegistration, agents []string, target, primary, community string, replay func(*testing.T, time.Time)) {
 	t.Helper()
 	from := time.Now().UTC().Add(-time.Second)
 	// Own one exact host route through the router, rather than the Docker
@@ -80,7 +82,19 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 	}
 	config := lab.docker(t, "exec", sidecar, "cat", "/etc/snmp/snmpd.conf")
 	setError := routerPathErrorPlant(t, lab, sidecar, config, index, primary, community)
-	archiveRouterPathConfigs(t, st, lab, registrations, agents, primary)
+	probes := make([]routerChangeProbe, len(registrations))
+	for lane, reg := range registrations {
+		label := []string{"primary", "paired"}[lane]
+		probes[lane] = startRouterChangeProbe(t, st, reg, target, label)
+		awaitRouterChangeProbe(t, st, reg, probes[lane], from)
+	}
+	replay(t, time.Now().UTC())
+	archives := archiveRouterPathConfigs(t, st, lab, registrations, agents, primary)
+	changed := time.Now().UTC()
+	replay(t, changed)
+	t.Run("original-change-effects", func(t *testing.T) {
+		proveRouterOriginalChangeEffects(t, st, registrations, probes, archives, from, changed)
+	})
 	frozenWindows := make([]time.Time, len(registrations))
 	originals := make([]*sdk.PathInterfaceHealth, len(registrations))
 	for lane, reg := range registrations {
@@ -304,8 +318,22 @@ func routerPathErrorPlant(t *testing.T, lab *routingLab, sidecar, original, inde
 	}
 }
 
-func archiveRouterPathConfigs(t *testing.T, st *shipped.Stack, lab *routingLab, registrations []edgeFlowRegistration, agents []string, primary string) {
+func archiveRouterPathConfigs(t *testing.T, st *shipped.Stack, lab *routingLab, registrations []edgeFlowRegistration, agents []string, primary string) [][]sdk.DeviceConfigVersion {
 	t.Helper()
+	archives := make([][]sdk.DeviceConfigVersion, len(registrations))
+	random, err := crypto.Random(24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := hex.EncodeToString(random)
+	clear(random)
+	// The unused peer is shut down before setting its credential. Feed config
+	// through stdin so neither a process argument nor an error logs the secret.
+	plant := exec.Command("docker", "exec", "-i", lab.container("rtr-a"), "vtysh", "-f", "/dev/stdin")
+	plant.Stdin = strings.NewReader("router bgp " + strconv.Itoa(rtrAASN) + "\n neighbor 192.0.2.249 remote-as 64511\n neighbor 192.0.2.249 shutdown\n neighbor 192.0.2.249 password " + secret + "\nexit\n")
+	if err := plant.Run(); err != nil {
+		t.Fatal("could not configure the owned inactive-peer redaction control")
+	}
 	for version := range 2 {
 		description := "probectl-path-health-baseline"
 		if version == 1 {
@@ -314,20 +342,32 @@ func archiveRouterPathConfigs(t *testing.T, st *shipped.Stack, lab *routingLab, 
 		// A CLI hostname command did not establish changed running content.
 		// Require a daemon-visible interface line before archiving either state.
 		lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "interface lo", "-c", "description "+description, "-c", "end")
-		content := lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "show running-config")
+		raw, err := exec.Command("docker", "exec", lab.container("rtr-a"), "vtysh", "-c", "show running-config").Output()
+		if err != nil {
+			t.Fatal("could not read the owned FRR config redaction input")
+		}
+		content := string(raw)
 		if !strings.Contains(content, "description "+description) {
 			t.Fatal("FRR did not expose the requested owned interface description in its running config")
+		}
+		if !strings.Contains(content, secret) {
+			t.Fatal("owned inactive-peer credential was absent from the original FRR config")
 		}
 		for lane, reg := range registrations {
 			code, body := st.Do(t, reg.cookie, http.MethodPost, "/v1/device/configs", map[string]any{"device": "same-router", "source": "operator-submitted", "content": content, "binding": map[string]string{"context_id": reg.contextID, "device_entity_id": reg.deviceID, "agent_id": agents[lane], "source_ref": primary}})
 			var archive sdk.DeviceConfigVersion
 			decodeErr := json.Unmarshal(body, &archive)
+			if strings.Contains(string(body), secret) {
+				t.Fatal("operator config archive disclosed its original credential")
+			}
 			if code != http.StatusCreated || decodeErr != nil || archive.Version != version+1 || archive.Binding == nil || archive.Binding.DeviceEntityId != reg.deviceID || version == 1 && (archive.Drifted == nil || !*archive.Drifted) {
 				matching := archive.Binding != nil && archive.Binding.DeviceEntityId == reg.deviceID
 				t.Fatalf("operator FRR archive lost its exact device/source stream: status=%d decoded=%t expected_version=%d actual_version=%d bound=%t matching_device=%t drift_present=%t drifted=%t", code, decodeErr == nil, version+1, archive.Version, archive.Binding != nil, matching, archive.Drifted != nil, archive.Drifted != nil && *archive.Drifted)
 			}
+			archives[lane] = append(archives[lane], archive)
 		}
 	}
+	return archives
 }
 
 func renderRouterPathHealth(t *testing.T, st *shipped.Stack, reg, other edgeFlowRegistration, test string, from, to time.Time, health *sdk.PathInterfaceHealth, theme string) {
