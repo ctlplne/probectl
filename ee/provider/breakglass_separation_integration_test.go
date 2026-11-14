@@ -241,7 +241,7 @@ type sepStack struct {
 	suffix   string
 }
 
-func newSepStack(t *testing.T) *sepStack {
+func newSepStack(t *testing.T, setup ...func(*control.Server)) *sepStack {
 	t.Helper()
 	ctx := context.Background()
 	dsn := os.Getenv("PROBECTL_DATABASE_URL")
@@ -281,6 +281,9 @@ func newSepStack(t *testing.T) *sepStack {
 	log := logging.New(io.Discard, "error", "json")
 	latest := control.NewLatestResults(0)
 	srv := control.New(cfg, log, db, db.Pool(), nil, nil).WithLatestResults(latest)
+	for _, configure := range setup {
+		configure(srv)
+	}
 
 	// The production IR attribution sidecar: the operator-owned local keyring
 	// plus a chain signing key (cmd/probectl-control/ir_investigator.go).
@@ -298,13 +301,14 @@ func newSepStack(t *testing.T) *sepStack {
 		t.Fatal(err)
 	}
 	plane, err := Build(cfg, Deps{
-		Pool:      db.Pool(),
-		License:   licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
-		Log:       log,
-		Results:   latest,
-		Sessions:  srv.SessionManager(),
-		Perms:     srv.PermissionLoader(),
-		IRSidecar: sidecar,
+		MonthlyReports: srv.MonthlyReportQueue(),
+		Pool:           db.Pool(),
+		License:        licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		Log:            log,
+		Results:        latest,
+		Sessions:       srv.SessionManager(),
+		Perms:          srv.PermissionLoader(),
+		IRSidecar:      sidecar,
 	})
 	if err != nil {
 		t.Fatalf("build provider plane: %v", err)
