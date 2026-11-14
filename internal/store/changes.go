@@ -155,15 +155,6 @@ func (WebhookDeliveries) Record(ctx context.Context, s tenancy.Scope, d WebhookD
 	return fresh, nil
 }
 
-// List returns the tenant's change timeline, newest first.
-func (ChangeEvents) List(ctx context.Context, s tenancy.Scope, limit int) ([]change.Event, error) {
-	if limit <= 0 || limit > 1000 {
-		limit = 200
-	}
-	return queryChanges(ctx, s, `SELECT `+changeCols+`
-		FROM change_events ORDER BY occurred_at DESC LIMIT $1`, limit)
-}
-
 // Since returns the tenant's change events at/after `since`, newest first — the
 // correlation candidate set for an incident's lookback window.
 func (ChangeEvents) Since(ctx context.Context, s tenancy.Scope, since time.Time, limit int) ([]change.Event, error) {

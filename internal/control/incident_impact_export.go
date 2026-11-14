@@ -222,3 +222,15 @@ func incidentEvidenceTenantPolicy(pol ai.RedactionPolicy, tenant string) ai.Reda
 	}
 	return pol
 }
+
+func (s *Server) boundIncidentEvidenceRequest(r *http.Request, input incidentEvidenceExportInput) (*http.Request, func(), error) {
+	if input.Impact == nil && input.Verdict == nil {
+		return r, func() {}, nil
+	}
+	budget := flowstore.ExplorerOperationBudget(r.Context(), s.flowStore)
+	if err := budget.Validate(); err != nil {
+		return nil, nil, apierror.Unavailable("incident evidence query admission is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), budget.ExecutionLimit)
+	return r.WithContext(ctx), cancel, nil
+}

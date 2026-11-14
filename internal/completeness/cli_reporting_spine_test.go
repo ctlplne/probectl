@@ -88,3 +88,43 @@ func stripReportingCLICommentsAndBlankLines(source string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+func TestIncidentExportCLIRequiresCurrentRequestAndOfflineVerification(t *testing.T) {
+	source, err := os.ReadFile("../cli/incident.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ name, old, replacement string }{
+		{name: "shipping export"},
+		{"caller credentials omitted", "newClient(cfg).raw(", "newClient(Config{}).raw("},
+		{"offline verification omitted", "evidence.Verify(raw)", "evidence.Verify(nil)"},
+		{"export request omitted", "return cmdIncidentExportWithStdin(cfg, args[1:], stdin, stdout, stderr)", "return 0"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text := string(source)
+			if tc.old != "" {
+				if strings.Count(text, tc.old) != 1 {
+					t.Fatal("incident export mutation seam missing or ambiguous")
+				}
+				text = strings.Replace(text, tc.old, tc.replacement, 1)
+			}
+			root := t.TempDir()
+			dir := filepath.Join(root, "internal", "cli")
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "incident.go"), []byte(text), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			validator := &Validator{root: root}
+			inventory, err := validator.loadExplicitCLIOperations(map[string]string{"incident": "cmdIncident"}, []string{"probectl incident export"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := inventory["incident"]["export"]; got != (tc.old == "") {
+				t.Fatalf("executable incident export = %v", got)
+			}
+		})
+	}
+}

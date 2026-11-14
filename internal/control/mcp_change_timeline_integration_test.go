@@ -11,6 +11,7 @@ package control
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/change"
 	"github.com/ctlplne/probectl/internal/config"
@@ -29,7 +30,8 @@ func TestChangeTimelineNativePagesKeepCompleteOriginalsTenantAndSourceAuthority(
 					return err
 				}
 			}
-			events, err := (store.ChangeEvents{}).List(ctx, sc, 200)
+			page, err := (store.ChangeEvents{}).TimelinePageInScope(ctx, sc, time.Date(1, 1, 1, 0, 0, 0, 1, time.UTC), time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC), time.Time{}, "", 200, 32<<20)
+			events := page.Events
 			if err != nil {
 				return err
 			}

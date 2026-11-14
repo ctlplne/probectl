@@ -20,7 +20,6 @@ import (
 	"github.com/ctlplne/probectl/internal/evidence"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
-	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -43,15 +42,12 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 	if input.Carrier != nil {
 		return s.handleCarrierEvidenceExport(w, r, p, *input.Carrier)
 	}
-	if input.Impact != nil || input.Verdict != nil {
-		budget := flowstore.ExplorerOperationBudget(r.Context(), s.flowStore)
-		if err := budget.Validate(); err != nil {
-			return apierror.Unavailable("incident evidence query admission is unavailable")
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), budget.ExecutionLimit)
-		defer cancel()
-		r = r.WithContext(ctx)
+	r, cancel, err := s.boundIncidentEvidenceRequest(r, input)
+	if err != nil {
+		return err
 	}
+	defer cancel()
+
 	reason, err := s.decide(r.Context(), p, permAIQuery, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: p.TenantID})
 	if err != nil {
 		return err

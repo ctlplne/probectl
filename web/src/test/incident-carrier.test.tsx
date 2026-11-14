@@ -115,7 +115,7 @@ test('carrier download keeps the exact window and bytes and discards late tenant
     view.unmount()
     click.mockRestore()
     for (const [index, key] of ['createObjectURL', 'revokeObjectURL'].entries()) {
-      if (properties[index]) Object.defineProperty(URL, key, properties[index]!)
+      if (properties[index]) Object.defineProperty(URL, key, properties[index])
       else Reflect.deleteProperty(URL, key)
     }
   }

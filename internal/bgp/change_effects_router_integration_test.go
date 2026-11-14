@@ -193,7 +193,7 @@ func proveRouterOriginalEffects(t *testing.T, st *shipped.Stack, registrations [
 				t.Run(theme, func(t *testing.T) {
 					steps := []testsupport.RenderStep{{Click: "Compare original measurements", Expect: []string{probes[lane].test, result.Tests[0].Before.Latency.MeanNanos, result.Tests[0].After.Latency.MeanNanos}}}
 					if strings.HasPrefix(id, "device-config:") {
-						steps = append(steps, testsupport.RenderStep{Click: "Open exact redacted configuration diff", Expect: []string{"same-router: version 1 → 2", "probectl-path-health-baseline", "probectl-path-health-changed", "Complete comparison"}})
+						steps = append(steps, testsupport.RenderStep{Click: "Open exact redacted configuration diff", Role: "link", Expect: []string{"same-router: version 1 → 2", "probectl-path-health-baseline", "probectl-path-health-changed", "Complete comparison"}})
 					}
 					rendered := testsupport.RenderUI(t, testsupport.RenderSpec{URL: st.BaseURL + "/ui/incidents?" + params.Encode(), Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: reg.cookie}}, TrustCertFiles: st.TrustCerts(), CAFile: st.CAFile, Theme: theme, Accessibility: true,
 						Expect: []string{"Change timeline", "Original before and after"},
@@ -285,7 +285,7 @@ func proveRouterOriginalRouteEffects(t *testing.T, st *shipped.Stack, lab *routi
 	}
 	replay(t, from)
 	changed := time.Now().UTC()
-	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "route-map ORIGIN-A permit 10", "-c", "no set as-path prepend", "-c", "set as-path prepend "+strconv.Itoa(hijackerA), "-c", "end")
+	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "route-map ORIGIN-A permit 10", "-c", "no set as-path prepend", "-c", "set as-path prepend "+strconv.Itoa(hijackerA), "-c", "exit", "-c", "router bgp "+strconv.Itoa(edgeASN), "-c", "address-family ipv4 unicast", "-c", "network "+prefixA+" route-map ORIGIN-A", "-c", "end")
 	lab.awaitRoutes(t, "rtr-a", map[string]string{prefixA: path(edgeASN, hijackerA)})
 	ids := make([]string, len(registrations))
 	for lane, reg := range registrations {

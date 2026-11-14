@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -35,7 +36,8 @@ func TestOwnedRoutingTimelineKeepsCurrentTenantSourceAndLatePublicationAuthority
 					return err
 				}
 			}
-			events, err := (store.ChangeEvents{}).List(ctx, sc, 200)
+			page, err := (store.ChangeEvents{}).TimelinePageInScope(ctx, sc, time.Date(1, 1, 1, 0, 0, 0, 1, time.UTC), time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC), time.Time{}, "", 200, 32<<20)
+			events := page.Events
 			if err != nil {
 				return err
 			}

@@ -335,6 +335,62 @@ const runRawOperationWithStdinSpine = `{
 }`
 
 var customCLIHandlerSpines = map[string]string{
+	"cmdIncidentExportWithStdin": `{
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(stderr, "incident export: missing <incident-id>")
+		return 2
+	}
+	incidentID := args[0]
+	fs := flag.NewFlagSet("incident export", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	outPath := fs.String("out", "", "write the exact signed package to this owner-only file")
+	bodyRaw := fs.String("body", "", "optional export selections as JSON; impact, verdict or carrier originals are selected by the server")
+	bodyFile := fs.String("body-file", "", "export selections file; - reads stdin")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if len(fs.Args()) != 0 {
+		fmt.Fprintln(stderr, "incident export: unexpected arguments")
+		return 2
+	}
+	var body any
+	var err error
+	rawSet, fileSet := false, false
+	fs.Visit(func(f *flag.Flag) { rawSet = rawSet || f.Name == "body"; fileSet = fileSet || f.Name == "body-file" })
+	if rawSet && fileSet {
+		fmt.Fprintln(stderr, "--body and --body-file cannot be combined")
+		return 2
+	}
+	if fileSet {
+		body, err = readRequestBody(*bodyFile, stdin, int64(flow.MaxPlanGrammarBytes), true, false)
+	} else if rawSet {
+		body, err = parseExactBody([]byte(*bodyRaw), int64(flow.MaxPlanGrammarBytes), false)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "incident export selections: "+err.Error())
+		return 2
+	}
+	path := strings.ReplaceAll(surfaceCommands["incident"].Ops["export"].Path, "{id}", url.PathEscape(incidentID))
+	raw, err := newClient(cfg).raw(http.MethodPost, path, body, maxEvidencePackageBytes)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if _, err := evidence.Verify(raw); err != nil {
+		return fail(stderr, fmt.Errorf("server returned an invalid evidence package: %w", err))
+	}
+	if *outPath == "" {
+		_, err = stdout.Write(append(raw, '\n'))
+	} else {
+		clean := filepath.Clean(*outPath)
+		if err = os.WriteFile(clean, raw, 0o600); err == nil {
+			fmt.Fprintf(stdout, "exported verified evidence package to %s\n", clean)
+		}
+	}
+	if err != nil {
+		return fail(stderr, err)
+	}
+	return 0
+}`,
 	"dashboardExport": `{
 	if wantsHelp(args) {
 		usage(stdout, cfg.Locale)

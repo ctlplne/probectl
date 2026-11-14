@@ -334,7 +334,9 @@ func TestChangeEventsStore(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("create recent: %v", err)
 		}
-		if all, err := (ChangeEvents{}).List(ctx, s, 10); err != nil || len(all) != 2 {
+		page, err := (ChangeEvents{}).TimelinePageInScope(ctx, s, time.Date(1, 1, 1, 0, 0, 0, 1, time.UTC), time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC), time.Time{}, "", 10, 32<<20)
+		all := page.Events
+		if err != nil || len(all) != 2 {
 			t.Fatalf("list: %v / %d", err, len(all))
 		}
 		since, err := (ChangeEvents{}).Since(ctx, s, time.Now().UTC().Add(-time.Hour), 10)

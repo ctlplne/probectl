@@ -185,7 +185,7 @@ func TestCarrierExportKeepsCompleteOriginalsOfflineAndCurrentTenantAuthority(t *
 		if _, err := evidence.Verify(result); err != nil {
 			t.Fatal("carrier byte SDK changed signed bytes", err)
 		}
-		pkg.Attachments[0].Content = append(pkg.Attachments[0].Content, byte(' '))
+		pkg.Attachments[0].Content = json.RawMessage(`{"summary":"changed after signing"}`)
 		tampered, err := json.Marshal(pkg)
 		if err != nil {
 			t.Fatal(err)

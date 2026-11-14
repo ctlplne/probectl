@@ -104,7 +104,6 @@ func summarizeOriginalTestPeriods(ctx context.Context, tenant string, sources []
 		totals[len(out)] = make([]changeEffectMeasurementTotals, len(windows))
 		out = append(out, test)
 	}
-	one := big.NewInt(1)
 	seen := map[string]bool{}
 	for _, read := range reads {
 		if read.TenantID != tenant {
@@ -136,97 +135,10 @@ func summarizeOriginalTestPeriods(ctx context.Context, tenant string, sources []
 		target := &out[index].periods[side]
 		tally := &totals[index][side]
 		observation := change.EffectTestObservation{EvidenceID: read.EvidenceID, ObservationID: read.ObservationID, CaptureDigest: hex.EncodeToString(read.CaptureDigest[:]), ObservedAt: clock, Reason: read.Reason}
-		measurement := read.ICMP
-		if !read.Available || measurement == nil {
-			if observation.Reason == "" {
-				observation.Reason = "unavailable_original_icmp_observation"
-			}
-			target.UnavailableExecutions++
-			tally.legacyRTT++
-			target.Observations = append(target.Observations, observation)
-			continue
+		projection := originalMeasurementProjection{read: read, observation: observation, target: target, tally: tally, ambiguousWindow: ambiguousWindow, ambiguousSplit: ambiguousSplit, memory: memory, charge: charge}
+		if err := projection.apply(ctx); err != nil {
+			return nil, err
 		}
-		if measurement.Requested == 0 || measurement.Replies > measurement.Transmitted || measurement.Transmitted > measurement.Attempted || measurement.Attempted > measurement.Requested {
-			return nil, entity.ErrInvalidClaim
-		}
-		if measurement.Version == 3 && (measurement.RoundTrips == nil || uint64(len(measurement.RoundTrips.Nanos)) != uint64(measurement.Replies)) {
-			return nil, entity.ErrInvalidClaim
-		}
-		observation.Available = true
-		observation.Packets = &change.EffectPackets{Transmitted: strconv.FormatUint(uint64(measurement.Transmitted), 10), Replies: strconv.FormatUint(uint64(measurement.Replies), 10)}
-		complete := completeChangeEffectExecution(measurement)
-		if complete {
-			observation.Packets.Lost = strconv.FormatUint(uint64(measurement.Transmitted-measurement.Replies), 10)
-		}
-		originalRTT := measurement.RoundTrips
-		if originalRTT != nil {
-			if int64(len(originalRTT.Nanos)) > memory/128 {
-				return nil, flowstore.ErrExplorerBudget
-			}
-			if err := charge(int64(len(originalRTT.Nanos))*128 + 1024); err != nil {
-				return nil, err
-			}
-			observation.RoundTrips = &change.EffectOriginalRoundTrips{Nanos: make([]string, len(originalRTT.Nanos)), ExecutionNanos: strconv.FormatUint(originalRTT.ExecutionNanos, 10)}
-			for i, value := range originalRTT.Nanos {
-				observation.RoundTrips.Nanos[i] = strconv.FormatUint(value, 10)
-			}
-		}
-		// A result that straddles the selected interval/change retains its exact
-		// citation but cannot assign its packet population or RTTs to either side.
-		if ambiguousWindow {
-			observation.Reason = "ambiguous_quantized_window_boundary"
-			target.UnavailableExecutions++
-			tally.legacyRTT++
-			target.Observations = append(target.Observations, observation)
-			continue
-		}
-		if ambiguousSplit {
-			observation.Reason = "ambiguous_quantized_change_boundary"
-			target.UnavailableExecutions++
-			tally.legacyRTT++
-			target.Observations = append(target.Observations, observation)
-			continue
-		}
-		if measurement.StartedAt.Before(target.From) || measurement.CompletedAt.After(target.To) {
-			observation.Reason = "execution_straddles_comparison_boundary"
-			target.UnavailableExecutions++
-			tally.legacyRTT++
-			target.Observations = append(target.Observations, observation)
-			continue
-		}
-		if complete {
-			target.CompleteExecutions++
-			var value big.Int
-			value.SetUint64(uint64(measurement.Transmitted))
-			tally.sent.Add(&tally.sent, &value)
-			value.SetUint64(uint64(measurement.Replies))
-			tally.replied.Add(&tally.replied, &value)
-			value.SetUint64(uint64(measurement.Transmitted - measurement.Replies))
-			tally.lost.Add(&tally.lost, &value)
-		} else {
-			target.UnavailableExecutions++
-		}
-		if originalRTT == nil {
-			tally.legacyRTT++
-		} else {
-			tally.observedRTT++
-			for _, value := range originalRTT.Nanos {
-				if err := ctx.Err(); err != nil {
-					return nil, err
-				}
-				if tally.count.Sign() == 0 || value < tally.minimum {
-					tally.minimum = value
-				}
-				if value > tally.maximum {
-					tally.maximum = value
-				}
-				var original big.Int
-				original.SetUint64(value)
-				tally.sum.Add(&tally.sum, &original)
-				tally.count.Add(&tally.count, one)
-			}
-		}
-		target.Observations = append(target.Observations, observation)
 	}
 	for index := range out {
 		for side := range out[index].periods {
@@ -280,4 +192,112 @@ func finishChangeEffectPeriod(target *change.EffectTestPeriod, tally *changeEffe
 func completeChangeEffectExecution(m *entity.ICMPMeasurement) bool {
 	return m != nil && m.Requested > 0 && m.Attempted == m.Requested && m.Transmitted == m.Requested &&
 		m.SendErrors == 0 && m.ReadComplete && !m.IOFailed && !m.Canceled
+}
+
+type originalMeasurementProjection struct {
+	read                            store.IncidentTestMeasurement
+	observation                     change.EffectTestObservation
+	target                          *change.EffectTestPeriod
+	tally                           *changeEffectMeasurementTotals
+	ambiguousWindow, ambiguousSplit bool
+	memory                          int64
+	charge                          func(int64) error
+}
+
+func (p *originalMeasurementProjection) apply(ctx context.Context) error {
+	read, observation, target, tally := p.read, p.observation, p.target, p.tally
+	memory, charge, ambiguousWindow, ambiguousSplit := p.memory, p.charge, p.ambiguousWindow, p.ambiguousSplit
+	one := big.NewInt(1)
+	measurement := read.ICMP
+	if !read.Available || measurement == nil {
+		if observation.Reason == "" {
+			observation.Reason = "unavailable_original_icmp_observation"
+		}
+		target.UnavailableExecutions++
+		tally.legacyRTT++
+		target.Observations = append(target.Observations, observation)
+		return nil
+	}
+	if measurement.Requested == 0 || measurement.Replies > measurement.Transmitted || measurement.Transmitted > measurement.Attempted || measurement.Attempted > measurement.Requested {
+		return entity.ErrInvalidClaim
+	}
+	if measurement.Version == 3 && (measurement.RoundTrips == nil || uint64(len(measurement.RoundTrips.Nanos)) != uint64(measurement.Replies)) {
+		return entity.ErrInvalidClaim
+	}
+	observation.Available = true
+	observation.Packets = &change.EffectPackets{Transmitted: strconv.FormatUint(uint64(measurement.Transmitted), 10), Replies: strconv.FormatUint(uint64(measurement.Replies), 10)}
+	complete := completeChangeEffectExecution(measurement)
+	if complete {
+		observation.Packets.Lost = strconv.FormatUint(uint64(measurement.Transmitted-measurement.Replies), 10)
+	}
+	originalRTT := measurement.RoundTrips
+	if originalRTT != nil {
+		if int64(len(originalRTT.Nanos)) > memory/128 {
+			return flowstore.ErrExplorerBudget
+		}
+		if err := charge(int64(len(originalRTT.Nanos))*128 + 1024); err != nil {
+			return err
+		}
+		observation.RoundTrips = &change.EffectOriginalRoundTrips{Nanos: make([]string, len(originalRTT.Nanos)), ExecutionNanos: strconv.FormatUint(originalRTT.ExecutionNanos, 10)}
+		for i, value := range originalRTT.Nanos {
+			observation.RoundTrips.Nanos[i] = strconv.FormatUint(value, 10)
+		}
+	}
+	// A result that straddles the selected interval/change retains its exact
+	// citation but cannot assign its packet population or RTTs to either side.
+	if ambiguousWindow {
+		observation.Reason = "ambiguous_quantized_window_boundary"
+		target.UnavailableExecutions++
+		tally.legacyRTT++
+		target.Observations = append(target.Observations, observation)
+		return nil
+	}
+	if ambiguousSplit {
+		observation.Reason = "ambiguous_quantized_change_boundary"
+		target.UnavailableExecutions++
+		tally.legacyRTT++
+		target.Observations = append(target.Observations, observation)
+		return nil
+	}
+	if measurement.StartedAt.Before(target.From) || measurement.CompletedAt.After(target.To) {
+		observation.Reason = "execution_straddles_comparison_boundary"
+		target.UnavailableExecutions++
+		tally.legacyRTT++
+		target.Observations = append(target.Observations, observation)
+		return nil
+	}
+	if complete {
+		target.CompleteExecutions++
+		var value big.Int
+		value.SetUint64(uint64(measurement.Transmitted))
+		tally.sent.Add(&tally.sent, &value)
+		value.SetUint64(uint64(measurement.Replies))
+		tally.replied.Add(&tally.replied, &value)
+		value.SetUint64(uint64(measurement.Transmitted - measurement.Replies))
+		tally.lost.Add(&tally.lost, &value)
+	} else {
+		target.UnavailableExecutions++
+	}
+	if originalRTT == nil {
+		tally.legacyRTT++
+	} else {
+		tally.observedRTT++
+		for _, value := range originalRTT.Nanos {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if tally.count.Sign() == 0 || value < tally.minimum {
+				tally.minimum = value
+			}
+			if value > tally.maximum {
+				tally.maximum = value
+			}
+			var original big.Int
+			original.SetUint64(value)
+			tally.sum.Add(&tally.sum, &original)
+			tally.count.Add(&tally.count, one)
+		}
+	}
+	target.Observations = append(target.Observations, observation)
+	return ctx.Err()
 }

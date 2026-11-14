@@ -49,7 +49,8 @@ func TestOwnedRoutingChangesCommitOriginalAnnouncementsSelectedUpdatesAndWithdra
 			apply(3, BGPRoutingChange{Prefix: first.Prefix, HasPathID: first.HasPathID, PathID: first.PathID, Withdraw: true}, "applied")
 			ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 			if err := tenancy.InTenantReadSnapshot(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
-				all, err := (ChangeEvents{}).List(ctx, sc, 1000)
+				page, err := (ChangeEvents{}).TimelinePageInScope(ctx, sc, time.Date(1, 1, 1, 0, 0, 0, 1, time.UTC), time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC), time.Time{}, "", 1000, 32<<20)
+				all := page.Events
 				if err != nil {
 					return err
 				}
@@ -126,7 +127,8 @@ func TestOwnedRoutingChangesKeepIntermediateSamePrefixUpdatesInOneBatch(t *testi
 			t.Fatal("complete repeated-prefix batch refused", result, err)
 		}
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			events, err := (ChangeEvents{}).List(ctx, sc, 100)
+			page, err := (ChangeEvents{}).TimelinePageInScope(ctx, sc, time.Date(1, 1, 1, 0, 0, 0, 1, time.UTC), time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC), time.Time{}, "", 100, 32<<20)
+			events := page.Events
 			if err != nil {
 				return err
 			}

@@ -49,7 +49,8 @@ func TestChangeEffectsServesExactOriginalsAndKeepsCurrentTenantSourceBoundary(t 
 					return err
 				}
 			}
-			events, err := (store.ChangeEvents{}).List(ctx, sc, 200)
+			page, err := (store.ChangeEvents{}).TimelinePageInScope(ctx, sc, time.Date(1, 1, 1, 0, 0, 0, 1, time.UTC), time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC), time.Time{}, "", 200, 32<<20)
+			events := page.Events
 			if err != nil {
 				return err
 			}
@@ -218,7 +219,8 @@ func TestChangeEffectsReadsCompleteOriginalRoundTripsThroughCurrentTenantStorage
 		observe(uint64(2000 + lane))
 		var original change.Event
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			events, err := (store.ChangeEvents{}).List(ctx, sc, 200)
+			page, err := (store.ChangeEvents{}).TimelinePageInScope(ctx, sc, time.Date(1, 1, 1, 0, 0, 0, 1, time.UTC), time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC), time.Time{}, "", 200, 32<<20)
+			events := page.Events
 			if err == nil && len(events) == 1 {
 				original = events[0]
 			}

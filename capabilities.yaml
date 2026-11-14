@@ -175,7 +175,7 @@ capabilities:
     ui: {refs: ["ui:F9@/incidents", "ui:F9@/dashboards"]}
     docs: {refs: ["file:docs/dashboard-reporting.md#Dashboards and tenant report delivery", "file:docs/incident-evidence.md#Observed impact comparison (preview)", "file:docs/incident-evidence.md#Carrier ticket pack (preview)"]}
     config_keys: *api_config
-    telemetry: {refs: ["file:internal/incident", "file:internal/control/incident_carrier.go"]}
+    telemetry: {refs: ["file:internal/incident"]}
     real_stack_proof: {refs: ["test:internal/control/crossplane_e2e_integration_test.go#TestCrossPlaneCorrelationE2E", "test:internal/control/incident_impact_integration_test.go#TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation", "test:internal/control/dashboardreporting_integration_test.go#TestDashboardExportAuditAndTenantIsolation", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack", "test:test/e2e/e2e_test.go#TestE2E"]}
     migration: {refs: ["file:migrations/0012_incidents.sql", "file:migrations/0061_dashboard_reporting.sql", "file:migrations/0137_incident_entity_identity.sql", "file:migrations/0140_entity_fault_receipts.sql", "file:migrations/0168_dashboard_report_artifact_chunks.sql", "file:migrations/0169_report_output_capacity.sql", "file:migrations/0170_report_artifact_chunks_write_fence.sql", "file:migrations/0172_static_report_artifact_chunks.sql", "file:migrations/0208_monthly_report_source_requirements.sql", "file:migrations/0209_provider_report_trigger.sql", "file:migrations/0210_report_email_delivery.sql", "file:migrations/0211_report_monthly_silo_catchup.sql"]}
 

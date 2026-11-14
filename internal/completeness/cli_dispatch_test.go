@@ -17,7 +17,7 @@ import (
 )
 
 func TestExactCLIHandlerSpinesMatchShippingSources(t *testing.T) {
-	for _, relative := range []string{"../cli/ai.go", "../cli/commands.go"} {
+	for _, relative := range []string{"../cli/ai.go", "../cli/commands.go", "../cli/incident.go"} {
 		file, err := parser.ParseFile(token.NewFileSet(), relative, nil, 0)
 		if err != nil {
 			t.Fatal(err)
