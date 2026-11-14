@@ -150,6 +150,7 @@ export function PathPage() {
     tenant.id,
     permissions.includes('entities.read') && Boolean(displayedPath),
     permissions.includes('metrics.read'),
+    { from: pivotContext.from, to: pivotContext.to },
   )
   const canAssignPathContext =
     permissions.includes('entities.read') && permissions.includes('agent.write')
@@ -704,7 +705,10 @@ export function PathPage() {
                         },
                         {
                           key: 'health',
-                          header: 'Latest path interface health',
+                          header:
+                            pivotContext.from || pivotContext.to
+                              ? 'Selected interval interface health'
+                              : 'Latest path interface health',
                           render: (row) =>
                             row.health ? (
                               <PathInterfaceHealthView health={row.health} />
@@ -997,9 +1001,11 @@ export function PathPage() {
 
       <ExplainView
         surface="path"
-        question={`Explain current polled interface observations on the latest owned path${test?.target ? ` to ${test.target}` : ''}. Cite original counters, intervals and assumptions; distinguish observed correlation from an established cause of path loss.`}
+        question={`Explain original polled interface observations on the latest owned path${test?.target ? ` to ${test.target}` : ''}. Cite original counters, intervals and assumptions; distinguish observed correlation from an established cause of path loss.`}
         subject={{
           path_test_id: testId,
+          health_from: pivotContext.from,
+          health_to: pivotContext.to,
           target: test?.target,
           node: selected?.id,
         }}

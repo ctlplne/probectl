@@ -91,13 +91,28 @@ export function usePathEntities(
   tenantID: string,
   enabled: boolean,
   includeHealth = false,
+  healthWindow?: { from?: string; to?: string },
 ) {
+  const params = new URLSearchParams()
+  if (includeHealth) {
+    params.set('include_health', 'true')
+    if (healthWindow?.from) params.set('health_from', healthWindow.from)
+    if (healthWindow?.to) params.set('health_to', healthWindow.to)
+  }
+  const query = params.toString()
   return useQuery({
-    queryKey: ['path-entities', tenantID, testId, includeHealth],
+    queryKey: [
+      'path-entities',
+      tenantID,
+      testId,
+      includeHealth,
+      healthWindow?.from,
+      healthWindow?.to,
+    ],
     enabled: !!testId && enabled,
     queryFn: () =>
       apiFetch<EntityPathResult>(
-        `/tests/${encodeURIComponent(testId ?? '')}/path/entities${includeHealth ? '?include_health=true' : ''}`,
+        `/tests/${encodeURIComponent(testId ?? '')}/path/entities${query ? `?${query}` : ''}`,
       ),
   })
 }

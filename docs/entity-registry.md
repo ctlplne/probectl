@@ -433,7 +433,9 @@ interface and its exact current device-agent source. An IP match alone never
 selects a device's other port. Unresolved, conflicting and unpolled hops carry
 explicit availability; they do not receive invented zero values.
 
-The default health window is the last 15 minutes. `health_from` and
+The default health window is the last 15 minutes. An explicitly selected Path
+interval is shared by the health drawer and its explanation; the query cache
+includes the tenant, test and exact interval. `health_from` and
 `health_to` accept RFC3339 timestamps, and `health_poll_gap` accepts a positive
 Go duration (default `5m`). Windows have no fixed age/row cap; the existing
 per-tenant fairness, memory, complete-response and execution admission applies.

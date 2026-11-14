@@ -21,8 +21,10 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
 	pathstore "github.com/ctlplne/probectl/internal/path"
+	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
@@ -43,6 +45,7 @@ type routerPathHealth struct {
 // Served both-theme and shipped-process/native lifecycle evidence stays separate.
 func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, first, second edgeFlowRegistration, agents []string, target, primary, community string) {
 	t.Helper()
+	from := time.Now().UTC().Add(-time.Second)
 	// Own one exact host route through the router, rather than the Docker
 	// bridge's direct connected route to the destination. Preserve other routes.
 	route := target + "/32"
@@ -73,7 +76,6 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 	}
 	config := lab.docker(t, "exec", sidecar, "cat", "/etc/snmp/snmpd.conf")
 	t.Cleanup(func() { setRouterPathError(t, lab, sidecar, config, index, "") })
-	from := time.Now().UTC().Add(-time.Second)
 	archiveRouterPathConfigs(t, st, lab, registrations, agents, primary)
 	for lane, reg := range registrations {
 		label := "primary"
@@ -155,6 +157,12 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 			if !matched {
 				t.Fatal("cited path omitted the original planted error climb")
 			}
+			other := registrations[1-lane]
+			for _, theme := range []string{"light", "dark"} {
+				t.Run(theme, func(t *testing.T) {
+					renderRouterPathHealth(t, st, reg, other, tests[lane], from, frozen, health, theme)
+				})
+			}
 		})
 	}
 }
@@ -229,4 +237,30 @@ func archiveRouterPathConfigs(t *testing.T, st *shipped.Stack, lab *routingLab, 
 			}
 		}
 	}
+}
+
+func renderRouterPathHealth(t *testing.T, st *shipped.Stack, reg, other edgeFlowRegistration, test string, from, to time.Time, health *sdk.PathInterfaceHealth, theme string) {
+	t.Helper()
+	var climb sdk.PathHealthCounter
+	for _, counter := range health.Counters {
+		if counter.Metric == "probectl.device.if.in.errors" {
+			climb = counter
+		}
+	}
+	if climb.CaptureKey == "" || climb.PreviousCaptureKey == "" {
+		t.Fatal("served path has no original error-climb receipts")
+	}
+	query := url.Values{"ctx_v": {"1"}, "ctx_expires": {time.Now().UTC().Add(10 * time.Minute).Format(time.RFC3339Nano)}, "ctx_filter": {"path_test:" + test}, "ctx_from": {from.Format(time.RFC3339Nano)}, "ctx_to": {to.Format(time.RFC3339Nano)}}
+	errorRow := `table:has(> caption:text-is("Original directional interface counters")) tbody tr:has-text("in errors")`
+	testsupport.RenderUI(t, testsupport.RenderSpec{
+		URL: st.BaseURL + "/ui/path?" + query.Encode(), Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: reg.cookie}},
+		CAFile: st.CAFile, TrustCertFiles: st.TrustCerts(), Theme: theme, Accessibility: true,
+		Expect: []string{"Selected interval interface health"}, Absent: []string{other.deviceID, other.contextID},
+		Steps: []testsupport.RenderStep{
+			{Click: "Polled interface health preview · observed originals", Summary: true, Expect: []string{health.InterfaceId, health.DeviceId, health.ConfigChanges[1].Id}},
+			{Click: "Counter words and receipts", Summary: true, Within: errorRow, ExpectWithin: errorRow, Expect: []string{"Previous 100 · latest 230 · width 32", climb.CaptureKey, climb.PreviousCaptureKey}},
+			{Click: "Explain this view", Expect: []string{"Original path observations"}},
+			{Click: "Original path observations", Summary: true, ExpectWithin: `[aria-label="Complete original path evidence"]`, Expect: []string{health.InterfaceId, health.ConfigChanges[1].Id, climb.CaptureKey, climb.PreviousCaptureKey}},
+		},
+	})
 }

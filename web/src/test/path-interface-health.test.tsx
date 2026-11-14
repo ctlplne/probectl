@@ -102,7 +102,15 @@ test('path health retains exact originals and assumptions across paired tenant s
         })),
       })
     })
-    renderApp('/path', {
+    const from = '2026-11-14T00:00:00.000Z'
+    const to = '2026-11-14T00:01:00.000Z'
+    const range = new URLSearchParams({
+      ctx_v: '1',
+      ctx_from: from,
+      ctx_to: to,
+      ctx_expires: new Date(Date.now() + 300_000).toISOString(),
+    })
+    renderApp(`/path?${range.toString()}`, {
       me: { tenant_id: tenant, permissions: ['test.read', 'entities.read', 'metrics.read'] },
     })
     const summary = await screen.findByText('Polled interface health preview · observed originals')
@@ -128,6 +136,8 @@ test('path health retains exact originals and assumptions across paired tenant s
       requests.every(
         (url) =>
           new URL(url, 'https://probectl.invalid').searchParams.get('include_health') === 'true' &&
+          new URL(url, 'https://probectl.invalid').searchParams.get('health_from') === from &&
+          new URL(url, 'https://probectl.invalid').searchParams.get('health_to') === to &&
           !url.includes('tenant_id='),
       ),
     ).toBe(true)
