@@ -97,7 +97,7 @@ func TestIncidentExportCLIRequiresCurrentRequestAndOfflineVerification(t *testin
 	cases := []struct{ name, old, replacement string }{
 		{name: "shipping export"},
 		{"caller credentials omitted", "newClient(cfg).raw(", "newClient(Config{}).raw("},
-		{"offline verification omitted", "evidence.Verify(raw)", "evidence.Verify(nil)"},
+		{"offline verification omitted", "if _, err := evidence.Verify(raw); err != nil {", "if _, err := evidence.Verify(nil); err != nil {"},
 		{"export request omitted", "return cmdIncidentExportWithStdin(cfg, args[1:], stdin, stdout, stderr)", "return 0"},
 	}
 	for _, tc := range cases {

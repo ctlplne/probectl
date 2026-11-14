@@ -356,7 +356,10 @@ var customCLIHandlerSpines = map[string]string{
 	var body any
 	var err error
 	rawSet, fileSet := false, false
-	fs.Visit(func(f *flag.Flag) { rawSet = rawSet || f.Name == "body"; fileSet = fileSet || f.Name == "body-file" })
+	fs.Visit(func(f *flag.Flag) {
+		rawSet = rawSet || f.Name == "body"
+		fileSet = fileSet || f.Name == "body-file"
+	})
 	if rawSet && fileSet {
 		fmt.Fprintln(stderr, "--body and --body-file cannot be combined")
 		return 2
