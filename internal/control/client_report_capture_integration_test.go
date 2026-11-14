@@ -76,6 +76,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	artifacts := map[string]string{}
 	socket := httptest.NewTLSServer(f.server.Handler())
 	defer socket.Close()
+	native := newClientReportNativeProof(t, f, socket)
 	call := func(tenant, method, path string, input any, tokens ...string) (int, []byte) {
 		t.Helper()
 		var body io.Reader
@@ -232,6 +233,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		if err := json.Unmarshal(raw, &view); err != nil {
 			t.Fatal(err)
 		}
+		native.prove(ctx, tenant, f.tenants[1-lane], view.ID, d.cases[tenant], string(public), capture.Tables)
 		for _, format := range []string{"csv", "pdf"} {
 			code, raw = call(tenant, http.MethodPost, "/v1/dashboard-reports", reporting.ReportGenerateInput{DashboardID: view.ID, Format: format})
 			if code != http.StatusCreated {
@@ -405,11 +407,13 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			return nil
 		})
 	}
+	native.crossTenant()
 	a, b := f.tenants[0], f.tenants[1]
 	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, a, f.roles[a], permChangeRead)
 		return err
 	})
+	native.withdrawnSource(a, b)
 	code, _ := call(a, http.MethodGet, "/v1/dashboard-report-artifacts/"+artifacts[a], nil)
 	if code != http.StatusNotFound {
 		t.Fatal("stored monthly report retained withdrawn current permission", code)
@@ -484,7 +488,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	if code != http.StatusOK {
 		t.Fatal("stored pack revocation crossed tenant", code)
 	}
-	t.Log("real-integration: complete backdated calendar-month capture through application-role PG/RLS, current actor/source/definition, expired original serials plus renewed current identities, distinct paired counts, whole incident/change/config inputs, tenant refusal and withdrawn current permission with sibling survival; historical clocks/outcomes modeled; served CSV/PDF generation/download, signed CSV index and complete PDF semantic section/row/numeric/index content verified; owned monthly inbox scheduling/retry and write-only credential refusal verified; independent full PDF ink/Poppler, native/UI/provider and real senders remain owed")
+	t.Log("real-integration: complete backdated calendar-month capture through application-role PG/RLS, current actor/source/definition, expired original serials plus renewed current identities, distinct paired counts, whole incident/change/config inputs, tenant refusal and withdrawn current permission with sibling survival; historical clocks/outcomes modeled; served CSV/PDF generation/download, signed CSV index and complete PDF semantic section/row/numeric/index content verified; SDK/CLI and modern native complete generation/download, legacy native view, current-source withdrawal and foreign-tenant refusal verified; owned monthly inbox scheduling/retry and write-only credential refusal verified; independent full PDF ink/Poppler, native stdio/rendered UI/provider and real senders remain owed")
 }
 
 func backdateClientReportOriginals(t *testing.T, d *dependencyRoutingFixture, tenant string, from time.Time) {

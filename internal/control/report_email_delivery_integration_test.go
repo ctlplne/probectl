@@ -11,11 +11,16 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/mail"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +36,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 type reportMailReceipt struct {
@@ -38,15 +44,16 @@ type reportMailReceipt struct {
 	messageID string
 }
 type reportMailProbe struct {
-	fail     map[string]bool
-	attempts map[string][]string
-	sent     map[string][]reportMailReceipt
+	transport alert.AttachmentMailSender
+	fail      map[string]bool
+	attempts  map[string][]string
+	sent      map[string][]reportMailReceipt
 }
 
 func (*reportMailProbe) Send(context.Context, []string, string, string) error {
 	return errors.New("report must use an attachment")
 }
-func (m *reportMailProbe) SendAttachment(ctx context.Context, to []string, _ string, attachment alert.MailAttachment) error {
+func (m *reportMailProbe) SendAttachment(ctx context.Context, to []string, subject string, attachment alert.MailAttachment) error {
 	if _, ok := tenancy.FromContext(ctx); !ok {
 		return errors.New("mail lost tenant context")
 	}
@@ -63,6 +70,13 @@ func (m *reportMailProbe) SendAttachment(ctx context.Context, to []string, _ str
 		m.fail[address] = false
 		return errors.New("modeled SMTP failure before acceptance")
 	}
+	if m.transport != nil {
+		forwarded := attachment
+		forwarded.Body = bytes.NewReader(body)
+		if err := m.transport.SendAttachment(ctx, to, subject, forwarded); err != nil {
+			return err
+		}
+	}
 	m.sent[address] = append(m.sent[address], reportMailReceipt{body, attachment.MessageID})
 	return nil
 }
@@ -71,6 +85,22 @@ func TestReportEmailRetainsRetryTenantAndCurrentSourceAuthority(t *testing.T) {
 	f := d.f
 	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	mailer := &reportMailProbe{fail: map[string]bool{"client-a@example.test": true}, attempts: map[string][]string{}, sent: map[string][]reportMailReceipt{}}
+	caFile, serverTLS := alertTestCA(t, "localhost")
+	relay := testsupport.StartSMTPServer(t, serverTLS, "reports", "test-only-relay-proof")
+	_, port, err := net.SplitHostPort(relay.Addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	smtpConfig := &config.Config{AlertSMTPAddr: net.JoinHostPort("localhost", port), AlertSMTPFrom: "reports@probectl.test", AlertSMTPTLSMode: "starttls", AlertSMTPUsername: "reports", AlertSMTPPassword: "test-only-relay-proof", AlertSMTPCAFile: caFile}
+	deps, err := BuildAlertChannelDeps(smtpConfig, nil, f.server.log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := deps.Mail.(alert.AttachmentMailSender)
+	if !ok {
+		t.Fatal("production SMTP attachment adapter missing")
+	}
+	mailer.transport = transport
 	f.server.WithAlertChannelDeps(alert.ChannelDeps{Mail: mailer})
 	f.server.cfg.ReportEmailDestinations = []config.ReportEmailDestination{
 		{TenantID: f.tenants[0], ID: "monthly", Name: "Client A", Recipients: []string{"client-a@example.test"}},
@@ -208,7 +238,7 @@ func TestReportEmailRetainsRetryTenantAndCurrentSourceAuthority(t *testing.T) {
 		}
 	}
 	// The new state columns never grant mutation of report content or digests.
-	err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(a)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+	err = tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(a)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := sc.Q.Exec(ctx, `UPDATE dashboard_report_artifacts SET content='changed' WHERE tenant_id=$1`, a)
 		return err
 	})
@@ -256,8 +286,58 @@ func TestReportEmailRetainsRetryTenantAndCurrentSourceAuthority(t *testing.T) {
 		}
 		return nil
 	})
+	messages := relay.Messages()
+	if len(messages) != 3 || len(relay.Refused()) != 0 {
+		t.Fatal("real SMTP delivery population changed")
+	}
+	delivered := map[string]int{}
+	for _, message := range messages {
+		if !message.TLS || message.User != "reports" || len(message.To) != 1 {
+			t.Fatal("SMTP accepted an unauthenticated or incorrectly routed report")
+		}
+		address := message.To[0]
+		index := delivered[address]
+		if index >= len(mailer.sent[address]) {
+			t.Fatal("SMTP produced an extra recipient delivery")
+		}
+		projected := mailer.sent[address][index]
+		parsed, err := mail.ReadMessage(strings.NewReader(message.Data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if parsed.Header.Get("Message-ID") != projected.messageID {
+			t.Fatal("SMTP retry identity changed")
+		}
+		kind, params, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
+		if err != nil || kind != "multipart/mixed" {
+			t.Fatal("SMTP lost MIME envelope", err)
+		}
+		parts := multipart.NewReader(parsed.Body, params["boundary"])
+		intro, err := parts.NextPart()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.Copy(io.Discard, intro); err != nil {
+			t.Fatal(err)
+		}
+		attachment, err := parts.NextPart()
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, attachment))
+		if err != nil || !bytes.Equal(decoded, projected.body) {
+			t.Fatal("SMTP changed complete tenant report bytes", err)
+		}
+		if _, err := parts.NextPart(); err != io.EOF {
+			t.Fatal("SMTP report has unexpected parts", err)
+		}
+		delivered[address]++
+	}
+	if delivered["client-a@example.test"] != 1 || delivered["client-b@example.test"] != 2 {
+		t.Fatal("real SMTP crossed tenant delivery populations")
+	}
 	if !strings.HasPrefix(destinations[a], "email/") || destinations[a] == destinations[b] {
 		t.Fatal("tenant destination binding lost")
 	}
-	t.Log("real-integration PG/RLS and HTTPS: paired configured routes, immutable complete bodies, retained retry/stable ID, reconstruction, current-source refusal and sibling survival; email delivery and historical inputs modeled; standalone transport test uses real TLS SMTP")
+	t.Log("real-integration PG/RLS and HTTPS: paired configured routes, immutable complete bodies, retained retry/stable ID, reconstruction, current-source refusal and sibling survival; authenticated TLS SMTP, independent MIME/base64/full-byte verification; failure before acceptance injected and histories modeled; release-image restart and physical sender proof separate")
 }
