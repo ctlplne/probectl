@@ -1972,17 +1972,27 @@ jobs:
           github_token: ${{ github.token }}
       - name: buf lint
         run: buf lint
-      - name: buf breaking (additive-only vs main — BLOCKING, U-056)
+      - name: buf breaking (additive-only vs event base — BLOCKING, U-056)
         # The proto schema is the agent/bus wire contract: a breaking change
         # strands deployed agents and replayable bus history. This gate blocks
         # merge; the exception process is in CONTRIBUTING.md (version a new
         # package, never mutate a published one).
         #
-        # On a PR checkout `main` is not a local ref, so fetch it into a
-        # dedicated baseline branch (never the checked-out one, so this also
-        # works on push-to-main) and compare the working tree against it.
+        # Main may advance while an older complete run finishes. Comparing
+        # that run with future main falsely reports later additive fields as
+        # deletions. Use the event's immutable base; manual runs use HEAD's
+        # first parent. The entire pushed batch still faces the wire gate.
+        env:
+          PROBECTL_PROTO_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PROBECTL_PROTO_HEAD_SHA: ${{ github.sha }}
         run: |
-          git fetch --no-tags --force origin main:_buf_breaking_base
+          baseline="$PROBECTL_PROTO_BASE_SHA"
+          if [[ ! "$baseline" =~ ^[0-9a-f]{40}$ || "$baseline" =~ ^0+$ ]]; then
+            baseline="$(git rev-parse "${PROBECTL_PROTO_HEAD_SHA}^")"
+          fi
+          git cat-file -e "${baseline}^{commit}" || git fetch --no-tags origin "$baseline"
+          git merge-base --is-ancestor "$baseline" "$PROBECTL_PROTO_HEAD_SHA"
+          git update-ref refs/heads/_buf_breaking_base "$baseline"
           buf breaking --against '.git#branch=_buf_breaking_base'
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:

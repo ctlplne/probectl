@@ -10,7 +10,9 @@ package bgp_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -19,6 +21,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gosnmp/gosnmp"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -75,7 +79,7 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 		t.Fatal("observed trace responder has no actual SNMP interface index", err)
 	}
 	config := lab.docker(t, "exec", sidecar, "cat", "/etc/snmp/snmpd.conf")
-	t.Cleanup(func() { setRouterPathError(t, lab, sidecar, config, index, "") })
+	setError := routerPathErrorPlant(t, lab, sidecar, config, index, primary, community)
 	archiveRouterPathConfigs(t, st, lab, registrations, agents, primary)
 	frozenWindows := make([]time.Time, len(registrations))
 	originals := make([]*sdk.PathInterfaceHealth, len(registrations))
@@ -85,7 +89,7 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 			label = "paired"
 		}
 		t.Run(label, func(t *testing.T) {
-			setRouterPathError(t, lab, sidecar, config, index, "100")
+			setError(100)
 			read := func(to time.Time) (*sdk.PathInterfaceHealth, bool) {
 				query := url.Values{"include_health": {"true"}, "health_from": {from.Format(time.RFC3339Nano)}, "health_to": {to.Format(time.RFC3339Nano)}}
 				code, body := st.Do(t, reg.cookie, http.MethodGet, "/v1/tests/"+tests[lane]+"/path/entities?"+query.Encode(), nil)
@@ -112,14 +116,22 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 				}
 				return false
 			})
-			setRouterPathError(t, lab, sidecar, config, index, "230")
+			setError(230)
 			var frozen time.Time
 			shipped.Await(t, "original planted SNMP error climb on the actual trace responder", time.Minute, func() bool {
 				health, ok := read(time.Now().UTC())
 				if !ok {
 					return false
 				}
-				for _, counter := range health.Counters {
+				// Find the actual transition in complete original history, even
+				// when a second230 poll arrives before this API request completes.
+				candidates := append([]sdk.PathHealthCounter(nil), health.Counters...)
+				for _, trend := range health.ErrorTrends {
+					if trend.Metric == "probectl.device.if.in.errors" {
+						candidates = append(candidates, trend.Observations...)
+					}
+				}
+				for _, counter := range candidates {
 					if counter.Metric == "probectl.device.if.in.errors" && counter.Value == "230" && counter.PreviousValue == "100" && counter.MinimumDelta == "130" && counter.RateNumerator != "" && counter.RateDenominator != "" {
 						var err error
 						frozen, err = time.Parse(time.RFC3339Nano, counter.PollCompletedAt)
@@ -228,20 +240,67 @@ func discoverRouterHealthPath(t *testing.T, st *shipped.Stack, reg edgeFlowRegis
 	return "", ""
 }
 
-func setRouterPathError(t *testing.T, lab *routingLab, sidecar, original, index, value string) {
+func routerPathErrorPlant(t *testing.T, lab *routingLab, sidecar, original, index, target, community string) func(uint32) {
 	t.Helper()
-	config := original
-	if value != "" {
-		// Net-SNMP documents Counter32 overrides and HUP reloads at
-		// https://www.net-snmp.org/docs/man/snmpd.conf.html .
-		config += "\noverride .1.3.6.1.2.1.2.2.1.14." + index + " counter " + value + "\n"
+	route, err := exec.Command("ip", "-j", "route", "get", target).Output()
+	var routes []struct {
+		Source string `json:"prefsrc"`
 	}
-	file := filepath.Join(t.TempDir(), "snmpd.conf")
-	if err := os.WriteFile(file, []byte(config), 0600); err != nil {
-		t.Fatal(err)
+	if err != nil || json.Unmarshal(route, &routes) != nil || len(routes) != 1 {
+		t.Fatal("cannot identify the owned router fixture's host write source", err)
 	}
-	lab.docker(t, "cp", file, sidecar+":/etc/snmp/snmpd.conf")
+	source, err := netip.ParseAddr(routes[0].Source)
+	if err != nil || !source.Is4() {
+		t.Fatal("owned router fixture has no exact IPv4 host write source")
+	}
+	oid := ".1.3.6.1.2.1.2.2.1.14." + index
+	// Keep agent credentials read-only. This throwaway credential is restricted
+	// to the test host and one emulated OID; the existing log masker covers its
+	// random secret prefix too. No product code sends SNMP SETs.
+	writeCommunity := community + "-plant"
+	writeConfig := func(content string) {
+		t.Helper()
+		file := filepath.Join(t.TempDir(), "snmpd.conf")
+		if err := os.WriteFile(file, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		lab.docker(t, "cp", file, sidecar+":/etc/snmp/snmpd.conf")
+	}
+	// Register once. Re-registering overrides on HUP leaves the old value and
+	// reports duplicate registrations. Net-SNMP's documented -rw override lets
+	// the fixture update only the emulated word without resetting uptime:
+	// https://www.net-snmp.org/docs/man/snmpd.conf.html .
+	writeConfig(original + fmt.Sprintf("\nrwcommunity %s %s/32 %s\noverride -rw %s counter 100\n", writeCommunity, source, oid, oid))
 	lab.docker(t, "kill", "--signal", "HUP", sidecar)
+	t.Cleanup(func() {
+		writeConfig(original)
+		// Remove the temporary writable handler and credential after all frozen
+		// path proofs; restart only this owned sidecar, preserving its namespace.
+		lab.docker(t, "restart", sidecar)
+	})
+	setWord := func(value uint32) error {
+		client := &gosnmp.GoSNMP{Target: target, Port: 161, Community: writeCommunity, Version: gosnmp.Version2c, Timeout: time.Second, Retries: 1, Context: t.Context()}
+		if err := client.Connect(); err != nil {
+			return fmt.Errorf("connect to owned counter plant: %w", err)
+		}
+		defer func() { _ = client.Conn.Close() }()
+		response, err := client.Set([]gosnmp.SnmpPDU{{Name: oid, Type: gosnmp.Counter32, Value: value}})
+		if err != nil || response == nil || response.Error != gosnmp.NoError {
+			return fmt.Errorf("owned counter plant refused its exact Counter32 update: %v", err)
+		}
+		observed, err := client.Get([]string{oid})
+		if err != nil || observed == nil || observed.Error != gosnmp.NoError || len(observed.Variables) != 1 || observed.Variables[0].Type != gosnmp.Counter32 || gosnmp.ToBigInt(observed.Variables[0].Value).Uint64() != uint64(value) {
+			return fmt.Errorf("owned SNMP target did not expose the requested original counter word: %v", err)
+		}
+		return nil
+	}
+	shipped.Await(t, "writable emulated counter on the owned SNMP target", 30*time.Second, func() bool { return setWord(100) == nil })
+	return func(value uint32) {
+		t.Helper()
+		if err := setWord(value); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func archiveRouterPathConfigs(t *testing.T, st *shipped.Stack, lab *routingLab, registrations []edgeFlowRegistration, agents []string, primary string) {
