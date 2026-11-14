@@ -279,6 +279,7 @@ func verifyRouterOriginalTestPeriod(t *testing.T, st *shipped.Stack, reg edgeFlo
 // Neither route metadata nor measurement bodies are inserted by this proof.
 func proveRouterOriginalRouteEffects(t *testing.T, st *shipped.Stack, lab *routingLab, registrations []edgeFlowRegistration, probes []routerChangeProbe, replay func(*testing.T, time.Time)) {
 	t.Helper()
+	awaitRouterSelectedChangePath(t, lab, path(edgeASN, originA))
 	from := time.Now().UTC()
 	for lane, reg := range registrations {
 		awaitRouterChangeProbe(t, st, reg, probes[lane], from)
@@ -286,7 +287,7 @@ func proveRouterOriginalRouteEffects(t *testing.T, st *shipped.Stack, lab *routi
 	replay(t, from)
 	changed := time.Now().UTC()
 	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "route-map ORIGIN-A permit 10", "-c", "no set as-path prepend", "-c", "set as-path prepend "+strconv.Itoa(hijackerA), "-c", "exit", "-c", "router bgp "+strconv.Itoa(edgeASN), "-c", "address-family ipv4 unicast", "-c", "network "+prefixA+" route-map ORIGIN-A", "-c", "end")
-	lab.awaitRoutes(t, "rtr-a", map[string]string{prefixA: path(edgeASN, hijackerA)})
+	awaitRouterSelectedChangePath(t, lab, path(edgeASN, hijackerA))
 	ids := make([]string, len(registrations))
 	for lane, reg := range registrations {
 		original := awaitRouterTimelineRoute(t, st, reg, changed, "selected_route_update")
@@ -305,7 +306,7 @@ func proveRouterOriginalRouteEffects(t *testing.T, st *shipped.Stack, lab *routi
 	}
 	announced := time.Now().UTC()
 	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "route-map ORIGIN-A permit 10", "-c", "no set as-path prepend", "-c", "set as-path prepend "+strconv.Itoa(originA), "-c", "exit", "-c", "router bgp "+strconv.Itoa(edgeASN), "-c", "address-family ipv4 unicast", "-c", "network "+prefixA+" route-map ORIGIN-A", "-c", "end")
-	lab.awaitRoutes(t, "rtr-a", map[string]string{prefixA: path(edgeASN, originA)})
+	awaitRouterSelectedChangePath(t, lab, path(edgeASN, originA))
 	for _, reg := range registrations {
 		awaitRouterTimelineRoute(t, st, reg, announced, "announcement")
 	}
@@ -348,4 +349,34 @@ func awaitRouterTimelineRoute(t *testing.T, st *shipped.Stack, reg edgeFlowRegis
 	})
 	t.Logf("real-integration: FRR %s reached tenant timeline in %s (60s observation window)", action, time.Since(from))
 	return found
+}
+
+// This lab has three live relationships, so unrelated prefixes and alternate
+// paths remain in its RIB. Require the changed prefix's actual selected path;
+// the original one-link helper instead requires an entire one-prefix table.
+func awaitRouterSelectedChangePath(t *testing.T, lab *routingLab, expected string) {
+	t.Helper()
+	shipped.Await(t, "rtr-a selected original path for "+prefixA, 120*time.Second, func() bool {
+		var table struct {
+			Routes map[string][]struct {
+				Path string `json:"path"`
+				Best bool   `json:"bestpath"`
+			} `json:"routes"`
+		}
+		raw := lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "show bgp ipv4 unicast json")
+		if json.Unmarshal([]byte(raw), &table) != nil {
+			return false
+		}
+		selected := 0
+		for _, route := range table.Routes[prefixA] {
+			if !route.Best {
+				continue
+			}
+			if route.Path != expected {
+				return false
+			}
+			selected++
+		}
+		return selected == 1
+	})
 }
