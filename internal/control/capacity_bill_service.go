@@ -8,11 +8,16 @@ package control
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
@@ -25,14 +30,35 @@ func (s *Server) checkCapacityAgreementBill(op capacityAgreementOperation, id st
 	ctx := op.request.Context()
 	finish := s.beginFlowOperation(ctx, "capacity_bill_check")
 	defer func() { finish(operationErr) }()
+	started := time.Now()
+	phase, phaseStarted, observations := "input", started, 0
+	advance := func(next string) { phase, phaseStarted = next, time.Now() }
+	defer func() {
+		if operationErr == nil || s.log == nil {
+			return
+		}
+		var postgres *pgconn.PgError
+		state := ""
+		if errors.As(operationErr, &postgres) {
+			state = postgres.Code
+		}
+		// Never log SQL, parameters, financial terms, tokens or raw telemetry.
+		s.log.Warn("measured capacity bill failed", "tenant_id", op.actor.TenantID,
+			"phase", phase, "elapsed_ms", time.Since(started).Milliseconds(), "phase_elapsed_ms", time.Since(phaseStarted).Milliseconds(),
+			"observations", observations, "error_class", flowOperationOutcome(operationErr), "postgres_state", state,
+			"context_done", ctx.Err() != nil, "row_missing", errors.Is(operationErr, pgx.ErrNoRows),
+			"source_unavailable", errors.Is(operationErr, store.ErrCounterCaptureUnavailable), "invalid_counter", errors.Is(operationErr, flowstore.ErrCounterHistoryInput))
+	}()
 	parameters, err := capacityBillInput(input, op.budget.MemoryBytes/32)
 	if err != nil {
 		return none, err
 	}
+	advance("initial_authority")
 	before, err := s.capacityBillSnapshot(ctx, op, id, input, parameters, nil, nil)
 	if err != nil {
 		return none, err
 	}
+	advance("counter_query")
 	history, available := flowstore.CounterHistoryOf(s.flowStore)
 	if !available {
 		return none, flowstore.ErrCounterHistoryUnavailable
@@ -41,6 +67,7 @@ func (s *Server) checkCapacityAgreementBill(op capacityAgreementOperation, id st
 	if err != nil {
 		return none, err
 	}
+	advance("counter_history")
 	rows, err := history.CounterPoints(ctx, query)
 	if err != nil {
 		return none, err
@@ -48,9 +75,12 @@ func (s *Server) checkCapacityAgreementBill(op capacityAgreementOperation, id st
 	if err := capacityBillRowsInWindow(rows, query); err != nil {
 		return none, err
 	}
+	observations = len(rows)
+	advance("retained_receipt_authority")
 	if _, err := s.capacityBillSnapshot(ctx, op, id, input, parameters, &before, rows); err != nil {
 		return none, err
 	}
+	advance("member_measurement")
 	window := flow.CapacityMeasurementWindow{From: before.period.From, To: before.period.To, MaximumPollGap: parameters.gap, MemoryBytes: op.budget.MemoryBytes / 2, WorkUnits: op.budget.MemoryBytes}
 	members, err := measureCapacityBillMembers(ctx, before.capacityCounterPlan, rows, window, op.budget.MemoryBytes/4)
 	if err != nil {
@@ -59,14 +89,17 @@ func (s *Server) checkCapacityAgreementBill(op capacityAgreementOperation, id st
 	calculation := window
 	calculation.MemoryBytes = op.budget.MemoryBytes / 2
 	calculation.WorkUnits = op.budget.MemoryBytes
+	advance("percentile")
 	percentile, err := flow.CalculateCapacityMeasuredP95(ctx, calculation, before.agreement.Definition.Direction, members)
 	if err != nil {
 		return none, err
 	}
+	advance("bill_arithmetic")
 	bill, err := flow.CheckCapacityMeasuredBill(ctx, before.agreement.Definition, percentile, input.Invoiced, op.budget.MemoryBytes/8, op.budget.MemoryBytes/8)
 	if err != nil {
 		return none, err
 	}
+	advance("publication_authority")
 	after, err := s.capacityBillSnapshot(ctx, op, id, input, parameters, &before, rows)
 	if err != nil {
 		return none, err

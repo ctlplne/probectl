@@ -9,8 +9,10 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/pem"
+	"log/slog"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -32,7 +34,13 @@ import (
 // this is not the separate physical SNMP/issued-sender acceptance.
 // Its name deliberately avoids the pre-web-build early integration roots.
 func TestCapacityMeasuredSurfacesRealTLSPostgresAndPairedThemes(t *testing.T) {
-	f := newRoleExplanationAPIFixture(t)
+	var diagnostics bytes.Buffer
+	f := newRoleExplanationAPIFixture(t, slog.New(slog.NewTextHandler(&diagnostics, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("Measured capacity server failure stages (no raw counters or financial terms):\n%s", diagnostics.String())
+		}
+	})
 	f.server.cfg.FlowQueryLibraryBytes = 256 << 20
 	f.server.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	memory := flowstore.NewMemory()
