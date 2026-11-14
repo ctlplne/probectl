@@ -157,6 +157,11 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 			if !matched {
 				t.Fatal("cited path omitted the original planted error climb")
 			}
+			for _, wire := range []string{"2026-07-28", "2025-11-25"} {
+				t.Run("stdio/"+wire, func(t *testing.T) {
+					proveRouterPathStdio(t, st, reg, tests[lane], tests[1-lane], from, frozen, health, wire)
+				})
+			}
 			other := registrations[1-lane]
 			for _, theme := range []string{"light", "dark"} {
 				t.Run(theme, func(t *testing.T) {

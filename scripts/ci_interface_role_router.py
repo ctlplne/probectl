@@ -23,6 +23,8 @@ PATH_HEALTH = (
     *(ROOT + "/routed-path-health/" + tenant for tenant in ("primary", "paired")),
     *(ROOT + "/routed-path-health/" + tenant + "/" + theme
       for tenant in ("primary", "paired") for theme in ("light", "dark")),
+    *(ROOT + "/routed-path-health/" + tenant + "/stdio/" + wire
+      for tenant in ("primary", "paired") for wire in ("2026-07-28", "2025-11-25")),
 )
 
 
