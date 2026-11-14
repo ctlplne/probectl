@@ -75,17 +75,8 @@ func summarizeChangeEffectTests(ctx context.Context, tenant string, sources []st
 			return nil, entity.ErrConflictingEvidence
 		}
 		seen[read.EvidenceID] = true
-		clock := read.ObservedAt
-		preciseClock := read.Available && read.ICMP != nil && read.ICMP.Version == 3
-		if preciseClock {
-			clock = read.ICMP.CompletedAt
-		}
-		// SQL overfetches the boundary microseconds. A version3 receipt has
-		// its exact original clock; older receipts cannot claim sub-microsecond
-		// membership and retain a citation without contributing period values.
-		ambiguousWindow := !preciseClock && (!from.Equal(from.Truncate(time.Microsecond)) && clock.Truncate(time.Microsecond).Equal(from.Truncate(time.Microsecond)) ||
-			!to.Equal(to.Truncate(time.Microsecond)) && clock.Truncate(time.Microsecond).Equal(to.Truncate(time.Microsecond)))
-		if (clock.Before(from) || !clock.Before(to)) && !ambiguousWindow {
+		clock, ambiguousWindow, inWindow := changeEffectObservationClock(read, from, to)
+		if !inWindow {
 			continue
 		}
 		if err := charge(4096 + 4*int64(len(read.Reason)+len(read.EvidenceID)+len(read.ObservationID))); err != nil {
@@ -117,7 +108,7 @@ func summarizeChangeEffectTests(ctx context.Context, tenant string, sources []st
 		}
 		observation.Available = true
 		observation.Packets = &change.EffectPackets{Transmitted: strconv.FormatUint(uint64(measurement.Transmitted), 10), Replies: strconv.FormatUint(uint64(measurement.Replies), 10)}
-		complete := measurement.Attempted == measurement.Requested && measurement.Transmitted == measurement.Requested && measurement.SendErrors == 0 && measurement.ReadComplete && !measurement.IOFailed && !measurement.Canceled
+		complete := completeChangeEffectExecution(measurement)
 		if complete {
 			observation.Packets.Lost = strconv.FormatUint(uint64(measurement.Transmitted-measurement.Replies), 10)
 		}
@@ -193,33 +184,54 @@ func summarizeChangeEffectTests(ctx context.Context, tenant string, sources []st
 	}
 	for index := range out {
 		for side, target := range []*change.EffectTestPeriod{&out[index].Before, &out[index].After} {
-			tally := &totals[index][side]
-			if target.CompleteExecutions > 0 {
-				target.Packets = &change.EffectPackets{Transmitted: tally.sent.String(), Replies: tally.replied.String(), Lost: tally.lost.String()}
-				target.LossCoverage = "observed_complete_executions_only"
-				if tally.sent.Sign() > 0 {
-					value := new(big.Rat).SetFrac(&tally.lost, &tally.sent).RatString()
-					target.LossRatio = &value
-				}
-			} else if len(target.Observations) > 0 {
-				target.LossCoverage = "unavailable_complete_packet_population"
-			}
-			if target.UnavailableExecutions > 0 && target.CompleteExecutions > 0 {
-				target.LossCoverage = "partial_observed_execution_coverage"
-			}
-			switch {
-			case tally.count.Sign() > 0:
-				target.Latency = &change.EffectLatency{Samples: tally.count.String(), SumNanos: tally.sum.String(), MinimumNanos: strconv.FormatUint(tally.minimum, 10), MaximumNanos: strconv.FormatUint(tally.maximum, 10), MeanNanos: new(big.Rat).SetFrac(&tally.sum, &tally.count).RatString(), TimingSource: "application_monotonic"}
-				target.LatencyCoverage = "observed_original_round_trips_only"
-				if tally.legacyRTT > 0 {
-					target.LatencyCoverage = "partial_original_round_trip_coverage"
-				}
-			case tally.observedRTT > 0:
-				target.LatencyCoverage = "no_successful_replies"
-			case len(target.Observations) > 0:
-				target.LatencyCoverage = "unavailable_original_round_trips"
-			}
+			finishChangeEffectPeriod(target, &totals[index][side])
 		}
 	}
 	return out, ctx.Err()
+}
+
+// The exact original clock is independent of its quantized PostgreSQL index.
+// Boundary-bucket legacy receipts retain their citation without inventing time.
+func changeEffectObservationClock(read store.IncidentTestMeasurement, from, to time.Time) (time.Time, bool, bool) {
+	clock := read.ObservedAt
+	precise := read.Available && read.ICMP != nil && read.ICMP.Version == 3
+	if precise {
+		clock = read.ICMP.CompletedAt
+	}
+	ambiguous := !precise && (!from.Equal(from.Truncate(time.Microsecond)) && clock.Truncate(time.Microsecond).Equal(from.Truncate(time.Microsecond)) ||
+		!to.Equal(to.Truncate(time.Microsecond)) && clock.Truncate(time.Microsecond).Equal(to.Truncate(time.Microsecond)))
+	return clock, ambiguous, ambiguous || (!clock.Before(from) && clock.Before(to))
+}
+
+func finishChangeEffectPeriod(target *change.EffectTestPeriod, tally *changeEffectMeasurementTotals) {
+	if target.CompleteExecutions > 0 {
+		target.Packets = &change.EffectPackets{Transmitted: tally.sent.String(), Replies: tally.replied.String(), Lost: tally.lost.String()}
+		target.LossCoverage = "observed_complete_executions_only"
+		if tally.sent.Sign() > 0 {
+			value := new(big.Rat).SetFrac(&tally.lost, &tally.sent).RatString()
+			target.LossRatio = &value
+		}
+	} else if len(target.Observations) > 0 {
+		target.LossCoverage = "unavailable_complete_packet_population"
+	}
+	if target.UnavailableExecutions > 0 && target.CompleteExecutions > 0 {
+		target.LossCoverage = "partial_observed_execution_coverage"
+	}
+	switch {
+	case tally.count.Sign() > 0:
+		target.Latency = &change.EffectLatency{Samples: tally.count.String(), SumNanos: tally.sum.String(), MinimumNanos: strconv.FormatUint(tally.minimum, 10), MaximumNanos: strconv.FormatUint(tally.maximum, 10), MeanNanos: new(big.Rat).SetFrac(&tally.sum, &tally.count).RatString(), TimingSource: "application_monotonic"}
+		target.LatencyCoverage = "observed_original_round_trips_only"
+		if tally.legacyRTT > 0 {
+			target.LatencyCoverage = "partial_original_round_trip_coverage"
+		}
+	case tally.observedRTT > 0:
+		target.LatencyCoverage = "no_successful_replies"
+	case len(target.Observations) > 0:
+		target.LatencyCoverage = "unavailable_original_round_trips"
+	}
+}
+
+func completeChangeEffectExecution(m *entity.ICMPMeasurement) bool {
+	return m != nil && m.Requested > 0 && m.Attempted == m.Requested && m.Transmitted == m.Requested &&
+		m.SendErrors == 0 && m.ReadComplete && !m.IOFailed && !m.Canceled
 }

@@ -91,7 +91,7 @@ func TestScanUserSurfacesCorruptJSON(t *testing.T) {
 
 func TestScanChangeSurfacesCorruptJSON(t *testing.T) {
 	cols := func(attrs []byte) []any {
-		return []any{"cid", "t1", "github", "deploy", "title", "sum", "tgt", "pfx", "actor", "ref", "url", attrs, time.Now(), time.Now()}
+		return []any{"cid", "t1", "github", "deploy", "title", "sum", "tgt", "pfx", "actor", "ref", "url", attrs, time.Now(), time.Now(), []byte(nil)}
 	}
 	var c change.Event
 	if err := scanChange(fakeRow{cols([]byte(`{"pr":"42"}`))}, &c); err != nil {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/bgp"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
 )
@@ -129,7 +130,7 @@ func incidentInternetNetworkErrors(ctx context.Context, input incidentVerdictEvi
 				}
 				continue
 			}
-			if (m.Version != 2 && m.Version != 3) || m.Requested == 0 || m.Attempted != m.Requested || m.Transmitted != m.Requested || m.SendErrors != 0 || uint64(len(m.NetworkErrors)) != uint64(m.Transmitted) {
+			if !completeOriginalICMPNetworkErrors(m) {
 				continue
 			}
 			routes := map[incidentVerdictRouteKey]incident.VerdictCitation{}
@@ -225,4 +226,9 @@ func incidentInternetRouteOrigin(ctx context.Context, route store.BGPRoutingLook
 		origin = *fields.OriginAS
 	}
 	return origin, origin != 0, ctx.Err()
+}
+
+func completeOriginalICMPNetworkErrors(m *entity.ICMPMeasurement) bool {
+	return m != nil && (m.Version == 2 || m.Version == 3) && m.Requested > 0 && m.Attempted == m.Requested &&
+		m.Transmitted == m.Requested && m.SendErrors == 0 && uint64(len(m.NetworkErrors)) == uint64(m.Transmitted)
 }

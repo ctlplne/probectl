@@ -536,7 +536,7 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/alerts/maintenance":      "bounded",
 	"/v1/alerts/{id}/evaluations": "bounded",
 	"/v1/incidents":               "bounded",
-	"/v1/changes":                 "bounded",
+	"/v1/changes":                 "cursor",
 	"/v1/bgp/events":              "bounded",
 	"/v1/entities":                "cursor",
 	"/v1/entities/{id}/evidence":  "cursor",

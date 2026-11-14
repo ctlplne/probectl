@@ -53,22 +53,9 @@ func (ChangeEvents) VerifyRoutingChangeReferencesInScope(ctx context.Context, sc
 	if memory < 4096 || int64(len(events)) > memory/1024 || memory > math.MaxInt64/8 {
 		return ErrBGPRoutingBudget
 	}
-	requested := make([]routingChangeRequest, 0, len(events))
-	seenIDs := map[string]bool{}
-	for index, event := range events {
-		if event.TenantID != bound.String() {
-			return entity.ErrScopeMismatch
-		}
-		id, err := validRegistryUUID(event.ID)
-		if err != nil || id != event.ID || seenIDs[id] || event.Source != ownedRoutingChangeSource || event.Kind != change.KindRoute || event.Routing == nil || event.Routing.Validate() != nil || event.Target != event.Routing.RouterID || event.OccurredAt.IsZero() {
-			return change.ErrRouteReference
-		}
-		prefix, err := netip.ParsePrefix(event.Prefix)
-		if err != nil || prefix.Masked() != prefix || prefix.String() != event.Prefix || prefix.Addr().Is4() != (event.Routing.AFI == 1) {
-			return change.ErrRouteReference
-		}
-		seenIDs[id] = true
-		requested = append(requested, routingChangeRequest{index, id, event.Prefix, event.OccurredAt, event.Routing})
+	requested, err := routingChangeRequests(bound.String(), events)
+	if err != nil {
+		return err
 	}
 	body, err := json.Marshal(requested)
 	if err != nil {
@@ -174,4 +161,27 @@ func sameRoutingChangeOriginal(original routingChangeSource, reference change.Ro
 		baseContext, baseRouter = selected.BaseContextID, selected.BaseRouterID
 	}
 	return reference.ContextID == original.Source.ContextID && reference.RouterID == original.Source.RouterID && reference.BaseContextID == baseContext && reference.BaseRouterID == baseRouter && reference.ViewID == original.ViewID && reference.Generation == original.Generation && reference.Sequence == original.Sequence && reference.BatchDigest == original.BatchDigest && reference.View == original.View && reference.AFI == original.AFI && reference.SAFI == original.SAFI && reference.ObservedAt.Equal(original.Source.ObservedAt)
+}
+
+// This projection validates exact request metadata only; current source and
+// resource authorization remain in the tenant-scoped storage reader.
+func routingChangeRequests(tenant string, events []change.Event) ([]routingChangeRequest, error) {
+	requested := make([]routingChangeRequest, 0, len(events))
+	seenIDs := map[string]bool{}
+	for index, event := range events {
+		if event.TenantID != tenant {
+			return nil, entity.ErrScopeMismatch
+		}
+		id, err := validRegistryUUID(event.ID)
+		if err != nil || id != event.ID || seenIDs[id] || event.Source != ownedRoutingChangeSource || event.Kind != change.KindRoute || event.Routing == nil || event.Routing.Validate() != nil || event.Target != event.Routing.RouterID || event.OccurredAt.IsZero() {
+			return nil, change.ErrRouteReference
+		}
+		prefix, err := netip.ParsePrefix(event.Prefix)
+		if err != nil || prefix.Masked() != prefix || prefix.String() != event.Prefix || prefix.Addr().Is4() != (event.Routing.AFI == 1) {
+			return nil, change.ErrRouteReference
+		}
+		seenIDs[id] = true
+		requested = append(requested, routingChangeRequest{index, id, event.Prefix, event.OccurredAt, event.Routing})
+	}
+	return requested, nil
 }

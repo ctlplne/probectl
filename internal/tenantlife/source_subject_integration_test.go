@@ -134,7 +134,7 @@ func TestOriginalSourceSubjectExportErasurePreservesStructuralReferencesAndTenan
 		t.Fatal("audit refusal did not roll back source erasure", err)
 	}
 	for table, documents := range fixtures {
-		if countRows(t, admin, `SELECT count(*) FROM `+pgIdent(table)+` WHERE tenant_id=$1`, red) != len(documents) {
+		if countRows(t, admin, `SELECT count(*) FROM `+pgIdent(table)+` WHERE tenant_id=$1`, red) != int64(len(documents)) {
 			t.Fatal("audit refusal committed source loss", table)
 		}
 	}
@@ -147,7 +147,7 @@ func TestOriginalSourceSubjectExportErasurePreservesStructuralReferencesAndTenan
 	for table, documents := range fixtures {
 		want := len(matched[table])
 		plane := byPlane["postgres:"+table]
-		if plane.Deleted != int64(want) || plane.Remaining != 0 || countRows(t, admin, `SELECT count(*) FROM `+pgIdent(table)+` WHERE tenant_id=$1`, red) != len(documents)-want || countRows(t, admin, `SELECT count(*) FROM `+pgIdent(table)+` WHERE tenant_id=$1`, blue) != len(documents) {
+		if plane.Deleted != int64(want) || plane.Remaining != 0 || countRows(t, admin, `SELECT count(*) FROM `+pgIdent(table)+` WHERE tenant_id=$1`, red) != int64(len(documents)-want) || countRows(t, admin, `SELECT count(*) FROM `+pgIdent(table)+` WHERE tenant_id=$1`, blue) != int64(len(documents)) {
 			t.Fatal("source erasure missed personal data or removed structural/sibling rows", table, plane)
 		}
 	}

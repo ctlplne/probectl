@@ -198,6 +198,7 @@ function CurrentChangeTimeline({ identity }: { identity: string }) {
                         {
                           from,
                           to,
+                          filters: {},
                           selection: { kind: 'evidence', id: selected.id },
                           returnTo: `/incidents?${new URLSearchParams({ view: 'changes', changes_from: from, changes_to: to, changes_cursor: cursor, change_id: selected.id }).toString()}`,
                         },

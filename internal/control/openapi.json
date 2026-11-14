@@ -6077,6 +6077,10 @@
         },
         "x-probectl-pagination": {
           "mode": "cursor",
+          "cursor_param": "cursor",
+          "limit_param": "limit",
+          "next_cursor": "next_cursor",
+          "resource_admitted": true,
           "reason": "Stable observation-time and ID continuation across stored and projected changes; every page is resource-admitted and currently authorized."
         },
         "description": "Signed webhooks, original authenticated owned-router BGP observations and complete content-free config drift references, ordered by observation time and ID. Follow next_cursor until empty; page size never caps retained history. Every page independently verifies current tenant/user/source authority."

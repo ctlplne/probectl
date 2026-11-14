@@ -3225,6 +3225,7 @@ const es: Record<MessageKey, string> = {
 }
 
 const ar: Record<MessageKey, string> = {
+  ...en,
   'changes.effects.observed': 'سجلات أصلية موثقة',
   'changes.effects.partial': 'بعض اللقطات الأصلية غير متاحة',
   'changes.effects.noSource': 'لا يوجد مصدر مملوك حالي',
@@ -3298,7 +3299,6 @@ const ar: Record<MessageKey, string> = {
   'changes.routing.no': 'لا',
   'changes.routing.attributes': 'تغيّرت السمات',
   'changes.routing.digest': 'بصمة الدفعة الأصلية',
-  ...en,
   'norole.label': 'حالة الوصول',
   'norole.badge': 'لا يوجد دور بعد',
   'norole.message':

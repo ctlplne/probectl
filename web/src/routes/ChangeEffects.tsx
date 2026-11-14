@@ -148,7 +148,7 @@ function CurrentChangeEffects({
         result.isFetching ? (
           <LoadingState label={t('changes.effects.loading')} />
         ) : result.isError || expired ? (
-          <ErrorState description={t('changes.effects.error')} headingLevel={4} />
+          <ErrorState description={t('changes.effects.error')} headingLevel={3} />
         ) : result.data ? (
           <>
             <p>
