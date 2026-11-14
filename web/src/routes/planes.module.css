@@ -414,6 +414,10 @@
     gap: var(--space-1);
   }
 
+  .configVersionFacts > .configVersionWideFact {
+    grid-column: 1 / -1;
+  }
+
   .configVersionFacts dt {
     color: hsl(var(--muted-foreground));
     font-size: var(--font-size-caption);

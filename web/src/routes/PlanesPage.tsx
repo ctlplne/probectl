@@ -1385,7 +1385,7 @@ function DevicePanel({
                         </Badge>
                       </div>
                       <dl className={styles.configVersionFacts}>
-                        <div>
+                        <div className={styles.configVersionWideFact}>
                           <dt>Device association</dt>
                           <dd>
                             <ConfigArchiveBinding config={config} />
@@ -1401,7 +1401,7 @@ function DevicePanel({
                             <code dir="ltr">{config.content_hash.slice(0, 12)}</code>
                           </dd>
                         </div>
-                        <div>
+                        <div className={styles.configVersionWideFact}>
                           <dt>{t('planes.device.column.archived')}</dt>
                           <dd>
                             <DateTime value={config.archived_at} />
