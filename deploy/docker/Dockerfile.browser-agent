@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # target also supplies the local rendered-a11y toolchain, so it cannot silently
 # inherit an older npm from the Playwright base.
 FROM node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS node-toolchain
-FROM mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c AS browser-toolchain
+FROM mcr.microsoft.com/playwright:v1.65.0-noble@sha256:6e3fb709361521eb27161606e6da6d2674e5e89fa16516cb37d6fdd91372273d AS browser-toolchain
 # CQA-005: apply published Ubuntu security fixes without changing Chromium or
 # the distro. Exact versions fail closed if the repository stops serving them.
 # CVE-2025-68973, CVE-2026-45447, CVE-2026-84782, CVE-2025-9900.
