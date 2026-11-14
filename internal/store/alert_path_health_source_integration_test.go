@@ -103,11 +103,12 @@ func TestAlertPathHealthSourceKeepsTenantParentsRevisionAndPublication(t *testin
 			}
 			for _, field := range []string{"owner", "test", "interface"} {
 				forged := current.source
-				if field == "owner" {
+				switch field {
+				case "owner":
 					forged.OwnerUserID = other.source.OwnerUserID
-				} else if field == "test" {
+				case "test":
 					forged.TestID = other.source.TestID
-				} else {
+				default:
 					forged.InterfaceID = other.source.InterfaceID
 				}
 				if _, err := (AlertRules{}).SetPathHealthSource(ctx, sc, current.rule.ID, current.rule.UpdatedAt, &forged, maxBytes, publication); err == nil {
