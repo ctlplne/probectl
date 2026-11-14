@@ -230,7 +230,10 @@ func decodeRPKIVRP(value any) (RPKIVRP, error) {
 	if maximum, exists := row["maxLength"]; exists {
 		length, err = rpkiUnsigned(maximum, false)
 	}
-	if err != nil || length < uint64(prefix.Bits()) || length > uint64(prefix.Addr().BitLen()) {
+	// IPv4/IPv6 prefixes have at most 128 bits. Keep that protocol bound
+	// explicit before converting to the platform int, as well as checking
+	// the selected address family below.
+	if err != nil || length < uint64(prefix.Bits()) || length > 128 || length > uint64(prefix.Addr().BitLen()) {
 		return none, errRPKIJSON
 	}
 	return RPKIVRP{Prefix: prefix.Masked(), MaxLength: int(length), ASN: uint32(asn)}, nil

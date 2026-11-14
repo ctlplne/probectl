@@ -74,6 +74,8 @@ func TestRPKICompleteValidatorSourceRefusesMalformedLateOrUnadmittedData(t *test
 	for _, raw := range []string{
 		valid[:len(valid)-1], valid + ` null`, valid + string([]byte{255}), strings.Replace(valid, `"asn":64496`, `"asn":64496,"asn":65000`, 1),
 		strings.Replace(valid, `"maxLength":24`, `"maxLength":23`, 1), strings.Replace(valid, `"asn":64496`, `"asn":4294967296`, 1),
+		strings.Replace(valid, `"maxLength":24`, `"maxLength":4294967295`, 1),
+		fmt.Sprintf(`{"metadata":{"generated":%d},"roas":[{"prefix":"2001:db8::/32","asn":64496,"maxLength":129}]}`, now.Unix()),
 		strings.Replace(valid, `"asn":64496`, `"asn":true`, 1), strings.Replace(valid, `"asn":64496`, `"asn":1.5`, 1),
 		valid[:len(valid)-1] + `,"roas":[]}`, strings.Replace(valid, `"maxLength":24`, `"maxLength":null`, 1),
 		strings.Replace(valid, `"roas":[`, `"roas":[null,`, 1), valid[:len(valid)-1] + `,"tail":{"x":1,"x":2}}`,
