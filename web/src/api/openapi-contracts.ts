@@ -939,6 +939,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/incidents.ts',
     method: 'GET',
+    path: '`/changes?${query.toString()}`',
+    response: 'ChangeTimelinePage',
+    generated: 'ListChangesResponse',
+  },
+  {
+    file: 'api/incidents.ts',
+    method: 'GET',
     path: '/changes',
     response: '{ items: ChangeEvent[] }',
     generated: 'ListChangesResponse',
@@ -1617,6 +1624,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
   incident: GeneratedHasViewKeys<SDK.Incident, Incidents.Incident>
   signal: GeneratedHasViewKeys<SDK.Signal, Incidents.Signal>
   changeEvent: GeneratedHasViewKeys<SDK.ChangeEvent, Incidents.ChangeEvent>
+  changeTimelinePage: GeneratedHasViewKeys<SDK.ChangeEventList, Incidents.ChangeTimelinePage>
   routingChangeReference: GeneratedHasViewKeys<
     SDK.RoutingChangeReference,
     Incidents.RoutingChangeReference

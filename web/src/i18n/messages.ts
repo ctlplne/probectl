@@ -11,6 +11,30 @@ export type Locale = (typeof LOCALES)[number]
 export const DEFAULT_LOCALE: Locale = 'en'
 
 const en = {
+  'changes.timeline.title': 'Change timeline',
+  'changes.timeline.description':
+    'Original observations and separately authorized configuration comparisons. Temporal association does not establish a cause.',
+  'changes.timeline.incidents': 'Incidents',
+  'changes.timeline.from': 'From (RFC3339)',
+  'changes.timeline.to': 'To (RFC3339)',
+  'changes.timeline.apply': 'Apply window',
+  'changes.timeline.window': 'Selected observation window: {from} to {to}.',
+  'changes.timeline.time': 'Observation time',
+  'changes.timeline.kind': 'Kind',
+  'changes.timeline.source': 'Source',
+  'changes.timeline.change': 'Change',
+  'changes.timeline.denied': 'Current change-read permission is required.',
+  'changes.timeline.loading': 'Loading the selected change page…',
+  'changes.timeline.error':
+    'This page is unavailable. Check the selected window and current source permissions; partial history is not shown.',
+  'changes.timeline.empty': 'No changes in the selected page',
+  'changes.timeline.emptyDescription':
+    'This covers only the selected observation window and current retained sources. Missing telemetry is not proof that nothing changed.',
+  'changes.timeline.pages': 'Change history pages',
+  'changes.timeline.previous': 'Previous page',
+  'changes.timeline.page': 'Page {page}: {count} changes',
+  'changes.timeline.next': 'Next page',
+  'changes.timeline.diff': 'Open exact redacted configuration diff',
   'changes.routing.title': 'Owned routing observation',
   'changes.routing.selected': 'Observed BGP-selected route; forwarding-table state is unverified.',
   'changes.routing.advertised':
@@ -1552,6 +1576,30 @@ const en = {
 export type MessageKey = keyof typeof en
 
 const es: Record<MessageKey, string> = {
+  'changes.timeline.title': 'Cronología de cambios',
+  'changes.timeline.description':
+    'Observaciones originales y comparaciones de configuración autorizadas por separado. La asociación temporal no demuestra causalidad.',
+  'changes.timeline.incidents': 'Incidentes',
+  'changes.timeline.from': 'Desde (RFC3339)',
+  'changes.timeline.to': 'Hasta (RFC3339)',
+  'changes.timeline.apply': 'Aplicar intervalo',
+  'changes.timeline.window': 'Intervalo de observación seleccionado: de {from} a {to}.',
+  'changes.timeline.time': 'Hora de observación',
+  'changes.timeline.kind': 'Tipo',
+  'changes.timeline.source': 'Origen',
+  'changes.timeline.change': 'Cambio',
+  'changes.timeline.denied': 'Se requiere permiso de lectura de cambios vigente.',
+  'changes.timeline.loading': 'Cargando la página de cambios seleccionada…',
+  'changes.timeline.error':
+    'Esta página no está disponible. Revise el intervalo y los permisos actuales; no se muestra un historial parcial.',
+  'changes.timeline.empty': 'Sin cambios en la página seleccionada',
+  'changes.timeline.emptyDescription':
+    'Solo cubre el intervalo seleccionado y las fuentes retenidas actuales. La falta de telemetría no demuestra ausencia de cambios.',
+  'changes.timeline.pages': 'Páginas del historial de cambios',
+  'changes.timeline.previous': 'Página anterior',
+  'changes.timeline.page': 'Página {page}: {count} cambios',
+  'changes.timeline.next': 'Página siguiente',
+  'changes.timeline.diff': 'Abrir comparación exacta de configuración redactada',
   'changes.routing.title': 'Observación de ruta propia',
   'changes.routing.selected':
     'Ruta seleccionada por BGP observada; el estado de reenvío no está verificado.',
@@ -3126,6 +3174,30 @@ const es: Record<MessageKey, string> = {
 }
 
 const ar: Record<MessageKey, string> = {
+  'changes.timeline.title': 'الخط الزمني للتغييرات',
+  'changes.timeline.description':
+    'مشاهدات أصلية ومقارنات إعدادات بتصريح مستقل. الارتباط الزمني لا يثبت السببية.',
+  'changes.timeline.incidents': 'الحوادث',
+  'changes.timeline.from': 'من (RFC3339)',
+  'changes.timeline.to': 'إلى (RFC3339)',
+  'changes.timeline.apply': 'تطبيق الفترة',
+  'changes.timeline.window': 'فترة الرصد المحددة: من {from} إلى {to}.',
+  'changes.timeline.time': 'وقت الرصد',
+  'changes.timeline.kind': 'النوع',
+  'changes.timeline.source': 'المصدر',
+  'changes.timeline.change': 'التغيير',
+  'changes.timeline.denied': 'يلزم تصريح حالي لقراءة التغييرات.',
+  'changes.timeline.loading': 'جارٍ تحميل صفحة التغييرات المحددة…',
+  'changes.timeline.error':
+    'هذه الصفحة غير متاحة. تحقق من الفترة وصلاحيات المصدر الحالية؛ لا يُعرض سجل جزئي.',
+  'changes.timeline.empty': 'لا تغييرات في الصفحة المحددة',
+  'changes.timeline.emptyDescription':
+    'يغطي ذلك الفترة المحددة والمصادر المحتفظ بها حالياً فقط. غياب القياسات لا يثبت عدم حدوث تغيير.',
+  'changes.timeline.pages': 'صفحات سجل التغييرات',
+  'changes.timeline.previous': 'الصفحة السابقة',
+  'changes.timeline.page': 'الصفحة {page}: {count} تغييرات',
+  'changes.timeline.next': 'الصفحة التالية',
+  'changes.timeline.diff': 'فتح مقارنة الإعدادات الأصلية المحجوبة',
   'changes.routing.title': 'رصد توجيه مملوك',
   'changes.routing.selected': 'مسار مختار عبر BGP مرصود؛ حالة جدول التمرير غير متحققة.',
   'changes.routing.advertised': 'إعلان مرصود؛ اختيار المسار وحالة التمرير غير متحققين.',

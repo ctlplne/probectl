@@ -6,7 +6,7 @@
 
 import { render, screen } from '@testing-library/react'
 import { expect, test } from 'vitest'
-import { I18nProvider } from '../i18n/I18nProvider'
+import { TenantReaderFrame } from './tenantReaderFrame'
 import { RoutingChangeMetadata } from '../routes/RoutingChangeMetadata'
 import type { RoutingChangeReference } from '../api/incidents'
 
@@ -35,9 +35,9 @@ const original: RoutingChangeReference = {
 
 test('owned routing metadata retains the original sequence and explains BGP coverage', () => {
   const view = (reference: RoutingChangeReference) => (
-    <I18nProvider initialLocale="en">
+    <TenantReaderFrame tenant="metadata-owner">
       <RoutingChangeMetadata reference={reference} />
-    </I18nProvider>
+    </TenantReaderFrame>
   )
   const rendered = render(view(original))
   expect(screen.getByText('9007199254740993')).toBeInTheDocument()

@@ -29,6 +29,7 @@ import { useI18n } from '../i18n/useI18n'
 import type { MessageKey } from '../i18n/messages'
 import { parsePivotContext, replacePivotContext, type PivotContext } from './pivotContext'
 import { IncidentRoom } from './IncidentRoom'
+import { ChangeTimelinePage } from './ChangeTimelinePage'
 
 type TFn = (key: MessageKey, vars?: Record<string, string | number>) => string
 
@@ -51,7 +52,8 @@ export function IncidentsPage() {
   // alerts) pivot straight into a specific incident's timeline.
   const [params, setParams] = useSearchParams()
   const shareID = params.get('share') ?? undefined
-  const incidents = useIncidents(!shareID)
+  const timeline = params.get('view') === 'changes'
+  const incidents = useIncidents(!shareID && !timeline)
   const shared = useIncidentShare(shareID)
   const defaults = { incident_q: '', incident_status: 'all', incident_severity: 'all' }
   const query = filterValue(params, 'incident_q')
@@ -101,6 +103,8 @@ export function IncidentsPage() {
       setParams(replacePivotContext(params, parsedPivot.context), { replace: true })
     }
   }, [incidents.data, params, parsedPivot, setParams])
+
+  if (timeline && !shareID) return <ChangeTimelinePage />
 
   if (shareID) {
     if (shared.isLoading) {
@@ -201,7 +205,21 @@ export function IncidentsPage() {
   ]
 
   return (
-    <Page title={t('incidents.page.title')} subtitle={t('incidents.page.subtitle')}>
+    <Page
+      title={t('incidents.page.title')}
+      subtitle={t('incidents.page.subtitle')}
+      actions={
+        <Button
+          onClick={() => {
+            const next = new URLSearchParams(params)
+            next.set('view', 'changes')
+            setParams(next)
+          }}
+        >
+          {t('changes.timeline.title')}
+        </Button>
+      }
+    >
       <FilterBar>
         <Field
           label={t('incidents.filter.find')}

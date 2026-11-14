@@ -244,3 +244,5 @@ cross-plane replay; non-webhook collectors (a BGP-derived route-change collector
 a network config-diff collector) — the `Provider` interface is the extension seam
 for these. Topology what-if (the impact-preview the RCA can reach for) is covered
 in `docs/topology.md`.
+
+In **Incidents → Change timeline**, choose an explicit observation window, page forward/back through all retained rows and inspect the original route reference. A config change opens its exact already-redacted predecessor pair with the selected window and a return link. Changing tenant, user, permissions or the window clears previous-page selection; an unavailable source refuses the page instead of presenting partial history as complete.

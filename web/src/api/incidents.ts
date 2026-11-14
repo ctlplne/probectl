@@ -116,6 +116,19 @@ export interface ChangeEvent {
   occurred_at: string
 }
 
+export interface ChangeTimelinePage {
+  items: ChangeEvent[]
+  next_cursor: string
+  truncated: boolean
+  effective_limit: number
+  change_ingest_configured: boolean
+  config_archive_running: boolean
+}
+
+export function fetchChangeTimelinePage(query: URLSearchParams, signal?: AbortSignal) {
+  return apiFetch<ChangeTimelinePage>(`/changes?${query.toString()}`, { signal })
+}
+
 export interface ChangeCandidate {
   event: ChangeEvent
   score: number

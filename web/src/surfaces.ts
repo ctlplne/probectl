@@ -706,6 +706,8 @@ export const SURFACES: SurfaceDecl[] = [
     evidence: [
       'file:web/src/routes/IncidentRoom.tsx',
       'file:web/src/routes/RoutingChangeMetadata.tsx',
+      'file:web/src/routes/ChangeTimelinePage.tsx',
+      'file:web/src/test/change-timeline-page.test.tsx',
       'file:web/src/test/routing-change-metadata.test.tsx',
       'file:web/src/test/incidents.test.tsx',
       'openapi:/v1/changes',
