@@ -246,3 +246,5 @@ for these. Topology what-if (the impact-preview the RCA can reach for) is covere
 in `docs/topology.md`.
 
 In **Incidents → Change timeline**, choose an explicit observation window, page forward/back through all retained rows and inspect the original route reference. A config change opens its exact already-redacted predecessor pair with the selected window and a return link. Changing tenant, user, permissions or the window clears previous-page selection; an unavailable source refuses the page instead of presenting partial history as complete.
+
+Retained routing changes verify their original sender/router certificates at the original observation and view birth, while requiring currently active purpose-bound identities and unchanged source/selector assignments. Original certificate expiry alone does not erase a valid historical receipt. Original revocation, current identity loss, source removal/rebind, erasure and current user/credential denial still refuse publication. This historical policy does not change live routing or write credential checks.

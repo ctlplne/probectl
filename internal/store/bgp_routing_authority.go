@@ -81,6 +81,19 @@ func (BGPRouting) sourceAuthorityInScope(ctx context.Context, sc tenancy.Scope, 
 	return routingSourceAuthority(ctx, sc, source, false)
 }
 
+// A historical receipt checks both original credentials at the observation and
+// requires currently live identities/assignments and unchanged selector lineage.
+// Original revocation, erasure and current grants remain independent checks.
+func (BGPRouting) historicalSourceAuthorityInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource) (BGPRoutingSourceAuthority, error) {
+	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
+		return BGPRoutingSourceAuthority{}, err
+	}
+	if source.routingSelection != nil {
+		return boundRoutingSourceAuthorityAt(ctx, sc, source, false, true)
+	}
+	return routingCredentialAuthorityAt(ctx, sc, source, false, "", true)
+}
+
 // sourceAuthorityForWriteInScope holds the exact credential, assignment,
 // source and router rows until commit. A concurrent change must precede the
 // write or wait for it; an obsolete REPEATABLE READ snapshot fails rather
@@ -100,6 +113,10 @@ func routingSourceAuthority(ctx context.Context, sc tenancy.Scope, source BGPRou
 }
 
 func routingCredentialAuthority(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, lock bool, epoch string) (BGPRoutingSourceAuthority, error) {
+	return routingCredentialAuthorityAt(ctx, sc, source, lock, epoch, false)
+}
+
+func routingCredentialAuthorityAt(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, lock bool, epoch string, historical bool) (BGPRoutingSourceAuthority, error) {
 	if sc.Q == nil {
 		return BGPRoutingSourceAuthority{}, ErrBGPRoutingSourceUnavailable
 	}
@@ -131,6 +148,21 @@ func routingCredentialAuthority(ctx context.Context, sc tenancy.Scope, source BG
  AND NOT EXISTS (SELECT 1 FROM agent_identities revoked
  WHERE revoked.tenant_id=source.tenant_id AND revoked.agent_id=source.agent_id
 	AND revoked.revoked_at IS NOT NULL AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')`
+	if historical {
+		query = strings.Replace(query, "LEAST(source.expires_at,assignment.expires_at,sender.not_after,origin.not_after)", `LEAST(source.expires_at,assignment.expires_at,
+ (SELECT max(active.not_after) FROM agent_identities active WHERE active.tenant_id=source.tenant_id AND active.agent_id=source.agent_id
+ AND active.spiffe_id=sender.spiffe_id AND active.issued_at<=transaction_timestamp() AND active.not_after>transaction_timestamp() AND active.revoked_at IS NULL),
+ (SELECT max(active.not_after) FROM agent_identities active WHERE active.tenant_id=source.tenant_id AND active.agent_id=source.source_ref
+ AND active.spiffe_id=origin.spiffe_id AND active.issued_at<=transaction_timestamp() AND active.not_after>transaction_timestamp() AND active.revoked_at IS NULL))`, 1)
+		query = strings.Replace(query, "sender.not_after>transaction_timestamp()", "sender.not_after>$8", 1)
+		query = strings.Replace(query, "origin.not_after>transaction_timestamp()", "origin.not_after>$8", 1)
+		query += ` AND EXISTS(SELECT 1 FROM agent_identities active WHERE active.tenant_id=source.tenant_id AND active.agent_id=source.agent_id
+ AND active.spiffe_id=sender.spiffe_id AND active.issued_at<=transaction_timestamp() AND active.not_after>transaction_timestamp() AND active.revoked_at IS NULL)
+ AND EXISTS(SELECT 1 FROM agent_identities active WHERE active.tenant_id=source.tenant_id AND active.agent_id=source.source_ref
+ AND active.spiffe_id=origin.spiffe_id AND active.issued_at<=transaction_timestamp() AND active.not_after>transaction_timestamp() AND active.revoked_at IS NULL)
+ AND NOT EXISTS(SELECT 1 FROM agent_identities revoked WHERE revoked.tenant_id=source.tenant_id AND revoked.agent_id=source.source_ref
+ AND revoked.spiffe_id=origin.spiffe_id AND revoked.revoked_at IS NOT NULL)`
+	}
 	args := []any{source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID,
 		source.SenderSerial, source.OriginSerial, source.SourceRef, source.ObservedAt}
 	if epoch != "" {

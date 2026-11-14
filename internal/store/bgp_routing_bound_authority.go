@@ -24,6 +24,10 @@ import (
 // collector assignment. Recheck both credentials before accepting that target;
 // current operator metadata alone cannot authenticate a retained generation.
 func boundRoutingSourceAuthority(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, lock bool) (BGPRoutingSourceAuthority, error) {
+	return boundRoutingSourceAuthorityAt(ctx, sc, source, lock, false)
+}
+
+func boundRoutingSourceAuthorityAt(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, lock, historical bool) (BGPRoutingSourceAuthority, error) {
 	selected := source.routingSelection
 	if !validRoutingSelection(source, selected) {
 		return BGPRoutingSourceAuthority{}, ErrBGPRoutingSourceUnavailable
@@ -31,7 +35,7 @@ func boundRoutingSourceAuthority(ctx context.Context, sc tenancy.Scope, source B
 	base := source
 	base.routingSelection = nil
 	base.ContextID, base.RouterID = selected.BaseContextID, selected.BaseRouterID
-	authority, err := routingCredentialAuthority(ctx, sc, base, lock, selected.Epoch)
+	authority, err := routingCredentialAuthorityAt(ctx, sc, base, lock, selected.Epoch, historical)
 	if err != nil {
 		return BGPRoutingSourceAuthority{}, err
 	}

@@ -94,13 +94,13 @@ func decodeRoutingChangeSource(ctx context.Context, sc tenancy.Scope, raw []byte
 // a selected-view reference never substitutes for them. The birth observation
 // also stays fixed, so a rebind cannot renew historical routing authority.
 func verifyRoutingChangeSourceInScope(ctx context.Context, sc tenancy.Scope, original routingChangeSource) (time.Time, error) {
-	current, err := (BGPRouting{}).sourceAuthorityInScope(ctx, sc, original.Source)
+	current, err := (BGPRouting{}).historicalSourceAuthorityInScope(ctx, sc, original.Source)
 	if err != nil {
 		return time.Time{}, err
 	}
 	birth := original.Source
 	birth.ObservedAt = original.ViewBornAt
-	originalBirth, err := (BGPRouting{}).sourceAuthorityInScope(ctx, sc, birth)
+	originalBirth, err := (BGPRouting{}).historicalSourceAuthorityInScope(ctx, sc, birth)
 	if err != nil {
 		return time.Time{}, err
 	}
