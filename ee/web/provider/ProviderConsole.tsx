@@ -248,7 +248,12 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (op: Operator) => void }) {
           description={t("provider.login.description")}
         />
         <CardBody>
-          <form className={styles.form} onSubmit={submit}>
+          <form
+            className={styles.form}
+            onSubmit={(event) => {
+              void submit(event);
+            }}
+          >
             <Field
               label={t("provider.login.email")}
               type="email"
@@ -688,9 +693,7 @@ function BreakGlassCard({
     () => (grantsQuery.data ? (grantsQuery.data.items ?? []) : null),
     [grantsQuery.data],
   );
-  const queryError = grantsQuery.error
-    ? (grantsQuery.error as Error).message
-    : "";
+  const queryError = grantsQuery.error ? grantsQuery.error.message : "";
   const { refetch: refetchGrants } = grantsQuery;
   const load = useCallback(() => {
     void refetchGrants();
@@ -755,7 +758,9 @@ function BreakGlassCard({
             size="sm"
             variant="secondary"
             disabled={readOnly}
-            onClick={() => revoke(g.id)}
+            onClick={() => {
+              void revoke(g.id);
+            }}
           >
             Revoke
           </Button>
@@ -777,7 +782,12 @@ function BreakGlassCard({
             visible.
           </p>
         ) : null}
-        <form className={styles.row} onSubmit={request}>
+        <form
+          className={styles.row}
+          onSubmit={(event) => {
+            void request(event);
+          }}
+        >
           <span className={styles.grow}>
             <Field
               label="Tenant ID"
@@ -892,8 +902,7 @@ function UsageCard({
     [usageQuery.data],
   );
   const enabled = !(usageQuery.error instanceof NotEnabledError);
-  const loadError =
-    usageQuery.error && enabled ? (usageQuery.error as Error).message : "";
+  const loadError = usageQuery.error && enabled ? usageQuery.error.message : "";
   useEffect(() => {
     if (rows) onAvailability(true);
     if (!enabled) onAvailability(false);
@@ -1002,7 +1011,12 @@ function UsageCard({
           />
         )}
         {isAdmin ? (
-          <form className={styles.row} onSubmit={saveQuota}>
+          <form
+            className={styles.row}
+            onSubmit={(event) => {
+              void saveQuota(event);
+            }}
+          >
             <span className={styles.grow}>
               <Field
                 label="Tenant ID (quotas)"
@@ -1146,7 +1160,12 @@ function GovernanceCard({
         description="Per-tenant data classification + redaction, composed with residency (S-T2), retention (S-T5) and BYOK (S-T6). IPs are PII by default; a redacted export masks PII-class values."
       />
       <CardBody>
-        <form className={styles.row} onSubmit={load}>
+        <form
+          className={styles.row}
+          onSubmit={(event) => {
+            void load(event);
+          }}
+        >
           <span className={styles.grow}>
             <Field
               label="Tenant ID (governance)"
@@ -1221,7 +1240,9 @@ function GovernanceCard({
                 <Button
                   type="button"
                   variant="primary"
-                  onClick={save}
+                  onClick={() => {
+                    void save();
+                  }}
                   disabled={readOnly || tenantChanged}
                 >
                   Save governance
@@ -1288,9 +1309,7 @@ function FairnessCard({
   );
   const enabled = !(fairnessQuery.error instanceof NotEnabledError);
   const loadError =
-    fairnessQuery.error && enabled
-      ? (fairnessQuery.error as Error).message
-      : "";
+    fairnessQuery.error && enabled ? fairnessQuery.error.message : "";
 
   if (!enabled) return null;
 
@@ -1391,7 +1410,12 @@ function FairnessCard({
           />
         )}
         {isAdmin ? (
-          <form className={styles.row} onSubmit={save}>
+          <form
+            className={styles.row}
+            onSubmit={(event) => {
+              void save(event);
+            }}
+          >
             <span className={styles.grow}>
               <Field
                 label="Tenant ID (fairness)"
@@ -1478,9 +1502,7 @@ function OperatorsCard({ readOnly }: { readOnly: boolean }) {
     () => (operatorsQuery.data ? (operatorsQuery.data.items ?? []) : null),
     [operatorsQuery.data],
   );
-  const loadError = operatorsQuery.error
-    ? (operatorsQuery.error as Error).message
-    : "";
+  const loadError = operatorsQuery.error ? operatorsQuery.error.message : "";
   const { refetch: refetchOperators } = operatorsQuery;
   const load = useCallback(() => {
     void refetchOperators();
@@ -1536,7 +1558,12 @@ function OperatorsCard({ readOnly }: { readOnly: boolean }) {
         description="Separation of duties: admins manage operators; operators run tenant lifecycle and break-glass. Enrollment binds an authenticator — MFA is not optional."
       />
       <CardBody>
-        <form className={styles.row} onSubmit={create}>
+        <form
+          className={styles.row}
+          onSubmit={(event) => {
+            void create(event);
+          }}
+        >
           <span className={styles.grow}>
             <Field
               label="Email"
@@ -1634,7 +1661,7 @@ function ActivityCard() {
     `/provider/v1/audit?order=desc&limit=50${applied ? `&action=${encodeURIComponent(applied)}` : ""}`,
   );
   const rows = query.data?.items ?? [];
-  const queryError = query.error ? (query.error as Error).message : "";
+  const queryError = query.error ? query.error.message : "";
   const columns: Column<ActivityRow>[] = [
     {
       key: "when",
