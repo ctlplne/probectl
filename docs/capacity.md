@@ -63,7 +63,7 @@ The limiter defaults come from `internal/pipeline/cardinality.go`:
 
 | Constant | Planning value | Meaning |
 | --- | ---: | --- |
-| `DefaultMaxSeriesPerAgent` | 1,000 active series | One tenant-bound agent cannot create more new identities than this on one replica. |
+| `DefaultMaxSeriesPerAgent` | 16,384 active series | Default per-agent admission on one replica; size the configurable profile for the complete intended interface/component/channel population. |
 | `DefaultMaxSeriesPerTenant` | 50,000 active series per replica | One tenant cannot create more active identities than this on one replica. |
 | `DefaultSeriesIdleTTL` | 1h | An identity that has not appeared for this long is swept out and frees its slot. |
 

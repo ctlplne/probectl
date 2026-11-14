@@ -81,7 +81,7 @@ func (b mcpDeviceMetricsBackend) DeviceMetrics(ctx context.Context, actor *auth.
 	// This existing concrete-handler adapter refreshes current metric/AI read
 	// grants and the original credential ceiling before dispatch. No HTTP peer,
 	// duplicate query implementation or report storage is involved.
-	current := mcpReportBackend{b.server}
+	current := mcpReportBackend(b)
 	result, err := invokeReportHandler[nativeDeviceMetrics](ctx, current, actor, false,
 		http.MethodGet, "/v1/device/metrics?"+query.Encode(), "", nil, b.server.handleDeviceMetrics)
 	if err != nil {
