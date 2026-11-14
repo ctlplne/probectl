@@ -40,7 +40,7 @@ func TestRestartedSharedControlOutlivesInitiatingSubtest(t *testing.T) {
 	}
 }
 
-func TestShippedProcessLifetimeHelper(t *testing.T) {
+func TestShippedProcessLifetimeHelper(_ *testing.T) {
 	if os.Getenv("PROBECTL_TEST_PROCESS_LIFETIME_HELPER") != "1" {
 		return
 	}
