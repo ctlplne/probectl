@@ -74,7 +74,8 @@ type Event struct {
 	Ref        string            `json:"ref,omitempty"`    // commit SHA / deploy id / tag
 	URL        string            `json:"url,omitempty"`    // deep-link back to the source
 	Attributes map[string]string `json:"attributes,omitempty"`
-	Config     *ConfigReference  `json:"config,omitempty"` // read-time device archive projection; never persisted
+	Config     *ConfigReference  `json:"config,omitempty"`  // read-time device archive projection; never persisted
+	Routing    *RouteReference   `json:"routing,omitempty"` // original owned-router metadata; never a current grant
 	OccurredAt time.Time         `json:"occurred_at"`
 	ReceivedAt time.Time         `json:"received_at,omitempty"`
 }

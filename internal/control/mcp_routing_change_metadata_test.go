@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+package control
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/change"
+)
+
+func TestOwnedRoutingNativeMetadataKeepsExactOriginalsAndClosedFields(t *testing.T) {
+	const id = "40000000-0000-4004-8000-abcdefabcdef"
+	reference := change.RouteReference{Version: 1, ContextID: id, RouterID: id, BaseContextID: id, BaseRouterID: id, ViewID: id, Generation: id, Sequence: "9007199254740993", UpdateIndex: 3, BatchDigest: strings.Repeat("a1", 32), ObservedAt: time.Date(2026, 11, 14, 1, 2, 3, 123456789, time.UTC), View: "loc_rib", Action: "selected_route_update", AFI: 1, SAFI: 1, HasPathID: true, PathID: 0, PriorPresent: true, PathChanged: true}
+	body, err := nativeRoutingChangeReference(reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redacted := ai.RedactTextForTenant(string(body), ai.DefaultRedaction, id)
+	var got change.RouteReference
+	if err := json.Unmarshal([]byte(redacted), &got); err != nil || got != reference {
+		t.Fatal("full native redaction corrupted authorized closed routing metadata", err, redacted)
+	}
+	rows := ai.SanitizeRow(ai.DomainEvents, ai.Row{"routing": &reference, "raw_pdu": "private sender bytes"})
+	if rows["routing"] == nil || rows["raw_pdu"] != nil {
+		t.Fatal("routing metadata broke the shared field allow-list")
+	}
+	if rows := ai.SanitizeRow(ai.DomainEvents, ai.Row{"routing": map[string]any{"password": "private", "router_id": id}}); rows["routing"] != nil {
+		t.Fatal("unchecked sender map escaped inside routing metadata")
+	}
+	invalid := reference
+	invalid.Sequence = "a phone number 1234567890123"
+	if _, err := nativeRoutingChangeReference(invalid); err == nil {
+		t.Fatal("unvalidated arbitrary text obtained structural redaction protection")
+	}
+}

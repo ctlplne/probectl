@@ -62,6 +62,13 @@ func (ChangeEvents) ClientReportChangesInScope(ctx context.Context, sc tenancy.S
 		if value.TenantID != bound.String() {
 			return nil, entity.ErrScopeMismatch
 		}
+		if value.Routing != nil {
+			if value.Routing.Validate() != nil || value.Kind != change.KindRoute || value.Source != ownedRoutingChangeSource {
+				return nil, change.ErrRouteReference
+			}
+		} else if value.Source == ownedRoutingChangeSource {
+			return nil, change.ErrRouteReference
+		}
 		out = append(out, value)
 	}
 	if err := rows.Err(); err != nil {

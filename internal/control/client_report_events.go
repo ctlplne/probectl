@@ -23,6 +23,7 @@ type clientReportEventCapture struct {
 	Incidents       []incident.Incident
 	Changes         []change.Event
 	IncidentLineage map[string]string
+	sourceKeys      []store.ReportSourceKey
 }
 
 // Event capture shares the report's current principal and RLS snapshot. A
@@ -61,11 +62,14 @@ func (s *Server) captureClientReportEventsInScope(ctx context.Context, sc tenanc
 		return nil, err
 	}
 	changes = append(changes, projected...)
-	var configRefs []change.Event
+	var configRefs, routingRefs []change.Event
 	for _, item := range changes {
 		resource := map[string]string{auth.ResourceTenantKey: actor.TenantID, "change_id": item.ID, "target": item.Target, "prefix": item.Prefix}
 		if err := s.authorize(ctx, actor, permChangeRead, auth.RBACGlobal, resource); err != nil {
 			return nil, err
+		}
+		if item.Routing != nil {
+			routingRefs = append(routingRefs, item)
 		}
 		if item.Config != nil {
 			resource["device"] = item.Target
@@ -91,11 +95,26 @@ func (s *Server) captureClientReportEventsInScope(ctx context.Context, sc tenanc
 	if err := (store.ChangeEvents{}).VerifyConfigChangeReferencesInScope(ctx, sc, configRefs, memory/4); err != nil {
 		return nil, err
 	}
+	keys := map[store.ReportSourceKey]bool{}
+	routingAuthorize := s.routingChangeAuthorizer(actor, permChangeRead)
+	if err := (store.ChangeEvents{}).VerifyRoutingChangeReferencesInScope(ctx, sc, routingRefs, memory/4, func(ctx context.Context, sc tenancy.Scope, source store.BGPRoutingSource, event change.Event) error {
+		if err := routingAuthorize(ctx, sc, source, event); err != nil {
+			return err
+		}
+		keys[store.ReportSourceKey{ContextID: event.Routing.BaseContextID, AgentID: source.CollectorAgentID, Kind: string(entity.BMPPeer), Ref: source.SourceRef}] = true
+		return nil
+	}); err != nil {
+		return nil, err
+	}
 	sortChangeEvents(changes)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return &clientReportEventCapture{Incidents: incidents, Changes: changes, IncidentLineage: lineage}, nil
+	result := &clientReportEventCapture{Incidents: incidents, Changes: changes, IncidentLineage: lineage}
+	for key := range keys {
+		result.sourceKeys = append(result.sourceKeys, key)
+	}
+	return result, nil
 }
 
 func (s *Server) authorizeClientReportIncidentInScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, id string, memory int64) (string, error) {

@@ -453,7 +453,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"ack":       {Method: http.MethodPost, Path: "/v1/alerts/active/ack"},
 		"silence":   {Method: http.MethodPost, Path: "/v1/alerts/active/silence"},
 		"incidents": {Method: http.MethodGet, Path: "/v1/incidents"},
-		"changes":   {Method: http.MethodGet, Path: "/v1/changes"},
+		"changes":   {Method: http.MethodGet, Path: "/v1/changes", ExactJSON: true, Description: "read original owned-router and config change metadata; follow next_cursor with --query cursor=...; optional from, to and limit select the admitted page, never total history"},
 		"test":      {Method: http.MethodPost, Path: "/v1/oncall/test", Description: "send an on-call connector test notification"},
 	}},
 	"provider": {Name: "provider", Summary: "provider/MSP operator plane", Ops: map[string]apiOp{

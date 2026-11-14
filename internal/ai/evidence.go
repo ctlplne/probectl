@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/change"
 )
 
 // Evidence is one normalized, citable signal gathered for a question — the unit
@@ -41,7 +43,7 @@ type Evidence struct {
 // on purpose; extend the list deliberately when a source adds a field.
 var evidenceFieldAllowList = map[Domain]map[string]bool{
 	DomainMetrics:  setOf("path_test_id", "path_health", "ref", "metric", "value", "unit", "target", "prefix", "node", "service", "agent_id", "test_id", "instance", "job", "plane", "severity", "title", "summary", "occurred_at", "timestamp", "at", "time"),
-	DomainEvents:   setOf("id", "kind", "plane", "source", "change_kind", "title", "summary", "target", "prefix", "actor", "ref", "occurred_at", "bytes", "packets", "flows", "detail"),
+	DomainEvents:   setOf("id", "kind", "plane", "source", "change_kind", "title", "summary", "target", "prefix", "actor", "ref", "occurred_at", "bytes", "packets", "flows", "detail", "routing"),
 	DomainEntities: setOf("id", "incident_id", "signal_id", "kind", "plane", "severity", "title", "summary", "target", "prefix", "occurred_at"),
 	DomainTopology: setOf("hop", "node", "neighbor", "kind", "label", "plane", "title"),
 }
@@ -71,7 +73,7 @@ func sanitizeEvidenceFields(evs []Evidence) {
 		}
 		clean := make(Row, len(evs[i].Fields))
 		for k, v := range evs[i].Fields {
-			if allowed[k] {
+			if allowed[k] && allowedRoutingMetadata(k, v) {
 				clean[k] = v
 			}
 		}
@@ -94,11 +96,20 @@ func SanitizeRow(domain Domain, row Row) Row {
 	}
 	clean := make(Row, len(row))
 	for k, v := range row {
-		if k == "_domain" || allowed[k] {
+		if (k == "_domain" || allowed[k]) && allowedRoutingMetadata(k, v) {
 			clean[k] = v
 		}
 	}
 	return clean
+}
+
+// Routing is a closed reference, never an unchecked nested map from a sender.
+func allowedRoutingMetadata(key string, value any) bool {
+	if key != "routing" {
+		return true
+	}
+	reference, ok := value.(*change.RouteReference)
+	return ok && reference != nil && reference.Validate() == nil
 }
 
 // collectEvidence turns query rows from one domain into citable Evidence,

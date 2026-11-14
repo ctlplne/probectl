@@ -48,16 +48,26 @@ type WebhookDelivery struct {
 type WebhookDeliveries struct{}
 
 const changeCols = `id::text, tenant_id::text, source, kind, title, summary, target, prefix,
-	actor, ref, url, attributes, occurred_at, received_at`
+	actor, ref, url, attributes, occurred_at, received_at, routing`
 
 func scanChange(row interface{ Scan(...any) error }, c *change.Event) error {
 	var kind string
 	var attrs []byte
+	var routing []byte
 	if err := row.Scan(&c.ID, &c.TenantID, &c.Source, &kind, &c.Title, &c.Summary, &c.Target,
-		&c.Prefix, &c.Actor, &c.Ref, &c.URL, &attrs, &c.OccurredAt, &c.ReceivedAt); err != nil {
+		&c.Prefix, &c.Actor, &c.Ref, &c.URL, &attrs, &c.OccurredAt, &c.ReceivedAt, &routing); err != nil {
 		return err
 	}
 	c.Kind = change.Kind(kind)
+	if len(routing) > 0 {
+		var reference change.RouteReference
+		if json.Unmarshal(routing, &reference) != nil || reference.Validate() != nil || c.Kind != change.KindRoute || c.Source != ownedRoutingChangeSource {
+			return change.ErrRouteReference
+		}
+		c.Routing = &reference
+	} else if c.Source == ownedRoutingChangeSource {
+		return change.ErrRouteReference
+	}
 	if len(attrs) > 0 {
 		if err := json.Unmarshal(attrs, &c.Attributes); err != nil {
 			return fmt.Errorf("store: decode change %s attributes: %w", c.ID, err)
@@ -69,6 +79,9 @@ func scanChange(row interface{ Scan(...any) error }, c *change.Event) error {
 // Create inserts a normalized change event. The tenant comes from the scope (the
 // verified webhook credential), never the event's TenantID field.
 func (ChangeEvents) Create(ctx context.Context, s tenancy.Scope, ev change.Event) (*change.Event, error) {
+	if ev.Source == ownedRoutingChangeSource {
+		return nil, change.ErrRouteReference
+	}
 	attrs, err := json.Marshal(ev.Attributes)
 	if err != nil {
 		attrs = []byte("{}")

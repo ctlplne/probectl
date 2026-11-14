@@ -696,6 +696,7 @@ export interface ChangeEvent {
   occurred_at?: string
   prefix?: string
   ref?: string
+  routing?: RoutingChangeReference
   source?: string
   summary?: string
   target?: string
@@ -708,6 +709,7 @@ export interface ChangeEventList {
   config_archive_running?: boolean
   effective_limit?: number
   items?: ChangeEvent[]
+  next_cursor?: string
   truncated?: boolean
 }
 
@@ -3286,6 +3288,29 @@ export interface ReportEmailDelivery {
   state: "pending" | "sent" | "withdrawn"
 }
 
+export interface RoutingChangeReference {
+  action: "announcement" | "withdrawal" | "selected_route_update"
+  afi: number
+  attributes_changed: boolean
+  base_context_id: string
+  base_router_id: string
+  batch_digest: string
+  context_id: string
+  generation: string
+  has_path_id: boolean
+  observed_at: string
+  path_changed: boolean
+  path_id: number
+  prior_present: boolean
+  router_id: string
+  safi: number
+  sequence: string
+  update_index: number
+  version: number
+  view: "adj_rib_in_pre_policy" | "adj_rib_in_post_policy" | "adj_rib_out_pre_policy" | "adj_rib_out_post_policy" | "loc_rib" | "operator_loc_rib"
+  view_id: string
+}
+
 export interface SCIMToken {
   created_at: string
   id: string
@@ -3979,6 +4004,10 @@ export interface GetCarbonRequest {
 export type GetCarbonResponse = JsonObject
 
 export interface ListChangesRequest {
+  cursor?: string
+  limit?: number
+  from?: string
+  to?: string
 }
 
 export type ListChangesResponse = ChangeEventList
@@ -5891,9 +5920,13 @@ export class ProbectlSDKClient {
     return this.requestJSON<GetCarbonResponse>("GET", path, query, undefined)
   }
 
-  async listChanges(): Promise<ListChangesResponse> {
+  async listChanges(request: ListChangesRequest = {}): Promise<ListChangesResponse> {
     let path = "/v1/changes"
     const query = new URLSearchParams()
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.from !== undefined) query.set("from", String(request.from))
+    if (request.to !== undefined) query.set("to", String(request.to))
     return this.requestJSON<ListChangesResponse>("GET", path, query, undefined)
   }
 

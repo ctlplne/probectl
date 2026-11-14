@@ -206,6 +206,9 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 	for _, source := range result.Sources {
 		result.sourceKeys = append(result.sourceKeys, store.ReportSourceKey{ContextID: source.ContextID, AgentID: source.AgentID, Kind: "path_agent", Ref: source.TestID})
 	}
+	if result.Events != nil {
+		result.sourceKeys = append(result.sourceKeys, result.Events.sourceKeys...)
+	}
 	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		registry := store.NewEntityRegistry(s.pool)
 		keys, err := registry.ReportEvidenceSourceKeysInScope(ctx, sc, result.evidenceRefs, budget.MemoryBytes/32)

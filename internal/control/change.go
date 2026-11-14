@@ -170,58 +170,6 @@ func (s *Server) changeIngestConfigured(tenant string) bool {
 	return false
 }
 
-func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) error {
-	scope := s.configEvidenceForRequest(r, permChangeRead)
-	var evs []change.Event
-	truncated := false
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		// DPR-151: read one more than the bound so the response can tell the
-		// difference between "that is every change" and "that is the newest
-		// 200". A change timeline that stops silently is read as a complete
-		// history, and a missing change is exactly what an investigation is
-		// looking for.
-		stored, err := store.ChangeEvents{}.List(ctx, sc, changeListLimit+1)
-		if err != nil {
-			return err
-		}
-		projected, err := projectedConfigChanges(ctx, s.deviceOps, sc.Tenant.String())
-		if err != nil {
-			return err
-		}
-		truncated = len(stored) > changeListLimit || len(stored)+len(projected) > changeListLimit
-		evs = mergeChangeEvents(changeListLimit, stored, projected)
-		return nil
-	}); err != nil {
-		return err
-	}
-	tenant, err := s.principalTenant(r)
-	if err != nil {
-		return err
-	}
-	for _, event := range evs {
-		if err := scope.retain(event); err != nil {
-			return err
-		}
-	}
-	body, err := json.Marshal(map[string]any{
-		"items": evs,
-		// Two producers feed this timeline: signed provider webhooks, and the
-		// device-configuration archive projected into change events.
-		"change_ingest_configured": s.changeIngestConfigured(tenant),
-		"config_archive_running":   s.deviceOps != nil,
-		"effective_limit":          changeListLimit,
-		"truncated":                truncated,
-	})
-	if err != nil {
-		return err
-	}
-	if err := scope.check(r.Context()); err != nil {
-		return err
-	}
-	writeJSON(w, http.StatusOK, json.RawMessage(body))
-	return nil
-}
-
 // handleIncidentChanges returns the change events correlated to an incident —
 // recent changes that share the incident's target/prefix within the correlation
 // window, ranked as candidate causes (the "what changed" view, fed to RCA).
@@ -321,7 +269,7 @@ func (s changeEventsSource) QueryEvents(ctx context.Context, tenant string, sel 
 				!configChangeMatches(ev, sel, target, prefix) || !eventTypeMatches(ev, typ) {
 				continue
 			}
-			if ev.Config != nil && ev.Config.Binding != nil {
+			if (ev.Config != nil && ev.Config.Binding != nil) || ev.Routing != nil {
 				scope, ok := ctx.Value(configEvidenceKey{}).(*configEvidenceScope)
 				if !ok || scope.server != s.owner || s.owner == nil {
 					return nil, apierror.Forbidden("current configuration evidence scope is unavailable")
@@ -336,6 +284,9 @@ func (s changeEventsSource) QueryEvents(ctx context.Context, tenant string, sel 
 				"change_kind": string(ev.Kind), "title": ev.Title, "summary": ev.Summary,
 				"target": ev.Target, "prefix": ev.Prefix, "actor": ev.Actor, "ref": ev.Ref,
 				"occurred_at": ev.OccurredAt,
+			}
+			if ev.Routing != nil {
+				row["routing"] = ev.Routing
 			}
 			if ev.Config != nil {
 				row["config_current_id"] = ev.Config.CurrentID

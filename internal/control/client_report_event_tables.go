@@ -84,7 +84,11 @@ func projectClientReportEvents(ctx context.Context, capture *clientReportCapture
 		if err != nil {
 			return nil, err
 		}
-		row := []string{capture.TenantID, item.ID, item.Source, string(item.Kind), item.Title, item.Summary, item.Target, item.Prefix, item.Actor, item.Ref, item.URL, string(attributes), string(config), item.OccurredAt.UTC().Format(time.RFC3339Nano), item.ReceivedAt.UTC().Format(time.RFC3339Nano)}
+		routing, err := json.Marshal(item.Routing)
+		if err != nil {
+			return nil, err
+		}
+		row := []string{capture.TenantID, item.ID, item.Source, string(item.Kind), item.Title, item.Summary, item.Target, item.Prefix, item.Actor, item.Ref, item.URL, string(attributes), string(config), string(routing), item.OccurredAt.UTC().Format(time.RFC3339Nano), item.ReceivedAt.UTC().Format(time.RFC3339Nano)}
 		if err := chargeClientReportCells(p, row); err != nil {
 			return nil, err
 		}
@@ -92,15 +96,15 @@ func projectClientReportEvents(ctx context.Context, capture *clientReportCapture
 	}
 	incidentColumns := plainClientReportColumns([]string{"tenant_id", "incident_id", "status", "severity", "title", "target", "prefix", "started_at", "last_seen_at", "resolved_at", "signal_count", "membership_digest", "fault_domain", "confidence", "reason", "preview", "all_hypotheses", "source_digest", "evidence_package_id", "evidence_package_sha256"})
 	incidentColumns[10].Numeric = true
-	changeColumns := plainClientReportColumns([]string{"tenant_id", "change_id", "source", "kind", "title", "summary", "target", "prefix", "actor", "ref", "url", "attributes", "config_predecessors", "occurred_at", "received_at"})
+	changeColumns := plainClientReportColumns([]string{"tenant_id", "change_id", "source", "kind", "title", "summary", "target", "prefix", "actor", "ref", "url", "attributes", "config_predecessors", "routing_reference", "occurred_at", "received_at"})
 	evidenceColumns := plainClientReportColumns([]string{"tenant_id", "incident_id", "package_id", "package_sha256", "contract", "window_from", "window_to", "source_digest", "signed_package_base64"})
 	tables := []reporting.CSVTable{
 		sealedClientReportTable(capture.TenantID, "client-incidents", "Incidents and deterministic verdicts", capture.From, capture.To, incidentColumns, incidentRows),
-		sealedClientReportTable(capture.TenantID, "client-changes", "Webhook and archived configuration changes", capture.From, capture.To, changeColumns, changeRows),
+		sealedClientReportTable(capture.TenantID, "client-changes", "Webhook, archived configuration and owned routing changes", capture.From, capture.To, changeColumns, changeRows),
 		sealedClientReportTable(capture.TenantID, "client-evidence", "Offline-verifiable signed verdict evidence", capture.From, capture.To, evidenceColumns, evidenceRows),
 	}
 	tables[0].Source = "complete overlapping incident headers/canonical membership and original-source verdicts"
-	tables[1].Source = "complete half-open change window plus retained config drift with exact same-tenant predecessors"
+	tables[1].Source = "complete half-open change window, original current-authorized owned routing references and retained config drift with exact same-tenant predecessors"
 	tables[2].Source = "existing probectl-evidence/v1 signed envelopes; verify against the configured public key"
 	if err := ctx.Err(); err != nil {
 		return nil, err

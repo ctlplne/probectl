@@ -5926,6 +5926,40 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "Opaque continuation from next_cursor; fixes the original observation window and grants no data access."
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 200,
+              "description": "Page size admitted against configured query memory, independent of total population."
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
           }
         ],
         "responses": {
@@ -5938,13 +5972,19 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid window, page size or cursor."
+          },
+          "413": {
+            "description": "Page exceeds configured query resource admission; no partial page is published."
           }
         },
         "x-probectl-pagination": {
-          "mode": "bounded",
-          "max_items": 200,
-          "reason": "Change timeline returns the newest tenant changes with a hard store limit."
-        }
+          "mode": "cursor",
+          "reason": "Stable observation-time and ID continuation across stored and projected changes; every page is resource-admitted and currently authorized."
+        },
+        "description": "Signed webhooks, original authenticated owned-router BGP observations and complete content-free config drift references, ordered by observation time and ID. Follow next_cursor until empty; page size never caps retained history. Every page independently verifies current tenant/user/source authority."
       }
     },
     "/v1/bgp/events": {
@@ -25020,7 +25060,7 @@
       },
       "ChangeEvent": {
         "type": "object",
-        "description": "A normalized tenant-scoped change event from a signed webhook or a content-free read-time projection.",
+        "description": "A normalized tenant-scoped change event from a signed webhook, an authenticated owned-router update or a content-free archive projection.",
         "properties": {
           "id": {
             "type": "string"
@@ -25055,9 +25095,135 @@
           "config": {
             "$ref": "#/components/schemas/ConfigChangeReference"
           },
+          "routing": {
+            "$ref": "#/components/schemas/RoutingChangeReference"
+          },
           "occurred_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "RoutingChangeReference": {
+        "type": "object",
+        "description": "Original accepted owned-router BGP update. Current tenant/user/source authority is checked independently before publication. Selected Loc-RIB updates are observations of the BGP-selected route, never proof of the forwarding table. Prefix is retained on the containing change event. Missing prior observation is explicit.",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "context_id",
+          "router_id",
+          "base_context_id",
+          "base_router_id",
+          "view_id",
+          "generation",
+          "sequence",
+          "batch_digest",
+          "observed_at",
+          "view",
+          "action",
+          "afi",
+          "safi",
+          "has_path_id",
+          "path_id",
+          "prior_present",
+          "path_changed",
+          "attributes_changed",
+          "update_index"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "const": 1
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "router_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "base_context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "base_router_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "view_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sequence": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "description": "Original signed 64-bit sequence retained as decimal text without JavaScript rounding."
+          },
+          "batch_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Original sender observation time, including its original subsecond precision."
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "adj_rib_in_pre_policy",
+              "adj_rib_in_post_policy",
+              "adj_rib_out_pre_policy",
+              "adj_rib_out_post_policy",
+              "loc_rib",
+              "operator_loc_rib"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "announcement",
+              "withdrawal",
+              "selected_route_update"
+            ]
+          },
+          "afi": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ]
+          },
+          "safi": {
+            "type": "integer",
+            "const": 1
+          },
+          "has_path_id": {
+            "type": "boolean"
+          },
+          "path_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "prior_present": {
+            "type": "boolean"
+          },
+          "path_changed": {
+            "type": "boolean"
+          },
+          "attributes_changed": {
+            "type": "boolean"
+          },
+          "update_index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Zero-based original update position in the accepted batch, preserving repeated prefix updates."
           }
         }
       },
@@ -25116,17 +25282,21 @@
           },
           "effective_limit": {
             "type": "integer",
-            "description": "The bound the server actually applied (200)."
+            "description": "Admitted page size; it does not cap the retained history population."
           },
           "truncated": {
             "type": "boolean",
-            "description": "True when the tenant has more rows than effective_limit, so items is the newest page and not the whole set."
+            "description": "True when more rows remain; follow next_cursor to continue."
           },
           "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ChangeEvent"
             }
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Continuation for the next page. Empty when the selected history window is exhausted."
           }
         }
       },

@@ -58,19 +58,28 @@ func (scope *configEvidenceScope) withContext(ctx context.Context) context.Conte
 }
 
 func (scope *configEvidenceScope) retain(event change.Event) error {
-	if event.Config == nil || event.Config.Binding == nil {
+	if (event.Config == nil || event.Config.Binding == nil) && event.Routing == nil {
 		return nil
 	}
 	if scope == nil || scope.actor == nil || event.TenantID != scope.actor.TenantID {
 		return entity.ErrScopeMismatch
 	}
-	ref := *event.Config
-	binding := *ref.Binding
-	ref.Binding = &binding
 	scope.mu.Lock()
 	defer scope.mu.Unlock()
-	event.Config = &ref
-	scope.refs[ref.CurrentID] = event
+	if event.Routing != nil {
+		if event.Config != nil || event.Routing.Validate() != nil {
+			return change.ErrRouteReference
+		}
+		reference := *event.Routing
+		event.Routing = &reference
+		scope.refs["routing:"+event.ID] = event
+	} else {
+		ref := *event.Config
+		binding := *ref.Binding
+		ref.Binding = &binding
+		event.Config = &ref
+		scope.refs["config:"+ref.CurrentID] = event
+	}
 	return nil
 }
 
@@ -114,8 +123,14 @@ func (scope *configEvidenceScope) check(ctx context.Context) error {
 			return err
 		}
 		permissions := append([]string{ai.PermMetricsRead, ai.PermEntitiesRead}, scope.permissions...)
+		var configs, routing []change.Event
 		seen := map[[4]string]bool{}
 		for _, ref := range refs {
+			if ref.Routing != nil {
+				routing = append(routing, ref)
+				continue
+			}
+			configs = append(configs, ref)
 			binding := ref.Config.Binding
 			key := [4]string{binding.ContextID, binding.DeviceEntityID, binding.AgentID, binding.SourceRef}
 			if seen[key] {
@@ -134,7 +149,11 @@ func (scope *configEvidenceScope) check(ctx context.Context) error {
 				}
 			}
 		}
-		return (store.ChangeEvents{}).VerifyConfigChangeReferencesInScope(ctx, sc, refs, flowstore.ExplorerOperationBudget(ctx, s.flowStore).MemoryBytes/8)
+		memory := flowstore.ExplorerOperationBudget(ctx, s.flowStore).MemoryBytes / 8
+		if err := (store.ChangeEvents{}).VerifyConfigChangeReferencesInScope(ctx, sc, configs, memory); err != nil {
+			return err
+		}
+		return (store.ChangeEvents{}).VerifyRoutingChangeReferencesInScope(ctx, sc, routing, memory, s.routingChangeAuthorizer(principal, scope.permissions...))
 	})
 	if err != nil {
 		return err
@@ -145,6 +164,19 @@ func (scope *configEvidenceScope) check(ctx context.Context) error {
 // Explicit canonical selectors can match across renames. Narrow name/address
 // queries cannot attach bound archives without the matching original identity.
 func configChangeMatches(event change.Event, selectors map[string]string, target, prefix string) bool {
+	if event.Routing != nil {
+		reference := event.Routing
+		if selectors["context_id"] != "" && selectors["context_id"] != reference.ContextID {
+			return false
+		}
+		if selectors["entity_id"] != "" && selectors["entity_id"] != reference.RouterID {
+			return false
+		}
+		if target == "" && prefix == "" {
+			return true
+		}
+		return selectors["context_id"] == reference.ContextID && selectors["entity_id"] == reference.RouterID && changeMatches(event, target, prefix)
+	}
 	if event.Config == nil || event.Config.Binding == nil {
 		return changeMatches(event, target, prefix)
 	}

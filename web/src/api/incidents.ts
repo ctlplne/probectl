@@ -64,6 +64,35 @@ export interface Incident {
   correlation_overrides?: IncidentCorrelationOverride[]
 }
 
+export interface RoutingChangeReference {
+  version: 1
+  context_id: string
+  router_id: string
+  base_context_id: string
+  base_router_id: string
+  view_id: string
+  generation: string
+  sequence: string
+  update_index: number
+  batch_digest: string
+  observed_at: string
+  view:
+    | 'adj_rib_in_pre_policy'
+    | 'adj_rib_in_post_policy'
+    | 'adj_rib_out_pre_policy'
+    | 'adj_rib_out_post_policy'
+    | 'loc_rib'
+    | 'operator_loc_rib'
+  action: 'announcement' | 'withdrawal' | 'selected_route_update'
+  afi: 1 | 2
+  safi: 1
+  has_path_id: boolean
+  path_id: number
+  prior_present: boolean
+  path_changed: boolean
+  attributes_changed: boolean
+}
+
 export interface ChangeEvent {
   id: string
   source: string
@@ -75,6 +104,7 @@ export interface ChangeEvent {
   actor?: string
   ref?: string
   url?: string
+  routing?: RoutingChangeReference
   config?: {
     current_id: string
     current_version: number

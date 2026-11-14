@@ -42,7 +42,7 @@ func Candidates(changes []Event, target, prefix string, at time.Time, window tim
 
 	out := make([]Candidate, 0, len(changes))
 	for _, ev := range changes {
-		if ev.Config != nil && ev.Config.Binding != nil {
+		if (ev.Config != nil && ev.Config.Binding != nil) || ev.Routing != nil {
 			continue
 		}
 		dt := at.Sub(ev.OccurredAt) // >0 means the change preceded the incident
@@ -156,8 +156,8 @@ func prefixesOverlap(a, b string) bool {
 	return pa.Contains(pb.Addr()) || pb.Contains(pa.Addr())
 }
 
-// CandidatesForIdentity attaches operator archive changes only to an exact
-// server-resolved device/context. Display names and addresses carry no join
+// CandidatesForIdentity attaches archive and owned-router changes only to an
+// exact server-resolved device/context. Display names and addresses carry no join
 // authority, including when another context reuses them.
 func CandidatesForIdentity(changes []Event, target, prefix, contextID, deviceID string, at time.Time, window time.Duration) []Candidate {
 	out := Candidates(changes, target, prefix, at, window)
@@ -168,6 +168,18 @@ func CandidatesForIdentity(changes []Event, target, prefix, contextID, deviceID 
 		window = 24 * time.Hour
 	}
 	for _, event := range changes {
+		if event.Routing != nil {
+			reference := event.Routing
+			if reference.Validate() != nil || reference.ContextID != contextID || reference.RouterID != deviceID || (prefix != "" && !prefixesOverlap(prefix, event.Prefix)) {
+				continue
+			}
+			dt := at.Sub(event.OccurredAt)
+			if dt < -correlationSkew || dt > window {
+				continue
+			}
+			out = append(out, Candidate{Event: event, Score: round2(0.6 + 0.4*timeScore(dt, window)), Reason: "same canonical router/context; observed " + reference.View + " " + reference.Action + "; no forwarding-state claim"})
+			continue
+		}
 		if event.Config == nil || event.Config.Binding == nil {
 			continue
 		}

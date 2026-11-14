@@ -783,20 +783,21 @@ type ChangeCandidateList struct {
 	Truncated          *bool             `json:"truncated,omitempty"`
 }
 
-// A normalized tenant-scoped change event from a signed webhook or a content-free read-time projection.
+// A normalized tenant-scoped change event from a signed webhook, an authenticated owned-router update or a content-free archive projection.
 type ChangeEvent struct {
-	Actor      string                `json:"actor,omitempty"`
-	Config     ConfigChangeReference `json:"config,omitempty"`
-	Id         string                `json:"id,omitempty"`
-	Kind       string                `json:"kind,omitempty"`
-	OccurredAt string                `json:"occurred_at,omitempty"`
-	Prefix     string                `json:"prefix,omitempty"`
-	Ref        string                `json:"ref,omitempty"`
-	Source     string                `json:"source,omitempty"`
-	Summary    string                `json:"summary,omitempty"`
-	Target     string                `json:"target,omitempty"`
-	Title      string                `json:"title,omitempty"`
-	Url        string                `json:"url,omitempty"`
+	Actor      string                 `json:"actor,omitempty"`
+	Config     ConfigChangeReference  `json:"config,omitempty"`
+	Id         string                 `json:"id,omitempty"`
+	Kind       string                 `json:"kind,omitempty"`
+	OccurredAt string                 `json:"occurred_at,omitempty"`
+	Prefix     string                 `json:"prefix,omitempty"`
+	Ref        string                 `json:"ref,omitempty"`
+	Routing    RoutingChangeReference `json:"routing,omitempty"`
+	Source     string                 `json:"source,omitempty"`
+	Summary    string                 `json:"summary,omitempty"`
+	Target     string                 `json:"target,omitempty"`
+	Title      string                 `json:"title,omitempty"`
+	Url        string                 `json:"url,omitempty"`
 }
 
 type ChangeEventList struct {
@@ -804,6 +805,7 @@ type ChangeEventList struct {
 	ConfigArchiveRunning   *bool         `json:"config_archive_running,omitempty"`
 	EffectiveLimit         int           `json:"effective_limit,omitempty"`
 	Items                  []ChangeEvent `json:"items,omitempty"`
+	NextCursor             string        `json:"next_cursor,omitempty"`
 	Truncated              *bool         `json:"truncated,omitempty"`
 }
 
@@ -3440,6 +3442,30 @@ type ReportEmailDelivery struct {
 	State         string  `json:"state"`
 }
 
+// Original accepted owned-router BGP update. Current tenant/user/source authority is checked independently before publication. Selected Loc-RIB updates are observations of the BGP-selected route, never proof of the forwarding table. Prefix is retained on the containing change event. Missing prior observation is explicit.
+type RoutingChangeReference struct {
+	Action            string `json:"action"`
+	Afi               int    `json:"afi"`
+	AttributesChanged bool   `json:"attributes_changed"`
+	BaseContextId     string `json:"base_context_id"`
+	BaseRouterId      string `json:"base_router_id"`
+	BatchDigest       string `json:"batch_digest"`
+	ContextId         string `json:"context_id"`
+	Generation        string `json:"generation"`
+	HasPathId         bool   `json:"has_path_id"`
+	ObservedAt        string `json:"observed_at"`
+	PathChanged       bool   `json:"path_changed"`
+	PathId            int    `json:"path_id"`
+	PriorPresent      bool   `json:"prior_present"`
+	RouterId          string `json:"router_id"`
+	Safi              int    `json:"safi"`
+	Sequence          string `json:"sequence"`
+	UpdateIndex       int    `json:"update_index"`
+	Version           int    `json:"version"`
+	View              string `json:"view"`
+	ViewId            string `json:"view_id"`
+}
+
 // A SCIM bearer-token metadata row. The token hash and plaintext token are never returned from list/get responses.
 type SCIMToken struct {
 	CreatedAt  string `json:"created_at"`
@@ -4840,11 +4866,27 @@ func (c *Client) GetCarbon(ctx context.Context, req GetCarbonRequest) (map[strin
 
 // List change events (the change timeline)
 type ListChangesRequest struct {
+	Cursor *string `json:"-"`
+	Limit  *int    `json:"-"`
+	From   *string `json:"-"`
+	To     *string `json:"-"`
 }
 
 func (c *Client) ListChanges(ctx context.Context, req ListChangesRequest) (*ChangeEventList, error) {
 	path := "/v1/changes"
 	query := url.Values{}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.From != nil {
+		query.Set("from", formatQueryValue(*req.From))
+	}
+	if req.To != nil {
+		query.Set("to", formatQueryValue(*req.To))
+	}
 	var out ChangeEventList
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err

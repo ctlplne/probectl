@@ -38,6 +38,7 @@ import {
   type PathEntityHop,
 } from '../api/paths'
 import { severityTone, useChanges, useIncidents } from '../api/incidents'
+import { RoutingChangeMetadata } from './RoutingChangeMetadata'
 import type { MessageKey } from '../i18n/messages'
 import { useI18n } from '../i18n/useI18n'
 import { PathGraph } from '../viz/PathGraph'
@@ -993,6 +994,9 @@ export function PathPage() {
                               >
                                 Open change evidence: {change.title || change.id}
                               </Link>
+                              {change.routing ? (
+                                <RoutingChangeMetadata reference={change.routing} />
+                              ) : null}
                             </li>
                           ))}
                         </ul>

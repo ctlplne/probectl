@@ -1617,6 +1617,10 @@ export const OPENAPI_TYPE_CONTRACTS = {
   incident: GeneratedHasViewKeys<SDK.Incident, Incidents.Incident>
   signal: GeneratedHasViewKeys<SDK.Signal, Incidents.Signal>
   changeEvent: GeneratedHasViewKeys<SDK.ChangeEvent, Incidents.ChangeEvent>
+  routingChangeReference: GeneratedHasViewKeys<
+    SDK.RoutingChangeReference,
+    Incidents.RoutingChangeReference
+  >
   incidentShareArtifact: GeneratedHasViewKeys<
     SDK.IncidentShareArtifact,
     Incidents.IncidentShareArtifact

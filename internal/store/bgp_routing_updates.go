@@ -92,6 +92,7 @@ type routingPreparedChange struct {
 
 type routingWriteView struct {
 	state                      string
+	kind                       string
 	afi                        uint16
 	safi                       uint8
 	nextSequence, lastSequence int64
@@ -243,12 +244,12 @@ func loadRoutingWriteView(ctx context.Context, sc tenancy.Scope, source BGPRouti
 			return view, ErrBGPRoutingView
 		}
 	}
-	err = sc.Q.QueryRow(ctx, `SELECT state,afi,safi,next_sequence,last_sequence,last_digest,observed_at,valid_until,charged_bytes,row_count,last_message_observed_at,message_clock_sequence
+	err = sc.Q.QueryRow(ctx, `SELECT state,view_kind,afi,safi,next_sequence,last_sequence,last_digest,observed_at,valid_until,charged_bytes,row_count,last_message_observed_at,message_clock_sequence
  FROM bgp_routing_views WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND generation=$4
  AND source_kind='router_bmp' AND router_id=$5 AND collector_agent_id=$6 AND source_ref=$7
  AND sender_serial=$8 AND origin_serial=$9 AND routing_selection IS NOT DISTINCT FROM $10::jsonb FOR UPDATE`, source.TenantID, source.ContextID, ref.ID, ref.Generation,
 		source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, selection).
-		Scan(&view.state, &view.afi, &view.safi, &view.nextSequence, &view.lastSequence, &view.lastDigest,
+		Scan(&view.state, &view.kind, &view.afi, &view.safi, &view.nextSequence, &view.lastSequence, &view.lastDigest,
 			&view.born, &view.validUntil, &view.bytes, &view.rows, &view.lastObservedAt, &view.clockSequence)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return routingWriteView{}, ErrBGPRoutingSourceUnavailable
@@ -353,6 +354,11 @@ func (store BGPRouting) applyBatchInScope(ctx context.Context, sc tenancy.Scope,
 		return invalidateRoutingView(ctx, sc, source, ref, "state-budget")
 	}
 	if err != nil {
+		return BGPRoutingApplyResult{}, err
+	}
+	if err := appendOwnedRoutingChanges(ctx, sc, source, ref, view, batch, digest, prepared, profile); errors.Is(err, ErrBGPRoutingBudget) {
+		return invalidateRoutingView(ctx, sc, source, ref, "change-history-budget")
+	} else if err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
 	if err := persistRoutingChanges(ctx, sc, source.Scope, ref, batch, plan); err != nil {

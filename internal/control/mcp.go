@@ -20,6 +20,7 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/change"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -505,7 +506,17 @@ func (b mcpBackend) queryEvents(ctx context.Context, p *auth.Principal, sel map[
 	if err != nil {
 		return mcp.EventsResult{}, err
 	}
-	defer release()
+	retained := false
+	defer func() {
+		if !retained {
+			release()
+		}
+	}()
+	var scope *configEvidenceScope
+	if b.owner != nil {
+		scope = newConfigEvidenceScope(b.owner, p, mcp.CheckOriginatingCredential, ai.PermEventsRead, "ai.query")
+		ctx = ai.WithCurrentEvidence(scope.withContext(ctx), scope.check)
+	}
 	res, err := b.engine.Query(ctx, p, ai.Query{Domain: ai.DomainEvents, Selector: clean, Limit: limit})
 	if err != nil {
 		if errors.Is(err, ai.ErrNoSource) {
@@ -513,9 +524,28 @@ func (b mcpBackend) queryEvents(ctx context.Context, p *auth.Principal, sel map[
 		}
 		return mcp.EventsResult{}, err
 	}
+	if scope != nil && len(scope.selected()) > 0 {
+		if err := scope.check(ctx); err != nil {
+			return mcp.EventsResult{}, err
+		}
+		if err := mcp.RetainNativePublication(ctx, scope.check, release); err != nil {
+			return mcp.EventsResult{}, err
+		}
+		retained = true
+	}
 	// Engine.Query returns RAW store rows — only Correlate reduced them. This
 	// boundary is external, so the same per-domain allow-list runs here.
-	return mcp.EventsResult{Events: mcp.SanitizeEventRows(res.Rows), Truncated: res.Truncated}, nil
+	rows := mcp.SanitizeEventRows(res.Rows)
+	for _, row := range rows {
+		if reference, ok := row["routing"].(*change.RouteReference); ok && reference != nil {
+			encoded, err := nativeRoutingChangeReference(*reference)
+			if err != nil {
+				return mcp.EventsResult{}, err
+			}
+			row["routing"] = encoded
+		}
+	}
+	return mcp.EventsResult{Events: rows, Truncated: res.Truncated}, nil
 }
 
 func (b mcpBackend) ExplainDegradation(ctx context.Context, p *auth.Principal, question string, subject map[string]string) (ai.Answer, error) {
@@ -544,6 +574,15 @@ func (b mcpBackend) ExplainDegradation(ctx context.Context, p *auth.Principal, q
 			return ai.Answer{}, err
 		}
 		retained = true
+	}
+	for _, evidence := range answer.Evidence {
+		if reference, ok := evidence.Fields["routing"].(*change.RouteReference); ok && reference != nil {
+			encoded, err := nativeRoutingChangeReference(*reference)
+			if err != nil {
+				return ai.Answer{}, err
+			}
+			evidence.Fields["routing"] = encoded
+		}
 	}
 	return answer, nil
 }

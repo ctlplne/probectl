@@ -46,6 +46,7 @@ import {
   questionForIncident,
 } from '../remediation/proposalContext'
 import { DateTime } from '../time/DateTime'
+import { RoutingChangeMetadata } from './RoutingChangeMetadata'
 import { IncidentClock, type IncidentClockItem, type IncidentClockLane } from '../viz/IncidentClock'
 import { useI18n } from '../i18n/useI18n'
 import type { MessageKey } from '../i18n/messages'
@@ -1179,6 +1180,7 @@ function EvidenceInspector({
             description={t('incidents.room.inspector.emptyDescription')}
           />
         )}
+        {change?.event.routing ? <RoutingChangeMetadata reference={change.event.routing} /> : null}
         {pathHref && pathTarget ? (
           <div className={styles.topologyPivot}>
             <Link to={pathHref}>Open path evidence for {pathTarget}</Link>

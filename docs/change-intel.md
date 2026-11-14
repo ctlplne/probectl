@@ -88,6 +88,40 @@ and/or **`prefix`** (a CIDR — an IP range in prefix notation, like
 what the correlator matches on. A change with neither anchor can still appear on
 the timeline, but it can only correlate to an *untargeted* incident (see below).
 
+## Owned routing observations (preview)
+
+The existing authenticated BMP receiver now appends each accepted announcement,
+withdrawal and selected-route update to the same tenant-isolated change store,
+atomically with its routing update. Replay appends nothing. Repeated updates to
+one prefix in a batch retain their original zero-based `update_index`; the RIB's
+final-state coalescing does not erase the change history. Heartbeats and end-of-RIB
+markers are not route changes.
+
+`routing` retains the canonical routing context/router, original source
+context/router, view/generation, exact decimal sequence, batch digest, source
+observation time, address family, path-ID presence and prior/path/attribute-change
+flags. Only Loc-RIB and the explicitly configured operator Loc-RIB profile can
+produce `selected_route_update`. An adjacent advertisement is not a selected
+route; no observation proves the forwarding table. Unknown prior observations
+remain unknown. Generic webhooks cannot manufacture these original references.
+
+Every read and final publication checks the exact retained record, current
+source assignment/selector, active identities, revocation, canonical entity and
+current user/credential grants. Names and prefixes never grant cross-context
+access. Private source bodies do not ship in responses or report tables. The
+original routing reference is included in the complete report change table;
+current-source and erasure checks still apply.
+
+`GET /v1/changes` merges stored observations and content-free configuration
+projections in observation-time/ID order. Follow `next_cursor` until empty;
+`truncated` means another page exists. Optional `from`/`to` select a half-open
+window. `limit` chooses one resource-admitted page, independent of total retained
+history. The cursor fixes the first page's window and grants no access. The CLI
+uses `probectl oncall changes --json --query cursor=<next_cursor>`; SDKs expose
+the same fields. Config references still open the exact separately authorized,
+already-redacted predecessor pair. Before/after effects and full real-router
+qualification remain in progress.
+
 ## Providers & signatures
 
 | Provider | `provider` | Replay key | Signature header | Scheme | Events normalized |
