@@ -167,8 +167,19 @@ func proveRouterOriginalEffects(t *testing.T, st *shipped.Stack, registrations [
 			id := ids[lane]
 			query := url.Values{"from": {from.Format(time.RFC3339Nano)}, "to": {to.Format(time.RFC3339Nano)}}
 			var result sdk.ChangeEffectsResponse
+			lastCode := 0
+			t.Cleanup(func() {
+				if !t.Failed() {
+					return
+				}
+				t.Logf("original comparison diagnostic: status=%d tests=%d before_captures=%d after_captures=%d before_bytes=%q after_bytes=%q", lastCode, len(result.Tests), len(result.Before.Captures), len(result.After.Captures), result.Before.ObservedTotals.ScaledBytes, result.After.ObservedTotals.ScaledBytes)
+				for _, test := range result.Tests {
+					t.Logf("original test diagnostic: selected_test=%t selected_agent=%t before_observations=%d after_observations=%d before_latency=%t after_latency=%t", test.TestId == probes[lane].test, test.AgentId == probes[lane].agent, len(test.Before.Observations), len(test.After.Observations), test.Before.Latency != nil, test.After.Latency != nil)
+				}
+			})
 			shipped.Await(t, "actual RTT/change/flow originals in one comparison", time.Minute, func() bool {
 				code, body := st.Do(t, reg.cookie, http.MethodGet, "/v1/changes/"+id+"/effects?"+query.Encode(), nil)
+				lastCode = code
 				if code != http.StatusOK || json.Unmarshal(body, &result) != nil || result.Original.Id != id || len(result.Tests) != 1 {
 					return false
 				}
@@ -315,11 +326,19 @@ func proveRouterOriginalRouteEffects(t *testing.T, st *shipped.Stack, lab *routi
 func awaitRouterTimelineRoute(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, from time.Time, action string) change.Event {
 	t.Helper()
 	var found change.Event
+	lastCode, selectedPrefix, selectedAction, selectedView := 0, 0, 0, 0
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("routing timeline diagnostic: status=%d prefix_rows=%d action_rows=%d loc_rib_rows=%d", lastCode, selectedPrefix, selectedAction, selectedView)
+		}
+	})
 	shipped.Await(t, "actual FRR "+action+" in its tenant timeline", time.Minute, func() bool {
+		selectedPrefix, selectedAction, selectedView = 0, 0, 0
 		query := url.Values{"from": {from.Format(time.RFC3339Nano)}, "to": {time.Now().UTC().Add(time.Second).Format(time.RFC3339Nano)}, "limit": {"100"}}
 		seen := map[string]bool{}
 		for {
 			code, body := st.Do(t, reg.cookie, http.MethodGet, "/v1/changes?"+query.Encode(), nil)
+			lastCode = code
 			var page struct {
 				Items []change.Event `json:"items"`
 				Next  string         `json:"next_cursor"`
@@ -328,6 +347,15 @@ func awaitRouterTimelineRoute(t *testing.T, st *shipped.Stack, reg edgeFlowRegis
 				return false
 			}
 			for _, item := range page.Items {
+				if item.Routing != nil && item.Kind == change.KindRoute && item.Prefix == prefixA {
+					selectedPrefix++
+					if item.Routing.Action == action {
+						selectedAction++
+						if item.Routing.View == "loc_rib" {
+							selectedView++
+						}
+					}
+				}
 				if item.Routing == nil || item.Kind != change.KindRoute || item.Prefix != prefixA || item.Routing.Action != action || item.Routing.View != "loc_rib" {
 					continue
 				}

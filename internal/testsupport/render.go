@@ -124,9 +124,18 @@ type RenderAccessibility struct {
 }
 
 type RenderAccessibilityRule struct {
-	ID      string     `json:"id"`
-	Impact  string     `json:"impact"`
-	Targets [][]string `json:"targets"`
+	ID       string                     `json:"id"`
+	Impact   string                     `json:"impact"`
+	Targets  [][]string                 `json:"targets"`
+	Contrast []RenderContrastDiagnostic `json:"contrast,omitempty"`
+}
+
+type RenderContrastDiagnostic struct {
+	Foreground string   `json:"foreground"`
+	Background string   `json:"background"`
+	Ratio      float64  `json:"ratio"`
+	Expected   string   `json:"expected"`
+	Opacities  []string `json:"opacities"`
 }
 
 // Cookie returns the value of the named cookie the browser held at the end.

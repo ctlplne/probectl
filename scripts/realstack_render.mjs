@@ -243,6 +243,23 @@ async function main() {
           violations: report.violations.map((rule) => ({
             id: rule.id, impact: rule.impact,
             targets: rule.nodes.map((node) => node.target),
+            contrast: rule.id === "color-contrast" ? rule.nodes.map((node) => {
+              const data = node.any.find((check) => check.id === "color-contrast")?.data;
+              const opacities = [];
+              let selected = null;
+              try { selected = document.querySelector(node.target.join(" ")); } catch { /* Shadow/frame selectors may not address this document. */ }
+              for (let element = selected; element; element = element.parentElement) {
+                const opacity = getComputedStyle(element).opacity;
+                if (opacity !== "1") opacities.push(opacity);
+              }
+              return {
+                foreground: data?.fgColor ?? "",
+                background: data?.bgColor ?? "",
+                ratio: data?.contrastRatio ?? 0,
+                expected: data?.expectedContrastRatio ?? "",
+                opacities,
+              };
+            }) : undefined,
           })),
         };
       });
