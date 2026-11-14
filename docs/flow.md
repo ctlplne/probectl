@@ -1409,6 +1409,16 @@ An edit appends a revision; it does not replace historical contract terms.
 Old agreements without SLA metadata remain valid. No new source identity or
 telemetry access is granted by a financial definition.
 
+Circuit SLA terms may explicitly link configured test and agent identities.
+Storage resolves their canonical context/device and assignment epoch under the
+current tenant; composite references prevent another tenant from satisfying a
+selector. Retiring a source removes its live reference while preserving the
+immutable recorded terms. Replacing an assignment cannot revive an old recorded
+link: a new operator revision must capture the new assignment. A recorded link is
+not proof of valid measurements:
+claim readers must still check current grants, identity, definition and source
+authority, and missing or replaced bindings leave coverage unknown.
+
 Availability and loss goals use exact ratios; latency and repair intervals use
 nanoseconds. Credit ranges have inclusive lower and exclusive upper boundaries.
 Only the operator's recorded terms determine credit ratios and the aggregate

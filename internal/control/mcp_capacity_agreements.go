@@ -131,17 +131,24 @@ type nativeCapacityTarget struct {
 }
 type nativeCapacityDefinition struct {
 	flow.CapacityAgreementDefinition
-	Target nativeCapacityTarget `json:"target"`
+	Target any `json:"target"`
+	SLA    any `json:"sla,omitempty"`
 }
 
 func nativeCapacityAgreement(item flow.CapacityAgreement) nativeCapacityAgreementValue {
 	// Current normalized target FKs prove canonical UUID metadata. Retired
 	// references do not confer that current proof. Operator-entered names,
 	// references, tag values and prices always traverse full PII redaction.
-	var definition any = item.Definition
+	definition := nativeCapacityDefinition{CapacityAgreementDefinition: item.Definition, Target: item.Definition.Target}
+	if item.Definition.SLA != nil {
+		definition.SLA = item.Definition.SLA
+	}
 	if item.TargetPresent {
 		target := item.Definition.Target
-		definition = nativeCapacityDefinition{item.Definition, nativeCapacityTarget{target, mcp.NativeRoleUUID(target.ContextID), mcp.NativeRoleUUID(target.InterfaceID), mcp.NativeRoleUUID(target.TagID)}}
+		definition.Target = nativeCapacityTarget{target, mcp.NativeRoleUUID(target.ContextID), mcp.NativeRoleUUID(target.InterfaceID), mcp.NativeRoleUUID(target.TagID)}
+	}
+	if item.SLASourceMetadataTrusted && item.Definition.SLA != nil {
+		definition.SLA = nativeCarrierSLATerms(*item.Definition.SLA)
 	}
 	return nativeCapacityAgreementValue{item, mcp.NativeRoleUUID(item.ID), mcp.NativeRoleRevision(item.Version), mcp.NativeRoleRevision(item.CurrentVersion), definition}
 }

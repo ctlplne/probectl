@@ -31643,7 +31643,25 @@
           "credit_bands"
         ]
       },
-      "CarrierSLATerms": {
+      "CarrierSLASource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent_id",
+        "test_id"
+      ],
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "test_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "CarrierSLATerms": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -31678,6 +31696,13 @@
               "$ref": "#/components/schemas/CarrierSLARule"
             },
             "minItems": 1
+          },
+          "sources": {
+            "type": "array",
+            "description": "Explicit current tenant-owned configured test/agent selectors. These references grant no telemetry access. Missing or retired bindings cannot become observed measurements.",
+            "items": {
+              "$ref": "#/components/schemas/CarrierSLASource"
+            }
           }
         },
         "required": [

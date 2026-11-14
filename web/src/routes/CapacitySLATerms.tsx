@@ -165,6 +165,67 @@ export function CapacitySLAEditor({
           nanoseconds. Credit ratios and caps come from your contract; they can be zero or exceed
           one monthly charge.
         </p>
+        <h3>Probes that measure this circuit</h3>
+        <p>
+          Choose explicit test and agent identities. Missing or retired sources leave coverage
+          unknown.
+        </p>
+        {(value.sources ?? []).map((source, index) => (
+          <div key={index} className={styles.grid}>
+            <Field
+              label={`Circuit probe ${index + 1} test ID`}
+              required
+              disabled={disabled}
+              value={source.test_id}
+              onChange={(event) =>
+                onChange({
+                  ...value,
+                  sources: (value.sources ?? []).map((item, row) =>
+                    row === index ? { ...item, test_id: event.target.value } : item,
+                  ),
+                })
+              }
+            />
+            <Field
+              label={`Circuit probe ${index + 1} agent ID`}
+              required
+              disabled={disabled}
+              value={source.agent_id}
+              onChange={(event) =>
+                onChange({
+                  ...value,
+                  sources: (value.sources ?? []).map((item, row) =>
+                    row === index ? { ...item, agent_id: event.target.value } : item,
+                  ),
+                })
+              }
+            />
+            <Button
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onChange({
+                  ...value,
+                  sources: (value.sources ?? []).filter((_, row) => row !== index),
+                })
+              }
+            >
+              Remove circuit probe {index + 1}
+            </Button>
+          </div>
+        ))}
+        <Button
+          type="button"
+          disabled={disabled}
+          onClick={() =>
+            onChange({
+              ...value,
+              sources: [...(value.sources ?? []), { agent_id: '', test_id: '' }],
+            })
+          }
+        >
+          Link circuit probe
+        </Button>
         {value.rules.map((rule, index) => (
           <Card key={index}>
             <CardHeader title={`SLA clause ${index + 1}`} />
@@ -326,6 +387,16 @@ export function CapacitySLATermsView({ value }: { value: CarrierSLATerms }) {
         {value.credit_cap_ratio}; aggregation{' '}
         {value.aggregation === 'maximum' ? 'largest qualifying credit' : 'sum then cap'}.
       </p>
+      <Table
+        caption="Recorded circuit probes"
+        rows={value.sources ?? []}
+        rowKey={(source) => `${source.agent_id}/${source.test_id}`}
+        columns={[
+          { key: 'test', header: 'Configured test', render: (source) => source.test_id },
+          { key: 'agent', header: 'Agent', render: (source) => source.agent_id },
+        ]}
+        empty={<p>No circuit probes are linked; measurement coverage is unknown.</p>}
+      />
       <Table
         caption="Recorded SLA clauses"
         rows={value.rules}

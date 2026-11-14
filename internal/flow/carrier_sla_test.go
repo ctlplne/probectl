@@ -107,3 +107,25 @@ func TestCapacityAgreementRetainsCarrierSLATermsWithoutChangingLegacyDefinitions
 		}
 	}
 }
+
+func TestCarrierSLARecordedSourcesAreCanonicalUniqueAndCopied(t *testing.T) {
+	ctx := tenancy.WithTenant(t.Context(), "primary")
+	input := capacityAgreementFixture()
+	input.SLA = &CarrierSLATerms{Carrier: "carrier", CircuitID: "circuit", Currency: "USD", MonthlyCharge: "100", CreditCapRatio: "1", Aggregation: "maximum", Sources: []CarrierSLASource{{AgentID: "original-agent", TestID: "44444444-4444-4444-8444-444444444444"}}, Rules: []CarrierSLARule{{ID: "loss", Metric: "loss", Basis: "original_packet_ratio", GoodWhen: "at_most", Threshold: "0.01", CreditBands: []CarrierSLACreditBand{{From: "0.01", CreditRatio: "0.1"}}}}}
+	got, err := NormalizeCapacityAgreement(ctx, input, 8<<20, 8<<20)
+	if err != nil || got.SLA == nil || len(got.SLA.Sources) != 1 || got.SLA.Sources[0] != input.SLA.Sources[0] {
+		t.Fatal("explicit circuit source selector changed", err)
+	}
+	input.SLA.Sources[0].AgentID = "changed-agent"
+	if got.SLA.Sources[0].AgentID != "original-agent" {
+		t.Fatal("recorded source retained mutable caller input")
+	}
+	input.SLA.Sources = append(input.SLA.Sources, input.SLA.Sources[0])
+	if _, err := NormalizeCapacityAgreement(ctx, input, 8<<20, 8<<20); !errors.Is(err, ErrCapacityAgreementInvalid) {
+		t.Fatal("duplicate source selection was accepted", err)
+	}
+	input.SLA.Sources = []CarrierSLASource{{AgentID: "original-agent", TestID: "not-a-canonical-test"}}
+	if _, err := NormalizeCapacityAgreement(ctx, input, 8<<20, 8<<20); !errors.Is(err, ErrCapacityAgreementInvalid) {
+		t.Fatal("unbound test selector was accepted", err)
+	}
+}

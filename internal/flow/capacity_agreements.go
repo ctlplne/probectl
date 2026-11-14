@@ -55,15 +55,18 @@ type CapacityAgreementDefinition struct {
 }
 
 type CapacityAgreement struct {
-	ID             string                      `json:"id"`
-	TenantID       string                      `json:"-"`
-	CurrentVersion string                      `json:"current_version"`
-	Version        string                      `json:"version"`
-	Definition     CapacityAgreementDefinition `json:"definition"`
-	TargetPresent  bool                        `json:"target_present"`
-	CreatedAt      time.Time                   `json:"created_at"`
-	UpdatedAt      time.Time                   `json:"updated_at"`
-	RecordedAt     time.Time                   `json:"recorded_at"`
+	// Only canonical selector rendering uses this live-reference result; it
+	// grants no telemetry permission, identity validity or measured coverage.
+	SLASourceMetadataTrusted bool                        `json:"-"`
+	ID                       string                      `json:"id"`
+	TenantID                 string                      `json:"-"`
+	CurrentVersion           string                      `json:"current_version"`
+	Version                  string                      `json:"version"`
+	Definition               CapacityAgreementDefinition `json:"definition"`
+	TargetPresent            bool                        `json:"target_present"`
+	CreatedAt                time.Time                   `json:"created_at"`
+	UpdatedAt                time.Time                   `json:"updated_at"`
+	RecordedAt               time.Time                   `json:"recorded_at"`
 }
 
 type SaveCapacityAgreement struct {

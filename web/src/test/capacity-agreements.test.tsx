@@ -648,6 +648,13 @@ test('carrier SLA revisions preserve exact entered terms and discard a late tena
     fireEvent.click(await screen.findByRole('button', { name: 'Open red WAN' }))
     await screen.findByLabelText('SLA carrier')
     expect(screen.getByLabelText('Monthly recurring charge')).toHaveValue('100.000000000000000001')
+    fireEvent.click(screen.getByRole('button', { name: 'Link circuit probe' }))
+    fireEvent.change(screen.getByLabelText('Circuit probe 1 test ID'), {
+      target: { value: '44444444-4444-4444-8444-444444444444' },
+    })
+    fireEvent.change(screen.getByLabelText('Circuit probe 1 agent ID'), {
+      target: { value: 'operator-probe-agent' },
+    })
     fireEvent.change(screen.getByLabelText('Clause 1 threshold'), {
       target: { value: '0.999000000000000001' },
     })
@@ -657,6 +664,9 @@ test('carrier SLA revisions preserve exact entered terms and discard a late tena
     )
     expect(saved?.definition.sla?.monthly_charge).toBe('100.000000000000000001')
     expect(saved?.definition.sla?.credit_cap_ratio).toBe('1.25')
+    expect(saved?.definition.sla?.sources).toEqual([
+      { agent_id: 'operator-probe-agent', test_id: '44444444-4444-4444-8444-444444444444' },
+    ])
     expect(saved?.definition.sla?.rules[0].credit_bands).toEqual(
       current.definition.sla.rules[0].credit_bands,
     )

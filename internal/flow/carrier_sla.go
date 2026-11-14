@@ -37,15 +37,23 @@ type CarrierSLARule struct {
 	CreditBands []CarrierSLACreditBand `json:"credit_bands"`
 }
 
+// A recorded source is a selector, never a telemetry grant. Storage derives
+// its canonical context and device from the current tenant-owned assignment.
+type CarrierSLASource struct {
+	AgentID string `json:"agent_id"`
+	TestID  string `json:"test_id"`
+}
+
 type CarrierSLATerms struct {
-	Carrier        string           `json:"carrier"`
-	CircuitID      string           `json:"circuit_id"`
-	Site           string           `json:"site"`
-	Currency       string           `json:"currency"`
-	MonthlyCharge  string           `json:"monthly_charge"`
-	Aggregation    string           `json:"aggregation"`
-	CreditCapRatio string           `json:"credit_cap_ratio"`
-	Rules          []CarrierSLARule `json:"rules"`
+	Sources        []CarrierSLASource `json:"sources,omitempty"`
+	Carrier        string             `json:"carrier"`
+	CircuitID      string             `json:"circuit_id"`
+	Site           string             `json:"site"`
+	Currency       string             `json:"currency"`
+	MonthlyCharge  string             `json:"monthly_charge"`
+	Aggregation    string             `json:"aggregation"`
+	CreditCapRatio string             `json:"credit_cap_ratio"`
+	Rules          []CarrierSLARule   `json:"rules"`
 }
 
 // A source reader supplies original coverage under current tenant/source
@@ -304,13 +312,20 @@ func carrierSLACost(ctx context.Context, terms CarrierSLATerms, measurements []c
 		work -= words * words * 512
 		return ctx.Err()
 	}
-	if int64(len(terms.Rules))+int64(len(measurements)) > remaining/4096 {
+	if int64(len(terms.Rules))+int64(len(measurements))+int64(len(terms.Sources)) > remaining/4096 {
 		return 0, 0, ErrCapacityAgreementBudget
 	}
-	remaining -= 4096 * (int64(len(terms.Rules)) + int64(len(measurements)))
+	remaining -= 4096 * (int64(len(terms.Rules)) + int64(len(measurements)) + int64(len(terms.Sources)))
 	for _, text := range []string{terms.Carrier, terms.CircuitID, terms.Site, terms.Currency, terms.MonthlyCharge, terms.CreditCapRatio, terms.Aggregation} {
 		if err := charge(text); err != nil {
 			return 0, 0, err
+		}
+	}
+	for _, source := range terms.Sources {
+		for _, text := range []string{source.AgentID, source.TestID} {
+			if err := charge(text); err != nil {
+				return 0, 0, err
+			}
 		}
 	}
 	for _, rule := range terms.Rules {
@@ -371,8 +386,16 @@ func normalizeCarrierSLATerms(ctx context.Context, input CarrierSLATerms, memory
 	if err != nil {
 		return none, 0, 0, ErrCarrierSLAInput
 	}
+	seenSources := map[CarrierSLASource]bool{}
+	for _, source := range input.Sources {
+		if !capacityAgreementText(source.AgentID, true) || !capacityAgreementUUID(source.TestID) || seenSources[source] {
+			return none, 0, 0, ErrCarrierSLAInput
+		}
+		seenSources[source] = true
+	}
 	seen := map[string]bool{}
 	output := input
+	output.Sources = append([]CarrierSLASource(nil), input.Sources...)
 	output.Rules = append([]CarrierSLARule(nil), input.Rules...)
 	for index, rule := range output.Rules {
 		if seen[rule.ID] {

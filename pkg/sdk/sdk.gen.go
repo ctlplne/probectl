@@ -785,15 +785,21 @@ type CarrierSLARule struct {
 	Threshold   string                 `json:"threshold"`
 }
 
+type CarrierSLASource struct {
+	AgentId string `json:"agent_id"`
+	TestId  string `json:"test_id"`
+}
+
 type CarrierSLATerms struct {
-	Aggregation    string           `json:"aggregation"`
-	Carrier        string           `json:"carrier"`
-	CircuitId      string           `json:"circuit_id"`
-	CreditCapRatio string           `json:"credit_cap_ratio"`
-	Currency       string           `json:"currency"`
-	MonthlyCharge  string           `json:"monthly_charge"`
-	Rules          []CarrierSLARule `json:"rules"`
-	Site           string           `json:"site,omitempty"`
+	Aggregation    string             `json:"aggregation"`
+	Carrier        string             `json:"carrier"`
+	CircuitId      string             `json:"circuit_id"`
+	CreditCapRatio string             `json:"credit_cap_ratio"`
+	Currency       string             `json:"currency"`
+	MonthlyCharge  string             `json:"monthly_charge"`
+	Rules          []CarrierSLARule   `json:"rules"`
+	Site           string             `json:"site,omitempty"`
+	Sources        []CarrierSLASource `json:"sources,omitempty"`
 }
 
 // A change scored as a candidate cause of an incident.

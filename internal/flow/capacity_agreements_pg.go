@@ -161,6 +161,10 @@ WHERE a.tenant_id=$1::uuid AND a.id=$2::uuid`
 		return CapacityAgreement{}, ErrCapacityAgreementInvalid
 	}
 	result.TenantID, result.Version, result.CurrentVersion, result.Definition, result.TargetPresent = sc.Tenant.String(), strconv.FormatInt(selected, 10), strconv.FormatInt(head, 10), definition, kind != ""
+	result.SLASourceMetadataTrusted, err = s.slaSourceMetadataTrusted(ctx, sc, result, selected)
+	if err != nil {
+		return CapacityAgreement{}, err
+	}
 	return result, nil
 }
 
@@ -258,14 +262,16 @@ func (s *PostgresCapacityAgreements) SaveCapacityAgreement(ctx context.Context, 
 			}
 			var used, needed string
 			if err := sc.Q.QueryRow(ctx, `SELECT (COALESCE((SELECT sum(octet_length(definition::text)+1024) FROM flow_capacity_agreement_revisions WHERE tenant_id=$1),0)
- +256*(SELECT count(*) FROM flow_capacity_agreements WHERE tenant_id=$1))::text`, tenant.String()).Scan(&used); err != nil {
+ +256*(SELECT count(*) FROM flow_capacity_agreements WHERE tenant_id=$1)
+ +1024*(SELECT count(*) FROM flow_capacity_agreement_sla_refs WHERE tenant_id=$1))::text`, tenant.String()).Scan(&used); err != nil {
 				return err
 			}
 			var parentBytes int64
 			if input.ID == "" {
 				parentBytes = 256
 			}
-			if err := sc.Q.QueryRow(ctx, `SELECT (octet_length($1::jsonb::text)+1024+$2::bigint)::text`, string(body), parentBytes).Scan(&needed); err != nil {
+			if err := sc.Q.QueryRow(ctx, `SELECT (octet_length($1::jsonb::text)+1024+$2::bigint
+ +1024::numeric*jsonb_array_length(COALESCE($1::jsonb->'sla'->'sources','[]'::jsonb)))::text`, string(body), parentBytes).Scan(&needed); err != nil {
 				return err
 			}
 			usedValue, usedOK := new(big.Int).SetString(used, 10)
@@ -342,4 +348,27 @@ func (s *PostgresCapacityAgreements) DeleteCapacityAgreement(ctx context.Context
 		})
 	})
 	return capacityAgreementStorageError(err)
+}
+
+func (s *PostgresCapacityAgreements) slaSourceMetadataTrusted(ctx context.Context, sc tenancy.Scope, agreement CapacityAgreement, version int64) (bool, error) {
+	if agreement.Definition.SLA == nil || len(agreement.Definition.SLA.Sources) == 0 {
+		return false, nil
+	}
+	agents, tests := []string{}, []string{}
+	for _, source := range agreement.Definition.SLA.Sources {
+		agents = append(agents, source.AgentID)
+		tests = append(tests, source.TestID)
+	}
+	var trusted bool
+	err := sc.Q.QueryRow(ctx, `SELECT count(*)=$4::bigint FROM flow_capacity_agreement_sla_refs r
+ JOIN unnest($5::text[],$6::uuid[]) selected(agent_id,test_id)
+   ON selected.agent_id=r.agent_id AND selected.test_id=r.test_id
+ JOIN entity_source_contexts m ON m.tenant_id=r.tenant_id AND m.agent_id=r.agent_id
+   AND m.source_kind=r.source_kind AND m.source_ref=r.source_ref
+ JOIN entity_test_contexts c ON c.tenant_id=r.tenant_id AND c.test_id=r.test_id AND c.context_id=r.context_id
+ WHERE r.tenant_id=$1 AND r.agreement_id=$2 AND r.version=$3
+   AND m.context_id=r.context_id AND m.anchor_entity_id=r.device_id
+   AND m.assigned_at=r.source_assigned_at AND m.assigned_at<=transaction_timestamp()
+   AND (m.expires_at IS NULL OR m.expires_at>transaction_timestamp())`, sc.Tenant.String(), agreement.ID, version, len(agents), agents, tests).Scan(&trusted)
+	return trusted, err
 }

@@ -691,6 +691,11 @@ export interface CarrierSLARule {
   threshold: string
 }
 
+export interface CarrierSLASource {
+  agent_id: string
+  test_id: string
+}
+
 export interface CarrierSLATerms {
   aggregation: "maximum" | "sum_capped"
   carrier: string
@@ -700,6 +705,7 @@ export interface CarrierSLATerms {
   monthly_charge: string
   rules: CarrierSLARule[]
   site?: string
+  sources?: CarrierSLASource[]
 }
 
 export interface ChangeCandidate {

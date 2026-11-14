@@ -21,6 +21,10 @@ func capacityAgreementStoragePlan(schema string, tables []string) []string {
 		{"flow_capacity_agreement_refs", "fx6_agreement_ref_revision_fk", "tenant_id,agreement_id,version", "flow_capacity_agreement_revisions", "tenant_id,agreement_id,version"},
 		{"flow_capacity_agreement_refs", "fx6_agreement_ref_interface_fk", "tenant_id,context_id,interface_id,interface_kind", "entities", "tenant_id,context_id,id,kind"},
 		{"flow_capacity_agreement_refs", "fx6_agreement_ref_tag_fk", "tenant_id,tag_id", "tenant_tag_definitions", "tenant_id,id"},
+		{"flow_capacity_agreement_sla_refs", "carrier_sla_revision_fk", "tenant_id,agreement_id,version", "flow_capacity_agreement_revisions", "tenant_id,agreement_id,version"},
+		{"flow_capacity_agreement_sla_refs", "carrier_sla_source_fk", "tenant_id,agent_id,source_kind,source_ref", "entity_source_contexts", "tenant_id,agent_id,source_kind,source_ref"},
+		{"flow_capacity_agreement_sla_refs", "carrier_sla_test_fk", "tenant_id,test_id", "tests", "tenant_id,id"},
+		{"flow_capacity_agreement_sla_refs", "carrier_sla_device_fk", "tenant_id,context_id,device_id,device_kind", "entities", "tenant_id,context_id,id,kind"},
 	} {
 		if !owned[key.child] {
 			continue
@@ -35,7 +39,7 @@ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conna
 END IF;
 END $fx6_agreement_fk$`, quoteLiteral(child), quoteLiteral(key.name), child, quoteIdent(key.name), key.columns, parent, key.parentColumns))
 	}
-	for _, table := range []string{"flow_capacity_agreement_revisions", "flow_capacity_agreement_refs"} {
+	for _, table := range []string{"flow_capacity_agreement_revisions", "flow_capacity_agreement_refs", "flow_capacity_agreement_sla_refs"} {
 		if owned[table] {
 			plan = append(plan, "REVOKE UPDATE ON "+q+"."+quoteIdent(table)+" FROM probectl_app,probectl_provider")
 		}
@@ -44,6 +48,7 @@ END $fx6_agreement_fk$`, quoteLiteral(child), quoteLiteral(key.name), child, quo
 		child := q + `."flow_capacity_agreement_revisions"`
 		for _, trigger := range []struct{ name, event, function string }{
 			{"capacity_agreement_reference", "INSERT", "public.probectl_capacity_agreement_reference"},
+			{"capacity_agreement_sla_references", "INSERT", "public.probectl_capacity_sla_references"},
 			{"capacity_agreement_head_delete", "DELETE", "public.probectl_capacity_agreement_head_delete"},
 		} {
 			plan = append(plan, "DROP TRIGGER IF EXISTS "+trigger.name+" ON "+child,

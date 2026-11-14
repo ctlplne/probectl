@@ -24,6 +24,8 @@ func TestCapacityAgreementNativeMetadataKeepsServerIdentityAndFullPriceTextRedac
 	item := flow.CapacityAgreement{ID: id, Version: card, CurrentVersion: card,
 		Definition: flow.CapacityAgreementDefinition{Name: "reader@example.test", Reference: card, UnitPrice: card, Currency: "USD",
 			SLA: &flow.CarrierSLATerms{Carrier: "carrier@example.test", CircuitID: card, MonthlyCharge: card, Currency: "USD", CreditCapRatio: "1"}}}
+	item.SLASourceMetadataTrusted = true
+	item.Definition.SLA.Sources = []flow.CarrierSLASource{{AgentID: card, TestID: id}, {AgentID: id, TestID: id}}
 	raw, err := json.Marshal(nativeCapacityAgreement(item))
 	if err != nil {
 		t.Fatal(err)
@@ -40,12 +42,15 @@ func TestCapacityAgreementNativeMetadataKeepsServerIdentityAndFullPriceTextRedac
 	if decoded.Definition.SLA == nil || decoded.Definition.SLA.Carrier == item.Definition.SLA.Carrier || decoded.Definition.SLA.CircuitID == card || decoded.Definition.SLA.MonthlyCharge == card {
 		t.Fatal("carrier SLA financial text bypassed standing PII redaction")
 	}
+	if len(decoded.Definition.SLA.Sources) != 2 || decoded.Definition.SLA.Sources[0].TestID != id || decoded.Definition.SLA.Sources[1].AgentID != id || decoded.Definition.SLA.Sources[0].AgentID == card {
+		t.Fatal("canonical source identity was narrowed or opaque agent text bypassed the PAN floor")
+	}
 	// An explicit operator policy may leave email identities clear, but PANs
 	// remain an always-on floor even with all optional masking disabled.
 	floor := ai.NewEgressGate(nil, nil, ai.RedactionPolicy{}).RedactForTenant(string(raw), "red")
 	var floorItem flow.CapacityAgreement
 	if err := json.Unmarshal([]byte(floor), &floorItem); err != nil || floorItem.Definition.Reference == card || floorItem.Definition.UnitPrice == card ||
-		floorItem.ID != id || floorItem.Version != card || floorItem.CurrentVersion != card || floorItem.Definition.SLA == nil || floorItem.Definition.SLA.MonthlyCharge == card || floorItem.Definition.SLA.CircuitID == card {
+		floorItem.ID != id || floorItem.Version != card || floorItem.CurrentVersion != card || floorItem.Definition.SLA == nil || floorItem.Definition.SLA.MonthlyCharge == card || floorItem.Definition.SLA.CircuitID == card || len(floorItem.Definition.SLA.Sources) != 2 || floorItem.Definition.SLA.Sources[0].AgentID == card || floorItem.Definition.SLA.Sources[0].TestID != id || floorItem.Definition.SLA.Sources[1].AgentID != id {
 		t.Fatal("operator masking knobs bypassed the financial PAN floor or changed server metadata", err)
 	}
 	page, err := marshalCapacityAgreementPage(flow.CapacityAgreementPage{Items: []flow.CapacityAgreement{item}, Next: card, HasMore: true}, true)
