@@ -63,11 +63,12 @@ func runCapacityAgreementNativeScenario(t *testing.T, f *roleExplanationAPIFixtu
 	t.Helper()
 	a, b := f.tenants[0], f.tenants[1]
 	definition := flow.CapacityAgreementDefinition{Name: "WAN financial terms", Reference: "recorded agreement", ValidFrom: "2026-11-01T00:00:00.123456789Z", Target: flow.CapacityTarget{Kind: "interface", ContextID: f.contextID, InterfaceID: f.interfaceID}, BillingDay: 31, Timezone: "Asia/Kathmandu", Direction: "interval_sum", Currency: "USD", CommitBPS: "100000000000", UnitBPS: "1000000", UnitPrice: "1.25"}
+	definition.SLA = &flow.CarrierSLATerms{Carrier: "operator carrier", CircuitID: "operator circuit", Site: "operator site", Currency: "USD", MonthlyCharge: "100.125", CreditCapRatio: "1.25", Aggregation: "maximum", Rules: []flow.CarrierSLARule{{ID: "availability", Metric: "availability", Basis: "original_execution_ratio", GoodWhen: "at_least", Threshold: "0.999", CreditBands: []flow.CarrierSLACreditBand{{From: "0", To: "0.999", CreditRatio: "0.1"}}}}}
 	items := map[string]flow.CapacityAgreement{}
 	for _, tenant := range f.tenants {
 		var item flow.CapacityAgreement
 		call(tenant, "capacity_agreement_create", map[string]any{"definition": definition}, &item, true)
-		if item.ID == "" || item.Version != "1" || !item.TargetPresent || item.Definition.UnitPrice != definition.UnitPrice || item.Definition.ValidFrom != definition.ValidFrom || item.Definition.Target.InterfaceID != f.interfaceID {
+		if item.ID == "" || item.Version != "1" || !item.TargetPresent || item.Definition.UnitPrice != definition.UnitPrice || item.Definition.ValidFrom != definition.ValidFrom || item.Definition.Target.InterfaceID != f.interfaceID || item.Definition.SLA == nil || item.Definition.SLA.MonthlyCharge != definition.SLA.MonthlyCharge || item.Definition.SLA.CreditCapRatio != definition.SLA.CreditCapRatio {
 			t.Fatal("actual native financial create lost complete exact/current-owned terms", item)
 		}
 		items[tenant] = item

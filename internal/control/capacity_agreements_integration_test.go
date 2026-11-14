@@ -64,6 +64,7 @@ func TestCapacityAgreementAPIKeepsCurrentFinancialAuthorityAndTenantStorage(t *t
 	}
 	a, b := f.tenants[0], f.tenants[1]
 	definition := sdk.CapacityAgreementDefinition{Name: "WAN terms", Reference: "recorded contract", ValidFrom: "2026-11-01T00:00:00.123456789Z", Target: sdk.CapacityTarget{Kind: "interface", ContextId: f.contextID, InterfaceId: f.interfaceID}, BillingDay: 31, Timezone: "Asia/Kathmandu", Direction: "max_directional_percentiles", Currency: "USD", CommitBps: "100000000000", UnitBps: "1000000", UnitPrice: "1.250000000000000001"}
+	definition.Sla = &sdk.CarrierSLATerms{Carrier: "operator carrier", CircuitId: "operator circuit", Site: "operator site", Currency: "USD", MonthlyCharge: "100.125000000000000001", CreditCapRatio: "1.25", Aggregation: "maximum", Rules: []sdk.CarrierSLARule{{Id: "availability", Metric: "availability", Basis: "original_execution_ratio", GoodWhen: "at_least", Threshold: "0.999", CreditBands: []sdk.CarrierSLACreditBand{{FromInclusive: "0", ToExclusive: "0.999", CreditRatio: "0.1"}}}}}
 	items := map[string]*sdk.CapacityAgreement{}
 	for _, tenant := range f.tenants {
 		item, err := clients[tenant].CreateCapacityAgreement(t.Context(), sdk.CreateCapacityAgreementRequest{Body: &sdk.CapacityAgreementInput{Definition: definition}})
@@ -79,7 +80,7 @@ func TestCapacityAgreementAPIKeepsCurrentFinancialAuthorityAndTenantStorage(t *t
 			t.Fatal("actual financial CLI lost verified TLS/current authority", code, stderr.String())
 		}
 		var native flow.CapacityAgreement
-		if err := json.Unmarshal(stdout.Bytes(), &native); err != nil || native.ID != item.Id || native.Definition.UnitPrice != definition.UnitPrice || native.Definition.ValidFrom != definition.ValidFrom {
+		if err := json.Unmarshal(stdout.Bytes(), &native); err != nil || native.ID != item.Id || native.Definition.UnitPrice != definition.UnitPrice || native.Definition.ValidFrom != definition.ValidFrom || native.Definition.SLA == nil || native.Definition.SLA.MonthlyCharge != definition.Sla.MonthlyCharge || native.Definition.SLA.CreditCapRatio != definition.Sla.CreditCapRatio {
 			t.Fatal("actual CLI altered exact financial terms", err)
 		}
 	}
