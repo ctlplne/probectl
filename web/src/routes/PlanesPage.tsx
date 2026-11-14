@@ -135,7 +135,13 @@ export function PlanesPage() {
   const anomalies = useFlowAnomalies('1h', '5m')
   const deviceSyslog = useDeviceSyslog(5)
   const deviceConfigs = useDeviceConfigs(5)
-  const devicePivotConfigs = useDeviceConfigs(500, Boolean(requestedConfigID))
+  const devicePivotConfigs = useDeviceConfigs(
+    requestedPreviousConfigID ? 2 : 500,
+    Boolean(requestedConfigID),
+    requestedConfigID && requestedPreviousConfigID
+      ? [requestedConfigID, requestedPreviousConfigID]
+      : [],
+  )
   const deviceNeighbors = useDeviceNeighbors(100)
 
   const nodes = topology.data?.nodes ?? EMPTY_TOPO_NODES

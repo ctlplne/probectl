@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -191,6 +192,9 @@ RETURNING id::text`,
 }
 
 func (s *PostgresOpsStore) ListConfigs(ctx context.Context, tenant string, f OpsFilter) ([]ConfigVersion, error) {
+	if bound, ok := tenancy.FromContext(ctx); ok && bound.String() != tenant {
+		return nil, entity.ErrScopeMismatch
+	}
 	if tenant == "" {
 		return nil, errors.New("device ops: tenant_id is required")
 	}
@@ -200,8 +204,9 @@ func (s *PostgresOpsStore) ListConfigs(ctx context.Context, tenant string, f Ops
 		rows, err := sc.Q.Query(ctx, `SELECT `+configVersionColumns+`
   FROM device_configs
  WHERE tenant_id=$3 AND ($1 = '' OR device = $1)
+ AND (COALESCE(cardinality($4::text[]),0)=0 OR id::text=ANY($4::text[]))
  ORDER BY archived_at DESC
- LIMIT $2`, f.Device, limit, tenant)
+ LIMIT $2`, f.Device, limit, tenant, f.ConfigIDs)
 		if err != nil {
 			return err
 		}

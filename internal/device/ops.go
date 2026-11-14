@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 const defaultOpsLimit = 100
@@ -67,8 +69,9 @@ type OpsStore interface {
 
 // OpsFilter bounds tenant-scoped reads.
 type OpsFilter struct {
-	Device string
-	Limit  int
+	Device    string
+	Limit     int
+	ConfigIDs []string // exact original archive selection, independent of newest-page position
 }
 
 // MemoryOpsStore is a tenant-keyed store for lightweight deployments and tests.
@@ -176,9 +179,16 @@ func (m *MemoryOpsStore) ArchiveConfig(_ context.Context, cfg ConfigVersion) (Co
 	return cfg, nil
 }
 
-func (m *MemoryOpsStore) ListConfigs(_ context.Context, tenant string, f OpsFilter) ([]ConfigVersion, error) {
+func (m *MemoryOpsStore) ListConfigs(ctx context.Context, tenant string, f OpsFilter) ([]ConfigVersion, error) {
 	if tenant == "" {
 		return nil, errors.New("device ops: tenant_id is required")
+	}
+	if bound, ok := tenancy.FromContext(ctx); ok && bound.String() != tenant {
+		return nil, entity.ErrScopeMismatch
+	}
+	ids := map[string]bool{}
+	for _, id := range f.ConfigIDs {
+		ids[id] = true
 	}
 	limit := normalizeOpsLimit(f.Limit)
 	m.mu.RLock()
@@ -188,6 +198,9 @@ func (m *MemoryOpsStore) ListConfigs(_ context.Context, tenant string, f OpsFilt
 	out := make([]ConfigVersion, 0, min(limit, len(rows)))
 	for _, row := range rows {
 		if f.Device != "" && row.Device != f.Device {
+			continue
+		}
+		if len(ids) > 0 && !ids[row.ID] {
 			continue
 		}
 		out = append(out, row)

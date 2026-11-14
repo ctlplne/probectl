@@ -7879,6 +7879,21 @@
               "maximum": 500,
               "default": 100
             }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "style": "form",
+            "explode": true,
+            "description": "Repeat exact original archive IDs to read a referenced pair independently of newest-page position. The complete selection must be available in this tenant; missing, erased or foreign IDs refuse the entire selection.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            }
           }
         ],
         "responses": {
@@ -7913,14 +7928,7 @@
             }
           },
           "404": {
-            "description": "The owned canonical device/source assignment is unavailable.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
+            "description": "A selected original is missing, erased or outside the current tenant; no partial pair is returned."
           },
           "422": {
             "description": "Invalid or incomplete canonical binding or observation interval.",

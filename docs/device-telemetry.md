@@ -825,3 +825,5 @@ leave canonical joins unresolved; the original bus metrics continue to flow.
 `entity_evidence_errors` in the agent stats, plus the corresponding
 `probectl_agent_entity_evidence_*_total` counters on `/metrics`, show this
 channel's outcome without putting addresses or entity IDs in metric labels.
+
+Exact archived comparison links read their two original IDs with repeated `id` query parameters on `GET /v1/device/configs`, independently of newest-page position. Both records must still exist in the authenticated tenant, retain already-redacted content and pass current source/context authorization. Missing, erased or foreign originals refuse the entire selection; a same-hash substitute is never used. CLI callers can repeat `--query id=<original>`; both SDKs expose the same selection.

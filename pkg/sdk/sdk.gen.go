@@ -5234,8 +5234,9 @@ func (c *Client) ListDeviceCollectionOutcomes(ctx context.Context, req ListDevic
 
 // List tenant-scoped device config versions
 type ListDeviceConfigsRequest struct {
-	Device *string `json:"-"`
-	Limit  *int    `json:"-"`
+	Device *string   `json:"-"`
+	Limit  *int      `json:"-"`
+	Id     *[]string `json:"-"`
 }
 
 func (c *Client) ListDeviceConfigs(ctx context.Context, req ListDeviceConfigsRequest) (*DeviceConfigList, error) {
@@ -5246,6 +5247,11 @@ func (c *Client) ListDeviceConfigs(ctx context.Context, req ListDeviceConfigsReq
 	}
 	if req.Limit != nil {
 		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.Id != nil {
+		for _, value := range *req.Id {
+			query.Add("id", formatQueryValue(value))
+		}
 	}
 	var out DeviceConfigList
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {

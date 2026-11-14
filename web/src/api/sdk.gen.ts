@@ -4134,6 +4134,7 @@ export type ListDeviceCollectionOutcomesResponse = DeviceCollectionOutcomeRespon
 export interface ListDeviceConfigsRequest {
   device?: string
   limit?: number
+  id?: string[]
 }
 
 export type ListDeviceConfigsResponse = DeviceConfigList
@@ -6068,6 +6069,7 @@ export class ProbectlSDKClient {
     const query = new URLSearchParams()
     if (request.device !== undefined) query.set("device", String(request.device))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.id !== undefined) for (const value of request.id) query.append("id", String(value))
     return this.requestJSON<ListDeviceConfigsResponse>("GET", path, query, undefined)
   }
 

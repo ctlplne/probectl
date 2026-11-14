@@ -4,6 +4,8 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
+import { useContext } from 'react'
+import { AuthContext } from '../auth/AuthProvider'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import type { DeviceConfigArchiveBinding } from './sdk.gen'
@@ -345,11 +347,24 @@ export function useDeviceSyslog(limit = 5) {
   })
 }
 
-export function useDeviceConfigs(limit = 5, enabled = true) {
+export function useDeviceConfigs(limit = 5, enabled = true, configIDs: readonly string[] = []) {
+  const auth = useContext(AuthContext)
   return useQuery({
-    queryKey: ['device', 'configs', limit],
+    queryKey: [
+      'device',
+      'configs',
+      auth?.tenant.id,
+      auth?.user.id,
+      auth?.permissions,
+      limit,
+      configIDs,
+    ],
     enabled,
-    queryFn: () => apiFetch<DeviceConfigResponse>(`/device/configs?limit=${limit}`),
+    queryFn: ({ signal }) =>
+      apiFetch<DeviceConfigResponse>(
+        `/device/configs?limit=${limit}${configIDs.map((id) => `&id=${encodeURIComponent(id)}`).join('')}`,
+        { signal },
+      ),
   })
 }
 

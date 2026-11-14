@@ -307,12 +307,34 @@ func (s *Server) handleListDeviceConfigs(w http.ResponseWriter, r *http.Request)
 	if limit > deviceMaxLimit {
 		limit = deviceMaxLimit
 	}
+	ids := r.URL.Query()["id"]
+	unique := map[string]bool{}
+	for _, id := range ids {
+		if id == "" || len(id) > 128 {
+			return apierror.BadRequest("invalid original configuration ID")
+		}
+		unique[id] = true
+	}
+	if len(unique) > limit {
+		return apierror.TooLarge("exact configuration selection exceeds the admitted page")
+	}
 	rows, err := s.deviceOps.ListConfigs(r.Context(), tid, device.OpsFilter{
-		Device: strings.TrimSpace(r.URL.Query().Get("device")),
-		Limit:  limit,
+		Device:    strings.TrimSpace(r.URL.Query().Get("device")),
+		Limit:     limit,
+		ConfigIDs: ids,
 	})
 	if err != nil {
 		return err
+	}
+	if len(ids) > 0 {
+		if len(rows) != len(unique) {
+			return apierror.NotFound("original configuration selection is unavailable")
+		}
+		for _, row := range rows {
+			if !unique[row.ID] || row.Content == "" {
+				return apierror.NotFound("original configuration selection is unavailable")
+			}
+		}
 	}
 	boundRows := false
 	for _, row := range rows {
@@ -326,7 +348,7 @@ func (s *Server) handleListDeviceConfigs(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			return apierror.Unavailable("complete configuration archive is unavailable")
 		}
-		current, err := s.deviceOps.ListConfigs(r.Context(), tid, device.OpsFilter{Device: strings.TrimSpace(r.URL.Query().Get("device")), Limit: limit})
+		current, err := s.deviceOps.ListConfigs(r.Context(), tid, device.OpsFilter{Device: strings.TrimSpace(r.URL.Query().Get("device")), Limit: limit, ConfigIDs: ids})
 		if err != nil {
 			return apierror.Unavailable("current configuration archive is unavailable")
 		}

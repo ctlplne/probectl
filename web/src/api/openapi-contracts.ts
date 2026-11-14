@@ -1328,7 +1328,7 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/planes.ts',
     method: 'GET',
-    path: '`/device/configs?limit=${limit}`',
+    path: "`/device/configs?limit=${limit}${configIDs.map((id) => `&id=${encodeURIComponent(id)}`).join('')}`",
     response: 'DeviceConfigResponse',
     generated: 'JsonObject',
     reason:
