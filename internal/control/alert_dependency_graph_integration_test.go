@@ -111,6 +111,16 @@ func TestDependencyGraphServesCompleteCurrentTenantReferences(t *testing.T) {
 			}
 		}
 	}
+	// Every referenced row belongs to this tenant/context, but those facts
+	// cannot be recombined into source triples the operator never assigned.
+	a := f.tenants[0]
+	mixed := &alert.DependencyGraphInput{Nodes: append([]alert.DependencyNodeInput(nil), graphs[a].Nodes...)}
+	mixed.Nodes[0].TestID, mixed.Nodes[1].TestID = mixed.Nodes[1].TestID, mixed.Nodes[0].TestID
+	call(a, http.MethodPut, mixed, http.StatusConflict)
+	state := call(a, http.MethodGet, nil, http.StatusOK)
+	if state.Policy == nil || !reflect.DeepEqual(state.Policy.Graph, graphs[a]) {
+		t.Fatal("cross-combined source references changed the existing graph")
+	}
 	call(f.tenants[0], http.MethodPut, graphs[f.tenants[1]], http.StatusConflict)
 	// A missing current reference must not borrow the sibling's registered
 	// sources, despite equal canonical/context IDs and overlapping addresses.
