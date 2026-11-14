@@ -312,10 +312,14 @@ describe('plane workspaces', () => {
       if (pathOf(input) !== '/v1/device/configs') return fallback(input, init)
       const raw =
         typeof input === 'string' ? input : input instanceof URL ? input.href : String(input)
-      const limit = new URL(raw, 'http://probectl.invalid').searchParams.get('limit')
+      const query = new URL(raw, 'http://probectl.invalid').searchParams
+      const exactIDs = query.getAll('id')
       return Promise.resolve(
         jsonResponse({
-          items: limit === '500' ? [...newer, ...exactPair] : newer,
+          items:
+            exactIDs.length === 2 && exactIDs.includes('config-2') && exactIDs.includes('config-1')
+              ? exactPair
+              : newer,
           archive_running: true,
         }),
       )
@@ -346,9 +350,15 @@ describe('plane workspaces', () => {
         .map(([input]) => {
           const raw =
             typeof input === 'string' ? input : input instanceof URL ? input.href : String(input)
-          return new URL(raw, 'http://probectl.invalid').searchParams.get('limit')
+          const query = new URL(raw, 'http://probectl.invalid').searchParams
+          return { limit: query.get('limit'), ids: query.getAll('id') }
         }),
-    ).toEqual(expect.arrayContaining(['5', '500']))
+    ).toEqual(
+      expect.arrayContaining([
+        { limit: '5', ids: [] },
+        { limit: '2', ids: ['config-2', 'config-1'] },
+      ]),
+    )
   })
 
   test('fails closed when a config pivot does not name the exact predecessor', async () => {
