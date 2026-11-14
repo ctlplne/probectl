@@ -193,6 +193,7 @@ var longRequests = []struct {
 	{http.MethodPost, "/v1/incidents/{id}/impact", 75 * time.Second},
 	{http.MethodPost, "/v1/incidents/{id}/verdict", 75 * time.Second},
 	{http.MethodPost, "/v1/incidents/{id}/exports", 75 * time.Second},
+	{http.MethodGet, "/v1/changes/{id}/effects", 75 * time.Second},
 	{http.MethodPost, "/v1/dashboard-reports", 75 * time.Second},
 }
 

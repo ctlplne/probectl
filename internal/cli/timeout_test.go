@@ -84,6 +84,7 @@ func TestIncidentAndReportQueriesOutliveTheDefaultRequestBudget(t *testing.T) {
 	for _, args := range [][]string{
 		{"incident", "verdict", "case_1", "--body-file", "-"},
 		{"incident", "impact", "case_1", "--body-file", "-"},
+		{"oncall", "change-effects", "change_1", "--query", "from=2026-11-01T00:00:00Z", "--query", "to=2026-11-02T00:00:00Z"},
 		{"dashboard-report", "generate", "--body-file", "-"},
 	} {
 		var out, diagnostics bytes.Buffer
