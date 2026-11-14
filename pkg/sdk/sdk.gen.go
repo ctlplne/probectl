@@ -866,6 +866,7 @@ type ChangeEvent struct {
 	Source     string                 `json:"source,omitempty"`
 	Summary    string                 `json:"summary,omitempty"`
 	Target     string                 `json:"target,omitempty"`
+	TenantId   string                 `json:"tenant_id,omitempty"`
 	Title      string                 `json:"title,omitempty"`
 	Url        string                 `json:"url,omitempty"`
 }

@@ -767,6 +767,7 @@ export interface ChangeEvent {
   source?: string
   summary?: string
   target?: string
+  tenant_id?: string
   title?: string
   url?: string
 }

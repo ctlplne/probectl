@@ -25208,6 +25208,11 @@
           "occurred_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Tenant of the authorized original; never selects or grants a query scope."
           }
         }
       },
