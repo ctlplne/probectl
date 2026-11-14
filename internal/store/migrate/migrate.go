@@ -121,7 +121,8 @@ func (r *Runner) Apply(ctx context.Context, pool *pgxpool.Pool) ([]int64, error)
 	// applying new work. CREATE INDEX CONCURRENTLY IF NOT EXISTS SKIPS a leftover
 	// invalid index, so without this the schema stays broken while the ledger
 	// says the migration is applied (e.g. 0098 => every incident-signal insert
-	// fails forever). Safe under the exclusive lock: no peer is building indexes.
+	// fails forever). Repair only indexes owned by this schema's migration set;
+	// the lock gives no authority over operator or other tenant-schema indexes.
 	if err := r.repairInvalidIndexesLocked(ctx, conn, migrations); err != nil {
 		return nil, err
 	}
@@ -177,10 +178,14 @@ func applyOneNoTx(ctx context.Context, conn *pgxpool.Conn, m Migration) error {
 	// while the ledger claims success. Under the exclusive advisory lock a CIC
 	// no longer deadlocks, so this should not trigger; if it does (e.g. a genuine
 	// data conflict), fail loudly and leave the migration pending to retry.
-	if invalid, err := invalidIndexNames(ctx, conn); err != nil {
+	invalid, err := invalidIndexes(ctx, conn)
+	if err != nil {
 		return err
-	} else if len(invalid) > 0 {
-		return fmt.Errorf("left invalid index(es) %v; not recording as applied", invalid)
+	}
+	for _, index := range invalid {
+		if _, owned := migrationCreatingIndex([]Migration{m}, index.Name); owned {
+			return fmt.Errorf("left invalid index %s.%s; not recording as applied", index.Schema, index.Name)
+		}
 	}
 	if _, e := conn.Exec(ctx, `INSERT INTO schema_migrations (version, name) VALUES ($1, $2)`, m.Version, m.Name); e != nil {
 		return fmt.Errorf("record no-tx ledger: %w", e)
@@ -230,54 +235,53 @@ func acquireMigrationLock(ctx context.Context, conn *pgxpool.Conn) error {
 
 var createIndexNameRE = regexp.MustCompile(`(?i)\bcreate\s+(?:unique\s+)?index\s+(?:concurrently\s+)?(?:if\s+not\s+exists\s+)?"?([a-zA-Z0-9_$]+)"?`)
 
-// invalidIndexNames returns the names of indexes PostgreSQL marks invalid
-// (indisvalid = false), excluding the catalog schemas. A CIC interrupted by a
-// crash or deadlock leaves exactly such an index.
-func invalidIndexNames(ctx context.Context, conn *pgxpool.Conn) ([]string, error) {
-	rows, err := conn.Query(ctx, `SELECT c.relname
+type invalidIndex struct {
+	Schema, Name string
+}
+
+// Other schemas have independent migration ownership. A matching index name
+// there must never nominate an unqualified DROP in the current schema.
+func invalidIndexes(ctx context.Context, conn *pgxpool.Conn) ([]invalidIndex, error) {
+	rows, err := conn.Query(ctx, `SELECT n.nspname,c.relname
 		FROM pg_index i
 		JOIN pg_class c ON c.oid = i.indexrelid
 		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE NOT i.indisvalid AND n.nspname NOT IN ('pg_catalog', 'information_schema')`)
+		WHERE NOT i.indisvalid AND n.nspname = current_schema()`)
 	if err != nil {
 		return nil, fmt.Errorf("scan invalid indexes: %w", err)
 	}
 	defer rows.Close()
-	var names []string
+	var indexes []invalidIndex
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var index invalidIndex
+		if err := rows.Scan(&index.Schema, &index.Name); err != nil {
 			return nil, err
 		}
-		names = append(names, name)
+		indexes = append(indexes, index)
 	}
-	return names, rows.Err()
+	return indexes, rows.Err()
 }
 
-// repairInvalidIndexesLocked drops every INVALID index and recreates it by
-// re-running the migration body that creates it (PLAT-03). Called under the
-// exclusive advisory lock, where any invalid index is a leftover from a prior
-// crashed/deadlocked run (no peer is concurrently building one), so dropping and
-// rebuilding is safe. An invalid index with no matching migration is dropped and
-// left to a pending migration to recreate.
+// Repair interrupted migration-owned CICs under the exclusive advisory lock.
+// Unknown indexes are preserved: no migration body means no proven replacement.
 func (r *Runner) repairInvalidIndexesLocked(ctx context.Context, conn *pgxpool.Conn, migrations []Migration) error {
-	invalid, err := invalidIndexNames(ctx, conn)
+	invalid, err := invalidIndexes(ctx, conn)
 	if err != nil {
 		return err
 	}
-	for _, name := range invalid {
-		if _, err := conn.Exec(ctx, fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s", pgx.Identifier{name}.Sanitize())); err != nil {
-			return fmt.Errorf("drop invalid index %q: %w", name, err)
-		}
-		m, ok := migrationCreatingIndex(migrations, name)
+	for _, index := range invalid {
+		m, ok := migrationCreatingIndex(migrations, index.Name)
 		if !ok {
-			r.log.Warn("dropped invalid index with no matching migration; a pending migration must recreate it", "index", name)
+			r.log.Warn("preserving invalid index outside migration ownership", "schema", index.Schema, "index", index.Name)
 			continue
 		}
-		if err := execNoTxBody(ctx, conn, m); err != nil {
-			return fmt.Errorf("recreate invalid index %q via %04d_%s: %w", name, m.Version, m.Name, err)
+		if _, err := conn.Exec(ctx, "DROP INDEX CONCURRENTLY IF EXISTS "+pgx.Identifier{index.Schema, index.Name}.Sanitize()); err != nil {
+			return fmt.Errorf("drop invalid index %s.%s: %w", index.Schema, index.Name, err)
 		}
-		r.log.Info("repaired invalid index left by an interrupted CREATE INDEX CONCURRENTLY", "index", name, "migration", m.Version)
+		if err := execNoTxBody(ctx, conn, m); err != nil {
+			return fmt.Errorf("recreate invalid index %s.%s via %04d_%s: %w", index.Schema, index.Name, m.Version, m.Name, err)
+		}
+		r.log.Info("repaired invalid index left by an interrupted CREATE INDEX CONCURRENTLY", "schema", index.Schema, "index", index.Name, "migration", m.Version)
 	}
 	return nil
 }

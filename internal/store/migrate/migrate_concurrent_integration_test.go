@@ -18,39 +18,22 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/store/migrate"
 	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
-// TestConcurrentApplyIsDeadlockFree is the TQ-02 regression, and it must run
-// under the gate it protects. `make test-isolation` is where the deadlock bit:
-// it runs its packages in PARALLEL (no -p=1) and each applies migrations on the
-// shared database at once. Without a serializing lock, a blocking advisory lock
-// held an open snapshot while a peer's CREATE INDEX CONCURRENTLY waited on it —
-// deadlocking (40P01) and non-deterministically wedging the gate. PLAT-03's
-// pg_try_advisory_lock + backoff makes concurrent Apply serialize safely; this
-// proves it under contention, including a no-tx CONCURRENTLY index (the exact
-// statement that used to deadlock), and that the resulting index is VALID.
-//
-// TQ-02: the `integration || isolation` constraint is the fix here — the proof
-// now compiles and runs under BOTH `make test-integration` AND the
-// `-tags=isolation` cross-tenant gate whose non-determinism this closes, rather
-// than only the serialized (-p=1) integration suite where the race can't recur.
+// TestConcurrentApplyIsDeadlockFree keeps six simultaneous appliers on one
+// database, including the original no-tx concurrent-index race. Nonblocking
+// advisory-lock polling must avoid holding a snapshot that deadlocks CIC.
+// The owned database excludes unrelated suites' snapshots and catalog traffic;
+// the concurrency, deadline and final valid-index assertion remain unchanged.
 func TestConcurrentApplyIsDeadlockFree(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-
-	pool, err := pgxpool.New(ctx, concurrentDSN())
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer pool.Close()
-	if err := pool.Ping(ctx); err != nil {
-		testsupport.SkipOrFatal(t, "no database available: %v", err)
-	}
-
+	pool := ownedMigrationPool(ctx, t)
 	suffix := time.Now().UnixNano()
 	table := fmt.Sprintf("tq02_concurrent_%d", suffix)
 	index := table + "_value_idx"
@@ -63,8 +46,8 @@ func TestConcurrentApplyIsDeadlockFree(t *testing.T) {
 			fmt.Sprintf("-- probectl:no-tx: CREATE INDEX CONCURRENTLY cannot run in a migration transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s (value);", index, table))},
 	}
 
-	// Release all appliers at once to maximize contention on the global
-	// migration advisory lock (what parallel isolation packages do).
+	// Six appliers still compete for the same session lock and build the same
+	// concurrent index. Other packages cannot hold snapshots of this database.
 	const n = 6
 	var gate sync.WaitGroup
 	gate.Add(1)
@@ -87,8 +70,6 @@ func TestConcurrentApplyIsDeadlockFree(t *testing.T) {
 		}
 	}
 
-	// The CONCURRENTLY-built index must be present AND valid (a crashed/deadlocked
-	// CIC leaves an INVALID index that silently breaks the schema).
 	var valid bool
 	if err := pool.QueryRow(ctx, `
 SELECT i.indisvalid
@@ -99,6 +80,45 @@ SELECT i.indisvalid
 	if !valid {
 		t.Fatalf("TQ-02: concurrent index %q is INVALID after concurrent apply", index)
 	}
+}
+
+func ownedMigrationPool(ctx context.Context, t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	admin, err := pgxpool.New(ctx, concurrentDSN())
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(admin.Close)
+	if err := admin.Ping(ctx); err != nil {
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
+	}
+
+	suffix := time.Now().UnixNano()
+	// Compete with six appliers on the same database, without inheriting
+	// unrelated packages' public-catalog work or their long-lived snapshots.
+	// Advisory locking and the no-tx CIC still exercise the original race.
+	database := fmt.Sprintf("probectl_qa_beta_migrate_%d", suffix)
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{database}.Sanitize()); err != nil {
+		testsupport.SkipOrFatal(t, "dedicated migration proof requires QA CREATE DATABASE privilege: %v", err)
+	}
+	var pool *pgxpool.Pool
+	t.Cleanup(func() {
+		if pool != nil {
+			pool.Close()
+		}
+		cleanup, stop := context.WithTimeout(context.Background(), 15*time.Second)
+		defer stop()
+		if _, err := admin.Exec(cleanup, "DROP DATABASE "+pgx.Identifier{database}.Sanitize()); err != nil {
+			t.Error("drop owned migration proof database:", err)
+		}
+	})
+	settings := admin.Config()
+	settings.ConnConfig.Database = database
+	pool, err = pgxpool.NewWithConfig(ctx, settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pool
 }
 
 // concurrentDSN resolves the test Postgres DSN without depending on the
