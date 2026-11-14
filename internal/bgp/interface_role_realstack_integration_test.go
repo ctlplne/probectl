@@ -125,6 +125,10 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	}
 	awaitRoleRouterFlow(t, st, reg, links, observed)
 
+	t.Run("routed-path-health", func(t *testing.T) {
+		proveRouterPathHealth(t, st, lab, reg, other, []string{deviceAgent, otherAgent}, links[2].peerIP, primary, community)
+	})
+
 	// Actual operator removal is a negative control for origin authority.
 	// An inferred peer device must not substitute for the emitting router.
 	requireRoleSourceBinding(t, st, reg, routerBMPSourceBinding(listener.collectorID, listener.routerID, reg.contextID, ""))
