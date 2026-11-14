@@ -49,7 +49,30 @@ test('path health retains exact originals and assumptions across paired tenant s
                   from: '2026-11-14T00:00:00Z',
                   to: '2026-11-14T00:01:00Z',
                   method: 'original_counter_poll_start_mean',
-                  config_coverage: 'unavailable_no_context_bound_archive',
+                  config_coverage: 'operator_bound_archives',
+                  config_changes: Array.from({ length: 501 }, (_, revision) => ({
+                    id: `original-config-${lane}-${revision + 1}`,
+                    version: revision + 1,
+                    content_hash: `original-hash-${lane}-${revision + 1}`,
+                    previous_id: revision > 0 ? `original-config-${lane}-${revision}` : undefined,
+                    previous_hash: revision > 0 ? `original-hash-${lane}-${revision}` : undefined,
+                    previous_version: revision > 0 ? revision : undefined,
+                    drifted: revision > 0,
+                    change_status:
+                      revision === 0 ? 'initial_archive' : 'original_predecessor_verified',
+                    observed_at: '2026-11-14T00:00:30Z',
+                    archived_at: '2026-11-14T00:00:30Z',
+                    binding: {
+                      kind: 'operator_bound_archive',
+                      context_id: context,
+                      device_entity_id: entity,
+                      agent_id: 'snmp-agent',
+                      source_ref: '192.0.2.1',
+                      source_assigned_at: '2026-11-14T00:00:00Z',
+                      agent_assigned_at: '2026-11-14T00:00:00Z',
+                      bound_at: '2026-11-14T00:00:30Z',
+                    },
+                  })),
                   counters: [
                     {
                       metric: 'probectl.device.if.in.octets',
@@ -94,6 +117,8 @@ test('path health retains exact originals and assumptions across paired tenant s
     expect(health).toHaveTextContent('9007199254740993')
     expect(health).toHaveTextContent(`capture-${lane}`)
     expect(health).not.toHaveTextContent(`capture-${3 - lane}`)
+    expect(health).toHaveTextContent(`original-config-${lane}-501`)
+    expect(health).not.toHaveTextContent(`original-config-${3 - lane}-501`)
     expect(
       within(health).getByRole('table', { name: 'Original directional interface counters' }),
     ).toBeInTheDocument()

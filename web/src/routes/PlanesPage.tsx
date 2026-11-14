@@ -64,6 +64,7 @@ import { ExplainView } from './ExplainView'
 import { IdentityConflictsCard } from './IdentityConflictsCard'
 import { DeviceMetricsCard } from '../components/DeviceMetricsCard'
 import { ConfigDiffDialog, type ConfigComparison } from './ConfigDiffDialog'
+import { ConfigArchiveBinding } from '../components/ConfigArchiveBinding'
 import { findPreviousConfig } from './configDiff'
 
 interface Plane {
@@ -1142,6 +1143,11 @@ function DevicePanel({
     },
     { key: 'version', header: t('planes.device.column.version'), render: (c) => String(c.version) },
     {
+      key: 'binding',
+      header: 'Device association',
+      render: (c) => <ConfigArchiveBinding config={c} />,
+    },
+    {
       key: 'drift',
       header: t('planes.device.column.drift'),
       render: (c) => (
@@ -1379,6 +1385,12 @@ function DevicePanel({
                         </Badge>
                       </div>
                       <dl className={styles.configVersionFacts}>
+                        <div>
+                          <dt>Device association</dt>
+                          <dd>
+                            <ConfigArchiveBinding config={config} />
+                          </dd>
+                        </div>
                         <div>
                           <dt>{t('planes.device.column.version')}</dt>
                           <dd>{config.version}</dd>

@@ -789,6 +789,7 @@ export interface CollectorRegistration {
 }
 
 export interface ConfigChangeReference {
+  binding?: DeviceConfigArchiveBinding | null
   current_hash: string
   current_id: string
   current_version: number
@@ -1075,11 +1076,45 @@ export interface DeviceCollectionOutcomeResponse {
 
 export type DeviceCollectionOutcomeState = "ok_with_rows" | "healthy_empty" | "unsupported" | "failed" | "never_observed"
 
+export interface DeviceConfigArchiveBinding {
+  agent_assigned_at: string
+  agent_id: string
+  bound_at: string
+  context_id: string
+  device_entity_id: string
+  kind: "operator_bound_archive"
+  source_assigned_at: string
+  source_ref: string
+}
+
+export interface DeviceConfigArchiveReference {
+  archived_at: string
+  binding: DeviceConfigArchiveBinding
+  change_status: "initial_archive" | "no_content_change" | "original_predecessor_verified" | "unavailable_original_predecessor"
+  content_hash: string
+  drifted: boolean
+  id: string
+  observed_at: string
+  previous_hash?: string
+  previous_id?: string
+  previous_version?: number
+  source?: string
+  version: number
+}
+
 export interface DeviceConfigArchiveRequest {
+  binding?: DeviceConfigBindingInput | null
   content: string
   device: string
   observed_at?: string
   source?: string
+}
+
+export interface DeviceConfigBindingInput {
+  agent_id: string
+  context_id: string
+  device_entity_id: string
+  source_ref: string
 }
 
 export interface DeviceConfigList {
@@ -1091,6 +1126,7 @@ export interface DeviceConfigList {
 
 export interface DeviceConfigVersion {
   archived_at?: string
+  binding?: DeviceConfigArchiveBinding | null
   content?: string
   content_hash?: string
   device?: string
@@ -3028,6 +3064,7 @@ export interface PathHistory {
 
 export interface PathInterfaceHealth {
   agent_id?: string
+  config_changes?: DeviceConfigArchiveReference[]
   config_coverage: string
   context_id?: string
   counters: PathHealthCounter[]

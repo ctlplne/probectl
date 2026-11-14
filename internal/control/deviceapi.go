@@ -7,13 +7,20 @@
 package control
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -92,10 +99,18 @@ type deviceSyslogRequest struct {
 }
 
 type deviceConfigArchiveRequest struct {
-	Device     string    `json:"device"`
-	Source     string    `json:"source,omitempty"`
-	Content    string    `json:"content"`
-	ObservedAt time.Time `json:"observed_at,omitempty"`
+	Device     string                      `json:"device"`
+	Source     string                      `json:"source,omitempty"`
+	Content    string                      `json:"content"`
+	ObservedAt time.Time                   `json:"observed_at,omitempty"`
+	Binding    *deviceConfigBindingRequest `json:"binding,omitempty"`
+}
+
+type deviceConfigBindingRequest struct {
+	ContextID      string `json:"context_id"`
+	DeviceEntityID string `json:"device_entity_id"`
+	AgentID        string `json:"agent_id"`
+	SourceRef      string `json:"source_ref"`
 }
 
 // handleListDevices serves GET /v1/devices — topology-visible managed network
@@ -227,15 +242,34 @@ func (s *Server) handleArchiveDeviceConfig(w http.ResponseWriter, r *http.Reques
 	if strings.TrimSpace(req.Device) == "" || strings.TrimSpace(req.Content) == "" {
 		return apierror.BadRequest("device and content are required")
 	}
+	var binding *device.ConfigArchiveBinding
+	if req.Binding != nil {
+		ctx, err := bindFlowRoleContext(r.Context(), auth.PrincipalFrom(r.Context()))
+		if err != nil {
+			return err
+		}
+		r = r.WithContext(ctx)
+		binding = &device.ConfigArchiveBinding{ContextID: req.Binding.ContextID, DeviceEntityID: req.Binding.DeviceEntityID, AgentID: req.Binding.AgentID, SourceRef: req.Binding.SourceRef}
+		if err := s.authorizeConfigArchiveBinding(r, binding, permMetricsWrite); err != nil {
+			return err
+		}
+	}
 	row, err := s.deviceOps.ArchiveConfig(r.Context(), device.ConfigVersion{
 		TenantID:   tid,
 		Device:     req.Device,
 		Source:     strings.TrimSpace(req.Source),
 		Content:    req.Content,
 		ObservedAt: req.ObservedAt,
+		Binding:    binding,
 	})
 	if err != nil {
-		return apierror.BadRequest(err.Error())
+		if errors.Is(err, device.ErrConfigBinding) {
+			return apierror.Validation("a complete current owned archive binding and observation time are required")
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apierror.NotFound("the owned canonical device/source assignment is unavailable")
+		}
+		return apierror.Unavailable("device configuration archive is temporarily unavailable")
 	}
 	// AUD-08 (docs/guardrails.md G7): config archive is declared explicit-mode in
 	// the audit-policy matrix, so the handler appends the declared tenant-chain
@@ -246,6 +280,11 @@ func (s *Server) handleArchiveDeviceConfig(w http.ResponseWriter, r *http.Reques
 			return s.recordAudit(ctx, sc, r, "device.config_archive", row.Device,
 				map[string]any{"config_id": row.ID, "version": row.Version, "drifted": row.Drifted})
 		}); err != nil {
+			return err
+		}
+	}
+	if binding != nil {
+		if err := s.authorizeConfigArchiveBinding(r, row.Binding, permMetricsWrite); err != nil {
 			return err
 		}
 	}
@@ -272,12 +311,41 @@ func (s *Server) handleListDeviceConfigs(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items":            rows,
-		"archive_running":  true,
-		"effective_limit":  limit,
-		"redaction_policy": "common network secrets are redacted before storage",
-	})
+	boundRows := false
+	for _, row := range rows {
+		if row.Binding != nil {
+			boundRows = true
+		}
+	}
+	response := map[string]any{"items": rows, "archive_running": true, "effective_limit": limit, "redaction_policy": "common network secrets are redacted before storage"}
+	if boundRows {
+		body, err := json.Marshal(response)
+		if err != nil {
+			return apierror.Unavailable("complete configuration archive is unavailable")
+		}
+		current, err := s.deviceOps.ListConfigs(r.Context(), tid, device.OpsFilter{Device: strings.TrimSpace(r.URL.Query().Get("device")), Limit: limit})
+		if err != nil {
+			return apierror.Unavailable("current configuration archive is unavailable")
+		}
+		before, err := json.Marshal(rows)
+		if err != nil {
+			return apierror.Unavailable("complete configuration archive is unavailable")
+		}
+		after, err := json.Marshal(current)
+		if err != nil || !bytes.Equal(before, after) {
+			return apierror.Unavailable("configuration archive changed during read; retry")
+		}
+		for _, row := range rows {
+			if row.Binding != nil {
+				if err := s.authorizeConfigArchiveBinding(r, row.Binding, ai.PermMetricsRead); err != nil {
+					return err
+				}
+			}
+		}
+		writeJSON(w, http.StatusOK, json.RawMessage(body))
+		return nil
+	}
+	writeJSON(w, http.StatusOK, response)
 	return nil
 }
 

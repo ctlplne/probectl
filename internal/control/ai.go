@@ -96,7 +96,7 @@ func buildEngineWithPolicyLoader(
 	if pool != nil || src.Flow != nil || src.DeviceOps != nil {
 		// The events domain is the high-cardinality event drawer: change
 		// timeline rows plus flow summaries when a flow store is attached.
-		opts = append(opts, ai.WithEvents(changeEventsSource{pool: pool, flow: src.Flow, configs: src.DeviceOps}))
+		opts = append(opts, ai.WithEvents(changeEventsSource{pool: pool, flow: src.Flow, configs: src.DeviceOps, owner: src.NativeFlow}))
 	}
 	return ai.NewEngine(opts...)
 }
@@ -412,7 +412,8 @@ func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 		}
 		queryRange = ai.TimeRange{Start: req.Range.Start, End: req.Range.End}
 	}
-	analysisCtx := r.Context()
+	configScope := s.configEvidenceForRequest(r, ai.PermEventsRead, "ai.query")
+	analysisCtx := ai.WithCurrentEvidence(configScope.withContext(r.Context()), configScope.check)
 	var prepared *pathHealthRCA
 	if _, pathSelected := req.Subject["path_test_id"]; pathSelected {
 		var err error
@@ -448,7 +449,7 @@ func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 	// U-093: optionally persist the artifact (full answer + model/config hash)
 	// for reproducibility/disputes; best-effort, never blocks the answer.
 	// Path evidence remains on the live/stateless path with its current sources.
-	if prepared == nil {
+	if prepared == nil && len(configScope.selected()) == 0 {
 		s.persistAnswer(r, ans)
 	}
 	// RCA is a data-access action — audit it (guardrail 7); a best-effort write
@@ -474,7 +475,14 @@ func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 		writeJSON(w, http.StatusOK, json.RawMessage(body))
 		return nil
 	}
-	writeJSON(w, http.StatusOK, ans)
+	body, err := json.Marshal(ans)
+	if err != nil {
+		return apierror.Unavailable("complete RCA output is unavailable")
+	}
+	if err := configScope.check(analysisCtx); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, json.RawMessage(body))
 	return nil
 }
 

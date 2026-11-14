@@ -20,25 +20,27 @@ import (
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 type pathInterfaceHealth struct {
-	Status           string              `json:"status"`
-	ContextID        string              `json:"context_id,omitempty"`
-	InterfaceID      string              `json:"interface_id,omitempty"`
-	DeviceID         string              `json:"device_id,omitempty"`
-	AgentID          string              `json:"agent_id,omitempty"`
-	SourceRef        string              `json:"source_ref,omitempty"`
-	From             time.Time           `json:"from"`
-	To               time.Time           `json:"to"`
-	PhysicalMaxBPS   string              `json:"physical_max_bps,omitempty"`
-	Method           string              `json:"method"`
-	ConfigCoverage   string              `json:"config_coverage"`
-	SourceValidUntil *time.Time          `json:"source_valid_until,omitempty"`
-	Counters         []pathHealthCounter `json:"counters"`
+	Status           string                          `json:"status"`
+	ContextID        string                          `json:"context_id,omitempty"`
+	InterfaceID      string                          `json:"interface_id,omitempty"`
+	DeviceID         string                          `json:"device_id,omitempty"`
+	AgentID          string                          `json:"agent_id,omitempty"`
+	SourceRef        string                          `json:"source_ref,omitempty"`
+	From             time.Time                       `json:"from"`
+	To               time.Time                       `json:"to"`
+	PhysicalMaxBPS   string                          `json:"physical_max_bps,omitempty"`
+	Method           string                          `json:"method"`
+	ConfigCoverage   string                          `json:"config_coverage"`
+	ConfigChanges    []device.ConfigArchiveReference `json:"config_changes,omitempty"`
+	SourceValidUntil *time.Time                      `json:"source_valid_until,omitempty"`
+	Counters         []pathHealthCounter             `json:"counters"`
 }
 
 type pathHealthOptions struct {
@@ -54,10 +56,11 @@ type pathHealthCheck struct {
 }
 
 type pathHealthOperation struct {
-	op        capacityForecastOperation
-	options   pathHealthOptions
-	remaining int64
-	checks    []pathHealthCheck
+	op           capacityForecastOperation
+	options      pathHealthOptions
+	remaining    int64
+	checks       []pathHealthCheck
+	configChecks []pathConfigCheck
 }
 
 func pathHealthRequested(r *http.Request) (bool, error) {
@@ -201,6 +204,9 @@ func (s *Server) readPathInterfaceHealth(query *pathHealthOperation, scope entit
 		result.Status = "no_original_observations"
 	}
 	query.checks = append(query.checks, pathHealthCheck{target: target, device: device, address: address, rows: rows})
+	if err := s.readPathConfigReferences(query, target, result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -311,6 +317,9 @@ func (s *Server) revalidatePathHealth(query *pathHealthOperation, binding store.
 		}
 	}
 	budget := flowstore.CounterBudget{MemoryBytes: query.op.budget.MemoryBytes, WorkUnits: query.op.budget.MemoryBytes, Timeout: query.op.budget.ExecutionLimit}
+	if err := s.revalidatePathConfigReferences(query); err != nil {
+		return err
+	}
 	for _, check := range query.checks {
 		id, err := store.NewDeviceCounterCaptures(s.pool).CurrentAddressInterface(ctx, check.target.Scope, check.device, check.address)
 		if err != nil || id != check.target.InterfaceID {

@@ -110,6 +110,7 @@ func ProvisionPlan(schema string, tenantTables []string) []string {
 	plan = append(plan, tagStoragePlan(schema, tenantTables, true)...)
 	plan = append(plan, pathTargetContextPlan(schema, tenantTables)...)
 	plan = append(plan, reportArtifactStoragePlan(schema, tenantTables)...)
+	plan = append(plan, deviceConfigStoragePlan(schema, tenantTables)...)
 	return plan
 }
 
@@ -640,6 +641,7 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 	plan = append(plan, tagStoragePlan(schema, cat.TenantTables, false)...)
 	plan = append(plan, pathTargetContextPlan(schema, cat.TenantTables)...)
 	plan = append(plan, reportArtifactStoragePlan(schema, cat.TenantTables)...)
+	plan = append(plan, deviceConfigStoragePlan(schema, cat.TenantTables)...)
 	return plan
 }
 

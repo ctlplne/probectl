@@ -127,7 +127,13 @@ func (s *PostgresOpsStore) ArchiveConfig(ctx context.Context, cfg ConfigVersion)
 	cfg.Device = strings.TrimSpace(cfg.Device)
 	cfg.Content = RedactConfig(cfg.Content)
 	cfg.ContentHash = hashConfig(cfg.Content)
-	if cfg.ObservedAt.IsZero() {
+	if cfg.Binding != nil {
+		bound, ok := tenancy.FromContext(ctx)
+		if !ok || bound.String() != cfg.TenantID {
+			return ConfigVersion{}, ErrConfigBinding
+		}
+	}
+	if cfg.ObservedAt.IsZero() && cfg.Binding == nil {
 		cfg.ObservedAt = s.now()
 	}
 	cfg.ObservedAt = cfg.ObservedAt.UTC()
@@ -136,11 +142,25 @@ func (s *PostgresOpsStore) ArchiveConfig(ctx context.Context, cfg ConfigVersion)
 	cfg.Drifted = false
 	cfg.Version = 1
 	err := s.inTenant(ctx, cfg.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := bindConfigArchiveInScope(ctx, sc, &cfg); err != nil {
+			return err
+		}
+		if err := lockConfigStream(ctx, sc, cfg); err != nil {
+			return err
+		}
 		var prevHash string
 		var prevVer int
-		err := sc.Q.QueryRow(ctx,
-			`SELECT content_hash, version FROM device_configs WHERE device = $1 ORDER BY version DESC LIMIT 1`,
-			cfg.Device).Scan(&prevHash, &prevVer)
+		var err error
+		if cfg.Binding == nil {
+			err = sc.Q.QueryRow(ctx, `SELECT content_hash, version FROM device_configs
+			 WHERE tenant_id=$1 AND entity_context_id IS NULL AND device=$2 ORDER BY version DESC LIMIT 1`, cfg.TenantID, cfg.Device).Scan(&prevHash, &prevVer)
+		} else {
+			b := cfg.Binding
+			err = sc.Q.QueryRow(ctx, `SELECT content_hash,version FROM device_configs
+			 WHERE tenant_id=$1 AND entity_context_id=$2 AND device_entity_id=$3 AND binding_agent_id=$4 AND binding_source_ref=$5
+			 AND binding_source_assigned_at=$6 AND binding_agent_assigned_at=$7 ORDER BY version DESC LIMIT 1`,
+				cfg.TenantID, b.ContextID, b.DeviceEntityID, b.AgentID, b.SourceRef, b.SourceAssignedAt, b.AgentAssignedAt).Scan(&prevHash, &prevVer)
+		}
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			// first version for this device
@@ -151,13 +171,18 @@ func (s *PostgresOpsStore) ArchiveConfig(ctx context.Context, cfg ConfigVersion)
 			cfg.Version = prevVer + 1
 			cfg.Drifted = prevHash != cfg.ContentHash
 		}
+		bindingValues := make([]any, 7)
+		if b := cfg.Binding; b != nil {
+			bindingValues = []any{b.ContextID, b.DeviceEntityID, b.AgentID, b.SourceRef, b.SourceAssignedAt, b.AgentAssignedAt, b.BoundAt}
+		}
+		args := append([]any{cfg.TenantID, cfg.Device, cfg.Source, cfg.Version, cfg.Content, cfg.ContentHash, cfg.PreviousHash, cfg.Drifted, cfg.ObservedAt, cfg.ArchivedAt}, bindingValues...)
 		return sc.Q.QueryRow(ctx, `
 INSERT INTO device_configs
-    (tenant_id, device, source, version, content, content_hash, previous_hash, drifted, observed_at, archived_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    (tenant_id, device, source, version, content, content_hash, previous_hash, drifted, observed_at, archived_at,
+     entity_context_id,device_entity_id,binding_agent_id,binding_source_ref,binding_source_assigned_at,binding_agent_assigned_at,bound_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11,$12,$13,$14,$15,$16,$17)
 RETURNING id::text`,
-			cfg.TenantID, cfg.Device, cfg.Source, cfg.Version, cfg.Content, cfg.ContentHash,
-			cfg.PreviousHash, cfg.Drifted, cfg.ObservedAt, cfg.ArchivedAt).Scan(&cfg.ID)
+			args...).Scan(&cfg.ID)
 	})
 	if err != nil {
 		return ConfigVersion{}, fmt.Errorf("device ops: archive config: %w", err)
@@ -172,25 +197,20 @@ func (s *PostgresOpsStore) ListConfigs(ctx context.Context, tenant string, f Ops
 	limit := normalizeOpsLimit(f.Limit)
 	var out []ConfigVersion
 	err := s.inTenant(ctx, tenant, func(ctx context.Context, sc tenancy.Scope) error {
-		rows, err := sc.Q.Query(ctx, `
-SELECT id::text, tenant_id::text, device, source, version, content, content_hash, previous_hash, drifted, observed_at, archived_at
+		rows, err := sc.Q.Query(ctx, `SELECT `+configVersionColumns+`
   FROM device_configs
- WHERE ($1 = '' OR device = $1)
+ WHERE tenant_id=$3 AND ($1 = '' OR device = $1)
  ORDER BY archived_at DESC
- LIMIT $2`, f.Device, limit)
+ LIMIT $2`, f.Device, limit, tenant)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var cfg ConfigVersion
-			if err := rows.Scan(&cfg.ID, &cfg.TenantID, &cfg.Device, &cfg.Source, &cfg.Version,
-				&cfg.Content, &cfg.ContentHash, &cfg.PreviousHash, &cfg.Drifted,
-				&cfg.ObservedAt, &cfg.ArchivedAt); err != nil {
+			cfg, err := scanConfigVersion(rows)
+			if err != nil {
 				return err
 			}
-			cfg.ObservedAt = cfg.ObservedAt.UTC()
-			cfg.ArchivedAt = cfg.ArchivedAt.UTC()
 			out = append(out, cfg)
 		}
 		return rows.Err()

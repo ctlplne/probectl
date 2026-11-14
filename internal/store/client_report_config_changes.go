@@ -37,9 +37,15 @@ func (ChangeEvents) ClientReportConfigChangesInScope(ctx context.Context, sc ten
  FROM (SELECT projected.*,row_to_json(projected)::text AS body FROM (
  SELECT current.id::text,current.tenant_id::text,current.device,current.version,current.content_hash,current.previous_hash,
  previous.id::text AS previous_id,previous.version AS previous_version,
- COALESCE(NULLIF(current.observed_at,'0001-01-01 00:00:00+00'::timestamptz),current.archived_at) AS occurred_at,current.archived_at
+ COALESCE(NULLIF(current.observed_at,'0001-01-01 00:00:00+00'::timestamptz),current.archived_at) AS occurred_at,current.archived_at,
+ CASE WHEN current.entity_context_id IS NULL THEN NULL ELSE jsonb_build_object(
+ 'kind','operator_bound_archive','context_id',current.entity_context_id,'device_entity_id',current.device_entity_id,'agent_id',current.binding_agent_id,'source_ref',current.binding_source_ref,
+ 'source_assigned_at',current.binding_source_assigned_at,'agent_assigned_at',current.binding_agent_assigned_at,'bound_at',current.bound_at) END AS binding
  FROM device_configs current JOIN device_configs previous
- ON previous.tenant_id=current.tenant_id AND previous.device=current.device AND previous.version=current.version-1
+ ON previous.tenant_id=current.tenant_id AND previous.version=current.version-1
+ AND ((current.entity_context_id IS NULL AND previous.entity_context_id IS NULL AND previous.device=current.device)
+ OR (previous.entity_context_id,previous.device_entity_id,previous.binding_agent_id,previous.binding_source_ref,previous.binding_source_assigned_at,previous.binding_agent_assigned_at)=
+ (current.entity_context_id,current.device_entity_id,current.binding_agent_id,current.binding_source_ref,current.binding_source_assigned_at,current.binding_agent_assigned_at))
  AND previous.content_hash=current.previous_hash
  WHERE current.tenant_id=$1 AND previous.tenant_id=$1 AND current.drifted AND current.version>1
  AND current.content<>'' AND previous.content<>'' AND current.content_hash<>'' AND current.previous_hash<>''
@@ -67,16 +73,17 @@ func (ChangeEvents) ClientReportConfigChangesInScope(ctx context.Context, sc ten
 		}
 		remaining -= cost
 		var item struct {
-			ID              string    `json:"id"`
-			TenantID        string    `json:"tenant_id"`
-			Device          string    `json:"device"`
-			Version         int       `json:"version"`
-			ContentHash     string    `json:"content_hash"`
-			PreviousHash    string    `json:"previous_hash"`
-			PreviousID      string    `json:"previous_id"`
-			PreviousVersion int       `json:"previous_version"`
-			OccurredAt      time.Time `json:"occurred_at"`
-			ArchivedAt      time.Time `json:"archived_at"`
+			ID              string                         `json:"id"`
+			TenantID        string                         `json:"tenant_id"`
+			Device          string                         `json:"device"`
+			Version         int                            `json:"version"`
+			ContentHash     string                         `json:"content_hash"`
+			PreviousHash    string                         `json:"previous_hash"`
+			PreviousID      string                         `json:"previous_id"`
+			PreviousVersion int                            `json:"previous_version"`
+			OccurredAt      time.Time                      `json:"occurred_at"`
+			ArchivedAt      time.Time                      `json:"archived_at"`
+			Binding         *change.ConfigBindingReference `json:"binding"`
 		}
 		if err := json.Unmarshal(body, &item); err != nil {
 			return nil, err
@@ -86,7 +93,7 @@ func (ChangeEvents) ClientReportConfigChangesInScope(ctx context.Context, sc ten
 		}
 		out = append(out, change.Event{ID: "device-config:" + item.ID, TenantID: item.TenantID, Source: "probectl-device-config", Kind: change.KindConfig,
 			Title: fmt.Sprintf("Config drift detected on %s", item.Device), Summary: fmt.Sprintf("Redacted device config changed from version %d to %d.", item.PreviousVersion, item.Version), Target: item.Device, Ref: item.ID,
-			Config: &change.ConfigReference{CurrentID: item.ID, CurrentVersion: item.Version, CurrentHash: item.ContentHash, PreviousID: item.PreviousID, PreviousVersion: item.PreviousVersion, PreviousHash: item.PreviousHash}, OccurredAt: item.OccurredAt.UTC(), ReceivedAt: item.ArchivedAt.UTC()})
+			Config: &change.ConfigReference{CurrentID: item.ID, CurrentVersion: item.Version, CurrentHash: item.ContentHash, PreviousID: item.PreviousID, PreviousVersion: item.PreviousVersion, PreviousHash: item.PreviousHash, Binding: item.Binding}, OccurredAt: item.OccurredAt.UTC(), ReceivedAt: item.ArchivedAt.UTC()})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

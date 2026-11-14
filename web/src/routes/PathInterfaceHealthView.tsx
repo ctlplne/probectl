@@ -4,7 +4,11 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import type { PathHealthCounter, PathInterfaceHealth } from '../api/sdk.gen'
+import type {
+  DeviceConfigArchiveReference,
+  PathHealthCounter,
+  PathInterfaceHealth,
+} from '../api/sdk.gen'
 import { Table } from '../components'
 
 function ratio(numerator?: string, denominator?: string) {
@@ -40,6 +44,51 @@ export function PathInterfaceHealthView({ health }: { health: PathInterfaceHealt
         </p>
       ) : null}
       <p>Recent configuration: {health.config_coverage.replace(/_/g, ' ')}.</p>
+      {health.config_changes?.length ? (
+        <>
+          <p>Operator-submitted archive references; device collection was not attested.</p>
+          <Table<DeviceConfigArchiveReference>
+            caption="Original configuration archive references"
+            rows={health.config_changes}
+            maxRows={health.config_changes.length}
+            rowKey={(record) => record.id}
+            columns={[
+              { key: 'version', header: 'Version', render: (record) => String(record.version) },
+              {
+                key: 'status',
+                header: 'Evidence',
+                render: (record) => record.change_status.replace(/_/g, ' '),
+              },
+              {
+                key: 'observed',
+                header: 'Recorded source clock',
+                render: (record) => record.observed_at,
+              },
+              {
+                key: 'original',
+                header: 'Original archive',
+                render: (record) => (
+                  <code>
+                    {record.id} · {record.content_hash}
+                  </code>
+                ),
+              },
+              {
+                key: 'previous',
+                header: 'Original predecessor',
+                render: (record) =>
+                  record.previous_id ? (
+                    <code>
+                      {record.previous_id} · {record.previous_hash}
+                    </code>
+                  ) : (
+                    'Unavailable'
+                  ),
+              },
+            ]}
+          />
+        </>
+      ) : null}
       <Table<PathHealthCounter>
         caption="Original directional interface counters"
         rows={health.counters}

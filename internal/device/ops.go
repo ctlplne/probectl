@@ -43,17 +43,18 @@ type SyslogEvent struct {
 
 // ConfigVersion is a redacted, tenant-scoped network-device config snapshot.
 type ConfigVersion struct {
-	ID           string    `json:"id"`
-	TenantID     string    `json:"tenant_id"`
-	Device       string    `json:"device"`
-	Source       string    `json:"source,omitempty"`
-	Version      int       `json:"version"`
-	Content      string    `json:"content,omitempty"`
-	ContentHash  string    `json:"content_hash"`
-	PreviousHash string    `json:"previous_hash,omitempty"`
-	Drifted      bool      `json:"drifted"`
-	ObservedAt   time.Time `json:"observed_at"`
-	ArchivedAt   time.Time `json:"archived_at"`
+	ID           string                `json:"id"`
+	TenantID     string                `json:"tenant_id"`
+	Device       string                `json:"device"`
+	Source       string                `json:"source,omitempty"`
+	Version      int                   `json:"version"`
+	Content      string                `json:"content,omitempty"`
+	ContentHash  string                `json:"content_hash"`
+	PreviousHash string                `json:"previous_hash,omitempty"`
+	Drifted      bool                  `json:"drifted"`
+	ObservedAt   time.Time             `json:"observed_at"`
+	ArchivedAt   time.Time             `json:"archived_at"`
+	Binding      *ConfigArchiveBinding `json:"binding,omitempty"`
 }
 
 // OpsStore stores device-management table-stakes rows behind a tenant-first API.
@@ -135,6 +136,9 @@ func (m *MemoryOpsStore) ListSyslog(_ context.Context, tenant string, f OpsFilte
 }
 
 func (m *MemoryOpsStore) ArchiveConfig(_ context.Context, cfg ConfigVersion) (ConfigVersion, error) {
+	if cfg.Binding != nil {
+		return ConfigVersion{}, ErrConfigBinding
+	}
 	if cfg.TenantID == "" {
 		return ConfigVersion{}, errors.New("device ops: tenant_id is required")
 	}

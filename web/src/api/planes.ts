@@ -6,6 +6,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from './client'
+import type { DeviceConfigArchiveBinding } from './sdk.gen'
 
 export type FlowGroupBy =
   | 'src'
@@ -195,6 +196,7 @@ export interface DeviceConfigVersion {
   previous_hash?: string
   drifted: boolean
   archived_at: string
+  binding?: DeviceConfigArchiveBinding | null
 }
 
 export interface DeviceConfigResponse {

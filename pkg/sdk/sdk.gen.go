@@ -884,12 +884,13 @@ type CollectorRegistration struct {
 
 // Content-free reference to the exact redacted device config snapshots behind a projected drift event.
 type ConfigChangeReference struct {
-	CurrentHash     string `json:"current_hash"`
-	CurrentId       string `json:"current_id"`
-	CurrentVersion  int    `json:"current_version"`
-	PreviousHash    string `json:"previous_hash"`
-	PreviousId      string `json:"previous_id"`
-	PreviousVersion int    `json:"previous_version"`
+	Binding         *DeviceConfigArchiveBinding `json:"binding,omitempty"`
+	CurrentHash     string                      `json:"current_hash"`
+	CurrentId       string                      `json:"current_id"`
+	CurrentVersion  int                         `json:"current_version"`
+	PreviousHash    string                      `json:"previous_hash"`
+	PreviousId      string                      `json:"previous_id"`
+	PreviousVersion int                         `json:"previous_version"`
 }
 
 type CoverageDebtAction struct {
@@ -1172,11 +1173,47 @@ type DeviceCollectionOutcomeResponse struct {
 
 type DeviceCollectionOutcomeState string
 
+// Operator-declared association to one exact tenant-owned canonical device and configured source assignment. It is not a collector receipt or proof of device collection. Assignment epochs and bound_at come from Postgres.
+type DeviceConfigArchiveBinding struct {
+	AgentAssignedAt  string `json:"agent_assigned_at"`
+	AgentId          string `json:"agent_id"`
+	BoundAt          string `json:"bound_at"`
+	ContextId        string `json:"context_id"`
+	DeviceEntityId   string `json:"device_entity_id"`
+	Kind             string `json:"kind"`
+	SourceAssignedAt string `json:"source_assigned_at"`
+	SourceRef        string `json:"source_ref"`
+}
+
+// Original metadata from an explicitly operator-bound redacted archive. No configuration content is included. Change claims require the immediate original predecessor in the same exact canonical source assignment.
+type DeviceConfigArchiveReference struct {
+	ArchivedAt      string                     `json:"archived_at"`
+	Binding         DeviceConfigArchiveBinding `json:"binding"`
+	ChangeStatus    string                     `json:"change_status"`
+	ContentHash     string                     `json:"content_hash"`
+	Drifted         bool                       `json:"drifted"`
+	Id              string                     `json:"id"`
+	ObservedAt      string                     `json:"observed_at"`
+	PreviousHash    string                     `json:"previous_hash,omitempty"`
+	PreviousId      string                     `json:"previous_id,omitempty"`
+	PreviousVersion int                        `json:"previous_version,omitempty"`
+	Source          string                     `json:"source,omitempty"`
+	Version         int                        `json:"version"`
+}
+
 type DeviceConfigArchiveRequest struct {
-	Content    string `json:"content"`
-	Device     string `json:"device"`
-	ObservedAt string `json:"observed_at,omitempty"`
-	Source     string `json:"source,omitempty"`
+	Binding    *DeviceConfigBindingInput `json:"binding,omitempty"`
+	Content    string                    `json:"content"`
+	Device     string                    `json:"device"`
+	ObservedAt string                    `json:"observed_at,omitempty"`
+	Source     string                    `json:"source,omitempty"`
+}
+
+type DeviceConfigBindingInput struct {
+	AgentId        string `json:"agent_id"`
+	ContextId      string `json:"context_id"`
+	DeviceEntityId string `json:"device_entity_id"`
+	SourceRef      string `json:"source_ref"`
 }
 
 type DeviceConfigList struct {
@@ -1187,17 +1224,18 @@ type DeviceConfigList struct {
 }
 
 type DeviceConfigVersion struct {
-	ArchivedAt   string `json:"archived_at,omitempty"`
-	Content      string `json:"content,omitempty"`
-	ContentHash  string `json:"content_hash,omitempty"`
-	Device       string `json:"device,omitempty"`
-	Drifted      *bool  `json:"drifted,omitempty"`
-	Id           string `json:"id,omitempty"`
-	ObservedAt   string `json:"observed_at,omitempty"`
-	PreviousHash string `json:"previous_hash,omitempty"`
-	Source       string `json:"source,omitempty"`
-	TenantId     string `json:"tenant_id,omitempty"`
-	Version      int    `json:"version,omitempty"`
+	ArchivedAt   string                      `json:"archived_at,omitempty"`
+	Binding      *DeviceConfigArchiveBinding `json:"binding,omitempty"`
+	Content      string                      `json:"content,omitempty"`
+	ContentHash  string                      `json:"content_hash,omitempty"`
+	Device       string                      `json:"device,omitempty"`
+	Drifted      *bool                       `json:"drifted,omitempty"`
+	Id           string                      `json:"id,omitempty"`
+	ObservedAt   string                      `json:"observed_at,omitempty"`
+	PreviousHash string                      `json:"previous_hash,omitempty"`
+	Source       string                      `json:"source,omitempty"`
+	TenantId     string                      `json:"tenant_id,omitempty"`
+	Version      int                         `json:"version,omitempty"`
 }
 
 type DeviceIdentityAffectedCorrelation struct {
@@ -3169,19 +3207,20 @@ type PathHistory struct {
 
 // Current canonical interface/source and exact original counter observations. It identifies the responding interface, never an inferred forwarding/egress interface. Config coverage is explicit; no global device-name/IP archive join is performed. All decimal measurements retain their full width.
 type PathInterfaceHealth struct {
-	AgentId          string              `json:"agent_id,omitempty"`
-	ConfigCoverage   string              `json:"config_coverage"`
-	ContextId        string              `json:"context_id,omitempty"`
-	Counters         []PathHealthCounter `json:"counters"`
-	DeviceId         string              `json:"device_id,omitempty"`
-	From             string              `json:"from"`
-	InterfaceId      string              `json:"interface_id,omitempty"`
-	Method           string              `json:"method"`
-	PhysicalMaxBps   string              `json:"physical_max_bps,omitempty"`
-	SourceRef        string              `json:"source_ref,omitempty"`
-	SourceValidUntil string              `json:"source_valid_until,omitempty"`
-	Status           string              `json:"status"`
-	To               string              `json:"to"`
+	AgentId          string                         `json:"agent_id,omitempty"`
+	ConfigChanges    []DeviceConfigArchiveReference `json:"config_changes,omitempty"`
+	ConfigCoverage   string                         `json:"config_coverage"`
+	ContextId        string                         `json:"context_id,omitempty"`
+	Counters         []PathHealthCounter            `json:"counters"`
+	DeviceId         string                         `json:"device_id,omitempty"`
+	From             string                         `json:"from"`
+	InterfaceId      string                         `json:"interface_id,omitempty"`
+	Method           string                         `json:"method"`
+	PhysicalMaxBps   string                         `json:"physical_max_bps,omitempty"`
+	SourceRef        string                         `json:"source_ref,omitempty"`
+	SourceValidUntil string                         `json:"source_valid_until,omitempty"`
+	Status           string                         `json:"status"`
+	To               string                         `json:"to"`
 }
 
 // Versioned acquisition receipt for one path snapshot. Legacy snapshots omit this object rather than inferring capabilities. Current RTTs use the application monotonic clock; kernel and hardware timestamp booleans are true only when actually used.

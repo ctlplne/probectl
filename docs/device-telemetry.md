@@ -529,7 +529,8 @@ turning probectl into a vendor-managed collector:
 
 The native **Planes → Device → Config archive** can compare a changed version
 with its exact archived predecessor. The action appears only when the selected
-row's `previous_hash` matches an older, same-device `content_hash` in the
+row's `previous_hash` matches the immediately preceding original version's
+`content_hash` in the
 already-authorized response and both redacted contents are present. The line
 comparison is deterministic, dependency-free, computed in the browser, and
 bounded so a pathological config cannot freeze the page; a bounded result says
@@ -538,6 +539,23 @@ or external service, invents missing history, or offers a write/rollback action.
 `probectl device configs` reaches the same tenant-scoped API and returns the
 same redacted contents and hash linkage for CLI/export workflows; it does not
 claim a separate unredacted or device-control path.
+
+An optional `binding` on `POST /v1/device/configs` explicitly associates an
+operator-submitted archive with `context_id`, `device_entity_id`, `agent_id`
+and `source_ref`. The server verifies that exact tenant-owned device/source
+assignment and records its original assignment clocks. This is an operator
+assertion; it does not attest that an agent collected the configuration. Each
+source incarnation has its own version stream across display-name changes;
+name-only legacy rows remain separate. The Device screen displays the binding
+and refuses comparison when the immediate original predecessor is missing.
+
+Path interface health and path-bound explanations include complete admitted
+archive references for the exact current source, with original IDs, hashes,
+versions and clocks. They never join by a global device name or address and
+never include configuration content. A missing predecessor is explicitly
+unavailable. Current context grants, source assignment, original records and
+the originating credential are rechecked before publishing linked evidence.
+Configuration archives remain observe-only; no device write or rollback is added.
 
 This is intentionally **customer/MSP-owned**: use a local device agent, collector
 script, or automation runner to submit syslog/config rows over the authenticated

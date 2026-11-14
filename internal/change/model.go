@@ -35,12 +35,26 @@ const (
 // contains hashes and identifiers only; config content remains available solely
 // through the separately-authorized device archive API.
 type ConfigReference struct {
-	CurrentID       string `json:"current_id"`
-	CurrentVersion  int    `json:"current_version"`
-	CurrentHash     string `json:"current_hash"`
-	PreviousID      string `json:"previous_id"`
-	PreviousVersion int    `json:"previous_version"`
-	PreviousHash    string `json:"previous_hash"`
+	CurrentID       string                  `json:"current_id"`
+	CurrentVersion  int                     `json:"current_version"`
+	CurrentHash     string                  `json:"current_hash"`
+	PreviousID      string                  `json:"previous_id"`
+	PreviousVersion int                     `json:"previous_version"`
+	PreviousHash    string                  `json:"previous_hash"`
+	Binding         *ConfigBindingReference `json:"binding,omitempty"`
+}
+
+// ConfigBindingReference preserves the operator's original canonical archive
+// association; it is neither a collector receipt nor a current read grant.
+type ConfigBindingReference struct {
+	Kind             string    `json:"kind"`
+	ContextID        string    `json:"context_id"`
+	DeviceEntityID   string    `json:"device_entity_id"`
+	AgentID          string    `json:"agent_id"`
+	SourceRef        string    `json:"source_ref"`
+	SourceAssignedAt time.Time `json:"source_assigned_at"`
+	AgentAssignedAt  time.Time `json:"agent_assigned_at"`
+	BoundAt          time.Time `json:"bound_at"`
 }
 
 // Event is the canonical, normalized change record — signed webhook inputs and

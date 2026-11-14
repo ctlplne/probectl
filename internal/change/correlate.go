@@ -42,6 +42,9 @@ func Candidates(changes []Event, target, prefix string, at time.Time, window tim
 
 	out := make([]Candidate, 0, len(changes))
 	for _, ev := range changes {
+		if ev.Config != nil && ev.Config.Binding != nil {
+			continue
+		}
 		dt := at.Sub(ev.OccurredAt) // >0 means the change preceded the incident
 		if dt < -correlationSkew || dt > window {
 			continue // outside the causal window
@@ -151,4 +154,38 @@ func prefixesOverlap(a, b string) bool {
 		return false
 	}
 	return pa.Contains(pb.Addr()) || pb.Contains(pa.Addr())
+}
+
+// CandidatesForIdentity attaches operator archive changes only to an exact
+// server-resolved device/context. Display names and addresses carry no join
+// authority, including when another context reuses them.
+func CandidatesForIdentity(changes []Event, target, prefix, contextID, deviceID string, at time.Time, window time.Duration) []Candidate {
+	out := Candidates(changes, target, prefix, at, window)
+	if contextID == "" || deviceID == "" {
+		return out
+	}
+	if window <= 0 {
+		window = 24 * time.Hour
+	}
+	for _, event := range changes {
+		if event.Config == nil || event.Config.Binding == nil {
+			continue
+		}
+		binding := event.Config.Binding
+		if binding.ContextID != contextID || binding.DeviceEntityID != deviceID {
+			continue
+		}
+		dt := at.Sub(event.OccurredAt)
+		if dt < -correlationSkew || dt > window {
+			continue
+		}
+		out = append(out, Candidate{Event: event, Score: round2(0.6 + 0.4*timeScore(dt, window)), Reason: "same canonical device/context; operator archive, collection unattested"})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Score != out[j].Score {
+			return out[i].Score > out[j].Score
+		}
+		return out[i].Event.OccurredAt.After(out[j].Event.OccurredAt)
+	})
+	return out
 }

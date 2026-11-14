@@ -27,56 +27,58 @@ func (body nativePublicationBody) MarshalJSON() ([]byte, error) {
 }
 
 func TestNativePublicationChecksCurrentSourceAfterEncodingAndRetainsAdmission(t *testing.T) {
-	for _, withdraw := range []bool{false, true} {
-		for _, tenant := range []string{"tenant-a", "tenant-b"} {
-			held, admitted, encoded, checked, credential := false, false, false, false, false
-			releases, admissions := 0, 0
-			gate := testGate()
-			server := newTestServer(&fakeBackend{}, ai.NewEgressGate(gate.Policy(), gate.AuditHook(), ai.DefaultRedaction))
-			server.nativeEnabled = true
-			server.tools["owned_health"] = Tool{Name: "owned_health", Permission: "metrics.read", Native: true, RequiresUser: true, Query: true,
-				Admit: func(context.Context, *auth.Principal) (func(), error) {
-					admitted = true
-					return func() { admitted = false; admissions++ }, nil
-				},
-				Invoke: func(ctx context.Context, p *auth.Principal, _ json.RawMessage) (any, error) {
-					held = true
-					err := RetainNativePublication(ctx, func(context.Context) error {
-						checked = true
-						if !held || !admitted || !encoded || p.TenantID != tenant {
-							t.Error("publication lost encoding order, current tenant or held query admission")
-						}
-						if withdraw {
-							return errors.New("source withdrawn")
-						}
-						return nil
-					}, func() { held = false; releases++ })
-					return nativePublicationBody{onEncode: func() {
-						if !held || !admitted {
-							t.Error("query released during native encoding")
-						}
-						encoded = true
-					}}, err
-				}}
-			ctx := withPublicationGuard(t.Context(), func(context.Context) error {
-				credential = true
-				if !checked {
-					t.Error("transport credential refreshed before source publication check")
+	for _, native := range []bool{false, true} {
+		for _, withdraw := range []bool{false, true} {
+			for _, tenant := range []string{"tenant-a", "tenant-b"} {
+				held, admitted, encoded, checked, credential := false, false, false, false, false
+				releases, admissions := 0, 0
+				gate := testGate()
+				server := newTestServer(&fakeBackend{}, ai.NewEgressGate(gate.Policy(), gate.AuditHook(), ai.DefaultRedaction))
+				server.nativeEnabled = true
+				server.tools["owned_health"] = Tool{Name: "owned_health", Permission: "metrics.read", Native: native, RequiresUser: true, Query: true,
+					Admit: func(context.Context, *auth.Principal) (func(), error) {
+						admitted = true
+						return func() { admitted = false; admissions++ }, nil
+					},
+					Invoke: func(ctx context.Context, p *auth.Principal, _ json.RawMessage) (any, error) {
+						held = true
+						err := RetainNativePublication(ctx, func(context.Context) error {
+							checked = true
+							if !held || !admitted || !encoded || p.TenantID != tenant {
+								t.Error("publication lost encoding order, current tenant or held query admission")
+							}
+							if withdraw {
+								return errors.New("source withdrawn")
+							}
+							return nil
+						}, func() { held = false; releases++ })
+						return nativePublicationBody{onEncode: func() {
+							if !held || !admitted {
+								t.Error("query released during native encoding")
+							}
+							encoded = true
+						}}, err
+					}}
+				ctx := withPublicationGuard(t.Context(), func(context.Context) error {
+					credential = true
+					if !checked {
+						t.Error("transport credential refreshed before source publication check")
+					}
+					return nil
+				})
+				p := principal(tenant, "metrics.read")
+				p.UserID = "reader"
+				raw := server.Handle(ctx, p, nativeRequest("owned_health", map[string]any{}))
+				if !checked || held || admitted || releases != 1 || admissions != 1 {
+					t.Fatal("source check or exact-once complete-response finalization missing", checked, held, admitted, releases, admissions)
 				}
-				return nil
-			})
-			p := principal(tenant, "metrics.read")
-			p.UserID = "reader"
-			raw := server.Handle(ctx, p, nativeRequest("owned_health", map[string]any{}))
-			if !checked || held || admitted || releases != 1 || admissions != 1 {
-				t.Fatal("source check or exact-once complete-response finalization missing", checked, held, admitted, releases, admissions)
-			}
-			if withdraw {
-				if strings.Contains(string(raw), "structuredContent") || credential || !strings.Contains(string(raw), "authorization is no longer valid") {
-					t.Fatal("withdrawn current source reached native publication", string(raw))
+				if withdraw {
+					if strings.Contains(string(raw), "structuredContent") || credential || !strings.Contains(string(raw), "authorization is no longer valid") {
+						t.Fatal("withdrawn current source reached native publication", string(raw))
+					}
+				} else if !credential || !strings.Contains(string(raw), "structuredContent") || strings.Contains(string(raw), "operator@example.test") {
+					t.Fatal("successful native result lost full redaction or final credential refresh", string(raw))
 				}
-			} else if !credential || !strings.Contains(string(raw), "structuredContent") || strings.Contains(string(raw), "operator@example.test") {
-				t.Fatal("successful native result lost full redaction or final credential refresh", string(raw))
 			}
 		}
 	}

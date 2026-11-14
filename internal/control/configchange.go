@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -42,7 +43,7 @@ func projectConfigChanges(configs []device.ConfigVersion, tenant string) []chang
 		if cfg.TenantID != tenant || cfg.Device == "" || cfg.Version <= 0 {
 			continue
 		}
-		byDeviceVersion[configVersionKey(cfg.Device, cfg.Version)] = cfg
+		byDeviceVersion[configVersionKey(cfg, cfg.Version)] = cfg
 	}
 
 	events := make([]change.Event, 0, len(configs))
@@ -52,7 +53,7 @@ func projectConfigChanges(configs []device.ConfigVersion, tenant string) []chang
 			current.PreviousHash == "" || current.Device == "" {
 			continue
 		}
-		previous, ok := byDeviceVersion[configVersionKey(current.Device, current.Version-1)]
+		previous, ok := byDeviceVersion[configVersionKey(current, current.Version-1)]
 		if !ok || previous.TenantID != tenant || previous.ID == "" || previous.Content == "" ||
 			previous.ContentHash == "" || previous.ContentHash != current.PreviousHash {
 			continue
@@ -63,6 +64,11 @@ func projectConfigChanges(configs []device.ConfigVersion, tenant string) []chang
 		}
 		if occurredAt.IsZero() {
 			continue
+		}
+		var binding *change.ConfigBindingReference
+		if current.Binding != nil {
+			value := change.ConfigBindingReference(*current.Binding)
+			binding = &value
 		}
 		events = append(events, change.Event{
 			ID:       "device-config:" + current.ID,
@@ -84,6 +90,7 @@ func projectConfigChanges(configs []device.ConfigVersion, tenant string) []chang
 				PreviousID:      previous.ID,
 				PreviousVersion: previous.Version,
 				PreviousHash:    previous.ContentHash,
+				Binding:         binding,
 			},
 			OccurredAt: occurredAt,
 			ReceivedAt: current.ArchivedAt.UTC(),
@@ -93,8 +100,13 @@ func projectConfigChanges(configs []device.ConfigVersion, tenant string) []chang
 	return events
 }
 
-func configVersionKey(deviceName string, version int) string {
-	return fmt.Sprintf("%s\x00%d", deviceName, version)
+func configVersionKey(cfg device.ConfigVersion, version int) string {
+	if cfg.Binding == nil {
+		return fmt.Sprintf("%s\x00%s\x00%d", cfg.TenantID, cfg.Device, version)
+	}
+	b := cfg.Binding
+	encoded, _ := json.Marshal([]any{cfg.TenantID, b.Kind, b.ContextID, b.DeviceEntityID, b.AgentID, b.SourceRef, b.SourceAssignedAt.UTC().Format(time.RFC3339Nano), b.AgentAssignedAt.UTC().Format(time.RFC3339Nano), version})
+	return string(encoded)
 }
 
 func mergeChangeEvents(limit int, groups ...[]change.Event) []change.Event {

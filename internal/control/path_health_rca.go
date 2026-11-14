@@ -79,7 +79,7 @@ func (s *Server) preparePathHealthRCA(r *http.Request, subject map[string]string
 	}
 	prepared := &pathHealthRCA{query: query, snapshot: snapshot, credential: credential, row: ai.Row{
 		"metric": "probectl.path.interface_health", "plane": plane, "severity": severity,
-		"title":   "Current interface observations on the owned path; causal attribution remains unproven",
+		"title":   "Current interface and operator archive observations on the owned path; causal attribution remains unproven",
 		"summary": summary, "path_test_id": id, "path_health": pack,
 		"ref": "/path?test_id=" + id, "occurred_at": observedAt,
 	}}
@@ -131,6 +131,20 @@ func pathHealthRCASummary(result pathHealthResult) (string, bool, time.Time) {
 	fmt.Fprintf(&summary, "Complete current path: %d responders, status %s. ", len(result.Items), result.Status)
 	unavailable, signal := 0, false
 	for _, hop := range result.Items {
+		if hop.Health != nil {
+			for _, ref := range hop.Health.ConfigChanges {
+				if ref.ObservedAt.After(observedAt) {
+					observedAt = ref.ObservedAt
+				}
+				switch ref.ChangeStatus {
+				case "original_predecessor_verified":
+					signal = true
+					fmt.Fprintf(&summary, "Hop %d operator archive changed from original version %d to %d; device collection was not attested. ", hop.TTL, ref.PreviousVersion, ref.Version)
+				case "unavailable_original_predecessor":
+					fmt.Fprintf(&summary, "Hop %d archive version %d has no available original predecessor. ", hop.TTL, ref.Version)
+				}
+			}
+		}
 		if hop.Health == nil || hop.Health.Status != "observed_originals" {
 			unavailable++
 			continue

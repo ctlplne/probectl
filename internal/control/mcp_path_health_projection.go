@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/entity"
 )
 
@@ -73,11 +74,27 @@ type nativePathHealthCounter struct {
 
 type nativePathInterfaceHealth struct {
 	pathInterfaceHealth
-	ContextID      mcp.NativeRoleUUID        `json:"context_id,omitempty"`
-	InterfaceID    mcp.NativeRoleUUID        `json:"interface_id,omitempty"`
-	DeviceID       mcp.NativeRoleUUID        `json:"device_id,omitempty"`
-	PhysicalMaxBPS mcp.NativePeeringCounter  `json:"physical_max_bps,omitempty"`
-	Counters       []nativePathHealthCounter `json:"counters"`
+	ContextID      mcp.NativeRoleUUID          `json:"context_id,omitempty"`
+	InterfaceID    mcp.NativeRoleUUID          `json:"interface_id,omitempty"`
+	DeviceID       mcp.NativeRoleUUID          `json:"device_id,omitempty"`
+	PhysicalMaxBPS mcp.NativePeeringCounter    `json:"physical_max_bps,omitempty"`
+	Counters       []nativePathHealthCounter   `json:"counters"`
+	ConfigChanges  []nativePathConfigReference `json:"config_changes,omitempty"`
+}
+
+type nativePathConfigBinding struct {
+	device.ConfigArchiveBinding
+	ContextID      mcp.NativeRoleUUID `json:"context_id"`
+	DeviceEntityID mcp.NativeRoleUUID `json:"device_entity_id"`
+}
+
+type nativePathConfigReference struct {
+	device.ConfigArchiveReference
+	ID           mcp.NativeRoleUUID      `json:"id"`
+	PreviousID   mcp.NativeRoleUUID      `json:"previous_id,omitempty"`
+	ContentHash  mcp.NativeRoleDigest    `json:"content_hash"`
+	PreviousHash mcp.NativeRoleDigest    `json:"previous_hash,omitempty"`
+	Binding      nativePathConfigBinding `json:"binding"`
 }
 
 type nativePathHealthHop struct {
@@ -110,6 +127,9 @@ func marshalNativePathHealth(result pathHealthResult) (json.RawMessage, error) {
 					Value: mcp.NativePeeringCounter(counter.Value), PreviousValue: mcp.NativePeeringCounter(counter.PreviousValue), SpeedBPS: mcp.NativePeeringCounter(counter.SpeedBPS), PreviousSpeedBPS: mcp.NativePeeringCounter(counter.PreviousSpeedBPS),
 					MinimumDelta: mcp.NativePeeringCounter(counter.MinimumDelta), RateNumerator: mcp.NativePeeringCounter(counter.RateNumerator), RateDenominator: mcp.NativePeeringCounter(counter.RateDenominator), UtilizationNumerator: mcp.NativePeeringCounter(counter.UtilizationNumerator), UtilizationDenominator: mcp.NativePeeringCounter(counter.UtilizationDenominator),
 					CaptureKey: mcp.NativeRoleDigest(counter.CaptureKey), PreviousCaptureKey: mcp.NativeRoleDigest(counter.PreviousCaptureKey), RawDigest: mcp.NativeRoleDigest(counter.RawDigest), PreviousRawDigest: mcp.NativeRoleDigest(counter.PreviousRawDigest)})
+			}
+			for _, ref := range health.ConfigChanges {
+				hop.Health.ConfigChanges = append(hop.Health.ConfigChanges, nativePathConfigReference{ConfigArchiveReference: ref, ID: mcp.NativeRoleUUID(ref.ID), PreviousID: mcp.NativeRoleUUID(ref.PreviousID), ContentHash: mcp.NativeRoleDigest(ref.ContentHash), PreviousHash: mcp.NativeRoleDigest(ref.PreviousHash), Binding: nativePathConfigBinding{ConfigArchiveBinding: ref.Binding, ContextID: mcp.NativeRoleUUID(ref.Binding.ContextID), DeviceEntityID: mcp.NativeRoleUUID(ref.Binding.DeviceEntityID)}})
 			}
 		}
 		native.Items = append(native.Items, hop)

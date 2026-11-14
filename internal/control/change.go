@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -170,6 +171,7 @@ func (s *Server) changeIngestConfigured(tenant string) bool {
 }
 
 func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) error {
+	scope := s.configEvidenceForRequest(r, permChangeRead)
 	var evs []change.Event
 	truncated := false
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
@@ -196,7 +198,12 @@ func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	for _, event := range evs {
+		if err := scope.retain(event); err != nil {
+			return err
+		}
+	}
+	body, err := json.Marshal(map[string]any{
 		"items": evs,
 		// Two producers feed this timeline: signed provider webhooks, and the
 		// device-configuration archive projected into change events.
@@ -205,6 +212,13 @@ func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) error
 		"effective_limit":          changeListLimit,
 		"truncated":                truncated,
 	})
+	if err != nil {
+		return err
+	}
+	if err := scope.check(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, json.RawMessage(body))
 	return nil
 }
 
@@ -212,6 +226,7 @@ func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) error
 // recent changes that share the incident's target/prefix within the correlation
 // window, ranked as candidate causes (the "what changed" view, fed to RCA).
 func (s *Server) handleIncidentChanges(w http.ResponseWriter, r *http.Request) error {
+	scope := s.configEvidenceForRequest(r, permChangeRead)
 	id := r.PathValue("id")
 	window := s.cfg.ChangeCorrelationWindow
 	if window <= 0 {
@@ -233,7 +248,7 @@ func (s *Server) handleIncidentChanges(w http.ResponseWriter, r *http.Request) e
 			return e
 		}
 		evs = mergeChangeEvents(len(evs)+len(projected), evs, projected)
-		cands = change.Candidates(evs, inc.Target, inc.Prefix, inc.StartedAt, window)
+		cands = change.CandidatesForIdentity(evs, inc.Target, inc.Prefix, inc.IdentityContextID, inc.IdentityEntityID, inc.StartedAt, window)
 		if len(cands) > incidentCandidateLimit {
 			cands, candidatesTruncated = cands[:incidentCandidateLimit], true
 		}
@@ -241,12 +256,24 @@ func (s *Server) handleIncidentChanges(w http.ResponseWriter, r *http.Request) e
 	}); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	for _, candidate := range cands {
+		if err := scope.retain(candidate.Event); err != nil {
+			return err
+		}
+	}
+	body, err := json.Marshal(map[string]any{
 		"items":               cands,
 		"correlation_running": s.correlationActive,
 		"effective_limit":     incidentCandidateLimit,
 		"truncated":           candidatesTruncated,
 	})
+	if err != nil {
+		return err
+	}
+	if err := scope.check(r.Context()); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, json.RawMessage(body))
 	return nil
 }
 
@@ -258,6 +285,7 @@ type changeEventsSource struct {
 	pool    *pgxpool.Pool
 	flow    flowstore.Store
 	configs device.OpsStore
+	owner   *Server
 }
 
 func (s changeEventsSource) QueryEvents(ctx context.Context, tenant string, sel map[string]string, r ai.TimeRange, limit int) ([]ai.Row, error) {
@@ -290,8 +318,17 @@ func (s changeEventsSource) QueryEvents(ctx context.Context, tenant string, sel 
 		for i := range evs {
 			ev := evs[i]
 			if (eventID != "" && ev.ID != eventID) ||
-				!changeMatches(ev, target, prefix) || !eventTypeMatches(ev, typ) {
+				!configChangeMatches(ev, sel, target, prefix) || !eventTypeMatches(ev, typ) {
 				continue
+			}
+			if ev.Config != nil && ev.Config.Binding != nil {
+				scope, ok := ctx.Value(configEvidenceKey{}).(*configEvidenceScope)
+				if !ok || scope.server != s.owner || s.owner == nil {
+					return nil, apierror.Forbidden("current configuration evidence scope is unavailable")
+				}
+				if err := scope.retain(ev); err != nil {
+					return nil, err
+				}
 			}
 			plane := eventPlane(ev)
 			row := ai.Row{
@@ -320,6 +357,11 @@ func (s changeEventsSource) QueryEvents(ctx context.Context, tenant string, sel 
 			return nil, err
 		}
 		rows = append(rows, flowRows...)
+	}
+	if scope, ok := ctx.Value(configEvidenceKey{}).(*configEvidenceScope); ok {
+		if err := scope.check(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return rows, nil
 }

@@ -470,7 +470,7 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		}
 		return errorResponse(req.ID, codeUnavailable, "request progress is unavailable")
 	}
-	if t.Native {
+	{
 		var publication *nativePublication
 		ctx, publication = withNativePublication(ctx)
 		defer func() {

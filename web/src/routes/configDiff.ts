@@ -17,6 +17,15 @@ export interface ConfigVersionForComparison {
   previous_hash?: string
   content?: string
   drifted: boolean
+  binding?: {
+    kind: string
+    context_id: string
+    device_entity_id: string
+    agent_id: string
+    source_ref: string
+    source_assigned_at: string
+    agent_assigned_at: string
+  } | null
 }
 
 export type ConfigDiffStatus = 'unchanged' | 'added' | 'removed' | 'omitted'
@@ -45,8 +54,8 @@ interface BoundedLines {
 
 /**
  * Returns the exact archived predecessor for a version. The content hash is
- * authoritative; version only resolves repeated snapshots with identical
- * content by choosing the nearest older record.
+ * authoritative together with the immediate version and exact source stream.
+ * An older equivalent body cannot substitute for a missing original record.
  */
 export function findPreviousConfig<T extends ConfigVersionForComparison>(
   configs: readonly T[],
@@ -63,12 +72,29 @@ export function findPreviousConfig<T extends ConfigVersionForComparison>(
     .filter(
       (candidate) =>
         candidate.id !== current.id &&
-        candidate.device === current.device &&
-        candidate.version < current.version &&
+        sameConfigStream(candidate, current) &&
+        candidate.version === current.version - 1 &&
         candidate.content_hash === current.previous_hash &&
         typeof candidate.content === 'string',
     )
     .sort((left, right) => right.version - left.version || left.id.localeCompare(right.id))[0]
+}
+
+function sameConfigStream(left: ConfigVersionForComparison, right: ConfigVersionForComparison) {
+  if (!left.binding && !right.binding) return left.device === right.device
+  if (!left.binding || !right.binding) return false
+  for (const key of [
+    'kind',
+    'context_id',
+    'device_entity_id',
+    'agent_id',
+    'source_ref',
+    'source_assigned_at',
+    'agent_assigned_at',
+  ] as const) {
+    if (!left.binding[key] || left.binding[key] !== right.binding[key]) return false
+  }
+  return left.binding.kind === 'operator_bound_archive'
 }
 
 export function createConfigDiff(before: string, after: string): ConfigDiffResult {

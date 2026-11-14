@@ -44,9 +44,9 @@ describe('device config comparison', () => {
     expect(findPreviousConfig([prior, foreignDevice, repeated, current, future], current)).toBe(
       repeated,
     )
-    expect(findPreviousConfig([prior, foreignDevice, future, current], current)).toBe(prior)
+    expect(findPreviousConfig([prior, foreignDevice, future, current], current)).toBeUndefined()
     expect(findPreviousConfig([foreignDevice, future, current], current)).toBeUndefined()
-    expect(findPreviousConfig([prior, { ...current, content: undefined }], current)).toBe(prior)
+    expect(findPreviousConfig([prior, { ...current, content: undefined }], current)).toBeUndefined()
     expect(
       findPreviousConfig([prior, { ...current, content: undefined }], {
         ...current,

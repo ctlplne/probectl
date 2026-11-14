@@ -97,6 +97,7 @@ func newMCPServer(
 	src := firstAISources(sources)
 	backend := mcpBackend{
 		pool:        pool,
+		owner:       src.NativeFlow,
 		engine:      buildEngineWithPolicyLoader(cfg, pool, policyLoader, src),
 		analyzer:    buildAnalyzerWithPolicyLoader(cfg, log, pool, aiGate, policyLoader, src),
 		pathStore:   pathStore,
@@ -272,6 +273,7 @@ func mcpCallAuditor(pool *pgxpool.Pool, log *slog.Logger) mcp.CallAudit {
 // method scopes to the principal's tenant (the engine/stores enforce it), so a
 // tool can never reach another tenant's data.
 type mcpBackend struct {
+	owner       *Server
 	pool        *pgxpool.Pool
 	engine      *ai.Engine
 	analyzer    *ai.Analyzer
@@ -511,9 +513,29 @@ func (b mcpBackend) ExplainDegradation(ctx context.Context, p *auth.Principal, q
 	if err != nil {
 		return ai.Answer{}, err
 	}
-	defer release()
+	retained := false
+	defer func() {
+		if !retained {
+			release()
+		}
+	}()
 
-	return b.analyzer.Analyze(ctx, p, ai.Question{Text: question, Subject: subject})
+	if b.owner == nil {
+		return b.analyzer.Analyze(ctx, p, ai.Question{Text: question, Subject: subject})
+	}
+	scope := newConfigEvidenceScope(b.owner, p, mcp.CheckOriginatingCredential, ai.PermEventsRead, "ai.query")
+	ctx = ai.WithCurrentEvidence(scope.withContext(ctx), scope.check)
+	answer, err := b.analyzer.Analyze(ctx, p, ai.Question{Text: question, Subject: subject})
+	if err != nil {
+		return ai.Answer{}, err
+	}
+	if len(scope.selected()) > 0 {
+		if err := mcp.RetainNativePublication(ctx, scope.check, release); err != nil {
+			return ai.Answer{}, err
+		}
+		retained = true
+	}
+	return answer, nil
 }
 
 // NewMCPAuthenticator resolves a control-plane bearer token to a principal: the

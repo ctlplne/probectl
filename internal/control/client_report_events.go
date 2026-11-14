@@ -61,6 +61,7 @@ func (s *Server) captureClientReportEventsInScope(ctx context.Context, sc tenanc
 		return nil, err
 	}
 	changes = append(changes, projected...)
+	var configRefs []change.Event
 	for _, item := range changes {
 		resource := map[string]string{auth.ResourceTenantKey: actor.TenantID, "change_id": item.ID, "target": item.Target, "prefix": item.Prefix}
 		if err := s.authorize(ctx, actor, permChangeRead, auth.RBACGlobal, resource); err != nil {
@@ -71,7 +72,24 @@ func (s *Server) captureClientReportEventsInScope(ctx context.Context, sc tenanc
 			if err := s.authorize(ctx, actor, "metrics.read", auth.RBACGlobal, resource); err != nil {
 				return nil, err
 			}
+			if binding := item.Config.Binding; binding != nil {
+				configRefs = append(configRefs, item)
+				record, err := store.NewEntityRegistry(s.pool).GetEntityContextInScope(ctx, sc, binding.ContextID)
+				if err != nil {
+					return nil, err
+				}
+				boundResource := entityContextResource(record)
+				boundResource["entity_id"], boundResource["agent_id"], boundResource["source_kind"], boundResource["source_ref"] = binding.DeviceEntityID, binding.AgentID, string(entity.DeviceTarget), binding.SourceRef
+				for _, permission := range []string{"metrics.read", "entities.read"} {
+					if err := s.authorize(ctx, actor, permission, auth.RBACGlobal, boundResource); err != nil {
+						return nil, err
+					}
+				}
+			}
 		}
+	}
+	if err := (store.ChangeEvents{}).VerifyConfigChangeReferencesInScope(ctx, sc, configRefs, memory/4); err != nil {
+		return nil, err
 	}
 	sortChangeEvents(changes)
 	if err := ctx.Err(); err != nil {

@@ -466,11 +466,21 @@ between the two polls. An absent, zero or changed speed does not yield a
 percentage. Raw words remain strings, including integers above JavaScript's
 exact-number range.
 
-`config_coverage=unavailable_no_context_bound_archive` means no configuration
-archive has yet been tied to this exact canonical context/source. This preview
-does not attach configurations by matching global device names or addresses.
+`config_coverage=unavailable_no_context_bound_archive` means the archive reader
+is unavailable. `no_bound_archive_in_window` means it found no archive for the
+exact current source in the selected window. This preview never attaches
+configurations by matching global device names or addresses.
 `path_interface_health` exposes the same admitted reader over native MCP
 with full source-text redaction and exact original numeric/receipt metadata.
+Operator-bound configuration references share that exact current source and
+assignment. `health.config_changes` retains every original archive in the
+admitted interval, including an original predecessor outside it; it never
+truncates to a fixed row count. `config_coverage` distinguishes a missing archive
+from an operator-bound archive. References attest the operator association,
+not device collection, and contain no configuration content. An erased or
+changed reference refuses publication rather than substituting a same-name or
+same-hash record. See [device archives](device-telemetry.md#syslog-and-config-archive).
+
 `POST /v1/ai/ask` with `subject.path_test_id=TEST_ID` and the Path screen's
 explanation action use only this owned path's complete original health document.
 The optional `health_*` subject fields have the same meaning as the reader's

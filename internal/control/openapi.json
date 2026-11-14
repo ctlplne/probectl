@@ -7602,6 +7602,56 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Original credential is no longer valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current user or context permissions deny the archive.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The owned canonical device/source assignment is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or incomplete canonical binding or observation interval.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Current configuration archive is unavailable or changed during publication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "x-probectl-pagination": {
@@ -7609,7 +7659,8 @@
           "limit_param": "limit",
           "max_items": 500,
           "reason": "Device config versions are newest-first and bounded per tenant/device."
-        }
+        },
+        "description": "Bound archive records require current tenant-user metrics.read and entities.read authority for every stored context/device/source binding, plus the original credential. Revoked access or a changed archive refuses the entire response. Binding metadata records the operator assertion at archive time; it does not claim that the original source assignment is still current."
       },
       "post": {
         "x-required-permission": "metrics.write",
@@ -7643,8 +7694,59 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Original credential is no longer valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current user or context permissions deny the archive.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The owned canonical device/source assignment is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid or incomplete canonical binding or observation interval.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Current configuration archive is unavailable or changed during publication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
-        }
+        },
+        "description": "Archives redacted operator-submitted content. Optional binding explicitly selects an owned context/device and configured source. Binding requires a current tenant user with metrics.write and entities.read in that context; current credential authority is rechecked. Postgres stamps assignment epochs and bound_at; observations must fall within those assignments and no later than bound_at. Version/hash chains are independent per canonical source assignment and survive display-name changes. Name-only records remain a separate stream. The binding is an operator assertion, not device-collection attestation."
       }
     },
     "/v1/ebpf/service-map": {
@@ -24610,6 +24712,16 @@
           },
           "previous_hash": {
             "type": "string"
+          },
+          "binding": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceConfigArchiveBinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -26503,6 +26615,17 @@
           "observed_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "binding": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceConfigBindingInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional explicit canonical binding; name-only archives remain unbound."
           }
         }
       },
@@ -26522,7 +26645,8 @@
             "type": "string"
           },
           "version": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Version within the exact canonical device/source assignment stream when bound; otherwise within the legacy device-name stream."
           },
           "content": {
             "type": "string",
@@ -26544,6 +26668,17 @@
           "archived_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "binding": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceConfigArchiveBinding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional explicit canonical binding; name-only archives remain unbound."
           }
         }
       },
@@ -31188,7 +31323,8 @@
             "type": "string"
           },
           "config_coverage": {
-            "type": "string"
+            "type": "string",
+            "description": "Operator-bound archives, none in the selected window, or an unavailable configured archive reader. These references do not attest device collection."
           },
           "from": {
             "type": "string",
@@ -31207,6 +31343,13 @@
             "items": {
               "$ref": "#/components/schemas/PathHealthCounter"
             }
+          },
+          "config_changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceConfigArchiveReference"
+            },
+            "description": "Complete admitted original archive references in the health window, selected only by exact current canonical device/source assignment; never by device display name or address."
           }
         }
       },
@@ -31300,6 +31443,152 @@
               32,
               64
             ]
+          }
+        }
+      },
+      "DeviceConfigBindingInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "context_id",
+          "device_entity_id",
+          "agent_id",
+          "source_ref"
+        ],
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      },
+      "DeviceConfigArchiveBinding": {
+        "type": "object",
+        "description": "Operator-declared association to one exact tenant-owned canonical device and configured source assignment. It is not a collector receipt or proof of device collection. Assignment epochs and bound_at come from Postgres.",
+        "required": [
+          "kind",
+          "context_id",
+          "device_entity_id",
+          "agent_id",
+          "source_ref",
+          "source_assigned_at",
+          "agent_assigned_at",
+          "bound_at"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "operator_bound_archive"
+            ]
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "source_assigned_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "agent_assigned_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bound_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DeviceConfigArchiveReference": {
+        "type": "object",
+        "description": "Original metadata from an explicitly operator-bound redacted archive. No configuration content is included. Change claims require the immediate original predecessor in the same exact canonical source assignment.",
+        "required": [
+          "id",
+          "version",
+          "content_hash",
+          "drifted",
+          "change_status",
+          "observed_at",
+          "archived_at",
+          "binding"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "previous_hash": {
+            "type": "string"
+          },
+          "previous_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "previous_version": {
+            "type": "integer"
+          },
+          "drifted": {
+            "type": "boolean"
+          },
+          "change_status": {
+            "type": "string",
+            "enum": [
+              "initial_archive",
+              "no_content_change",
+              "original_predecessor_verified",
+              "unavailable_original_predecessor"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "archived_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/DeviceConfigArchiveBinding"
           }
         }
       }

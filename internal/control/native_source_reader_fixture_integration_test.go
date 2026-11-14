@@ -26,10 +26,15 @@ import (
 
 func interfaceRoleNativeTLSCaller(t *testing.T, f *roleExplanationAPIFixture, wire string) func(tenant, tool string, args any, target any, wantOK bool) {
 	t.Helper()
+	return interfaceRoleTLSCaller(t, f, wire, true)
+}
+
+func interfaceRoleTLSCaller(t *testing.T, f *roleExplanationAPIFixture, wire string, exactText bool) func(tenant, tool string, args any, target any, wantOK bool) {
+	t.Helper()
 	// Match config.Load's shipped defaults, rather than a zero-value fixture
 	// that explicitly disables the configurable IP/hostname/PII masks.
 	cfg := &config.Config{AIRedactIPs: true, AIRedactHostnames: true, AIRedactPII: true}
-	server := NewMCPServerWithPolicyLoader(cfg, f.server.log, f.pool, pathstore.NewMemory(), 0, NewAIEgressGate(cfg, f.server.log, f.pool), nil, nil, f.server.MCPPolicyLoader(), AISources{NativeFlow: f.server})
+	server := NewMCPServerWithPolicyLoader(cfg, f.server.log, f.pool, pathstore.NewMemory(), 0, NewAIEgressGate(cfg, f.server.log, f.pool), nil, nil, f.server.MCPPolicyLoader(), f.server.aiSources())
 	socket := httptest.NewTLSServer(server.HTTPHandler(NewMCPAuthenticator(f.pool, NewTenantStatusCache(f.pool, 0), false)))
 	t.Cleanup(socket.Close)
 	if wire == "2025-11-25" {
@@ -112,9 +117,27 @@ func interfaceRoleNativeTLSCaller(t *testing.T, f *roleExplanationAPIFixture, wi
 		if wire == "2025-11-25" && (reply.Result.ResultType != "" || len(reply.Result.Meta) != 0) {
 			t.Fatal("legacy role RPC inherited modern metadata")
 		}
-		if len(reply.Result.Content) != 1 || !bytes.Equal(bytes.TrimSpace([]byte(reply.Result.Content[0].Text)), bytes.TrimSpace(reply.Result.Data)) {
-			t.Fatal("native role text and structured results disagree")
+		if len(reply.Result.Content) != 1 {
+			t.Fatal("tool result lost its complete text representation")
 		}
+		text, data := bytes.TrimSpace([]byte(reply.Result.Content[0].Text)), bytes.TrimSpace(reply.Result.Data)
+		if !exactText {
+			// Generic tools deliberately pretty-print text; structured RPC JSON
+			// is compact. Remove whitespace only, preserving every numeric and
+			// string byte. Native tools retain the original byte-for-byte oracle.
+			var compactText, compactData bytes.Buffer
+			if err := json.Compact(&compactText, text); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Compact(&compactData, data); err != nil {
+				t.Fatal(err)
+			}
+			text, data = compactText.Bytes(), compactData.Bytes()
+		}
+		if !bytes.Equal(text, data) {
+			t.Fatal("tool text and structured results disagree")
+		}
+
 		if target != nil && json.Unmarshal(reply.Result.Data, target) != nil {
 			t.Fatal("native role result lost its typed complete representation")
 		}
