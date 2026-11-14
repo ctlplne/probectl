@@ -1563,6 +1563,8 @@ export const OPENAPI_TYPE_CONTRACTS = {
   incident: true,
   signal: true,
   changeEvent: true,
+  changeTimelinePage: true,
+  routingChangeReference: true,
   incidentShareArtifact: true,
   incidentShareContext: true,
   lifecycleStatus: true,
