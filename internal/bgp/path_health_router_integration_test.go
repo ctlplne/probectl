@@ -116,6 +116,7 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 				}
 				return false
 			})
+			plantedAt := time.Now().UTC()
 			setError(230)
 			var frozen time.Time
 			shipped.Await(t, "original planted SNMP error climb on the actual trace responder", time.Minute, func() bool {
@@ -135,7 +136,7 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 					if counter.Metric == "probectl.device.if.in.errors" && counter.Value == "230" && counter.PreviousValue == "100" && counter.MinimumDelta == "130" && counter.RateNumerator != "" && counter.RateDenominator != "" {
 						var err error
 						frozen, err = time.Parse(time.RFC3339Nano, counter.PollCompletedAt)
-						return err == nil && counter.CaptureKey != counter.PreviousCaptureKey
+						return err == nil && !frozen.Before(plantedAt) && counter.CaptureKey != counter.PreviousCaptureKey
 					}
 				}
 				return false
