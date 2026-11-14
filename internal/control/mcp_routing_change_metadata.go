@@ -8,6 +8,7 @@ package control
 
 import (
 	"encoding/json"
+
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/change"
 )

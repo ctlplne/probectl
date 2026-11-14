@@ -59,7 +59,7 @@ func (s *Server) handleListChanges(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	defer release()
-	writeJSON(w, http.StatusOK, json.RawMessage(body))
+	writeJSON(w, http.StatusOK, body)
 	return nil
 }
 
@@ -163,5 +163,5 @@ func (s *Server) readChangeTimeline(r *http.Request, scope *configEvidenceScope)
 	if err := scope.check(r.Context()); err != nil {
 		return nil, nil, err
 	}
-	return json.RawMessage(body), release, nil
+	return body, release, nil
 }

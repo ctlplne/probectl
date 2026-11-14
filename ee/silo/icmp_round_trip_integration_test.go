@@ -54,7 +54,7 @@ func TestICMPRoundTripsKeepSiloTypedChecksOriginalClockAndTenantOnCatchup(t *tes
 	contextID, entityID, testID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	end := time.Now().UTC().Truncate(time.Microsecond)
 	digest := crypto.Hash([]byte("modeled silo ICMP definition and network quote"))
-	legacy := entity.ICMPMeasurement{Version: 1, DefinitionHash: hex.EncodeToString(digest[:]), StartedAt: end.Add(-time.Second), CompletedAt: end, Requested: 2, Attempted: 2, Transmitted: 2, Replies: 1, ReadComplete: true, Responders: []string{"192.0.2.7"}}
+	legacy := entity.ICMPMeasurement{Version: 1, DefinitionHash: hex.EncodeToString(digest), StartedAt: end.Add(-time.Second), CompletedAt: end, Requested: 2, Attempted: 2, Transmitted: 2, Replies: 1, ReadComplete: true, Responders: []string{"192.0.2.7"}}
 	for lane, tenant := range tenants {
 		if err := prov.Provision(ctx, tenant, "", tenancy.IsolationSiloed); err != nil {
 			t.Fatal(err)
@@ -95,7 +95,7 @@ func TestICMPRoundTripsKeepSiloTypedChecksOriginalClockAndTenantOnCatchup(t *tes
 		}
 		v2 := legacy
 		v2.Version = 2
-		v2.NetworkErrors = []entity.ICMPNetworkError{{Sequence: 1, Responder: "192.0.2.1", Type: 3, Code: 1, ReceivedAt: end, PacketDigest: hex.EncodeToString(digest[:])}}
+		v2.NetworkErrors = []entity.ICMPNetworkError{{Sequence: 1, Responder: "192.0.2.1", Type: 3, Code: 1, ReceivedAt: end, PacketDigest: hex.EncodeToString(digest)}}
 		insert(&v2)
 		v3 := v2
 		v3.Version = 3

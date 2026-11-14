@@ -9,6 +9,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+
 	"github.com/ctlplne/probectl/internal/auth"
 )
 

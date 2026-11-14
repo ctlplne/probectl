@@ -333,7 +333,8 @@ func archiveRouterPathConfigs(t *testing.T, st *shipped.Stack, lab *routingLab, 
 	clear(random)
 	// The unused peer is shut down before setting its credential. Feed config
 	// through stdin so neither a process argument nor an error logs the secret.
-	plant := exec.Command("docker", "exec", "-i", lab.container("rtr-a"), "vtysh", "-f", "/dev/stdin")
+	// Default per-daemon forks share this pipe; keep one complete stdin reader.
+	plant := exec.Command("docker", "exec", "-i", lab.container("rtr-a"), "vtysh", "--no-fork", "-f", "/dev/stdin")
 	plant.Stdin = strings.NewReader("router bgp " + strconv.Itoa(rtrAASN) + "\n neighbor 192.0.2.249 remote-as 64511\n neighbor 192.0.2.249 shutdown\n neighbor 192.0.2.249 password " + secret + "\nexit\n")
 	if err := plant.Run(); err != nil {
 		t.Fatal("could not configure the owned inactive-peer redaction control")

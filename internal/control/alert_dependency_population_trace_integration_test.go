@@ -56,7 +56,7 @@ func (trace *dependencyPopulationTrace) TraceQueryStart(ctx context.Context, _ *
 
 // Failure-only instrumentation executes the same alias read after the timed
 // product operation. Log numeric plan statistics, never SQL or bound values.
-func explainFailedDependencyPopulation(t *testing.T, pool *pgxpool.Pool, ctx context.Context, sc tenancy.Scope) {
+func explainFailedDependencyPopulation(ctx context.Context, t *testing.T, pool *pgxpool.Pool, sc tenancy.Scope) {
 	t.Helper()
 	trace, ok := pool.Config().ConnConfig.Tracer.(*dependencyPopulationTrace)
 	if !ok {
