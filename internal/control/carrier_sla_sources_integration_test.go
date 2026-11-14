@@ -143,5 +143,4 @@ func TestCarrierSLASourceReferencesKeepTenantIdentityAndRetireWithoutLosingTerms
 	if err != nil || fresh.Version != "3" || !fresh.SLASourceMetadataTrusted {
 		t.Fatal("explicit source relink did not capture its new assignment", err)
 	}
-
 }

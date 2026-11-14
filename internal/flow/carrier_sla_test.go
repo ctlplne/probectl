@@ -50,7 +50,7 @@ func TestCarrierSLAUsesExactContractBandsCapsAndUnknownCoverage(t *testing.T) {
 			t.Fatal("inclusive exact goal boundaries gained a breach", result, err)
 		}
 		// Operator penalties may exceed one monthly charge. No product-imposed
-		//100-percent ceiling replaces the actual contract's explicit cap.
+		// 100-percent ceiling replaces the actual contract's explicit cap.
 		terms.CreditCapRatio = "3"
 		terms.Rules[0].CreditBands[0].CreditRatio = "2"
 		measured[0].Value = "0.98"

@@ -99,6 +99,9 @@ func TestIncidentExportCLIRequiresCurrentRequestAndOfflineVerification(t *testin
 		{"caller credentials omitted", "newClient(cfg).raw(", "newClient(Config{}).raw("},
 		{"offline verification omitted", "if _, err := evidence.Verify(raw); err != nil {", "if _, err := evidence.Verify(nil); err != nil {"},
 		{"export request omitted", "return cmdIncidentExportWithStdin(cfg, args[1:], stdin, stdout, stderr)", "return 0"},
+		{"export loses caller configuration", "return cmdIncidentExportWithStdin(cfg, args[1:], stdin, stdout, stderr)", "return cmdIncidentExportWithStdin(Config{}, args[1:], stdin, stdout, stderr)"},
+		{"export loses selected input", "return cmdIncidentExportWithStdin(cfg, args[1:], stdin, stdout, stderr)", "return cmdIncidentExportWithStdin(cfg, args, stdin, stdout, stderr)"},
+		{"export loses input stream", "return cmdIncidentExportWithStdin(cfg, args[1:], stdin, stdout, stderr)", "return cmdIncidentExportWithStdin(cfg, args[1:], bytes.NewReader(nil), stdout, stderr)"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

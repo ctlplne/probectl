@@ -757,7 +757,7 @@ func cliReturnRoutesOperation(statement *ast.ReturnStmt, group, operation string
 	if !ok || !callable[identifier.Name] || !cliCustomHandlerMatches(identifier.Name, group, operation) {
 		return false
 	}
-	if identifier.Name == "dashboardImport" {
+	if identifier.Name == "dashboardImport" || identifier.Name == "cmdIncidentExportWithStdin" {
 		return len(call.Args) == 5 && isIdentifier(call.Args[0], "cfg") && isArgsTail(call.Args[1]) &&
 			isIdentifier(call.Args[2], "stdin") && isIdentifier(call.Args[3], "stdout") && isIdentifier(call.Args[4], "stderr")
 	}
@@ -810,6 +810,9 @@ func cliLocallyBoundIdentifiers(body *ast.BlockStmt) map[string]bool {
 }
 
 func cliCustomHandlerMatches(handler, group, operation string) bool {
+	if handler == "cmdIncidentExportWithStdin" {
+		return group == "incident" && operation == "export"
+	}
 	normalize := func(value string) string {
 		var out strings.Builder
 		for _, r := range value {

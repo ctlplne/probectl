@@ -129,8 +129,8 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   },
   // Additive routing fields and the qualified peering estimate remain preview.
   // The shared Explorer schema owns routing field reach.
+  // Optional carrier SLA terms are preview; measured monthly claim drafts remain owed.
   {
-    // Optional carrier SLA terms are preview; measured monthly claim drafts remain owed.
     id: 'F17',
     name: 'Flow analytics',
     status: 'delivered',
