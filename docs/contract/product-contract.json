@@ -24,7 +24,7 @@
       ],
       "name": "Path visualization",
       "status": "delivered",
-      "evidence": "`internal/path`, web hero view; FX-2 operator-bound current hop identity uses `internal/control/pathentities.go` and `web/src/routes/PathPage.tsx`."
+      "evidence": "`internal/path`, web hero view; FX-2 operator-bound current hop identity uses `internal/control/pathentities.go` and `web/src/routes/PathPage.tsx`. Original polled hop health is a preview: `internal/control/path_health_read.go` shares exact current interface/source/receipt admission across REST, SDK, CLI, the path screen and native MCP. Native publication retains query admission and revalidates current source authority after full redaction, before the transport credential refresh. Original counters/history are modeled in focused paired TLS PG/RLS and authenticated HTTP/stdio checks; physical FRR/traceroute/SNMP, cited RCA, context-bound configuration links, served accessibility and lifecycle qualification remain owed."
     },
     {
       "ids": [

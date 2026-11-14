@@ -469,6 +469,8 @@ exact-number range.
 `config_coverage=unavailable_no_context_bound_archive` means no configuration
 archive has yet been tied to this exact canonical context/source. This preview
 does not attach configurations by matching global device names or addresses.
-Native MCP/RCA, context-bound recent configuration references, physical
+`path_interface_health` exposes the same admitted reader over native MCP
+with full source-text redaction and exact original numeric/receipt metadata.
+Cited RCA, context-bound recent configuration references, physical
 traceroute/SNMP validation and the complete served-surface proof remain required
 before this feature leaves preview.

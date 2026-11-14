@@ -35,13 +35,19 @@ import (
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
 
-func TestPathHealthServesOriginalCountersWithCurrentPairedAuthority(t *testing.T) {
+type pathHealthAPIFixture struct {
+	fixture *roleExplanationAPIFixture
+	history *capacityCounterHistoryProbe
+	tests   map[string]string
+	windows map[string]url.Values
+}
+
+func newPathHealthAPIFixture(t *testing.T) *pathHealthAPIFixture {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	history := &capacityCounterHistoryProbe{Memory: flowstore.NewMemory()}
 	f.server.WithFlowStore(history).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	f.server.pathStore = pathstore.NewMemory()
-	socket := httptest.NewTLSServer(f.server.Handler())
-	defer socket.Close()
 	tests := map[string]string{}
 	windows := map[string]url.Values{}
 	for lane, tenant := range f.tenants {
@@ -98,6 +104,14 @@ func TestPathHealthServesOriginalCountersWithCurrentPairedAuthority(t *testing.T
 		}
 		windows[tenant] = url.Values{"include_health": {"true"}, "health_from": {start.Add(-time.Second).Format(time.RFC3339Nano)}, "health_to": {end.Format(time.RFC3339Nano)}, "health_poll_gap": {"5s"}, "health_max_bps": {"20000000"}}
 	}
+	return &pathHealthAPIFixture{fixture: f, history: history, tests: tests, windows: windows}
+}
+
+func TestPathHealthServesOriginalCountersWithCurrentPairedAuthority(t *testing.T) {
+	proof := newPathHealthAPIFixture(t)
+	f, history, tests, windows := proof.fixture, proof.history, proof.tests, proof.windows
+	socket := httptest.NewTLSServer(f.server.Handler())
+	defer socket.Close()
 	call := func(tenant, test string) (int, []byte) {
 		t.Helper()
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, socket.URL+"/v1/tests/"+test+"/path/entities?"+windows[tenant].Encode(), nil)

@@ -43,6 +43,9 @@ func policyAuthoritySet(policies []auth.Policy) (map[string]bool, error) {
 }
 
 func (s *Server) guardToolPublication(ctx context.Context, p *auth.Principal, initialPolicies map[string]bool) error {
+	if err := checkNativePublication(ctx); err != nil {
+		return err
+	}
 	if err := guardPublication(ctx); err != nil {
 		return err
 	}

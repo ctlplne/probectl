@@ -8,7 +8,6 @@ package control
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -60,14 +59,8 @@ func (s *Server) handleGetPathEntities(w http.ResponseWriter, r *http.Request) e
 	if err != nil {
 		return err
 	}
-	var health *pathHealthOperation
 	if includeHealth {
-		health, err = s.beginPathHealth(r)
-		if err != nil {
-			return pathHealthError(err)
-		}
-		defer health.op.done()
-		r = health.op.request
+		return s.handleGetPathHealth(w, r)
 	}
 	_, err = s.testTarget(r)
 	if err != nil {
@@ -128,7 +121,7 @@ func (s *Server) handleGetPathEntities(w http.ResponseWriter, r *http.Request) e
 			if node.IP == "" {
 				continue
 			}
-			if !includeHealth && len(items) >= maxAddresses {
+			if len(items) >= maxAddresses {
 				truncated = true
 				continue
 			}
@@ -139,18 +132,10 @@ func (s *Server) handleGetPathEntities(w http.ResponseWriter, r *http.Request) e
 					addresses = append(addresses, alias.Value)
 				}
 			}
-			if health != nil && int64(len(items)) >= health.op.budget.MemoryBytes/8192 {
-				return apierror.TooLarge("complete path health exceeds resource admission")
-			}
 			items = append(items, pathEntityHop{TTL: hop.TTL, IP: node.IP})
 		}
 	}
-	var resolved map[string]entity.Resolution
-	if health != nil {
-		resolved, err = registry.ResolveAddressesWithBudget(ctx, scope, addresses, health.op.budget.MemoryBytes)
-	} else {
-		resolved, err = registry.ResolveAddresses(ctx, scope, addresses)
-	}
+	resolved, err := registry.ResolveAddresses(ctx, scope, addresses)
 	if err != nil {
 		return entityAPIError(err)
 	}
@@ -167,27 +152,9 @@ func (s *Server) handleGetPathEntities(w http.ResponseWriter, r *http.Request) e
 			items[i].Resolution = resolved[key]
 		}
 	}
-	result := map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"test_id": r.PathValue("id"), "context_id": scope.ContextID,
 		"status": "current", "coverage": "registered_sources_only", "items": items, "truncated": truncated,
-	}
-	if health != nil {
-		if err := s.populatePathHealth(health, binding, items); err != nil {
-			return pathHealthError(err)
-		}
-		body, err := json.Marshal(result)
-		if err != nil {
-			return apierror.Unavailable("complete path health output is unavailable")
-		}
-		if int64(len(body)) > health.op.budget.ResponseBytes {
-			return apierror.TooLarge("complete path health output exceeds response admission")
-		}
-		if err := s.revalidatePathHealth(health, binding, items); err != nil {
-			return pathHealthError(err)
-		}
-		writeJSON(w, http.StatusOK, json.RawMessage(body))
-		return nil
-	}
-	writeJSON(w, http.StatusOK, result)
+	})
 	return nil
 }

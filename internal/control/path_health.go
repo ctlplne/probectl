@@ -206,7 +206,7 @@ func (s *Server) readPathInterfaceHealth(query *pathHealthOperation, scope entit
 
 func (s *Server) populatePathHealth(query *pathHealthOperation, binding store.PathTestBinding, items []pathEntityHop) error {
 	ctx := query.op.request.Context()
-	if err := s.authorizePathHealth(query, binding.Scope); err != nil {
+	if err := s.authorizePathHealth(query, binding.Scope, items); err != nil {
 		return err
 	}
 	cache := map[string]*pathInterfaceHealth{}
@@ -248,7 +248,7 @@ func (s *Server) populatePathHealth(query *pathHealthOperation, binding store.Pa
 
 // Refresh the current user and context policy without widening the original
 // credential ceiling. Repeat at publication, including path-only permissions.
-func (s *Server) authorizePathHealth(query *pathHealthOperation, scope entity.Scope) error {
+func (s *Server) authorizePathHealth(query *pathHealthOperation, scope entity.Scope, items []pathEntityHop) error {
 	ctx, actor := query.op.request.Context(), query.op.actor
 	resource, err := s.entityResource(ctx, scope)
 	if err != nil {
@@ -267,12 +267,17 @@ func (s *Server) authorizePathHealth(query *pathHealthOperation, scope entity.Sc
 			return err
 		}
 	}
+	for _, item := range items {
+		if err := s.authorizeEntityResolution(ctx, principal, item.Resolution, resource); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func (s *Server) revalidatePathHealth(query *pathHealthOperation, binding store.PathTestBinding, items []pathEntityHop) error {
 	ctx, actor := query.op.request.Context(), query.op.actor
-	if err := s.authorizePathHealth(query, binding.Scope); err != nil {
+	if err := s.authorizePathHealth(query, binding.Scope, items); err != nil {
 		return err
 	}
 	registry := store.NewEntityRegistry(s.pool)
@@ -319,6 +324,13 @@ func (s *Server) revalidatePathHealth(query *pathHealthOperation, binding store.
 			return apierror.Unavailable("path health source authority expired; retry")
 		}
 	}
+	return ctx.Err()
+}
+
+// REST has the original bearer/session on its request. MCP independently
+// refreshes its originating HTTPS/stdio credential after full redaction.
+func (s *Server) revalidatePathHealthCredential(query *pathHealthOperation) error {
+	actor := query.op.actor
 	credential := s.resolvePrincipal(query.op.request)
 	if credential == nil {
 		return unauthenticated(query.op.request)
@@ -326,7 +338,7 @@ func (s *Server) revalidatePathHealth(query *pathHealthOperation, binding store.
 	if !auth.SamePrincipalAuthority(actor, credential) {
 		return apierror.Forbidden("credential authority changed during path health read")
 	}
-	return ctx.Err()
+	return query.op.request.Context().Err()
 }
 
 // Preserve domain refusals while keeping storage details out of public errors.

@@ -61,6 +61,8 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     status: 'partial',
     source: 'contract:features',
   },
+  // Original polled hop health is preview; physical source, RCA/config and
+  // complete served/lifecycle qualification remain owed in the shared contract.
   { id: 'F3', name: 'Path visualization', status: 'delivered', source: 'contract:features' },
   { id: 'F4', name: 'HTTP tests', status: 'delivered', source: 'contract:features' },
   { id: 'F5', name: 'DNS tests', status: 'delivered', source: 'contract:features' },

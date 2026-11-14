@@ -728,3 +728,35 @@ atomic domain audit, consent/redaction and final publication checks apply.
 Native request envelopes use the operator's existing native source-byte
 admission on both HTTP and stdio. The five configuration tools do not grant source freshness or telemetry access. See
 [interface role configuration](features/interface-roles.md).
+
+## Original polled path-interface health (preview)
+
+`path_interface_health` takes an owned `test_id` and optional `health_from`,
+`health_to`, `health_poll_gap` and `health_max_bps`, with the same types and
+meaning as the REST path-entities operation. It requires a current tenant user
+with `test.read`, `entities.read`, `metrics.read` and `ai.query`, plus every
+returned evidence source's current context grants. No tenant, device, ifIndex
+or capture identity is accepted from tool arguments.
+
+```json
+{"name":"path_interface_health","arguments":{"test_id":"00000000-0000-4000-8000-000000000001","health_poll_gap":"5m","health_max_bps":"10000000000"}}
+```
+
+The shared admitted reader follows the latest post-binding path to its exact
+current interface-address evidence. Conflicting ports and unpolled responders
+remain explicit. Its complete response retains all original directional
+counter words, poll clocks, receipt keys/digests and rational rates. A rate is
+a modular minimum under counter continuity unless an explicit physical bound
+excludes additional wraps. Utilisation also states the constant-polled-speed
+assumption. Unknown, zero, changed and stale inputs are not fabricated as a
+healthy percentage.
+
+Both native HTTP revisions and authenticated persistent stdio keep the same
+consent, full redaction and exact-credential publication checks. Fixed metric
+identifiers, validated numeric counter words and server-verified receipt IDs
+retain their exact structured values; arbitrary sender/source text still goes
+through redaction. The per-call query admission remains held through complete
+response framing, and current path/source/evidence authority is checked after
+redaction. A refusal returns no partial health payload. This is a preview;
+physical routed/SNMP qualification, cited RCA and context-bound configuration
+archive integration remain unfinished.

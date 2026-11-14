@@ -458,7 +458,7 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		}
 		defer func() {
 			if response != nil {
-				response.finalize = release
+				response.addFinalizer(release)
 			} else if release != nil {
 				release()
 			}
@@ -469,6 +469,17 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 			return auditUnavailable()
 		}
 		return errorResponse(req.ID, codeUnavailable, "request progress is unavailable")
+	}
+	if t.Native {
+		var publication *nativePublication
+		ctx, publication = withNativePublication(ctx)
+		defer func() {
+			if response != nil {
+				response.addFinalizer(publication.release)
+			} else {
+				publication.release()
+			}
+		}()
 	}
 	out, err := t.Invoke(ctx, p, params.Arguments)
 	return s.finishToolCall(ctx, p, req, t, params.Name, publicationPolicies, out, err, emit)
