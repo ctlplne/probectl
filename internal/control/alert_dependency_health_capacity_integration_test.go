@@ -57,6 +57,7 @@ func TestDependencyHealthCompleteTwentyThousandCurrentSourcePopulation(t *testin
 			t.Logf("read complete current-source population: tenant lane %d", lane)
 			decider, err := alert.PrepareDependencyNotifications(ctx, snapshot, 512<<20, 512<<20)
 			if err != nil {
+				explainFailedDependencyPopulation(t, observedPool, ctx, sc)
 				t.Fatal(err)
 			}
 			for i, row := range rows {
