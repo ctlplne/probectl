@@ -14,6 +14,63 @@ import type { FlowQueryFilterGroup } from './flowExplorer'
 export type { AlertQueryCondition, AlertQuerySourceInput, AlertQuerySourceState } from './sdk.gen'
 import type { AlertQuerySourceInput, AlertQuerySourceState } from './sdk.gen'
 
+export type { AlertPathHealthSourceInput, AlertPathHealthSourceState } from './sdk.gen'
+import type { AlertPathHealthSourceInput, AlertPathHealthSourceState } from './sdk.gen'
+
+export const pathHealthAlertMetric = 'probectl_device_path_error_climb'
+
+export function getAlertPathHealthSource(tenantID: string, ruleID: string, signal: AbortSignal) {
+  return apiFetch<AlertPathHealthSourceState>(
+    `/alerts/rules/${encodeURIComponent(ruleID)}/path-health-source`,
+    {
+      signal,
+      headers: { 'X-Probectl-Tenant': tenantID },
+    },
+  )
+}
+
+export function putAlertPathHealthSource(
+  tenantID: string,
+  ruleID: string,
+  input: AlertPathHealthSourceInput,
+  signal: AbortSignal,
+) {
+  return apiFetch<AlertPathHealthSourceState>(
+    `/alerts/rules/${encodeURIComponent(ruleID)}/path-health-source`,
+    {
+      method: 'PUT',
+      signal,
+      headers: { 'Content-Type': 'application/json', 'X-Probectl-Tenant': tenantID },
+      body: JSON.stringify(input),
+    },
+  )
+}
+
+export function clearAlertPathHealthSource(tenantID: string, ruleID: string, signal: AbortSignal) {
+  return apiFetch<AlertPathHealthSourceState>(
+    `/alerts/rules/${encodeURIComponent(ruleID)}/path-health-source`,
+    {
+      method: 'DELETE',
+      signal,
+      headers: { 'X-Probectl-Tenant': tenantID },
+    },
+  )
+}
+
+export function createPathHealthAlert(
+  tenantID: string,
+  name: string,
+  path_health_source: AlertPathHealthSourceInput,
+  signal: AbortSignal,
+) {
+  return apiFetch<AlertRule>('/alerts', {
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json', 'X-Probectl-Tenant': tenantID },
+    body: JSON.stringify({ name, path_health_source }),
+  })
+}
+
 export type { AlertQueryGroupInspection } from './sdk.gen'
 import type { AlertQueryGroupInspection } from './sdk.gen'
 

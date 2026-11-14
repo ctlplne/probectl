@@ -24,7 +24,7 @@ type QuerySelection struct {
 }
 
 func (q *QuerySelection) Validate(rule Rule) error {
-	if q == nil || !q.Complete || q.At.IsZero() || q.TenantID != rule.TenantID || q.RuleID != rule.ID || rule.Metric != QueryMetric || !canonicalQueryID(q.TenantID) || !canonicalQueryID(q.RuleID) {
+	if q == nil || !q.Complete || q.At.IsZero() || q.TenantID != rule.TenantID || q.RuleID != rule.ID || !selectedSourceMetric(rule.Metric) || !canonicalQueryID(q.TenantID) || !canonicalQueryID(q.RuleID) {
 		return ErrQueryGroups
 	}
 	decoded, err := hex.DecodeString(q.Binding)
@@ -45,7 +45,7 @@ func (en *Engine) completeQuerySamples(rule Rule, read RuleMetricRead) ([]Sample
 	departed := map[string]bool{}
 	samples := append([]Sample(nil), read.Samples...)
 	for _, sample := range samples {
-		if !querySampleLabels(sample.Labels) || (sample.Value != 0 && sample.Value != 1) {
+		if !selectedSampleLabels(rule.Metric, sample.Labels) || (sample.Value != 0 && sample.Value != 1) {
 			return nil, nil, ErrQueryGroups
 		}
 		key := stateKey(rule.ID, sample.Labels)
@@ -75,11 +75,15 @@ func (en *Engine) completeQuerySamples(rule Rule, read RuleMetricRead) ([]Sample
 	sort.Strings(keys)
 	for _, key := range keys {
 		labels := missing[key]
-		if !querySampleLabels(labels) {
+		if !selectedSampleLabels(rule.Metric, labels) {
 			return nil, nil, ErrQueryGroups
 		}
 		departed[key] = true
-		samples = append(samples, Sample{Labels: labels, Reason: "group absent from the complete saved-query selection"})
+		reason := "group absent from the complete saved-query selection"
+		if rule.Metric == PathHealthMetric {
+			reason = "port source absent from the complete current path selection"
+		}
+		samples = append(samples, Sample{Labels: labels, Reason: reason})
 	}
 	en.restoreQueryEpisodes(rule, samples)
 	return samples, departed, nil
@@ -103,11 +107,21 @@ func (en *Engine) restoreQueryEpisodes(rule Rule, samples []Sample) {
 	}
 }
 
-func querySampleLabels(labels map[string]string) bool {
-	if len(labels) != 2 || !canonicalQueryID(labels["query_view_id"]) {
+func selectedSourceMetric(metric string) bool {
+	return metric == QueryMetric || metric == PathHealthMetric
+}
+
+func selectedSampleLabels(metric string, labels map[string]string) bool {
+	parent, group := "query_view_id", "query_group"
+	if metric == PathHealthMetric {
+		parent, group = "path_test_id", "path_health_group"
+	} else if metric != QueryMetric {
 		return false
 	}
-	key := labels["query_group"]
+	if len(labels) != 2 || !canonicalQueryID(labels[parent]) {
+		return false
+	}
+	key := labels[group]
 	decoded, err := hex.DecodeString(key)
 	return err == nil && len(decoded) == 32 && hex.EncodeToString(decoded) == key
 }

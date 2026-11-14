@@ -211,6 +211,28 @@ routing incident held 20,389 signals of which 18,020 were byte-identical copies.
 
 ## Use it
 
+**Original path-error alerts (preview).** From a resolved interface's Path
+health details, choose **Create alert for this error counter**. Alerts also
+offers **Create path-error alert** and per-rule **Path-error source** controls.
+Select the owned test, canonical interface and original error/discard category;
+the server checks the complete current path and source before saving. The
+existing alert delivery editor sets channels, debounce and re-notification.
+An untrained, missing, stale, reset or unauthorized source holds the episode;
+it never supplies a healthy zero. Check evaluator status and deployment source
+authentication policy before relying on delivery.
+
+REST uses `POST /v1/alerts` with `path_health_source`, then
+`GET|PUT|DELETE /v1/alerts/rules/{id}/path-health-source`. CLI equivalents are
+`probectl alert path-health-source`, `path-health-source-set` and
+`path-health-source-clear`, with the rule ID; creation uses `alert create` with
+the same JSON body. Native tools are `alert_path_health_create`,
+`alert_path_health_get`, `alert_path_health_set` and `alert_path_health_clear`.
+Read and save require current test, entity and metric read grants as well as
+the corresponding alert permission; native calls additionally require
+`ai.query`. Explicit clearing only needs `alert.write` and disables the rule.
+Full physical-sender, native/served, lifecycle and exact-main qualification
+remain open.
+
 Alert rules and active alerts are managed through the versioned REST API under
 `/v1/alerts`, and incidents under `/v1/incidents`. Reading alert state needs the
 `alert.read` permission; silencing or acknowledging needs `alert.write`. Both

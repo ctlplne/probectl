@@ -2628,6 +2628,226 @@
         "description": "Tenant identity comes from authentication; FORCE-RLS scopes the rule, current active owner and routing context. Configuration retains only the configuring read capability ceiling, never tokens, MFA or role snapshots. Every mutation is audited. This preview operation manages configuration metadata only; it does not assert a current notification hold. Requires current alert.write only and preserves enabled state, metric, predicate and source configuration."
       }
     },
+    "/v1/alerts/rules/{id}/path-health-source": {
+      "get": {
+        "operationId": "getAlertPathHealthSource",
+        "summary": "Inspect an owned path error-rate alert source",
+        "x-required-permission": "alert.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authorized path alert configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertPathHealthSourceState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Authenticated tenant first, then current alert and source authorization. FORCE-RLS selects rule, current test/interface parents and configuring-user read ceiling. Complete original polled evidence, exact source incarnation and local baseline provenance are required. Warmup, resets, revoked access and unavailable sources withhold evaluation; they never become healthy zero rates. Existing alert notification state deduplicates an episode across restart. Clearing requires current alert.write and disables evaluation.",
+        "x-additional-permissions": [
+          "test.read",
+          "entities.read",
+          "metrics.read"
+        ]
+      },
+      "put": {
+        "operationId": "setAlertPathHealthSource",
+        "summary": "Bind current owned path/interface error evidence to an alert",
+        "x-required-permission": "alert.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authorized path alert configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertPathHealthSourceState"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Authenticated tenant first, then current alert and source authorization. FORCE-RLS selects rule, current test/interface parents and configuring-user read ceiling. Complete original polled evidence, exact source incarnation and local baseline provenance are required. Warmup, resets, revoked access and unavailable sources withhold evaluation; they never become healthy zero rates. Existing alert notification state deduplicates an episode across restart. Clearing requires current alert.write and disables evaluation.",
+        "x-additional-permissions": [
+          "test.read",
+          "entities.read",
+          "metrics.read"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertPathHealthSourceInput"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "clearAlertPathHealthSource",
+        "summary": "Clear a path alert source and disable its rule",
+        "x-required-permission": "alert.write",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Metadata filter cleared; other rule settings preserved."
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "200": {
+            "description": "Current authorized path alert configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertPathHealthSourceState"
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Authenticated tenant first, then current alert and source authorization. FORCE-RLS selects rule, current test/interface parents and configuring-user read ceiling. Complete original polled evidence, exact source incarnation and local baseline provenance are required. Warmup, resets, revoked access and unavailable sources withhold evaluation; they never become healthy zero rates. Existing alert notification state deduplicates an episode across restart. Clearing requires current alert.write and disables evaluation."
+      }
+    },
     "/v1/alerts/rules/{id}/query-source": {
       "get": {
         "operationId": "getAlertQuerySource",
@@ -21196,7 +21416,121 @@
           }
         ]
       },
-      "AlertQuerySourceInput": {
+      "AlertPathHealthSourceInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "test_id",
+        "interface_id"
+      ],
+      "properties": {
+        "test_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Owned test whose current path contains the selected canonical interface."
+        },
+        "interface_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Canonical interface UUID resolved on that path; names and addresses do not grant identity."
+        },
+        "metric": {
+          "type": "string",
+          "enum": [
+            "probectl.device.if.in.errors",
+            "probectl.device.if.out.errors",
+            "probectl.device.if.in.discards",
+            "probectl.device.if.out.discards",
+            "probectl.device.if.in.fcs.errors",
+            "probectl.device.if.in.alignment.errors"
+          ],
+          "default": "probectl.device.if.in.errors"
+        },
+        "lookback_seconds": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1,
+          "default": 86400,
+          "description": "Positive selected baseline lookback, under resource admission and the path reader timestamp domain; no fixed day ceiling."
+        },
+        "poll_gap_seconds": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1,
+          "default": 300,
+          "description": "Maximum admitted gap between original adjacent polls; missing/reset/ambiguous intervals never become healthy zero rates."
+        }
+      },
+      "description": "Preview current-source minimum error-rate condition using the existing local baseline model. Original counter words and continuity assumptions remain in path health. Configuration captures only a read ceiling; current configuring-user/context/source grants are checked for every evaluation."
+    },
+    "AlertPathHealthSourceState": {
+      "type": "object",
+      "required": [
+        "rule_id",
+        "rule_updated_at",
+        "configured"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rule_updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "configured": {
+          "type": "boolean"
+        },
+        "source": {
+          "$ref": "#/components/schemas/AlertPathHealthSourceInput"
+        }
+      },
+      "description": "Current-authorized public configuration only; no retained credential ceiling, owner roles or private counter values are returned. Configured does not assert a completed baseline."
+    },
+    "PathHealthAlertCreateInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "path_health_source"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "for_n": {
+          "type": "integer",
+          "description": "Consecutive breaches before firing (debounce)."
+        },
+        "renotify_seconds": {
+          "type": "integer",
+          "description": "Re-notify cadence while firing (0 = once)."
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "warning",
+            "critical"
+          ]
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/ChannelSpec"
+          }
+        },
+        "path_health_source": {
+          "$ref": "#/components/schemas/AlertPathHealthSourceInput"
+        }
+      },
+      "description": "Create an owned path/interface error-climb rule. Current source admission and configuring-user/credential grants precede atomic tenant-RLS persistence. Renotify zero means one firing notification per episode."
+    },
+    "AlertQuerySourceInput": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -21388,7 +21722,17 @@
           },
           "query_source": {
             "$ref": "#/components/schemas/AlertQuerySourceInput",
-            "type": ["object", "null"]
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "path_health_source": {
+            "$ref": "#/components/schemas/AlertPathHealthSourceInput",
+            "type": [
+              "object",
+              "null"
+            ]
           }
         },
         "anyOf": [
@@ -21401,9 +21745,14 @@
             "required": [
               "query_source"
             ]
+          },
+          {
+            "required": [
+              "path_health_source"
+            ]
           }
         ],
-        "description": "For a saved-query rule, supply query_source instead of metric, type, comparison, threshold, match, baseline or trap fields. The server derives the Boolean predicate rule and verifies complete source cost and current authority before persistence."
+        "description": "For a saved-query rule, supply query_source instead of metric, type, comparison, threshold, match, baseline or trap fields. The server derives the Boolean predicate rule and verifies complete source cost and current authority before persistence. path_health_source selects the fixed Boolean path-error condition instead of metric/type/threshold fields and is mutually exclusive with query_source."
       },
       "AlertTagFilterInput": {
         "type": "object",

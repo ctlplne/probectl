@@ -1470,6 +1470,18 @@ page exposes these rule channels, shows the redacted/signed state, and can send 
 tenant-scoped test delivery through `POST /v1/alerts/test-channel` before a rule
 is saved.
 
+An original path-error rule supplies `path_health_source` instead of a raw
+metric or `query_source`: required `test_id` and `interface_id`, plus `metric`
+(one supported error/discard category), `lookback_seconds` (default `86400`) and
+`poll_gap_seconds` (default `300`). Both durations must be positive whole seconds
+that fit the server's duration representation. Complete reads still use the
+configured query byte/memory/deadline and tenant fairness admission. The source
+does not impose a fixed row population or truncate a health window.
+`GET|PUT|DELETE /v1/alerts/rules/{id}/path-health-source` inspect, replace or
+clear it. Clearing disables the rule. Configuration derives the owner and read
+ceiling from the actual credential; public responses never expose that ceiling.
+The existing MFA source policy remains enforced for unattended evaluations.
+
 **Webhook payload (`probectl.alert.v1`).** On fire/resolve the webhook channel POSTs:
 
 ```json

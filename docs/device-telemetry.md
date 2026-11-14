@@ -142,11 +142,27 @@ Every assessment includes all contiguous original rate pairs, their counter
 words/capture identities and its baseline window. Model mean, deviation and
 score are approximate floating-point statistics over those minimum rates;
 the original rational rates remain available. `rising_minimum_rate` does not
-establish an exact true rate, a configuration-change cause, or an alert
-notification. REST, generated clients, CLI and native path health share the
-same current-authority reader; the Path inspector displays the assessments
-and cited explanations include their qualified evidence. Optical levels and
-the once-per-episode alert publication proof remain unfinished.
+establish an exact true rate or a configuration-change cause. REST, generated
+clients, CLI and native path health share the same current-authority reader;
+the Path inspector displays the assessments and cited explanations include
+their qualified evidence.
+
+Choose **Create alert for this error counter** in a resolved path interface,
+or **Create path-error alert** in Alerts. The source binds an owned path test,
+one canonical interface and one original error/discard category. Each complete
+current climb uses the existing durable alert episode and notification
+channels. `renotify_seconds: 0` notifies once while firing, including across a
+restart. Missing, stale, reset, ambiguous, untrained or unauthorized observations
+hold evaluation; they never become a healthy zero. A complete current
+non-breaching assessment can resolve an episode.
+
+The source is configuration on the existing tenant-owned alert rule; the local
+statistical model retains no learned state. Every evaluation intersects its
+stored read-only ceiling with the owner's current user/context/source grants.
+It retains no bearer or MFA assertion. A deployment requiring MFA for these
+source reads currently holds unattended evaluation rather than bypassing that
+policy. Source, native/served, physical sender, lifecycle and complete main CI
+acceptance remain part of preview qualification.
 
 The exact SNMP counter lane also retains optional `interface_speed_bps` from
 that same poll, under its authenticated original-body receipt. Positive typed

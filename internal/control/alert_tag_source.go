@@ -94,6 +94,12 @@ type alertTagMetricSource struct {
 }
 
 func (s alertTagMetricSource) CurrentRule(ctx context.Context, rule alert.Rule) (alert.RuleMetricRead, error) {
+	if rule.Metric == alert.PathHealthMetric {
+		if s.deps.Queries == nil || s.tenant == "" || s.tenant != rule.TenantID {
+			return alert.RuleMetricRead{}, apierror.Unavailable("current path alert source is unavailable")
+		}
+		return s.deps.Queries.readAlertPathHealthRule(ctx, s.tenant, rule)
+	}
 	if rule.Metric == alert.QueryMetric {
 		if s.deps.Queries == nil || s.tenant == "" || s.tenant != rule.TenantID {
 			return alert.RuleMetricRead{}, apierror.Unavailable("saved-query alert source is unavailable")

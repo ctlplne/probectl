@@ -170,6 +170,9 @@ func (s *Server) publishAlertQuery(ctx context.Context, sc tenancy.Scope, actor 
 }
 
 func (s *Server) createAlertRule(ctx context.Context, actor *auth.Principal, rule alert.Rule, source *alert.QuerySourceInput, recordCreate func(context.Context, tenancy.Scope, *alert.Rule) error) (*alert.Rule, error) {
+	if rule.Metric == alert.PathHealthMetric {
+		return nil, apierror.Validation("a path-health rule requires its complete source at creation")
+	}
 	if actor == nil || actor.TenantID == "" {
 		return nil, apierror.Unauthorized("authentication required")
 	}

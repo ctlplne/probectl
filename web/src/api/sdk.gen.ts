@@ -245,6 +245,21 @@ export interface AlertList {
   items?: AlertRule[]
 }
 
+export interface AlertPathHealthSourceInput {
+  interface_id: string
+  lookback_seconds?: number
+  metric?: "probectl.device.if.in.errors" | "probectl.device.if.out.errors" | "probectl.device.if.in.discards" | "probectl.device.if.out.discards" | "probectl.device.if.in.fcs.errors" | "probectl.device.if.in.alignment.errors"
+  poll_gap_seconds?: number
+  test_id: string
+}
+
+export interface AlertPathHealthSourceState {
+  configured: boolean
+  rule_id: string
+  rule_updated_at: string
+  source?: AlertPathHealthSourceInput
+}
+
 export interface AlertQueryCondition {
   comparison?: "gt" | "gte" | "lt" | "lte" | "eq" | "neq"
   metric?: string
@@ -293,6 +308,7 @@ export interface AlertRequest {
   match?: { [key: string]: string }
   metric?: string
   name: string
+  path_health_source?: AlertPathHealthSourceInput | null
   query_source?: AlertQuerySourceInput | null
   renotify_seconds?: number
   sensitivity?: number
@@ -3034,6 +3050,16 @@ export interface Path {
   vantage: "control_plane"
 }
 
+export interface PathHealthAlertCreateInput {
+  channels?: ChannelSpec[]
+  enabled?: boolean
+  for_n?: number
+  name: string
+  path_health_source: AlertPathHealthSourceInput
+  renotify_seconds?: number
+  severity?: "info" | "warning" | "critical"
+}
+
 export interface PathHealthCounter {
   capture_key?: string
   counter_width?: number
@@ -3802,6 +3828,25 @@ export interface ClearAlertDependencyPolicyRequest {
 }
 
 export type ClearAlertDependencyPolicyResponse = AlertDependencyPolicyState
+
+export interface GetAlertPathHealthSourceRequest {
+  id: string
+}
+
+export type GetAlertPathHealthSourceResponse = AlertPathHealthSourceState
+
+export interface SetAlertPathHealthSourceRequest {
+  id: string
+  body: AlertPathHealthSourceInput
+}
+
+export type SetAlertPathHealthSourceResponse = AlertPathHealthSourceState
+
+export interface ClearAlertPathHealthSourceRequest {
+  id: string
+}
+
+export type ClearAlertPathHealthSourceResponse = AlertPathHealthSourceState
 
 export interface GetAlertQueryGroupRequest {
   id: string
@@ -5679,6 +5724,27 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<ClearAlertDependencyPolicyResponse>("DELETE", path, query, undefined)
+  }
+
+  async getAlertPathHealthSource(request: GetAlertPathHealthSourceRequest): Promise<GetAlertPathHealthSourceResponse> {
+    let path = "/v1/alerts/rules/{id}/path-health-source"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetAlertPathHealthSourceResponse>("GET", path, query, undefined)
+  }
+
+  async setAlertPathHealthSource(request: SetAlertPathHealthSourceRequest): Promise<SetAlertPathHealthSourceResponse> {
+    let path = "/v1/alerts/rules/{id}/path-health-source"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<SetAlertPathHealthSourceResponse>("PUT", path, query, request.body)
+  }
+
+  async clearAlertPathHealthSource(request: ClearAlertPathHealthSourceRequest): Promise<ClearAlertPathHealthSourceResponse> {
+    let path = "/v1/alerts/rules/{id}/path-health-source"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ClearAlertPathHealthSourceResponse>("DELETE", path, query, undefined)
   }
 
   async getAlertQueryGroup(request: GetAlertQueryGroupRequest): Promise<GetAlertQueryGroupResponse> {

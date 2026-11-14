@@ -89,8 +89,8 @@ func (AlertRules) SetTagFilter(ctx context.Context, sc tenancy.Scope, id string,
 	var out alert.Rule
 	err := scanAlertRule(sc.Q.QueryRow(ctx, `UPDATE alert_rules SET tag_filter=$4::jsonb,updated_at=now()
 		WHERE tenant_id=$1 AND id=$2 AND updated_at=$3
-		AND ($4::jsonb IS NULL OR (query_source IS NULL AND metric<>$5)) RETURNING `+alertRuleCols,
-		sc.Tenant.String(), id, expected, encoded, alert.QueryMetric), &out)
+		AND ($4::jsonb IS NULL OR (query_source IS NULL AND path_health_source IS NULL AND metric NOT IN ($5,$6))) RETURNING `+alertRuleCols,
+		sc.Tenant.String(), id, expected, encoded, alert.QueryMetric, alert.PathHealthMetric), &out)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAlertTagFilterChanged
 	}

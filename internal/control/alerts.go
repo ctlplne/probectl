@@ -51,29 +51,37 @@ func (s *Server) alertingHealth() alertingRuntimeHealth {
 }
 
 type alertRequest struct {
-	Name            string                  `json:"name"`
-	Enabled         *bool                   `json:"enabled"`
-	Metric          string                  `json:"metric"`
-	Match           map[string]string       `json:"match"`
-	Type            string                  `json:"type"`
-	Comparison      string                  `json:"comparison"`
-	Threshold       float64                 `json:"threshold"`
-	Window          int                     `json:"window"`
-	Sensitivity     float64                 `json:"sensitivity"`
-	ForN            int                     `json:"for_n"`
-	RenotifySeconds int                     `json:"renotify_seconds"`
-	Severity        string                  `json:"severity"`
-	Channels        []alert.ChannelSpec     `json:"channels"`
-	Trap            *alert.TrapMatch        `json:"trap"`
-	QuerySource     *alert.QuerySourceInput `json:"query_source,omitempty"`
+	Name             string                       `json:"name"`
+	Enabled          *bool                        `json:"enabled"`
+	Metric           string                       `json:"metric"`
+	Match            map[string]string            `json:"match"`
+	Type             string                       `json:"type"`
+	Comparison       string                       `json:"comparison"`
+	Threshold        float64                      `json:"threshold"`
+	Window           int                          `json:"window"`
+	Sensitivity      float64                      `json:"sensitivity"`
+	ForN             int                          `json:"for_n"`
+	RenotifySeconds  int                          `json:"renotify_seconds"`
+	Severity         string                       `json:"severity"`
+	Channels         []alert.ChannelSpec          `json:"channels"`
+	Trap             *alert.TrapMatch             `json:"trap"`
+	QuerySource      *alert.QuerySourceInput      `json:"query_source,omitempty"`
+	PathHealthSource *alert.PathHealthSourceInput `json:"path_health_source,omitempty"`
 }
 
 func (req alertRequest) toRule() (alert.Rule, error) {
-	if req.QuerySource != nil {
-		if req.Metric != "" || req.Type != "" || req.Comparison != "" || req.Threshold != 0 || len(req.Match) != 0 || req.Window != 0 || req.Sensitivity != 0 || req.Trap != nil {
-			return alert.Rule{}, apierror.Validation("query_source replaces metric, match, type, comparison, threshold, baseline and trap fields")
+	if req.QuerySource != nil && req.PathHealthSource != nil {
+		return alert.Rule{}, apierror.Validation("select one alert source")
+	}
+	if req.QuerySource != nil || req.PathHealthSource != nil {
+		sourceName, metric := "query_source", alert.QueryMetric
+		if req.PathHealthSource != nil {
+			sourceName, metric = "path_health_source", alert.PathHealthMetric
 		}
-		req.Metric, req.Type, req.Comparison, req.Threshold = alert.QueryMetric, string(alert.Threshold), string(alert.GTE), 1
+		if req.Metric != "" || req.Type != "" || req.Comparison != "" || req.Threshold != 0 || len(req.Match) != 0 || req.Window != 0 || req.Sensitivity != 0 || req.Trap != nil {
+			return alert.Rule{}, apierror.Validation(sourceName + " replaces metric, match, type, comparison, threshold, baseline and trap fields")
+		}
+		req.Metric, req.Type, req.Comparison, req.Threshold = metric, string(alert.Threshold), string(alert.GTE), 1
 	}
 	enabled := true
 	if req.Enabled != nil {
@@ -186,10 +194,16 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) error
 	if err := rejectUnresolvedRedactedSecrets(&rule); err != nil {
 		return err
 	}
-	created, err := s.createAlertRule(r.Context(), auth.PrincipalFrom(r.Context()), rule, req.QuerySource,
-		func(ctx context.Context, sc tenancy.Scope, created *alert.Rule) error {
-			return s.recordAudit(ctx, sc, r, "alert.create", created.ID, map[string]any{"name": created.Name})
-		})
+	var created *alert.Rule
+	if req.PathHealthSource != nil {
+		actor := auth.PrincipalFrom(r.Context())
+		created, err = s.createPathHealthAlertRule(r.Context(), actor, rule, *req.PathHealthSource, s.pathAlertRequestCredential(r, actor), nil)
+	} else {
+		created, err = s.createAlertRule(r.Context(), auth.PrincipalFrom(r.Context()), rule, req.QuerySource,
+			func(ctx context.Context, sc tenancy.Scope, created *alert.Rule) error {
+				return s.recordAudit(ctx, sc, r, "alert.create", created.ID, map[string]any{"name": created.Name})
+			})
+	}
 	if err != nil {
 		return err
 	}
@@ -243,7 +257,25 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	actor := auth.PrincipalFrom(r.Context())
+	if rule.Metric == alert.PathHealthMetric && observed.Metric != alert.PathHealthMetric && req.PathHealthSource == nil {
+		return apierror.Validation("a path-health rule requires its complete source")
+	}
 	var query *preparedAlertQuery
+	var pathSource *preparedAlertPathHealth
+	if req.PathHealthSource != nil {
+		if observed.HasTagFilter {
+			return apierror.Validation("clear the test tag filter before changing to a path-health source")
+		}
+		pathSource, err = s.prepareAlertPathHealth(r.Context(), actor, *req.PathHealthSource, permAlertWrite, s.pathAlertRequestCredential(r, actor))
+		if err != nil {
+			return err
+		}
+		defer pathSource.Close()
+		r = r.WithContext(pathSource.ctx)
+		if err := pathSource.credential(pathSource.ctx); err != nil {
+			return err
+		}
+	}
 	if req.QuerySource != nil {
 		if observed.HasTagFilter {
 			return apierror.Validation("clear the test tag filter before changing to a saved-query source")
@@ -329,6 +361,18 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 				return e
 			}
 			if e := s.recordAlertQueryAudit(ctx, sc, actor.UserID, "alert.query_source.set", id, &query.source); e != nil {
+				return e
+			}
+		}
+		if pathSource != nil {
+			x, e = (store.AlertRules{}).SetPathHealthSource(ctx, sc, id, x.UpdatedAt, &pathSource.source, pathSource.query.op.budget.MemoryBytes/8,
+				func(ctx context.Context, sc tenancy.Scope) error {
+					return s.publishAlertPathHealth(ctx, sc, actor, pathSource)
+				})
+			if e != nil {
+				return alertPathHealthError(e)
+			}
+			if e := recordAlertPathHealthAudit(ctx, sc, actor.UserID, "alert.path_health_source.set", id, &pathSource.source); e != nil {
 				return e
 			}
 		}

@@ -55,6 +55,8 @@ import { parsePivotContext, pivotHref, replacePivotContext } from './pivotContex
 import { ExplainView } from './ExplainView'
 import { DateTime } from '../time/DateTime'
 import { PathInterfaceHealthView } from './PathInterfaceHealthView'
+import { AlertPathHealthSourceDialog } from './AlertPathHealthSourceDialog'
+import type { AlertPathHealthSourceInput } from '../api/alerts'
 
 const fidelityAcquisitionLabels: Record<PathMeasurementFidelity['acquisition_mode'], MessageKey> = {
   raw_icmp: 'path.fidelity.acquisition.rawIcmp',
@@ -107,6 +109,11 @@ export function PathPage() {
   )
   const { push } = useToast()
   const [copiedLink, setCopiedLink] = useState(false)
+  const [alertSource, setAlertSource] = useState<{
+    tenantID: string
+    testID: string
+    input: AlertPathHealthSourceInput
+  } | null>(null)
   // Secondary reads of the same merged path; topology remains the default.
   const [pathView, setPathView] = useState<'topology' | 'profile' | 'geo'>('topology')
   const autoCopyHandled = useRef(false)
@@ -711,7 +718,25 @@ export function PathPage() {
                               : 'Latest path interface health',
                           render: (row) =>
                             row.health ? (
-                              <PathInterfaceHealthView health={row.health} />
+                              <PathInterfaceHealthView
+                                health={row.health}
+                                onCreateAlert={
+                                  testId &&
+                                  row.health.interface_id &&
+                                  permissions.includes('alert.write')
+                                    ? (metric) =>
+                                        setAlertSource({
+                                          tenantID: tenant.id,
+                                          testID: testId,
+                                          input: {
+                                            test_id: testId,
+                                            interface_id: row.health!.interface_id!,
+                                            metric: metric as AlertPathHealthSourceInput['metric'],
+                                          },
+                                        })
+                                    : undefined
+                                }
+                              />
                             ) : (
                               'Not requested without metrics.read'
                             ),
@@ -1012,6 +1037,12 @@ export function PathPage() {
         pivotContext={pivotContext}
       />
 
+      {alertSource?.tenantID === tenant.id && alertSource.testID === testId ? (
+        <AlertPathHealthSourceDialog
+          initialSource={alertSource.input}
+          onClose={() => setAlertSource(null)}
+        />
+      ) : null}
       <NodeDetailModal node={nodeDetailOpen ? selected : null} onClose={closeNode} />
     </Page>
   )

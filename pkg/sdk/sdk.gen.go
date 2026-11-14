@@ -323,6 +323,23 @@ type AlertList struct {
 	Items []AlertRule `json:"items,omitempty"`
 }
 
+// Preview current-source minimum error-rate condition using the existing local baseline model. Original counter words and continuity assumptions remain in path health. Configuration captures only a read ceiling; current configuring-user/context/source grants are checked for every evaluation.
+type AlertPathHealthSourceInput struct {
+	InterfaceId     string `json:"interface_id"`
+	LookbackSeconds int    `json:"lookback_seconds,omitempty"`
+	Metric          string `json:"metric,omitempty"`
+	PollGapSeconds  int    `json:"poll_gap_seconds,omitempty"`
+	TestId          string `json:"test_id"`
+}
+
+// Current-authorized public configuration only; no retained credential ceiling, owner roles or private counter values are returned. Configured does not assert a completed baseline.
+type AlertPathHealthSourceState struct {
+	Configured    bool                       `json:"configured"`
+	RuleId        string                     `json:"rule_id"`
+	RuleUpdatedAt string                     `json:"rule_updated_at"`
+	Source        AlertPathHealthSourceInput `json:"source,omitempty"`
+}
+
 type AlertQueryCondition struct {
 	Comparison string `json:"comparison,omitempty"`
 	Metric     string `json:"metric,omitempty"`
@@ -366,23 +383,24 @@ type AlertQuerySourceState struct {
 	StaleRevision bool                   `json:"stale_revision"`
 }
 
-// For a saved-query rule, supply query_source instead of metric, type, comparison, threshold, match, baseline or trap fields. The server derives the Boolean predicate rule and verifies complete source cost and current authority before persistence.
+// For a saved-query rule, supply query_source instead of metric, type, comparison, threshold, match, baseline or trap fields. The server derives the Boolean predicate rule and verifies complete source cost and current authority before persistence. path_health_source selects the fixed Boolean path-error condition instead of metric/type/threshold fields and is mutually exclusive with query_source.
 type AlertRequest struct {
-	Channels        []ChannelSpec          `json:"channels,omitempty"`
-	Comparison      string                 `json:"comparison,omitempty"`
-	Enabled         *bool                  `json:"enabled,omitempty"`
-	ForN            int                    `json:"for_n,omitempty"`
-	Match           map[string]string      `json:"match,omitempty"`
-	Metric          string                 `json:"metric,omitempty"`
-	Name            string                 `json:"name"`
-	QuerySource     *AlertQuerySourceInput `json:"query_source,omitempty"`
-	RenotifySeconds int                    `json:"renotify_seconds,omitempty"`
-	Sensitivity     float64                `json:"sensitivity,omitempty"`
-	Severity        string                 `json:"severity,omitempty"`
-	Threshold       float64                `json:"threshold,omitempty"`
-	Trap            *AlertTrapMatch        `json:"trap,omitempty"`
-	Type            string                 `json:"type,omitempty"`
-	Window          int                    `json:"window,omitempty"`
+	Channels         []ChannelSpec               `json:"channels,omitempty"`
+	Comparison       string                      `json:"comparison,omitempty"`
+	Enabled          *bool                       `json:"enabled,omitempty"`
+	ForN             int                         `json:"for_n,omitempty"`
+	Match            map[string]string           `json:"match,omitempty"`
+	Metric           string                      `json:"metric,omitempty"`
+	Name             string                      `json:"name"`
+	PathHealthSource *AlertPathHealthSourceInput `json:"path_health_source,omitempty"`
+	QuerySource      *AlertQuerySourceInput      `json:"query_source,omitempty"`
+	RenotifySeconds  int                         `json:"renotify_seconds,omitempty"`
+	Sensitivity      float64                     `json:"sensitivity,omitempty"`
+	Severity         string                      `json:"severity,omitempty"`
+	Threshold        float64                     `json:"threshold,omitempty"`
+	Trap             *AlertTrapMatch             `json:"trap,omitempty"`
+	Type             string                      `json:"type,omitempty"`
+	Window           int                         `json:"window,omitempty"`
 }
 
 type AlertRule struct {
@@ -3176,6 +3194,17 @@ type Path struct {
 	Vantage             string                   `json:"vantage"`
 }
 
+// Create an owned path/interface error-climb rule. Current source admission and configuring-user/credential grants precede atomic tenant-RLS persistence. Renotify zero means one firing notification per episode.
+type PathHealthAlertCreateInput struct {
+	Channels         []ChannelSpec              `json:"channels,omitempty"`
+	Enabled          *bool                      `json:"enabled,omitempty"`
+	ForN             int                        `json:"for_n,omitempty"`
+	Name             string                     `json:"name"`
+	PathHealthSource AlertPathHealthSourceInput `json:"path_health_source"`
+	RenotifySeconds  int                        `json:"renotify_seconds,omitempty"`
+	Severity         string                     `json:"severity,omitempty"`
+}
+
 // Original cumulative words and two poll receipts. rate_numerator/rate_denominator is bits/s for octets and packets/s for errors/discards, including the separate EtherLike FCS and alignment categories. These categories are not added to IF-MIB total errors or octet billing. The rate_kind controls whether the ratio is an exact value under an explicit bound or only a modular minimum; a zero minimum is not a claim of no traffic. Utilisation is a percent ratio and requires the additional constant-polled-speed assumption, named in utilization_kind. Poll-start elapsed time is a mean model, not per-OID timing. Missing observations have a reason and no fabricated zero.
 type PathHealthCounter struct {
 	CaptureKey                string `json:"capture_key,omitempty"`
@@ -4362,6 +4391,64 @@ func (c *Client) ClearAlertDependencyPolicy(ctx context.Context, req ClearAlertD
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out AlertDependencyPolicyState
+	if err := c.doJSON(ctx, http.MethodDelete, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Inspect an owned path error-rate alert source
+type GetAlertPathHealthSourceRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetAlertPathHealthSource(ctx context.Context, req GetAlertPathHealthSourceRequest) (*AlertPathHealthSourceState, error) {
+	path := "/v1/alerts/rules/{id}/path-health-source"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertPathHealthSourceState
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Bind current owned path/interface error evidence to an alert
+type SetAlertPathHealthSourceRequest struct {
+	Id   string                      `json:"-"`
+	Body *AlertPathHealthSourceInput `json:"-"`
+}
+
+func (c *Client) SetAlertPathHealthSource(ctx context.Context, req SetAlertPathHealthSourceRequest) (*AlertPathHealthSourceState, error) {
+	path := "/v1/alerts/rules/{id}/path-health-source"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertPathHealthSourceState
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Clear a path alert source and disable its rule
+type ClearAlertPathHealthSourceRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) ClearAlertPathHealthSource(ctx context.Context, req ClearAlertPathHealthSourceRequest) (*AlertPathHealthSourceState, error) {
+	path := "/v1/alerts/rules/{id}/path-health-source"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertPathHealthSourceState
 	if err := c.doJSON(ctx, http.MethodDelete, path, query, nil, &out); err != nil {
 		return nil, err
 	}

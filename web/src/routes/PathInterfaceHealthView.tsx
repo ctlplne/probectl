@@ -9,7 +9,7 @@ import type {
   PathHealthCounter,
   PathInterfaceHealth,
 } from '../api/sdk.gen'
-import { Table } from '../components'
+import { Button, Table } from '../components'
 
 function ratio(numerator?: string, denominator?: string) {
   if (numerator === undefined || denominator === undefined) return 'Unavailable'
@@ -27,7 +27,13 @@ function rateLabel(counter: PathHealthCounter) {
 }
 
 /** Source words and assumptions stay visible; JavaScript never rounds counters. */
-export function PathInterfaceHealthView({ health }: { health: PathInterfaceHealth }) {
+export function PathInterfaceHealthView({
+  health,
+  onCreateAlert,
+}: {
+  health: PathInterfaceHealth
+  onCreateAlert?: (metric: string) => void
+}) {
   return (
     <details>
       <summary>Polled interface health preview · {health.status.replace(/_/g, ' ')}</summary>
@@ -168,6 +174,11 @@ export function PathInterfaceHealthView({ health }: { health: PathInterfaceHealt
                   Approximate baseline mean {trend.baseline_mean} packets/s · deviation{' '}
                   {trend.baseline_stddev} · score {trend.score}.
                 </p>
+              ) : null}
+              {onCreateAlert && health.interface_id ? (
+                <Button size="sm" onClick={() => onCreateAlert(trend.metric)}>
+                  Create alert for this error counter
+                </Button>
               ) : null}
               <Table<PathHealthCounter>
                 caption="Original contiguous error-rate observations"

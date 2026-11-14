@@ -4,7 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import type { AlertRule, MaintenanceWindow } from '../api/alerts'
+import type { AlertPathHealthSourceInput, AlertRule, MaintenanceWindow } from '../api/alerts'
 import type { CollectorRegistration } from '../api/agents'
 import type { TestSpec } from '../api/authoring'
 import type { SLOStatus } from '../api/slos'
@@ -113,7 +113,10 @@ export function testAsCode(test: Test | TestSpec): string {
   })
 }
 
-export function alertRuleAsCode(rule: AlertRule): string {
+export function alertRuleAsCode(
+  rule: AlertRule,
+  pathHealthSource?: AlertPathHealthSourceInput,
+): string {
   return asYAML({
     apiVersion: 'probectl.io/alerts/v1',
     kind: 'AlertRule',
@@ -122,13 +125,17 @@ export function alertRuleAsCode(rule: AlertRule): string {
     },
     spec: compactRecord({
       enabled: rule.enabled,
-      metric: rule.metric,
-      match: rule.match,
-      type: rule.type,
-      comparison: rule.comparison,
-      threshold: rule.threshold,
-      window: rule.window,
-      sensitivity: rule.sensitivity,
+      ...(pathHealthSource
+        ? { path_health_source: pathHealthSource }
+        : {
+            metric: rule.metric,
+            match: rule.match,
+            type: rule.type,
+            comparison: rule.comparison,
+            threshold: rule.threshold,
+            window: rule.window,
+            sensitivity: rule.sensitivity,
+          }),
       for_n: rule.for_n,
       renotify_seconds: rule.renotify_seconds,
       severity: rule.severity,

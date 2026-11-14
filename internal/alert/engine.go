@@ -266,7 +266,7 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 		return nil, nil
 	}
 	var departed map[string]bool
-	if rule.Metric == QueryMetric {
+	if selectedSourceMetric(rule.Metric) {
 		read.Samples, departed, err = en.completeQuerySamples(rule, read)
 		if err != nil {
 			return nil, err
@@ -408,7 +408,7 @@ func labelsFromStateKey(key, prefix string) map[string]string {
 
 // samples reads a rule's current samples from the source its type names.
 func (en *Engine) samples(ctx context.Context, rule Rule) (RuleMetricRead, error) {
-	if rule.HasTagFilter || rule.Metric == QueryMetric {
+	if rule.HasTagFilter || selectedSourceMetric(rule.Metric) {
 		if rule.Type == Trap {
 			return RuleMetricRead{}, fmt.Errorf("alert: test tag selection requires a metric source")
 		}
@@ -423,7 +423,7 @@ func (en *Engine) samples(ctx context.Context, rule Rule) (RuleMetricRead, error
 		if err := ctx.Err(); err != nil {
 			return RuleMetricRead{}, err
 		}
-		if rule.Metric == QueryMetric {
+		if selectedSourceMetric(rule.Metric) {
 			if rule.HasTagFilter || read.TagSelection != nil {
 				return RuleMetricRead{}, ErrQueryGroups
 			}
@@ -432,6 +432,9 @@ func (en *Engine) samples(ctx context.Context, rule Rule) (RuleMetricRead, error
 					return RuleMetricRead{}, ErrQueryGroups
 				}
 				return read, nil
+			}
+			if rule.Metric == PathHealthMetric && len(read.Samples) != 1 {
+				return RuleMetricRead{}, ErrPathHealthSource
 			}
 			if err := read.QuerySelection.Validate(rule); err != nil {
 				return RuleMetricRead{}, err
@@ -595,6 +598,12 @@ func (en *Engine) breached(rule Rule, st *seriesState, s Sample) evaluationDecis
 			reason = "saved-query condition not met"
 			if b {
 				reason = "saved-query condition met"
+			}
+		}
+		if rule.Metric == PathHealthMetric {
+			reason = "owned interface minimum-rate condition not met"
+			if b {
+				reason = "owned interface minimum-rate condition met"
 			}
 		}
 		return evaluationDecision{

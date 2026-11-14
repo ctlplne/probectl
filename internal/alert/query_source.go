@@ -110,7 +110,14 @@ func (s QuerySource) Validate() error {
 	if err := s.Condition.validateShape(); err != nil {
 		return err
 	}
-	for _, grant := range s.ReadGrants {
+	return validateReadGrants(s.ReadGrants)
+}
+
+func validateReadGrants(grants []QueryReadGrant) error {
+	if len(grants) == 0 {
+		return ErrQueryGroups
+	}
+	for _, grant := range grants {
 		// Saved Explorer reads also use the existing ai.query capability. It
 		// authorizes a read operation, never remediation or source mutation.
 		if (!strings.HasSuffix(grant.Permission, ".read") && grant.Permission != "ai.query") || strings.TrimSpace(grant.Permission) != grant.Permission {
@@ -143,9 +150,13 @@ func (s QuerySource) CredentialCeiling(tenant string) (*auth.Principal, error) {
 	if err := s.Validate(); err != nil || !canonicalQueryID(tenant) {
 		return nil, ErrQueryGroups
 	}
-	grants := make([]auth.PermissionGrant, len(s.ReadGrants))
-	for i, grant := range s.ReadGrants {
+	return readGrantCeiling(tenant, s.OwnerUserID, s.ReadGrants), nil
+}
+
+func readGrantCeiling(tenant, user string, read []QueryReadGrant) *auth.Principal {
+	grants := make([]auth.PermissionGrant, len(read))
+	for i, grant := range read {
 		grants[i] = auth.PermissionGrant{Permission: grant.Permission, ScopeType: grant.ScopeType, ScopeID: grant.ScopeID}
 	}
-	return auth.PrincipalWithPermissionGrants(&auth.Principal{TenantID: tenant, UserID: s.OwnerUserID, ViaBearerToken: true}, grants), nil
+	return auth.PrincipalWithPermissionGrants(&auth.Principal{TenantID: tenant, UserID: user, ViaBearerToken: true}, grants)
 }

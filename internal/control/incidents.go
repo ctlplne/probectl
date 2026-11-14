@@ -378,6 +378,10 @@ func signalFromAlert(a alert.Alert) incident.Signal {
 		plane = "flow"
 		target = "query:" + a.RuleID + ":" + a.Labels["query_group"]
 	}
+	if a.Metric == alert.PathHealthMetric {
+		plane = "device"
+		target = "path-error:" + a.Labels["path_test_id"] + ":" + a.Labels["path_health_group"]
+	}
 	attributes := map[string]string{
 		"metric": a.Metric, "rule_id": a.RuleID,
 		"value": strconv.FormatFloat(a.Value, 'g', -1, 64),
@@ -385,6 +389,10 @@ func signalFromAlert(a alert.Alert) incident.Signal {
 	if a.Metric == alert.QueryMetric {
 		attributes["query_group"] = a.Labels["query_group"]
 		attributes["query_view_id"] = a.Labels["query_view_id"]
+	}
+	if a.Metric == alert.PathHealthMetric {
+		attributes["path_test_id"] = a.Labels["path_test_id"]
+		attributes["path_health_group"] = a.Labels["path_health_group"]
 	}
 	return incident.Signal{
 		TenantID:   a.TenantID,

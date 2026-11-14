@@ -731,6 +731,25 @@ admission on both HTTP and stdio. The five configuration tools do not grant sour
 
 ## Original polled path-interface health (preview)
 
+The native alert configuration tools `alert_path_health_create`,
+`alert_path_health_get`, `alert_path_health_set` and `alert_path_health_clear`
+reuse the same complete current-original reader and existing durable alert
+episodes. Creation takes `name` and `path_health_source` with required owned
+`test_id` and canonical `interface_id`; set takes `rule_id` and that source in
+`input`. Optional source fields are `metric` (a supported original error/discard
+category), `lookback_seconds` and `poll_gap_seconds`. Get takes `rule_id`;
+clear takes `rule_id` and explicit `confirmed: true` and disables the rule.
+
+Read/create/set need current `test.read`, `entities.read`, `metrics.read` and
+`ai.query` plus `alert.read` or `alert.write`. Clear needs only `alert.write`.
+No tenant, configuring-user identity or credential ceiling is accepted from
+arguments or returned in source state. Native calls recheck their exact
+originating credential; configured-source replies retain their source/query
+admission through final redaction and framing. The statistical model is
+stateless, while the existing alert store retains notification deduplication.
+The deployment's MFA-required source policy remains enforced for unattended
+evaluation. Full sender/served/lifecycle qualification remains open.
+
 `path_interface_health` takes an owned `test_id` and optional `health_from`,
 `health_to`, `health_poll_gap` and `health_max_bps`, with the same types and
 meaning as the REST path-entities operation. It requires a current tenant user

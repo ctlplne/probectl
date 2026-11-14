@@ -69,8 +69,9 @@ import { useAuth } from '../auth/useAuth'
 import { AlertTagFilterDialog } from './AlertTagFilterDialog'
 import { AlertDependencyDialog } from './AlertDependencyDialog'
 import { AlertQuerySourceDialog } from './AlertQuerySourceDialog'
+import { AlertPathHealthSourceDialog } from './AlertPathHealthSourceDialog'
 import { AlertQueryGroupPanel } from './AlertQueryGroupPanel'
-import { savedQueryAlertMetric } from '../api/alerts'
+import { savedQueryAlertMetric, pathHealthAlertMetric } from '../api/alerts'
 
 function labelText(labels?: Record<string, string>): string {
   if (!labels) return ''
@@ -338,7 +339,11 @@ function ActiveAlertDetail({
         <dd>{alert.reason}</dd>
         <dt>Metric</dt>
         <dd>
-          {alert.metric === savedQueryAlertMetric ? 'Saved Explorer query' : alert.metric}
+          {alert.metric === savedQueryAlertMetric
+            ? 'Saved Explorer query'
+            : alert.metric === pathHealthAlertMetric
+              ? 'Owned path error climb'
+              : alert.metric}
           {alert.labels && labelText(alert.labels) ? ` {${labelText(alert.labels)}}` : ''}
         </dd>
         <dt>Value</dt>
@@ -829,7 +834,9 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
         />
         <Select
           label={t('alerts.rule.type')}
-          disabled={rule?.metric === savedQueryAlertMetric}
+          disabled={
+            rule?.metric === savedQueryAlertMetric || rule?.metric === pathHealthAlertMetric
+          }
           value={type}
           onChange={(e) => setType(e.target.value as AlertRule['type'])}
           options={[
@@ -841,7 +848,9 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
         {type !== 'trap' ? (
           <Field
             label={t('alerts.rule.metric')}
-            disabled={rule?.metric === savedQueryAlertMetric}
+            disabled={
+              rule?.metric === savedQueryAlertMetric || rule?.metric === pathHealthAlertMetric
+            }
             value={metric}
             onChange={(e) => setMetric(e.target.value)}
             required
@@ -893,7 +902,9 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
           <>
             <Select
               label={t('alerts.rule.comparison')}
-              disabled={rule?.metric === savedQueryAlertMetric}
+              disabled={
+                rule?.metric === savedQueryAlertMetric || rule?.metric === pathHealthAlertMetric
+              }
               value={comparison}
               onChange={(e) => setComparison(e.target.value as typeof comparison)}
               options={[
@@ -905,7 +916,9 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
             />
             <Field
               label={t('alerts.rule.threshold')}
-              disabled={rule?.metric === savedQueryAlertMetric}
+              disabled={
+                rule?.metric === savedQueryAlertMetric || rule?.metric === pathHealthAlertMetric
+              }
               type="number"
               value={threshold}
               onChange={(e) => setThreshold(e.target.value)}
@@ -1240,6 +1253,7 @@ export function AlertsPage() {
     null,
   )
   const [queryEditing, setQueryEditing] = useState<AlertRule | true | null>(null)
+  const [pathEditing, setPathEditing] = useState<AlertRule | true | null>(null)
   const [dependencyEditing, setDependencyEditing] = useState<{
     rule: AlertRule
     scope: string
@@ -1334,7 +1348,7 @@ export function AlertsPage() {
       key: 'series',
       header: 'Series',
       render: (a) =>
-        `${a.metric === savedQueryAlertMetric ? 'Saved Explorer query' : a.metric}${labelText(a.labels) ? ` {${labelText(a.labels)}}` : ''}`,
+        `${a.metric === savedQueryAlertMetric ? 'Saved Explorer query' : a.metric === pathHealthAlertMetric ? 'Owned path error climb' : a.metric}${labelText(a.labels) ? ` {${labelText(a.labels)}}` : ''}`,
     },
     { key: 'value', header: 'Value', numeric: true, render: (a) => String(a.value) },
     { key: 'since', header: 'Since', render: (a) => <DateTime value={a.since} /> },
@@ -1355,7 +1369,12 @@ export function AlertsPage() {
     {
       key: 'metric',
       header: 'Metric',
-      render: (r) => (r.metric === savedQueryAlertMetric ? 'Saved Explorer query' : r.metric),
+      render: (r) =>
+        r.metric === savedQueryAlertMetric
+          ? 'Saved Explorer query'
+          : r.metric === pathHealthAlertMetric
+            ? 'Owned path error climb'
+            : r.metric,
     },
     {
       key: 'condition',
@@ -1363,11 +1382,13 @@ export function AlertsPage() {
       render: (r) =>
         r.metric === savedQueryAlertMetric
           ? 'Saved grouped condition'
-          : r.type === 'trap'
-            ? trapCondition(r.trap)
-            : r.type === 'threshold'
-              ? `${r.comparison ?? 'gt'} ${r.threshold ?? 0}`
-              : `baseline ±${r.sensitivity ?? 3}σ`,
+          : r.metric === pathHealthAlertMetric
+            ? 'Current minimum error-rate climb'
+            : r.type === 'trap'
+              ? trapCondition(r.trap)
+              : r.type === 'threshold'
+                ? `${r.comparison ?? 'gt'} ${r.threshold ?? 0}`
+                : `baseline ±${r.sensitivity ?? 3}σ`,
     },
     {
       key: 'severity',
@@ -1406,7 +1427,13 @@ export function AlertsPage() {
               Saved query source
             </Button>
           ) : null}
+          {r.metric === pathHealthAlertMetric ? (
+            <Button size="sm" variant="ghost" onClick={() => setPathEditing(r)}>
+              Path-error source
+            </Button>
+          ) : null}
           {r.metric !== savedQueryAlertMetric &&
+          r.metric !== pathHealthAlertMetric &&
           r.type !== 'trap' &&
           (canReadMetadata || canWrite) ? (
             <Button
@@ -1422,7 +1449,9 @@ export function AlertsPage() {
             size="sm"
             variant="ghost"
             onClick={() =>
-              setCodeExport({ title: `Export as code: ${r.name}`, code: alertRuleAsCode(r) })
+              r.metric === pathHealthAlertMetric
+                ? setPathEditing(r)
+                : setCodeExport({ title: `Export as code: ${r.name}`, code: alertRuleAsCode(r) })
             }
           >
             View as YAML
@@ -1659,6 +1688,9 @@ export function AlertsPage() {
                 <Button disabled={!canWrite} onClick={() => setQueryEditing(true)}>
                   Create query alert
                 </Button>
+                <Button disabled={!canWrite} onClick={() => setPathEditing(true)}>
+                  Create path-error alert
+                </Button>
               </>
             }
           />
@@ -1697,6 +1729,12 @@ export function AlertsPage() {
         <AlertQuerySourceDialog
           rule={queryEditing === true ? undefined : queryEditing}
           onClose={() => setQueryEditing(null)}
+        />
+      ) : null}
+      {pathEditing ? (
+        <AlertPathHealthSourceDialog
+          rule={pathEditing === true ? undefined : pathEditing}
+          onClose={() => setPathEditing(null)}
         />
       ) : null}
       {creating ? <RuleForm onClose={() => setCreating(false)} /> : null}

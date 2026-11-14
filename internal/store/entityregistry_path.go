@@ -109,19 +109,36 @@ func (s *EntityRegistry) PathTestBinding(ctx context.Context, tenantID, testID s
 	if !ok || bound.String() != tenantID {
 		return PathTestBinding{}, entity.ErrScopeMismatch
 	}
+	var out PathTestBinding
+	err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		out, err = s.PathTestBindingInScope(ctx, sc, testID)
+		return err
+	})
+	return out, err
+}
+
+// PathTestBindingInScope preserves the caller's existing RLS snapshot and
+// publication locks; it never takes a second pool connection in a writer.
+func (s *EntityRegistry) PathTestBindingInScope(ctx context.Context, sc tenancy.Scope, testID string) (PathTestBinding, error) {
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || bound != sc.Tenant {
+		return PathTestBinding{}, entity.ErrScopeMismatch
+	}
+	if sc.Q == nil {
+		return PathTestBinding{}, ErrEntityRegistryUnavailable
+	}
 	testID, err := validRegistryUUID(testID)
 	if err != nil {
 		return PathTestBinding{}, err
 	}
 	var contextID, pathTarget, testTarget string
 	var assignedAt time.Time
-	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		return sc.Q.QueryRow(ctx, `SELECT b.context_id::text,b.path_target,t.target,b.assigned_at
+	err = sc.Q.QueryRow(ctx, `SELECT b.context_id::text,b.path_target,t.target,b.assigned_at
 			FROM entity_path_test_contexts b JOIN tests t ON
 			(t.tenant_id,t.id)=(b.tenant_id,b.test_id)
-			WHERE b.tenant_id=$1 AND b.test_id=$2`, tenantID, testID).Scan(
-			&contextID, &pathTarget, &testTarget, &assignedAt)
-	})
+			WHERE b.tenant_id=$1 AND b.test_id=$2`, sc.Tenant.String(), testID).Scan(
+		&contextID, &pathTarget, &testTarget, &assignedAt)
 	if err != nil {
 		return PathTestBinding{}, err
 	}
@@ -133,7 +150,7 @@ func (s *EntityRegistry) PathTestBinding(ctx context.Context, tenantID, testID s
 	if assignedAt.IsZero() {
 		return PathTestBinding{}, entity.ErrInvalidClaim
 	}
-	scope, err := (entity.Scope{TenantID: tenantID, ContextID: contextID}).Normalize()
+	scope, err := (entity.Scope{TenantID: sc.Tenant.String(), ContextID: contextID}).Normalize()
 	if err != nil {
 		return PathTestBinding{}, err
 	}

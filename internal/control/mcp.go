@@ -181,6 +181,11 @@ func newMCPServer(
 			} else {
 				options = append(options, mcp.WithAlertQueryBackend(mcpTagMutationBackend{server: src.NativeFlow}, schemas))
 			}
+			if schemas, err := alertPathHealthToolSchemas(); err != nil {
+				log.Error("MCP path-health alert schemas are unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, mcp.WithAlertPathHealthBackend(mcpTagMutationBackend{server: src.NativeFlow}, schemas))
+			}
 			if schemas, err := alertDependencyToolSchemas(); err != nil {
 				log.Error("MCP alert dependency schemas are unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

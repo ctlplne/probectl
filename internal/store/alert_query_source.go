@@ -211,7 +211,7 @@ func (AlertRules) SetQuerySource(ctx context.Context, sc tenancy.Scope, id strin
  enabled=CASE WHEN $4::jsonb IS NULL THEN false ELSE enabled END,updated_at=clock_timestamp()
  WHERE tenant_id=$1 AND id=$2 AND updated_at=$3
  AND ($4::jsonb IS NULL OR (type='threshold' AND metric=$5 AND comparison='gte' AND threshold=1
-     AND trap_match IS NULL AND tag_filter IS NULL)) RETURNING `+alertRuleCols,
+     AND trap_match IS NULL AND tag_filter IS NULL AND path_health_source IS NULL)) RETURNING `+alertRuleCols,
 		sc.Tenant.String(), id, expected, encoded, alert.QueryMetric, everySeconds), &out)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAlertQueryChanged
