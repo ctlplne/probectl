@@ -158,7 +158,10 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 			_, _ = w.Write(marshal(s.prepareResponse(req, failure)))
 			return
 		}
-		requestCtx := r.Context()
+		p = principalSnapshot(p)
+		requestCtx := withCredentialPublicationGuard(r.Context(), p, func(ctx context.Context) (*auth.Principal, error) {
+			return authn.Authenticate(ctx, bearer)
+		})
 		streaming := false
 		if req.protocol.modern && len(req.protocol.progress) > 0 {
 			req.protocol.frameReserve = 8

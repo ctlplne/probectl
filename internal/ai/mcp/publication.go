@@ -24,11 +24,42 @@ func withPublicationGuard(ctx context.Context, guard publicationGuard) context.C
 	return context.WithValue(ctx, publicationContextKey{}, guard)
 }
 
+func withCredentialPublicationGuard(ctx context.Context, principal *auth.Principal, refresh func(context.Context) (*auth.Principal, error)) context.Context {
+	original := principalSnapshot(principal)
+	return withPublicationGuard(ctx, func(ctx context.Context) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if original == nil || original.TenantID == "" || refresh == nil {
+			return ErrForbidden
+		}
+		current, err := refresh(ctx)
+		if err != nil || !sameAuthority(original, current) {
+			return ErrForbidden
+		}
+		return ctx.Err()
+	})
+}
+
 func guardPublication(ctx context.Context) error {
 	if guard, ok := ctx.Value(publicationContextKey{}).(publicationGuard); ok {
 		return guard(ctx)
 	}
 	return ctx.Err()
+}
+
+// CheckOriginatingCredential refreshes the exact credential authenticated by
+// the native transport. A trusted backend may call it before model dispatch;
+// an absent transport guard is a refusal, never a principal-only substitute.
+func CheckOriginatingCredential(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	guard, ok := ctx.Value(publicationContextKey{}).(publicationGuard)
+	if !ok || guard == nil {
+		return ErrForbidden
+	}
+	return guard(ctx)
 }
 
 func publicationPolicySnapshot(ctx context.Context, policies []auth.Policy) (map[string]bool, error) {

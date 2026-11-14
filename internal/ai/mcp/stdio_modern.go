@@ -337,6 +337,9 @@ func (s *stdioStream) execute(job *stdioJob) {
 		return
 	}
 	ctx := job.ctx
+	if s.refresh != nil {
+		ctx = withCredentialPublicationGuard(ctx, p, s.current)
+	}
 	if len(job.req.protocol.progress) > 0 {
 		ctx = withProgressEmitter(ctx, func(stage int) error {
 			message, err := progressMessage(job.req.protocol.progress, stage)

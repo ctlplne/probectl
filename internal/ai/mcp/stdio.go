@@ -90,7 +90,12 @@ func (s *Server) serveStdio(ctx context.Context, r io.Reader, w io.Writer, initi
 			}
 			principal = current
 		}
-		resp = s.Handle(ctx, principal, line)
+		callCtx := ctx
+		if refresh != nil {
+			principal = principalSnapshot(principal)
+			callCtx = withCredentialPublicationGuard(ctx, principal, refresh)
+		}
+		resp = s.Handle(callCtx, principal, line)
 		if resp == nil {
 			continue
 		}
