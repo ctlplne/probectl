@@ -81,6 +81,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/hierarchy/teams/{id}/projects", s.handleCreateProject, permOrgWrite},
 		{http.MethodGet, "/v1/isolation/status", s.handleIsolationStatus, permTenantRead},
 		{http.MethodGet, "/v1/changes", s.handleListChanges, permChangeRead},
+		{http.MethodGet, "/v1/changes/{id}/effects", s.handleChangeEffects, permChangeRead},
 		{http.MethodGet, "/v1/entities", s.handleListEntities, ai.PermEntitiesRead},
 		{http.MethodPost, "/v1/entities", s.handleCreateCanonicalEntity, permAgentWrite},
 		{http.MethodPut, "/v1/entities/{id}/network-prefix", s.handleSetEntityNetworkPrefix, permAgentWrite},

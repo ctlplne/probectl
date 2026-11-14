@@ -120,3 +120,51 @@ func TestICMPNetworkErrorObservationRejectsInvalidEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestICMPRoundTripsKeepCompleteExactOriginalsAndLegacyUnknown(t *testing.T) {
+	original := icmpObservationFixture()
+	original.ICMP.Version = 3
+	original.ICMP.StartedAt = original.ICMP.StartedAt.Add(123 * time.Nanosecond)
+	original.ICMP.CompletedAt = original.ICMP.CompletedAt.Add(987 * time.Nanosecond)
+	original.ObservedAt = original.ICMP.CompletedAt
+	original.ICMP.RoundTrips = &ICMPRoundTrips{Nanos: []uint64{0, 9007199254740993}, ExecutionNanos: 9007199254740994}
+	original.ICMP.NetworkErrors = []ICMPNetworkError{{Sequence: 0, Responder: "2001:db8::1", Type: 1, ReceivedAt: original.ICMP.StartedAt.Add(time.Nanosecond), PacketDigest: strings.Repeat("a", 64)}}
+	normalized, err := original.Normalize(time.Now())
+	if err != nil || normalized.ICMP.RoundTrips == nil || !slices.Equal(normalized.ICMP.RoundTrips.Nanos, original.ICMP.RoundTrips.Nanos) {
+		t.Fatal("original RTT values rounded or disappeared", err)
+	}
+	if !normalized.ICMP.StartedAt.Equal(original.ICMP.StartedAt) || !normalized.ICMP.CompletedAt.Equal(original.ICMP.CompletedAt) {
+		t.Fatal("original precise execution clocks were rounded")
+	}
+	if !normalized.ICMP.NetworkErrors[0].ReceivedAt.Equal(original.ICMP.NetworkErrors[0].ReceivedAt) {
+		t.Fatal("original precise challenge-matched outcome clock was rounded")
+	}
+	normalized.ICMP.RoundTrips.Nanos[1] = 1
+	if original.ICMP.RoundTrips.Nanos[1] != 9007199254740993 {
+		t.Fatal("normalization shared mutable original samples")
+	}
+	for _, version := range []int{1, 2} {
+		invalid := icmpObservationFixture()
+		invalid.ICMP.Version = version
+		invalid.ICMP.RoundTrips = original.ICMP.RoundTrips
+		if _, err := invalid.Normalize(time.Now()); !errors.Is(err, ErrInvalidClaim) {
+			t.Fatal("legacy receipt acquired RTT authority", version, err)
+		}
+	}
+	for _, samples := range []*ICMPRoundTrips{nil, {}, {Nanos: []uint64{1}}, {Nanos: []uint64{1, 1 << 63}}} {
+		invalid := icmpObservationFixture()
+		invalid.ICMP.Version = 3
+		invalid.ICMP.RoundTrips = samples
+		if _, err := invalid.Normalize(time.Now()); !errors.Is(err, ErrInvalidClaim) {
+			t.Fatal("missing/partial/invalid RTT population accepted", err)
+		}
+	}
+	empty := icmpObservationFixture()
+	empty.ICMP.Version = 3
+	empty.ICMP.Replies = 0
+	empty.ICMP.Responders = nil
+	empty.ICMP.RoundTrips = &ICMPRoundTrips{Nanos: []uint64{}}
+	if got, err := empty.Normalize(time.Now()); err != nil || got.ICMP.RoundTrips == nil || got.ICMP.RoundTrips.Nanos == nil {
+		t.Fatal("present empty population became absent unknown metadata", err)
+	}
+}

@@ -11,6 +11,26 @@ export type Locale = (typeof LOCALES)[number]
 export const DEFAULT_LOCALE: Locale = 'en'
 
 const en = {
+  'changes.effects.title': 'Original before and after · preview',
+  'changes.effects.description':
+    'Compare retained measurements around this exact change. Missing observations stay unknown; differences do not prove causation.',
+  'changes.effects.compare': 'Compare original measurements',
+  'changes.effects.denied':
+    'Current change, flow, entity, metric, event and test read permissions are required.',
+  'changes.effects.loading': 'Loading original measurements…',
+  'changes.effects.error':
+    'Comparison unavailable or expired. Check the window and current source permissions, then retry.',
+  'changes.effects.unknown': 'Unknown',
+  'changes.effects.test': 'Configured test identity',
+  'changes.effects.beforeLoss': 'Before loss (exact ratio)',
+  'changes.effects.afterLoss': 'After loss (exact ratio)',
+  'changes.effects.beforeLatency': 'Before mean RTT (ns, exact)',
+  'changes.effects.afterLatency': 'After mean RTT (ns, exact)',
+  'changes.effects.tests': 'Original test measurements',
+  'changes.effects.noTests': 'No currently anchored test sources; latency and loss remain unknown.',
+  'changes.effects.traffic': 'Observed sampled bytes: before {before}; after {after}.',
+  'changes.effects.coverage': 'Traffic coverage: before {before}; after {after}.',
+  'changes.effects.download': 'Download complete original observations',
   'changes.timeline.title': 'Change timeline',
   'changes.timeline.description':
     'Original observations and separately authorized configuration comparisons. Temporal association does not establish a cause.',
@@ -1576,6 +1596,27 @@ const en = {
 export type MessageKey = keyof typeof en
 
 const es: Record<MessageKey, string> = {
+  'changes.effects.title': 'Antes y después originales · vista previa',
+  'changes.effects.description':
+    'Compare las mediciones conservadas alrededor de este cambio exacto. Los datos ausentes siguen siendo desconocidos; las diferencias no prueban causalidad.',
+  'changes.effects.compare': 'Comparar mediciones originales',
+  'changes.effects.denied':
+    'Se requieren permisos actuales de lectura de cambios, flujos, entidades, métricas, eventos y pruebas.',
+  'changes.effects.loading': 'Cargando mediciones originales…',
+  'changes.effects.error':
+    'Comparación no disponible o caducada. Revise el intervalo y los permisos actuales de las fuentes y vuelva a intentarlo.',
+  'changes.effects.unknown': 'Desconocido',
+  'changes.effects.test': 'Identidad de la prueba configurada',
+  'changes.effects.beforeLoss': 'Pérdida anterior (proporción exacta)',
+  'changes.effects.afterLoss': 'Pérdida posterior (proporción exacta)',
+  'changes.effects.beforeLatency': 'RTT medio anterior (ns, exacto)',
+  'changes.effects.afterLatency': 'RTT medio posterior (ns, exacto)',
+  'changes.effects.tests': 'Mediciones originales de pruebas',
+  'changes.effects.noTests':
+    'No hay fuentes de pruebas vinculadas actualmente; la latencia y la pérdida siguen siendo desconocidas.',
+  'changes.effects.traffic': 'Bytes muestreados observados: antes {before}; después {after}.',
+  'changes.effects.coverage': 'Cobertura de tráfico: antes {before}; después {after}.',
+  'changes.effects.download': 'Descargar todas las observaciones originales',
   'changes.timeline.title': 'Cronología de cambios',
   'changes.timeline.description':
     'Observaciones originales y comparaciones de configuración autorizadas por separado. La asociación temporal no demuestra causalidad.',
@@ -3174,6 +3215,27 @@ const es: Record<MessageKey, string> = {
 }
 
 const ar: Record<MessageKey, string> = {
+  'changes.effects.title': 'القياسات الأصلية قبل التغيير وبعده · معاينة',
+  'changes.effects.description':
+    'قارن القياسات المحفوظة حول هذا التغيير المحدد. تبقى البيانات المفقودة مجهولة؛ ولا تثبت الفروق وجود علاقة سببية.',
+  'changes.effects.compare': 'مقارنة القياسات الأصلية',
+  'changes.effects.denied':
+    'يلزم توفر أذونات القراءة الحالية للتغييرات والتدفقات والكيانات والمقاييس والأحداث والاختبارات.',
+  'changes.effects.loading': 'جارٍ تحميل القياسات الأصلية…',
+  'changes.effects.error':
+    'المقارنة غير متاحة أو انتهت صلاحيتها. تحقق من الفترة وأذونات المصادر الحالية ثم أعد المحاولة.',
+  'changes.effects.unknown': 'غير معروف',
+  'changes.effects.test': 'هوية الاختبار المكوّن',
+  'changes.effects.beforeLoss': 'الفقد قبل التغيير (نسبة دقيقة)',
+  'changes.effects.afterLoss': 'الفقد بعد التغيير (نسبة دقيقة)',
+  'changes.effects.beforeLatency': 'متوسط RTT قبل التغيير (نانوثانية، دقيق)',
+  'changes.effects.afterLatency': 'متوسط RTT بعد التغيير (نانوثانية، دقيق)',
+  'changes.effects.tests': 'قياسات الاختبارات الأصلية',
+  'changes.effects.noTests':
+    'لا توجد مصادر اختبارات مرتبطة حاليًا؛ ويبقى زمن الاستجابة والفقد مجهولين.',
+  'changes.effects.traffic': 'البايتات المرصودة مع أخذ العينات: قبل {before}؛ بعد {after}.',
+  'changes.effects.coverage': 'تغطية حركة المرور: قبل {before}؛ بعد {after}.',
+  'changes.effects.download': 'تنزيل جميع الملاحظات الأصلية',
   'changes.timeline.title': 'الخط الزمني للتغييرات',
   'changes.timeline.description':
     'مشاهدات أصلية ومقارنات إعدادات بتصريح مستقل. الارتباط الزمني لا يثبت السببية.',

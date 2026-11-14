@@ -25,6 +25,7 @@ import { useI18n } from '../i18n/useI18n'
 import { DateTime } from '../time/DateTime'
 import { Page } from './RoutePage'
 import { RoutingChangeMetadata } from './RoutingChangeMetadata'
+import { ChangeEffects } from './ChangeEffects'
 import styles from './incidents.module.css'
 import { pivotHref } from './pivotContext'
 
@@ -189,6 +190,7 @@ function CurrentChangeTimeline({ identity }: { identity: string }) {
                   <p>{selected.summary}</p>
                   <p>{selected.target || selected.prefix}</p>
                   {selected.routing ? <RoutingChangeMetadata reference={selected.routing} /> : null}
+                  <ChangeEffects id={selected.id} from={from} to={to} />
                   {selected.config ? (
                     <Link
                       to={pivotHref(

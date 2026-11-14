@@ -56,6 +56,7 @@ var verdictSurfaceKinds = map[string]string{
 	"GET /v1/bgp/events":                 verdictSurface,
 	"GET /v1/carbon":                     verdictSurface,
 	"GET /v1/changes":                    verdictSurface,
+	"GET /v1/changes/{id}/effects":       verdictSurface,
 	"GET /v1/compliance":                 verdictSurface,
 	"GET /v1/cost/summary":               verdictSurface,
 	"GET /v1/coverage/debt":              verdictSurface,

@@ -29,6 +29,13 @@ export interface APICallContract {
 
 export const API_CALL_CONTRACTS = [
   {
+    file: 'api/incidents.ts',
+    method: 'GET',
+    path: '`/changes/${encodeURIComponent(id)}/effects?${query.toString()}`',
+    response: 'ChangeEffectsResponse',
+    generated: 'GetChangeEffectsResponse',
+  },
+  {
     file: 'api/alertDependencies.ts',
     method: 'GET',
     path: '`/alerts/rules/${encodeURIComponent(ruleID)}/dependency-policy`',

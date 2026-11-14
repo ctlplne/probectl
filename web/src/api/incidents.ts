@@ -7,7 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, apiFetchBytes, isApiStatus } from './client'
 import type { Answer } from './ai'
-import type { IncidentImpactInput, IncidentVerdictInput } from './sdk.gen'
+import type { ChangeEffectsResponse, IncidentImpactInput, IncidentVerdictInput } from './sdk.gen'
 
 export type Severity = 'info' | 'warning' | 'critical'
 export type IncidentStatus = 'open' | 'resolved'
@@ -127,6 +127,13 @@ export interface ChangeTimelinePage {
 
 export function fetchChangeTimelinePage(query: URLSearchParams, signal?: AbortSignal) {
   return apiFetch<ChangeTimelinePage>(`/changes?${query.toString()}`, { signal })
+}
+
+export function fetchChangeEffects(id: string, query: URLSearchParams, signal?: AbortSignal) {
+  return apiFetch<ChangeEffectsResponse>(
+    `/changes/${encodeURIComponent(id)}/effects?${query.toString()}`,
+    { signal },
+  )
 }
 
 export interface ChangeCandidate {

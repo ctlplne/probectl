@@ -783,6 +783,76 @@ type ChangeCandidateList struct {
 	Truncated          *bool             `json:"truncated,omitempty"`
 }
 
+// Exact original application-monotonic nanoseconds as decimal strings; mean_nanos is an exact integer or rational. No binary floating-point conversion.
+type ChangeEffectLatency struct {
+	MaximumNanos string `json:"maximum_nanos"`
+	MeanNanos    string `json:"mean_nanos"`
+	MinimumNanos string `json:"minimum_nanos"`
+	Samples      string `json:"samples"`
+	SumNanos     string `json:"sum_nanos"`
+	TimingSource string `json:"timing_source"`
+}
+
+// Complete original reply RTTs and monotonic execution duration, expressed as exact decimal nanoseconds. Absent on legacy receipts means unknown latency.
+type ChangeEffectOriginalRoundTrips struct {
+	ExecutionNanos string   `json:"execution_nanos"`
+	Nanos          []string `json:"nanos"`
+}
+
+// Original packet counts as exact decimal strings. Per-observation lost is empty when local execution was incomplete; incomplete executions do not contribute period loss.
+type ChangeEffectPackets struct {
+	Lost        string `json:"lost"`
+	Replies     string `json:"replies"`
+	Transmitted string `json:"transmitted"`
+}
+
+type ChangeEffectTest struct {
+	After     ChangeEffectTestPeriod `json:"after"`
+	AgentId   string                 `json:"agent_id"`
+	Before    ChangeEffectTestPeriod `json:"before"`
+	ContextId string                 `json:"context_id"`
+	EntityId  string                 `json:"entity_id"`
+	TestId    string                 `json:"test_id"`
+}
+
+type ChangeEffectTestObservation struct {
+	Available     bool                           `json:"available"`
+	CaptureDigest string                         `json:"capture_digest"`
+	EvidenceId    string                         `json:"evidence_id"`
+	ObservationId string                         `json:"observation_id"`
+	ObservedAt    string                         `json:"observed_at"`
+	Packets       ChangeEffectPackets            `json:"packets,omitempty"`
+	Reason        string                         `json:"reason"`
+	RoundTrips    ChangeEffectOriginalRoundTrips `json:"round_trips,omitempty"`
+}
+
+type ChangeEffectTestPeriod struct {
+	CompleteExecutions    int                           `json:"complete_executions"`
+	From                  string                        `json:"from"`
+	Latency               ChangeEffectLatency           `json:"latency,omitempty"`
+	LatencyCoverage       string                        `json:"latency_coverage"`
+	LossCoverage          string                        `json:"loss_coverage"`
+	LossRatio             string                        `json:"loss_ratio,omitempty"`
+	Observations          []ChangeEffectTestObservation `json:"observations"`
+	Packets               ChangeEffectPackets           `json:"packets,omitempty"`
+	To                    string                        `json:"to"`
+	UnavailableExecutions int                           `json:"unavailable_executions"`
+}
+
+type ChangeEffectsResponse struct {
+	After           IncidentImpactPeriod   `json:"after"`
+	Before          IncidentImpactPeriod   `json:"before"`
+	ContractVersion string                 `json:"contract_version"`
+	EvaluatedAt     string                 `json:"evaluated_at"`
+	Interpretation  string                 `json:"interpretation"`
+	Members         []IncidentImpactMember `json:"members"`
+	Original        ChangeEvent            `json:"original"`
+	Preview         bool                   `json:"preview"`
+	Tests           []ChangeEffectTest     `json:"tests"`
+	UnresolvedRoot  bool                   `json:"unresolved_root"`
+	ValidUntil      string                 `json:"valid_until,omitempty"`
+}
+
 // A normalized tenant-scoped change event from a signed webhook, an authenticated owned-router update or a content-free archive projection.
 type ChangeEvent struct {
 	Actor      string                 `json:"actor,omitempty"`
@@ -4888,6 +4958,37 @@ func (c *Client) ListChanges(ctx context.Context, req ListChangesRequest) (*Chan
 		query.Set("to", formatQueryValue(*req.To))
 	}
 	var out ChangeEventList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Compare original measurements before and after an exact change
+type GetChangeEffectsRequest struct {
+	Id         string  `json:"-"`
+	From       *string `json:"-"`
+	To         *string `json:"-"`
+	Dataseries *string `json:"-"`
+}
+
+func (c *Client) GetChangeEffects(ctx context.Context, req GetChangeEffectsRequest) (*ChangeEffectsResponse, error) {
+	path := "/v1/changes/{id}/effects"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.From != nil {
+		query.Set("from", formatQueryValue(*req.From))
+	}
+	if req.To != nil {
+		query.Set("to", formatQueryValue(*req.To))
+	}
+	if req.Dataseries != nil {
+		query.Set("dataseries", formatQueryValue(*req.Dataseries))
+	}
+	var out ChangeEffectsResponse
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}

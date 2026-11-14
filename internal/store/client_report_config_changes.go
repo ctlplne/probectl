@@ -76,28 +76,11 @@ func (ChangeEvents) ClientReportConfigChangesInScope(ctx context.Context, sc ten
 			return nil, ErrClientReportBudget
 		}
 		remaining -= cost
-		var item struct {
-			ID              string                         `json:"id"`
-			TenantID        string                         `json:"tenant_id"`
-			Device          string                         `json:"device"`
-			Version         int                            `json:"version"`
-			ContentHash     string                         `json:"content_hash"`
-			PreviousHash    string                         `json:"previous_hash"`
-			PreviousID      string                         `json:"previous_id"`
-			PreviousVersion int                            `json:"previous_version"`
-			OccurredAt      time.Time                      `json:"occurred_at"`
-			ArchivedAt      time.Time                      `json:"archived_at"`
-			Binding         *change.ConfigBindingReference `json:"binding"`
-		}
-		if err := json.Unmarshal(body, &item); err != nil {
+		item, err := decodeProjectedConfigChange(body, bound.String())
+		if err != nil {
 			return nil, err
 		}
-		if item.TenantID != bound.String() {
-			return nil, entity.ErrScopeMismatch
-		}
-		out = append(out, change.Event{ID: "device-config:" + item.ID, TenantID: item.TenantID, Source: "probectl-device-config", Kind: change.KindConfig,
-			Title: fmt.Sprintf("Config drift detected on %s", item.Device), Summary: fmt.Sprintf("Redacted device config changed from version %d to %d.", item.PreviousVersion, item.Version), Target: item.Device, Ref: item.ID,
-			Config: &change.ConfigReference{CurrentID: item.ID, CurrentVersion: item.Version, CurrentHash: item.ContentHash, PreviousID: item.PreviousID, PreviousVersion: item.PreviousVersion, PreviousHash: item.PreviousHash, Binding: item.Binding}, OccurredAt: item.OccurredAt.UTC(), ReceivedAt: item.ArchivedAt.UTC()})
+		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -106,4 +89,29 @@ func (ChangeEvents) ClientReportConfigChangesInScope(ctx context.Context, sc ten
 		return nil, err
 	}
 	return out, nil
+}
+
+func decodeProjectedConfigChange(body []byte, tenant string) (change.Event, error) {
+	var item struct {
+		ID              string                         `json:"id"`
+		TenantID        string                         `json:"tenant_id"`
+		Device          string                         `json:"device"`
+		Version         int                            `json:"version"`
+		ContentHash     string                         `json:"content_hash"`
+		PreviousHash    string                         `json:"previous_hash"`
+		PreviousID      string                         `json:"previous_id"`
+		PreviousVersion int                            `json:"previous_version"`
+		OccurredAt      time.Time                      `json:"occurred_at"`
+		ArchivedAt      time.Time                      `json:"archived_at"`
+		Binding         *change.ConfigBindingReference `json:"binding"`
+	}
+	if err := json.Unmarshal(body, &item); err != nil {
+		return change.Event{}, err
+	}
+	if item.TenantID != tenant {
+		return change.Event{}, entity.ErrScopeMismatch
+	}
+	return change.Event{ID: "device-config:" + item.ID, TenantID: item.TenantID, Source: "probectl-device-config", Kind: change.KindConfig,
+		Title: fmt.Sprintf("Config drift detected on %s", item.Device), Summary: fmt.Sprintf("Redacted device config changed from version %d to %d.", item.PreviousVersion, item.Version), Target: item.Device, Ref: item.ID,
+		Config: &change.ConfigReference{CurrentID: item.ID, CurrentVersion: item.Version, CurrentHash: item.ContentHash, PreviousID: item.PreviousID, PreviousVersion: item.PreviousVersion, PreviousHash: item.PreviousHash, Binding: item.Binding}, OccurredAt: item.OccurredAt.UTC(), ReceivedAt: item.ArchivedAt.UTC()}, nil
 }

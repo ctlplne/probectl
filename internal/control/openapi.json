@@ -5915,6 +5915,101 @@
         }
       }
     },
+    "/v1/changes/{id}/effects": {
+      "get": {
+        "operationId": "getChangeEffects",
+        "summary": "Compare original measurements before and after an exact change",
+        "tags": [
+          "changes"
+        ],
+        "x-required-permission": "change.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "description": "Requires current change.read, flow.read, entities.read, metrics.read, events.read and test.read. Exact original archive or owned-router bindings select current canonical membership; free-form targets remain unresolved. Original captures, current tenant/user/credential/source/identity/revocation and erasure state are checked before publication. Before is [from, original observation), after is [original observation, to). Complete original counters and RTT samples are preserved under finite resource admission; no workload truncation. Missing original measurements remain unknown. Current membership is not historical topology and observed differences do not prove causation.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Exact change UUID or device-config:<original-current-archive-UUID> from the timeline."
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "dataseries",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "raw",
+                "rollup"
+              ],
+              "default": "auto"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Original before/after observations and complete source citations with explicit coverage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeEffectsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/changes": {
       "get": {
         "x-required-permission": "change.read",
@@ -25274,6 +25369,256 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "ChangeEffectPackets": {
+        "type": "object",
+        "required": [
+          "transmitted",
+          "replies",
+          "lost"
+        ],
+        "properties": {
+          "transmitted": {
+            "type": "string"
+          },
+          "replies": {
+            "type": "string"
+          },
+          "lost": {
+            "type": "string"
+          }
+        },
+        "description": "Original packet counts as exact decimal strings. Per-observation lost is empty when local execution was incomplete; incomplete executions do not contribute period loss."
+      },
+      "ChangeEffectLatency": {
+        "type": "object",
+        "required": [
+          "samples",
+          "sum_nanos",
+          "minimum_nanos",
+          "maximum_nanos",
+          "mean_nanos",
+          "timing_source"
+        ],
+        "properties": {
+          "samples": {
+            "type": "string"
+          },
+          "sum_nanos": {
+            "type": "string"
+          },
+          "minimum_nanos": {
+            "type": "string"
+          },
+          "maximum_nanos": {
+            "type": "string"
+          },
+          "mean_nanos": {
+            "type": "string"
+          },
+          "timing_source": {
+            "type": "string"
+          }
+        },
+        "description": "Exact original application-monotonic nanoseconds as decimal strings; mean_nanos is an exact integer or rational. No binary floating-point conversion."
+      },
+      "ChangeEffectOriginalRoundTrips": {
+        "type": "object",
+        "required": [
+          "nanos",
+          "execution_nanos"
+        ],
+        "properties": {
+          "nanos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "execution_nanos": {
+            "type": "string"
+          }
+        },
+        "description": "Complete original reply RTTs and monotonic execution duration, expressed as exact decimal nanoseconds. Absent on legacy receipts means unknown latency."
+      },
+      "ChangeEffectTestObservation": {
+        "type": "object",
+        "required": [
+          "evidence_id",
+          "observation_id",
+          "capture_digest",
+          "observed_at",
+          "available",
+          "reason"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string"
+          },
+          "observation_id": {
+            "type": "string"
+          },
+          "capture_digest": {
+            "type": "string"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "packets": {
+            "$ref": "#/components/schemas/ChangeEffectPackets"
+          },
+          "round_trips": {
+            "$ref": "#/components/schemas/ChangeEffectOriginalRoundTrips"
+          }
+        }
+      },
+      "ChangeEffectTestPeriod": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "observations",
+          "loss_coverage",
+          "latency_coverage",
+          "complete_executions",
+          "unavailable_executions"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChangeEffectTestObservation"
+            }
+          },
+          "loss_coverage": {
+            "type": "string"
+          },
+          "latency_coverage": {
+            "type": "string"
+          },
+          "complete_executions": {
+            "type": "integer"
+          },
+          "unavailable_executions": {
+            "type": "integer"
+          },
+          "packets": {
+            "$ref": "#/components/schemas/ChangeEffectPackets"
+          },
+          "loss_ratio": {
+            "type": "string",
+            "description": "Exact integer or rational over observed complete executions; missing coverage is not zero loss."
+          },
+          "latency": {
+            "$ref": "#/components/schemas/ChangeEffectLatency"
+          }
+        }
+      },
+      "ChangeEffectTest": {
+        "type": "object",
+        "required": [
+          "context_id",
+          "entity_id",
+          "test_id",
+          "agent_id",
+          "before",
+          "after"
+        ],
+        "properties": {
+          "context_id": {
+            "type": "string"
+          },
+          "entity_id": {
+            "type": "string"
+          },
+          "test_id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "before": {
+            "$ref": "#/components/schemas/ChangeEffectTestPeriod"
+          },
+          "after": {
+            "$ref": "#/components/schemas/ChangeEffectTestPeriod"
+          }
+        }
+      },
+      "ChangeEffectsResponse": {
+        "type": "object",
+        "required": [
+          "contract_version",
+          "preview",
+          "original",
+          "evaluated_at",
+          "before",
+          "after",
+          "members",
+          "tests",
+          "unresolved_root",
+          "interpretation"
+        ],
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "probectl.change-effects.v1"
+          },
+          "preview": {
+            "type": "boolean",
+            "const": true
+          },
+          "original": {
+            "$ref": "#/components/schemas/ChangeEvent"
+          },
+          "evaluated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "before": {
+            "$ref": "#/components/schemas/IncidentImpactPeriod"
+          },
+          "after": {
+            "$ref": "#/components/schemas/IncidentImpactPeriod"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentImpactMember"
+            }
+          },
+          "tests": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChangeEffectTest"
+            }
+          },
+          "unresolved_root": {
+            "type": "boolean"
+          },
+          "interpretation": {
+            "type": "string"
           }
         }
       },

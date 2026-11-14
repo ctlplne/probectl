@@ -688,6 +688,73 @@ export interface ChangeCandidateList {
   truncated?: boolean
 }
 
+export interface ChangeEffectLatency {
+  maximum_nanos: string
+  mean_nanos: string
+  minimum_nanos: string
+  samples: string
+  sum_nanos: string
+  timing_source: string
+}
+
+export interface ChangeEffectOriginalRoundTrips {
+  execution_nanos: string
+  nanos: string[]
+}
+
+export interface ChangeEffectPackets {
+  lost: string
+  replies: string
+  transmitted: string
+}
+
+export interface ChangeEffectTest {
+  after: ChangeEffectTestPeriod
+  agent_id: string
+  before: ChangeEffectTestPeriod
+  context_id: string
+  entity_id: string
+  test_id: string
+}
+
+export interface ChangeEffectTestObservation {
+  available: boolean
+  capture_digest: string
+  evidence_id: string
+  observation_id: string
+  observed_at: string
+  packets?: ChangeEffectPackets
+  reason: string
+  round_trips?: ChangeEffectOriginalRoundTrips
+}
+
+export interface ChangeEffectTestPeriod {
+  complete_executions: number
+  from: string
+  latency?: ChangeEffectLatency
+  latency_coverage: string
+  loss_coverage: string
+  loss_ratio?: string
+  observations: ChangeEffectTestObservation[]
+  packets?: ChangeEffectPackets
+  to: string
+  unavailable_executions: number
+}
+
+export interface ChangeEffectsResponse {
+  after: IncidentImpactPeriod
+  before: IncidentImpactPeriod
+  contract_version: string
+  evaluated_at: string
+  interpretation: string
+  members: IncidentImpactMember[]
+  original: ChangeEvent
+  preview: boolean
+  tests: ChangeEffectTest[]
+  unresolved_root: boolean
+  valid_until?: string
+}
+
 export interface ChangeEvent {
   actor?: string
   config?: ConfigChangeReference
@@ -4012,6 +4079,15 @@ export interface ListChangesRequest {
 
 export type ListChangesResponse = ChangeEventList
 
+export interface GetChangeEffectsRequest {
+  id: string
+  from: string
+  to: string
+  dataseries?: "auto" | "raw" | "rollup"
+}
+
+export type GetChangeEffectsResponse = ChangeEffectsResponse
+
 export interface CmdbLookupRequest {
   key: string
 }
@@ -5929,6 +6005,16 @@ export class ProbectlSDKClient {
     if (request.from !== undefined) query.set("from", String(request.from))
     if (request.to !== undefined) query.set("to", String(request.to))
     return this.requestJSON<ListChangesResponse>("GET", path, query, undefined)
+  }
+
+  async getChangeEffects(request: GetChangeEffectsRequest): Promise<GetChangeEffectsResponse> {
+    let path = "/v1/changes/{id}/effects"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.from !== undefined) query.set("from", String(request.from))
+    if (request.to !== undefined) query.set("to", String(request.to))
+    if (request.dataseries !== undefined) query.set("dataseries", String(request.dataseries))
+    return this.requestJSON<GetChangeEffectsResponse>("GET", path, query, undefined)
   }
 
   async cmdbLookup(request: CmdbLookupRequest): Promise<CmdbLookupResponse> {

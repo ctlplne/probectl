@@ -37,7 +37,10 @@ func normalizeICMPNetworkErrors(m ICMPMeasurement, target netip.Addr) ([]ICMPNet
 		}
 		return nil, nil
 	}
-	if m.Version != 2 || len(m.NetworkErrors) == 0 || uint64(len(m.NetworkErrors)) > uint64(m.Transmitted) {
+	if m.Version == 3 && len(m.NetworkErrors) == 0 {
+		return nil, nil
+	}
+	if (m.Version != 2 && m.Version != 3) || len(m.NetworkErrors) == 0 || uint64(len(m.NetworkErrors)) > uint64(m.Transmitted) {
 		return nil, ErrInvalidClaim
 	}
 	out := append([]ICMPNetworkError(nil), m.NetworkErrors...)
@@ -55,7 +58,10 @@ func normalizeICMPNetworkErrors(m ICMPMeasurement, target netip.Addr) ([]ICMPNet
 		if err != nil || len(digest) != 32 || hex.EncodeToString(digest) != item.PacketDigest || item.PacketDigest == "0000000000000000000000000000000000000000000000000000000000000000" {
 			return nil, ErrInvalidClaim
 		}
-		item.ReceivedAt = item.ReceivedAt.UTC().Truncate(time.Microsecond)
+		item.ReceivedAt = item.ReceivedAt.UTC()
+		if m.Version < 3 {
+			item.ReceivedAt = item.ReceivedAt.Truncate(time.Microsecond)
+		}
 		if item.ReceivedAt.Before(m.StartedAt) || item.ReceivedAt.After(m.CompletedAt) {
 			return nil, ErrInvalidClaim
 		}
