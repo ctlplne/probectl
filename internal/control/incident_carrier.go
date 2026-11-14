@@ -166,7 +166,11 @@ func (s *Server) carrierRoutingSnapshot(ctx context.Context, actor *auth.Princip
 		if originals != nil {
 			return (store.ChangeEvents{}).VerifyRoutingChangeReferencesInScope(ctx, sc, originals, memory, authorize)
 		}
-		out, err = (store.ChangeEvents{}).IncidentRoutingChangesInScope(ctx, sc, snapshot.inputs, prefixes, from, to, memory, authorize)
+		members, err := carrierRoutingMembers(actor.TenantID, snapshot, memory)
+		if err != nil {
+			return err
+		}
+		out, err = (store.ChangeEvents{}).IncidentRoutingChangesInScope(ctx, sc, members, prefixes, from, to, memory, authorize)
 		return err
 	})
 	return out, err
@@ -180,4 +184,38 @@ type incidentCarrierCounterCheck struct {
 	target   store.DeviceCounterInterface
 	rows     []flowstore.CounterRow
 	budget   flowstore.CounterBudget
+}
+
+// An incident on an interface selects its current canonical router parent,
+// never another router that happens to share an address or display label.
+// Original source verification still authorizes each selected router/prefix.
+func carrierRoutingMembers(tenant string, snapshot incidentVerdictSnapshot, memory int64) (*store.IncidentImpactInputs, error) {
+	if snapshot.inputs == nil || snapshot.inputs.TenantID != tenant {
+		return nil, apierror.Forbidden("current carrier membership is required")
+	}
+	if memory < 4096 || int64(len(snapshot.inputs.Entities))+int64(len(snapshot.evidence.interfaces)) > memory/1024 {
+		return nil, store.ErrIncidentImpactBudget
+	}
+	selected := *snapshot.inputs
+	selected.Entities = append([]store.IncidentImpactEntity{}, snapshot.inputs.Entities...)
+	seen := map[[2]string]bool{}
+	for _, member := range selected.Entities {
+		seen[[2]string{member.ContextID, member.EntityID}] = true
+	}
+	for _, item := range snapshot.evidence.interfaces {
+		if !item.direct || !item.source.Current {
+			continue
+		}
+		source := item.source
+		if source.TenantID != tenant || source.ContextID == "" || source.RouterID == "" {
+			return nil, apierror.Forbidden("carrier interface parent scope is unavailable")
+		}
+		key := [2]string{source.ContextID, source.RouterID}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		selected.Entities = append(selected.Entities, store.IncidentImpactEntity{ContextID: source.ContextID, EntityID: source.RouterID, SignalIDs: []string{}})
+	}
+	return &selected, nil
 }

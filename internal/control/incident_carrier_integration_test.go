@@ -101,6 +101,14 @@ func TestCarrierExportKeepsCompleteOriginalsOfflineAndCurrentTenantAuthority(t *
 		}
 		windows[tenant] = incident.CarrierInput{From: from, To: f.observedAt(tenant)}
 	}
+	for _, window := range windows {
+		if delay := time.Until(window.To); delay > 0 {
+			if delay > 5*time.Second {
+				t.Fatal("fixture database clock exceeds existing skew allowance")
+			}
+			time.Sleep(delay)
+		}
+	}
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	fetch := func(tenant, id string) (int, []byte) {
@@ -230,6 +238,30 @@ func TestCarrierExportKeepsCompleteOriginalsOfflineAndCurrentTenantAuthority(t *
 		if _, err := evidence.Verify(stdout.Bytes()); err != nil {
 			t.Fatal("carrier CLI changed signed bytes", err)
 		}
+	}
+	// The same canonical interface parent must retain affected-prefix routing
+	// without granting an unrelated router or the sibling's source identity.
+	for _, tenant := range f.tenants {
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `UPDATE incidents SET entity_id=$3 WHERE tenant_id=$1 AND id=$2`, tenant, ids[tenant], f.interfaceID)
+			return err
+		})
+		code, raw := fetch(tenant, ids[tenant])
+		if code != http.StatusOK {
+			t.Fatal("canonical interface incident lost its router history", code, string(raw))
+		}
+		var pkg evidence.Package
+		if err := json.Unmarshal(raw, &pkg); err != nil {
+			t.Fatal(err)
+		}
+		var pack incident.CarrierPack
+		if len(pkg.Attachments) != 1 || json.Unmarshal(pkg.Attachments[0].Content, &pack) != nil || len(pack.Routing) != 1 || pack.Routing[0].Routing.RouterID != f.routerID {
+			t.Fatal("canonical parent routing was omitted or substituted")
+		}
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `UPDATE incidents SET entity_id=$3 WHERE tenant_id=$1 AND id=$2`, tenant, ids[tenant], f.routerID)
+			return err
+		})
 	}
 	a, b := f.tenants[0], f.tenants[1]
 	if code, raw := fetch(a, ids[b]); code == http.StatusOK || strings.Contains(string(raw), ids[b]) {
