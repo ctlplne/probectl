@@ -79,6 +79,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"forecast": {Method: http.MethodPost, Path: "/v1/flows/capacity/forecast", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "read-only current interface/circuit forecast; --body-file supplies target, complete from/to/until, direction, exact capacity_bps, maximum_poll_gap and physical_bounds; no financial grant required"},
 	}},
 	"capacity-agreements": {Name: "capacity-agreements", Summary: "tenant financial terms and immutable capacity agreement revisions", Ops: map[string]apiOp{
+		"sla":       {Method: http.MethodPost, Path: "/v1/flows/capacity/agreements/{id}/sla", ArgName: "id", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "calculate monthly recorded SLA against complete original probe populations; --body-file supplies exact version and at; financial terms grant no telemetry access"},
 		"list":      {Method: http.MethodGet, Path: "/v1/flows/capacity/agreements", ExactJSON: true, Description: "page current financial terms with --query after=... --query limit=...; requires flow.agreements.read"},
 		"get":       {Method: http.MethodGet, Path: "/v1/flows/capacity/agreements/{id}", ArgName: "id", ExactJSON: true, Description: "read current terms, or choose --query version=... or --query at=RFC3339"},
 		"create":    {Method: http.MethodPost, Path: "/v1/flows/capacity/agreements", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "record complete operator terms with --body-file; requires financial read and write permissions"},

@@ -36,6 +36,9 @@ func (b mcpCapacityAgreementBackend) CapacityAgreements(ctx context.Context, p *
 	if name == "capacity_agreement_bill_check" {
 		return b.capacityAgreementBill(ctx, input)
 	}
+	if name == "capacity_agreement_sla" {
+		return b.carrierSLA(ctx, input)
+	}
 	method := http.MethodGet
 	switch name {
 	case "capacity_agreements_list", "capacity_agreement_get", "capacity_agreement_revisions":
@@ -183,7 +186,7 @@ func capacityAgreementToolOption(server *Server) (mcp.Option, error) {
 		return nil, err
 	}
 	roots := map[string]any{}
-	for _, name := range []string{"capacity_agreements_list", "capacity_agreement_get", "capacity_agreement_revisions", "capacity_agreement_create", "capacity_agreement_update", "capacity_agreement_delete", "capacity_agreement_bill_check", "capacity_forecast"} {
+	for _, name := range []string{"capacity_agreements_list", "capacity_agreement_get", "capacity_agreement_revisions", "capacity_agreement_create", "capacity_agreement_update", "capacity_agreement_delete", "capacity_agreement_bill_check", "capacity_agreement_sla", "capacity_forecast"} {
 		properties := map[string]any{}
 		required := []string{}
 		if name != "capacity_agreements_list" && name != "capacity_agreement_create" && name != "capacity_forecast" {
@@ -203,6 +206,10 @@ func capacityAgreementToolOption(server *Server) (mcp.Option, error) {
 		case "capacity_agreement_get":
 			properties["version"] = map[string]any{"type": "string", "pattern": "^[1-9][0-9]*$"}
 			properties["at"] = map[string]any{"type": "string", "format": "date-time"}
+		case "capacity_agreement_sla":
+			properties["version"] = map[string]any{"type": "string", "pattern": "^[1-9][0-9]*$"}
+			properties["at"] = map[string]any{"type": "string", "format": "date-time"}
+			required = append(required, "version", "at")
 		case "capacity_agreement_create", "capacity_agreement_update":
 			properties["definition"] = map[string]any{"$ref": "#/components/schemas/CapacityAgreementDefinition"}
 			required = append(required, "definition")

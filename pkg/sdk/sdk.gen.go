@@ -770,10 +770,53 @@ type CapacityTarget struct {
 	TagValue    string `json:"tag_value,omitempty"`
 }
 
+type CarrierSLAAssessment struct {
+	Citations     []string `json:"citations"`
+	CreditRatio   string   `json:"credit_ratio,omitempty"`
+	From          string   `json:"from"`
+	MeasurementId string   `json:"measurement_id,omitempty"`
+	RuleId        string   `json:"rule_id"`
+	State         string   `json:"state"`
+	To            string   `json:"to"`
+	Value         string   `json:"value,omitempty"`
+}
+
+type CarrierSLACredit struct {
+	Assessments           []CarrierSLAAssessment `json:"assessments"`
+	Complete              bool                   `json:"complete"`
+	Currency              string                 `json:"currency"`
+	ExactCredit           string                 `json:"exact_credit,omitempty"`
+	From                  string                 `json:"from"`
+	KnownCreditLowerBound string                 `json:"known_credit_lower_bound"`
+	To                    string                 `json:"to"`
+}
+
 type CarrierSLACreditBand struct {
 	CreditRatio   string `json:"credit_ratio"`
 	FromInclusive string `json:"from_inclusive"`
 	ToExclusive   string `json:"to_exclusive,omitempty"`
+}
+
+type CarrierSLAInput struct {
+	At      string `json:"at"`
+	Version string `json:"version"`
+}
+
+type CarrierSLAPopulation struct {
+	AgentId           string `json:"agent_id"`
+	ContextId         string `json:"context_id"`
+	DeviceId          string `json:"device_id"`
+	Digest            string `json:"digest"`
+	Failed            string `json:"failed"`
+	Id                string `json:"id"`
+	Lost              string `json:"lost"`
+	ObservedNotBefore string `json:"observed_not_before"`
+	Originals         string `json:"originals"`
+	RttSamples        string `json:"rtt_samples"`
+	Successful        string `json:"successful"`
+	TestId            string `json:"test_id"`
+	Transmitted       string `json:"transmitted"`
+	Unknown           string `json:"unknown"`
 }
 
 type CarrierSLARule struct {
@@ -788,6 +831,18 @@ type CarrierSLARule struct {
 type CarrierSLASource struct {
 	AgentId string `json:"agent_id"`
 	TestId  string `json:"test_id"`
+}
+
+type CarrierSLAStatement struct {
+	Agreement           CapacityAgreement      `json:"agreement"`
+	AsOf                string                 `json:"as_of"`
+	CoverageBasis       string                 `json:"coverage_basis"`
+	Credit              CarrierSLACredit       `json:"credit"`
+	HumanReviewRequired bool                   `json:"human_review_required"`
+	Period              CapacityBillingPeriod  `json:"period"`
+	RepairBasis         string                 `json:"repair_basis"`
+	SourceValidUntil    string                 `json:"source_valid_until"`
+	Sources             []CarrierSLAPopulation `json:"sources"`
 }
 
 type CarrierSLATerms struct {
@@ -7034,6 +7089,26 @@ func (c *Client) ListCapacityAgreementRevisions(ctx context.Context, req ListCap
 	}
 	var out CapacityAgreementPage
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Calculate monthly recorded SLA credit from original authenticated probe receipts
+type CalculateCarrierSlaRequest struct {
+	Id   string           `json:"-"`
+	Body *CarrierSLAInput `json:"-"`
+}
+
+func (c *Client) CalculateCarrierSla(ctx context.Context, req CalculateCarrierSlaRequest) (*CarrierSLAStatement, error) {
+	path := "/v1/flows/capacity/agreements/{id}/sla"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out CarrierSLAStatement
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

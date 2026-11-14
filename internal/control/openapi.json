@@ -16021,6 +16021,80 @@
         }
       }
     },
+    "/v1/flows/capacity/agreements/{id}/sla": {
+      "post": {
+        "operationId": "calculateCarrierSLA",
+        "summary": "Calculate monthly recorded SLA credit from original authenticated probe receipts",
+        "tags": [
+          "flows"
+        ],
+        "x-required-permission": "flow.agreements.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "description": "Read-only preview. Requires current financial read plus current entities.read, metrics.read and test.read for every selected probe/context; circuit tags also require tags.read. Immutable terms must cover the whole selected calendar billing period. Only explicit tenant-composite revision links with unchanged source assignment epochs select tests. Historical receipts validate the original certificate during execution while retaining current identity, revocation, definition, source, user and erasure checks. Every admitted original is scanned and committed to by source digest, then replayed before publication. Availability is the observed execution ratio, loss the original packet ratio, latency the original RTT mean or nearest-rank p95, and repair the maximum observed failed-completion to next-successful-completion interval. These are sampled populations, never continuous availability, physical repair duration or a legally payable amount. Missing, incomplete, unsupported or unfinished populations withhold exact credit. No automated claim submission, payment or retained result. Current authority, exact credential, complete resource admission and mandatory native text redaction remain enforced.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarrierSLAInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "200": {
+            "description": "Complete sampled original-population assessment with exact conditional credit and explicit unknowns; human review required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierSLAStatement"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/flows/capacity/agreements/{id}/check": {
       "post": {
         "operationId": "checkCapacityAgreementBill",
@@ -31906,6 +31980,226 @@
           "context_id",
           "interface_id",
           "max_bps"
+        ]
+      },
+      "CarrierSLAInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "version",
+          "at"
+        ]
+      },
+      "CarrierSLAAssessment": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "measurement_id": {
+            "type": "string"
+          },
+          "rule_id": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "met",
+              "breached"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "description": "Exact nonnegative rational, never a floating point approximation."
+          },
+          "credit_ratio": {
+            "type": "string"
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "rule_id",
+          "from",
+          "to",
+          "state",
+          "citations"
+        ]
+      },
+      "CarrierSLACredit": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "known_credit_lower_bound": {
+            "type": "string"
+          },
+          "exact_credit": {
+            "type": "string"
+          },
+          "assessments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarrierSLAAssessment"
+            }
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "currency",
+          "complete",
+          "known_credit_lower_bound",
+          "assessments"
+        ]
+      },
+      "CarrierSLAPopulation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "context_id": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "test_id": {
+            "type": "string"
+          },
+          "originals": {
+            "type": "string"
+          },
+          "successful": {
+            "type": "string"
+          },
+          "failed": {
+            "type": "string"
+          },
+          "unknown": {
+            "type": "string"
+          },
+          "transmitted": {
+            "type": "string"
+          },
+          "lost": {
+            "type": "string"
+          },
+          "rtt_samples": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "observed_not_before": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "context_id",
+          "device_id",
+          "agent_id",
+          "test_id",
+          "originals",
+          "successful",
+          "failed",
+          "unknown",
+          "transmitted",
+          "lost",
+          "rtt_samples",
+          "digest",
+          "observed_not_before"
+        ]
+      },
+      "CarrierSLAStatement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "agreement": {
+            "$ref": "#/components/schemas/CapacityAgreement"
+          },
+          "period": {
+            "$ref": "#/components/schemas/CapacityBillingPeriod"
+          },
+          "credit": {
+            "$ref": "#/components/schemas/CarrierSLACredit"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarrierSLAPopulation"
+            }
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source_valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "coverage_basis": {
+            "type": "string"
+          },
+          "repair_basis": {
+            "type": "string"
+          },
+          "human_review_required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agreement",
+          "period",
+          "credit",
+          "sources",
+          "as_of",
+          "source_valid_until",
+          "coverage_basis",
+          "repair_basis",
+          "human_review_required"
         ]
       },
       "CapacityBillInput": {

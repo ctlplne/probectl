@@ -676,10 +676,53 @@ export interface CapacityTarget {
   tag_value?: string
 }
 
+export interface CarrierSLAAssessment {
+  citations: string[]
+  credit_ratio?: string
+  from: string
+  measurement_id?: string
+  rule_id: string
+  state: "unknown" | "met" | "breached"
+  to: string
+  value?: string
+}
+
+export interface CarrierSLACredit {
+  assessments: CarrierSLAAssessment[]
+  complete: boolean
+  currency: string
+  exact_credit?: string
+  from: string
+  known_credit_lower_bound: string
+  to: string
+}
+
 export interface CarrierSLACreditBand {
   credit_ratio: string
   from_inclusive: string
   to_exclusive?: string
+}
+
+export interface CarrierSLAInput {
+  at: string
+  version: string
+}
+
+export interface CarrierSLAPopulation {
+  agent_id: string
+  context_id: string
+  device_id: string
+  digest: string
+  failed: string
+  id: string
+  lost: string
+  observed_not_before: string
+  originals: string
+  rtt_samples: string
+  successful: string
+  test_id: string
+  transmitted: string
+  unknown: string
 }
 
 export interface CarrierSLARule {
@@ -694,6 +737,18 @@ export interface CarrierSLARule {
 export interface CarrierSLASource {
   agent_id: string
   test_id: string
+}
+
+export interface CarrierSLAStatement {
+  agreement: CapacityAgreement
+  as_of: string
+  coverage_basis: string
+  credit: CarrierSLACredit
+  human_review_required: boolean
+  period: CapacityBillingPeriod
+  repair_basis: string
+  source_valid_until: string
+  sources: CarrierSLAPopulation[]
 }
 
 export interface CarrierSLATerms {
@@ -4808,6 +4863,13 @@ export interface ListCapacityAgreementRevisionsRequest {
 
 export type ListCapacityAgreementRevisionsResponse = CapacityAgreementPage
 
+export interface CalculateCarrierSlaRequest {
+  id: string
+  body: CarrierSLAInput
+}
+
+export type CalculateCarrierSlaResponse = CarrierSLAStatement
+
 export interface ForecastCapacityRequest {
   body: CapacityForecastInput
 }
@@ -6798,6 +6860,13 @@ export class ProbectlSDKClient {
     if (request.after !== undefined) query.set("after", String(request.after))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListCapacityAgreementRevisionsResponse>("GET", path, query, undefined)
+  }
+
+  async calculateCarrierSla(request: CalculateCarrierSlaRequest): Promise<CalculateCarrierSlaResponse> {
+    let path = "/v1/flows/capacity/agreements/{id}/sla"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<CalculateCarrierSlaResponse>("POST", path, query, request.body)
   }
 
   async forecastCapacity(request: ForecastCapacityRequest): Promise<ForecastCapacityResponse> {

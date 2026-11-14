@@ -1431,3 +1431,40 @@ This is a component preview. Original-source breach detection, monthly grouped
 claim drafts, contractual rounding/output, signed lab-fault evidence and complete
 served/lifecycle/exact-main qualification are still in progress. No claim is
 submitted and no invoice or payment is changed automatically.
+
+
+### Monthly carrier SLA calculation (preview)
+
+For a recorded agreement with explicit probe links, use **Monthly carrier SLA**
+on `/capacity`, `probectl capacity-agreements sla <id> --body-file request.json`,
+`POST /v1/flows/capacity/agreements/{id}/sla`, the generated clients or native
+`capacity_agreement_sla`. Input is an exact recorded `version` and RFC3339 `at`
+within the desired calendar billing period. The recorded terms must cover that
+whole period. Financial read permission never substitutes for current source,
+`entities.read`, `metrics.read` and `test.read` access; circuit tags also require
+`tags.read`. Only the revision's explicit tenant-owned probe/agent links count.
+Retired or reassigned sources cannot silently revive an old financial revision.
+
+The service streams every admitted original receipt and repeats the complete
+read before publication. Each source reports full counts and a digest of the
+original typed records. Certificate rotation does not erase valid historical
+executions: the original certificate must have been valid during execution, and
+today's identity, definition, revocation, tenant/user, source and erasure checks
+still apply. Any failed admission returns an error, never a shortened population.
+
+Recorded bases are `original_execution_ratio` (successful observed executions),
+`original_packet_ratio` (lost/transmitted packets), `original_rtt_mean`,
+`original_rtt_p95` (nearest-rank p95 over original nanoseconds), and
+`original_failure_interval` (the maximum observed failed completion to the next
+successful completion). These are sampled populations. Gaps between observations
+are unmeasured; no continuous availability or physical carrier repair time is
+inferred. Missing originals, incomplete local I/O, canceled work, missing legacy
+RTTs, unclosed failure intervals, unsupported bases and unfinished periods keep
+affected credit unknown. Exact fractions preserve thresholds, schedules and caps
+without floating point or invented monetary rounding. Every result requires
+human review; no claim is submitted and no payment is initiated.
+
+The monthly calculation is a preview component. Grouped signed claim drafts,
+complete breach-original attachments, physical loss/outage verification and final
+served/lifecycle/restart qualification remain unfinished. Population digests are
+reproducibility commitments, not a substitute for the signed original evidence.

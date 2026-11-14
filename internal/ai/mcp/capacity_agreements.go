@@ -38,6 +38,7 @@ var capacityAgreementTools = []struct {
 	{"capacity_forecast", "Forecast a complete current interface or tagged circuit from original counters, with explicit training, horizon, threshold and physical bounds. No financial permission or terms are required. Missing coverage withholds trained runout; intervals are empirical residual envelopes.", false},
 	{"capacity_agreements_list", "Page current tenant financial agreements; complete pages have resource admission and no total catalog ceiling.", false},
 	{"capacity_agreement_bill_check", "Check complete-month measured p95, commit, overage and exact invoice difference against recorded terms and all current members. Explicit physical bounds and original counter receipts are required; incomplete coverage withholds amounts.", false},
+	{"capacity_agreement_sla", "Calculate recorded monthly SLA credit from every selected original probe receipt under current tenant and source authority. Sampled availability and maximum observed failure-to-recovery intervals are explicitly labeled; missing originals and unfinished periods withhold exact credit. Human review is required.", false},
 	{"capacity_agreement_get", "Read current, exact recorded or effective agreement terms. Version and effective instant are mutually exclusive.", false},
 	{"capacity_agreement_revisions", "Page complete immutable agreement revisions in recording order, including retired inventory references.", false},
 	{"capacity_agreement_create", "Record complete operator financial terms for one current-tenant interface or tagged circuit.", true},
@@ -90,6 +91,13 @@ func validateCapacityForecastCommand(input CapacityAgreementCommand) error {
 
 func validateCapacityAgreementCommandFields(input CapacityAgreementCommand, name string) error {
 	switch name {
+	case "capacity_agreement_sla":
+		if !capacityAgreementVersion(input.Version) || input.Definition != nil || input.Check != nil || input.After != "" || input.Limit != nil {
+			return argErr("SLA calculation requires only agreement ID, exact version and billing-period instant")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, input.At); err != nil {
+			return argErr("SLA period instant must include an RFC3339 timezone")
+		}
 	case "capacity_agreement_bill_check":
 		if input.Check == nil || input.Definition != nil || input.After != "" || input.Limit != nil || input.Version != "" || input.At != "" {
 			return argErr("bill check requires only agreement ID and complete check input")

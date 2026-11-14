@@ -25,6 +25,7 @@ import {
 } from '../components'
 import { Page } from './RoutePage'
 import { CapacityBillCheck } from './CapacityBillCheck'
+import { CapacitySLACheck } from './CapacitySLACheck'
 import { CapacitySLAEditor, CapacitySLATermsView } from './CapacitySLATerms'
 import { CapacityForecastCheck } from './CapacityForecastCheck'
 import styles from './flowExplorer.module.css'
@@ -411,6 +412,14 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
       {selected && (
         <CapacityBillCheck
           key={`${selected.id}/${selected.version}/${selected.current_version}`}
+          agreement={selected}
+          busy={busy}
+          execute={execute}
+        />
+      )}
+      {selected?.definition.sla && (
+        <CapacitySLACheck
+          key={`sla/${selected.id}/${selected.version}/${selected.current_version}`}
           agreement={selected}
           busy={busy}
           execute={execute}

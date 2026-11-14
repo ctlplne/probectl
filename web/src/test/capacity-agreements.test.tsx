@@ -13,6 +13,7 @@ import { Providers } from '../App'
 import { AuthContext } from '../auth/AuthProvider'
 import type {
   CapacityAgreement,
+  CarrierSLAStatement,
   CapacityAgreementInput,
   CapacityAgreementBill,
   CapacityBillInput,
@@ -684,4 +685,134 @@ test('carrier SLA revisions preserve exact entered terms and discard a late tena
   } finally {
     view.unmount()
   }
+})
+
+test('monthly SLA keeps exact observed populations and discards late tenant results', async () => {
+  let tenant = 'red'
+  let late: ((response: Response) => void) | undefined
+  const selected = (id: string): CapacityAgreement => {
+    const value = item(id)
+    value.definition.sla = {
+      carrier: `${id} carrier`,
+      circuit_id: `${id} circuit`,
+      site: '',
+      currency: 'USD',
+      monthly_charge: '100.125',
+      credit_cap_ratio: '1.25',
+      aggregation: 'maximum',
+      sources: [{ agent_id: `${id}-agent`, test_id: '44444444-4444-4444-8444-444444444444' }],
+      rules: [
+        {
+          id: 'loss',
+          metric: 'loss',
+          basis: 'original_packet_ratio',
+          good_when: 'at_most',
+          threshold: '0.01',
+          credit_bands: [{ from_inclusive: '0.01', credit_ratio: '0.1' }],
+        },
+      ],
+    }
+    return value
+  }
+  const result = (id: string): CarrierSLAStatement => ({
+    agreement: selected(id),
+    period: {
+      from: '2026-10-01T00:00:00Z',
+      to: '2026-11-01T00:00:00Z',
+      timezone: 'UTC',
+      billing_day: 1,
+      boundary_policy: 'calendar',
+    },
+    credit: {
+      from: '2026-10-01T00:00:00Z',
+      to: '2026-11-01T00:00:00Z',
+      currency: 'USD',
+      complete: false,
+      known_credit_lower_bound: '0',
+      assessments: [
+        {
+          rule_id: 'loss',
+          state: 'unknown',
+          from: '2026-10-01T00:00:00Z',
+          to: '2026-11-01T00:00:00Z',
+          citations: [`${id}-population`],
+        },
+      ],
+    },
+    sources: [
+      {
+        id: `${id}-population`,
+        context_id: 'context',
+        device_id: 'device',
+        agent_id: `${id}-original-agent`,
+        test_id: 'test',
+        originals: '500001',
+        successful: '500000',
+        failed: '1',
+        unknown: '0',
+        transmitted: '1500003',
+        lost: '3',
+        rtt_samples: '1500000',
+        digest: `${id}-complete-original-digest`,
+        observed_not_before: '2026-10-01T00:00:00Z',
+      },
+    ],
+    as_of: '2026-10-15T00:00:00Z',
+    source_valid_until: '2099-11-01T00:00:00Z',
+    coverage_basis: 'observed_original_populations_only_not_schedule_or_continuous_availability',
+    repair_basis:
+      'maximum_observed_failed_completion_to_next_successful_completion_not_physical_repair_time',
+    human_review_required: true,
+  })
+  let sent: unknown
+  fixture(async (url, init) => {
+    if (url.pathname.endsWith('/sla')) {
+      sent = JSON.parse(String(init?.body))
+      if (tenant === 'red')
+        return new Promise<Response>((resolve) => {
+          late = resolve
+        })
+      return jsonResponse(result('blue'))
+    }
+    return jsonResponse(
+      url.pathname === base
+        ? { items: [selected(tenant)], has_more: false, as_of: '2026-11-01T01:00:00Z' }
+        : selected(tenant),
+    )
+  })
+  mount({
+    write: false,
+    switched: () => {
+      tenant = 'blue'
+    },
+  })
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Open red WAN' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Open red WAN' }))
+  fireEvent.change(await screen.findByLabelText(/SLA billing-period instant/), {
+    target: { value: '2026-10-15T00:00:00Z' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Calculate monthly SLA' }))
+  await waitFor(() => expect(late).toBeDefined())
+  expect(sent).toEqual({ version, at: '2026-10-15T00:00:00Z' })
+  fireEvent.click(screen.getByRole('button', { name: 'Switch financial tenant' }))
+  await screen.findByRole('button', { name: 'Open blue WAN' })
+  await act(async () => {
+    late!(jsonResponse(result('red')))
+  })
+  expect(screen.queryByRole('region', { name: 'Monthly SLA result' })).not.toBeInTheDocument()
+  expect(screen.queryByText('red-complete-original-digest')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Open blue WAN' }))
+  fireEvent.change(await screen.findByLabelText(/SLA billing-period instant/), {
+    target: { value: '2026-10-15T00:00:00Z' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Calculate monthly SLA' }))
+  const displayed = await screen.findByRole('region', { name: 'Monthly SLA result' })
+  expect(within(displayed).getByText('500001')).toBeInTheDocument()
+  expect(within(displayed).getByText('blue-complete-original-digest')).toBeInTheDocument()
+  expect(
+    within(displayed).getByText(/unknown coverage or an unfinished period/),
+  ).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Withdraw financial permission' }))
+  expect(screen.queryByRole('region', { name: 'Monthly SLA result' })).not.toBeInTheDocument()
+  expect(screen.queryByLabelText(/SLA billing-period instant/)).not.toBeInTheDocument()
 })

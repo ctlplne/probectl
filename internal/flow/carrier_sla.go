@@ -59,7 +59,7 @@ type CarrierSLATerms struct {
 // A source reader supplies original coverage under current tenant/source
 // authority. Neither this type nor Complete supplies that authority itself.
 // Values are exact ratios/nanoseconds. Missing observations remain unknown.
-type carrierSLAMeasurement struct {
+type CarrierSLAMeasurement struct {
 	TenantID  string    `json:"-"`
 	ID        string    `json:"id"`
 	RuleID    string    `json:"rule_id"`
@@ -71,7 +71,7 @@ type carrierSLAMeasurement struct {
 	Citations []string  `json:"citations"`
 }
 
-type carrierSLAAssessment struct {
+type CarrierSLAAssessment struct {
 	MeasurementID string    `json:"measurement_id,omitempty"`
 	RuleID        string    `json:"rule_id"`
 	From          time.Time `json:"from"`
@@ -82,21 +82,21 @@ type carrierSLAAssessment struct {
 	Citations     []string  `json:"citations"`
 }
 
-type carrierSLACredit struct {
+type CarrierSLACredit struct {
 	From                  time.Time              `json:"from"`
 	To                    time.Time              `json:"to"`
 	Currency              string                 `json:"currency"`
 	Complete              bool                   `json:"complete"`
 	KnownCreditLowerBound string                 `json:"known_credit_lower_bound"`
 	ExactCredit           *string                `json:"exact_credit,omitempty"`
-	Assessments           []carrierSLAAssessment `json:"assessments"`
+	Assessments           []CarrierSLAAssessment `json:"assessments"`
 }
 
-// assessCarrierSLA performs only exact contract arithmetic over a complete
+// AssessCarrierSLA performs only exact contract arithmetic over a complete
 // admitted input. It cannot infer downtime, cause, current authorization or a
 // legally payable amount from incident text, absent polls or partial coverage.
-func assessCarrierSLA(ctx context.Context, terms CarrierSLATerms, from, to time.Time, measurements []carrierSLAMeasurement, memory, work int64) (carrierSLACredit, error) {
-	none := carrierSLACredit{}
+func AssessCarrierSLA(ctx context.Context, terms CarrierSLATerms, from, to time.Time, measurements []CarrierSLAMeasurement, memory, work int64) (CarrierSLACredit, error) {
+	none := CarrierSLACredit{}
 	tenant, bound := tenancy.FromContext(ctx)
 	if !bound {
 		return none, tenancy.ErrNoTenant
@@ -129,7 +129,7 @@ func assessCarrierSLA(ctx context.Context, terms CarrierSLATerms, from, to time.
 		}
 		rules[rule.ID] = rule
 	}
-	result := carrierSLACredit{From: from, To: to, Currency: terms.Currency, Complete: true, Assessments: []carrierSLAAssessment{}}
+	result := CarrierSLACredit{From: from, To: to, Currency: terms.Currency, Complete: true, Assessments: []CarrierSLAAssessment{}}
 	seen, observed := map[string]bool{}, map[string]bool{}
 	total := new(big.Rat)
 	for _, measurement := range measurements {
@@ -144,7 +144,7 @@ func assessCarrierSLA(ctx context.Context, terms CarrierSLATerms, from, to time.
 			return none, ErrCarrierSLAInput
 		}
 		seen[measurement.ID], observed[rule.ID] = true, true
-		assessment := carrierSLAAssessment{MeasurementID: measurement.ID, RuleID: rule.ID, From: measurement.From, To: measurement.To, State: "unknown", Citations: append([]string{}, measurement.Citations...)}
+		assessment := CarrierSLAAssessment{MeasurementID: measurement.ID, RuleID: rule.ID, From: measurement.From, To: measurement.To, State: "unknown", Citations: append([]string{}, measurement.Citations...)}
 		if !measurement.Complete {
 			result.Complete = false
 			result.Assessments = append(result.Assessments, assessment)
@@ -186,7 +186,7 @@ func assessCarrierSLA(ctx context.Context, terms CarrierSLATerms, from, to time.
 	for _, rule := range terms.Rules {
 		if !observed[rule.ID] {
 			result.Complete = false
-			result.Assessments = append(result.Assessments, carrierSLAAssessment{RuleID: rule.ID, From: from, To: to, State: "unknown", Citations: []string{}})
+			result.Assessments = append(result.Assessments, CarrierSLAAssessment{RuleID: rule.ID, From: from, To: to, State: "unknown", Citations: []string{}})
 		}
 	}
 	if total.Cmp(capRatio) > 0 {
@@ -299,7 +299,7 @@ func carrierSLACreditRatio(ctx context.Context, rule CarrierSLARule, value *big.
 	return selected, nil
 }
 
-func carrierSLACost(ctx context.Context, terms CarrierSLATerms, measurements []carrierSLAMeasurement, memory, work int64) (int64, int64, error) {
+func carrierSLACost(ctx context.Context, terms CarrierSLATerms, measurements []CarrierSLAMeasurement, memory, work int64) (int64, int64, error) {
 	remaining := memory
 	initialWork := work
 	charge := func(text string) error {
