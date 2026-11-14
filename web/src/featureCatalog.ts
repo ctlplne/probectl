@@ -236,6 +236,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     status: 'partial',
     source: 'contract:features',
   },
+  // Original owned-router updates, complete archive comparisons and native cursor paging are additive previews; canonical effects and full real-router/current-source qualification remain owed.
   {
     id: 'F39',
     name: 'Change intelligence',

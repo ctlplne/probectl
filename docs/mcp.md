@@ -814,3 +814,5 @@ gauges stay numeric; arbitrary device/component strings keep ordinary full
 redaction. Missing levels are not zero, and these component identifiers do not
 assert a canonical port or a current authenticated original-counter receipt.
 Physical device coverage and full served/lifecycle qualification remain open.
+
+`changes_list` pages the currently authorized mixed change timeline using the same `cursor`, `limit`, `from` and `to` parameters as `GET /v1/changes`. Follow `next_cursor` until empty. It requires a tenant user, `change.read`, `ai.query` and each retained source’s current context permissions. Complete canonical routing/config references and the server-created continuation remain exact through full redaction; arbitrary sender text retains normal redaction. Source, user and original credential checks run again before publication on HTTPS and authenticated persistent stdio.

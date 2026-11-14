@@ -305,7 +305,7 @@
       ],
       "name": "Change intelligence",
       "status": "delivered",
-      "evidence": "`internal/change` (HMAC webhooks)"
+      "evidence": "`internal/change` (signed webhooks); original owned-router updates and shared current-source cursor readers (`internal/control/change_timeline.go`, `internal/control/mcp_change_timeline.go`) are preview pending full real-router/effect qualification"
     },
     {
       "ids": [

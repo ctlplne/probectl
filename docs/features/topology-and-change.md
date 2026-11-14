@@ -284,3 +284,5 @@ PROBECTL_CHANGE_CORRELATION_WINDOW: "24h"
   incident).
 
 **Covers:** F3, F39, F40
+
+Owned BGP timeline observations and cursor paging are preview extensions. Each original update retains its canonical source/context, batch position and exact reference; a Loc-RIB observation describes the BGP-selected route without proving forwarding state. Every page and native publication rechecks current source/user authority. Native `changes_list` shares the REST reader and full redaction; CLI/SDKs use the same continuation. Complete archived comparison links select their exact predecessor pair, rather than searching a newest-page prefix. Canonical before/after effects and full real-router qualification remain in progress.

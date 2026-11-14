@@ -656,11 +656,12 @@ capabilities:
     real_stack_proof: {gap: "External egress may remain hermetic, but cached ingest through match, enrichment, detection, API, and two-tenant scoping is positive runtime behavior without a real-stack receipt."}
     migration: *no_migration
 
+  # Owned routing/current-source paging is preview; its real-router/effect qualification remains owed.
   - id: F39
     name: Change intelligence
     status: delivered
     owner: incident/API
-    engine: {refs: ["file:internal/change"]}
+    engine: {refs: ["file:internal/change", "file:internal/control/change_timeline.go", "file:internal/control/mcp_change_timeline.go"]}
     binary: {refs: ["file:internal/control/v1.go#s.handleListChanges"]}
     api: {refs: ["api:GET /v1/changes"]}
     cli: {refs: ["cli:probectl change list"]}
@@ -669,7 +670,7 @@ capabilities:
     config_keys: {refs: ["config:PROBECTL_CHANGE_WEBHOOKS", "config:PROBECTL_CHANGE_CORRELATION_WINDOW"]}
     telemetry: {refs: ["file:internal/control/change.go"]}
     real_stack_proof: {refs: ["test:internal/control/change_integration_test.go#TestChangeWebhookTenantIsolation"]}
-    migration: {refs: ["file:migrations/0017_change_events.sql"]}
+    migration: {refs: ["file:migrations/0017_change_events.sql", "file:migrations/0216_owned_routing_change_sources.sql"]}
 
   # F40's real-stack receipt builds each of an MSP's two tenants a graph from
   # its own real telemetry on the same address: the shipped device agent

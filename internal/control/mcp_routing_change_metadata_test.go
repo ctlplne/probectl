@@ -7,6 +7,7 @@
 package control
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -39,5 +40,29 @@ func TestOwnedRoutingNativeMetadataKeepsExactOriginalsAndClosedFields(t *testing
 	invalid.Sequence = "a phone number 1234567890123"
 	if _, err := nativeRoutingChangeReference(invalid); err == nil {
 		t.Fatal("unvalidated arbitrary text obtained structural redaction protection")
+	}
+}
+
+func TestNativeChangeCursorSurvivesFullRedactionWithoutGrantingAuthority(t *testing.T) {
+	cursor := changeTimelineCursor{Version: 1, From: time.Unix(0, 0).UTC(), To: time.Date(2026, 11, 14, 2, 0, 0, 0, time.UTC), Before: time.Date(2026, 11, 14, 1, 0, 0, 0, time.UTC), ID: "40000000-0000-4004-8000-123456789012"}
+	body, err := json.Marshal(cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := base64.RawURLEncoding.EncodeToString(body)
+	encoded, err := nativeChangeTimelineCursor(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actual string
+	if err := json.Unmarshal([]byte(ai.RedactTextForTenant(string(encoded), ai.DefaultRedaction, cursor.ID)), &actual); err != nil || actual != original {
+		t.Fatal("native redaction changed a generated continuation", err)
+	}
+	decoded, err := decodeChangeTimelineCursor(actual)
+	if err != nil || decoded != cursor {
+		t.Fatal("continuation changed its exact window/order", err)
+	}
+	if _, err := nativeChangeTimelineCursor("password=private sender text"); err == nil {
+		t.Fatal("arbitrary caller text acquired cursor redaction protection")
 	}
 }
