@@ -260,6 +260,19 @@ function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
 }
 
 describe('provider console (S-T1)', () => {
+  test('provider operator can switch both shipped themes in its separate console', async () => {
+    vi.stubGlobal('fetch', providerStub())
+    renderApp('/provider')
+    await screen.findByText('Monthly client reports')
+    const initial = document.documentElement.dataset.theme
+    const action = screen.getByRole('button', { name: `Switch theme (current: ${initial})` })
+    await userEvent.click(action)
+    const other = initial === 'light' ? 'dark' : 'light'
+    expect(document.documentElement.dataset.theme).toBe(other)
+    expect(document.documentElement.classList.contains('dark')).toBe(other === 'dark')
+    await userEvent.click(screen.getByRole('button', { name: `Switch theme (current: ${other})` }))
+    expect(document.documentElement.dataset.theme).toBe(initial)
+  })
   test('hidden-unlicensed honesty: a 404 API renders "not enabled", never a broken console', async () => {
     vi.stubGlobal('fetch', defaultFetch()) // no provider endpoints stubbed = 404s
     renderApp('/provider')

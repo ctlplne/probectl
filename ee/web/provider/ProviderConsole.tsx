@@ -22,6 +22,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  Icon,
   LoadingState,
   Select,
   StatusDot,
@@ -29,6 +30,7 @@ import {
   type Column,
 } from "../../../web/src/components";
 import { useI18n } from "../../../web/src/i18n/useI18n";
+import { useTheme } from "../../../web/src/theme/useTheme";
 import styles from "./ProviderConsole.module.css";
 import { TenantsCard } from "./TenantsCard";
 import { QuarantineCard } from "./QuarantineCard";
@@ -99,6 +101,7 @@ export interface ProviderConsoleProps {
 /** The console root: demo-refused / not-enabled / login / dashboard. */
 export function ProviderConsole({ search = "" }: ProviderConsoleProps) {
   const { t } = useI18n();
+  const { theme, toggleTheme } = useTheme();
   const demo = demoRequested(search);
   const [phase, setPhase] = useState<
     "probe" | "login" | "dashboard" | "disabled" | "demo"
@@ -145,6 +148,15 @@ export function ProviderConsole({ search = "" }: ProviderConsoleProps) {
       <header className={styles.domainBanner}>
         <h1 className={styles.domainName}>{t("provider.banner.title")}</h1>
         <Badge tone="warning">{t("provider.banner.domain")}</Badge>
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          aria-label={`Switch theme (current: ${theme})`}
+          onClick={toggleTheme}
+        >
+          <Icon name={theme === "light" ? "moon" : "sun"} />
+        </Button>
         {operator ? (
           <Badge tone="info">
             {operator.email} ({operator.role})
