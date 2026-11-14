@@ -249,6 +249,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 				if !bytes.HasPrefix(raw, []byte("%PDF-")) {
 					t.Fatal("served monthly PDF missing")
 				}
+				proveServedMonthlyPDF(ctx, t, raw, capture.Tables, tenant, f.tenants[1-lane], d.cases[tenant], string(public), secret)
 			} else {
 				artifacts[tenant] = artifact.ID
 				if bytes.Contains(raw, []byte(secret)) {
@@ -483,7 +484,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	if code != http.StatusOK {
 		t.Fatal("stored pack revocation crossed tenant", code)
 	}
-	t.Log("real-integration: complete backdated calendar-month capture through application-role PG/RLS, current actor/source/definition, expired original serials plus renewed current identities, distinct paired counts, whole incident/change/config inputs, tenant refusal and withdrawn current permission with sibling survival; historical clocks/outcomes modeled; served CSV/PDF generation/download and signed CSV index verified; owned monthly inbox scheduling/retry and write-only credential refusal verified; full PDF content, native/UI/provider and real senders remain owed")
+	t.Log("real-integration: complete backdated calendar-month capture through application-role PG/RLS, current actor/source/definition, expired original serials plus renewed current identities, distinct paired counts, whole incident/change/config inputs, tenant refusal and withdrawn current permission with sibling survival; historical clocks/outcomes modeled; served CSV/PDF generation/download, signed CSV index and complete PDF semantic section/row/numeric/index content verified; owned monthly inbox scheduling/retry and write-only credential refusal verified; independent full PDF ink/Poppler, native/UI/provider and real senders remain owed")
 }
 
 func backdateClientReportOriginals(t *testing.T, d *dependencyRoutingFixture, tenant string, from time.Time) {
