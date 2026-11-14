@@ -32,11 +32,20 @@ PATH_HEALTH = (
 
 
 CHANGE_EFFECTS = (
-    ROOT + "/routed-path-health/original-change-effects",
-    *(ROOT + "/routed-path-health/original-change-effects/" + tenant
+    *(ROOT + "/routed-path-health/" + phase
+      for phase in ("original-change-effects", "original-route-effects")),
+    *(ROOT + "/routed-path-health/" + phase + "/" + tenant
+      for phase in ("original-change-effects", "original-route-effects")
       for tenant in ("primary", "paired")),
-    *(ROOT + "/routed-path-health/original-change-effects/" + tenant + "/" + theme
+    *(ROOT + "/routed-path-health/" + phase + "/" + tenant + "/" + theme
+      for phase in ("original-change-effects", "original-route-effects")
       for tenant in ("primary", "paired") for theme in ("light", "dark")),
+    *(ROOT + "/routed-path-health/" + phase + "/" + tenant + "/clients/" + wire
+      for phase in ("original-change-effects", "original-route-effects")
+      for tenant in ("primary", "paired") for wire in ("2026-07-28", "2025-11-25")),
+    *(ROOT + "/routed-path-health/" + phase + "/" + tenant + "/clients/2026-07-28/" + client
+      for phase in ("original-change-effects", "original-route-effects")
+      for tenant in ("primary", "paired") for client in ("sdk", "cli")),
 )
 
 

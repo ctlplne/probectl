@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/change"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/enroll"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -149,14 +151,23 @@ func awaitRouterChangeProbe(t *testing.T, st *shipped.Stack, reg edgeFlowRegistr
 
 func proveRouterOriginalChangeEffects(t *testing.T, st *shipped.Stack, registrations []edgeFlowRegistration, probes []routerChangeProbe, archives [][]sdk.DeviceConfigVersion, from, changed time.Time) {
 	t.Helper()
+	ids := make([]string, len(registrations))
+	for lane := range registrations {
+		ids[lane] = "device-config:" + archives[lane][1].Id
+	}
+	proveRouterOriginalEffects(t, st, registrations, probes, ids, from, changed)
+}
+
+func proveRouterOriginalEffects(t *testing.T, st *shipped.Stack, registrations []edgeFlowRegistration, probes []routerChangeProbe, ids []string, from, changed time.Time) {
+	t.Helper()
 	for lane, reg := range registrations {
 		label := []string{"primary", "paired"}[lane]
 		t.Run(label, func(t *testing.T) {
 			to := awaitRouterChangeProbe(t, st, reg, probes[lane], changed).Add(time.Microsecond)
-			id := "device-config:" + archives[lane][1].Id
+			id := ids[lane]
 			query := url.Values{"from": {from.Format(time.RFC3339Nano)}, "to": {to.Format(time.RFC3339Nano)}}
 			var result sdk.ChangeEffectsResponse
-			shipped.Await(t, "actual RTT/config/flow originals in one comparison", time.Minute, func() bool {
+			shipped.Await(t, "actual RTT/change/flow originals in one comparison", time.Minute, func() bool {
 				code, body := st.Do(t, reg.cookie, http.MethodGet, "/v1/changes/"+id+"/effects?"+query.Encode(), nil)
 				if code != http.StatusOK || json.Unmarshal(body, &result) != nil || result.Original.Id != id || len(result.Tests) != 1 {
 					return false
@@ -174,14 +185,19 @@ func proveRouterOriginalChangeEffects(t *testing.T, st *shipped.Stack, registrat
 			verifyRouterOriginalTestPeriod(t, st, reg, probes[lane], result.Tests[0].After)
 			other := 1 - lane
 			if code, _ := st.Do(t, registrations[other].cookie, http.MethodGet, "/v1/changes/"+id+"/effects?"+query.Encode(), nil); code == http.StatusOK {
-				t.Fatal("foreign reader selected another tenant's original config effect")
+				t.Fatal("foreign reader selected another tenant's original change effect")
 			}
+			proveRouterChangeClients(t, st, reg, probes[lane], id, ids[other], result)
 			params := url.Values{"view": {"changes"}, "changes_from": {from.Format(time.RFC3339Nano)}, "changes_to": {to.Format(time.RFC3339Nano)}, "change_id": {id}}
 			for _, theme := range []string{"light", "dark"} {
 				t.Run(theme, func(t *testing.T) {
+					steps := []testsupport.RenderStep{{Click: "Compare original measurements", Expect: []string{probes[lane].test, result.Tests[0].Before.Latency.MeanNanos, result.Tests[0].After.Latency.MeanNanos}}}
+					if strings.HasPrefix(id, "device-config:") {
+						steps = append(steps, testsupport.RenderStep{Click: "Open exact redacted configuration diff", Expect: []string{"same-router: version 1 → 2", "probectl-path-health-baseline", "probectl-path-health-changed", "Complete comparison"}})
+					}
 					rendered := testsupport.RenderUI(t, testsupport.RenderSpec{URL: st.BaseURL + "/ui/incidents?" + params.Encode(), Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: reg.cookie}}, TrustCertFiles: st.TrustCerts(), CAFile: st.CAFile, Theme: theme, Accessibility: true,
 						Expect: []string{"Change timeline", "Original before and after"},
-						Steps:  []testsupport.RenderStep{{Click: "Compare original measurements", Expect: []string{probes[lane].test, result.Tests[0].Before.Latency.MeanNanos, result.Tests[0].After.Latency.MeanNanos}}}})
+						Steps:  steps})
 					if rendered.Accessibility == nil {
 						t.Fatal("served change-effects accessibility proof was missing or unexecuted")
 					}
@@ -256,4 +272,80 @@ func verifyRouterOriginalTestPeriod(t *testing.T, st *shipped.Stack, reg edgeFlo
 	if period.Latency.Samples != samples.String() || period.Latency.SumNanos != sum.String() || period.Latency.MeanNanos != new(big.Rat).SetFrac(&sum, &samples).RatString() || period.Packets.Transmitted != sent.String() || period.Packets.Replies != replied.String() || period.Packets.Lost != lost.String() || *period.LossRatio != new(big.Rat).SetFrac(lost, &sent).RatString() {
 		t.Fatal("before/after RTT or loss differs from actual retained originals")
 	}
+}
+
+// Change the real FRR selected AS path. Both authenticated collector streams
+// must publish their own original update and compare the real probe population.
+// Neither route metadata nor measurement bodies are inserted by this proof.
+func proveRouterOriginalRouteEffects(t *testing.T, st *shipped.Stack, lab *routingLab, registrations []edgeFlowRegistration, probes []routerChangeProbe, replay func(*testing.T, time.Time)) {
+	t.Helper()
+	from := time.Now().UTC()
+	for lane, reg := range registrations {
+		awaitRouterChangeProbe(t, st, reg, probes[lane], from)
+	}
+	replay(t, from)
+	changed := time.Now().UTC()
+	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "route-map ORIGIN-A permit 10", "-c", "no set as-path prepend", "-c", "set as-path prepend "+strconv.Itoa(hijackerA), "-c", "end")
+	lab.awaitRoutes(t, "rtr-a", map[string]string{prefixA: path(edgeASN, hijackerA)})
+	ids := make([]string, len(registrations))
+	for lane, reg := range registrations {
+		original := awaitRouterTimelineRoute(t, st, reg, changed, "selected_route_update")
+		if original.Routing == nil || !original.Routing.PriorPresent || !original.Routing.PathChanged {
+			t.Fatal("actual FRR path replacement lost its prior selected-path identity")
+		}
+		ids[lane] = original.ID
+	}
+	replay(t, changed)
+	proveRouterOriginalEffects(t, st, registrations, probes, ids, from, changed)
+
+	withdrawn := time.Now().UTC()
+	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(edgeASN), "-c", "address-family ipv4 unicast", "-c", "no network "+prefixA+" route-map ORIGIN-A", "-c", "end")
+	for _, reg := range registrations {
+		awaitRouterTimelineRoute(t, st, reg, withdrawn, "withdrawal")
+	}
+	announced := time.Now().UTC()
+	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "route-map ORIGIN-A permit 10", "-c", "no set as-path prepend", "-c", "set as-path prepend "+strconv.Itoa(originA), "-c", "exit", "-c", "router bgp "+strconv.Itoa(edgeASN), "-c", "address-family ipv4 unicast", "-c", "network "+prefixA+" route-map ORIGIN-A", "-c", "end")
+	lab.awaitRoutes(t, "rtr-a", map[string]string{prefixA: path(edgeASN, originA)})
+	for _, reg := range registrations {
+		awaitRouterTimelineRoute(t, st, reg, announced, "announcement")
+	}
+}
+
+func awaitRouterTimelineRoute(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, from time.Time, action string) change.Event {
+	t.Helper()
+	var found change.Event
+	shipped.Await(t, "actual FRR "+action+" in its tenant timeline", time.Minute, func() bool {
+		query := url.Values{"from": {from.Format(time.RFC3339Nano)}, "to": {time.Now().UTC().Add(time.Second).Format(time.RFC3339Nano)}, "limit": {"100"}}
+		seen := map[string]bool{}
+		for {
+			code, body := st.Do(t, reg.cookie, http.MethodGet, "/v1/changes?"+query.Encode(), nil)
+			var page struct {
+				Items []change.Event `json:"items"`
+				Next  string         `json:"next_cursor"`
+			}
+			if code != http.StatusOK || json.Unmarshal(body, &page) != nil {
+				return false
+			}
+			for _, item := range page.Items {
+				if item.Routing == nil || item.Kind != change.KindRoute || item.Prefix != prefixA || item.Routing.Action != action || item.Routing.View != "loc_rib" {
+					continue
+				}
+				if item.TenantID != reg.tenantID || item.Routing.Validate() != nil || item.Routing.ContextID != reg.contextID || item.Routing.RouterID != reg.deviceID || item.Target != reg.deviceID || item.Routing.ObservedAt.Before(from) {
+					t.Fatal("actual routing timeline changed its tenant, canonical source or original clock")
+				}
+				found = item
+				return true
+			}
+			if page.Next == "" {
+				return false
+			}
+			if seen[page.Next] {
+				t.Fatal("routing timeline repeated a continuation")
+			}
+			seen[page.Next] = true
+			query.Set("cursor", page.Next)
+		}
+	})
+	t.Logf("real-integration: FRR %s reached tenant timeline in %s (60s observation window)", action, time.Since(from))
+	return found
 }

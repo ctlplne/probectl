@@ -64,7 +64,7 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	links := []roleRouterLink{addRoleRouterLink(t, lab, "transit", "edge", 234, edgeASN, entity.InterfaceRoleTransit), addRoleRouterLink(t, lab, "ix", "rrc", 232, rrcASN, entity.InterfaceRoleIX), addRoleRouterLink(t, lab, "customer", "rtr-b", 233, rtrBASN, entity.InterfaceRoleCustomer)}
 	// Keep management reachable, but use only the three distinct physical
 	// relationship links for BGP. The initial old peer has no monitored routes.
-	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "neighbor "+lab.ip["edge"]+" shutdown", "-c", "bmp targets probectl", "-c", "bmp monitor ipv6 unicast pre-policy", "-c", "bmp monitor ipv6 unicast post-policy", "-c", "end")
+	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "neighbor "+lab.ip["edge"]+" shutdown", "-c", "bmp targets probectl", "-c", "bmp monitor ipv6 unicast pre-policy", "-c", "bmp monitor ipv6 unicast post-policy", "-c", "bmp monitor ipv4 unicast loc-rib", "-c", "bmp monitor ipv6 unicast loc-rib", "-c", "end")
 
 	community := startRouterSNMP(t, lab, "rtr-a")
 	sidecar := lab.name + "-rtr-a-snmp"
@@ -104,6 +104,12 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	other := registerSecondRouterTenant(t, st, reg)
 	otherAgent := startShippedEdgeSNMP(t, st, other, "role-paired", primary, community)
 	awaitEdgeSNMPEvidence(t, st, other, otherAgent, primary)
+	otherListener := startRouterBMPEvidenceListenerNamed(t, st, lab, other, other.deviceID, "change-paired")
+	for lane, source := range []*bgpTenant{listener, otherListener} {
+		registration := []edgeFlowRegistration{reg, other}[lane]
+		putFRRSelectedRIBBinding(t, st, registration, source, primary, "", true)
+		source.reconnectBMP()
+	}
 	assertRouterTenantSplit(t, st, reg, other, primary)
 	for _, id := range ids {
 		code, _ := st.Do(t, other.cookie, http.MethodGet, roleRouterPath(reg, id), nil)
