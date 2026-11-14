@@ -4,13 +4,13 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import { useMemo, type RefObject } from 'react'
+import { useMemo, useState, type RefObject } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge, Button, Modal } from '../components'
 import type { DeviceConfigVersion } from '../api/planes'
 import { useI18n } from '../i18n/useI18n'
 import styles from './planes.module.css'
-import { createConfigDiff, type ConfigDiffStatus } from './configDiff'
+import { CONFIG_DIFF_PAGE_SIZE, createConfigDiff, type ConfigDiffStatus } from './configDiff'
 
 export interface ConfigComparison {
   current: DeviceConfigVersion
@@ -34,6 +34,21 @@ export function ConfigDiffDialog({
     () => createConfigDiff(previous.content ?? '', current.content ?? ''),
     [current.content, previous.content],
   )
+  const identity = JSON.stringify([
+    previous.id,
+    previous.content_hash,
+    current.id,
+    current.content_hash,
+  ])
+  const [selection, setSelection] = useState({ identity, page: 0, expanded: false })
+  const selected =
+    selection.identity === identity ? selection : { identity, page: 0, expanded: false }
+  const rows = selected.expanded ? diff.completeRows : diff.rows
+  const lastPage = Math.max(0, Math.ceil(rows.length / CONFIG_DIFF_PAGE_SIZE) - 1)
+  const page = Math.min(selected.page, lastPage)
+  const offset = page * CONFIG_DIFF_PAGE_SIZE
+  const displayedRows = rows.slice(offset, offset + CONFIG_DIFF_PAGE_SIZE)
+  const selectPage = (next: number) => setSelection({ ...selected, page: next })
 
   return (
     <Modal
@@ -83,19 +98,59 @@ export function ConfigDiffDialog({
           <Badge tone="neutral">
             {t('planes.device.config.compare.unchangedCount', { count: diff.unchanged })}
           </Badge>
-          {diff.bounded ? (
-            <Badge tone="warning">{t('planes.device.config.compare.bounded')}</Badge>
-          ) : (
-            <Badge tone="info">{t('planes.device.config.compare.complete')}</Badge>
-          )}
+          <Badge tone="info">{t('planes.device.config.compare.complete')}</Badge>
         </div>
-        {diff.bounded ? (
+        {diff.replacement ? (
           <p className={styles.configDiffNotice} role="status">
-            {t('planes.device.config.compare.boundedDescription')}
+            {t('planes.device.config.compare.replacement')}
           </p>
         ) : diff.contextFolded ? (
           <p className={styles.muted}>{t('planes.device.config.compare.contextFolded')}</p>
         ) : null}
+        <nav
+          className={styles.configDiffSummary}
+          aria-label={t('planes.device.config.compare.paging')}
+        >
+          <Button variant="secondary" disabled={page === 0} onClick={() => selectPage(0)}>
+            {t('planes.device.config.compare.first')}
+          </Button>
+          <Button variant="secondary" disabled={page === 0} onClick={() => selectPage(page - 1)}>
+            {t('planes.device.config.compare.previous')}
+          </Button>
+          <span aria-live="polite">
+            {t('planes.device.config.compare.pageRows', {
+              from: offset + 1,
+              to: offset + displayedRows.length,
+              total: rows.length,
+            })}
+          </span>
+          <Button
+            variant="secondary"
+            disabled={page === lastPage}
+            onClick={() => selectPage(page + 1)}
+          >
+            {t('planes.device.config.compare.next')}
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={page === lastPage}
+            onClick={() => selectPage(lastPage)}
+          >
+            {t('planes.device.config.compare.last')}
+          </Button>
+          {diff.contextFolded ? (
+            <Button
+              variant="secondary"
+              onClick={() => setSelection({ identity, page: 0, expanded: !selected.expanded })}
+            >
+              {t(
+                selected.expanded
+                  ? 'planes.device.config.compare.foldContext'
+                  : 'planes.device.config.compare.allContext',
+              )}
+            </Button>
+          ) : null}
+        </nav>
         <div
           className={styles.configDiffViewport}
           dir="ltr"
@@ -112,7 +167,7 @@ export function ConfigDiffDialog({
               </tr>
             </thead>
             <tbody>
-              {diff.rows.map((row, index) =>
+              {displayedRows.map((row, index) =>
                 row.status === 'omitted' ? (
                   <tr key={`omitted-${index}`} className={styles.configDiffOmitted}>
                     <td colSpan={3}>

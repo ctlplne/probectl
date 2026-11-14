@@ -5,13 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { describe, expect, test } from 'vitest'
-import {
-  MAX_CONFIG_DIFF_LINES,
-  MAX_RENDERED_CONFIG_DIFF_ROWS,
-  createConfigDiff,
-  findPreviousConfig,
-  type ConfigVersionForComparison,
-} from './configDiff'
+import { createConfigDiff, findPreviousConfig, type ConfigVersionForComparison } from './configDiff'
 
 function version(
   id: string,
@@ -61,7 +55,6 @@ describe('device config comparison', () => {
       'hostname edge-r1\ninterface Gi0/1\n description payments\n no shutdown\n[REDACTED]',
     )
 
-    expect(diff.bounded).toBe(false)
     expect(diff.added).toBe(2)
     expect(diff.removed).toBe(1)
     expect(diff.unchanged).toBe(3)
@@ -105,15 +98,56 @@ describe('device config comparison', () => {
     })
   })
 
-  test('bounds pathological input and rendered churn honestly', () => {
-    const before = Array.from({ length: MAX_CONFIG_DIFF_LINES + 20 }, (_, index) => `old-${index}`)
-    const after = Array.from({ length: MAX_CONFIG_DIFF_LINES + 20 }, (_, index) => `new-${index}`)
+  test('keeps complete supported archive bodies and every changed middle/tail row', () => {
+    const count = 20000
+    const before = Array.from({ length: count }, (_, index) => `old-${index} ${'x'.repeat(48)}`)
+    const after = Array.from({ length: count }, (_, index) => `new-${index} ${'y'.repeat(48)}`)
     const diff = createConfigDiff(before.join('\n'), after.join('\n'))
+    expect(diff.replacement).toBe(true)
+    expect(diff.rows).toHaveLength(count * 2)
+    expect(diff.completeRows).toHaveLength(count * 2)
+    expect(diff.removed).toBe(count)
+    expect(diff.added).toBe(count)
+    expect(diff.rows.some((row) => row.status === 'omitted')).toBe(false)
+    expect(diff.rows.filter((row) => row.status === 'removed').map((row) => row.text)).toEqual(
+      before,
+    )
+    expect(diff.rows.filter((row) => row.status === 'added').map((row) => row.text)).toEqual(after)
+    expect(diff.rows[count - 1]).toMatchObject({
+      status: 'removed',
+      beforeLine: count,
+      text: before[count - 1],
+    })
+    expect(diff.rows[count * 2 - 1]).toMatchObject({
+      status: 'added',
+      afterLine: count,
+      text: after[count - 1],
+    })
+  })
 
-    expect(diff.bounded).toBe(true)
-    expect(diff.rows).toHaveLength(MAX_RENDERED_CONFIG_DIFF_ROWS)
-    expect(diff.rows.some((row) => row.status === 'omitted' && (row.omitted ?? 0) > 0)).toBe(true)
-    expect(diff.removed).toBe(MAX_CONFIG_DIFF_LINES)
-    expect(diff.added).toBe(MAX_CONFIG_DIFF_LINES)
+  test('retains exact sparse changes beyond old line and character ceilings', () => {
+    const before = Array.from(
+      { length: 20000 },
+      (_, index) => `interface-${index} ${'x'.repeat(48)}`,
+    )
+    const after = [...before]
+    after[10000] = 'middle line changed'
+    after[19999] = 'last line changed'
+    const diff = createConfigDiff(before.join('\n'), after.join('\n'))
+    expect(diff.replacement).toBe(false)
+    expect(diff.added).toBe(2)
+    expect(diff.removed).toBe(2)
+    expect(diff.unchanged).toBe(19998)
+    expect(
+      diff.completeRows.filter((row) => row.status !== 'added').map((row) => row.text),
+    ).toEqual(before)
+    expect(
+      diff.completeRows.filter((row) => row.status !== 'removed').map((row) => row.text),
+    ).toEqual(after)
+    expect(diff.rows).toContainEqual({
+      status: 'added',
+      afterLine: 20000,
+      text: 'last line changed',
+    })
   })
 })

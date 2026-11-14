@@ -4,10 +4,8 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-export const MAX_CONFIG_DIFF_CHARACTERS = 256 * 1024
-export const MAX_CONFIG_DIFF_LINES = 2_000
 export const MAX_CONFIG_DIFF_EDIT_DISTANCE = 400
-export const MAX_RENDERED_CONFIG_DIFF_ROWS = 400
+export const CONFIG_DIFF_PAGE_SIZE = 400
 
 export interface ConfigVersionForComparison {
   id: string
@@ -40,16 +38,12 @@ export interface ConfigDiffRow {
 
 export interface ConfigDiffResult {
   rows: ConfigDiffRow[]
+  completeRows: ConfigDiffRow[]
+  replacement: boolean
   added: number
   removed: number
   unchanged: number
-  bounded: boolean
   contextFolded: boolean
-}
-
-interface BoundedLines {
-  lines: string[]
-  bounded: boolean
 }
 
 /**
@@ -98,19 +92,22 @@ function sameConfigStream(left: ConfigVersionForComparison, right: ConfigVersion
 }
 
 export function createConfigDiff(before: string, after: string): ConfigDiffResult {
-  const oldInput = boundedLines(before)
-  const newInput = boundedLines(after)
-  const calculated = myersDiff(oldInput.lines, newInput.lines)
+  // Archive admission owns complete input bytes. Never slice a supported
+  // snapshot or discard changed rows to fit the viewport. The edit search has
+  // finite work; high churn retains a complete replacement representation.
+  const oldLines = before.replace(/\r\n?/g, '\n').split('\n')
+  const newLines = after.replace(/\r\n?/g, '\n').split('\n')
+  const calculated = myersDiff(oldLines, newLines)
   const raw =
     calculated ??
-    oldInput.lines
+    oldLines
       .map<ConfigDiffRow>((text, index) => ({
         status: 'removed',
         text,
         beforeLine: index + 1,
       }))
       .concat(
-        newInput.lines.map<ConfigDiffRow>((text, index) => ({
+        newLines.map<ConfigDiffRow>((text, index) => ({
           status: 'added',
           text,
           afterLine: index + 1,
@@ -121,36 +118,16 @@ export function createConfigDiff(before: string, after: string): ConfigDiffResul
   const removed = raw.filter((row) => row.status === 'removed').length
   const unchanged = raw.filter((row) => row.status === 'unchanged').length
   const contextual = foldUnchangedContext(raw)
-  const limited = boundRenderedRows(contextual.rows)
 
   return {
-    rows: limited.rows,
+    rows: contextual.rows,
+    completeRows: raw,
+    replacement: calculated === undefined,
     added,
     removed,
     unchanged,
-    bounded: oldInput.bounded || newInput.bounded || calculated === undefined || limited.bounded,
     contextFolded: contextual.folded,
   }
-}
-
-function boundedLines(content: string): BoundedLines {
-  const normalized = content.replace(/\r\n?/g, '\n')
-  let text = normalized
-  let bounded = false
-
-  if (text.length > MAX_CONFIG_DIFF_CHARACTERS) {
-    text = text.slice(0, MAX_CONFIG_DIFF_CHARACTERS)
-    const lastCompleteLine = text.lastIndexOf('\n')
-    if (lastCompleteLine >= 0) text = text.slice(0, lastCompleteLine)
-    bounded = true
-  }
-
-  let lines = text.split('\n')
-  if (lines.length > MAX_CONFIG_DIFF_LINES) {
-    lines = lines.slice(0, MAX_CONFIG_DIFF_LINES)
-    bounded = true
-  }
-  return { lines, bounded }
 }
 
 /**
@@ -285,24 +262,4 @@ function foldUnchangedContext(rows: readonly ConfigDiffRow[]): {
     folded = true
   }
   return { rows: result, folded }
-}
-
-function boundRenderedRows(rows: readonly ConfigDiffRow[]): {
-  rows: ConfigDiffRow[]
-  bounded: boolean
-} {
-  if (rows.length <= MAX_RENDERED_CONFIG_DIFF_ROWS) return { rows: [...rows], bounded: false }
-
-  const headCount = Math.floor((MAX_RENDERED_CONFIG_DIFF_ROWS - 1) / 2)
-  const tailCount = MAX_RENDERED_CONFIG_DIFF_ROWS - headCount - 1
-  const middle = rows.slice(headCount, rows.length - tailCount)
-  const omitted = middle.reduce((count, row) => count + (row.omitted ?? 1), 0)
-  return {
-    rows: [
-      ...rows.slice(0, headCount),
-      { status: 'omitted', text: '', omitted },
-      ...rows.slice(rows.length - tailCount),
-    ],
-    bounded: true,
-  }
 }

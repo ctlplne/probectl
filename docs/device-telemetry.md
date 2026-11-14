@@ -615,9 +615,13 @@ with its exact archived predecessor. The action appears only when the selected
 row's `previous_hash` matches the immediately preceding original version's
 `content_hash` in the
 already-authorized response and both redacted contents are present. The line
-comparison is deterministic, dependency-free, computed in the browser, and
-bounded so a pathological config cannot freeze the page; a bounded result says
-that it is incomplete. It never contacts the device, sends content to a model
+comparison is deterministic, dependency-free and computed in the browser over
+the complete admitted snapshots. Every changed line remains available through
+paging; distant unchanged context can be expanded in full. The edit search has
+finite work: high churn uses a clearly labeled complete replacement, retaining
+all original lines and complete replacement-operation counts. No character,
+line-count or changed-row cutoff truncates the archived content. It never
+contacts the device, sends content to a model
 or external service, invents missing history, or offers a write/rollback action.
 `probectl device configs` reaches the same tenant-scoped API and returns the
 same redacted contents and hash linkage for CLI/export workflows; it does not
