@@ -1209,6 +1209,7 @@ export interface DeviceInventoryList {
 
 export interface DeviceMetricSummary {
   agent_id?: string
+  component?: string
   device?: string
   device_name?: string
   id?: string
@@ -1217,6 +1218,7 @@ export interface DeviceMetricSummary {
   last_seen?: string
   metric?: string
   name?: string
+  physical_channel?: string
   source?: string
   summary?: string
   value?: number

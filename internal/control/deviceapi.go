@@ -22,6 +22,7 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/topology"
@@ -43,18 +44,20 @@ type deviceInventoryItem struct {
 }
 
 type deviceMetricSummary struct {
-	ID         string    `json:"id"`
-	Device     string    `json:"device"`
-	DeviceName string    `json:"device_name,omitempty"`
-	AgentID    string    `json:"agent_id,omitempty"`
-	Source     string    `json:"source,omitempty"`
-	IfIndex    string    `json:"if_index,omitempty"`
-	IfName     string    `json:"if_name,omitempty"`
-	Name       string    `json:"name,omitempty"`
-	Summary    string    `json:"summary,omitempty"`
-	Metric     string    `json:"metric"`
-	Value      float64   `json:"value"`
-	LastSeen   time.Time `json:"last_seen"`
+	ID              string    `json:"id"`
+	Device          string    `json:"device"`
+	DeviceName      string    `json:"device_name,omitempty"`
+	AgentID         string    `json:"agent_id,omitempty"`
+	Source          string    `json:"source,omitempty"`
+	IfIndex         string    `json:"if_index,omitempty"`
+	IfName          string    `json:"if_name,omitempty"`
+	Component       string    `json:"component,omitempty"`
+	PhysicalChannel string    `json:"physical_channel,omitempty"`
+	Name            string    `json:"name,omitempty"`
+	Summary         string    `json:"summary,omitempty"`
+	Metric          string    `json:"metric"`
+	Value           float64   `json:"value"`
+	LastSeen        time.Time `json:"last_seen"`
 }
 
 type deviceNeighborRetention struct {
@@ -406,42 +409,83 @@ func (s *Server) handleDeviceMetrics(w http.ResponseWriter, r *http.Request) err
 	if err != nil {
 		return err
 	}
-	if limit > deviceMaxLimit {
-		limit = deviceMaxLimit
+	budget := flowstore.ExplorerOperationBudget(r.Context(), s.flowStore)
+	if budget.Validate() != nil {
+		return apierror.Unavailable("device metric query admission is unavailable")
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), budget.ExecutionLimit)
+	defer cancel()
+	if s.fairnessGate != nil {
+		release, err := s.fairnessGate.BeginQuery(ctx, tid)
+		if err != nil {
+			return tagQueryAdmissionError(err)
+		}
+		defer release()
+	}
+	r = r.WithContext(ctx)
 	deviceFilter := strings.TrimSpace(r.URL.Query().Get("device"))
 	metricFilter := normalizeDeviceMetricFilter(r.URL.Query().Get("metric"))
+	var series []tsdb.Series
+	source := ""
 	snap, ok := s.tsdbWriter.(promSnapshotter)
 	if s.tsdbWriter == nil || !ok {
 		// DPR-050: the production TSDB (Prometheus remote write) keeps no local
 		// snapshot; ask it for the tenant's latest device samples instead of
 		// answering "not running" while the metrics sit in the TSDB.
 		if q, qok := s.tsdbWriter.(deviceMetricQuerier); qok && s.tsdbWriter != nil {
-			series, err := deviceMetricSeriesFromTSDB(r.Context(), q, tid, deviceFilter, metricFilter)
+			series, err = deviceMetricSeriesFromTSDB(r.Context(), q, tid, deviceFilter, metricFilter)
 			if err != nil {
 				return err
 			}
+			source = "tsdb"
+		} else {
 			writeJSON(w, http.StatusOK, map[string]any{
-				"items":           latestDeviceMetricSummaries(series, tid, deviceFilter, metricFilter, limit),
-				"metrics_running": true,
+				"items":           []deviceMetricSummary{},
+				"metrics_running": false,
 				"effective_limit": limit,
-				"source":          "tsdb",
 			})
 			return nil
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"items":           []deviceMetricSummary{},
-			"metrics_running": false,
-			"effective_limit": limit,
-		})
-		return nil
+	} else {
+		series = snap.Snapshot()
 	}
-	items := latestDeviceMetricSummaries(snap.Snapshot(), tid, deviceFilter, metricFilter, limit)
-	writeJSON(w, http.StatusOK, map[string]any{
+	remaining := budget.MemoryBytes / 4
+	for _, sample := range series {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if sample.Labels["tenant_id"] != tid || !strings.HasPrefix(sample.Metric, deviceMetricPrefix) || deviceFilter != "" && sample.Labels["device"] != deviceFilter || metricFilter != "" && sample.Metric != metricFilter {
+			continue
+		}
+		charge := int64(4096 + len(sample.Metric)*16)
+		for key, value := range sample.Labels {
+			charge += int64(len(key)+len(value)) * 16
+		}
+		if charge > remaining {
+			return apierror.TooLarge("complete device metric population exceeds configured query memory")
+		}
+		remaining -= charge
+	}
+	items := latestDeviceMetricSummaries(series, tid, deviceFilter, metricFilter, limit)
+	response := map[string]any{
 		"items":           items,
 		"metrics_running": true,
 		"effective_limit": limit,
-	})
+	}
+	if source != "" {
+		response["source"] = source
+	}
+	body, err := json.Marshal(response)
+	if err != nil {
+		return apierror.Unavailable("complete device metric output is unavailable")
+	}
+	if int64(len(body)) > budget.ResponseBytes || int64(len(body)) > budget.MemoryBytes/4 {
+		return apierror.TooLarge("complete device metric output exceeds configured response admission")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, json.RawMessage(body))
 	return nil
 }
 
@@ -570,18 +614,20 @@ func latestDeviceMetricSummaries(series []tsdb.Series, tenant, deviceFilter, met
 			continue
 		}
 		item := deviceMetricSummary{
-			ID:         deviceMetricKey(s),
-			Device:     s.Labels["device"],
-			DeviceName: s.Labels["device_name"],
-			AgentID:    s.Labels["agent_id"],
-			Source:     s.Labels["source"],
-			IfIndex:    s.Labels["if_index"],
-			IfName:     s.Labels["if_name"],
-			Name:       s.Metric,
-			Summary:    deviceMetricSummaryText(s.Labels),
-			Metric:     s.Metric,
-			Value:      s.Value,
-			LastSeen:   time.UnixMilli(s.TimeMillis).UTC(),
+			ID:              deviceMetricKey(s),
+			Device:          s.Labels["device"],
+			DeviceName:      s.Labels["device_name"],
+			AgentID:         s.Labels["agent_id"],
+			Source:          s.Labels["source"],
+			IfIndex:         s.Labels["if_index"],
+			IfName:          s.Labels["if_name"],
+			Component:       s.Labels["component"],
+			PhysicalChannel: s.Labels["physical_channel"],
+			Name:            s.Metric,
+			Summary:         deviceMetricSummaryText(s.Labels),
+			Metric:          s.Metric,
+			Value:           s.Value,
+			LastSeen:        time.UnixMilli(s.TimeMillis).UTC(),
 		}
 		if item.Device == "" {
 			continue
@@ -608,6 +654,12 @@ func latestDeviceMetricSummaries(series []tsdb.Series, tenant, deviceFilter, met
 
 func deviceMetricSummaryText(labels map[string]string) string {
 	parts := []string{labels["device"]}
+	if labels["component"] != "" {
+		parts = append(parts, "component "+labels["component"])
+		if labels["physical_channel"] != "" {
+			parts = append(parts, "channel "+labels["physical_channel"])
+		}
+	}
 	if labels["if_name"] != "" {
 		parts = append(parts, labels["if_name"])
 	} else if labels["if_index"] != "" {
@@ -617,13 +669,20 @@ func deviceMetricSummaryText(labels map[string]string) string {
 }
 
 func deviceMetricKey(s tsdb.Series) string {
-	return strings.Join([]string{
+	key := strings.Join([]string{
 		s.Labels["agent_id"],
 		s.Labels["device"],
 		s.Labels["if_index"],
 		s.Labels["if_name"],
 		s.Metric,
 	}, "|")
+	if s.Labels["component"] != "" || s.Labels["physical_channel"] != "" {
+		// Preserve legacy IDs; unambiguous structured keys distinguish a
+		// component aggregate from channel0 and from punctuation in names.
+		encoded, _ := json.Marshal([]string{s.Labels["source"], s.Labels["component"], s.Labels["physical_channel"]})
+		key += "|component:" + string(encoded)
+	}
+	return key
 }
 
 func nonEmptyStrings(in []string) []string {

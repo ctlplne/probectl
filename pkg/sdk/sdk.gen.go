@@ -1309,18 +1309,20 @@ type DeviceInventoryList struct {
 
 // Latest retained legacy numeric sample for one device/metric/interface series, including separate probectl_device_if_in_fcs_errors and probectl_device_if_in_alignment_errors. Optional unsupported metrics are absent, never fabricated zero. Use original path-health counter documents for full-width integer words and qualified rates.
 type DeviceMetricSummary struct {
-	AgentId    string  `json:"agent_id,omitempty"`
-	Device     string  `json:"device,omitempty"`
-	DeviceName string  `json:"device_name,omitempty"`
-	Id         string  `json:"id,omitempty"`
-	IfIndex    string  `json:"if_index,omitempty"`
-	IfName     string  `json:"if_name,omitempty"`
-	LastSeen   string  `json:"last_seen,omitempty"`
-	Metric     string  `json:"metric,omitempty"`
-	Name       string  `json:"name,omitempty"`
-	Source     string  `json:"source,omitempty"`
-	Summary    string  `json:"summary,omitempty"`
-	Value      float64 `json:"value,omitempty"`
+	AgentId         string  `json:"agent_id,omitempty"`
+	Component       string  `json:"component,omitempty"`
+	Device          string  `json:"device,omitempty"`
+	DeviceName      string  `json:"device_name,omitempty"`
+	Id              string  `json:"id,omitempty"`
+	IfIndex         string  `json:"if_index,omitempty"`
+	IfName          string  `json:"if_name,omitempty"`
+	LastSeen        string  `json:"last_seen,omitempty"`
+	Metric          string  `json:"metric,omitempty"`
+	Name            string  `json:"name,omitempty"`
+	PhysicalChannel string  `json:"physical_channel,omitempty"`
+	Source          string  `json:"source,omitempty"`
+	Summary         string  `json:"summary,omitempty"`
+	Value           float64 `json:"value,omitempty"`
 }
 
 type DeviceMetricSummaryList struct {

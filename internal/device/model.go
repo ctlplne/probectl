@@ -35,7 +35,11 @@ const (
 	MetricMemoryUsed     = "probectl.device.memory.used.bytes"  // bytes
 	MetricMemoryTotal    = "probectl.device.memory.total.bytes" // bytes
 
-	MetricSensorCelsius = "probectl.device.sensor.temperature.celsius"
+	MetricSensorCelsius    = "probectl.device.sensor.temperature.celsius"
+	MetricOpticalInputDBM  = "probectl.device.optical.input.power.dbm"
+	MetricOpticalOutputDBM = "probectl.device.optical.output.power.dbm"
+	MetricOpticalBiasMA    = "probectl.device.optical.laser.bias.milliamperes"
+	MetricOpticalVoltage   = "probectl.device.optical.supply.voltage.volts"
 )
 
 // Transport sources (DeviceMetric.source).
@@ -56,6 +60,9 @@ type Metric struct {
 
 	IfIndex uint32 // 0 when device-wide
 	IfName  string
+	// Component and PhysicalChannel are device model keys, never guessed
+	// interface names. A channel's observed zero is the nonempty string "0".
+	Component, PhysicalChannel string
 	// InterfaceAddresses are the normalized addresses assigned to IfIndex.
 	// They travel with the interface sample so the control plane can rebuild
 	// correlation and conflict state by replaying the tenant-tagged bus.
@@ -87,17 +94,19 @@ type CounterValue struct {
 // ToProto maps onto the bus/storage schema.
 func (m Metric) ToProto() *devicev1.DeviceMetric {
 	out := &devicev1.DeviceMetric{
-		TenantId:      m.TenantID,
-		AgentId:       m.AgentID,
-		DeviceAddress: m.Device,
-		DeviceName:    m.DeviceName,
-		Source:        m.Source,
-		IfIndex:       m.IfIndex,
-		IfName:        m.IfName,
-		Name:          m.Name,
-		Value:         m.Value,
-		Unit:          m.Unit,
-		TimeUnixNano:  m.At.UnixNano(),
+		TenantId:        m.TenantID,
+		AgentId:         m.AgentID,
+		DeviceAddress:   m.Device,
+		DeviceName:      m.DeviceName,
+		Source:          m.Source,
+		IfIndex:         m.IfIndex,
+		IfName:          m.IfName,
+		Component:       m.Component,
+		PhysicalChannel: m.PhysicalChannel,
+		Name:            m.Name,
+		Value:           m.Value,
+		Unit:            m.Unit,
+		TimeUnixNano:    m.At.UnixNano(),
 		InterfaceAddresses: append(
 			[]string(nil),
 			m.InterfaceAddresses...,

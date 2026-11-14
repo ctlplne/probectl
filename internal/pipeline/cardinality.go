@@ -27,10 +27,10 @@ import (
 // agent's explosion can never become another tenant's problem (the fairness
 // stance, S-T7).
 
-// Default caps: generous for real probes (a canary emits a handful of
-// metrics), hard walls for an explosion.
+// Finite, operator-adjustable defaults also admit a device agent's complete
+// component/channel fleet, rather than assuming every agent is a small canary.
 const (
-	DefaultMaxSeriesPerAgent  = 1000
+	DefaultMaxSeriesPerAgent  = 16384
 	DefaultMaxSeriesPerTenant = 50000
 
 	// Eviction (Sprint 15, SCALE-003): an identity idle past the TTL frees

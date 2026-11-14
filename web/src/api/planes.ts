@@ -355,6 +355,8 @@ export function useDeviceConfigs(limit = 5, enabled = true) {
 
 /** One device series' newest sample (GET /v1/device/metrics). */
 export interface DeviceMetricSummary {
+  component?: string
+  physical_channel?: string
   id: string
   device: string
   device_name?: string

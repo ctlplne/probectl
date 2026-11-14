@@ -738,6 +738,7 @@ func (rt *serveRuntime) startIngestConsumers() {
 		return superviseBusLaneRestart(rt.gctx, "device-pipeline", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return pipeline.NewDeviceConsumer(rt.resultBus, rt.ingestWriter, rt.log).
 				WithFairness(rt.fairGate).
+				WithCardinalityCaps(rt.cfg.IngestMaxSeriesPerAgent, rt.cfg.IngestMaxSeriesPerTenant).
 				WithMetrics(rt.srv.Metrics()).
 				WithTenantBinding(rt.tenantBinding).
 				WithNamespaceTenants(snap.tenants).

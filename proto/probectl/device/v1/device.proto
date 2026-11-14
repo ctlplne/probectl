@@ -44,6 +44,12 @@ message DeviceMetric {
 
   // Original typed counter; absent is unknown, never an observed zero.
   DeviceCounter exact_counter = 13;
+
+  // Device-reported component/channel identity. Neither is an ifIndex or a
+  // canonical-port ownership claim. Empty physical_channel means component-level;
+  // "0" is an observed channel, not absence.
+  string component = 14;
+  string physical_channel = 15;
 }
 
 // Raw observation metadata, never a continuity or current-source grant.

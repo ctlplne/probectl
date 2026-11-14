@@ -17,17 +17,20 @@ import (
 // S6 rule: standard names where they exist, one probectl namespace where they
 // don't). tenant/agent reuse the probectl identity keys.
 const (
-	AttrDeviceAddress = "probectl.device.address"
-	AttrDeviceName    = "probectl.device.name"
-	AttrDeviceSource  = "probectl.device.source"
-	AttrDeviceIfIndex = "probectl.device.interface.index"
-	AttrDeviceIfName  = "probectl.device.interface.name"
+	AttrDeviceAddress         = "probectl.device.address"
+	AttrDeviceName            = "probectl.device.name"
+	AttrDeviceSource          = "probectl.device.source"
+	AttrDeviceIfIndex         = "probectl.device.interface.index"
+	AttrDeviceIfName          = "probectl.device.interface.name"
+	AttrDeviceComponent       = "probectl.device.component.name"
+	AttrDevicePhysicalChannel = "probectl.device.component.physical_channel"
 )
 
 // Register the device keys into the shared conformance set.
 func init() {
 	for _, k := range []string{
 		AttrDeviceAddress, AttrDeviceName, AttrDeviceSource, AttrDeviceIfIndex, AttrDeviceIfName,
+		AttrDeviceComponent, AttrDevicePhysicalChannel,
 	} {
 		KnownAttributes[k] = true
 	}
@@ -52,5 +55,7 @@ func DeviceMetricAttributes(m *devicev1.DeviceMetric) map[string]string {
 		attrs[AttrDeviceIfIndex] = strconv.FormatUint(uint64(m.GetIfIndex()), 10)
 	}
 	put(AttrDeviceIfName, m.GetIfName())
+	put(AttrDeviceComponent, m.GetComponent())
+	put(AttrDevicePhysicalChannel, m.GetPhysicalChannel())
 	return attrs
 }

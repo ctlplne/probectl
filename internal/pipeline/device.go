@@ -34,13 +34,15 @@ const deviceMetricPrefix = "probectl_device_"
 // deviceLabelNames maps the OTel attributes promoted to (bounded-cardinality)
 // labels — the ResultToSeries discipline applied to the device plane.
 var deviceLabelNames = map[string]string{
-	otel.AttrTenantID:      "tenant_id",
-	otel.AttrAgentID:       "agent_id",
-	otel.AttrDeviceAddress: "device",
-	otel.AttrDeviceName:    "device_name",
-	otel.AttrDeviceSource:  "source",
-	otel.AttrDeviceIfIndex: "if_index",
-	otel.AttrDeviceIfName:  "if_name",
+	otel.AttrTenantID:              "tenant_id",
+	otel.AttrAgentID:               "agent_id",
+	otel.AttrDeviceAddress:         "device",
+	otel.AttrDeviceName:            "device_name",
+	otel.AttrDeviceSource:          "source",
+	otel.AttrDeviceIfIndex:         "if_index",
+	otel.AttrDeviceIfName:          "if_name",
+	otel.AttrDeviceComponent:       "component",
+	otel.AttrDevicePhysicalChannel: "physical_channel",
 }
 
 // DeviceConsumer drains probectl.device.metrics into the TSDB, where the
@@ -134,6 +136,13 @@ func NewDeviceConsumer(b bus.Bus, w tsdb.Writer, log *slog.Logger) *DeviceConsum
 // WithFairness bounds per-tenant device-plane admission (SCALE-005).
 func (c *DeviceConsumer) WithFairness(g *fairness.Gate) *DeviceConsumer {
 	c.gate = g
+	return c
+}
+
+// WithCardinalityCaps applies the deployment's existing finite identity
+// admission to device fleets. Configure it before Run, like the result plane.
+func (c *DeviceConsumer) WithCardinalityCaps(perAgent, perTenant int) *DeviceConsumer {
+	c.card = NewCardinalityLimiter(perAgent, perTenant)
 	return c
 }
 

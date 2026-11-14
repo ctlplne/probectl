@@ -773,3 +773,25 @@ explanations are live/stateless; no answer artifact is stored.
 ```json
 {"name":"path_interface_health_explain","arguments":{"test_id":"00000000-0000-4000-8000-000000000001","question":"Explain observed interface errors; cite the original intervals and distinguish correlation from causation."}}
 ```
+
+
+### Device metric snapshots (preview)
+
+`device_metrics` reads the same tenant-scoped latest samples as
+`GET /v1/device/metrics` and `probectl device metrics`. Optional `device`,
+`metric` and positive `limit` arguments follow that API. Current metric/AI
+read grants, the original credential ceiling, consent and full redaction apply;
+current grants and the originating credential are checked before publication.
+The complete selected population uses configured query memory/output/deadline
+admission and tenant fairness. Raise operator-owned resource settings for the
+intended fleet; an underfunded read returns no successful prefix.
+
+```json
+{"name":"device_metrics","arguments":{"metric":"probectl.device.optical.input.power.dbm","limit":50000}}
+```
+
+Optical component levels and physical channel zero remain distinct. Normalized
+gauges stay numeric; arbitrary device/component strings keep ordinary full
+redaction. Missing levels are not zero, and these component identifiers do not
+assert a canonical port or a current authenticated original-counter receipt.
+Physical device coverage and full served/lifecycle qualification remain open.

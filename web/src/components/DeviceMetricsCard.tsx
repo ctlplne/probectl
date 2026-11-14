@@ -11,6 +11,7 @@ import {
   formatDecimal,
   formatDuration,
   formatInteger,
+  formatNumber,
   formatPercentValue,
   formatScaledBytes,
   formatUnit,
@@ -43,14 +44,24 @@ interface InterfaceRow extends DeviceRow {
   ifName: string
 }
 
+interface ComponentRow extends DeviceRow {
+  component: string
+  physicalChannel?: string
+}
+
 function newerOf(a: string, b: string): string {
   return Date.parse(b) > Date.parse(a) ? b : a
 }
 
 /** pivot groups the per-series samples into device and interface rows. */
-function pivot(items: DeviceMetricSummary[]): { devices: DeviceRow[]; interfaces: InterfaceRow[] } {
+function pivot(items: DeviceMetricSummary[]): {
+  devices: DeviceRow[]
+  interfaces: InterfaceRow[]
+  components: ComponentRow[]
+} {
   const devices = new Map<string, DeviceRow>()
   const interfaces = new Map<string, InterfaceRow>()
+  const components = new Map<string, ComponentRow>()
   for (const m of items) {
     const name = m.metric.startsWith(metricPrefix) ? m.metric.slice(metricPrefix.length) : m.metric
     const deviceKey = `${m.agent_id ?? ''}|${m.device}`
@@ -60,7 +71,20 @@ function pivot(items: DeviceMetricSummary[]): { devices: DeviceRow[]; interfaces
       source: m.source,
       lastSeen: m.last_seen,
     }
-    if (m.if_index || m.if_name) {
+    if (m.component) {
+      const key = JSON.stringify([m.agent_id, m.device, m.source, m.component, m.physical_channel])
+      const row = components.get(key) ?? {
+        ...base,
+        key,
+        component: m.component,
+        physicalChannel: m.physical_channel,
+        values: {},
+      }
+      row.values[name] = m.value
+      row.lastSeen = newerOf(row.lastSeen, m.last_seen)
+      row.deviceName ??= base.deviceName
+      components.set(key, row)
+    } else if (m.if_index || m.if_name) {
       const key = `${deviceKey}|${m.if_index ?? ''}|${m.if_name ?? ''}`
       const row = interfaces.get(key) ?? {
         ...base,
@@ -86,6 +110,14 @@ function pivot(items: DeviceMetricSummary[]): { devices: DeviceRow[]; interfaces
     a.device.localeCompare(b.device)
   return {
     devices: [...devices.values()].sort(byDevice),
+    components: [...components.values()].sort(
+      (a, b) =>
+        byDevice(a, b) ||
+        a.component.localeCompare(b.component) ||
+        (a.physicalChannel ?? '').localeCompare(b.physicalChannel ?? '', undefined, {
+          numeric: true,
+        }),
+    ),
     interfaces: [...interfaces.values()].sort(
       (a, b) => byDevice(a, b) || a.ifIndex - b.ifIndex || a.ifName.localeCompare(b.ifName),
     ),
@@ -94,9 +126,9 @@ function pivot(items: DeviceMetricSummary[]): { devices: DeviceRow[]; interfaces
 
 export function DeviceMetricsCard() {
   const { locale, t } = useI18n()
-  const metrics = useDeviceMetrics(500)
+  const metrics = useDeviceMetrics(Number.MAX_SAFE_INTEGER)
   const items = metrics.data?.items
-  const { devices, interfaces } = useMemo(() => pivot(items ?? []), [items])
+  const { devices, interfaces, components } = useMemo(() => pivot(items ?? []), [items])
   const bounded =
     metrics.data !== undefined &&
     metrics.data.effective_limit > 0 &&
@@ -252,6 +284,53 @@ export function DeviceMetricsCard() {
     },
   ]
 
+  const componentValue = (row: ComponentRow, metric: string, unit: string): ReactNode =>
+    row.values[metric] === undefined ? (
+      none
+    ) : (
+      <span dir="ltr">
+        {formatNumber(row.values[metric], locale, { maximumSignificantDigits: 17 })} {unit}
+      </span>
+    )
+  const componentColumns: Column<ComponentRow>[] = [
+    { key: 'device', header: t('device.metrics.column.device'), render: deviceCell },
+    {
+      key: 'component',
+      header: t('device.metrics.column.component'),
+      render: (row) => <code>{row.component}</code>,
+    },
+    {
+      key: 'channel',
+      header: t('device.metrics.column.channel'),
+      render: (row) => row.physicalChannel ?? t('device.metrics.value.aggregate'),
+    },
+    {
+      key: 'input',
+      header: t('device.metrics.column.opticalInput'),
+      render: (row) => componentValue(row, 'optical_input_power_dbm', 'dBm'),
+    },
+    {
+      key: 'output',
+      header: t('device.metrics.column.opticalOutput'),
+      render: (row) => componentValue(row, 'optical_output_power_dbm', 'dBm'),
+    },
+    {
+      key: 'bias',
+      header: t('device.metrics.column.opticalBias'),
+      render: (row) => componentValue(row, 'optical_laser_bias_milliamperes', 'mA'),
+    },
+    {
+      key: 'voltage',
+      header: t('device.metrics.column.opticalVoltage'),
+      render: (row) => componentValue(row, 'optical_supply_voltage_volts', 'V'),
+    },
+    {
+      key: 'temperature',
+      header: t('device.metrics.column.temperature'),
+      render: (row) => componentValue(row, 'sensor_temperature_celsius', '°C'),
+    },
+  ]
+
   return (
     <Card>
       <CardHeader
@@ -269,7 +348,7 @@ export function DeviceMetricsCard() {
             title={t('device.metrics.unavailable.title')}
             description={t('device.metrics.unavailable.description')}
           />
-        ) : devices.length === 0 && interfaces.length === 0 ? (
+        ) : devices.length === 0 && interfaces.length === 0 && components.length === 0 ? (
           <EmptyState
             title={t('device.metrics.empty.title')}
             description={t('device.metrics.empty.description')}
@@ -280,6 +359,7 @@ export function DeviceMetricsCard() {
               caption={t('device.metrics.devices.caption')}
               columns={deviceColumns}
               rows={devices}
+              maxRows={devices.length}
               rowKey={(r) => r.key}
               empty={t('device.metrics.devices.empty')}
             />
@@ -287,6 +367,7 @@ export function DeviceMetricsCard() {
               caption={t('device.metrics.interfaces.caption')}
               columns={interfaceColumns}
               rows={ports}
+              maxRows={ports.length}
               rowKey={(r) => r.key}
               empty={t('device.metrics.interfaces.empty')}
             />
@@ -295,8 +376,21 @@ export function DeviceMetricsCard() {
                 caption={t('device.metrics.sensors.caption')}
                 columns={sensorColumns}
                 rows={sensors}
+                maxRows={sensors.length}
                 rowKey={(r) => r.key}
               />
+            ) : null}
+            {components.length > 0 ? (
+              <>
+                <p>{t('device.metrics.components.description')}</p>
+                <Table
+                  caption={t('device.metrics.components.caption')}
+                  columns={componentColumns}
+                  rows={components}
+                  maxRows={components.length}
+                  rowKey={(row) => row.key}
+                />
+              </>
             ) : null}
             <p className="text-caption text-muted-foreground">{t('device.metrics.series')}</p>
           </div>

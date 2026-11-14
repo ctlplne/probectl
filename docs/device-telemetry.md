@@ -93,6 +93,30 @@ fed it. (Source of truth: `internal/device/model.go`.)
 | `probectl.device.cpu.utilization` | hrProcessorLoad (avg) | — | percent |
 | `probectl.device.memory.{used,total}.bytes` | hrStorageTable (RAM row) | — | bytes |
 | `probectl.device.sensor.temperature.celsius` | ENTITY-SENSOR (opt-in) | — | °C |
+| `probectl.device.optical.{input,output}.power.dbm` | — | component transceiver / physical-channel / optical-channel `state/{input,output}-power/instant` | dBm |
+| `probectl.device.optical.laser.bias.milliamperes` | — | transceiver physical-channel `state/laser-bias-current/instant` | mA |
+| `probectl.device.optical.supply.voltage.volts` | — | transceiver `state/supply-voltage/instant` | V |
+
+Optical collection is opt-in through the target's existing `gnmi.paths`.
+For a device that exposes the OpenConfig platform/transceiver model, subscribe
+to `/components/component/transceiver/state/input-power/instant`, its
+`output-power` and `supply-voltage` siblings, and
+`/components/component/transceiver/physical-channels/channel/state/input-power/instant`
+with the corresponding output-power/laser-bias-current paths. Generic
+`/components/component/state/temperature/instant` is also understood; a
+temperature component is not assumed to be an optical module.
+
+Both aggregate component readings and individual physical channels retain the
+device's component key and optional channel index. Channel `0` is distinct from
+an absent channel. No display-name match invents an ifIndex or canonical port.
+Scalar double, integer, decimal and numeric-string readings normalize into the
+existing float64 gauge store. Decimal mantissas are scaled once; a value in dBm
+is not divided by 100 again. Nonfinite, unrepresentable or unsupported readings
+stay absent, never a fabricated zero. Gauge values are approximations;
+the separate original integer-counter lane retains exact counter words.
+Only explicit OpenConfig state paths are mapped; vendor-private sensors and
+SNMP watts named like optics are not silently reclassified as optical power.
+Modeled device/TLS coverage does not qualify physical optical hardware.
 
 EtherLike FCS and alignment errors prefer their original Counter64 column per
 interface, with Counter32 fallback where that interface exposes no HC object.
@@ -184,10 +208,22 @@ lays it out the way an operator reads a device, in its **Device telemetry**
 card: one health row per device (source, uptime, CPU, memory used / total) and
 one row per interface (link status, speed, octets in and out, errors and
 discards in / out), with temperature sensors in their own table when the
-target reports them. Counters are shown exact and cumulative, as the device
-reports them; rate them in an alert rule or the Explorer with the
-`probectl_device_*` series name. The read is bounded (500 series); a fleet past
-that shows a "Bounded result" badge rather than a silently partial table.
+target reports them. Component sensors retain separate aggregate/channel rows
+and display optical power, laser bias, voltage and component temperature when
+reported. These overview values use the TSDB's normalized numeric samples;
+full-width original integer words and qualified rates are in original path
+health. Alert rules and Explorer use the `probectl_device_*` series names.
+The device screen requests the complete admitted latest population; neither
+the old 500-series clamp nor the old 200-row table default trims this view.
+Positive API/CLI `limit` values remain explicit caller maxima. Native query
+memory, response bytes, execution admission and tenant query slots bound the
+operation; an underfunded operation refuses the whole output. Configure
+`PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES` and
+`PROBECTL_FLOW_QUERY_MAX_RESPONSE_BYTES` for the complete intended workload.
+The native `device_metrics` MCP tool uses the same read and admission with
+current tenant-user metric/AI grants and the original credential ceiling.
+Device strings retain full redaction; gauges stay numeric. Component names
+and a channel index do not establish a canonical interface.
 
 The agent also keeps a tiny in-process correlation cache so a path hop or flow
 exporter can be explained as "this device/interface." That cache is not the

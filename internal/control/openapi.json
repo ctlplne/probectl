@@ -7216,11 +7216,10 @@
             "name": "limit",
             "in": "query",
             "required": false,
-            "description": "Maximum summaries to return.",
+            "description": "Requested maximum summaries. No fixed 500-record clamp applies; complete selected populations and output must fit configured query memory/response admission and tenant fairness.",
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 500,
               "default": 100
             }
           }
@@ -7235,13 +7234,43 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "The complete selected metric population or output exceeds configured resource admission; no partial result is returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Tenant query fairness admission refused the operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Complete device metric source or configured query admission is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "x-probectl-pagination": {
           "mode": "bounded",
           "limit_param": "limit",
-          "max_items": 500,
-          "reason": "Device metric summaries collapse time-series samples to latest per device/metric/interface and clamp the response size."
+          "resource_admitted": true,
+          "reason": "Latest per device/interface/component/channel series, under configured native query memory, output-byte and execution admission plus tenant query slots. Positive caller limits select a maximum; no fixed 500-item clamp truncates an admitted fleet."
         }
       }
     },
@@ -25932,6 +25961,14 @@
           },
           "source": {
             "type": "string"
+          },
+          "component": {
+            "type": "string",
+            "description": "Device-reported component key. It is not a canonical interface or ownership grant."
+          },
+          "physical_channel": {
+            "type": "string",
+            "description": "Device-reported physical-channel index. The nonempty string zero is an observed channel; omission denotes a component-level measurement or an unreported channel."
           },
           "if_index": {
             "type": "string"

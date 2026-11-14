@@ -598,7 +598,7 @@ var collectionPaginationContracts = map[string]string{
 
 // TestOpenAPICollectionPaginationContract is PRODUCT-009's guardrail. Every
 // collection-like GET has to either expose the shared cursor shape or document a
-// bounded snapshot/top-N contract with a hard item cap. That keeps high-cardinality
+// bounded snapshot/top-N contract with explicit row or resource admission. That keeps high-cardinality
 // telemetry views from becoming accidental unbounded dumps.
 func TestOpenAPICollectionPaginationContract(t *testing.T) {
 	var spec struct {
@@ -701,8 +701,8 @@ func assertCursorPagination(t *testing.T, path string, op openAPIOperation, sche
 func assertBoundedPagination(t *testing.T, path string, op openAPIOperation) {
 	t.Helper()
 	pg := *op.Pagination
-	if pg.MaxItems <= 0 || strings.TrimSpace(pg.Reason) == "" {
-		t.Fatalf("GET %s bounded pagination must declare max_items and reason: %+v", path, pg)
+	if pg.MaxItems <= 0 && !pg.ResourceAdmitted || strings.TrimSpace(pg.Reason) == "" {
+		t.Fatalf("GET %s bounded pagination must declare a row or resource admission and reason: %+v", path, pg)
 	}
 	if pg.LimitParam == "" {
 		return
@@ -714,7 +714,10 @@ func assertBoundedPagination(t *testing.T, path string, op openAPIOperation) {
 	if limit.Schema.Type != "integer" || limit.Schema.Minimum < 1 {
 		t.Fatalf("GET %s bounded limit must be an integer with minimum 1, got %+v", path, limit.Schema)
 	}
-	if limit.Schema.Maximum > 0 && int(limit.Schema.Maximum) > pg.MaxItems {
+	if pg.MaxItems <= 0 && limit.Schema.Maximum > 0 {
+		t.Fatalf("GET %s resource-admitted collection declares an unrelated fixed row ceiling", path)
+	}
+	if pg.MaxItems > 0 && limit.Schema.Maximum > 0 && int(limit.Schema.Maximum) > pg.MaxItems {
 		t.Fatalf("GET %s limit maximum %v exceeds documented max_items %d", path, limit.Schema.Maximum, pg.MaxItems)
 	}
 }

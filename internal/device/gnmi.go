@@ -205,6 +205,10 @@ func (c *gnmiCollector) normalize(n *gnmipb.Notification) []Metric {
 		if len(elems) == 0 {
 			continue
 		}
+		if metric, ok := c.normalizeOptical(n, u, elems, ts); ok {
+			out = append(out, metric)
+			continue
+		}
 		leaf := elems[len(elems)-1].GetName()
 		spec, ok := ocLeafMetrics[leaf]
 		if !ok {

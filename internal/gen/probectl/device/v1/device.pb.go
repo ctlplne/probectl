@@ -56,9 +56,14 @@ type DeviceMetric struct {
 	// evidence. Never contains credentials.
 	InterfaceAddresses []string `protobuf:"bytes,12,rep,name=interface_addresses,json=interfaceAddresses,proto3" json:"interface_addresses,omitempty"` // -> "probectl.device.interface.address"
 	// Original typed counter; absent is unknown, never an observed zero.
-	ExactCounter  *DeviceCounter `protobuf:"bytes,13,opt,name=exact_counter,json=exactCounter,proto3" json:"exact_counter,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ExactCounter *DeviceCounter `protobuf:"bytes,13,opt,name=exact_counter,json=exactCounter,proto3" json:"exact_counter,omitempty"`
+	// Device-reported component/channel identity. Neither is an ifIndex or a
+	// canonical-port ownership claim. Empty physical_channel means component-level;
+	// "0" is an observed channel, not absence.
+	Component       string `protobuf:"bytes,14,opt,name=component,proto3" json:"component,omitempty"`
+	PhysicalChannel string `protobuf:"bytes,15,opt,name=physical_channel,json=physicalChannel,proto3" json:"physical_channel,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *DeviceMetric) Reset() {
@@ -180,6 +185,20 @@ func (x *DeviceMetric) GetExactCounter() *DeviceCounter {
 		return x.ExactCounter
 	}
 	return nil
+}
+
+func (x *DeviceMetric) GetComponent() string {
+	if x != nil {
+		return x.Component
+	}
+	return ""
+}
+
+func (x *DeviceMetric) GetPhysicalChannel() string {
+	if x != nil {
+		return x.PhysicalChannel
+	}
+	return ""
 }
 
 // Raw observation metadata, never a continuity or current-source grant.
@@ -1033,7 +1052,7 @@ var File_probectl_device_v1_device_proto protoreflect.FileDescriptor
 
 const file_probectl_device_v1_device_proto_rawDesc = "" +
 	"\n" +
-	"\x1fprobectl/device/v1/device.proto\x12\x12probectl.device.v1\"\xb7\x03\n" +
+	"\x1fprobectl/device/v1/device.proto\x12\x12probectl.device.v1\"\x80\x04\n" +
 	"\fDeviceMetric\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12%\n" +
@@ -1049,7 +1068,9 @@ const file_probectl_device_v1_device_proto_rawDesc = "" +
 	" \x01(\tR\x04unit\x12$\n" +
 	"\x0etime_unix_nano\x18\v \x01(\x03R\ftimeUnixNano\x12/\n" +
 	"\x13interface_addresses\x18\f \x03(\tR\x12interfaceAddresses\x12F\n" +
-	"\rexact_counter\x18\r \x01(\v2!.probectl.device.v1.DeviceCounterR\fexactCounter\"\x87\x03\n" +
+	"\rexact_counter\x18\r \x01(\v2!.probectl.device.v1.DeviceCounterR\fexactCounter\x12\x1c\n" +
+	"\tcomponent\x18\x0e \x01(\tR\tcomponent\x12)\n" +
+	"\x10physical_channel\x18\x0f \x01(\tR\x0fphysicalChannel\"\x87\x03\n" +
 	"\rDeviceCounter\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\x04R\x05value\x12\x14\n" +
 	"\x05width\x18\x02 \x01(\rR\x05width\x12&\n" +
