@@ -530,6 +530,7 @@ export interface CapacityAgreementDefinition {
   direction: "in" | "out" | "max_directional_percentiles" | "interval_max" | "interval_sum"
   name: string
   reference: string
+  sla?: CarrierSLATerms | null
   target: CapacityTarget
   timezone: string
   unit_bps: string
@@ -673,6 +674,32 @@ export interface CapacityTarget {
   kind: "interface" | "circuit"
   tag_id?: string
   tag_value?: string
+}
+
+export interface CarrierSLACreditBand {
+  credit_ratio: string
+  from_inclusive: string
+  to_exclusive?: string
+}
+
+export interface CarrierSLARule {
+  basis: string
+  credit_bands: CarrierSLACreditBand[]
+  good_when: "at_least" | "at_most" | "greater_than" | "less_than"
+  id: string
+  metric: "availability" | "loss" | "latency_nanos" | "repair_nanos"
+  threshold: string
+}
+
+export interface CarrierSLATerms {
+  aggregation: "maximum" | "sum_capped"
+  carrier: string
+  circuit_id: string
+  credit_cap_ratio: string
+  currency: string
+  monthly_charge: string
+  rules: CarrierSLARule[]
+  site?: string
 }
 
 export interface ChangeCandidate {

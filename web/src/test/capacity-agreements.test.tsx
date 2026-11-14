@@ -605,3 +605,73 @@ test('late forecasts cannot cross tenant identities or survive current grant wit
   expect(screen.queryByRole('region', { name: 'Measured forecast result' })).not.toBeInTheDocument()
   expect(screen.queryByLabelText('Forecast threshold (bps)')).not.toBeInTheDocument()
 })
+
+test('carrier SLA revisions preserve exact entered terms and discard a late tenant detail', async () => {
+  const current = item('red')
+  current.definition.sla = {
+    carrier: 'private red carrier',
+    circuit_id: 'red circuit',
+    site: 'red site',
+    currency: 'USD',
+    monthly_charge: '100.000000000000000001',
+    aggregation: 'maximum',
+    credit_cap_ratio: '1.25',
+    rules: [
+      {
+        id: 'contract clause',
+        metric: 'availability',
+        basis: 'original_execution_ratio',
+        good_when: 'at_least',
+        threshold: '0.999',
+        credit_bands: [{ from_inclusive: '0', to_exclusive: '0.999', credit_ratio: '0.1' }],
+      },
+    ],
+  }
+  let saved: CapacityAgreementInput | undefined
+  let details = 0
+  let late: ((value: Response) => void) | undefined
+  fixture(async (url, init) => {
+    if (init?.method === 'PUT') {
+      saved = JSON.parse(String(init.body)) as CapacityAgreementInput
+      return jsonResponse(current)
+    }
+    if (url.pathname === base) return jsonResponse(page('red'))
+    details++
+    if (details > 1)
+      return new Promise<Response>((resolve) => {
+        late = resolve
+      })
+    return jsonResponse(current)
+  })
+  const view = mount()
+  try {
+    fireEvent.click(await screen.findByRole('button', { name: 'Open red WAN' }))
+    await screen.findByLabelText('SLA carrier')
+    expect(screen.getByLabelText('Monthly recurring charge')).toHaveValue('100.000000000000000001')
+    fireEvent.change(screen.getByLabelText('Clause 1 threshold'), {
+      target: { value: '0.999000000000000001' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save revised terms' }))
+    await waitFor(() =>
+      expect(saved?.definition.sla?.rules[0].threshold).toBe('0.999000000000000001'),
+    )
+    expect(saved?.definition.sla?.monthly_charge).toBe('100.000000000000000001')
+    expect(saved?.definition.sla?.credit_cap_ratio).toBe('1.25')
+    expect(saved?.definition.sla?.rules[0].credit_bands).toEqual(
+      current.definition.sla.rules[0].credit_bands,
+    )
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open red WAN' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Open red WAN' }))
+    await waitFor(() => expect(late).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'Switch financial tenant' }))
+    await act(async () => {
+      late!(jsonResponse(current))
+    })
+    expect(screen.queryByDisplayValue('private red carrier')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Carrier private red carrier; circuit red circuit; site red site.'),
+    ).not.toBeInTheDocument()
+  } finally {
+    view.unmount()
+  }
+})

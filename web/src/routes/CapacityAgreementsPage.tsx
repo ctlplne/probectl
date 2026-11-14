@@ -25,6 +25,7 @@ import {
 } from '../components'
 import { Page } from './RoutePage'
 import { CapacityBillCheck } from './CapacityBillCheck'
+import { CapacitySLAEditor, CapacitySLATermsView } from './CapacitySLATerms'
 import { CapacityForecastCheck } from './CapacityForecastCheck'
 import styles from './flowExplorer.module.css'
 
@@ -559,6 +560,12 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
                   onChange={(e) => change('unit_price', e.target.value)}
                 />
               </div>
+              <CapacitySLAEditor
+                value={draft.sla}
+                currency={draft.currency}
+                disabled={busy}
+                onChange={(value) => change('sla', value)}
+              />
               <div className={styles.actions}>
                 <Button type="submit" variant="primary" disabled={busy}>
                   {selected ? 'Save revised terms' : 'Record agreement'}
@@ -591,13 +598,16 @@ function AgreementTerms({ definition: d }: { definition: CapacityAgreementDefini
     ['Unit price', d.unit_price],
   ]
   return (
-    <dl className={styles.summary}>
-      {values.map(([label, value]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
-    </dl>
+    <>
+      <dl className={styles.summary}>
+        {values.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {d.sla ? <CapacitySLATermsView value={d.sla} /> : null}
+    </>
   )
 }

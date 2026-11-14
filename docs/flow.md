@@ -1396,3 +1396,28 @@ witness RPCs still run in one worker, raw delivery never waits for them, and
 actual overload remains counted as `evidence_queue_drops`; an unattested record
 never gains routing facts. This preserves admitted bursts instead of losing
 per-record provenance behind a fixed one-batch metadata queue.
+
+### Carrier SLA terms (preview)
+
+Capacity agreements can retain optional `sla` terms in the same immutable,
+tenant-isolated revision as the existing interface or tagged-circuit target.
+The Capacity screen offers **Add carrier SLA terms** for the carrier, circuit ID,
+site, recurring charge/currency, contract measurement basis, goals, explicit
+credit bands and aggregation/cap. REST, generated clients, the existing
+agreement CLI and financial native tools use that same optional definition.
+An edit appends a revision; it does not replace historical contract terms.
+Old agreements without SLA metadata remain valid. No new source identity or
+telemetry access is granted by a financial definition.
+
+Availability and loss goals use exact ratios; latency and repair intervals use
+nanoseconds. Credit ranges have inclusive lower and exclusive upper boundaries.
+Only the operator's recorded terms determine credit ratios and the aggregate
+cap, including zero-credit terms or penalties above one monthly recurring charge.
+Missing, incomplete or incompatible measurements remain unknown. The calculation
+retains exact rational values rather than rounding money or source measurements.
+Financial permission and current source authorization remain separate.
+
+This is a component preview. Original-source breach detection, monthly grouped
+claim drafts, contractual rounding/output, signed lab-fault evidence and complete
+served/lifecycle/exact-main qualification are still in progress. No claim is
+submitted and no invoice or payment is changed automatically.

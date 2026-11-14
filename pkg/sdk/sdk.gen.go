@@ -615,17 +615,18 @@ type CapacityAgreementBill struct {
 
 // Complete operator-recorded financial terms. No price, currency, physical capacity or source grant is inferred. Short months clamp billing_day to their last day; timezone is an offline IANA zone, never Local.
 type CapacityAgreementDefinition struct {
-	BillingDay int            `json:"billing_day"`
-	CommitBps  string         `json:"commit_bps"`
-	Currency   string         `json:"currency"`
-	Direction  string         `json:"direction"`
-	Name       string         `json:"name"`
-	Reference  string         `json:"reference"`
-	Target     CapacityTarget `json:"target"`
-	Timezone   string         `json:"timezone"`
-	UnitBps    string         `json:"unit_bps"`
-	UnitPrice  string         `json:"unit_price"`
-	ValidFrom  string         `json:"valid_from"`
+	BillingDay int              `json:"billing_day"`
+	CommitBps  string           `json:"commit_bps"`
+	Currency   string           `json:"currency"`
+	Direction  string           `json:"direction"`
+	Name       string           `json:"name"`
+	Reference  string           `json:"reference"`
+	Sla        *CarrierSLATerms `json:"sla,omitempty"`
+	Target     CapacityTarget   `json:"target"`
+	Timezone   string           `json:"timezone"`
+	UnitBps    string           `json:"unit_bps"`
+	UnitPrice  string           `json:"unit_price"`
+	ValidFrom  string           `json:"valid_from"`
 }
 
 type CapacityAgreementInput struct {
@@ -767,6 +768,32 @@ type CapacityTarget struct {
 	Kind        string `json:"kind"`
 	TagId       string `json:"tag_id,omitempty"`
 	TagValue    string `json:"tag_value,omitempty"`
+}
+
+type CarrierSLACreditBand struct {
+	CreditRatio   string `json:"credit_ratio"`
+	FromInclusive string `json:"from_inclusive"`
+	ToExclusive   string `json:"to_exclusive,omitempty"`
+}
+
+type CarrierSLARule struct {
+	Basis       string                 `json:"basis"`
+	CreditBands []CarrierSLACreditBand `json:"credit_bands"`
+	GoodWhen    string                 `json:"good_when"`
+	Id          string                 `json:"id"`
+	Metric      string                 `json:"metric"`
+	Threshold   string                 `json:"threshold"`
+}
+
+type CarrierSLATerms struct {
+	Aggregation    string           `json:"aggregation"`
+	Carrier        string           `json:"carrier"`
+	CircuitId      string           `json:"circuit_id"`
+	CreditCapRatio string           `json:"credit_cap_ratio"`
+	Currency       string           `json:"currency"`
+	MonthlyCharge  string           `json:"monthly_charge"`
+	Rules          []CarrierSLARule `json:"rules"`
+	Site           string           `json:"site,omitempty"`
 }
 
 // A change scored as a candidate cause of an incident.

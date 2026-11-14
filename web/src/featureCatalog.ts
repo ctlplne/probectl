@@ -129,7 +129,13 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   },
   // Additive routing fields and the qualified peering estimate remain preview.
   // The shared Explorer schema owns routing field reach.
-  { id: 'F17', name: 'Flow analytics', status: 'delivered', source: 'contract:features' },
+  {
+    // Optional carrier SLA terms are preview; measured monthly claim drafts remain owed.
+    id: 'F17',
+    name: 'Flow analytics',
+    status: 'delivered',
+    source: 'contract:features',
+  },
   // Current interface-role explanations, local IX prefixes and Explorer roles remain preview until complete source/served/router qualification.
   // EtherLike originals, local minimum-rate baseline assessments and OpenConfig component/channel levels are preview; full served/native/lifecycle/episode qualification remains unfinished.
   { id: 'F18', name: 'Device telemetry', status: 'partial', source: 'contract:features' },

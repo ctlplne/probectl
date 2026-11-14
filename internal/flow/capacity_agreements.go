@@ -40,17 +40,18 @@ type CapacityTarget struct {
 // CapacityAgreementDefinition records operator terms. It neither grants
 // telemetry access nor infers pricing or a physical line-rate upper bound.
 type CapacityAgreementDefinition struct {
-	Name       string         `json:"name"`
-	Reference  string         `json:"reference"`
-	ValidFrom  string         `json:"valid_from"`
-	Target     CapacityTarget `json:"target"`
-	BillingDay int            `json:"billing_day"`
-	Timezone   string         `json:"timezone"`
-	Direction  string         `json:"direction"`
-	Currency   string         `json:"currency"`
-	CommitBPS  string         `json:"commit_bps"`
-	UnitBPS    string         `json:"unit_bps"`
-	UnitPrice  string         `json:"unit_price"`
+	SLA        *CarrierSLATerms `json:"sla,omitempty"`
+	Name       string           `json:"name"`
+	Reference  string           `json:"reference"`
+	ValidFrom  string           `json:"valid_from"`
+	Target     CapacityTarget   `json:"target"`
+	BillingDay int              `json:"billing_day"`
+	Timezone   string           `json:"timezone"`
+	Direction  string           `json:"direction"`
+	Currency   string           `json:"currency"`
+	CommitBPS  string           `json:"commit_bps"`
+	UnitBPS    string           `json:"unit_bps"`
+	UnitPrice  string           `json:"unit_price"`
 }
 
 type CapacityAgreement struct {
@@ -141,6 +142,17 @@ func NormalizeCapacityAgreement(ctx context.Context, input CapacityAgreementDefi
 		}
 	default:
 		return none, ErrCapacityAgreementInvalid
+	}
+	if input.SLA != nil {
+		normalized, _, usedWork, err := normalizeCarrierSLATerms(ctx, *input.SLA, remaining, workUnits)
+		if err != nil {
+			if errors.Is(err, ErrCapacityAgreementBudget) || ctx.Err() != nil {
+				return none, err
+			}
+			return none, errors.Join(ErrCapacityAgreementInvalid, err)
+		}
+		workUnits -= usedWork
+		input.SLA = &normalized
 	}
 	words := int64(1)
 	for _, text := range []string{input.CommitBPS, input.UnitBPS, input.UnitPrice} {

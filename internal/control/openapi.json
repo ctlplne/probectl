@@ -31576,6 +31576,120 @@
         },
         "description": "Interface requires context_id and interface_id only. Circuit requires tag_id and a complete nonempty tag_value only. References bind to current-tenant inventory; they confer no telemetry authority."
       },
+      "CarrierSLACreditBand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from_inclusive": {
+            "type": "string"
+          },
+          "to_exclusive": {
+            "type": "string"
+          },
+          "credit_ratio": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_inclusive",
+          "credit_ratio"
+        ]
+      },
+      "CarrierSLARule": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string",
+            "enum": [
+              "availability",
+              "loss",
+              "latency_nanos",
+              "repair_nanos"
+            ]
+          },
+          "basis": {
+            "type": "string"
+          },
+          "good_when": {
+            "type": "string",
+            "enum": [
+              "at_least",
+              "at_most",
+              "greater_than",
+              "less_than"
+            ]
+          },
+          "threshold": {
+            "type": "string"
+          },
+          "credit_bands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarrierSLACreditBand"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "id",
+          "metric",
+          "basis",
+          "good_when",
+          "threshold",
+          "credit_bands"
+        ]
+      },
+      "CarrierSLATerms": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "carrier": {
+            "type": "string"
+          },
+          "circuit_id": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "monthly_charge": {
+            "type": "string"
+          },
+          "aggregation": {
+            "type": "string",
+            "enum": [
+              "maximum",
+              "sum_capped"
+            ]
+          },
+          "credit_cap_ratio": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarrierSLARule"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "carrier",
+          "circuit_id",
+          "currency",
+          "monthly_charge",
+          "aggregation",
+          "credit_cap_ratio",
+          "rules"
+        ]
+      },
       "CapacityAgreementDefinition": {
         "type": "object",
         "additionalProperties": false,
@@ -31626,6 +31740,17 @@
           "unit_price": {
             "type": "string",
             "description": "Exact decimal text; never a floating-point quantity."
+          },
+          "sla": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CarrierSLATerms"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional operator carrier SLA terms in the same immutable tenant-bound agreement revision. No telemetry grant or automatic claim submission."
           }
         },
         "required": [

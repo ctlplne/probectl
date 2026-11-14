@@ -81,6 +81,7 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 			t.Fatal(err)
 		}
 		definition := flow.CapacityAgreementDefinition{Name: "WAN agreement", Reference: "operator recorded", ValidFrom: "2026-11-01T00:00:00.123456789Z", Target: flow.CapacityTarget{Kind: "interface", ContextID: area, InterfaceID: iface}, BillingDay: 31, Timezone: "UTC", Direction: "max_directional_percentiles", Currency: "USD", CommitBPS: "1000000000", UnitBPS: "1000000", UnitPrice: fmt.Sprintf("1.%d00000000000000001", i)}
+		definition.SLA = &flow.CarrierSLATerms{Carrier: fmt.Sprintf("carrier-%d", i), CircuitID: "same operator circuit", Site: "same site", Currency: "USD", MonthlyCharge: fmt.Sprintf("100.%d00000000000000001", i), Aggregation: "maximum", CreditCapRatio: "1", Rules: []flow.CarrierSLARule{{ID: "availability", Metric: "availability", Basis: "original_execution_ratio", GoodWhen: "at_least", Threshold: "0.999", CreditBands: []flow.CarrierSLACreditBand{{From: "0", To: "0.999", CreditRatio: "0.1"}}}}}
 		heads[i], err = service.SaveCapacityAgreement(bound, "operator", flow.SaveCapacityAgreement{Definition: definition})
 		if err != nil || !heads[i].TargetPresent || heads[i].Version != "1" || heads[i].Definition.UnitPrice != definition.UnitPrice {
 			t.Fatal("complete tenant agreement was not persisted exactly", heads[i], err)
@@ -103,6 +104,9 @@ func TestCapacityAgreementsPostgresRealRevisionsIsolationRetirementAndAudit(t *t
 		got, err := service.GetCapacityAgreement(bound, "operator", shared, "")
 		if err != nil || got.TenantID != tenant || got.Definition.UnitPrice != heads[i].Definition.UnitPrice {
 			t.Fatal("same agreement UUID crossed storage tenant scope", got, err)
+		}
+		if got.Definition.SLA == nil || got.Definition.SLA.Carrier != fmt.Sprintf("carrier-%d", i) || got.Definition.SLA.MonthlyCharge != heads[i].Definition.SLA.MonthlyCharge {
+			t.Fatal("SLA revisions lost exact private terms or crossed the same-ID tenant boundary")
 		}
 		if _, err := service.GetCapacityAgreement(bound, "operator", heads[1-i].ID, ""); !errors.Is(err, flow.ErrCapacityAgreementNotFound) {
 			t.Fatal("agreement lookup exposed another tenant", err)
