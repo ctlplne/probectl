@@ -3058,6 +3058,21 @@ export interface PathHealthCounter {
   value?: string
 }
 
+export interface PathHealthErrorTrend {
+  baseline_from?: string
+  baseline_mean?: number
+  baseline_samples: number
+  baseline_stddev?: number
+  baseline_to?: string
+  metric: string
+  model: string
+  observations: PathHealthCounter[]
+  rate_kind: "minimum_under_counter_continuity"
+  score?: number
+  sensitivity: number
+  state: "insufficient_contiguous_history" | "rate_unavailable" | "within_baseline" | "below_baseline" | "rising_minimum_rate"
+}
+
 export interface PathHistory {
   items: PathSnapshot[]
 }
@@ -3069,6 +3084,7 @@ export interface PathInterfaceHealth {
   context_id?: string
   counters: PathHealthCounter[]
   device_id?: string
+  error_trends?: PathHealthErrorTrend[]
   from: string
   interface_id?: string
   method: string

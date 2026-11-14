@@ -31344,12 +31344,86 @@
               "$ref": "#/components/schemas/PathHealthCounter"
             }
           },
+          "error_trends": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PathHealthErrorTrend"
+            },
+            "description": "Local baseline assessments over all contiguous admitted error-rate pairs. They compare modular minimum rates; they do not assert exact true error rates or emit alert notifications."
+          },
           "config_changes": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DeviceConfigArchiveReference"
             },
             "description": "Complete admitted original archive references in the health window, selected only by exact current canonical device/source assignment; never by device display name or address."
+          }
+        }
+      },
+      "PathHealthErrorTrend": {
+        "type": "object",
+        "description": "A deterministic local assessment of the latest minimum error rate against earlier contiguous original poll pairs in the selected window. No learned state is retained. Duplicate clocks, resets, width changes and missing continuity reset training. Approximate model statistics use floating point; original words and rational rate pairs remain in observations. This is an assessment, not an alert notification or a causal claim about a configuration change.",
+        "required": [
+          "metric",
+          "state",
+          "model",
+          "rate_kind",
+          "sensitivity",
+          "baseline_samples",
+          "observations"
+        ],
+        "properties": {
+          "metric": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "insufficient_contiguous_history",
+              "rate_unavailable",
+              "within_baseline",
+              "below_baseline",
+              "rising_minimum_rate"
+            ]
+          },
+          "model": {
+            "type": "string"
+          },
+          "rate_kind": {
+            "type": "string",
+            "enum": [
+              "minimum_under_counter_continuity"
+            ]
+          },
+          "sensitivity": {
+            "type": "number"
+          },
+          "baseline_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "baseline_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "baseline_to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "baseline_mean": {
+            "type": "number"
+          },
+          "baseline_stddev": {
+            "type": "number"
+          },
+          "score": {
+            "type": "number"
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PathHealthCounter"
+            }
           }
         }
       },

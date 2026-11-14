@@ -104,6 +104,26 @@ rates. FCS/alignment are separate categories and are not added to IF-MIB total
 errors or octet billing. The Device screen displays each category separately;
 API, CLI and native path health retain the original full-width decimal words.
 
+### Local error-rate baseline assessments (preview)
+
+Path health also returns `error_trends` for each error/discard category. The
+existing `local-zscore-v1` model compares the latest contiguous minimum rate
+with earlier rates in the complete admitted health window. Three earlier rate
+samples and one current sample are needed to score; fewer observations remain
+explicitly untrained. No learned state is retained between reads. Duplicate
+poll clocks, width changes, discontinuities and missing continuity reset
+training; a stale latest poll cannot produce a current rising assessment.
+
+Every assessment includes all contiguous original rate pairs, their counter
+words/capture identities and its baseline window. Model mean, deviation and
+score are approximate floating-point statistics over those minimum rates;
+the original rational rates remain available. `rising_minimum_rate` does not
+establish an exact true rate, a configuration-change cause, or an alert
+notification. REST, generated clients, CLI and native path health share the
+same current-authority reader; the Path inspector displays the assessments
+and cited explanations include their qualified evidence. Optical levels and
+the once-per-episode alert publication proof remain unfinished.
+
 The exact SNMP counter lane also retains optional `interface_speed_bps` from
 that same poll, under its authenticated original-body receipt. Positive typed
 `ifHighSpeed` (integer Mbps) takes precedence; `ifSpeed` supplies finer bps for

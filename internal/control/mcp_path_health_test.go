@@ -23,6 +23,9 @@ func TestPathHealthNativeMetadataPreservesOriginalNumbersAndFullSourceRedaction(
 			{Metric: pathHealthMetricNames[0], Value: card, PreviousValue: "9007199254740993", MinimumDelta: "1225000", RateNumerator: "9800000", RateDenominator: "1", RateUnit: "bits/s", RateKind: "exact_under_explicit_physical_bound", UtilizationNumerator: "98", UtilizationDenominator: "1", CaptureKey: strings.Repeat("4", 64), RawDigest: strings.Repeat("1", 64)},
 			{Metric: pathHealthMetricNames[2], RateKind: "unavailable", RateUnit: "packets/s", Reason: "one_original_poll", Value: "0"},
 		}}}}}
+	trendCounter := value.Items[0].Health.Counters[0]
+	trendCounter.Metric = "probectl.device.if.in.fcs.errors"
+	value.Items[0].Health.ErrorTrends = []pathHealthErrorTrend{{Metric: trendCounter.Metric, State: "rising_minimum_rate", Model: "local-zscore-v1", Observations: []pathHealthCounter{trendCounter}}}
 	raw, err := marshalNativePathHealth(value)
 	if err != nil {
 		t.Fatal(err)
@@ -40,6 +43,9 @@ func TestPathHealthNativeMetadataPreservesOriginalNumbersAndFullSourceRedaction(
 		if health.SourceRef == card {
 			t.Fatal("source text bypassed the always-on PAN floor")
 		}
+		if len(health.ErrorTrends) != 1 || health.ErrorTrends[0].Metric != trendCounter.Metric || len(health.ErrorTrends[0].Observations) != 1 || health.ErrorTrends[0].Observations[0].Value != card || health.ErrorTrends[0].Observations[0].PreviousValue != "9007199254740993" || health.ErrorTrends[0].Observations[0].CaptureKey != strings.Repeat("4", 64) {
+			t.Fatal("baseline observations lost original words, metric or capture metadata during mandatory redaction")
+		}
 		if policy.MaskIPs && (got.Items[0].IP == value.Items[0].IP || health.AgentID == value.Items[0].Health.AgentID) {
 			t.Fatal("arbitrary path/source text bypassed full default redaction")
 		}
@@ -47,5 +53,15 @@ func TestPathHealthNativeMetadataPreservesOriginalNumbersAndFullSourceRedaction(
 	value.Items[0].Health.Counters[0].Metric = "untrusted.example.test"
 	if _, err := marshalNativePathHealth(value); err == nil {
 		t.Fatal("arbitrary source metric text received protected metadata encoding")
+	}
+	value.Items[0].Health.Counters[0].Metric = pathHealthMetricNames[0]
+	value.Items[0].Health.ErrorTrends[0].Metric = "untrusted.example.test"
+	if _, err := marshalNativePathHealth(value); err == nil {
+		t.Fatal("arbitrary trend label received protected metadata encoding")
+	}
+	value.Items[0].Health.ErrorTrends[0].Metric = trendCounter.Metric
+	value.Items[0].Health.ErrorTrends[0].Observations[0].Metric = "untrusted.example.test"
+	if _, err := marshalNativePathHealth(value); err == nil {
+		t.Fatal("arbitrary trend observation received protected metadata encoding")
 	}
 }

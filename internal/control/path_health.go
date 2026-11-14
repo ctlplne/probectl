@@ -41,6 +41,7 @@ type pathInterfaceHealth struct {
 	ConfigChanges    []device.ConfigArchiveReference `json:"config_changes,omitempty"`
 	SourceValidUntil *time.Time                      `json:"source_valid_until,omitempty"`
 	Counters         []pathHealthCounter             `json:"counters"`
+	ErrorTrends      []pathHealthErrorTrend          `json:"error_trends,omitempty"`
 }
 
 type pathHealthOptions struct {
@@ -197,6 +198,10 @@ func (s *Server) readPathInterfaceHealth(query *pathHealthOperation, scope entit
 		return nil, err
 	}
 	result.Counters, err = projectPathHealth(ctx, rows, options.to, options.gap, options.physicalMax)
+	if err != nil {
+		return nil, err
+	}
+	result.ErrorTrends, err = projectPathHealthErrorTrends(ctx, rows, options.to, options.gap)
 	if err != nil {
 		return nil, err
 	}

@@ -74,12 +74,26 @@ type nativePathHealthCounter struct {
 
 type nativePathInterfaceHealth struct {
 	pathInterfaceHealth
-	ContextID      mcp.NativeRoleUUID          `json:"context_id,omitempty"`
-	InterfaceID    mcp.NativeRoleUUID          `json:"interface_id,omitempty"`
-	DeviceID       mcp.NativeRoleUUID          `json:"device_id,omitempty"`
-	PhysicalMaxBPS mcp.NativePeeringCounter    `json:"physical_max_bps,omitempty"`
-	Counters       []nativePathHealthCounter   `json:"counters"`
-	ConfigChanges  []nativePathConfigReference `json:"config_changes,omitempty"`
+	ContextID      mcp.NativeRoleUUID           `json:"context_id,omitempty"`
+	InterfaceID    mcp.NativeRoleUUID           `json:"interface_id,omitempty"`
+	DeviceID       mcp.NativeRoleUUID           `json:"device_id,omitempty"`
+	PhysicalMaxBPS mcp.NativePeeringCounter     `json:"physical_max_bps,omitempty"`
+	Counters       []nativePathHealthCounter    `json:"counters"`
+	ConfigChanges  []nativePathConfigReference  `json:"config_changes,omitempty"`
+	ErrorTrends    []nativePathHealthErrorTrend `json:"error_trends,omitempty"`
+}
+
+type nativePathHealthErrorTrend struct {
+	pathHealthErrorTrend
+	Metric       nativePathHealthMetric    `json:"metric"`
+	Observations []nativePathHealthCounter `json:"observations"`
+}
+
+func nativePathCounter(counter pathHealthCounter) nativePathHealthCounter {
+	return nativePathHealthCounter{pathHealthCounter: counter, Metric: nativePathHealthMetric(counter.Metric),
+		Value: mcp.NativePeeringCounter(counter.Value), PreviousValue: mcp.NativePeeringCounter(counter.PreviousValue), SpeedBPS: mcp.NativePeeringCounter(counter.SpeedBPS), PreviousSpeedBPS: mcp.NativePeeringCounter(counter.PreviousSpeedBPS),
+		MinimumDelta: mcp.NativePeeringCounter(counter.MinimumDelta), RateNumerator: mcp.NativePeeringCounter(counter.RateNumerator), RateDenominator: mcp.NativePeeringCounter(counter.RateDenominator), UtilizationNumerator: mcp.NativePeeringCounter(counter.UtilizationNumerator), UtilizationDenominator: mcp.NativePeeringCounter(counter.UtilizationDenominator),
+		CaptureKey: mcp.NativeRoleDigest(counter.CaptureKey), PreviousCaptureKey: mcp.NativeRoleDigest(counter.PreviousCaptureKey), RawDigest: mcp.NativeRoleDigest(counter.RawDigest), PreviousRawDigest: mcp.NativeRoleDigest(counter.PreviousRawDigest)}
 }
 
 type nativePathConfigBinding struct {
@@ -123,10 +137,14 @@ func marshalNativePathHealth(result pathHealthResult) (json.RawMessage, error) {
 			health := item.Health
 			hop.Health = &nativePathInterfaceHealth{pathInterfaceHealth: *health, ContextID: mcp.NativeRoleUUID(health.ContextID), InterfaceID: mcp.NativeRoleUUID(health.InterfaceID), DeviceID: mcp.NativeRoleUUID(health.DeviceID), PhysicalMaxBPS: mcp.NativePeeringCounter(health.PhysicalMaxBPS), Counters: make([]nativePathHealthCounter, 0, len(health.Counters))}
 			for _, counter := range health.Counters {
-				hop.Health.Counters = append(hop.Health.Counters, nativePathHealthCounter{pathHealthCounter: counter, Metric: nativePathHealthMetric(counter.Metric),
-					Value: mcp.NativePeeringCounter(counter.Value), PreviousValue: mcp.NativePeeringCounter(counter.PreviousValue), SpeedBPS: mcp.NativePeeringCounter(counter.SpeedBPS), PreviousSpeedBPS: mcp.NativePeeringCounter(counter.PreviousSpeedBPS),
-					MinimumDelta: mcp.NativePeeringCounter(counter.MinimumDelta), RateNumerator: mcp.NativePeeringCounter(counter.RateNumerator), RateDenominator: mcp.NativePeeringCounter(counter.RateDenominator), UtilizationNumerator: mcp.NativePeeringCounter(counter.UtilizationNumerator), UtilizationDenominator: mcp.NativePeeringCounter(counter.UtilizationDenominator),
-					CaptureKey: mcp.NativeRoleDigest(counter.CaptureKey), PreviousCaptureKey: mcp.NativeRoleDigest(counter.PreviousCaptureKey), RawDigest: mcp.NativeRoleDigest(counter.RawDigest), PreviousRawDigest: mcp.NativeRoleDigest(counter.PreviousRawDigest)})
+				hop.Health.Counters = append(hop.Health.Counters, nativePathCounter(counter))
+			}
+			for _, trend := range health.ErrorTrends {
+				entry := nativePathHealthErrorTrend{pathHealthErrorTrend: trend, Metric: nativePathHealthMetric(trend.Metric), Observations: make([]nativePathHealthCounter, 0, len(trend.Observations))}
+				for _, counter := range trend.Observations {
+					entry.Observations = append(entry.Observations, nativePathCounter(counter))
+				}
+				hop.Health.ErrorTrends = append(hop.Health.ErrorTrends, entry)
 			}
 			for _, ref := range health.ConfigChanges {
 				hop.Health.ConfigChanges = append(hop.Health.ConfigChanges, nativePathConfigReference{ConfigArchiveReference: ref, ID: mcp.NativeRoleUUID(ref.ID), PreviousID: mcp.NativeRoleUUID(ref.PreviousID), ContentHash: mcp.NativeRoleDigest(ref.ContentHash), PreviousHash: mcp.NativeRoleDigest(ref.PreviousHash), Binding: nativePathConfigBinding{ConfigArchiveBinding: ref.Binding, ContextID: mcp.NativeRoleUUID(ref.Binding.ContextID), DeviceEntityID: mcp.NativeRoleUUID(ref.Binding.DeviceEntityID)}})

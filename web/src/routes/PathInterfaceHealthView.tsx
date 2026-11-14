@@ -144,6 +144,68 @@ export function PathInterfaceHealthView({ health }: { health: PathInterfaceHealt
         ]}
         empty="No original counters are available for this responder."
       />
+      {health.error_trends?.length ? (
+        <section aria-label="Interface error rate baselines">
+          <h3>Local minimum-rate baselines</h3>
+          <p>
+            Assessments compare observed minimum rates. They do not establish exact error rates, a
+            cause of a configuration change, or an alert notification. Model statistics are
+            approximate; original counter words and rational rates remain below.
+          </p>
+          {health.error_trends.map((trend) => (
+            <details key={trend.metric}>
+              <summary>
+                {trend.metric.replace('probectl.device.if.', '').replace(/\./g, ' ')} ·{' '}
+                {trend.state.replace(/_/g, ' ')}
+              </summary>
+              <p>
+                Model {trend.model} · sensitivity {trend.sensitivity} · {trend.baseline_samples}{' '}
+                baseline rate samples from {trend.baseline_from ?? 'Unavailable'} to{' '}
+                {trend.baseline_to ?? 'Unavailable'}.
+              </p>
+              {trend.baseline_mean !== undefined ? (
+                <p>
+                  Approximate baseline mean {trend.baseline_mean} packets/s · deviation{' '}
+                  {trend.baseline_stddev} · score {trend.score}.
+                </p>
+              ) : null}
+              <Table<PathHealthCounter>
+                caption="Original contiguous error-rate observations"
+                rows={trend.observations}
+                maxRows={trend.observations.length}
+                rowKey={(counter) => `${counter.capture_key}/${counter.previous_capture_key}`}
+                columns={[
+                  {
+                    key: 'poll',
+                    header: 'Poll started',
+                    render: (counter) => counter.poll_started_at,
+                  },
+                  { key: 'rate', header: 'Observed minimum mean rate', render: rateLabel },
+                  {
+                    key: 'words',
+                    header: 'Original words',
+                    render: (counter) => (
+                      <code>
+                        {counter.previous_value} → {counter.value}
+                      </code>
+                    ),
+                  },
+                  {
+                    key: 'captures',
+                    header: 'Original captures',
+                    render: (counter) => (
+                      <code>
+                        {counter.previous_capture_key} → {counter.capture_key}
+                      </code>
+                    ),
+                  },
+                ]}
+                empty="No contiguous original rate pairs are available."
+              />
+            </details>
+          ))}
+        </section>
+      ) : null}
     </details>
   )
 }

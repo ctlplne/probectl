@@ -166,6 +166,12 @@ func pathHealthRCASummary(result pathHealthResult) (string, bool, time.Time) {
 			signal = true
 			fmt.Fprintf(&summary, "Hop %d %s increased by at least %s under counter continuity. ", hop.TTL, counter.Metric, delta.String())
 		}
+		for _, trend := range hop.Health.ErrorTrends {
+			if trend.State == "rising_minimum_rate" {
+				signal = true
+				fmt.Fprintf(&summary, "Hop %d %s minimum rate is above its %d-sample local baseline; original rate pairs and approximate model statistics are in the structured evidence. ", hop.TTL, trend.Metric, trend.BaselineSamples)
+			}
+		}
 	}
 	fmt.Fprintf(&summary, "%d responders have no current original polled counter set. Original words, intervals, assumptions and capture receipts for every responder are in the complete structured evidence. Correlation is observed; a cause of path loss is not established.", unavailable)
 	return summary.String(), signal, observedAt

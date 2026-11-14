@@ -3201,6 +3201,22 @@ type PathHealthCounter struct {
 	Value                     string `json:"value,omitempty"`
 }
 
+// A deterministic local assessment of the latest minimum error rate against earlier contiguous original poll pairs in the selected window. No learned state is retained. Duplicate clocks, resets, width changes and missing continuity reset training. Approximate model statistics use floating point; original words and rational rate pairs remain in observations. This is an assessment, not an alert notification or a causal claim about a configuration change.
+type PathHealthErrorTrend struct {
+	BaselineFrom    string              `json:"baseline_from,omitempty"`
+	BaselineMean    float64             `json:"baseline_mean,omitempty"`
+	BaselineSamples int                 `json:"baseline_samples"`
+	BaselineStddev  float64             `json:"baseline_stddev,omitempty"`
+	BaselineTo      string              `json:"baseline_to,omitempty"`
+	Metric          string              `json:"metric"`
+	Model           string              `json:"model"`
+	Observations    []PathHealthCounter `json:"observations"`
+	RateKind        string              `json:"rate_kind"`
+	Score           float64             `json:"score,omitempty"`
+	Sensitivity     float64             `json:"sensitivity"`
+	State           string              `json:"state"`
+}
+
 type PathHistory struct {
 	Items []PathSnapshot `json:"items"`
 }
@@ -3213,6 +3229,7 @@ type PathInterfaceHealth struct {
 	ContextId        string                         `json:"context_id,omitempty"`
 	Counters         []PathHealthCounter            `json:"counters"`
 	DeviceId         string                         `json:"device_id,omitempty"`
+	ErrorTrends      []PathHealthErrorTrend         `json:"error_trends,omitempty"`
 	From             string                         `json:"from"`
 	InterfaceId      string                         `json:"interface_id,omitempty"`
 	Method           string                         `json:"method"`
