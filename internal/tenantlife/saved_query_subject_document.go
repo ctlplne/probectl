@@ -22,7 +22,7 @@ import (
 // Only declared reference values change, and only for UUID-shaped references.
 // Portable rows are always exported from the original database row.
 func projectSavedQuerySubject(ctx context.Context, table string, raw []byte) ([]byte, bool, error) {
-	if table != "flow_query_filters" && table != "flow_query_views" {
+	if table != "flow_query_filters" && table != "flow_query_views" && table != "change_events" {
 		return nil, false, nil
 	}
 	var documents []any
@@ -45,6 +45,8 @@ func projectSavedQuerySubject(ctx context.Context, table string, raw []byte) ([]
 			continue // Unknown/invalid values remain subject-bearing.
 		}
 		switch column {
+		case "routing_source":
+			changed = projectRoutingChangeSubjectReferences(document) || changed
 		case "expression":
 			updated, err := projectSubjectFilterReferences(ctx, document)
 			if err != nil {
@@ -82,6 +84,36 @@ func projectSavedQuerySubject(ctx context.Context, table string, raw []byte) ([]
 		return nil, false, err
 	}
 	return body.Bytes(), true, ctx.Err()
+}
+
+// Routing source identifiers can contain personal text. Only recognized UUID
+// references in the original version1 envelope are structural; unknown fields,
+// malformed references and collector/source identifiers remain matchable.
+func projectRoutingChangeSubjectReferences(document map[string]any) bool {
+	if document["version"] != json.Number("1") {
+		return false
+	}
+	changed := projectSubjectUUIDFields(document, "view_id", "generation")
+	if source, ok := document["source"].(map[string]any); ok {
+		changed = projectSubjectUUIDFields(source, "tenant_id", "context_id", "RouterID") || changed
+	}
+	if selection, ok := document["selection"].(map[string]any); ok {
+		changed = projectSubjectUUIDFields(selection, "base_context_id", "base_router_id", "context_id", "router_id", "epoch", "binding_id") || changed
+		if binding, ok := selection["binding"].(map[string]any); ok {
+			changed = projectSubjectUUIDFields(binding, "id", "context_id", "router_id") || changed
+		}
+	}
+	return changed
+}
+
+func projectSubjectUUIDFields(document map[string]any, fields ...string) bool {
+	changed := false
+	for _, field := range fields {
+		if subjectReferenceUUID(document[field]) {
+			document[field], changed = nil, true
+		}
+	}
+	return changed
 }
 
 func projectSubjectFilterReferences(ctx context.Context, group map[string]any) (bool, error) {

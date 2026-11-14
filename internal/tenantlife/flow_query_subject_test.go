@@ -17,7 +17,7 @@ import (
 )
 
 func TestFlowQuerySubjectDecodedDocumentsAndNearMatches(t *testing.T) {
-	for _, table := range []string{"flow_query_filters", "flow_query_views", "bgp_flow_capture_objects", "alert_rules"} {
+	for _, table := range []string{"flow_query_filters", "flow_query_views", "bgp_flow_capture_objects", "alert_rules", "change_events"} {
 		for _, test := range []struct {
 			subject, document string
 			want              bool
@@ -36,7 +36,7 @@ func TestFlowQuerySubjectDecodedDocumentsAndNearMatches(t *testing.T) {
 				t.Fatal(err)
 			}
 			document := []byte(test.document)
-			if table == "flow_query_filters" || table == "flow_query_views" {
+			if table == "flow_query_filters" || table == "flow_query_views" || table == "change_events" {
 				// Match the SQL projection: name/description precede the
 				// complete expression or definition document.
 				var part []json.RawMessage
@@ -131,5 +131,36 @@ func TestFlowQuerySubjectStructuralProjectionKeepsUnknownKeysAndExactNumbers(t *
 	}
 	if got, err := scan.matches(t.Context(), false, personalKey); err != nil || !got {
 		t.Fatal("a personal tag key was hidden with its structural value", err)
+	}
+}
+
+func TestRoutingChangeSubjectProjectionKeepsOriginalSourceIdentities(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	for _, test := range []struct {
+		name, source string
+		want         bool
+	}{
+		{"structural", `{"version":1,"view_id":"` + id + `","source":{"context_id":"` + id + `","RouterID":"` + id + `"}}`, false},
+		{"collector", `{"version":1,"source":{"CollectorAgentID":"` + id + `"}}`, true},
+		{"origin", `{"version":1,"source":{"SourceRef":"` + id + `"}}`, true},
+		{"unknown", `{"version":1,"future":{"context_id":"` + id + `"}}`, true},
+		{"future-version", `{"version":2,"view_id":"` + id + `"}`, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scan, err := newFlowQuerySubjectScan("change_events", newSubjectAliasSet(id))
+			if err != nil {
+				t.Fatal(err)
+			}
+			original := `["Original","",{"counter":9007199254740993123456789},` + test.source + `]`
+			raw := []byte(original)
+			got, err := scan.matches(t.Context(), false, raw)
+			if err != nil || got != test.want || string(raw) != original {
+				t.Fatal("source subject selection lost originals or confused UUID references", got, test.want, err)
+			}
+			projected, changed, err := projectSavedQuerySubject(t.Context(), "change_events", raw)
+			if err != nil || changed && !strings.Contains(string(projected), "9007199254740993123456789") {
+				t.Fatal("routing projection narrowed an exact original number", err)
+			}
+		})
 	}
 }

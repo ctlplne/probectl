@@ -19,7 +19,7 @@ import (
 )
 
 func flowQuerySubjectTable(table string) bool {
-	return table == "flow_query_filters" || table == "flow_query_views" || table == "bgp_flow_capture_objects" || table == "alert_rules"
+	return table == "flow_query_filters" || table == "flow_query_views" || table == "bgp_flow_capture_objects" || table == "alert_rules" || table == "change_events"
 }
 
 type flowQuerySubjectScan struct {

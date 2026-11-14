@@ -1531,7 +1531,7 @@ jobs:
         run: |
           python3 scripts/ci_entity_subject_lifecycle.py --selftest
           python3 scripts/ci_entity_subject_lifecycle.py
-          go test -v -p=1 -tags=integration -count=1 -timeout=5m -run '^(TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary|TestFlowQuerySubject.*|TestEntityEvidenceCannotRepublishBeforeErasureCutoff|TestEntityEvidenceSubjectErasureRejectsLateSenderReplay|TestConfiguredTestReferencesSurviveSubjectErasureWithoutHidingPersonalText|TestEntityEvidenceSubjectMetadataExportErasureAndIsolation)$' ./internal/tenantlife ./internal/store
+          go test -v -p=1 -tags=integration -count=1 -timeout=5m -run '^(TestOriginalSourceSubjectExportErasurePreservesStructuralReferencesAndTenant|TestAlertQuerySubjectPostgresErasesConfigurationAndKeepsTenantBoundary|TestFlowQuerySubject.*|TestEntityEvidenceCannotRepublishBeforeErasureCutoff|TestEntityEvidenceSubjectErasureRejectsLateSenderReplay|TestConfiguredTestReferencesSurviveSubjectErasureWithoutHidingPersonalText|TestEntityEvidenceSubjectMetadataExportErasureAndIsolation)$' ./internal/tenantlife ./internal/store
       - name: Permit unprivileged datagram ICMP (DPR-221 — the loopback probe tests need a socket)
         # DPR-221: TestICMPLoopback (both 127.0.0.1 and ::1) and TestRunLoopback
         # died on "icmp: open socket: socket: permission denied". Both deliberately

@@ -226,7 +226,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// tag-binding references out of selection; matching exports keep whole rows.
 	"alert_rules": {
 		plane: "postgres:alert_rules", disposition: subjectTableDeleteMatches,
-		contains: []string{"tag_filter", "query_source", "dependency_policy"},
+		contains: []string{"tag_filter", "query_source", "dependency_policy", "path_health_source"},
 	},
 	"audit_events": {plane: "audit", disposition: subjectTableProjectMatches},
 	"audit_subject_erasures": {
@@ -236,7 +236,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	"change_events": {
 		plane: "postgres:change_events", disposition: subjectTableDeleteMatches,
 		exact:    []string{"actor", "target"},
-		contains: []string{"title", "summary", "attributes"},
+		contains: []string{"title", "summary", "attributes", "routing_source"},
 	},
 	// One row per (policy, rule) already alerted on: both are policy identifiers
 	// from the compliance engine, never a subject.

@@ -23,6 +23,10 @@ func alertSubjectDocumentSQL(column string) string {
 	case "dependency_policy":
 		trimmed = alertSubjectWithoutUUIDReference(document, "context_id")
 		projection = `(` + alertSubjectReadGrantsSQL(document) + `) || (` + alertSubjectDependencyGraphSQL(document) + `)`
+	case "path_health_source":
+		trimmed = alertSubjectWithoutUUIDReference(document, "test_id")
+		trimmed = alertSubjectWithoutUUIDReference(trimmed, "interface_id")
+		projection = alertSubjectReadGrantsSQL(document)
 	case "tag_filter":
 		projection = alertSubjectTagBindingsSQL(document)
 	default:
