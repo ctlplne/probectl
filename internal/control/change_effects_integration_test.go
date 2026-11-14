@@ -198,7 +198,7 @@ func TestChangeEffectsReadsCompleteOriginalRoundTripsThroughCurrentTenantStorage
 		n := uint32(canary.ICMPRequestedPackets(probe))
 		observe := func(sample uint64) {
 			t.Helper()
-			at := f.observedAt(tenant)
+			at := f.observedAt(tenant).Add(789 * time.Nanosecond)
 			rtts := make([]uint64, n)
 			for i := range rtts {
 				rtts[i] = sample
@@ -208,6 +208,9 @@ func TestChangeEffectsReadsCompleteOriginalRoundTripsThroughCurrentTenantStorage
 			receipt, err := store.NewEntityRegistry(f.pool).WriteEvidenceBatchReceipt(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), node.AgentID, serial, []entity.Observation{claim})
 			if err != nil || receipt.Accepted != 1 || receipt.ICMPMeasurements != 1 {
 				t.Fatal("original RTT receipt was not retained", receipt, err)
+			}
+			if sample == uint64(1000+lane) {
+				verifyChangeRoundTripStorage(t, f, tenant, claim.ID, m)
 			}
 		}
 		observe(uint64(1000 + lane))

@@ -63,6 +63,7 @@ END IF;
 END;
 $entity_snmp_prefix_silo$`, quoteLiteral(child), quoteLiteral(snmpPrefixes), child, quoteIdent(snmpPrefixes)),
 			"SELECT public.probectl_install_probe_outcomes(" + quoteLiteral(schema) + ")",
+			"SELECT public.probectl_install_icmp_measurement(" + quoteLiteral(schema) + ")",
 			"SELECT public.probectl_install_snmp_interface_state(" + quoteLiteral(schema) + ")",
 			"SELECT public.probectl_install_bmp_peer_session(" + quoteLiteral(schema) + ")"}
 	}
