@@ -134,7 +134,7 @@ func CheckSQL(file, sql string) []Violation {
 		}
 		// An ADD COLUMN that is NOT NULL must carry a DEFAULT (else the table rewrite
 		// fails on existing rows and breaks N-1 inserts).
-		if addColumn.MatchString(norm) && notNull.MatchString(norm) && !hasDefault.MatchString(norm) {
+		if addedColumnWithoutDefault(norm) {
 			out = append(out, Violation{
 				File: file, Rule: "add column NOT NULL without DEFAULT (add nullable or give a DEFAULT)",
 				Statement: trimStmt(stmt),
@@ -153,6 +153,83 @@ func CheckSQL(file, sql string) []Violation {
 		priorNorm.WriteString(norm)
 	}
 	return out
+}
+
+// Inspect each ADD COLUMN declaration independently. Procedural IS NOT NULL
+// tests after an EXECUTE string are not column declarations; a DEFAULT on a
+// different column cannot make an unsafe declaration additive either.
+func addedColumnWithoutDefault(norm string) bool {
+	for _, match := range addColumn.FindAllStringIndex(norm, -1) {
+		clause := addedColumnClause(norm[match[0]:])
+		if notNull.MatchString(clause) && !hasDefault.MatchString(clause) {
+			return true
+		}
+	}
+	return false
+}
+
+func addedColumnClause(input string) string {
+	var out strings.Builder
+	depth := 0
+	for i := 0; i < len(input); i++ {
+		switch input[i] {
+		case '"':
+			i = skipColumnQuoted(input, i, '"') - 1
+			out.WriteString(" quoted_identifier ")
+		case '\'':
+			if depth == 0 {
+				return out.String()
+			}
+			i = skipColumnQuoted(input, i, '\'') - 1
+			out.WriteString(" literal ")
+		case '$':
+			tag, quoted := dollarTag([]rune(input[i:]), 0)
+			if !quoted {
+				out.WriteByte(input[i])
+				continue
+			}
+			if depth == 0 {
+				return out.String()
+			}
+			end := strings.Index(input[i+len(tag):], tag)
+			if end < 0 {
+				return out.String()
+			}
+			i += len(tag)*2 + end - 1
+			out.WriteString(" literal ")
+		case '(':
+			depth++
+			out.WriteByte(input[i])
+		case ')':
+			if depth == 0 {
+				return out.String()
+			}
+			depth--
+			out.WriteByte(input[i])
+		case ',', ';':
+			if depth == 0 {
+				return out.String()
+			}
+			out.WriteByte(input[i])
+		default:
+			out.WriteByte(input[i])
+		}
+	}
+	return out.String()
+}
+
+func skipColumnQuoted(input string, start int, quote byte) int {
+	for i := start + 1; i < len(input); i++ {
+		if input[i] != quote {
+			continue
+		}
+		if i+1 < len(input) && input[i+1] == quote {
+			i++
+			continue
+		}
+		return i + 1
+	}
+	return len(input)
 }
 
 // policyIdempotencyViolations rejects CREATE POLICY without an exact guard.
