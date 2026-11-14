@@ -25,29 +25,31 @@ import (
 // Queries explicitly project every numeric column as decimal text so the
 // generic HTTP decoder cannot round a uint64 word or a nanosecond clock.
 type counterHistoryDocument struct {
-	TenantID           string `json:"tenant_id"`
-	ContextID          string `json:"context_id"`
-	DeviceID           string `json:"device_id"`
-	AgentID            string `json:"agent_id"`
-	SourceRef          string `json:"source_ref"`
-	SenderSerial       string `json:"sender_serial"`
-	SourceAssigned     int64  `json:"source_assigned_unix_nanos"`
-	AgentAssigned      int64  `json:"agent_assigned_unix_nanos"`
-	CaptureKey         string `json:"capture_key"`
-	RawDigest          string `json:"raw_digest"`
-	Captured           int64  `json:"captured_unix_nanos"`
-	Started            int64  `json:"poll_started_unix_nanos"`
-	Completed          int64  `json:"poll_completed_unix_nanos"`
-	Population         uint32 `json:"population"`
-	IfIndex            uint32 `json:"if_index"`
-	Name               string `json:"name"`
-	Value              uint64 `json:"counter_value"`
-	Width              uint32 `json:"counter_width"`
-	UptimeTicks        uint32 `json:"uptime_ticks"`
-	DiscontinuityTicks uint32 `json:"discontinuity_ticks"`
-	UptimeKnown        uint8  `json:"uptime_known"`
-	DiscontinuityKnown uint8  `json:"discontinuity_known"`
-	RowID              string `json:"row_id"`
+	InterfaceSpeedBPS   uint64 `json:"interface_speed_bps"`
+	InterfaceSpeedKnown uint8  `json:"interface_speed_known"`
+	TenantID            string `json:"tenant_id"`
+	ContextID           string `json:"context_id"`
+	DeviceID            string `json:"device_id"`
+	AgentID             string `json:"agent_id"`
+	SourceRef           string `json:"source_ref"`
+	SenderSerial        string `json:"sender_serial"`
+	SourceAssigned      int64  `json:"source_assigned_unix_nanos"`
+	AgentAssigned       int64  `json:"agent_assigned_unix_nanos"`
+	CaptureKey          string `json:"capture_key"`
+	RawDigest           string `json:"raw_digest"`
+	Captured            int64  `json:"captured_unix_nanos"`
+	Started             int64  `json:"poll_started_unix_nanos"`
+	Completed           int64  `json:"poll_completed_unix_nanos"`
+	Population          uint32 `json:"population"`
+	IfIndex             uint32 `json:"if_index"`
+	Name                string `json:"name"`
+	Value               uint64 `json:"counter_value"`
+	Width               uint32 `json:"counter_width"`
+	UptimeTicks         uint32 `json:"uptime_ticks"`
+	DiscontinuityTicks  uint32 `json:"discontinuity_ticks"`
+	UptimeKnown         uint8  `json:"uptime_known"`
+	DiscontinuityKnown  uint8  `json:"discontinuity_known"`
+	RowID               string `json:"row_id"`
 }
 
 func counterDocument(row CounterRow) counterHistoryDocument {
@@ -58,6 +60,7 @@ func counterDocument(row CounterRow) counterHistoryDocument {
 		return 0
 	}
 	return counterHistoryDocument{
+		InterfaceSpeedBPS: row.InterfaceSpeedBPS, InterfaceSpeedKnown: flag(row.InterfaceSpeedKnown),
 		TenantID: row.TenantID, ContextID: row.ContextID, DeviceID: row.DeviceID, AgentID: row.AgentID, SourceRef: row.SourceRef, SenderSerial: row.SenderSerial,
 		SourceAssigned: row.SourceAssignedAt.UnixNano(), AgentAssigned: row.AgentAssignedAt.UnixNano(),
 		CaptureKey: hex.EncodeToString(row.CaptureKey[:]), RawDigest: hex.EncodeToString(row.RawDigest[:]), Captured: row.CapturedAt.UnixNano(),
@@ -83,6 +86,7 @@ func counterPortableDocument(row CounterRow) map[string]any {
 		"population":                 strconv.FormatUint(uint64(doc.Population), 10), "if_index": strconv.FormatUint(uint64(doc.IfIndex), 10),
 		"counter_value": strconv.FormatUint(doc.Value, 10), "counter_width": strconv.FormatUint(uint64(doc.Width), 10),
 		"uptime_ticks": strconv.FormatUint(uint64(doc.UptimeTicks), 10), "discontinuity_ticks": strconv.FormatUint(uint64(doc.DiscontinuityTicks), 10),
+		"interface_speed_bps": strconv.FormatUint(doc.InterfaceSpeedBPS, 10), "interface_speed_known": strconv.FormatUint(uint64(doc.InterfaceSpeedKnown), 10),
 		"uptime_known": strconv.FormatUint(uint64(doc.UptimeKnown), 10), "discontinuity_known": strconv.FormatUint(uint64(doc.DiscontinuityKnown), 10),
 	}
 }
@@ -172,7 +176,7 @@ func (c *ClickHouse) insertCounterBody(ctx context.Context, target Target, table
 
 func counterReadColumns() string {
 	columns := []string{"tenant_id", "context_id", "device_id", "agent_id", "source_ref", "sender_serial", "capture_key", "raw_digest", "name", "row_id"}
-	for _, name := range []string{"source_assigned_unix_nanos", "agent_assigned_unix_nanos", "captured_unix_nanos", "poll_started_unix_nanos", "poll_completed_unix_nanos", "population", "if_index", "counter_value", "counter_width", "uptime_ticks", "discontinuity_ticks", "uptime_known", "discontinuity_known"} {
+	for _, name := range []string{"source_assigned_unix_nanos", "agent_assigned_unix_nanos", "captured_unix_nanos", "poll_started_unix_nanos", "poll_completed_unix_nanos", "population", "if_index", "counter_value", "counter_width", "uptime_ticks", "discontinuity_ticks", "uptime_known", "discontinuity_known", "interface_speed_bps", "interface_speed_known"} {
 		columns = append(columns, "toString("+name+") AS "+name)
 	}
 	return strings.Join(columns, ",")
@@ -293,7 +297,7 @@ func (c *ClickHouse) WalkCounterPoints(ctx context.Context, query CounterQuery, 
 }
 
 func counterHistoryRow(raw map[string]any) (CounterRow, error) {
-	if len(raw) != 23 {
+	if len(raw) != 23 && len(raw) != 25 {
 		return CounterRow{}, ErrCounterHistoryInput
 	}
 	text := func(name string) string { value, _ := raw[name].(string); return value }
@@ -328,6 +332,14 @@ func counterHistoryRow(raw map[string]any) (CounterRow, error) {
 			return CounterRow{}, ErrCounterHistoryInput
 		}
 		*target = value == "1"
+	}
+	if len(raw) == 25 {
+		value := text("interface_speed_bps")
+		speed, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || strconv.FormatUint(speed, 10) != value || (text("interface_speed_known") != "0" && text("interface_speed_known") != "1") {
+			return CounterRow{}, ErrCounterHistoryInput
+		}
+		row.InterfaceSpeedBPS, row.InterfaceSpeedKnown = speed, text("interface_speed_known") == "1"
 	}
 	value := text("counter_value")
 	word, err := strconv.ParseUint(value, 10, 64)

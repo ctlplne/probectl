@@ -150,6 +150,9 @@ func (c *DeviceCounterConsumer) handleLane(ctx context.Context, message bus.Mess
 			}
 			word := point.ExactCounter
 			row := flowstore.CounterRow{TenantID: tenant, CounterSource: flowstore.CounterSource{ContextID: witness.Scope.ContextID, DeviceID: witness.DeviceID, AgentID: batch.Sender, SourceRef: batch.Input.ConfiguredTarget, SourceAssignedAt: witness.SourceAssignedAt, AgentAssignedAt: witness.AgentAssignedAt}, SenderSerial: witness.SenderSerial, CaptureKey: witness.Key, RawDigest: batch.Digest, CapturedAt: witness.CapturedAt, PollStartedAt: batch.Input.PollStartedAt, PollCompletedAt: batch.Input.PollCompletedAt, Population: batch.Input.PointCount, IfIndex: point.IfIndex, Name: point.Name, Value: word.Value, Width: word.Width}
+			if word.InterfaceSpeedBps != nil {
+				row.InterfaceSpeedKnown, row.InterfaceSpeedBPS = true, *word.InterfaceSpeedBps
+			}
 			if word.UptimeTicks != nil {
 				row.UptimeKnown = true
 				row.UptimeTicks = *word.UptimeTicks

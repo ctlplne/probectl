@@ -236,7 +236,7 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 		}
 		setIf(idx, func(e *Interface) { e.AdminStatus = uint32(value) })
 	})
-	walkColumn(conn, oidIfHighSpeed, func(idx uint32, p gosnmp.SnmpPDU) {
+	speeds := snmpInterfaceSpeeds(ctx, conn, inv.Interfaces, func(idx uint32, p gosnmp.SnmpPDU) {
 		setIf(idx, func(e *Interface) { e.SpeedMbps = uint64(pduFloat(p)) })
 	})
 
@@ -331,6 +331,7 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 		if counter == nil {
 			continue
 		}
+		counter.InterfaceSpeedBPS, counter.InterfaceSpeedKnown = speeds[out[i].IfIndex]
 		counter.UptimeKnown = uptimeKnown
 		if uptimeKnown {
 			counter.UptimeTicks = uptimeTicks

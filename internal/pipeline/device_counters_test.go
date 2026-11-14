@@ -51,8 +51,9 @@ func counterConsumerMessage(t *testing.T, tenant string) bus.Message {
 	t.Helper()
 	at := time.Unix(1794000000, 123456789)
 	zero := uint32(0)
+	speed := uint64(1<<53 + 1)
 	batch := &devicev1.DeviceMetricBatch{Metrics: []*devicev1.DeviceMetric{
-		{TenantId: tenant, AgentId: "same-agent", DeviceAddress: "192.0.2.1", Source: device.SourceSNMP, IfIndex: 7, Name: device.MetricIfInOctets, TimeUnixNano: at.UnixNano(), ExactCounter: &devicev1.DeviceCounter{Value: ^uint64(0), Width: 64, UptimeTicks: &zero, DiscontinuityTicks: &zero, PollStartedAtUnixNano: at.UnixNano(), PollCompletedAtUnixNano: at.Add(time.Second).UnixNano()}},
+		{TenantId: tenant, AgentId: "same-agent", DeviceAddress: "192.0.2.1", Source: device.SourceSNMP, IfIndex: 7, Name: device.MetricIfInOctets, TimeUnixNano: at.UnixNano(), ExactCounter: &devicev1.DeviceCounter{InterfaceSpeedBps: &speed, Value: ^uint64(0), Width: 64, UptimeTicks: &zero, DiscontinuityTicks: &zero, PollStartedAtUnixNano: at.UnixNano(), PollCompletedAtUnixNano: at.Add(time.Second).UnixNano()}},
 	}}
 	raw, err := proto.Marshal(batch)
 	if err != nil {
@@ -79,7 +80,7 @@ func TestDeviceCounterConsumerKeepsCertifiedWholeExactPollsAndTwoTenants(t *test
 		}
 		query := flowstore.CounterQuery{TenantID: tenant, From: batch.Input.PollStartedAt.Add(-time.Minute), To: batch.Input.PollCompletedAt.Add(time.Minute), Budget: budget, Sources: []flowstore.CounterSelector{{CounterSource: flowstore.CounterSource{ContextID: "22222222-2222-4222-8222-222222222222", DeviceID: "33333333-3333-4333-8333-333333333333", AgentID: batch.Sender, SourceRef: batch.Input.ConfiguredTarget, SourceAssignedAt: batch.Input.PollStartedAt.Add(-time.Hour), AgentAssignedAt: batch.Input.PollStartedAt.Add(-time.Hour)}, IfIndexes: []uint32{7}}}}
 		rows, err := history.CounterPoints(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), query)
-		if err != nil || len(rows) != 1 || rows[0].Value != ^uint64(0) || rows[0].SenderSerial != "certified" || rows[0].RawDigest != batch.Digest || !rows[0].UptimeKnown || rows[0].UptimeTicks != 0 || !rows[0].PollStartedAt.Equal(batch.Input.PollStartedAt) {
+		if err != nil || len(rows) != 1 || rows[0].Value != ^uint64(0) || !rows[0].InterfaceSpeedKnown || rows[0].InterfaceSpeedBPS != 1<<53+1 || rows[0].SenderSerial != "certified" || rows[0].RawDigest != batch.Digest || !rows[0].UptimeKnown || rows[0].UptimeTicks != 0 || !rows[0].PollStartedAt.Equal(batch.Input.PollStartedAt) {
 			t.Fatal("history lost original values, certified provenance, retry identity or tenant", rows, err)
 		}
 	}

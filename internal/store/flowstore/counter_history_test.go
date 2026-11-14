@@ -35,6 +35,9 @@ func counterHistoryRows(t *testing.T, tenant string) []CounterRow {
 	rows[1].Value = 1<<53 + 1
 	rows[2].Value, rows[2].Width = 1<<32-1, 32
 	rows[3].Value = 0
+	rows[0].InterfaceSpeedBPS, rows[0].InterfaceSpeedKnown = ^uint64(0), true
+	rows[1].InterfaceSpeedBPS, rows[1].InterfaceSpeedKnown = 1<<53+1, true
+	rows[2].InterfaceSpeedBPS, rows[2].InterfaceSpeedKnown = 0, true
 	return rows
 }
 

@@ -114,3 +114,36 @@ func TestRawCounterBatchRefusesForeignOrIncompleteWholePolls(t *testing.T) {
 		t.Fatal("canceled counter batch returned a population", err)
 	}
 }
+
+func TestRawCounterSpeedKeepsTenantDigestAndRefusesContradictoryInterface(t *testing.T) {
+	for _, tenant := range []string{"11111111-1111-4111-8111-111111111111", "66666666-6666-4666-8666-666666666666"} {
+		batch := counterBatchFixture(tenant)
+		speeds := map[uint32]uint64{32: 0, 64: 1<<53 + 1}
+		for _, point := range batch.Metrics {
+			speed := speeds[point.IfIndex]
+			point.ExactCounter.InterfaceSpeedBps = &speed
+		}
+		raw, err := proto.Marshal(batch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := ParseCounterBatch(t.Context(), tenant, raw, 8<<20, 8<<20)
+		if err != nil {
+			t.Fatal("whole original speed poll refused", err)
+		}
+		for _, point := range got.Metrics {
+			if point.TenantId != tenant || point.ExactCounter.InterfaceSpeedBps == nil || *point.ExactCounter.InterfaceSpeedBps != speeds[point.IfIndex] {
+				t.Fatal("original speed lost tenant, zero presence or exact wide word")
+			}
+		}
+		speed := uint64(1)
+		batch.Metrics[2].ExactCounter.InterfaceSpeedBps = &speed
+		raw, err = proto.Marshal(batch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ParseCounterBatch(t.Context(), tenant, raw, 8<<20, 8<<20); err == nil {
+			t.Fatal("one poll claimed conflicting speeds for the same interface")
+		}
+	}
+}

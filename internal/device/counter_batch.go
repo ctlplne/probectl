@@ -71,6 +71,11 @@ func ParseCounterBatch(ctx context.Context, tenant string, raw []byte, memoryByt
 		name  string
 	}
 	seen := make(map[pointKey]struct{}, count)
+	type speedWord struct {
+		known bool
+		value uint64
+	}
+	speeds := make(map[uint32]speedWord)
 	for i, metric := range batch.Metrics {
 		if err := ctx.Err(); err != nil {
 			return none, err
@@ -90,6 +95,11 @@ func ParseCounterBatch(ctx context.Context, tenant string, raw []byte, memoryByt
 		if metric.AgentId != result.Sender || metric.DeviceAddress != result.Input.ConfiguredTarget || counter.PollStartedAtUnixNano != result.Input.PollStartedAt.UnixNano() || counter.PollCompletedAtUnixNano != result.Input.PollCompletedAt.UnixNano() {
 			return none, ErrCounterBatchInvalid
 		}
+		word := speedWord{known: counter.InterfaceSpeedBps != nil, value: counter.GetInterfaceSpeedBps()}
+		if prior, found := speeds[metric.IfIndex]; found && prior != word {
+			return none, ErrCounterBatchInvalid
+		}
+		speeds[metric.IfIndex] = word
 		key := pointKey{metric.IfIndex, metric.Name}
 		if _, duplicate := seen[key]; duplicate {
 			return none, ErrCounterBatchInvalid

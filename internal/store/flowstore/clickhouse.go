@@ -429,6 +429,7 @@ func chMigrationsFor(table string) []chmigrate.Migration {
 		fullRollupMigration(table, rollupTable, rollupView),
 		routingCaptureMigration(table, rollupTable, rollupView),
 		counterHistoryMigration(table),
+		counterSpeedMigration(table),
 	}
 }
 

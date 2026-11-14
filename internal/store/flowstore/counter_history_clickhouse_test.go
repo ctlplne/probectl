@@ -52,7 +52,7 @@ func TestCounterHistoryCodecPreservesFullWordsClockPresenceAndNanoseconds(t *tes
 			t.Fatal("original nanosecond clock or observed zero presence was lost")
 		}
 		got, err := counterHistoryRow(counterTextDocument(t, row))
-		if err != nil || got.Value != row.Value || got.Width != row.Width || got.Population != row.Population || got.CaptureKey != row.CaptureKey || got.RawDigest != row.RawDigest || !sameCounterSource(got.CounterSource, row.CounterSource) ||
+		if err != nil || got.InterfaceSpeedBPS != row.InterfaceSpeedBPS || got.InterfaceSpeedKnown != row.InterfaceSpeedKnown || got.Value != row.Value || got.Width != row.Width || got.Population != row.Population || got.CaptureKey != row.CaptureKey || got.RawDigest != row.RawDigest || !sameCounterSource(got.CounterSource, row.CounterSource) ||
 			!got.PollStartedAt.Equal(row.PollStartedAt) || !got.PollCompletedAt.Equal(row.PollCompletedAt) || !got.CapturedAt.Equal(row.CapturedAt) || got.UptimeKnown != row.UptimeKnown || got.DiscontinuityKnown != row.DiscontinuityKnown {
 			t.Fatal("stored counter projection changed original values or source provenance", err)
 		}
@@ -91,5 +91,36 @@ func TestCounterHistorySQLBindsWholeCurrentSourceAndRefusesAlteredRows(t *testin
 	}
 	if _, err := counterHistoryTableFor(Target{Database: "bad;database"}); err == nil {
 		t.Fatal("counter routing accepted SQL syntax in the physical database name")
+	}
+}
+
+func TestCounterHistorySpeedKeepsLegacyAbsenceAndRefusesIncompletePresence(t *testing.T) {
+	row := counterHistoryRows(t, "11111111-1111-4111-8111-111111111111")[0]
+	old := counterTextDocument(t, row)
+	delete(old, "interface_speed_bps")
+	delete(old, "interface_speed_known")
+	got, err := counterHistoryRow(old)
+	if err != nil || got.InterfaceSpeedKnown || got.InterfaceSpeedBPS != 0 {
+		t.Fatal("legacy counter speed absence became an observation", err)
+	}
+	for _, mode := range []string{"only-value", "only-presence", "rounded", "overflow", "unattested", "invalid-presence"} {
+		document := counterTextDocument(t, row)
+		switch mode {
+		case "only-value":
+			delete(document, "interface_speed_known")
+		case "only-presence":
+			delete(document, "interface_speed_bps")
+		case "rounded":
+			document["interface_speed_bps"] = float64(1<<53 + 1)
+		case "overflow":
+			document["interface_speed_bps"] = "18446744073709551616"
+		case "unattested":
+			document["interface_speed_known"] = "0"
+		case "invalid-presence":
+			document["interface_speed_known"] = "2"
+		}
+		if _, err := counterHistoryRow(document); err == nil {
+			t.Fatal("incomplete or rounded speed metadata was accepted", mode)
+		}
 	}
 }

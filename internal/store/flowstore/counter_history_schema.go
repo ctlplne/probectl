@@ -95,3 +95,14 @@ func counterCommittedPredicate(target Target, window bool) (string, error) {
 	}
 	return "(capture_key,population) IN (SELECT capture_key,population FROM " + table + " FINAL WHERE " + predicate + ")", err
 }
+
+// Expand the existing history in every pooled or silo target. Old observations
+// retain unknown speed; migration 8's applied schema/checksum stays unchanged.
+func counterSpeedMigration(flowTable string) chmigrate.Migration {
+	table := strings.TrimSuffix(flowTable, sharedFlowsTable) + sharedCounterHistoryTable
+	return chmigrate.Migration{Version: 9, Name: "counter_original_interface_speed", Statements: []string{
+		"ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS interface_speed_bps UInt64 DEFAULT 0",
+		"ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS interface_speed_known UInt8 DEFAULT 0",
+		"ALTER TABLE " + table + " ADD CONSTRAINT IF NOT EXISTS counter_speed_presence CHECK interface_speed_known IN (0,1) AND (interface_speed_known=1 OR interface_speed_bps=0)",
+	}}
+}

@@ -93,6 +93,16 @@ fed it. (Source of truth: `internal/device/model.go`.)
 | `probectl.device.memory.{used,total}.bytes` | hrStorageTable (RAM row) | — | bytes |
 | `probectl.device.sensor.temperature.celsius` | ENTITY-SENSOR (opt-in) | — | °C |
 
+The exact SNMP counter lane also retains optional `interface_speed_bps` from
+that same poll, under its authenticated original-body receipt. Positive typed
+`ifHighSpeed` (integer Mbps) takes precedence; `ifSpeed` supplies finer bps for
+missing or zero high-speed values. Partial, duplicate, malformed or rounded
+columns provide no speed observation. An explicitly returned zero stays distinct
+from missing metadata; older agents and retained rows have unknown speed.
+ClickHouse migration 9 expands the existing counter store without rewriting old
+observations. Exported speed values are decimal strings. A speed snapshot does
+not establish constant capacity between polls or identify a forwarding port.
+
 These names live in the `probectl.device.*` namespace deliberately. probectl maps
 its signals onto OpenTelemetry semantic conventions wherever a standard exists,
 but **no OTel convention covers network-device telemetry**, so this is one of the

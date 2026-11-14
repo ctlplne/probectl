@@ -54,6 +54,9 @@ message DeviceCounter {
   optional uint32 discontinuity_ticks = 4;
   int64 poll_started_at_unix_nano = 5; // zero means unreported
   int64 poll_completed_at_unix_nano = 6;
+  // Exact IF-MIB speed observed in this poll; absence is unknown, zero is explicit.
+  // This does not assert a constant speed between observations.
+  optional uint64 interface_speed_bps = 7;
 }
 
 // DeviceMetricBatch is the bus payload on probectl.device.metrics: one

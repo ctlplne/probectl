@@ -72,8 +72,10 @@ type Metric struct {
 // CounterValue is the original SNMP counter domain, not a rounded TSDB value.
 // Width is 32 or 64 only when the matching ASN.1 counter type was observed.
 type CounterValue struct {
-	Value uint64
-	Width uint32
+	InterfaceSpeedBPS   uint64
+	InterfaceSpeedKnown bool
+	Value               uint64
+	Width               uint32
 	// Presence is independent of the numeric value: zero ticks are valid.
 	UptimeTicks, DiscontinuityTicks uint32
 	UptimeKnown, DiscontinuityKnown bool
@@ -101,6 +103,10 @@ func (m Metric) ToProto() *devicev1.DeviceMetric {
 	}
 	if m.ExactCounter != nil {
 		out.ExactCounter = &devicev1.DeviceCounter{Value: m.ExactCounter.Value, Width: m.ExactCounter.Width}
+		if m.ExactCounter.InterfaceSpeedKnown {
+			speed := m.ExactCounter.InterfaceSpeedBPS
+			out.ExactCounter.InterfaceSpeedBps = &speed
+		}
 		if m.ExactCounter.UptimeKnown {
 			ticks := m.ExactCounter.UptimeTicks
 			out.ExactCounter.UptimeTicks = &ticks

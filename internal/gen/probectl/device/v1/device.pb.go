@@ -191,8 +191,11 @@ type DeviceCounter struct {
 	DiscontinuityTicks      *uint32                `protobuf:"varint,4,opt,name=discontinuity_ticks,json=discontinuityTicks,proto3,oneof" json:"discontinuity_ticks,omitempty"`
 	PollStartedAtUnixNano   int64                  `protobuf:"varint,5,opt,name=poll_started_at_unix_nano,json=pollStartedAtUnixNano,proto3" json:"poll_started_at_unix_nano,omitempty"` // zero means unreported
 	PollCompletedAtUnixNano int64                  `protobuf:"varint,6,opt,name=poll_completed_at_unix_nano,json=pollCompletedAtUnixNano,proto3" json:"poll_completed_at_unix_nano,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// Exact IF-MIB speed observed in this poll; absence is unknown, zero is explicit.
+	// This does not assert a constant speed between observations.
+	InterfaceSpeedBps *uint64 `protobuf:"varint,7,opt,name=interface_speed_bps,json=interfaceSpeedBps,proto3,oneof" json:"interface_speed_bps,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *DeviceCounter) Reset() {
@@ -263,6 +266,13 @@ func (x *DeviceCounter) GetPollStartedAtUnixNano() int64 {
 func (x *DeviceCounter) GetPollCompletedAtUnixNano() int64 {
 	if x != nil {
 		return x.PollCompletedAtUnixNano
+	}
+	return 0
+}
+
+func (x *DeviceCounter) GetInterfaceSpeedBps() uint64 {
+	if x != nil && x.InterfaceSpeedBps != nil {
+		return *x.InterfaceSpeedBps
 	}
 	return 0
 }
@@ -1039,16 +1049,18 @@ const file_probectl_device_v1_device_proto_rawDesc = "" +
 	" \x01(\tR\x04unit\x12$\n" +
 	"\x0etime_unix_nano\x18\v \x01(\x03R\ftimeUnixNano\x12/\n" +
 	"\x13interface_addresses\x18\f \x03(\tR\x12interfaceAddresses\x12F\n" +
-	"\rexact_counter\x18\r \x01(\v2!.probectl.device.v1.DeviceCounterR\fexactCounter\"\xba\x02\n" +
+	"\rexact_counter\x18\r \x01(\v2!.probectl.device.v1.DeviceCounterR\fexactCounter\"\x87\x03\n" +
 	"\rDeviceCounter\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\x04R\x05value\x12\x14\n" +
 	"\x05width\x18\x02 \x01(\rR\x05width\x12&\n" +
 	"\fuptime_ticks\x18\x03 \x01(\rH\x00R\vuptimeTicks\x88\x01\x01\x124\n" +
 	"\x13discontinuity_ticks\x18\x04 \x01(\rH\x01R\x12discontinuityTicks\x88\x01\x01\x128\n" +
 	"\x19poll_started_at_unix_nano\x18\x05 \x01(\x03R\x15pollStartedAtUnixNano\x12<\n" +
-	"\x1bpoll_completed_at_unix_nano\x18\x06 \x01(\x03R\x17pollCompletedAtUnixNanoB\x0f\n" +
+	"\x1bpoll_completed_at_unix_nano\x18\x06 \x01(\x03R\x17pollCompletedAtUnixNano\x123\n" +
+	"\x13interface_speed_bps\x18\a \x01(\x04H\x02R\x11interfaceSpeedBps\x88\x01\x01B\x0f\n" +
 	"\r_uptime_ticksB\x16\n" +
-	"\x14_discontinuity_ticks\"t\n" +
+	"\x14_discontinuity_ticksB\x16\n" +
+	"\x14_interface_speed_bps\"t\n" +
 	"\x11DeviceMetricBatch\x12:\n" +
 	"\ametrics\x18\x01 \x03(\v2 .probectl.device.v1.DeviceMetricR\ametrics\x12#\n" +
 	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\"\xa3\x05\n" +

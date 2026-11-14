@@ -42,7 +42,9 @@ type CounterSource struct {
 // CounterRow contains exact observations and private write provenance. It
 // confers no actor/source read grant and carries no legacy rounded value.
 type CounterRow struct {
-	TenantID string
+	InterfaceSpeedBPS   uint64
+	InterfaceSpeedKnown bool
+	TenantID            string
 	CounterSource
 	SenderSerial                               string
 	CaptureKey, RawDigest                      [32]byte
@@ -171,7 +173,7 @@ func validateCounterObservation(row CounterRow) error {
 		row.SenderSerial == "" || len(row.SenderSerial) > 256 || strings.TrimSpace(row.SenderSerial) != row.SenderSerial || !utf8.ValidString(row.SenderSerial) || strings.IndexFunc(row.SenderSerial, unicode.IsControl) >= 0 ||
 		row.IfIndex == 0 || !counterHistoryMetricName(row.Name) ||
 		(row.Width != 32 && row.Width != 64) || (row.Width == 32 && row.Value > 1<<32-1) ||
-		(!row.UptimeKnown && row.UptimeTicks != 0) || (!row.DiscontinuityKnown && row.DiscontinuityTicks != 0) {
+		(!row.InterfaceSpeedKnown && row.InterfaceSpeedBPS != 0) || (!row.UptimeKnown && row.UptimeTicks != 0) || (!row.DiscontinuityKnown && row.DiscontinuityTicks != 0) {
 		return ErrCounterHistoryInput
 	}
 	expected, err := entity.CounterCaptureKey(row.TenantID, row.AgentID, row.RawDigest,
@@ -221,6 +223,11 @@ func validateCounterPoll(ctx context.Context, rows []CounterRow, budget CounterB
 		return ErrCounterHistoryBudget
 	}
 	seen := make(map[point]struct{}, len(rows))
+	type speedWord struct {
+		known bool
+		value uint64
+	}
+	speeds := make(map[uint32]speedWord)
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -235,10 +242,15 @@ func validateCounterPoll(ctx context.Context, rows []CounterRow, budget CounterB
 			!row.CapturedAt.Equal(first.CapturedAt) || !row.PollStartedAt.Equal(first.PollStartedAt) || !row.PollCompletedAt.Equal(first.PollCompletedAt) ||
 			row.IfIndex == 0 || !counterHistoryMetricName(row.Name) ||
 			(row.Width != 32 && row.Width != 64) || (row.Width == 32 && row.Value > 1<<32-1) ||
-			(!row.UptimeKnown && row.UptimeTicks != 0) || (!row.DiscontinuityKnown && row.DiscontinuityTicks != 0) {
+			(!row.InterfaceSpeedKnown && row.InterfaceSpeedBPS != 0) || (!row.UptimeKnown && row.UptimeTicks != 0) || (!row.DiscontinuityKnown && row.DiscontinuityTicks != 0) {
 			return ErrCounterHistoryInput
 		}
 		key := point{row.IfIndex, row.Name}
+		speed := speedWord{row.InterfaceSpeedKnown, row.InterfaceSpeedBPS}
+		if prior, found := speeds[row.IfIndex]; found && prior != speed {
+			return ErrCounterHistoryInput
+		}
+		speeds[row.IfIndex] = speed
 		if _, duplicate := seen[key]; duplicate {
 			return ErrCounterHistoryInput
 		}
