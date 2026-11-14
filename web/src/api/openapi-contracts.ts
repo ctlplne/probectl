@@ -1044,7 +1044,7 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/paths.ts',
     method: 'GET',
-    path: "`/tests/${encodeURIComponent(testId ?? '')}/path/entities${includeHealth ? '?include_health=true' : ''}`",
+    path: "`/tests/${encodeURIComponent(testId ?? '')}/path/entities${query ? `?${query}` : ''}`",
     response: 'EntityPathResult',
     generated: 'GetPathEntitiesResponse',
   },

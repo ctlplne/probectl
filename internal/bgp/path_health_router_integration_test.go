@@ -187,7 +187,6 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 			verifyRouterPathOriginals(t, body, reg, originals[lane])
 		}
 	})
-
 }
 
 func pathLabPrivileged(t *testing.T, program string, args ...string) {
@@ -255,8 +254,10 @@ func archiveRouterPathConfigs(t *testing.T, st *shipped.Stack, lab *routingLab, 
 		for lane, reg := range registrations {
 			code, body := st.Do(t, reg.cookie, http.MethodPost, "/v1/device/configs", map[string]any{"device": "same-router", "source": "operator-submitted", "content": content, "binding": map[string]string{"context_id": reg.contextID, "device_entity_id": reg.deviceID, "agent_id": agents[lane], "source_ref": primary}})
 			var archive sdk.DeviceConfigVersion
-			if code != http.StatusCreated || json.Unmarshal(body, &archive) != nil || archive.Version != version+1 || archive.Binding == nil || archive.Binding.DeviceEntityId != reg.deviceID || version == 1 && (archive.Drifted == nil || !*archive.Drifted) {
-				t.Fatal("operator FRR archive lost its exact device/source stream", code)
+			decodeErr := json.Unmarshal(body, &archive)
+			if code != http.StatusCreated || decodeErr != nil || archive.Version != version+1 || archive.Binding == nil || archive.Binding.DeviceEntityId != reg.deviceID || version == 1 && (archive.Drifted == nil || !*archive.Drifted) {
+				matching := archive.Binding != nil && archive.Binding.DeviceEntityId == reg.deviceID
+				t.Fatalf("operator FRR archive lost its exact device/source stream: status=%d decoded=%t expected_version=%d actual_version=%d bound=%t matching_device=%t drift_present=%t drifted=%t", code, decodeErr == nil, version+1, archive.Version, archive.Binding != nil, matching, archive.Drifted != nil, archive.Drifted != nil && *archive.Drifted)
 			}
 		}
 	}
