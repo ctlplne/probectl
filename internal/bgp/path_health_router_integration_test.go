@@ -247,10 +247,17 @@ func setRouterPathError(t *testing.T, lab *routingLab, sidecar, original, index,
 func archiveRouterPathConfigs(t *testing.T, st *shipped.Stack, lab *routingLab, registrations []edgeFlowRegistration, agents []string, primary string) {
 	t.Helper()
 	for version := range 2 {
+		description := "probectl-path-health-baseline"
 		if version == 1 {
-			lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "hostname path-health-router", "-c", "end")
+			description = "probectl-path-health-changed"
 		}
+		// A CLI hostname command did not establish changed running content.
+		// Require a daemon-visible interface line before archiving either state.
+		lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "interface lo", "-c", "description "+description, "-c", "end")
 		content := lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "show running-config")
+		if !strings.Contains(content, "description "+description) {
+			t.Fatal("FRR did not expose the requested owned interface description in its running config")
+		}
 		for lane, reg := range registrations {
 			code, body := st.Do(t, reg.cookie, http.MethodPost, "/v1/device/configs", map[string]any{"device": "same-router", "source": "operator-submitted", "content": content, "binding": map[string]string{"context_id": reg.contextID, "device_entity_id": reg.deviceID, "agent_id": agents[lane], "source_ref": primary}})
 			var archive sdk.DeviceConfigVersion
