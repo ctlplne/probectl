@@ -283,4 +283,18 @@ func TestCarrierExportKeepsCompleteOriginalsOfflineAndCurrentTenantAuthority(t *
 	if code, _ := fetch(b, ids[b]); code != http.StatusOK {
 		t.Fatal("primary withdrawal changed sibling carrier", code)
 	}
+
+	// A retained operation context must still refresh the actual native token.
+	// Revoke it after the source read; no signed package may reach publication.
+	proof.history.after = func() {
+		proof.history.after = nil
+		if err := store.NewMCPTokens(f.pool).RevokeForUser(t.Context(), b, f.users[b]); err != nil {
+			t.Error(err)
+		}
+	}
+	native := interfaceRoleNativeTLSCaller(t, f, "2026-07-28")
+	native(b, "incident_carrier_pack", map[string]any{"incident_id": ids[b], "from": windows[b].From, "to": windows[b].To}, nil, false)
+	if proof.history.after != nil {
+		t.Fatal("late native credential withdrawal boundary did not execute")
+	}
 }

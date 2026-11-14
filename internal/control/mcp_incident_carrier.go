@@ -116,8 +116,14 @@ func (b mcpIncidentCarrierBackend) CarrierPack(ctx context.Context, actor *auth.
 	}); err != nil {
 		return none, err
 	}
-	final := func(ctx context.Context) error {
-		ctx = context.WithValue(ctx, incidentImpactExportKey{}, true)
+	// Retain the admitted, tenant-bound operation context. The native server
+	// supplies its transport context here, which has no storage tenant binding.
+	// The child still inherits transport cancellation and the exact credential
+	// guard, and its finite deadline/release remain live through publication.
+	final := func(_ context.Context) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := publication(ctx); err != nil {
 			return err
 		}
