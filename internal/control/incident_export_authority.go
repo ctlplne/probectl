@@ -7,7 +7,9 @@
 package control
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -70,7 +72,21 @@ func (s *Server) revalidateIncidentExport(r *http.Request, original *incident.In
 		}
 		// The exact incident must still exist after encoding. A late erase must
 		// never publish the retained pre-erasure body under an otherwise valid key.
-		_, err := (store.Incidents{}).Get(ctx, sc, original.ID)
-		return err
+		retained, err := (store.Incidents{}).Get(ctx, sc, original.ID)
+		if err != nil {
+			return err
+		}
+		before, err := json.Marshal(original)
+		if err != nil {
+			return err
+		}
+		after, err := json.Marshal(retained)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(before, after) {
+			return apierror.Unavailable("original incident evidence changed before publication; retry")
+		}
+		return ctx.Err()
 	})
 }

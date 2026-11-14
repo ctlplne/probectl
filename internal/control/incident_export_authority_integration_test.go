@@ -29,7 +29,7 @@ import (
 // Postgres storage are real. A request-start credential cannot authorize a
 // package after that same credential is withdrawn during synthesis.
 func TestIncidentExportRechecksOriginatingCredentialAndKeepsSiblingPrivate(t *testing.T) {
-	for _, boundary := range []string{"credential_revoked", "permission_withdrawn", "user_disabled", "incident_erased"} {
+	for _, boundary := range []string{"credential_revoked", "permission_withdrawn", "user_disabled", "incident_erased", "incident_changed"} {
 		t.Run(boundary, func(t *testing.T) { proveIncidentExportCurrentBoundary(t, boundary) })
 	}
 }
@@ -107,6 +107,8 @@ func proveIncidentExportCurrentBoundary(t *testing.T, boundary string) {
 				_, err = sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, a, f.roles[a], permAIQuery)
 			case "user_disabled":
 				_, err = sc.Q.Exec(ctx, `UPDATE users SET status='disabled' WHERE tenant_id=$1 AND id=$2`, a, f.users[a])
+			case "incident_changed":
+				_, err = sc.Q.Exec(ctx, `UPDATE incidents SET title='current incident after private source withdrawal' WHERE tenant_id=$1 AND id=$2`, a, ids[a])
 			case "incident_erased":
 				_, err = sc.Q.Exec(ctx, `DELETE FROM incidents WHERE tenant_id=$1 AND id=$2`, a, ids[a])
 			default:
