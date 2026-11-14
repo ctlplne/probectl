@@ -220,7 +220,11 @@ describe('tenant-safe dashboard reporting', () => {
       '/v1/dashboard-report-artifacts/artifact-1',
     )
     await user.click(screen.getByRole('button', { name: /schedule delivery/i }))
-    expect(await screen.findByText(/cross-plane posture weekly/i)).toBeInTheDocument()
+    expect(
+      await within(screen.getByRole('region', { name: 'Schedules' })).findByText(
+        /^cross-plane posture weekly$/i,
+      ),
+    ).toBeInTheDocument()
 
     const scheduled = requests.find(
       (request) => request.path === '/v1/dashboard-report-schedules' && request.method === 'POST',

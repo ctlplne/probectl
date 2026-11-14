@@ -68,7 +68,7 @@ capabilities:
     api: {refs: ["api:GET /v1/tests/{id}/path", "api:GET /v1/tests/{id}/path/history", "api:GET /v1/tests/{id}/path/entities"]}
     cli: {refs: ["cli:probectl test path <id>", "cli:probectl test path-history <id>", "cli:probectl entities path-resolve"]}
     ui: {refs: ["ui:F3@/path"]}
-    docs: {refs: ["file:docs/topology.md#Topology graph", "file:docs/entity-registry.md", "file:docs/mcp.md"]}
+    docs: {refs: ["file:docs/topology.md#Topology graph", "file:docs/entity-registry.md#Original polled hop health (preview)", "file:docs/mcp.md#Original polled path-interface health (preview)"]}
     config_keys: {refs: ["config:PROBECTL_HOP_GEO_FILE"]}
     telemetry: {refs: ["file:internal/store/pathstore/batching.go"]}
     real_stack_proof: {refs: ["test:internal/path/realstack_integration_test.go#TestPathVisualizationRealStack"]}

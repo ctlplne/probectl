@@ -63,17 +63,17 @@ type openAPIParameter struct {
 	In       string `json:"in"`
 	Required bool   `json:"required"`
 	Schema   struct {
-		Type    openAPIType `json:"type"`
-		Minimum float64     `json:"minimum"`
-		Maximum float64     `json:"maximum"`
-		Default float64     `json:"default"`
+		Type    openAPIType     `json:"type"`
+		Minimum float64         `json:"minimum"`
+		Maximum float64         `json:"maximum"`
+		Default json.RawMessage `json:"default"`
 	} `json:"schema"`
 }
 
 type openAPISchema struct {
 	Ref        string                   `json:"$ref"`
 	Type       any                      `json:"type"`
-	Enum       []string                 `json:"enum"`
+	Enum       json.RawMessage          `json:"enum"`
 	Properties map[string]openAPISchema `json:"properties"`
 }
 
@@ -139,7 +139,11 @@ func TestOpenAPIErrorCodeRegistry(t *testing.T) {
 	if openAPISchemaType(codeSchema) != "string" {
 		t.Fatalf("ErrorCode type = %v, want string", codeSchema.Type)
 	}
-	if got, want := codeSchema.Enum, apierror.RegisteredCodes(); !sameStrings(got, want) {
+	var codeEnum []string
+	if err := json.Unmarshal(codeSchema.Enum, &codeEnum); err != nil {
+		t.Fatalf("ErrorCode enum must contain only strings: %v", err)
+	}
+	if got, want := codeEnum, apierror.RegisteredCodes(); !sameStrings(got, want) {
 		t.Fatalf("ErrorCode enum drifted:\ngot  %v\nwant %v", got, want)
 	}
 	detailSchema := spec.Components.Schemas["ErrorDetail"]
