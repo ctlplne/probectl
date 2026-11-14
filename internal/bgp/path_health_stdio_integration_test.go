@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -42,6 +44,31 @@ func proveRouterPathStdio(t *testing.T, st *shipped.Stack, reg edgeFlowRegistrat
 	}
 	issued := strings.Split(strings.TrimSpace(st.Subcommand(t, "mcp-token", "--tenant", reg.tenantID, "--user", identity.UserID, "--name", "path-process-"+wire, "--scope", "read,ai.query", "--expires-days", "1")), "\n")
 	token := issued[len(issued)-1]
+	if wire == "2026-07-28" {
+		t.Run("sdk", func(t *testing.T) {
+			fromText, toText, include := from.Format(time.RFC3339Nano), to.Format(time.RFC3339Nano), true
+			client := sdk.NewClient(st.BaseURL, sdk.WithHTTPClient(st.Client()), sdk.WithToken(token))
+			result, err := client.GetPathEntities(t.Context(), sdk.GetPathEntitiesRequest{Id: test, IncludeHealth: &include, HealthFrom: &fromText, HealthTo: &toText})
+			if err != nil || result == nil {
+				t.Fatal("routed path generated SDK", err)
+			}
+			data, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			verifyRouterPathOriginals(t, data, reg, expected)
+		})
+		t.Run("cli", func(t *testing.T) {
+			command := exec.Command(st.Binary(t, "probectl"), "--json", "entities", "path-resolve", test, "--query", "include_health=true", "--query", "health_from="+from.Format(time.RFC3339Nano), "--query", "health_to="+to.Format(time.RFC3339Nano))
+			command.Dir = st.Dir
+			command.Env = append(os.Environ(), "PROBECTL_API_URL="+st.BaseURL, "PROBECTL_API_TOKEN="+token, "PROBECTL_CA_FILE="+st.CAFile)
+			data, err := command.Output()
+			if err != nil {
+				t.Fatal("routed path compiled CLI", err)
+			}
+			verifyRouterPathOriginals(t, data, reg, expected)
+		})
+	}
 	input, output := st.MCPStdio(t, fmt.Sprintf("path-stdio-%s-%s", wire, reg.tenantID), token)
 	encoder, decoder := json.NewEncoder(input), json.NewDecoder(output)
 	if wire == "2025-11-25" {

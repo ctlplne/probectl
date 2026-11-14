@@ -25,6 +25,8 @@ PATH_HEALTH = (
       for tenant in ("primary", "paired") for theme in ("light", "dark")),
     *(ROOT + "/routed-path-health/" + tenant + "/stdio/" + wire
       for tenant in ("primary", "paired") for wire in ("2026-07-28", "2025-11-25")),
+    *(ROOT + "/routed-path-health/" + tenant + "/stdio/2026-07-28/" + client
+      for tenant in ("primary", "paired") for client in ("sdk", "cli")),
 )
 
 
