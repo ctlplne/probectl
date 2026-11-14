@@ -102,7 +102,7 @@ func (s *Server) loadChangeEffectsSnapshot(ctx context.Context, actor *auth.Prin
 		if err != nil {
 			return err
 		}
-		if !input.From.Before(original.OccurredAt) || !original.OccurredAt.Before(input.To) {
+		if !input.From.Before(change.EffectAt(original)) || !change.EffectAt(original).Before(input.To) {
 			return apierror.Validation("comparison window must include both sides of the original change")
 		}
 		authorize := func(ctx context.Context, record entity.ContextRecord, member store.IncidentImpactEntity) error {
@@ -244,8 +244,9 @@ func (s *Server) computeChangeEffects(ctx context.Context, scope *configEvidence
 	if err != nil {
 		return none, nil, err
 	}
-	plan.From = before.original.OccurredAt
-	rows, periods, reads, err := readIncidentImpactTraffic(ctx, scope.actor.TenantID, batch, before.impact, plan, input.From, before.original.OccurredAt, budget.MemoryBytes/8)
+	at := change.EffectAt(before.original)
+	plan.From = at
+	rows, periods, reads, err := readIncidentImpactTraffic(ctx, scope.actor.TenantID, batch, before.impact, plan, input.From, at, budget.MemoryBytes/8)
 	if err != nil {
 		return none, nil, err
 	}
@@ -263,7 +264,7 @@ func (s *Server) computeChangeEffects(ctx context.Context, scope *configEvidence
 			return none, nil, err
 		}
 	}
-	tests, err := summarizeChangeEffectTests(ctx, scope.actor.TenantID, observed.impact.tests, before.impact.testReads, input.From, before.original.OccurredAt, input.To, budget.MemoryBytes/8)
+	tests, err := summarizeChangeEffectTests(ctx, scope.actor.TenantID, observed.impact.tests, before.impact.testReads, input.From, at, input.To, budget.MemoryBytes/8)
 	if err != nil {
 		return none, nil, flowExplorerStoreError(err)
 	}

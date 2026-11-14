@@ -8,6 +8,16 @@ package change
 
 import "time"
 
+// EffectAt preserves a routing receipt's original clock. The timeline's
+// PostgreSQL observation index can be coarser than the retained source receipt;
+// neither the public original row nor its source metadata is rewritten.
+func EffectAt(original Event) time.Time {
+	if original.Routing != nil {
+		return original.Routing.ObservedAt.UTC()
+	}
+	return original.OccurredAt.UTC()
+}
+
 // EffectTest compares only the explicitly anchored configured source. It never
 // converts a shared name/address into entity membership or a source grant.
 type EffectTest struct {

@@ -85,7 +85,7 @@ func TestChangeEffectsServesExactOriginalsAndKeepsCurrentTenantSourceBoundary(t 
 	for _, tenant := range f.tenants {
 		code, body := read(tenant, originals[tenant].ID)
 		var result changeEffectsResponse
-		if code != http.StatusOK || json.Unmarshal(body, &result) != nil || result.Original.Routing == nil || *result.Original.Routing != *originals[tenant].Routing || result.UnresolvedRoot || !result.Before.To.Equal(originals[tenant].OccurredAt) || !result.After.From.Equal(originals[tenant].OccurredAt) {
+		if code != http.StatusOK || json.Unmarshal(body, &result) != nil || result.Original.Routing == nil || *result.Original.Routing != *originals[tenant].Routing || result.UnresolvedRoot || !result.Before.To.Equal(change.EffectAt(originals[tenant])) || !result.After.From.Equal(change.EffectAt(originals[tenant])) {
 			t.Fatal("exact original comparison was unavailable or changed its source", code, string(body))
 		}
 		if result.Before.ObservedTotals != nil || result.After.ObservedTotals != nil || len(result.Tests) != 0 {

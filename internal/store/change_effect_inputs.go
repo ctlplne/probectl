@@ -33,7 +33,7 @@ func (ChangeEvents) EffectInputsInScope(ctx context.Context, sc tenancy.Scope, i
 	if err != nil {
 		return change.Event{}, nil, err
 	}
-	inputs := &IncidentImpactInputs{TenantID: sc.Tenant.String(), StartedAt: original.OccurredAt, LastSeenAt: original.OccurredAt, SourceGeneration: generation, Entities: []IncidentImpactEntity{}, UnresolvedSignalIDs: []string{}, RootUnresolved: true}
+	inputs := &IncidentImpactInputs{TenantID: sc.Tenant.String(), StartedAt: change.EffectAt(original), LastSeenAt: change.EffectAt(original), SourceGeneration: generation, Entities: []IncidentImpactEntity{}, UnresolvedSignalIDs: []string{}, RootUnresolved: true}
 	var contextID, entityID string
 	switch {
 	case original.Routing != nil:

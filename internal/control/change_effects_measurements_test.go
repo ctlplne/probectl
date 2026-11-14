@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/change"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -77,6 +78,15 @@ func TestChangeEffectMeasurementsKeepOriginalBeforeAfterLossLatencyAndTenantBoun
 		result, err = summarizeChangeEffectTests(t.Context(), tenant, []store.IncidentConfiguredTest{source}, []store.IncidentTestMeasurement{precise}, preciseFrom, at, to, 1<<20)
 		if err != nil || result[0].Before.LossRatio != nil || result[0].Before.Latency != nil || result[0].Before.Observations[0].Reason != "ambiguous_quantized_window_boundary" {
 			t.Fatal("a legacy clock acquired sub-microsecond membership", err)
+		}
+		original := change.Event{OccurredAt: at, Routing: &change.RouteReference{ObservedAt: at.Add(750 * time.Nanosecond)}}
+		boundary := read("between-index-and-original", at.Add(500*time.Nanosecond), []uint64{100})
+		boundary.ObservedAt = at
+		boundary.ICMP.StartedAt = at.Add(100 * time.Nanosecond)
+		boundary.ICMP.RoundTrips.ExecutionNanos = 400
+		result, err = summarizeChangeEffectTests(t.Context(), tenant, []store.IncidentConfiguredTest{source}, []store.IncidentTestMeasurement{boundary}, from, change.EffectAt(original), to, 1<<20)
+		if err != nil || result[0].Before.Latency == nil || result[0].Before.Latency.MeanNanos != "100" || result[0].After.Latency != nil || !original.OccurredAt.Equal(at) {
+			t.Fatal("indexed change clock moved an original reply to the wrong side", err)
 		}
 	}
 }
