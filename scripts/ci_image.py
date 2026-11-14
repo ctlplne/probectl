@@ -16,6 +16,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 
 def digest(stream):
@@ -76,7 +77,7 @@ def config_identity(config, sha, component, edition, platform):
         raise ValueError("image source/component/edition identity differs")
 
 
-def docker_identity(path, sha, component, edition):
+def docker_identity(path, sha, component, edition, require_tag=True):
     archive = Archive(path)
     try:
         manifests = json.loads(archive.read("manifest.json"))
@@ -85,7 +86,7 @@ def docker_identity(path, sha, component, edition):
         manifest = manifests[0]
         tag = f"probectl/{component}:ci"
         tags = manifest.get("RepoTags", [])
-        if not tags or any(value not in {tag, "docker.io/" + tag} for value in tags):
+        if require_tag and (not tags or any(value not in {tag, "docker.io/" + tag} for value in tags)):
             raise ValueError("unexpected transferred image tags")
         raw = archive.read(manifest["Config"])
         config = json.loads(raw)
@@ -158,6 +159,27 @@ def validate_transfer(proof, docker, sha, component, edition, run_id, attempt):
     return actual
 
 
+def loaded_identity(proof, image, sha, component, edition):
+    actual = json.loads(subprocess.check_output(["docker", "image", "inspect", image["tag"]], text=True))[0]
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", actual["Id"]):
+        raise ValueError("unsupported loaded image identity")
+    config_identity({"os": actual["Os"], "architecture": actual["Architecture"], "config": actual["Config"]}, sha, component, edition, "linux/amd64")
+    expected = proof["oci"]["platforms"]["linux/amd64"]["config"]
+    if actual["RootFS"]["Layers"] != expected["rootfs"]["diff_ids"]:
+        raise ValueError("loaded image layers differ from the sealed build")
+    if actual["Id"] != image["image_id"]:
+        # Some image stores expose a manifest identity instead of the config
+        # digest. Export that immutable ID and verify its exact config bytes;
+        # labels alone cannot prove the command/environment or filesystem.
+        with tempfile.TemporaryDirectory(prefix="probectl-qa-beta-image-") as root:
+            saved = Path(root) / "loaded.tar"
+            subprocess.run(["docker", "image", "save", "--output", str(saved), actual["Id"]], check=True)
+            exported = docker_identity(saved, sha, component, edition, require_tag=False)
+            if exported["image_id"] != image["image_id"]:
+                raise ValueError("loaded image configuration differs from the sealed build")
+    return actual["Id"]
+
+
 class ImageTests(unittest.TestCase):
     def fixture(self, root, arches=("amd64", "arm64"), revision="a" * 40):
         blobs = {}
@@ -214,6 +236,42 @@ class ImageTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "source/component/edition"):
                 produce(oci, docker, "a" * 40, "probectl-control", "core", 123, 1)
 
+    def test_loaded_manifest_identity_keeps_exact_configuration_and_layers(self):
+        with tempfile.TemporaryDirectory() as root:
+            oci, docker = self.fixture(root)
+            proof = produce(oci, docker, "a" * 40, "probectl-control", "core", 123, 1)
+            image = proof["docker"]
+            config = proof["oci"]["platforms"]["linux/amd64"]["config"]
+            actual = {"Id": digest(io.BytesIO(b"loaded immutable manifest")), "Os": "linux", "Architecture": "amd64", "Config": config["config"], "RootFS": {"Layers": config["rootfs"]["diff_ids"]}}
+            changed = False
+
+            def save(command, **_):
+                self.assertEqual(command[:4], ["docker", "image", "save", "--output"])
+                self.assertEqual(command[-1], actual["Id"])
+                archive = Archive(docker)
+                try:
+                    files = {name: archive.read(name) for name in archive.members}
+                finally:
+                    archive.close()
+                if changed:
+                    value = json.loads(files["config.json"])
+                    value["config"]["Cmd"] = ["changed-command"]
+                    files["config.json"] = json.dumps(value).encode()
+                with tarfile.open(command[4], "w") as output:
+                    for name, raw in files.items():
+                        member = tarfile.TarInfo(name)
+                        member.size = len(raw)
+                        output.addfile(member, io.BytesIO(raw))
+
+            with mock.patch.object(subprocess, "check_output", side_effect=lambda *_, **__: json.dumps([actual])), mock.patch.object(subprocess, "run", side_effect=save):
+                self.assertEqual(loaded_identity(proof, image, "a" * 40, "probectl-control", "core"), actual["Id"])
+                changed = True
+                with self.assertRaisesRegex(ValueError, "configuration differs"):
+                    loaded_identity(proof, image, "a" * 40, "probectl-control", "core")
+                actual["RootFS"] = {"Layers": []}
+                with self.assertRaisesRegex(ValueError, "layers differ"):
+                    loaded_identity(proof, image, "a" * 40, "probectl-control", "core")
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -239,11 +297,9 @@ def main():
         if not re.fullmatch(r"probectl/[a-z0-9-]+:(scan|e2e)", args.tag or ""):
             raise ValueError("unsupported consumer tag")
         subprocess.run(["docker", "load", "--input", str(args.docker)], check=True)
-        actual = json.loads(subprocess.check_output(["docker", "image", "inspect", image["image_id"]], text=True))[0]
-        if actual["Id"] != image["image_id"] or (actual["Os"], actual["Architecture"]) != ("linux", "amd64"):
-            raise ValueError("loaded image identity/platform differs")
-        subprocess.run(["docker", "tag", image["image_id"], args.tag], check=True)
-        proof = {"sha": sha, "run_id": run_id, "consumer_attempt": attempt, "producer_attempt": proof["producer_attempt"], "image_id": image["image_id"], "tar_sha256": image["tar_sha256"], "tag": args.tag, "loaded": True}
+        loaded = loaded_identity(proof, image, sha, args.component, args.edition)
+        subprocess.run(["docker", "tag", loaded, args.tag], check=True)
+        proof = {"sha": sha, "run_id": run_id, "consumer_attempt": attempt, "producer_attempt": proof["producer_attempt"], "image_id": loaded, "config_digest": image["image_id"], "tar_sha256": image["tar_sha256"], "tag": args.tag, "loaded": True}
     else:
         parser.error("select produce or load")
     args.output.parent.mkdir(parents=True, exist_ok=True)
