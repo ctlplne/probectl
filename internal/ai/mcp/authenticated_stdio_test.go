@@ -9,6 +9,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"testing"
@@ -100,10 +101,51 @@ func TestAuthenticatedStdioBindsIdentityAndReloadsPermissions(t *testing.T) {
 			if err := server.ServeAuthenticatedStdio(t.Context(), bytes.NewReader(append(append([]byte{}, frame...), frame...)), &output, initial, refresh); err != nil {
 				t.Fatal(err)
 			}
-			if b.calls != 1 || calls != 2 {
-				t.Fatal("stdio accepted changed identity or stale permissions")
+			if b.calls != 1 || calls < 2 {
+				t.Fatal("stdio accepted changed identity or stale permissions", b.calls, calls)
+			}
+			// The change now occurs during the first call's publication refresh.
+			// Both that result and the next request must refuse; an exact count
+			// of internal refreshes is not the authorization contract.
+			lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte{'\n'})
+			if len(lines) != 2 {
+				t.Fatal("stdio lost a refusal frame")
+			}
+			for _, line := range lines {
+				var reply struct {
+					Error  json.RawMessage `json:"error"`
+					Result json.RawMessage `json:"result"`
+				}
+				if err := json.Unmarshal(line, &reply); err != nil || len(reply.Error) == 0 || len(reply.Result) != 0 {
+					t.Fatal("changed stdio authority published a source result", err)
+				}
 			}
 		})
+	}
+}
+
+func TestAuthenticatedStdioCurrentAuthorityKeepsBothRequestsUsable(t *testing.T) {
+	b := &stdioCountingBackend{}
+	server := newTestServer(b, testGate())
+	frame := []byte("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"list_tests\",\"arguments\":{}}}\n")
+	var output bytes.Buffer
+	if err := server.ServeAuthenticatedStdio(t.Context(), bytes.NewReader(append(append([]byte{}, frame...), frame...)), &output, stdioPrincipal(), func(context.Context) (*auth.Principal, error) { return stdioPrincipal(), nil }); err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte{'\n'})
+	if b.calls != 2 || len(lines) != 2 {
+		t.Fatal("current authenticated stream stopped serving its own source", b.calls, len(lines))
+	}
+	for _, line := range lines {
+		var reply struct {
+			Error  json.RawMessage `json:"error"`
+			Result struct {
+				Data TestsResult `json:"structuredContent"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(line, &reply); err != nil || len(reply.Error) != 0 || len(reply.Result.Data.Tests) != 1 || reply.Result.Data.Tests[0].ID != "owned" {
+			t.Fatal("current stdio request lost its original source result", err)
+		}
 	}
 }
 
