@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/audit"
@@ -38,11 +39,14 @@ import (
 )
 
 type clientReportNativeProof struct {
-	t            *testing.T
-	fixture      *roleExplanationAPIFixture
-	rest, native *httptest.Server
-	caFile       string
-	artifacts    map[string]string
+	t             *testing.T
+	fixture       *roleExplanationAPIFixture
+	rest, native  *httptest.Server
+	caFile        string
+	artifacts     map[string]string
+	server        *mcp.Server
+	authenticator mcp.Authenticator
+	stdio         map[string]map[string]*interfaceRoleStdioClient
 }
 
 func newClientReportNativeProof(t *testing.T, f *roleExplanationAPIFixture, rest *httptest.Server) *clientReportNativeProof {
@@ -73,7 +77,7 @@ func newClientReportNativeProof(t *testing.T, f *roleExplanationAPIFixture, rest
 	server := NewMCPServerWithPolicyLoader(cfg, f.server.log, f.pool, pathstore.NewMemory(), 0, NewAIEgressGate(cfg, f.server.log, f.pool), nil, nil, f.server.MCPPolicyLoader(), AISources{NativeFlow: f.server})
 	socket := httptest.NewTLSServer(server.HTTPHandler(NewMCPAuthenticator(f.pool, NewTenantStatusCache(f.pool, 0), false)))
 	t.Cleanup(socket.Close)
-	return &clientReportNativeProof{t: t, fixture: f, rest: rest, native: socket, caFile: caFile, artifacts: map[string]string{}}
+	return &clientReportNativeProof{t: t, fixture: f, rest: rest, native: socket, caFile: caFile, artifacts: map[string]string{}, server: server, authenticator: NewMCPAuthenticator(f.pool, NewTenantStatusCache(f.pool, 0), false), stdio: map[string]map[string]*interfaceRoleStdioClient{}}
 }
 func (p *clientReportNativeProof) invokeCLI(tenant string, input []byte, args ...string) ([]byte, int) {
 	p.t.Helper()
@@ -144,6 +148,28 @@ func (p *clientReportNativeProof) prove(ctx context.Context, tenant, foreign, vi
 		p.t.Fatal(err)
 	}
 	proveClientReportNativeCSV(ctx, p.t, sdkBody, tables, tenant, foreign, incident, public)
+	var legacyArtifact mcp.ReportArtifact
+	legacy.call(p.fixture.tokens[tenant], "report_generate", reporting.ReportGenerateInput{DashboardID: view, Format: "csv"}, &legacyArtifact, true, "legacy complete monthly generation failed")
+	legacyBody, err := client.DownloadDashboardReportArtifact(ctx, sdk.DownloadDashboardReportArtifactRequest{Id: legacyArtifact.ID})
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	proveClientReportNativeCSV(ctx, p.t, legacyBody, tables, tenant, foreign, incident, public)
+	for _, wire := range []string{"2026-07-28", "2025-11-25"} {
+		if p.stdio[wire] == nil {
+			p.stdio[wire] = map[string]*interfaceRoleStdioClient{}
+		}
+		stream := openInterfaceRoleStdio(p.t, p.server, p.authenticator, p.fixture.tokens[tenant], wire, 5*time.Minute)
+		p.stdio[wire][tenant] = stream
+		var generated mcp.ReportArtifact
+		stream.call(p.t, wire, "report_generate", reporting.ReportGenerateInput{DashboardID: view, Format: "csv"}, &generated, true)
+		body, err := client.DownloadDashboardReportArtifact(ctx, sdk.DownloadDashboardReportArtifactRequest{Id: generated.ID})
+		if err != nil {
+			p.t.Fatal(err)
+		}
+		proveClientReportNativeCSV(ctx, p.t, body, tables, tenant, foreign, incident, public)
+	}
+
 	encoded, err := json.Marshal(request)
 	if err != nil {
 		p.t.Fatal(err)
@@ -169,6 +195,9 @@ func (p *clientReportNativeProof) crossTenant() {
 		foreign := p.fixture.tenants[1-i]
 		caller := reportMCPClient{t: p.t, socket: p.native, foreignTenant: foreign}
 		caller.call(p.fixture.tokens[tenant], "report_artifact_link", map[string]any{"id": p.artifacts[foreign]}, nil, false, "monthly native artifact crossed tenants")
+		for wire, streams := range p.stdio {
+			streams[tenant].call(p.t, wire, "report_artifact_link", map[string]any{"id": p.artifacts[foreign]}, nil, false)
+		}
 		client := sdk.NewClient(p.rest.URL, sdk.WithHTTPClient(p.rest.Client()), sdk.WithToken(p.fixture.tokens[tenant]))
 		if body, err := client.DownloadDashboardReportArtifact(p.t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: p.artifacts[foreign]}); err == nil || len(body) != 0 {
 			p.t.Fatal("SDK downloaded foreign monthly artifact")
@@ -273,6 +302,11 @@ func (p *clientReportNativeProof) withdrawnSource(tenant, sibling string) {
 	p.t.Helper()
 	caller := reportMCPClient{t: p.t, socket: p.native, foreignTenant: sibling}
 	caller.call(p.fixture.tokens[tenant], "report_artifact_link", map[string]any{"id": p.artifacts[tenant]}, nil, false, "monthly native metadata retained a withdrawn source grant")
+	for wire, streams := range p.stdio {
+		streams[tenant].call(p.t, wire, "report_artifact_link", map[string]any{"id": p.artifacts[tenant]}, nil, false)
+		var link mcp.ReportArtifactLink
+		streams[sibling].call(p.t, wire, "report_artifact_link", map[string]any{"id": p.artifacts[sibling]}, &link, true)
+	}
 	client := sdk.NewClient(p.rest.URL, sdk.WithHTTPClient(p.rest.Client()), sdk.WithToken(p.fixture.tokens[tenant]))
 	if body, err := client.DownloadDashboardReportArtifact(p.t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: p.artifacts[tenant]}); err == nil || len(body) != 0 {
 		p.t.Fatal("SDK retained withdrawn monthly source access")
