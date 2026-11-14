@@ -99,8 +99,11 @@ func TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal(t *tes
 	}
 	ambiguous := up(0, 0, uuid.NewString())
 	ambiguous.Definitions[1].Peer.ASN = 64496
-	if result, err := stage(0, ambiguous); err != nil || result.Status != "invalidated" || len(result.Views) != 0 || count(0) != 2 || count(1) != 4 {
+	if result, err := stage(0, ambiguous); err != nil || result.Status != "invalidated" || len(result.Views) != 0 {
 		t.Fatal("mixed complete routing peers were staged as one generation", result, err)
+	}
+	if count(0) != 2 || count(1) != 4 {
+		t.Fatal("routing source selector retired a sibling binding or tenant", count(0), count(1))
 	}
 	if result, err := stage(0, up(0, 0, uuid.NewString())); err != nil || result.Status != "staged" || count(0) != 4 {
 		t.Fatal("fresh bound source could not recover after metadata refusal", result, err)
