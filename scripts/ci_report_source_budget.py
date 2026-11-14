@@ -488,7 +488,7 @@ def mcp_report_reader_proof() -> None:
 def schedule_source_delegation_proof() -> None:
     source = Path("internal/control/dashboard_report_schedule_authority.go")
     original = source.read_text()
-    seam = "if len(definition.FlowSources) == 0 {"
+    seam = "if len(definition.FlowSources) == 0 && definition.ClientReport == nil {"
     if original.count(seam) != 1:
         raise RuntimeError("schedule source execution preflight seam unavailable")
     subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
