@@ -32,6 +32,7 @@ import { useI18n } from "../../../web/src/i18n/useI18n";
 import styles from "./ProviderConsole.module.css";
 import { TenantsCard } from "./TenantsCard";
 import { QuarantineCard } from "./QuarantineCard";
+import { MonthlyReportsCard } from "./MonthlyReportsCard";
 
 interface Operator {
   id: string;
@@ -342,6 +343,7 @@ function Dashboard({ operator }: { operator: Operator }) {
         </div>
         <div id="provider-tenants" className={styles.taskSection} tabIndex={-1}>
           <TenantsCard readOnly={readOnly} api={api} />
+          <MonthlyReportsCard key={operator.id} readOnly={readOnly} />
         </div>
         <div id="provider-usage" className={styles.taskSection} tabIndex={-1}>
           <UsageCard
@@ -1334,14 +1336,18 @@ function FairnessCard({
     setError("");
     setSaved(false);
     try {
-      await api("PUT", `/provider/v1/tenants/${encodeURIComponent(tenant)}/fairness`, {
-        results_per_sec: resultsSec === "" ? 0 : Number(resultsSec),
-        flow_events_per_sec: flowsSec === "" ? 0 : Number(flowsSec),
-        device_metrics_per_sec: deviceSec === "" ? 0 : Number(deviceSec),
-        otlp_series_per_sec: otlpSec === "" ? 0 : Number(otlpSec),
-        queries_per_min: queriesMin === "" ? 0 : Number(queriesMin),
-        query_concurrency: queryConc === "" ? 0 : Number(queryConc),
-      });
+      await api(
+        "PUT",
+        `/provider/v1/tenants/${encodeURIComponent(tenant)}/fairness`,
+        {
+          results_per_sec: resultsSec === "" ? 0 : Number(resultsSec),
+          flow_events_per_sec: flowsSec === "" ? 0 : Number(flowsSec),
+          device_metrics_per_sec: deviceSec === "" ? 0 : Number(deviceSec),
+          otlp_series_per_sec: otlpSec === "" ? 0 : Number(otlpSec),
+          queries_per_min: queriesMin === "" ? 0 : Number(queriesMin),
+          query_concurrency: queryConc === "" ? 0 : Number(queryConc),
+        },
+      );
       setSaved(true);
     } catch (err) {
       setError((err as Error).message);
@@ -1618,10 +1624,18 @@ function ActivityCard() {
   const rows = query.data?.items ?? [];
   const queryError = query.error ? (query.error as Error).message : "";
   const columns: Column<ActivityRow>[] = [
-    { key: "when", header: "When", render: (r) => <time dateTime={r.created_at}>{r.created_at}</time> },
+    {
+      key: "when",
+      header: "When",
+      render: (r) => <time dateTime={r.created_at}>{r.created_at}</time>,
+    },
     { key: "actor", header: "Actor", render: (r) => <code>{r.actor}</code> },
     { key: "action", header: "Action", render: (r) => <code>{r.action}</code> },
-    { key: "target", header: "Target", render: (r) => <code>{r.target || "—"}</code> },
+    {
+      key: "target",
+      header: "Target",
+      render: (r) => <code>{r.target || "—"}</code>,
+    },
     {
       key: "detail",
       header: "Detail",

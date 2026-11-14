@@ -58,12 +58,12 @@ func reportToolSchemas() (mcp.NativeFlowSchemas, error) {
 	for _, name := range []string{"report_dashboard", "report_dashboard_export", "report_artifact_link"} {
 		roots[name] = object(map[string]any{"id": map[string]any{"type": "string", "minLength": 1, "maxLength": 160}}, "id")
 	}
-	roots["report_schedule_update"] = object(map[string]any{"id": map[string]any{"type": "string", "minLength": 1, "maxLength": 160}, "enabled": map[string]any{"type": "boolean"}}, "id", "enabled")
-	for _, operation := range []struct{ name, path string }{
-		{"report_dashboard_save", "/v1/dashboards"},
-		{"report_dashboard_import", "/v1/dashboard-manifests/import"},
-		{"report_schedule_create", "/v1/dashboard-report-schedules"},
-		{"report_generate", "/v1/dashboard-reports"},
+	for _, operation := range []struct{ name, path, method string }{
+		{"report_dashboard_save", "/v1/dashboards", "post"},
+		{"report_dashboard_import", "/v1/dashboard-manifests/import", "post"},
+		{"report_schedule_create", "/v1/dashboard-report-schedules", "post"},
+		{"report_generate", "/v1/dashboard-reports", "post"},
+		{"report_schedule_update", "/v1/dashboard-report-schedules/{id}", "patch"},
 	} {
 		var op struct {
 			RequestBody struct {
@@ -72,7 +72,7 @@ func reportToolSchemas() (mcp.NativeFlowSchemas, error) {
 				} `json:"content"`
 			} `json:"requestBody"`
 		}
-		if err := json.Unmarshal(document.Paths[operation.path]["post"], &op); err != nil {
+		if err := json.Unmarshal(document.Paths[operation.path][operation.method], &op); err != nil {
 			return nil, err
 		}
 		var root any
@@ -82,6 +82,18 @@ func reportToolSchemas() (mcp.NativeFlowSchemas, error) {
 		}
 		if err := json.Unmarshal(schema, &root); err != nil {
 			return nil, err
+		}
+		if operation.name == "report_schedule_update" {
+			patch, ok := root.(map[string]any)
+			if !ok {
+				return nil, errors.New("report patch schema is not an object")
+			}
+			fields, ok := patch["properties"].(map[string]any)
+			if !ok {
+				return nil, errors.New("report patch schema has no fields")
+			}
+			fields["id"] = map[string]any{"type": "string", "minLength": 1, "maxLength": 160}
+			patch["required"] = []string{"id"}
 		}
 		roots[operation.name] = root
 	}

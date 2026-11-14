@@ -25,6 +25,7 @@ import (
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/httpbody"
 	"github.com/ctlplne/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -50,10 +51,11 @@ const consentPermission = "directory.write"
 
 // Handler serves /provider/v1/*.
 type Handler struct {
-	svc        *Service
-	sessions   *Sessions
-	tenantAuth TenantAuth
-	log        *slog.Logger
+	monthlyReports reporting.MonthlyReportQueue
+	svc            *Service
+	sessions       *Sessions
+	tenantAuth     TenantAuth
+	log            *slog.Logger
 
 	// limiter throttles the operator login (SEC-003): per source IP and per
 	// account, exponential lockout, lockouts audited to the PROVIDER stream.
@@ -108,6 +110,8 @@ func routes() []RouteDecl {
 		{http.MethodPost, "/provider/v1/tenants/{id}/resume"},
 		{http.MethodPost, "/provider/v1/tenants/{id}/offboard"},
 		{http.MethodGet, "/provider/v1/fleet"},
+		{http.MethodPost, "/provider/v1/tenants/{id}/monthly-reports"},
+		{http.MethodGet, "/provider/v1/tenants/{id}/monthly-reports/{request_id}"},
 		{http.MethodGet, "/provider/v1/tenants/provisioning"},
 		{http.MethodGet, "/provider/v1/tenants/quarantine"},
 		{http.MethodPost, "/provider/v1/tenants/provisioning/{id}/abandon"},
@@ -165,6 +169,8 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	h.handle("POST /provider/v1/tenants/{id}/suspend", h.asOperator("", h.handleSuspend))
 	h.handle("POST /provider/v1/tenants/{id}/resume", h.asOperator("", h.handleResume))
 	h.handle("POST /provider/v1/tenants/{id}/offboard", h.asOperator("", h.handleOffboard))
+	h.handle("GET /provider/v1/tenants/{id}/monthly-reports/{request_id}", h.asOperator(RoleOperator, h.handleMonthlyReportProgress))
+	h.handle("POST /provider/v1/tenants/{id}/monthly-reports", h.asOperator(RoleOperator, h.handleMonthlyReports))
 	h.handle("GET /provider/v1/fleet", h.asOperator("", h.auditedRead("provider.fleet_read", false, h.handleFleet)))
 	// Stranded provisioning attempts (S-fadcec95): list what never completed
 	// with its last step, and offer an EXPLICIT abandon. Retry is the existing

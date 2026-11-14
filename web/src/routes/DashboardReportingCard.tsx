@@ -98,6 +98,7 @@ export function DashboardReportingCard({
   const [name, setName] = useState('Cross-plane posture')
   const [shared, setShared] = useState(false)
   const [selectedID, setSelectedID] = useState('')
+  const [providerConsent, setProviderConsent] = useState({ identity: '', view: '', allowed: false })
   const [format, setFormat] = useState<ReportFormat>('pdf')
   const [cadence, setCadence] = useState<ReportCadence>('weekly')
   const [manifestText, setManifestText] = useState('')
@@ -148,6 +149,10 @@ export function DashboardReportingCard({
   const requestedView = views.find((view) => view.id === requestedID)
   const activeID = selectedID || (requestedID ? (requestedView?.id ?? '') : (views[0]?.id ?? ''))
   const activeView = views.find((view) => view.id === activeID)
+  const allowProvider =
+    providerConsent.identity === sourceIdentity && providerConsent.view === activeID
+      ? providerConsent.allowed
+      : false
   const readyDestinations = (schedules.data?.destinations ?? []).filter((item) => item.ready)
   const destination = readyDestinations[0]
   const firstRun = useMemo(() => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), [])
@@ -220,6 +225,7 @@ export function DashboardReportingCard({
         cadence,
         destination_id: destination.id,
         first_run_at: firstRun,
+        provider_trigger_allowed: allowProvider,
       })
       push({
         tone: 'success',
@@ -472,6 +478,23 @@ export function DashboardReportingCard({
                   : [{ value: '', label: 'No configured destination' }]
               }
             />
+            {schedules.data?.provider_trigger_available && activeView?.definition.client_report ? (
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  disabled={!canWrite}
+                  checked={allowProvider}
+                  onChange={(event) =>
+                    setProviderConsent({
+                      identity: sourceIdentity,
+                      view: activeID,
+                      allowed: event.target.checked,
+                    })
+                  }
+                />
+                Allow provider-triggered monthly runs for this schedule
+              </label>
+            ) : null}
             <div className={styles.reportActions}>
               <Button
                 variant="primary"
@@ -694,6 +717,32 @@ export function DashboardReportingCard({
                       ) : (
                         <Badge tone="neutral">Paused</Badge>
                       )}
+                      {item.provider_trigger_allowed ? (
+                        <Button
+                          disabled={!canWrite || updateSchedule.isPending}
+                          onClick={() =>
+                            void updateSchedule
+                              .mutateAsync({ id: item.id, provider_trigger_allowed: false })
+                              .then(() =>
+                                push({
+                                  tone: 'success',
+                                  title: 'Provider trigger revoked',
+                                  message:
+                                    'Pending provider work is withdrawn; normal delivery timing is preserved.',
+                                }),
+                              )
+                              .catch((error) =>
+                                push({
+                                  tone: 'danger',
+                                  title: 'Could not revoke provider trigger',
+                                  message: String(error),
+                                }),
+                              )
+                          }
+                        >
+                          Revoke provider trigger for {item.name}
+                        </Button>
+                      ) : null}
                       <Button
                         variant="secondary"
                         aria-label={`${item.enabled ? 'Pause' : 'Resume'} ${item.name}`}

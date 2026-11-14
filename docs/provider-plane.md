@@ -327,3 +327,28 @@ total but neither freshness count; registration alone never establishes online
 health. These remain per-tenant aggregates, not access to raw agent records.
 
 When offboarding races an existing API session’s cached lifecycle state, the durable database fence still refuses the request. A lifecycle-fenced audit or data write returns HTTP 403 `tenant_offboarded`, matching the early lifecycle gate; the request is not served and its audit is not deferred as a database failover event.
+
+
+## Tenant-consented monthly reports
+
+The console's **Monthly client reports** card queues the complete selected set
+of active tenants, one tenant-scoped request at a time. Only enabled monthly
+source schedules explicitly opted in by their owner are eligible. The provider
+receives `eligible`, `queued`, `pending`, `delivered` and `inactive` counts, never
+report content, source facts, owner IDs or download links. Reports remain in
+the tenant inbox. Current owner authority is checked again at execution and
+publication; revocation withdraws pending provider work without shifting the
+schedule's normal delivery time. Already-due work is coalesced with the normal
+worker run rather than duplicated.
+
+`POST /provider/v1/tenants/{id}/monthly-reports` takes a canonical UUID
+`request_id`. Retry the same ID after a lost response: the tenant audit stream
+binds it to this operator and preserves the original queue result.
+`GET /provider/v1/tenants/{id}/monthly-reports/{request_id}` reads progress
+without queuing work and remains available in read-only licence grace. Both
+routes require a live provider operator and append to the separate provider
+audit; they provide no break-glass grant. The CLI commands are
+`probectl provider monthly-reports <tenant-id> --body-file <request.json>` and
+`probectl provider monthly-report-progress <tenant-id> <request-id>`.
+The console's **Retry same report request** preserves the ID for the entire
+selected batch; **Refresh report progress** uses only the read route.

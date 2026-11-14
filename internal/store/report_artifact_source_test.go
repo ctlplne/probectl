@@ -11,8 +11,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ctlplne/probectl/internal/testspec"
 	"testing"
+
+	"github.com/ctlplne/probectl/internal/testspec"
 )
 
 func TestReportArtifactSourceCaptureVersionsStayTenantBound(t *testing.T) {

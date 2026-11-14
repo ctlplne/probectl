@@ -347,3 +347,17 @@ select the calendar period/timezone and add canonical capacity targets with
 explicit thresholds and physical member bounds. Save the view, then generate
 PDF/CSV or schedule it through the existing controls. Source drafts reset when
 the tenant or authorization scope changes; the server remains authoritative.
+
+
+An MSP-enabled deployment exposes an explicit owner checkbox, **Allow
+provider-triggered monthly runs for this schedule**. It defaults off. Granting
+it requires the same current source permissions as running the monthly pack;
+a write-only token cannot delegate source access. An owner can revoke it even
+after losing those read permissions. Revocation withdraws pending provider
+work, including work captured before the change. The existing schedule resumes
+its original due time after either a provider delivery or revocation.
+
+Provider operators can request execution and see operational counts only. The
+worker still executes as the current tenant owner: no provider credential,
+source grant or MFA assertion is lent to it. Artifacts and evidence remain in
+the tenant inbox with their normal current-reader checks.

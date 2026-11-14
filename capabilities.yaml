@@ -175,7 +175,7 @@ capabilities:
     config_keys: *api_config
     telemetry: {refs: ["file:internal/incident"]}
     real_stack_proof: {refs: ["test:internal/control/crossplane_e2e_integration_test.go#TestCrossPlaneCorrelationE2E", "test:internal/control/incident_impact_integration_test.go#TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation", "test:internal/control/dashboardreporting_integration_test.go#TestDashboardExportAuditAndTenantIsolation", "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack", "test:test/e2e/e2e_test.go#TestE2E"]}
-    migration: {refs: ["file:migrations/0012_incidents.sql", "file:migrations/0061_dashboard_reporting.sql", "file:migrations/0137_incident_entity_identity.sql", "file:migrations/0140_entity_fault_receipts.sql", "file:migrations/0168_dashboard_report_artifact_chunks.sql", "file:migrations/0169_report_output_capacity.sql", "file:migrations/0170_report_artifact_chunks_write_fence.sql", "file:migrations/0172_static_report_artifact_chunks.sql"]}
+    migration: {refs: ["file:migrations/0012_incidents.sql", "file:migrations/0061_dashboard_reporting.sql", "file:migrations/0137_incident_entity_identity.sql", "file:migrations/0140_entity_fault_receipts.sql", "file:migrations/0168_dashboard_report_artifact_chunks.sql", "file:migrations/0169_report_output_capacity.sql", "file:migrations/0170_report_artifact_chunks_write_fence.sql", "file:migrations/0172_static_report_artifact_chunks.sql", "file:migrations/0208_monthly_report_source_requirements.sql", "file:migrations/0209_provider_report_trigger.sql"]}
 
   - id: F10
     name: Control plane, REST/gRPC, and CLI
@@ -859,14 +859,14 @@ capabilities:
     owner: web/quality
     engine: {refs: ["file:ee/provider"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithProviderPlane(h)"]}
-    api: {refs: ["api:GET /provider/v1/tenants", "api:GET /provider/v1/breakglass"]}
-    cli: {refs: ["cli:probectl provider tenants", "cli:probectl provider breakglass"]}
+    api: {refs: ["api:GET /provider/v1/tenants", "api:GET /provider/v1/breakglass", "api:POST /provider/v1/tenants/{id}/monthly-reports", "api:GET /provider/v1/tenants/{id}/monthly-reports/{request_id}"]}
+    cli: {refs: ["cli:probectl provider tenants", "cli:probectl provider breakglass", "cli:probectl provider monthly-reports", "cli:probectl provider monthly-report-progress"]}
     ui: {refs: ["ui:F51@/provider"]}
     docs: {refs: ["file:docs/provider-plane.md#Provider / management plane"]}
     config_keys: {refs: ["config:PROBECTL_PROVIDER_BOOTSTRAP_TOKEN", "config:PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES"]}
     telemetry: {refs: ["file:ee/provider"]}
     real_stack_proof: {refs: ["test:ee/provider/provider_plane_integration_test.go#TestProviderPlaneRealStack"]}
-    migration: {refs: ["file:migrations/0024_provider_plane.sql", "file:migrations/0087_break_glass_single_active_grant.sql"]}
+    migration: {refs: ["file:migrations/0024_provider_plane.sql", "file:migrations/0087_break_glass_single_active_grant.sql", "file:migrations/0209_provider_report_trigger.sql"]}
 
   - id: F52
     name: Pooled/siloed/hybrid isolation

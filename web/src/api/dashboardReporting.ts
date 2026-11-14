@@ -85,6 +85,9 @@ export interface ReportDestination {
 }
 
 export interface ReportSchedule {
+  provider_trigger_allowed?: boolean
+  provider_request_id?: string
+  provider_original_next_run_at?: string
   id: string
   tenant_id: string
   dashboard_id: string
@@ -124,6 +127,7 @@ interface DashboardList {
 }
 
 interface ScheduleList {
+  provider_trigger_available?: boolean
   items: ReportSchedule[]
   destinations: ReportDestination[]
   outbound_default: false
@@ -192,6 +196,7 @@ export function useCreateReportSchedule() {
       cadence: ReportCadence
       destination_id: string
       first_run_at: string
+      provider_trigger_allowed?: boolean
     }) => apiFetch<ReportSchedule>('/dashboard-report-schedules', jsonInit('POST', input)),
     onSuccess: () =>
       void queryClient.invalidateQueries({ queryKey: ['dashboards', 'report-schedules'] }),
@@ -201,10 +206,17 @@ export function useCreateReportSchedule() {
 export function useUpdateReportSchedule() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+    mutationFn: ({
+      id,
+      ...controls
+    }: {
+      id: string
+      enabled?: boolean
+      provider_trigger_allowed?: boolean
+    }) =>
       apiFetch<ReportSchedule>(
         `/dashboard-report-schedules/${encodeURIComponent(id)}`,
-        jsonInit('PATCH', { enabled }),
+        jsonInit('PATCH', controls),
       ),
     onSuccess: () =>
       void queryClient.invalidateQueries({ queryKey: ['dashboards', 'report-schedules'] }),

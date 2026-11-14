@@ -14370,14 +14370,26 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": [
-                  "enabled"
-                ],
                 "properties": {
                   "enabled": {
                     "type": "boolean"
+                  },
+                  "provider_trigger_allowed": {
+                    "type": "boolean"
                   }
-                }
+                },
+                "anyOf": [
+                  {
+                    "required": [
+                      "enabled"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "provider_trigger_allowed"
+                    ]
+                  }
+                ]
               }
             }
           }
@@ -18822,6 +18834,11 @@
           "first_run_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "provider_trigger_allowed": {
+            "type": "boolean",
+            "default": false,
+            "description": "Explicit owner consent for provider-triggered monthly work; full source preflight is required."
           }
         }
       },
@@ -18897,6 +18914,23 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "provider_trigger_allowed": {
+            "type": "boolean"
+          },
+          "provider_request_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "provider_original_next_run_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -18947,6 +18981,9 @@
           "outbound_default": {
             "type": "boolean",
             "const": false
+          },
+          "provider_trigger_available": {
+            "type": "boolean"
           }
         }
       },

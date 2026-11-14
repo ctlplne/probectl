@@ -55,19 +55,22 @@ type ReportImportResult struct {
 	Dashboard *ReportDashboard                   `json:"dashboard,omitempty"`
 }
 type ReportSchedule struct {
-	ID            string     `json:"id"`
-	TenantID      string     `json:"tenant_id"`
-	DashboardID   string     `json:"dashboard_id"`
-	OwnerID       string     `json:"owner_id"`
-	Name          string     `json:"name"`
-	Format        string     `json:"format"`
-	Cadence       string     `json:"cadence"`
-	DestinationID string     `json:"destination_id"`
-	Enabled       bool       `json:"enabled"`
-	NextRunAt     time.Time  `json:"next_run_at"`
-	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ProviderTriggerAllowed    bool       `json:"provider_trigger_allowed"`
+	ProviderRequestID         *string    `json:"provider_request_id,omitempty"`
+	ProviderOriginalNextRunAt *time.Time `json:"provider_original_next_run_at,omitempty"`
+	ID                        string     `json:"id"`
+	TenantID                  string     `json:"tenant_id"`
+	DashboardID               string     `json:"dashboard_id"`
+	OwnerID                   string     `json:"owner_id"`
+	Name                      string     `json:"name"`
+	Format                    string     `json:"format"`
+	Cadence                   string     `json:"cadence"`
+	DestinationID             string     `json:"destination_id"`
+	Enabled                   bool       `json:"enabled"`
+	NextRunAt                 time.Time  `json:"next_run_at"`
+	LastRunAt                 *time.Time `json:"last_run_at,omitempty"`
+	CreatedAt                 time.Time  `json:"created_at"`
+	UpdatedAt                 time.Time  `json:"updated_at"`
 }
 type ReportDestination struct {
 	ID       string `json:"id"`
@@ -77,13 +80,15 @@ type ReportDestination struct {
 	Ready    bool   `json:"ready"`
 }
 type ReportScheduleList struct {
-	Items           []ReportSchedule    `json:"items"`
-	Destinations    []ReportDestination `json:"destinations"`
-	OutboundDefault bool                `json:"outbound_default"`
+	ProviderTriggerAvailable bool                `json:"provider_trigger_available"`
+	Items                    []ReportSchedule    `json:"items"`
+	Destinations             []ReportDestination `json:"destinations"`
+	OutboundDefault          bool                `json:"outbound_default"`
 }
 type ReportScheduleUpdateInput struct {
-	ID      string `json:"id"`
-	Enabled *bool  `json:"enabled"`
+	ProviderTriggerAllowed *bool  `json:"provider_trigger_allowed,omitempty"`
+	ID                     string `json:"id"`
+	Enabled                *bool  `json:"enabled,omitempty"`
 }
 type ReportArtifact struct {
 	ID                  string    `json:"id"`
@@ -180,7 +185,7 @@ func WithReportBackend(backend ReportBackend, schemas NativeFlowSchemas) Option 
 				return backend.ReportSchedules(ctx, p)
 			}),
 			reportTool("report_schedule_create", "Create an audited local-inbox schedule with current owner authority checked at delivery.", schemas["report_schedule_create"], true, backend.ReportScheduleCreate),
-			reportTool("report_schedule_update", "Explicitly pause or resume an owned report schedule.", schemas["report_schedule_update"], true, backend.ReportScheduleUpdate),
+			reportTool("report_schedule_update", "Explicitly pause/resume an owned schedule or grant/revoke provider monthly triggering; grants require current source authority.", schemas["report_schedule_update"], true, backend.ReportScheduleUpdate),
 			reportTool("report_generate", "Generate a complete audited report under current source, lifecycle and cost checks; fetch binary bytes through the authenticated download URL.", schemas["report_generate"], true, backend.ReportGenerate),
 			reportTool("report_artifacts", "List current-authorized report metadata, never report bytes or stored source grants.", schemas["report_artifacts"], false, func(ctx context.Context, p *auth.Principal, input ReportArtifactListInput) (ReportArtifactList, error) {
 				return backend.ReportArtifacts(ctx, p, input)

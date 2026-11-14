@@ -1092,34 +1092,39 @@ type DashboardReportArtifact struct {
 }
 
 type DashboardReportSchedule struct {
-	Cadence       string  `json:"cadence"`
-	CreatedAt     string  `json:"created_at"`
-	DashboardId   string  `json:"dashboard_id"`
-	DestinationId string  `json:"destination_id"`
-	Enabled       bool    `json:"enabled"`
-	Format        string  `json:"format"`
-	Id            string  `json:"id"`
-	LastRunAt     *string `json:"last_run_at,omitempty"`
-	Name          string  `json:"name"`
-	NextRunAt     string  `json:"next_run_at"`
-	OwnerId       string  `json:"owner_id"`
-	TenantId      string  `json:"tenant_id"`
-	UpdatedAt     string  `json:"updated_at"`
+	Cadence                   string  `json:"cadence"`
+	CreatedAt                 string  `json:"created_at"`
+	DashboardId               string  `json:"dashboard_id"`
+	DestinationId             string  `json:"destination_id"`
+	Enabled                   bool    `json:"enabled"`
+	Format                    string  `json:"format"`
+	Id                        string  `json:"id"`
+	LastRunAt                 *string `json:"last_run_at,omitempty"`
+	Name                      string  `json:"name"`
+	NextRunAt                 string  `json:"next_run_at"`
+	OwnerId                   string  `json:"owner_id"`
+	ProviderOriginalNextRunAt *string `json:"provider_original_next_run_at,omitempty"`
+	ProviderRequestId         *string `json:"provider_request_id,omitempty"`
+	ProviderTriggerAllowed    *bool   `json:"provider_trigger_allowed,omitempty"`
+	TenantId                  string  `json:"tenant_id"`
+	UpdatedAt                 string  `json:"updated_at"`
 }
 
 type DashboardReportScheduleList struct {
-	Destinations    []map[string]any          `json:"destinations"`
-	Items           []DashboardReportSchedule `json:"items"`
-	OutboundDefault bool                      `json:"outbound_default"`
+	Destinations             []map[string]any          `json:"destinations"`
+	Items                    []DashboardReportSchedule `json:"items"`
+	OutboundDefault          bool                      `json:"outbound_default"`
+	ProviderTriggerAvailable *bool                     `json:"provider_trigger_available,omitempty"`
 }
 
 type DashboardReportScheduleRequest struct {
-	Cadence       string `json:"cadence"`
-	DashboardId   string `json:"dashboard_id"`
-	DestinationId string `json:"destination_id"`
-	FirstRunAt    string `json:"first_run_at,omitempty"`
-	Format        string `json:"format"`
-	Name          string `json:"name"`
+	Cadence                string `json:"cadence"`
+	DashboardId            string `json:"dashboard_id"`
+	DestinationId          string `json:"destination_id"`
+	FirstRunAt             string `json:"first_run_at,omitempty"`
+	Format                 string `json:"format"`
+	Name                   string `json:"name"`
+	ProviderTriggerAllowed *bool  `json:"provider_trigger_allowed,omitempty"`
 }
 
 type DashboardView struct {

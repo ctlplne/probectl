@@ -69,7 +69,7 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 	if err := revalidateMonthlyReportOriginals(ctx, capture); err != nil {
 		return false, err
 	}
-	next, err := nextDashboardReportRun(item.Schedule.Cadence, item.Schedule.NextRunAt, now)
+	next, err := nextSourceReportRun(item.Schedule, now)
 	if err != nil {
 		return false, err
 	}
@@ -113,7 +113,8 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 		if _, err := audit.TenantAppend(ctx, sc, dashboardReportSchedulerActor, "dashboard.report_delivery", id, map[string]any{
 			"dashboard_id": view.ID, "schedule_id": schedule.ID, "format": schedule.Format,
 			"destination_id": reportInboxDestination, "redaction_state": document.RedactionState,
-			"body_bytes": artifact.BodyBytes, "body_sha256": artifact.BodySHA256, "source_count": reportCaptureSourceCount(capture),
+			"provider_request_id": schedule.ProviderRequestID,
+			"body_bytes":          artifact.BodyBytes, "body_sha256": artifact.BodySHA256, "source_count": reportCaptureSourceCount(capture),
 		}); err != nil {
 			return err
 		}

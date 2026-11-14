@@ -89,12 +89,13 @@ type DashboardManifestPreview struct {
 }
 
 type ReportScheduleInput struct {
-	DashboardID   string    `json:"dashboard_id"`
-	Name          string    `json:"name"`
-	Format        string    `json:"format"`
-	Cadence       string    `json:"cadence"`
-	DestinationID string    `json:"destination_id"`
-	FirstRunAt    time.Time `json:"first_run_at"`
+	ProviderTriggerAllowed bool      `json:"provider_trigger_allowed,omitempty"`
+	DashboardID            string    `json:"dashboard_id"`
+	Name                   string    `json:"name"`
+	Format                 string    `json:"format"`
+	Cadence                string    `json:"cadence"`
+	DestinationID          string    `json:"destination_id"`
+	FirstRunAt             time.Time `json:"first_run_at"`
 }
 
 type ReportGenerateInput struct {

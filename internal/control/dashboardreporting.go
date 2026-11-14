@@ -523,11 +523,17 @@ func (s *Server) handleCreateReportSchedule(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return err
 	}
+	if clean.ProviderTriggerAllowed && !s.providerReportTriggers {
+		return apierror.NotFound("provider report triggering is unavailable")
+	}
 	authority, err := s.prepareScheduledReportAuthority(r, clean.DashboardID)
 	if err != nil {
 		return tagQueryResponseError(w, err)
 	}
 	defer authority.close()
+	if clean.ProviderTriggerAllowed && (authority.capture == nil || authority.capture.Monthly == nil) {
+		return apierror.Validation("provider triggering requires a monthly source schedule")
+	}
 	r = authority.request
 	id, err := crypto.UUIDv4()
 	if err != nil {
@@ -544,14 +550,14 @@ func (s *Server) handleCreateReportSchedule(w http.ResponseWriter, r *http.Reque
 		created, err := (store.DashboardReports{}).CreateSchedule(ctx, sc, store.ReportScheduleInput{
 			ID: id, DashboardID: clean.DashboardID, OwnerID: dashboardActorID(r), Name: clean.Name,
 			Format: clean.Format, Cadence: clean.Cadence, DestinationID: clean.DestinationID,
-			NextRunAt: clean.FirstRunAt,
+			NextRunAt: clean.FirstRunAt, ProviderTriggerAllowed: clean.ProviderTriggerAllowed,
 		})
 		if err != nil {
 			return err
 		}
 		if err := s.recordAudit(ctx, sc, r, "dashboard.report_schedule", id, map[string]any{
 			"dashboard_id": clean.DashboardID, "format": clean.Format,
-			"cadence": clean.Cadence, "destination_id": clean.DestinationID,
+			"cadence": clean.Cadence, "destination_id": clean.DestinationID, "provider_trigger_allowed": clean.ProviderTriggerAllowed,
 		}); err != nil {
 			return err
 		}
@@ -567,16 +573,20 @@ func (s *Server) handleCreateReportSchedule(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleUpdateReportSchedule(w http.ResponseWriter, r *http.Request) error {
 	var req struct {
-		Enabled *bool `json:"enabled"`
+		Enabled                *bool `json:"enabled"`
+		ProviderTriggerAllowed *bool `json:"provider_trigger_allowed"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		return err
 	}
-	if req.Enabled == nil {
-		return apierror.Validation("enabled must be a boolean")
+	if req.Enabled == nil && req.ProviderTriggerAllowed == nil {
+		return apierror.Validation("enabled or provider_trigger_allowed must be a boolean")
+	}
+	if req.ProviderTriggerAllowed != nil && *req.ProviderTriggerAllowed && !s.providerReportTriggers {
+		return apierror.NotFound("provider report triggering is unavailable")
 	}
 	var authority *scheduledReportAuthority
-	if *req.Enabled {
+	if req.Enabled != nil && *req.Enabled || req.ProviderTriggerAllowed != nil && *req.ProviderTriggerAllowed {
 		var current *store.ReportSchedule
 		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 			var err error
@@ -591,6 +601,9 @@ func (s *Server) handleUpdateReportSchedule(w http.ResponseWriter, r *http.Reque
 			return tagQueryResponseError(w, err)
 		}
 		defer authority.close()
+		if req.ProviderTriggerAllowed != nil && *req.ProviderTriggerAllowed && (authority.capture == nil || authority.capture.Monthly == nil) {
+			return apierror.Validation("provider triggering requires a monthly source schedule")
+		}
 		r = authority.request
 	}
 	var schedule *store.ReportSchedule
@@ -603,11 +616,17 @@ func (s *Server) handleUpdateReportSchedule(w http.ResponseWriter, r *http.Reque
 				return err
 			}
 		}
-		updated, err := (store.DashboardReports{}).SetScheduleEnabled(ctx, sc, r.PathValue("id"), dashboardActorID(r), *req.Enabled)
+		var updated *store.ReportSchedule
+		var err error
+		if req.ProviderTriggerAllowed != nil {
+			updated, err = (store.DashboardReports{}).SetScheduleProviderControl(ctx, sc, r.PathValue("id"), dashboardActorID(r), *req.ProviderTriggerAllowed, req.Enabled)
+		} else {
+			updated, err = (store.DashboardReports{}).SetScheduleEnabled(ctx, sc, r.PathValue("id"), dashboardActorID(r), *req.Enabled)
+		}
 		if err != nil {
 			return err
 		}
-		if err := s.recordAudit(ctx, sc, r, "dashboard.report_schedule_update", updated.ID, map[string]any{"enabled": updated.Enabled}); err != nil {
+		if err := s.recordAudit(ctx, sc, r, "dashboard.report_schedule_update", updated.ID, map[string]any{"enabled": updated.Enabled, "provider_trigger_allowed": updated.ProviderTriggerAllowed}); err != nil {
 			return err
 		}
 		schedule = updated
@@ -633,7 +652,8 @@ func (s *Server) handleListReportSchedules(w http.ResponseWriter, r *http.Reques
 		"destinations": []reportDestination{{
 			ID: reportInboxDestination, Name: "Tenant report inbox", Kind: "local", Outbound: false, Ready: true,
 		}},
-		"outbound_default": false,
+		"outbound_default":           false,
+		"provider_trigger_available": s.providerReportTriggers,
 	})
 	return nil
 }

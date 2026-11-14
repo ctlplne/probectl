@@ -1006,6 +1006,9 @@ export interface DashboardReportSchedule {
   name: string
   next_run_at: string
   owner_id: string
+  provider_original_next_run_at?: string | null
+  provider_request_id?: string | null
+  provider_trigger_allowed?: boolean
   tenant_id: string
   updated_at: string
 }
@@ -1014,6 +1017,7 @@ export interface DashboardReportScheduleList {
   destinations: JsonObject[]
   items: DashboardReportSchedule[]
   outbound_default: boolean
+  provider_trigger_available?: boolean
 }
 
 export interface DashboardReportScheduleRequest {
@@ -1023,6 +1027,7 @@ export interface DashboardReportScheduleRequest {
   first_run_at?: string
   format: "pdf" | "csv"
   name: string
+  provider_trigger_allowed?: boolean
 }
 
 export interface DashboardView {

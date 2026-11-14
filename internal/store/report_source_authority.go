@@ -9,12 +9,13 @@ package store
 import (
 	"context"
 	"encoding/hex"
-	"github.com/ctlplne/probectl/internal/crypto"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
-	"github.com/jackc/pgx/v5"
 )
 
 // ReportSourceKey is a canonical source selector, never disclosure authority.

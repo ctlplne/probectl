@@ -19,6 +19,8 @@ for (const tenant of [
     const saved: Array<Record<string, unknown>> = []
     const views: Array<Record<string, unknown>> = []
     const reports: Array<Record<string, unknown>> = []
+    const schedules: Array<Record<string, unknown>> = []
+    const patches: Array<Record<string, unknown>> = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -39,6 +41,43 @@ for (const tenant of [
             return jsonResponse(view, 201)
           }
           return jsonResponse({ items: views })
+        }
+        if (path === '/v1/dashboard-report-schedules') {
+          if (init?.method === 'POST') {
+            const body = JSON.parse(String(init.body)) as Record<string, unknown>
+            const schedule = {
+              ...body,
+              id: 'monthly-schedule',
+              tenant_id: tenant,
+              enabled: true,
+              owner_id: 'u_test',
+              next_run_at: '2026-12-01T00:00:00Z',
+            }
+            schedules.push(schedule)
+            return jsonResponse(schedule, 201)
+          }
+          return jsonResponse({
+            items: schedules,
+            provider_trigger_available: true,
+            destinations: [
+              {
+                id: 'tenant-report-inbox',
+                name: 'Tenant inbox',
+                kind: 'local',
+                outbound: false,
+                ready: true,
+              },
+            ],
+          })
+        }
+        if (
+          path === '/v1/dashboard-report-schedules/monthly-schedule' &&
+          init?.method === 'PATCH'
+        ) {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>
+          patches.push(body)
+          Object.assign(schedules[0], body)
+          return jsonResponse(schedules[0])
         }
         if (path === '/v1/dashboard-reports' && init?.method === 'POST') {
           reports.push(JSON.parse(String(init.body)) as Record<string, unknown>)
@@ -134,6 +173,20 @@ for (const tenant of [
       'Completed calendar month · Asia/Kolkata',
     )
     expect(screen.getByRole('combobox', { name: 'Cadence' })).toHaveValue('monthly')
+    const consent = screen.getByRole('checkbox', {
+      name: 'Allow provider-triggered monthly runs for this schedule',
+    })
+    expect(consent).not.toBeChecked()
+    await user.click(consent)
+    await user.click(screen.getByRole('button', { name: 'Schedule delivery' }))
+    await waitFor(() => expect(schedules).toHaveLength(1))
+    expect(schedules[0]).toMatchObject({
+      provider_trigger_allowed: true,
+      dashboard_id: 'monthly-view',
+      destination_id: 'tenant-report-inbox',
+    })
+    await user.click(await screen.findByRole('button', { name: /Revoke provider trigger for/ }))
+    await waitFor(() => expect(patches).toEqual([{ provider_trigger_allowed: false }]))
     await user.click(screen.getByRole('button', { name: 'Generate PDF' }))
     await waitFor(() => expect(reports).toEqual([{ dashboard_id: 'monthly-view', format: 'pdf' }]))
     await user.selectOptions(

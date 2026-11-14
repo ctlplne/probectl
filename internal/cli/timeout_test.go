@@ -72,7 +72,7 @@ func TestIncidentAndReportQueriesOutliveTheDefaultRequestBudget(t *testing.T) {
 	previous := defaultRequestTimeout
 	defaultRequestTimeout = 75 * time.Millisecond
 	t.Cleanup(func() { defaultRequestTimeout = previous })
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"ok":true}`)

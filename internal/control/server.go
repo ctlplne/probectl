@@ -71,14 +71,15 @@ type Discoverer func(ctx context.Context, cfg path.Config) (*path.Path, error)
 // Server is the probectl control-plane HTTP API server. It is stateless: all
 // durable state lives in the datastores, so instances are interchangeable.
 type Server struct {
-	cfg       *config.Config
-	log       *slog.Logger
-	pinger    store.Pinger
-	pool      *pgxpool.Pool
-	pathStore pathstore.Store
-	discover  Discoverer
-	hopGeo    *path.GeoTable // nil = no operator geo table; hops stay unlocated
-	http      *http.Server
+	providerReportTriggers bool
+	cfg                    *config.Config
+	log                    *slog.Logger
+	pinger                 store.Pinger
+	pool                   *pgxpool.Pool
+	pathStore              pathstore.Store
+	discover               Discoverer
+	hopGeo                 *path.GeoTable // nil = no operator geo table; hops stay unlocated
+	http                   *http.Server
 
 	// Identity & access (S18). sessions + authn are nil when pool is nil (unit
 	// tests of operational endpoints); providers is always set (the SSO seam).

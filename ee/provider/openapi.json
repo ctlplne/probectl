@@ -7,6 +7,101 @@
     "description": "The MSP operator surface: tenant lifecycle, fleet-across-tenants health, audited break-glass. Operators are a privilege domain distinct from tenant users (mandatory TOTP MFA); they hold NO implicit access to tenant telemetry \u2014 the only telemetry path is an active, tenant-consented, time-bounded grant, and every access is written to the separate provider audit stream."
   },
   "paths": {
+    "/provider/v1/tenants/{id}/monthly-reports/{request_id}": {
+      "get": {
+        "operationId": "getMonthlyReportProgress",
+        "summary": "Read operational report progress without queueing work",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Counts only; no artifact or telemetry access.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthlyReportProgress"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required."
+          },
+          "404": {
+            "description": "Request not found for this operator and tenant."
+          }
+        }
+      }
+    },
+    "/provider/v1/tenants/{id}/monthly-reports": {
+      "post": {
+        "operationId": "queueMonthlyReports",
+        "summary": "Queue opted-in monthly tenant work; return operational counts only",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonthlyReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Idempotent queue/progress counts; reports remain behind tenant authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthlyReportProgress"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required."
+          },
+          "403": {
+            "description": "Operator write authority required."
+          },
+          "404": {
+            "description": "Queue is not enabled."
+          },
+          "503": {
+            "description": "Retry the same request ID."
+          }
+        }
+      }
+    },
     "/provider/v1/auth/bootstrap": {
       "post": {
         "summary": "Create the first admin from the deployment bootstrap token (single-use)",
@@ -651,6 +746,63 @@
   },
   "components": {
     "schemas": {
+      "MonthlyReportRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Idempotent per operator and tenant; reuse to refresh progress."
+          }
+        }
+      },
+      "MonthlyReportProgress": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenant_id",
+          "eligible",
+          "queued",
+          "pending",
+          "delivered",
+          "inactive",
+          "replay"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eligible": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queued": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pending": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "delivered": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "inactive": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "replay": {
+            "type": "boolean"
+          }
+        }
+      },
+
       "ProviderAuditEvent": {
         "type": "object",
         "description": "One record in the separate, hash-chained provider/break-glass audit stream. This is the raw operator stream, not the tenant stream, so no privacy-erasure projection applies to it.",

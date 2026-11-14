@@ -79,7 +79,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F9',
     name: 'Dashboards and incident timeline',
-    // Traffic/customer-prefix impact is an extension in preview; test/SLO
+    // Monthly client packs and traffic/customer-prefix impact are extensions in preview; test/SLO
     // attribution, signed impact export and real-flow qualification are owed.
     status: 'delivered',
     source: 'contract:features',
@@ -305,6 +305,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   },
   {
     id: 'F51',
+    // Tenant-consented monthly triggers are preview; full rendered/lifecycle qualification is owed.
     name: 'Provider/MSP plane',
     status: 'delivered',
     source: 'contract:features',

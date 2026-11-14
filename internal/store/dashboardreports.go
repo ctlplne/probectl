@@ -46,30 +46,34 @@ type DashboardView struct {
 }
 
 type ReportScheduleInput struct {
-	ID            string
-	DashboardID   string
-	OwnerID       string
-	Name          string
-	Format        string
-	Cadence       string
-	DestinationID string
-	NextRunAt     time.Time
+	ProviderTriggerAllowed bool
+	ID                     string
+	DashboardID            string
+	OwnerID                string
+	Name                   string
+	Format                 string
+	Cadence                string
+	DestinationID          string
+	NextRunAt              time.Time
 }
 
 type ReportSchedule struct {
-	ID            string     `json:"id"`
-	TenantID      string     `json:"tenant_id"`
-	DashboardID   string     `json:"dashboard_id"`
-	OwnerID       string     `json:"owner_id"`
-	Name          string     `json:"name"`
-	Format        string     `json:"format"`
-	Cadence       string     `json:"cadence"`
-	DestinationID string     `json:"destination_id"`
-	Enabled       bool       `json:"enabled"`
-	NextRunAt     time.Time  `json:"next_run_at"`
-	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ProviderTriggerAllowed    bool       `json:"provider_trigger_allowed"`
+	ProviderRequestID         *string    `json:"provider_request_id,omitempty"`
+	ProviderOriginalNextRunAt *time.Time `json:"provider_original_next_run_at,omitempty"`
+	ID                        string     `json:"id"`
+	TenantID                  string     `json:"tenant_id"`
+	DashboardID               string     `json:"dashboard_id"`
+	OwnerID                   string     `json:"owner_id"`
+	Name                      string     `json:"name"`
+	Format                    string     `json:"format"`
+	Cadence                   string     `json:"cadence"`
+	DestinationID             string     `json:"destination_id"`
+	Enabled                   bool       `json:"enabled"`
+	NextRunAt                 time.Time  `json:"next_run_at"`
+	LastRunAt                 *time.Time `json:"last_run_at,omitempty"`
+	CreatedAt                 time.Time  `json:"created_at"`
+	UpdatedAt                 time.Time  `json:"updated_at"`
 }
 
 type ReportArtifactInput struct {
@@ -197,12 +201,12 @@ func (DashboardReports) ListViews(ctx context.Context, s tenancy.Scope, userID s
 }
 
 const reportScheduleColumns = `id, tenant_id::text, dashboard_id, owner_id, name, format,
- cadence, destination_id, enabled, next_run_at, last_run_at, created_at, updated_at`
+ cadence, destination_id, enabled, next_run_at, last_run_at, created_at, updated_at, provider_trigger_allowed, provider_request_id::text, provider_original_next_run_at`
 
 func scanReportSchedule(row interface{ Scan(...any) error }, out *ReportSchedule) error {
 	if err := row.Scan(&out.ID, &out.TenantID, &out.DashboardID, &out.OwnerID, &out.Name,
 		&out.Format, &out.Cadence, &out.DestinationID, &out.Enabled, &out.NextRunAt,
-		&out.LastRunAt, &out.CreatedAt, &out.UpdatedAt); err != nil {
+		&out.LastRunAt, &out.CreatedAt, &out.UpdatedAt, &out.ProviderTriggerAllowed, &out.ProviderRequestID, &out.ProviderOriginalNextRunAt); err != nil {
 		return notFound("dashboard report schedule", err)
 	}
 	return nil
@@ -214,13 +218,13 @@ func (DashboardReports) CreateSchedule(ctx context.Context, s tenancy.Scope, in 
 	var out ReportSchedule
 	err := scanReportSchedule(s.Q.QueryRow(ctx, `
 		INSERT INTO dashboard_report_schedules
-		       (tenant_id, id, dashboard_id, owner_id, name, format, cadence, destination_id, next_run_at)
-		SELECT $1, $2, v.id, $3, $4, $5, $6, $7, $8
+		       (tenant_id, id, dashboard_id, owner_id, name, format, cadence, destination_id, next_run_at,provider_trigger_allowed)
+		SELECT $1, $2, v.id, $3, $4, $5, $6, $7, $8,$10
 		  FROM dashboard_views v
 		 WHERE v.tenant_id = $1 AND v.id = $9 AND (v.owner_id = $3 OR v.shared)
 		RETURNING `+reportScheduleColumns,
 		s.Tenant.String(), in.ID, in.OwnerID, in.Name, in.Format, in.Cadence,
-		in.DestinationID, in.NextRunAt, in.DashboardID), &out)
+		in.DestinationID, in.NextRunAt, in.DashboardID, in.ProviderTriggerAllowed), &out)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, notFound("dashboard view", err)
@@ -286,12 +290,13 @@ func (DashboardReports) ListDueForRendering(ctx context.Context, s tenancy.Scope
 		       s.cadence, s.destination_id, s.enabled, s.next_run_at, s.last_run_at,
 		       s.created_at, s.updated_at,
 		       v.id, v.tenant_id::text, v.owner_id, v.name, v.preset, v.shared,
-		       v.definition, v.created_at, v.updated_at
+		       v.definition, v.created_at, v.updated_at,s.provider_trigger_allowed,s.provider_request_id::text,s.provider_original_next_run_at
 		  FROM dashboard_report_schedules s
 		  JOIN dashboard_views v
 		    ON v.tenant_id = s.tenant_id AND v.id = s.dashboard_id
 		 WHERE s.tenant_id = $1 AND v.tenant_id = $1 AND s.enabled AND s.next_run_at <= $2
 		   AND (v.owner_id = s.owner_id OR v.shared)
+ AND (s.provider_request_id IS NULL OR s.provider_trigger_allowed)
 		 ORDER BY s.next_run_at, s.id
 		 LIMIT $3`, s.Tenant.String(), now, limit)
 	if err != nil {
@@ -310,7 +315,7 @@ func (DashboardReports) ListDueForRendering(ctx context.Context, s tenancy.Scope
 			&item.Schedule.UpdatedAt,
 			&item.View.ID, &item.View.TenantID, &item.View.OwnerID, &item.View.Name,
 			&item.View.Preset, &item.View.Shared, &definition, &item.View.CreatedAt,
-			&item.View.UpdatedAt,
+			&item.View.UpdatedAt, &item.Schedule.ProviderTriggerAllowed, &item.Schedule.ProviderRequestID, &item.Schedule.ProviderOriginalNextRunAt,
 		); err != nil {
 			return nil, err
 		}
@@ -334,6 +339,7 @@ func (DashboardReports) TryClaimDueForPublication(ctx context.Context, s tenancy
 		  FROM dashboard_report_schedules
 		 WHERE tenant_id=$1 AND id=$2 AND enabled AND next_run_at<=$3
 		   AND next_run_at=$4 AND updated_at=$5
+ AND (provider_request_id IS NULL OR provider_trigger_allowed)
 		 FOR UPDATE SKIP LOCKED`, s.Tenant.String(), captured.ID, now, captured.NextRunAt, captured.UpdatedAt), &out)
 	if domain, ok := apierror.As(err); ok && domain.Kind == apierror.KindNotFound {
 		return nil, nil
@@ -347,7 +353,7 @@ func (DashboardReports) TryClaimDueForPublication(ctx context.Context, s tenancy
 func (DashboardReports) MarkScheduleDelivered(ctx context.Context, s tenancy.Scope, id string, deliveredAt, nextRunAt time.Time) error {
 	tag, err := s.Q.Exec(ctx, `
 		UPDATE dashboard_report_schedules
-		   SET last_run_at = $3, next_run_at = $4, updated_at = $3
+		   SET last_run_at = $3, next_run_at = $4, updated_at = $3, provider_request_id=NULL,provider_original_next_run_at=NULL
 		 WHERE tenant_id = $1 AND id = $2 AND enabled`,
 		s.Tenant.String(), id, deliveredAt, nextRunAt)
 	if err != nil {
@@ -400,4 +406,23 @@ func (DashboardReports) CreateArtifact(ctx context.Context, s tenancy.Scope, in 
 		return nil, mapWriteErr("dashboard report artifact", err)
 	}
 	return &out, nil
+}
+
+// SetScheduleProviderControl changes only the caller-owned trigger consent.
+// Revocation restores an accelerated schedule's original cadence and clears
+// its provider origin atomically, including work a renderer already captured.
+func (DashboardReports) SetScheduleProviderControl(ctx context.Context, sc tenancy.Scope, id, owner string, allowed bool, enabled *bool) (*ReportSchedule, error) {
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || bound != sc.Tenant || sc.Q == nil {
+		return nil, tenancy.ErrNoTenant
+	}
+	var out ReportSchedule
+	err := scanReportSchedule(sc.Q.QueryRow(ctx, `UPDATE dashboard_report_schedules SET
+ enabled=COALESCE($5::boolean,enabled),provider_trigger_allowed=$4,
+ next_run_at=CASE WHEN NOT $4 AND provider_request_id IS NOT NULL THEN provider_original_next_run_at ELSE next_run_at END,
+ provider_request_id=CASE WHEN NOT $4 THEN NULL ELSE provider_request_id END,
+ provider_original_next_run_at=CASE WHEN NOT $4 THEN NULL ELSE provider_original_next_run_at END,
+ updated_at=clock_timestamp()
+ WHERE tenant_id=$1 AND id=$2 AND owner_id=$3 RETURNING `+reportScheduleColumns, sc.Tenant.String(), id, owner, allowed, enabled), &out)
+	return &out, err
 }

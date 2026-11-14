@@ -148,6 +148,9 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 	if err := cleanDashboardDefinition(&definition); err != nil {
 		return false, err
 	}
+	if item.Schedule.ProviderRequestID != nil && (!item.Schedule.ProviderTriggerAllowed || definition.ClientReport == nil) {
+		return false, apierror.Forbidden("provider report consent is no longer applicable")
+	}
 	if len(definition.FlowSources) > 0 || definition.ClientReport != nil {
 		return s.materializeSourceReport(ctx, tenantName, item, definition, now)
 	}
@@ -278,7 +281,7 @@ func dashboardReportScheduleMatches(captured, current store.ReportSchedule) bool
 		captured.DashboardID == current.DashboardID && captured.OwnerID == current.OwnerID &&
 		captured.Name == current.Name && captured.Format == current.Format &&
 		captured.Cadence == current.Cadence && captured.DestinationID == current.DestinationID &&
-		captured.Enabled == current.Enabled && captured.NextRunAt.Equal(current.NextRunAt) &&
+		captured.Enabled == current.Enabled && captured.ProviderTriggerAllowed == current.ProviderTriggerAllowed && reportProviderOriginMatches(captured, current) && captured.NextRunAt.Equal(current.NextRunAt) &&
 		captured.CreatedAt.Equal(current.CreatedAt) && captured.UpdatedAt.Equal(current.UpdatedAt) && lastRunMatches
 }
 
@@ -297,4 +300,22 @@ func nextDashboardReportRun(cadence string, scheduled, now time.Time) (time.Time
 		}
 	}
 	return next, nil
+}
+
+func reportProviderOriginMatches(a, b store.ReportSchedule) bool {
+	if (a.ProviderRequestID == nil) != (b.ProviderRequestID == nil) || (a.ProviderOriginalNextRunAt == nil) != (b.ProviderOriginalNextRunAt == nil) {
+		return false
+	}
+	if a.ProviderRequestID != nil && *a.ProviderRequestID != *b.ProviderRequestID {
+		return false
+	}
+	return a.ProviderOriginalNextRunAt == nil || a.ProviderOriginalNextRunAt.Equal(*b.ProviderOriginalNextRunAt)
+}
+
+func nextSourceReportRun(schedule store.ReportSchedule, now time.Time) (time.Time, error) {
+	anchor := schedule.NextRunAt
+	if schedule.ProviderOriginalNextRunAt != nil {
+		anchor = *schedule.ProviderOriginalNextRunAt
+	}
+	return nextDashboardReportRun(schedule.Cadence, anchor, now)
 }
