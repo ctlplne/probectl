@@ -423,3 +423,52 @@ Customer classification uses current effective test tags only for original
 failures or complete measured echo loss, and cites the matching SLO failed
 inputs. It requires current tag disclosure for each exact affected test and
 rechecks that metadata before returning; configuration alone is never a hit.
+
+## Original polled hop health (preview)
+
+`GET /v1/tests/{id}/path/entities?include_health=true` adds the six original
+in/out octet, error and discard counters to each uniquely resolved, currently
+polled interface. The test's assigned routing context selects the canonical
+interface and its exact current device-agent source. An IP match alone never
+selects a device's other port. Unresolved, conflicting and unpolled hops carry
+explicit availability; they do not receive invented zero values.
+
+The default health window is the last 15 minutes. `health_from` and
+`health_to` accept RFC3339 timestamps, and `health_poll_gap` accepts a positive
+Go duration (default `5m`). Windows have no fixed age/row cap; the existing
+per-tenant fairness, memory, complete-response and execution admission applies.
+A refusal never returns shortened history. Original source validity and
+current user, credential, context, lifecycle and evidence grants are rechecked
+before publication. Health additionally requires `metrics.read`.
+
+```sh
+probectl --json entities path-resolve TEST_ID --query include_health=true
+probectl --json entities path-resolve TEST_ID --query include_health=true --query health_max_bps=10000000000
+```
+
+Every observed direction retains the two original capture keys/digests, poll
+clocks, exact decimal counter words, counter width and independently observed
+interface speed. A rational rate uses the interval between original poll starts;
+it is a mean over those polls, with polling latency still present. Matching
+uptime and discontinuity clocks are required. Missing/stale/overlapping polls,
+changed width or a restart keep the original observations with an explicit
+unavailable rate. A modular delta alone is only a minimum, even if its counter
+word rose: complete hidden wraps are possible. No maximum is inferred from a
+current interface speed or a financial agreement.
+
+`health_max_bps` is an optional, operator-supplied physical upper bound in
+bits/second, applied to each selected interface. An octet delta is exact under
+that explicit bound only when no extra complete wrap fits; contradictory deltas
+are unavailable. Error/discard rates remain minima because there is no packet
+upper-bound assumption. Utilisation is an exact rational percentage of the
+polled speed, explicitly conditional on that speed having remained constant
+between the two polls. An absent, zero or changed speed does not yield a
+percentage. Raw words remain strings, including integers above JavaScript's
+exact-number range.
+
+`config_coverage=unavailable_no_context_bound_archive` means no configuration
+archive has yet been tied to this exact canonical context/source. This preview
+does not attach configurations by matching global device names or addresses.
+Native MCP/RCA, context-bound recent configuration references, physical
+traceroute/SNMP validation and the complete served-surface proof remain required
+before this feature leaves preview.

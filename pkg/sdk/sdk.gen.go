@@ -1579,9 +1579,10 @@ type EntityPathContextBinding struct {
 }
 
 type EntityPathHop struct {
-	Ip         string           `json:"ip"`
-	Resolution EntityResolution `json:"resolution"`
-	Ttl        int              `json:"ttl"`
+	Health     PathInterfaceHealth `json:"health,omitempty"`
+	Ip         string              `json:"ip"`
+	Resolution EntityResolution    `json:"resolution"`
+	Ttl        int                 `json:"ttl"`
 }
 
 type EntityPathResult struct {
@@ -3135,8 +3136,52 @@ type Path struct {
 	Vantage             string                   `json:"vantage"`
 }
 
+// Original cumulative words and two poll receipts. rate_numerator/rate_denominator is bits/s for octets and packets/s for errors/discards. The rate_kind controls whether the ratio is an exact value under an explicit bound or only a modular minimum; a zero minimum is not a claim of no traffic. Utilisation is a percent ratio and requires the additional constant-polled-speed assumption, named in utilization_kind. Poll-start elapsed time is a mean model, not per-OID timing. Missing observations have a reason and no fabricated zero.
+type PathHealthCounter struct {
+	CaptureKey                string `json:"capture_key,omitempty"`
+	CounterWidth              int    `json:"counter_width,omitempty"`
+	InterfaceSpeedBps         string `json:"interface_speed_bps,omitempty"`
+	Metric                    string `json:"metric"`
+	MinimumDelta              string `json:"minimum_delta,omitempty"`
+	PollCompletedAt           string `json:"poll_completed_at,omitempty"`
+	PollStartedAt             string `json:"poll_started_at,omitempty"`
+	PreviousCaptureKey        string `json:"previous_capture_key,omitempty"`
+	PreviousInterfaceSpeedBps string `json:"previous_interface_speed_bps,omitempty"`
+	PreviousPollCompletedAt   string `json:"previous_poll_completed_at,omitempty"`
+	PreviousPollStartedAt     string `json:"previous_poll_started_at,omitempty"`
+	PreviousRawDigest         string `json:"previous_raw_digest,omitempty"`
+	PreviousValue             string `json:"previous_value,omitempty"`
+	RateDenominator           string `json:"rate_denominator,omitempty"`
+	RateKind                  string `json:"rate_kind"`
+	RateNumerator             string `json:"rate_numerator,omitempty"`
+	RateUnit                  string `json:"rate_unit"`
+	RawDigest                 string `json:"raw_digest,omitempty"`
+	Reason                    string `json:"reason,omitempty"`
+	UtilizationDenominator    string `json:"utilization_denominator,omitempty"`
+	UtilizationKind           string `json:"utilization_kind,omitempty"`
+	UtilizationNumerator      string `json:"utilization_numerator,omitempty"`
+	Value                     string `json:"value,omitempty"`
+}
+
 type PathHistory struct {
 	Items []PathSnapshot `json:"items"`
+}
+
+// Current canonical interface/source and exact original counter observations. It identifies the responding interface, never an inferred forwarding/egress interface. Config coverage is explicit; no global device-name/IP archive join is performed. All decimal measurements retain their full width.
+type PathInterfaceHealth struct {
+	AgentId          string              `json:"agent_id,omitempty"`
+	ConfigCoverage   string              `json:"config_coverage"`
+	ContextId        string              `json:"context_id,omitempty"`
+	Counters         []PathHealthCounter `json:"counters"`
+	DeviceId         string              `json:"device_id,omitempty"`
+	From             string              `json:"from"`
+	InterfaceId      string              `json:"interface_id,omitempty"`
+	Method           string              `json:"method"`
+	PhysicalMaxBps   string              `json:"physical_max_bps,omitempty"`
+	SourceRef        string              `json:"source_ref,omitempty"`
+	SourceValidUntil string              `json:"source_valid_until,omitempty"`
+	Status           string              `json:"status"`
+	To               string              `json:"to"`
 }
 
 // Versioned acquisition receipt for one path snapshot. Legacy snapshots omit this object rather than inferring capabilities. Current RTTs use the application monotonic clock; kernel and hardware timestamp booleans are true only when actually used.
@@ -8691,7 +8736,12 @@ func (c *Client) DiscoverTestPath(ctx context.Context, req DiscoverTestPathReque
 
 // Resolve current path responders in the test's assigned routing context
 type GetPathEntitiesRequest struct {
-	Id string `json:"-"`
+	Id            string  `json:"-"`
+	IncludeHealth *bool   `json:"-"`
+	HealthFrom    *string `json:"-"`
+	HealthTo      *string `json:"-"`
+	HealthPollGap *string `json:"-"`
+	HealthMaxBps  *string `json:"-"`
 }
 
 func (c *Client) GetPathEntities(ctx context.Context, req GetPathEntitiesRequest) (*EntityPathResult, error) {
@@ -8701,6 +8751,21 @@ func (c *Client) GetPathEntities(ctx context.Context, req GetPathEntitiesRequest
 	}
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
+	if req.IncludeHealth != nil {
+		query.Set("include_health", formatQueryValue(*req.IncludeHealth))
+	}
+	if req.HealthFrom != nil {
+		query.Set("health_from", formatQueryValue(*req.HealthFrom))
+	}
+	if req.HealthTo != nil {
+		query.Set("health_to", formatQueryValue(*req.HealthTo))
+	}
+	if req.HealthPollGap != nil {
+		query.Set("health_poll_gap", formatQueryValue(*req.HealthPollGap))
+	}
+	if req.HealthMaxBps != nil {
+		query.Set("health_max_bps", formatQueryValue(*req.HealthMaxBps))
+	}
 	var out EntityPathResult
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err

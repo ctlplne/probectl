@@ -20,11 +20,18 @@ import (
 // tenant/context and certificate filters as ResolveAlias. Every input receives
 // an explicit resolved, conflict or unresolved result.
 func (s *EntityRegistry) ResolveAddresses(ctx context.Context, raw entity.Scope, addresses []string) (map[string]entity.Resolution, error) {
+	return s.ResolveAddressesWithBudget(ctx, raw, addresses, 640*8192)
+}
+
+// ResolveAddressesWithBudget admits the complete address population by retained
+// memory. Path health shares its operation allowance rather than truncating a
+// larger imported path to the legacy traceroute population.
+func (s *EntityRegistry) ResolveAddressesWithBudget(ctx context.Context, raw entity.Scope, addresses []string, memoryBytes int64) (map[string]entity.Resolution, error) {
 	want, err := s.scope(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
-	if len(addresses) > 640 {
+	if memoryBytes <= 0 || int64(len(addresses)) > memoryBytes/8192 {
 		return nil, entity.ErrInvalidPage
 	}
 	unique := make([]string, 0, len(addresses))

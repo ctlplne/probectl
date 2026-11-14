@@ -54,6 +54,7 @@ import { layoutPath, worstPathNode, type VizNode } from '../viz/layout'
 import { parsePivotContext, pivotHref, replacePivotContext } from './pivotContext'
 import { ExplainView } from './ExplainView'
 import { DateTime } from '../time/DateTime'
+import { PathInterfaceHealthView } from './PathInterfaceHealthView'
 
 const fidelityAcquisitionLabels: Record<PathMeasurementFidelity['acquisition_mode'], MessageKey> = {
   raw_icmp: 'path.fidelity.acquisition.rawIcmp',
@@ -148,6 +149,7 @@ export function PathPage() {
     testId,
     tenant.id,
     permissions.includes('entities.read') && Boolean(displayedPath),
+    permissions.includes('metrics.read'),
   )
   const canAssignPathContext =
     permissions.includes('entities.read') && permissions.includes('agent.write')
@@ -701,6 +703,16 @@ export function PathPage() {
                           render: (row) => <code>{row.ip}</code>,
                         },
                         {
+                          key: 'health',
+                          header: 'Latest path interface health',
+                          render: (row) =>
+                            row.health ? (
+                              <PathInterfaceHealthView health={row.health} />
+                            ) : (
+                              'Not requested without metrics.read'
+                            ),
+                        },
+                        {
                           key: 'identity',
                           header: 'Current identity',
                           render: (row) => (
@@ -717,16 +729,11 @@ export function PathPage() {
                           ),
                         },
                       ]}
-                      rows={pathEntities.data?.items.slice(0, 100) ?? []}
+                      rows={pathEntities.data?.items ?? []}
+                      maxRows={pathEntities.data?.items.length ?? 0}
                       rowKey={(row) => `${row.ttl}:${row.ip}`}
                       empty="No responder address was observed."
                     />
-                    {(pathEntities.data?.items.length ?? 0) > 100 ? (
-                      <p>
-                        Showing the first 100 responders. Use the CLI or API for the full bounded
-                        result.
-                      </p>
-                    ) : null}
                   </>
                 )}
               </CardBody>

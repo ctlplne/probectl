@@ -86,12 +86,19 @@ export type PathEntityResult = EntityPathResult
 
 /** Current identity join for the latest raw path. Server checks test, entity
  * and every returned evidence source permission independently. */
-export function usePathEntities(testId: string | undefined, tenantID: string, enabled: boolean) {
+export function usePathEntities(
+  testId: string | undefined,
+  tenantID: string,
+  enabled: boolean,
+  includeHealth = false,
+) {
   return useQuery({
-    queryKey: ['path-entities', tenantID, testId],
+    queryKey: ['path-entities', tenantID, testId, includeHealth],
     enabled: !!testId && enabled,
     queryFn: () =>
-      apiFetch<EntityPathResult>(`/tests/${encodeURIComponent(testId ?? '')}/path/entities`),
+      apiFetch<EntityPathResult>(
+        `/tests/${encodeURIComponent(testId ?? '')}/path/entities${includeHealth ? '?include_health=true' : ''}`,
+      ),
   })
 }
 

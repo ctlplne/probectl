@@ -212,7 +212,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"path-context-assign": {Method: http.MethodPut, Path: "/v1/tests/{id}/entity-context", ArgName: "id",
 			Description: "assign an owned test's context; --body with context_id; targetless noop has metadata only, destination paths keep one binding per tenant destination"},
 		"path-resolve": {Method: http.MethodGet, Path: "/v1/tests/{id}/path/entities", ArgName: "id",
-			Description: "show current canonical identity evidence for this test's path responders in its bound context"},
+			Description: "show current canonical identity evidence; --query include_health=true adds original directional counters, with optional health_from, health_to, health_poll_gap and health_max_bps"},
 	}},
 	"tags": {Name: "tags", Summary: "tenant tag keys, context rules, assignments and NetBox preview", Ops: map[string]apiOp{
 		"list":               {Method: http.MethodGet, Path: "/v1/tags", Description: "list the tenant's complete bounded tag-key vocabulary"},

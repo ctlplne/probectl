@@ -1814,19 +1814,95 @@
     "/v1/tests/{id}/path/entities": {
       "get": {
         "x-required-permission": "test.read",
-        "x-additional-permissions": ["entities.read", "source-specific evidence read"],
+        "x-additional-permissions": [
+          "entities.read",
+          "source-specific evidence read"
+        ],
         "operationId": "getPathEntities",
         "summary": "Resolve current path responders in the test's assigned routing context",
-        "description": "The control-plane trace remains raw. This view requires test.read, entities.read and each returned source's read permission. It uses an operator-owned test/context binding and a discovery that started strictly after that binding, both timed by PostgreSQL; older or same-millisecond rounds cannot inherit a newly assigned context. Current tenant-scoped evidence resolves the responders; unbound or retargeted tests report unbound, and ambiguous addresses stay conflicts. Results are current joins, not historical-at-discovery identity claims.",
-        "tags": ["paths", "entities"],
+        "description": "The control-plane trace remains raw. This view requires test.read, entities.read and each returned source's read permission. It uses an operator-owned test/context binding and a discovery that started strictly after that binding, both timed by PostgreSQL; older or same-millisecond rounds cannot inherit a newly assigned context. Current tenant-scoped evidence resolves the responders; unbound or retargeted tests report unbound, and ambiguous addresses stay conflicts. Results are current joins, not historical-at-discovery identity claims. With include_health=true, a current tenant user also needs metrics.read and current source grants. The response includes complete admitted original counter observations and receipt citations for each uniquely resolved polled interface. Health bounds are independent of the trace time. Rates without an explicit physical bound are minima under counter continuity, and utilisation additionally assumes unchanged polled link speed between the original polls; unknown, reset, stale and ambiguous inputs are not zero. Context-bound archive linkage is reported unavailable until proven. Current path binding, original receipt/source authority and the exact credential are revalidated before publication.",
+        "tags": [
+          "paths",
+          "entities"
+        ],
         "parameters": [
-          {"$ref": "#/components/parameters/TenantHeader"},
-          {"$ref": "#/components/parameters/IdPath"}
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdPath"
+          },
+          {
+            "name": "include_health",
+            "in": "query",
+            "required": false,
+            "description": "Include current-source-gated original interface health; requires metrics.read in addition to path/entity/source reads.",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "health_from",
+            "in": "query",
+            "required": false,
+            "description": "Inclusive original counter window start; defaults to fifteen minutes before the request.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "health_to",
+            "in": "query",
+            "required": false,
+            "description": "Inclusive counter window end, no later than now; defaults to the request time.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "health_poll_gap",
+            "in": "query",
+            "required": false,
+            "description": "Positive Go duration for the maximum adjacent poll gap and latest-poll age; defaults to 5m.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "health_max_bps",
+            "in": "query",
+            "required": false,
+            "description": "Optional explicit physical upper bound, as a uint64 decimal bps value, for every selected interface over the requested interval. It is an operator assumption; the reader never infers it from financial terms or current speed. Absent means rates remain modular minima.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          }
         ],
         "responses": {
-          "200": {"description": "Current path identity join, explicit unbound status or awaiting a trace after context assignment.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EntityPathResult"}}}},
-          "403": {"description": "Tenant, test, entity or evidence-source read denied."},
-          "404": {"description": "Unknown test."}
+          "200": {
+            "description": "Current path identity join, explicit unbound status or awaiting a trace after context assignment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityPathResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant, test, entity or evidence-source read denied."
+          },
+          "404": {
+            "description": "Unknown test."
+          },
+          "400": {"description": "Invalid health options."},
+          "413": {"description": "The complete health query or response exceeds finite resource admission."},
+          "429": {"description": "Tenant query fairness admission refused the operation."},
+          "503": {"description": "Complete current evidence is unavailable or changed before publication."}
         }
       }
     },
@@ -25010,23 +25086,70 @@
       },
       "EntityPathHop": {
         "type": "object",
-        "required": ["ttl", "ip", "resolution"],
+        "required": [
+          "ttl",
+          "ip",
+          "resolution"
+        ],
         "properties": {
-          "ttl": {"type": "integer"},
-          "ip": {"type": "string", "format": "ipv4"},
-          "resolution": {"$ref": "#/components/schemas/EntityResolution"}
+          "ttl": {
+            "type": "integer"
+          },
+          "ip": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "resolution": {
+            "$ref": "#/components/schemas/EntityResolution"
+          },
+          "health": {
+            "$ref": "#/components/schemas/PathInterfaceHealth"
+          }
         }
       },
       "EntityPathResult": {
         "type": "object",
-        "required": ["test_id", "status", "coverage", "items"],
+        "required": [
+          "test_id",
+          "status",
+          "coverage",
+          "items"
+        ],
         "properties": {
-          "test_id": {"type": "string", "format": "uuid"},
-          "context_id": {"type": "string", "format": "uuid"},
-          "status": {"type": "string", "enum": ["unbound", "awaiting_trace", "current"]},
-          "coverage": {"type": "string", "enum": ["no_bound_context", "no_post_binding_trace", "registered_sources_only"], "description": "No identity claim is made when unbound or before a verified post-binding trace; current joins cover only registered evidence sources."},
-          "items": {"type": "array", "maxItems": 640, "items": {"$ref": "#/components/schemas/EntityPathHop"}},
-          "truncated": {"type": "boolean"}
+          "test_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unbound",
+              "awaiting_trace",
+              "current"
+            ]
+          },
+          "coverage": {
+            "type": "string",
+            "enum": [
+              "no_bound_context",
+              "no_post_binding_trace",
+              "registered_sources_only"
+            ],
+            "description": "No identity claim is made when unbound or before a verified post-binding trace; current joins cover only registered evidence sources."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityPathHop"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
         }
       },
       "CreateCanonicalEntityInput": {
@@ -30967,6 +31090,158 @@
           "as_of",
           "source_valid_until"
         ]
+      },
+      "PathInterfaceHealth": {
+        "type": "object",
+        "description": "Current canonical interface/source and exact original counter observations. It identifies the responding interface, never an inferred forwarding/egress interface. Config coverage is explicit; no global device-name/IP archive join is performed. All decimal measurements retain their full width.",
+        "required": [
+          "status",
+          "from",
+          "to",
+          "method",
+          "config_coverage",
+          "counters"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "context_id": {
+            "type": "string"
+          },
+          "interface_id": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "source_ref": {
+            "type": "string"
+          },
+          "physical_max_bps": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "config_coverage": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source_valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "counters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PathHealthCounter"
+            }
+          }
+        }
+      },
+      "PathHealthCounter": {
+        "type": "object",
+        "description": "Original cumulative words and two poll receipts. rate_numerator/rate_denominator is bits/s for octets and packets/s for errors/discards. The rate_kind controls whether the ratio is an exact value under an explicit bound or only a modular minimum; a zero minimum is not a claim of no traffic. Utilisation is a percent ratio and requires the additional constant-polled-speed assumption, named in utilization_kind. Poll-start elapsed time is a mean model, not per-OID timing. Missing observations have a reason and no fabricated zero.",
+        "required": [
+          "metric",
+          "rate_kind",
+          "rate_unit"
+        ],
+        "properties": {
+          "metric": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "previous_value": {
+            "type": "string"
+          },
+          "capture_key": {
+            "type": "string"
+          },
+          "previous_capture_key": {
+            "type": "string"
+          },
+          "raw_digest": {
+            "type": "string"
+          },
+          "previous_raw_digest": {
+            "type": "string"
+          },
+          "interface_speed_bps": {
+            "type": "string"
+          },
+          "previous_interface_speed_bps": {
+            "type": "string"
+          },
+          "minimum_delta": {
+            "type": "string"
+          },
+          "rate_numerator": {
+            "type": "string"
+          },
+          "rate_denominator": {
+            "type": "string"
+          },
+          "rate_kind": {
+            "type": "string",
+            "enum": [
+              "unavailable",
+              "minimum_under_counter_continuity",
+              "exact_under_explicit_physical_bound"
+            ]
+          },
+          "rate_unit": {
+            "type": "string"
+          },
+          "utilization_numerator": {
+            "type": "string"
+          },
+          "utilization_denominator": {
+            "type": "string"
+          },
+          "utilization_kind": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "poll_started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "poll_completed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "previous_poll_started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "previous_poll_completed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "counter_width": {
+            "type": "integer",
+            "enum": [
+              32,
+              64
+            ]
+          }
+        }
       }
     }
   }

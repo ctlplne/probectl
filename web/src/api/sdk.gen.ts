@@ -1475,6 +1475,7 @@ export interface EntityPathContextBinding {
 }
 
 export interface EntityPathHop {
+  health?: PathInterfaceHealth
   ip: string
   resolution: EntityResolution
   ttl: number
@@ -2995,8 +2996,50 @@ export interface Path {
   vantage: "control_plane"
 }
 
+export interface PathHealthCounter {
+  capture_key?: string
+  counter_width?: number
+  interface_speed_bps?: string
+  metric: string
+  minimum_delta?: string
+  poll_completed_at?: string
+  poll_started_at?: string
+  previous_capture_key?: string
+  previous_interface_speed_bps?: string
+  previous_poll_completed_at?: string
+  previous_poll_started_at?: string
+  previous_raw_digest?: string
+  previous_value?: string
+  rate_denominator?: string
+  rate_kind: "unavailable" | "minimum_under_counter_continuity" | "exact_under_explicit_physical_bound"
+  rate_numerator?: string
+  rate_unit: string
+  raw_digest?: string
+  reason?: string
+  utilization_denominator?: string
+  utilization_kind?: string
+  utilization_numerator?: string
+  value?: string
+}
+
 export interface PathHistory {
   items: PathSnapshot[]
+}
+
+export interface PathInterfaceHealth {
+  agent_id?: string
+  config_coverage: string
+  context_id?: string
+  counters: PathHealthCounter[]
+  device_id?: string
+  from: string
+  interface_id?: string
+  method: string
+  physical_max_bps?: string
+  source_ref?: string
+  source_valid_until?: string
+  status: string
+  to: string
 }
 
 export interface PathMeasurementFidelity {
@@ -5235,6 +5278,11 @@ export type DiscoverTestPathResponse = Path
 
 export interface GetPathEntitiesRequest {
   id: string
+  includeHealth?: boolean
+  healthFrom?: string
+  healthTo?: string
+  healthPollGap?: string
+  healthMaxBps?: string
 }
 
 export type GetPathEntitiesResponse = EntityPathResult
@@ -7251,6 +7299,11 @@ export class ProbectlSDKClient {
     let path = "/v1/tests/{id}/path/entities"
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
+    if (request.includeHealth !== undefined) query.set("include_health", String(request.includeHealth))
+    if (request.healthFrom !== undefined) query.set("health_from", String(request.healthFrom))
+    if (request.healthTo !== undefined) query.set("health_to", String(request.healthTo))
+    if (request.healthPollGap !== undefined) query.set("health_poll_gap", String(request.healthPollGap))
+    if (request.healthMaxBps !== undefined) query.set("health_max_bps", String(request.healthMaxBps))
     return this.requestJSON<GetPathEntitiesResponse>("GET", path, query, undefined)
   }
 
