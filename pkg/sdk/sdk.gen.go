@@ -816,25 +816,25 @@ type ChangeEffectTest struct {
 }
 
 type ChangeEffectTestObservation struct {
-	Available     bool                           `json:"available"`
-	CaptureDigest string                         `json:"capture_digest"`
-	EvidenceId    string                         `json:"evidence_id"`
-	ObservationId string                         `json:"observation_id"`
-	ObservedAt    string                         `json:"observed_at"`
-	Packets       ChangeEffectPackets            `json:"packets,omitempty"`
-	Reason        string                         `json:"reason"`
-	RoundTrips    ChangeEffectOriginalRoundTrips `json:"round_trips,omitempty"`
+	Available     bool                            `json:"available"`
+	CaptureDigest string                          `json:"capture_digest"`
+	EvidenceId    string                          `json:"evidence_id"`
+	ObservationId string                          `json:"observation_id"`
+	ObservedAt    string                          `json:"observed_at"`
+	Packets       *ChangeEffectPackets            `json:"packets,omitempty"`
+	Reason        string                          `json:"reason"`
+	RoundTrips    *ChangeEffectOriginalRoundTrips `json:"round_trips,omitempty"`
 }
 
 type ChangeEffectTestPeriod struct {
 	CompleteExecutions    int                           `json:"complete_executions"`
 	From                  string                        `json:"from"`
-	Latency               ChangeEffectLatency           `json:"latency,omitempty"`
+	Latency               *ChangeEffectLatency          `json:"latency,omitempty"`
 	LatencyCoverage       string                        `json:"latency_coverage"`
 	LossCoverage          string                        `json:"loss_coverage"`
-	LossRatio             string                        `json:"loss_ratio,omitempty"`
+	LossRatio             *string                       `json:"loss_ratio,omitempty"`
 	Observations          []ChangeEffectTestObservation `json:"observations"`
-	Packets               ChangeEffectPackets           `json:"packets,omitempty"`
+	Packets               *ChangeEffectPackets          `json:"packets,omitempty"`
 	To                    string                        `json:"to"`
 	UnavailableExecutions int                           `json:"unavailable_executions"`
 }

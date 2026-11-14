@@ -25474,10 +25474,24 @@
             "type": "string"
           },
           "packets": {
-            "$ref": "#/components/schemas/ChangeEffectPackets"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChangeEffectPackets"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "round_trips": {
-            "$ref": "#/components/schemas/ChangeEffectOriginalRoundTrips"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChangeEffectOriginalRoundTrips"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -25520,14 +25534,31 @@
             "type": "integer"
           },
           "packets": {
-            "$ref": "#/components/schemas/ChangeEffectPackets"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChangeEffectPackets"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "loss_ratio": {
-            "type": "string",
-            "description": "Exact integer or rational over observed complete executions; missing coverage is not zero loss."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact integer or rational over observed complete executions; absent/null coverage is unknown, not zero loss."
           },
           "latency": {
-            "$ref": "#/components/schemas/ChangeEffectLatency"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChangeEffectLatency"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },

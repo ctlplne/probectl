@@ -72,6 +72,11 @@ test('change comparison keeps exact ratios, unknown coverage and a late response
     await screen.findByText('9007199254740993/7')
     expect(screen.getByText('1/3')).toBeInTheDocument()
     expect(screen.getAllByText('Unknown').length).toBeGreaterThan(0)
+    expect(
+      screen.getByText(
+        'Traffic coverage: before No current owned source; after No current owned source.',
+      ),
+    ).toBeInTheDocument()
     finishPrimary?.(response('543210987654321/9'))
     await waitFor(() => expect(screen.queryByText('543210987654321/9')).not.toBeInTheDocument())
     expect(screen.getByText('9007199254740993/7')).toBeInTheDocument()

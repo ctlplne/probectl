@@ -723,20 +723,20 @@ export interface ChangeEffectTestObservation {
   evidence_id: string
   observation_id: string
   observed_at: string
-  packets?: ChangeEffectPackets
+  packets?: ChangeEffectPackets | null
   reason: string
-  round_trips?: ChangeEffectOriginalRoundTrips
+  round_trips?: ChangeEffectOriginalRoundTrips | null
 }
 
 export interface ChangeEffectTestPeriod {
   complete_executions: number
   from: string
-  latency?: ChangeEffectLatency
+  latency?: ChangeEffectLatency | null
   latency_coverage: string
   loss_coverage: string
-  loss_ratio?: string
+  loss_ratio?: string | null
   observations: ChangeEffectTestObservation[]
-  packets?: ChangeEffectPackets
+  packets?: ChangeEffectPackets | null
   to: string
   unavailable_executions: number
 }

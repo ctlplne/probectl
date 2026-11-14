@@ -11,6 +11,11 @@ export type Locale = (typeof LOCALES)[number]
 export const DEFAULT_LOCALE: Locale = 'en'
 
 const en = {
+  'changes.effects.observed': 'Verified original records',
+  'changes.effects.partial': 'Some original captures are unavailable',
+  'changes.effects.noSource': 'No current owned source',
+  'changes.effects.noObservations': 'No retained observations',
+  'changes.effects.noOriginal': 'Original capture unavailable',
   'changes.effects.title': 'Original before and after · preview',
   'changes.effects.description':
     'Compare retained measurements around this exact change. Missing observations stay unknown; differences do not prove causation.',
@@ -1596,6 +1601,11 @@ const en = {
 export type MessageKey = keyof typeof en
 
 const es: Record<MessageKey, string> = {
+  'changes.effects.observed': 'Registros originales verificados',
+  'changes.effects.partial': 'Faltan algunas capturas originales',
+  'changes.effects.noSource': 'No hay una fuente propia actual',
+  'changes.effects.noObservations': 'No hay observaciones conservadas',
+  'changes.effects.noOriginal': 'Captura original no disponible',
   'changes.effects.title': 'Antes y después originales · vista previa',
   'changes.effects.description':
     'Compare las mediciones conservadas alrededor de este cambio exacto. Los datos ausentes siguen siendo desconocidos; las diferencias no prueban causalidad.',
@@ -3215,6 +3225,11 @@ const es: Record<MessageKey, string> = {
 }
 
 const ar: Record<MessageKey, string> = {
+  'changes.effects.observed': 'سجلات أصلية موثقة',
+  'changes.effects.partial': 'بعض اللقطات الأصلية غير متاحة',
+  'changes.effects.noSource': 'لا يوجد مصدر مملوك حالي',
+  'changes.effects.noObservations': 'لا توجد ملاحظات محفوظة',
+  'changes.effects.noOriginal': 'اللقطة الأصلية غير متاحة',
   'changes.effects.title': 'القياسات الأصلية قبل التغيير وبعده · معاينة',
   'changes.effects.description':
     'قارن القياسات المحفوظة حول هذا التغيير المحدد. تبقى البيانات المفقودة مجهولة؛ ولا تثبت الفروق وجود علاقة سببية.',

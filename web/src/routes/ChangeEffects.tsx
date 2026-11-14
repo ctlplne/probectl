@@ -49,6 +49,22 @@ function CurrentChangeEffects({
     'test.read',
   ].every((permission) => permissions.includes(permission))
   const query = new URLSearchParams({ from, to })
+  const coverage = (value: string) => {
+    switch (value) {
+      case 'observed_attested_records':
+        return t('changes.effects.observed')
+      case 'partial_capture_coverage':
+        return t('changes.effects.partial')
+      case 'unavailable_source':
+        return t('changes.effects.noSource')
+      case 'no_observed_records':
+        return t('changes.effects.noObservations')
+      case 'unavailable_original_capture':
+        return t('changes.effects.noOriginal')
+      default:
+        return t('changes.effects.unknown')
+    }
+  }
   const result = useQuery({
     queryKey: ['change-effects', identity],
     queryFn: ({ signal }) => fetchChangeEffects(id, query, signal),
@@ -145,8 +161,8 @@ function CurrentChangeEffects({
             </p>
             <p>
               {t('changes.effects.coverage', {
-                before: result.data.before.coverage,
-                after: result.data.after.coverage,
+                before: coverage(result.data.before.coverage),
+                after: coverage(result.data.after.coverage),
               })}
             </p>
             <Table
