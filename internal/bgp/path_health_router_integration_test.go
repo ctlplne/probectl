@@ -77,6 +77,8 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 	config := lab.docker(t, "exec", sidecar, "cat", "/etc/snmp/snmpd.conf")
 	t.Cleanup(func() { setRouterPathError(t, lab, sidecar, config, index, "") })
 	archiveRouterPathConfigs(t, st, lab, registrations, agents, primary)
+	frozenWindows := make([]time.Time, len(registrations))
+	originals := make([]*sdk.PathInterfaceHealth, len(registrations))
 	for lane, reg := range registrations {
 		label := "primary"
 		if lane == 1 {
@@ -130,6 +132,7 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 			if !ok || health.Status != "observed_originals" || health.AgentId != agents[lane] || health.DeviceId != reg.deviceID || health.SourceRef != primary || len(health.ConfigChanges) != 2 || health.ConfigChanges[1].PreviousId != health.ConfigChanges[0].Id {
 				t.Fatal("real path health lost its original tenant source or operator archives")
 			}
+			frozenWindows[lane], originals[lane] = frozen, health
 			code, body := st.Do(t, reg.cookie, http.MethodPost, "/v1/ai/ask", map[string]any{"question": "Explain the original path interface error observations and operator archive changes without assuming causation.", "subject": map[string]string{"path_test_id": tests[lane]}, "range": map[string]string{"start": from.Format(time.RFC3339Nano), "end": frozen.Format(time.RFC3339Nano)}})
 			var answer ai.Answer
 			if code != http.StatusOK || json.Unmarshal(body, &answer) != nil || len(answer.Evidence) != 1 || !answer.RootCauseGrounded || len(answer.RootCauseCitations) == 0 || answer.RootCauseCitations[0].EvidenceID != answer.Evidence[0].ID {
@@ -170,6 +173,21 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 			}
 		})
 	}
+	if t.Failed() {
+		return
+	}
+	t.Run("restart", func(t *testing.T) {
+		st.RestartControl(t, "path-router-originals-restart", nil)
+		for lane, reg := range registrations {
+			query := url.Values{"include_health": {"true"}, "health_from": {from.Format(time.RFC3339Nano)}, "health_to": {frozenWindows[lane].Format(time.RFC3339Nano)}}
+			code, body := st.Do(t, reg.cookie, http.MethodGet, "/v1/tests/"+tests[lane]+"/path/entities?"+query.Encode(), nil)
+			if code != http.StatusOK {
+				t.Fatal("original routed path did not survive the control restart", code)
+			}
+			verifyRouterPathOriginals(t, body, reg, originals[lane])
+		}
+	})
+
 }
 
 func pathLabPrivileged(t *testing.T, program string, args ...string) {

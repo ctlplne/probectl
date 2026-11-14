@@ -20,6 +20,7 @@ SURFACES = tuple(ROOT + "/" + theme + "/" + tenant + "/" + surface
                  for surface in ("admin", "flow"))
 PATH_HEALTH = (
     ROOT + "/routed-path-health",
+    ROOT + "/routed-path-health/restart",
     *(ROOT + "/routed-path-health/" + tenant for tenant in ("primary", "paired")),
     *(ROOT + "/routed-path-health/" + tenant + "/" + theme
       for tenant in ("primary", "paired") for theme in ("light", "dark")),
