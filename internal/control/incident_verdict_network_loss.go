@@ -13,6 +13,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
 )
@@ -38,7 +39,7 @@ func incidentCarrierNetworkLoss(ctx context.Context, input incidentVerdictEviden
 				return false, err
 			}
 			m := read.ICMP
-			if !read.Available || m == nil || m.Version != 1 || m.Canceled || m.IOFailed || !m.ReadComplete || m.StartedAt.Before(after) || m.StartedAt.Before(source.CurrentSince) || m.CompletedAt.Before(m.StartedAt) || !m.CompletedAt.Equal(read.ObservedAt) || !verdictObservationInWindow(read.ObservedAt, input) {
+			if !read.Available || m == nil || (m.Version != 1 && (m.Version != 3 || len(m.NetworkErrors) != 0)) || m.Canceled || m.IOFailed || !m.ReadComplete || m.StartedAt.Before(after) || m.StartedAt.Before(source.CurrentSince) || m.CompletedAt.Before(m.StartedAt) || !icmpCompletionMatchesIndex(m, read.ObservedAt) || !verdictObservationInWindow(read.ObservedAt, input) {
 				continue
 			}
 			if !incidentNetworkTargetOutsideHandoff(read.Alias, item) {
@@ -69,6 +70,24 @@ func incidentCarrierNetworkLoss(ctx context.Context, input incidentVerdictEviden
 		return false, nil
 	}
 	return true, ctx.Err()
+}
+
+// Original version3 execution clocks retain nanoseconds inside the receipt;
+// PostgreSQL indexes its already-validated observation at microsecond precision.
+// Older receipt clock matching and complete original-outcome requirements stay.
+func icmpCompletionMatchesIndex(m *entity.ICMPMeasurement, observed time.Time) bool {
+	if m == nil {
+		return false
+	}
+	switch m.Version {
+	case 1, 2:
+		return m.CompletedAt.Equal(observed)
+	case 3:
+		return m.RoundTrips != nil && m.RoundTrips.Nanos != nil && uint64(len(m.RoundTrips.Nanos)) == uint64(m.Replies) &&
+			observed.Equal(observed.Truncate(time.Microsecond)) && m.CompletedAt.UTC().Truncate(time.Microsecond).Equal(observed.UTC())
+	default:
+		return false
+	}
 }
 
 func incidentNetworkTestCurrent(source store.IncidentConfiguredTest) bool {

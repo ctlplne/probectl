@@ -113,7 +113,7 @@ func incidentInternetNetworkErrors(ctx context.Context, input incidentVerdictEvi
 				return nil, false, err
 			}
 			m := read.ICMP
-			if !read.Available || m == nil || m.Canceled || m.IOFailed || !m.ReadComplete || m.StartedAt.Before(peer.ObservedAt) || m.StartedAt.Before(test.source.CurrentSince) || !m.CompletedAt.Equal(read.ObservedAt) || !verdictObservationInWindow(read.ObservedAt, input) || !incidentNetworkTargetOutsideHandoff(read.Alias, handoff) {
+			if !read.Available || m == nil || m.Canceled || m.IOFailed || !m.ReadComplete || m.StartedAt.Before(peer.ObservedAt) || m.StartedAt.Before(test.source.CurrentSince) || !icmpCompletionMatchesIndex(m, read.ObservedAt) || !verdictObservationInWindow(read.ObservedAt, input) || !incidentNetworkTargetOutsideHandoff(read.Alias, handoff) {
 				continue
 			}
 			citation := testVerdictCitation(read, "")
@@ -129,7 +129,7 @@ func incidentInternetNetworkErrors(ctx context.Context, input incidentVerdictEvi
 				}
 				continue
 			}
-			if m.Version != 2 || m.Requested == 0 || m.Attempted != m.Requested || m.Transmitted != m.Requested || m.SendErrors != 0 || uint64(len(m.NetworkErrors)) != uint64(m.Transmitted) {
+			if (m.Version != 2 && m.Version != 3) || m.Requested == 0 || m.Attempted != m.Requested || m.Transmitted != m.Requested || m.SendErrors != 0 || uint64(len(m.NetworkErrors)) != uint64(m.Transmitted) {
 				continue
 			}
 			routes := map[incidentVerdictRouteKey]incident.VerdictCitation{}

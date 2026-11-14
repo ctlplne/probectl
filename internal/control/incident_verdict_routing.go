@@ -60,7 +60,7 @@ func (s *Server) loadIncidentVerdictRoutes(ctx context.Context, sc tenancy.Scope
 		seen := map[incidentVerdictRouteKey]bool{}
 		for _, test := range snapshot.evidence.tests {
 			for _, read := range test.reads {
-				if !read.Available || read.ICMP == nil || read.ICMP.Version != 2 {
+				if !read.Available || read.ICMP == nil || (read.ICMP.Version != 2 && read.ICMP.Version != 3) {
 					continue
 				}
 				for _, outcome := range read.ICMP.NetworkErrors {
