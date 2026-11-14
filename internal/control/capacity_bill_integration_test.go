@@ -66,7 +66,8 @@ func TestCapacityAgreementBillServesCompleteMonthAndCurrentTwoTenantAuthority(t 
 		clients[tenant] = client
 		item, err := client.CreateCapacityAgreement(t.Context(), sdk.CreateCapacityAgreementRequest{Body: &sdk.CapacityAgreementInput{Definition: sdk.CapacityAgreementDefinition{
 			Name: "Recorded interface terms", Reference: "operator contract", ValidFrom: from.Format(time.RFC3339Nano), Target: sdk.CapacityTarget{Kind: "interface", ContextId: f.contextID, InterfaceId: f.interfaceID},
-			BillingDay: 1, Timezone: "UTC", Direction: "in", Currency: "USD", CommitBps: "1000", UnitBps: "1000", UnitPrice: "0.250000000000000001"}}})
+			BillingDay: 1, Timezone: "UTC", Direction: "in", Currency: "USD", CommitBps: "1000", UnitBps: "1000", UnitPrice: "0.250000000000000001",
+			Sla: &sdk.CarrierSLATerms{Carrier: "operator carrier", CircuitId: "operator circuit", Currency: "USD", MonthlyCharge: "100.125", CreditCapRatio: "1.25", Aggregation: "maximum", Rules: []sdk.CarrierSLARule{{Id: "loss", Metric: "loss", Basis: "original_packet_ratio", GoodWhen: "at_most", Threshold: "0.01", CreditBands: []sdk.CarrierSLACreditBand{{FromInclusive: "0.01", CreditRatio: "0.1"}}}}}}}})
 		if err != nil || item == nil {
 			t.Fatal(err)
 		}

@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"strconv"
 	"time"
@@ -227,7 +228,7 @@ func (s *Server) capacityBillMembersInScope(ctx context.Context, sc tenancy.Scop
 
 func sameCapacityBillPlan(a, b capacityBillPlan) bool {
 	if a.agreement.ID != b.agreement.ID || a.agreement.TenantID != b.agreement.TenantID || a.agreement.Version != b.agreement.Version ||
-		a.agreement.CurrentVersion != b.agreement.CurrentVersion || a.agreement.Definition != b.agreement.Definition || a.agreement.TargetPresent != b.agreement.TargetPresent {
+		a.agreement.CurrentVersion != b.agreement.CurrentVersion || !reflect.DeepEqual(a.agreement.Definition, b.agreement.Definition) || a.agreement.TargetPresent != b.agreement.TargetPresent {
 		return false
 	}
 	return sameCapacityCounterPlan(a.capacityCounterPlan, b.capacityCounterPlan)

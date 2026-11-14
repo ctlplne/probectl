@@ -7,6 +7,7 @@
 package control
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -34,6 +35,33 @@ func TestCapacityAgreementBillInputKeepsWideBoundsAndExactRecordedVersion(t *tes
 		alter(&changed)
 		if _, err := capacityBillInput(changed, 1<<20); err == nil {
 			t.Fatal("ambiguous or unrepresentable assumption was admitted", changed)
+		}
+	}
+}
+
+func TestCapacityBillPlanComparesSLAValuesAcrossIndependentSnapshots(t *testing.T) {
+	for _, present := range []bool{false, true} {
+		original := capacityBillPlan{agreement: flow.CapacityAgreement{ID: "agreement", TenantID: "tenant", Version: "1", CurrentVersion: "1", Definition: flow.CapacityAgreementDefinition{Name: "terms", Currency: "USD"}}}
+		if present {
+			original.agreement.Definition.SLA = &flow.CarrierSLATerms{Carrier: "carrier", CircuitID: "circuit", Currency: "USD", MonthlyCharge: "100.125", CreditCapRatio: "1.25", Aggregation: "maximum", Sources: []flow.CarrierSLASource{{AgentID: "probe", TestID: "44444444-4444-4444-8444-444444444444"}}, Rules: []flow.CarrierSLARule{{ID: "loss", Metric: "loss", Basis: "original_packet_ratio", GoodWhen: "at_most", Threshold: "0.01", CreditBands: []flow.CarrierSLACreditBand{{From: "0.01", CreditRatio: "0.1"}}}}}
+		}
+		current := original
+		current.agreement.Definition = flow.CapacityAgreementDefinition{}
+		raw, err := json.Marshal(original.agreement.Definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &current.agreement.Definition); err != nil {
+			t.Fatal(err)
+		}
+		if !sameCapacityBillPlan(original, current) {
+			t.Fatal("equal normalized SLA terms changed across snapshots")
+		}
+		if present {
+			current.agreement.Definition.SLA.Rules[0].CreditBands[0].CreditRatio = "0.2"
+			if sameCapacityBillPlan(original, current) {
+				t.Fatal("changed SLA terms survived the retained-plan guard")
+			}
 		}
 	}
 }
