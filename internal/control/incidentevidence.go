@@ -40,6 +40,9 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		return err
 	}
+	if input.Carrier != nil {
+		return s.handleCarrierEvidenceExport(w, r, p, *input.Carrier)
+	}
 	if input.Impact != nil || input.Verdict != nil {
 		budget := flowstore.ExplorerOperationBudget(r.Context(), s.flowStore)
 		if err := budget.Validate(); err != nil {

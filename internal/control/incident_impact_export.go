@@ -24,6 +24,7 @@ import (
 )
 
 type incidentEvidenceExportInput struct {
+	Carrier *incident.CarrierInput `json:"carrier,omitempty"`
 	Impact  *incident.ImpactInput  `json:"impact,omitempty"`
 	Verdict *incident.VerdictInput `json:"verdict,omitempty"`
 }
@@ -102,6 +103,9 @@ func decodeIncidentEvidenceExport(r *http.Request) (incidentEvidenceExportInput,
 	request.Body = io.NopCloser(bytes.NewReader(data))
 	if err := decodeJSONLimit(request, flow.MaxPlanGrammarBytes, &input); err != nil {
 		return input, err
+	}
+	if input.Carrier != nil && (input.Impact != nil || input.Verdict != nil) {
+		return input, apierror.Validation("carrier profile cannot include unrelated export selections")
 	}
 	return input, nil
 }

@@ -7,7 +7,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, apiFetchBytes, isApiStatus } from './client'
 import type { Answer } from './ai'
-import type { ChangeEffectsResponse, IncidentImpactInput, IncidentVerdictInput } from './sdk.gen'
+import type {
+  ChangeEffectsResponse,
+  IncidentCarrierInput,
+  IncidentImpactInput,
+  IncidentVerdictInput,
+} from './sdk.gen'
 
 export type Severity = 'info' | 'warning' | 'critical'
 export type IncidentStatus = 'open' | 'resolved'
@@ -274,6 +279,7 @@ export function useExportIncidentEvidence(id: string | undefined) {
     mutationFn: (selection?: {
       impact?: IncidentImpactInput
       verdict?: IncidentVerdictInput
+      carrier?: IncidentCarrierInput
       signal?: AbortSignal
     }) =>
       apiFetchBytes(`/incidents/${encodeURIComponent(id ?? '')}/exports`, {
@@ -283,7 +289,11 @@ export function useExportIncidentEvidence(id: string | undefined) {
           ...(selection ? { 'Content-Type': 'application/json' } : {}),
         },
         body: selection
-          ? JSON.stringify({ impact: selection.impact, verdict: selection.verdict })
+          ? JSON.stringify({
+              impact: selection.impact,
+              verdict: selection.verdict,
+              carrier: selection.carrier,
+            })
           : undefined,
         signal: selection?.signal,
       }),

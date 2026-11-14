@@ -2465,6 +2465,18 @@ type Incident struct {
 	Title                string                        `json:"title,omitempty"`
 }
 
+type IncidentCarrierCommand struct {
+	From       string `json:"from"`
+	IncidentId string `json:"incident_id"`
+	To         string `json:"to"`
+}
+
+// Explicit past carrier evidence window. Complete originals are resource admitted; no fixed age ceiling. Unknown source coverage is explicit. Current grants, identity, revocation and erasure checks remain.
+type IncidentCarrierInput struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
 type IncidentCorrelationOverride struct {
 	Active             bool   `json:"active"`
 	CreatedAt          string `json:"created_at"`
@@ -2498,8 +2510,9 @@ type IncidentCorrelationOverrideReverse struct {
 	Reason string `json:"reason"`
 }
 
-// Optional server-recomputed impact and/or verdict selections. Outputs and source grants are never accepted from the client. Use the SDK byte-response method when retaining or verifying a signed package.
+// Optional server-recomputed impact/verdict or exclusive carrier selections. Current tenant/user/source/credential grants and original retention are checked again before signed publication. Use the SDK byte-response method for offline verification.
 type IncidentEvidenceExportInput struct {
+	Carrier *IncidentCarrierInput `json:"carrier,omitempty"`
 	Impact  *IncidentImpactInput  `json:"impact,omitempty"`
 	Verdict *IncidentVerdictInput `json:"verdict,omitempty"`
 }

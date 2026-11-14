@@ -268,3 +268,49 @@ Use the generated Go `ExportIncidentEvidenceBytes` or TypeScript
 parsed method remains available for inspection; decoding and re-encoding a
 package does not preserve its signed bytes. Pin the expected signer as described
 above. The four-domain lab qualification remains pending.
+
+## Carrier ticket pack (preview)
+
+Select **Carrier ticket pack** in the Incident Room or use the existing export:
+
+```sh
+probectl incident export <incident-id> --body '{"carrier":{"from":"2026-11-01T00:00:00Z","to":"2026-11-02T00:00:00Z"}}' --out carrier.json
+probectl incident verify carrier.json
+```
+
+`POST /v1/incidents/{id}/exports` accepts this exclusive `carrier` selection;
+combine neither `impact` nor `verdict` with it. The generated SDK's
+`ExportIncidentEvidenceBytes` retains the exact signed response. Native MCP
+`incident_carrier_pack` takes `incident_id`, `from` and `to` and returns a
+base64-encoded signed package. Decode `package` before using the same offline
+verifier. Pin the operator's independently obtained signer fingerprint with
+`--trusted-key-fingerprint`; without that pin verification is integrity-only
+and exits3, as described above. The native envelope preserves verified cryptographic bytes after the
+shared source reader applies mandatory export redaction. Current source and
+originating credential checks remain through native framing.
+
+A complete, resource-admitted half-open window contains selected original ICMP
+packet counts and round trips, retained trace rounds, affected-prefix owned
+routing changes and currently classified carrier handoff counter polls. Exact
+counter words and nanoseconds remain decimal strings. Retained originals that
+cannot establish complete packet populations or precise latency remain unknown;
+missing observations never become successful replies or zero loss. All selected
+sources must remain currently authorized and retained before publication.
+Canonical incident membership selects sources; matching addresses or names alone
+do not add routers or tests. No fixed one-hour, 48-hour or incident-age ceiling
+replaces configured query memory/time, report output and tenant fairness admission.
+
+The carrier profile omits raw incident signals, customer labels, model answers,
+raw tenant IDs and operator location metadata. Remaining selected addresses and
+source labels follow deployment export privacy policy. The manifest's `profile`
+is `carrier`, its window is the actual requested window, and its single
+content-addressed attachment uses `probectl.carrier-ticket.v1`. No public share,
+external transmission, new stored state or carrier credential is created.
+The signature proves package integrity and signer identity, not carrier fault.
+
+Trace vantages remain their actual origins. Current retained traces originate
+at the control plane; separate ICMP agents do not turn one control-plane trace
+into multiple independent traceroute vantages. Agent-origin traceroutes,
+physical fault, complete served/both-theme accessibility, lifecycle/restart and
+exact-main CI qualification remain required for full acceptance. This feature
+is a preview until that qualification is complete.

@@ -30,16 +30,45 @@ type changeEffectMeasurementTotals struct {
 // The caller owns original-source/current-credential publication. This pure
 // complete projection cannot supply access, invent missing samples or allocate
 // an incomplete execution across a change boundary.
+type originalMeasurementWindow struct{ from, to time.Time }
+
+type originalTestPeriods struct {
+	source  store.IncidentConfiguredTest
+	periods []change.EffectTestPeriod
+}
+
 func summarizeChangeEffectTests(ctx context.Context, tenant string, sources []store.IncidentConfiguredTest, reads []store.IncidentTestMeasurement, from, at, to time.Time, memory int64) ([]change.EffectTest, error) {
-	if !from.Before(at) || !at.Before(to) || memory < 4096 {
+	periods, err := summarizeOriginalTestPeriods(ctx, tenant, sources, reads, []originalMeasurementWindow{{from, at}, {at, to}}, memory)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]change.EffectTest, 0, len(periods))
+	for _, test := range periods {
+		source := test.source
+		out = append(out, change.EffectTest{ContextID: source.ContextID, EntityID: source.EntityID, TestID: source.TestID, AgentID: source.AgentID, Before: test.periods[0], After: test.periods[1]})
+	}
+	return out, nil
+}
+
+// A carrier window and a before/after comparison share the same complete
+// original observation projection. No synthetic change boundary is introduced
+// when only one selected window is requested.
+func summarizeOriginalTestPeriods(ctx context.Context, tenant string, sources []store.IncidentConfiguredTest, reads []store.IncidentTestMeasurement, windows []originalMeasurementWindow, memory int64) ([]originalTestPeriods, error) {
+	if len(windows) == 0 || memory < 4096 {
 		return nil, entity.ErrInvalidClaim
 	}
+	for i, window := range windows {
+		if !window.from.Before(window.to) || i > 0 && !windows[i-1].to.Equal(window.from) {
+			return nil, entity.ErrInvalidClaim
+		}
+	}
+	from, to := windows[0].from, windows[len(windows)-1].to
 	if int64(len(sources)) > memory/4096 {
 		return nil, flowstore.ErrExplorerBudget
 	}
-	out := make([]change.EffectTest, 0, len(sources))
+	out := make([]originalTestPeriods, 0, len(sources))
 	selected := map[changeEffectTestKey]int{}
-	totals := make([][2]changeEffectMeasurementTotals, len(sources))
+	totals := make([][]changeEffectMeasurementTotals, len(sources))
 	charge := func(cost int64) error {
 		if cost < 0 || cost > memory {
 			return flowstore.ErrExplorerBudget
@@ -62,7 +91,18 @@ func summarizeChangeEffectTests(ctx context.Context, tenant string, sources []st
 			return nil, entity.ErrConflictingEvidence
 		}
 		selected[key] = len(out)
-		out = append(out, change.EffectTest{ContextID: source.ContextID, EntityID: source.EntityID, TestID: source.TestID, AgentID: source.AgentID, Before: period(from, at), After: period(at, to)})
+		if int64(len(windows)) > memory/512 {
+			return nil, flowstore.ErrExplorerBudget
+		}
+		if err := charge(int64(len(windows)) * 512); err != nil {
+			return nil, err
+		}
+		test := originalTestPeriods{source: source, periods: make([]change.EffectTestPeriod, 0, len(windows))}
+		for _, window := range windows {
+			test.periods = append(test.periods, period(window.from, window.to))
+		}
+		totals[len(out)] = make([]changeEffectMeasurementTotals, len(windows))
+		out = append(out, test)
 	}
 	one := big.NewInt(1)
 	seen := map[string]bool{}
@@ -83,11 +123,17 @@ func summarizeChangeEffectTests(ctx context.Context, tenant string, sources []st
 			return nil, err
 		}
 		side := 0
-		target := &out[index].Before
-		if !clock.Before(at) {
-			side = 1
-			target = &out[index].After
+		ambiguousSplit := false
+		for boundary := 1; boundary < len(windows); boundary++ {
+			at := windows[boundary].from
+			if !clock.Before(at) {
+				side = boundary
+			}
+			if read.ICMP != nil && read.ICMP.Version < 3 && !at.Equal(at.Truncate(time.Microsecond)) && read.ObservedAt.Truncate(time.Microsecond).Equal(at.Truncate(time.Microsecond)) {
+				ambiguousSplit = true
+			}
 		}
+		target := &out[index].periods[side]
 		tally := &totals[index][side]
 		observation := change.EffectTestObservation{EvidenceID: read.EvidenceID, ObservationID: read.ObservationID, CaptureDigest: hex.EncodeToString(read.CaptureDigest[:]), ObservedAt: clock, Reason: read.Reason}
 		measurement := read.ICMP
@@ -134,7 +180,7 @@ func summarizeChangeEffectTests(ctx context.Context, tenant string, sources []st
 			target.Observations = append(target.Observations, observation)
 			continue
 		}
-		if measurement.Version < 3 && !at.Equal(at.Truncate(time.Microsecond)) && read.ObservedAt.Truncate(time.Microsecond).Equal(at.Truncate(time.Microsecond)) {
+		if ambiguousSplit {
 			observation.Reason = "ambiguous_quantized_change_boundary"
 			target.UnavailableExecutions++
 			tally.legacyRTT++
@@ -183,8 +229,8 @@ func summarizeChangeEffectTests(ctx context.Context, tenant string, sources []st
 		target.Observations = append(target.Observations, observation)
 	}
 	for index := range out {
-		for side, target := range []*change.EffectTestPeriod{&out[index].Before, &out[index].After} {
-			finishChangeEffectPeriod(target, &totals[index][side])
+		for side := range out[index].periods {
+			finishChangeEffectPeriod(&out[index].periods[side], &totals[index][side])
 		}
 	}
 	return out, ctx.Err()

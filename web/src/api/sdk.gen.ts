@@ -2326,6 +2326,17 @@ export interface Incident {
   title?: string
 }
 
+export interface IncidentCarrierCommand {
+  from: string
+  incident_id: string
+  to: string
+}
+
+export interface IncidentCarrierInput {
+  from: string
+  to: string
+}
+
 export interface IncidentCorrelationOverride {
   active: boolean
   created_at: string
@@ -2360,6 +2371,7 @@ export interface IncidentCorrelationOverrideReverse {
 }
 
 export interface IncidentEvidenceExportInput {
+  carrier?: IncidentCarrierInput | null
   impact?: IncidentImpactInput | null
   verdict?: IncidentVerdictInput | null
 }

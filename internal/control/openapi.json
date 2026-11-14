@@ -16711,9 +16711,40 @@
               }
             ],
             "description": "Recompute the cited fault-domain preview under current source/export permissions and retain it as a complete signed attachment. May accompany impact; neither field supplies evidence or a grant."
+          },
+          "carrier": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/IncidentCarrierInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Complete redacted original-source carrier ticket profile for this window. Exclusive of impact and verdict; no public link or carrier transmission is created."
           }
         },
-        "description": "Optional server-recomputed impact and/or verdict selections. Outputs and source grants are never accepted from the client. Use the SDK byte-response method when retaining or verifying a signed package."
+        "description": "Optional server-recomputed impact/verdict or exclusive carrier selections. Current tenant/user/source/credential grants and original retention are checked again before signed publication. Use the SDK byte-response method for offline verification."
+      },
+      "IncidentCarrierCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "incident_id": { "type": "string", "format": "uuid" },
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" }
+        },
+        "required": ["incident_id", "from", "to"]
+      },
+      "IncidentCarrierInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" }
+        },
+        "required": ["from", "to"],
+        "description": "Explicit past carrier evidence window. Complete originals are resource admitted; no fixed age ceiling. Unknown source coverage is explicit. Current grants, identity, revocation and erasure checks remain."
       },
       "IncidentImpactTestPackets": {
         "type": "object",
@@ -22972,6 +23003,7 @@
                 "type": "string",
                 "const": "probectl-evidence/v1"
               },
+              "profile": { "type": "string", "enum": ["carrier"] },
               "package_id": {
                 "type": "string",
                 "pattern": "^pkg_[a-f0-9]{32}$"

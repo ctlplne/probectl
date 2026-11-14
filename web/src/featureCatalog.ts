@@ -85,6 +85,8 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     name: 'Dashboards and incident timeline',
     // Monthly client packs and traffic/customer-prefix impact are extensions in preview; test/SLO
     // attribution, signed impact export and real-flow qualification are owed.
+    // Carrier ticket exports remain preview; original multi-vantage traceroute,
+    // physical, served/lifecycle and exact-main qualification stay explicit.
     status: 'delivered',
     source: 'contract:features',
   },

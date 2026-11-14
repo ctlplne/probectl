@@ -107,6 +107,7 @@ type IncidentSummary struct {
 // binds the artifact to one tenant without exposing the raw tenant identifier.
 type Manifest struct {
 	Contract          string          `json:"contract"`
+	Profile           string          `json:"profile,omitempty"`
 	PackageID         string          `json:"package_id"`
 	TenantScopeDigest string          `json:"tenant_scope_digest"`
 	CreatedAt         time.Time       `json:"created_at"`
@@ -146,6 +147,7 @@ type BuildInput struct {
 	Grounded   bool
 	Impact     *incident.ImpactResponse
 	Verdict    *incident.FaultVerdict
+	Carrier    *incident.CarrierPack
 }
 
 // Build creates a deterministic manifest and content-addressed attachments
@@ -160,6 +162,18 @@ func Build(in BuildInput) (Manifest, []Attachment, error) {
 	}
 	if in.Incident.TenantID != "" {
 		return Manifest{}, nil, errors.New("evidence: incident must be redacted before packaging")
+	}
+	if in.Carrier != nil {
+		if in.Impact != nil || in.Verdict != nil {
+			return Manifest{}, nil, errors.New("evidence: carrier profile cannot include unrelated export profiles")
+		}
+		// The carrier profile includes selected original sources, not raw
+		// incident signals/customer prose or an earlier model's conclusion.
+		in.Incident.Signals = nil
+		in.Incident.Title = "Carrier ticket evidence"
+		in.Incident.Target, in.Incident.Prefix = "", ""
+		in.Incident.SignalsTruncated = in.Incident.SignalCount > 0
+		in.Conclusion, in.Grounded = in.Carrier.Summary, false
 	}
 
 	records := make([]Record, 0, len(in.Incident.Signals))
@@ -227,6 +241,19 @@ func Build(in BuildInput) (Manifest, []Attachment, error) {
 		}
 		statements = append(statements, Statement{ID: "incident-fault-domain", Text: record.Summary, Class: class, EvidenceIDs: []string{record.ID}})
 	}
+	if in.Carrier != nil {
+		record, attachment, err := carrierEvidence(in.Incident.ID, *in.Carrier)
+		if err != nil {
+			return Manifest{}, nil, err
+		}
+		records = append(records, record)
+		attachments = append(attachments, attachment)
+		class := "unknown"
+		if record.State == StateObserved {
+			class = "fact"
+		}
+		statements = append(statements, Statement{ID: "carrier-originals", Text: record.Summary, Class: class, EvidenceIDs: []string{record.ID}})
+	}
 
 	tenantDigest := digest([]byte(in.TenantID))
 	packageSeed, _ := json.Marshal(struct {
@@ -246,6 +273,10 @@ func Build(in BuildInput) (Manifest, []Attachment, error) {
 		Window:     Window{From: in.Incident.StartedAt, To: in.Incident.LastSeenAt},
 		Redaction:  "privacy-policy-applied; raw tenant id and secrets omitted",
 		Statements: statements, Evidence: records,
+	}
+	if in.Carrier != nil {
+		manifest.Profile = "carrier"
+		manifest.Window = Window{From: in.Carrier.From, To: in.Carrier.To}
 	}
 	return manifest, attachments, nil
 }
