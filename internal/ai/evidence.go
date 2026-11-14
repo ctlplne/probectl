@@ -40,7 +40,7 @@ type Evidence struct {
 // raw row data to API clients. Keys are the union of what today's sources emit
 // on purpose; extend the list deliberately when a source adds a field.
 var evidenceFieldAllowList = map[Domain]map[string]bool{
-	DomainMetrics:  setOf("metric", "value", "unit", "target", "prefix", "node", "service", "agent_id", "test_id", "instance", "job", "plane", "severity", "title", "summary", "occurred_at", "timestamp", "at", "time"),
+	DomainMetrics:  setOf("path_test_id", "path_health", "ref", "metric", "value", "unit", "target", "prefix", "node", "service", "agent_id", "test_id", "instance", "job", "plane", "severity", "title", "summary", "occurred_at", "timestamp", "at", "time"),
 	DomainEvents:   setOf("id", "kind", "plane", "source", "change_kind", "title", "summary", "target", "prefix", "actor", "ref", "occurred_at", "bytes", "packets", "flows", "detail"),
 	DomainEntities: setOf("id", "incident_id", "signal_id", "kind", "plane", "severity", "title", "summary", "target", "prefix", "occurred_at"),
 	DomainTopology: setOf("hop", "node", "neighbor", "kind", "label", "plane", "title"),
@@ -157,6 +157,9 @@ func evidenceRef(domain Domain, row Row) string {
 			return "event:" + k
 		}
 	case DomainMetrics:
+		if pathID := strField(row, "path_test_id"); pathID != "" {
+			return "/path?test_id=" + pathID
+		}
 		if m := strField(row, "metric"); m != "" {
 			return "metric:" + m
 		}

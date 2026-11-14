@@ -165,7 +165,16 @@ func (m *HTTPModel) Synthesize(ctx context.Context, in SynthesisInput) (Synthesi
 		// loopback path skips this entirely — sovereignty unchanged.
 		in = redactSynthesisInputForTenant(in, m.redact, redactionTenantFromContext(ctx))
 	}
-	content, err := m.chat(ctx, systemPrompt, userPrompt(in))
+	var err error
+	in, err = prepareStructuredPrompt(in, m.remote, m.redact, redactionTenantFromContext(ctx))
+	if err != nil {
+		return Synthesis{}, err
+	}
+	prompt := userPrompt(in)
+	if err := CheckCurrentEvidence(ctx); err != nil {
+		return Synthesis{}, err
+	}
+	content, err := m.chat(ctx, systemPrompt, prompt)
 	if err != nil {
 		return Synthesis{}, err
 	}
@@ -239,6 +248,9 @@ func userPrompt(in SynthesisInput) string {
 		fmt.Fprintf(&b, "%s%s [plane=%s severity=%s] %s", evidenceOpen, e.ID, planeLabel(e), e.Severity, sanitizeEvidenceText(e.Title))
 		if e.Summary != "" {
 			fmt.Fprintf(&b, " — %s", sanitizeEvidenceText(e.Summary))
+		}
+		if body, ok := e.Fields["path_health"].(json.RawMessage); ok {
+			fmt.Fprintf(&b, " — complete original path evidence: %s", sanitizeEvidenceText(string(body)))
 		}
 		if !e.OccurredAt.IsZero() {
 			fmt.Fprintf(&b, " (at %s)", e.OccurredAt.UTC().Format(time.RFC3339))

@@ -238,6 +238,9 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 	// REMOTE model is gated on the tenant's egress consent and audited
 	// (U-013); the air-gapped builtin and loopback local models skip both.
 	in := SynthesisInput{Question: q.Text, Evidence: evidence}
+	if err := CheckCurrentEvidence(ctx); err != nil {
+		return Answer{}, err
+	}
 	egress, err := a.checkEgress(ctx, p.TenantID, in)
 	if err != nil {
 		return Answer{}, err
@@ -255,8 +258,15 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 			return Answer{}, err
 		}
 	}
+	if err := CheckCurrentEvidence(ctx); err != nil {
+		return Answer{}, err
+	}
 	syn, err := a.model.Synthesize(synCtx, in)
 	if err != nil {
+		return Answer{}, err
+	}
+
+	if err := CheckCurrentEvidence(ctx); err != nil {
 		return Answer{}, err
 	}
 

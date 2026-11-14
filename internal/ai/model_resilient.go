@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -288,6 +289,12 @@ func synthKey(ctx context.Context, model string, in SynthesisInput) string {
 		b.WriteString(e.Summary)
 		b.WriteByte(1)
 		b.WriteString(e.OccurredAt.UTC().Format(time.RFC3339))
+		// The registered complete path document is model input too. Identical
+		// summaries can describe different original words, windows or receipts.
+		if pack, ok := e.Fields["path_health"].(json.RawMessage); ok {
+			b.WriteByte(2)
+			b.Write(crypto.Hash(pack))
+		}
 	}
 	return hex.EncodeToString(crypto.Hash(b.Bytes()))
 }

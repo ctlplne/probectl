@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/cli"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/path"
@@ -42,6 +43,15 @@ type pathHealthAPIFixture struct {
 	windows map[string]url.Values
 }
 
+func pathHealthTestID(t *testing.T) string {
+	t.Helper()
+	id, err := crypto.UUIDv4()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 func newPathHealthAPIFixture(t *testing.T) *pathHealthAPIFixture {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
@@ -51,7 +61,7 @@ func newPathHealthAPIFixture(t *testing.T) *pathHealthAPIFixture {
 	tests := map[string]string{}
 	windows := map[string]url.Values{}
 	for lane, tenant := range f.tenants {
-		tests[tenant] = uuid(t)
+		tests[tenant] = pathHealthTestID(t)
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permTestRead); err != nil {
 				return err
@@ -202,8 +212,8 @@ func TestPathHealthServesOriginalCountersWithCurrentPairedAuthority(t *testing.T
 	at := f.observedAt(a)
 	source := entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"}
 	claims := []entity.Observation{
-		{ID: uuid(t), Source: source, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: "8"}, SourceRef: "snmp:ifIndex:8", ObservedAt: at},
-		{ID: uuid(t), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "10.42.0.2"}, SourceRef: "snmp:ifIndex:8", ObservedAt: at},
+		{ID: pathHealthTestID(t), Source: source, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: "8"}, SourceRef: "snmp:ifIndex:8", ObservedAt: at},
+		{ID: pathHealthTestID(t), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "10.42.0.2"}, SourceRef: "snmp:ifIndex:8", ObservedAt: at},
 	}
 	accepted, unresolved, err := writeEntityEvidenceBatchForTest(tenancy.WithTenant(t.Context(), tenancy.ID(a)), store.NewEntityRegistry(f.pool), "role-snmp", f.serials[a+"role-snmp"], claims)
 	if err != nil || accepted != 2 || unresolved != 0 {

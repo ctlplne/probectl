@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderApp } from './renderApp'
 import { jsonResponse, pathOf } from './fetchStub'
 import { stubPathHistoryFetch } from './pathHistoryFixture'
@@ -106,6 +106,64 @@ test('path health retains exact originals and assumptions across paired tenant s
           !url.includes('tenant_id='),
       ),
     ).toBe(true)
+    cleanup()
+  }
+})
+
+test('path explanation pins the owned test and shows its complete original cited snapshot for each tenant', async () => {
+  for (const lane of [1, 2]) {
+    const tenant = `00000000-0000-4000-8000-00000000010${lane}`
+    stubPathHistoryFetch([], {
+      tenant,
+      context: `00000000-0000-4000-8000-00000000020${lane}`,
+      entity: `00000000-0000-4000-8000-00000000030${lane}`,
+    })
+    const fallback = globalThis.fetch
+    const asks: Array<{ question: string; subject: Record<string, string> }> = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (pathOf(input) !== '/v1/ai/ask') return fallback(input, init)
+      asks.push(JSON.parse(String(init?.body)))
+      return jsonResponse({
+        id: `answer-${lane}`,
+        tenant,
+        root_cause: 'Current interface observations; causal attribution remains unproven.',
+        root_cause_grounded: true,
+        root_cause_citations: [{ evidence_id: 'E1' }],
+        confidence: 'low',
+        insufficient_evidence: true,
+        findings: [],
+        evidence: [
+          {
+            id: 'E1',
+            domain: 'metrics',
+            plane: 'path',
+            title: 'Current interface observations',
+            fields: {
+              path_health: {
+                test_id: 't1',
+                items: [{ value: '9007199254740993', capture_key: `original-${lane}` }],
+              },
+            },
+          },
+        ],
+      })
+    })
+    renderApp('/path', {
+      me: {
+        tenant_id: tenant,
+        permissions: ['test.read', 'entities.read', 'metrics.read', 'ai.query'],
+      },
+    })
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Test' })).toHaveValue('t1'))
+    fireEvent.click(screen.getByRole('button', { name: 'Explain this view' }))
+    const snapshot = await screen.findByLabelText('Complete original path evidence')
+    expect(snapshot).toHaveTextContent('9007199254740993')
+    expect(snapshot).toHaveTextContent(`original-${lane}`)
+    expect(snapshot).not.toHaveTextContent(`original-${3 - lane}`)
+    expect(asks).toHaveLength(1)
+    expect(asks[0].subject.path_test_id).toBe('t1')
+    expect(asks[0].subject).not.toHaveProperty('tenant_id')
+    expect(asks[0].question).toContain('latest owned path')
     cleanup()
   }
 })

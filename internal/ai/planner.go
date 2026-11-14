@@ -101,6 +101,11 @@ func (HeuristicPlanner) Plan(q Question) []Query {
 		want = map[Domain]bool{DomainEntities: true}
 	}
 
+	if id, selected := q.Subject["path_test_id"]; selected {
+		subject["path_test_id"] = id
+		want = map[Domain]bool{DomainMetrics: true}
+	}
+
 	queries := make([]Query, 0, len(want))
 	for _, d := range allDomains {
 		if !want[d] {

@@ -758,5 +758,18 @@ retain their exact structured values; arbitrary sender/source text still goes
 through redaction. The per-call query admission remains held through complete
 response framing, and current path/source/evidence authority is checked after
 redaction. A refusal returns no partial health payload. This is a preview;
-physical routed/SNMP qualification, cited RCA and context-bound configuration
-archive integration remain unfinished.
+physical routed/SNMP qualification and context-bound configuration archive
+integration remain unfinished.
+
+`path_interface_health_explain` takes the same arguments plus a required
+`question` (1–2000 characters). It uses the existing consent-gated analyzer,
+with one complete cited path document rather than a shortened set of responders.
+`evidence.fields.path_health` retains the original words, intervals, assumptions
+and receipt keys. Both current source authority and the exact originating
+credential are rechecked before synthesis and after complete native redaction.
+A stale or foreign test never falls back to unrelated telemetry. These
+explanations are live/stateless; no answer artifact is stored.
+
+```json
+{"name":"path_interface_health_explain","arguments":{"test_id":"00000000-0000-4000-8000-000000000001","question":"Explain observed interface errors; cite the original intervals and distinguish correlation from causation."}}
+```

@@ -60,10 +60,10 @@ capabilities:
   - id: F3
     name: Path visualization
     status: delivered
-    # Original per-hop health is preview; physical FRR/SNMP, RCA/config and
+    # Original per-hop health/RCA is preview; physical FRR/SNMP, config and
     # full served/lifecycle qualification are still owed for that extension.
     owner: web/quality
-    engine: {refs: ["file:internal/path", "file:internal/entity", "file:internal/control/path_health_read.go", "file:internal/control/mcp_path_health.go"]}
+    engine: {refs: ["file:internal/path", "file:internal/entity", "file:internal/control/path_health_read.go", "file:internal/control/path_health_rca.go", "file:internal/control/mcp_path_health.go"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#pathstore.WithTenantWriteFence("]}
     api: {refs: ["api:GET /v1/tests/{id}/path", "api:GET /v1/tests/{id}/path/history", "api:GET /v1/tests/{id}/path/entities"]}
     cli: {refs: ["cli:probectl test path <id>", "cli:probectl test path-history <id>", "cli:probectl entities path-resolve"]}

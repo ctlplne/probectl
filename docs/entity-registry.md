@@ -471,6 +471,23 @@ archive has yet been tied to this exact canonical context/source. This preview
 does not attach configurations by matching global device names or addresses.
 `path_interface_health` exposes the same admitted reader over native MCP
 with full source-text redaction and exact original numeric/receipt metadata.
-Cited RCA, context-bound recent configuration references, physical
+`POST /v1/ai/ask` with `subject.path_test_id=TEST_ID` and the Path screen's
+explanation action use only this owned path's complete original health document.
+The optional `health_*` subject fields have the same meaning as the reader's
+query parameters; `range` overrides the health window. Every admitted responder,
+including unresolved ones, is in `evidence.fields.path_health`; evidence IDs
+ground the explanation and original capture keys identify the polls. Current
+grants/source identity and the exact credential are checked again before model
+dispatch and publication. These explanations are live/stateless, and do not
+populate the optional answer-artifact store. Empty, stale and foreign path IDs
+refuse rather than widening to unrelated data. The native counterpart is
+`path_interface_health_explain`. The Path inspector exposes the complete cited
+snapshot, which can differ from a historical trace round selected in the graph.
+
+```sh
+probectl --json ai ask --body '{"question":"Explain original path interface observations without assuming causation","subject":{"path_test_id":"00000000-0000-4000-8000-000000000001"}}'
+```
+
+Context-bound recent configuration references, physical
 traceroute/SNMP validation and the complete served-surface proof remain required
 before this feature leaves preview.

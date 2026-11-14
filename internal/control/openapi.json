@@ -4266,7 +4266,7 @@
         "x-required-permission": "ai.query",
         "operationId": "aiAsk",
         "summary": "Ask the AI assistant (cited, RBAC-scoped root-cause analysis)",
-        "description": "Unanchored latest incident or most recent incident questions use only the caller-authorized most recently active incident and its correlated signals. Explicit subjects take precedence. Missing or denied incident evidence never broadens into unrelated tenant-wide data.",
+        "description": "Unanchored latest incident or most recent incident questions use only the caller-authorized most recently active incident and its correlated signals. Explicit subjects take precedence. Missing or denied incident evidence never broadens into unrelated tenant-wide data. Preview: subject.path_test_id pins a canonical owned test UUID and uses only the complete latest post-binding path with current source/interface identity and original polled counter receipts. Optional subject.health_from, health_to, health_poll_gap and health_max_bps match the path-entities health parameters; an explicit range overrides the health window. All admitted responders, exact counter words, intervals, assumptions and receipt citations appear in evidence.fields.path_health. Current test, source, user grants and the original credential are revalidated before synthesis and publication. Empty, stale or foreign path anchors never fall back to generic telemetry. Path explanations are live/stateless and are not retained as answer artifacts. Correlation is not proof of the cause of path loss; physical routed/SNMP qualification and context-bound configuration linkage remain pending.",
         "tags": [
           "ai"
         ],
@@ -4297,7 +4297,67 @@
             }
           },
           "400": {
-            "description": "Invalid question.",
+            "description": "Invalid JSON request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The original credential is no longer valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current user, source or context grants deny this path.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The owned path test is absent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The complete admitted path or explanation exceeds finite resource admission.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid question, canonical path test selector, range or health options.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Query or analyzer admission is at capacity; retry after backoff.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4307,7 +4367,7 @@
             }
           },
           "503": {
-            "description": "The AI assistant is temporarily unavailable.",
+            "description": "The AI assistant or current source authority is temporarily unavailable.",
             "content": {
               "application/json": {
                 "schema": {

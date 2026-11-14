@@ -82,8 +82,8 @@ func buildEngineWithPolicyLoader(
 			},
 		))
 	}
-	if src.Metrics != nil {
-		opts = append(opts, ai.WithMetrics(metricsEvidenceSource{writer: src.Metrics}))
+	if src.Metrics != nil || src.NativeFlow != nil {
+		opts = append(opts, ai.WithMetrics(metricsEvidenceSource{writer: src.Metrics, pathHealth: src.NativeFlow}))
 	}
 	if src.Topology != nil {
 		opts = append(opts, ai.WithTopology(ai.NewTopologySource(src.Topology)))
@@ -102,7 +102,7 @@ func buildEngineWithPolicyLoader(
 }
 
 func (s *Server) aiSources() AISources {
-	return AISources{Metrics: s.tsdbWriter, Flow: s.flowStore, Topology: s.topo, DeviceOps: s.deviceOps}
+	return AISources{NativeFlow: s, Metrics: s.tsdbWriter, Flow: s.flowStore, Topology: s.topo, DeviceOps: s.deviceOps}
 }
 
 func (s *Server) rebuildAnalyzer() {
@@ -383,13 +383,6 @@ type askRequest struct {
 func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 	// WEB-04: lift the global WriteTimeout for this long-running response.
 	extendWriteDeadline(w, aiAnswerWriteBudget)
-	// Fairness (S-T7): the per-tenant query-cost guard wraps the whole
-	// analysis (it extends the S23 deployment-wide row/timeout guards).
-	release, err := s.beginQuery(w, r)
-	if err != nil {
-		return err
-	}
-	defer release()
 	var req askRequest
 	if err := decodeJSON(r, &req); err != nil {
 		return err
@@ -408,6 +401,9 @@ func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 		if normalized == "tenant" || normalized == "tenant_id" || normalized == "evidence_id" {
 			return apierror.Validation("subject may not select tenant or evidence scope; scope comes from authentication")
 		}
+		if normalized == "path_test_id" && key != "path_test_id" {
+			return apierror.Validation("use the canonical path_test_id subject key")
+		}
 	}
 	var queryRange ai.TimeRange
 	if req.Range != nil {
@@ -416,7 +412,23 @@ func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 		}
 		queryRange = ai.TimeRange{Start: req.Range.Start, End: req.Range.End}
 	}
-	ans, err := s.analyzer.Analyze(r.Context(), p, ai.Question{Text: q, Subject: req.Subject, Range: queryRange})
+	analysisCtx := r.Context()
+	var prepared *pathHealthRCA
+	if _, pathSelected := req.Subject["path_test_id"]; pathSelected {
+		var err error
+		analysisCtx, prepared, err = s.preparePathHealthRCA(r, req.Subject, queryRange, nil)
+		if err != nil {
+			return err
+		}
+		defer prepared.query.op.done()
+	} else {
+		release, err := s.beginQuery(w, r)
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
+	ans, err := s.analyzer.Analyze(analysisCtx, p, ai.Question{Text: q, Subject: req.Subject, Range: queryRange})
 	if err != nil {
 		if errors.Is(err, ai.ErrNoTenant) {
 			return apierror.Unauthorized("authentication required")
@@ -435,7 +447,10 @@ func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 	}
 	// U-093: optionally persist the artifact (full answer + model/config hash)
 	// for reproducibility/disputes; best-effort, never blocks the answer.
-	s.persistAnswer(r, ans)
+	// Path evidence remains on the live/stateless path with its current sources.
+	if prepared == nil {
+		s.persistAnswer(r, ans)
+	}
 	// RCA is a data-access action — audit it (guardrail 7); a best-effort write
 	// that never blocks the answer.
 	if s.pool != nil {
@@ -444,6 +459,20 @@ func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 		}); auditErr != nil {
 			s.log.Warn("audit ai.ask failed", "error", auditErr)
 		}
+	}
+	if prepared != nil {
+		body, err := json.Marshal(ans)
+		if err != nil {
+			return apierror.Unavailable("complete path RCA output is unavailable")
+		}
+		if int64(len(body)) > prepared.query.op.budget.ResponseBytes {
+			return apierror.TooLarge("complete path RCA output exceeds response admission")
+		}
+		if err := ai.CheckCurrentEvidence(analysisCtx); err != nil {
+			return pathHealthError(err)
+		}
+		writeJSON(w, http.StatusOK, json.RawMessage(body))
+		return nil
 	}
 	writeJSON(w, http.StatusOK, ans)
 	return nil

@@ -997,9 +997,9 @@ export function PathPage() {
 
       <ExplainView
         surface="path"
-        question={`Explain the currently displayed path${test?.target ? ` to ${test.target}` : ''}, including the strongest evidence for loss, routing, or topology changes.`}
+        question={`Explain current polled interface observations on the latest owned path${test?.target ? ` to ${test.target}` : ''}. Cite original counters, intervals and assumptions; distinguish observed correlation from an established cause of path loss.`}
         subject={{
-          test_id: testId,
+          path_test_id: testId,
           target: test?.target,
           node: selected?.id,
         }}

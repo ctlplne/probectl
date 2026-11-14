@@ -19,7 +19,10 @@ import (
 // metricsEvidenceSource adapts the production TSDB writer to ai.MetricsSource.
 // It always injects tenant_id into the selector before reading. Unanchored
 // questions return no metric rows instead of scanning every tenant series.
-type metricsEvidenceSource struct{ writer tsdb.Writer }
+type metricsEvidenceSource struct {
+	writer     tsdb.Writer
+	pathHealth *Server
+}
 
 type instantVectorSource interface {
 	InstantVector(context.Context, string) ([]tsdb.LabeledSample, error)
@@ -28,6 +31,9 @@ type instantVectorSource interface {
 var metricNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 
 func (s metricsEvidenceSource) QueryMetrics(ctx context.Context, tenant string, sel map[string]string, r ai.TimeRange, limit int) ([]ai.Row, error) {
+	if _, selected := sel["path_test_id"]; selected {
+		return s.queryPathHealthRCA(ctx, tenant, sel)
+	}
 	if s.writer == nil || !metricQueryAnchored(sel) {
 		return nil, nil
 	}

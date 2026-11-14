@@ -240,6 +240,14 @@ function EvidenceList({ evidence }: { evidence: Evidence[] }) {
             <span>{item.title || item.summary || item.ref || item.domain}</span>
             <Badge tone="neutral">{item.plane || item.domain}</Badge>
             {item.occurred_at ? <DateTime value={item.occurred_at} /> : null}
+            {item.fields?.path_health ? (
+              <details>
+                <summary>Original path observations</summary>
+                <pre className={styles.rawEvidence} aria-label="Complete original path evidence">
+                  {JSON.stringify(item.fields.path_health, null, 2)}
+                </pre>
+              </details>
+            ) : null}
           </li>
         ))}
       </ul>
