@@ -47,6 +47,7 @@ var pathHealthMetricNames = []string{
 	"probectl.device.if.in.octets", "probectl.device.if.out.octets",
 	"probectl.device.if.in.errors", "probectl.device.if.out.errors",
 	"probectl.device.if.in.discards", "probectl.device.if.out.discards",
+	"probectl.device.if.in.fcs.errors", "probectl.device.if.in.alignment.errors",
 }
 
 type pathHealthPair struct {

@@ -129,6 +129,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   // The shared Explorer schema owns routing field reach.
   { id: 'F17', name: 'Flow analytics', status: 'delivered', source: 'contract:features' },
   // Current interface-role explanations, local IX prefixes and Explorer roles remain preview until complete source/served/router qualification.
+  // EtherLike original counters are implemented; optical health and baseline trend acceptance remain unfinished.
   { id: 'F18', name: 'Device telemetry', status: 'partial', source: 'contract:features' },
   {
     id: 'F19',

@@ -1307,7 +1307,7 @@ type DeviceInventoryList struct {
 	TopologyRunning *bool             `json:"topology_running,omitempty"`
 }
 
-// Latest retained sample for one device/metric/interface series.
+// Latest retained legacy numeric sample for one device/metric/interface series, including separate probectl_device_if_in_fcs_errors and probectl_device_if_in_alignment_errors. Optional unsupported metrics are absent, never fabricated zero. Use original path-health counter documents for full-width integer words and qualified rates.
 type DeviceMetricSummary struct {
 	AgentId    string  `json:"agent_id,omitempty"`
 	Device     string  `json:"device,omitempty"`
@@ -3174,7 +3174,7 @@ type Path struct {
 	Vantage             string                   `json:"vantage"`
 }
 
-// Original cumulative words and two poll receipts. rate_numerator/rate_denominator is bits/s for octets and packets/s for errors/discards. The rate_kind controls whether the ratio is an exact value under an explicit bound or only a modular minimum; a zero minimum is not a claim of no traffic. Utilisation is a percent ratio and requires the additional constant-polled-speed assumption, named in utilization_kind. Poll-start elapsed time is a mean model, not per-OID timing. Missing observations have a reason and no fabricated zero.
+// Original cumulative words and two poll receipts. rate_numerator/rate_denominator is bits/s for octets and packets/s for errors/discards, including the separate EtherLike FCS and alignment categories. These categories are not added to IF-MIB total errors or octet billing. The rate_kind controls whether the ratio is an exact value under an explicit bound or only a modular minimum; a zero minimum is not a claim of no traffic. Utilisation is a percent ratio and requires the additional constant-polled-speed assumption, named in utilization_kind. Poll-start elapsed time is a mean model, not per-OID timing. Missing observations have a reason and no fabricated zero.
 type PathHealthCounter struct {
 	CaptureKey                string `json:"capture_key,omitempty"`
 	CounterWidth              int    `json:"counter_width,omitempty"`

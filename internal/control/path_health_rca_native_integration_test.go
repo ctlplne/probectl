@@ -61,7 +61,7 @@ func provePathHealthRCANative(t *testing.T, wire string) {
 			t.Fatal(err)
 		}
 		var health pathHealthResult
-		if err := json.Unmarshal(raw, &health); err != nil || len(health.Items) != 2 || health.Items[0].Health == nil || len(health.Items[0].Health.Counters) != 6 {
+		if err := json.Unmarshal(raw, &health); err != nil || len(health.Items) != 2 || health.Items[0].Health == nil || len(health.Items[0].Health.Counters) != len(pathHealthMetricNames) {
 			t.Fatal("native explanation lost complete original path observations", err)
 		}
 		counter := health.Items[0].Health.Counters[0]

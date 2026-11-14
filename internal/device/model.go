@@ -20,14 +20,16 @@ import (
 const (
 	MetricUptimeSeconds = "probectl.device.uptime.seconds"
 
-	MetricIfOperStatus  = "probectl.device.if.oper.status" // 1 = up, 0 = not up
-	MetricIfSpeedMbps   = "probectl.device.if.speed.mbps"
-	MetricIfInOctets    = "probectl.device.if.in.octets"  // cumulative counter
-	MetricIfOutOctets   = "probectl.device.if.out.octets" // cumulative counter
-	MetricIfInErrors    = "probectl.device.if.in.errors"
-	MetricIfOutErrors   = "probectl.device.if.out.errors"
-	MetricIfInDiscards  = "probectl.device.if.in.discards"
-	MetricIfOutDiscards = "probectl.device.if.out.discards"
+	MetricIfOperStatus        = "probectl.device.if.oper.status" // 1 = up, 0 = not up
+	MetricIfSpeedMbps         = "probectl.device.if.speed.mbps"
+	MetricIfInOctets          = "probectl.device.if.in.octets"  // cumulative counter
+	MetricIfOutOctets         = "probectl.device.if.out.octets" // cumulative counter
+	MetricIfInErrors          = "probectl.device.if.in.errors"
+	MetricIfOutErrors         = "probectl.device.if.out.errors"
+	MetricIfInDiscards        = "probectl.device.if.in.discards"
+	MetricIfOutDiscards       = "probectl.device.if.out.discards"
+	MetricIfInFCSErrors       = "probectl.device.if.in.fcs.errors"
+	MetricIfInAlignmentErrors = "probectl.device.if.in.alignment.errors"
 
 	MetricCPUUtilization = "probectl.device.cpu.utilization"    // percent, averaged
 	MetricMemoryUsed     = "probectl.device.memory.used.bytes"  // bytes

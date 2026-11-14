@@ -477,7 +477,8 @@ func isCounter(name string) bool {
 	switch name {
 	case MetricIfInOctets, MetricIfOutOctets,
 		MetricIfInErrors, MetricIfOutErrors,
-		MetricIfInDiscards, MetricIfOutDiscards:
+		MetricIfInDiscards, MetricIfOutDiscards,
+		MetricIfInFCSErrors, MetricIfInAlignmentErrors:
 		return true
 	}
 	return false

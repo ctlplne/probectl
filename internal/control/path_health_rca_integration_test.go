@@ -115,7 +115,7 @@ func TestPathHealthRCAUsesCompleteCurrentOwnedSnapshot(t *testing.T) {
 		if err := json.Unmarshal(pack, &health); err != nil {
 			t.Fatal(err)
 		}
-		if health.TestID != proof.tests[tenant] || len(health.Items) != 501 || health.Items[0].Health == nil || health.Items[0].Health.Status != "identity_unresolved" || health.Items[500].Health == nil || len(health.Items[500].Health.Counters) != 6 {
+		if health.TestID != proof.tests[tenant] || len(health.Items) != 501 || health.Items[0].Health == nil || health.Items[0].Health.Status != "identity_unresolved" || health.Items[500].Health == nil || len(health.Items[500].Health.Counters) != len(pathHealthMetricNames) {
 			t.Fatal("RCA shortened the complete path or lost the late polled hop")
 		}
 		counter := health.Items[500].Health.Counters[0]

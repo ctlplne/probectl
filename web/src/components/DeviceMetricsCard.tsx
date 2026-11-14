@@ -223,6 +223,18 @@ export function DeviceMetricsCard() {
       numeric: true,
       render: (r) => pair(r.values.if_in_discards, r.values.if_out_discards),
     },
+    {
+      key: 'fcs',
+      header: t('device.metrics.column.fcs'),
+      numeric: true,
+      render: (r) => count(r.values.if_in_fcs_errors),
+    },
+    {
+      key: 'alignment',
+      header: t('device.metrics.column.alignment'),
+      numeric: true,
+      render: (r) => count(r.values.if_in_alignment_errors),
+    },
   ]
 
   const sensorColumns: Column<InterfaceRow>[] = [

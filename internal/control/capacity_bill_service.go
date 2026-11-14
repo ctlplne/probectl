@@ -154,7 +154,8 @@ func capacityBillObservation(row flowstore.CounterRow) (flow.CapacityCounterObse
 		point.Direction = "in"
 	case "probectl.device.if.out.octets":
 		point.Direction = "out"
-	case "probectl.device.if.in.errors", "probectl.device.if.out.errors", "probectl.device.if.in.discards", "probectl.device.if.out.discards":
+	case "probectl.device.if.in.errors", "probectl.device.if.out.errors", "probectl.device.if.in.discards", "probectl.device.if.out.discards",
+		"probectl.device.if.in.fcs.errors", "probectl.device.if.in.alignment.errors":
 		return point, false, nil
 	default:
 		return point, false, flowstore.ErrCounterHistoryInput

@@ -184,13 +184,14 @@ func validateCounterObservation(row CounterRow) error {
 	return nil
 }
 
-// This is the same six wire names admitted by the native raw-counter lane;
+// These are the wire names admitted by the native raw-counter lane;
 // arbitrary free-form metric names are not authenticated counter observations.
 func counterHistoryMetricName(name string) bool {
 	switch name {
 	case "probectl.device.if.in.octets", "probectl.device.if.out.octets",
 		"probectl.device.if.in.errors", "probectl.device.if.out.errors",
-		"probectl.device.if.in.discards", "probectl.device.if.out.discards":
+		"probectl.device.if.in.discards", "probectl.device.if.out.discards",
+		"probectl.device.if.in.fcs.errors", "probectl.device.if.in.alignment.errors":
 		return true
 	}
 	return false

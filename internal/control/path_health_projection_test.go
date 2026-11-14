@@ -29,6 +29,39 @@ func pathHealthProjectionRows() []flowstore.CounterRow {
 	return rows
 }
 
+func TestPathHealthEtherLikeWrapRetainsOriginalsForPairedTenants(t *testing.T) {
+	for _, tenant := range []string{"a", "b"} {
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		for _, name := range []string{"probectl.device.if.in.fcs.errors", "probectl.device.if.in.alignment.errors"} {
+			rows := pathHealthProjectionRows()
+			for i := range rows {
+				rows[i].TenantID, rows[i].Name, rows[i].Width = tenant, name, 32
+			}
+			rows[0].Value, rows[1].Value = 1<<32-5, 6
+			got, err := projectPathHealth(ctx, rows, rows[1].PollCompletedAt, time.Minute, 20000000)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, counter := range got {
+				if counter.Metric != name {
+					continue
+				}
+				found = true
+				if counter.PreviousValue != "4294967291" || counter.Value != "6" || counter.MinimumDelta != "11" || counter.RateNumerator != "11" || counter.RateDenominator != "1" || counter.RateKind != "minimum_under_counter_continuity" || counter.RateUnit != "packets/s" || counter.UtilizationNumerator != "" {
+					t.Fatalf("FCS/alignment wrap or honest lower-bound rate changed: %+v", counter)
+				}
+			}
+			if !found {
+				t.Fatal("original EtherLike counter omitted from path health")
+			}
+			if _, octets, err := capacityBillObservation(rows[1]); err != nil || octets {
+				t.Fatal("optional error counter broke billing or became billed traffic", err)
+			}
+		}
+	}
+}
+
 func TestPathHealthProjectsExactWordsAndHonestContinuity(t *testing.T) {
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID("a"))
 	for _, tc := range []struct {
@@ -64,7 +97,7 @@ func TestPathHealthProjectsExactWordsAndHonestContinuity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(out) != 6 || out[0].RateKind != tc.kind || out[0].MinimumDelta != tc.delta || out[0].Reason != tc.reason {
+			if len(out) != len(pathHealthMetricNames) || out[0].RateKind != tc.kind || out[0].MinimumDelta != tc.delta || out[0].Reason != tc.reason {
 				t.Fatalf("original counters changed or unsupported rate asserted: %+v", out)
 			}
 			if out[0].Value == "" || out[0].PreviousValue == "" || out[0].CaptureKey == out[0].PreviousCaptureKey || out[1].Reason != "no_original_observation" {

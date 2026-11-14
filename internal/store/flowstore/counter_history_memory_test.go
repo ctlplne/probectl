@@ -41,6 +41,41 @@ func counterHistoryQuery(rows []CounterRow) CounterQuery {
 		Sources: []CounterSelector{{CounterSource: rows[0].CounterSource, IfIndexes: indexes}}}
 }
 
+func TestEtherLikeCounterHistoryKeepsOriginalWordsAndTenantBoundary(t *testing.T) {
+	memory := NewMemory()
+	tenants := []string{"11111111-1111-4111-8111-111111111111", "66666666-6666-4666-8666-666666666666"}
+	for lane, tenant := range tenants {
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		rows := counterHistoryRows(t, tenant)
+		for i := range rows {
+			rows[i].Name = []string{"probectl.device.if.in.fcs.errors", "probectl.device.if.in.alignment.errors"}[i%2]
+			if i == 3 {
+				rows[i].Value = uint64(lane)
+			} else {
+				rows[i].Value -= uint64(lane)
+			}
+		}
+		rekeyCounterHistoryPoll(t, rows)
+		if err := memory.InsertCounterPoll(ctx, rows, counterHistoryBudget()); err != nil {
+			t.Fatal("original FCS/alignment poll refused", err)
+		}
+		query := counterHistoryQuery(rows)
+		got, err := memory.CounterPoints(ctx, query)
+		if err != nil || len(got) != len(rows) {
+			t.Fatal("complete EtherLike poll not returned", err)
+		}
+		for i := range got {
+			if counterDocument(got[i]) != counterDocument(rows[i]) {
+				t.Fatal("tenant, original word, clock or source changed", i)
+			}
+		}
+		foreign := tenancy.WithTenant(t.Context(), tenancy.ID(tenants[1-lane]))
+		if _, err := memory.CounterPoints(foreign, query); err == nil {
+			t.Fatal("sibling context read another tenant's original error counters")
+		}
+	}
+}
+
 func TestCounterHistoryMemoryKeepsExactPollsAndTenantSourceIncarnations(t *testing.T) {
 	memory := NewMemoryWithLimit(1) // The unrelated flow FIFO cannot evict counters.
 	for _, tenant := range []string{"11111111-1111-4111-8111-111111111111", "66666666-6666-4666-8666-666666666666"} {

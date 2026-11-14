@@ -89,9 +89,20 @@ fed it. (Source of truth: `internal/device/model.go`.)
 | `probectl.device.if.speed.mbps` | ifHighSpeed | — | Mbps |
 | `probectl.device.if.{in,out}.octets` | ifHC{In,Out}Octets | `state/counters/{in,out}-octets` | octets (cumulative) |
 | `probectl.device.if.{in,out}.{errors,discards}` | ifTable | `state/counters/...` | packets |
+| `probectl.device.if.in.{fcs,alignment}.errors` | EtherLike-MIB dot3HCStats / dot3Stats | — | packets (cumulative) |
 | `probectl.device.cpu.utilization` | hrProcessorLoad (avg) | — | percent |
 | `probectl.device.memory.{used,total}.bytes` | hrStorageTable (RAM row) | — | bytes |
 | `probectl.device.sensor.temperature.celsius` | ENTITY-SENSOR (opt-in) | — | °C |
+
+EtherLike FCS and alignment errors prefer their original Counter64 column per
+interface, with Counter32 fallback where that interface exposes no HC object.
+Unsupported optional columns stay missing; a returned zero is an observation.
+The same original width, poll clocks, uptime and discontinuity metadata reaches
+the authenticated exact-counter history and path-interface health. Wrapped
+error-counter deltas are lower bounds under continuity, never unqualified exact
+rates. FCS/alignment are separate categories and are not added to IF-MIB total
+errors or octet billing. The Device screen displays each category separately;
+API, CLI and native path health retain the original full-width decimal words.
 
 The exact SNMP counter lane also retains optional `interface_speed_bps` from
 that same poll, under its authenticated original-body receipt. Positive typed

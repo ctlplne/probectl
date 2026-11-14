@@ -80,7 +80,7 @@ func newPathHealthAPIFixture(t *testing.T) *pathHealthAPIFixture {
 		reader := store.NewDeviceCounterCaptures(f.pool)
 		for poll := range 2 {
 			at := start.Add(time.Duration(poll) * time.Second)
-			input := entity.CounterCaptureInput{ConfiguredTarget: "192.0.2.1", PollStartedAt: at, PollCompletedAt: at, PointCount: 6}
+			input := entity.CounterCaptureInput{ConfiguredTarget: "192.0.2.1", PollStartedAt: at, PollCompletedAt: at, PointCount: uint32(len(pathHealthMetricNames))}
 			digest := [32]byte{byte(lane + 10), byte(poll + 1)}
 			ref, err := reader.CaptureAuthenticated(ctx, "role-snmp", f.serials[tenant+"role-snmp"], digest, input, 128<<20)
 			if err != nil {
@@ -98,7 +98,7 @@ func newPathHealthAPIFixture(t *testing.T) *pathHealthAPIFixture {
 				}
 				rows = append(rows, flowstore.CounterRow{TenantID: tenant,
 					CounterSource: flowstore.CounterSource{ContextID: f.contextID, DeviceID: f.routerID, AgentID: "role-snmp", SourceRef: input.ConfiguredTarget, SourceAssignedAt: witness.SourceAssignedAt, AgentAssignedAt: witness.AgentAssignedAt},
-					SenderSerial:  witness.SenderSerial, CaptureKey: ref.Key, RawDigest: digest, CapturedAt: ref.CapturedAt, PollStartedAt: at, PollCompletedAt: at, Population: 6, IfIndex: 7, Name: name, Value: value, Width: 64,
+					SenderSerial:  witness.SenderSerial, CaptureKey: ref.Key, RawDigest: digest, CapturedAt: ref.CapturedAt, PollStartedAt: at, PollCompletedAt: at, Population: input.PointCount, IfIndex: 7, Name: name, Value: value, Width: 64,
 					UptimeTicks: 10000 + uint32(poll)*100, UptimeKnown: true, DiscontinuityKnown: true, InterfaceSpeedBPS: 10000000, InterfaceSpeedKnown: true})
 			}
 			if err := history.InsertCounterPoll(ctx, rows, flowstore.CounterBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20, Timeout: time.Minute}); err != nil {
@@ -148,7 +148,7 @@ func TestPathHealthServesOriginalCountersWithCurrentPairedAuthority(t *testing.T
 		if err := json.Unmarshal(raw, &result); err != nil {
 			t.Fatal(err)
 		}
-		if len(result.Items) != 2 || result.Items[0].Health == nil || len(result.Items[0].Health.Counters) != 6 {
+		if len(result.Items) != 2 || result.Items[0].Health == nil || len(result.Items[0].Health.Counters) != len(pathHealthMetricNames) {
 			t.Fatalf("requested path health omitted the original interface counters: %s", raw)
 		}
 		health := result.Items[0].Health

@@ -40,6 +40,13 @@ const (
 	oidIfHCOutOctets = ".1.3.6.1.2.1.31.1.1.1.10"
 	oidIfHighSpeed   = ".1.3.6.1.2.1.31.1.1.1.15" // Mbps
 
+	// RFC 3635 EtherLike-MIB. These are independent error categories, not
+	// additional octets or disjoint subsets to sum with IF-MIB in-errors.
+	oidDot3AlignmentErrors   = ".1.3.6.1.2.1.10.7.2.1.2"
+	oidDot3FCSErrors         = ".1.3.6.1.2.1.10.7.2.1.3"
+	oidDot3HCAlignmentErrors = ".1.3.6.1.2.1.10.7.11.1.1"
+	oidDot3HCFCSErrors       = ".1.3.6.1.2.1.10.7.11.1.2"
+
 	// ipAddrTable: ipAdEntIfIndex, indexed by the IP itself -> interface addrs
 	// (the path-hop correlation key).
 	oidIPAdEntIfIndex = ".1.3.6.1.2.1.4.20.1.2"
@@ -255,6 +262,10 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 		{oidIfOutErrors, MetricIfOutErrors, 32, false},
 		{oidIfInDiscards, MetricIfInDiscards, 32, false},
 		{oidIfOutDiscards, MetricIfOutDiscards, 32, false},
+		{oidDot3HCFCSErrors, MetricIfInFCSErrors, 64, false},
+		{oidDot3HCAlignmentErrors, MetricIfInAlignmentErrors, 64, false},
+		{oidDot3FCSErrors, MetricIfInFCSErrors, 32, true},
+		{oidDot3AlignmentErrors, MetricIfInAlignmentErrors, 32, true},
 	}
 	type counterMetric struct {
 		value float64
