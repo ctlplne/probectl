@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/store"
 )
 
@@ -46,7 +47,7 @@ func TestDashboardDefinitionValidationAndTenantSafeShape(t *testing.T) {
 	}
 }
 
-func TestReportScheduleRequiresConfiguredNonOutboundDestination(t *testing.T) {
+func TestReportScheduleRequiresConfiguredTenantDestination(t *testing.T) {
 	req := reportScheduleCreateRequest{
 		DashboardID: "view-1", Name: "Daily posture", Format: "PDF", Cadence: "daily",
 		DestinationID: reportInboxDestination, FirstRunAt: time.Now().UTC().Add(time.Hour),
@@ -58,9 +59,16 @@ func TestReportScheduleRequiresConfiguredNonOutboundDestination(t *testing.T) {
 	if clean.Format != "pdf" || clean.DestinationID != reportInboxDestination {
 		t.Fatalf("unexpected clean schedule: %+v", clean)
 	}
-	req.DestinationID = "https://unconfigured.invalid/hook"
-	if _, err := cleanSchedule(req); err == nil {
-		t.Fatal("unconfigured outbound destination must fail closed")
+	server := &Server{cfg: &config.Config{}}
+	if err := server.validateReportDestination("tenant-a", clean.DestinationID); err != nil {
+		t.Fatal("local tenant inbox must need no outbound configuration", err)
+	}
+	for _, id := range []string{"https://unconfigured.invalid/hook", "unconfigured@example.test", "email/monthly/" + strings.Repeat("a", 64)} {
+		// Normalization cannot know a tenant's deployment-managed recipients.
+		// Creation, updates and delivery use this tenant-bound validator.
+		if err := server.validateReportDestination("tenant-a", id); err == nil {
+			t.Fatal("unconfigured outbound destination must fail closed")
+		}
 	}
 }
 

@@ -29,11 +29,8 @@ import { useAuth } from '../auth/useAuth'
 import { Badge, Button, Card, CardBody, CardHeader, Field, Select, useToast } from '../components'
 import { DateTime } from '../time/DateTime'
 import { FlowViewLibrary } from './FlowViewLibrary'
-import {
-  MonthlyClientReportEditor,
-  emptyMonthlyReport,
-  validMonthlyReport,
-} from './MonthlyClientReportEditor'
+import { MonthlyClientReportEditor } from './MonthlyClientReportEditor'
+import { emptyMonthlyReport, validMonthlyReport } from './monthlyClientReportModel'
 import styles from './dashboards.module.css'
 
 export function DashboardReportingCard({
