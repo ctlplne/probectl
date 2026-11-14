@@ -81,6 +81,7 @@ type Options struct {
 
 // Stack is one running shipped control plane.
 type Stack struct {
+	owner          *testing.T // shared control processes live until the stack owner finishes
 	Root, Dir      string
 	Control, Agent string // the built binaries
 	BaseURL        string // https://localhost:<the IdP's registered callback port>
@@ -153,7 +154,7 @@ func Start(t *testing.T, o Options) *Stack {
 		t.Fatalf("PROBECTL_TEST_DEX_REDIRECT_URL %q must name the listener's port", dex.Redirect)
 	}
 
-	s := &Stack{Root: repoRoot(t), Dir: t.TempDir(), Dex: dex}
+	s := &Stack{Root: repoRoot(t), Dir: t.TempDir(), Dex: dex, owner: t}
 	name := strings.ToLower(o.Name) + "_" + fmt.Sprint(time.Now().UnixNano())
 
 	// The license and the binary that trusts its key, as a release bakes it.
@@ -324,7 +325,7 @@ func (s *Stack) RestartControl(t *testing.T, label string, env map[string]string
 		full = append(full, k+"="+v) // the last value of a key wins
 	}
 	s.controlLabel = label
-	s.Log = s.start(t, label, s.Control, []string{"serve"}, full)
+	s.Log = s.startWithCleanupOwner(t, s.owner, label, s.Control, []string{"serve"}, full)
 	s.awaitReady(t)
 	s.awaitConfiguredMCP(t, full)
 }
@@ -813,6 +814,16 @@ func (s *Stack) tryRun(env []string, bin string, args ...string) (string, error)
 
 func (s *Stack) start(t *testing.T, label, bin string, args, env []string) string {
 	t.Helper()
+	return s.startWithCleanupOwner(t, t, label, bin, args, env)
+}
+
+// A restarted shared control belongs to the stack, even when a child test
+// initiates the restart. Other child-scoped processes keep the caller's lifetime.
+func (s *Stack) startWithCleanupOwner(t, owner *testing.T, label, bin string, args, env []string) string {
+	t.Helper()
+	if owner == nil {
+		owner = t
+	}
 	logPath := filepath.Join(s.Dir, label+".log")
 	logFile, err := os.Create(logPath)
 	if err != nil {
@@ -831,7 +842,7 @@ func (s *Stack) start(t *testing.T, label, bin string, args, env []string) strin
 		s.procs = map[string]*process{}
 	}
 	s.procs[label] = p
-	t.Cleanup(func() {
+	owner.Cleanup(func() {
 		p.stop()
 		_ = logFile.Close()
 	})

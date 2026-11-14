@@ -164,6 +164,27 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/alerts.ts',
     method: 'GET',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/path-health-source`',
+    response: 'AlertPathHealthSourceState',
+    generated: 'GetAlertPathHealthSourceResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'PUT',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/path-health-source`',
+    response: 'AlertPathHealthSourceState',
+    generated: 'SetAlertPathHealthSourceResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'DELETE',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/path-health-source`',
+    response: 'AlertPathHealthSourceState',
+    generated: 'ClearAlertPathHealthSourceResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'GET',
     path: '`/alerts/rules/${encodeURIComponent(ruleID)}/tag-filter`',
     response: 'AlertTagFilterState',
     generated: 'GetAlertTagFilterResponse',
