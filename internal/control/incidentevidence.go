@@ -173,6 +173,9 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 			}
 		}
 	}
+	if err := s.revalidateIncidentExport(r, inc); err != nil {
+		return err
+	}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		return s.recordAudit(ctx, sc, r, "incident.evidence_export", manifest.PackageID, map[string]any{
 			"incident_id": inc.ID, "contract": evidence.ContractVersion,
@@ -180,6 +183,9 @@ func (s *Server) handleExportIncidentEvidence(w http.ResponseWriter, r *http.Req
 			"impact_included": impact != nil, "verdict_included": verdict != nil,
 		})
 	}); err != nil {
+		return err
+	}
+	if err := s.revalidateIncidentExport(r, inc); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/vnd.probectl.evidence+json")
