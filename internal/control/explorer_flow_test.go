@@ -27,6 +27,7 @@ import (
 // Keep the read-only UI preview's grammar on the same server-owned registry.
 // Regenerate with PROBECTL_UPDATE_FLOW_EXPLORER_WEB_FIXTURE=1 go test
 // ./internal/control -run '^TestExplorerFlowWebFixtureMatchesRegistry$'.
+// Then run Prettier on src/test/flowExplorerSchema.json from web/.
 func TestExplorerFlowWebFixtureMatchesRegistry(t *testing.T) {
 	const path = "../../web/src/test/flowExplorerSchema.json"
 	wantJSON, err := json.MarshalIndent(flowExplorerSchema(), "", "  ")

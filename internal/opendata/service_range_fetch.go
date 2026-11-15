@@ -48,18 +48,13 @@ func serviceRangePublisherURL(publisher string) (string, error) {
 	}
 }
 
-// FetchServiceRangeCache performs an explicitly requested BULK refresh. Requests
+// FetchServiceRangeCacheWithOptions performs an explicitly requested BULK refresh. Requests
 // contain no address, tenant, credential or telemetry. The nil
 // client uses the existing hardened TLS door (docs/guardrails.md G7-2, 10, 12).
 // All selected original documents validate before an atomic local replacement;
 // failure leaves the prior cache and its original freshness untouched.
-func FetchServiceRangeCache(ctx context.Context, path string, publishers []string, maxAge time.Duration, memoryBytes int64, client Doer) error {
-	return FetchServiceRangeCacheWithOptions(ctx, path, publishers, maxAge, memoryBytes, ServiceRangeFetchOptions{}, client)
-}
-
-// FetchServiceRangeCacheWithOptions additionally accepts the public machine
-// association required for an explicitly selected Microsoft365 bulk download.
-// It never derives it from tenant state or stores it in public source metadata.
+// Options accepts the public machine association required only for explicit
+// Microsoft365 bulk downloads, never tenant state or a public source credential.
 func FetchServiceRangeCacheWithOptions(ctx context.Context, path string, publishers []string, maxAge time.Duration, memoryBytes int64, options ServiceRangeFetchOptions, client Doer) error {
 	if len(publishers) == 0 || path == "" || maxAge <= 0 {
 		return errors.New("an output cache, publishers and positive freshness are required")

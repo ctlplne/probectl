@@ -106,8 +106,15 @@ func TestBuildComplianceRefusesUntenantedPolicyDirInMultiTenant(t *testing.T) {
 	// the refusal targets the untenanted directory, not the engine itself.
 	for _, profile := range []string{"multi-tenant", "regulated"} {
 		cfg := &config.Config{ComplianceEnabled: true, DeploymentProfile: profile}
-		if _, on, err := BuildCompliance(cfg, intelTestLog()); err != nil || !on {
+		eng, on, err := BuildCompliance(cfg, intelTestLog())
+		if err != nil || !on {
 			t.Fatalf("%s without a policy dir must still load: on=%v err=%v", profile, on, err)
+		}
+		for _, tenant := range []string{"tenant-red", "tenant-blue"} {
+			eng.Observe(tenant, compliance.FlowObs{Src: "10.20.1.1", Dst: "10.10.1.1", DstPort: 443, Source: "flow", At: time.Now()})
+			if len(eng.Results(tenant)) != 0 || eng.CoverageFor(tenant).Observations != 0 {
+				t.Fatalf("%s: unbound tenant inherited deployment-wide observation state", profile)
+			}
 		}
 	}
 }

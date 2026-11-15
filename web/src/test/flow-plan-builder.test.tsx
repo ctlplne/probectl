@@ -51,7 +51,9 @@ describe('native flow plan controls', () => {
         expect(picker.querySelector(`option[value="${side}_${suffix}"]`)).not.toBeNull()
       }
     }
-    expect(screen.getByRole('note')).toHaveTextContent('Unknown and ambiguous traffic stays in totals')
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Unknown and ambiguous traffic stays in totals',
+    )
     expect(screen.getByTestId('plan')).toHaveTextContent('"values":[""]')
     await userEvent.selectOptions(picker, 'src_service')
     const plan = JSON.parse(screen.getByTestId('plan').textContent ?? '{}') as FlowQueryPlan

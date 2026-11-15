@@ -30,6 +30,12 @@ import (
 
 type serviceRangeDoerFunc func(*http.Request) (*http.Response, error)
 
+// FetchServiceRangeCache is test shorthand for sources without an explicit
+// machine association. The shipping CLI uses the options-aware entry point.
+func FetchServiceRangeCache(ctx context.Context, path string, publishers []string, maxAge time.Duration, memoryBytes int64, client Doer) error {
+	return FetchServiceRangeCacheWithOptions(ctx, path, publishers, maxAge, memoryBytes, ServiceRangeFetchOptions{}, client)
+}
+
 func (f serviceRangeDoerFunc) Do(req *http.Request) (*http.Response, error) { return f(req) }
 
 // Actual HTTPS download and durable local replacement. Publisher contents are

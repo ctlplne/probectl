@@ -61,7 +61,17 @@ func BuildCompliance(cfg *config.Config, log *slog.Logger) (*compliance.Engine, 
 	if err != nil {
 		return nil, false, err
 	}
-	eng := compliance.NewEngine(policies)
+	var eng *compliance.Engine
+	if cfg.DeploymentProfile == "multi-tenant" || cfg.DeploymentProfile == "regulated" {
+		// These profiles have no deployment-wide policy fallback. A future
+		// report-specific policy set must be selected under its tenant scope.
+		eng, err = compliance.NewTenantEngine(nil)
+		if err != nil {
+			return nil, false, err
+		}
+	} else {
+		eng = compliance.NewEngine(policies)
+	}
 	if log != nil {
 		log.Info("compliance validator enabled", "policies", eng.Policies())
 	}
