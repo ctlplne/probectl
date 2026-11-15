@@ -116,7 +116,11 @@ func proveRouterPathStdio(t *testing.T, st *shipped.Stack, reg edgeFlowRegistrat
 		}
 		success := len(reply.Error) == 0 && !reply.Result.IsError && len(reply.Result.Data) > 0 && string(reply.Result.Data) != "null"
 		if success != wantOK {
-			t.Fatal("path process lost original tenant/current authority", success, wantOK)
+			var rpc struct {
+				Code int `json:"code"`
+			}
+			_ = json.Unmarshal(reply.Error, &rpc)
+			t.Fatalf("path process lost original tenant/current authority: tool=%s success=%t wanted=%t rpc_code=%d result_type=%q is_error=%t structured=%t text_items=%d", tool, success, wantOK, rpc.Code, reply.Result.ResultType, reply.Result.IsError, len(reply.Result.Data) > 0, len(reply.Result.Content))
 		}
 		if !success {
 			if len(reply.Result.Data) > 0 && string(reply.Result.Data) != "null" || len(reply.Error) == 0 && !reply.Result.IsError {
