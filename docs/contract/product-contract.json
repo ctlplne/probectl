@@ -49,7 +49,7 @@
       ],
       "name": "Open-data enrichment",
       "status": "partial",
-      "evidence": "`internal/opendata` (shared-once, per-tenant scoping)"
+      "evidence": "`internal/opendata` (shared-once, per-tenant scoping); complete offline AWS/Google service-range exports retain all overlapping published labels, original publication/fetch clocks and per-lookup freshness through the authenticated enrichment API. Service query dimensions, remaining publishers and full real-flow/public-surface qualification remain owed."
     },
     {
       "ids": [

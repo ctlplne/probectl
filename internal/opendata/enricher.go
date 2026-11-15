@@ -141,6 +141,11 @@ func (en *Enricher) Status() []SourceStatus {
 				health.Status, health.LastError = "unavailable", err.Error()
 			}
 		}
+		if source, ok := ms.src.(*ServiceRanges); ok && health.Enabled {
+			if err := source.availability(time.Now()); err != nil {
+				health.Status, health.LastError = "unavailable", err.Error()
+			}
+		}
 		out = append(out, SourceStatus{Descriptor: ms.src.Descriptor(), Health: health})
 	}
 	return out
@@ -154,7 +159,7 @@ func (en *Enricher) Enrich(ctx context.Context, ip string) (Enrichment, error) {
 		return Enrichment{IP: ip}, fmt.Errorf("opendata: invalid ip %q: %w", ip, err)
 	}
 	if cached, ok := en.cache.get(ip); ok {
-		return cached, nil
+		return en.withCurrentServices(ctx, addr, cached), nil
 	}
 
 	en.mu.Lock()
@@ -171,7 +176,7 @@ func (en *Enricher) Enrich(ctx context.Context, ip string) (Enrichment, error) {
 	}
 
 	en.cache.put(ip, e)
-	return e, nil
+	return en.withCurrentServices(ctx, addr, e), nil
 }
 
 func (en *Enricher) enabled(ms *managedSource) bool {

@@ -137,7 +137,7 @@ capabilities:
     cli: {refs: ["cli:probectl opendata enrich"]}
     ui: {refs: ["ui:F7@/outages"]}
     docs: {refs: ["file:docs/features/open-data-and-outage.md#Open-data enrichment"]}
-    config_keys: {refs: ["config:PROBECTL_FLOW_ENRICH_GEOIP_DB", "config:PROBECTL_FLOW_ENRICH_RIR_DIR"]}
+    config_keys: {refs: ["config:PROBECTL_FLOW_ENRICH_GEOIP_DB", "config:PROBECTL_FLOW_ENRICH_RIR_DIR", "config:PROBECTL_FLOW_ENRICH_SERVICE_FILE", "config:PROBECTL_FLOW_ENRICH_SERVICE_MAX_AGE", "config:PROBECTL_FLOW_ENRICH_SERVICE_MEMORY_BYTES"]}
     telemetry: {refs: ["file:internal/opendata"]}
     real_stack_proof: {gap: "External network access may remain hermetic, but no real-stack receipt currently proves cached enrichment through the public API and UI with two-tenant scoping."}
     migration: *no_migration

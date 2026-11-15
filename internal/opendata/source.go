@@ -34,6 +34,7 @@ const (
 	KindIXP        Kind = "ixp"        // ASN → IXP / facility presence
 	KindAllocation Kind = "allocation" // IP → RIR allocation / status
 	KindRPKI       Kind = "rpki"       // route prefix + origin → validator VRP evidence
+	KindService    Kind = "service"    // public address → published service/region labels
 )
 
 // Permission expresses the engineering review of a source's commercial-use
@@ -108,19 +109,20 @@ type IXP struct {
 // Enrichment is the open-data context attached to an IP — the contract the flow
 // and test planes consume. Zero-valued fields mean "no source provided this".
 type Enrichment struct {
-	IP               string       `json:"ip"`
-	ASN              uint32       `json:"asn,omitempty"`
-	ASName           string       `json:"as_name,omitempty"`
-	Prefix           string       `json:"prefix,omitempty"`
-	CountryCode      string       `json:"country_code,omitempty"`
-	City             string       `json:"city,omitempty"`
-	Latitude         float64      `json:"latitude,omitempty"`
-	Longitude        float64      `json:"longitude,omitempty"`
-	RIR              string       `json:"rir,omitempty"`
-	AllocationStatus string       `json:"allocation_status,omitempty"`
-	AllocationDate   string       `json:"allocation_date,omitempty"`
-	IXPs             []IXP        `json:"ixps,omitempty"`
-	Sources          []Provenance `json:"sources,omitempty"`
+	IP               string               `json:"ip"`
+	ASN              uint32               `json:"asn,omitempty"`
+	ASName           string               `json:"as_name,omitempty"`
+	Prefix           string               `json:"prefix,omitempty"`
+	CountryCode      string               `json:"country_code,omitempty"`
+	City             string               `json:"city,omitempty"`
+	Latitude         float64              `json:"latitude,omitempty"`
+	Longitude        float64              `json:"longitude,omitempty"`
+	RIR              string               `json:"rir,omitempty"`
+	AllocationStatus string               `json:"allocation_status,omitempty"`
+	AllocationDate   string               `json:"allocation_date,omitempty"`
+	IXPs             []IXP                `json:"ixps,omitempty"`
+	Sources          []Provenance         `json:"sources,omitempty"`
+	Services         []ServiceRangeStatus `json:"services,omitempty"`
 }
 
 // addProvenance records a source's contribution.

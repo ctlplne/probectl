@@ -102,6 +102,15 @@ probectl never phones home: the outage feeds and every enrichment lookup are
 outbound only when you opt in, and the local outage engine makes no outbound calls
 at all.
 
+The authenticated enrichment API also accepts complete offline AWS/Google
+published service-range caches. It returns original service/region labels,
+including overlaps, plus publication/fetch clocks, expiry and visible unknown
+attribution when a list is stale or unavailable. It does not send addresses to
+publishers or infer a hosted application from cloud ownership. See the
+[offline format and terms](../opendata-aup.md#published-service-range-input).
+Service dimensions in saved flow queries and the remaining publisher adapters
+are still in development.
+
 ## Use it
 
 Enrichment that uses outbound lookups is opt-in, because probectl makes no

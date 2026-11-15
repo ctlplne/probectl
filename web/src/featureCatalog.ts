@@ -72,6 +72,8 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F7',
     name: 'Open-data enrichment',
+    // Offline published AWS/Google ranges are exposed by the enrichment API;
+    // service query dimensions and full publisher/surface qualification remain owed.
     status: 'partial',
     source: 'contract:features',
   },

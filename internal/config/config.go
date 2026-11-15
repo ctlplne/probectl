@@ -598,6 +598,10 @@ type Config struct {
 	FlowEnrichRPKIMaxAge      time.Duration
 	FlowEnrichRPKIMemoryBytes int
 	FlowEnrichRPKIWorkUnits   int
+	// Complete offline publisher exports; never enables an outbound lookup.
+	FlowEnrichServiceFile        string
+	FlowEnrichServiceMaxAge      time.Duration
+	FlowEnrichServiceMemoryBytes int
 	// FlowCHTenantScoping (TENANT-102) attaches a per-request tenant custom
 	// setting to ClickHouse reads so a reader row policy can constrain the
 	// query path at the DB. Requires server-side custom_settings_prefixes=SQL_
@@ -1260,6 +1264,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.FlowEnrichRIRDir = l.str("PROBECTL_FLOW_ENRICH_RIR_DIR", "")
 	cfg.FlowEnrichASNFile = l.str("PROBECTL_FLOW_ENRICH_ASN_FILE", "")
 	loadRPKIConfig(l, cfg)
+	loadServiceRangeConfig(l, cfg)
 	cfg.FlowEnrichIXPrefixFile = l.str("PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE", "")
 	cfg.FlowEnrichIXPrefixMaxAge = l.dur("PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE", 24*time.Hour)
 	if cfg.FlowEnrichIXPrefixMaxAge <= 0 {
@@ -2332,6 +2337,9 @@ func (c *Config) LogValue() slog.Value {
 		slog.Duration("flow_enrich_rpki_max_age", c.FlowEnrichRPKIMaxAge),
 		slog.Int("flow_enrich_rpki_memory_bytes", c.FlowEnrichRPKIMemoryBytes),
 		slog.Int("flow_enrich_rpki_work_units", c.FlowEnrichRPKIWorkUnits),
+		slog.Bool("flow_enrich_service", c.FlowEnrichServiceFile != ""),
+		slog.Duration("flow_enrich_service_max_age", c.FlowEnrichServiceMaxAge),
+		slog.Int("flow_enrich_service_memory_bytes", c.FlowEnrichServiceMemoryBytes),
 	)
 }
 
@@ -2409,6 +2417,10 @@ func (c *Config) Redacted() map[string]any {
 		"flow_enrich_rpki": map[string]any{
 			"configured": c.FlowEnrichRPKIFile != "", "max_age": c.FlowEnrichRPKIMaxAge.String(),
 			"memory_bytes": c.FlowEnrichRPKIMemoryBytes, "work_units": c.FlowEnrichRPKIWorkUnits,
+		},
+		"flow_enrich_service": map[string]any{
+			"configured": c.FlowEnrichServiceFile != "", "max_age": c.FlowEnrichServiceMaxAge.String(),
+			"memory_bytes": c.FlowEnrichServiceMemoryBytes,
 		},
 		"alert_smtp_configured":       c.AlertSMTPAddr != "", // a boolean, never address or credentials
 		"alert_smtp_tls_mode":         c.AlertSMTPTLSMode,

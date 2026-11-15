@@ -108,6 +108,62 @@ Notes:
 
 ## Related source sets
 
+### Published service range input
+
+`PROBECTL_FLOW_ENRICH_SERVICE_FILE` imports complete original publisher JSON from
+an operator-supplied local cache. The current adapters accept `aws`, `google`
+(`goog.json`) and `google_cloud` (`cloud.json`). Nothing is downloaded by this
+reader and no dataset ships with probectl. Source terms still apply to internal,
+MSP/provider and redistribution use; public access is not a resale licence.
+
+Sources checked on 2026-11-15:
+
+| Publisher | Primary format/use documentation | Scope and terms handling |
+| --- | --- | --- |
+| AWS | [Traffic identification, local history and validated TLS](https://docs.aws.amazon.com/vpc/latest/userguide/aws-ip-ranges.html), [original JSON schema and overlaps](https://docs.aws.amazon.com/vpc/latest/userguide/aws-ip-syntax.html) | Documentation describes downloading and processing the list to identify AWS traffic. Preserve original service/region labels, including overlaps. Coverage excludes some services and BYOIP. No dataset redistribution or commercial resale grant is asserted. |
+| Google | [Published global/regional lists and local processing](https://cloud.google.com/vpc/docs/configure-private-google-access) | Documentation describes local processing of `goog.json` and `cloud.json`. Global ownership alone cannot identify individual Google APIs; cloud ranges label infrastructure available to customers. No dataset redistribution or commercial resale grant is asserted. |
+
+The offline envelope is versioned separately from its unchanged original vendor
+documents. `complete:true` attests that the operator imported the full response;
+it is not a publisher signature. `fetched_at` is the original successful bulk-fetch
+time, copied unchanged during offline transfer. For example (replace the placeholder
+with the entire original JSON document, not selected ranges):
+
+```text
+{
+  "version": 1,
+  "sources": [
+    {
+      "publisher": "aws",
+      "fetched_at": "2026-11-15T09:00:00Z",
+      "complete": true,
+      "data": <complete original ip-ranges.json object>
+    }
+  ]
+}
+```
+
+Use an atomic file replacement and restart to load a complete replacement. The
+reader admits the whole input, duplicate-key validation, decoder workspace and
+index against `PROBECTL_FLOW_ENRICH_SERVICE_MEMORY_BYTES`; inadequate admission
+refuses the whole replacement. Raise the configured memory for the intended
+complete workload. A malformed or missing input remains visible as unavailable
+through the existing source-status and enrichment APIs; telemetry continues.
+
+`GET /v1/opendata/enrichment?ip=<address>` returns `services` entries with each
+publisher's original version, JSON digest, publication/fetch clocks, expiry and
+all matching service/region/prefix labels. Overlaps remain explicit; a range
+match does not establish which hosted application or customer generated traffic.
+An unmatched address has no matches. A stale or disabled list also has no matches
+and retains its original clocks and status, making unknown attribution visible.
+Freshness is checked on every lookup, including a shared IP-cache hit. File
+mtime, restart and repeated lookups never renew the source's original fetch time.
+
+These are shared public reference records. Existing tenant authentication and
+current `flow.read` authorization still apply; no tenant traffic, address or query
+is sent to a publisher. This initial offline reader does not yet add service
+dimensions to saved flow queries or claim complete SaaS application detection.
+
 Threat-intel feeds are a **separate** source set (with their own, often
 non-commercial, terms) layered on top of this same framework — see
 [`threat-intel.md`](threat-intel.md) for that matrix. Cloud-pricing data for cost analytics
