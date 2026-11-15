@@ -152,7 +152,7 @@ func TestAssessmentFlowSamplesKeepCompleteWindowsAndCurrentTwoTenantAuthority(t 
 		if _, err := client.DownloadDashboardReportArtifactTo(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: artifact.Id}, &output, 64<<20); err != nil {
 			t.Fatal(err)
 		}
-		if err := checkAssessmentFlowSampleCSV(output.Bytes(), tenant, f.tenants[1-lane], expected); err != nil {
+		if err := checkAssessmentFlowSampleCSV(output.Bytes(), f.tenants[1-lane], expected); err != nil {
 			t.Fatal(err)
 		}
 		native.proveAssessmentFlowSample(tenant, f.tenants[1-lane], definition, expected, artifact.Id)
@@ -190,7 +190,7 @@ func TestAssessmentFlowSamplesKeepCompleteWindowsAndCurrentTwoTenantAuthority(t 
 	denyAssessmentSampleNative(t, native, paired, primary)
 }
 
-func checkAssessmentFlowSampleCSV(body []byte, tenant, foreign, expected string) error {
+func checkAssessmentFlowSampleCSV(body []byte, foreign, expected string) error {
 	reader := csv.NewReader(bytes.NewReader(body))
 	reader.FieldsPerRecord = -1
 	details, totals := 0, 0

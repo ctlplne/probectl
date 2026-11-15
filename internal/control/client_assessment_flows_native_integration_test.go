@@ -29,7 +29,7 @@ func (p *clientReportNativeProof) proveAssessmentFlowSample(tenant, foreign stri
 		if _, err := client.DownloadDashboardReportArtifactTo(p.t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: id}, &body, 64<<20); err != nil {
 			p.t.Fatal(err)
 		}
-		if err := checkAssessmentFlowSampleCSV(body.Bytes(), tenant, foreign, expected); err != nil {
+		if err := checkAssessmentFlowSampleCSV(body.Bytes(), foreign, expected); err != nil {
 			p.t.Fatal("native combined sample changed complete source results", err)
 		}
 	}
@@ -91,7 +91,7 @@ func (p *clientReportNativeProof) proveAssessmentFlowSample(tenant, foreign stri
 	if code != 0 {
 		p.t.Fatal("CLI combined assessment download refused", code)
 	}
-	if err := checkAssessmentFlowSampleCSV(downloaded, tenant, foreign, expected); err != nil {
+	if err := checkAssessmentFlowSampleCSV(downloaded, foreign, expected); err != nil {
 		p.t.Fatal(err)
 	}
 }
