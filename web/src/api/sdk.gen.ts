@@ -970,6 +970,12 @@ export interface ChannelSpec {
   url?: string
 }
 
+export interface ClientReportAssessment {
+  from: string
+  preparer: string
+  to: string
+}
+
 export interface ClientReportCapacityTarget {
   capacity_bps: string
   direction: "in" | "out" | "max_directional_percentiles" | "interval_max" | "interval_sum"
@@ -980,9 +986,10 @@ export interface ClientReportCapacityTarget {
 }
 
 export interface ClientReportDefinition {
+  assessment?: ClientReportAssessment | null
   capacity_targets: ClientReportCapacityTarget[]
   month?: string
-  period?: "completed_month" | "month_to_date"
+  period?: "completed_month" | "month_to_date" | "assessment"
   timezone?: string
 }
 

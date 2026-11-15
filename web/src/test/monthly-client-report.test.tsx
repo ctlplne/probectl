@@ -112,9 +112,9 @@ for (const tenant of [
     })
     const user = userEvent.setup()
     await user.click(
-      await screen.findByRole('checkbox', { name: 'Build a monthly client pack (preview)' }),
+      await screen.findByRole('checkbox', { name: 'Build a client report (preview)' }),
     )
-    const editor = screen.getByRole('region', { name: 'Monthly client pack configuration' })
+    const editor = screen.getByRole('region', { name: 'Client report configuration' })
     await user.clear(within(editor).getByRole('textbox', { name: 'Report timezone' }))
     await user.type(
       within(editor).getByRole('textbox', { name: 'Report timezone' }),
@@ -217,7 +217,7 @@ for (const tenant of [
     await user.click(screen.getByRole('button', { name: 'Generate PDF' }))
     await waitFor(() => expect(reports).toEqual([{ dashboard_id: 'monthly-view', format: 'pdf' }]))
     await user.selectOptions(
-      within(editor).getByRole('combobox', { name: 'Monthly report period' }),
+      within(editor).getByRole('combobox', { name: 'Report period' }),
       'month_to_date',
     )
     expect(within(editor).getByRole('status')).toHaveTextContent('partial')
@@ -230,5 +230,24 @@ for (const tenant of [
     expect((saved[1].definition as { client_report: unknown }).client_report).not.toHaveProperty(
       'month',
     )
+    await user.selectOptions(
+      within(editor).getByRole('combobox', { name: 'Report period' }),
+      'assessment',
+    )
+    await user.type(within(editor).getByLabelText('Assessment start'), '2026-10-01T00:00:00Z')
+    await user.type(within(editor).getByLabelText('Assessment end'), '2026-10-15T00:00:00Z')
+    await user.type(within(editor).getByLabelText('Assessment prepared by'), 'Example MSP')
+    await user.click(screen.getByRole('button', { name: 'Save dashboard' }))
+    await waitFor(() => expect(saved).toHaveLength(3))
+    expect(saved[2].definition).toMatchObject({
+      client_report: {
+        period: 'assessment',
+        assessment: {
+          from: '2026-10-01T00:00:00Z',
+          to: '2026-10-15T00:00:00Z',
+          preparer: 'Example MSP',
+        },
+      },
+    })
   })
 }

@@ -261,7 +261,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	},
 	"dashboard_views": {
 		plane: "postgres:dashboard_views", disposition: subjectTableDeleteMatches,
-		exact: []string{"owner_id"},
+		exact: []string{"owner_id"}, contains: []string{"definition"},
 	},
 	"device_collection_outcomes": {
 		plane: "postgres:device_collection_outcomes", disposition: subjectTableDeleteMatches,
@@ -1402,7 +1402,11 @@ func subjectReportOwnerPredicate(alias string) string {
 	return `(` + subjectExactPredicate(alias+`.generated_by`) + `
  OR EXISTS (SELECT 1 FROM dashboard_report_schedules report_schedule
  WHERE report_schedule.tenant_id=` + alias + `.tenant_id AND report_schedule.id=` + alias + `.schedule_id
-	AND ` + subjectExactPredicate(`report_schedule.owner_id`) + `))`
+	AND ` + subjectExactPredicate(`report_schedule.owner_id`) + `)
+ OR EXISTS (SELECT 1 FROM dashboard_views report_view
+ WHERE report_view.tenant_id=` + alias + `.tenant_id AND report_view.id=` + alias + `.dashboard_id
+ AND EXISTS (SELECT 1 FROM unnest($3::text[]) AS assessment_subject(value)
+ WHERE COALESCE(report_view.definition #>> '{client_report,assessment,preparer}','') ~ assessment_subject.value)))`
 }
 
 func subjectTableMatchPredicate(policy subjectTablePolicy) string {
@@ -1450,6 +1454,11 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 }
 
 func subjectContainsValue(policy subjectTablePolicy, column string) string {
+	if policy.plane == "postgres:dashboard_views" && column == "definition" {
+		// Match the first-class preparer, never structural source/context IDs
+		// or an arbitrary raw JSON substring in an assessment configuration.
+		return `COALESCE(subject_row.definition #>> '{client_report,assessment,preparer}','')`
+	}
 	value := `COALESCE(subject_row.` + pgIdent(column) + `::text, '')`
 	if !policy.configuredTestReferences {
 		return value

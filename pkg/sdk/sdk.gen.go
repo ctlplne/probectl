@@ -1070,6 +1070,12 @@ type ChannelSpec struct {
 	Url        string   `json:"url,omitempty"`
 }
 
+type ClientReportAssessment struct {
+	From     string `json:"from"`
+	Preparer string `json:"preparer"`
+	To       string `json:"to"`
+}
+
 type ClientReportCapacityTarget struct {
 	CapacityBps    string                  `json:"capacity_bps"`
 	Direction      string                  `json:"direction"`
@@ -1080,6 +1086,7 @@ type ClientReportCapacityTarget struct {
 }
 
 type ClientReportDefinition struct {
+	Assessment      *ClientReportAssessment      `json:"assessment,omitempty"`
 	CapacityTargets []ClientReportCapacityTarget `json:"capacity_targets"`
 	Month           string                       `json:"month,omitempty"`
 	Period          string                       `json:"period,omitempty"`

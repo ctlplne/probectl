@@ -67,7 +67,7 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 	period, err := reporting.ResolveClientReportPeriod(ctx, definition, at)
 	from, to := period.From, period.To
 	if err != nil {
-		return nil, apierror.Validation("monthly report period or timezone is invalid")
+		return nil, apierror.Validation("client report period or timezone is invalid")
 	}
 	if s.pool == nil || s.fairnessGate == nil || budget.Validate() != nil {
 		return nil, apierror.Unavailable("monthly report source admission is unavailable")
@@ -157,7 +157,8 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 		Availability []clientReportAvailability
 		SLOs         []clientReportSLO
 		Events       *clientReportEventCapture
-	}{"probectl.client-report.inputs.v1", result.TenantID, from, to, result.Sources, result.Definitions, result.SLOEnabled, result.Availability, result.SLOs, result.Events}
+		Definition   reporting.ClientReportDefinition
+	}{"probectl.client-report.inputs.v1", result.TenantID, from, to, result.Sources, result.Definitions, result.SLOEnabled, result.Availability, result.SLOs, result.Events, definition}
 	body, err := json.Marshal(state)
 	if err != nil {
 		return nil, err
@@ -195,6 +196,14 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 		return nil, err
 	}
 	result.Tables = append(result.Tables, capacityTable)
+	if definition.Assessment != nil {
+		result.Tables[0].Title = "Assessment availability"
+		columns := []reporting.CSVColumn{{Name: "prepared_by"}, {Name: "period_from"}, {Name: "period_to"}}
+		rows := [][]string{{definition.Assessment.Preparer, from.Format(time.RFC3339Nano), to.Format(time.RFC3339Nano)}}
+		scopeTable := sealedClientReportTable(result.TenantID, "client-assessment", "Assessment scope and preparer", from, to, columns, rows)
+		scopeTable.Source = "Operator-provided assessment configuration"
+		result.Tables = append(result.Tables, scopeTable)
+	}
 	digest := crypto.Hash(body)
 	for _, verdict := range result.Verdicts {
 		digest = crypto.Hash(append(digest, []byte(verdict.SourceDigest)...))

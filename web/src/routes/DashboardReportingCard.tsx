@@ -405,7 +405,7 @@ export function DashboardReportingCard({
                     }
                   }}
                 />
-                Build a monthly client pack (preview)
+                Build a client report (preview)
               </label>
               {monthlyMode && (
                 <MonthlyClientReportEditor
@@ -609,14 +609,19 @@ export function DashboardReportingCard({
               ) : activeView.definition.client_report ? (
                 <>
                   <span>
-                    {activeView.definition.client_report.period === 'month_to_date'
-                      ? 'Month to date · partial'
-                      : 'Completed calendar month'}{' '}
+                    {activeView.definition.client_report.period === 'assessment'
+                      ? 'Assessment interval'
+                      : activeView.definition.client_report.period === 'month_to_date'
+                        ? 'Month to date · partial'
+                        : 'Completed calendar month'}{' '}
                     · {activeView.definition.client_report.timezone || 'UTC'}
                   </span>
                   <span>
-                    {activeView.definition.client_report.month || 'Month resolved at generation'} ·{' '}
-                    {(activeView.definition.client_report.capacity_targets ?? []).length} capacity
+                    {activeView.definition.client_report.assessment
+                      ? `${activeView.definition.client_report.assessment.from} to ${activeView.definition.client_report.assessment.to}; prepared by ${activeView.definition.client_report.assessment.preparer}`
+                      : activeView.definition.client_report.month ||
+                        'Month resolved at generation'}{' '}
+                    · {(activeView.definition.client_report.capacity_targets ?? []).length} capacity
                     targets
                   </span>
                   <span>Current source access is checked for every report.</span>

@@ -9,12 +9,14 @@ package reporting
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ctlplne/probectl/internal/flow"
 )
 
-var ErrClientReportMonth = errors.New("a completed UTC calendar month in YYYY-MM form is required")
+var ErrClientReportMonth = errors.New("a valid calendar period or exact past assessment interval is required")
 
 // ClientReportMonth resolves a whole calendar month, never a fixed thirty-day
 // approximation or the generation machine's local timezone. An empty selection
@@ -70,6 +72,12 @@ func ResolveClientReportPeriod(ctx context.Context, definition ClientReportDefin
 	if kind == "" {
 		kind = "completed_month"
 	}
+	if kind == "assessment" {
+		return resolveClientAssessmentPeriod(ctx, definition, zone, at)
+	}
+	if definition.Assessment != nil {
+		return none, ErrClientReportMonth
+	}
 	if kind != "completed_month" && kind != "month_to_date" {
 		return none, ErrClientReportMonth
 	}
@@ -111,4 +119,21 @@ func ResolveClientReportPeriod(ctx context.Context, definition ClientReportDefin
 		return none, ErrClientReportMonth
 	}
 	return ClientReportPeriod{From: from.UTC(), To: to.UTC(), Timezone: zone, Kind: kind, Month: time.Date(year, month, 1, 0, 0, 0, 0, time.UTC).Format("2006-01"), Partial: kind == "month_to_date"}, nil
+}
+
+func resolveClientAssessmentPeriod(ctx context.Context, definition ClientReportDefinition, zone string, at time.Time) (ClientReportPeriod, error) {
+	none := ClientReportPeriod{}
+	window := definition.Assessment
+	if window == nil || definition.Month != "" || window.Preparer == "" || strings.TrimSpace(window.Preparer) != window.Preparer || strings.IndexFunc(window.Preparer, unicode.IsControl) >= 0 {
+		return none, ErrClientReportMonth
+	}
+	from, fromErr := time.Parse(time.RFC3339Nano, window.From)
+	to, toErr := time.Parse(time.RFC3339Nano, window.To)
+	if fromErr != nil || toErr != nil || from.Year() < 1 || !to.After(from) || to.After(at) {
+		return none, ErrClientReportMonth
+	}
+	if err := ctx.Err(); err != nil {
+		return none, err
+	}
+	return ClientReportPeriod{From: from.UTC(), To: to.UTC(), Timezone: zone, Kind: "assessment"}, nil
 }

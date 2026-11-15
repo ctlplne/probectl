@@ -7,9 +7,31 @@
 package reporting
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
+
+func TestClientReportAssessmentKeepsExactPastIntervalAndAttribution(t *testing.T) {
+	var definition ClientReportDefinition
+	if err := json.Unmarshal([]byte(`{"period":"assessment","timezone":"Asia/Kolkata","assessment":{"from":"2026-10-01T08:15:20.123456789+05:30","to":"2026-10-15T08:15:20.123456789+05:30","preparer":"Example MSP"},"capacity_targets":[]}`), &definition); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	period, err := ResolveClientReportPeriod(t.Context(), definition, at)
+	if err != nil || period.Kind != "assessment" || period.Month != "" || period.Partial || period.From.Format(time.RFC3339Nano) != "2026-10-01T02:45:20.123456789Z" || period.To.Sub(period.From) != 14*24*time.Hour {
+		t.Fatal("assessment was refused, rounded or converted into a monthly claim", period, err)
+	}
+	definition.Assessment.To = period.From.Add(time.Nanosecond).Format(time.RFC3339Nano)
+	precise, err := ResolveClientReportPeriod(t.Context(), definition, at)
+	if err != nil || precise.To.Sub(precise.From) != time.Nanosecond {
+		t.Fatal("explicit submillisecond assessment interval was rounded or refused", err)
+	}
+	definition.Period = "completed_month"
+	if _, err := ResolveClientReportPeriod(t.Context(), definition, at); err == nil {
+		t.Fatal("assessment bounds were silently ignored by a calendar report")
+	}
+}
 
 func TestClientReportMonthUsesCompleteUTCCalendarBounds(t *testing.T) {
 	for _, tc := range []struct {

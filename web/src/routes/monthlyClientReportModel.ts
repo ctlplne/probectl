@@ -16,6 +16,33 @@ export function validMonthlyReport(value: ClientReportDefinition): boolean {
     /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(text) && /[1-9]/.test(text)
   if (!value.timezone?.trim() || (value.month && !/^[0-9]{4}-(?:0[1-9]|1[0-2])$/.test(value.month)))
     return false
+  if (value.period === 'assessment') {
+    const window = value.assessment
+    if (
+      !window ||
+      value.month ||
+      !window.preparer.trim() ||
+      window.preparer !== window.preparer.trim() ||
+      /\p{Cc}/u.test(window.preparer)
+    )
+      return false
+    const from = Date.parse(window.from),
+      to = Date.parse(window.to)
+    if (
+      !Number.isFinite(from) ||
+      !Number.isFinite(to) ||
+      // Date parses milliseconds; the server compares full RFC3339 nanos.
+      // Equal millisecond buckets can still contain a valid exact interval.
+      to < from ||
+      window.to === window.from ||
+      to > Date.now() ||
+      !/(?:Z|[+-][0-9]{2}:[0-9]{2})$/.test(window.from) ||
+      !/(?:Z|[+-][0-9]{2}:[0-9]{2})$/.test(window.to)
+    )
+      return false
+  } else if (value.assessment) {
+    return false
+  }
   return value.capacity_targets.every((item) => {
     const target = item.target
     const knownTarget =

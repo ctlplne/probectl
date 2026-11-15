@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -224,8 +225,45 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			}
 		}
 
+		assessmentEnd := from.AddDate(0, 0, 14)
+		assessmentDefinition := reporting.ClientReportDefinition{Period: "assessment", Timezone: "UTC", Assessment: &reporting.ClientReportAssessment{From: from.Format(time.RFC3339Nano), To: assessmentEnd.Format(time.RFC3339Nano), Preparer: "Example MSP"}, CapacityTargets: []reporting.ClientReportCapacityTarget{capacityTarget}}
+		assessment, err := f.server.captureConfiguredClientReportSources(ctx, actors[tenant], assessmentDefinition, at, flowstore.DefaultExplorerBudget())
+		if err != nil {
+			t.Fatal("explicit assessment source capture failed", err)
+		}
+		assessment.close()
+		if assessment.TenantID != tenant || !assessment.From.Equal(from) || !assessment.To.Equal(assessmentEnd) || assessment.Period.Kind != "assessment" || len(assessment.Tables) != 7 || assessment.Tables[0].Title != "Assessment availability" {
+			t.Fatal("assessment changed its exact bounds, tenant or complete section set")
+		}
+		for _, row := range assessment.Availability {
+			if row.TenantID != tenant || !row.From.Equal(from) || !row.To.Equal(assessmentEnd) {
+				t.Fatal("assessment reused another interval or tenant's query")
+			}
+			if row.Source.TestID == d.graphs[tenant].Nodes[0].TestID && row.OriginalCount != strconv.Itoa(lane+2) {
+				t.Fatal("assessment shortened its independently known original population")
+			}
+		}
+		assessmentViewDefinition := reporting.DashboardDefinition{ClientReport: &assessmentDefinition, Provenance: []string{"explicit assessment original queries"}, RedactionState: "tenant policy", CoverageLimitations: []string{"modeled historical inputs on real PG/RLS"}}
+		code, raw := call(tenant, http.MethodPost, "/v1/dashboards", reporting.DashboardCreateInput{Name: "Prospect assessment", Preset: "operator", Definition: assessmentViewDefinition})
+		var assessmentView store.DashboardView
+		if code != http.StatusCreated || json.Unmarshal(raw, &assessmentView) != nil {
+			t.Fatal("assessment configuration was not saved under current authority", code)
+		}
+		code, raw = call(tenant, http.MethodPost, "/v1/dashboard-reports", reporting.ReportGenerateInput{DashboardID: assessmentView.ID, Format: "csv"})
+		var assessmentArtifact reportArtifactView
+		if code != http.StatusCreated || json.Unmarshal(raw, &assessmentArtifact) != nil {
+			t.Fatal("assessment report generation failed", code)
+		}
+		code, raw = call(tenant, http.MethodGet, "/v1/dashboard-report-artifacts/"+assessmentArtifact.ID, nil)
+		if code != http.StatusOK || !bytes.Contains(raw, []byte("Example MSP")) || !bytes.Contains(raw, []byte("Assessment availability")) || !bytes.Contains(raw, []byte(assessmentEnd.Format(time.RFC3339Nano))) || bytes.Contains(raw, []byte(f.tenants[1-lane])) || bytes.Contains(raw, []byte(secret)) {
+			t.Fatal("served assessment lost its attribution, exact period, privacy or source data", code)
+		}
+		if code, _ := call(f.tenants[1-lane], http.MethodGet, "/v1/dashboard-report-artifacts/"+assessmentArtifact.ID, nil); code != http.StatusNotFound {
+			t.Fatal("foreign tenant read a stored assessment", code)
+		}
+
 		definition := reporting.DashboardDefinition{ClientReport: &reporting.ClientReportDefinition{Month: from.Format("2006-01"), CapacityTargets: []reporting.ClientReportCapacityTarget{capacityTarget}}, Provenance: []string{"retained monthly originals"}, RedactionState: "metadata only", CoverageLimitations: []string{"modeled history on real PG/RLS; physical sender acceptance separate"}}
-		code, raw := call(tenant, http.MethodPost, "/v1/dashboards", reporting.DashboardCreateInput{Name: "Monthly client pack", Preset: "operator", Shared: true, Definition: definition})
+		code, raw = call(tenant, http.MethodPost, "/v1/dashboards", reporting.DashboardCreateInput{Name: "Monthly client pack", Preset: "operator", Shared: true, Definition: definition})
 		if code != http.StatusCreated {
 			t.Fatalf("monthly dashboard create %d: %s", code, raw)
 		}

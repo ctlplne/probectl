@@ -25,12 +25,12 @@ func cleanClientReportDefinition(d *dashboardDefinition) error {
 		d.ClientReport.CapacityTargets = []reporting.ClientReportCapacityTarget{}
 	}
 	if len(d.FlowSources) != 0 || !d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.IsZero() || len(d.Metrics) != 0 {
-		return apierror.Validation("client_report derives its complete monthly bounds and values; omit flow_sources, absolute bounds and metrics")
+		return apierror.Validation("client_report derives its complete period bounds and values; omit flow_sources, absolute bounds and metrics")
 	}
 	period, err := reporting.ResolveClientReportPeriod(context.Background(), *d.ClientReport, time.Now().UTC())
 	from, to := period.From, period.To
 	if err != nil {
-		return apierror.Validation("client_report requires a valid timezone and completed month or current month-to-date period")
+		return apierror.Validation("client_report requires a valid timezone and calendar period or explicit past assessment interval with a preparer")
 	}
 	for _, target := range d.ClientReport.CapacityTargets {
 		if _, err := clientReportCapacityInput(target, from, to, period.Timezone); err != nil {
@@ -93,7 +93,7 @@ func revalidateMonthlyReportOriginals(ctx context.Context, capture *reportFlowCa
 // digests, contracts and the complete signed offline envelope stay exact.
 func redactMonthlyReportTables(tables []reporting.CSVTable, policy ai.RedactionPolicy, tenant string) []reporting.CSVTable {
 	out := append([]reporting.CSVTable{}, tables...)
-	text := map[string]bool{"name": true, "display_name": true, "service": true, "title": true, "target": true, "prefix": true, "actor": true, "hypotheses": true, "all_hypotheses": true, "summary": true, "ref": true, "url": true, "attributes": true, "config_predecessors": true, "query_and_explicit_assumptions": true}
+	text := map[string]bool{"name": true, "display_name": true, "prepared_by": true, "service": true, "title": true, "target": true, "prefix": true, "actor": true, "hypotheses": true, "all_hypotheses": true, "summary": true, "ref": true, "url": true, "attributes": true, "config_predecessors": true, "query_and_explicit_assumptions": true}
 	for i := range out {
 		original := out[i].WalkRows
 		columns := out[i].Columns

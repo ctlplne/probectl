@@ -37,14 +37,14 @@ export function MonthlyClientReportEditor({
     })
   }
   return (
-    <section aria-label="Monthly client pack configuration" className={styles.monthlyEditor}>
+    <section aria-label="Client report configuration" className={styles.monthlyEditor}>
       <p>
         Include availability and SLOs, incident verdicts, changes, capacity/runout and offline
         signed evidence. Every report checks current tenant and source access.
       </p>
       <div className={styles.reportingControls}>
         <Select
-          label="Monthly report period"
+          label="Report period"
           value={value.period ?? 'completed_month'}
           disabled={disabled}
           onChange={(event) =>
@@ -52,21 +52,28 @@ export function MonthlyClientReportEditor({
               ...value,
               period: event.target.value as ClientReportDefinition['period'],
               month: undefined,
+              assessment:
+                event.target.value === 'assessment'
+                  ? (value.assessment ?? { from: '', to: '', preparer: '' })
+                  : undefined,
             })
           }
           options={[
             { value: 'completed_month', label: 'Completed calendar month' },
             { value: 'month_to_date', label: 'Month to date · partial' },
+            { value: 'assessment', label: 'Assessment interval' },
           ]}
         />
-        <Field
-          label="Report month"
-          type="month"
-          disabled={disabled || value.period === 'month_to_date'}
-          value={value.month ?? ''}
-          hint="Leave empty for the previous complete month. Month-to-date uses the current month."
-          onChange={(event) => onChange({ ...value, month: event.target.value || undefined })}
-        />
+        {value.period !== 'assessment' && (
+          <Field
+            label="Report month"
+            type="month"
+            disabled={disabled || value.period === 'month_to_date'}
+            value={value.month ?? ''}
+            hint="Leave empty for the previous complete month. Month-to-date uses the current month."
+            onChange={(event) => onChange({ ...value, month: event.target.value || undefined })}
+          />
+        )}
         <Field
           label="Report timezone"
           value={value.timezone ?? 'UTC'}
@@ -75,6 +82,42 @@ export function MonthlyClientReportEditor({
           onChange={(event) => onChange({ ...value, timezone: event.target.value })}
         />
       </div>
+      {value.period === 'assessment' && (
+        <div className={styles.reportingControls}>
+          {(['from', 'to', 'preparer'] as const).map((key) => (
+            <Field
+              key={key}
+              label={
+                {
+                  from: 'Assessment start',
+                  to: 'Assessment end',
+                  preparer: 'Assessment prepared by',
+                }[key]
+              }
+              required
+              disabled={disabled}
+              value={value.assessment?.[key] ?? ''}
+              hint={
+                key === 'preparer'
+                  ? 'The MSP or operator preparing this report.'
+                  : 'RFC3339 with timezone; end is exclusive and must be in the past.'
+              }
+              onChange={(event) =>
+                onChange({
+                  ...value,
+                  assessment: {
+                    from: '',
+                    to: '',
+                    preparer: '',
+                    ...value.assessment,
+                    [key]: event.target.value,
+                  },
+                })
+              }
+            />
+          ))}
+        </div>
+      )}
       {value.period === 'month_to_date' && (
         <p role="status">
           Month-to-date is partial through generation time. It does not claim a complete calendar

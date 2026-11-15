@@ -18985,9 +18985,42 @@
             "type": "string",
             "enum": [
               "completed_month",
-              "month_to_date"
+              "month_to_date",
+              "assessment"
             ],
             "default": "completed_month"
+          },
+          "assessment": {
+            "oneOf": [
+              {"$ref": "#/components/schemas/ClientReportAssessment"},
+              {"type": "null"}
+            ],
+            "description": "Required only for period=assessment; exact past RFC3339 bounds and operator-supplied preparer. Omit month. This report configuration grants no collection or offboarding authority."
+          }
+        }
+      },
+      "ClientReportAssessment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "preparer"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Exclusive end; must follow from and must not be in the future."
+          },
+          "preparer": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Operator-supplied assessment preparer; tenant export text policy applies."
           }
         }
       },

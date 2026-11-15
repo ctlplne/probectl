@@ -321,6 +321,19 @@ coverage disclosures:
 {"client_report":{"month":"2026-10","capacity_targets":[]}}
 ```
 
+For a prospect or another explicit assessment interval, select
+`period: "assessment"`, omit `month`, and provide exact past RFC3339 bounds
+and the preparer. The end is exclusive. This uses the same current source
+permissions, complete calculations, signed evidence and verified artifact
+reader as calendar reports:
+
+```json
+{"client_report":{"period":"assessment","timezone":"UTC","assessment":{"from":"2026-10-01T00:00:00Z","to":"2026-10-15T00:00:00Z","preparer":"Example MSP"},"capacity_targets":[]}}
+```
+
+The report retains these exact bounds and the preparer under tenant export
+policy. Collection and engagement lifecycle are configured separately.
+
 An omitted month selects the previous complete calendar month in `timezone`
 (default `UTC`). Set `period` to `month_to_date` for the current month through
 generation time; that output is always labelled partial. IANA timezone rules

@@ -141,7 +141,11 @@ func sourceReportDocument(view *store.DashboardView, definition dashboardDefinit
 		return carrierSLAReportDocument(view, definition, tenantName, generator, at, capture)
 	}
 	if capture.Monthly != nil {
-		provenance := append(append([]string{}, definition.Provenance...), "Monthly original inputs sha256:"+capture.Monthly.InputsDigest)
+		prefix := "Monthly original inputs sha256:"
+		if definition.ClientReport.Assessment != nil {
+			prefix = "Assessment original inputs sha256:"
+		}
+		provenance := append(append([]string{}, definition.Provenance...), prefix+capture.Monthly.InputsDigest)
 		period, err := reporting.ResolveClientReportPeriod(context.Background(), *definition.ClientReport, at)
 		if capture.monthlyCapture != nil {
 			period = capture.monthlyCapture.Period
@@ -150,12 +154,20 @@ func sourceReportDocument(view *store.DashboardView, definition dashboardDefinit
 		if err != nil {
 			return reporting.Document{}, err
 		}
-		provenance = append(provenance, "Calendar: "+period.Timezone+"; period: "+period.Kind+"; month: "+period.Month)
+		if period.Kind == "assessment" {
+			provenance = append(provenance, "Assessment: "+period.From.Format(time.RFC3339Nano)+" to "+period.To.Format(time.RFC3339Nano)+" (end exclusive); timezone: "+period.Timezone)
+		} else {
+			provenance = append(provenance, "Calendar: "+period.Timezone+"; period: "+period.Kind+"; month: "+period.Month)
+		}
 		limitations := append([]string{}, definition.CoverageLimitations...)
 		if period.Partial {
 			limitations = append(limitations, "Month to date is partial through "+period.To.Format(time.RFC3339Nano)+"; never a complete calendar month.")
 		}
-		limitations = append(limitations, "Monthly client pack preview; retained observations do not prove complete scheduled coverage.")
+		if period.Kind == "assessment" {
+			limitations = append(limitations, "Assessment interval preview; retained observations do not prove complete scheduled coverage. Collection and offboarding authority are not granted by this report.")
+		} else {
+			limitations = append(limitations, "Monthly client pack preview; retained observations do not prove complete scheduled coverage.")
+		}
 
 		return reporting.Document{Title: view.Name, Preset: view.Preset, TenantName: tenantName, TenantScope: view.TenantID, AbsoluteFrom: capture.Monthly.From, AbsoluteTo: capture.Monthly.To, GeneratedAt: at, GeneratedBy: generator, Provenance: provenance, RedactionState: definition.RedactionState, CoverageLimitations: limitations, Tables: capture.Tables}, nil
 	}

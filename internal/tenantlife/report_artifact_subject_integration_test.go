@@ -22,6 +22,77 @@ import (
 	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
+func TestAssessmentPreparerSubjectExportErasureKeepsSiblingReports(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	stamp := fmt.Sprint(time.Now().UnixNano())
+	tenants := []string{mkTenant(t, pool, "assessment-subject-a-"+stamp), mkTenant(t, pool, "assessment-subject-b-"+stamp)}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM tenants WHERE id=ANY($1::uuid[])`, tenants); err != nil {
+			t.Error(err)
+		}
+	})
+	const subject = "assessment-preparer@example.test"
+	for _, tenant := range tenants {
+		err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `INSERT INTO dashboard_views(tenant_id,id,owner_id,name,preset,definition)
+ VALUES($1,'assessment-view','another-owner','Prospect assessment','operator',
+ jsonb_build_object('client_report',jsonb_build_object('period','assessment','assessment',
+ jsonb_build_object('from','2026-10-01T00:00:00Z','to','2026-10-15T00:00:00Z','preparer',$2::text),'capacity_targets','[]'::jsonb)))`, tenant, subject)
+			if err != nil {
+				return err
+			}
+			_, err = sc.Q.Exec(ctx, `INSERT INTO dashboard_report_artifacts
+ (tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state)
+ VALUES($1,'assessment-artifact','assessment-view','csv','text/csv','assessment.csv',$2,'another-owner','2026-10-01','2026-10-15','tenant policy')`, tenant, []byte("prepared_by,"+subject))
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	sink := func(ctx context.Context, actor, action, target string, data map[string]any) error {
+		_, err := audit.ProviderAppend(ctx, pool, actor, action, target, data)
+		return err
+	}
+	engine := New(pool, nil, nil, nil, sink, "test backups expire", nil)
+	var bundle bytes.Buffer
+	if _, err := engine.ExportSubject(t.Context(), tenants[0], subject, &bundle, false); err != nil {
+		t.Fatal(err)
+	}
+	files := readTarGz(t, bundle.Bytes())
+	if !strings.Contains(files["postgres/dashboard_views.jsonl"], "assessment-view") || !strings.Contains(files["postgres/dashboard_report_artifacts.jsonl"], "assessment-artifact") {
+		t.Fatal("preparer subject export omitted its assessment or crossed tenant scope")
+	}
+	for _, text := range files {
+		if strings.Contains(text, tenants[1]) {
+			t.Fatal("assessment subject export included sibling data")
+		}
+	}
+	if receipt, err := engine.EraseSubject(t.Context(), tenants[0], subject, "privacy-admin", "preparer request"); err != nil || !receipt.Complete {
+		t.Fatal("preparer assessment erasure incomplete", err)
+	}
+	for lane, tenant := range tenants {
+		err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var views, artifacts int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM dashboard_views`).Scan(&views); err != nil {
+				return err
+			}
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM dashboard_report_artifacts`).Scan(&artifacts); err != nil {
+				return err
+			}
+			if views != lane || artifacts != lane {
+				t.Fatal("preparer erasure crossed tenant storage or retained personal copies", views, artifacts)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestSubjectErasureInvalidatesOpaqueReportChunksOnlyInTenant(t *testing.T) {
 	pool := itPool(t)
 	t.Cleanup(pool.Close)

@@ -32,11 +32,20 @@ type ClientReportPhysicalBound struct {
 	MaxBPS      string `json:"max_bps"`
 }
 
-// ClientReportDefinition selects an immutable month and explicit capacity
-// assumptions. An empty month resolves the previous complete calendar month.
+// ClientReportDefinition selects a calendar month or explicit assessment
+// interval with capacity assumptions. Empty month selects the prior month.
 type ClientReportDefinition struct {
 	Timezone        string                       `json:"timezone,omitempty"`
 	Period          string                       `json:"period,omitempty"`
 	Month           string                       `json:"month,omitempty"`
+	Assessment      *ClientReportAssessment      `json:"assessment,omitempty"`
 	CapacityTargets []ClientReportCapacityTarget `json:"capacity_targets"`
+}
+
+// Assessment selects exact past bounds; it grants neither collection nor
+// offboarding authority. Preparer is an operator-supplied report attribution.
+type ClientReportAssessment struct {
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Preparer string `json:"preparer"`
 }
