@@ -115,7 +115,8 @@ qualification remains outstanding.
 
 `PROBECTL_FLOW_ENRICH_SERVICE_FILE` imports complete original publisher JSON from
 an operator-supplied local cache. The current adapters accept `aws`, `google`
-(`goog.json`), `google_cloud` (`cloud.json`) and `cloudflare` (the public `/ips` API). Nothing is downloaded by this
+(`goog.json`), `google_cloud` (`cloud.json`), `cloudflare` (the public `/ips` API)
+and the Salesforce, Azure, Zoom and Microsoft365 originals described below. Nothing is downloaded by this
 reader and no dataset ships with probectl. Source terms still apply to internal,
 MSP/provider and redistribution use; public access is not a resale licence.
 
@@ -152,6 +153,33 @@ label merely from related branding. Publisher terms remain applicable and no
 dataset redistribution or resale rights are asserted. The source's `createDate`
 has no explicit offset, so `published_time` preserves it and `published_at` stays
 absent. The opaque `syncToken` remains its original version.
+
+Azure sources were checked on 2026-11-15: [service-tag documentation](https://learn.microsoft.com/en-us/azure/virtual-network/service-tags-overview)
+explicitly links complete downloads for local on-premises processing. Microsoft
+terms remain applicable; no dataset resale or redistribution grant is asserted.
+`--publishers azure` selects all four original cloud exports. Individual IDs are
+`azure_public`, `azure_usgov`, `azure_china` and `azure_germany`. An explicit bulk
+refresh discovers the current JSON link from the cloud's fixed Microsoft
+Download Center page, using verified TLS. It accepts one unique matching
+`download.microsoft.com` cloud file, without credentials, tenant selectors,
+encoded paths or query parameters. A failed or ambiguous discovery preserves
+the previous cache atomically; no automatic poller is installed.
+
+The reader preserves every published IPv4/IPv6 prefix, original `changeNumber`,
+`systemService` and explicit `region`. Generic AzureCloud ownership yields to a
+specific service. An unknown global region does not erase a uniquely published
+regional match; conflicting known regions remain unknown. When `systemService`
+is empty, the tag name is retained, removing only an explicitly matching region
+suffix. Neither the weekly filename nor the change number supplies a generation
+clock: `published_at` remains absent. Original fetch age is the older of the
+discovery response and the JSON response, including HTTP `Age`; cached responses
+do not renew source validity. An already stale publisher response remains visibly
+stale under the configured freshness profile.
+
+The separate [Microsoft Cloud Germany is retired](https://learn.microsoft.com/en-us/dotnet/api/azure.identity.azureauthorityhosts.azuregermany?view=azure-dotnet).
+Its still-linked original is retained under `azure_germany` for provenance and
+inspection, without current service attribution. This is distinct from current
+German regions in the public Azure cloud.
 
 Zoom sources were checked on 2026-11-15: the [network firewall/proxy guide](https://support.zoom.com/hc/en/article?id=zm_kb&sysparm_article=KB0060548)
 publishes the product/family TXT files for local operator network configuration.

@@ -55,7 +55,7 @@ type serviceCandidate struct {
 }
 
 type serviceSupersets struct {
-	awsSpecific, s3, googleCloud, zoomSpecific, m365Specific, saasSpecific bool
+	awsSpecific, s3, googleCloud, azureSpecific, zoomSpecific, m365Specific, saasSpecific bool
 }
 
 // ClassifyServiceRanges selects a unique most-specific published attribution.
@@ -81,6 +81,12 @@ func ClassifyServiceRanges(sources []ServiceRangeStatus, at time.Time) ServiceCl
 		if _, microsoft365 := m365RangeInstances[source.Publisher]; microsoft365 {
 			provider = "microsoft_365"
 		}
+		if cloud, azure := azureRangeClouds[source.Publisher]; azure {
+			if cloud.legacy {
+				continue // retired cloud originals remain provenance, not current use
+			}
+			provider = "azure"
+		}
 		for _, match := range source.Matches {
 			prefix, err := netip.ParsePrefix(match.Prefix)
 			if err != nil || !validServiceRangeLabel(match.Service) {
@@ -90,12 +96,14 @@ func ClassifyServiceRanges(sources []ServiceRangeStatus, at time.Time) ServiceCl
 			supersets.awsSpecific = supersets.awsSpecific || provider == "aws" && match.Service != "AMAZON"
 			supersets.s3 = supersets.s3 || provider == "aws" && match.Service == "S3"
 			supersets.googleCloud = supersets.googleCloud || provider == "google_cloud"
+			supersets.azureSpecific = supersets.azureSpecific || provider == "azure" && match.Service != "AzureCloud"
 			supersets.zoomSpecific = supersets.zoomSpecific || provider == "zoom" && match.Service != "Zoom"
 			supersets.m365Specific = supersets.m365Specific || provider == "microsoft_365" && match.Service != "Microsoft 365 Common"
 			supersets.saasSpecific = supersets.saasSpecific || provider == "zoom" || provider == "salesforce" || provider == "microsoft_365"
 		}
 	}
 	best := -1
+	regionConflict := false
 	for _, candidate := range candidates {
 		if serviceCandidateIsSuperset(candidate, supersets) {
 			continue
@@ -103,6 +111,7 @@ func ClassifyServiceRanges(sources []ServiceRangeStatus, at time.Time) ServiceCl
 		if candidate.bits > best {
 			best = candidate.bits
 			out.Service, out.Provider, out.Region, out.Status = candidate.match.Service, candidate.provider, candidate.match.Region, "known"
+			regionConflict = false
 			continue
 		}
 		if candidate.bits != best {
@@ -110,7 +119,14 @@ func ClassifyServiceRanges(sources []ServiceRangeStatus, at time.Time) ServiceCl
 		}
 		if candidate.provider != out.Provider || candidate.match.Service != out.Service {
 			out.Status = "ambiguous"
-		} else if candidate.match.Region != out.Region {
+		} else if region := candidate.match.Region; region != "" && !regionConflict {
+			if out.Region == "" {
+				out.Region = region
+			} else if region != out.Region {
+				regionConflict = true
+			}
+		}
+		if regionConflict {
 			out.Region = ""
 		}
 	}
@@ -129,6 +145,8 @@ func serviceCandidateIsSuperset(candidate serviceCandidate, supersets serviceSup
 		return supersets.googleCloud || supersets.saasSpecific
 	case "google_cloud":
 		return supersets.saasSpecific
+	case "azure":
+		return candidate.match.Service == "AzureCloud" && (supersets.azureSpecific || supersets.saasSpecific)
 	case "zoom":
 		return candidate.match.Service == "Zoom" && supersets.zoomSpecific
 	case "microsoft_365":

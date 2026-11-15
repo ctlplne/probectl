@@ -57,6 +57,14 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 	}
 	path := filepath.Join(t.TempDir(), "complete.json")
 	publisher := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host == "www.microsoft.com" {
+			_, _ = w.Write([]byte(`<a href="https://download.microsoft.com/download/qa/ServiceTags_Public_20261109.json">Download</a>`))
+			return
+		}
+		if r.Host == "download.microsoft.com" {
+			_, _ = w.Write([]byte(`{"changeNumber":426,"cloud":"Public","values":[{"name":"Storage.EastUS","properties":{"region":"eastus","systemService":"AzureStorage","addressPrefixes":["192.0.2.0/24","2001:db8:a::/48"]}}]}`))
+			return
+		}
 		if r.Host == "endpoints.office.com" {
 			query := r.URL.Query()
 			if r.Method != http.MethodGet || len(query) != 1 || query.Get("ClientRequestId") != requestID || r.Header.Get("Authorization") != "" || r.Header.Get("X-Probectl-Tenant") != "" {
@@ -95,7 +103,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 		forward.Host = req.URL.Host
 		return publisher.Client().Do(forward)
 	})
-	if err := opendata.FetchServiceRangeCacheWithOptions(t.Context(), path, []string{"aws", "cloudflare", "salesforce", "zoom_meetings_ipv4", "m365_worldwide"}, time.Hour, 16<<20, opendata.ServiceRangeFetchOptions{Microsoft365ClientRequestID: requestID}, download); err != nil {
+	if err := opendata.FetchServiceRangeCacheWithOptions(t.Context(), path, []string{"aws", "cloudflare", "salesforce", "zoom_meetings_ipv4", "m365_worldwide", "azure_public"}, time.Hour, 16<<20, opendata.ServiceRangeFetchOptions{Microsoft365ClientRequestID: requestID}, download); err != nil {
 		t.Fatal(err)
 	}
 	cached, err := os.ReadFile(path)
@@ -107,7 +115,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 			FetchedAt time.Time `json:"fetched_at"`
 		} `json:"sources"`
 	}
-	if err := json.Unmarshal(cached, &envelope); err != nil || len(envelope.Sources) != 5 {
+	if err := json.Unmarshal(cached, &envelope); err != nil || len(envelope.Sources) != 6 {
 		t.Fatal("complete bulk cache missing", err)
 	}
 	fetched = envelope.Sources[0].FetchedAt
@@ -142,37 +150,48 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 			t.Fatal("current tenant cannot read public source", err)
 		}
 		services, ok := value["services"].([]any)
-		if !ok || len(services) != 5 {
+		if !ok || len(services) != 6 {
 			t.Fatal("complete source missing", value)
 		}
-		status := services[0].(map[string]any)
+		byPublisher := map[string]map[string]any{}
+		for _, service := range services {
+			source := service.(map[string]any)
+			byPublisher[source["publisher"].(string)] = source
+		}
+		status := byPublisher["aws"]
 		matches := status["matches"].([]any)
 		if status["publisher"] != "aws" || status["status"] != "matched" || len(matches) != 1 || matches[0].(map[string]any)["service"] != "S3" || status["fetched_at"] != fetched.Format(time.RFC3339Nano) {
 			t.Fatal("lost original labels or clock", status)
 		}
-		cloud := services[1].(map[string]any)
+		cloud := byPublisher["cloudflare"]
 		cloudMatches := cloud["matches"].([]any)
 		_, inventedPublication := cloud["published_at"]
 		if cloud["publisher"] != "cloudflare" || cloud["status"] != "matched" || inventedPublication || len(cloudMatches) != 1 || cloudMatches[0].(map[string]any)["region"] != "" {
 			t.Fatal("Cloudflare source lost complete attribution or fabricated a clock/region", cloud)
 		}
-		sf := services[3].(map[string]any)
+		sf := byPublisher["salesforce"]
 		sfMatches := sf["matches"].([]any)
 		_, inventedSFClock := sf["published_at"]
 		if sf["publisher"] != "salesforce" || sf["status"] != "matched" || inventedSFClock || len(sfMatches) != 1 || sfMatches[0].(map[string]any)["service"] != "Salesforce" || sfMatches[0].(map[string]any)["region"] != "us-east-1" {
 			t.Fatal("Salesforce source lost its scope, complete arrays or original clock", sf)
 		}
-		zoom := services[4].(map[string]any)
+		zoom := byPublisher["zoom_meetings_ipv4"]
 		zoomMatches := zoom["matches"].([]any)
 		_, inventedZoomClock := zoom["published_at"]
 		if zoom["publisher"] != "zoom_meetings_ipv4" || zoom["status"] != "matched" || inventedZoomClock || len(zoomMatches) != 1 || zoomMatches[0].(map[string]any)["service"] != "Zoom Meetings" || zoomMatches[0].(map[string]any)["region"] != "" {
 			t.Fatal("Zoom text source lost its product/family scope or fabricated a region/clock", zoom)
 		}
-		microsoft365 := services[2].(map[string]any)
+		microsoft365 := byPublisher["m365_worldwide"]
 		m365Matches := microsoft365["matches"].([]any)
 		_, inventedM365Clock := microsoft365["published_at"]
 		if microsoft365["publisher"] != "m365_worldwide" || microsoft365["status"] != "matched" || inventedM365Clock || len(m365Matches) != 1 || m365Matches[0].(map[string]any)["service"] != "Microsoft 365 Exchange" || m365Matches[0].(map[string]any)["region"] != "" {
 			t.Fatal("Microsoft365 source lost its area/family scope or fabricated a clock/region", microsoft365)
+		}
+		azure := byPublisher["azure_public"]
+		azureMatches := azure["matches"].([]any)
+		_, inventedAzureClock := azure["published_at"]
+		if azure["publisher"] != "azure_public" || azure["status"] != "matched" || azure["version"] != "426" || inventedAzureClock || len(azureMatches) != 1 || azureMatches[0].(map[string]any)["service"] != "AzureStorage" || azureMatches[0].(map[string]any)["region"] != "eastus" {
+			t.Fatal("Azure native source lost its version/service/region or invented a publication clock", azure)
 		}
 		if first != nil && !reflect.DeepEqual(first, value) {
 			t.Fatal("public cache changed between tenant readers", first, value)

@@ -21,6 +21,9 @@ import (
 )
 
 func serviceRangePublisherURL(publisher string) (string, error) {
+	if cloud, ok := azureRangeClouds[publisher]; ok {
+		return azureDiscoveryURL(cloud), nil
+	}
 	if source, ok := zoomRangePublishers[publisher]; ok {
 		return "https://assets.zoom.us/docs/ipranges/" + source.file, nil
 	}
@@ -39,7 +42,7 @@ func serviceRangePublisherURL(publisher string) (string, error) {
 	case "salesforce":
 		return "https://ip-ranges.salesforce.com/ip-ranges.json", nil
 	default:
-		return "", errors.New("supported range publishers are aws, google, google_cloud, cloudflare, salesforce, zoom and m365 bundles or their documented individual IDs")
+		return "", errors.New("supported range publishers are aws, google, google_cloud, cloudflare, salesforce, azure, zoom and m365 bundles or their documented individual IDs")
 	}
 }
 
@@ -122,6 +125,9 @@ func encodeServiceRangeEnvelope(ctx context.Context, envelope serviceRangeEnvelo
 }
 
 func fetchServiceRangeInput(ctx context.Context, client Doer, publisher string, limit int64, options ServiceRangeFetchOptions) (serviceRangeInput, error) {
+	if cloud, ok := azureRangeClouds[publisher]; ok {
+		return fetchAzureServiceRangeInput(ctx, client, publisher, cloud, limit)
+	}
 	endpoint, err := serviceRangePublisherURL(publisher)
 	if err != nil {
 		return serviceRangeInput{}, err
@@ -135,34 +141,48 @@ func fetchServiceRangeInput(ctx context.Context, client Doer, publisher string, 
 		query := url.Values{"ClientRequestId": []string{options.Microsoft365ClientRequestID}}
 		endpoint += "?" + query.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	accept := "application/json"
+	if _, text := zoomRangePublishers[publisher]; text {
+		accept = "text/plain"
+	}
+	raw, fetched, err := fetchServiceRangeBody(ctx, client, endpoint, accept, limit)
 	if err != nil {
 		return serviceRangeInput{}, err
 	}
-	req.Header.Set("Accept", "application/json")
-	if _, text := zoomRangePublishers[publisher]; text {
-		req.Header.Set("Accept", "text/plain")
+	return serviceRangeInput{Publisher: publisher, FetchedAt: fetched, Complete: true, Data: raw}, nil
+}
+
+// Both discovery and document responses obey the same body admission and
+// original HTTP Age. The caller supplies the existing hardened TLS client.
+func fetchServiceRangeBody(ctx context.Context, client Doer, endpoint, accept string, limit int64) ([]byte, time.Time, error) {
+	if limit < 1 {
+		return nil, time.Time{}, ErrServiceRangeBudget
 	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	req.Header.Set("Accept", accept)
 	resp, err := client.Do(req)
 	if err != nil {
-		return serviceRangeInput{}, errors.New("published range bulk fetch failed; prior cache preserved")
+		return nil, time.Time{}, errors.New("published range bulk fetch failed; prior cache preserved")
 	}
 	if resp == nil || resp.Body == nil {
-		return serviceRangeInput{}, errors.New("published range bulk fetch returned no complete body")
+		return nil, time.Time{}, errors.New("published range bulk fetch returned no complete body")
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return serviceRangeInput{}, fmt.Errorf("published range bulk fetch returned status %d; prior cache preserved", resp.StatusCode)
+		return nil, time.Time{}, fmt.Errorf("published range bulk fetch returned status %d; prior cache preserved", resp.StatusCode)
 	}
 	if resp.ContentLength > limit {
-		return serviceRangeInput{}, ErrServiceRangeBudget
+		return nil, time.Time{}, ErrServiceRangeBudget
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return serviceRangeInput{}, errors.New("incomplete published range body; prior cache preserved")
+		return nil, time.Time{}, errors.New("incomplete published range body; prior cache preserved")
 	}
 	if int64(len(raw)) > limit {
-		return serviceRangeInput{}, ErrServiceRangeBudget
+		return nil, time.Time{}, ErrServiceRangeBudget
 	}
 	fetched := time.Now().UTC()
 	// A caching proxy's successful response must not renew the original fetch.
@@ -170,11 +190,11 @@ func fetchServiceRangeInput(ctx context.Context, client Doer, publisher string, 
 	if value := resp.Header.Get("Age"); value != "" {
 		age, err := strconv.ParseInt(value, 10, 64)
 		if err != nil || age < 0 || age > int64((time.Duration(1<<63-1))/time.Second) {
-			return serviceRangeInput{}, errors.New("invalid published range cache age")
+			return nil, time.Time{}, errors.New("invalid published range cache age")
 		}
 		fetched = fetched.Add(-time.Duration(age) * time.Second)
 	}
-	return serviceRangeInput{Publisher: publisher, FetchedAt: fetched, Complete: true, Data: raw}, nil
+	return raw, fetched, nil
 }
 
 func writeServiceRangeCache(ctx context.Context, path string, raw []byte) error {

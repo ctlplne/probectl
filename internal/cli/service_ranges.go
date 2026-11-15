@@ -35,7 +35,7 @@ type serviceRangeFetch func(context.Context, string, []string, time.Duration, in
 func cmdFetchServiceRanges(cfg Config, args []string, stdout, stderr io.Writer, fetch serviceRangeFetch) int {
 	flags := flag.NewFlagSet("opendata fetch-ranges", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	publishers := flags.String("publishers", "", "explicit comma-separated publishers: aws,google,google_cloud,cloudflare,salesforce,zoom,m365 bundles or documented individual IDs")
+	publishers := flags.String("publishers", "", "explicit comma-separated publishers: aws,google,google_cloud,cloudflare,salesforce,azure,zoom,m365 bundles or documented individual IDs")
 	m365Client := flags.String("m365-client-request-id", "", "operator-supplied stable per-machine GUID required only for explicit Microsoft365 bulk downloads")
 	output := flags.String("output", "", "local offline cache to atomically replace after complete validation")
 	memory := flags.Int64("memory-bytes", 256<<20, "positive raiseable complete download/decoder/index memory admission")

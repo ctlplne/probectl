@@ -275,6 +275,8 @@ func parseServiceRangeDataset(ctx context.Context, input serviceRangeInput, maxA
 			err = parseZoomServiceRanges(ctx, input.Data, &dataset, remaining, source)
 		} else if _, ok := m365RangeInstances[input.Publisher]; ok {
 			err = parseM365ServiceRanges(ctx, input.Data, &dataset, remaining)
+		} else if cloud, ok := azureRangeClouds[input.Publisher]; ok {
+			err = parseAzureServiceRanges(ctx, input.Data, &dataset, remaining, cloud)
 		} else {
 			err = errors.New("unsupported service range publisher")
 		}

@@ -53,17 +53,22 @@ var zoomRangePublishers = map[string]zoomRangePublisher{
 func expandServiceRangePublishers(publishers []string) []string {
 	var expanded []string
 	for _, publisher := range publishers {
-		if publisher != "zoom" && publisher != "m365" {
+		if publisher != "zoom" && publisher != "m365" && publisher != "azure" {
 			expanded = append(expanded, publisher)
 			continue
 		}
 		var originals []string
-		if publisher == "zoom" {
+		switch publisher {
+		case "zoom":
 			for id := range zoomRangePublishers {
 				originals = append(originals, id)
 			}
-		} else {
+		case "m365":
 			for id := range m365RangeInstances {
+				originals = append(originals, id)
+			}
+		case "azure":
+			for id := range azureRangeClouds {
 				originals = append(originals, id)
 			}
 		}
