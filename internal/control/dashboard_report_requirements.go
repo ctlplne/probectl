@@ -28,6 +28,7 @@ var errReportSourceRequirements = errors.New("report source requirements are inc
 // This format contains requirements to check against a future reader. It has
 // neither frozen result tables nor any principal, credential or durable grant.
 type reportSourceRequirements struct {
+	Claims           []carrierSLAReportRequirement   `json:"carrier_claims,omitempty"`
 	Monthly          *clientReportSourceRequirements `json:"monthly,omitempty"`
 	Version          int                             `json:"version"`
 	TenantID         string                          `json:"tenant_id"`
@@ -48,7 +49,7 @@ func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCap
 			return nil, errReportSourceRequirements
 		}
 	}
-	requirements := reportSourceRequirements{Version: 1, TenantID: capture.TenantID,
+	requirements := reportSourceRequirements{Claims: capture.Claims, Version: 1, TenantID: capture.TenantID,
 		Inputs: capture.Inputs, Permissions: capture.Permissions,
 		Contexts: capture.Contexts, ContextsCaptured: capture.ContextsCaptured, ContextSources: capture.ContextSources, Monthly: capture.Monthly}
 	if requirements.Monthly != nil {
@@ -56,6 +57,9 @@ func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCap
 	}
 	if requirements.ContextSources {
 		requirements.Version = 2
+	}
+	if len(requirements.Claims) > 0 {
+		requirements.Version = 4
 	}
 	if err := validateReportSourceRequirements(ctx, requirements, memory); err != nil {
 		return nil, err
@@ -90,7 +94,7 @@ func parseReportSourceRequirements(ctx context.Context, raw json.RawMessage, mem
 	if err := validateReportSourceRequirements(ctx, requirements, memory); err != nil {
 		return nil, err
 	}
-	return &reportFlowCapture{TenantID: requirements.TenantID, Inputs: requirements.Inputs,
+	return &reportFlowCapture{Claims: requirements.Claims, TenantID: requirements.TenantID, Inputs: requirements.Inputs,
 		Permissions: requirements.Permissions, Contexts: requirements.Contexts,
 		ContextsCaptured: requirements.ContextsCaptured, ContextSources: requirements.ContextSources, Monthly: requirements.Monthly}, nil
 }
@@ -103,6 +107,15 @@ func reportRequirementUUID(id string) bool {
 func validateReportSourceRequirements(ctx context.Context, value reportSourceRequirements, memory int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if value.Version == 4 {
+		if value.Monthly != nil || len(value.Inputs) != 0 || len(value.Permissions) != 0 || len(value.Contexts) != 0 || value.ContextsCaptured || value.ContextSources {
+			return errReportSourceRequirements
+		}
+		return validateCarrierSLAReportRequirements(ctx, value.TenantID, value.Claims, memory)
+	}
+	if value.Claims != nil {
+		return errReportSourceRequirements
 	}
 	if value.Version == 3 {
 		if value.Monthly == nil || len(value.Inputs) != 0 || len(value.Permissions) != 0 || len(value.Contexts) != 0 || value.ContextsCaptured || value.ContextSources {

@@ -27,11 +27,11 @@ type reportScopedSourceAccess interface {
 // It grants no publication authority and never changes frozen source data.
 func (s *Server) revalidateReportFlowCapture(ctx context.Context, actor *auth.Principal, capture *reportFlowCapture) error {
 	bound, ok := tenancy.FromContext(ctx)
-	if !ok || actor == nil || capture == nil || actor.UserID == "" || actor.TenantID != capture.TenantID || bound.String() != capture.TenantID || len(capture.Inputs) == 0 && capture.Monthly == nil {
+	if !ok || actor == nil || capture == nil || actor.UserID == "" || actor.TenantID != capture.TenantID || bound.String() != capture.TenantID || len(capture.Inputs) == 0 && capture.Monthly == nil && len(capture.Claims) == 0 {
 		return apierror.Forbidden("report source reader scope is unavailable")
 	}
 	_, ok = s.flowQueryViews.(reportScopedSourceAccess)
-	if !ok && capture.Monthly == nil || s.pool == nil {
+	if !ok && capture.Monthly == nil && len(capture.Claims) == 0 || s.pool == nil {
 		return apierror.Unavailable("current report source access is unavailable")
 	}
 	budget := flowstore.ExplorerQueryBudget(s.flowStore)
@@ -59,6 +59,9 @@ func (s *Server) revalidateReportFlowCaptureScope(ctx context.Context, sc tenanc
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || sc.Q == nil || bound != sc.Tenant || actor == nil || capture == nil || actor.UserID == "" || actor.TenantID != capture.TenantID || bound.String() != capture.TenantID {
 		return apierror.Forbidden("report source reader scope is unavailable")
+	}
+	if len(capture.Claims) > 0 {
+		return s.revalidateCarrierSLAReportScope(ctx, sc, actor, capture.TenantID, capture.Claims)
 	}
 	if capture.Monthly != nil {
 		return s.revalidateClientReportRequirementsScope(ctx, sc, actor, capture.TenantID, capture.Monthly)

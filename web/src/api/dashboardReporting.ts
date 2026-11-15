@@ -6,7 +6,12 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
-import type { ClientReportDefinition } from './sdk.gen'
+import type {
+  ClientReportDefinition,
+  CarrierSLAReportDefinition,
+  CarrierSLAReportManifestDefinition,
+  CarrierSLAReportAgreementBinding,
+} from './sdk.gen'
 export type { ClientReportDefinition, ClientReportCapacityTarget } from './sdk.gen'
 
 export type DashboardPreset = 'operator' | 'executive'
@@ -14,6 +19,7 @@ export type ReportFormat = 'pdf' | 'csv'
 export type ReportCadence = 'daily' | 'weekly' | 'monthly'
 
 export interface DashboardDefinition {
+  carrier_claim?: CarrierSLAReportDefinition | null
   client_report?: ClientReportDefinition | null
   flow_sources?: Array<{ id: string; version: string }>
   absolute_from?: string
@@ -50,7 +56,8 @@ export interface DashboardManifest {
   spec: {
     preset: DashboardPreset
     shared: boolean
-    definition: Omit<DashboardDefinition, 'metrics' | 'flow_sources'> & {
+    definition: Omit<DashboardDefinition, 'metrics' | 'flow_sources' | 'carrier_claim'> & {
+      carrier_claim?: CarrierSLAReportManifestDefinition
       metrics: Array<{ name: string; value: string }>
       flow_sources?: Array<{ slot: string }>
     }
@@ -173,6 +180,7 @@ export function useImportDashboardManifest() {
       manifest: DashboardManifest
       confirm: boolean
       source_bindings?: Record<string, { id: string; version: string }>
+      agreement_bindings?: Record<string, CarrierSLAReportAgreementBinding>
     }) =>
       apiFetch<DashboardManifestImportResponse>(
         '/dashboard-manifests/import',

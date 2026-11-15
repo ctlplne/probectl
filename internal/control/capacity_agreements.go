@@ -62,14 +62,15 @@ func (s *Server) currentCapacityAgreementActor(ctx context.Context, actor *auth.
 }
 
 type capacityAgreementOperation struct {
-	request        *http.Request
-	store          *flow.PostgresCapacityAgreements
-	actor          *auth.Principal
-	budget         flowstore.ExplorerBudget
-	done           func()
-	chargeRead     func(bytes, rows int64) error
-	chargeRetained func(bytes int64) error
-	captureSLA     func(flow.CapacityAgreement, []store.IncidentConfiguredTest)
+	request           *http.Request
+	store             *flow.PostgresCapacityAgreements
+	actor             *auth.Principal
+	budget            flowstore.ExplorerBudget
+	done              func()
+	chargeRead        func(bytes, rows int64) error
+	chargeRetained    func(bytes int64) error
+	retainedRemaining func() int64
+	captureSLA        func(flow.CapacityAgreement, []store.IncidentConfiguredTest)
 }
 
 func (s *Server) beginCapacityAgreement(r *http.Request) (capacityAgreementOperation, error) {
@@ -103,7 +104,14 @@ func (s *Server) beginCapacityAgreementMode(r *http.Request, mutation bool) (cap
 		cancel()
 		return none, tagQueryAdmissionError(err)
 	}
-	repository := flow.NewPostgresCapacityAgreements(s.pool, int64(s.cfg.FlowQueryLibraryBytes), budget.MemoryBytes, budget.ReadBytes, audit.TenantRecord).
+	repository := s.capacityAgreementRepository(actor, budget)
+	return capacityAgreementOperation{request: r.WithContext(ctx), store: repository, actor: actor, budget: budget, done: func() { release(); cancel() }}, nil
+}
+
+// Reuse the current financial authorizer inside an already admitted report.
+// This constructor acquires no fairness slot and grants no background authority.
+func (s *Server) capacityAgreementRepository(actor *auth.Principal, budget flowstore.ExplorerBudget) *flow.PostgresCapacityAgreements {
+	return flow.NewPostgresCapacityAgreements(s.pool, int64(s.cfg.FlowQueryLibraryBytes), budget.MemoryBytes, budget.ReadBytes, audit.TenantRecord).
 		WithExecutionLimit(budget.ExecutionLimit).
 		WithAuthorization(func(ctx context.Context, sc tenancy.Scope, user string, write bool) error {
 			if user != actor.UserID {
@@ -111,7 +119,6 @@ func (s *Server) beginCapacityAgreementMode(r *http.Request, mutation bool) (cap
 			}
 			return s.authorizeCapacityAgreement(ctx, sc, actor, write)
 		})
-	return capacityAgreementOperation{request: r.WithContext(ctx), store: repository, actor: actor, budget: budget, done: func() { release(); cancel() }}, nil
 }
 
 func capacityAgreementAPIError(err error) error {

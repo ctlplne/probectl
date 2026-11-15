@@ -33,6 +33,11 @@ func TestReportArgumentsKeepExactTypedMaps(t *testing.T) {
 	if err != nil || len(input.SourceBindings) != 1 || input.SourceBindings["flow-1"].ID != "d8eb101f-f425-4427-a706-6c2eeef7bb07" || input.SourceBindings["flow-1"].Version != "9007199254740993" || input.Confirm {
 		t.Fatal("native report rejected or changed its declared source binding", err)
 	}
+	const financial = `{"agreement_bindings":{"agreement-1":{"agreement_id":"d8eb101f-f425-4427-a706-6c2eeef7bb07","version":"9007199254740993"}},"confirm":false}`
+	bound, err := reportMapProbe[reporting.DashboardManifestImportInput](financial)
+	if err != nil || bound.AgreementBindings["agreement-1"].Version != "9007199254740993" {
+		t.Fatal("native financial slot lost its exact declared binding", err)
+	}
 	const metrics = `{"definition":{"metrics":{"Exact value":"9007199254740993"}}}`
 	dashboard, err := reportMapProbe[reporting.DashboardCreateInput](metrics)
 	if err != nil || len(dashboard.Definition.Metrics) != 1 || dashboard.Definition.Metrics["Exact value"] != "9007199254740993" {
@@ -48,6 +53,9 @@ func TestReportArgumentsKeepExactTypedMaps(t *testing.T) {
 
 func TestReportArgumentsRefuseUndeclaredMapShapes(t *testing.T) {
 	for _, raw := range []string{
+		`{"agreement_bindings":{"agreement-1":{"agreement_id":"same","version":"1","tenant_id":"foreign"}}}`,
+		`{"agreement_bindings":{"agreement-1":{"agreement_id":"same","version":1}}}`,
+		`{"agreement_bindings":{"agreement-1":{"agreement_id":"same","version":"1"},"AGREEMENT-1":{"agreement_id":"other","version":"2"}}}`,
 		`{"source_bindings":{"flow-1":{"id":"same","version":"1","tenant_id":"foreign"}}}`,
 		`{"source_bindings":{"flow-1":{"ID":"same","version":"1"}}}`,
 		`{"source_bindings":{"flow-1":{"id":"same","id":"other","version":"1"}}}`,

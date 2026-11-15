@@ -842,6 +842,26 @@ type CarrierSLAPopulation struct {
 	Unknown           string `json:"unknown"`
 }
 
+type CarrierSLAReportAgreementBinding struct {
+	AgreementId string `json:"agreement_id"`
+	Version     string `json:"version"`
+}
+
+// Human-reviewed signed monthly carrier claim report. Exact recorded agreement revisions, complete selected original receipt populations and current financial/source access; no automatic submission or inferred continuous availability.
+type CarrierSLAReportDefinition struct {
+	Selections []CarrierSLAReportSelection `json:"selections"`
+}
+
+type CarrierSLAReportManifestDefinition struct {
+	Selections []map[string]any `json:"selections"`
+}
+
+type CarrierSLAReportSelection struct {
+	AgreementId string `json:"agreement_id"`
+	At          string `json:"at,omitempty"`
+	Version     string `json:"version"`
+}
+
 type CarrierSLARule struct {
 	Basis       string                 `json:"basis"`
 	CreditBands []CarrierSLACreditBand `json:"credit_bands"`
@@ -1210,16 +1230,17 @@ type DashboardCreateRequest struct {
 	Shared     bool                `json:"shared"`
 }
 
-// Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants.
+// Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority.
 type DashboardDefinition struct {
-	AbsoluteFrom        string                  `json:"absolute_from,omitempty"`
-	AbsoluteTo          string                  `json:"absolute_to,omitempty"`
-	ClientReport        *ClientReportDefinition `json:"client_report,omitempty"`
-	CoverageLimitations []string                `json:"coverage_limitations"`
-	FlowSources         []map[string]any        `json:"flow_sources,omitempty"`
-	Metrics             map[string]string       `json:"metrics,omitempty"`
-	Provenance          []string                `json:"provenance"`
-	RedactionState      string                  `json:"redaction_state"`
+	AbsoluteFrom        string                      `json:"absolute_from,omitempty"`
+	AbsoluteTo          string                      `json:"absolute_to,omitempty"`
+	CarrierClaim        *CarrierSLAReportDefinition `json:"carrier_claim,omitempty"`
+	ClientReport        *ClientReportDefinition     `json:"client_report,omitempty"`
+	CoverageLimitations []string                    `json:"coverage_limitations"`
+	FlowSources         []map[string]any            `json:"flow_sources,omitempty"`
+	Metrics             map[string]string           `json:"metrics,omitempty"`
+	Provenance          []string                    `json:"provenance"`
+	RedactionState      string                      `json:"redaction_state"`
 }
 
 type DashboardManifest struct {
@@ -1229,22 +1250,24 @@ type DashboardManifest struct {
 	Spec       DashboardManifestSpec     `json:"spec"`
 }
 
-// Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants.
+// Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority.
 type DashboardManifestDefinition struct {
-	AbsoluteFrom        string                    `json:"absolute_from,omitempty"`
-	AbsoluteTo          string                    `json:"absolute_to,omitempty"`
-	ClientReport        *ClientReportDefinition   `json:"client_report,omitempty"`
-	CoverageLimitations []string                  `json:"coverage_limitations"`
-	FlowSources         []map[string]any          `json:"flow_sources,omitempty"`
-	Metrics             []DashboardManifestMetric `json:"metrics"`
-	Provenance          []string                  `json:"provenance"`
-	RedactionState      string                    `json:"redaction_state"`
+	AbsoluteFrom        string                              `json:"absolute_from,omitempty"`
+	AbsoluteTo          string                              `json:"absolute_to,omitempty"`
+	CarrierClaim        *CarrierSLAReportManifestDefinition `json:"carrier_claim,omitempty"`
+	ClientReport        *ClientReportDefinition             `json:"client_report,omitempty"`
+	CoverageLimitations []string                            `json:"coverage_limitations"`
+	FlowSources         []map[string]any                    `json:"flow_sources,omitempty"`
+	Metrics             []DashboardManifestMetric           `json:"metrics"`
+	Provenance          []string                            `json:"provenance"`
+	RedactionState      string                              `json:"redaction_state"`
 }
 
 type DashboardManifestImportRequest struct {
-	Confirm        bool                      `json:"confirm"`
-	Manifest       DashboardManifest         `json:"manifest"`
-	SourceBindings map[string]map[string]any `json:"source_bindings,omitempty"`
+	AgreementBindings map[string]CarrierSLAReportAgreementBinding `json:"agreement_bindings,omitempty"`
+	Confirm           bool                                        `json:"confirm"`
+	Manifest          DashboardManifest                           `json:"manifest"`
+	SourceBindings    map[string]map[string]any                   `json:"source_bindings,omitempty"`
 }
 
 type DashboardManifestImportResponse struct {

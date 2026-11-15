@@ -372,3 +372,67 @@ Provider operators can request execution and see operational counts only. The
 worker still executes as the current tenant owner: no provider credential,
 source grant or MFA assertion is lent to it. Artifacts and evidence remain in
 the tenant inbox with their normal current-reader checks.
+
+
+## Signed carrier SLA claim reports (preview)
+
+In **Capacity planning → Carrier claim draft**, add the recorded circuit revisions
+and choose **Save signed claim report**. The saved view opens in Dashboards for
+PDF/CSV generation and monthly scheduling through the existing tenant inbox and
+configured delivery channels. Saving needs `metrics.write`, `metrics.read` and
+`flow.agreements.read`. Source generation and every artifact reader also need
+current financial, test, entity and measurement access for every selected source.
+Sharing a view or importing its recipe grants none of those permissions.
+
+The definition uses `carrier_claim.selections`, with `agreement_id`, an exact
+recorded `version`, and optional RFC3339 `at`. An omitted instant selects the
+previous complete billing period in that revision's billing calendar at each
+execution. An explicit instant pins its period. Revised terms are adopted only
+by an explicit selection. Other source modes, supplied metrics and absolute
+bounds cannot be combined with a claim definition.
+
+Each pack groups circuits by carrier, currency and billing calendar, shows every
+rule assessment and conditional credit, and includes the complete selected
+original measurement population in a signed `probectl-evidence/v1` envelope with
+profile `carrier-sla`. Exact rational credit and original nanosecond timings stay
+strings. Unknown or unfinished populations withhold exact totals. Observed probe
+availability is not continuous uptime, and the observed failure-to-next-success
+interval is not physical repair time. Human review and carrier adjudication are
+required; saving, signing and scheduling do not submit a claim.
+
+The CSV/PDF evidence table transfers the complete signed envelope in ordered
+base64 chunks. Decode `signed_package_base64_chunk` cells in `ordinal` order,
+check their common package identity, declared chunk count and complete byte
+count, and save the joined bytes as `claim.json`. Then verify offline using the
+fingerprint obtained separately from the deployment operator:
+
+```sh
+probectl incident verify claim.json --trusted-key-fingerprint sha256:...
+```
+
+Go SDK callers can stream a large artifact with `DownloadDashboardReportArtifactTo`,
+an output writer and explicit maximum bytes, without allocating the complete
+HTTP body or using the buffered JSON allowance. Discard the target on any error.
+
+The offline file allowance defaults to 1 GiB and can be raised explicitly with
+`--max-bytes` for the complete package. There is no prefix or shortened evidence
+fallback. Report output, source scanning and retained-memory admission remain
+finite and operator configurable; configure them for the complete selected
+workload. Revoking a financial/source grant, retiring or reassigning a source,
+erasing observations, or changing the captured financial head prevents the
+stored artifact from being read under stale authority. A revoked originating
+bearer/session also prevents publication after rendering or verified download.
+
+Portable claim recipes replace financial identities with `agreement-N` slots.
+Bind every slot explicitly in the destination tenant:
+
+```json
+{"agreement_bindings":{"agreement-1":{"agreement_id":"<destination agreement UUID>","version":"<recorded revision>"}}}
+```
+
+The UI exposes these bindings. CLI imports accept
+`--agreement-bindings-file bindings.json` in addition to the manifest and
+optional flow-source bindings. Generated SDK and existing native report tools
+use the same typed definition/binding contracts. Native tools return metadata
+and authenticated artifact links, keeping financial evidence out of unreviewed
+model text.

@@ -74,6 +74,13 @@ export function DashboardReportingCard({
   }>({ identity: sourceIdentity, items: [] })
   const sourceItems = sourceDraft.identity === sourceIdentity ? sourceDraft.items : []
   const canReadSources = permissions.includes('ai.query') && permissions.includes('flow.read')
+  const canReadFinancial = permissions.includes('flow.agreements.read')
+  const [financialDraft, setFinancialDraft] = useState<{
+    identity: string
+    manifest: string
+    items: Record<string, { agreement_id: string; version: string }>
+  }>({ identity: sourceIdentity, manifest: '', items: {} })
+
   const [searchParams, setSearchParams] = useSearchParams()
   const dashboards = useDashboards()
   const schedules = useReportSchedules()
@@ -132,6 +139,36 @@ export function DashboardReportingCard({
     bindingDraft.identity === sourceIdentity && bindingDraft.manifest === manifestText
       ? bindingDraft.items
       : {}
+  const financialSlots = useMemo(() => {
+    try {
+      const parsed = JSON.parse(manifestText) as {
+        spec?: { definition?: { carrier_claim?: { selections?: Array<{ slot?: unknown }> } } }
+      }
+      const selections = parsed.spec?.definition?.carrier_claim?.selections
+      return Array.isArray(selections)
+        ? [
+            ...new Set(
+              selections
+                .map((item) => item.slot)
+                .filter((slot): slot is string => typeof slot === 'string' && slot.length > 0),
+            ),
+          ]
+        : []
+    } catch {
+      return []
+    }
+  }, [manifestText])
+  const financialBindings =
+    financialDraft.identity === sourceIdentity && financialDraft.manifest === manifestText
+      ? financialDraft.items
+      : {}
+  const missingFinancialBindings =
+    financialSlots.length > 0 &&
+    (!canReadFinancial ||
+      financialSlots.some(
+        (slot) => !financialBindings[slot]?.agreement_id || !financialBindings[slot]?.version,
+      ))
+  const agreementBindingsInput = financialSlots.length ? financialBindings : undefined
   const activeNativeSlot = nativeSlots.includes(nativeSlot) ? nativeSlot : (nativeSlots[0] ?? '')
   const missingNativeBindings =
     nativeSlots.length > 0 && (!canReadSources || nativeSlots.some((slot) => !nativeBindings[slot]))
@@ -286,11 +323,17 @@ export function DashboardReportingCard({
         manifest: parseManifest(),
         confirm: false,
         source_bindings: sourceBindingsInput,
+        agreement_bindings: agreementBindingsInput,
       })
       setManifestPreview(result)
       const normalized = JSON.stringify(result.manifest, null, 2)
       setManifestText(normalized)
       setBindingDraft({ identity: sourceIdentity, manifest: normalized, items: nativeBindings })
+      setFinancialDraft({
+        identity: sourceIdentity,
+        manifest: normalized,
+        items: financialBindings,
+      })
       push({
         tone: 'success',
         title: 'Manifest validated',
@@ -309,6 +352,7 @@ export function DashboardReportingCard({
         manifest: manifestPreview.manifest,
         confirm: true,
         source_bindings: sourceBindingsInput,
+        agreement_bindings: agreementBindingsInput,
       })
       if (!result.dashboard) throw new Error('The server did not return the created dashboard.')
       setManifestPreview(undefined)
@@ -555,7 +599,14 @@ export function DashboardReportingCard({
             <section className={styles.savedSnapshot} aria-label="Selected saved snapshot">
               <strong>{activeView.name}</strong>
               <span>{activeView.preset} preset</span>
-              {activeView.definition.client_report ? (
+              {activeView.definition.carrier_claim ? (
+                <p>
+                  Signed carrier SLA claim · {activeView.definition.carrier_claim.selections.length}{' '}
+                  recorded circuit selections. Every generation rechecks financial and
+                  original-source access. Blank periods use each revision’s previous complete
+                  billing period.
+                </p>
+              ) : activeView.definition.client_report ? (
                 <>
                   <span>
                     {activeView.definition.client_report.period === 'month_to_date'
@@ -686,16 +737,72 @@ export function DashboardReportingCard({
                   !manifestText.trim() ||
                   importDashboard.isPending ||
                   failed ||
-                  missingNativeBindings
+                  missingNativeBindings ||
+                  missingFinancialBindings
                 }
               >
                 {importDashboard.isPending ? 'Validating…' : 'Preview import'}
               </Button>
+              {financialSlots.map((slot) => (
+                <section
+                  key={slot}
+                  aria-label={`Carrier agreement binding ${slot}`}
+                  className={styles.manifestSection}
+                >
+                  <p>
+                    Bind {slot} to a recorded agreement in this tenant. The template supplies no
+                    financial or source access.
+                  </p>
+                  <Field
+                    label={`Agreement for ${slot}`}
+                    value={financialBindings[slot]?.agreement_id ?? ''}
+                    disabled={!canReadFinancial || !canWrite}
+                    onChange={(event) => {
+                      setManifestPreview(undefined)
+                      setFinancialDraft({
+                        identity: sourceIdentity,
+                        manifest: manifestText,
+                        items: {
+                          ...financialBindings,
+                          [slot]: {
+                            agreement_id: event.target.value,
+                            version: financialBindings[slot]?.version ?? '',
+                          },
+                        },
+                      })
+                    }}
+                  />
+                  <Field
+                    label={`Recorded revision for ${slot}`}
+                    value={financialBindings[slot]?.version ?? ''}
+                    disabled={!canReadFinancial || !canWrite}
+                    onChange={(event) => {
+                      setManifestPreview(undefined)
+                      setFinancialDraft({
+                        identity: sourceIdentity,
+                        manifest: manifestText,
+                        items: {
+                          ...financialBindings,
+                          [slot]: {
+                            agreement_id: financialBindings[slot]?.agreement_id ?? '',
+                            version: event.target.value,
+                          },
+                        },
+                      })
+                    }}
+                  />
+                </section>
+              ))}
               {manifestPreview ? (
                 <Button
                   variant="primary"
                   onClick={() => void confirmManifestImport()}
-                  disabled={!canWrite || importDashboard.isPending || missingNativeBindings}
+                  disabled={
+                    !canWrite ||
+                    importDashboard.isPending ||
+                    missingNativeBindings ||
+                    missingFinancialBindings
+                  }
                 >
                   Confirm import
                 </Button>
@@ -711,7 +818,7 @@ export function DashboardReportingCard({
                 </span>
                 {manifestPreview.preview.source_count ? (
                   <span>
-                    {manifestPreview.preview.source_count} explicitly bound saved flow sources
+                    {manifestPreview.preview.source_count} explicitly bound report sources
                   </span>
                 ) : (
                   <>

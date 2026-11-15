@@ -115,6 +115,9 @@ func TestIncidentVerifyOfflineAndTrustedFingerprint(t *testing.T) {
 		want string
 	}{
 		{name: "integrity only", args: []string{"incident", "verify", path}, code: 3, want: "INTEGRITY-ONLY probectl-evidence/v1"},
+		{name: "explicit larger allowance", args: []string{"incident", "verify", path, "--max-bytes", "2147483648", "--trusted-key-fingerprint", pkg.Signing.Fingerprint}, code: 0, want: "VERIFIED probectl-evidence/v1"},
+		{name: "insufficient explicit allowance", args: []string{"incident", "verify", path, "--max-bytes", "1", "--trusted-key-fingerprint", pkg.Signing.Fingerprint}, code: 1, want: "raise --max-bytes"},
+		{name: "invalid allowance", args: []string{"incident", "verify", path, "--max-bytes", "0"}, code: 2, want: "positive and sentinel-safe"},
 		{name: "trusted signer", args: []string{"incident", "verify", path, "--trusted-key-fingerprint", pkg.Signing.Fingerprint}, code: 0, want: "VERIFIED probectl-evidence/v1"},
 		{name: "wrong signer", args: []string{"incident", "verify", path, "--trusted-key-fingerprint", "sha256:wrong"}, code: 1, want: "does not match trusted fingerprint"},
 	} {

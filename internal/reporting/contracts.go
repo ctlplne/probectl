@@ -16,14 +16,15 @@ type FlowSourceRef struct {
 }
 
 type DashboardDefinition struct {
-	ClientReport        *ClientReportDefinition `json:"client_report,omitempty"`
-	FlowSources         []FlowSourceRef         `json:"flow_sources,omitempty"`
-	AbsoluteFrom        time.Time               `json:"absolute_from"`
-	AbsoluteTo          time.Time               `json:"absolute_to"`
-	Provenance          []string                `json:"provenance"`
-	RedactionState      string                  `json:"redaction_state"`
-	CoverageLimitations []string                `json:"coverage_limitations"`
-	Metrics             map[string]string       `json:"metrics"`
+	CarrierClaim        *CarrierSLAReportDefinition `json:"carrier_claim,omitempty"`
+	ClientReport        *ClientReportDefinition     `json:"client_report,omitempty"`
+	FlowSources         []FlowSourceRef             `json:"flow_sources,omitempty"`
+	AbsoluteFrom        time.Time                   `json:"absolute_from"`
+	AbsoluteTo          time.Time                   `json:"absolute_to"`
+	Provenance          []string                    `json:"provenance"`
+	RedactionState      string                      `json:"redaction_state"`
+	CoverageLimitations []string                    `json:"coverage_limitations"`
+	Metrics             map[string]string           `json:"metrics"`
 }
 
 type DashboardCreateInput struct {
@@ -51,14 +52,15 @@ type DashboardManifestSpec struct {
 }
 
 type DashboardManifestDefinition struct {
-	ClientReport        *ClientReportDefinition       `json:"client_report,omitempty"`
-	FlowSources         []DashboardManifestFlowSource `json:"flow_sources,omitempty"`
-	AbsoluteFrom        time.Time                     `json:"absolute_from"`
-	AbsoluteTo          time.Time                     `json:"absolute_to"`
-	Provenance          []string                      `json:"provenance"`
-	RedactionState      string                        `json:"redaction_state"`
-	CoverageLimitations []string                      `json:"coverage_limitations"`
-	Metrics             []DashboardManifestMetric     `json:"metrics"`
+	CarrierClaim        *CarrierSLAReportManifestDefinition `json:"carrier_claim,omitempty"`
+	ClientReport        *ClientReportDefinition             `json:"client_report,omitempty"`
+	FlowSources         []DashboardManifestFlowSource       `json:"flow_sources,omitempty"`
+	AbsoluteFrom        time.Time                           `json:"absolute_from"`
+	AbsoluteTo          time.Time                           `json:"absolute_to"`
+	Provenance          []string                            `json:"provenance"`
+	RedactionState      string                              `json:"redaction_state"`
+	CoverageLimitations []string                            `json:"coverage_limitations"`
+	Metrics             []DashboardManifestMetric           `json:"metrics"`
 }
 
 type DashboardManifestMetric struct {
@@ -71,9 +73,10 @@ type DashboardManifestFlowSource struct {
 }
 
 type DashboardManifestImportInput struct {
-	SourceBindings map[string]FlowSourceRef `json:"source_bindings,omitempty"`
-	Manifest       DashboardManifest        `json:"manifest"`
-	Confirm        bool                     `json:"confirm"`
+	AgreementBindings map[string]CarrierSLAReportAgreementBinding `json:"agreement_bindings,omitempty"`
+	SourceBindings    map[string]FlowSourceRef                    `json:"source_bindings,omitempty"`
+	Manifest          DashboardManifest                           `json:"manifest"`
+	Confirm           bool                                        `json:"confirm"`
 }
 
 type DashboardManifestPreview struct {

@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/cli"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
@@ -40,17 +42,30 @@ import (
 // unfinished, so this proves original selection and authority, not a completed
 // physical month or a legally payable claim.
 func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *testing.T) {
-	f := newRoleExplanationAPIFixture(t)
+	var diagnostics bytes.Buffer
+	f := newRoleExplanationAPIFixture(t, slog.New(slog.NewTextHandler(&diagnostics, nil)))
+	defer func() {
+		if t.Failed() {
+			t.Log(diagnostics.String())
+		}
+	}()
 	f.server.cfg.FlowQueryLibraryBytes = 256 << 20
 	f.server.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	key, _, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.server.evidenceSigningKey = key
 	sender := newVerdictEvidenceSender(t, f)
 	now := time.Now().UTC()
 	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	ids := map[string]string{}
+	reports := map[string]string{}
 	agents := map[string]string{}
+	tests := map[string]string{}
 	for lane, tenant := range f.tenants {
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			for _, permission := range []string{permFlowAgreementsRead, permFlowAgreementsWrite, permTestRead, "entities.read", "metrics.read"} {
+			for _, permission := range []string{permFlowAgreementsRead, permFlowAgreementsWrite, permTestRead, "entities.read", "metrics.read", permMetricsWrite} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
 					return err
 				}
@@ -60,6 +75,7 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 		agent := gouuid.NewString()
 		agents[tenant] = agent
 		definition := seedVerdictCarrierTest(t, f, tenant, agent, "198.51.100.10")
+		tests[tenant] = definition.ID
 		client := sender(tenant, agent)
 		digest, err := testspec.DefinitionHash(definition)
 		if err != nil {
@@ -89,6 +105,28 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 			time.Sleep(delay)
 		}
 	}
+
+	for _, tenant := range f.tenants {
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			selected := []store.IncidentConfiguredTest{{TenantID: tenant, AgentID: agents[tenant], TestID: tests[tenant]}}
+			authorize := func(context.Context, entity.ContextRecord, store.IncidentImpactEntity, string) error { return nil }
+			registry := store.NewEntityRegistry(f.pool)
+			if rows, err := registry.CarrierSLAConfiguredTestsInScope(ctx, sc, ids[tenant], "1", selected, 8<<20, authorize); err == nil || rows != nil {
+				t.Fatal("metadata lookup accepted a plain unfenced write transaction")
+			}
+			if err := audit.LockTenantStream(ctx, sc.Q, tenant); err != nil {
+				return err
+			}
+			rows, err := registry.CarrierSLAConfiguredTestsInScope(ctx, sc, ids[tenant], "1", selected, 8<<20, authorize)
+			if err != nil {
+				return err
+			}
+			if len(rows) != 1 || rows[0].TenantID != tenant || rows[0].AgentID != agents[tenant] {
+				t.Fatal("canonical audit-locked report metadata lost tenant identity")
+			}
+			return nil
+		})
+	}
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	caFile := filepath.Join(t.TempDir(), "served-ca.pem")
@@ -115,6 +153,12 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 		var cliResult flow.CarrierSLAStatement
 		if code != 0 || json.Unmarshal(stdout.Bytes(), &cliResult) != nil || len(cliResult.Sources) != 1 || cliResult.Sources[0].Digest != p.Digest {
 			t.Fatal("CLI lost complete original population", code, stderr.String())
+		}
+		reports[tenant] = proveCarrierSLASignedReport(t, client, ids[tenant], input.At, p.Digest)
+		proveReportRevokedCredential(t, f, tenant, reports[tenant])
+		otherReportClient := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[f.tenants[1-lane]]))
+		if _, err := otherReportClient.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: reports[tenant]}); err == nil {
+			t.Fatal("foreign tenant downloaded signed financial report")
 		}
 		selection := sdk.CarrierSLASelection{AgreementId: ids[tenant], Version: "1", At: input.At}
 		claimInput := sdk.CarrierSLAClaimInput{Selections: []sdk.CarrierSLASelection{selection}}
@@ -175,6 +219,13 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 			t.Fatal("late source retirement survived grouped publication")
 		}
 	}()
+	for _, tenant := range []string{a, b} {
+		client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
+		_, err := client.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: reports[tenant]})
+		if (tenant == a && err == nil) || (tenant == b && err != nil) {
+			t.Fatal("stored signed report source retirement boundary failed", tenant, err)
+		}
+	}
 	for _, tenant := range []string{a, b} {
 		client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
 		_, err := client.CalculateCarrierSla(t.Context(), sdk.CalculateCarrierSlaRequest{Id: ids[tenant], Body: &input})

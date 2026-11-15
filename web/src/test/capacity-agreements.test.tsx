@@ -63,10 +63,12 @@ function Harness({
   switched,
   write = true,
   forecastOnly = false,
+  reportWrite = false,
 }: {
   switched?: () => void
   write?: boolean
   forecastOnly?: boolean
+  reportWrite?: boolean
 }) {
   const [tenant, setTenant] = useState('red')
   const [allowed, setAllowed] = useState(true)
@@ -79,7 +81,11 @@ function Harness({
         permissions: allowed
           ? forecastOnly
             ? ['flow.read']
-            : ['flow.agreements.read', ...(write ? ['flow.agreements.write'] : [])]
+            : [
+                'flow.agreements.read',
+                ...(write ? ['flow.agreements.write'] : []),
+                ...(reportWrite ? ['metrics.read', 'metrics.write'] : []),
+              ]
           : [],
         switchTenant: () => {},
         signOut: () => {},
@@ -852,4 +858,80 @@ test('monthly SLA keeps exact observed populations and discards late tenant resu
   ).not.toBeInTheDocument()
   expect(screen.queryByRole('region', { name: 'Monthly SLA result' })).not.toBeInTheDocument()
   expect(screen.queryByLabelText(/SLA billing-period instant/)).not.toBeInTheDocument()
+})
+
+test('signed carrier report saves exact revisions and discards a late tenant response', async () => {
+  let tenant = 'red'
+  let late: ((response: Response) => void) | undefined
+  const sent: Array<{
+    definition: {
+      carrier_claim: { selections: Array<{ agreement_id: string; version: string; at?: string }> }
+    }
+  }> = []
+  const selected = (id: string): CapacityAgreement => ({
+    ...item(id),
+    definition: {
+      ...item(id).definition,
+      sla: {
+        carrier: 'Carrier',
+        circuit_id: 'Circuit',
+        site: 'Site',
+        currency: 'USD',
+        monthly_charge: '100.125',
+        aggregation: 'maximum',
+        credit_cap_ratio: '1',
+        sources: [{ agent_id: `${id}-agent`, test_id: `${id}-test` }],
+        rules: [],
+      },
+    },
+  })
+  const fallback = defaultFetch()
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = pathOf(input)
+    if (path === '/v1/dashboards' && init?.method === 'POST') {
+      sent.push(JSON.parse(String(init.body)))
+      if (tenant === 'red')
+        return new Promise<Response>((resolve) => {
+          late = resolve
+        })
+      return Promise.resolve(jsonResponse({ id: 'blue-signed-view' }))
+    }
+    if (path.startsWith(base))
+      return Promise.resolve(
+        jsonResponse(
+          path === base ? { ...page(tenant), items: [selected(tenant)] } : selected(tenant),
+        ),
+      )
+    return fallback(input, init)
+  })
+  mount({
+    reportWrite: true,
+    switched: () => {
+      tenant = 'blue'
+    },
+  })
+  fireEvent.click(await screen.findByRole('button', { name: 'Open red WAN' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add selected agreement to claim' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save signed claim report' }))
+  await waitFor(() => expect(late).toBeDefined())
+  expect(sent[0].definition.carrier_claim.selections).toEqual([
+    { agreement_id: 'red-agreement', version },
+  ])
+  fireEvent.click(screen.getByRole('button', { name: 'Switch financial tenant' }))
+  await screen.findByRole('button', { name: 'Open blue WAN' })
+  await act(async () => {
+    late!(jsonResponse({ id: 'red-signed-view' }))
+  })
+  expect(
+    screen.queryByRole('link', { name: 'Generate or schedule the signed claim' }),
+  ).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Open blue WAN' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add selected agreement to claim' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Save signed claim report' }))
+  expect(
+    await screen.findByRole('link', { name: 'Generate or schedule the signed claim' }),
+  ).toHaveAttribute('href', '/ui/dashboards?view=blue-signed-view#saved-dashboard')
+  expect(sent[1].definition.carrier_claim.selections).toEqual([
+    { agreement_id: 'blue-agreement', version },
+  ])
 })

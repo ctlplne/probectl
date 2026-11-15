@@ -156,7 +156,7 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 	if item.Schedule.ProviderRequestID != nil && (!item.Schedule.ProviderTriggerAllowed || definition.ClientReport == nil) {
 		return false, apierror.Forbidden("provider report consent is no longer applicable")
 	}
-	if len(definition.FlowSources) > 0 || definition.ClientReport != nil {
+	if len(definition.FlowSources) > 0 || definition.ClientReport != nil || definition.CarrierClaim != nil {
 		return s.materializeSourceReport(ctx, tenantName, item, definition, now)
 	}
 	document := reporting.Document{

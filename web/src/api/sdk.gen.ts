@@ -748,6 +748,25 @@ export interface CarrierSLAPopulation {
   unknown: string
 }
 
+export interface CarrierSLAReportAgreementBinding {
+  agreement_id: string
+  version: string
+}
+
+export interface CarrierSLAReportDefinition {
+  selections: CarrierSLAReportSelection[]
+}
+
+export interface CarrierSLAReportManifestDefinition {
+  selections: JsonObject[]
+}
+
+export interface CarrierSLAReportSelection {
+  agreement_id: string
+  at?: string
+  version: string
+}
+
 export interface CarrierSLARule {
   basis: string
   credit_bands: CarrierSLACreditBand[]
@@ -1113,6 +1132,7 @@ export interface DashboardCreateRequest {
 export interface DashboardDefinition {
   absolute_from?: string
   absolute_to?: string
+  carrier_claim?: CarrierSLAReportDefinition | null
   client_report?: ClientReportDefinition | null
   coverage_limitations: string[]
   flow_sources?: JsonObject[]
@@ -1131,6 +1151,7 @@ export interface DashboardManifest {
 export interface DashboardManifestDefinition {
   absolute_from?: string
   absolute_to?: string
+  carrier_claim?: CarrierSLAReportManifestDefinition | null
   client_report?: ClientReportDefinition | null
   coverage_limitations: string[]
   flow_sources?: JsonObject[]
@@ -1140,6 +1161,7 @@ export interface DashboardManifestDefinition {
 }
 
 export interface DashboardManifestImportRequest {
+  agreement_bindings?: { [key: string]: CarrierSLAReportAgreementBinding }
   confirm: boolean
   manifest: DashboardManifest
   source_bindings?: { [key: string]: JsonObject }

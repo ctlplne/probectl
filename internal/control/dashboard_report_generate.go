@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -54,7 +55,13 @@ func cleanDashboardFlowSources(d *dashboardDefinition) error {
 // The existing operation budget covers source capture, rendering and final
 // publication together. Fairness admission remains owned by capture until the
 // sealed stage has been published or discarded; no transaction spans rendering.
-func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenerateRequest, view *store.DashboardView, definition dashboardDefinition, tenantName string, tenant tenancy.ID) (*store.ReportArtifactMetadata, error) {
+func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenerateRequest, view *store.DashboardView, definition dashboardDefinition, tenantName string, tenant tenancy.ID) (_ *store.ReportArtifactMetadata, operationErr error) {
+	phase := "capture"
+	defer func() {
+		if operationErr != nil {
+			operationErr = fmt.Errorf("source report %s: %w", phase, operationErr)
+		}
+	}()
 	budget := flowstore.ExplorerQueryBudget(s.flowStore)
 	if err := budget.Validate(); err != nil {
 		return nil, apierror.Unavailable("report source cost policy is unavailable")
@@ -67,19 +74,23 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 		return nil, err
 	}
 	defer capture.Close()
+	phase = "document"
 	document, err := sourceReportDocument(view, definition, tenantName, auditActor(r), time.Now().UTC(), capture)
 	if err != nil {
 		return nil, err
 	}
+	phase = "source envelope"
 	requirements, err := marshalReportSourceRequirements(ctx, capture, budget.MemoryBytes/4)
 	if err != nil {
 		return nil, err
 	}
+	phase = "rendering"
 	stage, mediaType, err := stageSourceDashboardReport(ctx, req.Format, document, budget, s.reportOutputPolicy())
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = stage.Close() }()
+	phase = "original replay"
 	if err := revalidateMonthlyReportOriginals(ctx, capture); err != nil {
 		return nil, err
 	}
@@ -91,6 +102,7 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 		return nil, err
 	}
 	var artifact *store.ReportArtifactMetadata
+	phase = "publication"
 	err = tenancy.InTenant(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		if err := audit.LockTenantStream(ctx, sc.Q, tenant.String()); err != nil {
 			return err
@@ -122,8 +134,11 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 }
 
 func sourceReportDocument(view *store.DashboardView, definition dashboardDefinition, tenantName, generator string, at time.Time, capture *reportFlowCapture) (reporting.Document, error) {
-	if view == nil || capture == nil || view.TenantID != capture.TenantID || len(capture.Inputs) == 0 && capture.Monthly == nil || len(capture.Tables) == 0 {
+	if view == nil || capture == nil || view.TenantID != capture.TenantID || len(capture.Inputs) == 0 && capture.Monthly == nil && len(capture.Claims) == 0 || len(capture.Tables) == 0 {
 		return reporting.Document{}, apierror.Forbidden("report captured source scope is unavailable")
+	}
+	if len(capture.Claims) > 0 {
+		return carrierSLAReportDocument(view, definition, tenantName, generator, at, capture)
 	}
 	if capture.Monthly != nil {
 		provenance := append(append([]string{}, definition.Provenance...), "Monthly original inputs sha256:"+capture.Monthly.InputsDigest)
@@ -203,6 +218,9 @@ func (s *Server) validateReportSourcePublication(ctx context.Context, sc tenancy
 	if capture == nil {
 		return apierror.Forbidden("report source capture is unavailable")
 	}
+	if len(capture.Claims) > 0 {
+		return s.revalidateCarrierSLAReportScope(ctx, sc, actor, capture.TenantID, capture.Claims)
+	}
 	if capture.Monthly != nil {
 		return s.revalidateClientReportRequirementsScope(ctx, sc, actor, capture.TenantID, capture.Monthly)
 	}
@@ -274,6 +292,13 @@ func reportGenerationError(err error) error {
 }
 
 func reportCaptureSourceCount(capture *reportFlowCapture) int {
+	if len(capture.Claims) > 0 {
+		count := 0
+		for _, value := range capture.Claims {
+			count += len(value.Tests)
+		}
+		return count
+	}
 	if capture.Monthly != nil {
 		return len(capture.Monthly.Bindings)
 	}

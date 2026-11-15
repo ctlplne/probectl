@@ -5,6 +5,9 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { useEffect, useState, type FormEvent } from 'react'
+import { useAuth } from '../auth/useAuth'
+import { appPath } from '../lib/links'
+import type { DashboardView } from '../api/dashboardReporting'
 import type { CapacityAgreement, CarrierSLAClaimDraft, CarrierSLASelection } from '../api/sdk.gen'
 import { Button, Card, CardBody, CardHeader, Field } from '../components'
 import styles from './flowExplorer.module.css'
@@ -25,6 +28,11 @@ export function CapacitySLAClaim({
   busy: boolean
   execute: Execute
 }) {
+  const { permissions } = useAuth()
+  const canSaveReport =
+    permissions.includes('metrics.write') && permissions.includes('metrics.read')
+  const [savedReport, setSavedReport] = useState<DashboardView>()
+  const [reportName, setReportName] = useState('Carrier SLA claim')
   const [selections, setSelections] = useState<CarrierSLASelection[]>([])
   const [result, setResult] = useState<CarrierSLAClaimDraft>()
   const [expired, setExpired] = useState(false)
@@ -33,6 +41,7 @@ export function CapacitySLAClaim({
     const timer = window.setTimeout(
       () => {
         setResult(undefined)
+        setSavedReport(undefined)
         setExpired(true)
       },
       Math.min(Math.max(0, Date.parse(result.source_valid_until) - Date.now()), 2147483647),
@@ -42,6 +51,7 @@ export function CapacitySLAClaim({
   function prepare(event: FormEvent) {
     event.preventDefault()
     setResult(undefined)
+    setSavedReport(undefined)
     setExpired(false)
     void execute<CarrierSLAClaimDraft>(
       '/flows/capacity/sla-claims',
@@ -73,6 +83,7 @@ export function CapacitySLAClaim({
             onClick={() => {
               if (!selected) return
               setResult(undefined)
+              setSavedReport(undefined)
               setSelections((old) => [
                 ...old,
                 { agreement_id: selected.id, version: selected.version, at: '' },
@@ -96,6 +107,7 @@ export function CapacitySLAClaim({
                 hint="RFC3339 with timezone. Select the complete recorded billing period."
                 onChange={(event) => {
                   setResult(undefined)
+                  setSavedReport(undefined)
                   setSelections((old) =>
                     old.map((value, i) =>
                       i === index ? { ...value, at: event.target.value } : value,
@@ -108,6 +120,7 @@ export function CapacitySLAClaim({
                   disabled={busy}
                   onClick={() => {
                     setResult(undefined)
+                    setSavedReport(undefined)
                     setSelections((old) => old.filter((_, i) => i !== index))
                   }}
                 >
@@ -122,6 +135,70 @@ export function CapacitySLAClaim({
             </Button>
           </div>
         </form>
+        {canSaveReport && (
+          <section aria-label="Signed carrier claim report" className={styles.stack}>
+            <Field
+              label="Carrier claim report name"
+              value={reportName}
+              disabled={busy}
+              onChange={(event) => setReportName(event.target.value)}
+            />
+            <p>
+              Save these recorded circuit revisions for a signed PDF or CSV in the report inbox. A
+              blank period selects the previous complete billing period at generation time, so
+              monthly schedules advance using the recorded calendar. Review remains required; no
+              claim is submitted.
+            </p>
+            <Button
+              disabled={busy || selections.length === 0 || !reportName.trim()}
+              onClick={() => {
+                setSavedReport(undefined)
+                void execute<DashboardView>(
+                  '/dashboards',
+                  {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      name: reportName,
+                      preset: 'operator',
+                      shared: false,
+                      definition: {
+                        carrier_claim: {
+                          selections: selections.map(({ agreement_id, version, at }) => ({
+                            agreement_id,
+                            version,
+                            ...(at ? { at } : {}),
+                          })),
+                        },
+                        provenance: [
+                          'Recorded carrier SLA terms and complete original receipt populations',
+                        ],
+                        redaction_state: 'Tenant export policy',
+                        coverage_limitations: [
+                          'Observed probe populations; human review and carrier adjudication required.',
+                        ],
+                      },
+                    }),
+                  },
+                  setSavedReport,
+                )
+              }}
+            >
+              Save signed claim report
+            </Button>
+            {savedReport && (
+              <p role="status">
+                Report saved.{' '}
+                <a
+                  href={`${appPath('/dashboards')}?view=${encodeURIComponent(savedReport.id)}#saved-dashboard`}
+                >
+                  Generate or schedule the signed claim
+                </a>
+                .
+              </p>
+            )}
+          </section>
+        )}
         {expired && <p role="status">Claim source validity elapsed. Prepare a fresh draft.</p>}
         {result && (
           <section aria-label="Grouped carrier claim draft" className={styles.stack}>

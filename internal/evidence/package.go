@@ -312,25 +312,9 @@ func Verify(raw []byte) (*Manifest, error) {
 	if err := json.Unmarshal(raw, &pkg); err != nil {
 		return nil, fmt.Errorf("evidence: malformed package: %w", err)
 	}
-	if pkg.Signing.Algorithm != SignatureAlg {
-		return nil, fmt.Errorf("evidence: unsupported signature algorithm %q", pkg.Signing.Algorithm)
-	}
-	if got := digest([]byte(pkg.Signing.PublicKey)); got != pkg.Signing.Fingerprint {
-		return nil, errors.New("evidence: signing-key fingerprint mismatch")
-	}
-	ok, err := crypto.VerifyEd25519([]byte(pkg.Signing.PublicKey), pkg.Manifest, pkg.Signing.Signature)
+	manifest, err := verifyManifest(pkg.Manifest, pkg.Signing)
 	if err != nil {
-		return nil, fmt.Errorf("evidence: public key: %w", err)
-	}
-	if !ok {
-		return nil, errors.New("evidence: manifest signature does not verify")
-	}
-	var manifest Manifest
-	if err := json.Unmarshal(pkg.Manifest, &manifest); err != nil {
-		return nil, fmt.Errorf("evidence: malformed manifest: %w", err)
-	}
-	if manifest.Contract != ContractVersion || manifest.PackageID == "" || manifest.TenantScopeDigest == "" {
-		return nil, errors.New("evidence: manifest contract or identity is invalid")
+		return nil, err
 	}
 
 	attachmentIDs := make(map[string]bool, len(pkg.Attachments))
@@ -343,35 +327,67 @@ func Verify(raw []byte) (*Manifest, error) {
 		}
 		attachmentIDs[attachment.Digest] = true
 	}
+	if err := verifyReferences(*manifest, attachmentIDs); err != nil {
+		return nil, err
+	}
+	return manifest, nil
+}
+
+func verifyManifest(raw json.RawMessage, signing Signing) (*Manifest, error) {
+	if signing.Algorithm != SignatureAlg {
+		return nil, fmt.Errorf("evidence: unsupported signature algorithm %q", signing.Algorithm)
+	}
+	if got := digest([]byte(signing.PublicKey)); got != signing.Fingerprint {
+		return nil, errors.New("evidence: signing-key fingerprint mismatch")
+	}
+	ok, err := crypto.VerifyEd25519([]byte(signing.PublicKey), raw, signing.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("evidence: public key: %w", err)
+	}
+	if !ok {
+		return nil, errors.New("evidence: manifest signature does not verify")
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil, fmt.Errorf("evidence: malformed manifest: %w", err)
+	}
+	if manifest.Contract != ContractVersion || manifest.PackageID == "" || manifest.TenantScopeDigest == "" {
+		return nil, errors.New("evidence: manifest contract or identity is invalid")
+	}
+
+	return &manifest, nil
+}
+
+func verifyReferences(manifest Manifest, attachmentIDs map[string]bool) error {
 	recordIDs := make(map[string]bool, len(manifest.Evidence))
 	for _, record := range manifest.Evidence {
 		if record.ID == "" || recordIDs[record.ID] || !attachmentIDs[record.AttachmentDigest] {
-			return nil, fmt.Errorf("evidence: record %q is duplicate or has no verified attachment", record.ID)
+			return fmt.Errorf("evidence: record %q is duplicate or has no verified attachment", record.ID)
 		}
 		if !validState(record.State) || !validProvenance(record.Provenance) {
-			return nil, fmt.Errorf("evidence: record %q has invalid state/provenance", record.ID)
+			return fmt.Errorf("evidence: record %q has invalid state/provenance", record.ID)
 		}
 		recordIDs[record.ID] = true
 	}
 	statementIDs := map[string]bool{}
 	for _, statement := range manifest.Statements {
 		if statement.ID == "" || statementIDs[statement.ID] || strings.TrimSpace(statement.Text) == "" {
-			return nil, errors.New("evidence: invalid or duplicate statement")
+			return errors.New("evidence: invalid or duplicate statement")
 		}
 		statementIDs[statement.ID] = true
 		if statement.Class != "fact" && statement.Class != "inference" && statement.Class != "unknown" {
-			return nil, fmt.Errorf("evidence: statement %q has invalid class", statement.ID)
+			return fmt.Errorf("evidence: statement %q has invalid class", statement.ID)
 		}
 		if statement.Class == "fact" && len(statement.EvidenceIDs) == 0 {
-			return nil, fmt.Errorf("evidence: factual statement %q is ungrounded", statement.ID)
+			return fmt.Errorf("evidence: factual statement %q is ungrounded", statement.ID)
 		}
 		for _, id := range statement.EvidenceIDs {
 			if !recordIDs[id] {
-				return nil, fmt.Errorf("evidence: statement %q refers to unknown evidence %q", statement.ID, id)
+				return fmt.Errorf("evidence: statement %q refers to unknown evidence %q", statement.ID, id)
 			}
 		}
 	}
-	return &manifest, nil
+	return nil
 }
 
 func digest(raw []byte) string { return DigestAlgorithm + ":" + hex.EncodeToString(crypto.Hash(raw)) }

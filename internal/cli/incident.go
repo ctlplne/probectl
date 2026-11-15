@@ -26,6 +26,10 @@ import (
 
 const maxEvidencePackageBytes = 64 << 20
 
+// Complete monthly claim packages carry every original receipt; the offline
+// file allowance is independent of the incident HTTP response buffer.
+const defaultOfflineEvidencePackageBytes int64 = 1 << 30
+
 func cmdIncident(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" {
 		printIncidentUsage(stderr)
@@ -166,7 +170,12 @@ func cmdIncidentVerify(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("incident verify", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	trusted := fs.String("trusted-key-fingerprint", "", "expected out-of-band signer fingerprint")
+	maximum := fs.Int64("max-bytes", defaultOfflineEvidencePackageBytes, "positive complete offline package byte admission")
 	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if *maximum <= 0 || *maximum == int64(^uint64(0)>>1) {
+		fmt.Fprintln(stderr, "incident verify: max-bytes must be positive and sentinel-safe")
 		return 2
 	}
 	if len(fs.Args()) != 0 {
@@ -177,10 +186,15 @@ func cmdIncidentVerify(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	if info.Size() > maxEvidencePackageBytes {
-		return fail(stderr, fmt.Errorf("evidence package exceeds %d bytes", maxEvidencePackageBytes))
+	if info.Size() > *maximum {
+		return fail(stderr, fmt.Errorf("evidence package exceeds %d bytes; raise --max-bytes for the complete intended package", *maximum))
 	}
-	raw, err := os.ReadFile(path)
+	file, err := os.Open(path)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	defer file.Close() //nolint:errcheck // the complete bounded read reports file failures
+	raw, err := httpbody.ReadLimited(file, *maximum)
 	if err != nil {
 		return fail(stderr, err)
 	}

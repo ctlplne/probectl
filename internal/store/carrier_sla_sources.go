@@ -29,7 +29,9 @@ func (*EntityRegistry) CarrierSLAConfiguredTestsInScope(ctx context.Context, sc 
 	if !ok || bound != sc.Tenant || sc.Q == nil || authorize == nil {
 		return nil, entity.ErrScopeMismatch
 	}
-	if err := requireRoutingCaptureReadSnapshot(ctx, sc); err != nil {
+	// Current metadata may also be rechecked under the canonical tenant audit
+	// lock during report publication; the common guard verifies that real lock.
+	if err := requireReportSourceReadScope(ctx, sc); err != nil {
 		return nil, err
 	}
 	if _, err := validRegistryUUID(agreement); err != nil {

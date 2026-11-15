@@ -26,26 +26,15 @@ func (s *Server) prepareCarrierSLAClaim(op capacityAgreementOperation, input flo
 	if int64(len(input.Selections)) > op.budget.MemoryBytes/4096 {
 		return none, nil, store.ErrClientReportBudget
 	}
-	readBytes, readRows, memory := op.budget.ReadBytes, int64(op.budget.ReadRows), op.budget.MemoryBytes/2
-	op.chargeRead = func(bytes, rows int64) error {
-		if bytes < 0 || rows < 0 || bytes > readBytes || rows > readRows {
-			return store.ErrClientReportBudget
-		}
-		readBytes -= bytes
-		readRows -= rows
-		return op.request.Context().Err()
-	}
-	op.chargeRetained = func(bytes int64) error {
-		if bytes < 0 || bytes > memory/16 {
-			return store.ErrClientReportBudget
-		}
-		memory -= bytes * 16
-		return op.request.Context().Err()
-	}
+	op = withCarrierSLAClaimBudget(op)
 	statements := make([]flow.CarrierSLAStatement, 0, len(input.Selections))
 	requirements := make([]carrierSLAClaimRequirement, 0, len(input.Selections))
+	capture := op.captureSLA
 	op.captureSLA = func(agreement flow.CapacityAgreement, sources []store.IncidentConfiguredTest) {
 		requirements = append(requirements, carrierSLAClaimRequirement{agreement, sources})
+		if capture != nil {
+			capture(agreement, sources)
+		}
 	}
 	checks := make([]func(context.Context) error, 0, len(input.Selections))
 	for _, selection := range input.Selections {
@@ -56,7 +45,7 @@ func (s *Server) prepareCarrierSLAClaim(op capacityAgreementOperation, input flo
 		statements = append(statements, statement)
 		checks = append(checks, check)
 	}
-	result, err := flow.GroupCarrierSLAClaims(op.request.Context(), statements, memory, op.budget.ReadBytes/4)
+	result, err := flow.GroupCarrierSLAClaims(op.request.Context(), statements, op.retainedRemaining(), op.budget.ReadBytes/4)
 	if err != nil {
 		return none, nil, err
 	}
@@ -76,4 +65,28 @@ func (s *Server) prepareCarrierSLAClaim(op capacityAgreementOperation, input flo
 		})
 	}
 	return result, publication, nil
+}
+
+func withCarrierSLAClaimBudget(op capacityAgreementOperation) capacityAgreementOperation {
+	if op.chargeRead != nil && op.chargeRetained != nil && op.retainedRemaining != nil {
+		return op
+	}
+	readBytes, readRows, memory := op.budget.ReadBytes, int64(op.budget.ReadRows), op.budget.MemoryBytes/2
+	op.chargeRead = func(bytes, rows int64) error {
+		if bytes < 0 || rows < 0 || bytes > readBytes || rows > readRows {
+			return store.ErrClientReportBudget
+		}
+		readBytes -= bytes
+		readRows -= rows
+		return op.request.Context().Err()
+	}
+	op.chargeRetained = func(bytes int64) error {
+		if bytes < 0 || bytes > memory/16 {
+			return store.ErrClientReportBudget
+		}
+		memory -= bytes * 16
+		return op.request.Context().Err()
+	}
+	op.retainedRemaining = func() int64 { return memory }
+	return op
 }

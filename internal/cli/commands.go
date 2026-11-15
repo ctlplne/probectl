@@ -361,6 +361,7 @@ func dashboardImport(cfg Config, args []string, stdin io.Reader, stdout, stderr 
 	filename := fs.String("file", "-", "manifest path, or - for stdin")
 	confirm := fs.Bool("confirm", false, "create the dashboard after server validation; otherwise preview only")
 	bindingsFile := fs.String("source-bindings-file", "", "destination source slot bindings JSON file (never stdin)")
+	financialFile := fs.String("agreement-bindings-file", "", "destination recorded agreement slot bindings JSON file (never stdin)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -375,12 +376,15 @@ func dashboardImport(cfg Config, args []string, stdin io.Reader, stdout, stderr 
 		return 2
 	}
 	payload := map[string]any{"manifest": json.RawMessage(manifest), "confirm": *confirm}
-	if *bindingsFile != "" {
-		if *bindingsFile == "-" {
+	for _, bindingFile := range []struct{ path, key string }{{*bindingsFile, "source_bindings"}, {*financialFile, "agreement_bindings"}} {
+		if bindingFile.path == "" {
+			continue
+		}
+		if bindingFile.path == "-" {
 			fmt.Fprintln(stderr, "dashboard import: source bindings must use a file; stdin is reserved for the manifest")
 			return 2
 		}
-		data, err := readDashboardManifest(*bindingsFile, nil)
+		data, err := readDashboardManifest(bindingFile.path, nil)
 		if err != nil {
 			fmt.Fprintln(stderr, "dashboard import source bindings: "+err.Error())
 			return 2
@@ -390,7 +394,7 @@ func dashboardImport(cfg Config, args []string, stdin io.Reader, stdout, stderr 
 			fmt.Fprintln(stderr, "dashboard import: source bindings must be a JSON object")
 			return 2
 		}
-		payload["source_bindings"] = bindings
+		payload[bindingFile.key] = bindings
 	}
 	var out any
 	if err := newClient(cfg).do(http.MethodPost, "/v1/dashboard-manifests/import", payload, &out); err != nil {

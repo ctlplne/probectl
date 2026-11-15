@@ -129,16 +129,19 @@ func cleanDashboardCreate(req dashboardCreateRequest) (dashboardCreateRequest, e
 }
 
 func cleanDashboardDefinition(d *dashboardDefinition) error {
+	if err := cleanCarrierSLAReportDefinition(d); err != nil {
+		return err
+	}
 	if err := cleanClientReportDefinition(d); err != nil {
 		return err
 	}
 	if err := cleanDashboardFlowSources(d); err != nil {
 		return err
 	}
-	if d.ClientReport == nil && len(d.FlowSources) == 0 && (d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.After(d.AbsoluteFrom)) {
+	if d.CarrierClaim == nil && d.ClientReport == nil && len(d.FlowSources) == 0 && (d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.After(d.AbsoluteFrom)) {
 		return apierror.Validation("definition requires an absolute_from earlier than absolute_to")
 	}
-	if d.ClientReport == nil && len(d.FlowSources) == 0 && d.AbsoluteTo.Sub(d.AbsoluteFrom) > 366*24*time.Hour {
+	if d.CarrierClaim == nil && d.ClientReport == nil && len(d.FlowSources) == 0 && d.AbsoluteTo.Sub(d.AbsoluteFrom) > 366*24*time.Hour {
 		return apierror.Validation("dashboard time range may not exceed 366 days")
 	}
 	d.RedactionState = strings.TrimSpace(d.RedactionState)
@@ -186,7 +189,7 @@ func dashboardManifestToCreate(manifest dashboardManifest) (dashboardCreateReque
 	return dashboardManifestToCreateBound(manifest, nil)
 }
 
-func dashboardManifestToCreateBound(manifest dashboardManifest, bindings map[string]reportFlowSourceRef) (dashboardCreateRequest, error) {
+func dashboardManifestToCreateBound(manifest dashboardManifest, bindings map[string]reportFlowSourceRef, financial ...map[string]reporting.CarrierSLAReportAgreementBinding) (dashboardCreateRequest, error) {
 	if manifest.APIVersion != dashboardManifestVersion {
 		return dashboardCreateRequest{}, apierror.Validation(
 			"unsupported dashboard manifest api_version; expected " + dashboardManifestVersion,
@@ -199,6 +202,10 @@ func dashboardManifestToCreateBound(manifest dashboardManifest, bindings map[str
 		return dashboardCreateRequest{}, apierror.Validation("dashboard definition may contain at most 100 exact metrics")
 	}
 	refs, err := dashboardManifestSourceRefs(manifest.Spec.Definition.FlowSources, bindings)
+	if err != nil {
+		return dashboardCreateRequest{}, err
+	}
+	claims, err := bindCarrierSLAReportManifest(manifest.Spec.Definition.CarrierClaim, financial)
 	if err != nil {
 		return dashboardCreateRequest{}, err
 	}
@@ -215,6 +222,7 @@ func dashboardManifestToCreateBound(manifest dashboardManifest, bindings map[str
 		Preset: manifest.Spec.Preset,
 		Shared: manifest.Spec.Shared,
 		Definition: dashboardDefinition{
+			CarrierClaim: claims,
 			ClientReport: manifest.Spec.Definition.ClientReport, FlowSources: refs,
 			AbsoluteFrom:        manifest.Spec.Definition.AbsoluteFrom,
 			AbsoluteTo:          manifest.Spec.Definition.AbsoluteTo,
@@ -244,6 +252,7 @@ func dashboardCreateToManifest(req dashboardCreateRequest) dashboardManifest {
 			Preset: req.Preset,
 			Shared: req.Shared,
 			Definition: dashboardManifestDefinition{
+				CarrierClaim: portableCarrierSLAReportDefinition(req.Definition.CarrierClaim),
 				ClientReport: req.Definition.ClientReport, FlowSources: dashboardManifestSourceSlots(req.Definition.FlowSources),
 				AbsoluteFrom:        req.Definition.AbsoluteFrom,
 				AbsoluteTo:          req.Definition.AbsoluteTo,
@@ -292,6 +301,10 @@ func sanitizeDashboardCreate(req dashboardCreateRequest, identities ...string) (
 }
 
 func dashboardManifestPreviewFor(req dashboardCreateRequest) dashboardManifestPreview {
+	sourceCount := len(req.Definition.FlowSources)
+	if req.Definition.CarrierClaim != nil {
+		sourceCount += len(req.Definition.CarrierClaim.Selections)
+	}
 	return dashboardManifestPreview{
 		Name:                    req.Name,
 		Preset:                  req.Preset,
@@ -299,7 +312,7 @@ func dashboardManifestPreviewFor(req dashboardCreateRequest) dashboardManifestPr
 		AbsoluteFrom:            req.Definition.AbsoluteFrom,
 		AbsoluteTo:              req.Definition.AbsoluteTo,
 		MetricCount:             len(req.Definition.Metrics),
-		SourceCount:             len(req.Definition.FlowSources),
+		SourceCount:             sourceCount,
 		ProvenanceCount:         len(req.Definition.Provenance),
 		CoverageLimitationCount: len(req.Definition.CoverageLimitations),
 	}
@@ -319,6 +332,11 @@ func dashboardManifestFromView(view *store.DashboardView) (dashboardManifest, er
 	identities := []string{view.TenantID, view.OwnerID}
 	for _, ref := range clean.Definition.FlowSources {
 		identities = append(identities, ref.ID)
+	}
+	if clean.Definition.CarrierClaim != nil {
+		for _, selection := range clean.Definition.CarrierClaim.Selections {
+			identities = append(identities, selection.AgreementID)
+		}
 	}
 	clean, err = sanitizeDashboardCreate(clean, identities...)
 	if err != nil {
@@ -350,6 +368,9 @@ func (s *Server) handleCreateDashboard(w http.ResponseWriter, r *http.Request) e
 			return err
 		}
 		if err := s.validateDashboardFlowSourceRefs(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.FlowSources); err != nil {
+			return tagQueryResponseError(w, err)
+		}
+		if err := s.validateDashboardCarrierClaimRefs(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.CarrierClaim); err != nil {
 			return tagQueryResponseError(w, err)
 		}
 		created, err := (store.DashboardReports{}).CreateView(ctx, sc, store.DashboardViewInput{
@@ -429,7 +450,7 @@ func (s *Server) handleImportDashboardManifest(w http.ResponseWriter, r *http.Re
 	if err := decodeJSONLimit(r, maxDashboardManifestBytes, &body); err != nil {
 		return err
 	}
-	clean, err := dashboardManifestToCreateBound(body.Manifest, body.SourceBindings)
+	clean, err := dashboardManifestToCreateBound(body.Manifest, body.SourceBindings, body.AgreementBindings)
 	if err != nil {
 		return err
 	}
@@ -440,6 +461,9 @@ func (s *Server) handleImportDashboardManifest(w http.ResponseWriter, r *http.Re
 			return err
 		}
 		if err := s.validateDashboardFlowSourceRefs(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.FlowSources); err != nil {
+			return tagQueryResponseError(w, err)
+		}
+		if err := s.validateDashboardCarrierClaimRefs(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.CarrierClaim); err != nil {
 			return tagQueryResponseError(w, err)
 		}
 		sanitized, err := sanitizeDashboardCreate(clean, sc.Tenant.String(), dashboardActorID(r))
@@ -786,7 +810,7 @@ func (s *Server) generateDashboardReportWithStager(r *http.Request, req reportGe
 		return nil, err
 	}
 
-	if len(definition.FlowSources) > 0 || definition.ClientReport != nil {
+	if len(definition.FlowSources) > 0 || definition.ClientReport != nil || definition.CarrierClaim != nil {
 		metadata, err := s.generateSourceDashboardReport(r, req, view, definition, tenantName, capturedTenant)
 		if err != nil {
 			return nil, err

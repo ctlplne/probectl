@@ -41,6 +41,9 @@ func cleanClientReportDefinition(d *dashboardDefinition) error {
 }
 
 func (s *Server) captureConfiguredReportSources(ctx context.Context, actor *auth.Principal, definition dashboardDefinition, at time.Time) (*reportFlowCapture, error) {
+	if definition.CarrierClaim != nil {
+		return s.captureCarrierSLAReport(ctx, actor, *definition.CarrierClaim, at)
+	}
 	if definition.ClientReport == nil {
 		return s.captureReportFlowSources(ctx, actor, definition.FlowSources)
 	}
@@ -57,6 +60,12 @@ func (s *Server) captureConfiguredReportSources(ctx context.Context, actor *auth
 }
 
 func revalidateMonthlyReportOriginals(ctx context.Context, capture *reportFlowCapture) error {
+	if len(capture.Claims) > 0 {
+		if capture.claimCapture == nil || capture.claimCapture.publication == nil {
+			return errReportSourceRequirements
+		}
+		return capture.claimCapture.publication(ctx)
+	}
 	if capture.Monthly == nil {
 		return nil
 	}

@@ -19036,6 +19036,94 @@
           }
         }
       },
+      "CarrierSLAReportSelection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agreement_id",
+          "version"
+        ],
+        "properties": {
+          "agreement_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "An instant selecting a billing period. Omit for the previous complete period in this exact recorded revision\u2019s billing calendar."
+          }
+        }
+      },
+      "CarrierSLAReportDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "selections"
+        ],
+        "properties": {
+          "selections": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/CarrierSLAReportSelection"
+            }
+          }
+        },
+        "description": "Human-reviewed signed monthly carrier claim report. Exact recorded agreement revisions, complete selected original receipt populations and current financial/source access; no automatic submission or inferred continuous availability."
+      },
+      "CarrierSLAReportManifestDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "selections"
+        ],
+        "properties": {
+          "selections": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "slot"
+              ],
+              "properties": {
+                "slot": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
+      "CarrierSLAReportAgreementBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agreement_id",
+          "version"
+        ],
+        "properties": {
+          "agreement_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          }
+        }
+      },
       "DashboardDefinition": {
         "type": "object",
         "additionalProperties": false,
@@ -19116,9 +19204,19 @@
                 "type": "null"
               }
             ]
+          },
+          "carrier_claim": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CarrierSLAReportDefinition"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants.",
+        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority.",
         "oneOf": [
           {
             "required": [
@@ -19140,7 +19238,16 @@
                   "type": "object"
                 }
               }
-            }
+            },
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "carrier_claim"
+                  ]
+                }
+              }
+            ]
           },
           {
             "required": [
@@ -19169,7 +19276,16 @@
                   "type": "object"
                 }
               }
-            }
+            },
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "carrier_claim"
+                  ]
+                }
+              }
+            ]
           },
           {
             "required": [
@@ -19188,6 +19304,44 @@
               "client_report": {
                 "$ref": "#/components/schemas/ClientReportDefinition"
               }
+            },
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "carrier_claim"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "required": [
+              "carrier_claim"
+            ],
+            "properties": {
+              "carrier_claim": {
+                "$ref": "#/components/schemas/CarrierSLAReportDefinition"
+              },
+              "metrics": {
+                "maxProperties": 0
+              },
+              "flow_sources": {
+                "maxItems": 0
+              },
+              "absolute_from": {
+                "const": "0001-01-01T00:00:00Z",
+                "description": "Canonical empty bound emitted by typed configurations; actual claim periods are derived at execution."
+              },
+              "absolute_to": {
+                "const": "0001-01-01T00:00:00Z",
+                "description": "Canonical empty bound emitted by typed configurations; actual claim periods are derived at execution."
+              }
+            },
+            "not": {
+              "required": [
+                "client_report"
+              ]
             }
           }
         ]
@@ -19370,9 +19524,19 @@
                 "type": "null"
               }
             ]
+          },
+          "carrier_claim": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CarrierSLAReportManifestDefinition"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "description": "Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants.",
+        "description": "Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds, metrics and flow_sources. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority.",
         "oneOf": [
           {
             "required": [
@@ -19393,7 +19557,16 @@
                   "type": "object"
                 }
               }
-            }
+            },
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "carrier_claim"
+                  ]
+                }
+              }
+            ]
           },
           {
             "required": [
@@ -19422,7 +19595,16 @@
                   "type": "object"
                 }
               }
-            }
+            },
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "carrier_claim"
+                  ]
+                }
+              }
+            ]
           },
           {
             "required": [
@@ -19441,6 +19623,44 @@
               "client_report": {
                 "$ref": "#/components/schemas/ClientReportDefinition"
               }
+            },
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "carrier_claim"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "required": [
+              "carrier_claim"
+            ],
+            "properties": {
+              "carrier_claim": {
+                "$ref": "#/components/schemas/CarrierSLAReportManifestDefinition"
+              },
+              "metrics": {
+                "maxProperties": 0
+              },
+              "flow_sources": {
+                "maxItems": 0
+              },
+              "absolute_from": {
+                "const": "0001-01-01T00:00:00Z",
+                "description": "Canonical empty bound emitted by typed configurations; actual claim periods are derived at execution."
+              },
+              "absolute_to": {
+                "const": "0001-01-01T00:00:00Z",
+                "description": "Canonical empty bound emitted by typed configurations; actual claim periods are derived at execution."
+              }
+            },
+            "not": {
+              "required": [
+                "client_report"
+              ]
             }
           }
         ]
@@ -19547,6 +19767,13 @@
                 }
               }
             }
+          },
+          "agreement_bindings": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CarrierSLAReportAgreementBinding"
+            },
+            "description": "Explicit destination-tenant financial bindings for every carrier_claim slot; no inferred identities or read grants."
           }
         }
       },
