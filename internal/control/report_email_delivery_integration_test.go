@@ -44,10 +44,11 @@ type reportMailReceipt struct {
 	messageID string
 }
 type reportMailProbe struct {
-	transport alert.AttachmentMailSender
-	fail      map[string]bool
-	attempts  map[string][]string
-	sent      map[string][]reportMailReceipt
+	transport       alert.AttachmentMailSender
+	minimumDeadline time.Duration
+	fail            map[string]bool
+	attempts        map[string][]string
+	sent            map[string][]reportMailReceipt
 }
 
 func (*reportMailProbe) Send(context.Context, []string, string, string) error {
@@ -56,6 +57,11 @@ func (*reportMailProbe) Send(context.Context, []string, string, string) error {
 func (m *reportMailProbe) SendAttachment(ctx context.Context, to []string, subject string, attachment alert.MailAttachment) error {
 	if _, ok := tenancy.FromContext(ctx); !ok {
 		return errors.New("mail lost tenant context")
+	}
+	if m.minimumDeadline > 0 {
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) < m.minimumDeadline {
+			return errors.New("complete report delivery lost its configured operation deadline")
+		}
 	}
 	body, err := io.ReadAll(attachment.Body)
 	if err != nil {
@@ -84,7 +90,8 @@ func TestReportEmailRetainsRetryTenantAndCurrentSourceAuthority(t *testing.T) {
 	d := seedDependencyRoutingFixture(t)
 	f := d.f
 	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
-	mailer := &reportMailProbe{fail: map[string]bool{"client-a@example.test": true}, attempts: map[string][]string{}, sent: map[string][]reportMailReceipt{}}
+	f.server.cfg.ReportOperationTimeout = 2 * time.Minute
+	mailer := &reportMailProbe{minimumDeadline: 90 * time.Second, fail: map[string]bool{"client-a@example.test": true}, attempts: map[string][]string{}, sent: map[string][]reportMailReceipt{}}
 	caFile, serverTLS := alertTestCA(t, "localhost")
 	relay := testsupport.StartSMTPServer(t, serverTLS, "reports", "test-only-relay-proof")
 	_, port, err := net.SplitHostPort(relay.Addr)

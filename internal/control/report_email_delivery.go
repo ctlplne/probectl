@@ -27,8 +27,8 @@ func (s *DashboardReportSupervisor) deliverTenantReportEmails(ctx context.Contex
 		return nil
 	}
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(tenant))
-	budget := flowstore.ExplorerQueryBudget(s.sourceServer.flowStore)
-	if err := budget.Validate(); err != nil {
+	budget, err := s.sourceServer.sourceReportBudget()
+	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
@@ -62,8 +62,8 @@ func (s *DashboardReportSupervisor) deliverTenantReportEmails(ctx context.Contex
 
 func (s *DashboardReportSupervisor) deliverReportEmail(ctx context.Context, item store.PendingReportEmail, now time.Time) error {
 	server := s.sourceServer
-	budget := flowstore.ExplorerQueryBudget(server.flowStore)
-	if err := budget.Validate(); err != nil {
+	budget, err := server.sourceReportBudget()
+	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
