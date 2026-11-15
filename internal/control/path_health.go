@@ -7,7 +7,6 @@
 package control
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -307,19 +306,19 @@ func (s *Server) revalidatePathHealth(query *pathHealthOperation, binding store.
 	if err != nil {
 		return err
 	}
+	var claims []entity.Claim
 	for _, item := range items {
 		alias, err := (entity.AliasKey{Kind: entity.AddressAlias, Value: item.IP}).Normalize()
 		if err != nil {
 			continue
 		}
-		before, err := json.Marshal(item.Resolution)
-		if err != nil {
-			return err
-		}
-		after, err := json.Marshal(resolved[alias.Value])
-		if err != nil || !bytes.Equal(before, after) {
+		if !samePathAddressIdentity(item.Resolution, resolved[alias.Value]) {
 			return apierror.Unavailable("path identity changed during health read; retry")
 		}
+		claims = append(claims, item.Resolution.Candidates...)
+	}
+	if err := registry.CheckCurrentAddressClaims(ctx, binding.Scope, claims, query.op.budget.MemoryBytes); err != nil {
+		return err
 	}
 	budget := flowstore.CounterBudget{MemoryBytes: query.op.budget.MemoryBytes, WorkUnits: query.op.budget.MemoryBytes, Timeout: query.op.budget.ExecutionLimit}
 	if err := s.revalidatePathConfigReferences(query); err != nil {
@@ -339,6 +338,22 @@ func (s *Server) revalidatePathHealth(query *pathHealthOperation, binding store.
 		}
 	}
 	return ctx.Err()
+}
+
+// Receipt freshness is checked separately against the original stored rows.
+// Compare today's canonical candidate set without replacing original citations
+// merely because a trusted poll has refreshed the same device address.
+func samePathAddressIdentity(before, current entity.Resolution) bool {
+	if before.Scope != current.Scope || before.Alias != current.Alias || before.Status != current.Status || before.EntityID != current.EntityID ||
+		before.MoreCandidates != current.MoreCandidates || len(before.Candidates) != len(current.Candidates) {
+		return false
+	}
+	for i, candidate := range before.Candidates {
+		if candidate.EntityID != current.Candidates[i].EntityID || candidate.EntityKind != current.Candidates[i].EntityKind {
+			return false
+		}
+	}
+	return true
 }
 
 // REST has the original bearer/session on its request. MCP independently

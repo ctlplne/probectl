@@ -18,8 +18,10 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/ai"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/path"
 	"github.com/ctlplne/probectl/internal/store"
@@ -138,6 +140,64 @@ func TestPathHealthRCAUsesCompleteCurrentOwnedSnapshot(t *testing.T) {
 	}
 	read(0)
 	read(1)
+	// An otherwise valid local claim cannot borrow the sibling's receipt ID.
+	var localClaims []entity.Claim
+	for lane, tenant := range f.tenants {
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		scope := entity.Scope{TenantID: tenant, ContextID: f.contextID}
+		registry := store.NewEntityRegistry(f.pool)
+		resolved, err := registry.ResolveAddresses(ctx, scope, []string{"10.42.0.2"})
+		if err != nil || len(resolved["10.42.0.2"].Candidates) != 1 {
+			t.Fatal("current address receipt isolation control", err)
+		}
+		claims := resolved["10.42.0.2"].Candidates
+		if err := registry.CheckCurrentAddressClaims(ctx, scope, claims, 8<<20); err != nil {
+			t.Fatal("current owned address receipt refused", err)
+		}
+		if lane == 0 {
+			localClaims = append([]entity.Claim(nil), claims...)
+			continue
+		}
+		localClaims[0].EvidenceID = claims[0].EvidenceID
+		localCtx := tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[0]))
+		if err := registry.CheckCurrentAddressClaims(localCtx, localClaims[0].Scope, localClaims, 8<<20); err == nil {
+			t.Fatal("foreign receipt satisfied an owned path citation")
+		}
+	}
+	// A routine trusted poll can select a newer address receipt while synthesis
+	// is in progress. Keep the exact original evidence in this answer and
+	// require both that receipt and today's unique identity to remain current.
+	for lane, tenant := range f.tenants {
+		model.after = func() {
+			model.after = nil
+			f.poll(tenant, "refreshed same path interface", roleExplanationPrefixes())
+		}
+		read(lane)
+	}
+	// A fresh replacement is not authority to publish an expired original
+	// citation captured before synthesis. The sibling must remain readable.
+	for lane, tenant := range f.tenants {
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		registry := store.NewEntityRegistry(f.pool)
+		resolutions, err := registry.ResolveAddresses(ctx, entity.Scope{TenantID: tenant, ContextID: f.contextID}, []string{"10.42.0.2"})
+		if err != nil || len(resolutions["10.42.0.2"].Candidates) == 0 {
+			t.Fatal("original address receipt control", err)
+		}
+		claims := resolutions["10.42.0.2"].Candidates
+		model.after = func() {
+			model.after = nil
+			f.poll(tenant, "live replacement cannot revive original", roleExplanationPrefixes())
+			f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+				_, err := sc.Q.Exec(ctx, `UPDATE entity_evidence SET expires_at=$3 WHERE tenant_id=$1 AND id=$2`, tenant, claims[0].EvidenceID, claims[0].ObservedAt.Add(time.Microsecond))
+				return err
+			})
+		}
+		if code, raw := call(tenant, proof.tests[tenant]); code == http.StatusOK || strings.Contains(string(raw), "capture_key") {
+			t.Fatal("fresh address receipt revived an expired original path citation", code)
+		}
+		read(1 - lane)
+		read(lane)
+	}
 	a, b := f.tenants[0], f.tenants[1]
 	before := model.calls
 	if code, raw := call(a, ""); code != http.StatusUnprocessableEntity || strings.Contains(string(raw), "capture_key") || model.calls != before {
