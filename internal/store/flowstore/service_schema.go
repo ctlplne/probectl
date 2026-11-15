@@ -29,7 +29,7 @@ func serviceRollupSelect(source string) (columns, selection string) {
 }
 
 // v1–v9 remain immutable. Empty metadata on older inputs means unavailable
-// classification; never substitute today's range catalogue for past history.
+// classification; never substitute today's range catalog for past history.
 func serviceAttributionMigration(raw, rollup, oldView string) chmigrate.Migration {
 	var additions []string
 	for _, column := range serviceColumns {
