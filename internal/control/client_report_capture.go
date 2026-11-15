@@ -198,11 +198,15 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 	result.Tables = append(result.Tables, capacityTable)
 	if definition.Assessment != nil {
 		result.Tables[0].Title = "Assessment availability"
+		assessmentTables, err := projectClientAssessmentFindings(ctx, result, budget.MemoryBytes/32)
+		if err != nil {
+			return nil, err
+		}
 		columns := []reporting.CSVColumn{{Name: "prepared_by"}, {Name: "period_from"}, {Name: "period_to"}}
-		rows := [][]string{{definition.Assessment.Preparer, from.Format(time.RFC3339Nano), to.Format(time.RFC3339Nano)}}
-		scopeTable := sealedClientReportTable(result.TenantID, "client-assessment", "Assessment scope and preparer", from, to, columns, rows)
+		scopeTable := sealedClientReportTable(result.TenantID, "client-assessment", "Assessment scope and preparer", from, to, columns, [][]string{{definition.Assessment.Preparer, from.Format(time.RFC3339Nano), to.Format(time.RFC3339Nano)}})
 		scopeTable.Source = "Operator-provided assessment configuration"
 		result.Tables = append(result.Tables, scopeTable)
+		result.Tables = append(result.Tables, assessmentTables...)
 	}
 	digest := crypto.Hash(body)
 	for _, verdict := range result.Verdicts {

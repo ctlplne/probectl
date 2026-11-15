@@ -333,6 +333,13 @@ reader as calendar reports:
 
 The report retains these exact bounds and the preparer under tenant export
 policy. Collection and engagement lifecycle are configured separately.
+Assessment findings show exact failed-test counts, observed configured-SLO
+breaches and measured exceedances of explicit capacity thresholds, with links
+to their complete source sections, original digests and original windows.
+Coverage rows distinguish unknown outcomes, missing forecast samples and
+unconfigured measurement sections. They do not infer a security score, link
+speed, continuous uptime or complete scheduled coverage. These report sections
+do not yet capture inventory, physical topology or config/EOL/routing hygiene.
 
 An omitted month selects the previous complete calendar month in `timezone`
 (default `UTC`). Set `period` to `month_to_date` for the current month through
@@ -366,7 +373,7 @@ when importing to another tenant, supply that tenant's canonical references.
 Foreign references never acquire source authority through import.
 
 
-In **Saved views and report delivery**, choose **Build a monthly client pack**,
+In **Saved views and report delivery**, choose **Build a client report (preview)**,
 select the calendar period/timezone and add canonical capacity targets with
 explicit thresholds and physical member bounds. Save the view, then generate
 PDF/CSV or schedule it through the existing controls. Source drafts reset when
