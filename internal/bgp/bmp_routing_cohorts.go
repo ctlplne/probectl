@@ -92,8 +92,23 @@ func (l *BMPListener) stageRoutingCohort(ctx context.Context, writer bmpRoutingM
 		if receipt != nil {
 			views = len(receipt.Views)
 		}
+		cause, receiptStatus := "receipt", "missing"
+		if err != nil {
+			cause = "client"
+			if _, rpc := status.FromError(err); rpc {
+				cause = "rpc"
+			}
+		}
+		if receipt != nil {
+			switch receipt.Status {
+			case "staged", "replayed", "invalidated":
+				receiptStatus = receipt.Status
+			default:
+				receiptStatus = "invalid"
+			}
+		}
 		l.log.Warn("bmp routing staging unavailable; raw collection retained", "tenant_id", l.laneTenant, "agent_id", l.evidenceAgent,
-			"rpc_code", status.Code(err).String(), "receipt_views", views)
+			"cause", cause, "rpc_code", status.Code(err).String(), "receipt_status", receiptStatus, "receipt_views", views)
 		return
 	}
 	if existed && receipt.Status == "replayed" && previous.generation == attempt.generation && previous.familyMask == mask {

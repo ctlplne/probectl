@@ -110,6 +110,13 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 		putFRRSelectedRIBBinding(t, st, registration, source, primary, "", true)
 		source.reconnectBMP()
 	}
+	readPool := st.ApplicationReadPool(t)
+	t.Cleanup(func() {
+		if t.Failed() {
+			logFRRRoutingState(t, readPool, reg)
+			logFRRRoutingState(t, readPool, other)
+		}
+	})
 	assertRouterTenantSplit(t, st, reg, other, primary)
 	for _, id := range ids {
 		code, _ := st.Do(t, other.cookie, http.MethodGet, roleRouterPath(reg, id), nil)
