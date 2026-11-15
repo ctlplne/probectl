@@ -434,7 +434,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			}
 		}
 		foreign := tenancy.WithTenant(ctx, tenancy.ID(f.tenants[1-lane]))
-		if result, err := f.server.captureConfiguredClientReportSources(foreign, actors[tenant], reporting.ClientReportDefinition{}, at, flowstore.DefaultExplorerBudget()); !errors.Is(err, entity.ErrScopeMismatch) || result != nil {
+		if result, err := f.server.captureConfiguredClientReportSources(foreign, actors[tenant], reporting.ClientReportDefinition{}, at, reportBudget); !errors.Is(err, entity.ErrScopeMismatch) || result != nil {
 			t.Fatal("capture adopted another request's tenant", err)
 		}
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
@@ -465,7 +465,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		t.Fatal("stored monthly source withdrawal crossed tenant", code)
 	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(a))
-	result, err := f.server.captureConfiguredClientReportSources(ctx, actors[a], reporting.ClientReportDefinition{}, at, flowstore.DefaultExplorerBudget())
+	result, err := f.server.captureConfiguredClientReportSources(ctx, actors[a], reporting.ClientReportDefinition{}, at, reportBudget)
 	domain, ok := apierror.As(err)
 	if !ok || domain.Kind != apierror.KindForbidden || result != nil {
 		t.Fatal("stale actor retained withdrawn change permission or returned a test-only prefix", err)
@@ -478,7 +478,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		return err
 	})
 	ctx = tenancy.WithTenant(t.Context(), tenancy.ID(a))
-	result, err = f.server.captureConfiguredClientReportSources(ctx, actors[a], reporting.ClientReportDefinition{}, at, flowstore.DefaultExplorerBudget())
+	result, err = f.server.captureConfiguredClientReportSources(ctx, actors[a], reporting.ClientReportDefinition{}, at, reportBudget)
 	domain, ok = apierror.As(err)
 	if !ok || domain.Kind != apierror.KindForbidden || result != nil {
 		t.Fatal("stale actor retained withdrawn source permission or returned a partial capture", err)
@@ -490,7 +490,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	if err := finalizers[b](ctx); err != nil {
 		t.Fatal("another tenant's permission loss invalidated a retained signed verdict", err)
 	}
-	result, err = f.server.captureConfiguredClientReportSources(ctx, actors[b], reporting.ClientReportDefinition{}, at, flowstore.DefaultExplorerBudget())
+	result, err = f.server.captureConfiguredClientReportSources(ctx, actors[b], reporting.ClientReportDefinition{}, at, reportBudget)
 	if err != nil || result == nil || len(result.Availability) != 2 {
 		t.Fatal("permission withdrawal crossed tenant storage/current-authority boundary", err)
 	}
