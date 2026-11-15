@@ -21,6 +21,14 @@ sending your telemetry out:
 See [glossary](../glossary.md) for ASN, NetFlow / IPFIX / sFlow, and IPS
 (Intrusion Prevention System).
 
+The Flow Explorer also has a **Published service sources** inspector (preview).
+Enter an address and expand each source to see complete network candidates,
+original fetch/expiry clocks, version and digest. Vendor originals are local;
+looking up an address sends nothing to the publisher. Missing regions and clocks
+remain unknown, and shared dependencies cannot prove an exclusive application.
+See [published sources and stored service dimensions](../opendata-aup.md#published-service-range-input)
+for import formats, vendor scope, freshness and the remaining qualification.
+
 ## Why it exists
 
 Raw flow records and probe results carry IP addresses, not stories. "AS13335

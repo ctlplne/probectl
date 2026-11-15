@@ -135,11 +135,11 @@ capabilities:
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildEnrichment("]}
     api: {refs: ["api:GET /v1/opendata/enrichment"]}
     cli: {refs: ["cli:probectl opendata enrich"]}
-    ui: {refs: ["ui:F7@/outages"]}
+    ui: {refs: ["ui:F7@/outages", "ui:F7@/explore"]}
     docs: {refs: ["file:docs/features/open-data-and-outage.md#Open-data enrichment"]}
     config_keys: {refs: ["config:PROBECTL_FLOW_ENRICH_GEOIP_DB", "config:PROBECTL_FLOW_ENRICH_RIR_DIR", "config:PROBECTL_FLOW_ENRICH_SERVICE_FILE", "config:PROBECTL_FLOW_ENRICH_SERVICE_MAX_AGE", "config:PROBECTL_FLOW_ENRICH_SERVICE_MEMORY_BYTES"]}
     telemetry: {refs: ["file:internal/opendata"]}
-    real_stack_proof: {gap: "External network access may remain hermetic, but no real-stack receipt currently proves cached enrichment through the public API and UI with two-tenant scoping."}
+    real_stack_proof: {gap: "Paired PostgreSQL/HTTPS/Chromium proves the current source inspector; full real-sender, raw/retained ClickHouse and original connector/lifecycle qualification remain owed."}
     migration: *no_migration
 
   # F8's real-stack receipt evaluates threshold rules on real probe results

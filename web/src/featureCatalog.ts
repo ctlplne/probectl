@@ -72,9 +72,9 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F7',
     name: 'Open-data enrichment',
-    // Offline vendor ranges, including Zoom/Microsoft365 bundles, use the enrichment API;
-    // server-owned service query dimensions retain one-count traffic and original
-    // source metadata; remaining publishers and full qualification remain owed.
+    // Complete vendor originals include Azure, Zoom, Microsoft365 and scoped Slack
+    // dependencies. The source inspector shows current clocks/candidates; captured
+    // flow dimensions retain one-count traffic. Full sender/lifecycle qualification is owed.
     status: 'partial',
     source: 'contract:features',
   },

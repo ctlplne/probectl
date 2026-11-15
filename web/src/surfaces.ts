@@ -615,6 +615,23 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
+    capability:
+      'Published network-service source inspection and captured service dimensions (preview)',
+    featureIds: ['F7'],
+    sprint: 'FX-8',
+    kind: 'native',
+    route: '/explore',
+    offNav: true,
+    evidence: [
+      'file:web/src/routes/FlowServiceSources.tsx',
+      'file:web/src/test/flow-service-sources.test.tsx',
+      'file:internal/control/service_sources_served_integration_test.go',
+      'openapi:/v1/opendata/enrichment',
+      'cli:probectl opendata enrich',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
     capability: 'RUM convergence: real-user impact joined with synthetic coverage',
     featureIds: ['F20'],
     sprint: 'S47b',

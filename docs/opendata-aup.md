@@ -342,6 +342,14 @@ and retains its original clocks and status, making unknown attribution visible.
 Freshness is checked on every lookup, including a shared IP-cache hit. File
 mtime, restart and repeated lookups never renew the source's original fetch time.
 
+In the Flow Explorer, **Published service sources** looks up an IPv4 or IPv6
+address against the same local source index. Expand a publisher to inspect every
+matching candidate, its explicit region, original fetch/validity clocks, native
+version and body digest. A missing publication time or region stays unknown.
+The view removes expired matches while retaining their original metadata, clears
+the previous lookup on tenant/user/access changes, and makes no publisher calls.
+This is current source inspection; stored flow labels remain capture-time facts.
+
 ### Service attribution on stored flows
 
 The control plane derives `src_service`, `src_service_region`,
