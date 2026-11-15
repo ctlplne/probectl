@@ -95,6 +95,9 @@ func (s *Server) downloadDashboardReportArtifact(w http.ResponseWriter, r *http.
 	if err := s.currentReportTenant(ctx, actor.TenantID); err != nil {
 		return err
 	}
+	if err := s.revalidateReportCredential(r.WithContext(ctx)); err != nil {
+		return err
+	}
 	if err := s.auditVerifiedReportDownload(r.WithContext(ctx), actor, verified, capture); err != nil {
 		return reportArtifactReaderError(err)
 	}

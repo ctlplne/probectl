@@ -83,6 +83,9 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 	if err := revalidateMonthlyReportOriginals(ctx, capture); err != nil {
 		return nil, err
 	}
+	if err := s.revalidateReportCredential(r.WithContext(ctx)); err != nil {
+		return nil, err
+	}
 	id, err := crypto.UUIDv4()
 	if err != nil {
 		return nil, err

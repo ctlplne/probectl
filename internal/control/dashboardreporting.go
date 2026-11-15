@@ -828,6 +828,9 @@ func (s *Server) generateDashboardReportWithStager(r *http.Request, req reportGe
 		return nil, err
 	}
 	defer clear(content)
+	if err := s.revalidateReportCredential(r.WithContext(renderContext)); err != nil {
+		return nil, err
+	}
 	if err := renderContext.Err(); err != nil {
 		return nil, err
 	}
