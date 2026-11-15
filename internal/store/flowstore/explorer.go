@@ -20,7 +20,7 @@ const (
 	// Operators may lower or raise it; fairness and the other budgets still apply.
 	ExplorerExecutionLimit = time.Minute
 	// ExplorerReadBytes is a hard read budget, not a response truncation threshold.
-	ExplorerReadBytes = 256 * 1024 * 1024
+	ExplorerReadBytes = 1024 * 1024 * 1024
 	// ExplorerReadRows bounds rows examined by either backend.
 	ExplorerReadRows = 5000000
 	// ExplorerInterfaceLimit bounds the tenant-local device-name lookup.

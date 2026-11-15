@@ -25,6 +25,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/cli"
 	"github.com/ctlplne/probectl/internal/evidence"
 	"github.com/ctlplne/probectl/internal/flow"
@@ -216,6 +217,21 @@ func proveCarrierFinancialReportAuthority(t *testing.T, f *roleExplanationAPIFix
 		return (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permFlowAgreementsRead)
 	})
 	downloads(true, "restored")
+	request := httptest.NewRequest("GET", "/v1/dashboard-report-artifacts/"+proof.CSV, nil)
+	request.Header.Set("Authorization", "Bearer "+f.tokens[tenant])
+	actor := f.server.resolvePrincipal(request)
+	if actor == nil {
+		t.Fatal("current financial source-publication control did not authenticate")
+	}
+	var captured *reportFlowCapture
+	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		metadata, err := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, proof.CSV, f.users[tenant], 8<<20)
+		if err != nil {
+			return err
+		}
+		captured, err = parseReportSourceRequirements(ctx, metadata.SourceCapture, 8<<20)
+		return err
+	})
 	from, err := time.Parse(time.RFC3339Nano, agreement.Definition.ValidFrom)
 	if err != nil {
 		t.Fatal(err)
@@ -237,4 +253,17 @@ func proveCarrierFinancialReportAuthority(t *testing.T, f *roleExplanationAPIFix
 		t.Fatal("unchanged prior source-period no longer readable independently", err)
 	}
 	downloads(true, "future terms")
+	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := audit.LockTenantStream(ctx, sc.Q, tenant); err != nil {
+			return err
+		}
+		ctx = auth.WithPrincipal(ctx, actor)
+		if err := f.server.validateReportSourcePublication(ctx, sc, actor, captured); err == nil {
+			t.Fatal("a stale captured financial head acquired new publication authority")
+		}
+		if err := f.server.revalidateReportFlowCaptureScope(ctx, sc, actor, captured); err != nil {
+			t.Fatal("unchanged historical reader lost its current authority", err)
+		}
+		return nil
+	})
 }

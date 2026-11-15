@@ -396,6 +396,12 @@ added. Reads still require current financial and source permissions, the exact
 immutable terms covering the whole selected period, active source identity and
 all revocation, erasure and tenant checks.
 
+The source operation has a shared 1 GiB default read allowance for all selected
+circuits and their integrity replays. `PROBECTL_FLOW_QUERY_MAX_READ_BYTES` lets
+operators size this finite allowance for their complete selected workload.
+Tenant fairness, storage boundaries and all source checks apply to the whole
+pack; an incomplete artifact is refused.
+
 Each pack groups circuits by carrier, currency and billing calendar, shows every
 rule assessment and conditional credit, and includes the complete selected
 original measurement population in a signed `probectl-evidence/v1` envelope with

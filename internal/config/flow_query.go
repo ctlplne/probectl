@@ -14,7 +14,7 @@ func loadFlowQueryConfig(l *loader, cfg *Config) {
 	if cfg.FlowQueryExecutionLimit <= 0 || cfg.FlowQueryExecutionLimit > time.Duration(1<<63-1)/6 {
 		l.errf("PROBECTL_FLOW_QUERY_TIMEOUT: must be positive and fit the six-pass comparison envelope")
 	}
-	cfg.FlowQueryReadBytes = l.intRange("PROBECTL_FLOW_QUERY_MAX_READ_BYTES", 256<<20, 1, maxInt)
+	cfg.FlowQueryReadBytes = l.intRange("PROBECTL_FLOW_QUERY_MAX_READ_BYTES", 1<<30, 1, maxInt)
 	cfg.FlowQueryReadRows = l.intRange("PROBECTL_FLOW_QUERY_MAX_READ_ROWS", 5000000, 1, maxInt)
 	cfg.FlowQueryResponseBytes = l.intRange("PROBECTL_FLOW_QUERY_MAX_RESPONSE_BYTES", 64<<20, 1, maxInt)
 	cfg.FlowQueryMemoryBytes = l.intRange("PROBECTL_FLOW_QUERY_MAX_MEMORY_BYTES", 2<<30, 1, maxInt)
