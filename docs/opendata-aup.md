@@ -116,7 +116,7 @@ qualification remains outstanding.
 `PROBECTL_FLOW_ENRICH_SERVICE_FILE` imports complete original publisher JSON from
 an operator-supplied local cache. The current adapters accept `aws`, `google`
 (`goog.json`), `google_cloud` (`cloud.json`), `cloudflare` (the public `/ips` API)
-and the Salesforce, Azure, Zoom and Microsoft365 originals described below. Nothing is downloaded by this
+and the Salesforce, Azure, Zoom, Microsoft365 and Slack Huddles originals described below. Nothing is downloaded by this
 reader and no dataset ships with probectl. Source terms still apply to internal,
 MSP/provider and redistribution use; public access is not a resale licence.
 
@@ -180,6 +180,27 @@ The separate [Microsoft Cloud Germany is retired](https://learn.microsoft.com/en
 Its still-linked original is retained under `azure_germany` for provenance and
 inspection, without current service attribution. This is distinct from current
 German regions in the public Azure cloud.
+
+Slack sources were checked on 2026-11-15: the [Huddles network guide](https://slack.com/help/articles/36284146785427-Guide-to-network-and-system-configuration-for-Slack-huddles)
+publishes shared Amazon Chime media paths. `--publishers slack` selects this
+scoped original under ID `slack_huddles`. The adapter imports every native CIDR
+in that document's Huddles network-path lists, preserving the complete HTML,
+original body digest and fetch age. It supports both address families when
+published; it does not invent absent IPv6 coverage. Region and publication clock
+remain unknown and the version is explicitly a local `sha256:` content identity.
+Malformed or incomplete documents preserve the previous cache atomically.
+Source-specific local network use is described by the guide; Slack/Salesforce
+terms and rights remain applicable, with no dataset resale or redistribution
+grant asserted.
+
+These are **shared network dependencies**, not an exclusive Slack allocation.
+Matching candidates remain visible as `Slack Huddles network dependency`, but
+they cannot establish Slack application attribution. General [Slack network
+guidance](https://slack.com/help/articles/360001603387-Manage-Slack-connection-issues)
+uses authenticated per-workspace URL allowlists. Those are not a public bulk IP
+allocation: probectl does not resolve them, send account context, or turn general
+AWS/Salesforce hosting into a Slack label. Broader exclusive Slack attribution
+requires a suitable authoritative prefix source; unrelated flows remain unknown.
 
 Zoom sources were checked on 2026-11-15: the [network firewall/proxy guide](https://support.zoom.com/hc/en/article?id=zm_kb&sysparm_article=KB0060548)
 publishes the product/family TXT files for local operator network configuration.

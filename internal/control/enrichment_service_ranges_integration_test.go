@@ -57,6 +57,10 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 	}
 	path := filepath.Join(t.TempDir(), "complete.json")
 	publisher := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host == "slack.com" {
+			_, _ = w.Write([]byte(`<html><body><h3>Huddles network paths</h3><ul><li>Approve *.chime.aws or IP range 192.0.2.0/24</li></ul></body></html>`))
+			return
+		}
 		if r.Host == "www.microsoft.com" {
 			_, _ = w.Write([]byte(`<a href="https://download.microsoft.com/download/qa/ServiceTags_Public_20261109.json">Download</a>`))
 			return
@@ -103,7 +107,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 		forward.Host = req.URL.Host
 		return publisher.Client().Do(forward)
 	})
-	if err := opendata.FetchServiceRangeCacheWithOptions(t.Context(), path, []string{"aws", "cloudflare", "salesforce", "zoom_meetings_ipv4", "m365_worldwide", "azure_public"}, time.Hour, 16<<20, opendata.ServiceRangeFetchOptions{Microsoft365ClientRequestID: requestID}, download); err != nil {
+	if err := opendata.FetchServiceRangeCacheWithOptions(t.Context(), path, []string{"aws", "cloudflare", "salesforce", "zoom_meetings_ipv4", "m365_worldwide", "azure_public", "slack_huddles"}, time.Hour, 16<<20, opendata.ServiceRangeFetchOptions{Microsoft365ClientRequestID: requestID}, download); err != nil {
 		t.Fatal(err)
 	}
 	cached, err := os.ReadFile(path)
@@ -115,7 +119,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 			FetchedAt time.Time `json:"fetched_at"`
 		} `json:"sources"`
 	}
-	if err := json.Unmarshal(cached, &envelope); err != nil || len(envelope.Sources) != 6 {
+	if err := json.Unmarshal(cached, &envelope); err != nil || len(envelope.Sources) != 7 {
 		t.Fatal("complete bulk cache missing", err)
 	}
 	fetched = envelope.Sources[0].FetchedAt
@@ -150,7 +154,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 			t.Fatal("current tenant cannot read public source", err)
 		}
 		services, ok := value["services"].([]any)
-		if !ok || len(services) != 6 {
+		if !ok || len(services) != 7 {
 			t.Fatal("complete source missing", value)
 		}
 		byPublisher := map[string]map[string]any{}
@@ -192,6 +196,12 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 		_, inventedAzureClock := azure["published_at"]
 		if azure["publisher"] != "azure_public" || azure["status"] != "matched" || azure["version"] != "426" || inventedAzureClock || len(azureMatches) != 1 || azureMatches[0].(map[string]any)["service"] != "AzureStorage" || azureMatches[0].(map[string]any)["region"] != "eastus" {
 			t.Fatal("Azure native source lost its version/service/region or invented a publication clock", azure)
+		}
+		slack := byPublisher["slack_huddles"]
+		slackMatches := slack["matches"].([]any)
+		_, inventedSlackClock := slack["published_at"]
+		if slack["status"] != "matched" || inventedSlackClock || len(slackMatches) != 1 || slackMatches[0].(map[string]any)["service"] != "Slack Huddles network dependency" || slackMatches[0].(map[string]any)["region"] != "" {
+			t.Fatal("Slack scoped dependency source was lost or widened", slack)
 		}
 		if first != nil && !reflect.DeepEqual(first, value) {
 			t.Fatal("public cache changed between tenant readers", first, value)

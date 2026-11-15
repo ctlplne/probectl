@@ -41,8 +41,10 @@ func serviceRangePublisherURL(publisher string) (string, error) {
 		return "https://api.cloudflare.com/client/v4/ips", nil
 	case "salesforce":
 		return "https://ip-ranges.salesforce.com/ip-ranges.json", nil
+	case "slack_huddles":
+		return slackHuddlesRangeURL, nil
 	default:
-		return "", errors.New("supported range publishers are aws, google, google_cloud, cloudflare, salesforce, azure, zoom and m365 bundles or their documented individual IDs")
+		return "", errors.New("supported range publishers are aws, google, google_cloud, cloudflare, salesforce, azure, zoom, m365 and slack bundles or their documented individual IDs")
 	}
 }
 
@@ -144,6 +146,9 @@ func fetchServiceRangeInput(ctx context.Context, client Doer, publisher string, 
 	accept := "application/json"
 	if _, text := zoomRangePublishers[publisher]; text {
 		accept = "text/plain"
+	}
+	if publisher == "slack_huddles" {
+		accept = "text/html"
 	}
 	raw, fetched, err := fetchServiceRangeBody(ctx, client, endpoint, accept, limit)
 	if err != nil {

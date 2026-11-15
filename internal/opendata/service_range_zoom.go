@@ -53,6 +53,10 @@ var zoomRangePublishers = map[string]zoomRangePublisher{
 func expandServiceRangePublishers(publishers []string) []string {
 	var expanded []string
 	for _, publisher := range publishers {
+		if publisher == "slack" {
+			expanded = append(expanded, "slack_huddles")
+			continue
+		}
 		if publisher != "zoom" && publisher != "m365" && publisher != "azure" {
 			expanded = append(expanded, publisher)
 			continue
@@ -79,7 +83,7 @@ func expandServiceRangePublishers(publishers []string) []string {
 }
 
 func validateServiceRangeDocument(ctx context.Context, publisher string, raw []byte) error {
-	if _, text := zoomRangePublishers[publisher]; !text {
+	if _, text := zoomRangePublishers[publisher]; !text && publisher != "slack_huddles" {
 		return validateServiceJSON(ctx, raw)
 	}
 	if err := ctx.Err(); err != nil {

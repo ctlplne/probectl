@@ -72,6 +72,9 @@ func ClassifyServiceRanges(sources []ServiceRangeStatus, at time.Time) ServiceCl
 			continue
 		}
 		provider := source.Publisher
+		if source.Publisher == "slack_huddles" {
+			continue // shared Chime media paths do not prove the Slack application
+		}
 		if zoom, ok := zoomRangePublishers[source.Publisher]; ok {
 			if zoom.networkOnly {
 				continue // retain source candidates, without asserting exclusive app use

@@ -270,6 +270,8 @@ func parseServiceRangeDataset(ctx context.Context, input serviceRangeInput, maxA
 		err = parseCloudflareServiceRanges(ctx, input.Data, &dataset, remaining)
 	case "salesforce":
 		err = parseSalesforceServiceRanges(ctx, input.Data, &dataset, remaining)
+	case "slack_huddles":
+		err = parseSlackHuddlesServiceRanges(ctx, input.Data, &dataset, remaining)
 	default:
 		if source, ok := zoomRangePublishers[input.Publisher]; ok {
 			err = parseZoomServiceRanges(ctx, input.Data, &dataset, remaining, source)
