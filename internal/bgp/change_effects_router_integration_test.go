@@ -337,7 +337,7 @@ func awaitRouterTimelineRoute(t *testing.T, st *shipped.Stack, reg edgeFlowRegis
 	lastCode, selectedPrefix, selectedAction, selectedView := 0, 0, 0, 0
 	t.Cleanup(func() {
 		if t.Failed() {
-			t.Logf("routing timeline diagnostic: status=%d prefix_rows=%d action_rows=%d loc_rib_rows=%d", lastCode, selectedPrefix, selectedAction, selectedView)
+			t.Logf("routing timeline diagnostic: status=%d prefix_rows=%d action_rows=%d operator_loc_rib_rows=%d", lastCode, selectedPrefix, selectedAction, selectedView)
 		}
 	})
 	shipped.Await(t, "actual FRR "+action+" in its tenant timeline", time.Minute, func() bool {
@@ -359,12 +359,15 @@ func awaitRouterTimelineRoute(t *testing.T, st *shipped.Stack, reg edgeFlowRegis
 					selectedPrefix++
 					if item.Routing.Action == action {
 						selectedAction++
-						if item.Routing.View == "loc_rib" {
+						if item.Routing.View == "operator_loc_rib" {
 							selectedView++
 						}
 					}
 				}
-				if item.Routing == nil || item.Kind != change.KindRoute || item.Prefix != prefixA || item.Routing.Action != action || item.Routing.View != "loc_rib" {
+				// putFRRSelectedRIBBinding delegates this actual router through
+				// an operator binding. Its stored selected view is exactly
+				// operator_loc_rib, distinct from the base source's loc_rib.
+				if item.Routing == nil || item.Kind != change.KindRoute || item.Prefix != prefixA || item.Routing.Action != action || item.Routing.View != "operator_loc_rib" {
 					continue
 				}
 				if item.TenantID != reg.tenantID || item.Routing.Validate() != nil || item.Routing.ContextID != reg.contextID || item.Routing.RouterID != reg.deviceID || item.Target != reg.deviceID || item.Routing.ObservedAt.Before(from) {
