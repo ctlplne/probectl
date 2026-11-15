@@ -64,7 +64,7 @@ export function CapacitySLAClaim({
     )
   }
   return (
-    <Card>
+    <Card data-capacity-sla-claim>
       <CardHeader
         title="Carrier claim draft"
         description="Preview: group explicitly selected monthly circuit assessments by carrier, currency and billing calendar. Unsigned review draft; no claim is submitted."
