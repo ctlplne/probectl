@@ -511,7 +511,7 @@
     "max_values_per_predicate": 1000,
     "memory_bytes": 2147483648,
     "min_bucket_seconds": 1,
-    "read_bytes": 268435456,
+    "read_bytes": 1073741824,
     "read_rows": 5000000,
     "response_bytes": 67108864,
     "threads": 2
