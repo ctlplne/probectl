@@ -89,6 +89,7 @@ func testReportLiveFlowCapture(t *testing.T, realSource bool, reach int) {
 		// product default and the independent deadline refusal tests stay put.
 		budget := flowstore.DefaultExplorerBudget()
 		budget.ExecutionLimit = 30 * time.Second
+		f.srv.cfg.ReportOperationTimeout = budget.ExecutionLimit
 		if err := flowstore.AttachExplorerBudget(rows, budget); err != nil {
 			t.Fatal(err)
 		}

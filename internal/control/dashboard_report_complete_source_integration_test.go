@@ -75,6 +75,7 @@ func TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV(t *testin
 		perSource := flowstore.DefaultExplorerBudget()
 		budget := perSource
 		budget.ExecutionLimit = 120 * time.Second
+		f.srv.cfg.ReportOperationTimeout = budget.ExecutionLimit
 		// All ten result sets remain live while the projection copies complete
 		// records. Its accounted five-column rows exceed the old 158 MiB share;
 		// size this whole workload profile for those retained representations.
