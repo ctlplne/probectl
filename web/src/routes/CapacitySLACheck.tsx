@@ -6,8 +6,9 @@
 
 import { useEffect, useState, type FormEvent } from 'react'
 import type { CapacityAgreement, CarrierSLAStatement } from '../api/sdk.gen'
-import { Button, Card, CardBody, CardHeader, Field, Table } from '../components'
+import { Button, Card, CardBody, CardHeader, Field } from '../components'
 import styles from './flowExplorer.module.css'
+import { CompleteSLATable } from './CompleteSLATable'
 
 type Execute = <T>(
   path: string,
@@ -107,58 +108,55 @@ export function CapacitySLACheck({
               {result.credit.currency}. Known lower bound: {result.credit.known_credit_lower_bound}.
               This is a review draft, not a payable amount or submitted claim.
             </p>
-            <Table aria-label="Complete SLA clause assessments">
-              <thead>
-                <tr>
-                  <th>Clause</th>
-                  <th>State</th>
-                  <th>Exact measured value</th>
-                  <th>Credit ratio</th>
-                  <th>Citations</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.credit.assessments.map((item, index) => (
-                  <tr key={`${item.rule_id}/${index}`}>
-                    <td>{item.rule_id}</td>
-                    <td>{item.state}</td>
-                    <td>{item.value ?? 'Unknown'}</td>
-                    <td>{item.credit_ratio ?? 'Unavailable'}</td>
-                    <td>{item.citations.join('\n')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-            <Table aria-label="Complete SLA original populations">
-              <thead>
-                <tr>
-                  <th>Agent / test</th>
-                  <th>Originals</th>
-                  <th>Successful / failed / unknown</th>
-                  <th>Lost / transmitted</th>
-                  <th>Original RTTs</th>
-                  <th>Population digest</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.sources.map((source) => (
-                  <tr key={source.id}>
-                    <td>
-                      {source.agent_id} / {source.test_id}
-                    </td>
-                    <td>{source.originals}</td>
-                    <td>
-                      {source.successful} / {source.failed} / {source.unknown}
-                    </td>
-                    <td>
-                      {source.lost} / {source.transmitted}
-                    </td>
-                    <td>{source.rtt_samples}</td>
-                    <td>{source.digest}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
+            <CompleteSLATable
+              caption="Complete SLA clause assessments"
+              rows={result.credit.assessments}
+              rowKey={(item) => item.rule_id}
+              columns={[
+                { key: 'clause', header: 'Clause', render: (item) => item.rule_id },
+                { key: 'state', header: 'State', render: (item) => item.state },
+                {
+                  key: 'value',
+                  header: 'Exact measured value',
+                  render: (item) => item.value ?? 'Unknown',
+                },
+                {
+                  key: 'credit',
+                  header: 'Credit ratio',
+                  render: (item) => item.credit_ratio ?? 'Unavailable',
+                },
+                {
+                  key: 'citations',
+                  header: 'Citations',
+                  render: (item) => item.citations.join('\n'),
+                },
+              ]}
+            />
+            <CompleteSLATable
+              caption="Complete SLA original populations"
+              rows={result.sources}
+              rowKey={(source) => source.id}
+              columns={[
+                {
+                  key: 'source',
+                  header: 'Agent / test',
+                  render: (source) => `${source.agent_id} / ${source.test_id}`,
+                },
+                { key: 'originals', header: 'Originals', render: (source) => source.originals },
+                {
+                  key: 'outcomes',
+                  header: 'Successful / failed / unknown',
+                  render: (source) => `${source.successful} / ${source.failed} / ${source.unknown}`,
+                },
+                {
+                  key: 'packets',
+                  header: 'Lost / transmitted',
+                  render: (source) => `${source.lost} / ${source.transmitted}`,
+                },
+                { key: 'rtt', header: 'Original RTTs', render: (source) => source.rtt_samples },
+                { key: 'digest', header: 'Population digest', render: (source) => source.digest },
+              ]}
+            />
             <p>
               Authority checked at {result.as_of}; source validity upper bound{' '}
               {result.source_valid_until}. {result.coverage_basis}. {result.repair_basis}.

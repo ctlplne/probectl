@@ -739,24 +739,23 @@ test('monthly SLA keeps exact observed populations and discards late tenant resu
         },
       ],
     },
-    sources: [
-      {
-        id: `${id}-population`,
-        context_id: 'context',
-        device_id: 'device',
-        agent_id: `${id}-original-agent`,
-        test_id: 'test',
-        originals: '500001',
-        successful: '500000',
-        failed: '1',
-        unknown: '0',
-        transmitted: '1500003',
-        lost: '3',
-        rtt_samples: '1500000',
-        digest: `${id}-complete-original-digest`,
-        observed_not_before: '2026-10-01T00:00:00Z',
-      },
-    ],
+    sources: Array.from({ length: 205 }, (_, index) => ({
+      id: `${id}-population-${index}`,
+      context_id: 'context',
+      device_id: 'device',
+      agent_id: `${id}-original-agent`,
+      test_id: 'test',
+      originals: index === 0 ? '500001' : String(index),
+      successful: '500000',
+      failed: '1',
+      unknown: '0',
+      transmitted: '1500003',
+      lost: '3',
+      rtt_samples: '1500000',
+      digest:
+        index === 0 ? `${id}-complete-original-digest` : `${id}-complete-original-digest-${index}`,
+      observed_not_before: '2026-10-01T00:00:00Z',
+    })),
     as_of: '2026-10-15T00:00:00Z',
     source_valid_until: '2099-11-01T00:00:00Z',
     coverage_basis: 'observed_original_populations_only_not_schedule_or_continuous_availability',
@@ -809,6 +808,10 @@ test('monthly SLA keeps exact observed populations and discards late tenant resu
   const displayed = await screen.findByRole('region', { name: 'Monthly SLA result' })
   expect(within(displayed).getByText('500001')).toBeInTheDocument()
   expect(within(displayed).getByText('blue-complete-original-digest')).toBeInTheDocument()
+  fireEvent.click(
+    within(displayed).getByRole('button', { name: 'Complete SLA original populations: last page' }),
+  )
+  expect(within(displayed).getByText('blue-complete-original-digest-204')).toBeInTheDocument()
   expect(
     within(displayed).getByText(/unknown coverage or an unfinished period/),
   ).toBeInTheDocument()
