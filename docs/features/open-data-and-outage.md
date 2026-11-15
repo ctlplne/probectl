@@ -108,6 +108,8 @@ including overlaps, plus publication/fetch clocks, expiry and visible unknown
 attribution when a list is stale or unavailable. It does not send addresses to
 publishers or infer a hosted application from cloud ownership. See the
 [offline format and terms](../opendata-aup.md#published-service-range-input).
+`probectl opendata fetch-ranges` explicitly downloads selected complete lists into
+that cache with atomic replacement; a failed refresh preserves the prior clocks.
 Service dimensions in saved flow queries and the remaining publisher adapters
 are still in development.
 

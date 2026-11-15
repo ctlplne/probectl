@@ -111,6 +111,16 @@ func LoadServiceRanges(ctx context.Context, path string, maxAge time.Duration, m
 	if int64(len(raw)) > limit {
 		return nil, ErrServiceRangeBudget
 	}
+	return decodeServiceRanges(ctx, raw, maxAge, memoryBytes, now)
+}
+
+func decodeServiceRanges(ctx context.Context, raw []byte, maxAge time.Duration, memoryBytes int64, now time.Time) (*ServiceRanges, error) {
+	if maxAge <= 0 || now.IsZero() {
+		return nil, errors.New("service range freshness must be positive")
+	}
+	if memoryBytes < 4096 || int64(len(raw)) > memoryBytes/16 {
+		return nil, ErrServiceRangeBudget
+	}
 	if err := validateServiceJSON(ctx, raw); err != nil {
 		return nil, err
 	}

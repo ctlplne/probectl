@@ -143,6 +143,26 @@ with the entire original JSON document, not selected ranges):
 }
 ```
 
+For an explicitly requested online bulk refresh, run:
+
+```sh
+probectl opendata fetch-ranges \
+  --publishers aws,google,google_cloud \
+  --output /operator/cache/service-ranges.json \
+  --memory-bytes 268435456 --max-age 24h --timeout 1m
+```
+
+This local command fetches only the named canonical public documents, using the
+existing certificate-validating TLS client. It sends no API token, tenant,
+address lookup or telemetry. It validates all selected complete responses before
+atomically replacing the owner-only cache and syncing the file/directory. A
+failed, malformed, untrusted-TLS or over-budget fetch leaves the prior cache and
+its original clocks unchanged. HTTP `Age` is preserved instead of renewing an
+intermediary's cached response. `--memory-bytes` and the per-publisher `--timeout`
+can be increased for the complete workload; nothing is truncated. No fetch is
+scheduled or enabled by default. Transfer the complete file offline when needed,
+then configure `PROBECTL_FLOW_ENRICH_SERVICE_FILE` and restart to import it.
+
 Use an atomic file replacement and restart to load a complete replacement. The
 reader admits the whole input, duplicate-key validation, decoder workspace and
 index against `PROBECTL_FLOW_ENRICH_SERVICE_MEMORY_BYTES`; inadequate admission
