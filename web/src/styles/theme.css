@@ -82,6 +82,7 @@
   --tracking-wider: var(--tracking-wider);
   --animate-overlay-in: overlay-in var(--motion-fast) ease-out both;
   --animate-panel-in: panel-in var(--motion-base) var(--easing-emphasized) both;
+  --animate-toast-in: toast-in var(--motion-base) var(--easing-emphasized) both;
   --animate-drawer-in: drawer-in var(--motion-base) var(--easing-emphasized) both;
 }
 
@@ -160,6 +161,17 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+/* Keep notifications opaque throughout their entrance: fading the whole
+   surface blends small text below AA contrast while it is already readable. */
+@keyframes toast-in {
+  from {
+    transform: translateY(var(--space-2));
+  }
+  to {
+    transform: translateY(0);
   }
 }
 @keyframes drawer-in {

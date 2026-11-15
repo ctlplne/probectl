@@ -77,7 +77,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={t.id}
             className={cn(
               'pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-panel border bg-card',
-              'px-4 py-3 shadow-elevation2 animate-panel-in',
+              'px-4 py-3 shadow-elevation2 animate-toast-in',
               t.tone === 'success' && 'border-status-success/40 text-status-success',
               t.tone === 'warning' && 'border-status-warning/40 text-status-warning',
               t.tone === 'danger' && 'border-destructive/40 text-destructive',

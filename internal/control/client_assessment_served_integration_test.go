@@ -133,7 +133,7 @@ func proveAssessmentRendered(t *testing.T, f *roleExplanationAPIFixture, socket 
 	name, preparer := "Prospect assessment "+theme, "Example MSP "+theme
 	spec := testsupport.RenderSpec{URL: socket.URL + "/ui/dashboards", Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: cookie}}, TrustCertFiles: []string{ca}, CAFile: ca, Theme: theme, Accessibility: true, TimeoutMs: 90000, Expect: []string{"Saved views and report delivery"}}
 	spec.Steps = []testsupport.RenderStep{
-		{Click: "Build a client report (preview)", Expect: []string{"Report period"}},
+		{Click: "Build a client report (preview)", Role: "checkbox", Expect: []string{"Report period"}},
 		{Select: "[aria-label='Client report configuration'] select >> nth=0", Value: "assessment"},
 		{Fill: "label:text-is('Assessment start') + div input", Value: from.Format(time.RFC3339Nano)},
 		{Fill: "label:text-is('Assessment end') + div input", Value: to.Format(time.RFC3339Nano)},
