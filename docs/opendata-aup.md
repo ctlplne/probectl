@@ -112,7 +112,7 @@ Notes:
 
 `PROBECTL_FLOW_ENRICH_SERVICE_FILE` imports complete original publisher JSON from
 an operator-supplied local cache. The current adapters accept `aws`, `google`
-(`goog.json`) and `google_cloud` (`cloud.json`). Nothing is downloaded by this
+(`goog.json`), `google_cloud` (`cloud.json`) and `cloudflare` (the public `/ips` API). Nothing is downloaded by this
 reader and no dataset ships with probectl. Source terms still apply to internal,
 MSP/provider and redistribution use; public access is not a resale licence.
 
@@ -122,6 +122,25 @@ Sources checked on 2026-11-15:
 | --- | --- | --- |
 | AWS | [Traffic identification, local history and validated TLS](https://docs.aws.amazon.com/vpc/latest/userguide/aws-ip-ranges.html), [original JSON schema and overlaps](https://docs.aws.amazon.com/vpc/latest/userguide/aws-ip-syntax.html) | Documentation describes downloading and processing the list to identify AWS traffic. Preserve original service/region labels, including overlaps. Coverage excludes some services and BYOIP. No dataset redistribution or commercial resale grant is asserted. |
 | Google | [Published global/regional lists and local processing](https://cloud.google.com/vpc/docs/configure-private-google-access) | Documentation describes local processing of `goog.json` and `cloud.json`. Global ownership alone cannot identify individual Google APIs; cloud ranges label infrastructure available to customers. No dataset redistribution or commercial resale grant is asserted. |
+
+Cloudflare sources were checked on 2026-11-15: the [public IP API](https://developers.cloudflare.com/api/resources/ips/methods/list/),
+[range usage documentation](https://developers.cloudflare.com/fundamentals/concepts/cloudflare-ip-addresses/)
+and [website/online-service terms](https://www.cloudflare.com/website-terms/).
+The API supplies IPv4/IPv6 and optional JD Cloud ranges, with an optional ETag;
+network documentation describes local programmatic configuration. Existing source
+terms, API limits and prohibited uses apply. No dataset resale or redistribution
+grant is asserted. The adapter preserves every supplied family. `region` is empty
+because the source does not locate an anycast address in one region. `published_at`
+is absent because no generation clock is published. When ETag is absent, `version`
+is explicitly `sha256:<embedded-content-digest>`, not an invented publisher version.
+
+Google's current `creationTime` values can omit a timezone offset. The reader
+preserves that exact calendar text as `published_time`; it does not guess UTC,
+use the operator host's timezone or reinterpret an opaque `syncToken` as a clock.
+`published_at` is emitted only when an absolute source time can be established.
+Source validity continues to use the original successful bulk-fetch time, so an
+unresolved publication offset does not reject an otherwise complete valid list
+or renew a cached response's age.
 
 The offline envelope is versioned separately from its unchanged original vendor
 documents. `complete:true` attests that the operator imported the full response;

@@ -39,15 +39,16 @@ type ServiceRangeMatch struct {
 // ServiceRangeStatus includes the cache's original clocks even when a stale
 // list can no longer attribute an address. Digest identifies original JSON.
 type ServiceRangeStatus struct {
-	Publisher   string              `json:"publisher"`
-	Version     string              `json:"version"`
-	Digest      string              `json:"digest"`
-	PublishedAt time.Time           `json:"published_at"`
-	FetchedAt   time.Time           `json:"fetched_at"`
-	ValidUntil  time.Time           `json:"valid_until"`
-	Status      string              `json:"status"`
-	TermsURL    string              `json:"terms_url"`
-	Matches     []ServiceRangeMatch `json:"matches"`
+	Publisher     string              `json:"publisher"`
+	Version       string              `json:"version"`
+	Digest        string              `json:"digest"`
+	PublishedAt   time.Time           `json:"published_at,omitzero"`
+	PublishedTime string              `json:"published_time,omitempty"`
+	FetchedAt     time.Time           `json:"fetched_at"`
+	ValidUntil    time.Time           `json:"valid_until"`
+	Status        string              `json:"status"`
+	TermsURL      string              `json:"terms_url"`
+	Matches       []ServiceRangeMatch `json:"matches"`
 }
 
 type serviceRangeDataset struct {
@@ -244,14 +245,16 @@ func parseServiceRangeDataset(ctx context.Context, input serviceRangeInput, maxA
 		err = parseAWSServiceRanges(ctx, input.Data, &dataset, remaining)
 	case "google", "google_cloud":
 		err = parseGoogleServiceRanges(ctx, input.Data, &dataset, remaining)
+	case "cloudflare":
+		err = parseCloudflareServiceRanges(ctx, input.Data, &dataset, remaining)
 	default:
 		err = errors.New("unsupported service range publisher")
 	}
 	if err != nil {
 		return serviceRangeDataset{}, err
 	}
-	if dataset.status.PublishedAt.IsZero() || dataset.status.PublishedAt.After(input.FetchedAt) || !validServiceRangeLabel(dataset.status.Version) {
-		return serviceRangeDataset{}, errors.New("original service range publication time and version are required")
+	if dataset.status.PublishedAt.After(input.FetchedAt) || !validServiceRangeLabel(dataset.status.Version) {
+		return serviceRangeDataset{}, errors.New("invalid original service range publication time or version")
 	}
 	for prefix, matches := range dataset.index {
 		slices.SortFunc(matches, compareServiceRangeMatch)
@@ -269,7 +272,7 @@ func (dataset *serviceRangeDataset) add(ctx context.Context, cidr, service, regi
 		return err
 	}
 	prefix, err := netip.ParsePrefix(cidr)
-	if err != nil || prefix.Addr().Is4In6() || !validServiceRangeLabel(service) || !validServiceRangeLabel(region) {
+	if err != nil || prefix.Addr().Is4In6() || !validServiceRangeLabel(service) || (region != "" && !validServiceRangeLabel(region)) {
 		return errors.New("invalid published service prefix, service or region")
 	}
 	prefix = prefix.Masked()

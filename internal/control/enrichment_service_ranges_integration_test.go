@@ -48,10 +48,15 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 	if err != nil {
 		t.Fatal(err)
 	}
+	cloudflare := []byte(`{"success":true,"result":{"etag":"qa-cf-original","ipv4_cidrs":["192.0.2.0/24"],"ipv6_cidrs":[]}}`)
 	path := filepath.Join(t.TempDir(), "complete.json")
 	publisher := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.RawQuery != "" || r.Header.Get("Authorization") != "" || r.Header.Get("X-Probectl-Tenant") != "" {
 			t.Error("bulk public request carried a tenant selector")
+		}
+		if r.URL.Path == "/client/v4/ips" {
+			_, _ = w.Write(cloudflare)
+			return
 		}
 		_, _ = w.Write(raw)
 	}))
@@ -68,7 +73,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 		forward.Host = ""
 		return publisher.Client().Do(forward)
 	})
-	if err := opendata.FetchServiceRangeCache(t.Context(), path, []string{"aws"}, time.Hour, 16<<20, download); err != nil {
+	if err := opendata.FetchServiceRangeCache(t.Context(), path, []string{"aws", "cloudflare"}, time.Hour, 16<<20, download); err != nil {
 		t.Fatal(err)
 	}
 	cached, err := os.ReadFile(path)
@@ -80,7 +85,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 			FetchedAt time.Time `json:"fetched_at"`
 		} `json:"sources"`
 	}
-	if err := json.Unmarshal(cached, &envelope); err != nil || len(envelope.Sources) != 1 {
+	if err := json.Unmarshal(cached, &envelope); err != nil || len(envelope.Sources) != 2 {
 		t.Fatal("complete bulk cache missing", err)
 	}
 	fetched = envelope.Sources[0].FetchedAt
@@ -115,13 +120,19 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 			t.Fatal("current tenant cannot read public source", err)
 		}
 		services, ok := value["services"].([]any)
-		if !ok || len(services) != 1 {
+		if !ok || len(services) != 2 {
 			t.Fatal("complete source missing", value)
 		}
 		status := services[0].(map[string]any)
 		matches := status["matches"].([]any)
 		if status["publisher"] != "aws" || status["status"] != "matched" || len(matches) != 1 || matches[0].(map[string]any)["service"] != "S3" || status["fetched_at"] != fetched.Format(time.RFC3339Nano) {
 			t.Fatal("lost original labels or clock", status)
+		}
+		cloud := services[1].(map[string]any)
+		cloudMatches := cloud["matches"].([]any)
+		_, inventedPublication := cloud["published_at"]
+		if cloud["publisher"] != "cloudflare" || cloud["status"] != "matched" || inventedPublication || len(cloudMatches) != 1 || cloudMatches[0].(map[string]any)["region"] != "" {
+			t.Fatal("Cloudflare source lost complete attribution or fabricated a clock/region", cloud)
 		}
 		if first != nil && !reflect.DeepEqual(first, value) {
 			t.Fatal("public cache changed between tenant readers", first, value)

@@ -36,9 +36,10 @@ func parseAWSServiceRanges(ctx context.Context, raw []byte, dataset *serviceRang
 		return serviceRangeDecodeError("AWS")
 	}
 	dataset.status.Version, dataset.status.PublishedAt = document.Token, published
+	dataset.status.PublishedTime = document.Created
 	dataset.status.TermsURL = "https://docs.aws.amazon.com/vpc/latest/userguide/aws-ip-ranges.html"
 	for _, row := range document.Prefixes {
-		if !serviceRangeFamily(row.Prefix, true) {
+		if !serviceRangeFamily(row.Prefix, true) || !validServiceRangeLabel(row.Region) {
 			return serviceRangeDecodeError("AWS IPv4")
 		}
 		if err := dataset.add(ctx, row.Prefix, row.Service, row.Region, remaining); err != nil {
@@ -46,7 +47,7 @@ func parseAWSServiceRanges(ctx context.Context, raw []byte, dataset *serviceRang
 		}
 	}
 	for _, row := range document.IPv6 {
-		if !serviceRangeFamily(row.Prefix, false) {
+		if !serviceRangeFamily(row.Prefix, false) || !validServiceRangeLabel(row.Region) {
 			return serviceRangeDecodeError("AWS IPv6")
 		}
 		if err := dataset.add(ctx, row.Prefix, row.Service, row.Region, remaining); err != nil {
@@ -58,8 +59,8 @@ func parseAWSServiceRanges(ctx context.Context, raw []byte, dataset *serviceRang
 
 func parseGoogleServiceRanges(ctx context.Context, raw []byte, dataset *serviceRangeDataset, remaining *int64) error {
 	var document struct {
-		Token    string    `json:"syncToken"`
-		Created  time.Time `json:"creationTime"`
+		Token    string `json:"syncToken"`
+		Created  string `json:"creationTime"`
 		Prefixes []struct {
 			IPv4    string `json:"ipv4Prefix"`
 			IPv6    string `json:"ipv6Prefix"`
@@ -67,10 +68,15 @@ func parseGoogleServiceRanges(ctx context.Context, raw []byte, dataset *serviceR
 			Scope   string `json:"scope"`
 		} `json:"prefixes"`
 	}
-	if err := json.Unmarshal(raw, &document); err != nil || document.Prefixes == nil {
+	if err := json.Unmarshal(raw, &document); err != nil || document.Prefixes == nil || document.Created == "" {
 		return serviceRangeDecodeError("Google")
 	}
-	dataset.status.Version, dataset.status.PublishedAt = document.Token, document.Created.UTC()
+	published, err := googleServicePublicationClock(document.Created)
+	if err != nil {
+		return serviceRangeDecodeError("Google publication clock")
+	}
+	dataset.status.Version, dataset.status.PublishedAt = document.Token, published
+	dataset.status.PublishedTime = document.Created
 	dataset.status.TermsURL = "https://cloud.google.com/vpc/docs/configure-private-google-access"
 	for _, row := range document.Prefixes {
 		if (row.IPv4 == "") == (row.IPv6 == "") {
@@ -91,11 +97,27 @@ func parseGoogleServiceRanges(ctx context.Context, raw []byte, dataset *serviceR
 			}
 			service, region = "Google", "global"
 		}
+		if !validServiceRangeLabel(region) {
+			return serviceRangeDecodeError("Google scope")
+		}
 		if err := dataset.add(ctx, cidr, service, region, remaining); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func googleServicePublicationClock(value string) (time.Time, error) {
+	if clock, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return clock.UTC(), nil
+	}
+	// Current publisher exports contain a valid ISO calendar clock WITHOUT an
+	// offset. Preserve it literally; neither an opaque sync token nor the host's
+	// timezone can establish its absolute time. Freshness uses original fetch time.
+	if _, err := time.Parse("2006-01-02T15:04:05.999999999", value); err != nil {
+		return time.Time{}, err
+	}
+	return time.Time{}, nil
 }
 
 func serviceRangeFamily(cidr string, ipv4 bool) bool {

@@ -12326,7 +12326,7 @@
         "tags": [
           "threat"
         ],
-        "description": "Tenant-authenticated, flow.read-gated lookup of the shared open-data context for an IP: ASN and AS name (Team Cymru), country/city/coordinates (operator-supplied GeoLite2), RIR allocation registry/status/date (RIR delegated stats), and IXP presence (PeeringDB), each with per-source AUP provenance. The payload is shared public-dataset context about the queried address; no tenant-owned data is returned. Lookups share the flow-ingest enrichment cache. 503 when no enrichment source is configured. Complete operator-supplied AWS/Google publisher exports contribute services with all overlapping range labels, original version/digest/publication/fetch clocks and current expiry. Stale, disabled or unavailable lists return no service matches; shared IP-cache hits recheck freshness. Published infrastructure ranges do not prove an application or customer identity. No per-IP remote lookup is performed by these sources.",
+        "description": "Tenant-authenticated, flow.read-gated lookup of the shared open-data context for an IP: ASN and AS name (Team Cymru), country/city/coordinates (operator-supplied GeoLite2), RIR allocation registry/status/date (RIR delegated stats), and IXP presence (PeeringDB), each with per-source AUP provenance. The payload is shared public-dataset context about the queried address; no tenant-owned data is returned. Lookups share the flow-ingest enrichment cache. 503 when no enrichment source is configured. Complete operator-supplied AWS/Google/Cloudflare publisher exports contribute services with all overlapping range labels, original version/digest/publication/fetch clocks and current expiry. Stale, disabled or unavailable lists return no service matches; shared IP-cache hits recheck freshness. Published infrastructure ranges do not prove an application or customer identity. No per-IP remote lookup is performed by these sources.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -12384,7 +12384,7 @@
                     },
                     "services": {
                       "type": "array",
-                      "description": "Current list validity and exact published service-region matches. Empty matches represent unknown attribution; clocks never renew on a lookup or restart.",
+                      "description": "Current list validity and exact published service-region matches. Empty matches represent unknown attribution; clocks never renew on a lookup or restart. published_time preserves the original calendar text. published_at is absent when the publisher supplies no generation clock or no timezone offset. An empty region means the publisher does not locate that address in a region. A version prefixed sha256: is local content identity when no publisher version exists.",
                       "items": {
                         "type": "object",
                         "required": [
@@ -12393,7 +12393,6 @@
                           "digest",
                           "status",
                           "terms_url",
-                          "published_at",
                           "fetched_at",
                           "valid_until",
                           "matches"
@@ -12424,6 +12423,10 @@
                           "published_at": {
                             "type": "string",
                             "format": "date-time"
+                          },
+                          "published_time": {
+                            "type": "string",
+                            "description": "Original publisher calendar text, preserved including an unspecified timezone. An absolute published_at is emitted only when the source establishes its offset."
                           },
                           "fetched_at": {
                             "type": "string",
