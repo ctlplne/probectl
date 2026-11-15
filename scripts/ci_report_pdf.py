@@ -8,6 +8,7 @@
 """Offline PDF component: mandatory Go roots plus independent Poppler proofs."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -29,6 +30,8 @@ TESTS = (
     "TestReportPDFBudgetsCancellationWriterAndFontIntegrity",
     "TestReportPDFIndependentSpecimen",
     "TestReportPDFDirectionalUnicodeKeepsLogicalContent",
+    "TestReportPDFEmbedsCompleteMonthJSONAndKeepsTwoTenantScope",
+    "TestReportPDFEmbeddedFilesRefuseUnsafeNamesMissingBodyAndRowLoss",
 )
 PACKAGE = "github.com/ctlplne/probectl/internal/reporting"
 OMISSION_ASSERTION = "PDF omitted or duplicated complete row 0"
@@ -181,6 +184,30 @@ def run(output: Path) -> None:
     )
     (output / "go-test.jsonl").write_text(result.stdout)
     assert_tests(result.stdout, result.returncode)
+    for tenant in ("tenant-a", "tenant-b"):
+        pdf = output / f"month-{tenant}.pdf"
+        metadata = json.loads((output / f"month-{tenant}.json").read_text())
+        extracted = output / f"originals-{tenant}.json"
+        subprocess.run(
+            ["pdfdetach", "-savefile", "originals.json", "-o", str(extracted), str(pdf)],
+            check=True,
+            timeout=120,
+        )
+        raw = extracted.read_bytes()
+        if len(raw) != metadata["bytes"] or hashlib.sha256(raw).hexdigest() != metadata["sha256"]:
+            raise RuntimeError("independent PDF extraction changed the complete attachment")
+        originals = json.loads(raw)["originals"]
+        if len(originals) != 31 * 24 * 60 or any(
+            item != {"execution": index, "original": "0123456789abcdef" * 64}
+            for index, item in enumerate(originals)
+        ):
+            raise RuntimeError("independent PDF extraction omitted or changed an original")
+        text = subprocess.run(
+            ["pdftotext", "-layout", str(pdf), "-"],
+            check=True, capture_output=True, text=True, timeout=120,
+        ).stdout
+        if "originals.json" not in text or metadata["sha256"] not in "".join(text.split()):
+            raise RuntimeError("independent PDF text lost the visible attachment identity")
     specimen = output / "specimen.pdf"
     if not specimen.is_file() or specimen.stat().st_size == 0:
         raise RuntimeError("PDF proof did not produce its complete specimen")

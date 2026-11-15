@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -56,11 +57,17 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 		t.Fatal(err)
 	}
 	f.server.evidenceSigningKey = key
+	public, err := crypto.PublicPEMFromPrivate(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := "sha256:" + fmt.Sprintf("%x", crypto.Hash(public))
 	sender := newVerdictEvidenceSender(t, f)
 	now := time.Now().UTC()
 	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	ids := map[string]string{}
 	reports := map[string]string{}
+	proofs := map[string]carrierSLAReportProof{}
 	agents := map[string]string{}
 	tests := map[string]string{}
 	for lane, tenant := range f.tenants {
@@ -154,11 +161,14 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 		if code != 0 || json.Unmarshal(stdout.Bytes(), &cliResult) != nil || len(cliResult.Sources) != 1 || cliResult.Sources[0].Digest != p.Digest {
 			t.Fatal("CLI lost complete original population", code, stderr.String())
 		}
-		reports[tenant] = proveCarrierSLASignedReport(t, client, ids[tenant], input.At, p.Digest)
+		proofs[tenant] = proveCarrierSLASignedReport(t, client, ids[tenant], input.At, p.Digest, fingerprint)
+		reports[tenant] = proofs[tenant].CSV
 		proveReportRevokedCredential(t, f, tenant, reports[tenant])
 		otherReportClient := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[f.tenants[1-lane]]))
-		if _, err := otherReportClient.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: reports[tenant]}); err == nil {
-			t.Fatal("foreign tenant downloaded signed financial report")
+		for _, artifact := range []string{proofs[tenant].CSV, proofs[tenant].PDF} {
+			if _, err := otherReportClient.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: artifact}); err == nil {
+				t.Fatal("foreign tenant downloaded signed financial report")
+			}
 		}
 		selection := sdk.CarrierSLASelection{AgreementId: ids[tenant], Version: "1", At: input.At}
 		claimInput := sdk.CarrierSLAClaimInput{Selections: []sdk.CarrierSLASelection{selection}}
@@ -180,6 +190,11 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 		}
 	}
 	seedInterfaceRoleMCPConsent(f)
+	nativeReports := newClientReportNativeProof(t, f, socket)
+	for lane, tenant := range f.tenants {
+		nativeReports.proveCarrier(t, tenant, f.tenants[1-lane], proofs[tenant], ids[tenant], fingerprint)
+	}
+	nativeReports.crossTenant()
 	call := interfaceRoleNativeTLSCaller(t, f, "2025-11-25")
 	for _, tenant := range f.tenants {
 		var result flow.CarrierSLAStatement
@@ -219,11 +234,15 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 			t.Fatal("late source retirement survived grouped publication")
 		}
 	}()
+	nativeReports.carrierReadAllowed(t, a, false)
+	nativeReports.carrierReadAllowed(t, b, true)
 	for _, tenant := range []string{a, b} {
 		client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
-		_, err := client.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: reports[tenant]})
-		if (tenant == a && err == nil) || (tenant == b && err != nil) {
-			t.Fatal("stored signed report source retirement boundary failed", tenant, err)
+		for _, artifact := range []string{proofs[tenant].CSV, proofs[tenant].PDF} {
+			_, err := client.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: artifact})
+			if (tenant == a && err == nil) || (tenant == b && err != nil) {
+				t.Fatal("stored signed report source retirement boundary failed", tenant, err)
+			}
 		}
 	}
 	for _, tenant := range []string{a, b} {
@@ -246,4 +265,5 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 	if _, err := client.CalculateCarrierSla(t.Context(), sdk.CalculateCarrierSlaRequest{Id: ids[b], Body: &input}); err == nil {
 		t.Fatal("financial read bypassed current test grant withdrawal")
 	}
+	nativeReports.carrierReadAllowed(t, b, false)
 }

@@ -89,14 +89,14 @@ func (s *Server) writeCarrierSLAReportOriginal(ctx context.Context, target io.Wr
 		if int64(len(m.Responders))+int64(len(m.NetworkErrors)) > memory/4096 || m.RoundTrips != nil && int64(len(m.RoundTrips.Nanos)) > memory/256 {
 			return store.ErrClientReportBudget
 		}
-		copy := *m
-		copy.Responders = append([]string{}, m.Responders...)
-		for i := range copy.Responders {
-			copy.Responders[i] = clean(copy.Responders[i])
+		cloned := *m
+		cloned.Responders = append([]string{}, m.Responders...)
+		for i := range cloned.Responders {
+			cloned.Responders[i] = clean(cloned.Responders[i])
 		}
-		copy.NetworkErrors = append([]entity.ICMPNetworkError{}, m.NetworkErrors...)
-		for i := range copy.NetworkErrors {
-			copy.NetworkErrors[i].Responder = clean(copy.NetworkErrors[i].Responder)
+		cloned.NetworkErrors = append([]entity.ICMPNetworkError{}, m.NetworkErrors...)
+		for i := range cloned.NetworkErrors {
+			cloned.NetworkErrors[i].Responder = clean(cloned.NetworkErrors[i].Responder)
 		}
 		var rtts *change.EffectOriginalRoundTrips
 		if m.RoundTrips != nil {
@@ -108,7 +108,7 @@ func (s *Server) writeCarrierSLAReportOriginal(ctx context.Context, target io.Wr
 		icmp = struct {
 			entity.ICMPMeasurement
 			RoundTrips *change.EffectOriginalRoundTrips `json:"round_trips,omitempty"`
-		}{copy, rtts}
+		}{cloned, rtts}
 	}
 	value := struct {
 		ContextID     string               `json:"context_id"`
@@ -205,7 +205,8 @@ func carrierSLAReportTables(ctx context.Context, capture *reportFlowCapture, mem
 	// also avoids one enormous CSV/PDF cell for a month's original receipts.
 	const chunkBytes = 12 << 10
 	chunks := (receipt.Bytes + chunkBytes - 1) / chunkBytes
-	encoded := reporting.CSVTable{ID: "carrier-sla-evidence", Title: "Complete offline signed claim evidence", TenantID: capture.TenantID, Source: "Concatenate decoded signed_package_base64_chunk cells in ordinal order, then use incident verify --trusted-key-fingerprint with the deployment fingerprint obtained out of band", AbsoluteFrom: from, AbsoluteTo: to, Columns: plainClientReportColumns([]string{"package_id", "package_sha256", "package_bytes", "ordinal", "chunks", "signed_package_base64_chunk"}), ExpectedRows: chunks}
+	encoded := reporting.CSVTable{ID: "carrier-sla-evidence", Title: "Complete offline signed claim evidence", TenantID: capture.TenantID, Source: "CSV: concatenate decoded signed_package_base64_chunk cells in ordinal order. PDF: extract the complete attached JSON. Use incident verify --trusted-key-fingerprint with the deployment fingerprint obtained out of band", AbsoluteFrom: from, AbsoluteTo: to, Columns: plainClientReportColumns([]string{"package_id", "package_sha256", "package_bytes", "ordinal", "chunks", "signed_package_base64_chunk"}), ExpectedRows: chunks}
+	encoded.PDFFile = &reporting.PDFJSONFile{Name: "carrier-sla-" + claim.packageID + ".json", Body: claim.signed}
 	encoded.WalkRows = func(ctx context.Context, visit func([]string) error) error {
 		if visit == nil {
 			return entity.ErrInvalidClaim
@@ -221,7 +222,7 @@ func carrierSLAReportTables(ctx context.Context, capture *reportFlowCapture, mem
 				return err
 			}
 			n, err := io.ReadFull(reader, buffer)
-			if err != nil && !(err == io.ErrUnexpectedEOF && ordinal == chunks-1) {
+			if err != nil && (err != io.ErrUnexpectedEOF || ordinal != chunks-1) {
 				return err
 			}
 			if n <= 0 {

@@ -32,6 +32,10 @@ type CSVTable struct {
 	FieldIDs                    map[string]string
 	ExpectedRows                int64
 	WalkRows                    func(context.Context, func([]string) error) error
+	// PDFFile retains a complete machine-readable evidence table as an
+	// embedded JSON file instead of painting its base64 transport cells.
+	// CSV still emits every cell; PDF still validates every logical row.
+	PDFFile *PDFJSONFile
 }
 
 // Numeric cells must be canonical base-ten decimal strings. All other cells,

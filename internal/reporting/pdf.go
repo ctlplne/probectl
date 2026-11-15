@@ -180,6 +180,7 @@ type pdfPage struct {
 type pdfObject struct {
 	body   string
 	stream bool
+	file   *pdfSealedFile
 }
 
 type pdfDocument struct {
@@ -196,6 +197,7 @@ type pdfDocument struct {
 	header          []pdfLine
 	headerHeight, y float64
 	pages           []pdfPage
+	files           []pdfFileName
 }
 
 func (p *pdfDocument) charge(n int64) error {
@@ -544,6 +546,11 @@ func (p *pdfDocument) table(table CSVTable) error {
 			return err
 		}
 	}
+	if table.PDFFile != nil {
+		if err := p.embedJSONFile(table); err != nil {
+			return err
+		}
+	}
 	var count int64
 	var rowErr error
 	err := table.WalkRows(p.ctx, func(row []string) error {
@@ -561,13 +568,19 @@ func (p *pdfDocument) table(table CSVTable) error {
 			rowErr = fmt.Errorf("report table row schema differs from its captured source")
 			return rowErr
 		}
-		if rowErr = p.text("Row " + strconv.FormatInt(count+1, 10)); rowErr != nil {
+		if table.PDFFile == nil {
+			rowErr = p.text("Row " + strconv.FormatInt(count+1, 10))
+		}
+		if rowErr != nil {
 			return rowErr
 		}
 		for i, value := range row {
 			if table.Columns[i].Numeric && !csvDecimal(value) {
 				rowErr = fmt.Errorf("report table numeric cell is not a canonical exact decimal")
 				return rowErr
+			}
+			if table.PDFFile != nil {
+				continue
 			}
 			if int64(len(value)) > p.remaining/256 {
 				rowErr = fmt.Errorf("%w: cell workspace exceeds renderer memory available=%d", ErrPDFLimit, p.remaining)
@@ -838,7 +851,11 @@ func (p *pdfDocument) finish() error {
 	if kids.err != nil {
 		return kids.err
 	}
-	p.objects[0] = pdfObject{body: "<< /Type /Catalog /Pages 2 0 R >>"}
+	catalog, err := p.fileCatalog()
+	if err != nil {
+		return err
+	}
+	p.objects[0] = pdfObject{body: "<< /Type /Catalog /Pages 2 0 R " + catalog + " >>"}
 	p.objects[1] = pdfObject{body: fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", kids.String(), len(p.pages))}
 	return p.ctx.Err()
 }
@@ -850,11 +867,15 @@ func (p *pdfDocument) serialize(out *boundedPDFWriter) error {
 	}
 	offsets := make([]int64, len(p.objects))
 	for i, object := range p.objects {
-		if object.body == "" {
+		if object.body == "" && object.file == nil {
 			return fmt.Errorf("PDF contains an incomplete object")
 		}
 		offsets[i] = p.limits.Bytes - out.remaining
-		if object.stream {
+		if object.file != nil {
+			if err := p.serializeFile(out, i+1, object.file); err != nil {
+				return err
+			}
+		} else if object.stream {
 			fmt.Fprintf(out, "%d 0 obj\n<< /Length %d >>\nstream\n%sendstream\nendobj\n", i+1, len(object.body), object.body)
 		} else {
 			fmt.Fprintf(out, "%d 0 obj\n%s\nendobj\n", i+1, object.body)

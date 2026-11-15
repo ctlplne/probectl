@@ -400,7 +400,7 @@ availability is not continuous uptime, and the observed failure-to-next-success
 interval is not physical repair time. Human review and carrier adjudication are
 required; saving, signing and scheduling do not submit a claim.
 
-The CSV/PDF evidence table transfers the complete signed envelope in ordered
+The CSV evidence table transfers the complete signed envelope in ordered
 base64 chunks. Decode `signed_package_base64_chunk` cells in `ordinal` order,
 check their common package identity, declared chunk count and complete byte
 count, and save the joined bytes as `claim.json`. Then verify offline using the
@@ -409,6 +409,14 @@ fingerprint obtained separately from the deployment operator:
 ```sh
 probectl incident verify claim.json --trusted-key-fingerprint sha256:...
 ```
+
+The PDF keeps the financial totals and assessments readable and embeds the
+complete signed JSON as `carrier-sla-<package_id>.json`. The report prints its
+filename, byte count and SHA-256. Extract it using your PDF reader's attachments
+panel, then run the same offline verification command on that JSON. Both
+formats contain every selected original; the PDF attachment is passive data,
+with no action or script. Rendering and publication retain the same tenant,
+source, current-authority and complete-output admission checks.
 
 Go SDK callers can stream a large artifact with `DownloadDashboardReportArtifactTo`,
 an output writer and explicit maximum bytes, without allocating the complete

@@ -80,6 +80,6 @@ func TestReportArtifactStreamingRejectsCancelledAndIncompleteResponses(t *testin
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := client.DownloadDashboardReportArtifactTo(ctx, DownloadDashboardReportArtifactRequest{Id: "artifact"}, io.Discard, 32); !errors.Is(err, context.Canceled) {
-		t.Fatal("cancelled artifact stream continued", err)
+		t.Fatal("canceled artifact stream continued", err)
 	}
 }

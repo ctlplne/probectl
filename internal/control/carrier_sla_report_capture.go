@@ -73,7 +73,7 @@ func (s *Server) captureCarrierSLAReport(ctx context.Context, actor *auth.Princi
 		return nil, tagQueryAdmissionError(err)
 	}
 	var signed *reporting.BodyStage
-	close := func() {
+	releaseCapture := func() {
 		if signed != nil {
 			_ = signed.Close()
 		}
@@ -82,7 +82,7 @@ func (s *Server) captureCarrierSLAReport(ctx context.Context, actor *auth.Princi
 	}
 	defer func() {
 		if resultErr != nil {
-			close()
+			releaseCapture()
 		}
 	}()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "/v1/dashboard-reports", nil)
@@ -144,7 +144,7 @@ func (s *Server) captureCarrierSLAReport(ctx context.Context, actor *auth.Princi
 	if err != nil {
 		return nil, err
 	}
-	capture := &reportFlowCapture{TenantID: actor.TenantID, Claims: requirements, release: close,
+	capture := &reportFlowCapture{TenantID: actor.TenantID, Claims: requirements, release: releaseCapture,
 		claimCapture: &carrierSLAReportCapture{draft: public, publication: publication, signed: signed, packageID: packageID}}
 	phase = "report tables"
 	capture.Tables, err = carrierSLAReportTables(ctx, capture, budget.MemoryBytes/16)
