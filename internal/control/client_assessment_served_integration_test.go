@@ -39,6 +39,11 @@ import (
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
 
+type assessmentServedTopology struct {
+	LocalObservationID, RemoteObservationID string
+	ObservedAt                              time.Time
+}
+
 // Real issued mTLS, application-role PostgreSQL/RLS, session authentication,
 // production SPA and Chromium/axe. One modeled execution lies in a selected
 // fourteen-day interval; this does not claim a full engagement or offboarding.
@@ -51,6 +56,7 @@ func TestAssessmentServedConfigurationReportsKeepTwoTenantsAndBothThemes(t *test
 	}
 	f.server.WithEvidenceSigningKey(private)
 	sender := newVerdictEvidenceSender(t, f)
+	topology := map[string]assessmentServedTopology{}
 	for lane, tenant := range f.tenants {
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			for _, permission := range []string{permTestRead, permChangeRead, permMetricsWrite, permIncidentRead, permFlowRead, permAgentRead, permAlertRead, permThreatRead, "topology.read"} {
@@ -76,6 +82,18 @@ func TestAssessmentServedConfigurationReportsKeepTwoTenantsAndBothThemes(t *test
 		if accepted, unresolved, err := client.Submit(t.Context(), []entity.Observation{observation}); err != nil || accepted != 1 || unresolved != 0 {
 			t.Fatal("served assessment original source refused", accepted, unresolved, err)
 		}
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			return store.NewEntityRegistry(f.pool).AssignEntitySource(ctx, sc, entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.2"}, f.contextID, f.otherRouter)
+		})
+		snmp := sender(tenant, "role-snmp")
+		pollAt := f.observedAt(tenant)
+		remote := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.2"}, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "192.0.2.2"}, SourceRef: "snmp:configured-target", ObservedAt: pollAt}
+		neighbor := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"}, Alias: entity.AliasKey{Kind: entity.PhysicalNeighborAlias, Value: "neighbor:assessment"}, SourceRef: "neighbor:assessment", ObservedAt: pollAt,
+			NeighborProtocol: "lldp", NeighborLocalIfIndex: 7, NeighborLocalPortID: "xe-0/0/7", NeighborRemotePortID: "xe-0/0/8", NeighborChassisID: "00:11:22:33:44:55", NeighborDeviceName: "prospect peer", NeighborAddress: "192.0.2.2"}
+		if accepted, unresolved, err := snmp.Submit(t.Context(), []entity.Observation{remote, neighbor}); err != nil || accepted != 2 || unresolved != 0 {
+			t.Fatal("served independent physical originals refused", accepted, unresolved, err)
+		}
+		topology[tenant] = assessmentServedTopology{LocalObservationID: neighbor.ID, RemoteObservationID: remote.ID, ObservedAt: pollAt.UTC()}
 	}
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
@@ -88,13 +106,13 @@ func TestAssessmentServedConfigurationReportsKeepTwoTenantsAndBothThemes(t *test
 	for lane, tenant := range f.tenants {
 		for _, theme := range []string{"light", "dark"} {
 			t.Run(strconv.Itoa(lane)+"/"+theme, func(t *testing.T) {
-				proveAssessmentRendered(t, f, socket, ca, tenant, f.tenants[1-lane], theme, from, to)
+				proveAssessmentRendered(t, f, socket, ca, tenant, f.tenants[1-lane], theme, from, to, topology[tenant])
 			})
 		}
 	}
 }
 
-func proveAssessmentRendered(t *testing.T, f *roleExplanationAPIFixture, socket *httptest.Server, ca, tenant, foreign, theme string, from, to time.Time) {
+func proveAssessmentRendered(t *testing.T, f *roleExplanationAPIFixture, socket *httptest.Server, ca, tenant, foreign, theme string, from, to time.Time, topology assessmentServedTopology) {
 	t.Helper()
 	var grants []auth.PermissionGrant
 	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
@@ -172,12 +190,17 @@ func proveAssessmentRendered(t *testing.T, f *roleExplanationAPIFixture, socket 
 					t.Fatal("served PDF omitted a canonical inventory identity")
 				}
 			}
-		} else if err := checkServedAssessmentCSV(output.Bytes(), tenant, inventoryIDs); err != nil {
+		} else if err := checkServedAssessmentCSV(output.Bytes(), tenant, inventoryIDs, topology); err != nil {
 			t.Fatal(err)
 		}
 		for _, expected := range []string{preparer, "Canonical inventory at report capture", "Observed physical adjacency at report capture", "Assessment measurement coverage and gaps", "Observed assessment risks and capacity hot spots"} {
 			if !strings.Contains(text, expected) {
 				t.Fatal("browser-generated assessment omitted a complete section or preparer", format, expected)
+			}
+		}
+		for _, original := range []string{topology.LocalObservationID, topology.RemoteObservationID} {
+			if !strings.Contains(text, original) {
+				t.Fatal("served assessment omitted a known independent physical original", format, original)
 			}
 		}
 		if strings.Contains(text, foreign) {
@@ -190,7 +213,7 @@ func proveAssessmentRendered(t *testing.T, f *roleExplanationAPIFixture, socket 
 	}
 }
 
-func checkServedAssessmentCSV(body []byte, tenant string, expectedInventory []string) error {
+func checkServedAssessmentCSV(body []byte, tenant string, expectedInventory []string, topology assessmentServedTopology) error {
 	reader := csv.NewReader(bytes.NewReader(body))
 	reader.FieldsPerRecord = -1
 	rows, err := reader.ReadAll()
@@ -198,6 +221,7 @@ func checkServedAssessmentCSV(body []byte, tenant string, expectedInventory []st
 		return err
 	}
 	inventory, availability := map[string]bool{}, 0
+	physical := 0
 	for _, row := range rows {
 		if len(row) == 14 && row[0] == tenant {
 			if inventory[row[6]] {
@@ -211,9 +235,15 @@ func checkServedAssessmentCSV(body []byte, tenant string, expectedInventory []st
 			}
 			availability++
 		}
+		if len(row) == 24 && row[0] == tenant {
+			if row[5] != "lldp" || row[6] != "7" || row[7] != "xe-0/0/7" || row[8] != "xe-0/0/8" || row[13] != topology.LocalObservationID || row[18] != topology.RemoteObservationID || row[16] != topology.ObservedAt.Format(time.RFC3339Nano) || row[21] != topology.ObservedAt.Format(time.RFC3339Nano) || len(row[23]) != 64 {
+				return fmt.Errorf("served assessment changed an independently known physical original or support receipt")
+			}
+			physical++
+		}
 	}
-	if len(inventory) != len(expectedInventory) || availability != 1 {
-		return fmt.Errorf("served assessment populations differ: inventory=%d/%d availability=%d/1", len(inventory), len(expectedInventory), availability)
+	if len(inventory) != len(expectedInventory) || availability != 1 || physical != 1 {
+		return fmt.Errorf("served assessment populations differ: inventory=%d/%d availability=%d/1 physical=%d/1", len(inventory), len(expectedInventory), availability, physical)
 	}
 	for _, id := range expectedInventory {
 		if !inventory[id] {
