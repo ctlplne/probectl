@@ -49,6 +49,7 @@ type assessmentServedTopology struct {
 // fourteen-day interval; this does not claim a full engagement or offboarding.
 func TestAssessmentServedConfigurationReportsKeepTwoTenantsAndBothThemes(t *testing.T) {
 	f := newRoleExplanationAPIFixture(t)
+	f.server.cfg.AIRedactIPs, f.server.cfg.AIRedactHostnames, f.server.cfg.AIRedactPII = true, true, true
 	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	private, _, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
@@ -83,14 +84,19 @@ func TestAssessmentServedConfigurationReportsKeepTwoTenantsAndBothThemes(t *test
 			t.Fatal("served assessment original source refused", accepted, unresolved, err)
 		}
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			return store.NewEntityRegistry(f.pool).AssignEntitySource(ctx, sc, entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.2"}, f.contextID, f.otherRouter)
+			for _, target := range []struct{ ref, anchor string }{{"192.0.2.1", f.routerID}, {"192.0.2.2", f.otherRouter}} {
+				if err := store.NewEntityRegistry(f.pool).AssignEntitySource(ctx, sc, entity.SourceKey{AgentID: agent, Kind: entity.DeviceTarget, SourceRef: target.ref}, f.contextID, target.anchor); err != nil {
+					return err
+				}
+			}
+			return nil
 		})
-		snmp := sender(tenant, "role-snmp")
 		pollAt := f.observedAt(tenant)
-		remote := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.2"}, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "192.0.2.2"}, SourceRef: "snmp:configured-target", ObservedAt: pollAt}
-		neighbor := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"}, Alias: entity.AliasKey{Kind: entity.PhysicalNeighborAlias, Value: "neighbor:assessment"}, SourceRef: "neighbor:assessment", ObservedAt: pollAt,
-			NeighborProtocol: "lldp", NeighborLocalIfIndex: 7, NeighborLocalPortID: "xe-0/0/7", NeighborRemotePortID: "xe-0/0/8", NeighborChassisID: "00:11:22:33:44:55", NeighborDeviceName: "prospect peer", NeighborAddress: "192.0.2.2"}
-		if accepted, unresolved, err := snmp.Submit(t.Context(), []entity.Observation{remote, neighbor}); err != nil || accepted != 2 || unresolved != 0 {
+		remote := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agent, Kind: entity.DeviceTarget, SourceRef: "192.0.2.2"}, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "192.0.2.2"}, SourceRef: "snmp:configured-target", ObservedAt: pollAt}
+		local := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agent, Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"}, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: "7"}, SourceRef: "snmp:ifIndex:7", ObservedAt: pollAt}
+		neighbor := entity.Observation{ID: gouuid.NewString(), Source: local.Source, Alias: entity.AliasKey{Kind: entity.PhysicalNeighborAlias, Value: "neighbor:assessment"}, SourceRef: "neighbor:assessment", ObservedAt: pollAt,
+			NeighborProtocol: "lldp", NeighborLocalIfIndex: 7, NeighborLocalPortID: "xe-0/0/7", NeighborRemotePortID: "xe-0/0/8", NeighborChassisID: "00:11:22:33:44:55", NeighborDeviceName: "prospect operator@example.net password=topology-display-only", NeighborAddress: "192.0.2.2"}
+		if accepted, unresolved, err := client.Submit(t.Context(), []entity.Observation{remote, local, neighbor}); err != nil || accepted != 3 || unresolved != 0 {
 			t.Fatal("served independent physical originals refused", accepted, unresolved, err)
 		}
 		topology[tenant] = assessmentServedTopology{LocalObservationID: neighbor.ID, RemoteObservationID: remote.ID, ObservedAt: pollAt.UTC()}
@@ -173,7 +179,9 @@ func proveAssessmentRendered(t *testing.T, f *roleExplanationAPIFixture, socket 
 	for _, format := range []string{"csv", "pdf"} {
 		var id string
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			return sc.Q.QueryRow(ctx, `SELECT id FROM dashboard_report_artifacts WHERE tenant_id=$1 AND generated_by=$2 AND dashboard_id=$3 AND format=$4`, tenant, f.users[tenant], view.ID, format).Scan(&id)
+			return sc.Q.QueryRow(ctx, `SELECT a.id FROM dashboard_report_artifacts a
+ JOIN dashboard_views v ON (v.tenant_id,v.id)=(a.tenant_id,a.dashboard_id)
+ WHERE a.tenant_id=$1 AND v.owner_id=$2 AND a.dashboard_id=$3 AND a.format=$4`, tenant, f.users[tenant], view.ID, format).Scan(&id)
 		})
 		var output bytes.Buffer
 		if _, err := client.DownloadDashboardReportArtifactTo(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: id}, &output, 1<<30); err != nil {
@@ -201,6 +209,11 @@ func proveAssessmentRendered(t *testing.T, f *roleExplanationAPIFixture, socket 
 		for _, original := range []string{topology.LocalObservationID, topology.RemoteObservationID} {
 			if !strings.Contains(text, original) {
 				t.Fatal("served assessment omitted a known independent physical original", format, original)
+			}
+		}
+		for _, private := range []string{"operator@example.net", "topology-display-only", "00:11:22:33:44:55"} {
+			if strings.Contains(text, private) {
+				t.Fatal("served assessment bypassed the configured private metadata policy", format)
 			}
 		}
 		if strings.Contains(text, foreign) {
@@ -238,6 +251,9 @@ func checkServedAssessmentCSV(body []byte, tenant string, expectedInventory []st
 		if len(row) == 24 && row[0] == tenant {
 			if row[5] != "lldp" || row[6] != "7" || row[7] != "xe-0/0/7" || row[8] != "xe-0/0/8" || row[13] != topology.LocalObservationID || row[18] != topology.RemoteObservationID || row[16] != topology.ObservedAt.Format(time.RFC3339Nano) || row[21] != topology.ObservedAt.Format(time.RFC3339Nano) || len(row[23]) != 64 {
 				return fmt.Errorf("served assessment changed an independently known physical original or support receipt")
+			}
+			if row[11] == "192.0.2.2" || row[15] == "192.0.2.1" || row[20] == "192.0.2.2" {
+				return fmt.Errorf("served topology display bypassed configured source-address masking")
 			}
 			physical++
 		}

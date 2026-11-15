@@ -146,7 +146,9 @@ func proveCarrierClaimRendered(t *testing.T, f *roleExplanationAPIFixture, socke
 	for _, format := range []string{"csv", "pdf"} {
 		var artifact string
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			return sc.Q.QueryRow(ctx, `SELECT id FROM dashboard_report_artifacts WHERE tenant_id=$1 AND generated_by=$2 AND dashboard_id=$3 AND format=$4`, tenant, f.users[tenant], view, format).Scan(&artifact)
+			return sc.Q.QueryRow(ctx, `SELECT a.id FROM dashboard_report_artifacts a
+ JOIN dashboard_views v ON (v.tenant_id,v.id)=(a.tenant_id,a.dashboard_id)
+ WHERE a.tenant_id=$1 AND v.owner_id=$2 AND a.dashboard_id=$3 AND a.format=$4`, tenant, f.users[tenant], view, format).Scan(&artifact)
 		})
 		var body bytes.Buffer
 		if _, err := client.DownloadDashboardReportArtifactTo(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: artifact}, &body, 1<<30); err != nil {
