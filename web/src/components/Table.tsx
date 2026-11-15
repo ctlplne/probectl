@@ -49,7 +49,7 @@ export function Table<Row>({
       className="max-h-[70vh] overflow-auto rounded-panel border border-border focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-focus"
       tabIndex={0}
       onFocus={(event) => {
-        if (event.target === event.currentTarget) {
+        if (event.target === event.currentTarget && event.currentTarget.matches(':focus-visible')) {
           // Keep a tall scroll region's focus ring in view after expanding a
           // complete value. Descendant controls keep their own scroll target.
           event.currentTarget.scrollIntoView?.({ block: 'center', inline: 'nearest' })
