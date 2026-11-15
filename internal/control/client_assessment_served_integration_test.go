@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -60,7 +60,7 @@ func TestAssessmentServedConfigurationReportsKeepTwoTenantsAndBothThemes(t *test
 			}
 			return nil
 		})
-		agent := uuid.NewString()
+		agent := gouuid.NewString()
 		definition := seedVerdictCarrierTest(t, f, tenant, agent, "198.51.100.10")
 		client := sender(tenant, agent)
 		digest, err := testspec.DefinitionHash(definition)
@@ -72,7 +72,7 @@ func TestAssessmentServedConfigurationReportsKeepTwoTenantsAndBothThemes(t *test
 		if lane == 0 {
 			measurement.Replies, measurement.RoundTrips.Nanos, measurement.Responders = 1, []uint64{100}, []string{definition.Target}
 		}
-		observation := entity.Observation{ID: uuid.NewString(), Source: entity.SourceKey{AgentID: agent, Kind: entity.PathAgent, SourceRef: definition.ID}, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: definition.Target}, SourceRef: "icmp:configured-test", ObservedAt: measurement.CompletedAt, ICMP: measurement}
+		observation := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agent, Kind: entity.PathAgent, SourceRef: definition.ID}, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: definition.Target}, SourceRef: "icmp:configured-test", ObservedAt: measurement.CompletedAt, ICMP: measurement}
 		if accepted, unresolved, err := client.Submit(t.Context(), []entity.Observation{observation}); err != nil || accepted != 1 || unresolved != 0 {
 			t.Fatal("served assessment original source refused", accepted, unresolved, err)
 		}
