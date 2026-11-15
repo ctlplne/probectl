@@ -237,6 +237,11 @@ func (c *EvidenceClient) Submit(ctx context.Context, observations []entity.Obser
 		return 0, 0, ErrEvidenceBatchInvalid
 	}
 	response, err := svc.SubmitEntityEvidence(callCtx, request,
+		// A restarted control plane may leave this connection in transient
+		// failure. Keep this original bounded request until mTLS reconnects;
+		// failing immediately would discard a quiet peer's only fresh receipt.
+		// This does not retry a server rejection or change observation clocks.
+		grpc.WaitForReady(true),
 		grpc.MaxCallSendMsgSize(evidenceRequestWireLimit(request)), grpc.MaxCallRecvMsgSize(1<<20))
 	if err != nil {
 		return 0, 0, err
