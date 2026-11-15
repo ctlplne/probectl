@@ -54,7 +54,7 @@ func TestReportingCLIClaimsRequireCurrentRequestAndBoundedInput(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "commands.go"), []byte(text), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			validator := &Validator{root: root}
+			validator := canonicalReportingCLIValidator(t, root)
 			inventory, err := validator.loadExplicitCLIOperations(handlers, commands)
 			if err != nil {
 				t.Fatal(err)
@@ -120,7 +120,7 @@ func TestIncidentExportCLIRequiresCurrentRequestAndOfflineVerification(t *testin
 			if err := os.WriteFile(filepath.Join(dir, "incident.go"), []byte(text), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			validator := &Validator{root: root}
+			validator := canonicalReportingCLIValidator(t, root)
 			inventory, err := validator.loadExplicitCLIOperations(map[string]string{"incident": "cmdIncident"}, []string{"probectl incident export"})
 			if err != nil {
 				t.Fatal(err)
@@ -130,4 +130,13 @@ func TestIncidentExportCLIRequiresCurrentRequestAndOfflineVerification(t *testin
 			}
 		})
 	}
+}
+
+func canonicalReportingCLIValidator(t *testing.T, root string) *Validator {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &Validator{root: resolved}
 }
