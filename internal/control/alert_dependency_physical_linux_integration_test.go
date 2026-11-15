@@ -61,6 +61,7 @@ func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T)
 	}
 	d := seedDependencyRoutingFixture(t)
 	prepareDependencyPhysicalImpact(t, d)
+	claims := prepareCarrierSLAPhysical(t, d)
 	transport := startDependencyPhysicalTransport(t, d)
 	writer, err := tsdb.New("memory", "")
 	if err != nil {
@@ -165,6 +166,7 @@ func TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation(t *testing.T)
 			t.Fatal("overlapping-address tenant borrowed the other's physical transition")
 		}
 	}
+	proveCarrierSLAPhysical(t, d, socket, lanes, claims)
 	t.Log("real-integration: two isolated routed Linux networks, compiled ICMP collectors, issued mTLS evidence RPC, app-role PG/RLS, lightweight TSDB, shipping evaluator/correlator, verified HTTPS incident room and TLS SMTP; packets and deliveries are real, production image qualification remains separate")
 }
 

@@ -523,7 +523,7 @@ test.each([
     expect(imported).not.toHaveProperty('owner_id')
     expect(JSON.stringify(imported.manifest)).not.toContain(source)
     expect(screen.getByRole('region', { name: 'Dashboard import preview' })).toHaveTextContent(
-      '1 explicitly bound saved flow sources',
+      '1 explicitly bound report sources',
     )
     fireEvent.change(text, {
       target: {

@@ -11,6 +11,7 @@ package control
 import (
 	"context"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"net"
@@ -167,9 +168,13 @@ func sampleDependencyPhysical(t *testing.T, d *dependencyRoutingFixture, tenant 
 			}
 			claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: sender, Kind: entity.PathAgent, SourceRef: definition.ID},
 				Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: m.TargetIP}, SourceRef: "icmp:configured-test", ObservedAt: m.CompletedAt,
-				ICMP: &entity.ICMPMeasurement{Version: 1, DefinitionHash: digest, StartedAt: m.StartedAt, CompletedAt: m.CompletedAt,
+				ICMP: &entity.ICMPMeasurement{Version: 3, DefinitionHash: digest, StartedAt: m.StartedAt, CompletedAt: m.CompletedAt,
 					Requested: uint32(m.Expected), Attempted: uint32(m.Attempted), Transmitted: uint32(m.Transmitted), Replies: uint32(m.Replies), SendErrors: uint32(m.SendErrors),
-					ReadComplete: m.ReadComplete, Canceled: m.Canceled, IOFailed: m.IOFailed, Responders: m.Responders}}
+					ReadComplete: m.ReadComplete, Canceled: m.Canceled, IOFailed: m.IOFailed, Responders: m.Responders,
+					RoundTrips: &entity.ICMPRoundTrips{Nanos: append([]uint64{}, m.RoundTripNanos...), ExecutionNanos: m.ExecutionNanos}}}
+			for _, fact := range m.NetworkErrors {
+				claim.ICMP.NetworkErrors = append(claim.ICMP.NetworkErrors, entity.ICMPNetworkError{Sequence: fact.Sequence, Responder: fact.Responder, Type: fact.Type, Code: fact.Code, ReceivedAt: fact.ReceivedAt, PacketDigest: hex.EncodeToString(fact.PacketDigest[:]), Conflicting: fact.Conflicting})
+			}
 			claim, err = claim.Normalize(time.Now())
 			if err != nil {
 				t.Fatal(err)
