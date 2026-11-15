@@ -74,7 +74,7 @@ func validateCarrierSLAReportRequirements(ctx context.Context, tenant string, va
 	return ctx.Err()
 }
 
-func (s *Server) revalidateCarrierSLAReportScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, tenant string, values []carrierSLAReportRequirement) error {
+func (s *Server) revalidateCarrierSLAReportScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, tenant string, values []carrierSLAReportRequirement, publishing bool) error {
 	budget := flowstore.ExplorerQueryBudget(s.flowStore)
 	if actor == nil || actor.UserID == "" || actor.TenantID != tenant || sc.Tenant.String() != tenant || s.cfg == nil || s.cfg.FlowQueryLibraryBytes <= 0 {
 		return errReportSourceRequirements
@@ -95,6 +95,9 @@ func (s *Server) revalidateCarrierSLAReportScope(ctx context.Context, sc tenancy
 	}
 	repository := s.capacityAgreementRepository(actor, budget)
 	registry := store.NewEntityRegistry(s.pool)
+	// A published historical artifact remains pinned to its immutable terms.
+	// Later terms do not grant access or invalidate an unchanged old period.
+	// Publication additionally checks the head captured by its calculation.
 	for _, value := range values {
 		agreement, err := repository.CapacityAgreementInScope(ctx, sc, actor.UserID, value.AgreementID, value.Version, nil)
 		if err != nil {
@@ -104,7 +107,7 @@ func (s *Server) revalidateCarrierSLAReportScope(ctx context.Context, sc tenancy
 		if err != nil {
 			return err
 		}
-		if agreement.TenantID != tenant || agreement.CurrentVersion != value.CurrentVersion || digest != value.DefinitionDigest || !agreement.TargetPresent || !agreement.SLASourceMetadataTrusted || agreement.Definition.SLA == nil || len(agreement.Definition.SLA.Sources) != len(value.Tests) {
+		if agreement.TenantID != tenant || publishing && agreement.CurrentVersion != value.CurrentVersion || digest != value.DefinitionDigest || !agreement.TargetPresent || !agreement.SLASourceMetadataTrusted || agreement.Definition.SLA == nil || len(agreement.Definition.SLA.Sources) != len(value.Tests) {
 			return errReportSourceRequirements
 		}
 		for _, instant := range []time.Time{value.Period.From, value.Period.To.Add(-time.Nanosecond)} {

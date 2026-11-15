@@ -36,7 +36,7 @@ import (
 
 // Reuses the issued-mTLS/PG app-role RLS/HTTPS fixture. Input measurements
 // are modeled; persistence, generated SDK and stored-reader controls are real.
-type carrierSLAReportProof struct{ CSV, PDF, View, PopulationDigest string }
+type carrierSLAReportProof struct{ CSV, PDF, View, Scheduled, PopulationDigest string }
 
 func proveCarrierSLASignedReport(t *testing.T, client *sdk.Client, agreement, at, populationDigest, fingerprint string) carrierSLAReportProof {
 	t.Helper()
@@ -196,13 +196,13 @@ func (p *clientReportNativeProof) carrierReadAllowed(t *testing.T, tenant string
 // restoration and a later immutable financial revision with all sources live.
 func proveCarrierFinancialReportAuthority(t *testing.T, f *roleExplanationAPIFixture, socket *httptest.Server, native *clientReportNativeProof, tenant string, proof carrierSLAReportProof, agreement flow.CapacityAgreement) {
 	t.Helper()
-	downloads := func(allowed bool) {
+	downloads := func(allowed bool, phase string) {
 		t.Helper()
 		client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
-		for _, id := range []string{proof.CSV, proof.PDF} {
+		for _, id := range []string{proof.CSV, proof.PDF, proof.Scheduled} {
 			raw, err := client.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: id})
 			if allowed && (err != nil || len(raw) == 0) || !allowed && (err == nil || len(raw) != 0) {
-				t.Fatal("financial report current-authority boundary failed", allowed, err)
+				t.Fatal("financial report current-authority boundary failed", phase, allowed, err)
 			}
 		}
 		native.carrierReadAllowed(t, tenant, allowed)
@@ -211,11 +211,11 @@ func proveCarrierFinancialReportAuthority(t *testing.T, f *roleExplanationAPIFix
 		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, tenant, f.roles[tenant], permFlowAgreementsRead)
 		return err
 	})
-	downloads(false)
+	downloads(false, "withdrawn")
 	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 		return (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permFlowAgreementsRead)
 	})
-	downloads(true)
+	downloads(true, "restored")
 	from, err := time.Parse(time.RFC3339Nano, agreement.Definition.ValidFrom)
 	if err != nil {
 		t.Fatal(err)
@@ -228,13 +228,13 @@ func proveCarrierFinancialReportAuthority(t *testing.T, f *roleExplanationAPIFix
 	if err != nil || next.Version == agreement.Version {
 		t.Fatal("actual financial revision control failed", err)
 	}
-	// All current grants and original sources are still valid; refusal below
-	// must come from the stored report's captured financial-head requirement.
+	// All current grants, exact old terms and original sources are still
+	// valid. An unrelated future revision cannot revoke this historical pack.
 	client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
 	input := sdk.CarrierSLAInput{Version: agreement.Version, At: from.Add(time.Hour).Format(time.RFC3339Nano)}
 	current, err := client.CalculateCarrierSla(t.Context(), sdk.CalculateCarrierSlaRequest{Id: agreement.ID, Body: &input})
 	if err != nil || current == nil || current.Agreement.CurrentVersion != next.Version {
 		t.Fatal("unchanged prior source-period no longer readable independently", err)
 	}
-	downloads(false)
+	downloads(true, "future terms")
 }

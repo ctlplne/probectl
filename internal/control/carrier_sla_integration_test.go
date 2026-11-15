@@ -196,6 +196,12 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 	for lane, tenant := range f.tenants {
 		nativeReports.proveCarrier(t, tenant, f.tenants[1-lane], proofs[tenant], ids[tenant], fingerprint)
 	}
+	for lane, tenant := range f.tenants {
+		proof := proofs[tenant]
+		proof.Scheduled = proveCarrierSLASchedule(t, f, socket, tenant, f.tenants[1-lane], proof, ids[tenant], fingerprint)
+		proofs[tenant] = proof
+	}
+	proveCarrierSLAPortableBindings(t, f, socket, proofs, ids)
 	nativeReports.crossTenant()
 	call := interfaceRoleNativeTLSCaller(t, f, "2025-11-25")
 	for _, tenant := range f.tenants {
@@ -240,7 +246,7 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 	nativeReports.carrierReadAllowed(t, b, true)
 	for _, tenant := range []string{a, b} {
 		client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
-		for _, artifact := range []string{proofs[tenant].CSV, proofs[tenant].PDF} {
+		for _, artifact := range []string{proofs[tenant].CSV, proofs[tenant].PDF, proofs[tenant].Scheduled} {
 			_, err := client.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: artifact})
 			if (tenant == a && err == nil) || (tenant == b && err != nil) {
 				t.Fatal("stored signed report source retirement boundary failed", tenant, err)

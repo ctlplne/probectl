@@ -219,7 +219,7 @@ func (s *Server) validateReportSourcePublication(ctx context.Context, sc tenancy
 		return apierror.Forbidden("report source capture is unavailable")
 	}
 	if len(capture.Claims) > 0 {
-		return s.revalidateCarrierSLAReportScope(ctx, sc, actor, capture.TenantID, capture.Claims)
+		return s.revalidateCarrierSLAReportScope(ctx, sc, actor, capture.TenantID, capture.Claims, true)
 	}
 	if capture.Monthly != nil {
 		return s.revalidateClientReportRequirementsScope(ctx, sc, actor, capture.TenantID, capture.Monthly)

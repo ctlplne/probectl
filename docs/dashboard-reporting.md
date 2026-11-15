@@ -391,6 +391,11 @@ execution. An explicit instant pins its period. Revised terms are adopted only
 by an explicit selection. Other source modes, supplied metrics and absolute
 bounds cannot be combined with a claim definition.
 
+Historical packs keep their recorded financial revision when later terms are
+added. Reads still require current financial and source permissions, the exact
+immutable terms covering the whole selected period, active source identity and
+all revocation, erasure and tenant checks.
+
 Each pack groups circuits by carrier, currency and billing calendar, shows every
 rule assessment and conditional credit, and includes the complete selected
 original measurement population in a signed `probectl-evidence/v1` envelope with
