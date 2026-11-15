@@ -65,8 +65,10 @@ export function DashboardReportingCard({
     'events.read',
   ].every((permission) => permissions.includes(permission))
   const canMonthlyCapacity = permissions.includes('flow.read')
+  const canAssessmentTopology = permissions.includes('topology.read')
   const validMonthly =
     validMonthlyReport(monthlyDefinition) &&
+    (!monthlyDefinition.assessment || canAssessmentTopology) &&
     (monthlyDefinition.capacity_targets.length === 0 || canMonthlyCapacity)
   const [sourceDraft, setSourceDraft] = useState<{
     identity: string
@@ -415,6 +417,9 @@ export function DashboardReportingCard({
                   canCapacity={canMonthlyCapacity}
                 />
               )}
+              {monthlyMode && monthlyDefinition.assessment && !canAssessmentTopology ? (
+                <p role="status">Assessment reports require topology read permission.</p>
+              ) : null}
             </section>
           ) : null}
           {canReadSources ? (

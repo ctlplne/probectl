@@ -21,7 +21,7 @@ import (
 // This ceiling delegates only source reads. Actual current user grants and
 // context policies are still intersected at every source/publication check.
 func reportBackgroundSourcePermissions() []string {
-	return []string{"metrics.read", "events.read", permAIQuery, permFlowRead, permTagsRead, "agent.read", "entities.read", permTestRead, permIncidentRead, permChangeRead, permFlowAgreementsRead}
+	return []string{"metrics.read", "events.read", permAIQuery, permFlowRead, permTagsRead, "agent.read", "entities.read", "topology.read", permTestRead, permIncidentRead, permChangeRead, permFlowAgreementsRead}
 }
 
 func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context, tenantName string, item store.DueDashboardReport, definition dashboardDefinition, now time.Time) (bool, error) {

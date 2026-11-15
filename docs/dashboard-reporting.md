@@ -355,8 +355,20 @@ explicit: this is current registry metadata, not a reconstruction of historic
 network discovery, present reachability or proof of complete discovery. Stored
 reads recheck each captured entity's existence/creation identity and current
 context permissions; new registry rows are not substituted into old reports.
-Physical topology and config/EOL/routing hygiene are not yet captured by these
-report sections.
+The physical topology section includes the complete current authorized
+canonical LLDP/CDP adjacency receipt population at capture, with original
+ports/chassis/clocks, canonical endpoints, local and independent remote SNMP
+receipt IDs, and an exact originals digest. It requires `topology.read` on the
+tenant and both endpoints in addition to current `entities.read` and
+`metrics.read`. Empty output means no eligible captured adjacencies, not an
+empty physical network. This section describes capture-time evidence rather
+than the selected measurement interval or continuing reachability.
+Stored reads check the exact captured local and remote originals; a later
+supporting poll or alias result cannot replace an edited or erased receipt.
+Original certificates must have been valid at observation. Current renewed
+identity, grants, source assignments and revocation checks remain required;
+later measurement TTL retirement alone does not invalidate a past capture.
+Config/EOL/routing hygiene is not yet captured by these report sections.
 
 An omitted month selects the previous complete calendar month in `timezone`
 (default `UTC`). Set `period` to `month_to_date` for the current month through

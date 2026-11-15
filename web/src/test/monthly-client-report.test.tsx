@@ -14,6 +14,39 @@ for (const tenant of [
   '00000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000002',
 ]) {
+  test(`requires current topology permission only for assessments in tenant ${tenant}`, async () => {
+    vi.stubGlobal('fetch', defaultFetch())
+    renderApp('/dashboards', {
+      me: {
+        tenant_id: tenant,
+        permissions: [
+          'metrics.read',
+          'metrics.write',
+          'entities.read',
+          'test.read',
+          'incident.read',
+          'change.read',
+          'events.read',
+        ],
+      },
+    })
+    const user = userEvent.setup()
+    await user.click(
+      await screen.findByRole('checkbox', { name: 'Build a client report (preview)' }),
+    )
+    const editor = screen.getByRole('region', { name: 'Client report configuration' })
+    expect(screen.getByRole('button', { name: 'Save dashboard' })).toBeEnabled()
+    await user.selectOptions(
+      within(editor).getByRole('combobox', { name: 'Report period' }),
+      'assessment',
+    )
+    await user.type(within(editor).getByLabelText('Assessment start'), '2026-10-01T00:00:00Z')
+    await user.type(within(editor).getByLabelText('Assessment end'), '2026-10-15T00:00:00Z')
+    await user.type(within(editor).getByLabelText('Assessment prepared by'), 'Example MSP')
+    expect(screen.getByRole('button', { name: 'Save dashboard' })).toBeDisabled()
+    expect(screen.getByText('Assessment reports require topology read permission.')).toBeVisible()
+  })
+
   test(`saves an explicit monthly pack and exact capacity assumptions in tenant ${tenant}`, async () => {
     const fallback = defaultFetch()
     const saved: Array<Record<string, unknown>> = []
@@ -102,6 +135,7 @@ for (const tenant of [
           'metrics.read',
           'metrics.write',
           'entities.read',
+          'topology.read',
           'test.read',
           'incident.read',
           'change.read',

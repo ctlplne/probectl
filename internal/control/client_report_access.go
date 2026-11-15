@@ -61,7 +61,7 @@ func (c *clientReportAccessCapture) record(p *auth.Principal, permission string,
 }
 
 func clientReportSourcePermission(permission string) bool {
-	return slices.Contains([]string{permTestRead, permIncidentRead, permChangeRead, permFlowRead, permTagsRead, permAIQuery, "entities.read", "metrics.read", "events.read", "agent.read"}, permission)
+	return slices.Contains([]string{permTestRead, permIncidentRead, permChangeRead, permFlowRead, permTagsRead, permAIQuery, "entities.read", "metrics.read", "events.read", "agent.read", "topology.read"}, permission)
 }
 
 func (s *Server) revalidateClientReportAccessScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, requirements []clientReportAccessRequirement) error {

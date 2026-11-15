@@ -114,7 +114,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			d.observe(t, tenant, 0, lane == 1)
 		}
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			for _, permission := range []string{permTestRead, permChangeRead, permFlowRead, permMetricsWrite} {
+			for _, permission := range []string{permTestRead, permChangeRead, permFlowRead, permMetricsWrite, "topology.read"} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
 					return err
 				}
@@ -232,7 +232,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			t.Fatal("explicit assessment source capture failed", err)
 		}
 		assessment.close()
-		if assessment.TenantID != tenant || !assessment.From.Equal(from) || !assessment.To.Equal(assessmentEnd) || assessment.Period.Kind != "assessment" || len(assessment.Tables) != 10 || assessment.Tables[0].Title != "Assessment availability" || len(assessment.Inventory) == 0 {
+		if assessment.TenantID != tenant || !assessment.From.Equal(from) || !assessment.To.Equal(assessmentEnd) || assessment.Period.Kind != "assessment" || len(assessment.Tables) != 11 || assessment.Tables[0].Title != "Assessment availability" || len(assessment.Inventory) == 0 {
 			t.Fatal("assessment changed its exact bounds, tenant or complete section set")
 		}
 		for _, row := range assessment.Availability {

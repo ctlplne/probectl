@@ -175,7 +175,7 @@ func proveAssessmentRendered(t *testing.T, f *roleExplanationAPIFixture, socket 
 		} else if err := checkServedAssessmentCSV(output.Bytes(), tenant, inventoryIDs); err != nil {
 			t.Fatal(err)
 		}
-		for _, expected := range []string{preparer, "Canonical inventory at report capture", "Assessment measurement coverage and gaps", "Observed assessment risks and capacity hot spots"} {
+		for _, expected := range []string{preparer, "Canonical inventory at report capture", "Observed physical adjacency at report capture", "Assessment measurement coverage and gaps", "Observed assessment risks and capacity hot spots"} {
 			if !strings.Contains(text, expected) {
 				t.Fatal("browser-generated assessment omitted a complete section or preparer", format, expected)
 			}

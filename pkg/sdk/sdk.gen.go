@@ -1072,6 +1072,7 @@ type ChannelSpec struct {
 	Url        string   `json:"url,omitempty"`
 }
 
+// Explicit historical measurement interval and preparer. Includes canonical inventory and complete current authorized physical LLDP/CDP adjacency at capture, with exact independent SNMP support receipts. Assessment generation additionally requires current topology.read on the tenant and both canonical endpoints, plus their entities.read and metrics.read grants. These sections do not establish historical discovery, continuing reachability or complete network discovery. Stored reads retain exact originals with original-certificate validity at observation and current grants, assignment, active identity, revocation and erasure checks.
 type ClientReportAssessment struct {
 	From     string `json:"from"`
 	Preparer string `json:"preparer"`

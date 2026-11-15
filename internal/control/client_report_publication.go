@@ -52,6 +52,9 @@ func (s *Server) revalidateClientReportOriginalCapture(ctx context.Context, acto
 		if err := store.NewEntityRegistry(s.pool).RecheckReportInventoryInScope(ctx, sc, assessmentInventoryRefs(result.Inventory), budget.MemoryBytes/32); err != nil {
 			return err
 		}
+		if err := store.NewEntityRegistry(s.pool).RecheckReportPhysicalLinksInScope(ctx, sc, store.ClientReportPhysicalLinkRefs(result.PhysicalLinks), budget.MemoryBytes/32); err != nil {
+			return err
+		}
 		return ctx.Err()
 	})
 }

@@ -40,6 +40,7 @@ type clientReportCapture struct {
 	Capacity         []clientReportCapacityCapture
 	Inventory        []store.ClientReportInventoryItem
 	InventoryAt      time.Time
+	PhysicalLinks    []store.ClientReportPhysicalLink
 	InputsDigest     string
 	testsPublication incidentEvidenceFinalizer
 	access           *clientReportAccessCapture
@@ -144,8 +145,7 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 		}
 		result.Events, err = s.captureClientReportEventsInScope(ctx, sc, principal, from, to, budget.MemoryBytes/4)
 		if err == nil && definition.Assessment != nil {
-			result.InventoryAt = at.UTC()
-			result.Inventory, err = s.captureAssessmentInventory(ctx, sc, principal, budget.MemoryBytes/32)
+			err = s.captureAssessmentComponents(ctx, sc, principal, result, budget.MemoryBytes/16)
 		}
 		return err
 	})
@@ -153,19 +153,20 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 		return nil, err
 	}
 	state := struct {
-		Domain       string
-		TenantID     string
-		From, To     time.Time
-		Sources      []store.IncidentConfiguredTest
-		Definitions  []slo.SLO
-		SLOEnabled   bool
-		Availability []clientReportAvailability
-		SLOs         []clientReportSLO
-		Events       *clientReportEventCapture
-		Definition   reporting.ClientReportDefinition
-		Inventory    []store.ClientReportInventoryItem
-		InventoryAt  time.Time
-	}{"probectl.client-report.inputs.v1", result.TenantID, from, to, result.Sources, result.Definitions, result.SLOEnabled, result.Availability, result.SLOs, result.Events, definition, result.Inventory, result.InventoryAt}
+		Domain        string
+		TenantID      string
+		From, To      time.Time
+		Sources       []store.IncidentConfiguredTest
+		Definitions   []slo.SLO
+		SLOEnabled    bool
+		Availability  []clientReportAvailability
+		SLOs          []clientReportSLO
+		Events        *clientReportEventCapture
+		Definition    reporting.ClientReportDefinition
+		Inventory     []store.ClientReportInventoryItem
+		InventoryAt   time.Time
+		PhysicalLinks []store.ClientReportPhysicalLink
+	}{"probectl.client-report.inputs.v1", result.TenantID, from, to, result.Sources, result.Definitions, result.SLOEnabled, result.Availability, result.SLOs, result.Events, definition, result.Inventory, result.InventoryAt, result.PhysicalLinks}
 	body, err := json.Marshal(state)
 	if err != nil {
 		return nil, err
@@ -224,6 +225,11 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 	}
 	if result.Events != nil {
 		result.sourceKeys = append(result.sourceKeys, result.Events.sourceKeys...)
+	}
+	for _, item := range result.PhysicalLinks {
+		for _, source := range []entity.SourceKey{item.Source, item.RemoteSource} {
+			result.sourceKeys = append(result.sourceKeys, store.ReportSourceKey{ContextID: item.ContextID, AgentID: source.AgentID, Kind: string(source.Kind), Ref: source.SourceRef})
+		}
 	}
 	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		registry := store.NewEntityRegistry(s.pool)

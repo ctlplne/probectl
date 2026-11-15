@@ -21,15 +21,16 @@ import (
 // Version three requirements contain canonical metadata and required checks;
 // they contain no principal, outcome payload, current permission or read grant.
 type clientReportSourceRequirements struct {
-	Captured     bool                            `json:"captured"`
-	Generation   int64                           `json:"generation"`
-	From         time.Time                       `json:"from"`
-	To           time.Time                       `json:"to"`
-	InputsDigest string                          `json:"inputs_digest"`
-	Tests        []store.ReportTestRequirement   `json:"tests"`
-	Bindings     []store.ReportSourceBinding     `json:"bindings"`
-	Access       []clientReportAccessRequirement `json:"access"`
-	Inventory    []store.ReportInventoryRef      `json:"inventory,omitempty"`
+	Captured      bool                            `json:"captured"`
+	Generation    int64                           `json:"generation"`
+	From          time.Time                       `json:"from"`
+	To            time.Time                       `json:"to"`
+	InputsDigest  string                          `json:"inputs_digest"`
+	Tests         []store.ReportTestRequirement   `json:"tests"`
+	Bindings      []store.ReportSourceBinding     `json:"bindings"`
+	Access        []clientReportAccessRequirement `json:"access"`
+	Inventory     []store.ReportInventoryRef      `json:"inventory,omitempty"`
+	PhysicalLinks []store.ReportPhysicalLinkRef   `json:"physical_links,omitempty"`
 }
 
 func clientReportRequirements(c *clientReportCapture) (*clientReportSourceRequirements, error) {
@@ -37,7 +38,7 @@ func clientReportRequirements(c *clientReportCapture) (*clientReportSourceRequir
 	if err != nil {
 		return nil, err
 	}
-	return &clientReportSourceRequirements{Captured: true, Generation: c.SourceGeneration, From: c.From, To: c.To, InputsDigest: c.InputsDigest, Tests: tests, Bindings: c.bindings, Access: c.access.requirements, Inventory: assessmentInventoryRefs(c.Inventory)}, nil
+	return &clientReportSourceRequirements{Captured: true, Generation: c.SourceGeneration, From: c.From, To: c.To, InputsDigest: c.InputsDigest, Tests: tests, Bindings: c.bindings, Access: c.access.requirements, Inventory: assessmentInventoryRefs(c.Inventory), PhysicalLinks: store.ClientReportPhysicalLinkRefs(c.PhysicalLinks)}, nil
 }
 
 func validateClientReportRequirements(ctx context.Context, tenant string, value *clientReportSourceRequirements, memory int64) error {
@@ -45,7 +46,7 @@ func validateClientReportRequirements(ctx context.Context, tenant string, value 
 	if !ok || bound.String() != tenant || !reportRequirementUUID(tenant) || value == nil || !value.Captured || value.Generation <= 0 || value.From.IsZero() || !value.To.After(value.From) || value.To.After(time.Now().UTC()) || !canonicalFlowRoutingDigest(value.InputsDigest) || value.Tests == nil || value.Bindings == nil || len(value.Access) == 0 || memory <= 0 {
 		return errReportSourceRequirements
 	}
-	if int64(len(value.Tests)+len(value.Bindings)+len(value.Access)+len(value.Inventory)) > memory/2048 {
+	if int64(len(value.Tests)+len(value.Bindings)+len(value.Access)+len(value.Inventory)+len(value.PhysicalLinks)) > memory/2048 {
 		return errReportSourceRequirements
 	}
 	required := map[string]bool{permTestRead: false, permIncidentRead: false, permChangeRead: false, "metrics.read": false, "entities.read": false}
@@ -85,6 +86,9 @@ func validateClientReportRequirements(ctx context.Context, tenant string, value 
 	if err := validateAssessmentInventoryRequirements(value.Inventory, value.Access); err != nil {
 		return err
 	}
+	if err := validateAssessmentTopologyRequirements(value.PhysicalLinks, value.Access); err != nil {
+		return err
+	}
 	return ctx.Err()
 }
 
@@ -100,6 +104,9 @@ func (s *Server) revalidateClientReportRequirementsScope(ctx context.Context, sc
 		return err
 	}
 	if err := store.NewEntityRegistry(s.pool).RecheckReportInventoryInScope(ctx, sc, value.Inventory, budget.MemoryBytes/32); err != nil {
+		return err
+	}
+	if err := store.NewEntityRegistry(s.pool).RecheckReportPhysicalLinksInScope(ctx, sc, value.PhysicalLinks, budget.MemoryBytes/32); err != nil {
 		return err
 	}
 	current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)

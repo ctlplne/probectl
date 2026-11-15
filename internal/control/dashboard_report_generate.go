@@ -164,7 +164,7 @@ func sourceReportDocument(view *store.DashboardView, definition dashboardDefinit
 			limitations = append(limitations, "Month to date is partial through "+period.To.Format(time.RFC3339Nano)+"; never a complete calendar month.")
 		}
 		if period.Kind == "assessment" {
-			limitations = append(limitations, "Assessment interval preview; findings summarize captured test outcomes, configured SLOs and explicit capacity assumptions. Retained observations do not prove complete scheduled coverage. Canonical inventory is current metadata at report capture, not historical discovery or current reachability. Physical topology and config/EOL/routing hygiene are not captured by these report sections. Collection and offboarding authority are not granted by this report.")
+			limitations = append(limitations, "Assessment interval preview; findings summarize captured test outcomes, configured SLOs and explicit capacity assumptions. Retained observations do not prove complete scheduled coverage. Canonical inventory and physical LLDP/CDP adjacency describe authorized metadata and original receipts at report capture, not historical discovery, continuing reachability or proof of complete network discovery. Config/EOL/routing hygiene is not captured by these report sections. Collection and offboarding authority are not granted by this report.")
 		} else {
 			limitations = append(limitations, "Monthly client pack preview; retained observations do not prove complete scheduled coverage.")
 		}

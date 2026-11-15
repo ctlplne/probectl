@@ -62,11 +62,15 @@ func assessmentInventoryRefs(items []store.ClientReportInventoryItem) []store.Re
 }
 
 func projectClientAssessment(ctx context.Context, capture *clientReportCapture, definition *reporting.ClientReportAssessment, memory int64) ([]reporting.CSVTable, error) {
-	findings, err := projectClientAssessmentFindings(ctx, capture, memory/2)
+	findings, err := projectClientAssessmentFindings(ctx, capture, memory/3)
 	if err != nil {
 		return nil, err
 	}
-	inventory, err := projectAssessmentInventory(ctx, capture, memory/2)
+	inventory, err := projectAssessmentInventory(ctx, capture, memory/3)
+	if err != nil {
+		return nil, err
+	}
+	topology, err := projectAssessmentTopology(ctx, capture, memory/3)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +79,7 @@ func projectClientAssessment(ctx context.Context, capture *clientReportCapture, 
 	scope := sealedClientReportTable(capture.TenantID, "client-assessment", "Assessment scope and preparer", capture.From, capture.To, columns, rows)
 	scope.Source = "Operator-provided assessment configuration"
 	tables := append([]reporting.CSVTable{scope}, findings...)
-	return append(tables, inventory), nil
+	return append(tables, inventory, topology), nil
 }
 
 func validateAssessmentInventoryRequirements(refs []store.ReportInventoryRef, access []clientReportAccessRequirement) error {
