@@ -110,6 +110,9 @@ Notes:
 
 ### Published service range input
 
+Published-range flow attribution is a preview while full real-flow and served
+qualification remains outstanding.
+
 `PROBECTL_FLOW_ENRICH_SERVICE_FILE` imports complete original publisher JSON from
 an operator-supplied local cache. The current adapters accept `aws`, `google`
 (`goog.json`), `google_cloud` (`cloud.json`) and `cloudflare` (the public `/ips` API). Nothing is downloaded by this
@@ -195,6 +198,28 @@ matches remain visible in source provenance but cannot, alone, classify traffic
 as a Zoom application. Specific service lists supersede the generic Zoom list
 and generic AWS EC2/AMAZON or Google hosting ownership. Conflicting specific
 services stay ambiguous. Every flow is counted once, including unknown traffic.
+
+Microsoft 365 sources were checked on 2026-11-15: the [web-service documentation](https://learn.microsoft.com/en-us/microsoft-365/enterprise/microsoft-365-ip-web-service)
+explicitly supports customers and network-device vendors identifying traffic;
+[Learn terms](https://learn.microsoft.com/en-us/legal/termsofuse) and applicable
+operator agreements remain in force. No dataset redistribution rights are asserted.
+
+`--publishers m365` fetches all four instances. Individual offline/bulk IDs are
+`m365_worldwide`, `m365_china`, `m365_usgovdod` and `m365_usgovgcchigh`.
+Provide `--m365-client-request-id <machine-GUID>` for online fetching. Generate
+one random GUID for that machine and reuse it; it is a public client association,
+not a tenant or login credential. It is not retained in the shared cache or output.
+No tenant name, service-area filter or IPv6 exclusion is sent. Offline imports
+need no GUID and make no network calls.
+
+Microsoft recommends checking its version service at most hourly and downloading
+endpoints after a version change. Refresh is explicit, with no scheduled polling,
+retry or GUID rotation to evade throttling. Failure preserves the previous cache.
+Original endpoint JSON, including URL-only records, is retained; URLs are never
+resolved into invented IP ranges. Service labels preserve area keys such as
+`Microsoft 365 Exchange` and `Microsoft 365 Skype`. Region/publication time remain
+unknown. Because the endpoints payload has no publisher version, `version` is
+explicitly the local `sha256:<original-document-digest>` content ID.
 
 Google's current `creationTime` values can omit a timezone offset. The reader
 preserves that exact calendar text as `published_time`; it does not guess UTC,

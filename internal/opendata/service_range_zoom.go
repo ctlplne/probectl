@@ -9,7 +9,6 @@ package opendata
 import (
 	"context"
 	"errors"
-	"net/netip"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -54,13 +53,19 @@ var zoomRangePublishers = map[string]zoomRangePublisher{
 func expandServiceRangePublishers(publishers []string) []string {
 	var expanded []string
 	for _, publisher := range publishers {
-		if publisher != "zoom" {
+		if publisher != "zoom" && publisher != "m365" {
 			expanded = append(expanded, publisher)
 			continue
 		}
 		var originals []string
-		for id := range zoomRangePublishers {
-			originals = append(originals, id)
+		if publisher == "zoom" {
+			for id := range zoomRangePublishers {
+				originals = append(originals, id)
+			}
+		} else {
+			for id := range m365RangeInstances {
+				originals = append(originals, id)
+			}
 		}
 		slices.Sort(originals)
 		expanded = append(expanded, originals...)
@@ -85,7 +90,7 @@ func parseZoomServiceRanges(ctx context.Context, raw []byte, dataset *serviceRan
 	dataset.status.Version = "sha256:" + dataset.status.Digest
 	dataset.status.TermsURL = zoomRangeTermsURL
 	for original := range strings.FieldsSeq(string(raw)) {
-		prefix, err := zoomRangePrefix(original)
+		prefix, err := serviceRangeAddressPrefix(original)
 		if err != nil {
 			return err
 		}
@@ -97,17 +102,4 @@ func parseZoomServiceRanges(ctx context.Context, raw []byte, dataset *serviceRan
 		}
 	}
 	return ctx.Err()
-}
-
-func zoomRangePrefix(original string) (string, error) {
-	if prefix, err := netip.ParsePrefix(original); err == nil {
-		return prefix.String(), nil
-	}
-	address, err := netip.ParseAddr(original)
-	if err != nil || address.Zone() != "" || address.Is4In6() {
-		return "", serviceRangeDecodeError("Zoom prefix/address")
-	}
-	// The publisher's widget files also contain exact host addresses. Retain
-	// that exact scope, rather than reject valid input or widen the network.
-	return netip.PrefixFrom(address, address.BitLen()).String(), nil
 }

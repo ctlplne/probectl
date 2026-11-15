@@ -273,6 +273,8 @@ func parseServiceRangeDataset(ctx context.Context, input serviceRangeInput, maxA
 	default:
 		if source, ok := zoomRangePublishers[input.Publisher]; ok {
 			err = parseZoomServiceRanges(ctx, input.Data, &dataset, remaining, source)
+		} else if _, ok := m365RangeInstances[input.Publisher]; ok {
+			err = parseM365ServiceRanges(ctx, input.Data, &dataset, remaining)
 		} else {
 			err = errors.New("unsupported service range publisher")
 		}

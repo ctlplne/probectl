@@ -55,7 +55,7 @@ type serviceCandidate struct {
 }
 
 type serviceSupersets struct {
-	awsSpecific, s3, googleCloud, zoomSpecific, saasSpecific bool
+	awsSpecific, s3, googleCloud, zoomSpecific, m365Specific, saasSpecific bool
 }
 
 // ClassifyServiceRanges selects a unique most-specific published attribution.
@@ -78,6 +78,9 @@ func ClassifyServiceRanges(sources []ServiceRangeStatus, at time.Time) ServiceCl
 			}
 			provider = "zoom"
 		}
+		if _, microsoft365 := m365RangeInstances[source.Publisher]; microsoft365 {
+			provider = "microsoft_365"
+		}
 		for _, match := range source.Matches {
 			prefix, err := netip.ParsePrefix(match.Prefix)
 			if err != nil || !validServiceRangeLabel(match.Service) {
@@ -88,7 +91,8 @@ func ClassifyServiceRanges(sources []ServiceRangeStatus, at time.Time) ServiceCl
 			supersets.s3 = supersets.s3 || provider == "aws" && match.Service == "S3"
 			supersets.googleCloud = supersets.googleCloud || provider == "google_cloud"
 			supersets.zoomSpecific = supersets.zoomSpecific || provider == "zoom" && match.Service != "Zoom"
-			supersets.saasSpecific = supersets.saasSpecific || provider == "zoom" || provider == "salesforce"
+			supersets.m365Specific = supersets.m365Specific || provider == "microsoft_365" && match.Service != "Microsoft 365 Common"
+			supersets.saasSpecific = supersets.saasSpecific || provider == "zoom" || provider == "salesforce" || provider == "microsoft_365"
 		}
 	}
 	best := -1
@@ -127,6 +131,8 @@ func serviceCandidateIsSuperset(candidate serviceCandidate, supersets serviceSup
 		return supersets.saasSpecific
 	case "zoom":
 		return candidate.match.Service == "Zoom" && supersets.zoomSpecific
+	case "microsoft_365":
+		return candidate.match.Service == "Microsoft 365 Common" && supersets.m365Specific
 	default:
 		return false
 	}

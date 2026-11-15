@@ -102,8 +102,8 @@ probectl never phones home: the outage feeds and every enrichment lookup are
 outbound only when you opt in, and the local outage engine makes no outbound calls
 at all.
 
-The authenticated enrichment API also accepts complete offline AWS, Google, Cloudflare, Salesforce and Zoom
-published service-range caches, including the complete Zoom product/family TXT bundle. It returns original service/region labels,
+The authenticated enrichment API also accepts complete offline AWS, Google, Cloudflare, Salesforce, Zoom and Microsoft 365
+published service-range caches, including the complete Zoom product/family TXT and Microsoft 365 instance bundles. It returns original service/region labels,
 including overlaps, plus publication/fetch clocks, expiry and visible unknown
 attribution when a list is stale or unavailable. It does not send addresses to
 publishers or infer a hosted application from cloud ownership. See the

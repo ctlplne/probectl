@@ -124,3 +124,16 @@ func serviceRangeFamily(cidr string, ipv4 bool) bool {
 	prefix, err := netip.ParsePrefix(cidr)
 	return err == nil && !prefix.Addr().Is4In6() && prefix.Addr().Is4() == ipv4
 }
+
+func serviceRangeAddressPrefix(original string) (string, error) {
+	if prefix, err := netip.ParsePrefix(original); err == nil {
+		return prefix.String(), nil
+	}
+	address, err := netip.ParseAddr(original)
+	if err != nil || address.Zone() != "" || address.Is4In6() {
+		return "", serviceRangeDecodeError("published prefix/address")
+	}
+	// Some original vendor files include exact hosts as well as CIDRs. Never
+	// widen an exact IPv4 or IPv6 address into a larger network.
+	return netip.PrefixFrom(address, address.BitLen()).String(), nil
+}

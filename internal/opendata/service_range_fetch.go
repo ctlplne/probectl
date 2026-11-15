@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -22,6 +23,9 @@ import (
 func serviceRangePublisherURL(publisher string) (string, error) {
 	if source, ok := zoomRangePublishers[publisher]; ok {
 		return "https://assets.zoom.us/docs/ipranges/" + source.file, nil
+	}
+	if instance, ok := m365RangeInstances[publisher]; ok {
+		return "https://endpoints.office.com/endpoints/" + instance, nil
 	}
 	switch publisher {
 	case "aws":
@@ -35,16 +39,23 @@ func serviceRangePublisherURL(publisher string) (string, error) {
 	case "salesforce":
 		return "https://ip-ranges.salesforce.com/ip-ranges.json", nil
 	default:
-		return "", errors.New("supported range publishers are aws, google, google_cloud, cloudflare, salesforce and the zoom bundle or its documented per-file IDs")
+		return "", errors.New("supported range publishers are aws, google, google_cloud, cloudflare, salesforce, zoom and m365 bundles or their documented individual IDs")
 	}
 }
 
 // FetchServiceRangeCache performs an explicitly requested BULK refresh. Requests
-// contain no address, tenant, credential, telemetry or query selector. The nil
+// contain no address, tenant, credential or telemetry. The nil
 // client uses the existing hardened TLS door (docs/guardrails.md G7-2, 10, 12).
 // All selected original documents validate before an atomic local replacement;
 // failure leaves the prior cache and its original freshness untouched.
 func FetchServiceRangeCache(ctx context.Context, path string, publishers []string, maxAge time.Duration, memoryBytes int64, client Doer) error {
+	return FetchServiceRangeCacheWithOptions(ctx, path, publishers, maxAge, memoryBytes, ServiceRangeFetchOptions{}, client)
+}
+
+// FetchServiceRangeCacheWithOptions additionally accepts the public machine
+// association required for an explicitly selected Microsoft365 bulk download.
+// It never derives it from tenant state or stores it in public source metadata.
+func FetchServiceRangeCacheWithOptions(ctx context.Context, path string, publishers []string, maxAge time.Duration, memoryBytes int64, options ServiceRangeFetchOptions, client Doer) error {
 	if len(publishers) == 0 || path == "" || maxAge <= 0 {
 		return errors.New("an output cache, publishers and positive freshness are required")
 	}
@@ -62,13 +73,16 @@ func FetchServiceRangeCache(ctx context.Context, path string, publishers []strin
 		}
 		seen[publisher] = true
 	}
+	if err := validateServiceRangeFetchOptions(publishers, options); err != nil {
+		return err
+	}
 	if client == nil {
 		client = defaultIntelClient()
 	}
 	envelope := serviceRangeEnvelope{Version: 2}
 	remaining := memoryBytes / 32 // all response bodies plus full encoding/decode/index workspace
 	for _, publisher := range publishers {
-		input, err := fetchServiceRangeInput(ctx, client, publisher, remaining)
+		input, err := fetchServiceRangeInput(ctx, client, publisher, remaining, options)
 		if err != nil {
 			return err
 		}
@@ -107,13 +121,19 @@ func encodeServiceRangeEnvelope(ctx context.Context, envelope serviceRangeEnvelo
 	return json.Marshal(wire)
 }
 
-func fetchServiceRangeInput(ctx context.Context, client Doer, publisher string, limit int64) (serviceRangeInput, error) {
+func fetchServiceRangeInput(ctx context.Context, client Doer, publisher string, limit int64, options ServiceRangeFetchOptions) (serviceRangeInput, error) {
 	endpoint, err := serviceRangePublisherURL(publisher)
 	if err != nil {
 		return serviceRangeInput{}, err
 	}
 	if limit < 1 {
 		return serviceRangeInput{}, ErrServiceRangeBudget
+	}
+	if _, microsoft365 := m365RangeInstances[publisher]; microsoft365 {
+		// Only the required public client association is permitted. Never add
+		// TenantName, ServiceAreas or NoIPv6 filters to a complete bulk export.
+		query := url.Values{"ClientRequestId": []string{options.Microsoft365ClientRequestID}}
+		endpoint += "?" + query.Encode()
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
