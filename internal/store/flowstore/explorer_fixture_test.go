@@ -34,6 +34,8 @@ func TestExplorerRegistryCoversEveryStoredFlowColumn(t *testing.T) {
 		"raw_flow_digest":             false,
 		"routing_capture_key":         false,
 		"routing_captured_unix_nanos": false,
+		"service_classified_at":       false,
+		"service_evidence":            false,
 	}
 	columns := map[string]bool{}
 	for _, field := range flow.QueryFields() {

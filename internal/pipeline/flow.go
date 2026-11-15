@@ -40,14 +40,16 @@ type FlowEnricher interface {
 // FlowConsumer drains probectl.flow.events into the flow store, enriching
 // records on the way in (once, at ingest — not at query time).
 type FlowConsumer struct {
-	bus      bus.Bus
-	store    flowstore.Store
-	enrich   FlowEnricher
-	topic    string
-	group    string
-	log      *slog.Logger
-	gate     *fairness.Gate // per-tenant ingest bounds (S-T7); nil = unbounded
-	captures *flowRoutingCaptures
+	bus                bus.Bus
+	store              flowstore.Store
+	enrich             FlowEnricher
+	topic              string
+	group              string
+	log                *slog.Logger
+	gate               *fairness.Gate // per-tenant ingest bounds (S-T7); nil = unbounded
+	captures           *flowRoutingCaptures
+	serviceRanges      *opendata.Enricher
+	serviceMemoryBytes int64
 
 	// Server-side tenant binding (TENANT-101): payload tenants are verified
 	// against the agents registry (shared lane) or overwritten by the lane
@@ -275,16 +277,10 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTopi
 	if err != nil {
 		return err // no partially projected raw batch is acknowledged or stored
 	}
-	rows := make([]flowstore.Row, 0, len(batch.Flows))
-	for i, f := range batch.Flows {
-		f.TenantId = tenant // authoritative re-stamp before anything persists
-		c.enrichRecord(ctx, f)
-		rows = append(rows, projectedFlowCapture(f, captures, i))
-	}
 	// CORRECT-010: retry with jittered backoff; exhaustion routes the ORIGINAL
 	// bytes to the flow DLQ — never a silent drop. Meter only what actually
 	// lands, so a dead-lettered batch is not counted as stored.
-	if err := c.insertWithRetry(ctx, rows); err != nil {
+	if err := c.projectAndInsertFlowRows(ctx, tenant, batch.Flows, captures); err != nil {
 		if unknownWriteOutcome(ctx, err) {
 			return err
 		}
@@ -293,7 +289,7 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTopi
 	}
 	c.ledger.addStored(1)
 	// Metering (S-T3): stored flow events, tagged by the VERIFIED tenant.
-	usage.Record(tenant, usage.MeterFlowEvents, int64(len(rows)))
+	usage.Record(tenant, usage.MeterFlowEvents, int64(len(batch.Flows)))
 	return nil
 }
 

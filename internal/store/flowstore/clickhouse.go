@@ -430,6 +430,7 @@ func chMigrationsFor(table string) []chmigrate.Migration {
 		routingCaptureMigration(table, rollupTable, rollupView),
 		counterHistoryMigration(table),
 		counterSpeedMigration(table),
+		serviceAttributionMigration(table, rollupTable, rollupView),
 	}
 }
 

@@ -2100,7 +2100,7 @@ response allocation defaults.
 | `PROBECTL_FLOW_ENRICH_RPKI_WORK_UNITS` | `8589934592` | positive, raiseable whole-source parsing work admission. Does not truncate the validator population or relax record validation |
 | `PROBECTL_FLOW_ENRICH_SERVICE_FILE` | *(unset)* | complete offline envelope containing original AWS/Google published range JSON and explicit original fetch clocks; no outbound source is enabled. Atomic complete import on startup, visible unavailable state on error. See [published service ranges](opendata-aup.md#published-service-range-input) |
 | `PROBECTL_FLOW_ENRICH_SERVICE_MAX_AGE` | `24h` | positive age from each original `fetched_at`, never file mtime, lookup or restart; stale lists return no service attribution and retain publication/fetch clocks and expiry |
-| `PROBECTL_FLOW_ENRICH_SERVICE_MEMORY_BYTES` | `268435456` | positive, raiseable whole-envelope input/decoder/index admission; no prefix count ceiling, partial import or truncation. Raise it for the complete intended export |
+| `PROBECTL_FLOW_ENRICH_SERVICE_MEMORY_BYTES` | `268435456` | positive, raiseable whole-envelope input/decoder/index admission, also bounding additional buffered flow-attribution strings through complete chunk flushing; no prefix/flow count ceiling, partial import or truncation. Raise it for the complete intended workload |
 
 Snapshot object-byte admission also bounds each complete encrypted object
 manifest and the retained manifest bytes in a physical reclaim batch. It is a

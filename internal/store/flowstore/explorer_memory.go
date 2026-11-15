@@ -43,6 +43,7 @@ func (m *Memory) explorerSnapshot(ctx context.Context, tenant string, spec flow.
 		}
 		row := entry.row
 		entryBytes := 256 + len(row.AgentID) + len(row.Exporter) + len(row.Protocol) + len(row.SrcAddr) + len(row.DstAddr) + len(row.Transport) + len(row.NetType) + len(row.NextHop) + len(row.SrcASName) + len(row.DstASName) + len(row.SrcCountry) + len(row.DstCountry) + len(entry.key)
+		entryBytes += int(ServiceAttributionBytes(row))
 		size += entryBytes
 		if len(out) >= budget.ReadRows || int64(size) > min(budget.ReadBytes, budget.MemoryBytes) {
 			return nil, ErrExplorerBudget

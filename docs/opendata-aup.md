@@ -198,6 +198,39 @@ and retains its original clocks and status, making unknown attribution visible.
 Freshness is checked on every lookup, including a shared IP-cache hit. File
 mtime, restart and repeated lookups never renew the source's original fetch time.
 
+### Service attribution on stored flows
+
+The control plane derives `src_service`, `src_service_region`,
+`src_service_provider`, `src_service_status` and the corresponding `dst_*`
+fields after tenant admission and original-flow fingerprinting. Agents cannot
+assert these storage-only fields. They are available to the structured flow
+query registry, including grouping, filtering, charts and matrices; the same
+registry drives SDK/CLI/UI/native operations.
+
+Classification uses the most specific current published range. Documented
+supersets do not hide their specialized labels: AWS `AMAZON` yields to its
+service subsets, S3 membership excludes the EC2 fallback, and Google Cloud
+membership specializes generic Google ownership. Equal-specificity conflicts
+between services remain ambiguous, with an empty service/provider. Conflicting
+regions remain empty while a unique known service is retained. This is range
+attribution, not proof of a hosted application or customer.
+
+Every original flow remains one observation. Matching three overlapping labels
+does not triple its bytes or packets. Per-flow provenance retains all original
+candidate/source metadata and a separate classification clock; it never changes
+the original signed-flow capture, observation time or deduplication identity.
+The local source index is consulted directly, independently of asynchronous
+ASN/geo warming. Expired, disabled or unavailable source data makes **new**
+classifications unknown and does not stop telemetry collection.
+
+Retained classifications are historical capture facts. Changing or expiring a
+catalogue never substitutes today's service labels into an older flow. Older
+records without attribution remain unknown. The additive raw/rollup schema
+preserves both history and tenant partitions. Additional buffered attribution
+is flushed in complete chunks under the existing source memory profile; there
+is no flow-count ceiling, candidate truncation or partially acknowledged batch.
+Original traffic still follows the normal retry/dead-letter contract.
+
 These are shared public reference records. Existing tenant authentication and
 current `flow.read` authorization still apply; no tenant traffic, address or query
 is sent to a publisher. This initial offline reader does not yet add service

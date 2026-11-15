@@ -34,6 +34,30 @@ function Harness({ initial }: { initial?: FlowQueryPlan }) {
 }
 
 describe('native flow plan controls', () => {
+  test('offers captured service dimensions and preserves unknown region operands', async () => {
+    render(
+      <Harness
+        initial={{
+          group_by: ['dst_service', 'dst_service_region'],
+          view: 'table',
+          filter: { conditions: [{ field: 'dst_service_region', op: 'eq', values: [''] }] },
+        }}
+      />,
+    )
+    const picker = screen.getByLabelText('Group by dimension 1')
+    for (const side of ['src', 'dst']) {
+      for (const suffix of ['service', 'service_region', 'service_provider', 'service_status']) {
+        if (`${side}_${suffix}` === 'dst_service_region') continue
+        expect(picker.querySelector(`option[value="${side}_${suffix}"]`)).not.toBeNull()
+      }
+    }
+    expect(screen.getByRole('note')).toHaveTextContent('Unknown and ambiguous traffic stays in totals')
+    expect(screen.getByTestId('plan')).toHaveTextContent('"values":[""]')
+    await userEvent.selectOptions(picker, 'src_service')
+    const plan = JSON.parse(screen.getByTestId('plan').textContent ?? '{}') as FlowQueryPlan
+    expect(plan.group_by).toEqual(['src_service', 'dst_service_region'])
+    expect(plan.filter?.conditions?.[0].values).toEqual([''])
+  })
   test('offers all routing fields and keeps complete path and unknown ASN operands', () => {
     const path = JSON.stringify(['64500 '.repeat(65537) + '4294967295'])
     render(

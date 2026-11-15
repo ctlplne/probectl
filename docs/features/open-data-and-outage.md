@@ -110,8 +110,10 @@ publishers or infer a hosted application from cloud ownership. See the
 [offline format and terms](../opendata-aup.md#published-service-range-input).
 `probectl opendata fetch-ranges` explicitly downloads selected complete lists into
 that cache with atomic replacement; a failed refresh preserves the prior clocks.
-Service dimensions in saved flow queries and the remaining publisher adapters
-are still in development.
+Service/region/provider/status dimensions now use the structured flow-query registry.
+Unknown or ambiguous traffic remains in totals, and stored classifications are never
+refilled from a later catalogue. Remaining publisher adapters and full real-flow
+qualification are still in development.
 
 ## Use it
 

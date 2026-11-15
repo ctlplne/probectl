@@ -61,7 +61,7 @@ func fullRollupMigration(raw, rollup, oldView string) chmigrate.Migration {
 }
 
 func fullRollupBackfillSQL(raw, rollup string) string {
-	columns, selection := routingCaptureRollupSelect(raw)
+	columns, selection := serviceRollupSelect(raw)
 	return "INSERT INTO " + rollup + " (" + columns + ") " + selection + " WHERE tenant_id={tenant:String} AND ts >= {from:DateTime64(3)} AND ts < {to:DateTime64(3)} SETTINGS max_threads=2,max_memory_usage=536870912"
 }
 

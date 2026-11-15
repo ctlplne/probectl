@@ -110,6 +110,14 @@ var queryFieldRegistry = []QueryField{
 	queryField("dst_asn", "dst_asn", QueryUnsigned, false, 1<<32-1),
 	queryField("dst_as_name", "dst_as_name", QueryText, false, 0),
 	queryField("dst_country", "dst_country", QueryText, false, 0),
+	queryField("src_service", "src_service", QueryText, false, 0),
+	queryField("src_service_region", "src_service_region", QueryText, false, 0),
+	queryField("src_service_provider", "src_service_provider", QueryText, false, 0),
+	queryField("src_service_status", "src_service_status", QueryText, false, 0),
+	queryField("dst_service", "dst_service", QueryText, false, 0),
+	queryField("dst_service_region", "dst_service_region", QueryText, false, 0),
+	queryField("dst_service_provider", "dst_service_provider", QueryText, false, 0),
+	queryField("dst_service_status", "dst_service_status", QueryText, false, 0),
 	queryField("row_id", "row_id", QueryText, true, 0),
 }
 

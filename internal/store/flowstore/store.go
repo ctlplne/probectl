@@ -74,6 +74,19 @@ type Row struct {
 	DstASN     uint32 `json:"dst_asn"`
 	DstASName  string `json:"dst_as_name"`
 	DstCountry string `json:"dst_country"`
+
+	// Server-derived published-range attribution. Original packet identity and
+	// traffic counters never depend on this metadata. Empty labels are unknown.
+	SrcService          string `json:"src_service"`
+	SrcServiceRegion    string `json:"src_service_region"`
+	SrcServiceProvider  string `json:"src_service_provider"`
+	SrcServiceStatus    string `json:"src_service_status"`
+	DstService          string `json:"dst_service"`
+	DstServiceRegion    string `json:"dst_service_region"`
+	DstServiceProvider  string `json:"dst_service_provider"`
+	DstServiceStatus    string `json:"dst_service_status"`
+	ServiceClassifiedAt string `json:"service_classified_at,omitempty"`
+	ServiceEvidence     string `json:"service_evidence,omitempty"`
 }
 
 // Top-talker groupings.

@@ -704,6 +704,7 @@ func (rt *serveRuntime) startIngestConsumers() {
 	rt.g.Go(func() error {
 		return superviseBusLaneRestart(rt.gctx, "flow-pipeline", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return pipeline.NewFlowConsumer(rt.resultBus, rt.flowStore, rt.flowEnricher, rt.log).
+				WithServiceRanges(rt.ipEnricher, int64(rt.cfg.FlowEnrichServiceMemoryBytes)).
 				WithRoutingCaptureStore(rt.db.Pool(), store.BGPRoutingBudget{MemoryBytes: int64(rt.cfg.PublicRoutingMemoryBytes), WorkUnits: int64(rt.cfg.PublicRoutingWorkUnits), StateBytes: int64(rt.cfg.BGPRoutingCaptureStateBytes), LeaseDuration: time.Minute, PublicSourceMaxAge: rt.cfg.PublicRoutingMaxAge}, rt.ipEnricher).
 				WithTenantBinding(rt.tenantBinding).
 				WithNamespaceTenants(snap.tenants).

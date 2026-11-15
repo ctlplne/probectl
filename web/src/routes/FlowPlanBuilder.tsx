@@ -511,6 +511,12 @@ export function FlowPlanBuilder({
 }) {
   return (
     <div className={styles.stack}>
+      {schema.fields.some((field) => field.name === 'dst_service') ? (
+        <p role="note">
+          Service fields use published IP ranges captured at ingestion. Unknown and ambiguous
+          traffic stays in totals; an empty region means the publisher did not locate it.
+        </p>
+      ) : null}
       <DimensionPicker
         title="Group by"
         values={plan.group_by ?? []}
