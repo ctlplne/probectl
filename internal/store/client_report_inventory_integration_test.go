@@ -38,11 +38,11 @@ func TestAssessmentInventoryKeepsCompleteRegistryCurrentAuthorityAndTenantIsolat
 				return err
 			}
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entities(tenant_id,context_id,id,kind,label)
- VALUES($1,$2,$3,'device',$1::text)`, tenant.ID, contextID, parentID); err != nil {
+ VALUES($1::uuid,$2::uuid,$3::uuid,'device',$1::uuid::text)`, tenant.ID, contextID, parentID); err != nil {
 				return err
 			}
 			_, err := sc.Q.Exec(ctx, `INSERT INTO entities(tenant_id,context_id,id,kind,label,parent_entity_id)
- SELECT $1,$2,lpad(to_hex(n),32,'0')::uuid,'interface',$1::text||'-interface-'||n::text,$3
+ SELECT $1::uuid,$2::uuid,lpad(to_hex(n),32,'0')::uuid,'interface',$1::uuid::text||'-interface-'||n::text,$3::uuid
  FROM generate_series(1,1001) n`, tenant.ID, contextID, parentID)
 			return err
 		})
