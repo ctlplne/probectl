@@ -30,12 +30,13 @@ export function Modal({ open, onClose, title, children, footer, returnFocusRef }
 
   return createPortal(
     <div
-      className="fixed inset-0 z-modal flex items-start justify-center bg-foreground/40 p-4 pt-[var(--layout-dialog-inset-block)] animate-overlay-in"
+      className="fixed inset-0 z-modal flex items-start justify-center p-4 pt-[var(--layout-dialog-inset-block)]"
       onMouseDown={onClose}
     >
+      <div className="absolute inset-0 bg-foreground/40 animate-overlay-in" aria-hidden="true" />
       <div
         ref={dialogRef}
-        className="flex w-full max-w-xl flex-col overflow-hidden rounded-panel border border-border bg-card text-card-foreground shadow-elevation3 animate-panel-in"
+        className="relative flex w-full max-w-xl flex-col overflow-hidden rounded-panel border border-border bg-card text-card-foreground shadow-elevation3"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
