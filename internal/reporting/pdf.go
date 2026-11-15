@@ -871,13 +871,14 @@ func (p *pdfDocument) serialize(out *boundedPDFWriter) error {
 			return fmt.Errorf("PDF contains an incomplete object")
 		}
 		offsets[i] = p.limits.Bytes - out.remaining
-		if object.file != nil {
+		switch {
+		case object.file != nil:
 			if err := p.serializeFile(out, i+1, object.file); err != nil {
 				return err
 			}
-		} else if object.stream {
+		case object.stream:
 			fmt.Fprintf(out, "%d 0 obj\n<< /Length %d >>\nstream\n%sendstream\nendobj\n", i+1, len(object.body), object.body)
-		} else {
+		default:
 			fmt.Fprintf(out, "%d 0 obj\n%s\nendobj\n", i+1, object.body)
 		}
 		if out.err != nil {

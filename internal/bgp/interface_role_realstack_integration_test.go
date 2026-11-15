@@ -62,9 +62,12 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	lab := startRoutingLabNamed(t, "probectl-qa-beta-role-router-"+strconv.FormatInt(time.Now().UnixNano()%1e8, 36))
 	primary := lab.ip["rtr-a"]
 	links := []roleRouterLink{addRoleRouterLink(t, lab, "transit", "edge", 234, edgeASN, entity.InterfaceRoleTransit), addRoleRouterLink(t, lab, "ix", "rrc", 232, rrcASN, entity.InterfaceRoleIX), addRoleRouterLink(t, lab, "customer", "rtr-b", 233, rtrBASN, entity.InterfaceRoleCustomer)}
+	// Keep the selected-RIB source alive with actual router Statistics
+	// Reports through the shipping heartbeat path, including quiet intervals.
+	// Capture and browser stages must not manufacture a fresh route clock.
 	// Keep management reachable, but use only the three distinct physical
 	// relationship links for BGP. The initial old peer has no monitored routes.
-	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "neighbor "+lab.ip["edge"]+" shutdown", "-c", "bmp targets probectl", "-c", "bmp monitor ipv6 unicast pre-policy", "-c", "bmp monitor ipv6 unicast post-policy", "-c", "bmp monitor ipv4 unicast loc-rib", "-c", "bmp monitor ipv6 unicast loc-rib", "-c", "end")
+	lab.docker(t, "exec", lab.container("rtr-a"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "neighbor "+lab.ip["edge"]+" shutdown", "-c", "bmp targets probectl", "-c", "bmp monitor ipv6 unicast pre-policy", "-c", "bmp monitor ipv6 unicast post-policy", "-c", "bmp monitor ipv4 unicast loc-rib", "-c", "bmp monitor ipv6 unicast loc-rib", "-c", "bmp stats interval 1000", "-c", "end")
 
 	community := startRouterSNMP(t, lab, "rtr-a")
 	sidecar := lab.name + "-rtr-a-snmp"

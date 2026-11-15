@@ -72,6 +72,20 @@ binding before decoding. Updates must still match their stored generation
 selector, including refusals; an unknown selector cannot reset a sibling.
 Complete mapped physical sender/flow surfaces remain under qualification.
 
+For a quiet FRR source, enable periodic Statistics Reports under its BMP target
+so the receiver observes fresh authenticated messages between route updates:
+
+```text
+bmp targets probectl
+ bmp stats interval 1000
+```
+
+The interval is in milliseconds, as documented by
+[FRR](https://docs.frrouting.org/en/latest/bmp.html). Choose a cadence within
+the receiver's source lease. A connected socket alone does not renew routing
+authority; a missing or expired source stays unavailable until valid source
+evidence arrives. Original observation clocks and route history remain intact.
+
 Operations share the configured Explorer execution, response, memory and tenant
 fairness admission. Complete metadata and retained state also use the routing
 store's finite byte/work/state budget. There is no binding-count truncation:
