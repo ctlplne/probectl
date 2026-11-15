@@ -76,7 +76,8 @@ type cliCoverage struct {
 
 var surfaceCommands = map[string]surfaceCommand{
 	"capacity": {Name: "capacity", Summary: "counter-backed capacity forecasts", Ops: map[string]apiOp{
-		"forecast": {Method: http.MethodPost, Path: "/v1/flows/capacity/forecast", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "read-only current interface/circuit forecast; --body-file supplies target, complete from/to/until, direction, exact capacity_bps, maximum_poll_gap and physical_bounds; no financial grant required"},
+		"sla-claim": {Method: http.MethodPost, Path: "/v1/flows/capacity/sla-claims", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "group complete recorded monthly SLA selections by carrier, currency and billing calendar; --body-file supplies selections of agreement_id, version and at; no submission or payment"},
+		"forecast":  {Method: http.MethodPost, Path: "/v1/flows/capacity/forecast", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "read-only current interface/circuit forecast; --body-file supplies target, complete from/to/until, direction, exact capacity_bps, maximum_poll_gap and physical_bounds; no financial grant required"},
 	}},
 	"capacity-agreements": {Name: "capacity-agreements", Summary: "tenant financial terms and immutable capacity agreement revisions", Ops: map[string]apiOp{
 		"sla":       {Method: http.MethodPost, Path: "/v1/flows/capacity/agreements/{id}/sla", ArgName: "id", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "calculate monthly recorded SLA against complete original probe populations; --body-file supplies exact version and at; financial terms grant no telemetry access"},

@@ -47,6 +47,18 @@ func (s *Server) calculateCarrierSLA(op capacityAgreementOperation, id string, i
 	if err != nil {
 		return none, nil, err
 	}
+	if op.chargeRetained != nil {
+		state, err := json.Marshal([]any{initial, sources})
+		if err != nil {
+			return none, nil, err
+		}
+		if err := op.chargeRetained(int64(len(state))); err != nil {
+			return none, nil, err
+		}
+	}
+	if op.captureSLA != nil {
+		op.captureSLA(initial.Agreement, sources)
+	}
 	publication := func(ctx context.Context) error {
 		current, _, err := s.carrierSLASnapshot(ctx, op, id, input.Version, at)
 		if err != nil {
@@ -132,7 +144,7 @@ func (s *Server) carrierSLASnapshot(ctx context.Context, op capacityAgreementOpe
 		if err := sc.Q.QueryRow(ctx, `SELECT transaction_timestamp()`).Scan(&asOf); err != nil {
 			return err
 		}
-		limits := store.ConfiguredMeasurementScanBudget{MemoryBytes: op.budget.MemoryBytes / 8, ReadBytes: op.budget.ReadBytes, ReadRows: int64(op.budget.ReadRows)}
+		limits := store.ConfiguredMeasurementScanBudget{MemoryBytes: op.budget.MemoryBytes / 8, ReadBytes: op.budget.ReadBytes, ReadRows: int64(op.budget.ReadRows), ChargeRead: op.chargeRead}
 		if err := registry.WalkConfiguredTestMeasurementsInScope(ctx, sc, sources, period.From, period.To, limits, func(item store.IncidentTestMeasurement) error { return accumulator.observe(ctx, item) }); err != nil {
 			return err
 		}

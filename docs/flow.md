@@ -1468,3 +1468,22 @@ The monthly calculation is a preview component. Grouped signed claim drafts,
 complete breach-original attachments, physical loss/outage verification and final
 served/lifecycle/restart qualification remain unfinished. Population digests are
 reproducibility commitments, not a substitute for the signed original evidence.
+
+
+For an unsigned grouped review draft, use **Carrier claim draft** on `/capacity`,
+`probectl capacity sla-claim --body-file request.json`,
+`POST /v1/flows/capacity/sla-claims`, the generated clients, or native
+`capacity_sla_claim`. Supply `selections`, each with `agreement_id`, exact
+`version` and RFC3339 `at`. Selections may span catalog pages and billing periods;
+no tenant or telemetry grant is accepted from the request. The whole request
+shares original-byte/row accounting, retained-memory admission and one deadline,
+including every publication replay. Any unavailable or foreign selection refuses
+the entire result. Duplicate resolved agreement revisions and periods are refused.
+
+Each group retains every selected circuit assessment. Carrier names, currencies,
+billing windows, timezones and billing days remain distinct. Exact rational
+conditional credits and known lower bounds are added without currency conversion
+or invented rounding. An unknown circuit withholds the group's exact total;
+known lower bounds and every circuit remain visible. The draft is explicitly
+unsigned and `not_submitted`. Signed full-original claim attachments and their
+final qualification remain unfinished; this component does not submit claims.

@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/audit"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/cli"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -114,9 +116,23 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 		if code != 0 || json.Unmarshal(stdout.Bytes(), &cliResult) != nil || len(cliResult.Sources) != 1 || cliResult.Sources[0].Digest != p.Digest {
 			t.Fatal("CLI lost complete original population", code, stderr.String())
 		}
+		selection := sdk.CarrierSLASelection{AgreementId: ids[tenant], Version: "1", At: input.At}
+		claimInput := sdk.CarrierSLAClaimInput{Selections: []sdk.CarrierSLASelection{selection}}
+		draft, err := client.PrepareCarrierSlaClaim(t.Context(), sdk.PrepareCarrierSlaClaimRequest{Body: &claimInput})
+		if err != nil || draft == nil || len(draft.Groups) != 1 || len(draft.Groups[0].Circuits) != 1 || draft.Groups[0].Circuits[0].Sources[0].Digest != p.Digest || draft.Groups[0].Complete || draft.SubmissionState != "not_submitted" {
+			t.Fatal("grouped draft lost the complete current owned source or invented an exact total", err)
+		}
+		claimInput.Selections = append(claimInput.Selections, selection)
+		if _, err := client.PrepareCarrierSlaClaim(t.Context(), sdk.PrepareCarrierSlaClaimRequest{Body: &claimInput}); err == nil {
+			t.Fatal("the same recorded circuit period was counted twice")
+		}
 		other := f.tenants[1-lane]
 		if _, err := client.CalculateCarrierSla(t.Context(), sdk.CalculateCarrierSlaRequest{Id: ids[other], Body: &input}); err == nil {
 			t.Fatal("foreign financial revision crossed storage tenant")
+		}
+		claimInput.Selections[1].AgreementId = ids[other]
+		if draft, err := client.PrepareCarrierSlaClaim(t.Context(), sdk.PrepareCarrierSlaClaimRequest{Body: &claimInput}); err == nil || draft != nil {
+			t.Fatal("foreign selection crossed tenant or returned a successful partial group")
 		}
 	}
 	seedInterfaceRoleMCPConsent(f)
@@ -127,17 +143,48 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 		if len(result.Sources) != 1 || result.Sources[0].Transmitted != "3" || result.Credit.Complete {
 			t.Fatal("native source population or incomplete-month semantics changed")
 		}
+		var draft flow.CarrierSLAClaimDraft
+		call(tenant, "capacity_sla_claim", map[string]any{"claim": flow.CarrierSLAClaimRequest{Selections: []flow.CarrierSLASelection{{AgreementID: ids[tenant], Version: "1", At: input.At}}}}, &draft, true)
+		if len(draft.Groups) != 1 || len(draft.Groups[0].Circuits) != 1 || draft.Groups[0].Complete {
+			t.Fatal("native grouping dropped a circuit or promoted unknown credit")
+		}
 	}
 	a, b := f.tenants[0], f.tenants[1]
-	f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
-		_, err := sc.Q.Exec(ctx, `DELETE FROM entity_source_contexts WHERE tenant_id=$1 AND agent_id=$2 AND source_kind='path_agent'`, a, agents[a])
-		return err
-	})
+	func() {
+		request := httptest.NewRequest(http.MethodPost, "/v1/flows/capacity/sla-claims", nil)
+		request.Header.Set("Authorization", "Bearer "+f.tokens[a])
+		actor := f.server.resolvePrincipal(request)
+		if actor == nil {
+			t.Fatal("actual source-publication caller did not authenticate")
+		}
+		request = request.WithContext(auth.WithPrincipal(request.Context(), actor))
+		op, err := f.server.beginCapacityAgreementMode(request, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer op.done()
+		_, publication, err := f.server.prepareCarrierSLAClaim(op, flow.CarrierSLAClaimRequest{Selections: []flow.CarrierSLASelection{{AgreementID: ids[a], Version: "1", At: input.At}}})
+		if err != nil || publication(op.request.Context()) != nil {
+			t.Fatal("valid current source-publication control failed", err)
+		}
+		f.in(a, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `DELETE FROM entity_source_contexts WHERE tenant_id=$1 AND agent_id=$2 AND source_kind='path_agent'`, a, agents[a])
+			return err
+		})
+		if err := publication(op.request.Context()); err == nil {
+			t.Fatal("late source retirement survived grouped publication")
+		}
+	}()
 	for _, tenant := range []string{a, b} {
 		client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
 		_, err := client.CalculateCarrierSla(t.Context(), sdk.CalculateCarrierSlaRequest{Id: ids[tenant], Body: &input})
 		if (tenant == a) != (err != nil) {
 			t.Fatal("source retirement crossed tenant or stale source remained readable", err)
+		}
+		claimInput := sdk.CarrierSLAClaimInput{Selections: []sdk.CarrierSLASelection{{AgreementId: ids[tenant], Version: "1", At: input.At}}}
+		_, err = client.PrepareCarrierSlaClaim(t.Context(), sdk.PrepareCarrierSlaClaimRequest{Body: &claimInput})
+		if (tenant == a) != (err != nil) {
+			t.Fatal("grouped source retirement crossed tenant or retained a stale source", err)
 		}
 	}
 	f.in(b, func(ctx context.Context, sc tenancy.Scope) error {

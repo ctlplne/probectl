@@ -763,8 +763,30 @@ test('monthly SLA keeps exact observed populations and discards late tenant resu
       'maximum_observed_failed_completion_to_next_successful_completion_not_physical_repair_time',
     human_review_required: true,
   })
+  let sentClaim: unknown
   let sent: unknown
   fixture(async (url, init) => {
+    if (url.pathname.endsWith('/sla-claims')) {
+      sentClaim = JSON.parse(String(init?.body))
+      const circuit = result(tenant)
+      return jsonResponse({
+        contract_version: 'probectl-carrier-sla-draft/v1',
+        groups: [
+          {
+            carrier: `${tenant} carrier`,
+            currency: 'USD',
+            period: circuit.period,
+            complete: false,
+            known_credit_lower_bound: '0',
+            circuits: [circuit],
+          },
+        ],
+        generated_at: circuit.as_of,
+        source_valid_until: circuit.source_valid_until,
+        human_review_required: true,
+        submission_state: 'not_submitted',
+      })
+    }
     if (url.pathname.endsWith('/sla')) {
       sent = JSON.parse(String(init?.body))
       if (tenant === 'red')
@@ -815,7 +837,19 @@ test('monthly SLA keeps exact observed populations and discards late tenant resu
   expect(
     within(displayed).getByText(/unknown coverage or an unfinished period/),
   ).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Add selected agreement to claim' }))
+  fireEvent.change(screen.getByLabelText(/Claim selection 1 billing-period instant/), {
+    target: { value: '2026-10-15T00:00:00Z' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Prepare grouped claim draft' }))
+  await screen.findByRole('region', { name: 'Grouped carrier claim draft' })
+  expect(sentClaim).toEqual({
+    selections: [{ agreement_id: 'blue-agreement', version, at: '2026-10-15T00:00:00Z' }],
+  })
   fireEvent.click(screen.getByRole('button', { name: 'Withdraw financial permission' }))
+  expect(
+    screen.queryByRole('region', { name: 'Grouped carrier claim draft' }),
+  ).not.toBeInTheDocument()
   expect(screen.queryByRole('region', { name: 'Monthly SLA result' })).not.toBeInTheDocument()
   expect(screen.queryByLabelText(/SLA billing-period instant/)).not.toBeInTheDocument()
 })

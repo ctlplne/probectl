@@ -687,6 +687,29 @@ export interface CarrierSLAAssessment {
   value?: string
 }
 
+export interface CarrierSLAClaimDraft {
+  contract_version: string
+  generated_at: string
+  groups: CarrierSLAClaimGroup[]
+  human_review_required: boolean
+  source_valid_until: string
+  submission_state: string
+}
+
+export interface CarrierSLAClaimGroup {
+  carrier: string
+  circuits: CarrierSLAStatement[]
+  complete: boolean
+  currency: string
+  exact_credit?: string
+  known_credit_lower_bound: string
+  period: CapacityBillingPeriod
+}
+
+export interface CarrierSLAClaimInput {
+  selections: CarrierSLASelection[]
+}
+
 export interface CarrierSLACredit {
   assessments: CarrierSLAAssessment[]
   complete: boolean
@@ -732,6 +755,12 @@ export interface CarrierSLARule {
   id: string
   metric: "availability" | "loss" | "latency_nanos" | "repair_nanos"
   threshold: string
+}
+
+export interface CarrierSLASelection {
+  agreement_id: string
+  at: string
+  version: string
 }
 
 export interface CarrierSLASource {
@@ -4876,6 +4905,12 @@ export interface ForecastCapacityRequest {
 
 export type ForecastCapacityResponse = CapacityForecastMeasurement
 
+export interface PrepareCarrierSlaClaimRequest {
+  body: CarrierSLAClaimInput
+}
+
+export type PrepareCarrierSlaClaimResponse = CarrierSLAClaimDraft
+
 export interface ListFlowIngestQualityRequest {
   agentId?: string
   exporter?: string
@@ -6873,6 +6908,12 @@ export class ProbectlSDKClient {
     let path = "/v1/flows/capacity/forecast"
     const query = new URLSearchParams()
     return this.requestJSON<ForecastCapacityResponse>("POST", path, query, request.body)
+  }
+
+  async prepareCarrierSlaClaim(request: PrepareCarrierSlaClaimRequest): Promise<PrepareCarrierSlaClaimResponse> {
+    let path = "/v1/flows/capacity/sla-claims"
+    const query = new URLSearchParams()
+    return this.requestJSON<PrepareCarrierSlaClaimResponse>("POST", path, query, request.body)
   }
 
   async listFlowIngestQuality(request: ListFlowIngestQualityRequest = {}): Promise<ListFlowIngestQualityResponse> {

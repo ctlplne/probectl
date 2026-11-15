@@ -166,6 +166,11 @@ func walkIncidentTestMeasurementsInScope(ctx context.Context, sc tenancy.Scope, 
 			return ErrIncidentImpactBudget
 		}
 		remainingReadBytes -= readCost
+		if budget.ChargeRead != nil {
+			if err := budget.ChargeRead(readCost, 1); err != nil {
+				return err
+			}
+		}
 		if retain {
 			remaining -= cost
 		}

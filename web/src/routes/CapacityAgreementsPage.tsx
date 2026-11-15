@@ -26,6 +26,7 @@ import {
 import { Page } from './RoutePage'
 import { CapacityBillCheck } from './CapacityBillCheck'
 import { CapacitySLACheck } from './CapacitySLACheck'
+import { CapacitySLAClaim } from './CapacitySLAClaim'
 import { CapacitySLAEditor, CapacitySLATermsView } from './CapacitySLATerms'
 import { CapacityForecastCheck } from './CapacityForecastCheck'
 import styles from './flowExplorer.module.css'
@@ -425,6 +426,7 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
           execute={execute}
         />
       )}
+      <CapacitySLAClaim selected={selected} busy={busy} execute={execute} />
       {canWrite && (
         <Card>
           <CardHeader

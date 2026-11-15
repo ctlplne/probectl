@@ -16021,6 +16021,69 @@
         }
       }
     },
+    "/v1/flows/capacity/sla-claims": {
+      "post": {
+        "operationId": "prepareCarrierSLAClaim",
+        "summary": "Group complete selected circuit SLA assessments by carrier and currency",
+        "tags": [
+          "flows"
+        ],
+        "x-required-permission": "flow.agreements.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "description": "Read-only unsigned review draft. Every explicit selection uses the monthly SLA reader with current financial/source/user/credential authority and immutable tenant-composite probe links. Any unavailable or foreign selection refuses the complete draft. Shared request byte/row/memory admission accounts every original population and publication replay, without truncation. Group only equal carrier/currency/billing calendars; do not convert currencies. Exact rational lower bounds and conditional totals preserve every selected circuit; an unknown circuit withholds its group exact total. No claim is submitted, no payment is initiated, and this component does not yet provide signed full-original claim attachments.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarrierSLAClaimInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "200": {
+            "description": "Complete explicit circuit population and exact carrier/currency/calendar group draft; unknowns remain visible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierSLAClaimDraft"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/flows/capacity/agreements/{id}/sla": {
       "post": {
         "operationId": "calculateCarrierSLA",
@@ -31980,6 +32043,124 @@
           "context_id",
           "interface_id",
           "max_bps"
+        ]
+      },
+      "CarrierSLASelection": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "agreement_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "agreement_id",
+          "version",
+          "at"
+        ]
+      },
+      "CarrierSLAClaimInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "selections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarrierSLASelection"
+            },
+            "minItems": 1,
+            "description": "Complete explicit agreement/revision/period selections; duplicate resolved revisions and periods are refused. No tenant or source authority hints."
+          }
+        },
+        "required": [
+          "selections"
+        ]
+      },
+      "CarrierSLAClaimGroup": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "carrier": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "period": {
+            "$ref": "#/components/schemas/CapacityBillingPeriod"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "known_credit_lower_bound": {
+            "type": "string"
+          },
+          "exact_credit": {
+            "type": "string"
+          },
+          "circuits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarrierSLAStatement"
+            }
+          }
+        },
+        "required": [
+          "carrier",
+          "currency",
+          "period",
+          "complete",
+          "known_credit_lower_bound",
+          "circuits"
+        ]
+      },
+      "CarrierSLAClaimDraft": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "probectl-carrier-sla-draft/v1"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarrierSLAClaimGroup"
+            }
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source_valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "human_review_required": {
+            "type": "boolean",
+            "const": true
+          },
+          "submission_state": {
+            "type": "string",
+            "const": "not_submitted"
+          }
+        },
+        "required": [
+          "contract_version",
+          "groups",
+          "generated_at",
+          "source_valid_until",
+          "human_review_required",
+          "submission_state"
         ]
       },
       "CarrierSLAInput": {

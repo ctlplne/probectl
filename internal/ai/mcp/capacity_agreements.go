@@ -25,6 +25,7 @@ type CapacityAgreementCommand struct {
 	Definition *flow.CapacityAgreementDefinition `json:"definition,omitempty"`
 	Forecast   *flow.CapacityForecastRequest     `json:"forecast,omitempty"`
 	Check      *flow.CapacityBillRequest         `json:"check,omitempty"`
+	Claim      *flow.CarrierSLAClaimRequest      `json:"claim,omitempty"`
 }
 
 type CapacityAgreementBackend interface {
@@ -39,6 +40,7 @@ var capacityAgreementTools = []struct {
 	{"capacity_agreements_list", "Page current tenant financial agreements; complete pages have resource admission and no total catalog ceiling.", false},
 	{"capacity_agreement_bill_check", "Check complete-month measured p95, commit, overage and exact invoice difference against recorded terms and all current members. Explicit physical bounds and original counter receipts are required; incomplete coverage withholds amounts.", false},
 	{"capacity_agreement_sla", "Calculate recorded monthly SLA credit from every selected original probe receipt under current tenant and source authority. Sampled availability and maximum observed failure-to-recovery intervals are explicitly labeled; missing originals and unfinished periods withhold exact credit. Human review is required.", false},
+	{"capacity_sla_claim", "Group explicit recorded circuit SLA selections by carrier, currency and billing calendar with exact credit totals. Every selection and original source remains current-authorized; any missing circuit refuses the whole draft. Unknown credit withholds group totals. Human review only; no submission.", false},
 	{"capacity_agreement_get", "Read current, exact recorded or effective agreement terms. Version and effective instant are mutually exclusive.", false},
 	{"capacity_agreement_revisions", "Page complete immutable agreement revisions in recording order, including retired inventory references.", false},
 	{"capacity_agreement_create", "Record complete operator financial terms for one current-tenant interface or tagged circuit.", true},
@@ -57,6 +59,23 @@ func decodeCapacityAgreementCommand(raw json.RawMessage, name string, limit int)
 		return CapacityAgreementCommand{}, err
 	}
 	none := CapacityAgreementCommand{}
+	if name == "capacity_sla_claim" {
+		if input.Claim == nil || len(input.Claim.Selections) == 0 || input.ID != "" || input.After != "" || input.Limit != nil || input.Version != "" || input.At != "" || input.Definition != nil || input.Forecast != nil || input.Check != nil {
+			return none, argErr("a grouped claim requires only explicit recorded agreement selections")
+		}
+		for _, selection := range input.Claim.Selections {
+			if !validTagWriteID(selection.AgreementID) || !capacityAgreementVersion(selection.Version) {
+				return none, argErr("each claim selection needs a canonical agreement and exact recorded revision")
+			}
+			if _, err := time.Parse(time.RFC3339Nano, selection.At); err != nil {
+				return none, argErr("each claim selection needs an RFC3339 period instant")
+			}
+		}
+		return input, nil
+	}
+	if input.Claim != nil {
+		return none, argErr("claim selections are accepted only by the grouped claim tool")
+	}
 	if name == "capacity_forecast" {
 		if err := validateCapacityForecastCommand(input); err != nil {
 			return none, err

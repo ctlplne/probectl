@@ -18,6 +18,10 @@ import (
 // returns an error, never a successful prefix. Callers discard partial totals.
 type ConfiguredMeasurementScanBudget struct {
 	MemoryBytes, ReadBytes, ReadRows int64
+	// ChargeRead accounts complete original bytes/rows across a caller's
+	// multi-circuit operation and publication replays. An error aborts the
+	// scan; neither callback may query or publish on the active connection.
+	ChargeRead func(bytes, rows int64) error
 }
 
 // WalkConfiguredTestMeasurementsInScope shares the original-document decoder,

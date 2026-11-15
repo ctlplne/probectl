@@ -781,6 +781,29 @@ type CarrierSLAAssessment struct {
 	Value         string   `json:"value,omitempty"`
 }
 
+type CarrierSLAClaimDraft struct {
+	ContractVersion     string                 `json:"contract_version"`
+	GeneratedAt         string                 `json:"generated_at"`
+	Groups              []CarrierSLAClaimGroup `json:"groups"`
+	HumanReviewRequired bool                   `json:"human_review_required"`
+	SourceValidUntil    string                 `json:"source_valid_until"`
+	SubmissionState     string                 `json:"submission_state"`
+}
+
+type CarrierSLAClaimGroup struct {
+	Carrier               string                `json:"carrier"`
+	Circuits              []CarrierSLAStatement `json:"circuits"`
+	Complete              bool                  `json:"complete"`
+	Currency              string                `json:"currency"`
+	ExactCredit           string                `json:"exact_credit,omitempty"`
+	KnownCreditLowerBound string                `json:"known_credit_lower_bound"`
+	Period                CapacityBillingPeriod `json:"period"`
+}
+
+type CarrierSLAClaimInput struct {
+	Selections []CarrierSLASelection `json:"selections"`
+}
+
 type CarrierSLACredit struct {
 	Assessments           []CarrierSLAAssessment `json:"assessments"`
 	Complete              bool                   `json:"complete"`
@@ -826,6 +849,12 @@ type CarrierSLARule struct {
 	Id          string                 `json:"id"`
 	Metric      string                 `json:"metric"`
 	Threshold   string                 `json:"threshold"`
+}
+
+type CarrierSLASelection struct {
+	AgreementId string `json:"agreement_id"`
+	At          string `json:"at"`
+	Version     string `json:"version"`
 }
 
 type CarrierSLASource struct {
@@ -7123,6 +7152,21 @@ func (c *Client) ForecastCapacity(ctx context.Context, req ForecastCapacityReque
 	path := "/v1/flows/capacity/forecast"
 	query := url.Values{}
 	var out CapacityForecastMeasurement
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Group complete selected circuit SLA assessments by carrier and currency
+type PrepareCarrierSlaClaimRequest struct {
+	Body *CarrierSLAClaimInput `json:"-"`
+}
+
+func (c *Client) PrepareCarrierSlaClaim(ctx context.Context, req PrepareCarrierSlaClaimRequest) (*CarrierSLAClaimDraft, error) {
+	path := "/v1/flows/capacity/sla-claims"
+	query := url.Values{}
+	var out CarrierSLAClaimDraft
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}

@@ -44,7 +44,7 @@ func TestCapacityAgreementNativeToolsKeepExactTermsAndSeparateTenantFinancialGra
 				continue
 			}
 			args := map[string]any{}
-			if tool.name != "capacity_agreements_list" && tool.name != "capacity_agreement_create" {
+			if tool.name != "capacity_agreements_list" && tool.name != "capacity_agreement_create" && tool.name != "capacity_sla_claim" {
 				args["id"] = tagWriteTestID
 			}
 			if tool.name == "capacity_agreement_create" || tool.name == "capacity_agreement_update" {
@@ -55,6 +55,9 @@ func TestCapacityAgreementNativeToolsKeepExactTermsAndSeparateTenantFinancialGra
 			}
 			if tool.name == "capacity_agreement_bill_check" {
 				args["check"] = flow.CapacityBillRequest{Version: "9007199254740993", At: "2026-10-15T00:00:00Z", MaximumPollGap: "5m", PhysicalBounds: []flow.CapacityPhysicalBound{{ContextID: tagWriteTestID, InterfaceID: tagWriteTestID, MaxBPS: "18446744073709551615"}}}
+			}
+			if tool.name == "capacity_sla_claim" {
+				args["claim"] = flow.CarrierSLAClaimRequest{Selections: []flow.CarrierSLASelection{{AgreementID: tagWriteTestID, Version: "1", At: "2026-10-15T00:00:00Z"}}}
 			}
 			if tool.name == "capacity_agreement_sla" {
 				args["version"], args["at"] = "9007199254740993", "2026-10-15T00:00:00Z"
@@ -88,6 +91,9 @@ func TestCapacityAgreementNativeToolsKeepExactTermsAndSeparateTenantFinancialGra
 func TestCapacityAgreementNativeArgumentsRefuseAuthorityHintsAndAmbiguousOperations(t *testing.T) {
 	for _, input := range []struct{ name, raw string }{
 		{"capacity_agreements_list", `{"tenant_id":"foreign"}`},
+		{"capacity_sla_claim", `{"claim":{"selections":[]}}`},
+		{"capacity_sla_claim", `{"claim":{"selections":[{"agreement_id":"` + tagWriteTestID + `","version":"1","at":"2026-10-15T00:00:00Z","tenant_id":"foreign"}]}}`},
+		{"capacity_agreement_get", `{"id":"` + tagWriteTestID + `","claim":{"selections":[]}}`},
 		{"capacity_agreement_sla", `{"id":"` + tagWriteTestID + `","version":"1","at":"2026-10-15T00:00:00Z","tenant_id":"foreign"}`},
 		{"capacity_agreement_sla", `{"id":"` + tagWriteTestID + `","version":"01","at":"2026-10-15T00:00:00Z"}`},
 		{"capacity_agreement_sla", `{"id":"` + tagWriteTestID + `","version":"1","at":"missing-zone"}`},

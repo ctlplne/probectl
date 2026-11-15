@@ -17,6 +17,7 @@ import (
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -61,11 +62,14 @@ func (s *Server) currentCapacityAgreementActor(ctx context.Context, actor *auth.
 }
 
 type capacityAgreementOperation struct {
-	request *http.Request
-	store   *flow.PostgresCapacityAgreements
-	actor   *auth.Principal
-	budget  flowstore.ExplorerBudget
-	done    func()
+	request        *http.Request
+	store          *flow.PostgresCapacityAgreements
+	actor          *auth.Principal
+	budget         flowstore.ExplorerBudget
+	done           func()
+	chargeRead     func(bytes, rows int64) error
+	chargeRetained func(bytes int64) error
+	captureSLA     func(flow.CapacityAgreement, []store.IncidentConfiguredTest)
 }
 
 func (s *Server) beginCapacityAgreement(r *http.Request) (capacityAgreementOperation, error) {
