@@ -342,7 +342,9 @@ func awaitRoleRouterLabels(t *testing.T, st *shipped.Stack, reg edgeFlowRegistra
 
 func logRoleRouterPeerAuthority(t *testing.T, pool *pgxpool.Pool, reg edgeFlowRegistration) {
 	t.Helper()
-	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(reg.tenantID))
+	deadline, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ctx := tenancy.WithTenant(deadline, tenancy.ID(reg.tenantID))
 	err := tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
 		rows, err := sc.Q.Query(ctx, `SELECT DISTINCT ON (e.agent_id,e.configured_ref,e.alias_value)
  e.alias_value,e.entity_id::text,e.observed_at,COALESCE(e.expires_at,'infinity'::timestamptz)>transaction_timestamp(),
