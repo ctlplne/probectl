@@ -37,7 +37,7 @@ func TestClientAssessmentFindingsKeepExactEvidenceAndTwoTenantScope(t *testing.T
 		capture.Availability[0].Counts.Failed = "0"
 		capture.Capacity[0].Input.CapacityBPS = "1"
 		for _, table := range tables {
-			rows := assessmentFindingRows(t, ctx, table)
+			rows := assessmentFindingRows(ctx, t, table)
 			for _, row := range rows {
 				if row["tenant_id"] != tenant || row["window_to"] != to.Format(time.RFC3339Nano) || row["originals_digest"] == "" {
 					t.Fatal("finding lost its original evidence, window or tenant")
@@ -70,7 +70,7 @@ func TestClientAssessmentFindingsExposeUnconfiguredMeasurementSections(t *testin
 	if err != nil || tables[0].ExpectedRows != 0 || tables[1].ExpectedRows != 3 {
 		t.Fatal("empty measurement coverage was presented as a healthy assessment", err)
 	}
-	rows := assessmentFindingRows(t, ctx, tables[1])
+	rows := assessmentFindingRows(ctx, t, tables[1])
 	for _, name := range []string{"synthetic_sources_not_configured", "slo_definitions_unavailable", "capacity_targets_not_configured"} {
 		if rows[name]["observed_value"] != "0" {
 			t.Fatal("unconfigured section has no explicit coverage gap", name)
@@ -78,7 +78,7 @@ func TestClientAssessmentFindingsExposeUnconfiguredMeasurementSections(t *testin
 	}
 }
 
-func assessmentFindingRows(t *testing.T, ctx context.Context, table reporting.CSVTable) map[string]map[string]string {
+func assessmentFindingRows(ctx context.Context, t *testing.T, table reporting.CSVTable) map[string]map[string]string {
 	t.Helper()
 	rows := map[string]map[string]string{}
 	if err := table.WalkRows(ctx, func(row []string) error {

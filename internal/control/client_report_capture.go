@@ -7,7 +7,6 @@
 package control
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -240,38 +239,7 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 		return nil, err
 	}
 	result.testsPublication = func(final context.Context) error {
-		return tenancy.InTenantReadSnapshot(final, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-			if err := s.revalidateClientReportTestsInScope(ctx, sc, actor, result.Sources, budget.MemoryBytes/8); err != nil {
-				return err
-			}
-			accumulator, err := newClientReportSLIAccumulator(ctx, result.TenantID, result.Sources, result.Definitions, from, to, budget.MemoryBytes/8, budget.ReadBytes)
-			if err != nil {
-				return err
-			}
-			limits := store.ConfiguredMeasurementScanBudget{MemoryBytes: budget.MemoryBytes / 8, ReadBytes: budget.ReadBytes, ReadRows: int64(budget.ReadRows)}
-			if err := store.NewEntityRegistry(s.pool).WalkConfiguredTestMeasurementsInScope(ctx, sc, result.Sources, accumulator.first, to, limits, func(item store.IncidentTestMeasurement) error { return accumulator.observe(ctx, item) }); err != nil {
-				return err
-			}
-			availability, objectives, err := accumulator.finish(ctx)
-			if err != nil {
-				return err
-			}
-			original, err := json.Marshal([]any{result.Availability, result.SLOs})
-			if err != nil {
-				return err
-			}
-			current, err := json.Marshal([]any{availability, objectives})
-			if err != nil {
-				return err
-			}
-			if !bytes.Equal(original, current) {
-				return apierror.Conflict("monthly original availability or SLO population changed during generation; retry")
-			}
-			if err := store.NewEntityRegistry(s.pool).RecheckReportInventoryInScope(ctx, sc, assessmentInventoryRefs(result.Inventory), budget.MemoryBytes/32); err != nil {
-				return err
-			}
-			return ctx.Err()
-		})
+		return s.revalidateClientReportOriginalCapture(final, actor, result, budget)
 	}
 	if err := result.testsPublication(ctx); err != nil {
 		return nil, err
