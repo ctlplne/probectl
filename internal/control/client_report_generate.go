@@ -14,7 +14,6 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/reporting"
-	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
 func cleanClientReportDefinition(d *dashboardDefinition) error {
@@ -47,7 +46,11 @@ func (s *Server) captureConfiguredReportSources(ctx context.Context, actor *auth
 	if definition.ClientReport == nil {
 		return s.captureReportFlowSources(ctx, actor, definition.FlowSources)
 	}
-	capture, err := s.captureConfiguredClientReportSources(ctx, actor, *definition.ClientReport, at, flowstore.ExplorerQueryBudget(s.flowStore))
+	budget, err := s.sourceReportBudget()
+	if err != nil {
+		return nil, err
+	}
+	capture, err := s.captureConfiguredClientReportSources(ctx, actor, *definition.ClientReport, at, budget)
 	if err != nil {
 		return nil, err
 	}

@@ -26,7 +26,7 @@ type staticReportProfile struct {
 type staticReportProfileKey struct{}
 
 func (s *Server) staticReportOperation() (staticReportProfile, error) {
-	profile := staticReportProfile{budget: flowstore.DefaultExplorerBudget(), output: reporting.DefaultOutputPolicy(), timeout: time.Minute}
+	profile := staticReportProfile{budget: flowstore.DefaultExplorerBudget(), output: reporting.DefaultOutputPolicy(), timeout: 5 * time.Minute}
 	profile.budget.MemoryBytes = 1 << 30
 	if s != nil {
 		profile.output = s.reportOutputPolicy()

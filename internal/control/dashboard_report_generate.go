@@ -62,8 +62,8 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 			operationErr = fmt.Errorf("source report %s: %w", phase, operationErr)
 		}
 	}()
-	budget := flowstore.ExplorerQueryBudget(s.flowStore)
-	if err := budget.Validate(); err != nil {
+	budget, err := s.sourceReportBudget()
+	if err != nil {
 		return nil, apierror.Unavailable("report source cost policy is unavailable")
 	}
 	ctx, cancel := context.WithTimeout(tenancy.WithTenant(r.Context(), tenant), budget.ExecutionLimit)

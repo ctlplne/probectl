@@ -15,7 +15,6 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/store"
-	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -30,8 +29,8 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 	if server == nil {
 		return false, apierror.Unavailable("scheduled report source services are unavailable")
 	}
-	budget := flowstore.ExplorerQueryBudget(server.flowStore)
-	if err := budget.Validate(); err != nil {
+	budget, err := server.sourceReportBudget()
+	if err != nil {
 		return false, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)

@@ -14,7 +14,6 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
-	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -34,8 +33,8 @@ func (s *Server) revalidateReportFlowCapture(ctx context.Context, actor *auth.Pr
 	if !ok && capture.Monthly == nil && len(capture.Claims) == 0 || s.pool == nil {
 		return apierror.Unavailable("current report source access is unavailable")
 	}
-	budget := flowstore.ExplorerQueryBudget(s.flowStore)
-	if err := budget.Validate(); err != nil {
+	budget, err := s.sourceReportBudget()
+	if err != nil {
 		return apierror.Unavailable("current report source cost policy is unavailable")
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)

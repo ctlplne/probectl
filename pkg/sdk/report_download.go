@@ -24,7 +24,8 @@ func (c *Client) DownloadDashboardReportArtifactTo(ctx context.Context, input Do
 	if c == nil || target == nil || input.Id == "" || maximum <= 0 || maximum == int64(^uint64(0)>>1) {
 		return 0, errors.New("probectl SDK: complete artifact identity, output and positive sentinel-safe admission are required")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/dashboard-report-artifacts/"+url.PathEscape(input.Id), nil)
+	path := "/v1/dashboard-report-artifacts/" + url.PathEscape(input.Id)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -42,6 +43,7 @@ func (c *Client) DownloadDashboardReportArtifactTo(ctx context.Context, input Do
 	if client == nil {
 		client = http.DefaultClient
 	}
+	client = c.reportHTTPClient(client, http.MethodGet, path)
 	response, err := client.Do(request)
 	if err != nil {
 		return 0, err

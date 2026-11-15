@@ -116,6 +116,13 @@ func (s *Server) captureFlowSources(ctx context.Context, actor *auth.Principal, 
 		}
 	}
 	budget := flowstore.ExplorerQueryBudget(s.flowStore)
+	if !typedResults {
+		var err error
+		budget, err = s.sourceReportBudget()
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err := budget.Validate(); err != nil {
 		return nil, apierror.Unavailable("report source cost policy is unavailable")
 	}

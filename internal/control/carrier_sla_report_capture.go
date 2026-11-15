@@ -51,14 +51,14 @@ func (s *Server) captureCarrierSLAReport(ctx context.Context, actor *auth.Princi
 	if s.pool == nil || s.cfg == nil || s.cfg.FlowQueryLibraryBytes <= 0 || s.fairnessGate == nil || len(s.evidenceSigningKey) == 0 {
 		return nil, apierror.Unavailable("signed financial report storage, admission or signing is unavailable")
 	}
-	budget := flowstore.ExplorerQueryBudget(s.flowStore)
-	if err := budget.Validate(); err != nil {
+	budget, err := s.sourceReportBudget()
+	if err != nil {
 		return nil, err
 	}
 	if s.requireMFA && !actor.MFASatisfied {
 		return nil, apierror.Forbidden("multi-factor authentication required")
 	}
-	ctx, err := bindFlowRoleContext(auth.WithPrincipal(ctx, actor), actor)
+	ctx, err = bindFlowRoleContext(auth.WithPrincipal(ctx, actor), actor)
 	if err != nil {
 		return nil, err
 	}

@@ -721,6 +721,9 @@ func (s *Server) handleGenerateDashboardReport(w http.ResponseWriter, r *http.Re
 	if req.DashboardID == "" || (req.Format != "pdf" && req.Format != "csv") {
 		return apierror.Validation("dashboard_id and format pdf or csv are required")
 	}
+	if err := s.extendReportResponse(w, r); err != nil {
+		return err
+	}
 	artifact, err := s.generateDashboardReportWithStager(r, req, stageStaticDashboardReport)
 	if err != nil {
 		return tagQueryResponseError(w, reportGenerationError(err))
@@ -968,5 +971,8 @@ func (s *Server) handleListDashboardReportArtifacts(w http.ResponseWriter, r *ht
 }
 
 func (s *Server) handleDownloadDashboardReportArtifact(w http.ResponseWriter, r *http.Request) error {
+	if err := s.extendReportResponse(w, r); err != nil {
+		return err
+	}
 	return s.downloadDashboardReportArtifact(w, r)
 }

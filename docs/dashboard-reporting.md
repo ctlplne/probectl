@@ -154,11 +154,21 @@ documents use the same ordered chunk tables with an explicit source-free
 document format; 2 MiB is the inline/chunk boundary, not a total report limit.
 Static generation, local schedules and verified reads use
 `PROBECTL_REPORT_RENDER_MEMORY_BYTES` (default 1 GiB admission, not
-preallocation) and `PROBECTL_REPORT_OPERATION_TIMEOUT` (default one minute),
+preallocation) and `PROBECTL_REPORT_OPERATION_TIMEOUT` (default five minutes),
 alongside the output row/byte allowances. Operators can raise these positive
 profiles for complete workloads. Earlier caller deadlines and cancellation
 still win. Effective source output allowance also
 depends on the finite operation memory/output policy.
+Source-backed capture, rendering, original replay, publication and verified
+downloads use the same report deadline; interactive queries retain
+`PROBECTL_FLOW_QUERY_TIMEOUT`. Generate/download responses also lift the
+listener's short ordinary write deadline to this finite report allowance.
+The Go SDK's own default client gives report generation/download five minutes
+plus transport margin; explicit HTTP clients/timeouts and earlier caller
+deadlines remain authoritative. Use `WithHTTPClient` for a deployment with a
+longer report allowance. The CLI uses the same generation default and its
+existing download budget; raise `--request-timeout`/`--download-timeout` when
+the deployment's complete workload needs longer.
 
 Metadata and chunks have non-null tenant keys, FORCE RLS, tenant-leading indexes
 and composite tenant foreign keys. Silo/hybrid catch-up installs equivalent local

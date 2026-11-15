@@ -60,8 +60,8 @@ func (s *Server) downloadDashboardReportArtifact(w http.ResponseWriter, r *http.
 		if s.fairnessGate == nil {
 			return s.reportArtifactSourceAccessError(actor.TenantID, metadata.ID, apierror.Unavailable("report source admission is unavailable"))
 		}
-		budget := flowstore.ExplorerQueryBudget(s.flowStore)
-		if err := budget.Validate(); err != nil {
+		budget, err := s.sourceReportBudget()
+		if err != nil {
 			return apierror.Unavailable("report source cost policy is unavailable")
 		}
 		bounded, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)

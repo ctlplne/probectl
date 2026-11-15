@@ -39,7 +39,7 @@ func TestReportOutputCapacityConfiguration(t *testing.T) {
 
 func TestStaticReportOperationCapacityProfilesAreRaiseable(t *testing.T) {
 	defaults, err := Load(envFunc(nil))
-	if err != nil || defaults.ReportRenderMemoryBytes != 1<<30 || defaults.ReportOperationTimeout != time.Minute {
+	if err != nil || defaults.ReportRenderMemoryBytes != 1<<30 || defaults.ReportOperationTimeout != 5*time.Minute {
 		t.Fatal("static report operation defaults missing", err)
 	}
 	configured, err := Load(envFunc(map[string]string{"PROBECTL_REPORT_RENDER_MEMORY_BYTES": "2147483648", "PROBECTL_REPORT_OPERATION_TIMEOUT": "25h"}))

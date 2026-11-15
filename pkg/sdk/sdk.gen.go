@@ -45,11 +45,12 @@ func (e *SDKError) Error() string {
 }
 
 type Client struct {
-	BaseURL    string
-	Token      string
-	Tenant     string
-	HTTPClient *http.Client
-	UserAgent  string
+	BaseURL           string
+	Token             string
+	Tenant            string
+	HTTPClient        *http.Client
+	UserAgent         string
+	defaultHTTPClient *http.Client
 }
 
 type Option func(*Client)
@@ -70,6 +71,7 @@ func NewClient(baseURL string, opts ...Option) *Client {
 		baseURL = "https://localhost:8443"
 	}
 	c := &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTPClient: transport.HardenedHTTPClient(15 * time.Second), UserAgent: "probectl-go-sdk"}
+	c.defaultHTTPClient = c.HTTPClient
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -9477,6 +9479,7 @@ func (c *Client) doRaw(ctx context.Context, method, path string, query url.Value
 	if hc == nil {
 		hc = http.DefaultClient
 	}
+	hc = c.reportHTTPClient(hc, method, path)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, err
