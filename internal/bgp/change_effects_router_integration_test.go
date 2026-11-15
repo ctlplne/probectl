@@ -178,6 +178,14 @@ func proveRouterOriginalEffects(t *testing.T, st *shipped.Stack, registrations [
 				}
 			})
 			shipped.Await(t, "actual RTT/change/flow originals in one comparison", time.Minute, func() bool {
+				// The routed probe can finish before the real flow export reaches
+				// the receiver. Observe a live end while awaiting the complete
+				// comparison, then freeze the exact successful window for every
+				// subsequent SDK/CLI/native/browser/original-receipt assertion.
+				if now := time.Now().UTC(); now.After(to) {
+					to = now
+					query.Set("to", to.Format(time.RFC3339Nano))
+				}
 				code, body := st.Do(t, reg.cookie, http.MethodGet, "/v1/changes/"+id+"/effects?"+query.Encode(), nil)
 				lastCode = code
 				if code != http.StatusOK || json.Unmarshal(body, &result) != nil || result.Original.Id != id || len(result.Tests) != 1 {

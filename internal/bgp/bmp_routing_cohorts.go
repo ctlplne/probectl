@@ -10,6 +10,7 @@ import (
 	"context"
 	"math"
 
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
@@ -87,7 +88,12 @@ func (l *BMPListener) stageRoutingCohort(ctx context.Context, writer bmpRoutingM
 			l.retireMatchingCohorts(ctx, writer, peer, states, 0, false)
 			l.retireRoutingStream(ctx, writer, selected, &attempt)
 		}
-		l.log.Warn("bmp routing staging unavailable; raw collection retained", "tenant_id", l.laneTenant, "agent_id", l.evidenceAgent)
+		views := 0
+		if receipt != nil {
+			views = len(receipt.Views)
+		}
+		l.log.Warn("bmp routing staging unavailable; raw collection retained", "tenant_id", l.laneTenant, "agent_id", l.evidenceAgent,
+			"rpc_code", status.Code(err).String(), "receipt_views", views)
 		return
 	}
 	if existed && receipt.Status == "replayed" && previous.generation == attempt.generation && previous.familyMask == mask {
@@ -155,7 +161,7 @@ func (l *BMPListener) sendRoutingCohortMessage(ctx context.Context, writer bmpRo
 	_, err := writer.SubmitRoutingMessage(ctx, message)
 	if err != nil {
 		l.retireRoutingStream(ctx, writer, peer, &state)
-		l.log.Warn("bmp ordered routing evidence unavailable", "tenant_id", l.laneTenant, "agent_id", l.evidenceAgent)
+		l.log.Warn("bmp ordered routing evidence unavailable", "tenant_id", l.laneTenant, "agent_id", l.evidenceAgent, "rpc_code", status.Code(err).String())
 	}
 	if message.SourceReset && err == nil {
 		states.remove(peer)

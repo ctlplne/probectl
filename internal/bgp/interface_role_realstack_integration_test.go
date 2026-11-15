@@ -133,6 +133,19 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 
 	t.Run("routed-path-health", func(t *testing.T) {
 		replay := func(t *testing.T, from time.Time) {
+			// IPFIX may retain its header's whole-second export clock when a
+			// template supplies no usable absolute flow clock. Emit after that
+			// boundary; never rewrite the captured original into a later period.
+			boundary := from.Truncate(time.Second).Add(time.Second)
+			if delay := time.Until(boundary); delay > 0 {
+				timer := time.NewTimer(delay)
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+				case <-t.Context().Done():
+					t.Fatal(t.Context().Err())
+				}
+			}
 			for _, link := range links {
 				emitRoleRouterTraffic(t, lab, lab.name+"-"+link.name+"-flow", link)
 			}
