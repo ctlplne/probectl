@@ -71,15 +71,22 @@ func proveHybridReportChunks(t *testing.T, pool *pgxpool.Pool, prov *Provisioner
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO dashboard_views(tenant_id,id,owner_id,name,preset,definition) VALUES($1,'same-view','alice','Hybrid report','operator','{}')`, id); err != nil {
 				return err
 			}
-			artifacts := []string{"same-artifact"}
+			artifacts := []string{"same-artifact", "same-monthly", "same-financial"}
 			if i == 1 {
 				artifacts = append(artifacts, "foreign-only")
 			}
 			body := []byte("hybrid-" + id)
 			for _, artifact := range artifacts {
+				version := i + 1
+				if artifact == "same-monthly" {
+					version = 3
+				}
+				if artifact == "same-financial" {
+					version = 4
+				}
 				if _, err := sc.Q.Exec(ctx, `INSERT INTO dashboard_report_artifacts
  (tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)
- VALUES($1,$2,'same-view','csv','text/csv','hybrid.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',$3,decode(repeat('00',32),'hex'),jsonb_build_object('version',$4::int,'tenant_id',$1::uuid::text))`, id, artifact, len(body), i+1); err != nil {
+ VALUES($1,$2,'same-view','csv','text/csv','hybrid.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',$3,decode(repeat('00',32),'hex'),jsonb_build_object('version',$4::int,'tenant_id',$1::uuid::text))`, id, artifact, len(body), version); err != nil {
 					return err
 				}
 				if _, err := sc.Q.Exec(ctx, `INSERT INTO dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,$2,0,$3)`, id, artifact, body); err != nil {
@@ -108,7 +115,7 @@ func proveHybridReportChunks(t *testing.T, pool *pgxpool.Pool, prov *Provisioner
 			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM dashboard_report_artifact_chunks WHERE tenant_id=$1`, ids[1-i]).Scan(&foreign); err != nil {
 				return err
 			}
-			if count != i+1 || foreign != 0 {
+			if count != i+3 || foreign != 0 {
 				t.Fatal("hybrid pooled storage RLS exposed foreign report rows", count, foreign)
 			}
 			return nil

@@ -104,7 +104,7 @@ func invokeReportHandler[T any](ctx context.Context, b mcpReportBackend, p *auth
 	if err := b.server.flowRenderBudget.Validate(); err != nil {
 		return result, apierror.Unavailable("report native cost policy is unavailable")
 	}
-	ctx = context.WithValue(ctx, reportOriginatingCredentialKey{}, func(ctx context.Context) error { return mcp.CheckOriginatingCredential(ctx) })
+	ctx = context.WithValue(ctx, reportOriginatingCredentialKey{}, mcp.CheckOriginatingCredential)
 	var body io.Reader
 	if input != nil {
 		data, err := json.Marshal(input)

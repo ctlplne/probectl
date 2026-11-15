@@ -1689,11 +1689,14 @@ jobs:
         run: |
           set -euo pipefail
           test_binary="$(mktemp "$RUNNER_TEMP/probectl-dependency-lab.XXXXXX")"
-          trap 'rm -f "$test_binary"' EXIT
+          physical_log="$(mktemp "$RUNNER_TEMP/probectl-dependency-lab-log.XXXXXX")"
+          trap 'rm -f "$test_binary" "$physical_log"' EXIT
           go test -tags=integration -c -o "$test_binary" ./internal/control
-          sudo -E env "PATH=$PATH" "$test_binary" \
-            -test.timeout=8m -test.v \
-            -test.run='^TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation$'
+          sudo env "PATH=$PATH" "PROBECTL_DATABASE_URL=$PROBECTL_DATABASE_URL" \
+            PROBECTL_TEST_REQUIRE_SERVICES=1 PROBECTL_TEST_REQUIRE_DEPENDENCY_LAB=1 \
+            "$test_binary" -test.timeout=8m -test.v \
+            -test.run='^TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation$' | tee "$physical_log"
+          rg -q '^--- PASS: TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation \(' "$physical_log"
       - name: Current tag alert, native and report publication proof
         # Separate TLS DB preserves the full suite's clean initial state.
         # Every named root must execute and pass; skips/missing tests fail.

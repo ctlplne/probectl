@@ -11,14 +11,15 @@ package control
 import (
 	"context"
 	"encoding/json"
-	"github.com/ctlplne/probectl/internal/auth"
-	"github.com/ctlplne/probectl/internal/crypto"
-	"github.com/ctlplne/probectl/internal/store"
-	"github.com/ctlplne/probectl/internal/tenancy"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func proveReportRevokedCredential(t *testing.T, f *roleExplanationAPIFixture, tenant, artifact string) {
