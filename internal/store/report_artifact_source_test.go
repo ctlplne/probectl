@@ -29,7 +29,7 @@ func TestReportArtifactSourceCaptureVersionsStayTenantBound(t *testing.T) {
 	}
 	for _, raw := range []string{`null`, `{}`, `{"version":0}`, `{"version":5}`, `{"version":"2"}`, `[]`, `{`,
 		fmt.Sprintf(`{"version":2,"tenant_id":%q} {}`, tenant),
-		fmt.Sprintf(`{"version":4,"tenant_id":%q}`, tenant),
+		fmt.Sprintf(`{"version":5,"tenant_id":%q}`, tenant),
 		fmt.Sprintf(`{"version":0,"tenant_id":%q}`, tenant)} {
 		if err := reportArtifactSourceCapture(tenant, json.RawMessage(raw)); !errors.Is(err, ErrReportArtifactIntegrity) {
 			t.Fatalf("invalid report receipt accepted: %s: %v", raw, err)

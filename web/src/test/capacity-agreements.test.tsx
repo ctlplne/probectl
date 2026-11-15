@@ -911,7 +911,13 @@ test('signed carrier report saves exact revisions and discards a late tenant res
     },
   })
   fireEvent.click(await screen.findByRole('button', { name: 'Open red WAN' }))
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add selected agreement to claim' })).toBeEnabled(),
+  )
   fireEvent.click(screen.getByRole('button', { name: 'Add selected agreement to claim' }))
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Save signed claim report' })).toBeEnabled(),
+  )
   fireEvent.click(screen.getByRole('button', { name: 'Save signed claim report' }))
   await waitFor(() => expect(late).toBeDefined())
   expect(sent[0].definition.carrier_claim.selections).toEqual([
@@ -926,7 +932,13 @@ test('signed carrier report saves exact revisions and discards a late tenant res
     screen.queryByRole('link', { name: 'Generate or schedule the signed claim' }),
   ).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Open blue WAN' }))
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add selected agreement to claim' })).toBeEnabled(),
+  )
   fireEvent.click(screen.getByRole('button', { name: 'Add selected agreement to claim' }))
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Save signed claim report' })).toBeEnabled(),
+  )
   fireEvent.click(screen.getByRole('button', { name: 'Save signed claim report' }))
   expect(
     await screen.findByRole('link', { name: 'Generate or schedule the signed claim' }),
