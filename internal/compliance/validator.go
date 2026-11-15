@@ -20,6 +20,7 @@ package compliance
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -105,10 +106,11 @@ const reArmInterval = 24 * time.Hour
 
 // Engine validates observed traffic against the loaded policies, per tenant.
 type Engine struct {
-	mu       sync.Mutex
-	policies []Policy
-	tenants  map[string]*tenantState
-	clock    func() time.Time
+	mu             sync.Mutex
+	policies       []Policy
+	tenantPolicies map[string][]Policy // immutable tenant storage boundary; nil is legacy single-tenant policy mode
+	tenants        map[string]*tenantState
+	clock          func() time.Time
 }
 
 type ruleState struct {
@@ -143,7 +145,8 @@ func NewEngine(policies []Policy) *Engine {
 	}
 }
 
-// Policies returns the loaded policy names (sorted).
+// Policies returns legacy deployment-wide policy names (sorted). Tenant-bound
+// engines expose no global set; their readers use PoliciesFor with a tenant.
 func (e *Engine) Policies() []string {
 	out := make([]string, 0, len(e.policies))
 	for _, p := range e.policies {
@@ -170,6 +173,10 @@ func (e *Engine) Observe(tenant string, f FlowObs) []incident.Signal {
 	if tenant == "" || f.Src == "" || f.Dst == "" {
 		return nil
 	}
+	selected := e.policiesFor(tenant)
+	if e.tenantPolicies != nil && len(selected) == 0 {
+		return nil
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	ts := e.tenant(tenant)
@@ -188,7 +195,7 @@ func (e *Engine) Observe(tenant string, f FlowObs) []incident.Signal {
 	}
 
 	var sigs []incident.Signal
-	for _, p := range e.policies {
+	for _, p := range selected {
 		srcZone, srcOK := p.zoneOf(f.Src)
 		dstZone, dstOK := p.zoneOf(f.Dst)
 		if srcOK {
@@ -281,7 +288,7 @@ func (e *Engine) Results(tenant string) []RuleResult {
 	// policies. A nil slice serializes as null, while API clients are promised an
 	// array and need to be able to render the honest no-policies state.
 	out := make([]RuleResult, 0)
-	for _, p := range e.policies {
+	for _, p := range e.policiesFor(tenant) {
 		for _, r := range p.Rules {
 			st := e.ruleState(ts, p.Name, r.ID)
 			res := RuleResult{
@@ -291,7 +298,7 @@ func (e *Engine) Results(tenant string) []RuleResult {
 				From:        r.From,
 				To:          r.To,
 				Ports:       r.describePorts(),
-				Frameworks:  r.Frameworks,
+				Frameworks:  maps.Clone(r.Frameworks),
 				Violations:  st.violations,
 				// observedPairs counts conversations between the zones in the
 				// rule's direction(s), whether or not they hit the forbidden scope.
@@ -328,7 +335,7 @@ func (e *Engine) CoverageFor(tenant string) Coverage {
 
 	zonesTotal := 0
 	zonesSeen := 0
-	for _, p := range e.policies {
+	for _, p := range e.policiesFor(tenant) {
 		zonesTotal += len(p.Zones)
 		for _, z := range p.Zones {
 			if ts.zonesSeen[p.Name+"|"+z.Name] {
@@ -344,6 +351,9 @@ func (e *Engine) CoverageFor(tenant string) Coverage {
 		ZonesTotal:   zonesTotal,
 		FirstSample:  ts.first,
 		LastSample:   ts.last,
+	}
+	if e.tenantPolicies != nil && len(e.tenantPolicies[tenant]) == 0 {
+		c.Notes = append(c.Notes, "no tenant-bound segmentation policy is configured")
 	}
 	if !ts.flowSeen {
 		c.Notes = append(c.Notes, "no flow-plane (S38) records observed — device-path traffic is invisible")

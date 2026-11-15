@@ -67,7 +67,7 @@ func (e *Engine) Export(tenant string) (Evidence, error) {
 		Version:     EvidenceFormatVersion,
 		Tenant:      tenant,
 		GeneratedAt: e.clock().UTC(),
-		Policies:    e.Policies(),
+		Policies:    e.PoliciesFor(tenant),
 		Coverage:    cov,
 	}
 	prev := evidenceGenesis
