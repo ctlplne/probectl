@@ -390,13 +390,16 @@ func TestConfigDriftProjectsIntoTimelineAndIncidentTenantScoped(t *testing.T) {
 	tenantA := freshTenant(t, db, "cfgchangeA")
 	tenantB := freshTenant(t, db, "cfgchangeB")
 	now := time.Now().UTC().Truncate(time.Second)
-	ops := device.NewMemoryOpsStore()
+	// The public timeline reads the production PostgreSQL projection rather
+	// than the separate memory-only projection used by unit tests.
+	ops := device.NewPostgresOpsStore(db.Pool())
+	originals := map[string][]device.ConfigVersion{}
 	for _, tenant := range []string{tenantA, tenantB} {
 		for i, content := range []string{
 			"hostname edge-r1\ninterface Ethernet1\n shutdown\nsnmp-server community private",
 			"hostname edge-r1\ninterface Ethernet1\n no shutdown\nsnmp-server community public",
 		} {
-			if _, err := ops.ArchiveConfig(context.Background(), device.ConfigVersion{
+			archived, err := ops.ArchiveConfig(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), device.ConfigVersion{
 				TenantID: tenant,
 				Device:   "edge-r1",
 				Content:  content,
@@ -404,9 +407,11 @@ func TestConfigDriftProjectsIntoTimelineAndIncidentTenantScoped(t *testing.T) {
 				ObservedAt: now.Add(
 					time.Duration(i-1) * time.Minute,
 				),
-			}); err != nil {
+			})
+			if err != nil {
 				t.Fatal(err)
 			}
+			originals[tenant] = append(originals[tenant], archived)
 		}
 	}
 
@@ -423,9 +428,10 @@ func TestConfigDriftProjectsIntoTimelineAndIncidentTenantScoped(t *testing.T) {
 		t.Fatalf("tenant A timeline: %d %s", timelineA.Code, timelineA.Body)
 	}
 	bodyA := timelineA.Body.String()
-	if !strings.Contains(bodyA, `"id":"device-config:config-2"`) ||
-		!strings.Contains(bodyA, `"current_id":"config-2"`) ||
-		!strings.Contains(bodyA, `"previous_id":"config-1"`) {
+	previousA, currentA, currentB := originals[tenantA][0].ID, originals[tenantA][1].ID, originals[tenantB][1].ID
+	if !strings.Contains(bodyA, `"id":"device-config:`+currentA+`"`) ||
+		!strings.Contains(bodyA, `"current_id":"`+currentA+`"`) ||
+		!strings.Contains(bodyA, `"previous_id":"`+previousA+`"`) {
 		t.Fatalf("tenant A timeline lacks exact config projection: %s", bodyA)
 	}
 	if strings.Contains(bodyA, "community private") || strings.Contains(bodyA, "community public") {
@@ -436,10 +442,10 @@ func TestConfigDriftProjectsIntoTimelineAndIncidentTenantScoped(t *testing.T) {
 	if timelineB.Code != http.StatusOK {
 		t.Fatalf("tenant B timeline: %d %s", timelineB.Code, timelineB.Body)
 	}
-	if strings.Contains(timelineB.Body.String(), `"current_id":"config-2"`) {
+	if strings.Contains(timelineB.Body.String(), `"current_id":"`+currentA+`"`) {
 		t.Fatalf("tenant B received tenant A's config reference: %s", timelineB.Body)
 	}
-	if !strings.Contains(timelineB.Body.String(), `"current_id":"config-4"`) {
+	if !strings.Contains(timelineB.Body.String(), `"current_id":"`+currentB+`"`) {
 		t.Fatalf("tenant B did not receive its own projected config: %s", timelineB.Body)
 	}
 
@@ -454,10 +460,10 @@ func TestConfigDriftProjectsIntoTimelineAndIncidentTenantScoped(t *testing.T) {
 	}
 	candidates := apiReq(t, h, http.MethodGet, "/v1/incidents/"+inc.ID+"/changes", tenantA, nil)
 	if candidates.Code != http.StatusOK ||
-		!strings.Contains(candidates.Body.String(), `"id":"device-config:config-2"`) {
+		!strings.Contains(candidates.Body.String(), `"id":"device-config:`+currentA+`"`) {
 		t.Fatalf("incident did not receive its same-target config candidate: %d %s", candidates.Code, candidates.Body)
 	}
-	if strings.Contains(candidates.Body.String(), "config-4") {
+	if strings.Contains(candidates.Body.String(), currentB) {
 		t.Fatalf("incident received a foreign-tenant config candidate: %s", candidates.Body)
 	}
 }

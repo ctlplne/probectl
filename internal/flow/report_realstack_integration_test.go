@@ -330,7 +330,7 @@ func (p *nativeReportLane) render(t *testing.T, st *shipped.Stack, foreign *nati
 			testsupport.RenderStep{Click: "Generate CSV", Within: card, Expect: []string{"CSV generated"}},
 			testsupport.RenderStep{Fill: card + " textarea", Value: string(manifest)},
 			testsupport.RenderStep{Click: "Open " + p.source.Definition.Name, Within: card + " [aria-label='Destination report source bindings']", Expect: []string{"flow-1: " + p.source.Definition.Name + " · version " + p.source.Version}},
-			testsupport.RenderStep{Click: "Preview import", Within: card, Expect: []string{"Manifest validated", "1 explicitly bound saved flow sources"}},
+			testsupport.RenderStep{Click: "Preview import", Within: card, Expect: []string{"Manifest validated", "1 explicitly bound report sources"}},
 			testsupport.RenderStep{Click: "Confirm import", Within: card, Expect: []string{"Dashboard imported"}},
 		)
 		// The imported recipe deliberately uses a foreign display name; only
