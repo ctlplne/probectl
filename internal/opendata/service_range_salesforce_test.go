@@ -55,7 +55,8 @@ func TestSalesforcePublishedRangesKeepEveryGroupedFamilyAndOriginalClock(t *test
 		t.Fatal("complete Salesforce arrays were refused", err)
 	}
 	original, err := os.ReadFile(path)
-	if err != nil || !bytes.Contains(original, []byte(body)) {
+	var envelope serviceRangeEnvelope
+	if err != nil || json.Unmarshal(original, &envelope) != nil || len(envelope.Sources) != 1 || !bytes.Equal(envelope.Sources[0].Data, []byte(body)) {
 		t.Fatal("bulk import lost original source bytes", err)
 	}
 	at := time.Now().UTC()
@@ -96,7 +97,6 @@ func TestSalesforcePublishedRangesKeepEveryGroupedFamilyAndOriginalClock(t *test
 			t.Fatal("failed source replaced original bytes or clocks", err)
 		}
 	}
-	var envelope serviceRangeEnvelope
 	if err := json.Unmarshal(original, &envelope); err != nil || len(envelope.Sources) != 1 {
 		t.Fatal("complete offline envelope changed", err)
 	}

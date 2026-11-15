@@ -69,10 +69,11 @@ type serviceRangeEnvelope struct {
 }
 
 type serviceRangeInput struct {
-	Publisher string          `json:"publisher"`
-	FetchedAt time.Time       `json:"fetched_at"`
-	Complete  bool            `json:"complete"`
-	Data      json.RawMessage `json:"data"`
+	Publisher     string          `json:"publisher"`
+	FetchedAt     time.Time       `json:"fetched_at"`
+	Complete      bool            `json:"complete"`
+	Data          json.RawMessage `json:"data"`
+	exactDocument bool
 }
 
 // LoadServiceRanges reads all original vendor JSON before admitting any source.
@@ -134,8 +135,8 @@ func decodeServiceRanges(ctx context.Context, raw []byte, maxAge time.Duration, 
 	if err := decoder.Decode(&envelope); err != nil {
 		return nil, errors.New("invalid complete service range envelope")
 	}
-	if envelope.Version != 1 || len(envelope.Sources) == 0 {
-		return nil, errors.New("service range envelope version 1 and sources are required")
+	if (envelope.Version != 1 && envelope.Version != 2) || len(envelope.Sources) == 0 {
+		return nil, errors.New("service range envelope version 1 or 2 and sources are required")
 	}
 	out := &ServiceRanges{maxAge: maxAge}
 	seen := map[string]bool{}
@@ -146,6 +147,14 @@ func decodeServiceRanges(ctx context.Context, raw []byte, maxAge time.Duration, 
 		}
 		if !input.Complete || input.FetchedAt.IsZero() || input.FetchedAt.After(now) || seen[input.Publisher] {
 			return nil, errors.New("complete unique service range source and original fetch clock are required")
+		}
+		if input.exactDocument != (envelope.Version == 2) {
+			return nil, errors.New("service range document encoding does not match its envelope version")
+		}
+		// Version two quotes the complete original document. Validate inside
+		// that string as well: outer JSON validation cannot see duplicate keys.
+		if err := validateServiceJSON(ctx, input.Data); err != nil {
+			return nil, err
 		}
 		seen[input.Publisher] = true
 		dataset, err := parseServiceRangeDataset(ctx, input, maxAge, &remaining)
@@ -234,7 +243,19 @@ func (input *serviceRangeInput) UnmarshalJSON(raw []byte) error {
 		return err
 	}
 	type plain serviceRangeInput
-	return json.Unmarshal(raw, (*plain)(input))
+	var decoded plain
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	if len(decoded.Data) > 0 && decoded.Data[0] == '"' {
+		var original string
+		if err := json.Unmarshal(decoded.Data, &original); err != nil {
+			return err
+		}
+		decoded.Data, decoded.exactDocument = json.RawMessage(original), true
+	}
+	*input = serviceRangeInput(decoded)
+	return nil
 }
 
 func parseServiceRangeDataset(ctx context.Context, input serviceRangeInput, maxAge time.Duration, remaining *int64) (serviceRangeDataset, error) {

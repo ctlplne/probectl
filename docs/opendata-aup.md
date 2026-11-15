@@ -159,10 +159,18 @@ unresolved publication offset does not reject an otherwise complete valid list
 or renew a cached response's age.
 
 The offline envelope is versioned separately from its unchanged original vendor
-documents. `complete:true` attests that the operator imported the full response;
+documents. Bulk refresh writes version 2: `data` is a JSON string containing the
+complete original UTF-8 document, including leading/trailing whitespace and
+line endings. Decoding reconstructs those exact bytes, and `digest` hashes them.
+Quoted document contents are independently validated; nested duplicate keys or
+malformed originals reject the whole cache. Offline copy and restart preserve
+both the digest and original fetch age. Version 1 remains readable for existing
+operator files; its `data` is an embedded JSON value and its digest covers that
+value, without whitespace outside it. Version and document encoding must agree.
+`complete:true` attests that the operator imported the full response;
 it is not a publisher signature. `fetched_at` is the original successful bulk-fetch
-time, copied unchanged during offline transfer. For example (replace the placeholder
-with the entire original JSON document, not selected ranges):
+time, copied unchanged during offline transfer. For an existing version-one file
+(replace the placeholder with the entire original JSON value, not selected ranges):
 
 ```text
 {

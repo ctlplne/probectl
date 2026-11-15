@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -95,7 +96,8 @@ func TestPublishedServiceRangeBulkFetchKeepsOriginalsTLSAndAtomicFailure(t *test
 		t.Fatal(err)
 	}
 	original, err := os.ReadFile(path)
-	if err != nil || !bytes.Contains(original, []byte(aws)) {
+	var envelope serviceRangeEnvelope
+	if err != nil || json.Unmarshal(original, &envelope) != nil || len(envelope.Sources) != 3 || !bytes.Equal(envelope.Sources[0].Data, []byte(aws)) {
 		t.Fatal("bulk cache rewrote or lost original vendor JSON", err)
 	}
 	info, err := os.Stat(path)

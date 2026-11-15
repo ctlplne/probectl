@@ -7,7 +7,6 @@
 package opendata
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -62,7 +61,7 @@ func FetchServiceRangeCache(ctx context.Context, path string, publishers []strin
 	if client == nil {
 		client = defaultIntelClient()
 	}
-	envelope := serviceRangeEnvelope{Version: 1}
+	envelope := serviceRangeEnvelope{Version: 2}
 	remaining := memoryBytes / 32 // all response bodies plus full encoding/decode/index workspace
 	for _, publisher := range publishers {
 		input, err := fetchServiceRangeInput(ctx, client, publisher, remaining)
@@ -83,32 +82,25 @@ func FetchServiceRangeCache(ctx context.Context, path string, publishers []strin
 }
 
 func encodeServiceRangeEnvelope(ctx context.Context, envelope serviceRangeEnvelope) ([]byte, error) {
-	var output bytes.Buffer
-	output.WriteString(`{"version":1,"sources":[`)
-	for i, input := range envelope.Sources {
+	type originalDocument struct {
+		Publisher string    `json:"publisher"`
+		FetchedAt time.Time `json:"fetched_at"`
+		Complete  bool      `json:"complete"`
+		Data      string    `json:"data"`
+	}
+	wire := struct {
+		Version int                `json:"version"`
+		Sources []originalDocument `json:"sources"`
+	}{Version: 2}
+	for _, input := range envelope.Sources {
 		if err := validateServiceJSON(ctx, input.Data); err != nil {
 			return nil, err
 		}
-		metadata, err := json.Marshal(struct {
-			Publisher string    `json:"publisher"`
-			FetchedAt time.Time `json:"fetched_at"`
-			Complete  bool      `json:"complete"`
-		}{input.Publisher, input.FetchedAt, input.Complete})
-		if err != nil {
-			return nil, err
-		}
-		if i > 0 {
-			output.WriteByte(',')
-		}
-		output.Write(metadata[:len(metadata)-1])
-		output.WriteString(`,"data":`)
-		// Preserve the embedded original JSON instead of compacting/re-escaping
-		// a RawMessage through json.Marshal; its digest survives offline transfer.
-		output.Write(bytes.TrimSpace(input.Data))
-		output.WriteByte('}')
+		// A quoted original survives JSON framing without losing leading or
+		// trailing whitespace. Decoding reconstructs every downloaded byte.
+		wire.Sources = append(wire.Sources, originalDocument{input.Publisher, input.FetchedAt, input.Complete, string(input.Data)})
 	}
-	output.WriteString(`]}`)
-	return output.Bytes(), nil
+	return json.Marshal(wire)
 }
 
 func fetchServiceRangeInput(ctx context.Context, client Doer, publisher string, limit int64) (serviceRangeInput, error) {
