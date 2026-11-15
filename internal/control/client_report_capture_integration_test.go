@@ -232,7 +232,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			t.Fatal("explicit assessment source capture failed", err)
 		}
 		assessment.close()
-		if assessment.TenantID != tenant || !assessment.From.Equal(from) || !assessment.To.Equal(assessmentEnd) || assessment.Period.Kind != "assessment" || len(assessment.Tables) != 9 || assessment.Tables[0].Title != "Assessment availability" {
+		if assessment.TenantID != tenant || !assessment.From.Equal(from) || !assessment.To.Equal(assessmentEnd) || assessment.Period.Kind != "assessment" || len(assessment.Tables) != 10 || assessment.Tables[0].Title != "Assessment availability" || len(assessment.Inventory) == 0 {
 			t.Fatal("assessment changed its exact bounds, tenant or complete section set")
 		}
 		for _, row := range assessment.Availability {
@@ -255,7 +255,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 			t.Fatal("assessment report generation failed", code)
 		}
 		code, raw = call(tenant, http.MethodGet, "/v1/dashboard-report-artifacts/"+assessmentArtifact.ID, nil)
-		if code != http.StatusOK || !bytes.Contains(raw, []byte("Example MSP")) || !bytes.Contains(raw, []byte("Assessment availability")) || !bytes.Contains(raw, []byte("Assessment measurement coverage and gaps")) || !bytes.Contains(raw, []byte("Observed assessment risks and capacity hot spots")) || !bytes.Contains(raw, []byte(assessmentEnd.Format(time.RFC3339Nano))) || bytes.Contains(raw, []byte(f.tenants[1-lane])) || bytes.Contains(raw, []byte(secret)) {
+		if code != http.StatusOK || !bytes.Contains(raw, []byte("Example MSP")) || !bytes.Contains(raw, []byte("Assessment availability")) || !bytes.Contains(raw, []byte("Canonical inventory at report capture")) || !bytes.Contains(raw, []byte("Assessment measurement coverage and gaps")) || !bytes.Contains(raw, []byte("Observed assessment risks and capacity hot spots")) || !bytes.Contains(raw, []byte(assessmentEnd.Format(time.RFC3339Nano))) || bytes.Contains(raw, []byte(f.tenants[1-lane])) || bytes.Contains(raw, []byte(secret)) {
 			t.Fatal("served assessment lost its attribution, exact period, privacy or source data", code)
 		}
 		if code, _ := call(f.tenants[1-lane], http.MethodGet, "/v1/dashboard-report-artifacts/"+assessmentArtifact.ID, nil); code != http.StatusNotFound {

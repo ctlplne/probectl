@@ -348,8 +348,15 @@ breaches and measured exceedances of explicit capacity thresholds, with links
 to their complete source sections, original digests and original windows.
 Coverage rows distinguish unknown outcomes, missing forecast samples and
 unconfigured measurement sections. They do not infer a security score, link
-speed, continuous uptime or complete scheduled coverage. These report sections
-do not yet capture inventory, physical topology or config/EOL/routing hygiene.
+speed, continuous uptime or complete scheduled coverage. The inventory section
+walks the complete tenant canonical registry, including context/site/VRF,
+entity kind, labels, parent, prefix and metadata clocks. Its capture clock is
+explicit: this is current registry metadata, not a reconstruction of historic
+network discovery, present reachability or proof of complete discovery. Stored
+reads recheck each captured entity's existence/creation identity and current
+context permissions; new registry rows are not substituted into old reports.
+Physical topology and config/EOL/routing hygiene are not yet captured by these
+report sections.
 
 An omitted month selects the previous complete calendar month in `timezone`
 (default `UTC`). Set `period` to `month_to_date` for the current month through

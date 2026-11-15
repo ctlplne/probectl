@@ -39,6 +39,8 @@ type clientReportCapture struct {
 	Events           *clientReportEventCapture
 	Verdicts         []clientReportVerdict
 	Capacity         []clientReportCapacityCapture
+	Inventory        []store.ClientReportInventoryItem
+	InventoryAt      time.Time
 	InputsDigest     string
 	testsPublication incidentEvidenceFinalizer
 	access           *clientReportAccessCapture
@@ -142,6 +144,10 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 			return err
 		}
 		result.Events, err = s.captureClientReportEventsInScope(ctx, sc, principal, from, to, budget.MemoryBytes/4)
+		if err == nil && definition.Assessment != nil {
+			result.InventoryAt = at.UTC()
+			result.Inventory, err = s.captureAssessmentInventory(ctx, sc, principal, budget.MemoryBytes/32)
+		}
 		return err
 	})
 	if err != nil {
@@ -158,7 +164,9 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 		SLOs         []clientReportSLO
 		Events       *clientReportEventCapture
 		Definition   reporting.ClientReportDefinition
-	}{"probectl.client-report.inputs.v1", result.TenantID, from, to, result.Sources, result.Definitions, result.SLOEnabled, result.Availability, result.SLOs, result.Events, definition}
+		Inventory    []store.ClientReportInventoryItem
+		InventoryAt  time.Time
+	}{"probectl.client-report.inputs.v1", result.TenantID, from, to, result.Sources, result.Definitions, result.SLOEnabled, result.Availability, result.SLOs, result.Events, definition, result.Inventory, result.InventoryAt}
 	body, err := json.Marshal(state)
 	if err != nil {
 		return nil, err
@@ -198,14 +206,10 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 	result.Tables = append(result.Tables, capacityTable)
 	if definition.Assessment != nil {
 		result.Tables[0].Title = "Assessment availability"
-		assessmentTables, err := projectClientAssessmentFindings(ctx, result, budget.MemoryBytes/32)
+		assessmentTables, err := projectClientAssessment(ctx, result, definition.Assessment, budget.MemoryBytes/16)
 		if err != nil {
 			return nil, err
 		}
-		columns := []reporting.CSVColumn{{Name: "prepared_by"}, {Name: "period_from"}, {Name: "period_to"}}
-		scopeTable := sealedClientReportTable(result.TenantID, "client-assessment", "Assessment scope and preparer", from, to, columns, [][]string{{definition.Assessment.Preparer, from.Format(time.RFC3339Nano), to.Format(time.RFC3339Nano)}})
-		scopeTable.Source = "Operator-provided assessment configuration"
-		result.Tables = append(result.Tables, scopeTable)
 		result.Tables = append(result.Tables, assessmentTables...)
 	}
 	digest := crypto.Hash(body)
@@ -262,6 +266,9 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 			}
 			if !bytes.Equal(original, current) {
 				return apierror.Conflict("monthly original availability or SLO population changed during generation; retry")
+			}
+			if err := store.NewEntityRegistry(s.pool).RecheckReportInventoryInScope(ctx, sc, assessmentInventoryRefs(result.Inventory), budget.MemoryBytes/32); err != nil {
+				return err
 			}
 			return ctx.Err()
 		})

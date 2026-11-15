@@ -96,7 +96,7 @@ func revalidateMonthlyReportOriginals(ctx context.Context, capture *reportFlowCa
 // digests, contracts and the complete signed offline envelope stay exact.
 func redactMonthlyReportTables(tables []reporting.CSVTable, policy ai.RedactionPolicy, tenant string) []reporting.CSVTable {
 	out := append([]reporting.CSVTable{}, tables...)
-	text := map[string]bool{"name": true, "display_name": true, "prepared_by": true, "service": true, "title": true, "target": true, "prefix": true, "actor": true, "hypotheses": true, "all_hypotheses": true, "summary": true, "ref": true, "url": true, "attributes": true, "config_predecessors": true, "query_and_explicit_assumptions": true}
+	text := map[string]bool{"name": true, "site_label": true, "vrf_label": true, "network_prefix": true, "display_name": true, "prepared_by": true, "service": true, "title": true, "target": true, "prefix": true, "actor": true, "hypotheses": true, "all_hypotheses": true, "summary": true, "ref": true, "url": true, "attributes": true, "config_predecessors": true, "query_and_explicit_assumptions": true}
 	for i := range out {
 		original := out[i].WalkRows
 		columns := out[i].Columns
