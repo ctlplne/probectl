@@ -30,6 +30,7 @@ import (
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
@@ -124,6 +125,8 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 		if t.Failed() {
 			logFRRRoutingState(t, readPool, reg)
 			logFRRRoutingState(t, readPool, other)
+			logRoleRouterPeerAuthority(t, readPool, reg)
+			logRoleRouterPeerAuthority(t, readPool, other)
 		}
 	})
 	assertRouterTenantSplit(t, st, reg, other, primary)
@@ -313,7 +316,7 @@ func awaitRoleRouterLabels(t *testing.T, st *shipped.Stack, reg edgeFlowRegistra
 			var got servedRouterRole
 			if code != http.StatusOK || json.Unmarshal(body, &got) != nil || got.TenantID != reg.tenantID || got.ContextID != reg.contextID || got.InterfaceID != ids[link.index] || got.Role != link.role || (link.role != entity.InterfaceRoleOther && len(got.Sources) == 0) || !got.SNMPCurrent || !got.PrefixCurrent {
 				complete = false
-				diagnostic = fmt.Sprintf("%s HTTP%d role=%s expected=%s SNMP=%t prefix=%t", link.name, code, got.Role, link.role, got.SNMPCurrent, got.PrefixCurrent)
+				diagnostic = fmt.Sprintf("%s HTTP%d role=%s expected=%s reason=%s sources=%v SNMP=%t prefix=%t", link.name, code, got.Role, link.role, got.Reason, got.Sources, got.SNMPCurrent, got.PrefixCurrent)
 				break
 			}
 			if link.role == entity.InterfaceRoleIX && !strings.Contains(strings.Join(got.Sources, ","), "peeringdb/ixpfx/7/ixlan/11/snapshot/") {
@@ -335,6 +338,47 @@ func awaitRoleRouterLabels(t *testing.T, st *shipped.Stack, reg edgeFlowRegistra
 		time.Sleep(300 * time.Millisecond)
 	}
 	t.Fatal("same-router real roles lost current source or explicit origin authority", diagnostic)
+}
+
+func logRoleRouterPeerAuthority(t *testing.T, pool *pgxpool.Pool, reg edgeFlowRegistration) {
+	t.Helper()
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(reg.tenantID))
+	err := tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+		rows, err := sc.Q.Query(ctx, `SELECT DISTINCT ON (e.agent_id,e.configured_ref,e.alias_value)
+ e.alias_value,e.entity_id::text,e.observed_at,COALESCE(e.expires_at,'infinity'::timestamptz)>transaction_timestamp(),
+ e.support_evidence_id IS NOT NULL,COALESCE(m.anchor_entity_id=e.entity_id,false),
+ COALESCE(m.assigned_at<=e.observed_at,false),COALESCE(a.assigned_at<=e.observed_at,false),
+ COALESCE(sender.revoked_at IS NULL AND sender.not_after>transaction_timestamp(),false),
+ COALESCE(origin.revoked_at IS NULL AND origin.not_after>transaction_timestamp(),false)
+ FROM entity_evidence e
+ LEFT JOIN entity_source_contexts m ON (m.tenant_id,m.context_id,m.agent_id,m.source_kind,m.source_ref)=
+ (e.tenant_id,e.context_id,e.agent_id,e.source_kind,e.configured_ref)
+ LEFT JOIN entity_agent_contexts a ON (a.tenant_id,a.context_id,a.agent_id)=(e.tenant_id,e.context_id,e.agent_id)
+ LEFT JOIN agent_identities sender ON (sender.tenant_id,sender.agent_id,sender.serial)=(e.tenant_id,e.agent_id,e.sender_serial)
+ LEFT JOIN agent_identities origin ON (origin.tenant_id,origin.agent_id,origin.serial)=(e.tenant_id,e.configured_ref,e.origin_serial)
+ WHERE e.tenant_id=$1 AND e.context_id=$2 AND e.source_kind='bmp_peer' AND e.alias_kind='bmp_peer_id'
+ ORDER BY e.agent_id,e.configured_ref,e.alias_value,e.observed_at DESC,e.id DESC LIMIT 16`, reg.tenantID, reg.contextID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		count := 0
+		for rows.Next() {
+			var peer, node string
+			var observed time.Time
+			var live, inferred, anchor, source, agent, sender, origin bool
+			if err := rows.Scan(&peer, &node, &observed, &live, &inferred, &anchor, &source, &agent, &sender, &origin); err != nil {
+				return err
+			}
+			t.Logf("current BMP role authority tenant=%s peer=%s node=%s observed=%s live=%t inferred=%t anchor=%t source_clock=%t agent_clock=%t sender=%t origin=%t", reg.tenantID, peer, node, observed.UTC().Format(time.RFC3339Nano), live, inferred, anchor, source, agent, sender, origin)
+			count++
+		}
+		t.Logf("current BMP role authority tenant=%s diagnostic_rows=%d", reg.tenantID, count)
+		return rows.Err()
+	})
+	if err != nil {
+		t.Log("current BMP role authority diagnostic unavailable:", err)
+	}
 }
 
 func addRoleRouterLink(t *testing.T, lab *routingLab, name, peer string, family, peerASN int, role entity.InterfaceRole) roleRouterLink {
