@@ -56,10 +56,10 @@ func TestReportResponseOutlivesOrdinaryTLSWriteDeadline(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		time.Sleep(80 * time.Millisecond)
+		time.Sleep(600 * time.Millisecond)
 		_, _ = io.WriteString(wrapped, r.Header.Get("X-Probectl-Tenant"))
 	}))
-	socket.Config.WriteTimeout = 20 * time.Millisecond
+	socket.Config.WriteTimeout = 200 * time.Millisecond
 	socket.StartTLS()
 	t.Cleanup(socket.Close)
 	for _, tenant := range []string{"first-assessment", "second-assessment"} {
