@@ -60,9 +60,6 @@ func proveRouterPathHealth(t *testing.T, st *shipped.Stack, lab *routingLab, fir
 	}
 	pathLabPrivileged(t, "ip", "route", "add", route, "via", primary)
 	t.Cleanup(func() { pathLabPrivileged(t, "ip", "route", "del", route, "via", primary) })
-	pathLabPrivileged(t, "setcap", "cap_net_raw+ep", st.Control)
-	pathLabPrivileged(t, "setcap", "cap_net_raw+ep", st.Agent)
-	st.RestartControl(t, "path-router-raw", nil)
 
 	registrations := []edgeFlowRegistration{first, second}
 	tests := make([]string, len(registrations))

@@ -95,6 +95,12 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 		t.Fatal(err)
 	}
 	st := shipped.Start(t, shipped.Options{Name: "rolesrouter", TenantBand: 4, Env: map[string]string{"PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE": ixFile, "PROBECTL_TESTSYNC_SIGNING_KEY_FILE": filepath.Join(t.TempDir(), "testsync-signing-key.pem")}})
+	// Configure the raw probe capability before admitting any source. Changing
+	// the control binary after routing starts interrupts ordered evidence; its
+	// missing frames correctly require a new complete source dump.
+	pathLabPrivileged(t, "setcap", "cap_net_raw+ep", st.Control)
+	pathLabPrivileged(t, "setcap", "cap_net_raw+ep", st.Agent)
+	st.RestartControl(t, "path-router-raw", nil)
 	reg := registerEdgeFlowEvidence(t, st, primary)
 	requireRoleSourceBinding(t, st, reg, map[string]string{"agent_id": reg.agentID, "source_kind": "flow_exporter", "source_ref": primary, "context_id": reg.contextID, "anchor_entity_id": reg.deviceID})
 	deviceAgent := startShippedEdgeSNMP(t, st, reg, "role-primary", primary, community)
