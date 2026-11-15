@@ -247,6 +247,8 @@ func parseServiceRangeDataset(ctx context.Context, input serviceRangeInput, maxA
 		err = parseGoogleServiceRanges(ctx, input.Data, &dataset, remaining)
 	case "cloudflare":
 		err = parseCloudflareServiceRanges(ctx, input.Data, &dataset, remaining)
+	case "salesforce":
+		err = parseSalesforceServiceRanges(ctx, input.Data, &dataset, remaining)
 	default:
 		err = errors.New("unsupported service range publisher")
 	}

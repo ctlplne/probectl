@@ -102,7 +102,7 @@ probectl never phones home: the outage feeds and every enrichment lookup are
 outbound only when you opt in, and the local outage engine makes no outbound calls
 at all.
 
-The authenticated enrichment API also accepts complete offline AWS/Google/Cloudflare
+The authenticated enrichment API also accepts complete offline AWS/Google/Cloudflare/Salesforce
 published service-range caches. It returns original service/region labels,
 including overlaps, plus publication/fetch clocks, expiry and visible unknown
 attribution when a list is stale or unavailable. It does not send addresses to

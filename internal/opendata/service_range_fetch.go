@@ -30,8 +30,10 @@ func serviceRangePublisherURL(publisher string) (string, error) {
 		return "https://www.gstatic.com/ipranges/cloud.json", nil
 	case "cloudflare":
 		return "https://api.cloudflare.com/client/v4/ips", nil
+	case "salesforce":
+		return "https://ip-ranges.salesforce.com/ip-ranges.json", nil
 	default:
-		return "", errors.New("supported range publishers are aws, google, google_cloud and cloudflare")
+		return "", errors.New("supported range publishers are aws, google, google_cloud, cloudflare and salesforce")
 	}
 }
 

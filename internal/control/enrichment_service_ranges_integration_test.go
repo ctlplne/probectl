@@ -48,11 +48,16 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 	if err != nil {
 		t.Fatal(err)
 	}
+	salesforce := []byte(`{"syncToken":"qa-sf-original","createDate":"2026-10-16-04-32-59","prefixes":[{"provider":"aws","region":"us-east-1","ip_prefix":["192.0.2.0/24"]}],"ipv6_prefixes":[]}`)
 	cloudflare := []byte(`{"success":true,"result":{"etag":"qa-cf-original","ipv4_cidrs":["192.0.2.0/24"],"ipv6_cidrs":[]}}`)
 	path := filepath.Join(t.TempDir(), "complete.json")
 	publisher := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.RawQuery != "" || r.Header.Get("Authorization") != "" || r.Header.Get("X-Probectl-Tenant") != "" {
 			t.Error("bulk public request carried a tenant selector")
+		}
+		if r.Host == "ip-ranges.salesforce.com" {
+			_, _ = w.Write(salesforce)
+			return
 		}
 		if r.URL.Path == "/client/v4/ips" {
 			_, _ = w.Write(cloudflare)
@@ -70,10 +75,10 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 		address := *req.URL
 		address.Scheme, address.Host = target.Scheme, target.Host
 		forward.URL = &address
-		forward.Host = ""
+		forward.Host = req.URL.Host
 		return publisher.Client().Do(forward)
 	})
-	if err := opendata.FetchServiceRangeCache(t.Context(), path, []string{"aws", "cloudflare"}, time.Hour, 16<<20, download); err != nil {
+	if err := opendata.FetchServiceRangeCache(t.Context(), path, []string{"aws", "cloudflare", "salesforce"}, time.Hour, 16<<20, download); err != nil {
 		t.Fatal(err)
 	}
 	cached, err := os.ReadFile(path)
@@ -85,7 +90,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 			FetchedAt time.Time `json:"fetched_at"`
 		} `json:"sources"`
 	}
-	if err := json.Unmarshal(cached, &envelope); err != nil || len(envelope.Sources) != 2 {
+	if err := json.Unmarshal(cached, &envelope); err != nil || len(envelope.Sources) != 3 {
 		t.Fatal("complete bulk cache missing", err)
 	}
 	fetched = envelope.Sources[0].FetchedAt
@@ -120,7 +125,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 			t.Fatal("current tenant cannot read public source", err)
 		}
 		services, ok := value["services"].([]any)
-		if !ok || len(services) != 2 {
+		if !ok || len(services) != 3 {
 			t.Fatal("complete source missing", value)
 		}
 		status := services[0].(map[string]any)
@@ -133,6 +138,12 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 		_, inventedPublication := cloud["published_at"]
 		if cloud["publisher"] != "cloudflare" || cloud["status"] != "matched" || inventedPublication || len(cloudMatches) != 1 || cloudMatches[0].(map[string]any)["region"] != "" {
 			t.Fatal("Cloudflare source lost complete attribution or fabricated a clock/region", cloud)
+		}
+		sf := services[2].(map[string]any)
+		sfMatches := sf["matches"].([]any)
+		_, inventedSFClock := sf["published_at"]
+		if sf["publisher"] != "salesforce" || sf["status"] != "matched" || inventedSFClock || len(sfMatches) != 1 || sfMatches[0].(map[string]any)["service"] != "Salesforce" || sfMatches[0].(map[string]any)["region"] != "us-east-1" {
+			t.Fatal("Salesforce source lost its scope, complete arrays or original clock", sf)
 		}
 		if first != nil && !reflect.DeepEqual(first, value) {
 			t.Fatal("public cache changed between tenant readers", first, value)

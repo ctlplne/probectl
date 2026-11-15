@@ -35,7 +35,7 @@ type serviceRangeFetch func(context.Context, string, []string, time.Duration, in
 func cmdFetchServiceRanges(cfg Config, args []string, stdout, stderr io.Writer, fetch serviceRangeFetch) int {
 	flags := flag.NewFlagSet("opendata fetch-ranges", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	publishers := flags.String("publishers", "", "explicit comma-separated publishers: aws,google,google_cloud,cloudflare")
+	publishers := flags.String("publishers", "", "explicit comma-separated publishers: aws,google,google_cloud,cloudflare,salesforce")
 	output := flags.String("output", "", "local offline cache to atomically replace after complete validation")
 	memory := flags.Int64("memory-bytes", 256<<20, "positive raiseable complete download/decoder/index memory admission")
 	maxAge := flags.Duration("max-age", 24*time.Hour, "positive freshness profile used to validate the complete cache")

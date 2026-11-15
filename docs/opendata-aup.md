@@ -134,6 +134,22 @@ because the source does not locate an anycast address in one region. `published_
 is absent because no generation clock is published. When ETag is absent, `version`
 is explicitly `sha256:<embedded-content-digest>`, not an invented publisher version.
 
+Salesforce sources were checked on 2026-11-15: [Hyperforce network-use instructions](https://help.salesforce.com/s/articleView?id=xcloud.hf_ip_ranges_to_allow.htm&language=en_US&type=5)
+publish the complete bulk JSON for local network identification and allowlisting.
+The [website terms](https://www.salesforce.com/company/legal/sfdc-website-terms-of-service/)
+retain publisher ownership and require permission or another lawful basis; the
+adapter uses the specifically documented local network workflow and distributes
+no dataset.
+The adapter imports every IPv4/IPv6 prefix in every provider/region group and
+preserves its source region. `salesforce` selects this original export in
+`opendata fetch-ranges`; offline import uses the same envelope. The service label
+is Salesforce, independent of its AWS/GCP host. Coverage excludes email,
+Marketing Cloud, Commerce Cloud and Slack; these must never inherit a Salesforce
+label merely from related branding. Publisher terms remain applicable and no
+dataset redistribution or resale rights are asserted. The source's `createDate`
+has no explicit offset, so `published_time` preserves it and `published_at` stays
+absent. The opaque `syncToken` remains its original version.
+
 Google's current `creationTime` values can omit a timezone offset. The reader
 preserves that exact calendar text as `published_time`; it does not guess UTC,
 use the operator host's timezone or reinterpret an opaque `syncToken` as a clock.

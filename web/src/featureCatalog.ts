@@ -72,7 +72,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F7',
     name: 'Open-data enrichment',
-    // Offline published AWS/Google/Cloudflare ranges are exposed by the enrichment API;
+    // Offline published AWS/Google/Cloudflare/Salesforce ranges are exposed by the enrichment API;
     // server-owned service query dimensions retain one-count traffic and original
     // source metadata; remaining publishers and full qualification remain owed.
     status: 'partial',
