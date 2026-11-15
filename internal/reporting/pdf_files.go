@@ -43,7 +43,9 @@ func (p *pdfDocument) embedJSONFile(table CSVTable) error {
 		return fmt.Errorf("PDF evidence file requires a JSON filename")
 	}
 	for _, c := range file.Name {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_', c == '.':
+		default:
 			return fmt.Errorf("PDF evidence filename must be a plain local name")
 		}
 	}

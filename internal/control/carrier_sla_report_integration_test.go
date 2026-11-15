@@ -10,10 +10,12 @@ package control
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"io"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,9 +24,13 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/ai/mcp"
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/cli"
 	"github.com/ctlplne/probectl/internal/evidence"
+	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/reporting"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
 
@@ -184,4 +190,51 @@ func (p *clientReportNativeProof) carrierReadAllowed(t *testing.T, tenant string
 		caller.call(p.fixture.tokens[tenant], "report_artifact_link", map[string]any{"id": p.artifacts[tenant]}, &link, allowed, "financial report current source authority changed")
 		streams[tenant].call(t, wire, "report_artifact_link", map[string]any{"id": p.artifacts[tenant]}, &link, allowed)
 	}
+}
+
+// A stored signature is not a retained financial grant. Exercise withdrawal,
+// restoration and a later immutable financial revision with all sources live.
+func proveCarrierFinancialReportAuthority(t *testing.T, f *roleExplanationAPIFixture, socket *httptest.Server, native *clientReportNativeProof, tenant string, proof carrierSLAReportProof, agreement flow.CapacityAgreement) {
+	t.Helper()
+	downloads := func(allowed bool) {
+		t.Helper()
+		client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
+		for _, id := range []string{proof.CSV, proof.PDF} {
+			raw, err := client.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: id})
+			if allowed && (err != nil || len(raw) == 0) || !allowed && (err == nil || len(raw) != 0) {
+				t.Fatal("financial report current-authority boundary failed", allowed, err)
+			}
+		}
+		native.carrierReadAllowed(t, tenant, allowed)
+	}
+	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, tenant, f.roles[tenant], permFlowAgreementsRead)
+		return err
+	})
+	downloads(false)
+	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+		return (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permFlowAgreementsRead)
+	})
+	downloads(true)
+	from, err := time.Parse(time.RFC3339Nano, agreement.Definition.ValidFrom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := agreement.Definition
+	replacement.ValidFrom = from.AddDate(0, 1, 0).Format(time.RFC3339Nano)
+	replacement.Reference = "Later recorded terms; prior artifact remains pinned"
+	repository := flow.NewPostgresCapacityAgreements(f.pool, 1<<30, 8<<20, 8<<20, audit.TenantRecord)
+	next, err := repository.SaveCapacityAgreement(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.users[tenant], flow.SaveCapacityAgreement{ID: agreement.ID, Version: agreement.Version, Definition: replacement})
+	if err != nil || next.Version == agreement.Version {
+		t.Fatal("actual financial revision control failed", err)
+	}
+	// All current grants and original sources are still valid; refusal below
+	// must come from the stored report's captured financial-head requirement.
+	client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
+	input := sdk.CarrierSLAInput{Version: agreement.Version, At: from.Add(time.Hour).Format(time.RFC3339Nano)}
+	current, err := client.CalculateCarrierSla(t.Context(), sdk.CalculateCarrierSlaRequest{Id: agreement.ID, Body: &input})
+	if err != nil || current == nil || current.Agreement.CurrentVersion != next.Version {
+		t.Fatal("unchanged prior source-period no longer readable independently", err)
+	}
+	downloads(false)
 }

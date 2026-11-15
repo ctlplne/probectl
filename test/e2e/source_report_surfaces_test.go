@@ -139,7 +139,7 @@ func (p *releaseFlowReport) renderReport(t *testing.T, root, cert, cookie, theme
 		step("Generate CSV", "CSV generated"),
 		map[string]any{"fill": card + " textarea", "value": string(manifest)},
 		map[string]any{"click": "Open " + p.sourceName, "within": card + " [aria-label='Destination report source bindings']", "expect": []string{"flow-1: " + p.sourceName + " · version " + p.version}},
-		step("Preview import", "Manifest validated", "1 explicitly bound saved flow sources"),
+		step("Preview import", "Manifest validated", "1 explicitly bound report sources"),
 		step("Confirm import", "Dashboard imported"),
 	)
 	absent := []string{foreign.address, foreign.sourceName}

@@ -66,6 +66,7 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 	now := time.Now().UTC()
 	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	ids := map[string]string{}
+	agreements := map[string]flow.CapacityAgreement{}
 	reports := map[string]string{}
 	proofs := map[string]carrierSLAReportProof{}
 	agents := map[string]string{}
@@ -105,6 +106,7 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 			t.Fatal(err)
 		}
 		ids[tenant] = item.ID
+		agreements[tenant] = item
 		if delay := time.Until(m.CompletedAt); delay > 0 {
 			if delay > 5*time.Second {
 				t.Fatal("fixture clock exceeds sender skew")
@@ -257,6 +259,7 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 			t.Fatal("grouped source retirement crossed tenant or retained a stale source", err)
 		}
 	}
+	proveCarrierFinancialReportAuthority(t, f, socket, nativeReports, b, proofs[b], agreements[b])
 	f.in(b, func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, b, f.roles[b], permTestRead)
 		return err
