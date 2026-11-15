@@ -217,7 +217,13 @@ export function DashboardReportingCard({
         coverage_limitations: definition.coverage_limitations,
       }
       const savedDefinition: DashboardDefinition = monthlyMode
-        ? { ...disclosures, client_report: monthlyDefinition }
+        ? {
+            ...disclosures,
+            client_report: monthlyDefinition,
+            ...(sourceMode && monthlyDefinition.assessment
+              ? { flow_sources: sourceItems.map(({ id, version }) => ({ id, version })) }
+              : {}),
+          }
         : sourceMode
           ? {
               ...disclosures,
@@ -412,7 +418,10 @@ export function DashboardReportingCard({
               {monthlyMode && (
                 <MonthlyClientReportEditor
                   value={monthlyDefinition}
-                  onChange={(value) => setMonthlyDraft({ identity: sourceIdentity, value })}
+                  onChange={(value) => {
+                    setMonthlyDraft({ identity: sourceIdentity, value })
+                    if (value.period !== 'assessment') setSourceMode(false)
+                  }}
                   disabled={!canWrite}
                   canCapacity={canMonthlyCapacity}
                 />
@@ -431,16 +440,21 @@ export function DashboardReportingCard({
                   disabled={!canWrite}
                   onChange={(event) => {
                     setSourceMode(event.target.checked)
-                    if (event.target.checked) setMonthlyMode(false)
+                    if (event.target.checked && !monthlyDefinition.assessment) setMonthlyMode(false)
                   }}
                 />
-                Build from saved flow queries
+                {monthlyMode && monthlyDefinition.assessment
+                  ? 'Include saved flow query sample'
+                  : 'Build from saved flow queries'}
               </label>
               {sourceMode ? (
                 <>
                   <p>
                     Choose current saved queries. Each selected version stays fixed until you select
                     it again; reports use its complete selected rows and time range.
+                    {monthlyMode && monthlyDefinition.assessment
+                      ? ' Relative query windows end at the assessment end. Every complete window must fit inside the assessment interval; this sample does not prove continuous collection.'
+                      : ''}
                   </p>
                   <FlowViewLibrary
                     identity={sourceIdentity}

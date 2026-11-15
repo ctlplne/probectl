@@ -26,10 +26,12 @@ import (
 
 	gouuid "github.com/google/uuid"
 
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -42,15 +44,30 @@ import (
 type assessmentServedTopology struct {
 	LocalObservationID, RemoteObservationID string
 	ObservedAt                              time.Time
+	FlowSourceID, FlowName, FlowTotal       string
 }
 
 // Real issued mTLS, application-role PostgreSQL/RLS, session authentication,
 // production SPA and Chromium/axe. One modeled execution lies in a selected
 // fourteen-day interval; this does not claim a full engagement or offboarding.
 func TestAssessmentServedConfigurationReportsKeepTwoTenantsAndBothThemes(t *testing.T) {
+	proveAssessmentServed(t, false)
+}
+
+func TestAssessmentFlowSampleServedKeepsTwoTenantsAndBothThemes(t *testing.T) {
+	proveAssessmentServed(t, true)
+}
+
+func proveAssessmentServed(t *testing.T, withSample bool) {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	f.server.cfg.AIRedactIPs, f.server.cfg.AIRedactHostnames, f.server.cfg.AIRedactPII = true, true, true
-	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	flows := flowstore.NewMemory()
+	f.server.WithFlowStore(flows).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	views := flow.NewPostgresQueryViewStore(f.pool, 0, audit.TenantRecord)
+	if withSample {
+		f.server.WithFlowQueryViews(views).WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(f.pool, 0, audit.TenantRecord))
+	}
 	private, _, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
 		t.Fatal(err)
@@ -64,6 +81,9 @@ func TestAssessmentServedConfigurationReportsKeepTwoTenantsAndBothThemes(t *test
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
 					return err
 				}
+			}
+			if withSample {
+				return (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permAIQuery)
 			}
 			return nil
 		})
@@ -100,6 +120,21 @@ func TestAssessmentServedConfigurationReportsKeepTwoTenantsAndBothThemes(t *test
 			t.Fatal("served independent physical originals refused", accepted, unresolved, err)
 		}
 		topology[tenant] = assessmentServedTopology{LocalObservationID: neighbor.ID, RemoteObservationID: remote.ID, ObservedAt: pollAt.UTC()}
+		if withSample {
+			ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+			name := "Assessment sample " + tenant
+			query, err := views.SaveQueryView(ctx, tenant, f.users[tenant], flow.SaveQueryView{Definition: flow.QueryViewDefinition{Name: name, Visibility: "private", Time: flow.QueryViewTime{Mode: "lookback", LookbackSeconds: 3600}, Plan: flow.QueryPlan{View: "table", DataSeries: "raw", GroupBy: []string{"protocol"}, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}}}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := uint64((lane + 1) * 101)
+			if err := flows.Insert(t.Context(), []flowstore.Row{{TenantID: tenant, AgentID: agent, Exporter: "192.0.2.1", TS: time.Now().UTC(), Protocol: "ipfix", BytesScaled: value}}); err != nil {
+				t.Fatal(err)
+			}
+			expect := topology[tenant]
+			expect.FlowSourceID, expect.FlowName, expect.FlowTotal = query.ID, name, strconv.FormatUint(value, 10)
+			topology[tenant] = expect
+		}
 	}
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
@@ -138,12 +173,17 @@ func proveAssessmentRendered(t *testing.T, f *roleExplanationAPIFixture, socket 
 		{Fill: "label:text-is('Assessment start') + div input", Value: from.Format(time.RFC3339Nano)},
 		{Fill: "label:text-is('Assessment end') + div input", Value: to.Format(time.RFC3339Nano)},
 		{Fill: "label:text-is('Assessment prepared by') + div input", Value: preparer},
+	}
+	if topology.FlowSourceID != "" {
+		spec.Steps = append(spec.Steps, testsupport.RenderStep{Click: "Include saved flow query sample", Role: "checkbox"}, testsupport.RenderStep{Click: "Open " + topology.FlowName})
+	}
+	spec.Steps = append(spec.Steps, []testsupport.RenderStep{
 		{Fill: "label:text-is('Dashboard name') + div input", Value: name},
 		{Click: "Save dashboard", Within: "#saved-dashboard", Expect: []string{"Dashboard saved", preparer}},
 		{Click: "Generate PDF", Within: "#saved-dashboard", Expect: []string{"PDF generated"}},
 		{Select: "#saved-dashboard label:text-is('Format') + div select", Value: "csv"},
 		{Click: "Generate CSV", Within: "#saved-dashboard", Expect: []string{"CSV generated"}},
-	}
+	}...)
 	testsupport.RenderUI(t, spec)
 	var view store.DashboardView
 	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
@@ -152,6 +192,9 @@ func proveAssessmentRendered(t *testing.T, f *roleExplanationAPIFixture, socket 
 	var definition reporting.DashboardDefinition
 	if json.Unmarshal(view.Definition, &definition) != nil || definition.ClientReport == nil || definition.ClientReport.Assessment == nil || definition.ClientReport.Assessment.From != from.Format(time.RFC3339Nano) || definition.ClientReport.Assessment.To != to.Format(time.RFC3339Nano) || definition.ClientReport.Assessment.Preparer != preparer {
 		t.Fatal("browser-saved assessment changed its explicit period or preparer")
+	}
+	if topology.FlowSourceID != "" && (len(definition.FlowSources) != 1 || definition.FlowSources[0].ID != topology.FlowSourceID) {
+		t.Fatal("served assessment did not pin the selected current flow query")
 	}
 	client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
 	var tenantName string
@@ -211,6 +254,9 @@ func proveAssessmentRendered(t *testing.T, f *roleExplanationAPIFixture, socket 
 				t.Fatal("served assessment omitted a known independent physical original", format, original)
 			}
 		}
+		if topology.FlowName != "" && !strings.Contains(text, topology.FlowName) {
+			t.Fatal("served assessment omitted its complete selected flow sample", format)
+		}
 		for _, private := range []string{"operator@example.net", "topology-display-only", "00:11:22:33:44:55"} {
 			if strings.Contains(text, private) {
 				t.Fatal("served assessment bypassed the configured private metadata policy", format)
@@ -235,6 +281,7 @@ func checkServedAssessmentCSV(body []byte, tenant string, expectedInventory []st
 	}
 	inventory, availability := map[string]bool{}, 0
 	physical := 0
+	flowDetails, flowTotals := 0, 0
 	for _, row := range rows {
 		if len(row) == 14 && row[0] == tenant {
 			if inventory[row[6]] {
@@ -257,9 +304,22 @@ func checkServedAssessmentCSV(body []byte, tenant string, expectedInventory []st
 			}
 			physical++
 		}
+		if topology.FlowTotal != "" && len(row) == 4 && (row[0] == "detail" || row[0] == "totals") {
+			if row[3] != topology.FlowTotal {
+				return fmt.Errorf("served sample changed its independently known flow total")
+			}
+			if row[0] == "detail" {
+				flowDetails++
+			} else {
+				flowTotals++
+			}
+		}
 	}
 	if len(inventory) != len(expectedInventory) || availability != 1 || physical != 1 {
 		return fmt.Errorf("served assessment populations differ: inventory=%d/%d availability=%d/1 physical=%d/1", len(inventory), len(expectedInventory), availability, physical)
+	}
+	if topology.FlowTotal != "" && (flowDetails != 1 || flowTotals != 1) {
+		return fmt.Errorf("served sample lost complete detail/totals rows: %d/%d", flowDetails, flowTotals)
 	}
 	for _, id := range expectedInventory {
 		if !inventory[id] {

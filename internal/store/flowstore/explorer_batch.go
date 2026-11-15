@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -41,6 +42,21 @@ type PlanBatch struct {
 // Declared plans reserve their share of retained result/workspace allocations;
 // reads consume one cumulative envelope, including probes and retries.
 func NewPlanBatch(ctx context.Context, store Store, tenant string, plans int, sharedMemorySlots ...int) (*PlanBatch, error) {
+	return newPlanBatch(ctx, store, tenant, plans, 0, 0, sharedMemorySlots...)
+}
+
+// NewReportPlanBatch shares the existing report-operation deadline and keeps
+// retained report components inside the operator memory allowance. Deadline
+// configuration is trusted construction state, never a request/source grant.
+// Query/read allowances and shared backend configuration remain unchanged.
+func NewReportPlanBatch(ctx context.Context, store Store, tenant string, plans int, reservedBytes int64, executionLimit time.Duration, sharedMemorySlots ...int) (*PlanBatch, error) {
+	if executionLimit <= 0 {
+		return nil, ErrExplorerBudget
+	}
+	return newPlanBatch(ctx, store, tenant, plans, reservedBytes, executionLimit, sharedMemorySlots...)
+}
+
+func newPlanBatch(ctx context.Context, store Store, tenant string, plans int, reservedBytes int64, executionLimit time.Duration, sharedMemorySlots ...int) (*PlanBatch, error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || bound.String() != tenant || tenant == "" {
 		return nil, ErrNoTenant
@@ -66,6 +82,16 @@ func NewPlanBatch(ctx context.Context, store Store, tenant string, plans int, sh
 	}
 	budget := ExplorerQueryBudget(store)
 	if err := budget.Validate(); err != nil || plans <= 0 {
+		return nil, ErrExplorerBudget
+	}
+	if reservedBytes < 0 || reservedBytes >= budget.MemoryBytes {
+		return nil, ErrExplorerBudget
+	}
+	budget.MemoryBytes -= reservedBytes
+	if executionLimit != 0 {
+		budget.ExecutionLimit = executionLimit
+	}
+	if err := budget.Validate(); err != nil {
 		return nil, ErrExplorerBudget
 	}
 	if len(sharedMemorySlots) > 1 {

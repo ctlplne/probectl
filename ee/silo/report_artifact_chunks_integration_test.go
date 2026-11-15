@@ -55,7 +55,7 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 				// Catch-up must repair every control, and be idempotent.
 				for _, sql := range []string{
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts ALTER COLUMN content SET NOT NULL`,
-					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation_v7`,
+					`ALTER TABLE ` + schema + `.dashboard_report_artifacts DROP CONSTRAINT dashboard_report_artifacts_body_representation_v8`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifacts ADD CONSTRAINT dashboard_report_artifacts_body_representation_v2 CHECK(body_storage='inline') NOT VALID`,
 					`DROP POLICY report_artifact_format ON ` + schema + `.dashboard_report_artifacts`,
 					`ALTER TABLE ` + schema + `.dashboard_report_artifact_chunks DROP CONSTRAINT dashboard_report_artifact_chunks_artifact_fk`,
@@ -86,8 +86,8 @@ func TestReportArtifactChunksSiloCatchUpKeepsLocalParentsAndImmutableBodies(t *t
 					t.Fatal("silo rejected own chunk", err)
 				}
 				// Preserve the v1/v2 parents above. Each physical silo must also
-				// retain complete monthly (v3) and financial (v4) report bodies.
-				for _, version := range []int{3, 4} {
+				// retain monthly (v3), financial (v4) and assessment/flow (v5) bodies.
+				for _, version := range []int{3, 4, 5} {
 					artifact := fmt.Sprintf("same-source-v%d", version)
 					if _, err := pool.Exec(ctx, `INSERT INTO `+schema+`.dashboard_report_artifacts
  (tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)

@@ -18,7 +18,7 @@ import (
 
 func TestReportArtifactSourceCaptureVersionsStayTenantBound(t *testing.T) {
 	const tenant = "10000000-0000-4000-8000-000000000001"
-	for _, version := range []int{1, 2, 3, 4} {
+	for _, version := range []int{1, 2, 3, 4, 5} {
 		capture := json.RawMessage(fmt.Sprintf(`{"version":%d,"tenant_id":%q}`, version, tenant))
 		if err := reportArtifactSourceCapture(tenant, capture); err != nil {
 			t.Fatalf("compatible tenant report receipt version %d refused: %v", version, err)
@@ -27,9 +27,9 @@ func TestReportArtifactSourceCaptureVersionsStayTenantBound(t *testing.T) {
 			t.Fatalf("version %d source receipt crossed tenant boundary: %v", version, err)
 		}
 	}
-	for _, raw := range []string{`null`, `{}`, `{"version":0}`, `{"version":5}`, `{"version":"2"}`, `[]`, `{`,
+	for _, raw := range []string{`null`, `{}`, `{"version":0}`, `{"version":6}`, `{"version":"2"}`, `[]`, `{`,
 		fmt.Sprintf(`{"version":2,"tenant_id":%q} {}`, tenant),
-		fmt.Sprintf(`{"version":5,"tenant_id":%q}`, tenant),
+		fmt.Sprintf(`{"version":6,"tenant_id":%q}`, tenant),
 		fmt.Sprintf(`{"version":0,"tenant_id":%q}`, tenant)} {
 		if err := reportArtifactSourceCapture(tenant, json.RawMessage(raw)); !errors.Is(err, ErrReportArtifactIntegrity) {
 			t.Fatalf("invalid report receipt accepted: %s: %v", raw, err)

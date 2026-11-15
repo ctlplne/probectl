@@ -23,8 +23,8 @@ func cleanClientReportDefinition(d *dashboardDefinition) error {
 	if d.ClientReport.CapacityTargets == nil {
 		d.ClientReport.CapacityTargets = []reporting.ClientReportCapacityTarget{}
 	}
-	if len(d.FlowSources) != 0 || !d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.IsZero() || len(d.Metrics) != 0 {
-		return apierror.Validation("client_report derives its complete period bounds and values; omit flow_sources, absolute bounds and metrics")
+	if len(d.FlowSources) != 0 && d.ClientReport.Assessment == nil || !d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.IsZero() || len(d.Metrics) != 0 {
+		return apierror.Validation("client_report derives its bounds and values; pinned flow_sources are allowed only for an explicit assessment; omit caller bounds and metrics")
 	}
 	period, err := reporting.ResolveClientReportPeriod(context.Background(), *d.ClientReport, time.Now().UTC())
 	from, to := period.From, period.To
@@ -59,7 +59,11 @@ func (s *Server) captureConfiguredReportSources(ctx context.Context, actor *auth
 		capture.close()
 		return nil, err
 	}
-	return &reportFlowCapture{TenantID: capture.TenantID, SourceGeneration: capture.SourceGeneration, Monthly: requirements, Tables: redactMonthlyReportTables(capture.Tables, redactionPolicy(s.cfg), actor.TenantID), monthlyCapture: capture, release: capture.close}, nil
+	result := &reportFlowCapture{TenantID: capture.TenantID, SourceGeneration: capture.SourceGeneration, Monthly: requirements, Tables: redactMonthlyReportTables(capture.Tables, redactionPolicy(s.cfg), actor.TenantID), monthlyCapture: capture, release: capture.close}
+	if len(definition.FlowSources) == 0 {
+		return result, nil
+	}
+	return s.captureAssessmentFlowSample(ctx, actor, definition.FlowSources, result)
 }
 
 func revalidateMonthlyReportOriginals(ctx context.Context, capture *reportFlowCapture) error {

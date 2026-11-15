@@ -156,6 +156,9 @@ func sourceReportDocument(view *store.DashboardView, definition dashboardDefinit
 		}
 		if period.Kind == "assessment" {
 			provenance = append(provenance, "Assessment: "+period.From.Format(time.RFC3339Nano)+" to "+period.To.Format(time.RFC3339Nano)+" (end exclusive); timezone: "+period.Timezone)
+			for _, input := range capture.Inputs {
+				provenance = append(provenance, "Complete selected flow query "+input.ID+" version "+input.Version+" "+input.Period+": "+input.From.Format(time.RFC3339Nano)+" to "+input.To.Format(time.RFC3339Nano))
+			}
 		} else {
 			provenance = append(provenance, "Calendar: "+period.Timezone+"; period: "+period.Kind+"; month: "+period.Month)
 		}
@@ -233,7 +236,7 @@ func (s *Server) validateReportSourcePublication(ctx context.Context, sc tenancy
 	if len(capture.Claims) > 0 {
 		return s.revalidateCarrierSLAReportScope(ctx, sc, actor, capture.TenantID, capture.Claims, true)
 	}
-	if capture.Monthly != nil {
+	if capture.Monthly != nil && len(capture.Inputs) == 0 {
 		return s.revalidateClientReportRequirementsScope(ctx, sc, actor, capture.TenantID, capture.Monthly)
 	}
 	if err := flowsnapshot.MatchSourceGenerationInScope(ctx, sc, capture.SourceGeneration); err != nil {
@@ -311,12 +314,13 @@ func reportCaptureSourceCount(capture *reportFlowCapture) int {
 		}
 		return count
 	}
+	count := 0
 	if capture.Monthly != nil {
-		return len(capture.Monthly.Bindings)
+		count = len(capture.Monthly.Bindings)
 	}
 	seen := map[string]bool{}
 	for _, input := range capture.Inputs {
 		seen[input.ID] = true
 	}
-	return len(seen)
+	return count + len(seen)
 }

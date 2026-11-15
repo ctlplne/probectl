@@ -102,6 +102,15 @@ func (s *Server) captureReportFlowSources(ctx context.Context, actor *auth.Princ
 // Query alert reads share saved-revision, current-authority, complete source
 // and publication checks with reports, without rendering a CSV/PDF artifact.
 func (s *Server) captureFlowSources(ctx context.Context, actor *auth.Principal, refs []reportFlowSourceRef, typedResults, gateHeld bool) (_ *reportFlowCapture, resultErr error) {
+	return s.captureFlowSourcesWithOptions(ctx, actor, refs, typedResults, gateHeld, reportFlowCaptureOptions{})
+}
+
+type reportFlowCaptureOptions struct {
+	PeriodEnd           time.Time
+	ReservedMemoryBytes int64
+}
+
+func (s *Server) captureFlowSourcesWithOptions(ctx context.Context, actor *auth.Principal, refs []reportFlowSourceRef, typedResults, gateHeld bool, options reportFlowCaptureOptions) (_ *reportFlowCapture, resultErr error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || actor == nil || bound.String() != actor.TenantID || actor.UserID == "" {
 		return nil, apierror.Forbidden("report source identity is unavailable")
@@ -126,6 +135,10 @@ func (s *Server) captureFlowSources(ctx context.Context, actor *auth.Principal, 
 	if err := budget.Validate(); err != nil {
 		return nil, apierror.Unavailable("report source cost policy is unavailable")
 	}
+	if options.ReservedMemoryBytes < 0 || options.ReservedMemoryBytes >= budget.MemoryBytes {
+		return nil, reportProjectionLimit()
+	}
+	budget.MemoryBytes -= options.ReservedMemoryBytes
 	if budget.MemoryBytes/4 < reportFlowPreparationReserve {
 		return nil, reportProjectionLimit()
 	}
@@ -170,14 +183,21 @@ func (s *Server) captureFlowSources(ctx context.Context, actor *auth.Principal, 
 		return nil, err
 	}
 	at := time.Now().UTC()
-	prepared, cost, count, err := s.prepareReportFlows(ctx, principal, refs, at, budget.MemoryBytes/4)
+	periodEnd := at
+	if !options.PeriodEnd.IsZero() {
+		if options.PeriodEnd.After(at) {
+			return nil, apierror.Validation("assessment flow sample end cannot be in the future")
+		}
+		periodEnd = options.PeriodEnd
+	}
+	prepared, cost, count, err := s.prepareReportFlows(ctx, principal, refs, periodEnd, budget.MemoryBytes/4)
 	if err != nil {
 		return nil, err
 	}
 	// In addition to retained per-plan results, reserve three shares for the
 	// metadata snapshot/projections, schema/context requirements and frozen table
 	// projection. These do not add queries or any source-read allowance.
-	batch, err := flowstore.NewPlanBatch(ctx, s.flowStore, principal.TenantID, count, 3)
+	batch, err := flowstore.NewReportPlanBatch(ctx, s.flowStore, principal.TenantID, count, options.ReservedMemoryBytes, budget.ExecutionLimit, 3)
 	if err != nil {
 		return nil, flowExplorerStoreError(err)
 	}

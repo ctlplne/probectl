@@ -63,7 +63,15 @@ func (s *Server) revalidateReportFlowCaptureScope(ctx context.Context, sc tenanc
 		return s.revalidateCarrierSLAReportScope(ctx, sc, actor, capture.TenantID, capture.Claims, false)
 	}
 	if capture.Monthly != nil {
-		return s.revalidateClientReportRequirementsScope(ctx, sc, actor, capture.TenantID, capture.Monthly)
+		if err := s.revalidateClientReportRequirementsScope(ctx, sc, actor, capture.TenantID, capture.Monthly); err != nil {
+			return err
+		}
+		if len(capture.Inputs) == 0 {
+			return nil
+		}
+		if err := validateAssessmentFlowWindows(capture.Monthly, capture.Inputs); err != nil {
+			return err
+		}
 	}
 	access, ok := s.flowQueryViews.(reportScopedSourceAccess)
 	if !ok || len(capture.Inputs) == 0 {

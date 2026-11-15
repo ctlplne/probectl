@@ -370,6 +370,24 @@ identity, grants, source assignments and revocation checks remain required;
 later measurement TTL retirement alone does not invalidate a past capture.
 Config/EOL/routing hygiene is not yet captured by these report sections.
 
+An explicit assessment may also include pinned `flow_sources` using the same
+saved-query selector as a flow report. Relative query windows are materialized
+at the exact assessment end, while source permissions and metadata authority
+are checked at generation and again on stored reads. Every complete current
+and comparison window must fit inside the assessment interval; generation
+refuses an incompatible query rather than trimming its input or output.
+The report includes the complete selected tables, query IDs/versions and exact
+sample bounds. A flow sample does not attest continuous collection throughout
+the engagement. Both the assessment and flow/query permissions remain required
+for generation, scheduling and download. Portable manifests carry the existing
+ordered source slots, requiring explicit current destination bindings on import.
+The two components share one fairness admission and the configured report
+memory allowance; retained assessment bytes reduce the flow workspace.
+
+```json
+{"client_report":{"period":"assessment","timezone":"UTC","assessment":{"from":"2026-10-01T00:00:00Z","to":"2026-10-15T00:00:00Z","preparer":"Example MSP"},"capacity_targets":[]},"flow_sources":[{"id":"11111111-1111-4111-8111-111111111111","version":"7"}]}
+```
+
 An omitted month selects the previous complete calendar month in `timezone`
 (default `UTC`). Set `period` to `month_to_date` for the current month through
 generation time; that output is always labelled partial. IANA timezone rules

@@ -15,7 +15,6 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/store"
-	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -62,8 +61,8 @@ func (s *Server) prepareScheduledReportAuthority(r *http.Request, dashboardID st
 	if err := cleanDashboardDefinition(&definition); err != nil {
 		return nil, err
 	}
-	budget := flowstore.ExplorerQueryBudget(s.flowStore)
-	if err := budget.Validate(); err != nil {
+	budget, err := s.sourceReportBudget()
+	if err != nil {
 		return nil, apierror.Unavailable("report schedule source policy is unavailable")
 	}
 	actor := auth.PrincipalFrom(r.Context())

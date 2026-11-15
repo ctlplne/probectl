@@ -71,7 +71,7 @@ func proveHybridReportChunks(t *testing.T, pool *pgxpool.Pool, prov *Provisioner
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO dashboard_views(tenant_id,id,owner_id,name,preset,definition) VALUES($1,'same-view','alice','Hybrid report','operator','{}')`, id); err != nil {
 				return err
 			}
-			artifacts := []string{"same-artifact", "same-monthly", "same-financial"}
+			artifacts := []string{"same-artifact", "same-monthly", "same-financial", "same-assessment-flow"}
 			if i == 1 {
 				artifacts = append(artifacts, "foreign-only")
 			}
@@ -83,6 +83,9 @@ func proveHybridReportChunks(t *testing.T, pool *pgxpool.Pool, prov *Provisioner
 				}
 				if artifact == "same-financial" {
 					version = 4
+				}
+				if artifact == "same-assessment-flow" {
+					version = 5
 				}
 				if _, err := sc.Q.Exec(ctx, `INSERT INTO dashboard_report_artifacts
  (tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)
@@ -115,7 +118,7 @@ func proveHybridReportChunks(t *testing.T, pool *pgxpool.Pool, prov *Provisioner
 			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM dashboard_report_artifact_chunks WHERE tenant_id=$1`, ids[1-i]).Scan(&foreign); err != nil {
 				return err
 			}
-			if count != i+3 || foreign != 0 {
+			if count != i+4 || foreign != 0 {
 				t.Fatal("hybrid pooled storage RLS exposed foreign report rows", count, foreign)
 			}
 			return nil

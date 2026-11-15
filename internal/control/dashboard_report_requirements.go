@@ -58,6 +58,9 @@ func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCap
 	if requirements.ContextSources {
 		requirements.Version = 2
 	}
+	if requirements.Monthly != nil && len(requirements.Inputs) > 0 {
+		requirements.Version = 5
+	}
 	if len(requirements.Claims) > 0 {
 		requirements.Version = 4
 	}
@@ -107,6 +110,9 @@ func reportRequirementUUID(id string) bool {
 func validateReportSourceRequirements(ctx context.Context, value reportSourceRequirements, memory int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if value.Version == 5 {
+		return validateAssessmentFlowRequirements(ctx, value, memory)
 	}
 	if value.Version == 4 {
 		if value.Monthly != nil || len(value.Inputs) != 0 || len(value.Permissions) != 0 || len(value.Contexts) != 0 || value.ContextsCaptured || value.ContextSources {
@@ -161,6 +167,24 @@ func validateReportSourceRequirements(ctx context.Context, value reportSourceReq
 		}
 	}
 	return ctx.Err()
+}
+
+func validateAssessmentFlowRequirements(ctx context.Context, value reportSourceRequirements, memory int64) error {
+	if value.Monthly == nil || len(value.Claims) != 0 {
+		return errReportSourceRequirements
+	}
+	if err := validateClientReportRequirements(ctx, value.TenantID, value.Monthly, memory/2); err != nil {
+		return err
+	}
+	if err := validateAssessmentFlowWindows(value.Monthly, value.Inputs); err != nil {
+		return err
+	}
+	value.Monthly = nil
+	value.Version = 1
+	if value.ContextSources {
+		value.Version = 2
+	}
+	return validateReportSourceRequirements(ctx, value, memory/2)
 }
 
 // Raw scalar bytes are a lower bound on the final JSON. Refuse impossible
