@@ -140,9 +140,13 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 		seedCapacityCounterPeriod(f, memory, tenant, from, to, true)
 	}
 	capacityTarget := reporting.ClientReportCapacityTarget{Target: reporting.ClientReportCapacityRef{Kind: "interface", ContextID: f.contextID, InterfaceID: f.interfaceID}, Direction: "max_directional_percentiles", CapacityBPS: "12000000", MaximumPollGap: "5m", PhysicalBounds: []reporting.ClientReportPhysicalBound{{ContextID: f.contextID, InterfaceID: f.interfaceID, MaxBPS: "50000000"}}, ForecastMonths: 1}
+	reportBudget, err := f.server.sourceReportBudget()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for lane, tenant := range f.tenants {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
-		capture, err := f.server.captureConfiguredClientReportSources(ctx, actors[tenant], reporting.ClientReportDefinition{CapacityTargets: []reporting.ClientReportCapacityTarget{capacityTarget}}, at, flowstore.DefaultExplorerBudget())
+		capture, err := f.server.captureConfiguredClientReportSources(ctx, actors[tenant], reporting.ClientReportDefinition{CapacityTargets: []reporting.ClientReportCapacityTarget{capacityTarget}}, at, reportBudget)
 		if err != nil {
 			t.Fatal("complete backdated-month capture failed", err)
 		}
@@ -227,7 +231,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 
 		assessmentEnd := from.AddDate(0, 0, 14)
 		assessmentDefinition := reporting.ClientReportDefinition{Period: "assessment", Timezone: "UTC", Assessment: &reporting.ClientReportAssessment{From: from.Format(time.RFC3339Nano), To: assessmentEnd.Format(time.RFC3339Nano), Preparer: "Example MSP"}, CapacityTargets: []reporting.ClientReportCapacityTarget{capacityTarget}}
-		assessment, err := f.server.captureConfiguredClientReportSources(ctx, actors[tenant], assessmentDefinition, at, flowstore.DefaultExplorerBudget())
+		assessment, err := f.server.captureConfiguredClientReportSources(ctx, actors[tenant], assessmentDefinition, at, reportBudget)
 		if err != nil {
 			t.Fatal("explicit assessment source capture failed", err)
 		}
