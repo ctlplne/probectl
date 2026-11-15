@@ -54,6 +54,10 @@ type serviceCandidate struct {
 	bits     int
 }
 
+type serviceSupersets struct {
+	awsSpecific, s3, googleCloud, zoomSpecific, saasSpecific bool
+}
+
 // ClassifyServiceRanges selects a unique most-specific published attribution.
 // Documented supersets do not mask their specific services: AMAZON is AWS's
 // superset, S3 excludes EC2 at the same address, and cloud.json specializes
@@ -62,25 +66,34 @@ type serviceCandidate struct {
 func ClassifyServiceRanges(sources []ServiceRangeStatus, at time.Time) ServiceClassification {
 	out := ServiceClassification{Status: "unknown", Sources: sources}
 	var candidates []serviceCandidate
-	awsSpecific, s3, googleCloud := false, false, false
+	var supersets serviceSupersets
 	for _, source := range sources {
 		if source.Status != "matched" || at.Before(source.FetchedAt) || !at.Before(source.ValidUntil) {
 			continue
+		}
+		provider := source.Publisher
+		if zoom, ok := zoomRangePublishers[source.Publisher]; ok {
+			if zoom.networkOnly {
+				continue // retain source candidates, without asserting exclusive app use
+			}
+			provider = "zoom"
 		}
 		for _, match := range source.Matches {
 			prefix, err := netip.ParsePrefix(match.Prefix)
 			if err != nil || !validServiceRangeLabel(match.Service) {
 				continue
 			}
-			candidates = append(candidates, serviceCandidate{source.Publisher, match, prefix.Bits()})
-			awsSpecific = awsSpecific || source.Publisher == "aws" && match.Service != "AMAZON"
-			s3 = s3 || source.Publisher == "aws" && match.Service == "S3"
-			googleCloud = googleCloud || source.Publisher == "google_cloud"
+			candidates = append(candidates, serviceCandidate{provider, match, prefix.Bits()})
+			supersets.awsSpecific = supersets.awsSpecific || provider == "aws" && match.Service != "AMAZON"
+			supersets.s3 = supersets.s3 || provider == "aws" && match.Service == "S3"
+			supersets.googleCloud = supersets.googleCloud || provider == "google_cloud"
+			supersets.zoomSpecific = supersets.zoomSpecific || provider == "zoom" && match.Service != "Zoom"
+			supersets.saasSpecific = supersets.saasSpecific || provider == "zoom" || provider == "salesforce"
 		}
 	}
 	best := -1
 	for _, candidate := range candidates {
-		if serviceCandidateIsSuperset(candidate, awsSpecific, s3, googleCloud) {
+		if serviceCandidateIsSuperset(candidate, supersets) {
 			continue
 		}
 		if candidate.bits > best {
@@ -103,7 +116,18 @@ func ClassifyServiceRanges(sources []ServiceRangeStatus, at time.Time) ServiceCl
 	return out
 }
 
-func serviceCandidateIsSuperset(candidate serviceCandidate, awsSpecific, s3, googleCloud bool) bool {
-	return candidate.provider == "aws" && ((candidate.match.Service == "AMAZON" && awsSpecific) || (candidate.match.Service == "EC2" && s3)) ||
-		candidate.provider == "google" && googleCloud
+func serviceCandidateIsSuperset(candidate serviceCandidate, supersets serviceSupersets) bool {
+	switch candidate.provider {
+	case "aws":
+		return candidate.match.Service == "AMAZON" && (supersets.awsSpecific || supersets.saasSpecific) ||
+			candidate.match.Service == "EC2" && (supersets.s3 || supersets.saasSpecific)
+	case "google":
+		return supersets.googleCloud || supersets.saasSpecific
+	case "google_cloud":
+		return supersets.saasSpecific
+	case "zoom":
+		return candidate.match.Service == "Zoom" && supersets.zoomSpecific
+	default:
+		return false
+	}
 }

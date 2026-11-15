@@ -55,6 +55,10 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 		if r.Method != http.MethodGet || r.URL.RawQuery != "" || r.Header.Get("Authorization") != "" || r.Header.Get("X-Probectl-Tenant") != "" {
 			t.Error("bulk public request carried a tenant selector")
 		}
+		if r.Host == "assets.zoom.us" && r.URL.Path == "/docs/ipranges/ZoomMeetings.txt" {
+			_, _ = w.Write([]byte("\r\n192.0.2.0/24\r\n"))
+			return
+		}
 		if r.Host == "ip-ranges.salesforce.com" {
 			_, _ = w.Write(salesforce)
 			return
@@ -78,7 +82,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 		forward.Host = req.URL.Host
 		return publisher.Client().Do(forward)
 	})
-	if err := opendata.FetchServiceRangeCache(t.Context(), path, []string{"aws", "cloudflare", "salesforce"}, time.Hour, 16<<20, download); err != nil {
+	if err := opendata.FetchServiceRangeCache(t.Context(), path, []string{"aws", "cloudflare", "salesforce", "zoom_meetings_ipv4"}, time.Hour, 16<<20, download); err != nil {
 		t.Fatal(err)
 	}
 	cached, err := os.ReadFile(path)
@@ -90,7 +94,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 			FetchedAt time.Time `json:"fetched_at"`
 		} `json:"sources"`
 	}
-	if err := json.Unmarshal(cached, &envelope); err != nil || len(envelope.Sources) != 3 {
+	if err := json.Unmarshal(cached, &envelope); err != nil || len(envelope.Sources) != 4 {
 		t.Fatal("complete bulk cache missing", err)
 	}
 	fetched = envelope.Sources[0].FetchedAt
@@ -125,7 +129,7 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 			t.Fatal("current tenant cannot read public source", err)
 		}
 		services, ok := value["services"].([]any)
-		if !ok || len(services) != 3 {
+		if !ok || len(services) != 4 {
 			t.Fatal("complete source missing", value)
 		}
 		status := services[0].(map[string]any)
@@ -144,6 +148,12 @@ func TestPublishedServiceRangeAPIKeepsTwoCurrentTenantReadersAndOfflineStartup(t
 		_, inventedSFClock := sf["published_at"]
 		if sf["publisher"] != "salesforce" || sf["status"] != "matched" || inventedSFClock || len(sfMatches) != 1 || sfMatches[0].(map[string]any)["service"] != "Salesforce" || sfMatches[0].(map[string]any)["region"] != "us-east-1" {
 			t.Fatal("Salesforce source lost its scope, complete arrays or original clock", sf)
+		}
+		zoom := services[3].(map[string]any)
+		zoomMatches := zoom["matches"].([]any)
+		_, inventedZoomClock := zoom["published_at"]
+		if zoom["publisher"] != "zoom_meetings_ipv4" || zoom["status"] != "matched" || inventedZoomClock || len(zoomMatches) != 1 || zoomMatches[0].(map[string]any)["service"] != "Zoom Meetings" || zoomMatches[0].(map[string]any)["region"] != "" {
+			t.Fatal("Zoom text source lost its product/family scope or fabricated a region/clock", zoom)
 		}
 		if first != nil && !reflect.DeepEqual(first, value) {
 			t.Fatal("public cache changed between tenant readers", first, value)

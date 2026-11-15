@@ -150,6 +150,52 @@ dataset redistribution or resale rights are asserted. The source's `createDate`
 has no explicit offset, so `published_time` preserves it and `published_at` stays
 absent. The opaque `syncToken` remains its original version.
 
+Zoom sources were checked on 2026-11-15: the [network firewall/proxy guide](https://support.zoom.com/hc/en/article?id=zm_kb&sysparm_article=KB0060548)
+publishes the product/family TXT files for local operator network configuration.
+[Zoom terms](https://www.zoom.com/en/trust/terms/) retain Zoom and third-party
+rights; no dataset redistribution or resale licence is asserted. All fetches are
+explicit bulk HTTPS requests without tenant, credential, address or query selectors.
+
+`--publishers zoom` fetches the full bundle below. Individual IDs select exactly
+one published file; choosing a subset does not imply complete Zoom coverage.
+Version-two offline `data` contains the exact TXT contents as a JSON string,
+including its original line endings. Both CIDRs and bare IPv4/IPv6 hosts are
+accepted; a bare host has exactly `/32` or `/128` scope. Each source keeps its own digest, fetch age
+and expiry. No publication clock or geographic region is supplied, so those
+values remain unknown. A malformed, invalid-UTF-8 or wrong-family file rejects
+the entire refresh and preserves the previous cache and clocks.
+
+| Offline/individual publisher ID | Original file | Published scope |
+| --- | --- | --- |
+| `zoom_common` | [Zoom.txt](https://assets.zoom.us/docs/ipranges/Zoom.txt) | Zoom |
+| `zoom_meetings_ipv4` | [ZoomMeetings.txt](https://assets.zoom.us/docs/ipranges/ZoomMeetings.txt) | Meetings IPv4 |
+| `zoom_meetings_ipv6` | [ZoomMeetings-IPv6.txt](https://assets.zoom.us/docs/ipranges/ZoomMeetings-IPv6.txt) | Meetings IPv6 |
+| `zoom_crc` | [ZoomCRC.txt](https://assets.zoom.us/docs/ipranges/ZoomCRC.txt) | Cloud Room Connector |
+| `zoom_phone_ipv4` | [ZoomPhone.txt](https://assets.zoom.us/docs/ipranges/ZoomPhone.txt) | Phone IPv4 |
+| `zoom_phone_ipv6` | [ZoomPhone-IPv6.txt](https://assets.zoom.us/docs/ipranges/ZoomPhone-IPv6.txt) | Phone IPv6 |
+| `zoom_phone_tcp443` | [ZoomPhone-TCP443.txt](https://assets.zoom.us/docs/ipranges/ZoomPhone-TCP443.txt) | Phone TCP 443 |
+| `zoom_phone_tcp5091` | [ZoomPhone-TCP5091.txt](https://assets.zoom.us/docs/ipranges/ZoomPhone-TCP5091.txt) | Phone TCP 5091 |
+| `zoom_phone_tcp390` | [ZoomPhone-TCP390.txt](https://assets.zoom.us/docs/ipranges/ZoomPhone-TCP390.txt) | Phone TCP 390 |
+| `zoom_phone_udp3478` | [ZoomPhone-UDP3478.txt](https://assets.zoom.us/docs/ipranges/ZoomPhone-UDP3478.txt) | Phone UDP 3478 |
+| `zoom_phone_udp20000_64000` | [ZoomPhone-UDP20000-64000.txt](https://assets.zoom.us/docs/ipranges/ZoomPhone-UDP20000-64000.txt) | Phone UDP 20000–64000 |
+| `zoom_contact_center_ipv4` | [ZoomCC.txt](https://assets.zoom.us/docs/ipranges/ZoomCC.txt) | Contact Center IPv4 |
+| `zoom_contact_center_ipv6` | [ZoomCC-IPv6.txt](https://assets.zoom.us/docs/ipranges/ZoomCC-IPv6.txt) | Contact Center IPv6 |
+| `zoom_contact_center_widget` | [ZCCFlowScriptCallWidget.txt](https://assets.zoom.us/docs/ipranges/ZCCFlowScriptCallWidget.txt) | Widget network dependency |
+| `zoom_virtual_agent_ipv4` | [ZoomZVA.txt](https://assets.zoom.us/docs/ipranges/ZoomZVA.txt) | Virtual Agent IPv4 |
+| `zoom_virtual_agent_ipv6` | [ZoomZVA-IPv6.txt](https://assets.zoom.us/docs/ipranges/ZoomZVA-IPv6.txt) | Virtual Agent IPv6 |
+| `zoom_virtual_agent_widget` | [ZVAFlowScriptCallWidget.txt](https://assets.zoom.us/docs/ipranges/ZVAFlowScriptCallWidget.txt) | Widget network dependency |
+| `zoom_cdn_ipv4` | [ZoomCDN.txt](https://assets.zoom.us/docs/ipranges/ZoomCDN.txt) | CDN network dependency IPv4 |
+| `zoom_cdn_ipv6` | [ZoomCDN-IPv6.txt](https://assets.zoom.us/docs/ipranges/ZoomCDN-IPv6.txt) | CDN network dependency IPv6 |
+| `zoom_apps` | [ZoomApps.txt](https://assets.zoom.us/docs/ipranges/ZoomApps.txt) | Apps network dependency |
+| `zoom_apps_ipv6` | [ZoomApps-IPv6.txt](https://assets.zoom.us/docs/ipranges/ZoomApps-IPv6.txt) | Apps network dependency IPv6 |
+| `zoom_pso_ipv4` | [ZoomPSO.txt](https://assets.zoom.us/docs/ipranges/ZoomPSO.txt) | PSO Network Assessment IPv4 |
+
+Apps, widget and CDN lists contain shared infrastructure dependencies. Their
+matches remain visible in source provenance but cannot, alone, classify traffic
+as a Zoom application. Specific service lists supersede the generic Zoom list
+and generic AWS EC2/AMAZON or Google hosting ownership. Conflicting specific
+services stay ambiguous. Every flow is counted once, including unknown traffic.
+
 Google's current `creationTime` values can omit a timezone offset. The reader
 preserves that exact calendar text as `published_time`; it does not guess UTC,
 use the operator host's timezone or reinterpret an opaque `syncToken` as a clock.
@@ -214,7 +260,7 @@ complete workload. A malformed or missing input remains visible as unavailable
 through the existing source-status and enrichment APIs; telemetry continues.
 
 `GET /v1/opendata/enrichment?ip=<address>` returns `services` entries with each
-publisher's original version, JSON digest, publication/fetch clocks, expiry and
+publisher's original version, document digest, publication/fetch clocks, expiry and
 all matching service/region/prefix labels. Overlaps remain explicit; a range
 match does not establish which hosted application or customer generated traffic.
 An unmatched address has no matches. A stale or disabled list also has no matches
@@ -234,7 +280,9 @@ registry drives SDK/CLI/UI/native operations.
 Classification uses the most specific current published range. Documented
 supersets do not hide their specialized labels: AWS `AMAZON` yields to its
 service subsets, S3 membership excludes the EC2 fallback, and Google Cloud
-membership specializes generic Google ownership. Equal-specificity conflicts
+membership specializes generic Google ownership. Published SaaS-specific ranges
+supersede generic hosting ownership, while network dependencies alone do not
+assert an application. Equal-specificity conflicts
 between services remain ambiguous, with an empty service/provider. Conflicting
 regions remain empty while a unique known service is retained. This is range
 attribution, not proof of a hosted application or customer.

@@ -37,7 +37,7 @@ type ServiceRangeMatch struct {
 }
 
 // ServiceRangeStatus includes the cache's original clocks even when a stale
-// list can no longer attribute an address. Digest identifies original JSON.
+// list can no longer attribute an address. Digest identifies original bytes.
 type ServiceRangeStatus struct {
 	Publisher     string              `json:"publisher"`
 	Version       string              `json:"version"`
@@ -76,7 +76,7 @@ type serviceRangeInput struct {
 	exactDocument bool
 }
 
-// LoadServiceRanges reads all original vendor JSON before admitting any source.
+// LoadServiceRanges reads all original vendor documents before admitting a source.
 // The byte profile covers raw input, duplicate-key validation, typed decoding
 // and the full index. There is no fixed row count or partial prefix import.
 func LoadServiceRanges(ctx context.Context, path string, maxAge time.Duration, memoryBytes int64, now time.Time) (*ServiceRanges, error) {
@@ -153,7 +153,7 @@ func decodeServiceRanges(ctx context.Context, raw []byte, maxAge time.Duration, 
 		}
 		// Version two quotes the complete original document. Validate inside
 		// that string as well: outer JSON validation cannot see duplicate keys.
-		if err := validateServiceJSON(ctx, input.Data); err != nil {
+		if err := validateServiceRangeDocument(ctx, input.Publisher, input.Data); err != nil {
 			return nil, err
 		}
 		seen[input.Publisher] = true
@@ -271,7 +271,11 @@ func parseServiceRangeDataset(ctx context.Context, input serviceRangeInput, maxA
 	case "salesforce":
 		err = parseSalesforceServiceRanges(ctx, input.Data, &dataset, remaining)
 	default:
-		err = errors.New("unsupported service range publisher")
+		if source, ok := zoomRangePublishers[input.Publisher]; ok {
+			err = parseZoomServiceRanges(ctx, input.Data, &dataset, remaining, source)
+		} else {
+			err = errors.New("unsupported service range publisher")
+		}
 	}
 	if err != nil {
 		return serviceRangeDataset{}, err

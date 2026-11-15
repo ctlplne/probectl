@@ -20,6 +20,9 @@ import (
 )
 
 func serviceRangePublisherURL(publisher string) (string, error) {
+	if source, ok := zoomRangePublishers[publisher]; ok {
+		return "https://assets.zoom.us/docs/ipranges/" + source.file, nil
+	}
 	switch publisher {
 	case "aws":
 		return "https://ip-ranges.amazonaws.com/ip-ranges.json", nil
@@ -32,7 +35,7 @@ func serviceRangePublisherURL(publisher string) (string, error) {
 	case "salesforce":
 		return "https://ip-ranges.salesforce.com/ip-ranges.json", nil
 	default:
-		return "", errors.New("supported range publishers are aws, google, google_cloud, cloudflare and salesforce")
+		return "", errors.New("supported range publishers are aws, google, google_cloud, cloudflare, salesforce and the zoom bundle or its documented per-file IDs")
 	}
 }
 
@@ -48,6 +51,7 @@ func FetchServiceRangeCache(ctx context.Context, path string, publishers []strin
 	if memoryBytes < 4096 {
 		return ErrServiceRangeBudget
 	}
+	publishers = expandServiceRangePublishers(publishers)
 	seen := map[string]bool{}
 	for _, publisher := range publishers {
 		if _, err := serviceRangePublisherURL(publisher); err != nil {
@@ -93,7 +97,7 @@ func encodeServiceRangeEnvelope(ctx context.Context, envelope serviceRangeEnvelo
 		Sources []originalDocument `json:"sources"`
 	}{Version: 2}
 	for _, input := range envelope.Sources {
-		if err := validateServiceJSON(ctx, input.Data); err != nil {
+		if err := validateServiceRangeDocument(ctx, input.Publisher, input.Data); err != nil {
 			return nil, err
 		}
 		// A quoted original survives JSON framing without losing leading or
@@ -116,6 +120,9 @@ func fetchServiceRangeInput(ctx context.Context, client Doer, publisher string, 
 		return serviceRangeInput{}, err
 	}
 	req.Header.Set("Accept", "application/json")
+	if _, text := zoomRangePublishers[publisher]; text {
+		req.Header.Set("Accept", "text/plain")
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return serviceRangeInput{}, errors.New("published range bulk fetch failed; prior cache preserved")

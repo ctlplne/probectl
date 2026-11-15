@@ -49,7 +49,7 @@
       ],
       "name": "Open-data enrichment",
       "status": "partial",
-      "evidence": "`internal/opendata` (shared-once, per-tenant scoping); complete offline AWS/Google/Cloudflare/Salesforce service-range exports retain all overlapping published labels, original publication/fetch clocks and per-lookup freshness through the authenticated enrichment API. Unknown anycast region/publication time stay unknown. Explicit CLI bulk refresh validates complete TLS responses before atomic owner-only cache replacement and preserves prior clocks on failure. Server-owned service/region/provider/status dimensions retain complete capture provenance and one-count original traffic in tenant-scoped raw/rollup queries. Remaining publishers and full real-flow/public-surface qualification remain owed."
+      "evidence": "`internal/opendata` (shared-once, per-tenant scoping); complete offline AWS/Google/Cloudflare/Salesforce/Zoom service-range exports retain all overlapping published labels, original publication/fetch clocks and per-lookup freshness through the authenticated enrichment API. Unknown anycast region/publication time stay unknown. Explicit CLI bulk refresh validates complete TLS responses before atomic owner-only cache replacement and preserves prior clocks on failure. Server-owned service/region/provider/status dimensions retain complete capture provenance and one-count original traffic in tenant-scoped raw/rollup queries. Remaining publishers and full real-flow/public-surface qualification remain owed."
     },
     {
       "ids": [
