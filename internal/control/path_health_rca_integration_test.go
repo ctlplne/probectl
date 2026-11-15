@@ -198,6 +198,29 @@ func TestPathHealthRCAUsesCompleteCurrentOwnedSnapshot(t *testing.T) {
 		read(1 - lane)
 		read(lane)
 	}
+	// Current identity and a surviving row ID cannot revive pre-edit personal
+	// or source fields retained by a synthesis that started before the change.
+	for lane, tenant := range f.tenants {
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		resolved, err := store.NewEntityRegistry(f.pool).ResolveAddresses(ctx, entity.Scope{TenantID: tenant, ContextID: f.contextID}, []string{"10.42.0.2"})
+		if err != nil || len(resolved["10.42.0.2"].Candidates) != 1 {
+			t.Fatal("original address content control", err)
+		}
+		id := resolved["10.42.0.2"].Candidates[0].EvidenceID
+		model.after = func() {
+			model.after = nil
+			f.poll(tenant, "current replacement after original edit", roleExplanationPrefixes())
+			f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+				_, err := sc.Q.Exec(ctx, `UPDATE entity_evidence SET source='changed-original-source' WHERE tenant_id=$1 AND id=$2`, tenant, id)
+				return err
+			})
+		}
+		if code, raw := call(tenant, proof.tests[tenant]); code == http.StatusOK || strings.Contains(string(raw), "capture_key") {
+			t.Fatal("changed original address content was published from a stale snapshot", code)
+		}
+		read(1 - lane)
+		read(lane)
+	}
 	a, b := f.tenants[0], f.tenants[1]
 	before := model.calls
 	if code, raw := call(a, ""); code != http.StatusUnprocessableEntity || strings.Contains(string(raw), "capture_key") || model.calls != before {
