@@ -202,6 +202,7 @@ func TestCarrierSLAMonthServesRecordedSourcesAndCurrentTwoTenantAuthority(t *tes
 		proofs[tenant] = proof
 	}
 	proveCarrierSLAPortableBindings(t, f, socket, proofs, ids)
+	proveCarrierSLAFreshInstance(t, f, proofs, ids, fingerprint)
 	nativeReports.crossTenant()
 	call := interfaceRoleNativeTLSCaller(t, f, "2025-11-25")
 	for _, tenant := range f.tenants {

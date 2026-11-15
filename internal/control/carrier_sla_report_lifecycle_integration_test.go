@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
@@ -99,6 +101,35 @@ func proveCarrierSLAPortableBindings(t *testing.T, f *roleExplanationAPIFixture,
 		selection := imported.Dashboard.Definition.CarrierClaim.Selections[0]
 		if selection.AgreementId != agreements[destination] || selection.Version != "1" {
 			t.Fatal("financial import substituted a different recorded revision")
+		}
+	}
+}
+
+// Reconstruct the API with fresh authentication/admission instances over only
+// durable state and the same configured deployment signing key. This proves
+// application-instance recovery, not a release-image/process restart.
+func proveCarrierSLAFreshInstance(t *testing.T, f *roleExplanationAPIFixture, proofs map[string]carrierSLAReportProof, agreements map[string]string, fingerprint string) {
+	t.Helper()
+	server := New(f.server.cfg, f.server.log, f.server.pinger, f.pool, nil, nil).
+		WithTenantStatus(NewTenantStatusCache(f.pool, 0)).
+		WithFlowStore(flowstore.NewMemory()).
+		WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil)).
+		WithEvidenceSigningKey(f.server.evidenceSigningKey)
+	socket := httptest.NewTLSServer(server.Handler())
+	t.Cleanup(socket.Close)
+	for lane, tenant := range f.tenants {
+		client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
+		foreign := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[f.tenants[1-lane]]))
+		proof := proofs[tenant]
+		for _, artifact := range []struct{ id, format string }{{proof.CSV, "csv"}, {proof.PDF, "pdf"}, {proof.Scheduled, "csv"}} {
+			var body bytes.Buffer
+			if _, err := client.DownloadDashboardReportArtifactTo(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: artifact.id}, &body, 1<<30); err != nil {
+				t.Fatal("fresh API instance lost a durable financial artifact", err)
+			}
+			proveCarrierSLASignedBytes(t, carrierMonthWorkloadPackage(t, artifact.format, body.Bytes()), agreements[tenant], proof.PopulationDigest, fingerprint)
+			if body, err := foreign.DownloadDashboardReportArtifact(t.Context(), sdk.DownloadDashboardReportArtifactRequest{Id: artifact.id}); err == nil || len(body) > 0 {
+				t.Fatal("fresh API instance disclosed a sibling's financial artifact")
+			}
 		}
 	}
 }
