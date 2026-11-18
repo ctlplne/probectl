@@ -12,7 +12,7 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/go-text/typesetting v0.3.5
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.12.0
 	github.com/klauspost/compress v1.20.2
 	github.com/miekg/dns v1.1.72
 	github.com/nats-io/nats.go v1.53.1
@@ -75,7 +75,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2 // indirect
