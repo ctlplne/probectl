@@ -44,6 +44,7 @@ test('paired optical-only fleets keep every component and distinguish component 
     expect(table).toHaveTextContent(`optic-${lane}-511`)
     expect(table).not.toHaveTextContent(`optic-${3 - lane}-511`)
     expect(table).toHaveTextContent(`${-3.25 - lane} dBm`)
+    expect(table.querySelectorAll('time[datetime="2026-11-14T00:00:00.000Z"]')).toHaveLength(512)
     expect(screen.queryByText('No device telemetry yet')).not.toBeInTheDocument()
     const interfaces = screen.getByRole('table', { name: 'Interface counters' })
     expect(interfaces).not.toHaveTextContent(`optic-${lane}`)

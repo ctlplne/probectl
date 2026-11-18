@@ -10,8 +10,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -271,18 +273,51 @@ func postJSONAsTenant(t *testing.T, srv *Server, method, path, tenant, body stri
 // itself — instead of answering metrics_running=false.
 func TestDeviceMetricsAPIReadsBackFromPrometheus(t *testing.T) {
 	def := tenancy.DefaultTenantID.String()
-	var gotQuery string
-	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/query" {
-			http.NotFound(w, r)
+	observed := time.Now().UTC().Add(-45 * time.Second).Truncate(time.Millisecond)
+	const cpuMetric = "probectl_device_cpu_utilization"
+	const portMetric = "probectl_device_if_in_octets"
+	queries := make(chan string, 4)
+	prom := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		evaluated, err := time.Parse(time.RFC3339Nano, r.FormValue("time"))
+		if r.URL.Path != "/api/v1/query" || r.Method != http.MethodPost || err != nil || !evaluated.After(observed) {
+			http.Error(w, "expected a pinned instant query", http.StatusBadRequest)
 			return
 		}
-		gotQuery = r.URL.Query().Get("query")
+		query := r.FormValue("query")
+		select {
+		case queries <- query:
+		default:
+			http.Error(w, "unexpected additional instant query", http.StatusBadRequest)
+			return
+		}
+		type point struct {
+			Metric map[string]string `json:"metric"`
+			Value  []any             `json:"value"`
+		}
+		var result []point
+		for _, name := range []string{cpuMetric, portMetric} {
+			if name == portMetric && !strings.Contains(query, `__name__=~"probectl_device_.+"`) {
+				continue
+			}
+			labels := map[string]string{"__name__": name, "tenant_id": def}
+			at := float64(evaluated.UnixMilli()) / 1000
+			if strings.HasPrefix(query, "group by") {
+				result = append(result, point{labels, []any{at, "1"}})
+				continue
+			}
+			labels["agent_id"], labels["device"] = "collector-1", "10.0.0.1"
+			value := "42"
+			if name == cpuMetric {
+				labels["device_name"], labels["source"] = "edge-r1", "snmp"
+			} else {
+				labels["if_index"], labels["if_name"], value = "1", "xe-0/0/0", "1000"
+			}
+			timeLabels := maps.Clone(labels)
+			timeLabels["__name__"] = deviceSampleTimePrefix + name
+			result = append(result, point{labels, []any{at, value}}, point{timeLabels, []any{at, strconv.FormatFloat(float64(observed.UnixMilli())/1000, 'f', 3, 64)}})
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[
-		  {"metric":{"__name__":"probectl_device_cpu_utilization","tenant_id":"` + def + `","agent_id":"collector-1","device":"10.0.0.1","device_name":"edge-r1","source":"snmp"},"value":[1780000000,"42"]},
-		  {"metric":{"__name__":"probectl_device_if_in_octets","tenant_id":"` + def + `","agent_id":"collector-1","device":"10.0.0.1","if_index":"1","if_name":"xe-0/0/0"},"value":[1780000000,"1000"]}
-		]}}`))
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": result}})
 	}))
 	defer prom.Close()
 	srv := testServer(fakePinger{}).WithTSDB(tsdb.NewPrometheusWithClient(prom.URL, prom.Client()))
@@ -299,26 +334,35 @@ func TestDeviceMetricsAPIReadsBackFromPrometheus(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if !resp.MetricsRunning || resp.Source != "tsdb" || len(resp.Items) != 2 {
+	if !resp.MetricsRunning || resp.Source != "tsdb" || len(resp.Items) != 2 || len(queries) != 2 {
 		t.Fatalf("resp = %+v", resp)
 	}
-	if !strings.Contains(gotQuery, `tenant_id="`+def+`"`) || !strings.Contains(gotQuery, `device="10.0.0.1"`) || !strings.Contains(gotQuery, `__name__=~"probectl_device_.+"`) {
-		t.Fatalf("selector must be tenant- and device-scoped: %q", gotQuery)
+	for range 2 {
+		query := <-queries
+		if !strings.Contains(query, `tenant_id="`+def+`"`) || !strings.Contains(query, `device="10.0.0.1"`) || !strings.Contains(query, `__name__=~"probectl_device_.+"`) {
+			t.Fatalf("selector must be tenant- and device-scoped: %q", query)
+		}
 	}
 	var cpu *deviceMetricSummary
 	for i := range resp.Items {
-		if resp.Items[i].Metric == "probectl_device_cpu_utilization" {
+		if resp.Items[i].Metric == cpuMetric {
 			cpu = &resp.Items[i]
 		}
 	}
-	if cpu == nil || cpu.Device != "10.0.0.1" || cpu.DeviceName != "edge-r1" || cpu.Value != 42 {
+	if cpu == nil || cpu.Device != "10.0.0.1" || cpu.DeviceName != "edge-r1" || cpu.Value != 42 || !cpu.LastSeen.Equal(observed) {
 		t.Fatalf("cpu summary = %+v", resp.Items)
 	}
 
 	// A metric filter narrows the selector to that exact series name.
 	rec = do(srv, http.MethodGet, "/v1/device/metrics?metric=probectl.device.cpu.utilization")
-	if rec.Code != http.StatusOK || !strings.Contains(gotQuery, `__name__="probectl_device_cpu_utilization"`) {
-		t.Fatalf("metric filter selector = %q (status %d)", gotQuery, rec.Code)
+	if rec.Code != http.StatusOK || len(queries) != 2 {
+		t.Fatalf("metric filter did not return a pinned vector (status %d)", rec.Code)
+	}
+	for range 2 {
+		query := <-queries
+		if !strings.Contains(query, cpuMetric+"{") || strings.Contains(query, portMetric) || strings.Contains(query, `__name__=~`) {
+			t.Fatalf("metric filter selector = %q", query)
+		}
 	}
 	// Label values that could break out of the selector are refused.
 	if rec = do(srv, http.MethodGet, `/v1/device/metrics?device=10.0.0.1"}or{tenant_id=~".%2B`); rec.Code != http.StatusBadRequest {

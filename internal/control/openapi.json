@@ -7585,7 +7585,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Latest device metric summaries for the caller tenant.",
+            "description": "Latest device metric summaries for the caller tenant. Last seen is the stored sample time.",
             "content": {
               "application/json": {
                 "schema": {

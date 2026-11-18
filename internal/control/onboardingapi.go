@@ -316,9 +316,10 @@ func (s *Server) planeLedgersHaveData(ctx context.Context, tenant string, metric
 		}
 		if !deviceData {
 			if q, ok := s.tsdbWriter.(deviceMetricQuerier); ok && s.tsdbWriter != nil {
-				series, e := deviceMetricSeriesFromTSDB(ctx, q, tenant, "", "")
+				selector := deviceMetricSelector(tenant, "", "")
+				series, e := q.InstantVector(ctx, selector.String())
 				if e != nil {
-					return false, false, false, e
+					return false, false, false, apierror.Unavailable("device metrics are temporarily unavailable from the TSDB").Wrap(e)
 				}
 				deviceData = len(series) > 0
 			}

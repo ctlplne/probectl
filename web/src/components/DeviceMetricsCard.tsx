@@ -329,6 +329,11 @@ export function DeviceMetricsCard() {
       header: t('device.metrics.column.temperature'),
       render: (row) => componentValue(row, 'sensor_temperature_celsius', '°C'),
     },
+    {
+      key: 'observed',
+      header: t('device.metrics.column.observed'),
+      render: (row) => <DateTime value={row.lastSeen} />,
+    },
   ]
 
   return (

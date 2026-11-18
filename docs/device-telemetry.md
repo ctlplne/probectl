@@ -226,7 +226,9 @@ one row per interface (link status, speed, octets in and out, errors and
 discards in / out), with temperature sensors in their own table when the
 target reports them. Component sensors retain separate aggregate/channel rows
 and display optical power, laser bias, voltage and component temperature when
-reported. These overview values use the TSDB's normalized numeric samples;
+reported. Last seen reflects the stored sample's original time. Reopening the
+view or repeating the query leaves that time unchanged until a new sample
+arrives. These overview values use the TSDB's normalized numeric samples;
 full-width original integer words and qualified rates are in original path
 health. Alert rules and Explorer use the `probectl_device_*` series names.
 The device screen requests the complete admitted latest population; neither

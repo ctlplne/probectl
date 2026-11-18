@@ -53,10 +53,13 @@ type RenderSpec struct {
 }
 
 // RenderControl must be visible by role and exact accessible name once the
-// steps have run.
+// steps have run. Within restricts its scope. Count checks the complete DOM
+// population when the bounded body text is insufficient.
 type RenderControl struct {
-	Role string `json:"role"`
-	Name string `json:"name"`
+	Role   string `json:"role"`
+	Name   string `json:"name,omitempty"`
+	Within string `json:"within,omitempty"`
+	Count  int    `json:"count,omitempty"`
 }
 
 // RenderStep clicks the one control with Role (default "button") and the exact

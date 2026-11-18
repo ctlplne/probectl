@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -226,24 +227,57 @@ type LabeledSample struct {
 // rules would otherwise never evaluate (ARCH-002/CORRECT-006). The caller is
 // responsible for pinning the query to a tenant (the alert metricSource does).
 func (p *Prometheus) InstantVector(ctx context.Context, promql string) ([]LabeledSample, error) {
+	return p.instantVector(ctx, promql, time.Time{}, 8<<20)
+}
+
+// InstantVectorAt pins multiple related reads to one evaluation time. The
+// returned values still have PromQL semantics: use timestamp(selector) to
+// retrieve a stored sample's time rather than the result's evaluation time.
+func (p *Prometheus) InstantVectorAt(ctx context.Context, promql string, at time.Time, maxBytes int64) ([]LabeledSample, error) {
+	if at.IsZero() || maxBytes <= 0 || maxBytes == math.MaxInt64 {
+		return nil, errors.New("tsdb: invalid pinned instant vector admission")
+	}
+	return p.instantVector(ctx, promql, at, maxBytes)
+}
+
+func (p *Prometheus) instantVector(ctx context.Context, promql string, at time.Time, maxBytes int64) ([]LabeledSample, error) {
 	base := strings.TrimSuffix(p.url, "/api/v1/write")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		base+"/api/v1/query?query="+url.QueryEscape(promql), nil)
+	params := url.Values{"query": {promql}}
+	path, method := base+"/api/v1/query", http.MethodGet
+	var input io.Reader
+	if at.IsZero() {
+		path += "?" + params.Encode()
+	} else {
+		params.Set("time", at.UTC().Format(time.RFC3339Nano))
+		method, input = http.MethodPost, strings.NewReader(params.Encode())
+	}
+	req, err := http.NewRequestWithContext(ctx, method, path, input)
 	if err != nil {
 		return nil, err
+	}
+	if input != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 	resp, err := p.promDo(req)
 	if err != nil {
 		return nil, fmt.Errorf("tsdb: instant query: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("tsdb: instant query response: %w", err)
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, errors.New("tsdb: complete instant vector exceeds response admission")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("tsdb: instant query status %d: %s", resp.StatusCode, body)
 	}
 	var out struct {
-		Data struct {
-			Result []struct {
+		Status string `json:"status"`
+		Data   struct {
+			ResultType string `json:"resultType"`
+			Result     []struct {
 				Metric map[string]string `json:"metric"`
 				Value  []any             `json:"value"`
 			} `json:"result"`
@@ -252,14 +286,23 @@ func (p *Prometheus) InstantVector(ctx context.Context, promql string) ([]Labele
 	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, fmt.Errorf("tsdb: instant query decode: %w", err)
 	}
+	if !at.IsZero() && (out.Status != "success" || out.Data.ResultType != "vector") {
+		return nil, errors.New("tsdb: expected a complete instant vector")
+	}
 	samples := make([]LabeledSample, 0, len(out.Data.Result))
 	for _, r := range out.Data.Result {
 		if len(r.Value) < 2 {
+			if !at.IsZero() {
+				return nil, errors.New("tsdb: invalid point in pinned instant vector")
+			}
 			continue
 		}
 		str, _ := r.Value[1].(string)
 		v, perr := strconv.ParseFloat(str, 64)
 		if perr != nil {
+			if !at.IsZero() {
+				return nil, errors.New("tsdb: invalid sample value in pinned instant vector")
+			}
 			continue
 		}
 		samples = append(samples, LabeledSample{Labels: r.Metric, Value: v})

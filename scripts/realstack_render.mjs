@@ -219,9 +219,15 @@ async function main() {
     for (const c of spec.controls ?? []) {
       if (result.missing.length > 0) break;
       try {
-        await page.getByRole(c.role, { name: c.name, exact: true }).first().waitFor({ state: "visible", timeout: remaining() });
+        const scope = c.within ? page.locator(c.within) : page;
+        const controls = scope.getByRole(c.role, { name: c.name, exact: true });
+        await controls.first().waitFor({ state: "visible", timeout: remaining() });
+        if (c.count !== undefined) {
+          const actual = await controls.count();
+          if (actual !== c.count) result.missing.push(`${c.role} "${c.name ?? ""}" count ${actual}, expected ${c.count}`);
+        }
       } catch {
-        result.missing.push(`${c.role} "${c.name}"`);
+        result.missing.push(`${c.role} "${c.name ?? ""}"`);
       }
     }
     if ((spec.steps ?? []).length > 0 || (spec.controls ?? []).length > 0) body = await absentNow();
@@ -231,6 +237,13 @@ async function main() {
       result.missing.push("requested served theme selectors");
     }
     if (spec.accessibility) {
+      // The theme attribute changes before the CSS color transitions finish.
+      // Measure the committed palette after those transitions settle.
+      if (spec.theme) {
+        await page.waitForFunction(() => !document.getAnimations().some(
+          (animation) => animation instanceof CSSTransition && animation.playState === "running",
+        ), undefined, { timeout: remaining() });
+      }
       result.accessibility = await page.evaluate(async () => {
         const report = await globalThis.axe.run(
           { include: [["body"]], exclude: [["svg[aria-hidden='true']"]] },
