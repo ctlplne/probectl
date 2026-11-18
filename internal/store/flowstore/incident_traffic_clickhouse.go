@@ -51,7 +51,7 @@ func (c *ClickHouse) incidentTrafficRows(ctx context.Context, query IncidentTraf
 	// rather than a multiplying JOIN, counts each original record once even
 	// when a router and both of its interfaces are selected together.
 	sql := `SELECT tenant_id,agent_id,exporter,protocol,toString(obs_domain) AS obs_domain,
-	 src_addr,dst_addr,toString(in_if) AS in_if,toString(out_if) AS out_if,
+	 src_addr,dst_addr,toString(dst_port) AS dst_port,toString(in_if) AS in_if,toString(out_if) AS out_if,
 	 toString(bytes) AS raw_bytes,toString(packets) AS raw_packets,toString(sampling) AS sampling,
 	 toString(toUnixTimestamp64Nano(ts)) AS time_nanos,toString(toUnixTimestamp64Nano(start_ts)) AS start_nanos,
 	 raw_flow_digest,routing_capture_key,toString(routing_captured_unix_nanos) AS routing_captured_unix_nanos
@@ -115,6 +115,7 @@ func decodeIncidentTrafficRow(tenant string, value map[string]any) (Row, error) 
 		set  func(uint64)
 	}{
 		{"obs_domain", 32, func(v uint64) { row.ObsDomain = uint32(v) }},
+		{"dst_port", 16, func(v uint64) { row.DstPort = uint16(v) }},
 		{"in_if", 32, func(v uint64) { row.InIf = uint32(v) }},
 		{"out_if", 32, func(v uint64) { row.OutIf = uint32(v) }},
 		{"raw_bytes", 64, func(v uint64) { row.Bytes = v }},

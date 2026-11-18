@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -956,6 +957,37 @@ func TestExplorerClickHouseRealRawCoveragePaired(t *testing.T) {
 			if len(result.Rows) != 1 || result.Totals["bytes:total"] != expected {
 				t.Fatal("raw coverage query crossed tenant or changed exact data", tenant, source)
 			}
+		}
+	}
+}
+
+func TestIncidentTrafficClickHouseKeepsOwnedDestinationPorts(t *testing.T) {
+	store := explorerIntegrationStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+	at := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
+	lanes := []struct {
+		tenant string
+		port   uint16
+	}{{uuid.NewString(), 443}, {uuid.NewString(), 8443}}
+	for _, lane := range lanes {
+		t.Cleanup(func() { cleanupExplorerFixtureTenant(t, store, lane.tenant) })
+		row := explorerFixtureRow(lane.tenant)
+		row.TS, row.StartTS, row.DstPort = at, at.Add(-time.Second), lane.port
+		if err := store.Insert(t.Context(), []Row{row}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, lane := range lanes {
+		row := explorerFixtureRow(lane.tenant)
+		batch, err := NewPlanBatch(tenancy.WithTenant(t.Context(), tenancy.ID(lane.tenant)), store, lane.tenant, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, err := batch.IncidentTrafficRows(IncidentTrafficQuery{TenantID: lane.tenant, From: at.Add(-time.Second), To: at.Add(time.Second), Series: "raw",
+			Sources: []IncidentTrafficSource{{AgentID: row.AgentID, Exporter: netip.MustParseAddr(row.Exporter), Protocol: row.Protocol, Domain: row.ObsDomain, WholeDevice: true}}})
+		batch.Close()
+		if err != nil || len(rows) != 1 || rows[0].TenantID != lane.tenant || rows[0].DstPort != lane.port || !rows[0].TS.Equal(at) {
+			t.Fatal("real raw flow row lost its owned destination port or time", rows, err)
 		}
 	}
 }

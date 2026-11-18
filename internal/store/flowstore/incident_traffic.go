@@ -196,7 +196,7 @@ func incidentTrafficMatches(row Row, membership map[incidentTrafficSourceKey]map
 
 func projectIncidentTrafficRow(row Row) Row {
 	return Row{TenantID: row.TenantID, AgentID: row.AgentID, Exporter: row.Exporter, Protocol: row.Protocol, ObsDomain: row.ObsDomain,
-		TS: row.TS, StartTS: row.StartTS, SrcAddr: row.SrcAddr, DstAddr: row.DstAddr, InIf: row.InIf, OutIf: row.OutIf,
+		TS: row.TS, StartTS: row.StartTS, SrcAddr: row.SrcAddr, DstAddr: row.DstAddr, DstPort: row.DstPort, InIf: row.InIf, OutIf: row.OutIf,
 		Bytes: row.Bytes, Packets: row.Packets, Sampling: row.Sampling, RawFlowDigest: row.RawFlowDigest,
 		RoutingCaptureKey: row.RoutingCaptureKey, RoutingCapturedUnixNanos: row.RoutingCapturedUnixNanos}
 }
