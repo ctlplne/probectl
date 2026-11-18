@@ -356,11 +356,9 @@ func currentAliasResolutionQuerySQL(kindParameter, valueParameter, probeGuard, s
 		       e.agent_id, e.source_kind, e.configured_ref, e.observed_at,
 		       COALESCE(e.support_evidence_id::text,'')
 			 FROM ` + fromClause + `
-			  JOIN LATERAL (SELECT n.* FROM entities n
-            WHERE (n.tenant_id,n.context_id,n.id)=(e.tenant_id,e.context_id,e.entity_id) OFFSET 0) n ON true
-          JOIN LATERAL (SELECT resolved_node.* FROM entities resolved_node
-            WHERE (resolved_node.tenant_id,resolved_node.context_id,resolved_node.id)=
-            (e.tenant_id,e.context_id,COALESCE(CASE WHEN e.alias_kind='address' THEN n.parent_entity_id END,e.entity_id)) OFFSET 0) resolved_node ON true
+			  JOIN entities n ON n.tenant_id=$1 AND n.context_id=$2 AND n.id=e.entity_id
+          JOIN entities resolved_node ON resolved_node.tenant_id=$1 AND resolved_node.context_id=$2
+            AND resolved_node.id=COALESCE(CASE WHEN e.alias_kind='address' THEN n.parent_entity_id END,e.entity_id)
           JOIN LATERAL (SELECT m.* FROM entity_source_contexts m
             WHERE (m.tenant_id,m.context_id,m.agent_id,m.source_kind,m.source_ref)=
             (e.tenant_id,e.context_id,e.agent_id,e.source_kind,e.configured_ref) OFFSET 0) m ON ((e.support_evidence_id IS NULL AND

@@ -8,6 +8,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -22,6 +23,8 @@ type ICMPHealthRequest struct {
 	Source   entity.SourceKey
 	EntityID string
 }
+
+const indexedICMPPopulationMinimum = 256
 
 func admittedEntityPopulation(ctx context.Context, sc tenancy.Scope, scope entity.Scope, count int, maxBytes int64) (entity.Scope, error) {
 	bound, ok := tenancy.FromContext(ctx)
@@ -42,7 +45,7 @@ func admittedEntityPopulation(ctx context.Context, sc tenancy.Scope, scope entit
 // caller's existing transaction. No extra connection, broader query, source
 // fallback or result prefix is introduced. The SQL and decoder are shared
 // with the single-source reader, including latest-unknown/conflict semantics.
-func (s *EntityRegistry) ReadICMPHealthPopulationInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, requests []ICMPHealthRequest, freshness time.Duration, maxBytes int64) ([]ICMPHealth, error) {
+func (s *EntityRegistry) ReadICMPHealthPopulationInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, requests []ICMPHealthRequest, freshness time.Duration, maxBytes int64) (values []ICMPHealth, err error) {
 	want, err := admittedEntityPopulation(ctx, sc, scope, len(requests), maxBytes)
 	if err != nil {
 		return nil, err
@@ -84,6 +87,17 @@ func (s *EntityRegistry) ReadICMPHealthPopulationInScope(ctx context.Context, sc
 		}
 		return []ICMPHealth{value}, nil
 	}
+	if len(keys) >= indexedICMPPopulationMinimum {
+		restore, planErr := preferIndexedICMPPopulation(ctx, sc.Q)
+		if planErr != nil {
+			return nil, planErr
+		}
+		defer func() {
+			if restoreErr := restore(); restoreErr != nil {
+				values, err = nil, errors.Join(err, restoreErr)
+			}
+		}()
+	}
 	query := currentICMPHealthPopulationSQL()
 	// Replan this complete population; a cached generic plan cannot estimate
 	// the current array lengths when rules have very different source counts.
@@ -121,6 +135,26 @@ func (s *EntityRegistry) ReadICMPHealthPopulationInScope(ctx context.Context, sc
 		return nil, err
 	}
 	return out, nil
+}
+
+// A fresh tenant's relation estimates can lag its population. For the large
+// batch, prefer the existing ordered exact-source index over a per-source sort
+// and set joins over repeated dimension scans. Small reads retain point-plan
+// preferences. These settings live on the caller's tenant transaction only
+// until the rows close. A refusal to restore makes the whole read fail closed.
+func preferIndexedICMPPopulation(ctx context.Context, q tenancy.Querier) (func() error, error) {
+	var sortPlan, nestedLoop string
+	if err := q.QueryRow(ctx, `SELECT current_setting('enable_sort'),current_setting('enable_nestloop')`).Scan(&sortPlan, &nestedLoop); err != nil {
+		return nil, err
+	}
+	const configure = `SELECT set_config('enable_sort',$1,true),set_config('enable_nestloop',$2,true)`
+	if _, err := q.Exec(ctx, configure, "off", "off"); err != nil {
+		return nil, err
+	}
+	return func() error {
+		_, err := q.Exec(ctx, configure, sortPlan, nestedLoop)
+		return err
+	}, nil
 }
 
 // ResolveAliasPopulationInScope preserves the single-alias resolver's current

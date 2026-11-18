@@ -49,10 +49,18 @@ func TestDependencyHealthCompleteTwentyThousandCurrentSourcePopulation(t *testin
 		rows, graph := seedDependencyHealthPopulation(t, d, tenant, 20_000)
 		t.Logf("seeded complete current-source population: tenant lane %d", lane)
 		err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), observedPool, func(ctx context.Context, sc tenancy.Scope) error {
+			var planBefore, planAfter string
+			const settings = `SELECT current_setting('enable_sort') || ',' || current_setting('enable_nestloop')`
+			if err := sc.Q.QueryRow(ctx, settings).Scan(&planBefore); err != nil {
+				return err
+			}
 			policy := &alert.DependencyPolicy{ContextID: d.f.contextID, FreshnessSeconds: 300, Graph: graph}
 			snapshot, health, err := d.f.server.dependencyHealthSnapshot(ctx, sc, policy, 512<<20)
 			if err != nil || !snapshot.Complete || len(snapshot.Vertices) != len(rows) || len(health) != len(rows) || len(snapshot.Causes) != 1 {
 				t.Fatal("complete current source population was refused or shortened", len(health), err)
+			}
+			if err := sc.Q.QueryRow(ctx, settings).Scan(&planAfter); err != nil || planBefore != planAfter {
+				t.Fatal("bulk read did not restore transaction-local planner preferences", err)
 			}
 			t.Logf("read complete current-source population: tenant lane %d", lane)
 			decider, err := alert.PrepareDependencyNotifications(ctx, snapshot, 512<<20, 512<<20)
