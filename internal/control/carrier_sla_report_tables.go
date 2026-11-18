@@ -76,13 +76,42 @@ func (s *Server) publicCarrierSLAClaim(ctx context.Context, tenant string, input
 	return out, ctx.Err()
 }
 
-func (s *Server) writeCarrierSLAReportOriginal(ctx context.Context, target io.Writer, tenant string, item store.IncidentTestMeasurement, memory int64) error {
+// A report often repeats the same sender, responder and reason text across
+// many originals. Reuse the exact tenant policy and a small request-local
+// cache for those strings throughout this one signed stage.
+type carrierSLAOriginalWriter struct {
+	tenant   string
+	policy   ai.RedactionPolicy
+	redacted map[string]string
+}
+
+func (s *Server) newCarrierSLAOriginalWriter(tenant string) carrierSLAOriginalWriter {
+	return carrierSLAOriginalWriter{
+		tenant: tenant, policy: incidentEvidenceTenantPolicy(redactionPolicy(s.cfg), tenant),
+		redacted: make(map[string]string),
+	}
+}
+
+func (writer carrierSLAOriginalWriter) clean(text string) string {
+	if clean, found := writer.redacted[text]; found {
+		return clean
+	}
+	clean := ai.RedactTextForTenant(text, writer.policy, writer.tenant)
+	if len(writer.redacted) < 32 && len(text) <= 256 && len(clean) <= 512 {
+		writer.redacted[text] = clean
+	}
+	return clean
+}
+
+func (writer carrierSLAOriginalWriter) write(ctx context.Context, target io.Writer, item store.IncidentTestMeasurement, memory int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	bound, ok := tenancy.FromContext(ctx)
-	if !ok || bound.String() != tenant || item.TenantID != tenant {
+	if !ok || bound.String() != writer.tenant || item.TenantID != writer.tenant {
 		return entity.ErrScopeMismatch
 	}
-	policy := incidentEvidenceTenantPolicy(redactionPolicy(s.cfg), tenant)
-	clean := func(text string) string { return ai.RedactTextForTenant(text, policy, tenant) }
+	clean := writer.clean
 	var icmp any
 	if m := item.ICMP; m != nil {
 		if int64(len(m.Responders))+int64(len(m.NetworkErrors)) > memory/4096 || m.RoundTrips != nil && int64(len(m.RoundTrips.Nanos)) > memory/256 {

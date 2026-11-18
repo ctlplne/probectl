@@ -185,6 +185,7 @@ func (s *Server) resolveCarrierSLAReportSelections(ctx context.Context, op capac
 // No display page, breach-only filter or unsuccessful-only subset is used.
 func (s *Server) stageCarrierSLAReportOriginals(ctx context.Context, op capacityAgreementOperation, draft flow.CarrierSLAClaimDraft, retained []carrierSLAClaimRequirement, requirements []carrierSLAReportRequirement) (*reporting.BodyStage, error) {
 	limits := reporting.BodyStageLimits{Bytes: op.budget.MemoryBytes/8 - (1 << 20), MemoryBytes: op.budget.MemoryBytes / 8}
+	originalWriter := s.newCarrierSLAOriginalWriter(op.actor.TenantID)
 	stage, _, err := reporting.StageBody(ctx, op.actor.TenantID, limits, func(target io.Writer) error {
 		if _, err := io.WriteString(target, `{"contract_version":"probectl-carrier-sla-originals/v1","selections":[`); err != nil {
 			return err
@@ -233,7 +234,7 @@ func (s *Server) stageCarrierSLAReportOriginals(ctx context.Context, op capacity
 						}
 					}
 					count++
-					return s.writeCarrierSLAReportOriginal(ctx, target, op.actor.TenantID, item, op.budget.MemoryBytes/64)
+					return originalWriter.write(ctx, target, item, op.budget.MemoryBytes/64)
 				})
 			})
 			if err != nil {

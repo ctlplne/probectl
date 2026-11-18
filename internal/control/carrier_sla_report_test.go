@@ -101,9 +101,20 @@ func TestCarrierSLAReportIncludesCompleteSignedChunksAndExactOriginalTiming(t *t
 	server.evidenceSigningKey = key
 	_, _, reads, _ := carrierSLAMeasureFixture(t, tenant)
 	reads[0].ICMP.RoundTrips.Nanos[0] = 9007199254740993
+	writer := server.newCarrierSLAOriginalWriter(tenant)
 	var original bytes.Buffer
-	if err := server.writeCarrierSLAReportOriginal(ctx, &original, tenant, reads[0], 8<<20); err != nil {
+	if err := writer.write(ctx, &original, reads[0], 8<<20); err != nil {
 		t.Fatal(err)
+	}
+	var replay bytes.Buffer
+	if err := writer.write(ctx, &replay, reads[0], 8<<20); err != nil || !bytes.Equal(replay.Bytes(), original.Bytes()) {
+		t.Fatal("cached tenant redaction changed original signed bytes", err)
+	}
+	foreignOriginal := reads[0]
+	foreignOriginal.TenantID = "22222222-2222-4222-8222-222222222222"
+	var refused bytes.Buffer
+	if err := writer.write(ctx, &refused, foreignOriginal, 8<<20); err == nil || refused.Len() != 0 {
+		t.Fatal("cached original writer accepted a sibling row")
 	}
 	if !bytes.Contains(original.Bytes(), []byte(`"9007199254740993"`)) || bytes.Contains(original.Bytes(), []byte(tenant)) {
 		t.Fatal("exact timing or tenant redaction lost", original.String())
