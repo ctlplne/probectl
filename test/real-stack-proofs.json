@@ -322,6 +322,27 @@
       ]
     },
     {
+      "ref": "test:internal/control/interface_role_served_integration_test.go#TestInterfaceRoleAdminServedKeepsTenantWritesAndBothThemes",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
+      "ref": "test:internal/control/device_optical_served_integration_test.go#TestOpticalFleetServesOriginalTimesAndTenantRows",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
+      "ref": "test:internal/control/device_optical_native_integration_test.go#TestOpticalFleetNativeTLSAndStdioKeepCurrentTenantMetricAuthority",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
       "ref": "test:internal/control/incident_impact_integration_test.go#TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation",
       "profile": "integration",
       "capabilities": [

@@ -54,26 +54,20 @@ describe('truthful native UI evidence', () => {
     },
   )
 
-  // Implemented controls do not close a still-unexecuted served proof. Keep
-  // every new qualification gap explicit instead of crediting it as coverage.
-  test('only the declared interface-role served UI qualification remains gapped', () => {
+  test('the device telemetry cell binds its served UI and retained source proofs', () => {
     const gapped = [...capabilityRegistry.matchAll(/^ {2}- id: (\S+)$/gm)]
       .map((match) => match[1])
       .filter((id) => capabilityBlock(id).includes('ui: {gap:'))
-    expect(gapped).toEqual(['F18'])
+    expect(gapped).toEqual([])
     const f18 = capabilityBlock('F18')
-    expect([...new Set(nativeRoutes('F18'))]).toEqual([
-      '/admin',
-      '/planes/device',
-      '/targets',
-      '/topology',
-    ])
-    expect(f18).toContain('evidence_status: partial')
-    expect(f18).toContain('Complete paired-tenant, both-theme served interface-role')
-    expect(f18).toContain('qualification remains unproven.')
+    for (const route of new Set(nativeRoutes('F18'))) expect(f18).toContain(`"ui:F18@${route}"`)
+    expect(f18).toContain('evidence_status: complete')
     for (const root of [
       'TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride',
       'TestInterfaceRoleExplanationServesOwnedSourcesAndCurrentAuthority',
+      'TestInterfaceRoleAdminServedKeepsTenantWritesAndBothThemes',
+      'TestOpticalFleetServesOriginalTimesAndTenantRows',
+      'TestOpticalFleetNativeTLSAndStdioKeepCurrentTenantMetricAuthority',
       'TestDeviceTelemetryRealStack',
       'TestNMSVendorLiveImportTwoTenants',
       'TestNMSImportExportPreviewRoutesKeepVendorPagesInOneTenant',
