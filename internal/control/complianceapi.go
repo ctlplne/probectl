@@ -99,10 +99,11 @@ func (s *Server) handleCompliance(w http.ResponseWriter, r *http.Request) error 
 		})
 		return nil
 	}
+	results, coverage := s.complianceEngine.Snapshot(tid)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"compliance_running": true,
-		"items":              s.complianceEngine.Results(tid),
-		"coverage":           s.complianceEngine.CoverageFor(tid),
+		"items":              results,
+		"coverage":           coverage,
 	})
 	return nil
 }

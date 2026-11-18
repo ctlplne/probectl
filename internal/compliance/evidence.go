@@ -60,8 +60,7 @@ const EvidenceFormatVersion = "probectl-compliance-evidence/v1"
 
 // Export builds the tenant's evidence document at the engine's current state.
 func (e *Engine) Export(tenant string) (Evidence, error) {
-	results := e.Results(tenant)
-	cov := e.CoverageFor(tenant)
+	results, cov := e.Snapshot(tenant)
 
 	ev := Evidence{
 		Version:     EvidenceFormatVersion,

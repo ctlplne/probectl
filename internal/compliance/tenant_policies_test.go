@@ -7,6 +7,7 @@
 package compliance
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -83,5 +84,65 @@ func TestTenantBoundPoliciesKeepOverlappingNetworksEvidenceAndMutableInputsIsola
 	}
 	if _, err := NewTenantEngine(map[string][]Policy{"": {red}}); err == nil {
 		t.Fatal("empty tenant binding accepted")
+	}
+}
+
+func TestTenantEvidenceCoverageAndVerdictsUseTheSameSnapshot(t *testing.T) {
+	policies := make(map[string][]Policy)
+	for _, tenant := range []string{"red", "blue"} {
+		p, err := ParsePolicy([]byte(pciPolicy))
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Name = tenant + "-policy"
+		p.Rules = p.Rules[:1]
+		p.Rules[0].Ports = []uint16{443}
+		policies[tenant] = []Policy{p}
+	}
+	engine, err := NewTenantEngine(policies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	red := FlowObs{Src: "10.20.1.1", Dst: "10.10.1.1", DstPort: 443, Source: "flow", At: time.Now().UTC()}
+	blue := red
+	blue.DstPort = 8443
+	engine.Observe("red", red)
+	engine.Observe("blue", blue)
+	stop := make(chan struct{})
+	var writers sync.WaitGroup
+	for tenant, sample := range map[string]FlowObs{"red": red, "blue": blue} {
+		writers.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					engine.Observe(tenant, sample)
+				}
+			}
+		})
+	}
+	defer func() {
+		close(stop)
+		writers.Wait()
+	}()
+	for range 1000 {
+		for _, tenant := range []string{"red", "blue"} {
+			evidence, err := engine.Export(tenant)
+			if err != nil || evidence.Tenant != tenant || len(evidence.Records) != 1 {
+				t.Fatal("tenant evidence unavailable", tenant, err)
+			}
+			rule := evidence.Records[0].Result
+			if rule.ObservedPairs != evidence.Coverage.Observations {
+				t.Fatalf("tenant %s has %d rule observations but %d coverage observations", tenant, rule.ObservedPairs, evidence.Coverage.Observations)
+			}
+			want := VerdictObservedClean
+			if tenant == "red" {
+				want = VerdictViolation
+			}
+			if rule.Policy != tenant+"-policy" || rule.Verdict != want || rule.ObservedPairs == 0 {
+				t.Fatal("concurrent export lost its tenant's verdict", tenant, rule.Policy, rule.Verdict)
+			}
+		}
 	}
 }

@@ -278,10 +278,22 @@ func (e *Engine) ruleState(ts *tenantState, policy, rule string) *ruleState {
 	return st
 }
 
+// Snapshot returns the tenant's rule verdicts and coverage at one observation
+// boundary. Callers can serialize the copies without holding the ingest lock.
+func (e *Engine) Snapshot(tenant string) ([]RuleResult, Coverage) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.resultsLocked(tenant), e.coverageLocked(tenant)
+}
+
 // Results returns the tenant's per-rule validation results (sorted).
 func (e *Engine) Results(tenant string) []RuleResult {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.resultsLocked(tenant)
+}
+
+func (e *Engine) resultsLocked(tenant string) []RuleResult {
 	ts := e.tenant(tenant)
 
 	// Keep the JSON contract stable for an enabled validator with zero declared
@@ -331,6 +343,10 @@ func (e *Engine) Results(tenant string) []RuleResult {
 func (e *Engine) CoverageFor(tenant string) Coverage {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.coverageLocked(tenant)
+}
+
+func (e *Engine) coverageLocked(tenant string) Coverage {
 	ts := e.tenant(tenant)
 
 	zonesTotal := 0
