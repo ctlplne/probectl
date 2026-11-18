@@ -68,13 +68,7 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 		return nil, entity.ErrScopeMismatch
 	}
 	phase := "period"
-	defer func() {
-		if captureErr != nil && s.log != nil {
-			// Static stages expose no source values, SQL or credentials.
-			s.log.WarnContext(ctx, "client report source capture failed", "phase", phase,
-				"outcome", flowOperationOutcome(captureErr), "deadline_exceeded", errors.Is(captureErr, context.DeadlineExceeded))
-		}
-	}()
+	defer func() { s.logClientReportCaptureFailure(ctx, phase, captureErr) }()
 	period, err := reporting.ResolveClientReportPeriod(ctx, definition, at)
 	from, to := period.From, period.To
 	if err != nil {
@@ -282,6 +276,15 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 	result.sourceKeys = nil
 	result.evidenceRefs = nil
 	return result, nil
+}
+
+func (s *Server) logClientReportCaptureFailure(ctx context.Context, phase string, err error) {
+	if err == nil || s.log == nil {
+		return
+	}
+	// Static stages expose no source values, SQL or credentials.
+	s.log.WarnContext(ctx, "client report source capture failed", "phase", phase,
+		"outcome", flowOperationOutcome(err), "deadline_exceeded", errors.Is(err, context.DeadlineExceeded))
 }
 
 func (s *Server) authorizeClientReportTests(ctx context.Context, actor *auth.Principal, resource map[string]string) error {
