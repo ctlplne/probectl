@@ -344,7 +344,7 @@ func currentAliasResolutionSQL(configured bool) string {
 // Resolve the complete requested population together. The four-candidate
 // sentinel still proves ambiguity; all source, support and origin predicates
 // are shared with the single-alias reader, rather than weakened for batching.
-func currentAliasPopulationSQL(configured bool) string {
+func currentAliasPopulationSQL(configured, setJoin bool) string {
 	probeGuard := currentConfiguredProbeSQL
 	if !configured {
 		probeGuard = "TRUE"
@@ -353,6 +353,10 @@ func currentAliasPopulationSQL(configured bool) string {
 	fromClause := `requested JOIN LATERAL (SELECT item.* FROM entity_evidence item
  WHERE item.tenant_id=$1 AND item.context_id=$2 AND item.alias_kind=requested.kind
  AND item.alias_value=requested.alias_value OFFSET 0) e ON true`
+	if setJoin {
+		fromClause = `requested JOIN entity_evidence e
+ ON e.tenant_id=$1 AND e.context_id=$2 AND e.alias_kind=requested.kind AND e.alias_value=requested.alias_value`
+	}
 	candidates := currentAliasResolutionQuerySQL("requested.kind", "requested.alias_value", probeGuard, selection, fromClause, "requested.ordinality,resolved_node.id,e.observed_at DESC,e.id")
 	return `WITH requested AS (
  SELECT kind,alias_value,ordinality

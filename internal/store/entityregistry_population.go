@@ -159,7 +159,7 @@ func preferIndexedICMPPopulation(ctx context.Context, q tenancy.Querier) (func()
 
 // ResolveAliasPopulationInScope preserves the single-alias resolver's current
 // support and ambiguity rules for the complete population in the same scope.
-func ResolveAliasPopulationInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, aliases []entity.AliasKey, maxBytes int64) ([]entity.Resolution, error) {
+func ResolveAliasPopulationInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, aliases []entity.AliasKey, maxBytes int64) (resolutions []entity.Resolution, err error) {
 	want, err := admittedEntityPopulation(ctx, sc, scope, len(aliases), maxBytes)
 	if err != nil {
 		return nil, err
@@ -180,7 +180,22 @@ func ResolveAliasPopulationInScope(ctx context.Context, sc tenancy.Scope, scope 
 		keys[i], kinds[i], values[i] = key, string(key.Kind), key.Value
 		configured = configured || key.Kind == entity.ConfiguredTestAlias
 	}
-	query := currentAliasPopulationSQL(configured)
+	// A fresh tenant can have thousands of evidence rows before statistics
+	// represent them. Join the large request directly so a broad evidence plan
+	// can scan the tenant once, instead of repeating its scan for every alias.
+	setJoin := len(keys) >= 1024
+	if setJoin {
+		restore, planErr := preferPopulationSetJoin(ctx, sc.Q)
+		if planErr != nil {
+			return nil, planErr
+		}
+		defer func() {
+			if restoreErr := restore(); restoreErr != nil {
+				resolutions, err = nil, errors.Join(err, restoreErr)
+			}
+		}()
+	}
+	query := currentAliasPopulationSQL(configured, setJoin)
 	rows, err := sc.Q.Query(ctx, query, pgx.QueryExecModeDescribeExec, want.TenantID, want.ContextID, kinds, values)
 	if err != nil {
 		return nil, err

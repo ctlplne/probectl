@@ -51,7 +51,7 @@ func (s *DeviceCounterCaptures) LookupWitnessesInScope(ctx context.Context, sc t
 	}
 	args := []any{tenant.String(), parameters}
 	if len(parameters) >= 1024 {
-		restore, err := preferCounterWitnessSetJoin(ctx, sc.Q)
+		restore, err := preferPopulationSetJoin(ctx, sc.Q)
 		if err != nil {
 			return nil, err
 		}
@@ -98,11 +98,10 @@ func (s *DeviceCounterCaptures) LookupWitnessesInScope(ctx context.Context, sc t
 	return result, nil
 }
 
-// Large fresh batches can have low row estimates even when both receipt tables
-// contain thousands of selected rows. Prefer set joins so PostgreSQL does not
-// rescan the capture set for every source record. The preference ends when the
-// result closes, inside the caller's tenant transaction.
-func preferCounterWitnessSetJoin(ctx context.Context, q tenancy.Querier) (func() error, error) {
+// Large fresh batches can have low row estimates. Prefer set joins so the
+// planner can build a large dimension once. The caller restores the setting
+// after closing its rows, inside the same tenant transaction.
+func preferPopulationSetJoin(ctx context.Context, q tenancy.Querier) (func() error, error) {
 	var previous string
 	if err := q.QueryRow(ctx, `SELECT current_setting('enable_nestloop')`).Scan(&previous); err != nil {
 		return nil, err
