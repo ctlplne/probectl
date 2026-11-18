@@ -17,6 +17,7 @@ type FlowSourceRef struct {
 
 type DashboardDefinition struct {
 	CarrierClaim        *CarrierSLAReportDefinition `json:"carrier_claim,omitempty"`
+	ComplianceControl   string                      `json:"compliance_control,omitempty"`
 	ClientReport        *ClientReportDefinition     `json:"client_report,omitempty"`
 	FlowSources         []FlowSourceRef             `json:"flow_sources,omitempty"`
 	AbsoluteFrom        time.Time                   `json:"absolute_from"`
@@ -25,6 +26,10 @@ type DashboardDefinition struct {
 	RedactionState      string                      `json:"redaction_state"`
 	CoverageLimitations []string                    `json:"coverage_limitations"`
 	Metrics             map[string]string           `json:"metrics"`
+}
+
+func (d DashboardDefinition) HasSources() bool {
+	return len(d.FlowSources) != 0 || d.ClientReport != nil || d.CarrierClaim != nil || d.ComplianceControl != ""
 }
 
 type DashboardCreateInput struct {
@@ -53,6 +58,7 @@ type DashboardManifestSpec struct {
 
 type DashboardManifestDefinition struct {
 	CarrierClaim        *CarrierSLAReportManifestDefinition `json:"carrier_claim,omitempty"`
+	ComplianceControl   string                              `json:"compliance_control,omitempty"`
 	ClientReport        *ClientReportDefinition             `json:"client_report,omitempty"`
 	FlowSources         []DashboardManifestFlowSource       `json:"flow_sources,omitempty"`
 	AbsoluteFrom        time.Time                           `json:"absolute_from"`

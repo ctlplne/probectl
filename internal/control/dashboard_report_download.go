@@ -119,6 +119,21 @@ func (s *Server) authorizeStoredReportReader(ctx context.Context, actor *auth.Pr
 	if metadata == nil || actor == nil || metadata.TenantID != actor.TenantID {
 		return nil, apierror.Forbidden("stored report tenant differs")
 	}
+	capture, err := s.readStoredReportSourceRequirements(ctx, metadata)
+	if err != nil || capture == nil {
+		return capture, err
+	}
+	if err := s.revalidateReportFlowCapture(ctx, actor, capture); err != nil {
+		return nil, err
+	}
+	return capture, nil
+}
+
+func (s *Server) readStoredReportSourceRequirements(ctx context.Context, metadata *store.ReportArtifactMetadata) (*reportFlowCapture, error) {
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || metadata == nil || metadata.TenantID != bound.String() {
+		return nil, apierror.Forbidden("stored report tenant differs")
+	}
 	if staticReportMetadata(metadata) {
 		return nil, nil
 	}
@@ -128,9 +143,6 @@ func (s *Server) authorizeStoredReportReader(ctx context.Context, actor *auth.Pr
 	capture, err := parseReportSourceRequirements(ctx, metadata.SourceCapture, flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes/4)
 	if err != nil {
 		return nil, apierror.Internal("stored report source requirements are invalid").Wrap(err)
-	}
-	if err := s.revalidateReportFlowCapture(ctx, actor, capture); err != nil {
-		return nil, err
 	}
 	return capture, nil
 }

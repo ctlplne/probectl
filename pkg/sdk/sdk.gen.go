@@ -1240,12 +1240,13 @@ type DashboardCreateRequest struct {
 	Shared     bool                `json:"shared"`
 }
 
-// Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority.
+// Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects signed audit coverage for AU.L2-3.3.1. Omit other sources, caller bounds and metrics.
 type DashboardDefinition struct {
 	AbsoluteFrom        string                      `json:"absolute_from,omitempty"`
 	AbsoluteTo          string                      `json:"absolute_to,omitempty"`
 	CarrierClaim        *CarrierSLAReportDefinition `json:"carrier_claim,omitempty"`
 	ClientReport        *ClientReportDefinition     `json:"client_report,omitempty"`
+	ComplianceControl   string                      `json:"compliance_control,omitempty"`
 	CoverageLimitations []string                    `json:"coverage_limitations"`
 	FlowSources         []map[string]any            `json:"flow_sources,omitempty"`
 	Metrics             map[string]string           `json:"metrics,omitempty"`
@@ -1260,12 +1261,13 @@ type DashboardManifest struct {
 	Spec       DashboardManifestSpec     `json:"spec"`
 }
 
-// Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority.
+// Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects signed audit coverage for AU.L2-3.3.1. Omit other sources, caller bounds and metrics.
 type DashboardManifestDefinition struct {
 	AbsoluteFrom        string                              `json:"absolute_from,omitempty"`
 	AbsoluteTo          string                              `json:"absolute_to,omitempty"`
 	CarrierClaim        *CarrierSLAReportManifestDefinition `json:"carrier_claim,omitempty"`
 	ClientReport        *ClientReportDefinition             `json:"client_report,omitempty"`
+	ComplianceControl   string                              `json:"compliance_control,omitempty"`
 	CoverageLimitations []string                            `json:"coverage_limitations"`
 	FlowSources         []map[string]any                    `json:"flow_sources,omitempty"`
 	Metrics             []DashboardManifestMetric           `json:"metrics"`

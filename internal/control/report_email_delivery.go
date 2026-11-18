@@ -120,7 +120,8 @@ func (s *DashboardReportSupervisor) sendCurrentReportEmail(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	ctx, actor, err := current.backgroundContext(ctx, reportBackgroundSourcePermissions())
+	permissions := reportBackgroundSourcePermissions()
+	ctx, actor, err := current.backgroundContext(ctx, permissions)
 	if err != nil {
 		return err
 	}
@@ -135,9 +136,21 @@ func (s *DashboardReportSupervisor) sendCurrentReportEmail(ctx context.Context, 
 	}); err != nil {
 		return err
 	}
-	capture, err := server.authorizeStoredReportReader(ctx, actor, metadata)
+	capture, err := server.readStoredReportSourceRequirements(ctx, metadata)
 	if err != nil {
 		return err
+	}
+	if capture != nil {
+		if capture.ComplianceControl != "" {
+			permissions = reportPermissionsForSource(capture.ComplianceControl)
+			ctx, actor, err = current.backgroundContext(ctx, permissions)
+			if err != nil {
+				return err
+			}
+		}
+		if err := server.revalidateReportFlowCapture(ctx, actor, capture); err != nil {
+			return err
+		}
 	}
 	verified, stage, err := server.stageStoredReport(ctx, item.ID, item.OwnerID)
 	if err != nil {
@@ -170,7 +183,7 @@ func (s *DashboardReportSupervisor) sendCurrentReportEmail(ctx context.Context, 
 		if err != nil {
 			return err
 		}
-		fresh, principal, err := owner.backgroundContext(ctx, reportBackgroundSourcePermissions())
+		fresh, principal, err := owner.backgroundContext(ctx, permissions)
 		if err != nil {
 			return err
 		}

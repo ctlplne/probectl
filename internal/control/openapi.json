@@ -19319,6 +19319,11 @@
               }
             ]
           },
+          "compliance_control": {
+            "type": "string",
+            "enum": ["AU.L2-3.3.1"],
+            "description": "Collect and sign retained probectl audit-chain evidence for the selected CMMC Level 2 control. Current audit.read is required."
+          },
           "carrier_claim": {
             "oneOf": [
               {
@@ -19330,7 +19335,7 @@
             ]
           }
         },
-        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority.",
+        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects signed audit coverage for AU.L2-3.3.1. Omit other sources, caller bounds and metrics.",
         "oneOf": [
           {
             "required": [
@@ -19339,6 +19344,7 @@
               "metrics"
             ],
             "properties": {
+              "compliance_control": { "not": {} },
               "flow_sources": {
                 "maxItems": 0
               }
@@ -19368,6 +19374,7 @@
               "flow_sources"
             ],
             "properties": {
+              "compliance_control": { "not": {} },
               "flow_sources": {
                 "minItems": 1
               },
@@ -19418,6 +19425,7 @@
               }
             },
             "properties": {
+              "compliance_control": { "not": {} },
               "metrics": {"maxProperties": 0},
               "absolute_from": {
                 "const": "0001-01-01T00:00:00Z"
@@ -19444,6 +19452,7 @@
               "carrier_claim"
             ],
             "properties": {
+              "compliance_control": { "not": {} },
               "carrier_claim": {
                 "$ref": "#/components/schemas/CarrierSLAReportDefinition"
               },
@@ -19465,6 +19474,21 @@
             "not": {
               "required": [
                 "client_report"
+              ]
+            }
+          },
+          {
+            "required": ["compliance_control"],
+            "properties": {
+              "flow_sources": {"maxItems": 0},
+              "metrics": {"maxProperties": 0},
+              "absolute_from": {"const": "0001-01-01T00:00:00Z"},
+              "absolute_to": {"const": "0001-01-01T00:00:00Z"}
+            },
+            "not": {
+              "anyOf": [
+                {"required": ["client_report"]},
+                {"required": ["carrier_claim"]}
               ]
             }
           }
@@ -19649,6 +19673,11 @@
               }
             ]
           },
+          "compliance_control": {
+            "type": "string",
+            "enum": ["AU.L2-3.3.1"],
+            "description": "Collect and sign retained probectl audit-chain evidence for the selected CMMC Level 2 control. Current audit.read is required."
+          },
           "carrier_claim": {
             "oneOf": [
               {
@@ -19660,7 +19689,7 @@
             ]
           }
         },
-        "description": "Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority.",
+        "description": "Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects signed audit coverage for AU.L2-3.3.1. Omit other sources, caller bounds and metrics.",
         "oneOf": [
           {
             "required": [
@@ -19668,6 +19697,7 @@
               "absolute_to"
             ],
             "properties": {
+              "compliance_control": { "not": {} },
               "flow_sources": {
                 "maxItems": 0
               }
@@ -19697,6 +19727,7 @@
               "flow_sources"
             ],
             "properties": {
+              "compliance_control": { "not": {} },
               "flow_sources": {
                 "minItems": 1
               },
@@ -19747,6 +19778,7 @@
               }
             },
             "properties": {
+              "compliance_control": { "not": {} },
               "metrics": {"maxItems": 0},
               "absolute_from": {
                 "const": "0001-01-01T00:00:00Z"
@@ -19773,6 +19805,7 @@
               "carrier_claim"
             ],
             "properties": {
+              "compliance_control": { "not": {} },
               "carrier_claim": {
                 "$ref": "#/components/schemas/CarrierSLAReportManifestDefinition"
               },
@@ -19794,6 +19827,21 @@
             "not": {
               "required": [
                 "client_report"
+              ]
+            }
+          },
+          {
+            "required": ["compliance_control"],
+            "properties": {
+              "flow_sources": {"maxItems": 0},
+              "metrics": {"maxItems": 0},
+              "absolute_from": {"const": "0001-01-01T00:00:00Z"},
+              "absolute_to": {"const": "0001-01-01T00:00:00Z"}
+            },
+            "not": {
+              "anyOf": [
+                {"required": ["client_report"]},
+                {"required": ["carrier_claim"]}
               ]
             }
           }

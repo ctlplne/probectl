@@ -227,6 +227,29 @@ public half travels with the document while the private half never does. A
 deployment with no evidence signing key is **refused** rather than served an
 unsigned bundle.
 
+### Scheduled CMMC audit evidence
+
+In **Dashboards → Saved views and report delivery**, select **Build CMMC
+audit evidence (AU.L2-3.3.1)** and save the view. Choose **Generate** for an
+immediate report or **Schedule delivery** for a daily, weekly, or monthly run.
+The corresponding dashboard definition sets `compliance_control` to
+`AU.L2-3.3.1`. Report generation and receipt access require `metrics.read`
+and `audit.read`. Saving the definition or schedule also requires
+`metrics.write`. The scheduler checks the current owner's grants at delivery.
+
+The signed package records the audit collection time, tenant scope digest,
+CMMC Level 2 assessment guide version, and the retained audit sequence bounds.
+Its status reports the outcome of the probectl stream check. The assessor
+uses that evidence alongside the required assessments to determine compliance.
+
+Extract the attached `compliance-control-*.json` from a PDF. For CSV,
+base64-decode the `signed_package_base64_chunk` cells and concatenate them in
+ascending `ordinal` order. Verify the resulting JSON with
+`probectl verify-bundle --expected-fingerprint` and the separately published
+operator fingerprint. The same dashboard definition, schedule and report
+inbox are available through REST, `probectl dashboard` and `dashboard-report`,
+and the native report tools.
+
 ### Framework mappings are an interpretation
 
 Each section declares which **requirement area** it speaks to under NIS2, DORA

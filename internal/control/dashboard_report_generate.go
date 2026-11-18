@@ -134,8 +134,11 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 }
 
 func sourceReportDocument(view *store.DashboardView, definition dashboardDefinition, tenantName, generator string, at time.Time, capture *reportFlowCapture) (reporting.Document, error) {
-	if view == nil || capture == nil || view.TenantID != capture.TenantID || len(capture.Inputs) == 0 && capture.Monthly == nil && len(capture.Claims) == 0 || len(capture.Tables) == 0 {
+	if view == nil || capture == nil || view.TenantID != capture.TenantID || len(capture.Tables) == 0 {
 		return reporting.Document{}, apierror.Forbidden("report captured source scope is unavailable")
+	}
+	if capture.ComplianceControl != "" {
+		return complianceControlReportDocument(view, definition, tenantName, generator, at, capture)
 	}
 	if len(capture.Claims) > 0 {
 		return carrierSLAReportDocument(view, definition, tenantName, generator, at, capture)
@@ -173,6 +176,9 @@ func sourceReportDocument(view *store.DashboardView, definition dashboardDefinit
 		}
 
 		return reporting.Document{Title: view.Name, Preset: view.Preset, TenantName: tenantName, TenantScope: view.TenantID, AbsoluteFrom: capture.Monthly.From, AbsoluteTo: capture.Monthly.To, GeneratedAt: at, GeneratedBy: generator, Provenance: provenance, RedactionState: definition.RedactionState, CoverageLimitations: limitations, Tables: capture.Tables}, nil
+	}
+	if len(capture.Inputs) == 0 {
+		return reporting.Document{}, apierror.Forbidden("report captured source scope is unavailable")
 	}
 	from, to := capture.Inputs[0].From, capture.Inputs[0].To
 	for _, input := range capture.Inputs {
@@ -232,6 +238,9 @@ func sourceReportArtifactInput(id string, schedule *string, view *store.Dashboar
 func (s *Server) validateReportSourcePublication(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, capture *reportFlowCapture) error {
 	if capture == nil {
 		return apierror.Forbidden("report source capture is unavailable")
+	}
+	if capture.ComplianceControl != "" {
+		return s.revalidateReportFlowCaptureScope(ctx, sc, actor, capture)
 	}
 	if len(capture.Claims) > 0 {
 		return s.revalidateCarrierSLAReportScope(ctx, sc, actor, capture.TenantID, capture.Claims, true)
@@ -307,6 +316,9 @@ func reportGenerationError(err error) error {
 }
 
 func reportCaptureSourceCount(capture *reportFlowCapture) int {
+	if capture.ComplianceControl != "" {
+		return 1
+	}
 	if len(capture.Claims) > 0 {
 		count := 0
 		for _, value := range capture.Claims {

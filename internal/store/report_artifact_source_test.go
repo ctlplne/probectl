@@ -27,9 +27,18 @@ func TestReportArtifactSourceCaptureVersionsStayTenantBound(t *testing.T) {
 			t.Fatalf("version %d source receipt crossed tenant boundary: %v", version, err)
 		}
 	}
+	control := json.RawMessage(fmt.Sprintf(`{"version":6,"tenant_id":%q,"compliance_control":"AU.L2-3.3.1"}`, tenant))
+	if err := reportArtifactSourceCapture(tenant, control); err != nil {
+		t.Fatalf("current control evidence receipt refused: %v", err)
+	}
+	if err := reportArtifactSourceCapture("20000000-0000-4000-8000-000000000002", control); !errors.Is(err, ErrReportArtifactIntegrity) {
+		t.Fatalf("control evidence receipt crossed the tenant boundary: %v", err)
+	}
 	for _, raw := range []string{`null`, `{}`, `{"version":0}`, `{"version":6}`, `{"version":"2"}`, `[]`, `{`,
 		fmt.Sprintf(`{"version":2,"tenant_id":%q} {}`, tenant),
 		fmt.Sprintf(`{"version":6,"tenant_id":%q}`, tenant),
+		fmt.Sprintf(`{"version":6,"tenant_id":%q,"compliance_control":"unknown"}`, tenant),
+		fmt.Sprintf(`{"version":5,"tenant_id":%q,"compliance_control":"AU.L2-3.3.1"}`, tenant),
 		fmt.Sprintf(`{"version":0,"tenant_id":%q}`, tenant)} {
 		if err := reportArtifactSourceCapture(tenant, json.RawMessage(raw)); !errors.Is(err, ErrReportArtifactIntegrity) {
 			t.Fatalf("invalid report receipt accepted: %s: %v", raw, err)

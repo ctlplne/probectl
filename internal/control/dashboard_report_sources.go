@@ -48,20 +48,22 @@ type reportFlowInput struct {
 // The caller owns the capture and must Close after staging/publication. Values
 // are frozen records; the requirements never stand in for current reader grants.
 type reportFlowCapture struct {
-	Claims           []carrierSLAReportRequirement
-	claimCapture     *carrierSLAReportCapture
-	monthlyCapture   *clientReportCapture
-	Monthly          *clientReportSourceRequirements
-	TenantID         string
-	ObservedAt       time.Time
-	SourceGeneration int64
-	FilterVersions   map[string]int64
-	Tables           []reporting.CSVTable
-	Inputs           []reportFlowInput
-	Permissions      []string
-	Contexts         []reportContextRequirement
-	ContextsCaptured bool
-	ContextSources   bool
+	Claims            []carrierSLAReportRequirement
+	ComplianceControl string
+	controlCapture    *complianceControlCapture
+	claimCapture      *carrierSLAReportCapture
+	monthlyCapture    *clientReportCapture
+	Monthly           *clientReportSourceRequirements
+	TenantID          string
+	ObservedAt        time.Time
+	SourceGeneration  int64
+	FilterVersions    map[string]int64
+	Tables            []reporting.CSVTable
+	Inputs            []reportFlowInput
+	Permissions       []string
+	Contexts          []reportContextRequirement
+	ContextsCaptured  bool
+	ContextSources    bool
 	// Query alerts retain typed results only during this admitted operation.
 	// Reports retain their portable tables instead; neither is read authority.
 	Results []capturedReportFlow

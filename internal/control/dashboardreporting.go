@@ -129,6 +129,9 @@ func cleanDashboardCreate(req dashboardCreateRequest) (dashboardCreateRequest, e
 }
 
 func cleanDashboardDefinition(d *dashboardDefinition) error {
+	if err := cleanComplianceControlReportDefinition(d); err != nil {
+		return err
+	}
 	if err := cleanCarrierSLAReportDefinition(d); err != nil {
 		return err
 	}
@@ -138,10 +141,10 @@ func cleanDashboardDefinition(d *dashboardDefinition) error {
 	if err := cleanDashboardFlowSources(d); err != nil {
 		return err
 	}
-	if d.CarrierClaim == nil && d.ClientReport == nil && len(d.FlowSources) == 0 && (d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.After(d.AbsoluteFrom)) {
+	if !d.HasSources() && (d.AbsoluteFrom.IsZero() || !d.AbsoluteTo.After(d.AbsoluteFrom)) {
 		return apierror.Validation("definition requires an absolute_from earlier than absolute_to")
 	}
-	if d.CarrierClaim == nil && d.ClientReport == nil && len(d.FlowSources) == 0 && d.AbsoluteTo.Sub(d.AbsoluteFrom) > 366*24*time.Hour {
+	if !d.HasSources() && d.AbsoluteTo.Sub(d.AbsoluteFrom) > 366*24*time.Hour {
 		return apierror.Validation("dashboard time range may not exceed 366 days")
 	}
 	d.RedactionState = strings.TrimSpace(d.RedactionState)
@@ -222,8 +225,9 @@ func dashboardManifestToCreateBound(manifest dashboardManifest, bindings map[str
 		Preset: manifest.Spec.Preset,
 		Shared: manifest.Spec.Shared,
 		Definition: dashboardDefinition{
-			CarrierClaim: claims,
-			ClientReport: manifest.Spec.Definition.ClientReport, FlowSources: refs,
+			CarrierClaim:      claims,
+			ComplianceControl: manifest.Spec.Definition.ComplianceControl,
+			ClientReport:      manifest.Spec.Definition.ClientReport, FlowSources: refs,
 			AbsoluteFrom:        manifest.Spec.Definition.AbsoluteFrom,
 			AbsoluteTo:          manifest.Spec.Definition.AbsoluteTo,
 			Provenance:          manifest.Spec.Definition.Provenance,
@@ -252,8 +256,9 @@ func dashboardCreateToManifest(req dashboardCreateRequest) dashboardManifest {
 			Preset: req.Preset,
 			Shared: req.Shared,
 			Definition: dashboardManifestDefinition{
-				CarrierClaim: portableCarrierSLAReportDefinition(req.Definition.CarrierClaim),
-				ClientReport: req.Definition.ClientReport, FlowSources: dashboardManifestSourceSlots(req.Definition.FlowSources),
+				CarrierClaim:      portableCarrierSLAReportDefinition(req.Definition.CarrierClaim),
+				ComplianceControl: req.Definition.ComplianceControl,
+				ClientReport:      req.Definition.ClientReport, FlowSources: dashboardManifestSourceSlots(req.Definition.FlowSources),
 				AbsoluteFrom:        req.Definition.AbsoluteFrom,
 				AbsoluteTo:          req.Definition.AbsoluteTo,
 				Provenance:          req.Definition.Provenance,
@@ -373,6 +378,11 @@ func (s *Server) handleCreateDashboard(w http.ResponseWriter, r *http.Request) e
 		if err := s.validateDashboardCarrierClaimRefs(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.CarrierClaim); err != nil {
 			return tagQueryResponseError(w, err)
 		}
+		if clean.Definition.ComplianceControl != "" {
+			if err := s.authorizeComplianceControlScope(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.ComplianceControl); err != nil {
+				return err
+			}
+		}
 		created, err := (store.DashboardReports{}).CreateView(ctx, sc, store.DashboardViewInput{
 			ID: id, OwnerID: dashboardActorID(r), Name: clean.Name, Preset: clean.Preset,
 			Shared: clean.Shared, Definition: definition,
@@ -465,6 +475,11 @@ func (s *Server) handleImportDashboardManifest(w http.ResponseWriter, r *http.Re
 		}
 		if err := s.validateDashboardCarrierClaimRefs(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.CarrierClaim); err != nil {
 			return tagQueryResponseError(w, err)
+		}
+		if clean.Definition.ComplianceControl != "" {
+			if err := s.authorizeComplianceControlScope(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.ComplianceControl); err != nil {
+				return err
+			}
 		}
 		sanitized, err := sanitizeDashboardCreate(clean, sc.Tenant.String(), dashboardActorID(r))
 		if err != nil {
@@ -813,7 +828,7 @@ func (s *Server) generateDashboardReportWithStager(r *http.Request, req reportGe
 		return nil, err
 	}
 
-	if len(definition.FlowSources) > 0 || definition.ClientReport != nil || definition.CarrierClaim != nil {
+	if definition.HasSources() {
 		metadata, err := s.generateSourceDashboardReport(r, req, view, definition, tenantName, capturedTenant)
 		if err != nil {
 			return nil, err

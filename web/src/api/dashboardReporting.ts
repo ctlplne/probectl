@@ -18,8 +18,11 @@ export type DashboardPreset = 'operator' | 'executive'
 export type ReportFormat = 'pdf' | 'csv'
 export type ReportCadence = 'daily' | 'weekly' | 'monthly'
 
+export const cmmcAuditControl = 'AU.L2-3.3.1'
+
 export interface DashboardDefinition {
   carrier_claim?: CarrierSLAReportDefinition | null
+  compliance_control?: typeof cmmcAuditControl
   client_report?: ClientReportDefinition | null
   flow_sources?: Array<{ id: string; version: string }>
   absolute_from?: string

@@ -731,20 +731,20 @@ capabilities:
     migration: *no_migration
 
   - id: F43
-    name: Segmentation validation
+    name: Segmentation validation and audit evidence
     status: delivered
     evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/compliance"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildCompliance("]}
-    api: {refs: ["api:GET /v1/compliance", "api:GET /v1/compliance/evidence"]}
-    cli: {refs: ["cli:probectl compliance summary", "cli:probectl compliance evidence"]}
-    ui: {refs: ["ui:F43@/compliance"]}
-    docs: {refs: ["file:docs/compliance.md#Compliance / segmentation validation"]}
+    api: {refs: ["api:GET /v1/compliance", "api:GET /v1/compliance/evidence", "api:GET /v1/compliance/auditor-bundle", "api:POST /v1/dashboard-report-schedules"]}
+    cli: {refs: ["cli:probectl compliance summary", "cli:probectl compliance evidence", "cli:probectl compliance auditor-bundle", "cli:probectl dashboard-report create-schedule"]}
+    ui: {refs: ["ui:F43@/compliance", "ui:F43@/dashboards"]}
+    docs: {refs: ["file:docs/compliance.md#Compliance / segmentation validation", "file:docs/compliance.md#Scheduled CMMC audit evidence"]}
     config_keys: {refs: ["config:PROBECTL_COMPLIANCE_ENABLED", "config:PROBECTL_COMPLIANCE_POLICY_DIR"]}
     telemetry: {refs: ["file:internal/compliance"]}
-    real_stack_proof: {gap: "Segmentation validation has unit and handler coverage but no dedicated real-service execution proof yet."}
-    migration: *no_migration
+    real_stack_proof: {gap: "The scheduled CMMC audit evidence preview covers the retained audit stream. End-to-end boundary and monitoring collection from real senders and scheduled packs remain to be verified."}
+    migration: {refs: ["file:migrations/0221_compliance_control_report_requirements.sql"]}
 
   - id: F44
     name: Guarded remediation

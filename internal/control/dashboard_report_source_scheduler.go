@@ -24,6 +24,13 @@ func reportBackgroundSourcePermissions() []string {
 	return []string{"metrics.read", "events.read", permAIQuery, permFlowRead, permTagsRead, "agent.read", "entities.read", "topology.read", permTestRead, permIncidentRead, permChangeRead, permFlowAgreementsRead}
 }
 
+func reportPermissionsForSource(control string) []string {
+	if control != "" {
+		return []string{"metrics.read", permAuditRead}
+	}
+	return reportBackgroundSourcePermissions()
+}
+
 func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context, tenantName string, item store.DueDashboardReport, definition dashboardDefinition, now time.Time) (bool, error) {
 	server := s.sourceServer
 	if server == nil {
@@ -39,7 +46,7 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
-	ctx, actor, err := current.backgroundContext(ctx, reportBackgroundSourcePermissions())
+	ctx, actor, err := current.backgroundContext(ctx, reportPermissionsForSource(definition.ComplianceControl))
 	if err != nil {
 		return false, err
 	}

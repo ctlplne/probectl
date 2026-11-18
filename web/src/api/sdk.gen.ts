@@ -1141,6 +1141,7 @@ export interface DashboardDefinition {
   absolute_to?: string
   carrier_claim?: CarrierSLAReportDefinition | null
   client_report?: ClientReportDefinition | null
+  compliance_control?: "AU.L2-3.3.1"
   coverage_limitations: string[]
   flow_sources?: JsonObject[]
   metrics?: { [key: string]: string }
@@ -1160,6 +1161,7 @@ export interface DashboardManifestDefinition {
   absolute_to?: string
   carrier_claim?: CarrierSLAReportManifestDefinition | null
   client_report?: ClientReportDefinition | null
+  compliance_control?: "AU.L2-3.3.1"
   coverage_limitations: string[]
   flow_sources?: JsonObject[]
   metrics: DashboardManifestMetric[]

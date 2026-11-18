@@ -399,7 +399,9 @@ func (DashboardReports) CreateArtifact(ctx context.Context, s tenancy.Scope, in 
 		       (tenant_id, id, dashboard_id, schedule_id, format, media_type, filename,
 		        content, generated_by, absolute_from, absolute_to, provenance,
 		        redaction_state, coverage_limitations)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14::jsonb)
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14::jsonb
+		WHERE NOT EXISTS (SELECT 1 FROM dashboard_views v
+		                  WHERE v.tenant_id=$1 AND v.id=$3 AND v.definition ? 'compliance_control')
 		RETURNING `+reportArtifactColumns,
 		s.Tenant.String(), in.ID, in.DashboardID, in.ScheduleID, in.Format,
 		in.MediaType, in.Filename, in.Content, in.GeneratedBy, in.AbsoluteFrom,

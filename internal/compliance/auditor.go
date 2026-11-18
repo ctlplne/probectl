@@ -101,14 +101,15 @@ type FrameworkMapping struct {
 
 // AuditorManifest is the signed document.
 type AuditorManifest struct {
-	Contract          string             `json:"contract"`
-	BundleID          string             `json:"bundle_id"`
-	TenantScopeDigest string             `json:"tenant_scope_digest"`
-	CreatedAt         time.Time          `json:"created_at"`
-	Deployment        DeploymentIdentity `json:"deployment"`
-	Redaction         string             `json:"redaction"`
-	Sections          []AuditorSection   `json:"sections"`
-	Frameworks        []FrameworkMapping `json:"frameworks"`
+	Control           *ControlEvidenceScope `json:"control,omitempty"`
+	Contract          string                `json:"contract"`
+	BundleID          string                `json:"bundle_id"`
+	TenantScopeDigest string                `json:"tenant_scope_digest"`
+	CreatedAt         time.Time             `json:"created_at"`
+	Deployment        DeploymentIdentity    `json:"deployment"`
+	Redaction         string                `json:"redaction"`
+	Sections          []AuditorSection      `json:"sections"`
+	Frameworks        []FrameworkMapping    `json:"frameworks"`
 	// Caveats are carried IN the signed document so they cannot be dropped in
 	// transit or by a reader's tooling.
 	Caveats []string `json:"caveats"`
@@ -205,32 +206,16 @@ func BuildAuditorBundle(in AuditorInput) (AuditorManifest, []Attachment, error) 
 			got = SectionInput{Kind: kind, Status: StatusUnavailable,
 				Reason: "not gathered by this deployment"}
 		}
-		sec := AuditorSection{Kind: kind, Status: got.Status, Reason: got.Reason}
+		sec, attachment, err := buildAuditorSection(got)
+		if err != nil {
+			return AuditorManifest{}, nil, err
+		}
 		if ids := speaks[kind]; len(ids) > 0 {
 			sort.Strings(ids)
 			sec.Speaks = ids
 		}
-		switch got.Status {
-		case StatusUnavailable:
-			if strings.TrimSpace(got.Reason) == "" {
-				return AuditorManifest{}, nil, fmt.Errorf("compliance: section %q is unavailable without a reason", kind)
-			}
-		case StatusVerified, StatusFailed, StatusObserved:
-			if got.Content == nil {
-				return AuditorManifest{}, nil, fmt.Errorf("compliance: section %q is %s with no content", kind, got.Status)
-			}
-			raw, err := json.Marshal(got.Content)
-			if err != nil {
-				return AuditorManifest{}, nil, fmt.Errorf("compliance: encode section %q: %w", kind, err)
-			}
-			sec.Digest = "sha256:" + hex.EncodeToString(crypto.Hash(raw))
-			sec.MediaType = "application/json"
-			attachments = append(attachments, Attachment{Digest: sec.Digest, MediaType: sec.MediaType, Content: raw})
-			if got.Status != StatusVerified && strings.TrimSpace(got.Reason) == "" {
-				return AuditorManifest{}, nil, fmt.Errorf("compliance: section %q is %s without a reason", kind, got.Status)
-			}
-		default:
-			return AuditorManifest{}, nil, fmt.Errorf("compliance: section %q has unknown status %q", kind, got.Status)
+		if attachment != nil {
+			attachments = append(attachments, *attachment)
 		}
 		sections = append(sections, sec)
 	}
@@ -249,6 +234,33 @@ func BuildAuditorBundle(in AuditorInput) (AuditorManifest, []Attachment, error) 
 		Frameworks:        frameworks,
 		Caveats:           auditorCaveats(sections),
 	}, attachments, nil
+}
+
+func buildAuditorSection(input SectionInput) (AuditorSection, *Attachment, error) {
+	section := AuditorSection{Kind: input.Kind, Status: input.Status, Reason: input.Reason}
+	switch input.Status {
+	case StatusUnavailable:
+		if strings.TrimSpace(input.Reason) == "" {
+			return AuditorSection{}, nil, fmt.Errorf("compliance: section %q is unavailable without a reason", input.Kind)
+		}
+		return section, nil, nil
+	case StatusVerified, StatusFailed, StatusObserved:
+		if input.Content == nil {
+			return AuditorSection{}, nil, fmt.Errorf("compliance: section %q is %s with no content", input.Kind, input.Status)
+		}
+		if input.Status != StatusVerified && strings.TrimSpace(input.Reason) == "" {
+			return AuditorSection{}, nil, fmt.Errorf("compliance: section %q is %s without a reason", input.Kind, input.Status)
+		}
+	default:
+		return AuditorSection{}, nil, fmt.Errorf("compliance: section %q has unknown status %q", input.Kind, input.Status)
+	}
+	raw, err := json.Marshal(input.Content)
+	if err != nil {
+		return AuditorSection{}, nil, fmt.Errorf("compliance: encode section %q: %w", input.Kind, err)
+	}
+	section.Digest = "sha256:" + hex.EncodeToString(crypto.Hash(raw))
+	section.MediaType = "application/json"
+	return section, &Attachment{Digest: section.Digest, MediaType: section.MediaType, Content: raw}, nil
 }
 
 // auditorCaveats states, inside the signed document, what this bundle does and
@@ -316,6 +328,16 @@ func SignAuditorBundle(manifest AuditorManifest, attachments []Attachment, priva
 // commits to, and that every required section is accounted for. It needs no
 // server and no network.
 func VerifyAuditorBundle(raw []byte) (AuditorManifest, error) {
+	manifest, err := VerifyEvidenceBundle(raw)
+	if err == nil && manifest.Contract != AuditorBundleContract {
+		return AuditorManifest{}, fmt.Errorf("compliance: unexpected contract %q", manifest.Contract)
+	}
+	return manifest, err
+}
+
+// VerifyEvidenceBundle verifies the supported portable evidence contracts.
+// The caller must separately pin the signer to authenticate the operator.
+func VerifyEvidenceBundle(raw []byte) (AuditorManifest, error) {
 	var pkg AuditorPackage
 	if err := json.Unmarshal(raw, &pkg); err != nil {
 		return AuditorManifest{}, fmt.Errorf("compliance: decode auditor bundle: %w", err)
@@ -324,7 +346,7 @@ func VerifyAuditorBundle(raw []byte) (AuditorManifest, error) {
 	if err := json.Unmarshal(pkg.Manifest, &m); err != nil {
 		return AuditorManifest{}, fmt.Errorf("compliance: decode auditor manifest: %w", err)
 	}
-	if m.Contract != AuditorBundleContract {
+	if m.Contract != AuditorBundleContract && m.Contract != ControlEvidenceContract {
 		return AuditorManifest{}, fmt.Errorf("compliance: unexpected contract %q", m.Contract)
 	}
 	if pkg.Signing.Algorithm != AuditorSignatureAlg {
@@ -360,6 +382,12 @@ func VerifyAuditorBundle(raw []byte) (AuditorManifest, error) {
 		if _, ok := byDigest[s.Digest]; !ok {
 			return AuditorManifest{}, fmt.Errorf("compliance: section %q references missing attachment %s", s.Kind, s.Digest)
 		}
+	}
+	if m.Contract == ControlEvidenceContract {
+		if err := validateControlEvidenceManifest(m, pkg.Attachments); err != nil {
+			return AuditorManifest{}, err
+		}
+		return m, nil
 	}
 	for _, kind := range AuditorSectionKinds {
 		if !seen[kind] {

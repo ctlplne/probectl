@@ -100,10 +100,14 @@ func reportArtifactSourceCapture(tenant string, capture json.RawMessage) error {
 		return ErrReportArtifactIntegrity
 	}
 	var envelope struct {
-		Version  int    `json:"version"`
-		TenantID string `json:"tenant_id"`
+		Version           int    `json:"version"`
+		TenantID          string `json:"tenant_id"`
+		ComplianceControl string `json:"compliance_control"`
 	}
-	if err := json.Unmarshal(capture, &envelope); err != nil || (envelope.Version != 1 && envelope.Version != 2 && envelope.Version != 3 && envelope.Version != 4 && envelope.Version != 5) || envelope.TenantID != tenant {
+	if err := json.Unmarshal(capture, &envelope); err != nil || envelope.Version < 1 || envelope.Version > 6 || envelope.TenantID != tenant {
+		return ErrReportArtifactIntegrity
+	}
+	if envelope.Version == 6 && envelope.ComplianceControl != "AU.L2-3.3.1" || envelope.Version != 6 && envelope.ComplianceControl != "" {
 		return ErrReportArtifactIntegrity
 	}
 	return nil
@@ -146,7 +150,9 @@ func (DashboardReports) CreateChunkedArtifact(ctx context.Context, s tenancy.Sco
 	err = scanReportArtifactMetadata(s.Q.QueryRow(ctx, `INSERT INTO dashboard_report_artifacts AS a
  (tenant_id,id,dashboard_id,schedule_id,format,media_type,filename,content,generated_by,
  absolute_from,absolute_to,provenance,redaction_state,coverage_limitations,body_storage,body_bytes,body_digest,source_capture)
- VALUES($1,$2,$3,$4,$5,$6,$7,NULL,$8,$9,$10,$11::jsonb,$12,$13::jsonb,'chunks',$14,$15,$16::jsonb)
+ SELECT $1,$2,$3,$4,$5,$6,$7,NULL,$8,$9,$10,$11::jsonb,$12,$13::jsonb,'chunks',$14,$15,$16::jsonb
+ WHERE (SELECT v.definition->>'compliance_control' FROM dashboard_views v WHERE v.tenant_id=$1 AND v.id=$3)
+       IS NOT DISTINCT FROM ($16::jsonb->>'compliance_control')
  RETURNING `+reportArtifactMetadataColumns,
 		s.Tenant.String(), in.ID, in.DashboardID, in.ScheduleID, in.Format, in.MediaType, in.Filename, in.GeneratedBy,
 		in.AbsoluteFrom, in.AbsoluteTo, provenance, in.RedactionState, limitations, receipt.Bytes, digest, []byte(capture)), &out)

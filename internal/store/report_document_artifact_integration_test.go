@@ -75,7 +75,11 @@ func TestStaticDocumentChunksKeepCompleteBodiesAndRejectSourceDowngrade(t *testi
 	}
 	for i, tenant := range tenants {
 		inTenant(ctx, t, pool, tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			for _, view := range []struct{ id, definition string }{{"same-view", `{}`}, {"source-view", `{"flow_sources":[{"id":"00000000-0000-0000-0000-000000000011","version":"1"}]}`}} {
+			for _, view := range []struct{ id, definition string }{
+				{"same-view", `{}`},
+				{"source-view", `{"flow_sources":[{"id":"00000000-0000-0000-0000-000000000011","version":"1"}]}`},
+				{"control-view", `{"compliance_control":"AU.L2-3.3.1"}`},
+			} {
 				if _, err := (DashboardReports{}).CreateView(ctx, sc, DashboardViewInput{ID: view.id, OwnerID: "alice", Name: view.id, Preset: "operator", Definition: json.RawMessage(view.definition)}); err != nil {
 					return err
 				}
@@ -87,6 +91,9 @@ func TestStaticDocumentChunksKeepCompleteBodiesAndRejectSourceDowngrade(t *testi
 		}
 		if err := publish(tenant, "source-downgrade", "source-view", bodies[i], false); err == nil {
 			t.Fatal("source-backed view accepted source-free static artifact")
+		}
+		if err := publish(tenant, "control-downgrade", "control-view", bodies[i], false); err == nil {
+			t.Fatal("control evidence view accepted a source-free static artifact")
 		}
 	}
 	for _, storage := range []string{"chunks", "document-chunks"} {

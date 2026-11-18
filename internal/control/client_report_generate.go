@@ -40,6 +40,13 @@ func cleanClientReportDefinition(d *dashboardDefinition) error {
 }
 
 func (s *Server) captureConfiguredReportSources(ctx context.Context, actor *auth.Principal, definition dashboardDefinition, at time.Time) (*reportFlowCapture, error) {
+	if definition.ComplianceControl != "" {
+		budget, err := s.sourceReportBudget()
+		if err != nil {
+			return nil, err
+		}
+		return s.captureComplianceControlReport(ctx, actor, definition.ComplianceControl, budget)
+	}
 	if definition.CarrierClaim != nil {
 		return s.captureCarrierSLAReport(ctx, actor, *definition.CarrierClaim, at)
 	}

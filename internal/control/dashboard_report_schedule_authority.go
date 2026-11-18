@@ -55,7 +55,7 @@ func (s *Server) prepareScheduledReportAuthority(r *http.Request, dashboardID st
 	}); err != nil {
 		return nil, err
 	}
-	if len(definition.FlowSources) == 0 && definition.ClientReport == nil && definition.CarrierClaim == nil {
+	if !definition.HasSources() {
 		return authority, nil
 	}
 	if err := cleanDashboardDefinition(&definition); err != nil {

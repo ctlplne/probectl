@@ -6,7 +6,7 @@
 
 package cli
 
-// `probectl verify-bundle <file>` verifies a signed auditor bundle OFFLINE.
+// `probectl verify-bundle <file>` verifies a signed evidence bundle OFFLINE.
 //
 // Offline is the whole point (P7). An auditor who has to ask the server whether
 // its own export is genuine has verified nothing: the check must run on the file
@@ -30,7 +30,7 @@ const maxAuditorBundleBytes = 64 << 20 // a bundle is JSON; 64 MiB is generous
 func cmdVerifyBundle(cfg Config, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("verify-bundle", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	// AI-05: VerifyAuditorBundle proves the bundle is internally consistent with
+	// AI-05: VerifyEvidenceBundle proves the bundle is internally consistent with
 	// the key EMBEDDED in it — a bundle re-signed with an attacker's own key
 	// passes. The signer is only authenticated when the operator pins, out of
 	// band, the fingerprint of the key they actually sign with. docs/guardrails.md G7-7.
@@ -40,7 +40,7 @@ func cmdVerifyBundle(cfg Config, args []string, stdout, stderr io.Writer) int {
 	}
 	rest := fs.Args()
 	if len(rest) != 1 || strings.TrimSpace(rest[0]) == "" {
-		fmt.Fprintln(stderr, "usage: probectl verify-bundle [--expected-fingerprint sha256:...] <probectl-auditor-bundle.json>")
+		fmt.Fprintln(stderr, "usage: probectl verify-bundle [--expected-fingerprint sha256:...] <signed-evidence.json>")
 		return 2
 	}
 	f, err := os.Open(rest[0])
@@ -58,14 +58,14 @@ func cmdVerifyBundle(cfg Config, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "verify-bundle: file larger than %d bytes\n", maxAuditorBundleBytes)
 		return 1
 	}
-	m, err := compliance.VerifyAuditorBundle(raw)
+	m, err := compliance.VerifyEvidenceBundle(raw)
 	if err != nil {
 		// A failed verification is the finding, so it is loud and it is an error
 		// exit — a script must not be able to treat it as a pass.
 		fmt.Fprintf(stderr, "verify-bundle: NOT VERIFIED: %v\n", err)
 		return 1
 	}
-	// VerifyAuditorBundle already proved the bundle parses; re-read the signer
+	// VerifyEvidenceBundle already proved the bundle parses; re-read the signer
 	// fingerprint so it can be pinned and shown.
 	var pkg compliance.AuditorPackage
 	_ = json.Unmarshal(raw, &pkg)
@@ -102,6 +102,9 @@ func cmdVerifyBundle(cfg Config, args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "  tenant scope    %s\n", m.TenantScopeDigest)
 	fmt.Fprintf(stdout, "  built from      %s (%s)%s\n", m.Deployment.Version, m.Deployment.Commit,
 		fipsSuffix(m.Deployment.FIPSMode))
+	if m.Control != nil {
+		fmt.Fprintf(stdout, "  control         %s %s (assessment guide %s)\n", m.Control.Framework, m.Control.Reference, m.Control.GuideVersion)
+	}
 	fmt.Fprintln(stdout, "  sections")
 	for _, s := range m.Sections {
 		line := fmt.Sprintf("    %-26s %s", s.Kind, strings.ToUpper(s.Status))

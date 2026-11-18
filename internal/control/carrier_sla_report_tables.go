@@ -8,7 +8,6 @@ package control
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -196,47 +195,13 @@ func carrierSLAReportTables(ctx context.Context, capture *reportFlowCapture, mem
 	groups.Source = "complete recorded circuit revisions, grouped before display redaction; human review and carrier adjudication required"
 	breaches := sealedClientReportTable(capture.TenantID, "carrier-sla-assessments", "Every recorded SLA rule and measured breach", from, to, plainClientReportColumns([]string{"group", "carrier", "currency", "period_from", "period_to", "agreement_id", "version", "circuit_id", "assessment", "signed_package_id"}), rows)
 	breaches.Source = "complete selected original receipt populations and recorded financial terms; unknowns retain no asserted credit"
-	receipt, err := claim.signed.Receipt(ctx)
+	encoded, err := signedReportEvidenceTable(ctx, claim.signed, claim.packageID, "carrier-sla-"+claim.packageID+".json", reporting.CSVTable{
+		ID: "carrier-sla-evidence", Title: "Complete offline signed claim evidence", TenantID: capture.TenantID,
+		Source:       "CSV: concatenate decoded signed_package_base64_chunk cells in ordinal order. PDF: extract the complete attached JSON. Use incident verify --trusted-key-fingerprint with the deployment fingerprint obtained out of band",
+		AbsoluteFrom: from, AbsoluteTo: to,
+	})
 	if err != nil {
 		return nil, err
-	}
-	// Bounded transfer chunks are not a population limit. Every byte of the
-	// complete existing evidence envelope is included, in ordinal order. This
-	// also avoids one enormous CSV/PDF cell for a month's original receipts.
-	const chunkBytes = 12 << 10
-	chunks := (receipt.Bytes + chunkBytes - 1) / chunkBytes
-	encoded := reporting.CSVTable{ID: "carrier-sla-evidence", Title: "Complete offline signed claim evidence", TenantID: capture.TenantID, Source: "CSV: concatenate decoded signed_package_base64_chunk cells in ordinal order. PDF: extract the complete attached JSON. Use incident verify --trusted-key-fingerprint with the deployment fingerprint obtained out of band", AbsoluteFrom: from, AbsoluteTo: to, Columns: plainClientReportColumns([]string{"package_id", "package_sha256", "package_bytes", "ordinal", "chunks", "signed_package_base64_chunk"}), ExpectedRows: chunks}
-	encoded.PDFFile = &reporting.PDFJSONFile{Name: "carrier-sla-" + claim.packageID + ".json", Body: claim.signed}
-	encoded.WalkRows = func(ctx context.Context, visit func([]string) error) error {
-		if visit == nil {
-			return entity.ErrInvalidClaim
-		}
-		reader, err := claim.signed.Open(ctx)
-		if err != nil {
-			return err
-		}
-		defer reader.Close()
-		buffer := make([]byte, chunkBytes)
-		for ordinal := int64(0); ordinal < chunks; ordinal++ {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			n, err := io.ReadFull(reader, buffer)
-			if err != nil && (err != io.ErrUnexpectedEOF || ordinal != chunks-1) {
-				return err
-			}
-			if n <= 0 {
-				return io.ErrUnexpectedEOF
-			}
-			if err := visit([]string{claim.packageID, receipt.SHA256, strconv.FormatInt(receipt.Bytes, 10), strconv.FormatInt(ordinal, 10), strconv.FormatInt(chunks, 10), base64.StdEncoding.EncodeToString(buffer[:n])}); err != nil {
-				return err
-			}
-		}
-		var sentinel [1]byte
-		if n, err := reader.Read(sentinel[:]); n != 0 || err != io.EOF {
-			return store.ErrReportArtifactIntegrity
-		}
-		return ctx.Err()
 	}
 	return []reporting.CSVTable{groups, breaches, encoded}, nil
 }

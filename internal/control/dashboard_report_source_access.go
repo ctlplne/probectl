@@ -26,11 +26,14 @@ type reportScopedSourceAccess interface {
 // It grants no publication authority and never changes frozen source data.
 func (s *Server) revalidateReportFlowCapture(ctx context.Context, actor *auth.Principal, capture *reportFlowCapture) error {
 	bound, ok := tenancy.FromContext(ctx)
-	if !ok || actor == nil || capture == nil || actor.UserID == "" || actor.TenantID != capture.TenantID || bound.String() != capture.TenantID || len(capture.Inputs) == 0 && capture.Monthly == nil && len(capture.Claims) == 0 {
+	if !ok || actor == nil || capture == nil || actor.UserID == "" || actor.TenantID != capture.TenantID || bound.String() != capture.TenantID {
 		return apierror.Forbidden("report source reader scope is unavailable")
 	}
-	_, ok = s.flowQueryViews.(reportScopedSourceAccess)
-	if !ok && capture.Monthly == nil && len(capture.Claims) == 0 || s.pool == nil {
+	if capture.ComplianceControl == "" && len(capture.Inputs) == 0 && capture.Monthly == nil && len(capture.Claims) == 0 {
+		return apierror.Forbidden("report source reader scope is unavailable")
+	}
+	_, flowAccess := s.flowQueryViews.(reportScopedSourceAccess)
+	if s.pool == nil || !flowAccess && capture.ComplianceControl == "" && capture.Monthly == nil && len(capture.Claims) == 0 {
 		return apierror.Unavailable("current report source access is unavailable")
 	}
 	budget, err := s.sourceReportBudget()
@@ -58,6 +61,9 @@ func (s *Server) revalidateReportFlowCaptureScope(ctx context.Context, sc tenanc
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || sc.Q == nil || bound != sc.Tenant || actor == nil || capture == nil || actor.UserID == "" || actor.TenantID != capture.TenantID || bound.String() != capture.TenantID {
 		return apierror.Forbidden("report source reader scope is unavailable")
+	}
+	if capture.ComplianceControl != "" {
+		return s.authorizeComplianceControlScope(ctx, sc, actor, capture.ComplianceControl)
 	}
 	if len(capture.Claims) > 0 {
 		return s.revalidateCarrierSLAReportScope(ctx, sc, actor, capture.TenantID, capture.Claims, false)

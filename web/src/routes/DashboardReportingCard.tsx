@@ -7,6 +7,7 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
+  cmmcAuditControl,
   useCreateDashboard,
   useCreateReportSchedule,
   useDashboards,
@@ -36,9 +37,11 @@ import styles from './dashboards.module.css'
 export function DashboardReportingCard({
   preset,
   definition,
+  snapshotAvailable,
 }: {
   preset: DashboardPreset
   definition: DashboardDefinition
+  snapshotAvailable: boolean
 }) {
   const { push } = useToast()
   const { permissions, user, tenant, hasScopedGrants } = useAuth()
@@ -50,6 +53,9 @@ export function DashboardReportingCard({
   ])
   const [sourceMode, setSourceMode] = useState(false)
   const [monthlyMode, setMonthlyMode] = useState(false)
+  const [complianceIdentity, setComplianceIdentity] = useState('')
+  const canReadCompliance = permissions.includes('audit.read')
+  const complianceMode = canReadCompliance && complianceIdentity === sourceIdentity
   const [monthlyDraft, setMonthlyDraft] = useState<{
     identity: string
     value: ClientReportDefinition
@@ -185,6 +191,7 @@ export function DashboardReportingCard({
   const requestedView = views.find((view) => view.id === requestedID)
   const activeID = selectedID || (requestedID ? (requestedView?.id ?? '') : (views[0]?.id ?? ''))
   const activeView = views.find((view) => view.id === activeID)
+  const canGenerateSelection = !activeView?.definition.compliance_control || canReadCompliance
   const allowProvider =
     providerConsent.identity === sourceIdentity && providerConsent.view === activeID
       ? providerConsent.allowed
@@ -216,20 +223,27 @@ export function DashboardReportingCard({
         redaction_state: definition.redaction_state,
         coverage_limitations: definition.coverage_limitations,
       }
-      const savedDefinition: DashboardDefinition = monthlyMode
+      const savedDefinition: DashboardDefinition = complianceMode
         ? {
-            ...disclosures,
-            client_report: monthlyDefinition,
-            ...(sourceMode && monthlyDefinition.assessment
-              ? { flow_sources: sourceItems.map(({ id, version }) => ({ id, version })) }
-              : {}),
+            compliance_control: cmmcAuditControl,
+            provenance: ['Tenant audit stream verification'],
+            redaction_state: 'Retained sequence counts and bounds',
+            coverage_limitations: ['Audit evidence from the retained probectl tenant stream'],
           }
-        : sourceMode
+        : monthlyMode
           ? {
               ...disclosures,
-              flow_sources: sourceItems.map(({ id, version }) => ({ id, version })),
+              client_report: monthlyDefinition,
+              ...(sourceMode && monthlyDefinition.assessment
+                ? { flow_sources: sourceItems.map(({ id, version }) => ({ id, version })) }
+                : {}),
             }
-          : definition
+          : sourceMode
+            ? {
+                ...disclosures,
+                flow_sources: sourceItems.map(({ id, version }) => ({ id, version })),
+              }
+            : definition
       const view = await createDashboard.mutateAsync({
         name,
         preset,
@@ -408,6 +422,7 @@ export function DashboardReportingCard({
                   onChange={(event) => {
                     setMonthlyMode(event.target.checked)
                     if (event.target.checked) {
+                      setComplianceIdentity('')
                       setSourceMode(false)
                       setCadence('monthly')
                     }
@@ -431,6 +446,23 @@ export function DashboardReportingCard({
               ) : null}
             </section>
           ) : null}
+          {canReadCompliance ? (
+            <label className={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={complianceMode}
+                disabled={!canWrite}
+                onChange={(event) => {
+                  setComplianceIdentity(event.target.checked ? sourceIdentity : '')
+                  if (event.target.checked) {
+                    setMonthlyMode(false)
+                    setSourceMode(false)
+                  }
+                }}
+              />
+              Build CMMC audit evidence ({cmmcAuditControl})
+            </label>
+          ) : null}
           {canReadSources ? (
             <section aria-label="Report saved flow sources" className={styles.manifestSection}>
               <label className={styles.checkboxLabel}>
@@ -440,7 +472,10 @@ export function DashboardReportingCard({
                   disabled={!canWrite}
                   onChange={(event) => {
                     setSourceMode(event.target.checked)
-                    if (event.target.checked && !monthlyDefinition.assessment) setMonthlyMode(false)
+                    if (event.target.checked) {
+                      setComplianceIdentity('')
+                      if (!monthlyDefinition.assessment) setMonthlyMode(false)
+                    }
                   }}
                 />
                 {monthlyMode && monthlyDefinition.assessment
@@ -514,6 +549,7 @@ export function DashboardReportingCard({
                 !name.trim() ||
                 createDashboard.isPending ||
                 failed ||
+                (!snapshotAvailable && !complianceMode && !monthlyMode && !sourceMode) ||
                 (sourceMode && (!canReadSources || sourceItems.length === 0)) ||
                 (monthlyMode && (!canReadMonthly || !validMonthly))
               }
@@ -592,14 +628,19 @@ export function DashboardReportingCard({
               <Button
                 variant="primary"
                 onClick={() => void exportReport()}
-                disabled={!activeID || generateReport.isPending || failed}
+                disabled={!activeID || !canGenerateSelection || generateReport.isPending || failed}
               >
                 Generate {format.toUpperCase()}
               </Button>
               <Button
                 onClick={() => void scheduleReport()}
                 disabled={
-                  !canWrite || !activeID || !destination || createSchedule.isPending || failed
+                  !canWrite ||
+                  !activeID ||
+                  !canGenerateSelection ||
+                  !destination ||
+                  createSchedule.isPending ||
+                  failed
                 }
               >
                 Schedule delivery
@@ -618,7 +659,13 @@ export function DashboardReportingCard({
             <section className={styles.savedSnapshot} aria-label="Selected saved snapshot">
               <strong>{activeView.name}</strong>
               <span>{activeView.preset} preset</span>
-              {activeView.definition.carrier_claim ? (
+              {activeView.definition.compliance_control ? (
+                <p>
+                  CMMC Level 2 {activeView.definition.compliance_control} · Signed verification of
+                  the retained probectl audit stream.{' '}
+                  {canReadCompliance ? '' : 'Audit read access is required.'}
+                </p>
+              ) : activeView.definition.carrier_claim ? (
                 <p>
                   Signed carrier SLA claim · {activeView.definition.carrier_claim.selections.length}{' '}
                   recorded circuit selections. Every generation rechecks financial and

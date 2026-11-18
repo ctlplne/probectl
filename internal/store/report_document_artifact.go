@@ -16,8 +16,7 @@ import (
 )
 
 // CreateDocumentChunkedArtifact stores complete static documents in the existing
-// artifact chunks. The current database view must have no flow sources; this
-// representation cannot substitute for the flow writer's source requirements.
+// artifact chunks. A source-backed view needs a captured-source artifact.
 func (DashboardReports) CreateDocumentChunkedArtifact(ctx context.Context, s tenancy.Scope, in ReportArtifactInput, stage *reporting.BodyStage) (*ReportArtifactMetadata, error) {
 	tenant, ok := tenancy.FromContext(ctx)
 	if !ok || tenant != s.Tenant || len(in.Content) != 0 || stage == nil {
@@ -52,6 +51,7 @@ func (DashboardReports) CreateDocumentChunkedArtifact(ctx context.Context, s ten
  FROM dashboard_views v
  WHERE v.tenant_id=$1 AND v.id=$3 AND jsonb_typeof(v.definition)='object'
  AND (NOT(v.definition ? 'flow_sources') OR v.definition->'flow_sources'='[]'::jsonb)
+ AND NOT (v.definition ? 'compliance_control')
  RETURNING `+reportArtifactMetadataColumns,
 		s.Tenant.String(), in.ID, in.DashboardID, in.ScheduleID, in.Format, in.MediaType, in.Filename, in.GeneratedBy,
 		in.AbsoluteFrom, in.AbsoluteTo, provenance, in.RedactionState, limitations, receipt.Bytes, digest), &out)

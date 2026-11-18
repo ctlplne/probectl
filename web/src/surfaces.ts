@@ -607,6 +607,14 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
+    capability: 'Scheduled CMMC audit evidence (AU.L2-3.3.1 preview)',
+    featureIds: ['F43'],
+    sprint: 'FX-15c',
+    kind: 'native',
+    route: '/dashboards',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
     capability: 'Collective internet-outage view (open data + your vantages)',
     featureIds: ['F7', 'F19'],
     sprint: 'S47a',

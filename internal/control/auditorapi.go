@@ -152,7 +152,10 @@ func (s *Server) auditorAuditChainSection(ctx context.Context, tid string) compl
 	}); err != nil {
 		return unavailable(compliance.SectionAuditChain, "audit stream unreachable: "+err.Error())
 	}
-	checked := time.Now().UTC()
+	return auditorAuditChainEvidence(coverage, verr, time.Now().UTC())
+}
+
+func auditorAuditChainEvidence(coverage audit.TenantVerificationCoverage, verr error, checked time.Time) compliance.SectionInput {
 	if verr != nil {
 		return compliance.SectionInput{
 			Kind: compliance.SectionAuditChain, Status: compliance.StatusFailed,

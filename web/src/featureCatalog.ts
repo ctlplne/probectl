@@ -274,7 +274,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   },
   {
     id: 'F43',
-    name: 'Segmentation validation',
+    name: 'Segmentation validation and audit evidence',
     status: 'partial',
     source: 'contract:features',
   },

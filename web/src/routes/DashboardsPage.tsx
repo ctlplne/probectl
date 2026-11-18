@@ -432,7 +432,7 @@ export function DashboardsPage() {
       </section>
 
       {anyError ? (
-        <ErrorState description="Could not load every dashboard panel." />
+        <ErrorState headingLevel={2} title="Dashboard panels unavailable" />
       ) : anyLoading ? (
         <LoadingState label="Loading dashboards..." />
       ) : (
@@ -751,9 +751,13 @@ export function DashboardsPage() {
               </CardBody>
             </Card>
           </div>
-          <DashboardReportingCard preset={preset} definition={reportDefinition} />
         </>
       )}
+      <DashboardReportingCard
+        preset={preset}
+        definition={reportDefinition}
+        snapshotAvailable={!anyError && !anyLoading}
+      />
     </Page>
   )
 }
