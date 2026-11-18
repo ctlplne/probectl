@@ -190,6 +190,11 @@ signed as a single Ed25519-signed document:
 | `build-provenance` | the version, commit and which release artifact carries the SBOM — reported **failed** when the binary was built from a modified tree or carries no usable commit, because then it identifies no published artifact |
 | `crypto-self-test` | the cryptographic module's self-test status, read live |
 
+The segmentation section uses `failed` when observed traffic violates a rule,
+`observed` when the attachment contains measured traffic and its per-rule
+coverage, and `unavailable` when declared zone pairs have no observations. The
+signed manifest binds the segmentation attachment to the tenant scope digest.
+
 Three properties are the point of the format:
 
 - **Every section is gathered live.** The isolation assertion is re-run and the

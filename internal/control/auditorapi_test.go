@@ -7,16 +7,127 @@
 package control
 
 import (
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/compliance"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/version"
 )
+
+func TestAuditorBundleSegmentationStatusReflectsSeparateTenantObservations(t *testing.T) {
+	lanes := []struct {
+		tenant, policy, status string
+		port                   int
+		observed               bool
+		verdict                compliance.Verdict
+	}{
+		{"00000000-0000-4000-8000-000000000001", "primary-boundary", compliance.StatusFailed, 443, true, compliance.VerdictViolation},
+		{"00000000-0000-4000-8000-000000000002", "paired-boundary", "observed", 8443, true, compliance.VerdictObservedClean},
+		{"00000000-0000-4000-8000-000000000003", "quiet-boundary", compliance.StatusUnavailable, 443, false, compliance.VerdictNotObserved},
+	}
+	policies := make(map[string][]compliance.Policy, len(lanes))
+	for _, lane := range lanes {
+		policy, err := compliance.ParsePolicy([]byte(fmt.Sprintf(`name: %s
+zones:
+  - name: outside
+    cidrs: ["192.0.2.0/24"]
+  - name: protected
+    cidrs: ["198.51.100.0/24"]
+rules:
+  - id: boundary
+    from: outside
+    to: protected
+    ports: [%d]
+`, lane.policy, lane.port)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		policies[lane.tenant] = []compliance.Policy{policy}
+	}
+	engine, err := compliance.NewTenantEngine(policies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, lane := range lanes {
+		if lane.observed {
+			engine.Observe(lane.tenant, compliance.FlowObs{Src: "192.0.2.1", Dst: "198.51.100.1", DstPort: 443, Bytes: 150, Source: "flow", At: time.Now().UTC()})
+		}
+	}
+	private, _, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(private)
+	s := testServer(nil).WithCompliance(engine).WithEvidenceSigningKey(private)
+	for _, lane := range lanes {
+		t.Run(lane.policy, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			if err := s.handleAuditorBundle(rec, auditorRequest(t, lane.tenant)); err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := compliance.VerifyAuditorBundle(rec.Body.Bytes())
+			if err != nil || rec.Code != http.StatusOK {
+				t.Fatal("auditor bundle did not verify", rec.Code, err)
+			}
+			wantScope := hex.EncodeToString(crypto.Hash([]byte("probectl-auditor-scope/v1|" + lane.tenant)))
+			if manifest.TenantScopeDigest != wantScope {
+				t.Error("auditor bundle changed the requesting tenant's scope digest")
+			}
+			if strings.Contains(rec.Body.String(), lane.tenant) {
+				t.Error("auditor bundle disclosed the raw tenant identifier")
+			}
+			for _, other := range lanes {
+				if other.tenant != lane.tenant && (strings.Contains(rec.Body.String(), other.tenant) || strings.Contains(rec.Body.String(), other.policy)) {
+					t.Fatal("auditor bundle carries another tenant's policy or evidence")
+				}
+			}
+			for _, section := range manifest.Sections {
+				if section.Kind == compliance.SectionSegmentation {
+					checkAuditorSegmentationSection(t, rec.Body.Bytes(), section, lane.status, lane.policy, lane.verdict)
+					return
+				}
+			}
+			t.Fatal("auditor bundle omitted the segmentation section")
+		})
+	}
+}
+
+func checkAuditorSegmentationSection(t *testing.T, raw []byte, section compliance.AuditorSection, want, policy string, verdict compliance.Verdict) {
+	t.Helper()
+	if section.Status != want || section.Reason == "" {
+		t.Fatal("segmentation section does not reflect the recorded observation", section.Status, "want", want)
+	}
+	if want == compliance.StatusUnavailable {
+		if section.Digest != "" {
+			t.Fatal("unavailable segmentation section claims an attachment")
+		}
+		return
+	}
+	var bundle compliance.AuditorPackage
+	if err := json.Unmarshal(raw, &bundle); err != nil {
+		t.Fatal(err)
+	}
+	for _, attachment := range bundle.Attachments {
+		if attachment.Digest == section.Digest {
+			var evidence compliance.Evidence
+			if err := json.Unmarshal(attachment.Content, &evidence); err != nil || compliance.VerifyEvidence(evidence) != nil || evidence.Tenant != "" ||
+				len(evidence.Records) != 1 || evidence.Coverage.Observations != 1 ||
+				evidence.Records[0].Result.Policy != policy || evidence.Records[0].Result.Verdict != verdict {
+				t.Fatal("signed segmentation attachment lost exact owned rule evidence", err)
+			}
+			return
+		}
+	}
+	t.Fatal("measured segmentation section omitted its attachment")
+}
 
 func auditorRequest(t *testing.T, tenant string) *http.Request {
 	t.Helper()

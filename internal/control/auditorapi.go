@@ -121,7 +121,22 @@ func (s *Server) auditorSegmentationSection(tid string) compliance.SectionInput 
 	if err != nil {
 		return unavailable(compliance.SectionSegmentation, "compliance export failed: "+err.Error())
 	}
-	return compliance.SectionInput{Kind: compliance.SectionSegmentation, Status: compliance.StatusVerified, Content: ev}
+	// The signed manifest already binds the scope by digest. The standalone
+	// evidence document's tenant field is outside the per-record hash chain.
+	ev.Tenant = ""
+	observed := false
+	for _, record := range ev.Records {
+		if record.Result.Verdict == compliance.VerdictViolation {
+			return compliance.SectionInput{Kind: compliance.SectionSegmentation, Status: compliance.StatusFailed,
+				Reason: "Observed traffic violated a declared segmentation rule.", Content: ev}
+		}
+		observed = observed || record.Result.Verdict == compliance.VerdictObservedClean
+	}
+	if !observed {
+		return unavailable(compliance.SectionSegmentation, "Segmentation evidence requires observed traffic between declared zones.")
+	}
+	return compliance.SectionInput{Kind: compliance.SectionSegmentation, Status: compliance.StatusObserved,
+		Reason: "The attachment reports the observed traffic and per-rule coverage.", Content: ev}
 }
 
 // auditorAuditChainSection re-verifies the tenant's hash-chained audit stream.

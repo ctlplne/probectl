@@ -72,6 +72,7 @@ const (
 	StatusVerified    = "verified"    // gathered, and the control it evidences passed
 	StatusFailed      = "failed"      // gathered, and the control FAILED — reported, not hidden
 	StatusUnavailable = "unavailable" // could not be gathered; Reason says why
+	StatusObserved    = "observed"    // measurement evidence bounded by the recorded coverage
 )
 
 // AuditorSection is one evidence section. Content is the section's own payload,
@@ -214,7 +215,7 @@ func BuildAuditorBundle(in AuditorInput) (AuditorManifest, []Attachment, error) 
 			if strings.TrimSpace(got.Reason) == "" {
 				return AuditorManifest{}, nil, fmt.Errorf("compliance: section %q is unavailable without a reason", kind)
 			}
-		case StatusVerified, StatusFailed:
+		case StatusVerified, StatusFailed, StatusObserved:
 			if got.Content == nil {
 				return AuditorManifest{}, nil, fmt.Errorf("compliance: section %q is %s with no content", kind, got.Status)
 			}
@@ -225,8 +226,8 @@ func BuildAuditorBundle(in AuditorInput) (AuditorManifest, []Attachment, error) 
 			sec.Digest = "sha256:" + hex.EncodeToString(crypto.Hash(raw))
 			sec.MediaType = "application/json"
 			attachments = append(attachments, Attachment{Digest: sec.Digest, MediaType: sec.MediaType, Content: raw})
-			if got.Status == StatusFailed && strings.TrimSpace(got.Reason) == "" {
-				return AuditorManifest{}, nil, fmt.Errorf("compliance: section %q failed without a reason", kind)
+			if got.Status != StatusVerified && strings.TrimSpace(got.Reason) == "" {
+				return AuditorManifest{}, nil, fmt.Errorf("compliance: section %q is %s without a reason", kind, got.Status)
 			}
 		default:
 			return AuditorManifest{}, nil, fmt.Errorf("compliance: section %q has unknown status %q", kind, got.Status)
@@ -258,13 +259,15 @@ func auditorCaveats(sections []AuditorSection) []string {
 		"Framework mappings in this bundle are an interpretation of which requirement area each section speaks to. They are operator-editable and are not a legal opinion; confirm them against your own reading of the regulation.",
 		"This bundle evidences the controls named in its sections at the time it was generated. It does not evidence anything not named here.",
 	}
-	var unavailable, failed []string
+	var unavailable, failed, observed []string
 	for _, s := range sections {
 		switch s.Status {
 		case StatusUnavailable:
 			unavailable = append(unavailable, s.Kind+" ("+s.Reason+")")
 		case StatusFailed:
 			failed = append(failed, s.Kind+" ("+s.Reason+")")
+		case StatusObserved:
+			observed = append(observed, s.Kind+" ("+s.Reason+")")
 		}
 	}
 	if len(unavailable) > 0 {
@@ -272,6 +275,9 @@ func auditorCaveats(sections []AuditorSection) []string {
 	}
 	if len(failed) > 0 {
 		out = append(out, "FAILED — these controls did not pass and are reported here rather than omitted: "+strings.Join(failed, "; "))
+	}
+	if len(observed) > 0 {
+		out = append(out, "OBSERVED — evidence is limited to the recorded coverage for "+strings.Join(observed, ", ")+".")
 	}
 	return out
 }
