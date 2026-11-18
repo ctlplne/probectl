@@ -87,7 +87,7 @@ func (s *Server) revalidateComplianceFlowScope(ctx context.Context, sc tenancy.S
 		return errReportSourceRequirements
 	}
 	for i, owner := range snapshot.owners {
-		if !owner.Available || owner.Owner.Scope.TenantID != capture.TenantID || owner.Reference.Key != capture.ComplianceFlow.Originals[i].Ref.Key {
+		if !owner.Available || owner.Owner.TenantID != capture.TenantID || owner.Reference.Key != capture.ComplianceFlow.Originals[i].Ref.Key {
 			return apierror.Forbidden("current original flow evidence authority is unavailable")
 		}
 	}

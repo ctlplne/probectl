@@ -67,7 +67,7 @@ func TestComplianceFlowSourceSnapshotUsesCurrentTenantRolesAndOriginalOwners(t *
 		readByTenant[lane] = reads
 		after, err := f.server.loadComplianceFlowSourceSnapshot(ctx, actors[lane], members, reads, budget)
 		if err != nil || after.sourceDigest != before.sourceDigest || after.captureDigest == "" || len(after.owners) != 1 ||
-			!after.owners[0].Available || after.owners[0].Owner.Scope.TenantID != tenant ||
+			!after.owners[0].Available || after.owners[0].Owner.TenantID != tenant ||
 			!incidentImpactSourceCoverage(after.sources).covers(rows[0], after.owners[0]) {
 			t.Fatal("original flow did not verify through the selected tenant source", err)
 		}
@@ -91,7 +91,7 @@ func TestComplianceFlowSourceSnapshotUsesCurrentTenantRolesAndOriginalOwners(t *
 	for lane, tenant := range f.tenants {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		foreign, err := f.server.loadComplianceFlowSourceSnapshot(ctx, actors[lane], members, readByTenant[1-lane], budget)
-		if err == nil && (len(foreign.owners) != 1 || foreign.owners[0].Available || foreign.owners[0].Owner.Scope.TenantID != "") {
+		if err == nil && (len(foreign.owners) != 1 || foreign.owners[0].Available || foreign.owners[0].Owner.TenantID != "") {
 			t.Fatal("foreign original captured flow obtained a current owner in this tenant")
 		}
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {

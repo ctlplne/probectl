@@ -127,7 +127,7 @@ func complianceAttestedFlowRows(ctx context.Context, tenant string, from, to tim
 		if !found || !owner.Available {
 			continue
 		}
-		if owner.Owner.Scope.TenantID != tenant {
+		if owner.Owner.TenantID != tenant {
 			return nil, entity.ErrScopeMismatch
 		}
 		if coverage.covers(row, owner) {
