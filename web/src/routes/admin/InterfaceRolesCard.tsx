@@ -422,6 +422,8 @@ function InterfaceRoleOverrideEditor({
   )
 }
 
+type InterfaceRoleOverrideVersion = Pick<InterfaceRoleOverride, 'id' | 'revision'>
+
 function InterfaceRoleOverrideForm({
   tenant,
   context,
@@ -437,9 +439,9 @@ function InterfaceRoleOverrideForm({
 }) {
   const save = useSaveInterfaceRoleOverride(tenant, context, subject)
   const reset = useResetInterfaceRoleOverride(tenant, context, subject)
-  const [baseline, setBaseline] = useState(current)
+  const [baseline, setBaseline] = useState<InterfaceRoleOverrideVersion>(current)
   const [role, setRole] = useState<InterfaceRole>(current.role || 'other')
-  const [confirm, setConfirm] = useState<InterfaceRoleOverride | null>(null)
+  const [confirm, setConfirm] = useState<InterfaceRoleOverrideVersion | null>(null)
   const stale = current.id !== baseline.id || current.revision !== baseline.revision
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -462,6 +464,11 @@ function InterfaceRoleOverrideForm({
         expected_revision: confirm.revision,
         confirmed: true,
       })
+      // The successful DELETE confirms an empty baseline. A concurrent new
+      // override must still be reloaded explicitly before another write.
+      setBaseline({ id: '', revision: '0' })
+      setRole('other')
+      save.reset()
       setConfirm(null)
     } catch {
       /* Keep the captured confirmation open on refusal. */

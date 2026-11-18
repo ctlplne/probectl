@@ -215,6 +215,12 @@ for (const theme of ['light', 'dark']) {
           ).not.toBeInTheDocument(),
         )
         await within(explanation).findByText(`${tenant}/source/0`)
+        await card.findByText(/Current override: None\./)
+        expect(
+          card.queryByText('The override changed. Reload before editing or resetting it.'),
+        ).not.toBeInTheDocument()
+        expect(card.getByRole('button', { name: 'Save manual role override' })).toBeEnabled()
+        expect(card.queryByText('Manual role override saved.')).not.toBeInTheDocument()
         expect(await axe(element)).toHaveNoViolations()
         fixture.revokeExplanation()
         fireEvent.click(
