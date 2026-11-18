@@ -1296,9 +1296,9 @@ jobs:
     # U-026 extends the SAME gate to real ClickHouse (flowstore + pathstore
     # cross-tenant reads, scoped erasure, and the row-policy DDL).
     runs-on: ubuntu-latest
-    # Whole report and original controls completed before the final suite
-    # reached the former 30-minute job deadline. Admit the complete lane.
-    timeout-minutes: 60
+    # Preflight and original negative controls can take over 25 minutes.
+    # Leave room for those checks plus the 60-minute package test clock.
+    timeout-minutes: 120
     # Postgres runs as a docker step (not a service) so it can serve TLS under
     # a per-run test CA — CI talks verify-full like production (OPS-010). The
     # TLS step exports PROBECTL_DATABASE_URL via GITHUB_ENV.
