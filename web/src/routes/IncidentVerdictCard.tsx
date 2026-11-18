@@ -163,9 +163,8 @@ function VerdictForm({ incident }: { incident: Incident }) {
   return (
     <div className={styles.stack}>
       <p>
-        Local interface states and verified HTTPS responses supply the initial rules. Carrier and
-        wider-internet evidence are not yet connected. Confidence describes evidence coverage, not a
-        probability.
+        Current interface, probe, and routing observations inform the verdict. Confidence reflects
+        evidence coverage and agreement.
       </p>
       <form
         onSubmit={(event) => void submit(event)}

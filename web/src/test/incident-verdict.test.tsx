@@ -154,6 +154,9 @@ for (const theme of ['light', 'dark'])
         <Harness />
       </Providers>,
     )
+    expect(
+      screen.getByText(/current interface, probe, and routing observations inform the verdict/i),
+    ).toBeInTheDocument()
     const start = '2026-11-01T00:00:00.000000001Z',
       end = '2026-11-01T00:00:00.000000002Z'
     fireEvent.change(screen.getByLabelText('Verdict from (ISO 8601 with offset)'), {
