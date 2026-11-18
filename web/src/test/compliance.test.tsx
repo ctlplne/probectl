@@ -88,7 +88,7 @@ function stubWith(resp: ComplianceResponse | Record<string, unknown>) {
 describe('compliance / segmentation validation (S46)', () => {
   test('shows all three verdicts with framework tags and coverage caveats', async () => {
     vi.stubGlobal('fetch', stubWith(fixture()))
-    renderApp('/compliance')
+    renderApp('/compliance', { me: { permissions: ['threat.read', 'audit.read'] } })
 
     const table = await screen.findByRole('table', {
       name: /segmentation verdicts/i,
@@ -114,11 +114,31 @@ describe('compliance / segmentation validation (S46)', () => {
     const assign = vi.fn()
     vi.stubGlobal('location', { assign, href: '', pathname: '/' })
     vi.stubGlobal('fetch', stubWith(fixture()))
-    renderApp('/compliance')
+    renderApp('/compliance', { me: { permissions: ['threat.read', 'audit.read'] } })
 
     await userEvent.click(await screen.findByRole('button', { name: /download audit evidence/i }))
 
     expect(assign).toHaveBeenCalledWith('/v1/compliance/evidence')
+  })
+
+  test('keeps the segmentation table visible for a threat reader with restricted exports', async () => {
+    vi.stubGlobal('fetch', stubWith(fixture()))
+    renderApp('/compliance', { me: { permissions: ['threat.read'] } })
+
+    await screen.findByRole('table', { name: /segmentation verdicts/i })
+    expect(screen.queryByRole('button', { name: /download audit evidence/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /download auditor bundle/i })).toBeNull()
+  })
+
+  test('shows the filename and independently trusted signer option to an audit reader', async () => {
+    vi.stubGlobal('fetch', stubWith(fixture()))
+    renderApp('/compliance', { me: { permissions: ['threat.read', 'audit.read'] } })
+
+    await screen.findByRole('button', { name: /download auditor bundle/i })
+    expect(screen.getByText(/obtain the signer fingerprint from the operator/i)).toBeInTheDocument()
+    expect(screen.getByText(/--expected-fingerprint/)).toHaveTextContent(
+      'probectl-auditor-bundle.json',
+    )
   })
 
   test('honesty: unwired validator renders as not wired', async () => {

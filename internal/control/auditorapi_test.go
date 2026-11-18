@@ -35,22 +35,7 @@ func TestAuditorBundleSegmentationStatusReflectsSeparateTenantObservations(t *te
 	}
 	policies := make(map[string][]compliance.Policy, len(lanes))
 	for _, lane := range lanes {
-		policy, err := compliance.ParsePolicy([]byte(fmt.Sprintf(`name: %s
-zones:
-  - name: outside
-    cidrs: ["192.0.2.0/24"]
-  - name: protected
-    cidrs: ["198.51.100.0/24"]
-rules:
-  - id: boundary
-    from: outside
-    to: protected
-    ports: [%d]
-`, lane.policy, lane.port)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		policies[lane.tenant] = []compliance.Policy{policy}
+		policies[lane.tenant] = []compliance.Policy{auditorBoundaryPolicy(t, lane.policy, lane.port)}
 	}
 	engine, err := compliance.NewTenantEngine(policies)
 	if err != nil {
@@ -98,6 +83,26 @@ rules:
 			t.Fatal("auditor bundle omitted the segmentation section")
 		})
 	}
+}
+
+func auditorBoundaryPolicy(t *testing.T, name string, port int) compliance.Policy {
+	t.Helper()
+	policy, err := compliance.ParsePolicy([]byte(fmt.Sprintf(`name: %s
+zones:
+  - name: outside
+    cidrs: ["192.0.2.0/24"]
+  - name: protected
+    cidrs: ["198.51.100.0/24"]
+rules:
+  - id: boundary
+    from: outside
+    to: protected
+    ports: [%d]
+`, name, port)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return policy
 }
 
 func checkAuditorSegmentationSection(t *testing.T, raw []byte, section compliance.AuditorSection, want, policy string, verdict compliance.Verdict) {

@@ -206,11 +206,14 @@ Three properties are the point of the format:
   reads as a passing one, which is the dishonesty this format exists to prevent.
   The same caveats are listed inside the signed bytes, so no tooling can drop
   them.
-- **It verifies offline.** `probectl verify-bundle <file>` checks the signature,
-  that every attachment matches the digest the manifest commits to, and that
-  every section is accounted for — with no server, no network and no
-  credentials. An auditor who must ask the producing server whether its own
-  export is genuine has verified nothing.
+- **It verifies offline.** Obtain the signer fingerprint from the operator
+  through a separate trusted channel. The verifier checks the signature,
+  attachment digests and presence of every section locally.
+
+```sh
+probectl verify-bundle --expected-fingerprint 'sha256:<operator-published-fingerprint>' \
+  probectl-auditor-bundle.json
+```
 
 The bundle is tenant-scoped: the tenant is bound by digest and its identifier is
 never serialized, no configured secret appears in it, and the signing key's

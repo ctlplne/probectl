@@ -21,6 +21,7 @@ import {
 } from '../components'
 import { useCompliance, type RuleResult, type Verdict } from '../api/compliance'
 import { apiURL } from '../api/client'
+import { useAuth } from '../auth/useAuth'
 import { DateTime } from '../time/DateTime'
 
 const policySetupGuidance =
@@ -31,6 +32,7 @@ const policySetupGuidance =
  * and the audit-grade evidence export. */
 export function CompliancePage() {
   const { data, isPending, isError, error, refetch } = useCompliance()
+  const canDownload = useAuth().permissions.includes('audit.read')
 
   const columns: Column<RuleResult>[] = [
     {
@@ -135,33 +137,33 @@ export function CompliancePage() {
                   ))}
                 </div>
               )}
-              <div className={styles.evidenceRow}>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    window.location.assign(apiURL('/compliance/evidence'))
-                  }}
-                >
-                  Download audit evidence
-                </Button>
-                {/* P7: the whole auditor package in one signed document, so an
-                    auditor does not have to correlate seven downloads by hand. */}
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    window.location.assign(apiURL('/compliance/auditor-bundle'))
-                  }}
-                >
-                  Download auditor bundle (signed)
-                </Button>
-              </div>
-              <p className={styles.coverage} role="note">
-                The auditor bundle adds isolation posture, audit-chain verification, retention
-                receipts, deletion proofs, build provenance and the cryptographic self-test to the
-                evidence above, signed as one document. Verify it offline with{' '}
-                <code>probectl verify-bundle</code>. Sections it could not gather are listed with
-                their reasons rather than left out.
-              </p>
+              {canDownload && (
+                <>
+                  <div className={styles.evidenceRow}>
+                    <Button
+                      variant="ghost"
+                      onClick={() => window.location.assign(apiURL('/compliance/evidence'))}
+                    >
+                      Download audit evidence
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => window.location.assign(apiURL('/compliance/auditor-bundle'))}
+                    >
+                      Download auditor bundle (signed)
+                    </Button>
+                  </div>
+                  <p className={styles.coverage} role="note">
+                    Obtain the signer fingerprint from the operator through a separate trusted
+                    channel. Verify the downloaded bundle offline with{' '}
+                    <code>
+                      probectl verify-bundle --expected-fingerprint{' '}
+                      {"'sha256:<operator-published-fingerprint>'"} probectl-auditor-bundle.json
+                    </code>
+                    .
+                  </p>
+                </>
+              )}
               <Table
                 caption="Segmentation verdicts"
                 columns={columns}
