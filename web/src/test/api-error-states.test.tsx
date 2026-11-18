@@ -113,7 +113,7 @@ describe('API failures stay distinct from empty or unavailable states', () => {
     renderApp('/dashboards')
 
     expect(
-      await screen.findByText(/could not load every dashboard panel/i, undefined, ERROR_WAIT),
+      await screen.findByRole('heading', { name: 'Dashboard panels unavailable' }, ERROR_WAIT),
     ).toBeInTheDocument()
     expect(screen.queryByRole('img', { name: /synthetic latency trend/i })).not.toBeInTheDocument()
   })
@@ -137,7 +137,9 @@ describe('API failures stay distinct from empty or unavailable states', () => {
     renderApp('/dashboards')
 
     expect((await screen.findAllByText(/active tests/i)).length).toBeGreaterThan(0)
-    expect(screen.queryByText(/could not load every dashboard panel/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Dashboard panels unavailable' }),
+    ).not.toBeInTheDocument()
   })
 
   test('time-travel comparison failure does not erase the selected topology', async () => {
