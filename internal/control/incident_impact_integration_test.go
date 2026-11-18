@@ -35,7 +35,8 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-func TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation(t *testing.T) {
+func seedIncidentImpactFlowFixture(t *testing.T) (*roleExplanationAPIFixture, map[string]string) {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	key, _, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
@@ -95,6 +96,11 @@ func TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation(t *testing
 			t.Fatal(err)
 		}
 	}
+	return f, incidents
+}
+
+func TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation(t *testing.T) {
+	f, incidents := seedIncidentImpactFlowFixture(t)
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	input := incident.ImpactInput{From: time.Now().UTC().Add(-time.Minute), To: time.Now().UTC(), CustomerTagKey: "customer"}
