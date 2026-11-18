@@ -7,11 +7,32 @@
 package control
 
 import (
+	"context"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
+
+// Only a server-selected source can authorize an original flow capture.
+// The retained row cannot choose an additional context or device.
+func selectedFlowOwnerAuthorization(sources []store.IncidentImpactSource,
+	authorize func(context.Context, entity.ContextRecord, store.IncidentImpactEntity) error) func(context.Context, entity.ContextRecord, store.InterfaceRoleFlowBinding) error {
+	return func(ctx context.Context, record entity.ContextRecord, binding store.InterfaceRoleFlowBinding) error {
+		for _, source := range sources {
+			if source.Member.ContextID != record.ContextID {
+				continue
+			}
+			for _, selected := range source.Selections {
+				if selected.AgentID == binding.AgentID && selected.Exporter == binding.Exporter && selected.Protocol == binding.Protocol && selected.Domain == binding.Domain {
+					return authorize(ctx, record, source.Member)
+				}
+			}
+		}
+		return entity.ErrScopeMismatch
+	}
+}
 
 type incidentImpactPoint struct {
 	contextID, agent, exporter, protocol string

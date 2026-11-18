@@ -19238,6 +19238,47 @@
           }
         }
       },
+      "ComplianceFlowSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["context_id", "entity_id"],
+        "properties": {
+          "context_id": {"type": "string", "format": "uuid"},
+          "entity_id": {"type": "string", "format": "uuid"}
+        },
+        "description": "Current canonical tenant routing context and device or interface identity."
+      },
+      "ComplianceFlowDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["lookback", "sources"],
+        "properties": {
+          "lookback": {"type": "string", "description": "Go duration at least one second in whole microseconds, such as 24h. Each execution records the exact half-open observation window."},
+          "sources": {"type": "array", "minItems": 1, "maxItems": 1024, "uniqueItems": true, "items": {"$ref": "#/components/schemas/ComplianceFlowSource"}},
+          "policy": {"type": "string", "minLength": 1, "maxLength": 65536, "description": "Tenant-local segmentation policy YAML for boundary and PCI segmentation evidence."}
+        }
+      },
+      "ComplianceFlowManifestDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["lookback", "source_slots"],
+        "properties": {
+          "lookback": {"type": "string"},
+          "source_slots": {"type": "array", "minItems": 1, "maxItems": 1024, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "policy_slot": {"type": "string", "const": "segmentation-policy"}
+        },
+        "description": "Portable observations configuration with slots for destination measurement points and, where required, the destination segmentation policy."
+      },
+      "ComplianceFlowManifestBindings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sources"],
+        "properties": {
+          "sources": {"type": "object", "minProperties": 1, "maxProperties": 1024, "additionalProperties": {"$ref": "#/components/schemas/ComplianceFlowSource"}},
+          "policy": {"type": "string", "minLength": 1, "maxLength": 65536}
+        },
+        "description": "Explicit and complete destination-tenant bindings for each declared measurement point and policy slot."
+      },
       "DashboardDefinition": {
         "type": "object",
         "additionalProperties": false,
@@ -19321,8 +19362,11 @@
           },
           "compliance_control": {
             "type": "string",
-            "enum": ["AU.L2-3.3.1"],
-            "description": "Collect and sign retained probectl audit-chain evidence for the selected CMMC Level 2 control. Current audit.read is required."
+            "enum": ["AU.L2-3.3.1", "SC.L2-3.13.1", "11.4.5", "SI.L2-3.14.6"],
+            "description": "Sign one selected control. AU.L2-3.3.1 checks retained audit-chain coverage. SC.L2-3.13.1 and PCI DSS 11.4.5 use declared segmentation rules and selected original flow evidence. SI.L2-3.14.6 reports selected flow monitoring coverage."
+          },
+          "compliance_flow": {
+            "$ref": "#/components/schemas/ComplianceFlowDefinition"
           },
           "carrier_claim": {
             "oneOf": [
@@ -19335,7 +19379,20 @@
             ]
           }
         },
-        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects signed audit coverage for AU.L2-3.3.1. Omit other sources, caller bounds and metrics.",
+        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects offline signed audit-chain, boundary or monitoring evidence. Omit other sources, caller bounds and metrics. Current audit.read is required. Flow-backed controls also require current flow.read and entities.read for each selected context and measurement point.",
+
+        "allOf": [
+          {
+            "if": {"required": ["compliance_control"], "properties": {"compliance_control": {"enum": ["SC.L2-3.13.1", "11.4.5", "SI.L2-3.14.6"]}}},
+            "then": {"required": ["compliance_flow"]},
+            "else": {"not": {"required": ["compliance_flow"]}}
+          },
+          {
+            "if": {"required": ["compliance_control"], "properties": {"compliance_control": {"enum": ["SC.L2-3.13.1", "11.4.5"]}}},
+            "then": {"properties": {"compliance_flow": {"required": ["policy"]}}},
+            "else": {"properties": {"compliance_flow": {"not": {"required": ["policy"]}}}}
+          }
+        ],
         "oneOf": [
           {
             "required": [
@@ -19675,8 +19732,11 @@
           },
           "compliance_control": {
             "type": "string",
-            "enum": ["AU.L2-3.3.1"],
-            "description": "Collect and sign retained probectl audit-chain evidence for the selected CMMC Level 2 control. Current audit.read is required."
+            "enum": ["AU.L2-3.3.1", "SC.L2-3.13.1", "11.4.5", "SI.L2-3.14.6"],
+            "description": "Sign one selected control. AU.L2-3.3.1 checks retained audit-chain coverage. SC.L2-3.13.1 and PCI DSS 11.4.5 use declared segmentation rules and selected original flow evidence. SI.L2-3.14.6 reports selected flow monitoring coverage."
+          },
+          "compliance_flow": {
+            "$ref": "#/components/schemas/ComplianceFlowManifestDefinition"
           },
           "carrier_claim": {
             "oneOf": [
@@ -19689,7 +19749,20 @@
             ]
           }
         },
-        "description": "Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects signed audit coverage for AU.L2-3.3.1. Omit other sources, caller bounds and metrics.",
+        "description": "Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects offline signed audit-chain, boundary or monitoring evidence. Omit other sources, caller bounds and metrics. Current audit.read is required. Flow-backed controls also require current flow.read and entities.read for each selected context and measurement point.",
+
+        "allOf": [
+          {
+            "if": {"required": ["compliance_control"], "properties": {"compliance_control": {"enum": ["SC.L2-3.13.1", "11.4.5", "SI.L2-3.14.6"]}}},
+            "then": {"required": ["compliance_flow"]},
+            "else": {"not": {"required": ["compliance_flow"]}}
+          },
+          {
+            "if": {"required": ["compliance_control"], "properties": {"compliance_control": {"enum": ["SC.L2-3.13.1", "11.4.5"]}}},
+            "then": {"properties": {"compliance_flow": {"required": ["policy_slot"]}}},
+            "else": {"properties": {"compliance_flow": {"not": {"required": ["policy_slot"]}}}}
+          }
+        ],
         "oneOf": [
           {
             "required": [
@@ -19949,6 +20022,9 @@
                 }
               }
             }
+          },
+          "compliance_bindings": {
+            "$ref": "#/components/schemas/ComplianceFlowManifestBindings"
           },
           "agreement_bindings": {
             "type": "object",

@@ -50,6 +50,7 @@ type reportFlowInput struct {
 type reportFlowCapture struct {
 	Claims            []carrierSLAReportRequirement
 	ComplianceControl string
+	ComplianceFlow    *complianceFlowRequirements
 	controlCapture    *complianceControlCapture
 	claimCapture      *carrierSLAReportCapture
 	monthlyCapture    *clientReportCapture

@@ -20,6 +20,7 @@ import (
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/reporting"
@@ -69,6 +70,8 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 	ctx, cancel := context.WithTimeout(tenancy.WithTenant(r.Context(), tenant), budget.ExecutionLimit)
 	defer cancel()
 	actor := auth.PrincipalFrom(r.Context())
+	ctx, flush := scopedABACDenial(ctx)
+	defer flush(s)
 	capture, err := s.captureConfiguredReportSources(ctx, actor, definition, time.Now().UTC())
 	if err != nil {
 		return nil, err
@@ -239,6 +242,9 @@ func (s *Server) validateReportSourcePublication(ctx context.Context, sc tenancy
 	if capture == nil {
 		return apierror.Forbidden("report source capture is unavailable")
 	}
+	if capture.ComplianceFlow != nil {
+		return s.revalidateComplianceFlowScope(ctx, sc, actor, capture, true)
+	}
 	if capture.ComplianceControl != "" {
 		return s.revalidateReportFlowCaptureScope(ctx, sc, actor, capture)
 	}
@@ -304,7 +310,8 @@ func (s *Server) validateReportSourcePublication(ctx context.Context, sc tenancy
 
 func reportGenerationError(err error) error {
 	switch {
-	case errors.Is(err, store.ErrClientReportBudget), errors.Is(err, reporting.ErrBodyStageLimit), errors.Is(err, reporting.ErrCSVLimit), errors.Is(err, reporting.ErrPDFLimit), errors.Is(err, context.DeadlineExceeded):
+	case errors.Is(err, store.ErrClientReportBudget), errors.Is(err, reporting.ErrBodyStageLimit), errors.Is(err, reporting.ErrCSVLimit), errors.Is(err, reporting.ErrPDFLimit), errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, entity.ErrInterfaceRoleBudget), errors.Is(err, store.ErrBGPRoutingBudget), errors.Is(err, flowstore.ErrExplorerBudget):
 		return apierror.RateLimited("complete report exceeds the current output or execution budget; increase the corresponding configured admission and retry").Wrap(err)
 	case errors.Is(err, flowsnapshot.ErrInvalidating):
 		return apierror.Conflict("report source lifecycle transition is incomplete; retry after completion").Wrap(err)
@@ -316,6 +323,9 @@ func reportGenerationError(err error) error {
 }
 
 func reportCaptureSourceCount(capture *reportFlowCapture) int {
+	if capture.ComplianceFlow != nil {
+		return len(capture.ComplianceFlow.Sources)
+	}
 	if capture.ComplianceControl != "" {
 		return 1
 	}

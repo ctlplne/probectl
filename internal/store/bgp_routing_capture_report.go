@@ -16,6 +16,13 @@ import (
 
 type routingReportPublicationKey struct{}
 
+// WithReportSourceAuditLock allows report checks to use the caller's write
+// transaction. The underlying readers verify the advisory lock on that
+// transaction's backend before any source metadata can be read.
+func WithReportSourceAuditLock(ctx context.Context, sc tenancy.Scope) context.Context {
+	return context.WithValue(ctx, routingReportPublicationKey{}, sc.Tenant.String())
+}
+
 // FlowCaptureQueryProjectionsForReportInScope reuses a report's existing tenant
 // transaction. Read-only inbox snapshots keep the ordinary snapshot guard.
 // Final publication/download may use read committed only while this backend
@@ -25,7 +32,7 @@ func (BGPRouting) FlowCaptureQueryProjectionsForReportInScope(ctx context.Contex
 	if err := requireRoutingReadSnapshot(ctx, sc); err == nil {
 		return readRoutingCaptureQueryBatchInScope(ctx, sc, reads, budget, authorize)
 	}
-	ctx = context.WithValue(ctx, routingReportPublicationKey{}, sc.Tenant.String())
+	ctx = WithReportSourceAuditLock(ctx, sc)
 	return readRoutingCaptureQueryBatchInScope(ctx, sc, reads, budget, authorize)
 }
 

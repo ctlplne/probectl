@@ -161,6 +161,8 @@ func (s *DashboardReportSupervisor) sendCurrentReportEmail(ctx context.Context, 
 		return apierror.Conflict("report changed during email verification")
 	}
 	allowed := false
+	ctx, flush := scopedABACDenial(ctx)
+	defer flush(server)
 	if err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		if err := audit.LockTenantStream(ctx, sc.Q, tenant.String()); err != nil {
 			return err
@@ -191,7 +193,7 @@ func (s *DashboardReportSupervisor) sendCurrentReportEmail(ctx context.Context, 
 			return err
 		}
 		if capture != nil {
-			if err := server.revalidateReportFlowCaptureScope(fresh, sc, principal, capture); err != nil {
+			if err := server.revalidateReportFlowCaptureScope(store.WithReportSourceAuditLock(fresh, sc), sc, principal, capture); err != nil {
 				return err
 			}
 		}

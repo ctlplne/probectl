@@ -193,6 +193,10 @@ func dashboardManifestToCreate(manifest dashboardManifest) (dashboardCreateReque
 }
 
 func dashboardManifestToCreateBound(manifest dashboardManifest, bindings map[string]reportFlowSourceRef, financial ...map[string]reporting.CarrierSLAReportAgreementBinding) (dashboardCreateRequest, error) {
+	return dashboardManifestToCreateWithSources(manifest, bindings, nil, financial...)
+}
+
+func dashboardManifestToCreateWithSources(manifest dashboardManifest, bindings map[string]reportFlowSourceRef, complianceBindings *reporting.ComplianceFlowManifestBindings, financial ...map[string]reporting.CarrierSLAReportAgreementBinding) (dashboardCreateRequest, error) {
 	if manifest.APIVersion != dashboardManifestVersion {
 		return dashboardCreateRequest{}, apierror.Validation(
 			"unsupported dashboard manifest api_version; expected " + dashboardManifestVersion,
@@ -212,6 +216,10 @@ func dashboardManifestToCreateBound(manifest dashboardManifest, bindings map[str
 	if err != nil {
 		return dashboardCreateRequest{}, err
 	}
+	complianceFlow, err := bindComplianceFlowManifest(manifest.Spec.Definition.ComplianceFlow, complianceBindings)
+	if err != nil {
+		return dashboardCreateRequest{}, err
+	}
 	metrics := make(map[string]string, len(manifest.Spec.Definition.Metrics))
 	for _, metric := range manifest.Spec.Definition.Metrics {
 		name := strings.TrimSpace(metric.Name)
@@ -227,6 +235,7 @@ func dashboardManifestToCreateBound(manifest dashboardManifest, bindings map[str
 		Definition: dashboardDefinition{
 			CarrierClaim:      claims,
 			ComplianceControl: manifest.Spec.Definition.ComplianceControl,
+			ComplianceFlow:    complianceFlow,
 			ClientReport:      manifest.Spec.Definition.ClientReport, FlowSources: refs,
 			AbsoluteFrom:        manifest.Spec.Definition.AbsoluteFrom,
 			AbsoluteTo:          manifest.Spec.Definition.AbsoluteTo,
@@ -258,6 +267,7 @@ func dashboardCreateToManifest(req dashboardCreateRequest) dashboardManifest {
 			Definition: dashboardManifestDefinition{
 				CarrierClaim:      portableCarrierSLAReportDefinition(req.Definition.CarrierClaim),
 				ComplianceControl: req.Definition.ComplianceControl,
+				ComplianceFlow:    portableComplianceFlowDefinition(req.Definition.ComplianceFlow),
 				ClientReport:      req.Definition.ClientReport, FlowSources: dashboardManifestSourceSlots(req.Definition.FlowSources),
 				AbsoluteFrom:        req.Definition.AbsoluteFrom,
 				AbsoluteTo:          req.Definition.AbsoluteTo,
@@ -310,6 +320,9 @@ func dashboardManifestPreviewFor(req dashboardCreateRequest) dashboardManifestPr
 	if req.Definition.CarrierClaim != nil {
 		sourceCount += len(req.Definition.CarrierClaim.Selections)
 	}
+	if req.Definition.ComplianceFlow != nil {
+		sourceCount += len(req.Definition.ComplianceFlow.Sources)
+	}
 	return dashboardManifestPreview{
 		Name:                    req.Name,
 		Preset:                  req.Preset,
@@ -343,6 +356,11 @@ func dashboardManifestFromView(view *store.DashboardView) (dashboardManifest, er
 			identities = append(identities, selection.AgreementID)
 		}
 	}
+	if clean.Definition.ComplianceFlow != nil {
+		for _, source := range clean.Definition.ComplianceFlow.Sources {
+			identities = append(identities, source.ContextID, source.EntityID)
+		}
+	}
 	clean, err = sanitizeDashboardCreate(clean, identities...)
 	if err != nil {
 		return dashboardManifest{}, err
@@ -351,6 +369,9 @@ func dashboardManifestFromView(view *store.DashboardView) (dashboardManifest, er
 }
 
 func (s *Server) handleCreateDashboard(w http.ResponseWriter, r *http.Request) error {
+	requestContext, flush := scopedABACDenial(r.Context())
+	defer flush(s)
+	r = r.WithContext(requestContext)
 	var req dashboardCreateRequest
 	if err := decodeJSON(r, &req); err != nil {
 		return err
@@ -378,10 +399,8 @@ func (s *Server) handleCreateDashboard(w http.ResponseWriter, r *http.Request) e
 		if err := s.validateDashboardCarrierClaimRefs(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.CarrierClaim); err != nil {
 			return tagQueryResponseError(w, err)
 		}
-		if clean.Definition.ComplianceControl != "" {
-			if err := s.authorizeComplianceControlScope(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.ComplianceControl); err != nil {
-				return err
-			}
+		if err := s.authorizeDashboardComplianceDefinition(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition); err != nil {
+			return err
 		}
 		created, err := (store.DashboardReports{}).CreateView(ctx, sc, store.DashboardViewInput{
 			ID: id, OwnerID: dashboardActorID(r), Name: clean.Name, Preset: clean.Preset,
@@ -405,12 +424,37 @@ func (s *Server) handleCreateDashboard(w http.ResponseWriter, r *http.Request) e
 	return nil
 }
 
+func (s *Server) readDashboardDefinitions(r *http.Request, read func(context.Context, tenancy.Scope) error) error {
+	actor := auth.PrincipalFrom(r.Context())
+	if actor == nil {
+		return apierror.Unauthorized("authentication required")
+	}
+	ctx := tenancy.WithTenant(r.Context(), tenancy.ID(actor.TenantID))
+	return tenancy.InTenantReadSnapshot(tenancy.WithSiloTableLock(ctx), s.pool, read)
+}
+
 func (s *Server) handleListDashboards(w http.ResponseWriter, r *http.Request) error {
+	requestContext, flush := scopedABACDenial(r.Context())
+	defer flush(s)
+	r = r.WithContext(requestContext)
 	var items []store.DashboardView
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		var err error
-		items, err = (store.DashboardReports{}).ListViews(ctx, sc, dashboardActorID(r))
-		return err
+	if err := s.readDashboardDefinitions(r, func(ctx context.Context, sc tenancy.Scope) error {
+		all, err := (store.DashboardReports{}).ListViews(ctx, sc, dashboardActorID(r))
+		if err != nil {
+			return err
+		}
+		items = all[:0]
+		for _, view := range all {
+			err := s.authorizeSavedComplianceFlowDefinition(ctx, sc, auth.PrincipalFrom(r.Context()), view.Definition)
+			if failure, ok := apierror.As(err); ok && (failure.Kind == apierror.KindForbidden || failure.Kind == apierror.KindNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			items = append(items, view)
+		}
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -419,11 +463,17 @@ func (s *Server) handleListDashboards(w http.ResponseWriter, r *http.Request) er
 }
 
 func (s *Server) handleGetDashboard(w http.ResponseWriter, r *http.Request) error {
+	requestContext, flush := scopedABACDenial(r.Context())
+	defer flush(s)
+	r = r.WithContext(requestContext)
 	var view *store.DashboardView
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+	if err := s.readDashboardDefinitions(r, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
 		view, err = (store.DashboardReports{}).GetView(ctx, sc, r.PathValue("id"), dashboardActorID(r))
-		return err
+		if err != nil {
+			return err
+		}
+		return s.authorizeSavedComplianceFlowDefinition(ctx, sc, auth.PrincipalFrom(r.Context()), view.Definition)
 	}); err != nil {
 		return err
 	}
@@ -432,10 +482,19 @@ func (s *Server) handleGetDashboard(w http.ResponseWriter, r *http.Request) erro
 }
 
 func (s *Server) handleExportDashboardManifest(w http.ResponseWriter, r *http.Request) error {
+	requestContext, flush := scopedABACDenial(r.Context())
+	defer flush(s)
+	r = r.WithContext(requestContext)
 	var manifest dashboardManifest
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
+			return err
+		}
 		view, err := (store.DashboardReports{}).GetView(ctx, sc, r.PathValue("id"), dashboardActorID(r))
 		if err != nil {
+			return err
+		}
+		if err := s.authorizeSavedComplianceFlowDefinition(ctx, sc, auth.PrincipalFrom(r.Context()), view.Definition); err != nil {
 			return err
 		}
 		manifest, err = dashboardManifestFromView(view)
@@ -456,11 +515,14 @@ func (s *Server) handleExportDashboardManifest(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handleImportDashboardManifest(w http.ResponseWriter, r *http.Request) error {
+	requestContext, flush := scopedABACDenial(r.Context())
+	defer flush(s)
+	r = r.WithContext(requestContext)
 	var body dashboardManifestImportRequest
 	if err := decodeJSONLimit(r, maxDashboardManifestBytes, &body); err != nil {
 		return err
 	}
-	clean, err := dashboardManifestToCreateBound(body.Manifest, body.SourceBindings, body.AgreementBindings)
+	clean, err := dashboardManifestToCreateWithSources(body.Manifest, body.SourceBindings, body.ComplianceBindings, body.AgreementBindings)
 	if err != nil {
 		return err
 	}
@@ -476,10 +538,8 @@ func (s *Server) handleImportDashboardManifest(w http.ResponseWriter, r *http.Re
 		if err := s.validateDashboardCarrierClaimRefs(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.CarrierClaim); err != nil {
 			return tagQueryResponseError(w, err)
 		}
-		if clean.Definition.ComplianceControl != "" {
-			if err := s.authorizeComplianceControlScope(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition.ComplianceControl); err != nil {
-				return err
-			}
+		if err := s.authorizeDashboardComplianceDefinition(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition); err != nil {
+			return err
 		}
 		sanitized, err := sanitizeDashboardCreate(clean, sc.Tenant.String(), dashboardActorID(r))
 		if err != nil {
@@ -556,6 +616,9 @@ func cleanSchedule(req reportScheduleCreateRequest) (reportScheduleCreateRequest
 }
 
 func (s *Server) handleCreateReportSchedule(w http.ResponseWriter, r *http.Request) error {
+	requestContext, flush := scopedABACDenial(r.Context())
+	defer flush(s)
+	r = r.WithContext(requestContext)
 	var req reportScheduleCreateRequest
 	if err := decodeJSON(r, &req); err != nil {
 		return err
@@ -620,6 +683,9 @@ func (s *Server) handleCreateReportSchedule(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleUpdateReportSchedule(w http.ResponseWriter, r *http.Request) error {
+	requestContext, flush := scopedABACDenial(r.Context())
+	defer flush(s)
+	r = r.WithContext(requestContext)
 	var req struct {
 		DestinationID          *string `json:"destination_id"`
 		Enabled                *bool   `json:"enabled"`

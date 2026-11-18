@@ -337,7 +337,7 @@
       ],
       "name": "Segmentation validation and audit evidence",
       "status": "partial",
-      "evidence": "`internal/compliance`; scheduled CMMC Level 2 AU.L2-3.3.1 retained audit-chain evidence through the existing signed report pipeline"
+      "evidence": "`internal/compliance`; scheduled signed audit-chain, boundary segmentation and network monitoring evidence through the existing tenant report pipeline"
     },
     {
       "ids": [

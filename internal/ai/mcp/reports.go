@@ -165,6 +165,7 @@ func reportTool[A, R any](name, description string, schema json.RawMessage, writ
 func reportArgumentMap(typ reflect.Type) bool {
 	return typ == reflect.TypeFor[map[string]reporting.FlowSourceRef]() ||
 		typ == reflect.TypeFor[map[string]reporting.CarrierSLAReportAgreementBinding]() ||
+		typ == reflect.TypeFor[map[string]reporting.ComplianceFlowSource]() ||
 		typ == reflect.TypeFor[map[string]string]()
 }
 

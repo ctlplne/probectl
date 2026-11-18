@@ -13,6 +13,7 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/compliance"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -25,8 +26,11 @@ func reportBackgroundSourcePermissions() []string {
 }
 
 func reportPermissionsForSource(control string) []string {
-	if control != "" {
+	switch compliance.ControlEvidenceSection(control) {
+	case compliance.SectionAuditChain:
 		return []string{"metrics.read", permAuditRead}
+	case compliance.SectionSegmentation, compliance.SectionNetworkMonitoring:
+		return []string{"metrics.read", permAuditRead, permFlowRead, "entities.read"}
 	}
 	return reportBackgroundSourcePermissions()
 }
@@ -42,6 +46,8 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	defer cancel()
+	ctx, flush := scopedABACDenial(ctx)
+	defer flush(server)
 	current, err := loadCurrentUserAuthority(ctx, s.pool, item.Schedule.TenantID, item.Schedule.OwnerID)
 	if err != nil {
 		return false, err

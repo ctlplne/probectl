@@ -69,6 +69,9 @@ func ParsePolicy(raw []byte) (Policy, error) {
 	if err := dec.Decode(&p); err != nil {
 		return Policy{}, fmt.Errorf("compliance: parse policy: %w", err)
 	}
+	if err := dec.Decode(new(any)); err != io.EOF {
+		return Policy{}, fmt.Errorf("compliance: expected exactly one policy document")
+	}
 	if p.Name == "" {
 		return Policy{}, fmt.Errorf("compliance: policy name is required")
 	}

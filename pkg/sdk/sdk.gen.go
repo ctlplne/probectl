@@ -1120,6 +1120,31 @@ type CollectorRegistration struct {
 	TenantId     string              `json:"tenant_id"`
 }
 
+type ComplianceFlowDefinition struct {
+	Lookback string                 `json:"lookback"`
+	Policy   string                 `json:"policy,omitempty"`
+	Sources  []ComplianceFlowSource `json:"sources"`
+}
+
+// Explicit and complete destination-tenant bindings for each declared measurement point and policy slot.
+type ComplianceFlowManifestBindings struct {
+	Policy  string                          `json:"policy,omitempty"`
+	Sources map[string]ComplianceFlowSource `json:"sources"`
+}
+
+// Portable observations configuration with slots for destination measurement points and, where required, the destination segmentation policy.
+type ComplianceFlowManifestDefinition struct {
+	Lookback    string   `json:"lookback"`
+	PolicySlot  string   `json:"policy_slot,omitempty"`
+	SourceSlots []string `json:"source_slots"`
+}
+
+// Current canonical tenant routing context and device or interface identity.
+type ComplianceFlowSource struct {
+	ContextId string `json:"context_id"`
+	EntityId  string `json:"entity_id"`
+}
+
 // Content-free reference to the exact redacted device config snapshots behind a projected drift event.
 type ConfigChangeReference struct {
 	Binding         *DeviceConfigArchiveBinding `json:"binding,omitempty"`
@@ -1240,13 +1265,14 @@ type DashboardCreateRequest struct {
 	Shared     bool                `json:"shared"`
 }
 
-// Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects signed audit coverage for AU.L2-3.3.1. Omit other sources, caller bounds and metrics.
+// Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects offline signed audit-chain, boundary or monitoring evidence. Omit other sources, caller bounds and metrics. Current audit.read is required. Flow-backed controls also require current flow.read and entities.read for each selected context and measurement point.
 type DashboardDefinition struct {
 	AbsoluteFrom        string                      `json:"absolute_from,omitempty"`
 	AbsoluteTo          string                      `json:"absolute_to,omitempty"`
 	CarrierClaim        *CarrierSLAReportDefinition `json:"carrier_claim,omitempty"`
 	ClientReport        *ClientReportDefinition     `json:"client_report,omitempty"`
 	ComplianceControl   string                      `json:"compliance_control,omitempty"`
+	ComplianceFlow      ComplianceFlowDefinition    `json:"compliance_flow,omitempty"`
 	CoverageLimitations []string                    `json:"coverage_limitations"`
 	FlowSources         []map[string]any            `json:"flow_sources,omitempty"`
 	Metrics             map[string]string           `json:"metrics,omitempty"`
@@ -1261,13 +1287,14 @@ type DashboardManifest struct {
 	Spec       DashboardManifestSpec     `json:"spec"`
 }
 
-// Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects signed audit coverage for AU.L2-3.3.1. Omit other sources, caller bounds and metrics.
+// Portable exact metrics or ordered source slots. Source slots carry no tenant, user or saved-query identities; imports require explicit current destination bindings. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects offline signed audit-chain, boundary or monitoring evidence. Omit other sources, caller bounds and metrics. Current audit.read is required. Flow-backed controls also require current flow.read and entities.read for each selected context and measurement point.
 type DashboardManifestDefinition struct {
 	AbsoluteFrom        string                              `json:"absolute_from,omitempty"`
 	AbsoluteTo          string                              `json:"absolute_to,omitempty"`
 	CarrierClaim        *CarrierSLAReportManifestDefinition `json:"carrier_claim,omitempty"`
 	ClientReport        *ClientReportDefinition             `json:"client_report,omitempty"`
 	ComplianceControl   string                              `json:"compliance_control,omitempty"`
+	ComplianceFlow      ComplianceFlowManifestDefinition    `json:"compliance_flow,omitempty"`
 	CoverageLimitations []string                            `json:"coverage_limitations"`
 	FlowSources         []map[string]any                    `json:"flow_sources,omitempty"`
 	Metrics             []DashboardManifestMetric           `json:"metrics"`
@@ -1276,10 +1303,11 @@ type DashboardManifestDefinition struct {
 }
 
 type DashboardManifestImportRequest struct {
-	AgreementBindings map[string]CarrierSLAReportAgreementBinding `json:"agreement_bindings,omitempty"`
-	Confirm           bool                                        `json:"confirm"`
-	Manifest          DashboardManifest                           `json:"manifest"`
-	SourceBindings    map[string]map[string]any                   `json:"source_bindings,omitempty"`
+	AgreementBindings  map[string]CarrierSLAReportAgreementBinding `json:"agreement_bindings,omitempty"`
+	ComplianceBindings ComplianceFlowManifestBindings              `json:"compliance_bindings,omitempty"`
+	Confirm            bool                                        `json:"confirm"`
+	Manifest           DashboardManifest                           `json:"manifest"`
+	SourceBindings     map[string]map[string]any                   `json:"source_bindings,omitempty"`
 }
 
 type DashboardManifestImportResponse struct {

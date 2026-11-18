@@ -212,6 +212,8 @@ func (b mcpReportBackend) ReportArtifactLink(ctx context.Context, p *auth.Princi
 		return result, tagQueryAdmissionError(err)
 	}
 	defer release()
+	ctx, flush := scopedABACDenial(ctx)
+	defer flush(b.server)
 	var metadata *store.ReportArtifactMetadata
 	err = tenancy.InTenantReadSnapshot(tenancy.WithSiloTableLock(ctx), b.server.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error

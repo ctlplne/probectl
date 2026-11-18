@@ -45,7 +45,7 @@ func (s *Server) captureConfiguredReportSources(ctx context.Context, actor *auth
 		if err != nil {
 			return nil, err
 		}
-		return s.captureComplianceControlReport(ctx, actor, definition.ComplianceControl, budget)
+		return s.captureComplianceControlReport(ctx, actor, definition, budget)
 	}
 	if definition.CarrierClaim != nil {
 		return s.captureCarrierSLAReport(ctx, actor, *definition.CarrierClaim, at)

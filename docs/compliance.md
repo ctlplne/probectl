@@ -250,6 +250,37 @@ operator fingerprint. The same dashboard definition, schedule and report
 inbox are available through REST, `probectl dashboard` and `dashboard-report`,
 and the native report tools.
 
+### Scheduled boundary and network monitoring evidence
+
+Select **Build flow control evidence** under **Dashboards → Saved views and
+report delivery**. Choose one control and enter the canonical device or
+interface IDs with their routing context IDs. Set an observation lookback such
+as `24h`. Supply segmentation policy YAML for boundary evidence. Its
+documented zones and rules define what the report measures.
+
+| Control | Evidence collected |
+| --- | --- |
+| CMMC Level 2 `SC.L2-3.13.1` | Traffic evaluated against declared boundary rules |
+| CMMC Level 2 `SI.L2-3.14.6` | Network monitoring coverage from selected flow sources |
+| PCI DSS v4.0.1 `11.4.5` | Supporting flow evidence for declared segmentation rules |
+
+Each run records its exact observation window. The report counts retained
+flows and identifies how many were backed by still-verifiable original
+source receipts. An attested flow supports a measured result for its zone
+pair. Quiet zone pairs and unavailable originals leave coverage gaps.
+A finding shows traffic that violated a declared rule. The assessor uses
+this evidence alongside required procedures such as PCI DSS segmentation
+penetration testing.
+
+Tenant scheduling, PDF/CSV extraction and independent offline verification use
+the same process as the audit report above. Flow packs require current
+`audit.read`, `flow.read` and `entities.read` for the selected measurement
+points in addition to report access. Availability of prior receipts also
+depends on their retained source evidence. Portable manifests export slots
+for destination measurement points and policy. Bind each slot explicitly
+using the web import form, `probectl dashboard import --compliance-bindings-file`,
+REST or the native report tools.
+
 ### Framework mappings are an interpretation
 
 Each section declares which **requirement area** it speaks to under NIS2, DORA

@@ -64,6 +64,8 @@ func (s *Server) listCurrentReportArtifactMetadata(w http.ResponseWriter, r *htt
 	remaining := budget.MemoryBytes
 	responseBytes := int64(32)
 	var lastVisible store.ReportArtifactPosition
+	ctx, flush := scopedABACDenial(ctx)
+	defer flush(s)
 	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		for {
 			headers, charged, err := (store.DashboardReports{}).ListArtifactHeaderBatch(ctx, sc, dashboardActorID(r), position, remaining)

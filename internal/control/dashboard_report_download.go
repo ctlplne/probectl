@@ -192,7 +192,9 @@ func sameReportArtifactMetadata(left, right *store.ReportArtifactMetadata) bool 
 }
 
 func (s *Server) auditVerifiedReportDownload(r *http.Request, actor *auth.Principal, verified *store.ReportArtifactMetadata, capture *reportFlowCapture) error {
-	return s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+	ctx, flush := scopedABACDenial(r.Context())
+	defer flush(s)
+	return s.inTenant(r.WithContext(ctx), func(ctx context.Context, sc tenancy.Scope) error {
 		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
 			return err
 		}
@@ -204,7 +206,7 @@ func (s *Server) auditVerifiedReportDownload(r *http.Request, actor *auth.Princi
 			return apierror.Conflict("report artifact changed during verification; retry")
 		}
 		if capture != nil {
-			if err := s.revalidateReportFlowCaptureScope(ctx, sc, actor, capture); err != nil {
+			if err := s.revalidateReportFlowCaptureScope(store.WithReportSourceAuditLock(ctx, sc), sc, actor, capture); err != nil {
 				return err
 			}
 		}

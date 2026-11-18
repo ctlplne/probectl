@@ -34,11 +34,23 @@ func TestReportArtifactSourceCaptureVersionsStayTenantBound(t *testing.T) {
 	if err := reportArtifactSourceCapture("20000000-0000-4000-8000-000000000002", control); !errors.Is(err, ErrReportArtifactIntegrity) {
 		t.Fatalf("control evidence receipt crossed the tenant boundary: %v", err)
 	}
+	for _, reference := range []string{"SC.L2-3.13.1", "SI.L2-3.14.6", "11.4.5"} {
+		flow := json.RawMessage(fmt.Sprintf(`{"version":7,"tenant_id":%q,"compliance_control":%q,"compliance_flow":{"sources":[],"originals":[]}}`, tenant, reference))
+		if err := reportArtifactSourceCapture(tenant, flow); err != nil {
+			t.Fatalf("current flow control receipt refused for %s: %v", reference, err)
+		}
+		if err := reportArtifactSourceCapture("20000000-0000-4000-8000-000000000002", flow); !errors.Is(err, ErrReportArtifactIntegrity) {
+			t.Fatalf("flow control receipt crossed scope for %s: %v", reference, err)
+		}
+	}
 	for _, raw := range []string{`null`, `{}`, `{"version":0}`, `{"version":6}`, `{"version":"2"}`, `[]`, `{`,
 		fmt.Sprintf(`{"version":2,"tenant_id":%q} {}`, tenant),
 		fmt.Sprintf(`{"version":6,"tenant_id":%q}`, tenant),
 		fmt.Sprintf(`{"version":6,"tenant_id":%q,"compliance_control":"unknown"}`, tenant),
 		fmt.Sprintf(`{"version":5,"tenant_id":%q,"compliance_control":"AU.L2-3.3.1"}`, tenant),
+		fmt.Sprintf(`{"version":7,"tenant_id":%q,"compliance_control":"SC.L2-3.13.1"}`, tenant),
+		fmt.Sprintf(`{"version":7,"tenant_id":%q,"compliance_control":"AU.L2-3.3.1","compliance_flow":{}}`, tenant),
+		fmt.Sprintf(`{"version":7,"tenant_id":%q,"compliance_control":"11.4.5","compliance_flow":null}`, tenant),
 		fmt.Sprintf(`{"version":0,"tenant_id":%q}`, tenant)} {
 		if err := reportArtifactSourceCapture(tenant, json.RawMessage(raw)); !errors.Is(err, ErrReportArtifactIntegrity) {
 			t.Fatalf("invalid report receipt accepted: %s: %v", raw, err)

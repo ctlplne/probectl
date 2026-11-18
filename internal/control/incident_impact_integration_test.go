@@ -92,7 +92,7 @@ func seedIncidentImpactFlowFixture(t *testing.T) (*roleExplanationAPIFixture, ma
 			t.Fatal(err)
 		}
 		if err := flows.Insert(t.Context(), []flowstore.Row{{TenantID: tenant, AgentID: agent, Exporter: exporter, Protocol: "ipfix", ObsDomain: ^uint32(0), TS: ref.CapturedAt, StartTS: ref.CapturedAt,
-			SrcAddr: "203.0.113.1", DstAddr: "203.0.113.2", InIf: 7, OutIf: 7, Bytes: uint64(100 + lane), Packets: 7, Sampling: 3, RawFlowDigest: hex.EncodeToString(raw[:]), RoutingCaptureKey: hex.EncodeToString(ref.Key[:]), RoutingCapturedUnixNanos: ref.CapturedAt.UnixNano()}}); err != nil {
+			SrcAddr: "203.0.113.1", DstAddr: "203.0.113.2", DstPort: uint16(443 + lane), InIf: 7, OutIf: 7, Bytes: uint64(100 + lane), Packets: 7, Sampling: 3, RawFlowDigest: hex.EncodeToString(raw[:]), RoutingCaptureKey: hex.EncodeToString(ref.Key[:]), RoutingCapturedUnixNanos: ref.CapturedAt.UnixNano()}}); err != nil {
 			t.Fatal(err)
 		}
 	}

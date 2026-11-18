@@ -13,6 +13,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/ctlplne/probectl/internal/compliance"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -100,17 +101,31 @@ func reportArtifactSourceCapture(tenant string, capture json.RawMessage) error {
 		return ErrReportArtifactIntegrity
 	}
 	var envelope struct {
-		Version           int    `json:"version"`
-		TenantID          string `json:"tenant_id"`
-		ComplianceControl string `json:"compliance_control"`
+		Version           int             `json:"version"`
+		TenantID          string          `json:"tenant_id"`
+		ComplianceControl string          `json:"compliance_control"`
+		ComplianceFlow    json.RawMessage `json:"compliance_flow"`
 	}
-	if err := json.Unmarshal(capture, &envelope); err != nil || envelope.Version < 1 || envelope.Version > 6 || envelope.TenantID != tenant {
+	if err := json.Unmarshal(capture, &envelope); err != nil || envelope.Version < 1 || envelope.Version > 7 || envelope.TenantID != tenant {
 		return ErrReportArtifactIntegrity
 	}
-	if envelope.Version == 6 && envelope.ComplianceControl != "AU.L2-3.3.1" || envelope.Version != 6 && envelope.ComplianceControl != "" {
-		return ErrReportArtifactIntegrity
+	switch envelope.Version {
+	case 6:
+		if envelope.ComplianceControl == compliance.CMMCAuditControl && len(envelope.ComplianceFlow) == 0 {
+			return nil
+		}
+	case 7:
+		section := compliance.ControlEvidenceSection(envelope.ComplianceControl)
+		if (section == compliance.SectionSegmentation || section == compliance.SectionNetworkMonitoring) &&
+			len(envelope.ComplianceFlow) > 0 && envelope.ComplianceFlow[0] == '{' {
+			return nil
+		}
+	default:
+		if envelope.ComplianceControl == "" && len(envelope.ComplianceFlow) == 0 {
+			return nil
+		}
 	}
-	return nil
+	return ErrReportArtifactIntegrity
 }
 
 // CreateChunkedArtifact consumes a sealed tenant-owned stage. Its caller must

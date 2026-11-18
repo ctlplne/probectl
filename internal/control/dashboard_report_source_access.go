@@ -49,6 +49,8 @@ func (s *Server) revalidateReportFlowCapture(ctx context.Context, actor *auth.Pr
 	if status != "active" {
 		return apierror.Forbidden("current metadata tenant is inactive")
 	}
+	ctx, flush := scopedABACDenial(ctx)
+	defer flush(s)
 	return tenancy.InTenantReadSnapshot(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		return s.revalidateReportFlowCaptureScope(ctx, sc, actor, capture)
 	})
@@ -61,6 +63,9 @@ func (s *Server) revalidateReportFlowCaptureScope(ctx context.Context, sc tenanc
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || sc.Q == nil || bound != sc.Tenant || actor == nil || capture == nil || actor.UserID == "" || actor.TenantID != capture.TenantID || bound.String() != capture.TenantID {
 		return apierror.Forbidden("report source reader scope is unavailable")
+	}
+	if capture.ComplianceFlow != nil {
+		return s.revalidateComplianceFlowScope(ctx, sc, actor, capture, false)
 	}
 	if capture.ComplianceControl != "" {
 		return s.authorizeComplianceControlScope(ctx, sc, actor, capture.ComplianceControl)

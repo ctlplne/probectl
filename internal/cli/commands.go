@@ -362,6 +362,7 @@ func dashboardImport(cfg Config, args []string, stdin io.Reader, stdout, stderr 
 	confirm := fs.Bool("confirm", false, "create the dashboard after server validation; otherwise preview only")
 	bindingsFile := fs.String("source-bindings-file", "", "destination source slot bindings JSON file (never stdin)")
 	financialFile := fs.String("agreement-bindings-file", "", "destination recorded agreement slot bindings JSON file (never stdin)")
+	complianceFile := fs.String("compliance-bindings-file", "", "destination measurement points and policy bindings JSON file (never stdin)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -376,7 +377,7 @@ func dashboardImport(cfg Config, args []string, stdin io.Reader, stdout, stderr 
 		return 2
 	}
 	payload := map[string]any{"manifest": json.RawMessage(manifest), "confirm": *confirm}
-	for _, bindingFile := range []struct{ path, key string }{{*bindingsFile, "source_bindings"}, {*financialFile, "agreement_bindings"}} {
+	for _, bindingFile := range []struct{ path, key string }{{*bindingsFile, "source_bindings"}, {*financialFile, "agreement_bindings"}, {*complianceFile, "compliance_bindings"}} {
 		if bindingFile.path == "" {
 			continue
 		}

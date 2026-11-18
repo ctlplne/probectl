@@ -194,20 +194,37 @@ func (s *EntityRegistry) GetEntity(ctx context.Context, scope entity.Scope, id s
 	if err != nil {
 		return entity.Record{}, err
 	}
+	var record entity.Record
+	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		record, err = s.GetEntityInScope(ctx, sc, want, id)
+		return err
+	})
+	return record, err
+}
+
+// GetEntityInScope reads a single identity in its canonical context using
+// a caller-owned tenant transaction.
+func (s *EntityRegistry) GetEntityInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, id string) (entity.Record, error) {
+	want, err := scope.Normalize()
+	tenant, bound := tenancy.FromContext(ctx)
+	if err != nil {
+		return entity.Record{}, err
+	}
+	if !bound || sc.Tenant != tenant || want.TenantID != tenant.String() || sc.Q == nil {
+		return entity.Record{}, entity.ErrScopeMismatch
+	}
 	parsed, err := uuid.Parse(id)
 	if err != nil || parsed == uuid.Nil {
 		return entity.Record{}, entity.ErrInvalidClaim
 	}
 	var record entity.Record
 	var kind string
-	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		return sc.Q.QueryRow(ctx, `
+	err = sc.Q.QueryRow(ctx, `
 			SELECT id::text, kind, label, created_at, updated_at,COALESCE(network_prefix::text,'')
 			  FROM entities
 			 WHERE tenant_id=$1 AND context_id=$2 AND id=$3`,
-			want.TenantID, want.ContextID, parsed.String()).Scan(
-			&record.ID, &kind, &record.Label, &record.CreatedAt, &record.UpdatedAt, &record.NetworkPrefix)
-	})
+		want.TenantID, want.ContextID, parsed.String()).Scan(
+		&record.ID, &kind, &record.Label, &record.CreatedAt, &record.UpdatedAt, &record.NetworkPrefix)
 	if err != nil {
 		return entity.Record{}, err
 	}

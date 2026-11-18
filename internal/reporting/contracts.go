@@ -18,6 +18,7 @@ type FlowSourceRef struct {
 type DashboardDefinition struct {
 	CarrierClaim        *CarrierSLAReportDefinition `json:"carrier_claim,omitempty"`
 	ComplianceControl   string                      `json:"compliance_control,omitempty"`
+	ComplianceFlow      *ComplianceFlowDefinition   `json:"compliance_flow,omitempty"`
 	ClientReport        *ClientReportDefinition     `json:"client_report,omitempty"`
 	FlowSources         []FlowSourceRef             `json:"flow_sources,omitempty"`
 	AbsoluteFrom        time.Time                   `json:"absolute_from"`
@@ -26,6 +27,28 @@ type DashboardDefinition struct {
 	RedactionState      string                      `json:"redaction_state"`
 	CoverageLimitations []string                    `json:"coverage_limitations"`
 	Metrics             map[string]string           `json:"metrics"`
+}
+
+type ComplianceFlowSource struct {
+	ContextID string `json:"context_id"`
+	EntityID  string `json:"entity_id"`
+}
+
+type ComplianceFlowDefinition struct {
+	Lookback string                 `json:"lookback"`
+	Policy   string                 `json:"policy,omitempty"`
+	Sources  []ComplianceFlowSource `json:"sources"`
+}
+
+type ComplianceFlowManifestDefinition struct {
+	Lookback   string   `json:"lookback"`
+	Slots      []string `json:"source_slots"`
+	PolicySlot string   `json:"policy_slot,omitempty"`
+}
+
+type ComplianceFlowManifestBindings struct {
+	Sources map[string]ComplianceFlowSource `json:"sources"`
+	Policy  string                          `json:"policy,omitempty"`
 }
 
 func (d DashboardDefinition) HasSources() bool {
@@ -59,6 +82,7 @@ type DashboardManifestSpec struct {
 type DashboardManifestDefinition struct {
 	CarrierClaim        *CarrierSLAReportManifestDefinition `json:"carrier_claim,omitempty"`
 	ComplianceControl   string                              `json:"compliance_control,omitempty"`
+	ComplianceFlow      *ComplianceFlowManifestDefinition   `json:"compliance_flow,omitempty"`
 	ClientReport        *ClientReportDefinition             `json:"client_report,omitempty"`
 	FlowSources         []DashboardManifestFlowSource       `json:"flow_sources,omitempty"`
 	AbsoluteFrom        time.Time                           `json:"absolute_from"`
@@ -79,10 +103,11 @@ type DashboardManifestFlowSource struct {
 }
 
 type DashboardManifestImportInput struct {
-	AgreementBindings map[string]CarrierSLAReportAgreementBinding `json:"agreement_bindings,omitempty"`
-	SourceBindings    map[string]FlowSourceRef                    `json:"source_bindings,omitempty"`
-	Manifest          DashboardManifest                           `json:"manifest"`
-	Confirm           bool                                        `json:"confirm"`
+	AgreementBindings  map[string]CarrierSLAReportAgreementBinding `json:"agreement_bindings,omitempty"`
+	SourceBindings     map[string]FlowSourceRef                    `json:"source_bindings,omitempty"`
+	ComplianceBindings *ComplianceFlowManifestBindings             `json:"compliance_bindings,omitempty"`
+	Manifest           DashboardManifest                           `json:"manifest"`
+	Confirm            bool                                        `json:"confirm"`
 }
 
 type DashboardManifestPreview struct {

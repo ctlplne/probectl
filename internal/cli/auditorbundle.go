@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/compliance"
 )
@@ -103,7 +104,7 @@ func cmdVerifyBundle(cfg Config, args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "  built from      %s (%s)%s\n", m.Deployment.Version, m.Deployment.Commit,
 		fipsSuffix(m.Deployment.FIPSMode))
 	if m.Control != nil {
-		fmt.Fprintf(stdout, "  control         %s %s (assessment guide %s)\n", m.Control.Framework, m.Control.Reference, m.Control.GuideVersion)
+		printControlEvidenceScope(stdout, m.Control)
 	}
 	fmt.Fprintln(stdout, "  sections")
 	for _, s := range m.Sections {
@@ -123,6 +124,18 @@ func cmdVerifyBundle(cfg Config, args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 	return 0
+}
+
+func printControlEvidenceScope(stdout io.Writer, scope *compliance.ControlEvidenceScope) {
+	version := "assessment guide " + scope.GuideVersion
+	if scope.StandardVersion != "" {
+		version = "standard " + scope.StandardVersion
+	}
+	fmt.Fprintf(stdout, "  control         %s %s (%s)\n", scope.Framework, scope.Reference, version)
+	if scope.Window != nil {
+		fmt.Fprintf(stdout, "  observed from   %s\n", scope.Window.From.Format(time.RFC3339Nano))
+		fmt.Fprintf(stdout, "  observed until  %s (exclusive)\n", scope.Window.To.Format(time.RFC3339Nano))
+	}
 }
 
 func fipsSuffix(on bool) string {

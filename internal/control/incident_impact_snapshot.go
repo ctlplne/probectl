@@ -126,23 +126,8 @@ func (s *Server) loadIncidentImpactSnapshot(ctx context.Context, actor *auth.Pri
 		if len(reads) == 0 {
 			return nil
 		}
-		// Only server-selected incident sources can authorize an original
-		// receipt. A raw row cannot introduce another context/router.
-		authorizeOwner := func(ctx context.Context, record entity.ContextRecord, binding store.InterfaceRoleFlowBinding) error {
-			for _, source := range sources {
-				if source.Member.ContextID != record.ContextID {
-					continue
-				}
-				for _, selected := range source.Selections {
-					if selected.AgentID == binding.AgentID && selected.Exporter == binding.Exporter && selected.Protocol == binding.Protocol && selected.Domain == binding.Domain {
-						return authorize(ctx, record, source.Member)
-					}
-				}
-			}
-			return entity.ErrScopeMismatch
-		}
 		owners, err := (store.CapturedFlowOwners{}).ReadInScope(ctx, sc, reads,
-			store.BGPRoutingBudget{MemoryBytes: budget.MemoryBytes / 2, WorkUnits: budget.MemoryBytes / 2, StateBytes: budget.MemoryBytes / 2}, authorizeOwner)
+			store.BGPRoutingBudget{MemoryBytes: budget.MemoryBytes / 2, WorkUnits: budget.MemoryBytes / 2, StateBytes: budget.MemoryBytes / 2}, selectedFlowOwnerAuthorization(sources, authorize))
 		if err != nil {
 			return err
 		}

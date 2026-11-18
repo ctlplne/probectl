@@ -11,8 +11,18 @@ import type {
   CarrierSLAReportDefinition,
   CarrierSLAReportManifestDefinition,
   CarrierSLAReportAgreementBinding,
+  ComplianceFlowDefinition,
+  ComplianceFlowManifestDefinition,
+  ComplianceFlowManifestBindings,
 } from './sdk.gen'
-export type { ClientReportDefinition, ClientReportCapacityTarget } from './sdk.gen'
+export type {
+  ClientReportDefinition,
+  ClientReportCapacityTarget,
+  ComplianceFlowDefinition,
+  ComplianceFlowManifestBindings,
+  ComplianceFlowManifestDefinition,
+  ComplianceFlowSource,
+} from './sdk.gen'
 
 export type DashboardPreset = 'operator' | 'executive'
 export type ReportFormat = 'pdf' | 'csv'
@@ -20,9 +30,18 @@ export type ReportCadence = 'daily' | 'weekly' | 'monthly'
 
 export const cmmcAuditControl = 'AU.L2-3.3.1'
 
+export const flowComplianceControls = [
+  { value: 'SC.L2-3.13.1', label: 'CMMC Level 2 SC.L2-3.13.1 · Boundary protection' },
+  { value: 'SI.L2-3.14.6', label: 'CMMC Level 2 SI.L2-3.14.6 · Network monitoring' },
+  { value: '11.4.5', label: 'PCI DSS 11.4.5 · Supporting segmentation evidence' },
+] as const
+
+export type FlowComplianceControl = (typeof flowComplianceControls)[number]['value']
+
 export interface DashboardDefinition {
   carrier_claim?: CarrierSLAReportDefinition | null
-  compliance_control?: typeof cmmcAuditControl
+  compliance_control?: typeof cmmcAuditControl | FlowComplianceControl
+  compliance_flow?: ComplianceFlowDefinition
   client_report?: ClientReportDefinition | null
   flow_sources?: Array<{ id: string; version: string }>
   absolute_from?: string
@@ -59,8 +78,12 @@ export interface DashboardManifest {
   spec: {
     preset: DashboardPreset
     shared: boolean
-    definition: Omit<DashboardDefinition, 'metrics' | 'flow_sources' | 'carrier_claim'> & {
+    definition: Omit<
+      DashboardDefinition,
+      'metrics' | 'flow_sources' | 'carrier_claim' | 'compliance_flow'
+    > & {
       carrier_claim?: CarrierSLAReportManifestDefinition
+      compliance_flow?: ComplianceFlowManifestDefinition
       metrics: Array<{ name: string; value: string }>
       flow_sources?: Array<{ slot: string }>
     }
@@ -160,9 +183,9 @@ function jsonInit(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
 
-export function useDashboards() {
+export function useDashboards(identity: string) {
   return useQuery({
-    queryKey: ['dashboards', 'saved'],
+    queryKey: ['dashboards', 'saved', identity],
     queryFn: () => apiFetch<DashboardList>('/dashboards'),
   })
 }
@@ -184,6 +207,7 @@ export function useImportDashboardManifest() {
       confirm: boolean
       source_bindings?: Record<string, { id: string; version: string }>
       agreement_bindings?: Record<string, CarrierSLAReportAgreementBinding>
+      compliance_bindings?: ComplianceFlowManifestBindings
     }) =>
       apiFetch<DashboardManifestImportResponse>(
         '/dashboard-manifests/import',

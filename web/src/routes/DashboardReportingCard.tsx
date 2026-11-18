@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   cmmcAuditControl,
+  flowComplianceControls,
   useCreateDashboard,
   useCreateReportSchedule,
   useDashboards,
@@ -18,6 +19,7 @@ import {
   useUpdateReportSchedule,
   type DashboardDefinition,
   type ClientReportDefinition,
+  type ComplianceFlowManifestBindings,
   type DashboardManifest,
   type DashboardManifestImportResponse,
   type DashboardPreset,
@@ -27,7 +29,25 @@ import {
 import { apiURL } from '../api/client'
 import { appPath } from '../lib/links'
 import { useAuth } from '../auth/useAuth'
-import { Badge, Button, Card, CardBody, CardHeader, Field, Select, useToast } from '../components'
+import {
+  Badge,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Field,
+  Select,
+  TextArea,
+  useToast,
+} from '../components'
+import { ComplianceFlowReportEditor, CompliancePointFields } from './ComplianceFlowReportEditor'
+import {
+  emptyCompliancePoint,
+  emptyFlowEvidence,
+  validCompliancePoint,
+  validFlowEvidence,
+  type FlowEvidenceDraft,
+} from './complianceFlowReportModel'
 import { DateTime } from '../time/DateTime'
 import { FlowViewLibrary } from './FlowViewLibrary'
 import { MonthlyClientReportEditor } from './MonthlyClientReportEditor'
@@ -56,6 +76,15 @@ export function DashboardReportingCard({
   const [complianceIdentity, setComplianceIdentity] = useState('')
   const canReadCompliance = permissions.includes('audit.read')
   const complianceMode = canReadCompliance && complianceIdentity === sourceIdentity
+  const canReadFlowEvidence =
+    canReadCompliance && permissions.includes('flow.read') && permissions.includes('entities.read')
+  const [flowEvidenceIdentity, setFlowEvidenceIdentity] = useState('')
+  const flowEvidenceMode = canReadFlowEvidence && flowEvidenceIdentity === sourceIdentity
+  const [flowDraft, setFlowDraft] = useState<{ identity: string; draft: FlowEvidenceDraft }>({
+    identity: sourceIdentity,
+    draft: emptyFlowEvidence(),
+  })
+  const flowEvidence = flowDraft.identity === sourceIdentity ? flowDraft.draft : emptyFlowEvidence()
   const [monthlyDraft, setMonthlyDraft] = useState<{
     identity: string
     value: ClientReportDefinition
@@ -90,7 +119,7 @@ export function DashboardReportingCard({
   }>({ identity: sourceIdentity, manifest: '', items: {} })
 
   const [searchParams, setSearchParams] = useSearchParams()
-  const dashboards = useDashboards()
+  const dashboards = useDashboards(sourceIdentity)
   const schedules = useReportSchedules()
   const [artifactPaging, setArtifactPaging] = useState({
     identity: sourceIdentity,
@@ -115,6 +144,42 @@ export function DashboardReportingCard({
   const [cadence, setCadence] = useState<ReportCadence>('weekly')
   const [manifestText, setManifestText] = useState('')
   const [manifestPreview, setManifestPreview] = useState<DashboardManifestImportResponse>()
+  const [complianceBindingsDraft, setComplianceBindingsDraft] = useState<{
+    identity: string
+    manifest: string
+    value: ComplianceFlowManifestBindings
+  }>({ identity: sourceIdentity, manifest: '', value: { sources: {} } })
+  const portableFlow = useMemo(() => {
+    try {
+      const parsed = JSON.parse(manifestText) as {
+        spec?: { definition?: { compliance_flow?: unknown } }
+      } | null
+      const flow = parsed?.spec?.definition?.compliance_flow
+      if (
+        flow &&
+        typeof flow === 'object' &&
+        'source_slots' in flow &&
+        Array.isArray(flow.source_slots) &&
+        flow.source_slots.length <= 1024 &&
+        flow.source_slots.every((slot: unknown) => typeof slot === 'string' && slot.length > 0)
+      ) {
+        return { slots: flow.source_slots as string[], policy: 'policy_slot' in flow }
+      }
+    } catch {
+      // The import mutation surfaces parse and schema errors to the user.
+    }
+    return undefined
+  }, [manifestText])
+  const complianceBindings =
+    complianceBindingsDraft.identity === sourceIdentity &&
+    complianceBindingsDraft.manifest === manifestText
+      ? complianceBindingsDraft.value
+      : { sources: {} }
+  const missingComplianceBindings =
+    portableFlow &&
+    (!canReadFlowEvidence ||
+      portableFlow.slots.some((slot) => !validCompliancePoint(complianceBindings.sources[slot])) ||
+      (portableFlow.policy && !complianceBindings.policy?.trim()))
   const [nativeSlot, setNativeSlot] = useState('')
   const [bindingDraft, setBindingDraft] = useState<{
     identity: string
@@ -191,7 +256,10 @@ export function DashboardReportingCard({
   const requestedView = views.find((view) => view.id === requestedID)
   const activeID = selectedID || (requestedID ? (requestedView?.id ?? '') : (views[0]?.id ?? ''))
   const activeView = views.find((view) => view.id === activeID)
-  const canGenerateSelection = !activeView?.definition.compliance_control || canReadCompliance
+  const control = activeView?.definition.compliance_control
+  const canGenerateSelection =
+    activeView &&
+    (!control || (control === cmmcAuditControl ? canReadCompliance : canReadFlowEvidence))
   const allowProvider =
     providerConsent.identity === sourceIdentity && providerConsent.view === activeID
       ? providerConsent.allowed
@@ -230,20 +298,32 @@ export function DashboardReportingCard({
             redaction_state: 'Retained sequence counts and bounds',
             coverage_limitations: ['Audit evidence from the retained probectl tenant stream'],
           }
-        : monthlyMode
+        : flowEvidenceMode
           ? {
-              ...disclosures,
-              client_report: monthlyDefinition,
-              ...(sourceMode && monthlyDefinition.assessment
-                ? { flow_sources: sourceItems.map(({ id, version }) => ({ id, version })) }
-                : {}),
+              compliance_control: flowEvidence.control,
+              compliance_flow: {
+                ...flowEvidence.value,
+                policy:
+                  flowEvidence.control === 'SI.L2-3.14.6' ? undefined : flowEvidence.value.policy,
+              },
+              provenance: ['Original tenant flow capture records'],
+              redaction_state: 'Selected network flows and coverage',
+              coverage_limitations: ['Measured coverage for the selected sources and interval'],
             }
-          : sourceMode
+          : monthlyMode
             ? {
                 ...disclosures,
-                flow_sources: sourceItems.map(({ id, version }) => ({ id, version })),
+                client_report: monthlyDefinition,
+                ...(sourceMode && monthlyDefinition.assessment
+                  ? { flow_sources: sourceItems.map(({ id, version }) => ({ id, version })) }
+                  : {}),
               }
-            : definition
+            : sourceMode
+              ? {
+                  ...disclosures,
+                  flow_sources: sourceItems.map(({ id, version }) => ({ id, version })),
+                }
+              : definition
       const view = await createDashboard.mutateAsync({
         name,
         preset,
@@ -346,11 +426,28 @@ export function DashboardReportingCard({
         confirm: false,
         source_bindings: sourceBindingsInput,
         agreement_bindings: agreementBindingsInput,
+        compliance_bindings: portableFlow ? complianceBindings : undefined,
       })
       setManifestPreview(result)
       const normalized = JSON.stringify(result.manifest, null, 2)
       setManifestText(normalized)
       setBindingDraft({ identity: sourceIdentity, manifest: normalized, items: nativeBindings })
+      const normalizedSlots = result.manifest.spec.definition.compliance_flow?.source_slots
+      if (portableFlow && normalizedSlots) {
+        setComplianceBindingsDraft({
+          identity: sourceIdentity,
+          manifest: normalized,
+          value: {
+            ...complianceBindings,
+            sources: Object.fromEntries(
+              normalizedSlots.map((slot, i) => [
+                slot,
+                complianceBindings.sources[portableFlow.slots[i]],
+              ]),
+            ),
+          },
+        })
+      }
       setFinancialDraft({
         identity: sourceIdentity,
         manifest: normalized,
@@ -375,6 +472,7 @@ export function DashboardReportingCard({
         confirm: true,
         source_bindings: sourceBindingsInput,
         agreement_bindings: agreementBindingsInput,
+        compliance_bindings: portableFlow ? complianceBindings : undefined,
       })
       if (!result.dashboard) throw new Error('The server did not return the created dashboard.')
       setManifestPreview(undefined)
@@ -423,6 +521,7 @@ export function DashboardReportingCard({
                     setMonthlyMode(event.target.checked)
                     if (event.target.checked) {
                       setComplianceIdentity('')
+                      setFlowEvidenceIdentity('')
                       setSourceMode(false)
                       setCadence('monthly')
                     }
@@ -455,6 +554,7 @@ export function DashboardReportingCard({
                 onChange={(event) => {
                   setComplianceIdentity(event.target.checked ? sourceIdentity : '')
                   if (event.target.checked) {
+                    setFlowEvidenceIdentity('')
                     setMonthlyMode(false)
                     setSourceMode(false)
                   }
@@ -463,6 +563,33 @@ export function DashboardReportingCard({
               Build CMMC audit evidence ({cmmcAuditControl})
             </label>
           ) : null}
+          {canReadFlowEvidence && (
+            <section aria-label="Flow evidence report" className={styles.manifestSection}>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={flowEvidenceMode}
+                  disabled={!canWrite}
+                  onChange={(event) => {
+                    setFlowEvidenceIdentity(event.target.checked ? sourceIdentity : '')
+                    if (event.target.checked) {
+                      setComplianceIdentity('')
+                      setMonthlyMode(false)
+                      setSourceMode(false)
+                    }
+                  }}
+                />
+                Build flow control evidence
+              </label>
+              {flowEvidenceMode && (
+                <ComplianceFlowReportEditor
+                  draft={flowEvidence}
+                  disabled={!canWrite}
+                  onChange={(draft) => setFlowDraft({ identity: sourceIdentity, draft })}
+                />
+              )}
+            </section>
+          )}
           {canReadSources ? (
             <section aria-label="Report saved flow sources" className={styles.manifestSection}>
               <label className={styles.checkboxLabel}>
@@ -474,6 +601,7 @@ export function DashboardReportingCard({
                     setSourceMode(event.target.checked)
                     if (event.target.checked) {
                       setComplianceIdentity('')
+                      setFlowEvidenceIdentity('')
                       if (!monthlyDefinition.assessment) setMonthlyMode(false)
                     }
                   }}
@@ -549,7 +677,12 @@ export function DashboardReportingCard({
                 !name.trim() ||
                 createDashboard.isPending ||
                 failed ||
-                (!snapshotAvailable && !complianceMode && !monthlyMode && !sourceMode) ||
+                (!snapshotAvailable &&
+                  !complianceMode &&
+                  !flowEvidenceMode &&
+                  !monthlyMode &&
+                  !sourceMode) ||
+                (flowEvidenceMode && !validFlowEvidence(flowEvidence)) ||
                 (sourceMode && (!canReadSources || sourceItems.length === 0)) ||
                 (monthlyMode && (!canReadMonthly || !validMonthly))
               }
@@ -659,11 +792,16 @@ export function DashboardReportingCard({
             <section className={styles.savedSnapshot} aria-label="Selected saved snapshot">
               <strong>{activeView.name}</strong>
               <span>{activeView.preset} preset</span>
-              {activeView.definition.compliance_control ? (
+              {control === cmmcAuditControl ? (
                 <p>
-                  CMMC Level 2 {activeView.definition.compliance_control} · Signed verification of
-                  the retained probectl audit stream.{' '}
-                  {canReadCompliance ? '' : 'Audit read access is required.'}
+                  CMMC Level 2 {cmmcAuditControl} · Signed verification of the retained probectl
+                  audit stream. {canReadCompliance ? '' : 'Audit read access is required.'}
+                </p>
+              ) : activeView.definition.compliance_flow ? (
+                <p>
+                  {flowComplianceControls.find((option) => option.value === control)?.label} ·{' '}
+                  {activeView.definition.compliance_flow.sources.length} selected measurement points
+                  over {activeView.definition.compliance_flow.lookback}.
                 </p>
               ) : activeView.definition.carrier_claim ? (
                 <p>
@@ -720,7 +858,7 @@ export function DashboardReportingCard({
                   explicit import.
                 </p>
               </div>
-              {activeID ? (
+              {activeView ? (
                 <a
                   className={styles.manifestDownload}
                   href={apiURL(`/dashboards/${encodeURIComponent(activeID)}/manifest`)}
@@ -800,6 +938,55 @@ export function DashboardReportingCard({
                 )}
               </section>
             ) : null}
+            {portableFlow && (
+              <section
+                aria-label="Destination compliance bindings"
+                className={styles.manifestSection}
+              >
+                {canReadFlowEvidence ? (
+                  <>
+                    {portableFlow.slots.map((slot) => (
+                      <CompliancePointFields
+                        key={slot}
+                        label={slot}
+                        source={complianceBindings.sources[slot] ?? emptyCompliancePoint()}
+                        disabled={!canWrite}
+                        onChange={(source) => {
+                          setManifestPreview(undefined)
+                          setComplianceBindingsDraft({
+                            identity: sourceIdentity,
+                            manifest: manifestText,
+                            value: {
+                              ...complianceBindings,
+                              sources: { ...complianceBindings.sources, [slot]: source },
+                            },
+                          })
+                        }}
+                      />
+                    ))}
+                    {portableFlow.policy && (
+                      <TextArea
+                        label="Destination segmentation policy YAML"
+                        value={complianceBindings.policy ?? ''}
+                        disabled={!canWrite}
+                        spellCheck={false}
+                        required
+                        onChange={(event) => {
+                          setManifestPreview(undefined)
+                          setComplianceBindingsDraft({
+                            identity: sourceIdentity,
+                            manifest: manifestText,
+                            value: { ...complianceBindings, policy: event.target.value },
+                          })
+                        }}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <p>Binding flow evidence requires audit, flow and entity read access.</p>
+                )}
+              </section>
+            )}
             <div className={styles.reportActions}>
               <Button
                 onClick={() => void previewManifest()}
@@ -809,6 +996,7 @@ export function DashboardReportingCard({
                   importDashboard.isPending ||
                   failed ||
                   missingNativeBindings ||
+                  missingComplianceBindings ||
                   missingFinancialBindings
                 }
               >
@@ -872,6 +1060,7 @@ export function DashboardReportingCard({
                     !canWrite ||
                     importDashboard.isPending ||
                     missingNativeBindings ||
+                    missingComplianceBindings ||
                     missingFinancialBindings
                   }
                 >

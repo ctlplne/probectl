@@ -1017,6 +1017,28 @@ export interface CollectorRegistration {
   tenant_id: string
 }
 
+export interface ComplianceFlowDefinition {
+  lookback: string
+  policy?: string
+  sources: ComplianceFlowSource[]
+}
+
+export interface ComplianceFlowManifestBindings {
+  policy?: string
+  sources: { [key: string]: ComplianceFlowSource }
+}
+
+export interface ComplianceFlowManifestDefinition {
+  lookback: string
+  policy_slot?: string
+  source_slots: string[]
+}
+
+export interface ComplianceFlowSource {
+  context_id: string
+  entity_id: string
+}
+
 export interface ConfigChangeReference {
   binding?: DeviceConfigArchiveBinding | null
   current_hash: string
@@ -1141,7 +1163,8 @@ export interface DashboardDefinition {
   absolute_to?: string
   carrier_claim?: CarrierSLAReportDefinition | null
   client_report?: ClientReportDefinition | null
-  compliance_control?: "AU.L2-3.3.1"
+  compliance_control?: "AU.L2-3.3.1" | "SC.L2-3.13.1" | "11.4.5" | "SI.L2-3.14.6"
+  compliance_flow?: ComplianceFlowDefinition
   coverage_limitations: string[]
   flow_sources?: JsonObject[]
   metrics?: { [key: string]: string }
@@ -1161,7 +1184,8 @@ export interface DashboardManifestDefinition {
   absolute_to?: string
   carrier_claim?: CarrierSLAReportManifestDefinition | null
   client_report?: ClientReportDefinition | null
-  compliance_control?: "AU.L2-3.3.1"
+  compliance_control?: "AU.L2-3.3.1" | "SC.L2-3.13.1" | "11.4.5" | "SI.L2-3.14.6"
+  compliance_flow?: ComplianceFlowManifestDefinition
   coverage_limitations: string[]
   flow_sources?: JsonObject[]
   metrics: DashboardManifestMetric[]
@@ -1171,6 +1195,7 @@ export interface DashboardManifestDefinition {
 
 export interface DashboardManifestImportRequest {
   agreement_bindings?: { [key: string]: CarrierSLAReportAgreementBinding }
+  compliance_bindings?: ComplianceFlowManifestBindings
   confirm: boolean
   manifest: DashboardManifest
   source_bindings?: { [key: string]: JsonObject }
