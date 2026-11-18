@@ -42,9 +42,17 @@ CAPTURE_TESTS = (
 LARGE_CAPTURE_TESTS = (
     "TestReportRealFlowSourcesPublishCompleteFiveHundredThousandRowCSV",
 )
+DOWNLOAD_HANDLER = Path("internal/control/dashboard_report_download.go")
+# The final reader check runs with the tenant audit lock attached to its
+# context. Target that exact post-verification call.
+REPORT_READER_RECHECK = (
+    "if err := s.revalidateReportFlowCaptureScope("
+    "store.WithReportSourceAuditLock(ctx, sc), sc, actor, capture); err != nil {"
+)
 
 
 def selftest() -> None:
+    assert DOWNLOAD_HANDLER.read_text().count(REPORT_READER_RECHECK) == 1
     capture_events = [
         {"Package": CAPTURE_PACKAGE, "Test": test, "Action": action}
         for test in CAPTURE_TESTS
@@ -277,9 +285,9 @@ def visibility_proof() -> None:
 
 
 def post_verification_reader_proof() -> None:
-    source = Path("internal/control/dashboard_report_download.go")
+    source = DOWNLOAD_HANDLER
     original = source.read_text()
-    seam = "if err := s.revalidateReportFlowCaptureScope(ctx, sc, actor, capture); err != nil {"
+    seam = REPORT_READER_RECHECK
     if original.count(seam) != 1:
         raise RuntimeError("final stored report reader recheck seam unavailable")
     subprocess.run(["git", "diff", "--quiet", "--", str(source)], check=True)
