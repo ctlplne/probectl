@@ -10,6 +10,7 @@ package bgp_test
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -95,7 +96,22 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	if err := os.WriteFile(ixFile, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st := shipped.Start(t, shipped.Options{Name: "rolesrouter", TenantBand: 4, Env: map[string]string{"PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE": ixFile, "PROBECTL_TESTSYNC_SIGNING_KEY_FILE": filepath.Join(t.TempDir(), "testsync-signing-key.pem")}})
+	private, public, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "report-evidence-signing.pem")
+	if err := os.WriteFile(file, private, 0o600); err != nil {
+		clear(private)
+		t.Fatal(err)
+	}
+	clear(private)
+	pin := "sha256:" + hex.EncodeToString(crypto.Hash(public))
+	st := shipped.Start(t, shipped.Options{Name: "rolesrouter", TenantBand: 4, Env: map[string]string{
+		"PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE": ixFile,
+		"PROBECTL_TESTSYNC_SIGNING_KEY_FILE":  filepath.Join(t.TempDir(), "testsync-signing-key.pem"),
+		"PROBECTL_EVIDENCE_SIGNING_KEY_FILE":  file,
+	}})
 	// Configure the raw probe capability before admitting any source. Changing
 	// the control binary after routing starts interrupts ordered evidence; its
 	// missing frames correctly require a new complete source dump.
@@ -218,6 +234,21 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	if t.Failed() {
 		return
 	}
+	t.Run("signed-directional-control", func(t *testing.T) {
+		paired := registerEdgeFlowEvidence(t, st, primary, other)
+		requireRoleSourceBinding(t, st, paired, map[string]string{"agent_id": paired.agentID, "source_kind": "flow_exporter",
+			"source_ref": primary, "context_id": paired.contextID, "anchor_entity_id": paired.deviceID})
+		siblingDestination := startShippedRouterFlow(t, st, lab, paired, primary)
+		link := links[1]
+		emitRoleRouterTraffic(t, lab, lab.name+"-"+link.name+"-flow", link)
+		link.name = "paired-" + link.name
+		exporter := startRoleRouterExporter(t, lab, image, siblingDestination, link)
+		pairedAt := time.Now()
+		emitRoleRouterTraffic(t, lab, exporter, link)
+		emitRoleRouterCapturedTraffic(t, lab, exporter, link, link.routerIP6, link.peerIP6, "58", true)
+		awaitRoleRouterFlow(t, st, paired, []roleRouterLink{link}, pairedAt)
+		proveRealFlowComplianceReports(t, st, reg, paired, link, [2]string{ids[link.index], otherIDs[link.index]}, pin)
+	})
 	// Revoke only the primary tenant's actual issued source credential. The
 	// identical physical addresses in the sibling tenant retain their authority.
 	code, body = st.Do(t, reg.cookie, http.MethodPost, "/v1/agents/"+deviceAgent+"/revoke", nil)

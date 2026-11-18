@@ -61,7 +61,7 @@ def main():
     (out / "router.stderr.txt").write_text(result.stderr)
     print(result.stdout, end="")
     print(result.stderr, end="")
-    errors = classify(result.stdout, result.returncode, package=PACKAGE, tests=(ROOT, *SURFACES, *PATH_HEALTH, *CHANGE_EFFECTS, *(ROOT + "/stdio/" + wire for wire in ("2026-07-28", "2025-11-25"))))
+    errors = classify(result.stdout, result.returncode, package=PACKAGE, tests=(ROOT, ROOT + "/signed-directional-control", *SURFACES, *PATH_HEALTH, *CHANGE_EFFECTS, *(ROOT + "/stdio/" + wire for wire in ("2026-07-28", "2025-11-25"))))
     if errors:
         raise RuntimeError("required real-router role proof missing/failed: " + str(errors))
     # One focused real child models an unexecuted/missing browser report. The

@@ -940,7 +940,7 @@ func startShippedRouterFlowProtocols(t *testing.T, st *shipped.Stack, lab *routi
 	for _, key := range keys {
 		values = append(values, key+"="+env[key])
 	}
-	log := st.StartProcess(t, "fx2-edge-flow-collector", st.Binary(t, "probectl-flow-agent"), nil, values)
+	log := st.StartProcess(t, "fx2-edge-flow-collector-"+reg.agentID, st.Binary(t, "probectl-flow-agent"), nil, values)
 	shipped.Await(t, "shipped source-bound protocol listeners", 20*time.Second, func() bool {
 		contents, err := os.ReadFile(log)
 		if err != nil || !strings.Contains(string(contents), "flow: listening") {
