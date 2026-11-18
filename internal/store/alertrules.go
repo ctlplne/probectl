@@ -22,7 +22,7 @@ type AlertRules struct{}
 
 const alertRuleCols = `id::text, tenant_id::text, name, enabled, metric, match_labels,
 	type, comparison, threshold, window_n, sensitivity, for_n, renotify_seconds,
-	severity, channels, created_at, updated_at, trap_match, (tag_filter IS NOT NULL), (dependency_policy IS NOT NULL)`
+	severity, channels, created_at, updated_at, trap_match, (tag_filter IS NOT NULL), (dependency_policy IS NOT NULL), (seasonal_source IS NOT NULL)`
 
 // channelSecretAAD binds sealed channel secrets to their column (the tenant
 // binding rides tenantcrypto.BindAAD inside the sealer).
@@ -73,7 +73,7 @@ func scanAlertRule(row interface{ Scan(...any) error }, r *alert.Rule) error {
 	var typ, cmp, sev string
 	if err := row.Scan(&r.ID, &r.TenantID, &r.Name, &r.Enabled, &r.Metric, &match,
 		&typ, &cmp, &r.Threshold, &r.Window, &r.Sensitivity, &r.ForN, &r.RenotifySeconds,
-		&sev, &channels, &r.CreatedAt, &r.UpdatedAt, &trap, &r.HasTagFilter, &r.HasDependencyPolicy); err != nil {
+		&sev, &channels, &r.CreatedAt, &r.UpdatedAt, &trap, &r.HasTagFilter, &r.HasDependencyPolicy, &r.HasSeasonalSource); err != nil {
 		return err
 	}
 	r.Trap = nil
@@ -228,6 +228,7 @@ func (AlertRules) Update(ctx context.Context, s tenancy.Scope, id string, in ale
 		      ($4=$17 AND $6='threshold' AND $7='gte' AND $8=1 AND $15::jsonb IS NULL))
 		 AND (path_health_source IS NULL OR
 		      ($4=$18 AND $6='threshold' AND $7='gte' AND $8=1 AND $15::jsonb IS NULL))
+		 AND (seasonal_source IS NULL OR ($6='baseline' AND $4=metric AND $5::jsonb=match_labels))
 		 RETURNING `+alertRuleCols,
 		id, in.Name, in.Enabled, in.Metric, marshalMatch(in.Match), string(in.Type),
 		string(in.Comparison), in.Threshold, in.Window, in.Sensitivity, in.ForN,

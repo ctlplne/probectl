@@ -152,3 +152,66 @@ func TestOriginalSourceSubjectExportErasurePreservesStructuralReferencesAndTenan
 		}
 	}
 }
+
+func TestSeasonalAlertSubjectExportAndErasureRetainStructuralTestReferences(t *testing.T) {
+	admin := itPool(t)
+	t.Cleanup(admin.Close)
+	testsupport.LockPostgresPublicCatalog(t, admin)
+	pool := flowQueryRuntime(t, admin)
+	a := mkTenant(t, admin, "seasonal-subject-a-"+flowQueryUUID(t))
+	b := mkTenant(t, admin, "seasonal-subject-b-"+flowQueryUUID(t))
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.Background(), `DELETE FROM tenants WHERE id=ANY($1::uuid[])`, []string{a, b}); err != nil {
+			t.Error(err)
+		}
+	})
+	const subject = "seasonal-owner@example.test"
+	var owner string
+	if err := admin.QueryRow(t.Context(), `INSERT INTO users(tenant_id,email,display_name,status,user_name)
+ VALUES($1,$2,'Owner','active',$2) RETURNING id::text`, a, subject).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	ownedID, referenceID := flowQueryUUID(t), flowQueryUUID(t)
+	for _, tenant := range []string{a, b} {
+		owned, reference := ownedID, referenceID
+		if tenant == b {
+			owned, reference = flowQueryUUID(t), flowQueryUUID(t)
+		}
+		if err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `INSERT INTO alert_rules(tenant_id,id,name,metric,type,comparison,threshold,seasonal_source)
+ VALUES ($1,$2,'Owner calendar','circuit_bps','baseline','gte',1,jsonb_build_object('version',1,'owner_user_id',$4::text,'config',jsonb_build_object('test_id',$4::text,'timezone','UTC'))),
+ ($1,$3,'Test reference calendar','circuit_bps','baseline','gte',1,jsonb_build_object('version',1,'config',jsonb_build_object('test_id',$4::text,'timezone','UTC')))`, tenant, owned, reference, owner)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := New(pool, nil, nil, nil, nil, "owned seasonal fixture backups", testLog())
+	var archive bytes.Buffer
+	if _, err := engine.ExportSubject(t.Context(), a, subject, &archive, false); err != nil {
+		t.Fatal(err)
+	}
+	var row struct {
+		ID       string `json:"id"`
+		TenantID string `json:"tenant_id"`
+		Source   struct {
+			Owner  string `json:"owner_user_id"`
+			Config struct {
+				TestID string `json:"test_id"`
+			} `json:"config"`
+		} `json:"seasonal_source"`
+	}
+	line := readTarGz(t, archive.Bytes())["postgres/alert_rules.jsonl"]
+	if err := json.Unmarshal([]byte(line), &row); err != nil || row.TenantID != a || row.ID != ownedID || row.Source.Owner != owner || row.Source.Config.TestID != owner {
+		t.Fatal("the subject export did not return exactly the owned original calendar", err)
+	}
+	planes, _, err := engine.eraseSubjectPostgres(t.Context(), a, subject, "privacy-admin", "seasonal source lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plane := subjectPlanesByName(planes)["postgres:alert_rules"]
+	if plane.Deleted != 1 || plane.Remaining != 0 || countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1 AND id=$2`, a, referenceID) != 1 ||
+		countRows(t, admin, `SELECT count(*) FROM alert_rules WHERE tenant_id=$1`, b) != 2 {
+		t.Fatal("erasure changed a structural reference or a sibling's source", plane)
+	}
+}

@@ -41,6 +41,7 @@ type ActiveAlert struct {
 	// silence/acknowledge actions. Opaque to clients.
 	Fingerprint           string            `json:"fingerprint"`
 	EvaluationFingerprint string            `json:"evaluation_fingerprint"`
+	IncidentID            string            `json:"incident_id,omitempty"`
 	RuleID                string            `json:"rule_id"`
 	RuleName              string            `json:"rule_name"`
 	Severity              Severity          `json:"severity"`
@@ -60,7 +61,8 @@ type ActiveAlert struct {
 func (en *Engine) snapshotLocked(key string, st *seriesState) ActiveAlert {
 	a := ActiveAlert{
 		Fingerprint:           key,
-		EvaluationFingerprint: evaluationFingerprint(st.ruleID, st.labels),
+		EvaluationFingerprint: evaluationSeriesFingerprint(st.ruleID, st.labels, st.seasonalSubject),
+		IncidentID:            st.seasonalIncidentID,
 		RuleID:                st.ruleID,
 		RuleName:              st.ruleName,
 		Severity:              st.severity,
@@ -90,7 +92,7 @@ func (en *Engine) Active() []ActiveAlert {
 	defer en.mu.Unlock()
 	out := make([]ActiveAlert, 0, 8)
 	for key, st := range en.states {
-		if !st.firing {
+		if !st.active() {
 			continue
 		}
 		out = append(out, en.snapshotLocked(key, st))
@@ -114,7 +116,7 @@ func (en *Engine) Silence(fingerprint string, d time.Duration) (ActiveAlert, err
 	en.mu.Lock()
 	defer en.mu.Unlock()
 	st, ok := en.states[fingerprint]
-	if !ok || !st.firing {
+	if !ok || !st.active() {
 		return ActiveAlert{}, ErrNotActive
 	}
 	if d == 0 {
@@ -134,7 +136,7 @@ func (en *Engine) Acknowledge(fingerprint, by string) (ActiveAlert, error) {
 	en.mu.Lock()
 	defer en.mu.Unlock()
 	st, ok := en.states[fingerprint]
-	if !ok || !st.firing {
+	if !ok || !st.active() {
 		return ActiveAlert{}, ErrNotActive
 	}
 	st.ackedBy = by

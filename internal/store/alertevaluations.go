@@ -52,6 +52,16 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 	if err != nil {
 		return err
 	}
+	var seasonal []byte
+	if receipt.Expectation.Seasonal != nil {
+		seasonal, err = json.Marshal(receipt.Expectation.Seasonal)
+		if err != nil {
+			return err
+		}
+		if len(seasonal) > alert.SeasonalEvidenceBytes {
+			return alert.ErrSeasonalSource
+		}
+	}
 	expiresAt := receipt.ObservedAt.Add(AlertEvaluationReceiptRetention)
 	_, err = s.Q.Exec(ctx, `
 		INSERT INTO alert_evaluation_receipts
@@ -59,9 +69,9 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 		        evaluation_state, observed_at, observed_value, expectation_kind,
 		        comparison, threshold, expected_mean, expected_stddev,
 		        expected_lower, expected_upper, breach_count, required_breaches,
-		        warmup_samples, warmup_required, reason, labels, expires_at, tag_selection)
+		        warmup_samples, warmup_required, reason, labels, expires_at, tag_selection, seasonal_evidence)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-		        $14, $15, $16, $17, $18, $19, $20, $21::jsonb, $22, $23::jsonb)
+		        $14, $15, $16, $17, $18, $19, $20, $21::jsonb, $22, $23::jsonb, $24::jsonb)
 		ON CONFLICT (tenant_id, rule_id, fingerprint, observed_at, evaluation_state)
 		DO UPDATE SET
 		  observed_value = EXCLUDED.observed_value,
@@ -78,7 +88,8 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 		  warmup_required = EXCLUDED.warmup_required,
 		  reason = EXCLUDED.reason,
 		  labels = EXCLUDED.labels,
- tag_selection = EXCLUDED.tag_selection,
+		  tag_selection = EXCLUDED.tag_selection,
+		  seasonal_evidence = EXCLUDED.seasonal_evidence,
 		  expires_at = EXCLUDED.expires_at`,
 		s.Tenant.String(), receipt.RuleID, receipt.Fingerprint, receipt.ContractVersion,
 		receipt.RuleRevision, string(receipt.State), receipt.ObservedAt, receipt.ObservedValue,
@@ -86,7 +97,7 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 		receipt.Expectation.Threshold, receipt.Expectation.Mean, receipt.Expectation.StdDev,
 		receipt.Expectation.Lower, receipt.Expectation.Upper, receipt.BreachCount,
 		receipt.RequiredBreaches, receipt.WarmupSamples, receipt.WarmupRequired,
-		receipt.Reason, encodedLabels, expiresAt, encodedSelection)
+		receipt.Reason, encodedLabels, expiresAt, encodedSelection, seasonal)
 	if err != nil {
 		return mapWriteErr("alert evaluation receipt", err)
 	}
@@ -140,13 +151,13 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 		       evaluation_state, observed_at, observed_value, expectation_kind,
 		       comparison, threshold, expected_mean, expected_stddev,
 		       expected_lower, expected_upper, breach_count, required_breaches,
-		       warmup_samples, warmup_required, reason, labels, tag_selection
+		       warmup_samples, warmup_required, reason, labels, tag_selection, seasonal_evidence
 		  FROM (
 		    SELECT contract_version, fingerprint, rule_id, rule_revision,
 		           evaluation_state, observed_at, observed_value, expectation_kind,
 		           comparison, threshold, expected_mean, expected_stddev,
 		           expected_lower, expected_upper, breach_count, required_breaches,
-		           warmup_samples, warmup_required, reason, labels, tag_selection
+		           warmup_samples, warmup_required, reason, labels, tag_selection, seasonal_evidence
 		      FROM alert_evaluation_receipts
 		     WHERE tenant_id = $1 AND rule_id = $2
 		       AND expires_at > clock_timestamp()
@@ -170,8 +181,7 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 		var (
 			receipt                     alert.EvaluationReceipt
 			state, expectation, compare string
-			labels                      []byte
-			selection                   []byte
+			labels, selection, seasonal []byte
 		)
 		if err := rows.Scan(
 			&receipt.ContractVersion, &receipt.Fingerprint, &receipt.RuleID,
@@ -181,7 +191,7 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 			&receipt.Expectation.StdDev, &receipt.Expectation.Lower,
 			&receipt.Expectation.Upper, &receipt.BreachCount,
 			&receipt.RequiredBreaches, &receipt.WarmupSamples,
-			&receipt.WarmupRequired, &receipt.Reason, &labels, &selection,
+			&receipt.WarmupRequired, &receipt.Reason, &labels, &selection, &seasonal,
 		); err != nil {
 			return nil, false, err
 		}
@@ -204,6 +214,14 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 				return nil, false, err
 			}
 			if err := receipt.TagSelection.Validate(); err != nil {
+				return nil, false, err
+			}
+		}
+		if len(seasonal) > 0 {
+			if len(seasonal) > alert.SeasonalEvidenceBytes {
+				return nil, false, alert.ErrSeasonalSource
+			}
+			if err := json.Unmarshal(seasonal, &receipt.Expectation.Seasonal); err != nil {
 				return nil, false, err
 			}
 		}

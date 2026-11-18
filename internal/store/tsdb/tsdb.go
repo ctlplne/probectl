@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -40,6 +42,39 @@ type Series struct {
 	Labels     map[string]string
 	Value      float64
 	TimeMillis int64 // Unix milliseconds
+}
+
+// SeriesIdentity frames every part by its byte length so distinct telemetry
+// label sets cannot share a storage or selection key. Tenant comes first and
+// the remaining labels are kept in stable order.
+func SeriesIdentity(metric string, labels map[string]string) string {
+	keys := make([]string, 0, len(labels))
+	for name := range labels {
+		if name != TenantLabel {
+			keys = append(keys, name)
+		}
+	}
+	sort.Strings(keys)
+	var key strings.Builder
+	if tenant, bound := labels[TenantLabel]; bound {
+		key.WriteByte('1')
+		appendSeriesPart(&key, tenant)
+	} else {
+		key.WriteByte('0')
+	}
+	appendSeriesPart(&key, metric)
+	for _, label := range keys {
+		appendSeriesPart(&key, label)
+		appendSeriesPart(&key, labels[label])
+	}
+	return key.String()
+}
+
+func appendSeriesPart(key *strings.Builder, value string) {
+	var length [20]byte
+	_, _ = key.Write(strconv.AppendInt(length[:0], int64(len(value)), 10))
+	key.WriteByte(':')
+	key.WriteString(value)
 }
 
 // Writer persists time series. Prometheus remote-write is the default; an

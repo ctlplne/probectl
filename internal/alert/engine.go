@@ -14,12 +14,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/anomaly"
 )
 
 // Sample is one current value of a metric series.
 type Sample struct {
-	Labels map[string]string
-	Value  float64
+	Labels   map[string]string
+	Value    float64
+	Seasonal *anomaly.SeasonalComparison
 	// Reason, when set, is the source's own explanation of the value (a trap
 	// source names the trap that set it); metric sources leave it empty.
 	Reason string
@@ -54,6 +57,12 @@ type RuleMetricSource interface {
 	CurrentRule(ctx context.Context, rule Rule) (RuleMetricRead, error)
 }
 
+// SeasonalMetricSource owns current source authority and raw training reads.
+// The engine may evaluate a seasonal rule only through this typed path.
+type SeasonalMetricSource interface {
+	CurrentSeasonalRule(ctx context.Context, rule Rule, at time.Time) (RuleMetricRead, error)
+}
+
 // Engine evaluates rules against a MetricSource, holding per-series state so it
 // can debounce (ForN), dedupe/renotify, and emit resolved transitions.
 type Engine struct {
@@ -66,9 +75,10 @@ type Engine struct {
 	sink func(context.Context, Alert) // optional: every acted alert is forwarded here
 	// evaluationSink records a bounded explanation after tenant-scoped metric
 	// evaluation. A persistence failure is logged but never blocks alerting.
-	evaluationSink   EvaluationSink
-	dependencyRouter DependencyRouter
-	dependencyRules  map[string]bool
+	evaluationSink    EvaluationSink
+	dependencyRouter  DependencyRouter
+	dependencyRules   map[string]bool
+	seasonalPublisher SeasonalPublisher
 
 	mu     sync.Mutex
 	states map[string]*seriesState
@@ -233,6 +243,10 @@ func WithEvaluationSink(fn EvaluationSink) EngineOption {
 	return func(e *Engine) { e.evaluationSink = fn }
 }
 
+func WithSeasonalPublisher(fn SeasonalPublisher) EngineOption {
+	return func(e *Engine) { e.seasonalPublisher = fn }
+}
+
 // NewEngine builds an engine. clock defaults to time.Now (overridable in tests).
 func NewEngine(source MetricSource, notifier *Notifier, log *slog.Logger, opts ...EngineOption) *Engine {
 	if log == nil {
@@ -258,6 +272,9 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	if !rule.Enabled {
 		return nil, nil
 	}
+	if rule.HasSeasonalSource && en.seasonalPublisher == nil {
+		return nil, ErrSeasonalSource
+	}
 	read, err := en.samples(ctx, rule)
 	if err != nil {
 		return nil, err
@@ -281,6 +298,9 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	en.mu.Unlock()
 
 	var acted []Alert
+	if rule.HasSeasonalSource {
+		return en.evaluateSeasonalSamples(ctx, rule, read.Samples)
+	}
 	if en.needsDependencyRouting(rule) {
 		acted = en.evaluateDependencyRule(ctx, rule, read)
 		en.pruneDepartedQueryGroups(departed)
@@ -408,6 +428,18 @@ func labelsFromStateKey(key, prefix string) map[string]string {
 
 // samples reads a rule's current samples from the source its type names.
 func (en *Engine) samples(ctx context.Context, rule Rule) (RuleMetricRead, error) {
+	if rule.HasSeasonalSource {
+		source, ok := en.source.(SeasonalMetricSource)
+		if !ok {
+			return RuleMetricRead{}, ErrSeasonalSource
+		}
+		at := en.clock()
+		read, err := source.CurrentSeasonalRule(ctx, rule, at)
+		if err != nil {
+			return RuleMetricRead{}, err
+		}
+		return checkedSeasonalRead(ctx, rule, at, read)
+	}
 	if rule.HasTagFilter || selectedSourceMetric(rule.Metric) {
 		if rule.Type == Trap {
 			return RuleMetricRead{}, fmt.Errorf("alert: test tag selection requires a metric source")
@@ -483,8 +515,11 @@ type pendingNotify struct {
 func (en *Engine) evalSample(rule Rule, s Sample, selection *TagSelectionReceipt) (Alert, bool, *EvaluationReceipt, *pendingNotify) {
 	en.mu.Lock()
 	defer en.mu.Unlock()
-	key := stateKey(rule.ID, s.Labels)
-	st := en.stateForLocked(rule, s.Labels)
+	return en.evalSampleLocked(stateKey(rule.ID, s.Labels), rule, s, selection)
+}
+
+func (en *Engine) evalSampleLocked(key string, rule Rule, s Sample, selection *TagSelectionReceipt) (Alert, bool, *EvaluationReceipt, *pendingNotify) {
+	st := en.stateForKeyLocked(rule, key)
 	decision := en.breached(rule, st, s)
 
 	// Capture the rendered state the surface serves (engine truth).
@@ -513,7 +548,7 @@ func (en *Engine) evalSample(rule Rule, s Sample, selection *TagSelectionReceipt
 	return acted, notify, &EvaluationReceipt{
 		TagSelection:     selection.Clone(),
 		ContractVersion:  EvaluationReceiptVersion,
-		Fingerprint:      evaluationFingerprint(rule.ID, s.Labels),
+		Fingerprint:      evaluationSeriesFingerprint(rule.ID, s.Labels, st.seasonalSubject),
 		RuleID:           rule.ID,
 		RuleRevision:     ruleRevision(rule),
 		State:            state,
@@ -531,11 +566,14 @@ func (en *Engine) evalSample(rule Rule, s Sample, selection *TagSelectionReceipt
 
 // stateForLocked returns (creating if needed) the per-series state. en.mu held.
 func (en *Engine) stateForLocked(rule Rule, labels map[string]string) *seriesState {
-	key := stateKey(rule.ID, labels)
+	return en.stateForKeyLocked(rule, stateKey(rule.ID, labels))
+}
+
+func (en *Engine) stateForKeyLocked(rule Rule, key string) *seriesState {
 	st, ok := en.states[key]
 	if !ok {
 		st = &seriesState{}
-		if rule.Type == Baseline {
+		if rule.Type == Baseline && !rule.HasSeasonalSource {
 			st.base = newBaseline(rule.Window)
 		}
 		en.states[key] = st
@@ -563,6 +601,9 @@ func (en *Engine) breached(rule Rule, st *seriesState, s Sample) evaluationDecis
 			},
 		}
 	case Baseline:
+		if rule.HasSeasonalSource {
+			return seasonalRuleDecision(s.Seasonal)
+		}
 		if st.base == nil {
 			st.base = newBaseline(rule.Window)
 		}
@@ -714,7 +755,7 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, d
 		// can never suppress a genuinely new episode. The resolve hook deletes the
 		// durable row for the same reason.
 		st.lastNotified = time.Time{}
-		if en.onResolve != nil && (en.dependencyRouter == nil || !rule.HasDependencyPolicy) && !en.dependencyRules[rule.ID] {
+		if en.onResolve != nil && !rule.HasSeasonalSource && (en.dependencyRouter == nil || !rule.HasDependencyPolicy) && !en.dependencyRules[rule.ID] {
 			// Delete the persisted op + notification state so a future episode
 			// starts clean.
 			go en.onResolve(key)
@@ -824,6 +865,7 @@ func (ev *Evaluator) Tick(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("alert: load rules: %w", err)
 	}
+	ev.engine.retainSeasonalRules(rules)
 	for _, rule := range rules {
 		if _, err := ev.engine.Evaluate(ctx, rule); err != nil {
 			// A single rule's evaluation failure must not stop the others.

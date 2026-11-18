@@ -310,6 +310,7 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 	opts := []alert.EngineOption{alert.WithTrapSource(trapSource{traps: store.NewDeviceTraps(pool), tenant: tenant.String()})}
 	if tagDeps.Queries != nil {
 		opts = append(opts, alert.WithDependencyRouter(tagDeps.Queries.alertDependencyRouter(tenant, dependencyIncidentPublication{window: tagDeps.IncidentWindow, observer: tagDeps.IncidentObserver})))
+		opts = append(opts, alert.WithSeasonalPublisher(tagDeps.Queries.publishSeasonalAlert(tenant, tagDeps.IncidentWindow, tagDeps.IncidentObserver)))
 	}
 	if sink != nil {
 		opts = append(opts, alert.WithAlertSink(sink))

@@ -80,8 +80,8 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   },
   // Saved-query extension is preview; docs/alerting.md records its outstanding qualification.
   // Baseline alerting is delivered; saved-query and source-backed dependency
-  // routing and current-authority workflow explanations remain previews described
-  // by the shared contract; physical sender and lifecycle qualification is owed.
+  // routing, current-authority workflow explanations and weekly metric/test
+  // baselines remain previews described by the shared contract.
   { id: 'F8', name: 'Alerting', status: 'delivered', source: 'contract:features' },
   {
     id: 'F9',

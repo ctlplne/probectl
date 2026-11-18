@@ -23,6 +23,27 @@
       ]
     },
     {
+      "ref": "test:internal/control/alert_seasonal_incident_integration_test.go#TestSeasonalMetricRuleCreatesOneCitedTenantIncident",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
+      "ref": "test:internal/control/alert_seasonal_native_integration_test.go#TestSeasonalNativeSourceKeepsTenantAndOriginalAuthority",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
+      "ref": "test:internal/control/alert_seasonal_served_integration_test.go#TestSeasonalEditorServedKeepsBothTenantsAndThemes",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
       "ref": "test:internal/control/audit_isolation_integration_test.go#TestTwoTenantAndProviderAuditStreamsIsolateAndContainTampering",
       "profile": "integration",
       "capabilities": [

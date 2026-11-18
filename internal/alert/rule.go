@@ -122,6 +122,9 @@ type Rule struct {
 	// Presence is metadata only; current policy and source authority are loaded
 	// separately under tenant admission before any notification may be held.
 	HasDependencyPolicy bool `json:"has_dependency_policy,omitempty"`
+	// The evaluator loads the exact seasonal source and current grants before
+	// it reads history. A missing source may not fall back to a rolling rule.
+	HasSeasonalSource bool `json:"has_seasonal_source,omitempty"`
 
 	Type RuleType `json:"type"`
 
@@ -158,6 +161,9 @@ func (r Rule) Validate() error {
 	}
 	if r.Metric == PathHealthMetric && (r.Type != Threshold || r.Comparison != GTE || r.Threshold != 1 || len(r.Match) != 0 || r.Window != 0 || r.Sensitivity != 0 || r.HasTagFilter || r.Trap != nil) {
 		return fmt.Errorf("alert: owned path-health sources require their fixed Boolean condition rule")
+	}
+	if r.HasSeasonalSource && (r.Type != Baseline || r.HasTagFilter || r.HasDependencyPolicy) {
+		return ErrSeasonalSource
 	}
 	if r.Type == Trap {
 		if r.HasTagFilter {

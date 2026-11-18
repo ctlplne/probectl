@@ -86,6 +86,7 @@ type Finding struct {
 	TrainingWindow TrainingWindow     `json:"training_window"`
 	Citations      []Citation         `json:"citations"`
 	Features       map[string]float64 `json:"features"`
+	Seasonal       *SeasonalEvidence  `json:"seasonal,omitempty"`
 }
 
 // Model evaluates tenant-scoped features for anomalies.

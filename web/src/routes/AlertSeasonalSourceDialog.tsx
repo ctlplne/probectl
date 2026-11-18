@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { seasonalAlertSource, type AlertRule } from '../api/alerts'
+import {
+  Button,
+  ConfirmDialog,
+  ErrorState,
+  Field,
+  LoadingState,
+  Modal,
+  TextArea,
+} from '../components'
+import { useAuth } from '../auth/useAuth'
+import styles from './alerts.module.css'
+
+export function AlertSeasonalSourceDialog({
+  rule,
+  onClose,
+}: {
+  rule: AlertRule
+  onClose: () => void
+}) {
+  const { tenant, permissions } = useAuth()
+  const client = useQueryClient()
+  const canRead = permissions.includes('alert.read') && permissions.includes('metrics.read')
+  const canWrite = permissions.includes('alert.write')
+  const [configured, setConfigured] = useState(rule.has_seasonal_source === true)
+  const [timezone, setTimezone] = useState('UTC')
+  const [minimum, setMinimum] = useState('')
+  const [holidays, setHolidays] = useState('')
+  const [testID, setTestID] = useState('')
+  const [ready, setReady] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [confirmClear, setConfirmClear] = useState(false)
+  const edit = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    if (!canRead || rule.tenant_id !== tenant.id) return
+    const load = new AbortController()
+    void seasonalAlertSource(tenant.id, rule.id, 'GET', load.signal)
+      .then((state) => {
+        if (load.signal.aborted) return
+        if (state.rule_id !== rule.id) throw new Error('Rule identity changed')
+        setConfigured(state.configured)
+        setTimezone(state.source?.timezone ?? 'UTC')
+        setMinimum(state.source ? String(state.source.minimum_change) : '')
+        setHolidays(state.source?.holidays?.join('\n') ?? '')
+        setTestID(state.source?.test_id ?? '')
+        setReady(true)
+      })
+      .catch(() => {
+        if (!load.signal.aborted) setError('Could not read the current seasonal source.')
+      })
+    return () => load.abort()
+  }, [canRead, rule.id, rule.tenant_id, tenant.id])
+
+  useEffect(() => () => edit.current?.abort(), [])
+
+  async function save(method: 'PUT' | 'DELETE') {
+    if (busy || !canWrite || (method === 'PUT' && (!canRead || !ready))) return
+    const current = new AbortController()
+    edit.current = current
+    setBusy(true)
+    setError('')
+    try {
+      const state = await seasonalAlertSource(tenant.id, rule.id, method, current.signal, {
+        timezone: timezone.trim(),
+        minimum_change: Number(minimum),
+        holidays: holidays
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean),
+        test_id: testID.trim() || undefined,
+      })
+      if (current.signal.aborted) return
+      if (state.rule_id !== rule.id || state.configured !== (method === 'PUT')) {
+        throw new Error('Rule identity changed')
+      }
+      void client.invalidateQueries({ queryKey: ['alerts', 'rules'] })
+      onClose()
+    } catch {
+      if (!current.signal.aborted) setError('Could not update the seasonal source.')
+    } finally {
+      if (!current.signal.aborted) {
+        setBusy(false)
+        setConfirmClear(false)
+      }
+    }
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!timezone.trim() || !Number.isFinite(Number(minimum)) || Number(minimum) <= 0) {
+      setError('Enter a timezone and a minimum change greater than zero.')
+      return
+    }
+    void save('PUT')
+  }
+
+  if (rule.tenant_id !== tenant.id) return null
+  return (
+    <>
+      <Modal open onClose={onClose} title={`Weekly seasonal baseline for ${rule.name}`}>
+        <p>Compare each observation with the same local weekday and hour in retained history.</p>
+        {error ? <ErrorState description={error} /> : null}
+        {!canRead ? (
+          <p>Current alert and metric read permissions are required to inspect the source.</p>
+        ) : null}
+        {canRead && !ready && !error ? (
+          <LoadingState label="Reading current seasonal source…" />
+        ) : null}
+        {ready ? (
+          <form className={styles.formGrid} onSubmit={submit}>
+            <Field
+              label="Timezone"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              hint="Enter an IANA timezone such as America/New_York."
+              required
+              disabled={!canWrite || busy}
+            />
+            <Field
+              label="Minimum change"
+              type="number"
+              step="any"
+              value={minimum}
+              onChange={(e) => setMinimum(e.target.value)}
+              hint="Use the same unit as the rule metric."
+              required
+              disabled={!canWrite || busy}
+            />
+            <TextArea
+              label="Holiday dates"
+              value={holidays}
+              onChange={(e) => setHolidays(e.target.value)}
+              hint="Enter local dates as YYYY-MM-DD, one per line."
+              disabled={!canWrite || busy}
+            />
+            {permissions.includes('test.read') ? (
+              <Field
+                label="Test ID"
+                value={testID}
+                onChange={(e) => setTestID(e.target.value)}
+                hint="Optional. Restrict this metric to one owned test."
+                disabled={!canWrite || busy}
+              />
+            ) : null}
+            {canWrite ? (
+              <Button type="submit" disabled={busy}>
+                Save weekly baseline
+              </Button>
+            ) : null}
+          </form>
+        ) : null}
+        {configured && canWrite ? (
+          <Button variant="ghost" disabled={busy} onClick={() => setConfirmClear(true)}>
+            Clear weekly baseline
+          </Button>
+        ) : null}
+      </Modal>
+      <ConfirmDialog
+        open={confirmClear}
+        title="Clear the weekly baseline and disable this rule?"
+        confirmLabel="Clear and disable"
+        busyLabel="Clearing…"
+        pending={busy}
+        onClose={() => setConfirmClear(false)}
+        onConfirm={() => void save('DELETE')}
+      >
+        You can enable the rule with its rolling baseline later.
+      </ConfirmDialog>
+    </>
+  )
+}

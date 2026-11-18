@@ -106,6 +106,48 @@ every `probectl alert ...` command warns on stderr, `/readyz` reports
 HTTP 200 because the API can still serve and preserve rule configuration; the
 explicit degraded field is the automation signal.
 
+## Weekly seasonal baselines (preview)
+
+Open **Weekly baseline** on a metric baseline rule to set an IANA timezone,
+an absolute minimum change in the metric's unit, and optional local holiday
+dates. To follow a single test result series, enter an owned test ID. The
+selection is pinned to the test's current revision. Saving it again explicitly
+selects the current revision after a test change, and only observations from
+that revision can enter the comparison.
+
+The evaluator compares a sample against the same local weekday and hour in up
+to six weeks of retained data. Each comparable date contributes one median.
+The normal band extends from the median of those dates by the larger of the
+configured floor or the rule's sensitivity times the robust spread. A
+repeated hour at the end of daylight saving time still counts as one date.
+Holiday dates are excluded from observation and training. The baseline warms
+until three matching dates have data. A holiday or unavailable observation
+leaves a firing episode in place until another comparable reading arrives.
+
+Matching full series identities are evaluated separately. The source uses the
+original tenant-scoped samples in the local TSDB or configured
+Prometheus-compatible service. Keep enough history in that store for the model
+to find comparable dates. Selection and evaluation use the existing tenant
+query admission and the configuring user's current metric read permissions.
+Selected tests also require current test read permission. A firing is
+committed to a tenant incident with the observation, expected band and training
+citations before delivery. Configured silences and maintenance windows still
+govern rule notification channels.
+
+REST uses `GET`, `PUT` and `DELETE` on `/v1/alerts/rules/{id}/seasonal-source`.
+The generated clients expose the same operations. CLI configuration takes the
+same JSON. Clearing an active selection disables the rule. Enable it explicitly
+to return to a rolling baseline.
+
+```bash
+probectl alert seasonal-source-set "$RULE_ID" --body '{"timezone":"America/New_York","minimum_change":5,"holidays":["2026-12-25"]}'
+probectl alert seasonal-source "$RULE_ID"
+probectl alert seasonal-source-clear "$RULE_ID"
+```
+
+The preview covers stored metric and test-result series. Native saved-flow
+measures and physical-source qualification remain in progress.
+
 ## Trap rules
 
 A rule of `type: "trap"` watches the SNMP traps the tenant's device agents

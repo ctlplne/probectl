@@ -226,7 +226,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// tag-binding references out of selection; matching exports keep whole rows.
 	"alert_rules": {
 		plane: "postgres:alert_rules", disposition: subjectTableDeleteMatches,
-		contains: []string{"tag_filter", "query_source", "dependency_policy", "path_health_source"},
+		contains: []string{"tag_filter", "query_source", "dependency_policy", "path_health_source", "seasonal_source"},
 	},
 	"audit_events": {plane: "audit", disposition: subjectTableProjectMatches},
 	"audit_subject_erasures": {

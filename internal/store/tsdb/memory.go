@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"sort"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -85,22 +85,7 @@ func sampleKey(s Series) string {
 	if s.TimeMillis == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(s.Labels))
-	for k := range s.Labels {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	b.WriteString(s.Metric)
-	b.WriteByte(0)
-	b.WriteString(strconv.FormatInt(s.TimeMillis, 10))
-	for _, k := range keys {
-		b.WriteByte(0)
-		b.WriteString(k)
-		b.WriteByte(1)
-		b.WriteString(s.Labels[k])
-	}
-	return b.String()
+	return strconv.FormatInt(s.TimeMillis, 10) + "|" + SeriesIdentity(s.Metric, s.Labels)
 }
 
 // Write retains tenant-owned series, then enforces retention + the byte wall.
@@ -217,18 +202,55 @@ func (m *Memory) Query(metric string, match map[string]string) []Series {
 	var out []Series
 	for _, pos := range m.byMetric[metric] {
 		s := m.entries[pos-m.base].s
-		ok := true
-		for k, v := range match {
-			if s.Labels[k] != v {
-				ok = false
-				break
-			}
-		}
-		if ok {
+		if matchSampleLabels(s.Labels, match) {
 			out = append(out, s)
 		}
 	}
 	return out
+}
+
+// ReadTenantMetricSamples returns a complete bounded copy of original samples
+// from (after, through]. The tenant pin is enforced before matching the other
+// labels. A caller cannot broaden it with a selector label.
+func (m *Memory) ReadTenantMetricSamples(ctx context.Context, tenant, metric string, match map[string]string, after, through, maxBytes int64) ([]Series, error) {
+	if tenant == "" || (match[TenantLabel] != "" && match[TenantLabel] != tenant) {
+		return nil, ErrTenantRequired
+	}
+	if metric == "" || through <= after || maxBytes <= 0 {
+		return nil, errors.New("tsdb: invalid raw sample admission")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Series
+	for _, pos := range m.byMetric[metric] {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		s := m.entries[pos-m.base].s
+		if s.Labels[TenantLabel] != tenant || s.TimeMillis <= after || s.TimeMillis > through || !matchSampleLabels(s.Labels, match) {
+			continue
+		}
+		size := sampleSize(s)
+		if size > maxBytes {
+			return nil, errors.New("tsdb: raw sample response exceeds admission")
+		}
+		maxBytes -= size
+		s.Labels = maps.Clone(s.Labels)
+		out = append(out, s)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func matchSampleLabels(labels, match map[string]string) bool {
+	for key, value := range match {
+		if labels[key] != value {
+			return false
+		}
+	}
+	return true
 }
 
 // Len returns the total number of retained series.

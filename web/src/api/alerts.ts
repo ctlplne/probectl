@@ -8,7 +8,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import { useAuth } from '../auth/useAuth'
 import type { Incident, Severity } from './incidents'
-import type { AlertTagFilterState as GeneratedAlertTagFilterState } from './sdk.gen'
+import type {
+  AlertSeasonalEvaluation,
+  AlertSeasonalSourceInput,
+  AlertSeasonalSourceState,
+  AlertTagFilterState as GeneratedAlertTagFilterState,
+} from './sdk.gen'
 import type { FlowQueryFilterGroup } from './flowExplorer'
 
 export type { AlertQueryCondition, AlertQuerySourceInput, AlertQuerySourceState } from './sdk.gen'
@@ -18,6 +23,24 @@ export type { AlertPathHealthSourceInput, AlertPathHealthSourceState } from './s
 import type { AlertPathHealthSourceInput, AlertPathHealthSourceState } from './sdk.gen'
 
 export const pathHealthAlertMetric = 'probectl_device_path_error_climb'
+
+export function seasonalAlertSource(
+  tenantID: string,
+  ruleID: string,
+  method: 'GET' | 'PUT' | 'DELETE',
+  signal: AbortSignal,
+  source?: AlertSeasonalSourceInput,
+) {
+  return apiFetch<AlertSeasonalSourceState>(
+    `/alerts/rules/${encodeURIComponent(ruleID)}/seasonal-source`,
+    {
+      method,
+      signal,
+      headers: { 'Content-Type': 'application/json', 'X-Probectl-Tenant': tenantID },
+      body: method === 'PUT' ? JSON.stringify(source) : undefined,
+    },
+  )
+}
 
 export function getAlertPathHealthSource(tenantID: string, ruleID: string, signal: AbortSignal) {
   return apiFetch<AlertPathHealthSourceState>(
@@ -255,6 +278,7 @@ export interface AlertRule {
   enabled: boolean
   has_tag_filter?: boolean
   has_dependency_policy?: boolean
+  has_seasonal_source?: boolean
   metric: string
   match?: Record<string, string>
   type: 'threshold' | 'baseline' | 'trap'
@@ -274,10 +298,17 @@ export interface AlertRule {
 /** The create/update body (server validates; id/timestamps are server-owned). */
 export type AlertRuleInput = Omit<
   AlertRule,
-  'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'has_tag_filter' | 'has_dependency_policy'
+  | 'id'
+  | 'tenant_id'
+  | 'created_at'
+  | 'updated_at'
+  | 'has_tag_filter'
+  | 'has_dependency_policy'
+  | 'has_seasonal_source'
 >
 
 export interface ActiveAlert {
+  incident_id?: string
   fingerprint: string
   evaluation_fingerprint: string
   rule_id: string
@@ -311,6 +342,7 @@ export interface AlertEvaluationExpectation {
   stddev?: number
   lower?: number
   upper?: number
+  seasonal?: AlertSeasonalEvaluation
 }
 
 export interface AlertEvaluationReceipt {

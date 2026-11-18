@@ -79,6 +79,50 @@ func TestMemoryWriteQuery(t *testing.T) {
 	}
 }
 
+func TestMemoryRawSampleRangePreservesTenantAndOwnedBoundary(t *testing.T) {
+	m := NewMemory()
+	const metric = "probectl_result"
+	point := func(tenant string, at int64, value float64) Series {
+		return Series{Metric: metric, Labels: map[string]string{TenantLabel: tenant, "node": "same"}, TimeMillis: at, Value: value}
+	}
+	if err := m.Write(t.Context(), []Series{point("owned", 1000, 90), point("owned", 1001, 11),
+		point("sibling", 1001, 19), point("owned", 1003, 13), point("owned", 1004, 20)}); err != nil {
+		t.Fatal(err)
+	}
+	match := map[string]string{"node": "same"}
+	got, err := m.ReadTenantMetricSamples(t.Context(), "owned", metric, match, 1000, 1003, 2048)
+	if err != nil || len(got) != 2 || got[0].Value != 11 || got[1].Value != 13 || got[0].TimeMillis != 1001 || got[1].TimeMillis != 1003 {
+		t.Fatalf("owned exact raw range: %+v (%v)", got, err)
+	}
+	if prefix, err := m.ReadTenantMetricSamples(t.Context(), "owned", metric, match, 1000, 1003, sampleSize(got[0])); err == nil || len(prefix) != 0 {
+		t.Fatalf("incomplete history crossed budget: %+v (%v)", prefix, err)
+	}
+	got[0].Labels[TenantLabel] = "sibling"
+	got, err = m.ReadTenantMetricSamples(t.Context(), "sibling", metric, match, 1000, 1003, 2048)
+	if err != nil || len(got) != 1 || got[0].Value != 19 {
+		t.Fatalf("returning history altered another tenant's storage scope: %+v (%v)", got, err)
+	}
+	if prefix, err := m.ReadTenantMetricSamples(t.Context(), "sibling", metric, map[string]string{TenantLabel: "owned"}, 1000, 1003, 2048); err == nil || len(prefix) != 0 {
+		t.Fatalf("match relabeled the tenant boundary: %+v (%v)", prefix, err)
+	}
+}
+
+func TestMetricSeriesIdentityKeepsExactOwnedLabelSets(t *testing.T) {
+	const metric = "recorded_measurement"
+	first := map[string]string{TenantLabel: "owned", "target": "centre:1 | egress", "device": "Branch 1"}
+	same := map[string]string{"device": "Branch 1", "target": "centre:1 | egress", TenantLabel: "owned"}
+	other := map[string]string{"device": "Branch 1", "target": "centre:1 | egress", TenantLabel: "sibling"}
+	if a, b, c := SeriesIdentity(metric, first), SeriesIdentity(metric, same), SeriesIdentity(metric, other); a != b || a == c {
+		t.Fatal("canonical metric identity depended on map order or merged tenants")
+	}
+	other[TenantLabel] = "owned"
+	other["device"] = "Branch 2"
+	if SeriesIdentity(metric, first) == SeriesIdentity(metric, other) ||
+		SeriesIdentity(metric, nil) == SeriesIdentity(metric, map[string]string{TenantLabel: ""}) {
+		t.Fatal("canonical metric identity merged distinct label sets")
+	}
+}
+
 func TestMemoryWriteDedupsRedelivery(t *testing.T) {
 	m := NewMemory()
 	first := Series{

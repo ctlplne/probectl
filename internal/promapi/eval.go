@@ -71,7 +71,7 @@ func collect(snapshot []tsdb.Series, sel Selector, startMs, endMs int64, maxSeri
 		if !sel.Matches(s.Metric, s.Labels) {
 			continue
 		}
-		k := seriesKey(s.Metric, s.Labels)
+		k := tsdb.SeriesIdentity(s.Metric, s.Labels)
 		i, ok := idx[k]
 		if !ok {
 			if len(out) >= maxSeries {
@@ -197,7 +197,7 @@ func collectMulti(snapshot []tsdb.Series, sels []Selector, start, end time.Time,
 			return nil, err
 		}
 		for _, rs := range series {
-			k := seriesKey(rs.Metric, rs.Labels)
+			k := tsdb.SeriesIdentity(rs.Metric, rs.Labels)
 			if seen[k] {
 				continue
 			}

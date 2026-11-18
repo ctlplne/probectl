@@ -385,6 +385,27 @@ describe('alerting surface (S-FE1)', () => {
     expect(state.requests.filter((r) => r.method !== 'GET')).toHaveLength(0)
   })
 
+  test.each([true, false])(
+    'loads the cited seasonal incident with incident.read=%s',
+    async (allowed) => {
+      const { fetcher, state } = alertsBackend()
+      const exactIncident = 'seasonal-cited-incident'
+      state.active[0].incident_id = exactIncident
+      vi.stubGlobal('fetch', fetcher)
+      const permissions = allowed ? ['alert.read', 'incident.read'] : ['alert.read']
+      renderApp('/alerts', { me: { permissions } })
+      const details = await screen.findAllByRole('button', { name: 'Details' })
+      await userEvent.click(details[0])
+      await waitFor(() => {
+        const requests = state.requests
+          .filter(({ url }) => url.includes('/v1/alerts/active/fp-1/workflow'))
+          .map(({ url }) => new URL(url, 'https://fixture.invalid').searchParams.get('incident_id'))
+        expect(requests).toContain(allowed ? exactIncident : null)
+        if (!allowed) expect(requests.every((id) => id === null)).toBe(true)
+      })
+    },
+  )
+
   test.each(['held', 'pending', 'recheck_required', 'withheld'] as const)(
     'renders the server dependency state %s without inventing a held parent',
     async (stateName) => {

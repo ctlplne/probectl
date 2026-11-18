@@ -70,6 +70,7 @@ import { AlertTagFilterDialog } from './AlertTagFilterDialog'
 import { AlertDependencyDialog } from './AlertDependencyDialog'
 import { AlertQuerySourceDialog } from './AlertQuerySourceDialog'
 import { AlertPathHealthSourceDialog } from './AlertPathHealthSourceDialog'
+import { AlertSeasonalSourceDialog } from './AlertSeasonalSourceDialog'
 import { AlertQueryGroupPanel } from './AlertQueryGroupPanel'
 import { savedQueryAlertMetric, pathHealthAlertMetric } from '../api/alerts'
 
@@ -233,6 +234,14 @@ function evaluationExpectation(expectation: AlertEvaluationExpectation): string 
     return `${expectation.comparison ?? 'comparison unavailable'} ${expectation.threshold ?? 'threshold unavailable'}`
   }
   if (expectation.lower !== undefined && expectation.upper !== undefined) {
+    if (expectation.seasonal) {
+      const { weekday, hour, timezone, training_days } = expectation.seasonal.calendar
+      const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
+        weekday
+      ]
+      const slot = `${day} ${String(hour).padStart(2, '0')}:00 ${timezone}`
+      return `${slot} · ${expectation.lower.toLocaleString()} – ${expectation.upper.toLocaleString()} · ${training_days.length} comparable dates`
+    }
     return `${expectation.lower.toLocaleString()} – ${expectation.upper.toLocaleString()} (mean ${expectation.mean?.toLocaleString() ?? 'unavailable'}, σ ${expectation.stddev?.toLocaleString() ?? 'unavailable'})`
   }
   return 'Baseline band is still warming'
@@ -275,13 +284,22 @@ function ActiveAlertDetail({
   const [minutes, setMinutes] = useState('60')
   const [operationReason, setOperationReason] = useState('Investigating the firing alert')
   const state = alertStateOf(alert)
-  const linkedIncident = linkedIncidentForAlert(alert, incidents.data ?? [])
   const evaluations = useAlertEvaluations(alert.rule_id, alert.evaluation_fingerprint)
+  const receiptIncident = evaluations.data?.items
+    .slice()
+    .reverse()
+    .find((item) => item.state === 'firing' && item.expectation.seasonal?.incident_id)?.expectation
+    .seasonal?.incident_id
+  const linkedIncidentID = permissions.includes('incident.read')
+    ? (alert.incident_id ??
+      receiptIncident ??
+      linkedIncidentForAlert(alert, incidents.data ?? [])?.id)
+    : undefined
   const canReadSelection = ['tags.read', 'test.read', 'metrics.read'].every((key) =>
     permissions.includes(key),
   )
   const selectionAccess = canReadSelection ? evaluations.data?.tag_selection_access : 'withheld'
-  const workflow = useAlertWorkflow(alert.fingerprint, linkedIncident?.id)
+  const workflow = useAlertWorkflow(alert.fingerprint, linkedIncidentID)
   const dependency = workflow.data?.dependency
   const operationReceipts = useMemo(() => {
     const receipts = [...(workflow.data?.operations ?? [])]
@@ -311,9 +329,9 @@ function ActiveAlertDetail({
     )
     return receipts
   }, [ack.data, silence.data, workflow.data?.operations])
-  const incidentHref = linkedIncident
+  const incidentHref = linkedIncidentID
     ? pivotHref('/incidents', {
-        incidentId: linkedIncident.id,
+        incidentId: linkedIncidentID,
         from: alert.since,
         to: alert.last_seen_at,
         filters: {},
@@ -1254,6 +1272,9 @@ export function AlertsPage() {
   )
   const [queryEditing, setQueryEditing] = useState<AlertRule | true | null>(null)
   const [pathEditing, setPathEditing] = useState<AlertRule | true | null>(null)
+  const [seasonalEditing, setSeasonalEditing] = useState<{ rule: AlertRule; scope: string } | null>(
+    null,
+  )
   const [dependencyEditing, setDependencyEditing] = useState<{
     rule: AlertRule
     scope: string
@@ -1388,7 +1409,9 @@ export function AlertsPage() {
               ? trapCondition(r.trap)
               : r.type === 'threshold'
                 ? `${r.comparison ?? 'gt'} ${r.threshold ?? 0}`
-                : `baseline ±${r.sensitivity ?? 3}σ`,
+                : r.has_seasonal_source
+                  ? 'Weekly seasonal baseline'
+                  : `baseline ±${r.sensitivity ?? 3}σ`,
     },
     {
       key: 'severity',
@@ -1412,7 +1435,7 @@ export function AlertsPage() {
           <Button size="sm" variant="ghost" disabled={!canWrite} onClick={() => setEditing(r)}>
             Edit
           </Button>
-          {permissions.includes('alert.read') || canWrite ? (
+          {!r.has_seasonal_source && (permissions.includes('alert.read') || canWrite) ? (
             <Button
               size="sm"
               variant="ghost"
@@ -1432,9 +1455,24 @@ export function AlertsPage() {
               Path-error source
             </Button>
           ) : null}
+          {r.type === 'baseline' &&
+          !r.has_tag_filter &&
+          !r.has_dependency_policy &&
+          (canWrite ||
+            (permissions.includes('alert.read') && permissions.includes('metrics.read'))) ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Weekly baseline for ${r.name}`}
+              onClick={() => setSeasonalEditing({ rule: r, scope: metadataScope })}
+            >
+              Weekly baseline{r.has_seasonal_source ? ' (set)' : ''}
+            </Button>
+          ) : null}
           {r.metric !== savedQueryAlertMetric &&
           r.metric !== pathHealthAlertMetric &&
           r.type !== 'trap' &&
+          !r.has_seasonal_source &&
           (canReadMetadata || canWrite) ? (
             <Button
               size="sm"
@@ -1445,17 +1483,19 @@ export function AlertsPage() {
               Test tags{r.has_tag_filter ? ' (set)' : ''}
             </Button>
           ) : null}
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() =>
-              r.metric === pathHealthAlertMetric
-                ? setPathEditing(r)
-                : setCodeExport({ title: `Export as code: ${r.name}`, code: alertRuleAsCode(r) })
-            }
-          >
-            View as YAML
-          </Button>
+          {!r.has_seasonal_source ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                r.metric === pathHealthAlertMetric
+                  ? setPathEditing(r)
+                  : setCodeExport({ title: `Export as code: ${r.name}`, code: alertRuleAsCode(r) })
+              }
+            >
+              View as YAML
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="ghost"
@@ -1737,6 +1777,12 @@ export function AlertsPage() {
         <AlertPathHealthSourceDialog
           rule={pathEditing === true ? undefined : pathEditing}
           onClose={() => setPathEditing(null)}
+        />
+      ) : null}
+      {seasonalEditing?.scope === metadataScope ? (
+        <AlertSeasonalSourceDialog
+          rule={seasonalEditing.rule}
+          onClose={() => setSeasonalEditing(null)}
         />
       ) : null}
       {creating ? <RuleForm onClose={() => setCreating(false)} /> : null}

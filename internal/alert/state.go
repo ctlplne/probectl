@@ -40,6 +40,10 @@ type seriesState struct {
 	// step records its progress.
 	lastEvaluationState EvaluationState
 	lastTagSelectionKey string
+	seasonalSubject     string
+	seasonalObservedAt  time.Time
+	seasonalPublished   bool
+	seasonalIncidentID  string
 
 	// Operator actions (S-FE1): cleared automatically on resolve.
 	silencedUntil time.Time

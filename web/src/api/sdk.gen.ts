@@ -199,6 +199,7 @@ export interface AlertEvaluationExpectation {
   kind: "threshold" | "baseline"
   lower?: number
   mean?: number
+  seasonal?: AlertSeasonalEvaluation | null
   stddev?: number
   threshold?: number
   upper?: number
@@ -326,6 +327,7 @@ export interface AlertRule {
   enabled?: boolean
   for_n?: number
   has_dependency_policy?: boolean
+  has_seasonal_source?: boolean
   has_tag_filter?: boolean
   id?: string
   match?: { [key: string]: string }
@@ -340,6 +342,54 @@ export interface AlertRule {
   type?: "threshold" | "baseline" | "trap"
   updated_at?: string
   window?: number
+}
+
+export interface AlertSeasonalCalendar {
+  hour: number
+  lower: number
+  median: number
+  robust_spread: number
+  timezone: string
+  training_days: string[]
+  upper: number
+  weekday: number
+}
+
+export interface AlertSeasonalCitation {
+  metric: string
+  plane: string
+  ref: string
+  source: string
+}
+
+export interface AlertSeasonalEvaluation {
+  calendar: AlertSeasonalCalendar
+  citations: AlertSeasonalCitation[]
+  incident_id?: string
+  observed_at: string
+  subject: string
+  training_window: AlertSeasonalTrainingWindow
+}
+
+export interface AlertSeasonalSourceInput {
+  holidays?: string[]
+  minimum_change: number
+  test_id?: string
+  timezone: string
+}
+
+export interface AlertSeasonalSourceState {
+  configured: boolean
+  enabled: boolean
+  rule_id: string
+  rule_updated_at: string
+  source?: AlertSeasonalSourceInput | null
+}
+
+export interface AlertSeasonalTrainingWindow {
+  end: string
+  samples: number
+  start: string
 }
 
 export interface AlertTagFilter {
@@ -4155,6 +4205,25 @@ export interface ClearAlertQuerySourceRequest {
 
 export type ClearAlertQuerySourceResponse = AlertQuerySourceState
 
+export interface GetAlertSeasonalSourceRequest {
+  id: string
+}
+
+export type GetAlertSeasonalSourceResponse = AlertSeasonalSourceState
+
+export interface SetAlertSeasonalSourceRequest {
+  id: string
+  body: AlertSeasonalSourceInput
+}
+
+export type SetAlertSeasonalSourceResponse = AlertSeasonalSourceState
+
+export interface ClearAlertSeasonalSourceRequest {
+  id: string
+}
+
+export type ClearAlertSeasonalSourceResponse = AlertSeasonalSourceState
+
 export interface GetAlertTagFilterRequest {
   id: string
 }
@@ -6082,6 +6151,27 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<ClearAlertQuerySourceResponse>("DELETE", path, query, undefined)
+  }
+
+  async getAlertSeasonalSource(request: GetAlertSeasonalSourceRequest): Promise<GetAlertSeasonalSourceResponse> {
+    let path = "/v1/alerts/rules/{id}/seasonal-source"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetAlertSeasonalSourceResponse>("GET", path, query, undefined)
+  }
+
+  async setAlertSeasonalSource(request: SetAlertSeasonalSourceRequest): Promise<SetAlertSeasonalSourceResponse> {
+    let path = "/v1/alerts/rules/{id}/seasonal-source"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<SetAlertSeasonalSourceResponse>("PUT", path, query, request.body)
+  }
+
+  async clearAlertSeasonalSource(request: ClearAlertSeasonalSourceRequest): Promise<ClearAlertSeasonalSourceResponse> {
+    let path = "/v1/alerts/rules/{id}/seasonal-source"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ClearAlertSeasonalSourceResponse>("DELETE", path, query, undefined)
   }
 
   async getAlertTagFilter(request: GetAlertTagFilterRequest): Promise<GetAlertTagFilterResponse> {

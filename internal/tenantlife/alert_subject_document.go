@@ -27,6 +27,12 @@ func alertSubjectDocumentSQL(column string) string {
 		trimmed = alertSubjectWithoutUUIDReference(document, "test_id")
 		trimmed = alertSubjectWithoutUUIDReference(trimmed, "interface_id")
 		projection = alertSubjectReadGrantsSQL(document)
+	case "seasonal_source":
+		config := `(` + document + `->'config')`
+		projection = `(` + alertSubjectReadGrantsSQL(document) + `) ||
+ (CASE WHEN jsonb_typeof(` + config + `)='object' THEN
+ jsonb_build_object('config', ` + alertSubjectWithoutUUIDReference(config, "test_id") + `)
+ ELSE '{}'::jsonb END)`
 	case "tag_filter":
 		projection = alertSubjectTagBindingsSQL(document)
 	default:

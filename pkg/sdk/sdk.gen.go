@@ -275,13 +275,14 @@ type AlertDependencyPolicyState struct {
 }
 
 type AlertEvaluationExpectation struct {
-	Comparison string  `json:"comparison,omitempty"`
-	Kind       string  `json:"kind"`
-	Lower      float64 `json:"lower,omitempty"`
-	Mean       float64 `json:"mean,omitempty"`
-	Stddev     float64 `json:"stddev,omitempty"`
-	Threshold  float64 `json:"threshold,omitempty"`
-	Upper      float64 `json:"upper,omitempty"`
+	Comparison string                   `json:"comparison,omitempty"`
+	Kind       string                   `json:"kind"`
+	Lower      float64                  `json:"lower,omitempty"`
+	Mean       float64                  `json:"mean,omitempty"`
+	Seasonal   *AlertSeasonalEvaluation `json:"seasonal,omitempty"`
+	Stddev     float64                  `json:"stddev,omitempty"`
+	Threshold  float64                  `json:"threshold,omitempty"`
+	Upper      float64                  `json:"upper,omitempty"`
 }
 
 type AlertEvaluationReceipt struct {
@@ -412,6 +413,7 @@ type AlertRule struct {
 	Enabled             *bool             `json:"enabled,omitempty"`
 	ForN                int               `json:"for_n,omitempty"`
 	HasDependencyPolicy *bool             `json:"has_dependency_policy,omitempty"`
+	HasSeasonalSource   *bool             `json:"has_seasonal_source,omitempty"`
 	HasTagFilter        *bool             `json:"has_tag_filter,omitempty"`
 	Id                  string            `json:"id,omitempty"`
 	Match               map[string]string `json:"match,omitempty"`
@@ -426,6 +428,55 @@ type AlertRule struct {
 	Type                string            `json:"type,omitempty"`
 	UpdatedAt           string            `json:"updated_at,omitempty"`
 	Window              int               `json:"window,omitempty"`
+}
+
+type AlertSeasonalCalendar struct {
+	Hour         int      `json:"hour"`
+	Lower        float64  `json:"lower"`
+	Median       float64  `json:"median"`
+	RobustSpread float64  `json:"robust_spread"`
+	Timezone     string   `json:"timezone"`
+	TrainingDays []string `json:"training_days"`
+	Upper        float64  `json:"upper"`
+	Weekday      int      `json:"weekday"`
+}
+
+type AlertSeasonalCitation struct {
+	Metric string `json:"metric"`
+	Plane  string `json:"plane"`
+	Ref    string `json:"ref"`
+	Source string `json:"source"`
+}
+
+type AlertSeasonalEvaluation struct {
+	Calendar       AlertSeasonalCalendar       `json:"calendar"`
+	Citations      []AlertSeasonalCitation     `json:"citations"`
+	IncidentId     string                      `json:"incident_id,omitempty"`
+	ObservedAt     string                      `json:"observed_at"`
+	Subject        string                      `json:"subject"`
+	TrainingWindow AlertSeasonalTrainingWindow `json:"training_window"`
+}
+
+// Choose an IANA timezone, explicit local holiday dates and a positive absolute change threshold in the metric unit.
+type AlertSeasonalSourceInput struct {
+	Holidays      []string `json:"holidays,omitempty"`
+	MinimumChange float64  `json:"minimum_change"`
+	TestId        string   `json:"test_id,omitempty"`
+	Timezone      string   `json:"timezone"`
+}
+
+type AlertSeasonalSourceState struct {
+	Configured    bool                      `json:"configured"`
+	Enabled       bool                      `json:"enabled"`
+	RuleId        string                    `json:"rule_id"`
+	RuleUpdatedAt string                    `json:"rule_updated_at"`
+	Source        *AlertSeasonalSourceInput `json:"source,omitempty"`
+}
+
+type AlertSeasonalTrainingWindow struct {
+	End     string `json:"end"`
+	Samples int    `json:"samples"`
+	Start   string `json:"start"`
 }
 
 type AlertTagFilter struct {
@@ -4823,6 +4874,64 @@ func (c *Client) ClearAlertQuerySource(ctx context.Context, req ClearAlertQueryS
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out AlertQuerySourceState
+	if err := c.doJSON(ctx, http.MethodDelete, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Inspect a weekly seasonal baseline
+type GetAlertSeasonalSourceRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetAlertSeasonalSource(ctx context.Context, req GetAlertSeasonalSourceRequest) (*AlertSeasonalSourceState, error) {
+	path := "/v1/alerts/rules/{id}/seasonal-source"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertSeasonalSourceState
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Bind a baseline rule to a local weekly calendar
+type SetAlertSeasonalSourceRequest struct {
+	Id   string                    `json:"-"`
+	Body *AlertSeasonalSourceInput `json:"-"`
+}
+
+func (c *Client) SetAlertSeasonalSource(ctx context.Context, req SetAlertSeasonalSourceRequest) (*AlertSeasonalSourceState, error) {
+	path := "/v1/alerts/rules/{id}/seasonal-source"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertSeasonalSourceState
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Clear a configured weekly seasonal source and disable its rule
+type ClearAlertSeasonalSourceRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) ClearAlertSeasonalSource(ctx context.Context, req ClearAlertSeasonalSourceRequest) (*AlertSeasonalSourceState, error) {
+	path := "/v1/alerts/rules/{id}/seasonal-source"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out AlertSeasonalSourceState
 	if err := c.doJSON(ctx, http.MethodDelete, path, query, nil, &out); err != nil {
 		return nil, err
 	}

@@ -37,13 +37,14 @@ const (
 // Baseline bands carry mean/stddev/lower/upper; threshold rules carry the
 // comparison and threshold. Pointers preserve meaningful zero values.
 type EvaluationExpectation struct {
-	Kind       RuleType   `json:"kind"`
-	Comparison Comparison `json:"comparison,omitempty"`
-	Threshold  *float64   `json:"threshold,omitempty"`
-	Mean       *float64   `json:"mean,omitempty"`
-	StdDev     *float64   `json:"stddev,omitempty"`
-	Lower      *float64   `json:"lower,omitempty"`
-	Upper      *float64   `json:"upper,omitempty"`
+	Kind       RuleType                    `json:"kind"`
+	Comparison Comparison                  `json:"comparison,omitempty"`
+	Threshold  *float64                    `json:"threshold,omitempty"`
+	Mean       *float64                    `json:"mean,omitempty"`
+	StdDev     *float64                    `json:"stddev,omitempty"`
+	Lower      *float64                    `json:"lower,omitempty"`
+	Upper      *float64                    `json:"upper,omitempty"`
+	Seasonal   *SeasonalEvaluationEvidence `json:"seasonal,omitempty"`
 }
 
 // TagSelectionReceipt describes the current authorized snapshot used for one
