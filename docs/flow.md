@@ -1427,10 +1427,9 @@ Missing, incomplete or incompatible measurements remain unknown. The calculation
 retains exact rational values rather than rounding money or source measurements.
 Financial permission and current source authorization remain separate.
 
-This is a component preview. Original-source breach detection, monthly grouped
-claim drafts, contractual rounding/output, signed lab-fault evidence and complete
-served/lifecycle/exact-main qualification are still in progress. No claim is
-submitted and no invoice or payment is changed automatically.
+The recorded terms drive the preview's sampled breach and credit calculations.
+In Capacity planning, operators can group circuit revisions into a draft and
+save a signed report for human review.
 
 
 ### Monthly carrier SLA calculation (preview)
@@ -1464,10 +1463,9 @@ affected credit unknown. Exact fractions preserve thresholds, schedules and caps
 without floating point or invented monetary rounding. Every result requires
 human review; no claim is submitted and no payment is initiated.
 
-The monthly calculation is a preview component. Grouped signed claim drafts,
-complete breach-original attachments, physical loss/outage verification and final
-served/lifecycle/restart qualification remain unfinished. Population digests are
-reproducibility commitments, not a substitute for the signed original evidence.
+The monthly calculation returns population digests for reproducibility. To
+export a signed evidence package with the complete selected originals in a CSV
+or PDF draft, use the [signed carrier SLA claim report preview](dashboard-reporting.md#signed-carrier-sla-claim-reports-preview).
 
 
 For an unsigned grouped review draft, use **Carrier claim draft** on `/capacity`,
@@ -1484,6 +1482,6 @@ Each group retains every selected circuit assessment. Carrier names, currencies,
 billing windows, timezones and billing days remain distinct. Exact rational
 conditional credits and known lower bounds are added without currency conversion
 or invented rounding. An unknown circuit withholds the group's exact total;
-known lower bounds and every circuit remain visible. The draft is explicitly
-unsigned and `not_submitted`. Signed full-original claim attachments and their
-final qualification remain unfinished; this component does not submit claims.
+known lower bounds and every circuit remain visible. The draft is unsigned and
+has status `not_submitted`. Choose **Save signed claim report** to package the
+selected originals for offline verification and human review.
