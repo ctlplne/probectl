@@ -11,6 +11,7 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/entity"
@@ -19,7 +20,7 @@ import (
 
 func TestIncidentImpactSourcesKeepCurrentDeviceInterfaceAndTenantAuthority(t *testing.T) {
 	f, _, _, _ := newRoutingFlowCaptureFixture(t)
-	read := func(lane int, override *IncidentImpactInputs, authorize func(context.Context, entity.ContextRecord, IncidentImpactEntity) error) ([]IncidentImpactSource, error) {
+	read := func(lane int, override *IncidentImpactInputs, authorize func(context.Context, entity.ContextRecord, IncidentImpactEntity) error, selectedMembers bool) ([]IncidentImpactSource, error) {
 		t.Helper()
 		tenant := f.tenants[lane]
 		input := &IncidentImpactInputs{TenantID: tenant, Entities: []IncidentImpactEntity{
@@ -32,6 +33,10 @@ func TestIncidentImpactSourcesKeepCurrentDeviceInterfaceAndTenantAuthority(t *te
 		var out []IncidentImpactSource
 		err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
 			var err error
+			if selectedMembers {
+				out, err = CurrentFlowSourcesInScope(ctx, sc, input.Entities, roleInputsBudget(), authorize)
+				return err
+			}
 			out, err = (Incidents{}).ImpactSourcesInScope(ctx, sc, input, roleInputsBudget(), authorize)
 			return err
 		})
@@ -46,9 +51,13 @@ func TestIncidentImpactSourcesKeepCurrentDeviceInterfaceAndTenantAuthority(t *te
 				t.Fatal("impact source authorization received a foreign context")
 			}
 			return nil
-		})
+		}, false)
 		if err != nil || len(out) != 2 || calls != 2 {
 			t.Fatal("complete incident source membership was unavailable", len(out), calls, err)
+		}
+		selected, err := read(lane, nil, allow, true)
+		if err != nil || !reflect.DeepEqual(selected, out) {
+			t.Fatal("explicit canonical member selection changed the tenant's attested sources", err)
 		}
 		for i, source := range out {
 			if source.Reason != "current_attested_source" || len(source.Selections) != 1 || len(source.Evidence) == 0 || source.ValidUntil.IsZero() {
@@ -60,10 +69,10 @@ func TestIncidentImpactSourcesKeepCurrentDeviceInterfaceAndTenantAuthority(t *te
 			}
 		}
 		denied := errors.New("current incident context denied")
-		if leaked, err := read(lane, nil, func(context.Context, entity.ContextRecord, IncidentImpactEntity) error { return denied }); !errors.Is(err, denied) || leaked != nil {
+		if leaked, err := read(lane, nil, func(context.Context, entity.ContextRecord, IncidentImpactEntity) error { return denied }, true); !errors.Is(err, denied) || leaked != nil {
 			t.Fatal("denied incident source disclosed a usable prefix", leaked, err)
 		}
-		if leaked, err := read(lane, &IncidentImpactInputs{TenantID: f.tenants[1-lane]}, allow); err == nil || leaked != nil {
+		if leaked, err := read(lane, &IncidentImpactInputs{TenantID: f.tenants[1-lane]}, allow, false); err == nil || leaked != nil {
 			t.Fatal("incident membership replaced storage tenant", leaked, err)
 		}
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
@@ -73,11 +82,11 @@ func TestIncidentImpactSourcesKeepCurrentDeviceInterfaceAndTenantAuthority(t *te
 			_, err := sc.Q.Exec(ctx, `INSERT INTO entity_source_contexts(tenant_id,agent_id,source_kind,source_ref,context_id,anchor_entity_id) VALUES($1,'unobserved-impact-competitor','flow_exporter','192.0.2.1',$2,$3)`, tenant, f.contextID, f.otherRouter)
 			return err
 		})
-		withdrawn, err := read(lane, nil, allow)
+		withdrawn, err := read(lane, nil, allow, true)
 		if err != nil || len(withdrawn) != 2 || len(withdrawn[0].Selections) != 0 || len(withdrawn[1].Selections) != 0 {
 			t.Fatal("unobserved competing ownership was pruned to manufacture authority", withdrawn, err)
 		}
-		peer, err := read(1-lane, nil, allow)
+		peer, err := read(1-lane, nil, allow, false)
 		if err != nil || len(peer) != 2 || (len(peer[0].Selections) == 1) != (lane == 0) {
 			t.Fatal("impact source withdrawal crossed tenant storage", peer, err)
 		}

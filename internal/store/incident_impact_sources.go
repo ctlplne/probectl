@@ -36,20 +36,33 @@ type IncidentImpactSource struct {
 // and unobserved competitors. Empty coverage never means zero traffic.
 func (Incidents) ImpactSourcesInScope(ctx context.Context, sc tenancy.Scope, inputs *IncidentImpactInputs, budget entity.InterfaceRolePolicyBudget,
 	authorize func(context.Context, entity.ContextRecord, IncidentImpactEntity) error) ([]IncidentImpactSource, error) {
-	bound, ok := tenancy.FromContext(ctx)
-	if !ok || sc.Tenant != bound || inputs == nil || inputs.TenantID != bound.String() || authorize == nil || sc.Q == nil {
+	if inputs == nil || inputs.TenantID != sc.Tenant.String() {
 		return nil, entity.ErrScopeMismatch
 	}
+	return CurrentFlowSourcesInScope(ctx, sc, inputs.Entities, budget, authorize)
+}
+
+// CurrentFlowSourcesInScope resolves existing canonical device or interface
+// members for a tenant-scoped flow read. A caller such as a boundary control
+// can bring its own selected members and must authorize every one before the
+// resolver looks up the current exporter bindings and their competitors.
+func CurrentFlowSourcesInScope(ctx context.Context, sc tenancy.Scope, members []IncidentImpactEntity, budget entity.InterfaceRolePolicyBudget,
+	authorize func(context.Context, entity.ContextRecord, IncidentImpactEntity) error) ([]IncidentImpactSource, error) {
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || sc.Tenant != bound || authorize == nil || sc.Q == nil {
+		return nil, entity.ErrScopeMismatch
+	}
+	tenant := bound.String()
 	if err := requireRoutingCaptureReadSnapshot(ctx, sc); err != nil {
 		return nil, err
 	}
 	admission := roleInputAdmission{memory: budget.MemoryBytes, work: budget.WorkUnits}
-	if err := admission.charge(ctx, 4096+int64(len(inputs.Entities))*1024, int64(len(inputs.Entities))); err != nil {
+	if err := admission.charge(ctx, 4096+int64(len(members))*1024, int64(len(members))); err != nil {
 		return nil, err
 	}
 	// Denied readers cannot use ownership enumeration/admission to learn
 	// another context's metadata population.
-	for _, member := range inputs.Entities {
+	for _, member := range members {
 		record, err := NewEntityRegistry(nil).GetEntityContextInScope(ctx, sc, member.ContextID)
 		if err != nil {
 			return nil, err
@@ -64,15 +77,15 @@ func (Incidents) ImpactSourcesInScope(ctx context.Context, sc tenancy.Scope, inp
 		return nil, err
 	}
 	bindings := map[string][]InterfaceRoleFlowBinding{}
-	out := make([]IncidentImpactSource, 0, len(inputs.Entities))
-	for _, member := range inputs.Entities {
+	out := make([]IncidentImpactSource, 0, len(members))
+	for _, member := range members {
 		if _, err := validRegistryUUID(member.EntityID); err != nil {
 			return nil, err
 		}
 		item := IncidentImpactSource{Member: member, Reason: "unavailable_source", Selections: []flowstore.IncidentTrafficSource{}, Evidence: []string{}}
 		var parent string
 		err = sc.Q.QueryRow(ctx, `SELECT kind,COALESCE(parent_entity_id::text,'') FROM entities
-			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, inputs.TenantID, member.ContextID, member.EntityID).Scan(&item.Kind, &parent)
+			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`, tenant, member.ContextID, member.EntityID).Scan(&item.Kind, &parent)
 		if errors.Is(err, pgx.ErrNoRows) {
 			out = append(out, item)
 			continue
@@ -87,7 +100,7 @@ func (Incidents) ImpactSourcesInScope(ctx context.Context, sc tenancy.Scope, inp
 		index := uint32(0)
 		if item.Kind == entity.Interface {
 			part := entity.InterfaceRolePolicyBudget{MemoryBytes: budget.MemoryBytes / 4, WorkUnits: admission.work}
-			facts, err := reader.LoadInScope(ctx, sc, entity.Scope{TenantID: inputs.TenantID, ContextID: member.ContextID}, member.EntityID, part)
+			facts, err := reader.LoadInScope(ctx, sc, entity.Scope{TenantID: tenant, ContextID: member.ContextID}, member.EntityID, part)
 			if err != nil {
 				return nil, err
 			}
@@ -120,7 +133,7 @@ func (Incidents) ImpactSourcesInScope(ctx context.Context, sc tenancy.Scope, inp
 				JOIN entity_agent_contexts assignment ON
 				(assignment.tenant_id,assignment.context_id,assignment.agent_id)=(source.tenant_id,source.context_id,source.agent_id)
 				WHERE node.tenant_id=$1 AND node.context_id=$2 AND node.id=$3 AND node.parent_entity_id=$4
-				AND source.anchor_entity_id=$4`, inputs.TenantID, member.ContextID, member.EntityID, router).Scan(&item.InterfaceNotBefore); err != nil {
+				AND source.anchor_entity_id=$4`, tenant, member.ContextID, member.EntityID, router).Scan(&item.InterfaceNotBefore); err != nil {
 				return nil, err
 			}
 			item.Evidence = append(item.Evidence, facts.SNMP.SourceID)
@@ -132,7 +145,7 @@ func (Incidents) ImpactSourcesInScope(ctx context.Context, sc tenancy.Scope, inp
 		}
 		current, found := bindings[member.ContextID]
 		if !found {
-			current, err = reader.FlowBindingsInScope(ctx, sc, entity.Scope{TenantID: inputs.TenantID, ContextID: member.ContextID},
+			current, err = reader.FlowBindingsInScope(ctx, sc, entity.Scope{TenantID: tenant, ContextID: member.ContextID},
 				entity.InterfaceRolePolicyBudget{MemoryBytes: budget.MemoryBytes / 4, WorkUnits: admission.work})
 			if err != nil {
 				return nil, err
@@ -149,7 +162,7 @@ func (Incidents) ImpactSourcesInScope(ctx context.Context, sc tenancy.Scope, inp
 			if binding.RouterID != router {
 				continue
 			}
-			owner, err := routingFlowOwner(inputs.TenantID, binding.Exporter, owners)
+			owner, err := routingFlowOwner(tenant, binding.Exporter, owners)
 			if errors.Is(err, ErrBGPRoutingFlowSource) {
 				continue
 			}
