@@ -19370,7 +19370,10 @@
             "description": "Sign one selected control. AU.L2-3.3.1 checks retained audit-chain coverage. SC.L2-3.13.1 and PCI DSS 11.4.5 use declared segmentation rules and selected original flow evidence. SI.L2-3.14.6 reports selected flow monitoring coverage. PCI DSS 1.3.1 and 1.3.2 use only the selected cardholder-data zone direction."
           },
           "compliance_flow": {
-            "$ref": "#/components/schemas/ComplianceFlowDefinition"
+            "oneOf": [
+              {"$ref": "#/components/schemas/ComplianceFlowDefinition"},
+              {"type": "null"}
+            ]
           },
           "carrier_claim": {
             "oneOf": [
@@ -19388,8 +19391,8 @@
         "allOf": [
           {
             "if": {"required": ["compliance_control"], "properties": {"compliance_control": {"enum": ["SC.L2-3.13.1", "11.4.5", "SI.L2-3.14.6", "1.3.1", "1.3.2"]}}},
-            "then": {"required": ["compliance_flow"]},
-            "else": {"not": {"required": ["compliance_flow"]}}
+            "then": {"required": ["compliance_flow"], "properties": {"compliance_flow": {"type": "object"}}},
+            "else": {"properties": {"compliance_flow": {"type": "null"}}}
           },
           {
             "if": {"required": ["compliance_control"], "properties": {"compliance_control": {"enum": ["SC.L2-3.13.1", "11.4.5", "1.3.1", "1.3.2"]}}},
@@ -19745,7 +19748,10 @@
             "description": "Sign one selected control. AU.L2-3.3.1 checks retained audit-chain coverage. SC.L2-3.13.1 and PCI DSS 11.4.5 use declared segmentation rules and selected original flow evidence. SI.L2-3.14.6 reports selected flow monitoring coverage. PCI DSS 1.3.1 and 1.3.2 use only the selected cardholder-data zone direction."
           },
           "compliance_flow": {
-            "$ref": "#/components/schemas/ComplianceFlowManifestDefinition"
+            "oneOf": [
+              {"$ref": "#/components/schemas/ComplianceFlowManifestDefinition"},
+              {"type": "null"}
+            ]
           },
           "carrier_claim": {
             "oneOf": [
@@ -19763,8 +19769,8 @@
         "allOf": [
           {
             "if": {"required": ["compliance_control"], "properties": {"compliance_control": {"enum": ["SC.L2-3.13.1", "11.4.5", "SI.L2-3.14.6", "1.3.1", "1.3.2"]}}},
-            "then": {"required": ["compliance_flow"]},
-            "else": {"not": {"required": ["compliance_flow"]}}
+            "then": {"required": ["compliance_flow"], "properties": {"compliance_flow": {"type": "object"}}},
+            "else": {"properties": {"compliance_flow": {"type": "null"}}}
           },
           {
             "if": {"required": ["compliance_control"], "properties": {"compliance_control": {"enum": ["SC.L2-3.13.1", "11.4.5", "1.3.1", "1.3.2"]}}},
@@ -20038,7 +20044,10 @@
             }
           },
           "compliance_bindings": {
-            "$ref": "#/components/schemas/ComplianceFlowManifestBindings"
+            "oneOf": [
+              {"$ref": "#/components/schemas/ComplianceFlowManifestBindings"},
+              {"type": "null"}
+            ]
           },
           "agreement_bindings": {
             "type": "object",

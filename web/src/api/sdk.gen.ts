@@ -1167,7 +1167,7 @@ export interface DashboardDefinition {
   carrier_claim?: CarrierSLAReportDefinition | null
   client_report?: ClientReportDefinition | null
   compliance_control?: "AU.L2-3.3.1" | "SC.L2-3.13.1" | "11.4.5" | "SI.L2-3.14.6" | "1.3.1" | "1.3.2"
-  compliance_flow?: ComplianceFlowDefinition
+  compliance_flow?: ComplianceFlowDefinition | null
   coverage_limitations: string[]
   flow_sources?: JsonObject[]
   metrics?: { [key: string]: string }
@@ -1188,7 +1188,7 @@ export interface DashboardManifestDefinition {
   carrier_claim?: CarrierSLAReportManifestDefinition | null
   client_report?: ClientReportDefinition | null
   compliance_control?: "AU.L2-3.3.1" | "SC.L2-3.13.1" | "11.4.5" | "SI.L2-3.14.6" | "1.3.1" | "1.3.2"
-  compliance_flow?: ComplianceFlowManifestDefinition
+  compliance_flow?: ComplianceFlowManifestDefinition | null
   coverage_limitations: string[]
   flow_sources?: JsonObject[]
   metrics: DashboardManifestMetric[]
@@ -1198,7 +1198,7 @@ export interface DashboardManifestDefinition {
 
 export interface DashboardManifestImportRequest {
   agreement_bindings?: { [key: string]: CarrierSLAReportAgreementBinding }
-  compliance_bindings?: ComplianceFlowManifestBindings
+  compliance_bindings?: ComplianceFlowManifestBindings | null
   confirm: boolean
   manifest: DashboardManifest
   source_bindings?: { [key: string]: JsonObject }

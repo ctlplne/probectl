@@ -1275,7 +1275,7 @@ type DashboardDefinition struct {
 	CarrierClaim        *CarrierSLAReportDefinition `json:"carrier_claim,omitempty"`
 	ClientReport        *ClientReportDefinition     `json:"client_report,omitempty"`
 	ComplianceControl   string                      `json:"compliance_control,omitempty"`
-	ComplianceFlow      ComplianceFlowDefinition    `json:"compliance_flow,omitempty"`
+	ComplianceFlow      *ComplianceFlowDefinition   `json:"compliance_flow,omitempty"`
 	CoverageLimitations []string                    `json:"coverage_limitations"`
 	FlowSources         []map[string]any            `json:"flow_sources,omitempty"`
 	Metrics             map[string]string           `json:"metrics,omitempty"`
@@ -1297,7 +1297,7 @@ type DashboardManifestDefinition struct {
 	CarrierClaim        *CarrierSLAReportManifestDefinition `json:"carrier_claim,omitempty"`
 	ClientReport        *ClientReportDefinition             `json:"client_report,omitempty"`
 	ComplianceControl   string                              `json:"compliance_control,omitempty"`
-	ComplianceFlow      ComplianceFlowManifestDefinition    `json:"compliance_flow,omitempty"`
+	ComplianceFlow      *ComplianceFlowManifestDefinition   `json:"compliance_flow,omitempty"`
 	CoverageLimitations []string                            `json:"coverage_limitations"`
 	FlowSources         []map[string]any                    `json:"flow_sources,omitempty"`
 	Metrics             []DashboardManifestMetric           `json:"metrics"`
@@ -1307,7 +1307,7 @@ type DashboardManifestDefinition struct {
 
 type DashboardManifestImportRequest struct {
 	AgreementBindings  map[string]CarrierSLAReportAgreementBinding `json:"agreement_bindings,omitempty"`
-	ComplianceBindings ComplianceFlowManifestBindings              `json:"compliance_bindings,omitempty"`
+	ComplianceBindings *ComplianceFlowManifestBindings             `json:"compliance_bindings,omitempty"`
 	Confirm            bool                                        `json:"confirm"`
 	Manifest           DashboardManifest                           `json:"manifest"`
 	SourceBindings     map[string]map[string]any                   `json:"source_bindings,omitempty"`
