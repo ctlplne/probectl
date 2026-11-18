@@ -1566,7 +1566,9 @@ export function AlertsPage() {
             className={styles.inactiveBanner}
           >
             <div className={styles.inactiveHeading}>
-              <Badge tone="warning">alerting inactive</Badge>
+              <Badge tone="warning" className="text-foreground">
+                alerting inactive
+              </Badge>
               <strong id="alerting-inactive-title">Stored rules will not fire</strong>
             </div>
             <p>

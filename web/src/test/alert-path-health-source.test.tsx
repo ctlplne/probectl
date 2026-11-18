@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
 import { AuthContext, type AuthContextValue } from '../auth/AuthProvider'
@@ -129,8 +129,14 @@ test('source editor discards a late tenant result and allows write-only confirme
   await user.click(screen.getByRole('button', { name: 'Read current path source' }))
   expect(await screen.findByLabelText('Owned path test ID')).toHaveValue(source('tenant-b').test_id)
   expect(screen.queryByDisplayValue(source('tenant-a').test_id)).toBeNull()
+  const dialog = within(screen.getByRole('dialog', { name: 'Path-error source: Owned FCS' }))
+  await user.click(dialog.getByText('Export current source as code'))
+  const yaml = dialog.getByRole('region', { name: 'View as YAML' })
+  expect(yaml).toHaveTextContent(source('tenant-b').test_id)
+  expect(yaml).not.toHaveTextContent(source('tenant-a').test_id)
   view.rerender(identity('tenant-b', ['alert.write']))
   expect(screen.queryByLabelText('Owned path test ID')).toBeNull()
+  expect(screen.queryByText('Export current source as code')).toBeNull()
   await user.click(screen.getByRole('button', { name: 'Clear source and disable rule' }))
   await user.click(screen.getByRole('button', { name: 'Clear and disable' }))
   expect(await screen.findByRole('status')).toHaveTextContent('Source cleared and rule disabled')

@@ -229,6 +229,15 @@ function PathHealthSourceContents({
             </Button>
           </form>
         ) : null}
+        {rule && canRead && state.kind === 'ready' && state.value.source ? (
+          <details>
+            <summary>Export current source as code</summary>
+            <CodeExportPanel
+              title="View as YAML"
+              code={alertRuleAsCode(rule, state.value.source)}
+            />
+          </details>
+        ) : null}
         {rule ? (
           <div className={styles.actionsRow}>
             <Button
@@ -240,12 +249,6 @@ function PathHealthSourceContents({
           </div>
         ) : null}
       </Modal>
-      {rule && state.kind === 'ready' && state.value.source ? (
-        <details>
-          <summary>Export current source as code</summary>
-          <CodeExportPanel title="View as YAML" code={alertRuleAsCode(rule, state.value.source)} />
-        </details>
-      ) : null}
       {rule ? (
         <ConfirmDialog
           open={confirmClear}
