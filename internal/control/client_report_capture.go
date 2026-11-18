@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 
@@ -66,6 +67,14 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 	if !ok || actor == nil || actor.UserID == "" || bound.String() != actor.TenantID {
 		return nil, entity.ErrScopeMismatch
 	}
+	phase := "period"
+	defer func() {
+		if captureErr != nil && s.log != nil {
+			// Static stages expose no source values, SQL or credentials.
+			s.log.WarnContext(ctx, "client report source capture failed", "phase", phase,
+				"outcome", flowOperationOutcome(captureErr), "deadline_exceeded", errors.Is(captureErr, context.DeadlineExceeded))
+		}
+	}()
 	period, err := reporting.ResolveClientReportPeriod(ctx, definition, at)
 	from, to := period.From, period.To
 	if err != nil {
@@ -82,9 +91,11 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	defer cancel()
+	phase = "current_tenant"
 	if err := s.currentReportTenant(ctx, actor.TenantID); err != nil {
 		return nil, err
 	}
+	phase = "fairness"
 	release, err := s.fairnessGate.BeginQuery(ctx, actor.TenantID)
 	if err != nil {
 		return nil, err
@@ -97,6 +108,7 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 	}()
 	ctx, flush := scopedABACDenial(ctx)
 	defer flush(s)
+	phase = "current_tests"
 	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		if err := sc.Q.QueryRow(ctx, `SELECT COALESCE(e.generation,1) FROM (VALUES($1::uuid)) t(id)
  LEFT JOIN flow_snapshot_epochs e ON e.tenant_id=t.id
@@ -134,17 +146,21 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 			return err
 		}
 		limits := store.ConfiguredMeasurementScanBudget{MemoryBytes: budget.MemoryBytes / 8, ReadBytes: budget.ReadBytes, ReadRows: int64(budget.ReadRows)}
+		phase = "original_measurements"
 		if err := store.NewEntityRegistry(s.pool).WalkConfiguredTestMeasurementsInScope(ctx, sc, result.Sources, accumulator.first, to, limits, func(item store.IncidentTestMeasurement) error {
 			return accumulator.observe(ctx, item)
 		}); err != nil {
 			return err
 		}
+		phase = "availability"
 		result.Availability, result.SLOs, err = accumulator.finish(ctx)
 		if err != nil {
 			return err
 		}
+		phase = "events"
 		result.Events, err = s.captureClientReportEventsInScope(ctx, sc, principal, from, to, budget.MemoryBytes/4)
 		if err == nil && definition.Assessment != nil {
+			phase = "assessment"
 			err = s.captureAssessmentComponents(ctx, sc, principal, result, budget.MemoryBytes/16)
 		}
 		return err
@@ -152,6 +168,7 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 	if err != nil {
 		return nil, err
 	}
+	phase = "projection"
 	state := struct {
 		Domain        string
 		TenantID      string
@@ -179,17 +196,20 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 		return nil, store.ErrClientReportBudget
 	}
 	before := remaining
+	phase = "verdicts"
 	result.Verdicts, err = s.captureClientReportVerdicts(ctx, actor, result, &remaining)
 	if err != nil {
 		return nil, err
 	}
 	result.retainedBytes += before - remaining
 	before = remaining
+	phase = "capacity"
 	result.Capacity, err = s.captureClientReportCapacity(ctx, actor, result, definition.CapacityTargets, budget, &remaining)
 	if err != nil {
 		return nil, err
 	}
 	result.retainedBytes += before - remaining
+	phase = "tables"
 	result.Tables, err = projectClientReportSLIs(ctx, result.TenantID, from, to, result.Availability, result.SLOs, budget.MemoryBytes/32)
 	if err != nil {
 		return nil, err
@@ -231,6 +251,7 @@ func (s *Server) captureConfiguredClientReportSources(ctx context.Context, actor
 			result.sourceKeys = append(result.sourceKeys, store.ReportSourceKey{ContextID: item.ContextID, AgentID: source.AgentID, Kind: string(source.Kind), Ref: source.SourceRef})
 		}
 	}
+	phase = "source_publication"
 	err = tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		registry := store.NewEntityRegistry(s.pool)
 		keys, err := registry.ReportEvidenceSourceKeysInScope(ctx, sc, result.evidenceRefs, budget.MemoryBytes/32)

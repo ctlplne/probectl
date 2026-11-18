@@ -201,6 +201,19 @@ func TestCapacityForecastServesKnownGrowthWithoutFinancialAccessAndKeepsCurrentT
 	if status, got := request(a); status != http.StatusServiceUnavailable || len(got.Forecasts) != 0 {
 		t.Fatal("foreign backend rows published a forecast", status, got)
 	}
+	probe.transform = func(rows []flowstore.CounterRow) ([]flowstore.CounterRow, error) {
+		for i := 1; i < len(rows); i++ {
+			if rows[i].CaptureKey == rows[0].CaptureKey {
+				rows[i].RawDigest[0] ^= 1
+				return rows, nil
+			}
+		}
+		t.Error("forecast fixture has no second point in the same original poll")
+		return rows, nil
+	}
+	if status, got := request(a); status != http.StatusServiceUnavailable || len(got.Forecasts) != 0 {
+		t.Fatal("contradictory original metadata reused a verified capture key", status, got)
+	}
 	probe.transform = nil
 	probe.after = func() {
 		f.in(a, func(ctx context.Context, sc tenancy.Scope) error {

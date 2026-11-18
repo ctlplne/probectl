@@ -26,6 +26,12 @@ func capacityBillSource(source flowstore.CounterSource, index uint32) capacityBi
 	return capacityBillSourceKey{source.ContextID, source.DeviceID, source.AgentID, source.SourceRef, source.SourceAssignedAt.UnixNano(), source.AgentAssignedAt.UnixNano(), index}
 }
 
+type capacityCounterCapture struct {
+	agent  string
+	digest [32]byte
+	input  entity.CounterCaptureInput
+}
+
 func capacityBillCounterQuery(plan capacityCounterPlan, parameters capacityBillParameters, budget flowstore.CounterBudget) (flowstore.CounterQuery, error) {
 	from := plan.period.From.Add(-parameters.gap)
 	if !from.Before(plan.period.From) || from.UnixNano() <= 0 || !time.Unix(0, from.UnixNano()).Equal(from) {
@@ -58,7 +64,7 @@ func validateCapacityCounterRows(ctx context.Context, sc tenancy.Scope, reader *
 		selected[key] = true
 	}
 	keys := [][32]byte{}
-	seen := map[[32]byte]bool{}
+	captures := map[[32]byte]capacityCounterCapture{}
 	for _, row := range rows {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -66,18 +72,26 @@ func validateCapacityCounterRows(ctx context.Context, sc tenancy.Scope, reader *
 		if row.TenantID != sc.Tenant.String() || !selected[capacityBillSource(row.CounterSource, row.IfIndex)] || row.Width != 32 && row.Width != 64 {
 			return entity.ErrScopeMismatch
 		}
-		key, err := entity.CounterCaptureKey(row.TenantID, row.AgentID, row.RawDigest, entity.CounterCaptureInput{ConfiguredTarget: row.SourceRef,
-			PollStartedAt: row.PollStartedAt, PollCompletedAt: row.PollCompletedAt, PointCount: row.Population})
+		// A poll can contain many counter points. Reuse its derived key only
+		// after comparing the entire preimage within this tenant snapshot.
+		// The witness below still checks every row's current source incarnation.
+		capture := capacityCounterCapture{agent: row.AgentID, digest: row.RawDigest, input: entity.CounterCaptureInput{
+			ConfiguredTarget: row.SourceRef, PollStartedAt: row.PollStartedAt.UTC(), PollCompletedAt: row.PollCompletedAt.UTC(), PointCount: row.Population}}
+		if previous, exists := captures[row.CaptureKey]; exists {
+			if capture != previous {
+				return flowstore.ErrCounterHistoryInput
+			}
+			continue
+		}
+		key, err := entity.CounterCaptureKey(row.TenantID, capture.agent, capture.digest, capture.input)
 		if err != nil || key != row.CaptureKey {
 			return flowstore.ErrCounterHistoryInput
 		}
-		if !seen[key] {
-			if int64(len(keys))+1 > (memoryBytes-4096)/8192 {
-				return flowstore.ErrCounterHistoryBudget
-			}
-			seen[key] = true
-			keys = append(keys, key)
+		if int64(len(keys))+1 > (memoryBytes-4096)/8192 {
+			return flowstore.ErrCounterHistoryBudget
 		}
+		captures[key] = capture
+		keys = append(keys, key)
 	}
 	witnesses, err := reader.LookupWitnessesInScope(ctx, sc, keys, memoryBytes/2)
 	if err != nil {

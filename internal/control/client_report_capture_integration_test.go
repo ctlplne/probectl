@@ -46,7 +46,7 @@ func TestClientReportCapturesCompleteBackdatedMonthWithCurrentPairedAuthority(t 
 	t.Cleanup(func() {
 		if t.Failed() {
 			for _, line := range strings.Split(diagnostics.String(), "\n") {
-				if strings.Contains(line, "capacity forecast") || strings.Contains(line, "request error") {
+				if strings.Contains(line, "capacity forecast") || strings.Contains(line, "client report source capture failed") || strings.Contains(line, "request error") {
 					t.Log(line)
 				}
 			}
