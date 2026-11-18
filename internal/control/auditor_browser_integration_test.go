@@ -76,7 +76,7 @@ func TestAuditorBundleBrowserKeepsCurrentTenantRolesAndBothThemes(t *testing.T) 
 	}
 	for i, tenant := range f.tenants {
 		own, sibling := lanes[i], lanes[1-i].policy
-		cookie := auditorBrowserSession(t, f, tenant)
+		cookie := auditorTestSession(t, f, tenant)
 		for _, theme := range []string{"light", "dark"} {
 			t.Run(own.policy+"/"+theme, func(t *testing.T) {
 				download := filepath.Join(t.TempDir(), "probectl-auditor-bundle.json")
@@ -87,7 +87,7 @@ func TestAuditorBundleBrowserKeepsCurrentTenantRolesAndBothThemes(t *testing.T) 
 					Absent: []string{sibling},
 					Steps:  []testsupport.RenderStep{{Click: "Download auditor bundle (signed)", Download: download}},
 				})
-				manifest, raw := verifiedBrowserAuditorBundle(t, download, pin, tenant)
+				manifest, raw := verifiedAuditorBundleFile(t, download, pin, tenant)
 				if bytes.Contains(raw, []byte(sibling)) || bytes.Contains(raw, []byte(f.tenants[1-i])) {
 					t.Fatal("browser download disclosed the sibling tenant")
 				}
@@ -105,7 +105,7 @@ func TestAuditorBundleBrowserKeepsCurrentTenantRolesAndBothThemes(t *testing.T) 
 				_, err := sc.Q.Exec(ctx, `DELETE FROM role_permissions WHERE tenant_id=$1 AND role_id=$2 AND permission_key=$3`, tenant, f.roles[tenant], permAuditRead)
 				return err
 			})
-			restricted := auditorBrowserSession(t, f, tenant)
+			restricted := auditorTestSession(t, f, tenant)
 			for _, endpoint := range []string{"/v1/compliance/evidence", "/v1/compliance/auditor-bundle"} {
 				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, socket.URL+endpoint, nil)
 				if err != nil {
@@ -131,7 +131,7 @@ func TestAuditorBundleBrowserKeepsCurrentTenantRolesAndBothThemes(t *testing.T) 
 	}
 }
 
-func auditorBrowserSession(t *testing.T, f *roleExplanationAPIFixture, tenant string) string {
+func auditorTestSession(t *testing.T, f *roleExplanationAPIFixture, tenant string) string {
 	t.Helper()
 	var grants []auth.PermissionGrant
 	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
@@ -149,7 +149,7 @@ func auditorBrowserSession(t *testing.T, f *roleExplanationAPIFixture, tenant st
 	return cookie
 }
 
-func verifiedBrowserAuditorBundle(t *testing.T, filename, pin, tenant string) (compliance.AuditorManifest, []byte) {
+func verifiedAuditorBundleFile(t *testing.T, filename, pin, tenant string) (compliance.AuditorManifest, []byte) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
 	args := []string{"--json", "verify-bundle", "--expected-fingerprint", pin, filename}

@@ -11125,7 +11125,7 @@
         "tags": [
           "compliance"
         ],
-        "description": "A signed tenant-scoped document with isolation posture, segmentation evidence, audit-chain verification, retention receipts, deletion proofs, build provenance, and the cryptographic self-test. Segmentation is failed when measured traffic violates a rule, observed for measured traffic within the attached coverage, or unavailable when declared zone pairs lack observations. The segmentation attachment uses the signed manifest scope digest. Framework mappings (NIS2, DORA, GAIA-X) identify requirement areas for review. Verify it offline with `probectl verify-bundle` and the trusted operator fingerprint. Returns 409 if the deployment lacks an evidence signing key. Requires audit read.",
+        "description": "A signed tenant-scoped document with isolation posture, segmentation evidence, audit-chain verification, retention receipts, deletion proofs, build provenance, and the cryptographic self-test. Segmentation is failed when measured traffic violates a rule, observed for measured traffic within the attached coverage, or unavailable when declared zone pairs lack observations. The segmentation attachment uses the signed manifest scope digest. Verified audit-chain attachments report the head sequence, pruned prefix and count of retained events checked. Streams without retained events are unavailable with a reason. Framework mappings (NIS2, DORA, GAIA-X) identify requirement areas for review. Verify it offline with `probectl verify-bundle` and the trusted operator fingerprint. Returns 409 if the deployment lacks an evidence signing key. Requires audit read.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"

@@ -290,14 +290,32 @@ func tenantAppendLocked(ctx context.Context, s tenancy.Scope, createdAt time.Tim
 // therefore valid, while deletion/tampering anywhere in the retained suffix
 // (including its tail) is still detected.
 func TenantVerify(ctx context.Context, s tenancy.Scope) error {
+	_, err := TenantVerifyWithCoverage(ctx, s)
+	return err
+}
+
+// TenantVerificationCoverage describes the local evidence checked at one
+// locked stream position. The pruned prefix is represented by its anchor.
+type TenantVerificationCoverage struct {
+	HeadSequence   int64 `json:"head_sequence"`
+	PrunedThrough  int64 `json:"pruned_through"`
+	RetainedEvents int64 `json:"retained_events"`
+}
+
+// TenantVerifyWithCoverage verifies the tenant stream and returns the exact
+// sequence bounds of that check without exposing event payloads or identities.
+func TenantVerifyWithCoverage(ctx context.Context, s tenancy.Scope) (TenantVerificationCoverage, error) {
 	if err := lockTenantStream(ctx, s.Q, s.Tenant.String()); err != nil {
-		return fmt.Errorf("lock audit chain: %w", err)
+		return TenantVerificationCoverage{}, fmt.Errorf("lock audit chain: %w", err)
 	}
 	head, err := ensureTenantStreamHead(ctx, s.Q, s.Tenant.String())
 	if err != nil {
-		return err
+		return TenantVerificationCoverage{}, err
 	}
-	return tenantVerifyFromLocked(ctx, s, head, 0)
+	if err := tenantVerifyFromLocked(ctx, s, head, 0); err != nil {
+		return TenantVerificationCoverage{}, err
+	}
+	return TenantVerificationCoverage{HeadSequence: head.HeadSeq, PrunedThrough: head.PrunedSeq, RetainedEvents: head.HeadSeq - head.PrunedSeq}, nil
 }
 
 // tenantVerifyFrom recomputes the tenant chain AFTER afterSeq. If afterSeq is

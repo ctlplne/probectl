@@ -144,14 +144,15 @@ func (s *Server) auditorAuditChainSection(ctx context.Context, tid string) compl
 	if s.pool == nil {
 		return unavailable(compliance.SectionAuditChain, "no database pool on this server")
 	}
-	checked := time.Now().UTC()
+	var coverage audit.TenantVerificationCoverage
 	var verr error
 	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tid)), s.pool, func(tctx context.Context, sc tenancy.Scope) error {
-		verr = audit.TenantVerify(tctx, sc)
+		coverage, verr = audit.TenantVerifyWithCoverage(tctx, sc)
 		return nil
 	}); err != nil {
 		return unavailable(compliance.SectionAuditChain, "audit stream unreachable: "+err.Error())
 	}
+	checked := time.Now().UTC()
 	if verr != nil {
 		return compliance.SectionInput{
 			Kind: compliance.SectionAuditChain, Status: compliance.StatusFailed,
@@ -159,10 +160,22 @@ func (s *Server) auditorAuditChainSection(ctx context.Context, tid string) compl
 			Content: map[string]any{"verification": "audit.TenantVerify", "result": "fail", "checked_at": checked, "detail": verr.Error()},
 		}
 	}
+	if coverage.HeadSequence == 0 {
+		return unavailable(compliance.SectionAuditChain, "The tenant has no recorded audit events to verify.")
+	}
+	if coverage.RetainedEvents == 0 {
+		return unavailable(compliance.SectionAuditChain, "Only a retention anchor remains. No audit events are available for local verification.")
+	}
 	return compliance.SectionInput{
 		Kind: compliance.SectionAuditChain, Status: compliance.StatusVerified,
-		Content: map[string]any{"verification": "audit.TenantVerify", "result": "pass", "checked_at": checked,
-			"property": "every record's hash chains to its predecessor; any insertion, deletion or edit breaks verification"},
+		Content: struct {
+			audit.TenantVerificationCoverage
+			Verification string    `json:"verification"`
+			Result       string    `json:"result"`
+			CheckedAt    time.Time `json:"checked_at"`
+			Property     string    `json:"property"`
+		}{coverage, "audit.TenantVerify", "pass", checked,
+			"Retained records chain from the retention anchor to the durable head. Pruned records were outside this check."},
 	}
 }
 

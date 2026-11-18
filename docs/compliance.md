@@ -184,7 +184,7 @@ signed as a single Ed25519-signed document:
 | ------- | ---------- |
 | `isolation-posture` | the boot-time tenant-isolation assertion, **re-run at export time** |
 | `segmentation-evidence` | the hash-chained document described above |
-| `audit-chain-verification` | the tenant's audit stream re-verified end to end |
+| `audit-chain-verification` | the tenant's retained audit records verified from the retention anchor to the durable head, with the checked sequence span |
 | `retention-receipts` | the retention policy and the status reported against it |
 | `deletion-proofs` | the tenant's verifiable-deletion receipts, subjects as salted hashes only |
 | `build-provenance` | the version, commit and which release artifact carries the SBOM — reported **failed** when the binary was built from a modified tree or carries no usable commit, because then it identifies no published artifact |
@@ -194,6 +194,12 @@ The segmentation section uses `failed` when observed traffic violates a rule,
 `observed` when the attachment contains measured traffic and its per-rule
 coverage, and `unavailable` when declared zone pairs have no observations. The
 signed manifest binds the segmentation attachment to the tenant scope digest.
+
+The audit-chain section includes `head_sequence`, `pruned_through`, and
+`retained_events` for a verified stream. The check covers the retained chain and
+its configured WORM anchor. Empty streams and streams with no locally retained
+events are `unavailable` with a reason. The route records the export itself
+before collecting the bundle, so its audit event can be in the checked range.
 
 Three properties are the point of the format:
 
