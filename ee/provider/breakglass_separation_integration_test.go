@@ -301,14 +301,15 @@ func newSepStack(t *testing.T, setup ...func(*control.Server)) *sepStack {
 		t.Fatal(err)
 	}
 	plane, err := Build(cfg, Deps{
-		MonthlyReports: srv.MonthlyReportQueue(),
-		Pool:           db.Pool(),
-		License:        licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
-		Log:            log,
-		Results:        latest,
-		Sessions:       srv.SessionManager(),
-		Perms:          srv.PermissionLoader(),
-		IRSidecar:      sidecar,
+		MonthlyReports:    srv.MonthlyReportQueue(),
+		ComplianceReports: srv.ComplianceReportQueue(),
+		Pool:              db.Pool(),
+		License:           licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
+		Log:               log,
+		Results:           latest,
+		Sessions:          srv.SessionManager(),
+		Perms:             srv.PermissionLoader(),
+		IRSidecar:         sidecar,
 	})
 	if err != nil {
 		t.Fatalf("build provider plane: %v", err)

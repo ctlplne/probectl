@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/compliance"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -96,4 +97,13 @@ func (s *Server) validateScheduledReportAuthority(ctx context.Context, sc tenanc
 		return apierror.Conflict("dashboard changed during schedule source preflight")
 	}
 	return s.validateReportSourcePublication(ctx, sc, auth.PrincipalFrom(authority.request.Context()), authority.capture)
+}
+
+func (a *scheduledReportAuthority) providerTriggerable() bool {
+	return a.capture != nil && providerTriggerableReport(a.capture.Monthly != nil, a.capture.ComplianceControl)
+}
+
+// Tenant consent and the consuming worker share the same report-family check.
+func providerTriggerableReport(monthly bool, control string) bool {
+	return monthly || compliance.ControlEvidenceSection(control) != ""
 }

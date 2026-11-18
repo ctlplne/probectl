@@ -102,6 +102,101 @@
         }
       }
     },
+    "/provider/v1/tenants/{id}/compliance-reports/{request_id}": {
+      "get": {
+        "operationId": "getComplianceReportProgress",
+        "summary": "Read the tenant-consented compliance queue counts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Counts only; no artifact or telemetry access.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthlyReportProgress"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required."
+          },
+          "404": {
+            "description": "Request not found for this operator and tenant."
+          }
+        }
+      }
+    },
+    "/provider/v1/tenants/{id}/compliance-reports": {
+      "post": {
+        "operationId": "queueComplianceReports",
+        "summary": "Queue opted-in compliance evidence schedules and return operational counts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonthlyReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Idempotent queue/progress counts; reports remain behind tenant authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthlyReportProgress"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required."
+          },
+          "403": {
+            "description": "Operator write authority required."
+          },
+          "404": {
+            "description": "Queue is not enabled."
+          },
+          "503": {
+            "description": "Retry the same request ID."
+          }
+        }
+      }
+    },
     "/provider/v1/auth/bootstrap": {
       "post": {
         "summary": "Create the first admin from the deployment bootstrap token (single-use)",

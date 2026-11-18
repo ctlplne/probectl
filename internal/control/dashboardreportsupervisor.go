@@ -153,7 +153,8 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 	if err := cleanDashboardDefinition(&definition); err != nil {
 		return false, err
 	}
-	if item.Schedule.ProviderRequestID != nil && (!item.Schedule.ProviderTriggerAllowed || definition.ClientReport == nil) {
+	if item.Schedule.ProviderRequestID != nil && (!item.Schedule.ProviderTriggerAllowed ||
+		!providerTriggerableReport(definition.ClientReport != nil, definition.ComplianceControl)) {
 		return false, apierror.Forbidden("provider report consent is no longer applicable")
 	}
 	if definition.HasSources() {

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -42,6 +43,8 @@ func TestProviderMonthlyReportCommandsKeepTenantAndRetryIDs(t *testing.T) {
 	for _, args := range [][]string{
 		{"provider", "monthly-reports", tenant, "--body", `{"request_id":"` + request + `"}`},
 		{"provider", "monthly-report-progress", tenant, request},
+		{"provider", "compliance-reports", tenant, "--body", `{"request_id":"` + request + `"}`},
+		{"provider", "compliance-report-progress", tenant, request},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := RunWithStdin(append([]string{"--url", server.URL, "--json"}, args...), func(key string) string {
@@ -57,8 +60,12 @@ func TestProviderMonthlyReportCommandsKeepTenantAndRetryIDs(t *testing.T) {
 			t.Fatal("provider result lost tenant metadata")
 		}
 	}
-	want := []string{"POST /provider/v1/tenants/" + tenant + "/monthly-reports", "GET /provider/v1/tenants/" + tenant + "/monthly-reports/" + request}
-	if strings.Join(seen, ";") != strings.Join(want, ";") {
+	base := "/provider/v1/tenants/" + tenant
+	want := []string{
+		"POST " + base + "/monthly-reports", "GET " + base + "/monthly-reports/" + request,
+		"POST " + base + "/compliance-reports", "GET " + base + "/compliance-reports/" + request,
+	}
+	if !slices.Equal(seen, want) {
 		t.Fatal("provider route/verb changed", seen)
 	}
 }

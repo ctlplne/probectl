@@ -264,15 +264,16 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 					}
 				})
 			},
-			Pool:           pool,
-			MonthlyReports: srv.MonthlyReportQueue(),
-			License:        lic,
-			Log:            log,
-			Results:        results,
-			Sessions:       srv.SessionManager(),
-			Perms:          srv.PermissionLoader(),
-			IRSidecar:      irSidecar,
-			Silo:           siloOps,
+			Pool:              pool,
+			MonthlyReports:    srv.MonthlyReportQueue(),
+			ComplianceReports: srv.ComplianceReportQueue(),
+			License:           lic,
+			Log:               log,
+			Results:           results,
+			Sessions:          srv.SessionManager(),
+			Perms:             srv.PermissionLoader(),
+			IRSidecar:         irSidecar,
+			Silo:              siloOps,
 			SiloInvalidate: func() {
 				if routerInvalidate != nil {
 					routerInvalidate()

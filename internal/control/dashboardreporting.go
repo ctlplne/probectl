@@ -642,8 +642,8 @@ func (s *Server) handleCreateReportSchedule(w http.ResponseWriter, r *http.Reque
 		return tagQueryResponseError(w, err)
 	}
 	defer authority.close()
-	if clean.ProviderTriggerAllowed && (authority.capture == nil || authority.capture.Monthly == nil) {
-		return apierror.Validation("provider triggering requires a monthly source schedule")
+	if clean.ProviderTriggerAllowed && !authority.providerTriggerable() {
+		return apierror.Validation("provider triggering requires a monthly client or compliance evidence source schedule")
 	}
 	r = authority.request
 	id, err := crypto.UUIDv4()
@@ -725,8 +725,8 @@ func (s *Server) handleUpdateReportSchedule(w http.ResponseWriter, r *http.Reque
 			return tagQueryResponseError(w, err)
 		}
 		defer authority.close()
-		if req.ProviderTriggerAllowed != nil && *req.ProviderTriggerAllowed && (authority.capture == nil || authority.capture.Monthly == nil) {
-			return apierror.Validation("provider triggering requires a monthly source schedule")
+		if req.ProviderTriggerAllowed != nil && *req.ProviderTriggerAllowed && !authority.providerTriggerable() {
+			return apierror.Validation("provider triggering requires a monthly client or compliance evidence source schedule")
 		}
 		r = authority.request
 	}

@@ -11,6 +11,7 @@ import {
   Card,
   CardBody,
   CardHeader,
+  Select,
   Table,
 } from "../../../web/src/components";
 import { api, useProviderData } from "./providerData";
@@ -27,6 +28,20 @@ type Progress = {
   replay: boolean;
 };
 type Result = { id: string; progress?: Progress; error?: string };
+type ReportKind = "monthly" | "compliance";
+
+const reportKinds = {
+  monthly: {
+    title: "Monthly client reports",
+    queue: "Queue monthly reports",
+    label: "Monthly report",
+  },
+  compliance: {
+    title: "Compliance evidence",
+    queue: "Queue compliance reports",
+    label: "Compliance report",
+  },
+};
 
 export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
   const tenants = useProviderData<{ items: Tenant[] }>(
@@ -36,6 +51,8 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
   const active = (tenants.data?.items ?? []).filter(
     (item) => item.status === "active",
   );
+  const [kind, setKind] = useState<ReportKind>("monthly");
+  const family = reportKinds[kind];
   const [selected, setSelected] = useState<string[]>([]);
   const [request, setRequest] = useState<{ id: string; tenants: string[] }>();
   const [results, setResults] = useState<Result[]>([]);
@@ -67,7 +84,7 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
       for (const id of batch.tenants) {
         if (!lifetime.current) return;
         try {
-          const path = `/provider/v1/tenants/${encodeURIComponent(id)}/monthly-reports`;
+          const path = `/provider/v1/tenants/${encodeURIComponent(id)}/${kind}-reports`;
           const result =
             mode === "refresh"
               ? await api<Progress>(
@@ -92,13 +109,28 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
   return (
     <Card>
       <CardHeader
-        title="Monthly client reports"
-        description="Run each tenant's explicitly opted-in monthly schedules. Reports stay in tenant inboxes; this console receives operational counts."
+        title={family.title}
+        description="Run the selected schedules for tenants that have opted in. This console shows operational counts. Report files stay in tenant inboxes."
         actions={<Badge tone="info">Tenant consent required</Badge>}
       />
       <CardBody className={styles.form}>
         {tenants.isError && <p role="alert">Tenant metadata is unavailable.</p>}
         {error && <p role="alert">{error}</p>}
+        <Select
+          label="Report family"
+          value={kind}
+          disabled={busy}
+          options={[
+            { value: "monthly", label: "Monthly client operations" },
+            { value: "compliance", label: "Compliance control evidence" },
+          ]}
+          onChange={(event) => {
+            setKind(event.target.value as ReportKind);
+            setRequest(undefined);
+            setResults([]);
+            setError("");
+          }}
+        />
         <div className={styles.actions}>
           <Button
             disabled={busy || readOnly || active.length === 0}
@@ -114,7 +146,7 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
             disabled={busy || readOnly || selected.length === 0}
             onClick={() => void run("new")}
           >
-            Queue monthly reports
+            {family.queue}
           </Button>
           <Button
             disabled={busy || readOnly || !request}
@@ -134,7 +166,7 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
           responses{busy ? " · working…" : ""}.
         </p>
         <Table
-          caption="Monthly report tenant selection"
+          caption={family.label + " tenant selection"}
           rows={rows}
           rowKey={(item) => item.id}
           columns={[
@@ -182,7 +214,7 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
             complete selection.
           </span>
         </div>
-        <ul aria-label="Monthly report operational progress">
+        <ul aria-label={family.label + " operational progress"}>
           {results.map((item) => (
             <li key={item.id}>
               <strong>

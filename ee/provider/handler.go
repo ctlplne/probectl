@@ -51,11 +51,12 @@ const consentPermission = "directory.write"
 
 // Handler serves /provider/v1/*.
 type Handler struct {
-	monthlyReports reporting.MonthlyReportQueue
-	svc            *Service
-	sessions       *Sessions
-	tenantAuth     TenantAuth
-	log            *slog.Logger
+	monthlyReports    reporting.MonthlyReportQueue
+	complianceReports reporting.ComplianceReportQueue
+	svc               *Service
+	sessions          *Sessions
+	tenantAuth        TenantAuth
+	log               *slog.Logger
 
 	// limiter throttles the operator login (SEC-003): per source IP and per
 	// account, exponential lockout, lockouts audited to the PROVIDER stream.
@@ -112,6 +113,8 @@ func routes() []RouteDecl {
 		{http.MethodGet, "/provider/v1/fleet"},
 		{http.MethodPost, "/provider/v1/tenants/{id}/monthly-reports"},
 		{http.MethodGet, "/provider/v1/tenants/{id}/monthly-reports/{request_id}"},
+		{http.MethodPost, "/provider/v1/tenants/{id}/compliance-reports"},
+		{http.MethodGet, "/provider/v1/tenants/{id}/compliance-reports/{request_id}"},
 		{http.MethodGet, "/provider/v1/tenants/provisioning"},
 		{http.MethodGet, "/provider/v1/tenants/quarantine"},
 		{http.MethodPost, "/provider/v1/tenants/provisioning/{id}/abandon"},
@@ -171,6 +174,8 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	h.handle("POST /provider/v1/tenants/{id}/offboard", h.asOperator("", h.handleOffboard))
 	h.handle("GET /provider/v1/tenants/{id}/monthly-reports/{request_id}", h.asOperator(RoleOperator, h.handleMonthlyReportProgress))
 	h.handle("POST /provider/v1/tenants/{id}/monthly-reports", h.asOperator(RoleOperator, h.handleMonthlyReports))
+	h.handle("GET /provider/v1/tenants/{id}/compliance-reports/{request_id}", h.asOperator(RoleOperator, h.handleComplianceReportProgress))
+	h.handle("POST /provider/v1/tenants/{id}/compliance-reports", h.asOperator(RoleOperator, h.handleComplianceReports))
 	h.handle("GET /provider/v1/fleet", h.asOperator("", h.auditedRead("provider.fleet_read", false, h.handleFleet)))
 	// Stranded provisioning attempts (S-fadcec95): list what never completed
 	// with its last step, and offer an EXPLICIT abandon. Retry is the existing

@@ -68,6 +68,12 @@ func controlEvidenceReferenceFor(reference string) controlEvidenceReference {
 	}
 }
 
+// ControlEvidenceReferences returns the explicit, supported control markers.
+func ControlEvidenceReferences() []string {
+	return []string{CMMCAuditControl, CMMCBoundaryControl, CMMCMonitoringControl,
+		PCISegmentationControl, PCIInboundNetworkControl, PCIOutboundNetworkControl}
+}
+
 // ControlEvidenceSection identifies the measured source for a supported ref.
 func ControlEvidenceSection(reference string) string {
 	return controlEvidenceReferenceFor(reference).section

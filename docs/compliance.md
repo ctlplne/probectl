@@ -288,6 +288,16 @@ for destination measurement points and policy. Bind each slot explicitly
 using the web import form, `probectl dashboard import --compliance-bindings-file`,
 REST or the native report tools.
 
+### MSP provider operations
+
+In an MSP deployment, a tenant owner can authorize provider-triggered runs
+on a compliance evidence schedule. The provider operator chooses
+**Compliance evidence** as the report family and queues the active tenants
+they select. Each tenant independently authorizes its schedule and checks
+its current source permissions before generating evidence. The console shows
+only operational counts. Report files remain in each tenant inbox. Operators
+can retry the same request ID or check its progress without creating new work.
+
 ### Framework mappings are an interpretation
 
 Each section declares which **requirement area** it speaks to under NIS2, DORA

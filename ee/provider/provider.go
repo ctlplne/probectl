@@ -51,13 +51,14 @@ import (
 // Deps are the core seams the provider plane builds on. Everything here is a
 // CORE type — the one-way import rule in action.
 type Deps struct {
-	MonthlyReports reporting.MonthlyReportQueue
-	Pool           *pgxpool.Pool
-	License        *license.Manager
-	Log            *slog.Logger
-	Results        *control.LatestResults // the S-T1 break-glass telemetry surface
-	Sessions       *auth.Manager          // tenant sessions (the consent leg); nil = consent 503s
-	Perms          auth.PermissionLoader  // tenant RBAC (the consent permission check)
+	MonthlyReports    reporting.MonthlyReportQueue
+	ComplianceReports reporting.ComplianceReportQueue
+	Pool              *pgxpool.Pool
+	License           *license.Manager
+	Log               *slog.Logger
+	Results           *control.LatestResults // the S-T1 break-glass telemetry surface
+	Sessions          *auth.Manager          // tenant sessions (the consent leg); nil = consent 503s
+	Perms             auth.PermissionLoader  // tenant RBAC (the consent permission check)
 	// IRSidecar owns only public wrapping capability. Protected break-glass
 	// mutations fail closed if this local encrypted sidecar is unavailable.
 	IRSidecar audit.IRStageAppender
@@ -174,7 +175,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	sessions := NewSessions(cfg.SessionHMACKey).WithIdleTimeout(cfg.SessionIdleTimeout).WithStore(st)
 	return NewHandler(svc, sessions, tenantAuth, log,
 		cfg.ProviderBootstrapToken, cfg.CookieSecure()).
-		WithMonthlyReports(d.MonthlyReports).WithTrustedProxies(cfg.TrustedProxies).
+		WithMonthlyReports(d.MonthlyReports).WithComplianceReports(d.ComplianceReports).WithTrustedProxies(cfg.TrustedProxies).
 		WithMetering(d.Metering).WithLifecycle(d.Lifecycle).
 		WithFairness(d.Fairness).WithGovernance(d.Governance), nil
 }

@@ -322,7 +322,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   },
   {
     id: 'F51',
-    // Tenant-consented monthly triggers are preview; full rendered/lifecycle qualification is owed.
+    // Monthly and compliance report scheduling with tenant consent is preview.
     name: 'Provider/MSP plane',
     status: 'delivered',
     source: 'contract:features',

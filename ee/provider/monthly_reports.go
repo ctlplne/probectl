@@ -7,6 +7,7 @@
 package provider
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/ctlplne/probectl/internal/reporting"
@@ -20,10 +21,28 @@ func (h *Handler) WithMonthlyReports(queue reporting.MonthlyReportQueue) *Handle
 	return h
 }
 
+type providerReportOperation func(context.Context, string, string, string) (reporting.ProviderReportQueueResult, error)
+
+func (h *Handler) WithComplianceReports(queue reporting.ComplianceReportQueue) *Handler {
+	h.complianceReports = queue
+	return h
+}
+
 func (h *Handler) handleMonthlyReports(w http.ResponseWriter, r *http.Request, op Operator) error {
 	if h.monthlyReports == nil {
 		return ErrNotFound
 	}
+	return h.queueTenantReports(w, r, op, "provider.monthly_reports_requested", h.monthlyReports.QueueMonthlyReports)
+}
+
+func (h *Handler) handleComplianceReports(w http.ResponseWriter, r *http.Request, op Operator) error {
+	if h.complianceReports == nil {
+		return ErrNotFound
+	}
+	return h.queueTenantReports(w, r, op, "provider.compliance_reports_requested", h.complianceReports.QueueComplianceReports)
+}
+
+func (h *Handler) queueTenantReports(w http.ResponseWriter, r *http.Request, op Operator, action string, queue providerReportOperation) error {
 	if err := h.svc.CheckWritable(); err != nil {
 		return err
 	}
@@ -37,13 +56,13 @@ func (h *Handler) handleMonthlyReports(w http.ResponseWriter, r *http.Request, o
 	if !canonicalReportID(tenant) || !canonicalReportID(input.RequestID) {
 		return errValidation{"canonical tenant and request UUIDs are required"}
 	}
-	if err := h.svc.RecordOperatorAccess(r.Context(), op.Email, "provider.monthly_reports_requested", tenant, map[string]any{"request_id": input.RequestID}); err != nil {
+	if err := h.svc.RecordOperatorAccess(r.Context(), op.Email, action, tenant, map[string]any{"request_id": input.RequestID}); err != nil {
 		return err
 	}
-	result, err := h.monthlyReports.QueueMonthlyReports(tenancy.WithTenant(r.Context(), tenancy.ID(tenant)), tenant, op.ID, input.RequestID)
+	result, err := queue(tenancy.WithTenant(r.Context(), tenancy.ID(tenant)), tenant, op.ID, input.RequestID)
 	if err != nil {
 		// Operational failure only; never echo a core/source exception or payload.
-		h.log.Warn("provider monthly report queue unavailable", "tenant_id", tenant, "request_id", input.RequestID)
+		h.log.Warn("provider report queue unavailable", "tenant_id", tenant, "request_id", input.RequestID)
 		return h.writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": map[string]string{"code": "report_queue_unavailable", "message": "tenant report queue is unavailable; retry the same request ID"}})
 	}
 	return h.writeJSON(w, http.StatusAccepted, result)
@@ -75,14 +94,25 @@ func (h *Handler) handleMonthlyReportProgress(w http.ResponseWriter, r *http.Req
 	if h.monthlyReports == nil {
 		return ErrNotFound
 	}
+	return h.tenantReportProgress(w, r, op, "provider.monthly_reports_progress", h.monthlyReports.MonthlyReportProgress)
+}
+
+func (h *Handler) handleComplianceReportProgress(w http.ResponseWriter, r *http.Request, op Operator) error {
+	if h.complianceReports == nil {
+		return ErrNotFound
+	}
+	return h.tenantReportProgress(w, r, op, "provider.compliance_reports_progress", h.complianceReports.ComplianceReportProgress)
+}
+
+func (h *Handler) tenantReportProgress(w http.ResponseWriter, r *http.Request, op Operator, action string, lookup providerReportOperation) error {
 	tenant, requestID := r.PathValue("id"), r.PathValue("request_id")
 	if !canonicalReportID(tenant) || !canonicalReportID(requestID) {
 		return errValidation{"canonical tenant and request UUIDs are required"}
 	}
-	if err := h.svc.RecordOperatorAccess(r.Context(), op.Email, "provider.monthly_reports_progress", tenant, map[string]any{"request_id": requestID}); err != nil {
+	if err := h.svc.RecordOperatorAccess(r.Context(), op.Email, action, tenant, map[string]any{"request_id": requestID}); err != nil {
 		return err
 	}
-	result, err := h.monthlyReports.MonthlyReportProgress(tenancy.WithTenant(r.Context(), tenancy.ID(tenant)), tenant, op.ID, requestID)
+	result, err := lookup(tenancy.WithTenant(r.Context(), tenancy.ID(tenant)), tenant, op.ID, requestID)
 	if err != nil {
 		return ErrNotFound
 	}

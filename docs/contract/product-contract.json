@@ -401,7 +401,7 @@
       ],
       "name": "Provider/MSP plane",
       "status": "delivered",
-      "evidence": "`ee/provider` (consumption-priced self-hosted resale under the probectl banner; break-glass audited; no implicit access); monthly-report provider extension is preview: explicit tenant-owned source-preflight consent, metadata-only queue/progress, audit-bound idempotency and original cadence restoration use migrations/0209_provider_report_trigger.sql and internal/control/provider_report_queue.go. Provider operators receive no report body or download grant; complete served console/native/lifecycle and exact-green qualification remain owed"
+      "evidence": "`ee/provider` (self-hosted resale under the probectl banner with export-based usage metering and separately audited break-glass). Provider scheduling for monthly reports and signed compliance evidence is preview. Current tenant-owner consent, counts-only queue and progress, report-family-bound retries and cadence restoration use migrations/0209_provider_report_trigger.sql and internal/control/provider_report_queue.go. Signed files stay in the tenant inbox under current source authority. Complete lifecycle and exact-main qualification remain owed."
     },
     {
       "ids": [

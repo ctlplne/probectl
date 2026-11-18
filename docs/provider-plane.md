@@ -329,7 +329,7 @@ health. These remain per-tenant aggregates, not access to raw agent records.
 When offboarding races an existing API session’s cached lifecycle state, the durable database fence still refuses the request. A lifecycle-fenced audit or data write returns HTTP 403 `tenant_offboarded`, matching the early lifecycle gate; the request is not served and its audit is not deferred as a database failover event.
 
 
-## Tenant-consented monthly reports
+## Tenant-consented monthly and compliance reports
 
 The console's **Monthly client reports** card queues the complete selected set
 of active tenants, one tenant-scoped request at a time. Only enabled monthly
@@ -351,4 +351,13 @@ audit; they provide no break-glass grant. The CLI commands are
 `probectl provider monthly-reports <tenant-id> --body-file <request.json>` and
 `probectl provider monthly-report-progress <tenant-id> <request-id>`.
 The console's **Retry same report request** preserves the ID for the entire
-selected batch; **Refresh report progress** uses only the read route.
+selected batch. **Refresh report progress** uses the read route.
+
+Select **Compliance evidence** in the same card to queue signed CSV or PDF
+from enabled schedules for a named control. The schedule owner enables consent
+for that schedule in the tenant app. The same counts, audit and revocation rules
+apply. Use `POST /provider/v1/tenants/{id}/compliance-reports` with the same
+request shape and `GET /provider/v1/tenants/{id}/compliance-reports/{request_id}`
+to read progress. A retry belongs to its original tenant, provider operator
+and report family. The CLI verbs are `probectl provider compliance-reports`
+and `probectl provider compliance-report-progress` with the same arguments.

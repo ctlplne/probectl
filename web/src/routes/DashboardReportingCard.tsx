@@ -749,7 +749,8 @@ export function DashboardReportingCard({
                   : [{ value: '', label: 'No configured destination' }]
               }
             />
-            {schedules.data?.provider_trigger_available && activeView?.definition.client_report ? (
+            {schedules.data?.provider_trigger_available &&
+            (activeView?.definition.client_report || activeView?.definition.compliance_control) ? (
               <label className={styles.checkboxLabel}>
                 <input
                   type="checkbox"
@@ -763,7 +764,9 @@ export function DashboardReportingCard({
                     })
                   }
                 />
-                Allow provider-triggered monthly runs for this schedule
+                {activeView?.definition.client_report
+                  ? 'Allow provider-triggered monthly runs for this schedule'
+                  : 'Allow provider-triggered compliance runs for this schedule'}
               </label>
             ) : null}
             <div className={styles.reportActions}>

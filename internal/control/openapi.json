@@ -15089,7 +15089,8 @@
                     "type": "boolean"
                   },
                   "provider_trigger_allowed": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "description": "Allow an authorized MSP provider operator to advance this eligible tenant-owned schedule. Revocation restores the original due time for a pending provider request."
                   },
                   "destination_id": {"type":"string","description":"An exact configured tenant destination ID; changing it withdraws pending mail to old recipients."}
                 },
@@ -20177,7 +20178,7 @@
           "provider_trigger_allowed": {
             "type": "boolean",
             "default": false,
-            "description": "Explicit owner consent for provider-triggered monthly work; full source preflight is required."
+            "description": "Explicit owner consent for provider-triggered monthly or compliance reports. The tenant performs the full source preflight."
           }
         }
       },
@@ -20326,7 +20327,8 @@
             "const": false
           },
           "provider_trigger_available": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "The licensed MSP provider plane offers explicit tenant consent for eligible monthly and compliance schedules."
           }
         }
       },

@@ -862,10 +862,10 @@ capabilities:
     owner: web/quality
     engine: {refs: ["file:ee/provider"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithProviderPlane(h)"]}
-    api: {refs: ["api:GET /provider/v1/tenants", "api:GET /provider/v1/breakglass", "api:POST /provider/v1/tenants/{id}/monthly-reports", "api:GET /provider/v1/tenants/{id}/monthly-reports/{request_id}"]}
-    cli: {refs: ["cli:probectl provider tenants", "cli:probectl provider breakglass", "cli:probectl provider monthly-reports", "cli:probectl provider monthly-report-progress"]}
+    api: {refs: ["api:GET /provider/v1/tenants", "api:GET /provider/v1/breakglass", "api:POST /provider/v1/tenants/{id}/monthly-reports", "api:GET /provider/v1/tenants/{id}/monthly-reports/{request_id}", "api:POST /provider/v1/tenants/{id}/compliance-reports", "api:GET /provider/v1/tenants/{id}/compliance-reports/{request_id}"]}
+    cli: {refs: ["cli:probectl provider tenants", "cli:probectl provider breakglass", "cli:probectl provider monthly-reports", "cli:probectl provider monthly-report-progress", "cli:probectl provider compliance-reports", "cli:probectl provider compliance-report-progress"]}
     ui: {refs: ["ui:F51@/provider"]}
-    docs: {refs: ["file:docs/provider-plane.md#Provider / management plane"]}
+    docs: {refs: ["file:docs/provider-plane.md#Provider / management plane", "file:docs/provider-plane.md#Tenant-consented monthly and compliance reports"]}
     config_keys: {refs: ["config:PROBECTL_PROVIDER_BOOTSTRAP_TOKEN", "config:PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES"]}
     telemetry: {refs: ["file:ee/provider"]}
     real_stack_proof: {refs: ["test:ee/provider/provider_plane_integration_test.go#TestProviderPlaneRealStack"]}

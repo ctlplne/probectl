@@ -15,7 +15,15 @@ type MonthlyReportQueue interface {
 	MonthlyReportProgress(context.Context, string, string, string) (MonthlyReportQueueResult, error)
 }
 
-type MonthlyReportQueueResult struct {
+// ComplianceReportQueue delegates opted-in tenant schedule operations only.
+type ComplianceReportQueue interface {
+	QueueComplianceReports(context.Context, string, string, string) (ProviderReportQueueResult, error)
+	ComplianceReportProgress(context.Context, string, string, string) (ProviderReportQueueResult, error)
+}
+
+type MonthlyReportQueueResult = ProviderReportQueueResult
+
+type ProviderReportQueueResult struct {
 	TenantID  string `json:"tenant_id"`
 	Eligible  int64  `json:"eligible"`
 	Queued    int64  `json:"queued"`
