@@ -45,6 +45,7 @@ export function IncidentCarrierCard({ incident }: { incident: Incident }) {
 
 function CarrierForm({ incident }: { incident: Incident }) {
   const exportEvidence = useExportIncidentEvidence(incident.id)
+  const filename = `probectl-incident-${incident.id}-carrier.json`
   const [from, setFrom] = useState(incident.started_at)
   const [to, setTo] = useState(incident.last_seen_at)
   const [busy, setBusy] = useState(false)
@@ -96,7 +97,7 @@ function CarrierForm({ incident }: { incident: Incident }) {
       try {
         const anchor = document.createElement('a')
         anchor.href = href
-        anchor.download = `probectl-incident-${incident.id}-carrier.json`
+        anchor.download = filename
         anchor.click()
       } finally {
         URL.revokeObjectURL(href)
@@ -148,8 +149,13 @@ function CarrierForm({ incident }: { incident: Incident }) {
       </form>
       {error ? <ErrorState title="Carrier pack unavailable" description={error} /> : null}
       <p role="status">
-        {downloaded ? 'Signed carrier pack downloaded. ' : ''}Verify offline with:{' '}
-        <code>probectl incident verify &lt;package.json&gt;</code>
+        {downloaded ? 'Signed carrier pack downloaded. ' : ''}
+        Obtain the signer fingerprint from the operator through a separate trusted channel. Verify
+        the downloaded file offline with{' '}
+        <code>
+          probectl incident verify {filename} --trusted-key-fingerprint{' '}
+          {"'sha256:<operator-published-fingerprint>'"}
+        </code>
       </p>
       <p>Nothing is sent to a carrier. Downloading does not create a public share link.</p>
     </div>

@@ -99,6 +99,10 @@ test('carrier download keeps the exact window and bytes and discards late tenant
     expect(create).toHaveBeenCalledTimes(1)
     expect(revoke).toHaveBeenCalledWith('blob:carrier')
     expect(await screen.findByText(/Signed carrier pack downloaded/)).toBeInTheDocument()
+    expect(screen.getByText(/obtain the signer fingerprint from the operator/i)).toBeInTheDocument()
+    expect(screen.getByText(/--trusted-key-fingerprint/)).toHaveTextContent(
+      `probectl incident verify probectl-incident-${id}-carrier.json --trusted-key-fingerprint`,
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Download carrier ticket pack' }))
     await waitFor(() => expect(finish).toBeDefined())
     fireEvent.click(screen.getByRole('button', { name: 'Switch carrier tenant' }))

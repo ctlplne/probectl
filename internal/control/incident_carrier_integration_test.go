@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"io"
@@ -38,12 +39,19 @@ import (
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
 
-// Original source observations are modeled; TLS, issued evidence identities,
-// current application-role Postgres/RLS, signing and served SDK reads are real.
-func TestCarrierExportKeepsCompleteOriginalsOfflineAndCurrentTenantAuthority(t *testing.T) {
+type carrierExportFixture struct {
+	path    *pathHealthAPIFixture
+	ids     map[string]string
+	windows map[string]incident.CarrierInput
+	agents  map[string][]string
+	signer  string
+}
+
+func seedCarrierExportFixture(t *testing.T) carrierExportFixture {
+	t.Helper()
 	proof := newPathHealthAPIFixture(t)
 	f := proof.fixture
-	private, _, err := crypto.GenerateEd25519KeyPEM()
+	private, public, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +117,18 @@ func TestCarrierExportKeepsCompleteOriginalsOfflineAndCurrentTenantAuthority(t *
 			time.Sleep(delay)
 		}
 	}
+	return carrierExportFixture{
+		path: proof, ids: ids, windows: windows, agents: agents,
+		signer: evidence.DigestAlgorithm + ":" + hex.EncodeToString(crypto.Hash(public)),
+	}
+}
+
+// Original source observations are modeled; TLS, issued evidence identities,
+// current application-role Postgres/RLS, signing and served SDK reads are real.
+func TestCarrierExportKeepsCompleteOriginalsOfflineAndCurrentTenantAuthority(t *testing.T) {
+	fixture := seedCarrierExportFixture(t)
+	proof, ids, windows, agents := fixture.path, fixture.ids, fixture.windows, fixture.agents
+	f := proof.fixture
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	fetch := func(tenant, id string) (int, []byte) {

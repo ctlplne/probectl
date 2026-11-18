@@ -133,13 +133,10 @@ probectl incident export <incident-id> --out incident-evidence.json
 probectl incident verify incident-evidence.json
 ```
 
-The first command proves only that the package is internally consistent with
-the key embedded in it — it does **not** prove who signed it, because a package
-re-signed with any other key is just as internally consistent. So that command
-reports `INTEGRITY-ONLY` and exits non-zero (3): never treat its output as a
-verified package. Authenticity requires one extra human step — compare the
-reported signer fingerprint with a fingerprint published by the probectl
-operator through a separate trusted channel, then pin it:
+The unpinned verify command checks the package against its embedded key. It
+reports `INTEGRITY-ONLY` and exits 3. To authenticate the signer, obtain the
+expected fingerprint from the probectl operator through a separate trusted
+channel and supply it with the verification command.
 
 ```sh
 probectl incident verify incident-evidence.json \
@@ -275,7 +272,8 @@ Select **Carrier ticket pack** in the Incident Room or use the existing export:
 
 ```sh
 probectl incident export <incident-id> --body '{"carrier":{"from":"2026-11-01T00:00:00Z","to":"2026-11-02T00:00:00Z"}}' --out carrier.json
-probectl incident verify carrier.json
+probectl incident verify carrier.json \
+  --trusted-key-fingerprint 'sha256:<operator-published-fingerprint>'
 ```
 
 `POST /v1/incidents/{id}/exports` accepts this exclusive `carrier` selection;
@@ -283,11 +281,10 @@ combine neither `impact` nor `verdict` with it. The generated SDK's
 `ExportIncidentEvidenceBytes` retains the exact signed response. Native MCP
 `incident_carrier_pack` takes `incident_id`, `from` and `to` and returns a
 base64-encoded signed package. Decode `package` before using the same offline
-verifier. Pin the operator's independently obtained signer fingerprint with
-`--trusted-key-fingerprint`; without that pin verification is integrity-only
-and exits3, as described above. The native envelope preserves verified cryptographic bytes after the
-shared source reader applies mandatory export redaction. Current source and
-originating credential checks remain through native framing.
+verifier. Obtain the expected fingerprint through a separate trusted channel.
+The native envelope preserves the signed bytes after the shared source reader
+applies mandatory export redaction. Current source and originating credential
+checks remain through native framing.
 
 A complete, resource-admitted half-open window contains selected original ICMP
 packet counts and round trips, retained trace rounds, affected-prefix owned
@@ -306,7 +303,8 @@ source labels follow deployment export privacy policy. The manifest's `profile`
 is `carrier`, its window is the actual requested window, and its single
 content-addressed attachment uses `probectl.carrier-ticket.v1`. No public share,
 external transmission, new stored state or carrier credential is created.
-The signature proves package integrity and signer identity, not carrier fault.
+Pinned verification checks package integrity and authenticates the operator's
+key. The original observations support the carrier investigation.
 
 Trace vantages remain their actual origins. Current retained traces originate
 at the control plane; separate ICMP agents do not turn one control-plane trace
