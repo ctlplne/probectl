@@ -168,12 +168,12 @@ func TestCoverageGapReporting(t *testing.T) {
 	e := testEngine(t)
 
 	// Nothing observed: every rule is not_observed and coverage says so.
-	for _, r := range e.Results("t1") {
+	results, cov := e.Snapshot("t1")
+	for _, r := range results {
 		if r.Verdict != VerdictNotObserved {
 			t.Fatalf("verdict before observation = %+v", r)
 		}
 	}
-	cov := e.CoverageFor("t1")
 	if cov.Observations != 0 || cov.ZonesSeen != 0 || cov.ZonesTotal != 3 {
 		t.Fatalf("coverage = %+v", cov)
 	}
@@ -186,7 +186,7 @@ func TestCoverageGapReporting(t *testing.T) {
 
 	// One flow-plane observation between corp and dmz: zones seen, ebpf still flagged.
 	e.Observe("t1", FlowObs{Src: "10.20.1.5", Dst: "192.0.2.7", DstPort: 443, Source: "flow", At: cT})
-	cov = e.CoverageFor("t1")
+	results, cov = e.Snapshot("t1")
 	if !cov.FlowObserved || cov.EBPFObserved || cov.ZonesSeen != 2 {
 		t.Fatalf("coverage after flow = %+v", cov)
 	}
@@ -197,7 +197,7 @@ func TestCoverageGapReporting(t *testing.T) {
 	raw, _ := json.Marshal(struct {
 		R []RuleResult
 		C Coverage
-	}{e.Results("t1"), cov})
+	}{results, cov})
 	if strings.Contains(strings.ToLower(string(raw)), `"compliant"`) {
 		t.Fatalf("the engine claimed compliance: %s", raw)
 	}

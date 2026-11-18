@@ -50,8 +50,13 @@ func TestControlEvidenceKeepsTheSelectedControlAndTenantScope(t *testing.T) {
 			if strings.Contains(string(raw), "primary-tenant-id") || strings.Contains(string(raw), "paired-tenant-id") {
 				t.Fatal("signed control package disclosed a raw tenant identifier")
 			}
-			if _, err := VerifyAuditorBundle(raw); err == nil {
-				t.Fatal("the generic auditor contract accepted a single-control package")
+			manifest.Contract = AuditorBundleContract
+			misclassified, err := SignAuditorBundle(manifest, attachments, private)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := VerifyEvidenceBundle(misclassified); err == nil || !strings.Contains(err.Error(), "does not account for section") {
+				t.Fatal("the generic auditor contract accepted a correctly signed single-control package", err)
 			}
 		})
 	}

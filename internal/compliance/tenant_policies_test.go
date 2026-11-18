@@ -37,7 +37,7 @@ func TestTenantBoundPoliciesKeepOverlappingNetworksEvidenceAndMutableInputsIsola
 		t.Fatal("overlapping tenant addresses applied another tenant's rule")
 	}
 	for _, tenant := range []string{"red", "blue"} {
-		rows := engine.Results(tenant)
+		rows, coverage := engine.Snapshot(tenant)
 		if len(rows) != 1 || rows[0].Policy != tenant+"-policy" || rows[0].RuleID != tenant+"-policy-boundary" {
 			t.Fatal("policy storage/query boundary returned another tenant's rule", tenant, rows)
 		}
@@ -48,7 +48,6 @@ func TestTenantBoundPoliciesKeepOverlappingNetworksEvidenceAndMutableInputsIsola
 		if rows[0].Verdict != want || rows[0].ObservedPairs != 1 {
 			t.Fatal("own declared port scope or measured coverage changed", tenant, rows)
 		}
-		coverage := engine.CoverageFor(tenant)
 		if coverage.Observations != 1 || coverage.ZonesTotal != 3 || coverage.ZonesSeen != 2 {
 			t.Fatal("coverage counted another tenant's policies or traffic", tenant, coverage)
 		}
@@ -79,7 +78,8 @@ func TestTenantBoundPoliciesKeepOverlappingNetworksEvidenceAndMutableInputsIsola
 		t.Fatal("mutable caller/result storage poisoned a bound policy", rows)
 	}
 	engine.Observe("unbound", observation)
-	if len(engine.Results("unbound")) != 0 || engine.CoverageFor("unbound").Observations != 0 || engine.CoverageFor("unbound").ZonesTotal != 0 {
+	unbound, coverage := engine.Snapshot("unbound")
+	if len(unbound) != 0 || coverage.Observations != 0 || coverage.ZonesTotal != 0 {
 		t.Fatal("unbound tenant inherited a deployment policy")
 	}
 	if _, err := NewTenantEngine(map[string][]Policy{"": {red}}); err == nil {

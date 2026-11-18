@@ -112,7 +112,8 @@ func TestBuildComplianceRefusesUntenantedPolicyDirInMultiTenant(t *testing.T) {
 		}
 		for _, tenant := range []string{"tenant-red", "tenant-blue"} {
 			eng.Observe(tenant, compliance.FlowObs{Src: "10.20.1.1", Dst: "10.10.1.1", DstPort: 443, Source: "flow", At: time.Now()})
-			if len(eng.Results(tenant)) != 0 || eng.CoverageFor(tenant).Observations != 0 {
+			rows, coverage := eng.Snapshot(tenant)
+			if len(rows) != 0 || coverage.Observations != 0 {
 				t.Fatalf("%s: unbound tenant inherited deployment-wide observation state", profile)
 			}
 		}

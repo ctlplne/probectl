@@ -58,9 +58,9 @@ func TestAuditorBundleSegmentationStatusReflectsSeparateTenantObservations(t *te
 			if err := s.handleAuditorBundle(rec, auditorRequest(t, lane.tenant)); err != nil {
 				t.Fatal(err)
 			}
-			manifest, err := compliance.VerifyAuditorBundle(rec.Body.Bytes())
-			if err != nil || rec.Code != http.StatusOK {
-				t.Fatal("auditor bundle did not verify", rec.Code, err)
+			manifest, err := compliance.VerifyEvidenceBundle(rec.Body.Bytes())
+			if err != nil || rec.Code != http.StatusOK || manifest.Contract != compliance.AuditorBundleContract {
+				t.Fatal("auditor bundle did not verify", rec.Code, manifest.Contract, err)
 			}
 			wantScope := hex.EncodeToString(crypto.Hash([]byte("probectl-auditor-scope/v1|" + lane.tenant)))
 			if manifest.TenantScopeDigest != wantScope {
@@ -176,8 +176,8 @@ func TestAuditorBundleAccountsForUngatherableSections(t *testing.T) {
 	if ct := rec.Header().Get("Content-Disposition"); !strings.Contains(ct, "probectl-auditor-bundle.json") {
 		t.Errorf("the response must download as a bundle, got %q", ct)
 	}
-	m, err := compliance.VerifyAuditorBundle(rec.Body.Bytes())
-	if err != nil {
+	m, err := compliance.VerifyEvidenceBundle(rec.Body.Bytes())
+	if err != nil || m.Contract != compliance.AuditorBundleContract {
 		t.Fatalf("the served bundle must verify offline: %v", err)
 	}
 	if len(m.Sections) != len(compliance.AuditorSectionKinds) {
@@ -265,8 +265,8 @@ func TestAuditorBundleRefusesToVouchForAnUntrustworthyBuild(t *testing.T) {
 	if err := s.handleAuditorBundle(rec, auditorRequest(t, "00000000-0000-0000-0000-000000000001")); err != nil {
 		t.Fatalf("handler: %v", err)
 	}
-	m, err := compliance.VerifyAuditorBundle(rec.Body.Bytes())
-	if err != nil {
+	m, err := compliance.VerifyEvidenceBundle(rec.Body.Bytes())
+	if err != nil || m.Contract != compliance.AuditorBundleContract {
 		t.Fatalf("verify: %v", err)
 	}
 	var prov compliance.AuditorSection

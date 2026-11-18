@@ -52,11 +52,11 @@ func TestAuditorBundleSignsAndVerifiesOffline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
-	got, err := VerifyAuditorBundle(raw)
+	got, err := VerifyEvidenceBundle(raw)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	if got.BundleID != m.BundleID || got.TenantScopeDigest != m.TenantScopeDigest {
+	if got.Contract != AuditorBundleContract || got.BundleID != m.BundleID || got.TenantScopeDigest != m.TenantScopeDigest {
 		t.Error("verified manifest does not match the signed one")
 	}
 	// The tenant id itself must never appear in the bundle — only its binding.
@@ -87,7 +87,7 @@ func TestAuditorBundleRefusesTampering(t *testing.T) {
 	bad := pkg
 	bad.Manifest = json.RawMessage(strings.Replace(string(pkg.Manifest), `"redaction":""`, `"redaction":"none"`, 1))
 	if b, err := json.Marshal(bad); err == nil {
-		if _, err := VerifyAuditorBundle(b); err == nil {
+		if _, err := VerifyEvidenceBundle(b); err == nil {
 			t.Error("a modified manifest must not verify")
 		}
 	}
@@ -100,7 +100,7 @@ func TestAuditorBundleRefusesTampering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if _, err := VerifyAuditorBundle(b); err == nil {
+	if _, err := VerifyEvidenceBundle(b); err == nil {
 		t.Error("an attachment whose content no longer matches its digest must not verify")
 	}
 }

@@ -323,18 +323,6 @@ func SignAuditorBundle(manifest AuditorManifest, attachments []Attachment, priva
 	})
 }
 
-// VerifyAuditorBundle performs every offline check an auditor needs: the
-// contract and signature, that each attachment matches the digest the manifest
-// commits to, and that every required section is accounted for. It needs no
-// server and no network.
-func VerifyAuditorBundle(raw []byte) (AuditorManifest, error) {
-	manifest, err := VerifyEvidenceBundle(raw)
-	if err == nil && manifest.Contract != AuditorBundleContract {
-		return AuditorManifest{}, fmt.Errorf("compliance: unexpected contract %q", manifest.Contract)
-	}
-	return manifest, err
-}
-
 // VerifyEvidenceBundle verifies the supported portable evidence contracts.
 // The caller must separately pin the signer to authenticate the operator.
 func VerifyEvidenceBundle(raw []byte) (AuditorManifest, error) {

@@ -339,13 +339,6 @@ func (e *Engine) resultsLocked(tenant string) []RuleResult {
 	return out
 }
 
-// CoverageFor reports the tenant's visibility (the never-overclaim block).
-func (e *Engine) CoverageFor(tenant string) Coverage {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.coverageLocked(tenant)
-}
-
 func (e *Engine) coverageLocked(tenant string) Coverage {
 	ts := e.tenant(tenant)
 
