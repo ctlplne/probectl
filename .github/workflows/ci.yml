@@ -1207,8 +1207,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --name "image-probectl-control-$GITHUB_SHA" --dir "$RUNNER_TEMP/probectl-image"
+          python3 scripts/ci_image.py download --component probectl-control \
+            --destination "$RUNNER_TEMP/probectl-image"
           python3 scripts/ci_image.py load --docker "$RUNNER_TEMP/probectl-image/image.tar" \
             --receipt "$RUNNER_TEMP/probectl-image/image-proof.json" \
             --component probectl-control --edition core --tag probectl/probectl-control:e2e \
@@ -2389,8 +2389,8 @@ jobs:
           COMPONENT: ${{ matrix.component }}
           EDITION: ${{ matrix.edition || 'core' }}
         run: |
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --name "image-$COMPONENT-$GITHUB_SHA" --dir "$RUNNER_TEMP/probectl-image"
+          python3 scripts/ci_image.py download --component "$COMPONENT" \
+            --destination "$RUNNER_TEMP/probectl-image"
           python3 scripts/ci_image.py load --docker "$RUNNER_TEMP/probectl-image/image.tar" \
             --receipt "$RUNNER_TEMP/probectl-image/image-proof.json" --component "$COMPONENT" \
             --edition "$EDITION" --tag "probectl/$COMPONENT:scan" \
