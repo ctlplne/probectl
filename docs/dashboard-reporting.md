@@ -159,6 +159,8 @@ alongside the output row/byte allowances. Operators can raise these positive
 profiles for complete workloads. Earlier caller deadlines and cancellation
 still win. Effective source output allowance also
 depends on the finite operation memory/output policy.
+Publication writes up to four chunks per statement in one tenant transaction
+with the artifact metadata and audit event.
 Source-backed capture, rendering, original replay, publication and verified
 downloads use the same report deadline; interactive queries retain
 `PROBECTL_FLOW_QUERY_TIMEOUT`. Generate/download responses also lift the

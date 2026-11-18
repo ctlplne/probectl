@@ -15,14 +15,30 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+type reportChunkStatementProbe struct {
+	tenancy.Querier
+	widths []int64
+}
+
+func (p *reportChunkStatementProbe) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
+	tag, err := p.Querier.Exec(ctx, query, args...)
+	if err == nil && strings.HasPrefix(query, "INSERT INTO dashboard_report_artifact_chunks") {
+		p.widths = append(p.widths, tag.RowsAffected())
+	}
+	return tag, err
+}
 
 func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T) {
 	ctx := t.Context()
@@ -36,7 +52,9 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 			t.Fatal(err)
 		}
 		tenants[i] = tenant.ID
-		payloads[i] = bytes.Repeat([]byte(fmt.Sprintf("tenant-%d,precise-value-9007199254740993\r\n", i)), 70001)
+		row := []byte(fmt.Sprintf("tenant-%d,precise-value-9007199254740993\r\n", i))
+		const bodyBytes = 40*reporting.BodyChunkBytes + 101
+		payloads[i] = bytes.Repeat(row, bodyBytes/len(row)+1)[:bodyBytes]
 		if len(payloads[i]) <= 2<<20 {
 			t.Fatal("positive fixture did not exceed legacy body ceiling")
 		}
@@ -62,9 +80,20 @@ func TestReportArtifactChunksStageCompleteBodiesAndRefuseCorruption(t *testing.T
 		in := input
 		in.ID = id
 		return tenancy.InTenant(tctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
-			meta, err := (DashboardReports{}).CreateChunkedArtifact(ctx, sc, in, stage, capture)
+			probe := &reportChunkStatementProbe{Querier: sc.Q}
+			staging := sc
+			staging.Q = probe
+			meta, err := (DashboardReports{}).CreateChunkedArtifact(ctx, staging, in, stage, capture)
 			if err != nil {
 				return err
+			}
+			if len(probe.widths) != 11 || probe.widths[len(probe.widths)-1] != 1 {
+				t.Fatal("41 report chunks must use ten four-row statements and one final row", probe.widths)
+			}
+			for _, width := range probe.widths[:len(probe.widths)-1] {
+				if width != 4 {
+					t.Fatal("full report batch changed its bounded geometry", probe.widths)
+				}
 			}
 			if meta.Content != nil || meta.BodyBytes != int64(len(body)) || len(meta.BodySHA256) != 64 {
 				t.Fatal("chunk publication loaded bytes or lost sealed integrity metadata")

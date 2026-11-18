@@ -19,6 +19,7 @@ import (
 
 const ReportArtifactSourceEnvelopeMaxBytes = 64 << 20
 const reportArtifactMaxBytes = reporting.MaxBodyBytes
+const reportArtifactChunkWriteBytes = 4 * reporting.BodyChunkBytes
 
 var ErrReportArtifactIntegrity = errors.New("stored report body is incomplete or inconsistent")
 var ErrReportArtifactSnapshot = errors.New("report body requires a tenant read snapshot")
@@ -159,20 +160,26 @@ func (DashboardReports) CreateChunkedArtifact(ctx context.Context, s tenancy.Sco
 }
 
 func writeReportArtifactChunks(ctx context.Context, s tenancy.Scope, id string, reader io.Reader, size int64) error {
-	buffer := make([]byte, reporting.BodyChunkBytes)
+	buffer := make([]byte, min(size, reportArtifactChunkWriteBytes))
 	defer clear(buffer)
-	remaining := size
-	for ordinal := 0; remaining > 0; ordinal++ {
-		count := int(min(remaining, int64(len(buffer))))
+	for offset := int64(0); offset < size; {
+		count := min(size-offset, int64(len(buffer)))
 		if _, err := io.ReadFull(reader, buffer[:count]); err != nil {
 			return err
 		}
-		// Exec completes parameter encoding before returning; no asynchronous
-		// batch retains this copied buffer while its next chunk is read.
-		if _, err := s.Q.Exec(ctx, `INSERT INTO dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content) VALUES($1,$2,$3,$4)`, s.Tenant.String(), id, ordinal, buffer[:count]); err != nil {
+		// Each statement sends a bounded payload and keeps the existing chunk
+		// geometry and row-level checks inside the publication transaction.
+		tag, err := s.Q.Exec(ctx, `INSERT INTO dashboard_report_artifact_chunks(tenant_id,artifact_id,ordinal,content)
+ SELECT $1::uuid,$2,$3::integer+chunk_offset/$5::integer,substring($4::bytea,chunk_offset+1,$5::integer)
+ FROM generate_series(0,octet_length($4::bytea)-1,$5::integer) AS chunks(chunk_offset)`,
+			s.Tenant.String(), id, offset/reporting.BodyChunkBytes, buffer[:count], reporting.BodyChunkBytes)
+		if err != nil {
 			return err
 		}
-		remaining -= int64(count)
+		if tag.RowsAffected() != (count+reporting.BodyChunkBytes-1)/reporting.BodyChunkBytes {
+			return ErrReportArtifactIntegrity
+		}
+		offset += count
 	}
 	var extra [1]byte
 	n, err := reader.Read(extra[:])
