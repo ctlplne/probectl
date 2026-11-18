@@ -53,9 +53,9 @@ func TestE2EDrivesTheReleaseImageInProductionAuth(t *testing.T) {
 	job := jobBlock(t, ci, "e2e")
 	for _, want := range []string{
 		"needs: build-images",
-		`gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"`,
-		`--name "image-probectl-control-$GITHUB_SHA"`,
-		"python3 scripts/ci_image.py load",
+		"python3 scripts/ci_image.py download --component probectl-control",
+		`--destination "$RUNNER_TEMP/probectl-image"`,
+		`python3 scripts/ci_image.py load --docker "$RUNNER_TEMP/probectl-image/image.tar"`,
 		`--receipt "$RUNNER_TEMP/probectl-image/image-proof.json"`,
 		"--component probectl-control --edition core --tag probectl/probectl-control:e2e",
 		"PROBECTL_E2E_IMAGE: probectl/probectl-control:e2e",

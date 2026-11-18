@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -344,6 +345,24 @@ class ImageTests(unittest.TestCase):
             self.assertFalse(path.exists())
             transport.assert_called_once()
             wait.assert_not_called()
+
+    def test_download_cli_binds_the_current_repository_run_and_source(self):
+        workflow = {
+            "GITHUB_REPOSITORY": "ctlplne/probectl",
+            "GITHUB_RUN_ID": "47",
+            "GITHUB_RUN_ATTEMPT": "2",
+            "GITHUB_SHA": "a" * 40,
+        }
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "image"
+            args = ["ci_image.py", "download", "--component", "probectl-control", "--destination", str(path)]
+            with (
+                mock.patch.dict(os.environ, workflow, clear=True),
+                mock.patch.object(sys, "argv", args),
+                mock.patch(f"{__name__}.download") as transfer,
+            ):
+                self.assertEqual(main(), 0)
+            transfer.assert_called_once_with(47, "ctlplne/probectl", "a" * 40, "probectl-control", path)
 
 
 def main():

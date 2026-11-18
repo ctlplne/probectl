@@ -170,6 +170,10 @@ func TestImageConsumersReuseVerifiedProducerBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"image-scan", "e2e"} {
+		component := `"$COMPONENT"`
+		if name == "e2e" {
+			component = "probectl-control"
+		}
 		var commands []string
 		for _, step := range workflow.Jobs[name].Steps {
 			if strings.HasPrefix(step.Uses, "docker/build-push-action@") || strings.Contains(step.Run, "docker build") {
@@ -177,11 +181,17 @@ func TestImageConsumersReuseVerifiedProducerBytes(t *testing.T) {
 			}
 			commands = append(commands, step.Run)
 		}
-		joined := strings.Join(commands, "\n")
-		for _, required := range []string{"gh run download", "scripts/ci_image.py load", "--receipt", "--component", "--output artifacts/image-consumer/"} {
+		joined := strings.Join(strings.Fields(strings.ReplaceAll(strings.Join(commands, "\n"), "\\\n", " ")), " ")
+		download := "python3 scripts/ci_image.py download --component " + component + ` --destination "$RUNNER_TEMP/probectl-image"`
+		load := `python3 scripts/ci_image.py load --docker "$RUNNER_TEMP/probectl-image/image.tar"` +
+			` --receipt "$RUNNER_TEMP/probectl-image/image-proof.json" --component ` + component
+		for _, required := range []string{download, load, "--output artifacts/image-consumer/"} {
 			if !strings.Contains(joined, required) {
 				t.Errorf("%s lost verified image consumption %q", name, required)
 			}
+		}
+		if downloadAt, loadAt := strings.Index(joined, download), strings.Index(joined, load); downloadAt >= 0 && loadAt >= 0 && downloadAt >= loadAt {
+			t.Errorf("%s must download the exact component before verifying and loading it", name)
 		}
 	}
 	var platforms []string
