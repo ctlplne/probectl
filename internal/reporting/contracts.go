@@ -35,20 +35,23 @@ type ComplianceFlowSource struct {
 }
 
 type ComplianceFlowDefinition struct {
-	Lookback string                 `json:"lookback"`
-	Policy   string                 `json:"policy,omitempty"`
-	Sources  []ComplianceFlowSource `json:"sources"`
+	Lookback      string                 `json:"lookback"`
+	Policy        string                 `json:"policy,omitempty"`
+	ProtectedZone string                 `json:"protected_zone,omitempty"`
+	Sources       []ComplianceFlowSource `json:"sources"`
 }
 
 type ComplianceFlowManifestDefinition struct {
-	Lookback   string   `json:"lookback"`
-	Slots      []string `json:"source_slots"`
-	PolicySlot string   `json:"policy_slot,omitempty"`
+	Lookback          string   `json:"lookback"`
+	Slots             []string `json:"source_slots"`
+	PolicySlot        string   `json:"policy_slot,omitempty"`
+	ProtectedZoneSlot string   `json:"protected_zone_slot,omitempty"`
 }
 
 type ComplianceFlowManifestBindings struct {
-	Sources map[string]ComplianceFlowSource `json:"sources"`
-	Policy  string                          `json:"policy,omitempty"`
+	Sources       map[string]ComplianceFlowSource `json:"sources"`
+	Policy        string                          `json:"policy,omitempty"`
+	ProtectedZone string                          `json:"protected_zone,omitempty"`
 }
 
 func (d DashboardDefinition) HasSources() bool {

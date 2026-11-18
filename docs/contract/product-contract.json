@@ -337,7 +337,7 @@
       ],
       "name": "Segmentation validation and audit evidence",
       "status": "partial",
-      "evidence": "`internal/compliance`; scheduled signed audit-chain, boundary segmentation and network monitoring evidence through the existing tenant report pipeline"
+      "evidence": "`internal/compliance`; scheduled signed audit-chain, boundary segmentation, network monitoring and directional PCI DSS cardholder-data evidence through the existing tenant report pipeline"
     },
     {
       "ids": [

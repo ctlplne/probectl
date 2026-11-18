@@ -49,7 +49,7 @@ func cleanComplianceControlReportDefinition(d *dashboardDefinition) error {
 		}
 		return nil
 	}
-	if _, _, err := parseComplianceFlowDefinition(kind, d.ComplianceFlow); err != nil {
+	if _, _, err := parseComplianceFlowDefinition(d.ComplianceControl, d.ComplianceFlow); err != nil {
 		return err
 	}
 	// Keep the stored/read wire shape valid when a typed create omits metrics.
@@ -57,7 +57,7 @@ func cleanComplianceControlReportDefinition(d *dashboardDefinition) error {
 	return nil
 }
 
-func parseComplianceFlowDefinition(kind string, definition *reporting.ComplianceFlowDefinition) (time.Duration, []store.IncidentImpactEntity, error) {
+func parseComplianceFlowDefinition(reference string, definition *reporting.ComplianceFlowDefinition) (time.Duration, []store.IncidentImpactEntity, error) {
 	if definition == nil {
 		return 0, nil, apierror.Validation("select canonical device or interface sources within the report definition budget")
 	}
@@ -65,14 +65,14 @@ func parseComplianceFlowDefinition(kind string, definition *reporting.Compliance
 	if err != nil || lookback < time.Second || lookback%time.Microsecond != 0 {
 		return 0, nil, apierror.Validation("compliance_flow requires a lookback of at least one second in whole microseconds, such as 24h")
 	}
-	if kind == compliance.SectionSegmentation {
+	if compliance.ControlEvidenceSection(reference) == compliance.SectionSegmentation {
 		if len(definition.Policy) > maxDashboardManifestBytes {
 			return 0, nil, apierror.Validation("the segmentation policy exceeds the report definition budget")
 		}
-		if _, err := compliance.ParsePolicy([]byte(definition.Policy)); err != nil {
-			return 0, nil, apierror.Validation("the selected segmentation policy is invalid")
+		if _, err := compileComplianceFlowPolicy(reference, definition.Policy, definition.ProtectedZone); err != nil {
+			return 0, nil, err
 		}
-	} else if definition.Policy != "" {
+	} else if definition.Policy != "" || definition.ProtectedZone != "" {
 		return 0, nil, apierror.Validation("monitoring coverage uses the selected original flow sources and interval")
 	}
 	members, err := complianceFlowMembers(definition.Sources)
@@ -159,10 +159,15 @@ func (s *Server) captureComplianceControlReport(ctx context.Context, actor *auth
 	if err != nil {
 		return nil, err
 	}
+	columns := []string{"framework", "guide_version", "standard_version", "control", "checked_at", "source_status", "reason", "signed_package_id"}
+	row := []string{manifest.Control.Framework, manifest.Control.GuideVersion, manifest.Control.StandardVersion, definition.ComplianceControl,
+		evidence.CollectedAt.Format(time.RFC3339Nano), evidence.Evidence.Status, evidence.Evidence.Reason, manifest.BundleID}
+	if manifest.Control.ProtectedZone != "" {
+		columns = append(columns, "protected_zone")
+		row = append(row, manifest.Control.ProtectedZone)
+	}
 	summary := sealedClientReportTable(actor.TenantID, "compliance-control-summary", "Control evidence result", from, to,
-		plainClientReportColumns([]string{"framework", "guide_version", "standard_version", "control", "checked_at", "source_status", "reason", "signed_package_id"}),
-		[][]string{{manifest.Control.Framework, manifest.Control.GuideVersion, manifest.Control.StandardVersion, definition.ComplianceControl,
-			evidence.CollectedAt.Format(time.RFC3339Nano), evidence.Evidence.Status, evidence.Evidence.Reason, manifest.BundleID}})
+		plainClientReportColumns(columns), [][]string{row})
 	summary.Source = complianceControlReportCoverage(capture)
 	encoded, err := signedReportEvidenceTable(ctx, signed, manifest.BundleID, "compliance-control-"+manifest.BundleID+".json", reporting.CSVTable{
 		ID: "compliance-control-evidence", Title: "Complete signed control evidence", TenantID: actor.TenantID,
@@ -227,7 +232,7 @@ func (s *Server) collectComplianceControlEvidence(ctx context.Context, actor *au
 }
 
 func (s *Server) collectComplianceFlowControl(ctx context.Context, actor *auth.Principal, definition dashboardDefinition, budget flowstore.ExplorerBudget, evidence *compliance.ControlEvidenceInput, capture *reportFlowCapture) error {
-	lookback, members, err := parseComplianceFlowDefinition(compliance.ControlEvidenceSection(definition.ComplianceControl), definition.ComplianceFlow)
+	lookback, members, err := parseComplianceFlowDefinition(definition.ComplianceControl, definition.ComplianceFlow)
 	if err != nil {
 		return err
 	}
@@ -249,11 +254,12 @@ func (s *Server) collectComplianceFlowControl(ctx context.Context, actor *auth.P
 	if err != nil {
 		return err
 	}
-	evidence.Evidence, err = projectComplianceFlowControl(ctx, actor.TenantID, definition.ComplianceControl, definition.ComplianceFlow.Policy, window)
+	evidence.Evidence, err = projectComplianceFlowControl(ctx, actor.TenantID, definition.ComplianceControl, definition.ComplianceFlow.Policy, definition.ComplianceFlow.ProtectedZone, window)
 	if err != nil {
 		return err
 	}
 	evidence.CollectedAt = time.Now().UTC()
+	evidence.ProtectedZone = definition.ComplianceFlow.ProtectedZone
 	evidence.Window = &compliance.ControlEvidenceWindow{From: from, To: to}
 	capture.controlCapture.from, capture.controlCapture.checked = from, to
 	capture.controlCapture.sourceDigest, capture.controlCapture.captureDigest = window.sourceDigest, window.publicationDigest

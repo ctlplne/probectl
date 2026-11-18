@@ -1020,17 +1020,20 @@ export interface CollectorRegistration {
 export interface ComplianceFlowDefinition {
   lookback: string
   policy?: string
+  protected_zone?: string
   sources: ComplianceFlowSource[]
 }
 
 export interface ComplianceFlowManifestBindings {
   policy?: string
+  protected_zone?: string
   sources: { [key: string]: ComplianceFlowSource }
 }
 
 export interface ComplianceFlowManifestDefinition {
   lookback: string
   policy_slot?: string
+  protected_zone_slot?: string
   source_slots: string[]
 }
 
@@ -1163,7 +1166,7 @@ export interface DashboardDefinition {
   absolute_to?: string
   carrier_claim?: CarrierSLAReportDefinition | null
   client_report?: ClientReportDefinition | null
-  compliance_control?: "AU.L2-3.3.1" | "SC.L2-3.13.1" | "11.4.5" | "SI.L2-3.14.6"
+  compliance_control?: "AU.L2-3.3.1" | "SC.L2-3.13.1" | "11.4.5" | "SI.L2-3.14.6" | "1.3.1" | "1.3.2"
   compliance_flow?: ComplianceFlowDefinition
   coverage_limitations: string[]
   flow_sources?: JsonObject[]
@@ -1184,7 +1187,7 @@ export interface DashboardManifestDefinition {
   absolute_to?: string
   carrier_claim?: CarrierSLAReportManifestDefinition | null
   client_report?: ClientReportDefinition | null
-  compliance_control?: "AU.L2-3.3.1" | "SC.L2-3.13.1" | "11.4.5" | "SI.L2-3.14.6"
+  compliance_control?: "AU.L2-3.3.1" | "SC.L2-3.13.1" | "11.4.5" | "SI.L2-3.14.6" | "1.3.1" | "1.3.2"
   compliance_flow?: ComplianceFlowManifestDefinition
   coverage_limitations: string[]
   flow_sources?: JsonObject[]

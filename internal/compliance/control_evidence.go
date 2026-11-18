@@ -16,12 +16,14 @@ import (
 )
 
 const (
-	ControlEvidenceContract  = "probectl-control-evidence/v1"
-	CMMCAuditControl         = "AU.L2-3.3.1"
-	CMMCBoundaryControl      = "SC.L2-3.13.1"
-	CMMCMonitoringControl    = "SI.L2-3.14.6"
-	PCISegmentationControl   = "11.4.5"
-	SectionNetworkMonitoring = "network-monitoring-coverage"
+	ControlEvidenceContract   = "probectl-control-evidence/v1"
+	CMMCAuditControl          = "AU.L2-3.3.1"
+	CMMCBoundaryControl       = "SC.L2-3.13.1"
+	CMMCMonitoringControl     = "SI.L2-3.14.6"
+	PCISegmentationControl    = "11.4.5"
+	PCIInboundNetworkControl  = "1.3.1"
+	PCIOutboundNetworkControl = "1.3.2"
+	SectionNetworkMonitoring  = "network-monitoring-coverage"
 )
 
 type ControlEvidenceScope struct {
@@ -29,6 +31,7 @@ type ControlEvidenceScope struct {
 	GuideVersion    string                 `json:"assessment_guide_version,omitempty"`
 	StandardVersion string                 `json:"standard_version,omitempty"`
 	Reference       string                 `json:"reference"`
+	ProtectedZone   string                 `json:"protected_zone,omitempty"`
 	CollectedAt     time.Time              `json:"collected_at"`
 	Window          *ControlEvidenceWindow `json:"observation_window,omitempty"`
 }
@@ -39,12 +42,13 @@ type ControlEvidenceWindow struct {
 }
 
 type ControlEvidenceInput struct {
-	TenantID    string
-	Reference   string
-	CollectedAt time.Time
-	Deployment  DeploymentIdentity
-	Evidence    SectionInput
-	Window      *ControlEvidenceWindow
+	TenantID      string
+	Reference     string
+	ProtectedZone string
+	CollectedAt   time.Time
+	Deployment    DeploymentIdentity
+	Evidence      SectionInput
+	Window        *ControlEvidenceWindow
 }
 
 type controlEvidenceReference struct{ framework, guide, standard, section string }
@@ -57,7 +61,7 @@ func controlEvidenceReferenceFor(reference string) controlEvidenceReference {
 		return controlEvidenceReference{framework: "CMMC Level 2", guide: "2.13", section: SectionSegmentation}
 	case CMMCMonitoringControl:
 		return controlEvidenceReference{framework: "CMMC Level 2", guide: "2.13", section: SectionNetworkMonitoring}
-	case PCISegmentationControl:
+	case PCISegmentationControl, PCIInboundNetworkControl, PCIOutboundNetworkControl:
 		return controlEvidenceReference{framework: "PCI DSS", standard: "4.0.1", section: SectionSegmentation}
 	default:
 		return controlEvidenceReference{}
@@ -97,7 +101,8 @@ func BuildControlEvidence(in ControlEvidenceInput) (AuditorManifest, []Attachmen
 	id := crypto.Hash([]byte(ControlEvidenceContract + "|" + tenant + "|" + in.Reference + "|" + collected.Format(time.RFC3339Nano)))
 	manifest := AuditorManifest{
 		Contract: ControlEvidenceContract, BundleID: hex.EncodeToString(id[:16]),
-		Control:           &ControlEvidenceScope{Framework: ref.framework, GuideVersion: ref.guide, StandardVersion: ref.standard, Reference: in.Reference, CollectedAt: collected, Window: window},
+		Control: &ControlEvidenceScope{Framework: ref.framework, GuideVersion: ref.guide, StandardVersion: ref.standard, Reference: in.Reference,
+			ProtectedZone: in.ProtectedZone, CollectedAt: collected, Window: window},
 		TenantScopeDigest: hex.EncodeToString(scope), CreatedAt: collected, Deployment: in.Deployment,
 		Redaction: "tenant-scoped audit sequence coverage without event payloads or identities",
 		Sections:  []AuditorSection{section}, Frameworks: []FrameworkMapping{},
@@ -131,6 +136,9 @@ func validateControlEvidenceManifest(manifest AuditorManifest, attachments []Att
 		scope.CollectedAt.IsZero() || !scope.CollectedAt.Equal(manifest.CreatedAt) || digestErr != nil || len(digest) != 32 ||
 		len(manifest.Sections) != 1 || manifest.Sections[0].Kind != ref.section || len(manifest.Caveats) == 0 {
 		return fmt.Errorf("compliance: invalid control evidence scope or source")
+	}
+	if usesCardholderZone(scope.Reference) != (scope.ProtectedZone != "") || strings.TrimSpace(scope.ProtectedZone) != scope.ProtectedZone {
+		return fmt.Errorf("compliance: invalid cardholder-data zone for the selected control")
 	}
 	if ref.section == SectionAuditChain && scope.Window != nil || ref.section != SectionAuditChain && !validControlEvidenceWindow(scope.Window, scope.CollectedAt) {
 		return fmt.Errorf("compliance: invalid control evidence time window")

@@ -324,7 +324,7 @@ func TestComplianceFlowReportsKeepCurrentReaderAuthority(t *testing.T) {
 			t.Fatal("flow control dashboard unavailable", err)
 		}
 		views[lane] = view.ID
-		manifest := proveComplianceFlowManifest(t, send, view.ID, source)
+		manifest := proveComplianceFlowManifest(t, send, view.ID, source, complianceBoundaryFixturePolicy, "")
 		proveComplianceFlowManifestTransports(t, native, tenant, f.tenants[1-lane], manifest)
 		var schedule store.ReportSchedule
 		request := reporting.ReportScheduleInput{DashboardID: view.ID, Name: "Flow evidence daily", Format: format,
@@ -414,7 +414,7 @@ func verifyErasedComplianceReceipt(t *testing.T, f *roleExplanationAPIFixture, s
 	callComplianceControlReport(t, socket, allowed, http.MethodGet, path, nil, http.StatusNotFound)
 }
 
-func proveComplianceFlowManifest(t *testing.T, send func(string, string, any, int) []byte, viewID string, source reporting.ComplianceFlowSource) reporting.DashboardManifestImportInput {
+func proveComplianceFlowManifest(t *testing.T, send func(string, string, any, int) []byte, viewID string, source reporting.ComplianceFlowSource, policy, zone string) reporting.DashboardManifestImportInput {
 	t.Helper()
 	raw := send(http.MethodGet, "/v1/dashboards/"+viewID+"/manifest", nil, http.StatusOK)
 	manifest := reporting.DashboardManifest{}
@@ -429,7 +429,16 @@ func proveComplianceFlowManifest(t *testing.T, send func(string, string, any, in
 	request := reporting.DashboardManifestImportInput{Manifest: manifest}
 	send(http.MethodPost, "/v1/dashboard-manifests/import", request, http.StatusUnprocessableEntity)
 	request.ComplianceBindings = &reporting.ComplianceFlowManifestBindings{
-		Sources: map[string]reporting.ComplianceFlowSource{template.Slots[0]: source}, Policy: complianceBoundaryFixturePolicy,
+		Sources: map[string]reporting.ComplianceFlowSource{template.Slots[0]: source}, Policy: policy,
+	}
+	if zone != "" {
+		if template.ProtectedZoneSlot != "cardholder-data-zone" || bytes.Contains(raw, []byte(zone)) {
+			t.Fatal("portable control template exposed its original destination zone")
+		}
+		send(http.MethodPost, "/v1/dashboard-manifests/import", request, http.StatusUnprocessableEntity)
+		request.ComplianceBindings.ProtectedZone = "undeclared-zone"
+		send(http.MethodPost, "/v1/dashboard-manifests/import", request, http.StatusUnprocessableEntity)
+		request.ComplianceBindings.ProtectedZone = zone
 	}
 	send(http.MethodPost, "/v1/dashboard-manifests/import", request, http.StatusOK)
 	request.Confirm = true

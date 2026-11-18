@@ -33,16 +33,16 @@ type complianceFlowEvidence struct {
 	Segmentation          *compliance.Evidence `json:"segmentation,omitempty"`
 }
 
-func projectComplianceFlowControl(ctx context.Context, tenant, reference, policyDocument string, window complianceFlowWindow) (compliance.SectionInput, error) {
+func projectComplianceFlowControl(ctx context.Context, tenant, reference, policyDocument, protectedZone string, window complianceFlowWindow) (compliance.SectionInput, error) {
 	kind := compliance.ControlEvidenceSection(reference)
 	if kind != compliance.SectionSegmentation && kind != compliance.SectionNetworkMonitoring {
 		return compliance.SectionInput{}, apierror.Validation("the selected control requires a supported flow evidence source")
 	}
 	var evaluator *compliance.Engine
 	if kind == compliance.SectionSegmentation {
-		policy, err := compliance.ParsePolicy([]byte(policyDocument))
+		policy, err := compileComplianceFlowPolicy(reference, policyDocument, protectedZone)
 		if err != nil {
-			return compliance.SectionInput{}, apierror.Validation("the selected segmentation policy is invalid")
+			return compliance.SectionInput{}, err
 		}
 		evaluator, err = compliance.NewTenantEngine(map[string][]compliance.Policy{tenant: {policy}})
 		if err != nil {
@@ -119,4 +119,16 @@ func collectComplianceFlowEvidence(ctx context.Context, tenant string, window co
 	}
 	coverage.ObservationsDigest = hex.EncodeToString(digest)
 	return coverage, nil
+}
+
+func compileComplianceFlowPolicy(reference, document, protectedZone string) (compliance.Policy, error) {
+	policy, err := compliance.ParsePolicy([]byte(document))
+	if err != nil {
+		return compliance.Policy{}, apierror.Validation("the selected segmentation policy is invalid")
+	}
+	policy, err = compliance.PolicyForControl(policy, reference, protectedZone)
+	if err != nil {
+		return compliance.Policy{}, apierror.Validation(err.Error())
+	}
+	return policy, nil
 }

@@ -263,6 +263,13 @@ documented zones and rules define what the report measures.
 | CMMC Level 2 `SC.L2-3.13.1` | Traffic evaluated against declared boundary rules |
 | CMMC Level 2 `SI.L2-3.14.6` | Network monitoring coverage from selected flow sources |
 | PCI DSS v4.0.1 `11.4.5` | Supporting flow evidence for declared segmentation rules |
+| PCI DSS v4.0.1 `1.3.1` | Measured inbound violations for the selected cardholder-data zone |
+| PCI DSS v4.0.1 `1.3.2` | Measured outbound violations for the selected cardholder-data zone |
+
+For 1.3.1 and 1.3.2, bind the exact cardholder-data zone declared in the
+selected policy. The report signs the requested direction and the rules
+evaluated in that direction. The assessor separately reviews network security
+control configurations.
 
 Each run records its exact observation window. The report counts retained
 flows and identifies how many were backed by still-verifiable original

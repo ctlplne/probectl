@@ -127,7 +127,7 @@ func verifyComplianceFlowControlWindow(t *testing.T, tenant string, window compl
 	t.Helper()
 
 	for _, ref := range []string{compliance.PCISegmentationControl, compliance.CMMCBoundaryControl, compliance.CMMCMonitoringControl} {
-		section, err := projectComplianceFlowControl(t.Context(), tenant, ref, complianceBoundaryFixturePolicy, window)
+		section, err := projectComplianceFlowControl(t.Context(), tenant, ref, complianceBoundaryFixturePolicy, "", window)
 		want := compliance.StatusObserved
 		if lane == 0 && ref != compliance.CMMCMonitoringControl {
 			want = compliance.StatusFailed

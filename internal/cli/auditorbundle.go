@@ -132,6 +132,9 @@ func printControlEvidenceScope(stdout io.Writer, scope *compliance.ControlEviden
 		version = "standard " + scope.StandardVersion
 	}
 	fmt.Fprintf(stdout, "  control         %s %s (%s)\n", scope.Framework, scope.Reference, version)
+	if scope.ProtectedZone != "" {
+		fmt.Fprintf(stdout, "  protected zone  %q\n", scope.ProtectedZone)
+	}
 	if scope.Window != nil {
 		fmt.Fprintf(stdout, "  observed from   %s\n", scope.Window.From.Format(time.RFC3339Nano))
 		fmt.Fprintf(stdout, "  observed until  %s (exclusive)\n", scope.Window.To.Format(time.RFC3339Nano))

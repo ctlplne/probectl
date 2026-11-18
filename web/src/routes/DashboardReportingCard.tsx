@@ -9,6 +9,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   cmmcAuditControl,
   flowComplianceControls,
+  needsCardholderZone,
   useCreateDashboard,
   useCreateReportSchedule,
   useDashboards,
@@ -163,7 +164,11 @@ export function DashboardReportingCard({
         flow.source_slots.length <= 1024 &&
         flow.source_slots.every((slot: unknown) => typeof slot === 'string' && slot.length > 0)
       ) {
-        return { slots: flow.source_slots as string[], policy: 'policy_slot' in flow }
+        return {
+          slots: flow.source_slots as string[],
+          policy: 'policy_slot' in flow,
+          zone: 'protected_zone_slot' in flow,
+        }
       }
     } catch {
       // The import mutation surfaces parse and schema errors to the user.
@@ -179,7 +184,8 @@ export function DashboardReportingCard({
     portableFlow &&
     (!canReadFlowEvidence ||
       portableFlow.slots.some((slot) => !validCompliancePoint(complianceBindings.sources[slot])) ||
-      (portableFlow.policy && !complianceBindings.policy?.trim()))
+      (portableFlow.policy && !complianceBindings.policy?.trim()) ||
+      (portableFlow.zone && !complianceBindings.protected_zone?.trim()))
   const [nativeSlot, setNativeSlot] = useState('')
   const [bindingDraft, setBindingDraft] = useState<{
     identity: string
@@ -303,6 +309,9 @@ export function DashboardReportingCard({
               compliance_control: flowEvidence.control,
               compliance_flow: {
                 ...flowEvidence.value,
+                protected_zone: needsCardholderZone(flowEvidence.control)
+                  ? flowEvidence.value.protected_zone
+                  : undefined,
                 policy:
                   flowEvidence.control === 'SI.L2-3.14.6' ? undefined : flowEvidence.value.policy,
               },
@@ -964,6 +973,22 @@ export function DashboardReportingCard({
                         }}
                       />
                     ))}
+                    {portableFlow.zone && (
+                      <Field
+                        label="Destination cardholder-data zone"
+                        value={complianceBindings.protected_zone ?? ''}
+                        disabled={!canWrite}
+                        required
+                        onChange={(event) => {
+                          setManifestPreview(undefined)
+                          setComplianceBindingsDraft({
+                            identity: sourceIdentity,
+                            manifest: manifestText,
+                            value: { ...complianceBindings, protected_zone: event.target.value },
+                          })
+                        }}
+                      />
+                    )}
                     {portableFlow.policy && (
                       <TextArea
                         label="Destination segmentation policy YAML"

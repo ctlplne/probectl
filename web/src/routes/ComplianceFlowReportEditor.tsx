@@ -6,6 +6,7 @@
 
 import {
   flowComplianceControls,
+  needsCardholderZone,
   type ComplianceFlowSource,
   type FlowComplianceControl,
 } from '../api/dashboardReporting'
@@ -122,6 +123,18 @@ export function ComplianceFlowReportEditor({
       >
         Add measurement point
       </Button>
+      {needsCardholderZone(control) && (
+        <Field
+          label="Cardholder-data zone"
+          hint="Use the exact zone name from the segmentation policy."
+          value={value.protected_zone ?? ''}
+          required
+          disabled={disabled}
+          onChange={(event) =>
+            onChange({ control, value: { ...value, protected_zone: event.target.value } })
+          }
+        />
+      )}
       {control !== 'SI.L2-3.14.6' && (
         <TextArea
           label="Segmentation policy YAML"

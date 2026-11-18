@@ -25,6 +25,9 @@ func portableComplianceFlowDefinition(definition *reporting.ComplianceFlowDefini
 	if definition.Policy != "" {
 		portable.PolicySlot = "segmentation-policy"
 	}
+	if definition.ProtectedZone != "" {
+		portable.ProtectedZoneSlot = "cardholder-data-zone"
+	}
 	return portable
 }
 
@@ -41,7 +44,11 @@ func bindComplianceFlowManifest(portable *reporting.ComplianceFlowManifestDefini
 	if portable.PolicySlot != "" && portable.PolicySlot != "segmentation-policy" || (portable.PolicySlot == "") != (bindings.Policy == "") {
 		return nil, apierror.Validation("supply the destination policy for the declared segmentation policy slot")
 	}
-	definition := &reporting.ComplianceFlowDefinition{Lookback: portable.Lookback, Policy: bindings.Policy, Sources: make([]reporting.ComplianceFlowSource, 0, len(portable.Slots))}
+	if portable.ProtectedZoneSlot != "" && portable.ProtectedZoneSlot != "cardholder-data-zone" ||
+		(portable.ProtectedZoneSlot == "") != (bindings.ProtectedZone == "") {
+		return nil, apierror.Validation("supply the destination zone for the declared cardholder-data zone slot")
+	}
+	definition := &reporting.ComplianceFlowDefinition{Lookback: portable.Lookback, Policy: bindings.Policy, ProtectedZone: bindings.ProtectedZone, Sources: make([]reporting.ComplianceFlowSource, 0, len(portable.Slots))}
 	used := map[string]bool{}
 	for _, slot := range portable.Slots {
 		source, found := bindings.Sources[slot]

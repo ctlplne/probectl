@@ -1121,22 +1121,25 @@ type CollectorRegistration struct {
 }
 
 type ComplianceFlowDefinition struct {
-	Lookback string                 `json:"lookback"`
-	Policy   string                 `json:"policy,omitempty"`
-	Sources  []ComplianceFlowSource `json:"sources"`
+	Lookback      string                 `json:"lookback"`
+	Policy        string                 `json:"policy,omitempty"`
+	ProtectedZone string                 `json:"protected_zone,omitempty"`
+	Sources       []ComplianceFlowSource `json:"sources"`
 }
 
 // Explicit and complete destination-tenant bindings for each declared measurement point and policy slot.
 type ComplianceFlowManifestBindings struct {
-	Policy  string                          `json:"policy,omitempty"`
-	Sources map[string]ComplianceFlowSource `json:"sources"`
+	Policy        string                          `json:"policy,omitempty"`
+	ProtectedZone string                          `json:"protected_zone,omitempty"`
+	Sources       map[string]ComplianceFlowSource `json:"sources"`
 }
 
 // Portable observations configuration with slots for destination measurement points and, where required, the destination segmentation policy.
 type ComplianceFlowManifestDefinition struct {
-	Lookback    string   `json:"lookback"`
-	PolicySlot  string   `json:"policy_slot,omitempty"`
-	SourceSlots []string `json:"source_slots"`
+	Lookback          string   `json:"lookback"`
+	PolicySlot        string   `json:"policy_slot,omitempty"`
+	ProtectedZoneSlot string   `json:"protected_zone_slot,omitempty"`
+	SourceSlots       []string `json:"source_slots"`
 }
 
 // Current canonical tenant routing context and device or interface identity.

@@ -6,6 +6,7 @@
 
 import {
   flowComplianceControls,
+  needsCardholderZone,
   type ComplianceFlowDefinition,
   type ComplianceFlowSource,
   type FlowComplianceControl,
@@ -39,6 +40,7 @@ export function validFlowEvidence({ control, value }: FlowEvidenceDraft) {
     value.sources.every(validCompliancePoint) &&
     new Set(value.sources.map(({ context_id, entity_id }) => context_id + entity_id)).size ===
       value.sources.length &&
-    (control === 'SI.L2-3.14.6' || value.policy?.trim())
+    (control === 'SI.L2-3.14.6' || value.policy?.trim()) &&
+    (!needsCardholderZone(control) || value.protected_zone?.trim())
   )
 }

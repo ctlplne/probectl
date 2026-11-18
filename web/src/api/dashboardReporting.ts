@@ -34,9 +34,15 @@ export const flowComplianceControls = [
   { value: 'SC.L2-3.13.1', label: 'CMMC Level 2 SC.L2-3.13.1 · Boundary protection' },
   { value: 'SI.L2-3.14.6', label: 'CMMC Level 2 SI.L2-3.14.6 · Network monitoring' },
   { value: '11.4.5', label: 'PCI DSS 11.4.5 · Supporting segmentation evidence' },
+  { value: '1.3.1', label: 'PCI DSS 1.3.1 · Inbound cardholder-data evidence' },
+  { value: '1.3.2', label: 'PCI DSS 1.3.2 · Outbound cardholder-data evidence' },
 ] as const
 
 export type FlowComplianceControl = (typeof flowComplianceControls)[number]['value']
+
+export function needsCardholderZone(control: FlowComplianceControl) {
+  return control === '1.3.1' || control === '1.3.2'
+}
 
 export interface DashboardDefinition {
   carrier_claim?: CarrierSLAReportDefinition | null
