@@ -8,9 +8,10 @@ package tenancy
 
 import "context"
 
-// TxGuard runs at the start of a tenancy transaction (InTenant / InProvider /
-// InTenantProviderMaintenance), on that transaction's own connection, before
-// the callback. A non-nil error aborts and rolls the transaction back.
+// TxGuard runs at the start of a writable tenancy transaction (InTenant /
+// InProvider / InTenantProviderMaintenance / InTenantWriteSnapshot), on that
+// transaction's own connection, before the callback. A non-nil error aborts
+// and rolls the transaction back.
 //
 // It exists for the cluster singleton fence (PLAT-19): a background singleton
 // task carries a lease-epoch guard in its context, so every write transaction

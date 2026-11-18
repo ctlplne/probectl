@@ -193,8 +193,12 @@ func inTenantTx(ctx context.Context, pool *pgxpool.Pool, options pgx.TxOptions,
 		return fmt.Errorf("bind tenant scope: %w", err)
 	}
 
-	if err := runTxGuard(ctx, tx); err != nil {
-		return err
+	// The singleton guard takes a row lock to fence publication. PostgreSQL
+	// enforces READ ONLY for source snapshots and rejects that row lock there.
+	if options.AccessMode != pgx.ReadOnly {
+		if err := runTxGuard(ctx, tx); err != nil {
+			return err
+		}
 	}
 	if err := fn(ctx, Scope{Tenant: id, Q: tx}); err != nil {
 		return err
