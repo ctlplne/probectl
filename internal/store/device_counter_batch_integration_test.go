@@ -10,6 +10,7 @@ package store
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"testing"
 	"time"
@@ -58,6 +59,24 @@ func TestDeviceCounterBatchWitnessesKeepCompleteOriginalSetAndTenantBoundary(t *
 		foreign := tenancy.WithTenant(ctx, tenancy.ID(b.tenant))
 		if got, err := a.service.LookupWitnessesInScope(foreign, sc, keys[0], 1<<20); err == nil || got != nil {
 			t.Fatal("batched receipt lookup replaced a contradictory tenant scope", got, err)
+		}
+		var previous, current string
+		if err := sc.Q.QueryRow(ctx, `SELECT current_setting('enable_nestloop')`).Scan(&previous); err != nil {
+			return err
+		}
+		large := make([][32]byte, 1024)
+		for i := range large {
+			binary.BigEndian.PutUint64(large[i][:8], uint64(i+1))
+		}
+		copy(large, mixed)
+		if got, err := a.service.LookupWitnessesInScope(ctx, sc, large, 8<<20); !errors.Is(err, ErrCounterCaptureUnavailable) || got != nil {
+			t.Fatal("large batch returned visible receipts from an incomplete or foreign set", len(got), err)
+		}
+		if err := sc.Q.QueryRow(ctx, `SELECT current_setting('enable_nestloop')`).Scan(&current); err != nil {
+			return err
+		}
+		if current != previous {
+			t.Fatal("large receipt lookup changed the caller's transaction plan preference", current, previous)
 		}
 		_, err := sc.Q.Exec(ctx, `DELETE FROM device_counter_capture_sources WHERE tenant_id=$1 AND capture_key=$2`, a.tenant, keys[0][0][:])
 		return err

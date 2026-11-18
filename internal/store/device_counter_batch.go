@@ -9,6 +9,8 @@ package store
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -18,7 +20,7 @@ import (
 // source's original sender/digest/poll facts. This returns provenance, never
 // actor authority. Missing, erased, rebound, revoked or foreign keys refuse the
 // whole set; no successful prefix or shortened billing population is returned.
-func (s *DeviceCounterCaptures) LookupWitnessesInScope(ctx context.Context, sc tenancy.Scope, keys [][32]byte, memoryBytes int64) (map[[32]byte]DeviceCounterCapture, error) {
+func (s *DeviceCounterCaptures) LookupWitnessesInScope(ctx context.Context, sc tenancy.Scope, keys [][32]byte, memoryBytes int64) (witnesses map[[32]byte]DeviceCounterCapture, lookupErr error) {
 	tenant, bound := tenancy.FromContext(ctx)
 	if !bound || tenant != sc.Tenant || sc.Q == nil {
 		return nil, entity.ErrScopeMismatch
@@ -47,8 +49,21 @@ func (s *DeviceCounterCaptures) LookupWitnessesInScope(ctx context.Context, sc t
 	if len(parameters) == 0 {
 		return result, ctx.Err()
 	}
+	args := []any{tenant.String(), parameters}
+	if len(parameters) >= 1024 {
+		restore, err := preferCounterWitnessSetJoin(ctx, sc.Q)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if err := restore(); err != nil && lookupErr == nil {
+				witnesses, lookupErr = nil, err
+			}
+		}()
+		args = []any{pgx.QueryExecModeDescribeExec, tenant.String(), parameters}
+	}
 	rows, err := sc.Q.Query(ctx, `SELECT c.capture_key,c.captured_at,p.context_id::text,p.device_id::text,p.sender_serial,p.source_assigned_at,p.agent_assigned_at `+
-		deviceCounterWitnessScopeSQL+` AND c.capture_key=ANY($2::bytea[])`, tenant.String(), parameters)
+		deviceCounterWitnessScopeSQL+` AND c.capture_key=ANY($2::bytea[])`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -81,4 +96,23 @@ func (s *DeviceCounterCaptures) LookupWitnessesInScope(ctx context.Context, sc t
 		return nil, ErrCounterCaptureUnavailable
 	}
 	return result, nil
+}
+
+// Large fresh batches can have low row estimates even when both receipt tables
+// contain thousands of selected rows. Prefer set joins so PostgreSQL does not
+// rescan the capture set for every source record. The preference ends when the
+// result closes, inside the caller's tenant transaction.
+func preferCounterWitnessSetJoin(ctx context.Context, q tenancy.Querier) (func() error, error) {
+	var previous string
+	if err := q.QueryRow(ctx, `SELECT current_setting('enable_nestloop')`).Scan(&previous); err != nil {
+		return nil, err
+	}
+	const configure = `SELECT set_config('enable_nestloop',$1,true)`
+	if _, err := q.Exec(ctx, configure, "off"); err != nil {
+		return nil, err
+	}
+	return func() error {
+		_, err := q.Exec(ctx, configure, previous)
+		return err
+	}, nil
 }
