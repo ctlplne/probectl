@@ -99,7 +99,7 @@ func TestDirectionalComplianceScheduleStagesWithCurrentSingletonLease(t *testing
 		if err := supervisor.materializeTenantReports(currentContext, tenant, due); err != nil {
 			t.Fatal("a current lease must stage read-only source evidence and publish", err)
 		}
-		assertReportLeaseStageReadOnly(t, f, currentContext, tenant)
+		assertReportLeaseStageReadOnly(currentContext, t, f, tenant)
 		var inbox struct{ Items []reportArtifactView }
 		if err := json.Unmarshal(request(http.MethodGet, "/v1/dashboard-report-artifacts", nil, http.StatusOK), &inbox); err != nil || len(inbox.Items) != 1 || inbox.Items[0].ScheduleID == nil {
 			t.Fatal("the current epoch did not publish one scheduled artifact", err)
@@ -113,7 +113,7 @@ func TestDirectionalComplianceScheduleStagesWithCurrentSingletonLease(t *testing
 	}
 }
 
-func assertReportLeaseStageReadOnly(t *testing.T, f *roleExplanationAPIFixture, ctx context.Context, tenant string) {
+func assertReportLeaseStageReadOnly(ctx context.Context, t *testing.T, f *roleExplanationAPIFixture, tenant string) {
 	t.Helper()
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(tenant))
 	err := tenancy.InTenantReadSnapshot(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
