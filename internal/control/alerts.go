@@ -67,10 +67,12 @@ type alertRequest struct {
 	Trap             *alert.TrapMatch             `json:"trap"`
 	QuerySource      *alert.QuerySourceInput      `json:"query_source,omitempty"`
 	PathHealthSource *alert.PathHealthSourceInput `json:"path_health_source,omitempty"`
+	SeasonalSource   *alert.SeasonalBaselineInput `json:"seasonal_source,omitempty"`
 }
 
 func (req alertRequest) toRule() (alert.Rule, error) {
-	if req.QuerySource != nil && req.PathHealthSource != nil {
+	if req.QuerySource != nil && req.PathHealthSource != nil ||
+		req.SeasonalSource != nil && (req.QuerySource != nil || req.PathHealthSource != nil) {
 		return alert.Rule{}, apierror.Validation("select one alert source")
 	}
 	if req.QuerySource != nil || req.PathHealthSource != nil {
@@ -82,6 +84,18 @@ func (req alertRequest) toRule() (alert.Rule, error) {
 			return alert.Rule{}, apierror.Validation(sourceName + " replaces metric, match, type, comparison, threshold, baseline and trap fields")
 		}
 		req.Metric, req.Type, req.Comparison, req.Threshold = metric, string(alert.Threshold), string(alert.GTE), 1
+	}
+	if req.SeasonalSource != nil && req.SeasonalSource.Flow != nil {
+		if req.Metric != "" || len(req.Match) != 0 || req.Type != "" || req.Comparison != "" || req.Threshold != 0 || req.Trap != nil {
+			return alert.Rule{}, apierror.Validation("a seasonal flow view supplies the baseline rule's source and type")
+		}
+		req.Metric, req.Type = alert.SeasonalFlowMetric, string(alert.Baseline)
+		if req.Window == 0 {
+			req.Window = 20
+		}
+		if req.Sensitivity == 0 {
+			req.Sensitivity = 3
+		}
 	}
 	enabled := true
 	if req.Enabled != nil {
@@ -195,7 +209,10 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	var created *alert.Rule
-	if req.PathHealthSource != nil {
+	if req.SeasonalSource != nil {
+		actor := auth.PrincipalFrom(r.Context())
+		created, err = s.createSeasonalAlertRule(r.Context(), actor, rule, req.SeasonalSource, s.pathAlertRequestCredential(r, actor))
+	} else if req.PathHealthSource != nil {
 		actor := auth.PrincipalFrom(r.Context())
 		created, err = s.createPathHealthAlertRule(r.Context(), actor, rule, *req.PathHealthSource, s.pathAlertRequestCredential(r, actor), nil)
 	} else {
@@ -244,6 +261,9 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 	if err := decodeJSON(r, &req); err != nil {
 		return err
 	}
+	if req.SeasonalSource != nil {
+		return apierror.Validation("change the weekly source through the seasonal-source operation")
+	}
 	rule, err := req.toRule()
 	if err != nil {
 		return err
@@ -257,6 +277,9 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	actor := auth.PrincipalFrom(r.Context())
+	if rule.Metric == alert.SeasonalFlowMetric && (observed.Metric != alert.SeasonalFlowMetric || rule.Enabled && !observed.HasSeasonalSource) {
+		return apierror.Validation("an enabled seasonal flow rule requires its complete saved view source")
+	}
 	if rule.Metric == alert.PathHealthMetric && observed.Metric != alert.PathHealthMetric && req.PathHealthSource == nil {
 		return apierror.Validation("a path-health rule requires its complete source")
 	}

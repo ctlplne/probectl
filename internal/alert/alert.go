@@ -6,7 +6,10 @@
 
 package alert
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // State is the lifecycle state carried by a notification.
 type State string
@@ -78,4 +81,17 @@ func (a Alert) Payload() WebhookPayload {
 		Reason:     a.Reason,
 		FiredAt:    a.At.UTC().Format(time.RFC3339),
 	}
+}
+
+// Keep ordinary numeric webhook payloads byte-compatible, including zero.
+// Exact saved-flow evidence is opened using the tenant-scoped receipt API.
+func (p WebhookPayload) MarshalJSON() ([]byte, error) {
+	type plain WebhookPayload
+	if p.Metric != SeasonalFlowMetric {
+		return json.Marshal(plain(p))
+	}
+	return json.Marshal(struct {
+		plain
+		Value *float64 `json:"value,omitempty"`
+	}{plain: plain(p)})
 }

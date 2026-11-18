@@ -15,21 +15,55 @@ import (
 
 	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/promapi"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-const SeasonalEvidenceBytes = 8 << 10
+const (
+	SeasonalEvidenceBytes  = 8 << 10
+	SeasonalFlowScopeBytes = 256 << 10
+)
 
 type SeasonalEvaluationEvidence struct {
-	Subject        string                   `json:"subject"`
-	Calendar       anomaly.SeasonalEvidence `json:"calendar"`
-	ObservedAt     time.Time                `json:"observed_at"`
-	TrainingWindow anomaly.TrainingWindow   `json:"training_window"`
-	Citations      []anomaly.Citation       `json:"citations"`
-	IncidentID     string                   `json:"incident_id,omitempty"`
+	Subject        string                       `json:"subject"`
+	Calendar       SeasonalEvaluationCalendar   `json:"calendar"`
+	ObservedAt     time.Time                    `json:"observed_at"`
+	TrainingWindow anomaly.TrainingWindow       `json:"training_window"`
+	Citations      []anomaly.Citation           `json:"citations"`
+	IncidentID     string                       `json:"incident_id,omitempty"`
+	Exact          *anomaly.SeasonalDecimalBand `json:"exact,omitempty"`
+	FlowScope      []byte                       `json:"-"`
+}
+
+// SeasonalEvaluationCalendar reports the civil slot and comparable dates. A
+// metric supplies floating bounds here. A flow measure uses its exact band.
+type SeasonalEvaluationCalendar struct {
+	Timezone     string       `json:"timezone"`
+	Weekday      time.Weekday `json:"weekday"`
+	Hour         int          `json:"hour"`
+	TrainingDays []string     `json:"training_days"`
+	Median       *float64     `json:"median,omitempty"`
+	Spread       *float64     `json:"robust_spread,omitempty"`
+	Lower        *float64     `json:"lower,omitempty"`
+	Upper        *float64     `json:"upper,omitempty"`
 }
 
 // SeasonalPublisher commits the cited incident before delivery may proceed.
-type SeasonalPublisher func(context.Context, Rule, Alert, SeasonalEvaluationEvidence) (string, error)
+type SeasonalPublisher func(context.Context, Rule, Alert, SeasonalEvaluationEvidence, *SeasonalReadPublication, *EvaluationReceipt) (string, error)
+
+// SeasonalReadPublication carries one source capture for the entire complete
+// current evaluation. It is never part of a response or a notification.
+type SeasonalReadPublication struct {
+	Revalidate func(context.Context, tenancy.Scope) error
+	Finish     func(context.Context) error
+	Close      func()
+	Scope      []byte
+}
+
+func (p *SeasonalReadPublication) close() {
+	if p != nil && p.Close != nil {
+		p.Close()
+	}
+}
 
 func evaluationSeriesFingerprint(ruleID string, labels map[string]string, seasonalSubject string) string {
 	if seasonalSubject != "" {
@@ -108,7 +142,24 @@ func seasonalEpisodeRetired(key string, seasonal map[string]string) bool {
 
 func seasonalSeriesPrefix(rule Rule) string { return "seasonal:" + ruleRevision(rule) + "|" }
 
-func (en *Engine) evaluateSeasonalSamples(ctx context.Context, rule Rule, samples []Sample) ([]Alert, error) {
+func (en *Engine) evaluateSeasonalRead(ctx context.Context, rule Rule, read RuleMetricRead) ([]Alert, error) {
+	publication := read.SeasonalPublication
+	defer publication.close()
+	if len(read.Samples) == 0 {
+		en.recordNoData(ctx, rule, nil)
+		return nil, nil // later-arriving records can still complete this window
+	}
+	en.mu.Lock()
+	delete(en.noDataRules, rule.ID)
+	en.mu.Unlock()
+	acted, err := en.evaluateSeasonalSamples(ctx, rule, read.Samples, publication)
+	if err != nil || publication == nil {
+		return acted, err
+	}
+	return acted, publication.Finish(ctx)
+}
+
+func (en *Engine) evaluateSeasonalSamples(ctx context.Context, rule Rule, samples []Sample, publication *SeasonalReadPublication) ([]Alert, error) {
 	var acted []Alert
 	for _, sample := range samples {
 		if err := ctx.Err(); err != nil {
@@ -118,13 +169,16 @@ func (en *Engine) evaluateSeasonalSamples(ctx context.Context, rule Rule, sample
 		if !current {
 			continue
 		}
+		if publication != nil && attempt.receipt != nil && attempt.receipt.Expectation.Seasonal != nil {
+			attempt.receipt.Expectation.Seasonal.FlowScope = publication.Scope
+		}
 		if attempt.alert.State != "" {
 			evidence := seasonalRuleDecision(sample.Seasonal).expectation.Seasonal
 			if evidence == nil {
 				en.rollbackSeasonalSample(attempt)
 				return acted, ErrSeasonalSource
 			}
-			incidentID, err := en.seasonalPublisher(ctx, rule, attempt.alert, *evidence)
+			incidentID, err := en.seasonalPublisher(ctx, rule, attempt.alert, *evidence, publication, attempt.receipt)
 			if err != nil || incidentID == "" {
 				en.rollbackSeasonalSample(attempt)
 				if err == nil {
@@ -137,6 +191,9 @@ func (en *Engine) evaluateSeasonalSamples(ctx context.Context, rule Rule, sample
 			}
 			en.finishSeasonalSample(ctx, rule, attempt, incidentID)
 			acted = append(acted, attempt.alert)
+			if publication != nil {
+				continue // the transition receipt committed with the incident
+			}
 		}
 		en.recordEvaluation(ctx, attempt.receipt)
 	}
@@ -243,6 +300,11 @@ func checkedSeasonalRead(ctx context.Context, rule Rule, at time.Time, read Rule
 	if read.TagSelection != nil || read.QuerySelection != nil || (read.Skip && len(read.Samples) != 0) || rule.TenantID == "" || rule.Type != Baseline {
 		return RuleMetricRead{}, ErrSeasonalSource
 	}
+	proof := read.SeasonalPublication
+	if (rule.Metric == SeasonalFlowMetric && !read.Skip) != (proof != nil) ||
+		(proof != nil && (proof.Revalidate == nil || proof.Finish == nil || proof.Close == nil || len(proof.Scope) == 0)) {
+		return RuleMetricRead{}, ErrSeasonalSource
+	}
 	seen := make(map[string]bool, len(read.Samples))
 	for _, sample := range read.Samples {
 		comparison := sample.Seasonal
@@ -268,7 +330,7 @@ func seasonalObservationMatches(rule Rule, at time.Time, sample Sample) bool {
 	case anomaly.SeasonalUnavailable, anomaly.SeasonalExcluded, anomaly.SeasonalWarming:
 		return comparison.Evidence == nil
 	case anomaly.SeasonalNormal, anomaly.SeasonalUp, anomaly.SeasonalDown:
-		return comparison.Evidence != nil && len(comparison.Evidence.TrainingDays) >= SeasonalMinimumTrainingDays
+		return comparison.Evidence != nil && len(comparison.Evidence.TrainingDays) >= SeasonalMinimumTrainingDays && ((comparison.Exact != nil) == (rule.Metric == SeasonalFlowMetric))
 	default:
 		return false
 	}
@@ -289,11 +351,26 @@ func seasonalRuleDecision(comparison *anomaly.SeasonalComparison) evaluationDeci
 			warmupSamples: comparison.ComparableDays, warmupNeeded: SeasonalMinimumTrainingDays}
 	}
 	calendar := *comparison.Evidence
-	expectation.Lower, expectation.Upper = floatRef(calendar.Lower), floatRef(calendar.Upper)
-	expectation.Seasonal = &SeasonalEvaluationEvidence{Subject: comparison.Observed.Subject, Calendar: calendar, ObservedAt: comparison.Observed.TS,
-		TrainingWindow: comparison.TrainingWindow, Citations: comparison.Citations}
+	evidence := SeasonalEvaluationEvidence{Subject: comparison.Observed.Subject, ObservedAt: comparison.Observed.TS,
+		Calendar:       SeasonalEvaluationCalendar{Timezone: calendar.Timezone, Weekday: calendar.Weekday, Hour: calendar.Hour, TrainingDays: calendar.TrainingDays},
+		TrainingWindow: comparison.TrainingWindow, Citations: comparison.Citations, Exact: comparison.Exact}
+	expectation.Seasonal = &evidence
+	if comparison.Exact != nil {
+		return exactSeasonalDecision(comparison, expectation)
+	}
+	evidence.Calendar.Median, evidence.Calendar.Spread = floatRef(calendar.Median), floatRef(calendar.RobustSpread)
+	evidence.Calendar.Lower, evidence.Calendar.Upper = floatRef(calendar.Lower), floatRef(calendar.Upper)
+	expectation.Lower, expectation.Upper = evidence.Calendar.Lower, evidence.Calendar.Upper
 	reason := fmt.Sprintf("%s %02d:00 in %s normally ranges from %g to %g. Observed %g.",
 		calendar.Weekday, calendar.Hour, calendar.Timezone, calendar.Lower, calendar.Upper, comparison.Observed.Value)
 	return evaluationDecision{breached: comparison.State == anomaly.SeasonalUp || comparison.State == anomaly.SeasonalDown,
 		reason: reason, expectation: expectation}
+}
+
+func exactSeasonalDecision(comparison *anomaly.SeasonalComparison, expectation EvaluationExpectation) evaluationDecision {
+	changed := comparison.State == anomaly.SeasonalUp || comparison.State == anomaly.SeasonalDown
+	if changed {
+		return evaluationDecision{breached: true, reason: "Saved flow measure outside its weekly band", expectation: expectation}
+	}
+	return evaluationDecision{reason: "Saved flow measure within its weekly band", expectation: expectation}
 }

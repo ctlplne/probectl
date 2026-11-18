@@ -57,9 +57,9 @@ func TestSeasonalAlertRequiresCitedPublicationAndRetriesTheSameObservation(t *te
 			receipts = append(receipts, receipt)
 			return nil
 		}),
-		WithSeasonalPublisher(func(_ context.Context, got Rule, a Alert, evidence SeasonalEvaluationEvidence) (string, error) {
-			if evidence.ObservedAt != source.sample.Seasonal.Observed.TS || len(evidence.Citations) != 3 || evidence.Calendar.Lower != 35 ||
-				evidence.Calendar.Upper != 45 || evidence.Subject != "series-a" || a.TenantID != tenant || got.ID != rule.ID {
+		WithSeasonalPublisher(func(_ context.Context, got Rule, a Alert, evidence SeasonalEvaluationEvidence, _ *SeasonalReadPublication, _ *EvaluationReceipt) (string, error) {
+			if evidence.ObservedAt != source.sample.Seasonal.Observed.TS || len(evidence.Citations) != 3 || (evidence.Calendar.Lower == nil || *evidence.Calendar.Lower != 35) ||
+				(evidence.Calendar.Upper == nil || *evidence.Calendar.Upper != 45) || evidence.Subject != "series-a" || a.TenantID != tenant || got.ID != rule.ID {
 				t.Fatalf("bad current cited alert: %+v %+v", a, evidence)
 			}
 			publishes = append(publishes, a.State)

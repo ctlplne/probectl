@@ -733,16 +733,21 @@ admission on both HTTP and stdio. The five configuration tools do not grant sour
 
 `alert_seasonal_source_get` takes an owned `rule_id`. To set a source,
 `alert_seasonal_source_set` takes `rule_id` and an `input` object with
-`timezone`, `minimum_change`, optional `holidays` and optional `test_id`.
-`alert_seasonal_source_clear` requires `rule_id` and `confirmed: true` and
+`timezone`, `minimum_change`, optional `holidays`, and a selected `test_id`
+or `flow` object when needed. `alert_seasonal_flow_create` takes `name` and
+`seasonal_source` with one saved view's `view_id`, `view_version` and `measure`
+in `flow`. `alert_seasonal_source_clear` requires `rule_id` and `confirmed: true` and
 disables the rule when a selection exists. These tools use the same current
 tenant source checks and calendar as the [alert rule editor](alerting.md#weekly-seasonal-baselines-preview).
 
 The tools require a tenant user's current originating credential and
 `ai.query`. Get requires `alert.read`. Set and clear require `alert.write`.
-Reading or setting a configured source also requires `metrics.read` and
-`test.read` for a selected test. The credential, current rule revision and
-source grants are rechecked before returning configured state on HTTP or stdio.
+Reading or setting a metric or test source requires `metrics.read` and
+`test.read` for a selected test. Saved flow sources require `flow.read`, current
+view visibility and any permissions used by the saved plan. `alert_evaluations`
+returns exact flow values only when the caller still has access to the original
+view revision and its source contexts. HTTPS and stdio recheck configuration
+and source authority before returning those fields.
 
 ## Original polled path-interface health (preview)
 

@@ -398,6 +398,7 @@ type AlertRequest struct {
 	PathHealthSource *AlertPathHealthSourceInput `json:"path_health_source,omitempty"`
 	QuerySource      *AlertQuerySourceInput      `json:"query_source,omitempty"`
 	RenotifySeconds  int                         `json:"renotify_seconds,omitempty"`
+	SeasonalSource   *AlertSeasonalSourceInput   `json:"seasonal_source,omitempty"`
 	Sensitivity      float64                     `json:"sensitivity,omitempty"`
 	Severity         string                      `json:"severity,omitempty"`
 	Threshold        float64                     `json:"threshold,omitempty"`
@@ -432,12 +433,12 @@ type AlertRule struct {
 
 type AlertSeasonalCalendar struct {
 	Hour         int      `json:"hour"`
-	Lower        float64  `json:"lower"`
-	Median       float64  `json:"median"`
-	RobustSpread float64  `json:"robust_spread"`
+	Lower        float64  `json:"lower,omitempty"`
+	Median       float64  `json:"median,omitempty"`
+	RobustSpread float64  `json:"robust_spread,omitempty"`
 	Timezone     string   `json:"timezone"`
 	TrainingDays []string `json:"training_days"`
-	Upper        float64  `json:"upper"`
+	Upper        float64  `json:"upper,omitempty"`
 	Weekday      int      `json:"weekday"`
 }
 
@@ -448,21 +449,37 @@ type AlertSeasonalCitation struct {
 	Source string `json:"source"`
 }
 
+type AlertSeasonalDecimalBand struct {
+	Current      string `json:"current"`
+	Lower        string `json:"lower"`
+	Median       string `json:"median"`
+	RobustSpread string `json:"robust_spread"`
+	Upper        string `json:"upper"`
+}
+
 type AlertSeasonalEvaluation struct {
 	Calendar       AlertSeasonalCalendar       `json:"calendar"`
 	Citations      []AlertSeasonalCitation     `json:"citations"`
+	Exact          *AlertSeasonalDecimalBand   `json:"exact,omitempty"`
 	IncidentId     string                      `json:"incident_id,omitempty"`
 	ObservedAt     string                      `json:"observed_at"`
 	Subject        string                      `json:"subject"`
 	TrainingWindow AlertSeasonalTrainingWindow `json:"training_window"`
 }
 
+type AlertSeasonalFlowInput struct {
+	Measure     string `json:"measure"`
+	ViewId      string `json:"view_id"`
+	ViewVersion string `json:"view_version"`
+}
+
 // Choose an IANA timezone, explicit local holiday dates and a positive absolute change threshold in the metric unit.
 type AlertSeasonalSourceInput struct {
-	Holidays      []string `json:"holidays,omitempty"`
-	MinimumChange float64  `json:"minimum_change"`
-	TestId        string   `json:"test_id,omitempty"`
-	Timezone      string   `json:"timezone"`
+	Flow          *AlertSeasonalFlowInput `json:"flow,omitempty"`
+	Holidays      []string                `json:"holidays,omitempty"`
+	MinimumChange float64                 `json:"minimum_change"`
+	TestId        string                  `json:"test_id,omitempty"`
+	Timezone      string                  `json:"timezone"`
 }
 
 type AlertSeasonalSourceState struct {
@@ -471,6 +488,7 @@ type AlertSeasonalSourceState struct {
 	RuleId        string                    `json:"rule_id"`
 	RuleUpdatedAt string                    `json:"rule_updated_at"`
 	Source        *AlertSeasonalSourceInput `json:"source,omitempty"`
+	StaleRevision *bool                     `json:"stale_revision,omitempty"`
 }
 
 type AlertSeasonalTrainingWindow struct {

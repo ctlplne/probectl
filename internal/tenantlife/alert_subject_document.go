@@ -28,11 +28,7 @@ func alertSubjectDocumentSQL(column string) string {
 		trimmed = alertSubjectWithoutUUIDReference(trimmed, "interface_id")
 		projection = alertSubjectReadGrantsSQL(document)
 	case "seasonal_source":
-		config := `(` + document + `->'config')`
-		projection = `(` + alertSubjectReadGrantsSQL(document) + `) ||
- (CASE WHEN jsonb_typeof(` + config + `)='object' THEN
- jsonb_build_object('config', ` + alertSubjectWithoutUUIDReference(config, "test_id") + `)
- ELSE '{}'::jsonb END)`
+		projection = `(` + alertSubjectReadGrantsSQL(document) + `) || (` + alertSubjectSeasonalBindingsSQL(document) + `)`
 	case "tag_filter":
 		projection = alertSubjectTagBindingsSQL(document)
 	default:
@@ -40,6 +36,18 @@ func alertSubjectDocumentSQL(column string) string {
 	}
 	return `(CASE WHEN jsonb_typeof(` + document + `)='object' AND ` + document + `->'version'='1'::jsonb
  THEN (` + trimmed + `) || (` + projection + `) ELSE ` + document + ` END)`
+}
+
+func alertSubjectSeasonalBindingsSQL(document string) string {
+	config := `(` + document + `->'config')`
+	flowSource := `(` + config + `->'flow')`
+	selection := alertSubjectWithoutUUIDReference(config, "test_id")
+	nested := `(CASE WHEN jsonb_typeof(` + flowSource + `)='object'
+ THEN jsonb_build_object('flow', ` + alertSubjectWithoutUUIDReference(flowSource, "view_id") + `)
+ ELSE '{}'::jsonb END)`
+	return `(CASE WHEN jsonb_typeof(` + config + `)='object' THEN
+ jsonb_build_object('config', (` + selection + `) || ` + nested + `)
+ ELSE '{}'::jsonb END)`
 }
 
 func alertSubjectDependencyGraphSQL(document string) string {
@@ -97,4 +105,19 @@ func alertSubjectUUIDReference(document, field string) string {
 
 func alertSubjectUUIDValueSQL(value string) string {
 	return `(jsonb_typeof(` + value + `)='string' AND ((` + value + `)#>>'{}') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')`
+}
+
+// The flow closure is a server-encoded UTF-8 requirements document. Keep
+// structural tenant, context, filter and saved view references out of matching
+// while retaining all source labels, sender names and original endpoint IPs.
+func seasonalFlowReceiptSubjectSQL() string {
+	const document = `(convert_from(subject_row.seasonal_flow_scope,'UTF8')::jsonb)`
+	return `(CASE WHEN ` + document + `->'version'='1'::jsonb THEN (
+ jsonb_path_query_array(` + document + `,'$.contexts[*].resource.site_label') ||
+ jsonb_path_query_array(` + document + `,'$.contexts[*].resource.vrf_label') ||
+ jsonb_path_query_array(` + document + `,'$.inputs[*].routing.captures[*].sender') ||
+ jsonb_path_query_array(` + document + `,'$.inputs[*].routing.captures[*].exporter') ||
+ jsonb_path_query_array(` + document + `,'$.inputs[*].routing.captures[*].src') ||
+ jsonb_path_query_array(` + document + `,'$.inputs[*].routing.captures[*].dst')
+ )::text ELSE COALESCE(` + document + `::text,'') END)`
 }

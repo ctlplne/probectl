@@ -48,6 +48,7 @@ type ActiveAlert struct {
 	Metric                string            `json:"metric"`
 	Labels                map[string]string `json:"labels,omitempty"`
 	Value                 float64           `json:"value"`
+	ValueWithheld         bool              `json:"value_withheld,omitempty"`
 	Reason                string            `json:"reason"`
 	Since                 time.Time         `json:"since"`
 	LastSeenAt            time.Time         `json:"last_seen_at"`
@@ -69,6 +70,7 @@ func (en *Engine) snapshotLocked(key string, st *seriesState) ActiveAlert {
 		Metric:                st.metric,
 		Labels:                st.labels,
 		Value:                 st.lastValue,
+		ValueWithheld:         st.metric == SeasonalFlowMetric,
 		Reason:                st.lastReason,
 		Since:                 st.since,
 		LastSeenAt:            st.lastSeen,

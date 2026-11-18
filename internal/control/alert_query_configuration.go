@@ -173,6 +173,9 @@ func (s *Server) createAlertRule(ctx context.Context, actor *auth.Principal, rul
 	if rule.Metric == alert.PathHealthMetric {
 		return nil, apierror.Validation("a path-health rule requires its complete source at creation")
 	}
+	if rule.Metric == alert.SeasonalFlowMetric {
+		return nil, apierror.Validation("a seasonal flow rule requires its complete source at creation")
+	}
 	if actor == nil || actor.TenantID == "" {
 		return nil, apierror.Unauthorized("authentication required")
 	}

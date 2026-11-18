@@ -74,12 +74,19 @@ func (s *Server) getAlertSeasonalSource(ctx context.Context, actor *auth.Princip
 	if !rule.HasSeasonalSource {
 		return state, credential(ctx)
 	}
-	if err := s.authorizeSeasonalMetricRead(ctx, actor); err != nil {
+	if err := s.authorizeSeasonalSettingsKind(ctx, actor, *rule); err != nil {
 		return alertSeasonalState{}, err
 	}
 	stored, err := s.loadSeasonalRuleSource(ctx, *rule, flowstore.ExplorerOperationBudget(ctx, s.flowStore).MemoryBytes/8)
 	if err != nil {
 		return alertSeasonalState{}, err
+	}
+	if stored.Config.Flow != nil {
+		view, err := s.currentSeasonalFlowView(ctx, actor, stored.Config.Flow.ViewID)
+		if err != nil {
+			return alertSeasonalState{}, err
+		}
+		state.StaleRevision = view.Version != stored.Config.Flow.ViewVersion
 	}
 	if stored.Config.TestID != "" {
 		if _, err := s.seasonalTestRevision(ctx, actor, stored.Config.TestID, stored.TestRevision); err != nil {
@@ -89,7 +96,8 @@ func (s *Server) getAlertSeasonalSource(ctx context.Context, actor *auth.Princip
 	if err := credential(ctx); err != nil {
 		return alertSeasonalState{}, err
 	}
-	return seasonalState(rule, &stored.Config), nil
+	state.Source = &stored.Config
+	return state, nil
 }
 
 func (s *Server) setAlertSeasonalSource(ctx context.Context, actor *auth.Principal, id string, input *alert.SeasonalBaselineInput, credential func(context.Context) error) (alertSeasonalState, error) {
@@ -103,6 +111,9 @@ func (s *Server) setAlertSeasonalSource(ctx context.Context, actor *auth.Princip
 	}
 	if input == nil && !rule.HasSeasonalSource {
 		return seasonalState(rule, nil), nil
+	}
+	if input != nil && ((rule.Metric == alert.SeasonalFlowMetric) != (input.Flow != nil)) {
+		return none, alert.ErrSeasonalSource
 	}
 	source, err := s.prepareAlertSeasonalSource(ctx, actor, input)
 	if err != nil {
@@ -125,6 +136,9 @@ func (s *Server) prepareAlertSeasonalSource(ctx context.Context, actor *auth.Pri
 	}
 	if _, err := input.Model(); err != nil {
 		return nil, apierror.Validation("check the timezone, holiday dates and minimum change").Wrap(err)
+	}
+	if input.Flow != nil {
+		return s.prepareAlertSeasonalFlowSettings(ctx, actor, input)
 	}
 	source := alert.SeasonalSource{Version: 1, OwnerUserID: actor.UserID, Config: *input,
 		ReadGrants: alertReadGrants(actor, func(p string) bool { return p == "metrics.read" || (p == "test.read" && input.TestID != "") })}
@@ -180,18 +194,8 @@ func (s *Server) updateAlertSeasonalSource(ctx context.Context, actor *auth.Prin
 	var updated *alert.Rule
 	err := tenancy.InTenant(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		updated, err = (store.AlertRules{}).SetSeasonalSource(ctx, sc, rule.ID, rule.UpdatedAt, source, budget.MemoryBytes/8,
-			func(ctx context.Context, sc tenancy.Scope) error {
-				return s.checkAlertSeasonalEdit(ctx, sc, actor, source)
-			})
-		if err != nil {
-			return err
-		}
-		action := "alert.seasonal_source.set"
-		if source == nil {
-			action = "alert.seasonal_source.clear"
-		}
-		return audit.TenantRecord(ctx, sc, actor.UserID, action, rule.ID, map[string]any{"rule_updated_at": updated.UpdatedAt})
+		updated, err = s.persistAlertSeasonalSource(ctx, sc, actor, rule, source, budget.MemoryBytes/8)
+		return err
 	})
 	if err != nil {
 		return alertSeasonalState{}, err
@@ -200,6 +204,24 @@ func (s *Server) updateAlertSeasonalSource(ctx context.Context, actor *auth.Prin
 		return seasonalState(updated, nil), nil
 	}
 	return seasonalState(updated, &source.Config), nil
+}
+
+func (s *Server) persistAlertSeasonalSource(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, rule *alert.Rule, source *alert.SeasonalSource, memory int64) (*alert.Rule, error) {
+	updated, err := (store.AlertRules{}).SetSeasonalSource(ctx, sc, rule.ID, rule.UpdatedAt, source, memory,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			return s.checkAlertSeasonalEdit(ctx, sc, actor, source)
+		})
+	if err != nil {
+		return nil, err
+	}
+	action := "alert.seasonal_source.set"
+	if source == nil {
+		action = "alert.seasonal_source.clear"
+	}
+	if err := audit.TenantRecord(ctx, sc, actor.UserID, action, rule.ID, map[string]any{"rule_updated_at": updated.UpdatedAt}); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (s *Server) checkAlertSeasonalEdit(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, source *alert.SeasonalSource) error {
@@ -219,4 +241,25 @@ func (s *Server) checkAlertSeasonalEdit(ctx context.Context, sc tenancy.Scope, a
 
 func seasonalState(rule *alert.Rule, input *alert.SeasonalBaselineInput) alertSeasonalState {
 	return alertSeasonalState{RuleID: rule.ID, RuleUpdatedAt: rule.UpdatedAt, Configured: rule.HasSeasonalSource, Enabled: rule.Enabled, Source: input}
+}
+
+func (s *Server) authorizeSeasonalSettingsKind(ctx context.Context, actor *auth.Principal, rule alert.Rule) error {
+	if rule.Metric == alert.SeasonalFlowMetric {
+		_, err := s.authorizeFlowViewPrincipal(ctx, actor, false)
+		return err
+	}
+	return s.authorizeSeasonalMetricRead(ctx, actor)
+}
+
+func (s *Server) prepareAlertSeasonalFlowSettings(ctx context.Context, actor *auth.Principal, input *alert.SeasonalBaselineInput) (*alert.SeasonalSource, error) {
+	source := alert.SeasonalSource{Version: 1, OwnerUserID: actor.UserID, Config: *input,
+		ReadGrants: alertReadGrants(actor, func(p string) bool { return p == permAIQuery || reportFlowReadPermission(p) })}
+	ceiling, err := source.CredentialCeiling(actor.TenantID)
+	if err != nil {
+		return nil, apierror.Forbidden("the current credential needs the saved-flow read grants")
+	}
+	if err := s.authorizeSeasonalFlowSelection(ctx, ceiling, *input.Flow); err != nil {
+		return nil, err
+	}
+	return &source, nil
 }

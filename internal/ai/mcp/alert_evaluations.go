@@ -50,10 +50,61 @@ func WithAlertEvaluationBackend(backend AlertEvaluationBackend, schema json.RawM
 						return nil, argErr("receipt arguments cannot be null")
 					}
 				}
-				return backend.AlertEvaluations(ctx, p, input)
+				result, err := backend.AlertEvaluations(ctx, p, input)
+				if err != nil {
+					return nil, err
+				}
+				return projectNativeAlertEvaluations(result), nil
 			},
 		}
 		s.tools[tool.Name] = tool
 		s.order = append(s.order, tool.Name)
 	}
+}
+
+// Preserve typed server identities in the already-authorized flow evidence.
+// Free text, including citation text and any stored strings, still traverses
+// normal native response redaction.
+func projectNativeAlertEvaluations(result alert.EvaluationsResult) any {
+	items := make([]any, 0, len(result.Items))
+	hasFlow := false
+	for _, item := range result.Items {
+		evidence := item.Expectation.Seasonal
+		if evidence == nil || evidence.Exact == nil {
+			items = append(items, item)
+			continue
+		}
+		hasFlow = true
+		items = append(items, nativeFlowEvaluationReceipt{
+			EvaluationReceipt: item,
+			RuleID:            NativeRoleUUID(item.RuleID),
+			Expectation: nativeFlowEvaluationExpectation{EvaluationExpectation: item.Expectation,
+				Seasonal: nativeFlowSeasonalEvidence{SeasonalEvaluationEvidence: *evidence,
+					Subject: NativeRoleDigest(evidence.Subject), IncidentID: NativeRoleUUID(evidence.IncidentID)}},
+		})
+	}
+	if !hasFlow {
+		return result
+	}
+	return struct {
+		alert.EvaluationsResult
+		Items []any `json:"items"`
+	}{result, items}
+}
+
+type nativeFlowEvaluationReceipt struct {
+	alert.EvaluationReceipt
+	RuleID      NativeRoleUUID                  `json:"rule_id"`
+	Expectation nativeFlowEvaluationExpectation `json:"expectation"`
+}
+
+type nativeFlowEvaluationExpectation struct {
+	alert.EvaluationExpectation
+	Seasonal nativeFlowSeasonalEvidence `json:"seasonal"`
+}
+
+type nativeFlowSeasonalEvidence struct {
+	alert.SeasonalEvaluationEvidence
+	Subject    NativeRoleDigest `json:"subject"`
+	IncidentID NativeRoleUUID   `json:"incident_id,omitempty"`
 }

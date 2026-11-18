@@ -101,7 +101,7 @@ func (AlertRules) SetSeasonalSource(ctx context.Context, sc tenancy.Scope, id st
 		return nil, err
 	}
 	var out alert.Rule
-	err := scanAlertRule(sc.Q.QueryRow(ctx, `UPDATE alert_rules SET seasonal_source=$4::jsonb,
+	err := scanAlertRule(sc.Q.QueryRow(ctx, `UPDATE alert_rules SET seasonal_source=$4::jsonb, seasonal_last_window_at=NULL,
  enabled=CASE WHEN $4::jsonb IS NULL THEN false ELSE enabled END, updated_at=clock_timestamp()
  WHERE tenant_id=$1 AND id=$2 AND updated_at=$3 AND type='baseline'
  AND query_source IS NULL AND path_health_source IS NULL AND tag_filter IS NULL AND dependency_policy IS NULL

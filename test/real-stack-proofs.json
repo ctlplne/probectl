@@ -44,6 +44,34 @@
       ]
     },
     {
+      "ref": "test:internal/control/alert_seasonal_flow_integration_test.go#TestSeasonalSavedFlowCommitsExactCitedReceiptAndKeepsTenant",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
+      "ref": "test:internal/control/alert_seasonal_flow_integration_test.go#TestSeasonalFlowNativeCreationKeepsCurrentViewAndTenant",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
+      "ref": "test:internal/control/alert_seasonal_flow_served_integration_test.go#TestSeasonalFlowEditorServedKeepsBothTenantsAndThemes",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
+      "ref": "test:internal/tenantlife/alert_seasonal_flow_subject_integration_test.go#TestSeasonalFlowEvidenceSubjectErasureIncludesOriginalRoutingScope",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
       "ref": "test:internal/control/audit_isolation_integration_test.go#TestTwoTenantAndProviderAuditStreamsIsolateAndContainTampering",
       "profile": "integration",
       "capabilities": [

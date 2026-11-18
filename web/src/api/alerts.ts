@@ -22,6 +22,23 @@ import type { AlertQuerySourceInput, AlertQuerySourceState } from './sdk.gen'
 export type { AlertPathHealthSourceInput, AlertPathHealthSourceState } from './sdk.gen'
 import type { AlertPathHealthSourceInput, AlertPathHealthSourceState } from './sdk.gen'
 
+export type { AlertSeasonalFlowInput } from './sdk.gen'
+export const seasonalFlowAlertMetric = 'probectl_flow_seasonal_measure'
+
+export function createSeasonalFlowAlert(
+  tenantID: string,
+  name: string,
+  seasonal_source: AlertSeasonalSourceInput,
+  signal: AbortSignal,
+) {
+  return apiFetch<AlertRule>('/alerts', {
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json', 'X-Probectl-Tenant': tenantID },
+    body: JSON.stringify({ name, seasonal_source }),
+  })
+}
+
 export const pathHealthAlertMetric = 'probectl_device_path_error_climb'
 
 export function seasonalAlertSource(
@@ -317,6 +334,7 @@ export interface ActiveAlert {
   metric: string
   labels?: Record<string, string>
   value: number
+  value_withheld?: boolean
   reason: string
   since: string
   last_seen_at: string

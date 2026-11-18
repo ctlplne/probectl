@@ -118,8 +118,12 @@ func (e *EmailChannel) Notify(ctx context.Context, a Alert) error {
 		return fmt.Errorf("email channel has no configured mail sender")
 	}
 	subject := fmt.Sprintf("[probectl][%s] %s %s", a.Severity, a.RuleName, a.State)
-	body := fmt.Sprintf("Rule %q is %s.\n\nMetric: %s\nValue: %v\nReason: %s\nWhen: %s\n",
-		a.RuleName, a.State, a.Metric, a.Value, a.Reason, a.At.UTC().Format(time.RFC3339))
+	observed := fmt.Sprint(a.Value)
+	if a.Metric == SeasonalFlowMetric {
+		observed = "Open the evaluation receipt with flow access"
+	}
+	body := fmt.Sprintf("Rule %q is %s.\n\nMetric: %s\nValue: %s\nReason: %s\nWhen: %s\n",
+		a.RuleName, a.State, a.Metric, observed, a.Reason, a.At.UTC().Format(time.RFC3339))
 	return e.sender.Send(ctx, e.recipients, subject, body)
 }
 

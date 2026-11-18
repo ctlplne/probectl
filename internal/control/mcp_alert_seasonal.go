@@ -18,6 +18,21 @@ import (
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
+func (b mcpTagMutationBackend) AlertSeasonalFlowCreate(ctx context.Context, actor *auth.Principal, name string, input alert.SeasonalBaselineInput) (alert.SeasonalSourceState, error) {
+	if b.server == nil || input.Flow == nil {
+		return alert.SeasonalSourceState{}, apierror.Validation("a complete seasonal flow source is required")
+	}
+	rule, err := (alertRequest{Name: name, SeasonalSource: &input}).toRule()
+	if err != nil {
+		return alert.SeasonalSourceState{}, err
+	}
+	created, err := b.server.createSeasonalAlertRule(ctx, actor, rule, &input, mcp.CheckOriginatingCredential)
+	if err != nil {
+		return alert.SeasonalSourceState{}, err
+	}
+	return b.server.retainNativeSeasonalSource(ctx, actor, seasonalState(created, &input), permAlertWrite)
+}
+
 func (b mcpTagMutationBackend) AlertSeasonalSourceGet(ctx context.Context, actor *auth.Principal, id string) (alert.SeasonalSourceState, error) {
 	if b.server == nil {
 		return alert.SeasonalSourceState{}, apierror.Unavailable("seasonal alert sources are unavailable")
@@ -61,8 +76,18 @@ func (s *Server) retainNativeSeasonalSource(ctx context.Context, actor *auth.Pri
 }
 
 func (s *Server) revalidateNativeSeasonalRead(ctx context.Context, actor *auth.Principal, rule *alert.Rule, state alert.SeasonalSourceState) error {
-	if err := s.authorizeSeasonalMetricRead(ctx, actor); err != nil {
+	if err := s.authorizeSeasonalSettingsKind(ctx, actor, *rule); err != nil {
 		return err
+	}
+	if state.Source != nil && state.Source.Flow != nil {
+		view, err := s.currentSeasonalFlowView(ctx, actor, state.Source.Flow.ViewID)
+		if err != nil {
+			return err
+		}
+		if state.StaleRevision != (view.Version != state.Source.Flow.ViewVersion) {
+			return store.ErrAlertSeasonalChanged
+		}
+		return ctx.Err()
 	}
 	if state.Source == nil || state.Source.TestID == "" {
 		return ctx.Err()
@@ -81,6 +106,10 @@ func alertSeasonalToolSchemas() (map[string]json.RawMessage, error) {
 		return map[string]any{"type": "object", "additionalProperties": false, "properties": properties, "required": required}
 	}
 	return alertConfigurationToolSchemas(map[string]any{
+		"alert_seasonal_flow_create": object(map[string]any{
+			"name":            map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
+			"seasonal_source": map[string]any{"$ref": "#/components/schemas/AlertSeasonalSourceInput"},
+		}, "name", "seasonal_source"),
 		"alert_seasonal_source_get":   object(map[string]any{"rule_id": id}, "rule_id"),
 		"alert_seasonal_source_set":   object(map[string]any{"rule_id": id, "input": map[string]any{"$ref": "#/components/schemas/AlertSeasonalSourceInput"}}, "rule_id", "input"),
 		"alert_seasonal_source_clear": object(map[string]any{"rule_id": id, "confirmed": map[string]any{"type": "boolean", "const": true}}, "rule_id", "confirmed"),

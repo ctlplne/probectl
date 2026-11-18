@@ -43,7 +43,8 @@ func (s *Server) handleListAlertEvaluations(w http.ResponseWriter, r *http.Reque
 		}
 		limit = parsed
 	}
-	resp, err := s.readAlertEvaluations(r, ruleID, fingerprint, limit)
+	actor := auth.PrincipalFrom(r.Context())
+	resp, err := s.readAlertEvaluations(r, ruleID, fingerprint, limit, s.pathAlertRequestCredential(r, actor), nil)
 	if err != nil {
 		return err
 	}
@@ -54,7 +55,7 @@ func (s *Server) handleListAlertEvaluations(w http.ResponseWriter, r *http.Reque
 // Shared bounded domain read for the API and the named native tool. Existing
 // alert.read grants still expose ordinary receipts; only the new source clock
 // requires the current user's live credential AND freshly loaded source role.
-func (s *Server) readAlertEvaluations(r *http.Request, ruleID, fingerprint string, limit int) (alert.EvaluationsResult, error) {
+func (s *Server) readAlertEvaluations(r *http.Request, ruleID, fingerprint string, limit int, credential func(context.Context) error, retain pathHealthPublication) (alert.EvaluationsResult, error) {
 	if strings.TrimSpace(ruleID) == "" || len(fingerprint) > 2048 || limit < 1 || limit > store.MaxAlertEvaluationReceiptRead {
 		return alert.EvaluationsResult{}, apierror.Validation("valid rule, fingerprint and receipt limit are required")
 	}
@@ -115,6 +116,9 @@ func (s *Server) readAlertEvaluations(r *http.Request, ruleID, fingerprint strin
 		for i := range resp.Items {
 			resp.Items[i].TagSelection = nil
 		}
+	}
+	if err := s.prepareSeasonalFlowReceiptPublication(ctx, auth.PrincipalFrom(ctx), ruleID, resp.Items, credential, retain); err != nil {
+		return alert.EvaluationsResult{}, err
 	}
 	return resp, nil
 }

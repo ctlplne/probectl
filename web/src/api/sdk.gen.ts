@@ -312,6 +312,7 @@ export interface AlertRequest {
   path_health_source?: AlertPathHealthSourceInput | null
   query_source?: AlertQuerySourceInput | null
   renotify_seconds?: number
+  seasonal_source?: AlertSeasonalSourceInput | null
   sensitivity?: number
   severity?: "info" | "warning" | "critical"
   threshold?: number
@@ -346,12 +347,12 @@ export interface AlertRule {
 
 export interface AlertSeasonalCalendar {
   hour: number
-  lower: number
-  median: number
-  robust_spread: number
+  lower?: number
+  median?: number
+  robust_spread?: number
   timezone: string
   training_days: string[]
-  upper: number
+  upper?: number
   weekday: number
 }
 
@@ -362,16 +363,32 @@ export interface AlertSeasonalCitation {
   source: string
 }
 
+export interface AlertSeasonalDecimalBand {
+  current: string
+  lower: string
+  median: string
+  robust_spread: string
+  upper: string
+}
+
 export interface AlertSeasonalEvaluation {
   calendar: AlertSeasonalCalendar
   citations: AlertSeasonalCitation[]
+  exact?: AlertSeasonalDecimalBand | null
   incident_id?: string
   observed_at: string
   subject: string
   training_window: AlertSeasonalTrainingWindow
 }
 
+export interface AlertSeasonalFlowInput {
+  measure: string
+  view_id: string
+  view_version: string
+}
+
 export interface AlertSeasonalSourceInput {
+  flow?: AlertSeasonalFlowInput | null
   holidays?: string[]
   minimum_change: number
   test_id?: string
@@ -384,6 +401,7 @@ export interface AlertSeasonalSourceState {
   rule_id: string
   rule_updated_at: string
   source?: AlertSeasonalSourceInput | null
+  stale_revision?: boolean
 }
 
 export interface AlertSeasonalTrainingWindow {

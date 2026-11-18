@@ -15,6 +15,7 @@ import (
 )
 
 type AlertSeasonalSourceBackend interface {
+	AlertSeasonalFlowCreate(context.Context, *auth.Principal, string, alert.SeasonalBaselineInput) (alert.SeasonalSourceState, error)
 	AlertSeasonalSourceGet(context.Context, *auth.Principal, string) (alert.SeasonalSourceState, error)
 	AlertSeasonalSourceSet(context.Context, *auth.Principal, string, *alert.SeasonalBaselineInput) (alert.SeasonalSourceState, error)
 }
@@ -31,8 +32,9 @@ func WithAlertSeasonalSourceBackend(backend AlertSeasonalSourceBackend, schemas 
 			return
 		}
 		tools := []Tool{
+			{Name: "alert_seasonal_flow_create", Permission: "alert.write", ExtraPermissions: []string{"ai.query", "flow.read"}, Description: "Create a weekly baseline on one current owned Explorer view and exact flow measure."},
 			{Name: "alert_seasonal_source_get", Permission: "alert.read", ExtraPermissions: []string{"ai.query"}, Description: "Inspect the current local weekly baseline and its holiday calendar for an owned alert rule."},
-			{Name: "alert_seasonal_source_set", Permission: "alert.write", ExtraPermissions: []string{"ai.query"}, Description: "Set the local timezone, holiday calendar and minimum change of an owned baseline rule."},
+			{Name: "alert_seasonal_source_set", Permission: "alert.write", ExtraPermissions: []string{"ai.query"}, Description: "Set the timezone, holidays and minimum change of an owned rule and bind its current metric, test or saved flow source."},
 			{Name: "alert_seasonal_source_clear", Permission: "alert.write", ExtraPermissions: []string{"ai.query"}, Description: "Confirm clearing the weekly source and disabling its rule."},
 		}
 		for _, tool := range tools {
@@ -51,6 +53,9 @@ func WithAlertSeasonalSourceBackend(backend AlertSeasonalSourceBackend, schemas 
 }
 
 func (s *Server) invokeSeasonalSource(backend AlertSeasonalSourceBackend, name string) func(context.Context, *auth.Principal, json.RawMessage) (any, error) {
+	if name == "alert_seasonal_flow_create" {
+		return s.invokeSeasonalFlowCreate(backend)
+	}
 	return func(ctx context.Context, actor *auth.Principal, raw json.RawMessage) (any, error) {
 		var input seasonalToolInput
 		if err := decodeBoundedNativeArgs(raw, &input, s.nativeRequestBytes()); err != nil || !validAlertTagRuleID(input.RuleID) {
@@ -64,15 +69,42 @@ func (s *Server) invokeSeasonalSource(backend AlertSeasonalSourceBackend, name s
 	}
 }
 
+func (s *Server) invokeSeasonalFlowCreate(backend AlertSeasonalSourceBackend) func(context.Context, *auth.Principal, json.RawMessage) (any, error) {
+	return func(ctx context.Context, actor *auth.Principal, raw json.RawMessage) (any, error) {
+		var input struct {
+			Name   string                      `json:"name"`
+			Source alert.SeasonalBaselineInput `json:"seasonal_source"`
+		}
+		if err := decodeBoundedNativeArgs(raw, &input, s.nativeRequestBytes()); err != nil || input.Source.Flow == nil {
+			return nil, argErr("a name and an owned saved flow source are required")
+		}
+		state, err := backend.AlertSeasonalFlowCreate(ctx, actor, input.Name, input.Source)
+		if err != nil {
+			return nil, err
+		}
+		return projectSeasonalSourceState(state), nil
+	}
+}
+
+type nativeSeasonalFlowInput struct {
+	ViewID      NativeRoleUUID     `json:"view_id"`
+	ViewVersion NativeRoleRevision `json:"view_version"`
+	Measure     string             `json:"measure"`
+}
+
 type nativeSeasonalInput struct {
 	alert.SeasonalBaselineInput
-	TestID NativeRoleUUID `json:"test_id,omitempty"`
+	TestID NativeRoleUUID           `json:"test_id,omitempty"`
+	Flow   *nativeSeasonalFlowInput `json:"flow,omitempty"`
 }
 
 func projectSeasonalSourceState(state alert.SeasonalSourceState) any {
 	var source *nativeSeasonalInput
 	if state.Source != nil {
-		source = &nativeSeasonalInput{*state.Source, NativeRoleUUID(state.Source.TestID)}
+		source = &nativeSeasonalInput{SeasonalBaselineInput: *state.Source, TestID: NativeRoleUUID(state.Source.TestID)}
+		if view := state.Source.Flow; view != nil {
+			source.Flow = &nativeSeasonalFlowInput{NativeRoleUUID(view.ViewID), NativeRoleRevision(view.ViewVersion), view.Measure}
+		}
 	}
 	return struct {
 		alert.SeasonalSourceState

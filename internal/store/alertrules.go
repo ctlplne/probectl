@@ -229,11 +229,12 @@ func (AlertRules) Update(ctx context.Context, s tenancy.Scope, id string, in ale
 		 AND (path_health_source IS NULL OR
 		      ($4=$18 AND $6='threshold' AND $7='gte' AND $8=1 AND $15::jsonb IS NULL))
 		 AND (seasonal_source IS NULL OR ($6='baseline' AND $4=metric AND $5::jsonb=match_labels))
+		 AND ($4<>$19 OR (metric=$19 AND (NOT $3 OR seasonal_source->'config'->'flow' IS NOT NULL)))
 		 RETURNING `+alertRuleCols,
 		id, in.Name, in.Enabled, in.Metric, marshalMatch(in.Match), string(in.Type),
 		string(in.Comparison), in.Threshold, in.Window, in.Sensitivity, in.ForN,
 		in.RenotifySeconds, string(in.Severity), marshalChannels(in.Channels),
-		marshalTrapMatch(in.Trap), s.Tenant.String(), alert.QueryMetric, alert.PathHealthMetric), &r)
+		marshalTrapMatch(in.Trap), s.Tenant.String(), alert.QueryMetric, alert.PathHealthMetric, alert.SeasonalFlowMetric), &r)
 	if err != nil {
 		return nil, mapWriteErr("alert rule", err)
 	}

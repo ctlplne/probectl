@@ -162,6 +162,9 @@ func (r Rule) Validate() error {
 	if r.Metric == PathHealthMetric && (r.Type != Threshold || r.Comparison != GTE || r.Threshold != 1 || len(r.Match) != 0 || r.Window != 0 || r.Sensitivity != 0 || r.HasTagFilter || r.Trap != nil) {
 		return fmt.Errorf("alert: owned path-health sources require their fixed Boolean condition rule")
 	}
+	if r.Metric == SeasonalFlowMetric && (r.Type != Baseline || len(r.Match) > 0 || r.HasTagFilter || r.HasDependencyPolicy) {
+		return ErrSeasonalSource
+	}
 	if r.HasSeasonalSource && (r.Type != Baseline || r.HasTagFilter || r.HasDependencyPolicy) {
 		return ErrSeasonalSource
 	}

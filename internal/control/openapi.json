@@ -11497,6 +11497,10 @@
                           "value": {
                             "type": "number"
                           },
+                          "value_withheld": {
+                            "type": "boolean",
+                            "description": "The numeric value is withheld here. Open the owned evaluation receipt with current flow source authority."
+                          },
                           "reason": {
                             "type": "string"
                           },
@@ -22095,6 +22099,62 @@
           }
         }
       },
+      "AlertSeasonalDecimalBand": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current",
+          "median",
+          "robust_spread",
+          "lower",
+          "upper"
+        ],
+        "properties": {
+          "current": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+          },
+          "median": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+          },
+          "robust_spread": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+          },
+          "lower": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+          },
+          "upper": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+          }
+        }
+      },
+      "AlertSeasonalFlowInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "view_id",
+          "view_version",
+          "measure"
+        ],
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "view_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "measure": {
+            "type": "string",
+            "description": "Exact saved measure and calculation, such as bytes:total."
+          }
+        }
+      },
       "AlertSeasonalSourceInput": {
         "type": "object",
         "additionalProperties": false,
@@ -22121,6 +22181,17 @@
             "type": "string",
             "format": "uuid",
             "description": "Optional owned test. This selection requires current test.read and pins the test's current revision. Only observations after that revision enter the model."
+          },
+          "flow": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AlertSeasonalFlowInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "One owned saved Explorer view with a rolling lookback, its exact revision, and one saved measure. Use this selection with no test_id."
           }
         },
         "description": "Choose an IANA timezone, explicit local holiday dates and a positive absolute change threshold in the metric unit."
@@ -22158,6 +22229,10 @@
                 "type": "null"
               }
             ]
+          },
+          "stale_revision": {
+            "type": "boolean",
+            "description": "The current visible saved flow view superseded the selected revision. Select that revision explicitly to resume."
           }
         }
       },
@@ -22168,11 +22243,7 @@
           "timezone",
           "weekday",
           "hour",
-          "training_days",
-          "median",
-          "robust_spread",
-          "lower",
-          "upper"
+          "training_days"
         ],
         "properties": {
           "timezone": {
@@ -22291,6 +22362,17 @@
             "type": "string",
             "format": "uuid",
             "description": "The tenant incident committed for this evaluation transition, when available."
+          },
+          "exact": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AlertSeasonalDecimalBand"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact saved-flow observation and bounds, available only under current authority for the original flow source."
           }
         }
       },
@@ -22984,6 +23066,17 @@
               "object",
               "null"
             ]
+          },
+          "seasonal_source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AlertSeasonalSourceInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional atomic source at creation. Use the dedicated seasonal-source operation for source changes. A saved flow source selects its baseline type and metric."
           }
         },
         "anyOf": [

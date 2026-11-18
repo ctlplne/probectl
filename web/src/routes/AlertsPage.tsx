@@ -72,7 +72,11 @@ import { AlertQuerySourceDialog } from './AlertQuerySourceDialog'
 import { AlertPathHealthSourceDialog } from './AlertPathHealthSourceDialog'
 import { AlertSeasonalSourceDialog } from './AlertSeasonalSourceDialog'
 import { AlertQueryGroupPanel } from './AlertQueryGroupPanel'
-import { savedQueryAlertMetric, pathHealthAlertMetric } from '../api/alerts'
+import {
+  savedQueryAlertMetric,
+  pathHealthAlertMetric,
+  seasonalFlowAlertMetric,
+} from '../api/alerts'
 
 function labelText(labels?: Record<string, string>): string {
   if (!labels) return ''
@@ -233,15 +237,19 @@ function evaluationExpectation(expectation: AlertEvaluationExpectation): string 
   if (expectation.kind === 'threshold') {
     return `${expectation.comparison ?? 'comparison unavailable'} ${expectation.threshold ?? 'threshold unavailable'}`
   }
-  if (expectation.lower !== undefined && expectation.upper !== undefined) {
-    if (expectation.seasonal) {
-      const { weekday, hour, timezone, training_days } = expectation.seasonal.calendar
-      const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
-        weekday
-      ]
-      const slot = `${day} ${String(hour).padStart(2, '0')}:00 ${timezone}`
-      return `${slot} · ${expectation.lower.toLocaleString()} – ${expectation.upper.toLocaleString()} · ${training_days.length} comparable dates`
+  if (expectation.seasonal) {
+    const { weekday, hour, timezone, training_days } = expectation.seasonal.calendar
+    const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
+      weekday
+    ]
+    const slot = `${day} ${String(hour).padStart(2, '0')}:00 ${timezone}`
+    const lower = expectation.seasonal.exact?.lower ?? expectation.lower?.toLocaleString()
+    const upper = expectation.seasonal.exact?.upper ?? expectation.upper?.toLocaleString()
+    if (lower !== undefined && upper !== undefined) {
+      return `${slot} · ${lower} – ${upper} · ${training_days.length} comparable dates`
     }
+  }
+  if (expectation.lower !== undefined && expectation.upper !== undefined) {
     return `${expectation.lower.toLocaleString()} – ${expectation.upper.toLocaleString()} (mean ${expectation.mean?.toLocaleString() ?? 'unavailable'}, σ ${expectation.stddev?.toLocaleString() ?? 'unavailable'})`
   }
   return 'Baseline band is still warming'
@@ -361,7 +369,9 @@ function ActiveAlertDetail({
             ? 'Saved Explorer query'
             : alert.metric === pathHealthAlertMetric
               ? 'Owned path error climb'
-              : alert.metric}
+              : alert.metric === seasonalFlowAlertMetric
+                ? 'Seasonal saved flow measure'
+                : alert.metric}
           {alert.labels && labelText(alert.labels) ? ` {${labelText(alert.labels)}}` : ''}
         </dd>
         <dt>Value</dt>
@@ -370,7 +380,9 @@ function ActiveAlertDetail({
             ? alert.value === 1
               ? 'Condition met'
               : 'Condition not met'
-            : alert.value}
+            : alert.value_withheld
+              ? 'Open the evaluation receipt with flow access'
+              : alert.value}
         </dd>
         <dt>Firing since</dt>
         <dd>
@@ -533,9 +545,21 @@ function ActiveAlertDetail({
                   <strong>{receipt.reason}</strong>
                   <dl className={styles.evaluationFacts}>
                     <dt>Observed</dt>
-                    <dd>{receipt.observed_value?.toLocaleString() ?? 'no data'}</dd>
+                    <dd>
+                      {receipt.expectation.seasonal?.exact?.current ??
+                        receipt.observed_value?.toLocaleString() ??
+                        (alert.value_withheld && receipt.state !== 'no_data'
+                          ? 'Requires current flow source access'
+                          : 'no data')}
+                    </dd>
                     <dt>Expected</dt>
-                    <dd>{evaluationExpectation(receipt.expectation)}</dd>
+                    <dd>
+                      {alert.value_withheld &&
+                      !receipt.expectation.seasonal &&
+                      !receipt.warmup_required
+                        ? 'Requires current flow source access'
+                        : evaluationExpectation(receipt.expectation)}
+                    </dd>
                     <dt>Debounce</dt>
                     <dd>
                       {receipt.breach_count} / {receipt.required_breaches} breaches
@@ -853,7 +877,9 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
         <Select
           label={t('alerts.rule.type')}
           disabled={
-            rule?.metric === savedQueryAlertMetric || rule?.metric === pathHealthAlertMetric
+            rule?.metric === savedQueryAlertMetric ||
+            rule?.metric === pathHealthAlertMetric ||
+            rule?.metric === seasonalFlowAlertMetric
           }
           value={type}
           onChange={(e) => setType(e.target.value as AlertRule['type'])}
@@ -867,7 +893,9 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
           <Field
             label={t('alerts.rule.metric')}
             disabled={
-              rule?.metric === savedQueryAlertMetric || rule?.metric === pathHealthAlertMetric
+              rule?.metric === savedQueryAlertMetric ||
+              rule?.metric === pathHealthAlertMetric ||
+              rule?.metric === seasonalFlowAlertMetric
             }
             value={metric}
             onChange={(e) => setMetric(e.target.value)}
@@ -1272,9 +1300,10 @@ export function AlertsPage() {
   )
   const [queryEditing, setQueryEditing] = useState<AlertRule | true | null>(null)
   const [pathEditing, setPathEditing] = useState<AlertRule | true | null>(null)
-  const [seasonalEditing, setSeasonalEditing] = useState<{ rule: AlertRule; scope: string } | null>(
-    null,
-  )
+  const [seasonalEditing, setSeasonalEditing] = useState<{
+    rule?: AlertRule
+    scope: string
+  } | null>(null)
   const [dependencyEditing, setDependencyEditing] = useState<{
     rule: AlertRule
     scope: string
@@ -1411,7 +1440,9 @@ export function AlertsPage() {
                 ? `${r.comparison ?? 'gt'} ${r.threshold ?? 0}`
                 : r.has_seasonal_source
                   ? 'Weekly seasonal baseline'
-                  : `baseline ±${r.sensitivity ?? 3}σ`,
+                  : r.metric === seasonalFlowAlertMetric
+                    ? 'Select a saved flow view to resume'
+                    : `baseline ±${r.sensitivity ?? 3}σ`,
     },
     {
       key: 'severity',
@@ -1435,7 +1466,9 @@ export function AlertsPage() {
           <Button size="sm" variant="ghost" disabled={!canWrite} onClick={() => setEditing(r)}>
             Edit
           </Button>
-          {!r.has_seasonal_source && (permissions.includes('alert.read') || canWrite) ? (
+          {r.metric !== seasonalFlowAlertMetric &&
+          !r.has_seasonal_source &&
+          (permissions.includes('alert.read') || canWrite) ? (
             <Button
               size="sm"
               variant="ghost"
@@ -1459,7 +1492,10 @@ export function AlertsPage() {
           !r.has_tag_filter &&
           !r.has_dependency_policy &&
           (canWrite ||
-            (permissions.includes('alert.read') && permissions.includes('metrics.read'))) ? (
+            (permissions.includes('alert.read') &&
+              (r.metric === seasonalFlowAlertMetric
+                ? permissions.includes('flow.read') && permissions.includes('ai.query')
+                : permissions.includes('metrics.read')))) ? (
             <Button
               size="sm"
               variant="ghost"
@@ -1471,6 +1507,7 @@ export function AlertsPage() {
           ) : null}
           {r.metric !== savedQueryAlertMetric &&
           r.metric !== pathHealthAlertMetric &&
+          r.metric !== seasonalFlowAlertMetric &&
           r.type !== 'trap' &&
           !r.has_seasonal_source &&
           (canReadMetadata || canWrite) ? (
@@ -1733,6 +1770,13 @@ export function AlertsPage() {
                 <Button disabled={!canWrite} onClick={() => setPathEditing(true)}>
                   Create path-error alert
                 </Button>
+                {canWrite &&
+                permissions.includes('flow.read') &&
+                permissions.includes('ai.query') ? (
+                  <Button onClick={() => setSeasonalEditing({ scope: metadataScope })}>
+                    Create seasonal flow alert
+                  </Button>
+                ) : null}
               </>
             }
           />
@@ -1781,6 +1825,7 @@ export function AlertsPage() {
       ) : null}
       {seasonalEditing?.scope === metadataScope ? (
         <AlertSeasonalSourceDialog
+          key={seasonalEditing.scope}
           rule={seasonalEditing.rule}
           onClose={() => setSeasonalEditing(null)}
         />

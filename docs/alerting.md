@@ -121,7 +121,8 @@ The normal band extends from the median of those dates by the larger of the
 configured floor or the rule's sensitivity times the robust spread. A
 repeated hour at the end of daylight saving time still counts as one date.
 Holiday dates are excluded from observation and training. The baseline warms
-until three matching dates have data. A holiday or unavailable observation
+until three matching dates have data. A new continuous weekly series reaches
+that count after three weeks. A holiday or unavailable observation
 leaves a firing episode in place until another comparable reading arrives.
 
 Matching full series identities are evaluated separately. The source uses the
@@ -136,8 +137,8 @@ govern rule notification channels.
 
 REST uses `GET`, `PUT` and `DELETE` on `/v1/alerts/rules/{id}/seasonal-source`.
 The generated clients expose the same operations. CLI configuration takes the
-same JSON. Clearing an active selection disables the rule. Enable it explicitly
-to return to a rolling baseline.
+same JSON. Clearing an active selection disables the rule. Enable a metric
+rule explicitly to return to its rolling baseline.
 
 ```bash
 probectl alert seasonal-source-set "$RULE_ID" --body '{"timezone":"America/New_York","minimum_change":5,"holidays":["2026-12-25"]}'
@@ -145,8 +146,32 @@ probectl alert seasonal-source "$RULE_ID"
 probectl alert seasonal-source-clear "$RULE_ID"
 ```
 
-The preview covers stored metric and test-result series. Native saved-flow
-measures and physical-source qualification remain in progress.
+For a flow measure, choose **Create seasonal flow alert** and select an owned
+Explorer view with a moving lookback. Choose one measure and calculation saved
+on that view and the minimum change in its unit. The rule pins the view revision.
+When the view changes, open **Weekly baseline** and select its current revision
+explicitly before resuming. Clear disables the flow rule until it has a source.
+
+The flow evaluator compares the last completed local hour with equivalent
+retained windows from the same view. All windows share one source budget.
+The history clock advances after a usable window finishes evaluation. When no
+matching source rows have arrived, evaluation can retry the current window.
+Arrivals after a window has already been evaluated enter later comparisons
+through retained history. A changing Top-N remainder has no stable group
+identity. A group needs at least three observed comparable dates. Missing
+groups or late data leave the prior episode on hold.
+
+Flow bands preserve original decimal precision. The incident cites the owned
+evaluation receipt. Viewing exact values requires current access to the same
+saved view, filter revision and captured source contexts. Alerts and channels
+with ordinary alert access carry the state and reason. Operator changes,
+permission withdrawal or source lifecycle can withhold earlier flow details.
+
+Create the flow rule atomically through `POST /v1/alerts` or `probectl alert
+create`, with `seasonal_source.flow` containing `view_id`, `view_version` and
+`measure` (for example, `bytes:total`). After a view change use the same source
+update operations. The CLI prints exact decimal values in `probectl --json
+alert evaluations "$RULE_ID"`.
 
 ## Trap rules
 

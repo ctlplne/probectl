@@ -202,7 +202,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	"alert_evaluator_status": {plane: "postgres:alert_evaluator_status", disposition: subjectTableNoSubject},
 	"alert_evaluation_receipts": {
 		plane: "postgres:alert_evaluation_receipts", disposition: subjectTableDeleteMatches,
-		contains: []string{"labels"},
+		contains: []string{"labels", "seasonal_flow_scope"},
 	},
 	"alert_maintenance_windows": {
 		plane: "postgres:alert_maintenance_windows", disposition: subjectTableDeleteMatches,
@@ -1454,6 +1454,9 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
 }
 
 func subjectContainsValue(policy subjectTablePolicy, column string) string {
+	if policy.plane == "postgres:alert_evaluation_receipts" && column == "seasonal_flow_scope" {
+		return seasonalFlowReceiptSubjectSQL()
+	}
 	if policy.plane == "postgres:dashboard_views" && column == "definition" {
 		// Match the first-class preparer, never structural source/context IDs
 		// or an arbitrary raw JSON substring in an assessment configuration.

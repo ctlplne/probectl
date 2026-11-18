@@ -140,7 +140,7 @@ func TestSeasonalMetricRuleCreatesOneCitedTenantIncident(t *testing.T) {
 			}
 			var evidence alert.SeasonalEvaluationEvidence
 			if count != 1 || last == nil || len(active) != 1 || active[0].IncidentID == "" || json.Unmarshal([]byte(*last), &evidence) != nil ||
-				len(evidence.Citations) != 3 || evidence.Calendar.Lower != 45 || evidence.Calendar.Upper != 55 || !evidence.ObservedAt.Equal(now) {
+				len(evidence.Citations) != 3 || (evidence.Calendar.Lower == nil || *evidence.Calendar.Lower != 45) || (evidence.Calendar.Upper == nil || *evidence.Calendar.Upper != 55) || !evidence.ObservedAt.Equal(now) {
 				t.Fatalf("wanted one complete cited incident, count %d", count)
 			}
 			var ownsSignal bool

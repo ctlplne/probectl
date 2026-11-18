@@ -32,7 +32,7 @@ type seasonalIncidentPublication struct {
 }
 
 func (s *Server) publishSeasonalAlert(tenant tenancy.ID, window time.Duration, observer incident.Observer) alert.SeasonalPublisher {
-	return func(ctx context.Context, rule alert.Rule, firing alert.Alert, evidence alert.SeasonalEvaluationEvidence) (string, error) {
+	return func(ctx context.Context, rule alert.Rule, firing alert.Alert, evidence alert.SeasonalEvaluationEvidence, flowPublication *alert.SeasonalReadPublication, receipt *alert.EvaluationReceipt) (string, error) {
 		if s.pool == nil || !rule.HasSeasonalSource || !rule.Enabled || tenant.String() == "" || rule.TenantID != tenant.String() ||
 			firing.TenantID != tenant.String() || firing.RuleID != rule.ID || firing.Metric != rule.Metric {
 			return "", alert.ErrSeasonalSource
@@ -55,8 +55,11 @@ func (s *Server) publishSeasonalAlert(tenant tenancy.ID, window time.Duration, o
 					if err := s.authorizeSeasonalPublication(ctx, sc, source); err != nil {
 						return err
 					}
+					if err := authorizeSeasonalCitedCapture(ctx, sc, source, flowPublication, evidence); err != nil {
+						return err
+					}
 					var err error
-					publication, err = s.storeSeasonalIncident(ctx, sc, source, rule, firing, evidence, window)
+					publication, err = s.storeSeasonalIncident(ctx, sc, source, rule, firing, evidence, window, receipt)
 					return err
 				})
 		})
@@ -83,6 +86,9 @@ func (s *Server) authorizeSeasonalPublication(ctx context.Context, sc tenancy.Sc
 	if err != nil {
 		return err
 	}
+	if source.Config.Flow != nil {
+		return s.authorizeSeasonalFlowRevisionInScope(ctx, sc, principal, *source.Config.Flow)
+	}
 	if err := s.authorize(ctx, principal, "metrics.read", auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: sc.Tenant.String()}); err != nil {
 		return err
 	}
@@ -92,14 +98,20 @@ func (s *Server) authorizeSeasonalPublication(ctx context.Context, sc tenancy.Sc
 	return err
 }
 
-func (s *Server) storeSeasonalIncident(ctx context.Context, sc tenancy.Scope, source *alert.SeasonalSource, rule alert.Rule, firing alert.Alert, evidence alert.SeasonalEvaluationEvidence, window time.Duration) (seasonalIncidentPublication, error) {
+func (s *Server) storeSeasonalIncident(ctx context.Context, sc tenancy.Scope, source *alert.SeasonalSource, rule alert.Rule, firing alert.Alert, evidence alert.SeasonalEvaluationEvidence, window time.Duration, receipt *alert.EvaluationReceipt) (seasonalIncidentPublication, error) {
 	var none seasonalIncidentPublication
 	if source.TestRevision != nil && (firing.Labels["test_id"] != source.Config.TestID || !evidence.ObservedAt.After(*source.TestRevision)) {
+		return none, alert.ErrSeasonalSource
+	}
+	if source.Config.Flow != nil && !seasonalFlowReceiptMatches(rule, evidence, receipt) {
 		return none, alert.ErrSeasonalSource
 	}
 	signal, key, err := seasonalIncidentSignal(rule, firing, evidence, source.Config.Timezone)
 	if err != nil {
 		return none, err
+	}
+	if source.Config.Flow != nil {
+		signal.Attributes["probectl.alert.seasonal.receipt_fingerprint"] = receipt.Fingerprint
 	}
 	if _, err := sc.Q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('incident:'||$1::text,0))`, sc.Tenant.String()); err != nil {
 		return none, err
@@ -127,8 +139,31 @@ func (s *Server) storeSeasonalIncident(ctx context.Context, sc tenancy.Scope, so
 	if result == nil || result.ID == "" || result.TenantID != sc.Tenant.String() {
 		return none, alert.ErrSeasonalSource
 	}
+	if source.Config.Flow != nil {
+		if err := appendSeasonalFlowIncidentReceipt(ctx, sc, *receipt, result.ID); err != nil {
+			return none, err
+		}
+	}
 	err = audit.TenantRecord(ctx, sc, source.OwnerUserID, "alert.seasonal.published", key, map[string]any{"incident_id": result.ID, "rule_id": rule.ID})
 	return seasonalIncidentPublication{id: result.ID, incident: result, opened: opened}, err
+}
+
+func seasonalFlowReceiptMatches(rule alert.Rule, evidence alert.SeasonalEvaluationEvidence, receipt *alert.EvaluationReceipt) bool {
+	if receipt == nil || receipt.RuleID != rule.ID || receipt.Fingerprint == "" ||
+		receipt.RuleRevision != rule.UpdatedAt.UTC().Format(time.RFC3339Nano) || receipt.ObservedValue != nil {
+		return false
+	}
+	current := receipt.Expectation.Seasonal
+	return current != nil && current.Exact != nil && evidence.Exact != nil && *current.Exact == *evidence.Exact &&
+		len(current.FlowScope) > 0 && current.Subject == evidence.Subject &&
+		current.ObservedAt.Equal(evidence.ObservedAt)
+}
+
+func appendSeasonalFlowIncidentReceipt(ctx context.Context, sc tenancy.Scope, receipt alert.EvaluationReceipt, incidentID string) error {
+	evidence := *receipt.Expectation.Seasonal
+	evidence.IncidentID = incidentID
+	receipt.Expectation.Seasonal = &evidence
+	return (store.AlertEvaluations{}).Append(ctx, sc, receipt)
 }
 
 func seasonalIncidentSignal(rule alert.Rule, firing alert.Alert, evidence alert.SeasonalEvaluationEvidence, timezone string) (incident.Signal, string, error) {
@@ -136,7 +171,7 @@ func seasonalIncidentSignal(rule alert.Rule, firing alert.Alert, evidence alert.
 		evidence.Calendar.Timezone != timezone || evidence.Subject == "" || len(evidence.Citations) < 2 {
 		return incident.Signal{}, "", alert.ErrSeasonalSource
 	}
-	body, err := json.Marshal(evidence)
+	body, err := seasonalIncidentEvidenceBody(rule, evidence)
 	if err != nil || len(body) > alert.SeasonalEvidenceBytes {
 		return incident.Signal{}, "", alert.ErrSeasonalSource
 	}
@@ -150,6 +185,11 @@ func seasonalIncidentSignal(rule alert.Rule, firing alert.Alert, evidence alert.
 	}
 	key := hex.EncodeToString(digest)
 	signal := signalFromAlert(firing)
+	if rule.Metric == alert.SeasonalFlowMetric {
+		signal.Plane = "flow"
+		delete(signal.Attributes, "value")
+	}
+
 	if signal.Target == "" {
 		signal.Target = "seasonal:" + rule.ID + ":" + evidence.Subject
 	}
@@ -157,4 +197,35 @@ func seasonalIncidentSignal(rule alert.Rule, firing alert.Alert, evidence alert.
 	signal.Attributes["probectl.alert.seasonal.evidence"] = string(body)
 	signal.Attributes["probectl.alert.seasonal.observation_id"] = key
 	return signal, key, nil
+}
+
+func authorizeSeasonalCitedCapture(ctx context.Context, sc tenancy.Scope, source *alert.SeasonalSource, proof *alert.SeasonalReadPublication, evidence alert.SeasonalEvaluationEvidence) error {
+	if source.Config.Flow == nil {
+		if proof != nil || evidence.Exact != nil {
+			return alert.ErrSeasonalSource
+		}
+		return nil
+	}
+	if proof == nil || proof.Revalidate == nil || evidence.Exact == nil {
+		return alert.ErrSeasonalSource
+	}
+	return proof.Revalidate(ctx, sc)
+}
+
+func seasonalIncidentEvidenceBody(rule alert.Rule, evidence alert.SeasonalEvaluationEvidence) ([]byte, error) {
+	if rule.Metric != alert.SeasonalFlowMetric {
+		return json.Marshal(evidence)
+	}
+	// Use an evidentiary citation on the incident itself. Exact flow quantities
+	// stay in the authorized evaluation receipt, whose reader checks this view.
+	return json.Marshal(struct {
+		Subject       string       `json:"subject"`
+		ObservedAt    time.Time    `json:"observed_at"`
+		Timezone      string       `json:"timezone"`
+		Hour          int          `json:"hour"`
+		Weekday       time.Weekday `json:"weekday"`
+		TrainingDates []string     `json:"training_days"`
+		ReceiptRuleID string       `json:"receipt_rule_id"`
+	}{evidence.Subject, evidence.ObservedAt, evidence.Calendar.Timezone, evidence.Calendar.Hour, evidence.Calendar.Weekday,
+		evidence.Calendar.TrainingDays, rule.ID})
 }

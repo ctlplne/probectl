@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -52,8 +53,14 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 	if err != nil {
 		return err
 	}
-	var seasonal []byte
+	var seasonal, seasonalFlow []byte
 	if receipt.Expectation.Seasonal != nil {
+		proof := receipt.Expectation.Seasonal
+		seasonalFlow = proof.FlowScope
+		if (proof.Exact == nil) != (len(seasonalFlow) == 0) || len(seasonalFlow) > alert.SeasonalFlowScopeBytes ||
+			(len(seasonalFlow) > 0 && (!utf8.Valid(seasonalFlow) || !json.Valid(seasonalFlow))) {
+			return alert.ErrSeasonalSource
+		}
 		seasonal, err = json.Marshal(receipt.Expectation.Seasonal)
 		if err != nil {
 			return err
@@ -69,11 +76,12 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 		        evaluation_state, observed_at, observed_value, expectation_kind,
 		        comparison, threshold, expected_mean, expected_stddev,
 		        expected_lower, expected_upper, breach_count, required_breaches,
-		        warmup_samples, warmup_required, reason, labels, expires_at, tag_selection, seasonal_evidence)
+		        warmup_samples, warmup_required, reason, labels, expires_at, tag_selection, seasonal_evidence, seasonal_flow_scope)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-		        $14, $15, $16, $17, $18, $19, $20, $21::jsonb, $22, $23::jsonb, $24::jsonb)
+		        $14, $15, $16, $17, $18, $19, $20, $21::jsonb, $22, $23::jsonb, $24::jsonb, $25)
 		ON CONFLICT (tenant_id, rule_id, fingerprint, observed_at, evaluation_state)
 		DO UPDATE SET
+		  rule_revision = COALESCE(CASE WHEN EXCLUDED.seasonal_evidence IS NOT NULL THEN EXCLUDED.rule_revision END, alert_evaluation_receipts.rule_revision),
 		  observed_value = EXCLUDED.observed_value,
 		  expectation_kind = EXCLUDED.expectation_kind,
 		  comparison = EXCLUDED.comparison,
@@ -90,6 +98,7 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 		  labels = EXCLUDED.labels,
 		  tag_selection = EXCLUDED.tag_selection,
 		  seasonal_evidence = EXCLUDED.seasonal_evidence,
+		  seasonal_flow_scope = EXCLUDED.seasonal_flow_scope,
 		  expires_at = EXCLUDED.expires_at`,
 		s.Tenant.String(), receipt.RuleID, receipt.Fingerprint, receipt.ContractVersion,
 		receipt.RuleRevision, string(receipt.State), receipt.ObservedAt, receipt.ObservedValue,
@@ -97,7 +106,7 @@ func (AlertEvaluations) Append(ctx context.Context, s tenancy.Scope, receipt ale
 		receipt.Expectation.Threshold, receipt.Expectation.Mean, receipt.Expectation.StdDev,
 		receipt.Expectation.Lower, receipt.Expectation.Upper, receipt.BreachCount,
 		receipt.RequiredBreaches, receipt.WarmupSamples, receipt.WarmupRequired,
-		receipt.Reason, encodedLabels, expiresAt, encodedSelection, seasonal)
+		receipt.Reason, encodedLabels, expiresAt, encodedSelection, seasonal, seasonalFlow)
 	if err != nil {
 		return mapWriteErr("alert evaluation receipt", err)
 	}
@@ -151,13 +160,17 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 		       evaluation_state, observed_at, observed_value, expectation_kind,
 		       comparison, threshold, expected_mean, expected_stddev,
 		       expected_lower, expected_upper, breach_count, required_breaches,
-		       warmup_samples, warmup_required, reason, labels, tag_selection, seasonal_evidence
+		       warmup_samples, warmup_required, reason, labels, tag_selection, seasonal_evidence,
+		       CASE WHEN octet_length(seasonal_flow_scope) <= $5
+		                  AND sum(COALESCE(octet_length(seasonal_flow_scope), 0)) OVER
+		                      (ORDER BY observed_at DESC, fingerprint, evaluation_state DESC ROWS UNBOUNDED PRECEDING) <= $6
+		            THEN seasonal_flow_scope END
 		  FROM (
 		    SELECT contract_version, fingerprint, rule_id, rule_revision,
 		           evaluation_state, observed_at, observed_value, expectation_kind,
 		           comparison, threshold, expected_mean, expected_stddev,
 		           expected_lower, expected_upper, breach_count, required_breaches,
-		           warmup_samples, warmup_required, reason, labels, tag_selection, seasonal_evidence
+		           warmup_samples, warmup_required, reason, labels, tag_selection, seasonal_evidence, seasonal_flow_scope
 		      FROM alert_evaluation_receipts
 		     WHERE tenant_id = $1 AND rule_id = $2
 		       AND expires_at > clock_timestamp()
@@ -166,7 +179,7 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 		     LIMIT $4
 		  ) AS recent
 		 ORDER BY observed_at, fingerprint, evaluation_state`,
-		s.Tenant.String(), ruleID, fingerprint, limit+1)
+		s.Tenant.String(), ruleID, fingerprint, limit+1, alert.SeasonalFlowScopeBytes, 2<<20)
 	if err != nil {
 		return nil, false, err
 	}
@@ -179,9 +192,9 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 			break
 		}
 		var (
-			receipt                     alert.EvaluationReceipt
-			state, expectation, compare string
-			labels, selection, seasonal []byte
+			receipt                                   alert.EvaluationReceipt
+			state, expectation, compare               string
+			labels, selection, seasonal, seasonalFlow []byte
 		)
 		if err := rows.Scan(
 			&receipt.ContractVersion, &receipt.Fingerprint, &receipt.RuleID,
@@ -191,7 +204,7 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 			&receipt.Expectation.StdDev, &receipt.Expectation.Lower,
 			&receipt.Expectation.Upper, &receipt.BreachCount,
 			&receipt.RequiredBreaches, &receipt.WarmupSamples,
-			&receipt.WarmupRequired, &receipt.Reason, &labels, &selection, &seasonal,
+			&receipt.WarmupRequired, &receipt.Reason, &labels, &selection, &seasonal, &seasonalFlow,
 		); err != nil {
 			return nil, false, err
 		}
@@ -224,6 +237,10 @@ func (AlertEvaluations) List(ctx context.Context, s tenancy.Scope, ruleID, finge
 			if err := json.Unmarshal(seasonal, &receipt.Expectation.Seasonal); err != nil {
 				return nil, false, err
 			}
+			if receipt.Expectation.Seasonal == nil {
+				return nil, false, alert.ErrSeasonalSource
+			}
+			receipt.Expectation.Seasonal.FlowScope = seasonalFlow
 		}
 		out = append(out, receipt)
 	}

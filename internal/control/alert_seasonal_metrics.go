@@ -58,6 +58,12 @@ func (s *Server) readSeasonalMetricRule(ctx context.Context, rule alert.Rule, at
 	if err != nil {
 		return alert.RuleMetricRead{}, err
 	}
+	if source.Config.Flow != nil {
+		return s.readSeasonalFlowRule(ctx, rule, source, actor, model, at)
+	}
+	if rule.Metric == alert.SeasonalFlowMetric {
+		return alert.RuleMetricRead{}, alert.ErrSeasonalSource
+	}
 	selected, notBefore, err := s.seasonalMetricSelection(ctx, actor, rule, source)
 	if err != nil {
 		return alert.RuleMetricRead{}, err

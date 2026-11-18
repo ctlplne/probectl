@@ -125,6 +125,7 @@ type SeasonalComparison struct {
 	Observed       Feature
 	ComparableDays int
 	Evidence       *SeasonalEvidence
+	Exact          *SeasonalDecimalBand
 	TrainingWindow TrainingWindow
 	Citations      []Citation
 	Score          float64

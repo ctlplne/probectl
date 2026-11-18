@@ -16,7 +16,7 @@ const ruleID = '11111111-1111-4111-8111-111111111111'
 const testID = '22222222-2222-4222-8222-222222222222'
 const grants = ['alert.read', 'alert.write', 'metrics.read', 'test.read']
 
-function fixture(configured = false) {
+function fixture(configured = false, createFlow = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const onClose = vi.fn()
   const view = (tenant: string, permissions: string[]) => {
@@ -47,14 +47,16 @@ function fixture(configured = false) {
         <AuthContext.Provider value={auth}>
           <AlertSeasonalSourceDialog
             key={JSON.stringify([tenant, auth.user.id, permissions.slice().sort()])}
-            rule={rule}
+            rule={createFlow ? undefined : rule}
             onClose={onClose}
           />
         </AuthContext.Provider>
       </QueryClientProvider>
     )
   }
-  const rendered = render(view('tenant-a', grants))
+  const rendered = render(
+    view('tenant-a', createFlow ? [...grants, 'flow.read', 'ai.query'] : grants),
+  )
   return {
     onClose,
     rerender: (tenant: string, grants: string[]) => rendered.rerender(view(tenant, grants)),
@@ -146,5 +148,60 @@ test('a late sibling load is dropped and a write-only user can confirm clearing'
     { method: 'GET', tenant: 'tenant-a' },
     { method: 'GET', tenant: 'tenant-b' },
     { method: 'DELETE', tenant: 'tenant-b' },
+  ])
+})
+
+test('the saved flow editor binds one moving view and preserves its exact revision', async () => {
+  const user = userEvent.setup()
+  const edits: unknown[] = []
+  const view = {
+    id: '33333333-3333-4333-8333-333333333333',
+    version: '9007199254740993',
+    definition: {
+      name: 'Owned throughput',
+      time: { mode: 'lookback', lookback_seconds: 600 },
+      plan: { metrics: [{ measure: 'bytes', calculation: 'total' }] },
+    },
+  }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        expect(new Headers(init.headers).get('X-Probectl-Tenant')).toBe('tenant-a')
+        edits.push(JSON.parse(String(init.body)))
+        return jsonResponse({ id: ruleID, tenant_id: 'tenant-a', has_seasonal_source: true })
+      }
+      if (String(input).includes(view.id)) return jsonResponse(view)
+      return jsonResponse({
+        items: [
+          view,
+          {
+            id: testID,
+            version: '1',
+            definition: { name: 'Fixed event window', time: { mode: 'absolute' } },
+          },
+        ],
+      })
+    }),
+  )
+  const rendered = fixture(false, true)
+  await screen.findByRole('option', { name: 'Owned throughput' })
+  expect(screen.queryByRole('option', { name: 'Fixed event window' })).not.toBeInTheDocument()
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Saved flow view' }), view.id)
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Flow measure' }), 'bytes:total')
+  await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Weekly circuit volume')
+  await user.type(screen.getByRole('spinbutton', { name: 'Minimum change' }), '1')
+  await user.click(screen.getByRole('button', { name: 'Create seasonal flow alert' }))
+  await waitFor(() => expect(rendered.onClose).toHaveBeenCalledOnce())
+  expect(edits).toEqual([
+    {
+      name: 'Weekly circuit volume',
+      seasonal_source: {
+        timezone: 'UTC',
+        minimum_change: 1,
+        holidays: [],
+        flow: { view_id: view.id, view_version: view.version, measure: 'bytes:total' },
+      },
+    },
   ])
 })

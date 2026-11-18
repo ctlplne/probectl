@@ -92,7 +92,7 @@ func (b mcpTagMutationBackend) AlertEvaluations(ctx context.Context, p *auth.Pri
 	if input.Limit != nil {
 		limit = *input.Limit
 	}
-	return b.server.readAlertEvaluations(r, input.RuleID, input.Fingerprint, limit)
+	return b.server.readAlertEvaluations(r, input.RuleID, input.Fingerprint, limit, mcp.CheckOriginatingCredential, mcp.RetainNativePublication)
 }
 
 // Derive query constraints directly from the existing REST operation. The

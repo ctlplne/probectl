@@ -110,6 +110,7 @@ func (s *Server) captureFlowSources(ctx context.Context, actor *auth.Principal, 
 
 type reportFlowCaptureOptions struct {
 	PeriodEnd           time.Time
+	SeasonalPeriodEnds  []time.Time
 	ReservedMemoryBytes int64
 }
 
@@ -193,7 +194,7 @@ func (s *Server) captureFlowSourcesWithOptions(ctx context.Context, actor *auth.
 		}
 		periodEnd = options.PeriodEnd
 	}
-	prepared, cost, count, err := s.prepareReportFlows(ctx, principal, refs, periodEnd, budget.MemoryBytes/4)
+	prepared, cost, count, err := s.prepareConfiguredFlowCapture(ctx, principal, refs, periodEnd, at, budget.MemoryBytes/4, typedResults, options)
 	if err != nil {
 		return nil, err
 	}

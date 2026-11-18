@@ -45,10 +45,11 @@ type MetricSource interface {
 
 // RuleMetricRead keeps source selection evidence separate from metric labels.
 type RuleMetricRead struct {
-	Samples        []Sample
-	TagSelection   *TagSelectionReceipt
-	QuerySelection *QuerySelection
-	Skip           bool
+	Samples             []Sample
+	TagSelection        *TagSelectionReceipt
+	QuerySelection      *QuerySelection
+	SeasonalPublication *SeasonalReadPublication
+	Skip                bool
 }
 
 // RuleMetricSource must authorize and apply current metadata before returning
@@ -282,6 +283,9 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	if read.Skip {
 		return nil, nil
 	}
+	if rule.HasSeasonalSource {
+		return en.evaluateSeasonalRead(ctx, rule, read)
+	}
 	var departed map[string]bool
 	if selectedSourceMetric(rule.Metric) {
 		read.Samples, departed, err = en.completeQuerySamples(rule, read)
@@ -298,9 +302,6 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	en.mu.Unlock()
 
 	var acted []Alert
-	if rule.HasSeasonalSource {
-		return en.evaluateSeasonalSamples(ctx, rule, read.Samples)
-	}
 	if en.needsDependencyRouting(rule) {
 		acted = en.evaluateDependencyRule(ctx, rule, read)
 		en.pruneDepartedQueryGroups(departed)
@@ -438,7 +439,14 @@ func (en *Engine) samples(ctx context.Context, rule Rule) (RuleMetricRead, error
 		if err != nil {
 			return RuleMetricRead{}, err
 		}
-		return checkedSeasonalRead(ctx, rule, at, read)
+		verified, err := checkedSeasonalRead(ctx, rule, at, read)
+		if err != nil && read.SeasonalPublication != nil {
+			read.SeasonalPublication.close()
+		}
+		return verified, err
+	}
+	if rule.Metric == SeasonalFlowMetric {
+		return RuleMetricRead{}, ErrSeasonalSource
 	}
 	if rule.HasTagFilter || selectedSourceMetric(rule.Metric) {
 		if rule.Type == Trap {
@@ -538,13 +546,17 @@ func (en *Engine) evalSampleLocked(key string, rule Rule, s Sample, selection *T
 		pending = &pendingNotify{key: key, state: NotifyState{FiringSince: st.since, LastNotified: st.lastNotified}}
 	}
 	selectionKey := tagSelectionKey(rule, selection)
-	record := state != st.lastEvaluationState || state == EvaluationWarming || selectionKey != st.lastTagSelectionKey
+	record := state != st.lastEvaluationState || state == EvaluationWarming || selectionKey != st.lastTagSelectionKey ||
+		(rule.Metric == SeasonalFlowMetric && acted.State != "")
 	st.lastTagSelectionKey = selectionKey
 	st.lastEvaluationState = state
 	if !record {
 		return acted, notify, nil, pending
 	}
-	value := s.Value
+	value := &s.Value
+	if rule.Metric == SeasonalFlowMetric {
+		value = nil // exact flow values remain a source-scoped projection
+	}
 	return acted, notify, &EvaluationReceipt{
 		TagSelection:     selection.Clone(),
 		ContractVersion:  EvaluationReceiptVersion,
@@ -553,7 +565,7 @@ func (en *Engine) evalSampleLocked(key string, rule Rule, s Sample, selection *T
 		RuleRevision:     ruleRevision(rule),
 		State:            state,
 		ObservedAt:       st.lastSeen,
-		ObservedValue:    &value,
+		ObservedValue:    value,
 		Expectation:      decision.expectation,
 		BreachCount:      st.breachCount,
 		RequiredBreaches: requiredBreaches(rule),
