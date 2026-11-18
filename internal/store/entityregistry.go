@@ -327,22 +327,18 @@ func ResolveAliasInScope(ctx context.Context, sc tenancy.Scope,
 	if err != nil {
 		return entity.Resolution{}, err
 	}
-	rows, err := sc.Q.Query(ctx, currentAliasResolutionSQL(false, key.Kind == entity.ConfiguredTestAlias), want.TenantID, want.ContextID, string(key.Kind), key.Value)
+	rows, err := sc.Q.Query(ctx, currentAliasResolutionSQL(key.Kind == entity.ConfiguredTestAlias), want.TenantID, want.ContextID, string(key.Kind), key.Value)
 	return scanAliasResolution(rows, err, want, key)
 }
 
-// Population lookup uses this exact query too: ambiguity and independent
-// current support must not depend on the number of aliases in an operation.
-func currentAliasResolutionSQL(population ...bool) string {
-	kindParameter, valueParameter := "$3", "$4"
-	if len(population) > 0 && population[0] {
-		kindParameter, valueParameter = "requested.kind", "requested.alias_value"
-	}
+// Point and population reads share the same exact canonical resolution and
+// current evidence predicates.
+func currentAliasResolutionSQL(configured bool) string {
 	probeGuard := currentConfiguredProbeSQL
-	if len(population) > 1 && !population[1] {
+	if !configured {
 		probeGuard = "TRUE" // the normalized requested kinds exclude configured tests
 	}
-	return currentAliasResolutionQuerySQL(kindParameter, valueParameter, probeGuard, "SELECT DISTINCT ON (resolved_node.id)", "entity_evidence e", "resolved_node.id, e.observed_at DESC, e.id LIMIT 4")
+	return currentAliasResolutionQuerySQL("$3", "$4", probeGuard, "SELECT DISTINCT ON (resolved_node.id)", "entity_evidence e", "resolved_node.id, e.observed_at DESC, e.id LIMIT 4")
 }
 
 // Resolve the complete requested population together. The four-candidate
@@ -368,14 +364,21 @@ func currentAliasPopulationSQL(configured bool) string {
 }
 
 func currentAliasResolutionQuerySQL(kindParameter, valueParameter, probeGuard, selection, fromClause, ordering string) string {
+	// Project the canonical ID before its lookup. Both lateral queries can
+	// then use the complete tenant/context/entity index key. Inlining the
+	// conditional ID into the join can rescan the context for every alias.
 	return selection + `
 			       e.id::text, resolved_node.id::text, resolved_node.kind, e.source, e.source_ref,
 		       e.agent_id, e.source_kind, e.configured_ref, e.observed_at,
 		       COALESCE(e.support_evidence_id::text,'')
 			 FROM ` + fromClause + `
-			  JOIN entities n ON n.tenant_id=$1 AND n.context_id=$2 AND n.id=e.entity_id
-          JOIN entities resolved_node ON resolved_node.tenant_id=$1 AND resolved_node.context_id=$2
-            AND resolved_node.id=COALESCE(CASE WHEN e.alias_kind='address' THEN n.parent_entity_id END,e.entity_id)
+          JOIN LATERAL (SELECT n.parent_entity_id,
+            COALESCE(CASE WHEN e.alias_kind='address' THEN n.parent_entity_id END,n.id) AS canonical_id
+            FROM entities n
+            WHERE (n.tenant_id,n.context_id,n.id)=($1,$2,e.entity_id) OFFSET 0) n ON true
+          JOIN LATERAL (SELECT node.id,node.kind FROM entities node
+            WHERE (node.tenant_id,node.context_id,node.id)=($1,$2,n.canonical_id)
+            OFFSET 0) resolved_node ON true
           JOIN LATERAL (SELECT m.* FROM entity_source_contexts m
             WHERE (m.tenant_id,m.context_id,m.agent_id,m.source_kind,m.source_ref)=
             (e.tenant_id,e.context_id,e.agent_id,e.source_kind,e.configured_ref) OFFSET 0) m ON ((e.support_evidence_id IS NULL AND
