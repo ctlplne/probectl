@@ -113,6 +113,13 @@ func run() error {
 
 	log := logging.New(os.Stdout, envOr("PROBECTL_DEVICE_LOG_LEVEL", "info"), envOr("PROBECTL_DEVICE_LOG_FORMAT", "json"))
 	slog.SetDefault(log)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	ctx, endCollection := cfg.ProspectCollectionEndsAt.Context(ctx)
+	defer endCollection()
+	if ctx.Err() != nil {
+		return nil
+	}
 
 	if err := crypto.RunPowerOnSelfTest(log); err != nil {
 		return err
@@ -181,8 +188,6 @@ func run() error {
 		rt.WithEntityEvidence(observedDeviceEvidence{client: client, metrics: metricsRuntime})
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	if cfg.Evidence.Enabled() {
 		go agent.RotationLoopOnSuccess(ctx, log, cfg.Evidence.RotateURL,
 			cfg.Evidence.CertFile, cfg.Evidence.KeyFile, cfg.Evidence.CAFile, 0,

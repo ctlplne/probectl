@@ -106,6 +106,11 @@ func run() error {
 	// Signal context first, so SIGTERM cancels a first-boot enrollment retry.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	ctx, endCollection := cfg.ProspectCollectionEndsAt.Context(ctx)
+	defer endCollection()
+	if ctx.Err() != nil {
+		return nil
+	}
 
 	// First-boot enrollment (optional, RED-002): with no identity yet and a
 	// one-time join token available (PROBECTL_AGENT_JOIN_TOKEN or

@@ -501,6 +501,15 @@ agent:
     site: dub-1
 ```
 
+Temporary prospect installations of `probectl-agent`, `probectl-device-agent`
+and `probectl-flow-agent` accept the top-level YAML key
+`prospect_collection_ends_at`. Copy the engagement's exact end into this key as
+an RFC 3339 timestamp with a time zone, such as `2027-05-01T17:00:00Z`. The local
+workload stops at that instant, including during a control-plane outage. An
+installation started after its deadline exits before starting collection. If
+the prospect converts, redeploy the temporary collectors with the key removed
+to use them as ordinary collectors. See [prospect engagement consent](lifecycle.md#prospect-engagement-consent).
+
 A handful of env vars override individual YAML fields — useful in containers where
 mounting a full file is awkward:
 

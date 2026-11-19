@@ -231,6 +231,9 @@ func (h *Host) centralIDs() []string {
 }
 
 func (h *Host) probe(ctx context.Context, s scheduled) {
+	if ctx.Err() != nil {
+		return
+	}
 	c := s.canary
 	if h.metrics != nil {
 		h.metrics.Collection(1)

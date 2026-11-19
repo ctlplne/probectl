@@ -67,6 +67,13 @@ func run() error {
 
 	log := logging.New(os.Stdout, envOr("PROBECTL_FLOW_LOG_LEVEL", "info"), envOr("PROBECTL_FLOW_LOG_FORMAT", "json"))
 	slog.SetDefault(log)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	ctx, endCollection := cfg.ProspectCollectionEndsAt.Context(ctx)
+	defer endCollection()
+	if ctx.Err() != nil {
+		return nil
+	}
 
 	if err := crypto.RunPowerOnSelfTest(log); err != nil {
 		return err
@@ -93,8 +100,6 @@ func run() error {
 		return err // RED-006: malformed silo namespace refuses start
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	if cfg.CloudImport.Provider != "" {
 		return metricsRuntime.RunTogether(ctx, func(ctx context.Context) error {
 			return runCloudImport(ctx, cfg, emitter, log)

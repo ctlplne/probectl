@@ -70,6 +70,8 @@ type Config struct {
 	A2A           A2AConfig           `yaml:"a2a"`
 	TestSync      TestSyncConfig      `yaml:"test_sync"`
 	Security      SecurityConfig      `yaml:"security"`
+
+	ProspectCollectionEndsAt configschema.ProspectCollectionEnd `yaml:"prospect_collection_ends_at,omitempty"`
 }
 
 // TestSyncConfig governs central test distribution (G9, D-41,

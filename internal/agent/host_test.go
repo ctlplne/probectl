@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/configschema"
 )
 
 func TestHostProbesIntoBuffer(t *testing.T) {
@@ -62,6 +63,38 @@ func TestHostProbesIntoBuffer(t *testing.T) {
 	if env.Result.Attributes["probectl.test.id"] != "test-local-1" ||
 		env.Result.Attributes["probectl.test.interval_seconds"] != "0.005" {
 		t.Errorf("schedule receipt = %#v", env.Result.Attributes)
+	}
+}
+
+func TestProspectCollectionStopsLocalOfflineProbeSchedule(t *testing.T) {
+	buf, err := openBuffer(t.TempDir(), 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noop, err := canary.NewNoop(canary.Config{Type: "noop", Target: "owned-collector"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	schedule := scheduled{canary: noop, interval: 10 * time.Millisecond}
+	host := &Host{scheduled: []scheduled{schedule}, buffer: buf, tenantID: "completed-prospect", agentID: "temporary",
+		log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	end := configschema.ProspectCollectionEnd{Time: time.Now().Add(time.Second)}
+	ctx, cancel := end.Context(t.Context())
+	defer cancel()
+	finished := make(chan struct{})
+	go func() { host.Run(ctx); close(finished) }()
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("offline temporary probe kept its schedule after the configured end")
+	}
+	before := buf.Len()
+	if before < 1 {
+		t.Fatal("temporary collector produced no pre-deadline observation")
+	}
+	host.probe(ctx, schedule) // the timer may become readable as the deadline fires
+	if buf.Len() != before {
+		t.Fatal("completed temporary collector accepted another local probe")
 	}
 }
 

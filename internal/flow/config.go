@@ -103,7 +103,10 @@ type Config struct {
 	// production the agent derives identity from its SPIFFE client cert (like
 	// the canary agent); the explicit field supports the lightweight deploy.
 	TenantID string `yaml:"tenant_id"`
-	AgentID  string `yaml:"agent_id"`
+
+	ProspectCollectionEndsAt configschema.ProspectCollectionEnd `yaml:"prospect_collection_ends_at,omitempty"`
+
+	AgentID string `yaml:"agent_id"`
 
 	Bus      BusConfig      `yaml:"bus"`
 	Evidence EvidenceConfig `yaml:"evidence,omitempty"`

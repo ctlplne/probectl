@@ -380,8 +380,11 @@ audit event.
 When a prospect's deadline passes, the existing mTLS agent listener stops
 handing that tenant new signed test sets and coordination assignments. The
 tenant is taken from the agent certificate. The sibling tenants keep their
-normal dispatch. An agent's locally scheduled collection remains a separate
-lifecycle step.
+normal dispatch. Install temporary agents with `prospect_collection_ends_at`
+set to the same engagement deadline so that local tests and collection also
+stop if the agent is offline. Conversion clears the control-plane deadline.
+Redeploy temporary collectors without the local deadline when they become
+ordinary client collectors.
 
 Engagement writes take the same tenant writer lease and database trigger as
 other lifecycle data. Once the existing erasure fence closes, PostgreSQL

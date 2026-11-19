@@ -258,8 +258,11 @@ func (r *Runtime) trapReceiver() (*TrapReceiver, error) {
 func (r *Runtime) pollLoop(ctx context.Context, dev Target, credFn func() (Credential, error)) {
 	ticker := time.NewTicker(dev.Interval)
 	defer ticker.Stop()
+	if ctx.Err() != nil {
+		return
+	}
 	r.emitNeverObservedOutcomes(ctx, dev)
-	for {
+	for ctx.Err() == nil {
 		if cred, err := credFn(); err != nil {
 			r.stats.CredErrors.Add(1)
 			r.emitFailedOutcomes(ctx, dev, time.Now().UTC(), CollectionReasonCredentialUnavailable)
