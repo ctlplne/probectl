@@ -29,19 +29,21 @@ type ProspectEngagementStart struct {
 	EndsAt           time.Time `json:"ends_at"`
 }
 
+const permProspectLifecycle = "lifecycle.erase"
+
 func WithProspectEngagementBackend(backend ProspectEngagementBackend) Option {
 	return func(s *Server) {
 		if backend == nil {
 			return
 		}
-		tools := []Tool{{Name: "prospect_engagement_get", Description: "Read the active tenant's current prospect engagement, exact revision, assessment dates and consent state.", Query: true,
+		tools := []Tool{{Name: "prospect_engagement_get", Permission: permProspectLifecycle, Description: "Read the active tenant's current prospect engagement, exact revision, assessment dates and consent state.", Query: true,
 			InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
 			Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
 				if err := decodeBoundedNativeArgs(raw, &struct{}{}, min(s.nativeRequestBytes(), 1024)); err != nil {
 					return nil, err
 				}
 				return backend.ReadProspectEngagement(ctx, p)
-			}}, {Name: "prospect_engagement_start", Description: "Start an engagement without scheduled erasure in the active tenant. Select an exact owned assessment view.",
+			}}, {Name: "prospect_engagement_start", Permission: permProspectLifecycle, Description: "Start an engagement without scheduled erasure in the active tenant. Select an exact owned assessment view.",
 			InputSchema: json.RawMessage(`{"type":"object","required":["assessment_view_id","assessment_view_revision","preparer"],"properties":{"assessment_view_id":{"type":"string","minLength":1},"assessment_view_revision":{"type":"string","format":"date-time"},"preparer":{"type":"string","minLength":1},"ends_at":{"type":"string","format":"date-time"}},"additionalProperties":false}`),
 			Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
 				var input ProspectEngagementStart
@@ -57,7 +59,7 @@ func WithProspectEngagementBackend(backend ProspectEngagementBackend) Option {
 			{"prospect_engagement_convert", "Confirm conversion of the current tenant's exact prospect revision to a client. Conversion withdraws scheduled erasure and clears the server's collection deadline.", true},
 			{"prospect_engagement_revoke_consent", "Confirm withdrawal of scheduled erasure for the current tenant's exact prospect revision.", false},
 		} {
-			tools = append(tools, Tool{Name: choice.name, Description: choice.description,
+			tools = append(tools, Tool{Name: choice.name, Permission: permProspectLifecycle, Description: choice.description,
 				InputSchema: json.RawMessage(`{"type":"object","required":["revision","confirmed"],"properties":{"revision":{"type":"integer","minimum":1},"confirmed":{"type":"boolean","const":true}},"additionalProperties":false}`),
 				Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
 					var input struct {
@@ -75,7 +77,6 @@ func WithProspectEngagementBackend(backend ProspectEngagementBackend) Option {
 		}
 		s.nativeEnabled = true
 		for _, tool := range tools {
-			tool.Permission = "lifecycle.erase"
 			tool.Native, tool.RequiresUser = true, true
 			s.tools[tool.Name] = tool
 			s.order = append(s.order, tool.Name)
