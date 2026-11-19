@@ -49,34 +49,31 @@ func renderMaintainerScript(t *testing.T, name, agent string) string {
 	return strings.ReplaceAll(raw, "${AGENT}", agent)
 }
 
-// runMaintainerScript writes the rendered script and a recording fake systemctl,
-// runs the script under /bin/sh with the given maintainer-script argv, and
-// returns every line the fake systemctl recorded (one per invocation, args
-// space-joined).
+// runMaintainerScript supplies shell-local service and account lookups, runs
+// the rendered script under /bin/sh with the given maintainer-script argv,
+// and returns the systemctl arguments in call order.
 func runMaintainerScript(t *testing.T, body string, args ...string) []string {
 	t.Helper()
 	dir := t.TempDir()
-
-	bin := filepath.Join(dir, "bin")
-	if err := os.MkdirAll(bin, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	logPath := filepath.Join(dir, "systemctl.log")
-	fake := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nexit 0\n"
-	if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte(fake), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// A function also satisfies the script's command -v check. This keeps
+	// the recorder in the interpreter when parallel probes are starting
+	// subprocesses, and prevents the postinstall from relying on host users.
+	const fake = `systemctl() {
+	printf '%s\n' "$*" >> "$SYSTEMCTL_LOG"
+}
+getent() {
+	return 1
+}
+`
 
 	script := filepath.Join(dir, "script.sh")
-	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte(fake+body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	cmd := exec.Command("/bin/sh", append([]string{script}, args...)...)
-	cmd.Env = append(os.Environ(),
-		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"SYSTEMCTL_LOG="+logPath,
-	)
+	cmd.Env = append(os.Environ(), "SYSTEMCTL_LOG="+logPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("maintainer script %v failed: %v\noutput:\n%s", args, err, out)
