@@ -60,7 +60,7 @@ func TestMandatoryAuditFailureReachesRESTAndMCP(t *testing.T) {
 			WithRemediation(svc)
 		principal := &auth.Principal{
 			TenantID: testTenant,
-			UserID:   "user-a",
+			UserID:   testProposerID,
 			Email:    "a@example.test",
 			Permissions: map[string]bool{
 				remediationProposePermission: true,
@@ -96,7 +96,7 @@ func TestMandatoryAuditFailureReachesRESTAndMCP(t *testing.T) {
 		)
 		principal := &auth.Principal{
 			TenantID: testTenant,
-			UserID:   "mcp-user-a",
+			UserID:   testProposerID,
 			Permissions: map[string]bool{
 				remediationProposePermission: true,
 			},
@@ -307,7 +307,7 @@ func (b remediationMCPBackend) ProposeRemediation(
 	p *auth.Principal,
 	kind, title, rationale, target, incidentID string,
 ) (mcp.ProposalResult, error) {
-	prop, err := b.svc.Propose(ctx, p.TenantID, "ai:propose_remediation", rem.ProposeInput{
+	prop, err := b.svc.Propose(auth.WithPrincipal(ctx, p), p.TenantID, "ai:propose_remediation", rem.ProposeInput{
 		Kind: rem.Kind(kind), Title: title, Rationale: rationale,
 		Target: target, IncidentID: incidentID,
 	})

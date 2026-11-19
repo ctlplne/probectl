@@ -8,19 +8,24 @@ package remediation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/auth"
 	rem "github.com/ctlplne/probectl/internal/remediation"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 const (
-	testTenant  = "00000000-0000-0000-0000-000000000001"
-	testTenantB = "00000000-0000-0000-0000-000000000002"
+	testTenant     = "00000000-0000-0000-0000-000000000001"
+	testTenantB    = "00000000-0000-0000-0000-000000000002"
+	testProposerID = "15a99acb-c212-45c3-99ee-551a1398d6d9"
+	testReviewerID = "d3a72692-00dc-4ba7-902d-0b792564bef3"
 )
 
 type proposalRow struct {
@@ -28,7 +33,7 @@ type proposalRow struct {
 }
 
 func (r proposalRow) Scan(dest ...any) error {
-	if len(dest) != 14 {
+	if len(dest) != 15 {
 		return errors.New("unexpected remediation row shape")
 	}
 	created := time.Unix(1700000000, 0).UTC()
@@ -46,6 +51,7 @@ func (r proposalRow) Scan(dest ...any) error {
 	*dest[11].(*string) = ""
 	*dest[12].(*time.Time) = created
 	*dest[13].(**time.Time) = nil
+	*dest[14].(*string) = ""
 	return nil
 }
 
@@ -114,9 +120,13 @@ func newSvc(approvals bool, maxBR int, est rem.Estimator, audit Audit) *Service 
 		withNow(func() time.Time { return fixedNow })
 }
 
+func remediationTestActor(ctx context.Context, tenant, userID string) context.Context {
+	return auth.WithPrincipal(ctx, &auth.Principal{TenantID: tenant, UserID: userID})
+}
+
 func mustPropose(t *testing.T, s *Service, by string) rem.Proposal {
 	t.Helper()
-	p, err := s.Propose(context.Background(), testTenant, by, rem.ProposeInput{
+	p, err := s.Propose(remediationTestActor(context.Background(), testTenant, testProposerID), testTenant, by, rem.ProposeInput{
 		Kind: rem.KindRerouteSuggestion, Title: "reroute around failing hop",
 		Rationale: "incident X", Target: "hop:10.0.0.1",
 	})
@@ -164,7 +174,7 @@ func TestInjectionCannotApprove(t *testing.T) {
 		t.Fatalf("injection produced state %q, want proposed", p.State)
 	}
 	// The only path to approval is Approve — and it's disabled by default.
-	if _, err := s.Approve(context.Background(), testTenant, "ai:propose_remediation", p.ID, ""); !errors.Is(err, rem.ErrApprovalsDisabled) {
+	if _, err := s.Approve(remediationTestActor(context.Background(), testTenant, testProposerID), testTenant, "ai:propose_remediation", p.ID, ""); !errors.Is(err, rem.ErrApprovalsDisabled) {
 		t.Fatalf("approve via injection: err=%v, want ErrApprovalsDisabled", err)
 	}
 	got, _ := s.Get(context.Background(), testTenant, p.ID)
@@ -183,7 +193,7 @@ func TestAdvisoryOnly_Default(t *testing.T) {
 		t.Fatal("ApprovalsEnabled() = true, want false by default")
 	}
 	p := mustPropose(t, s, "user:admin@example.com")
-	if _, err := s.Approve(context.Background(), testTenant, "user:admin@example.com", p.ID, "go"); !errors.Is(err, rem.ErrApprovalsDisabled) {
+	if _, err := s.Approve(remediationTestActor(context.Background(), testTenant, testReviewerID), testTenant, "user:admin@example.com", p.ID, "go"); !errors.Is(err, rem.ErrApprovalsDisabled) {
 		t.Fatalf("approve: err=%v, want ErrApprovalsDisabled", err)
 	}
 }
@@ -197,7 +207,7 @@ func TestApprove_RequiresHumanAndAudits(t *testing.T) {
 	s := newSvc(true, 50, est, aud.fn())
 
 	p := mustPropose(t, s, "ai:propose_remediation")
-	out, err := s.Approve(context.Background(), testTenant, "user:admin@example.com", p.ID, "approved by NOC")
+	out, err := s.Approve(remediationTestActor(context.Background(), testTenant, testReviewerID), testTenant, "user:admin@example.com", p.ID, "approved by NOC")
 	if err != nil {
 		t.Fatalf("approve: %v", err)
 	}
@@ -228,7 +238,7 @@ func TestApprove_SelfApprovalBlocked(t *testing.T) {
 
 	// The same human approving their own proposal is refused (four-eyes) and the
 	// attempt is audited. Before the four-eyes check this succeeded.
-	if _, err := s.Approve(context.Background(), testTenant, "user:alice@example.com", p.ID, "self"); !errors.Is(err, rem.ErrSelfApproval) {
+	if _, err := s.Approve(remediationTestActor(context.Background(), testTenant, testProposerID), testTenant, "user:alice@example.com", p.ID, "self"); !errors.Is(err, rem.ErrSelfApproval) {
 		t.Fatalf("self-approval: err=%v, want ErrSelfApproval", err)
 	}
 	if !aud.has("remediation.approve_blocked") {
@@ -240,12 +250,56 @@ func TestApprove_SelfApprovalBlocked(t *testing.T) {
 
 	// A DIFFERENT authorizer can approve the same proposal — proving the test is
 	// not vacuously rejecting every approval.
-	out, err := s.Approve(context.Background(), testTenant, "user:bob@example.com", p.ID, "four-eyes ok")
+	out, err := s.Approve(remediationTestActor(context.Background(), testTenant, testReviewerID), testTenant, "user:bob@example.com", p.ID, "four-eyes ok")
 	if err != nil {
 		t.Fatalf("distinct approver: %v", err)
 	}
 	if out.State != rem.StateApproved || out.DecidedBy != "user:bob@example.com" {
 		t.Fatalf("distinct approver result: %+v", out)
+	}
+}
+
+func TestRemediationApprovalKeepsStableActorAcrossDisplayChanges(t *testing.T) {
+	for _, source := range []string{"user:original@example.test", "ai:propose_remediation"} {
+		t.Run(source, func(t *testing.T) {
+			audit := &recAudit{}
+			svc := newSvc(true, 50, &fakeEstimator{dry: rem.DryRun{BlastRadius: 3}}, audit.fn())
+			bound := remediationTestActor(t.Context(), testTenant, testProposerID)
+			item, err := svc.Propose(bound, testTenant, source, rem.ProposeInput{Kind: rem.KindOpenTicket, Title: "Review a proposed ticket"})
+			if err != nil || item.ProposedUserID != testProposerID {
+				t.Fatal("proposal did not retain its initiating account", err)
+			}
+			wire, err := json.Marshal(item)
+			if err != nil || strings.Contains(string(wire), testProposerID) {
+				t.Fatal("public proposal disclosed the private account binding", err)
+			}
+			if _, err := svc.Approve(bound, testTenant, "user:current@example.test", item.ID, "review"); !errors.Is(err, rem.ErrSelfApproval) {
+				t.Fatal("a different display label altered the independence decision", err)
+			}
+			peer := remediationTestActor(t.Context(), testTenant, testReviewerID)
+			approved, err := svc.Approve(peer, testTenant, "user:reviewer@example.test", item.ID, "reviewed")
+			if err != nil || approved.State != rem.StateApproved || !audit.has("remediation.approve_blocked") {
+				t.Fatal("a distinct account did not approve the reviewed proposal", err)
+			}
+		})
+	}
+}
+
+func TestRemediationLegacyProposalRequiresKnownInitiatingActor(t *testing.T) {
+	memory := NewMemStore()
+	legacy, err := memory.insert(t.Context(), testTenant, rem.Proposal{State: rem.StateProposed, ProposedBy: "user:prior@example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := &recAudit{}
+	svc := New(memory, nil, audit.fn(), Config{ApprovalsEnabled: true})
+	ctx := remediationTestActor(t.Context(), testTenant, testReviewerID)
+	if _, err := svc.Approve(ctx, testTenant, "user:reviewer@example.test", legacy.ID, "review"); !errors.Is(err, rem.ErrProposerIdentityUnavailable) {
+		t.Fatal("approval did not require proof of the legacy proposer identity", err)
+	}
+	result, err := svc.Reject(ctx, testTenant, "user:reviewer@example.test", legacy.ID, "recreate")
+	if err != nil || result.State != rem.StateRejected || !audit.has("remediation.approve_blocked") {
+		t.Fatal("legacy review did not retain the audited decline path", err)
 	}
 }
 
@@ -258,7 +312,7 @@ func TestApprove_TargetlessProposalBlocked(t *testing.T) {
 	aud := &recAudit{}
 	s := newSvc(true, 50, est, aud.fn())
 
-	p, err := s.Propose(context.Background(), testTenant, "ai:propose_remediation", rem.ProposeInput{
+	p, err := s.Propose(remediationTestActor(context.Background(), testTenant, testProposerID), testTenant, "ai:propose_remediation", rem.ProposeInput{
 		Kind: rem.KindRerouteSuggestion, Title: "no target supplied", Rationale: "incident", Target: "",
 	})
 	if err != nil {
@@ -267,7 +321,7 @@ func TestApprove_TargetlessProposalBlocked(t *testing.T) {
 	if p.DryRun.BlastRadius >= 0 {
 		t.Fatalf("target-less proposal blast radius = %d, want unknown (< 0)", p.DryRun.BlastRadius)
 	}
-	if _, err := s.Approve(context.Background(), testTenant, "user:admin@example.com", p.ID, ""); !errors.Is(err, rem.ErrUnknownBlastRadius) {
+	if _, err := s.Approve(remediationTestActor(context.Background(), testTenant, testReviewerID), testTenant, "user:admin@example.com", p.ID, ""); !errors.Is(err, rem.ErrUnknownBlastRadius) {
 		t.Fatalf("approve target-less proposal: err=%v, want ErrUnknownBlastRadius", err)
 	}
 	if !aud.has("remediation.approve_blocked") {
@@ -287,7 +341,7 @@ func TestApprove_BlastRadiusOverLimit_Blocked(t *testing.T) {
 	s := newSvc(true, 50, est, aud.fn())
 
 	p := mustPropose(t, s, "ai:propose_remediation")
-	if _, err := s.Approve(context.Background(), testTenant, "user:admin@example.com", p.ID, ""); !errors.Is(err, rem.ErrBlastRadiusExceeded) {
+	if _, err := s.Approve(remediationTestActor(context.Background(), testTenant, testReviewerID), testTenant, "user:admin@example.com", p.ID, ""); !errors.Is(err, rem.ErrBlastRadiusExceeded) {
 		t.Fatalf("approve: err=%v, want ErrBlastRadiusExceeded", err)
 	}
 	if !aud.has("remediation.approve_blocked") {
@@ -307,7 +361,7 @@ func TestApprove_UnknownBlastRadius_Blocked(t *testing.T) {
 	s := newSvc(true, 50, est, aud.fn())
 
 	p := mustPropose(t, s, "ai:propose_remediation")
-	if _, err := s.Approve(context.Background(), testTenant, "user:admin@example.com", p.ID, ""); !errors.Is(err, rem.ErrUnknownBlastRadius) {
+	if _, err := s.Approve(remediationTestActor(context.Background(), testTenant, testReviewerID), testTenant, "user:admin@example.com", p.ID, ""); !errors.Is(err, rem.ErrUnknownBlastRadius) {
 		t.Fatalf("approve: err=%v, want ErrUnknownBlastRadius", err)
 	}
 	got, _ := s.Get(context.Background(), testTenant, p.ID)
@@ -335,7 +389,7 @@ func TestReject_Audits(t *testing.T) {
 		t.Fatalf("reject not audited; actions=%v", aud.actions())
 	}
 	// A rejected proposal cannot then be approved.
-	if _, err := s.Approve(context.Background(), testTenant, "user:admin@example.com", p.ID, ""); !errors.Is(err, rem.ErrNotProposed) {
+	if _, err := s.Approve(remediationTestActor(context.Background(), testTenant, testReviewerID), testTenant, "user:admin@example.com", p.ID, ""); !errors.Is(err, rem.ErrNotProposed) {
 		t.Fatalf("approve after reject: err=%v, want ErrNotProposed", err)
 	}
 }
@@ -367,7 +421,7 @@ func TestMandatoryAuditFailureRollsBackMutation(t *testing.T) {
 			t.Fatalf("seed tenant B: %v", err)
 		}
 
-		if _, err := svc.Propose(context.Background(), testTenant, "user:a@example.com", rem.ProposeInput{
+		if _, err := svc.Propose(remediationTestActor(context.Background(), testTenant, testProposerID), testTenant, "user:a@example.com", rem.ProposeInput{
 			Kind: rem.KindOpenTicket, Title: "tenant A proposal",
 		}); !errors.Is(err, auditFailure) {
 			t.Fatalf("Propose with failed mandatory audit = %v, want %v", err, auditFailure)
@@ -382,7 +436,7 @@ func TestMandatoryAuditFailureRollsBackMutation(t *testing.T) {
 		{
 			name: "approve",
 			decide: func(svc *Service, id string) (rem.Proposal, error) {
-				return svc.Approve(context.Background(), testTenant, "user:admin@example.com", id, "approved")
+				return svc.Approve(remediationTestActor(context.Background(), testTenant, testReviewerID), testTenant, "user:admin@example.com", id, "approved")
 			},
 		},
 		{
@@ -396,13 +450,13 @@ func TestMandatoryAuditFailureRollsBackMutation(t *testing.T) {
 			store := NewMemStore()
 			svc := New(store, est, goodAudit, Config{ApprovalsEnabled: true, MaxBlastRadius: 50}).
 				withNow(func() time.Time { return fixedNow })
-			proposalA, err := svc.Propose(context.Background(), testTenant, "ai:propose_remediation", rem.ProposeInput{
+			proposalA, err := svc.Propose(remediationTestActor(context.Background(), testTenant, testProposerID), testTenant, "ai:propose_remediation", rem.ProposeInput{
 				Kind: rem.KindOpenTicket, Title: "tenant A baseline",
 			})
 			if err != nil {
 				t.Fatalf("seed tenant A: %v", err)
 			}
-			if _, err := svc.Propose(context.Background(), testTenantB, "ai:propose_remediation", rem.ProposeInput{
+			if _, err := svc.Propose(remediationTestActor(context.Background(), testTenantB, testProposerID), testTenantB, "ai:propose_remediation", rem.ProposeInput{
 				Kind: rem.KindOpenTicket, Title: "tenant B baseline",
 			}); err != nil {
 				t.Fatalf("seed tenant B: %v", err)
@@ -471,10 +525,10 @@ func TestNoExecutor(t *testing.T) {
 // is stored.
 func TestProposeValidation(t *testing.T) {
 	s := newSvc(true, 50, &fakeEstimator{}, (&recAudit{}).fn())
-	if _, err := s.Propose(context.Background(), testTenant, "u", rem.ProposeInput{Kind: "nonsense", Title: "x"}); err == nil {
+	if _, err := s.Propose(remediationTestActor(context.Background(), testTenant, testProposerID), testTenant, "u", rem.ProposeInput{Kind: "nonsense", Title: "x"}); err == nil {
 		t.Fatal("want validation error for unknown kind")
 	}
-	if _, err := s.Propose(context.Background(), testTenant, "u", rem.ProposeInput{Kind: rem.KindOpenTicket, Title: "   "}); err == nil {
+	if _, err := s.Propose(remediationTestActor(context.Background(), testTenant, testProposerID), testTenant, "u", rem.ProposeInput{Kind: rem.KindOpenTicket, Title: "   "}); err == nil {
 		t.Fatal("want validation error for empty title")
 	}
 }
@@ -543,7 +597,7 @@ func TestServiceDefaultsAndList(t *testing.T) {
 	if svc.maxBlastRadius != 50 {
 		t.Fatalf("default max blast radius=%d, want 50", svc.maxBlastRadius)
 	}
-	if _, err := svc.Propose(context.Background(), testTenant, "user", rem.ProposeInput{
+	if _, err := svc.Propose(remediationTestActor(context.Background(), testTenant, testProposerID), testTenant, "user", rem.ProposeInput{
 		Kind: rem.KindOpenTicket, Title: "ticket without topology target",
 	}); err != nil {
 		t.Fatalf("propose without estimator: %v", err)

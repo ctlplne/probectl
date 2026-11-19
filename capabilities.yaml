@@ -760,7 +760,7 @@ capabilities:
     config_keys: {refs: ["config:PROBECTL_REMEDIATION_APPROVALS_ENABLED", "config:PROBECTL_REMEDIATION_MAX_BLAST_RADIUS"]}
     telemetry: {refs: ["file:ee/remediation"]}
     real_stack_proof: {refs: ["test:ee/remediation/human_gate_integration_test.go#TestRemediationIsHumanGatedRealStack"]}
-    migration: {refs: ["file:migrations/0035_remediation.sql"]}
+    migration: {refs: ["file:migrations/0035_remediation.sql", "file:migrations/0227_remediation_proposal_actor.sql"]}
 
   - id: F45
     name: AI authoring and discovery
@@ -1054,7 +1054,7 @@ capabilities:
     config_keys: {refs: ["config:PROBECTL_REMEDIATION_APPROVALS_ENABLED"]}
     telemetry: {refs: ["file:internal/ebpf"]}
     real_stack_proof: {none_by_design: "A finite live-kernel scenario cannot prove the global absence of network mutation; the authoritative proof is the observe-only program-type and remediation dependency policy gate."}
-    migration: {refs: ["file:migrations/0035_remediation.sql"]}
+    migration: {refs: ["file:migrations/0035_remediation.sql", "file:migrations/0227_remediation_proposal_actor.sql"]}
 
   - id: CLM-HUMAN-GATED
     name: "Remediation is human-gated: explicit approval, dry-run, blast-radius limits; never autonomous."
@@ -1070,7 +1070,7 @@ capabilities:
     config_keys: {refs: ["config:PROBECTL_REMEDIATION_APPROVALS_ENABLED", "config:PROBECTL_REMEDIATION_MAX_BLAST_RADIUS"]}
     telemetry: {refs: ["file:ee/remediation"]}
     real_stack_proof: {refs: ["test:ee/remediation/human_gate_integration_test.go#TestRemediationIsHumanGatedRealStack"]}
-    migration: {refs: ["file:migrations/0035_remediation.sql"]}
+    migration: {refs: ["file:migrations/0035_remediation.sql", "file:migrations/0227_remediation_proposal_actor.sql"]}
 
   - id: CLM-NOT-AN-IPS
     name: Detection is a confidence-scored signal, never inline blocking / an IPS.

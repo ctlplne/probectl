@@ -89,7 +89,7 @@ func remediationTenantContext(ctx context.Context, tenantID string) (context.Con
 }
 
 const cols = `id::text, tenant_id::text, kind, title, rationale, target, incident_id,
-	dry_run, state, proposed_by, decided_by, decision_note, created_at, decided_at`
+	dry_run, state, proposed_by, decided_by, decision_note, created_at, decided_at, COALESCE(proposed_user_id::text,'')`
 
 func scanProposal(row pgx.Row) (rem.Proposal, error) {
 	var (
@@ -98,7 +98,7 @@ func scanProposal(row pgx.Row) (rem.Proposal, error) {
 	)
 	if err := row.Scan(&p.ID, &p.TenantID, &p.Kind, &p.Title, &p.Rationale, &p.Target,
 		&p.IncidentID, &dryRaw, &p.State, &p.ProposedBy, &p.DecidedBy, &p.Decision,
-		&p.CreatedAt, &p.DecidedAt); err != nil {
+		&p.CreatedAt, &p.DecidedAt, &p.ProposedUserID); err != nil {
 		return rem.Proposal{}, err
 	}
 	if len(dryRaw) > 0 {
@@ -134,6 +134,13 @@ func (s *PGStore) InsertAudited(
 	sink AuditSink,
 	event AuditEvent,
 ) (rem.Proposal, error) {
+	scoped, err := remediationTenantContext(ctx, tenantID)
+	if err != nil {
+		return rem.Proposal{}, err
+	}
+	if p.ProposedUserID == "" {
+		return rem.Proposal{}, rem.ErrApprovalActorUnavailable
+	}
 	txAudit, ok := sink.(scopedAuditSink)
 	if !ok {
 		return rem.Proposal{}, errAuditUnavailable
@@ -141,10 +148,6 @@ func (s *PGStore) InsertAudited(
 	dry, err := json.Marshal(p.DryRun)
 	if err != nil {
 		return rem.Proposal{}, fmt.Errorf("marshal remediation dry_run: %w", err)
-	}
-	scoped, err := remediationTenantContext(ctx, tenantID)
-	if err != nil {
-		return rem.Proposal{}, err
 	}
 	var out rem.Proposal
 	err = tenancy.InTenant(scoped, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
@@ -163,12 +166,17 @@ func (s *PGStore) InsertAudited(
 }
 
 func insertProposal(ctx context.Context, q tenancy.Querier, tenantID string, p rem.Proposal, dry []byte) (rem.Proposal, error) {
-	return scanProposal(q.QueryRow(ctx, `
+	out, err := scanProposal(q.QueryRow(ctx, `
 		INSERT INTO remediation_proposals
-			(tenant_id, kind, title, rationale, target, incident_id, dry_run, state, proposed_by, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+			(tenant_id, kind, title, rationale, target, incident_id, dry_run, state, proposed_by, created_at, proposed_user_id)
+		SELECT $1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, NULLIF($11,'')::uuid
+		WHERE $11='' OR EXISTS (SELECT 1 FROM users WHERE tenant_id=$1 AND id=NULLIF($11,'')::uuid AND status='active' FOR SHARE)
 		RETURNING `+cols,
-		tenantID, p.Kind, p.Title, p.Rationale, p.Target, p.IncidentID, string(dry), p.State, p.ProposedBy, p.CreatedAt))
+		tenantID, p.Kind, p.Title, p.Rationale, p.Target, p.IncidentID, string(dry), p.State, p.ProposedBy, p.CreatedAt, p.ProposedUserID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return rem.Proposal{}, rem.ErrApprovalActorUnavailable
+	}
+	return out, err
 }
 
 func (s *PGStore) List(ctx context.Context, tenantID string) ([]rem.Proposal, error) {
@@ -220,7 +228,7 @@ func (s *PGStore) decide(ctx context.Context, tenantID, id string, state rem.Sta
 	var out rem.Proposal
 	err = tenancy.InTenant(scoped, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		out, err = decideProposal(ctx, sc.Q, id, state, by, note, at)
+		out, err = decideProposal(ctx, sc.Q, tenantID, id, state, by, note, at)
 		return err
 	})
 	return out, err
@@ -246,7 +254,7 @@ func (s *PGStore) DecideAudited(
 	var out rem.Proposal
 	err = tenancy.InTenant(scoped, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		out, err = decideProposal(ctx, sc.Q, id, state, by, note, at)
+		out, err = decideProposal(ctx, sc.Q, tenantID, id, state, by, note, at)
 		if err != nil {
 			return err
 		}
@@ -255,14 +263,25 @@ func (s *PGStore) DecideAudited(
 	return out, err
 }
 
-func decideProposal(ctx context.Context, q tenancy.Querier, id string, state rem.State, by, note string, at time.Time) (rem.Proposal, error) {
+func decideProposal(ctx context.Context, q tenancy.Querier, tenantID, id string, state rem.State, by, note string, at time.Time) (rem.Proposal, error) {
+	var reviewer string
+	if state == rem.StateApproved {
+		var err error
+		reviewer, err = remediationActor(ctx, tenantID, true)
+		if err != nil {
+			return rem.Proposal{}, err
+		}
+	}
 	out, err := scanProposal(q.QueryRow(ctx, `
 		UPDATE remediation_proposals
 		   SET state = $2, decided_by = $3, decision_note = $4, decided_at = $5
-		 WHERE id = $1 AND state = 'proposed'
-		RETURNING `+cols, id, state, by, note, at))
+		 WHERE id = $1 AND tenant_id=$6 AND state='proposed'
+		   AND ($2 <> 'approved' OR (
+			proposed_user_id IS NOT NULL AND proposed_user_id <> NULLIF($7,'')::uuid
+			AND EXISTS (SELECT 1 FROM users WHERE tenant_id=$6 AND id=NULLIF($7,'')::uuid AND status='active' FOR SHARE)))
+		RETURNING `+cols, id, state, by, note, at, tenantID, reviewer))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return rem.Proposal{}, rem.ErrNotProposed // someone else decided it, or it's gone
+		return rem.Proposal{}, rem.ErrNotProposed
 	}
 	return out, err
 }

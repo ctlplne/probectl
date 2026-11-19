@@ -695,12 +695,12 @@ func (a mcpAuthenticator) checkTenantPolicy(ctx context.Context, tenantID string
 // delegates to the remediation Service, which ALWAYS creates a state=proposed
 // proposal — this path can never approve or execute. When the feature is
 // unlicensed (no service installed), the tool errors. The proposer is recorded
-// as the AI, distinct from a human approver.
+// as the AI for display. The initiating account stays bound to the decision.
 func (b mcpBackend) ProposeRemediation(ctx context.Context, p *auth.Principal, kind, title, rationale, target, incidentID string) (mcp.ProposalResult, error) {
 	if b.remediation == nil {
 		return mcp.ProposalResult{}, errors.New("remediation is not enabled in this deployment")
 	}
-	prop, err := b.remediation.Propose(ctx, p.TenantID, "ai:propose_remediation", remediation.ProposeInput{
+	prop, err := b.remediation.Propose(auth.WithPrincipal(ctx, p), p.TenantID, "ai:propose_remediation", remediation.ProposeInput{
 		Kind: remediation.Kind(kind), Title: title, Rationale: rationale,
 		Target: target, IncidentID: incidentID,
 	})

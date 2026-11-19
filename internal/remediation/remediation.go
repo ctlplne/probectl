@@ -94,20 +94,21 @@ type DryRun struct {
 
 // Proposal is one AI-proposed remediation and its decision trail.
 type Proposal struct {
-	ID         string     `json:"id"`
-	TenantID   string     `json:"tenant_id"`
-	Kind       Kind       `json:"kind"`
-	Title      string     `json:"title"`
-	Rationale  string     `json:"rationale"`             // grounded in RCA / the incident
-	Target     string     `json:"target"`                // the affected element (e.g. "hop:10.0.0.1")
-	IncidentID string     `json:"incident_id,omitempty"` // the grounding incident, when any
-	DryRun     DryRun     `json:"dry_run"`
-	State      State      `json:"state"`
-	ProposedBy string     `json:"proposed_by"`          // a user, or "ai:propose_remediation"
-	DecidedBy  string     `json:"decided_by,omitempty"` // the approver/rejecter
-	Decision   string     `json:"decision_note,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	DecidedAt  *time.Time `json:"decided_at,omitempty"`
+	ID             string     `json:"id"`
+	TenantID       string     `json:"tenant_id"`
+	Kind           Kind       `json:"kind"`
+	Title          string     `json:"title"`
+	Rationale      string     `json:"rationale"`             // grounded in RCA / the incident
+	Target         string     `json:"target"`                // the affected element (e.g. "hop:10.0.0.1")
+	IncidentID     string     `json:"incident_id,omitempty"` // the grounding incident, when any
+	DryRun         DryRun     `json:"dry_run"`
+	State          State      `json:"state"`
+	ProposedBy     string     `json:"proposed_by"`          // a user, or "ai:propose_remediation"
+	ProposedUserID string     `json:"-"`                    // immutable initiating account, separate from the display label
+	DecidedBy      string     `json:"decided_by,omitempty"` // the approver/rejecter
+	Decision       string     `json:"decision_note,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	DecidedAt      *time.Time `json:"decided_at,omitempty"`
 }
 
 // ProposeInput is the AI/operator's proposal request. The proposer is taken
@@ -155,10 +156,12 @@ type Error struct{ Code, Message string }
 func (e Error) Error() string { return e.Message }
 
 var (
-	ErrApprovalsDisabled   = Error{Code: "approvals_disabled", Message: "remediation approvals are disabled (advisory-only) — an operator must enable them"}
-	ErrBlastRadiusExceeded = Error{Code: "blast_radius_exceeded", Message: "the proposal's blast radius exceeds the configured limit — it cannot be approved"}
-	ErrNotProposed         = Error{Code: "not_proposed", Message: "only a proposed remediation can be decided"}
-	ErrUnknownBlastRadius  = Error{Code: "blast_radius_unknown", Message: "the blast radius could not be simulated (topology unavailable) — approval is blocked, fail closed"}
+	ErrApprovalActorUnavailable    = Error{Code: "actor_unavailable", Message: "a current named account is required"}
+	ErrProposerIdentityUnavailable = Error{Code: "proposer_identity_unavailable", Message: "reject and recreate the proposal to bind its original account"}
+	ErrApprovalsDisabled           = Error{Code: "approvals_disabled", Message: "remediation approvals are disabled (advisory-only) — an operator must enable them"}
+	ErrBlastRadiusExceeded         = Error{Code: "blast_radius_exceeded", Message: "the proposal's blast radius exceeds the configured limit — it cannot be approved"}
+	ErrNotProposed                 = Error{Code: "not_proposed", Message: "only a proposed remediation can be decided"}
+	ErrUnknownBlastRadius          = Error{Code: "blast_radius_unknown", Message: "the blast radius could not be simulated (topology unavailable) — approval is blocked, fail closed"}
 	// ErrSelfApproval enforces four-eyes (AUTHZ-20, docs/guardrails.md G7-8): the
 	// proposer can never approve their own remediation — a different authorizer
 	// must decide. The blocked attempt is audited.

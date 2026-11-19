@@ -64,6 +64,11 @@ code — changing them is a product decision, not an engineering one.
    can, at worst, cause a proposal to appear in the review queue — never an
    approval, and never an action.
 
+   The original proposing account is retained for the four-eyes check, including
+   proposals filed through MCP. A contact email can change independently of
+   the account. Pending legacy proposals without an account binding need to be
+   declined and recreated before approval.
+
 3. **Advisory-only by default.** Approvals are **off** until an operator sets
    `PROBECTL_REMEDIATION_APPROVALS_ENABLED=true`. Until then the assistant still
    proposes and humans still review, but Approve is unavailable (the API returns

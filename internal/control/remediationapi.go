@@ -183,9 +183,9 @@ func mapRemediationErr(err error) error {
 			return apierror.NotFound(re.Message)
 		case "validation":
 			return apierror.Validation(re.Message)
-		case "approvals_disabled", "blast_radius_exceeded", "blast_radius_unknown", "not_proposed":
+		case "approvals_disabled", "blast_radius_exceeded", "blast_radius_unknown", "not_proposed", "proposer_identity_unavailable":
 			return apierror.Conflict(re.Message).WithCode(re.Code)
-		case "self_approval":
+		case "self_approval", "actor_unavailable":
 			// Four-eyes refusal (AUTHZ-20 / G7-8): forbidden, not a conflict.
 			return apierror.Forbidden(re.Message).WithCode(re.Code)
 		}

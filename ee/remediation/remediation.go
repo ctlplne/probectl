@@ -18,6 +18,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/ctlplne/probectl/internal/auth"
 	rem "github.com/ctlplne/probectl/internal/remediation"
 )
 
@@ -79,6 +82,22 @@ func (s *Service) withNow(now func() time.Time) *Service { s.now = now; return s
 // ApprovalsEnabled reports the advisory-only master switch.
 func (s *Service) ApprovalsEnabled() bool { return s.approvalsEnabled }
 
+// remediationActor separates the stable tenant member from the display label.
+func remediationActor(ctx context.Context, tenantID string, interactive bool) (string, error) {
+	if _, err := remediationTenantContext(ctx, tenantID); err != nil {
+		return "", err
+	}
+	actor := auth.PrincipalFrom(ctx)
+	if actor == nil || actor.TenantID != tenantID || interactive && actor.ViaBearerToken {
+		return "", rem.ErrApprovalActorUnavailable
+	}
+	id, err := uuid.Parse(actor.UserID)
+	if err != nil || id == uuid.Nil || id.String() != actor.UserID {
+		return "", rem.ErrApprovalActorUnavailable
+	}
+	return id.String(), nil
+}
+
 // Propose files a PROPOSED proposal and runs the dry-run. It NEVER approves —
 // whatever the caller (including the proposal-only MCP tool fed by ingested
 // data), the result is always state=proposed awaiting a human.
@@ -89,6 +108,10 @@ func (s *Service) Propose(ctx context.Context, tenantID, proposedBy string, in r
 	}
 	if in.Title == "" {
 		return rem.Proposal{}, rem.Error{Code: "validation", Message: "title is required"}
+	}
+	userID, err := remediationActor(ctx, tenantID, false)
+	if err != nil {
+		return rem.Proposal{}, err
 	}
 	// The dry-run is a read-only topology simulation — it EXECUTES NOTHING.
 	dry := rem.DryRun{Note: "no target to simulate"}
@@ -107,21 +130,22 @@ func (s *Service) Propose(ctx context.Context, tenantID, proposedBy string, in r
 		dry = rem.DryRun{BlastRadius: -1, Note: noteUnknown}
 	}
 	p := rem.Proposal{
-		TenantID:   tenantID,
-		Kind:       in.Kind,
-		Title:      in.Title,
-		Rationale:  in.Rationale,
-		Target:     in.Target,
-		IncidentID: in.IncidentID,
-		DryRun:     dry,
-		State:      rem.StateProposed, // ALWAYS proposed — never approved on creation
-		ProposedBy: proposedBy,
-		CreatedAt:  s.now().UTC(),
+		TenantID:       tenantID,
+		Kind:           in.Kind,
+		Title:          in.Title,
+		Rationale:      in.Rationale,
+		Target:         in.Target,
+		IncidentID:     in.IncidentID,
+		DryRun:         dry,
+		State:          rem.StateProposed, // ALWAYS proposed — never approved on creation
+		ProposedBy:     proposedBy,
+		ProposedUserID: userID,
+		CreatedAt:      s.now().UTC(),
 	}
 	saved, err := s.store.InsertAudited(ctx, tenantID, p, s.audit, AuditEvent{
 		Actor: proposedBy, Action: "remediation.propose",
 		Data: map[string]any{
-			"kind": p.Kind, "target": p.Target, "blast_radius": p.DryRun.BlastRadius,
+			"kind": p.Kind, "target": p.Target, "blast_radius": p.DryRun.BlastRadius, "proposer_user_id": userID,
 		},
 	})
 	if err != nil {
@@ -155,13 +179,23 @@ func (s *Service) Approve(ctx context.Context, tenantID, approver, id, note stri
 	if p.State != rem.StateProposed {
 		return rem.Proposal{}, rem.ErrNotProposed
 	}
-	// Four-eyes (AUTHZ-20, docs/guardrails.md G7-8): the proposer can never
-	// approve their own proposal, however they authenticated. Audit the blocked
-	// attempt, then fail closed — this is checked before the blast-radius guards
-	// so a self-approval is refused even when the radius is within limits.
-	if approver == p.ProposedBy {
+	userID, err := remediationActor(ctx, tenantID, true)
+	if err != nil {
+		return rem.Proposal{}, err
+	}
+	// Four-eyes (docs/guardrails.md G7-8) uses the original account. Older
+	// display-only proposals need a new proposal with a verified actor.
+	if p.ProposedUserID == "" {
 		if err := s.record(ctx, tenantID, approver, "remediation.approve_blocked", id, map[string]any{
-			"reason": "self_approval", "proposed_by": p.ProposedBy,
+			"reason": "proposer_identity_unavailable", "approver_user_id": userID,
+		}); err != nil {
+			return rem.Proposal{}, err
+		}
+		return rem.Proposal{}, rem.ErrProposerIdentityUnavailable
+	}
+	if userID == p.ProposedUserID {
+		if err := s.record(ctx, tenantID, approver, "remediation.approve_blocked", id, map[string]any{
+			"reason": "self_approval", "proposed_by": p.ProposedBy, "approver_user_id": userID,
 		}); err != nil {
 			return rem.Proposal{}, err
 		}
