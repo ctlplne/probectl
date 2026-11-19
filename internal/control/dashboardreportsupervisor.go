@@ -73,6 +73,10 @@ func (s *DashboardReportSupervisor) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.Tick(ctx)
+		case request := <-s.providerProspectWakeups():
+			if err := s.runProviderProspectRequest(ctx, request); err != nil {
+				s.log.Warn("provider prospect assessment is waiting", "tenant_id", request.tenant)
+			}
 		}
 	}
 }

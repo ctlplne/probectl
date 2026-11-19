@@ -268,6 +268,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 			Pool:              pool,
 			MonthlyReports:    srv.MonthlyReportQueue(),
 			ComplianceReports: srv.ComplianceReportQueue(),
+			ProspectReports:   srv.ProspectProviderQueue(),
 			License:           lic,
 			Log:               log,
 			Results:           results,

@@ -406,6 +406,23 @@ Engagement writes take the same tenant writer lease and database trigger as
 other lifecycle data. Once the existing erasure fence closes, PostgreSQL
 refuses engagement inserts and updates.
 
+### Provider operation for multiple prospects
+
+In an MSP deployment, the engagement owner can grant operational provider
+access in **Admin → Prospect engagement**. A current tenant lifecycle
+administrator can withdraw it from the same card. The grant binds the exact
+engagement revision and lets the provider see the phase and request a retry of
+the due assessment. Conversion or a change in the engagement revision expires
+the grant. The report, evidence, owner and destination require tenant
+authorization. The engagement deadline, conversion and scheduled erasure
+remain under tenant control.
+
+The tenant API uses `GET /v1/lifecycle/prospect/provider-access` to read the
+grant. Its POST requires both current revisions and an explicit grant
+decision. The CLI exposes `probectl lifecycle prospect-provider-access` and
+`probectl lifecycle set-prospect-provider-access --body-file request.json`.
+See [prospect assessments in the provider console](provider-plane.md#prospect-assessments).
+
 ## Configuration
 
 See [`configuration.md`](configuration.md) for the `PROBECTL_AGENT_SKEW_WINDOW`

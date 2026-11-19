@@ -303,6 +303,7 @@ func newSepStack(t *testing.T, setup ...func(*control.Server)) *sepStack {
 	plane, err := Build(cfg, Deps{
 		MonthlyReports:    srv.MonthlyReportQueue(),
 		ComplianceReports: srv.ComplianceReportQueue(),
+		ProspectReports:   srv.ProspectProviderQueue(),
 		Pool:              db.Pool(),
 		License:           licenseManager(t, license.TierMSP, 0, 90*24*time.Hour),
 		Log:               log,

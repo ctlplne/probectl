@@ -13673,6 +13673,92 @@
         }
       }
     },
+    "/v1/lifecycle/prospect/provider-access": {
+      "get": {
+        "operationId": "getProspectProviderAccess",
+        "summary": "Read provider operational access granted by the owner of the current engagement",
+        "x-required-permission": "lifecycle.erase",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The scoped operational consent and its exact revisions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectProviderAccess"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "setProspectProviderAccess",
+        "summary": "Grant or withdraw provider operational access for the exact engagement",
+        "x-required-permission": "lifecycle.erase",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProspectProviderAccessInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The scoped operational consent and its exact revisions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectProviderAccess"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/lifecycle/prospect/convert": {
       "post": {
         "operationId": "convertProspectEngagement",
@@ -20136,6 +20222,58 @@
           }
         },
         "additionalProperties": false
+      },
+      "ProspectProviderAccess": {
+        "type": "object",
+        "required": [
+          "revision",
+          "engagement_revision",
+          "allowed",
+          "can_grant"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "engagement_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "allowed": {
+            "type": "boolean"
+          },
+          "can_grant": {
+            "type": "boolean",
+            "description": "Whether the authenticated lifecycle account owns the current engagement."
+          }
+        }
+      },
+      "ProspectProviderAccessInput": {
+        "type": "object",
+        "required": [
+          "engagement_revision",
+          "access_revision",
+          "allowed"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "engagement_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "access_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "allowed": {
+            "type": "boolean"
+          }
+        }
       },
       "ProspectEngagementDecision": {
         "type": "object",

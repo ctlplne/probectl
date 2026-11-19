@@ -53,6 +53,7 @@ const consentPermission = "directory.write"
 type Handler struct {
 	monthlyReports    reporting.MonthlyReportQueue
 	complianceReports reporting.ComplianceReportQueue
+	prospectReports   reporting.ProspectProviderQueue
 	svc               *Service
 	sessions          *Sessions
 	tenantAuth        TenantAuth
@@ -113,6 +114,8 @@ func routes() []RouteDecl {
 		{http.MethodGet, "/provider/v1/fleet"},
 		{http.MethodPost, "/provider/v1/tenants/{id}/monthly-reports"},
 		{http.MethodGet, "/provider/v1/tenants/{id}/monthly-reports/{request_id}"},
+		{http.MethodGet, "/provider/v1/tenants/{id}/prospect-report"},
+		{http.MethodPost, "/provider/v1/tenants/{id}/prospect-report"},
 		{http.MethodPost, "/provider/v1/tenants/{id}/compliance-reports"},
 		{http.MethodGet, "/provider/v1/tenants/{id}/compliance-reports/{request_id}"},
 		{http.MethodGet, "/provider/v1/tenants/provisioning"},
@@ -175,6 +178,8 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	h.handle("GET /provider/v1/tenants/{id}/monthly-reports/{request_id}", h.asOperator(RoleOperator, h.handleMonthlyReportProgress))
 	h.handle("POST /provider/v1/tenants/{id}/monthly-reports", h.asOperator(RoleOperator, h.handleMonthlyReports))
 	h.handle("GET /provider/v1/tenants/{id}/compliance-reports/{request_id}", h.asOperator(RoleOperator, h.handleComplianceReportProgress))
+	h.handle("GET /provider/v1/tenants/{id}/prospect-report", h.asOperator(RoleOperator, h.handleProspectReportStatus))
+	h.handle("POST /provider/v1/tenants/{id}/prospect-report", h.asOperator(RoleOperator, h.handleRequestProspectReport))
 	h.handle("POST /provider/v1/tenants/{id}/compliance-reports", h.asOperator(RoleOperator, h.handleComplianceReports))
 	h.handle("GET /provider/v1/fleet", h.asOperator("", h.auditedRead("provider.fleet_read", false, h.handleFleet)))
 	// Stranded provisioning attempts (S-fadcec95): list what never completed

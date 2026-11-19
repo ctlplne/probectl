@@ -1124,6 +1124,20 @@ export const API_CALL_CONTRACTS = [
     generated: 'RevokeProspectConsentResponse',
   },
   {
+    file: 'api/lifecycle.ts',
+    method: 'GET',
+    path: '/lifecycle/prospect/provider-access',
+    response: 'ProspectProviderAccess',
+    generated: 'GetProspectProviderAccessResponse',
+  },
+  {
+    file: 'api/lifecycle.ts',
+    method: 'POST',
+    path: '/lifecycle/prospect/provider-access',
+    response: 'ProspectProviderAccess',
+    generated: 'SetProspectProviderAccessResponse',
+  },
+  {
     file: 'api/outages.ts',
     method: 'GET',
     path: '/outages',

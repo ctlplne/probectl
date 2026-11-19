@@ -7,6 +7,90 @@
     "description": "The MSP operator surface: tenant lifecycle, fleet-across-tenants health, audited break-glass. Operators are a privilege domain distinct from tenant users (mandatory TOTP MFA); they hold NO implicit access to tenant telemetry \u2014 the only telemetry path is an active, tenant-consented, time-bounded grant, and every access is written to the separate provider audit stream."
   },
   "paths": {
+    "/provider/v1/tenants/{id}/prospect-report": {
+      "get": {
+        "operationId": "getProspectReportStatus",
+        "summary": "Read the tenant-consented operational status of a prospect assessment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operational status. Assessment files remain behind tenant authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectReportStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required."
+          },
+          "404": {
+            "description": "No current grant or available prospect operation."
+          }
+        }
+      },
+      "post": {
+        "operationId": "requestProspectAssessment",
+        "summary": "Request a retry of the current tenant-consented due assessment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProspectReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Operational status and a receipt when this request was queued. Assessment files remain behind tenant authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectReportStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required."
+          },
+          "400": {
+            "description": "The request ID and both observed revisions are required."
+          },
+          "403": {
+            "description": "Operator write authority required."
+          },
+          "404": {
+            "description": "No current grant or available prospect operation."
+          }
+        }
+      }
+    },
     "/provider/v1/tenants/{id}/monthly-reports/{request_id}": {
       "get": {
         "operationId": "getMonthlyReportProgress",
@@ -841,6 +925,51 @@
   },
   "components": {
     "schemas": {
+      "ProspectReportRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "engagement_revision", "access_revision"],
+        "properties": {
+          "request_id": { "type": "string", "format": "uuid" },
+          "engagement_revision": { "type": "integer", "format": "int64", "minimum": 1 },
+          "access_revision": { "type": "integer", "format": "int64", "minimum": 1 }
+        }
+      },
+      "ProspectReportStatus": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "phase",
+          "ends_at",
+          "request_pending",
+          "engagement_revision",
+          "access_revision"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "collecting",
+              "due",
+              "filed"
+            ]
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "request_pending": {
+            "type": "boolean"
+          },
+          "engagement_revision": { "type": "integer", "format": "int64", "minimum": 1 },
+          "access_revision": { "type": "integer", "format": "int64", "minimum": 1 },
+          "request_id": { "type": "string", "format": "uuid" }
+        }
+      },
       "MonthlyReportRequest": {
         "type": "object",
         "additionalProperties": false,

@@ -361,3 +361,25 @@ request shape and `GET /provider/v1/tenants/{id}/compliance-reports/{request_id}
 to read progress. A retry belongs to its original tenant, provider operator
 and report family. The CLI verbs are `probectl provider compliance-reports`
 and `probectl provider compliance-report-progress` with the same arguments.
+
+## Prospect assessments
+
+Choose **Prospect assessments** in the reports card. You can select up to 100
+active tenants for **Refresh report progress** or **Request due assessments**.
+The console shows the engagement phase and whether a retry is pending for each
+tenant that granted access. The report supervisor checks the owner's current
+source permissions and the exact grant before filing provider-requested work.
+The tenant's scheduled assessment follows its original authorization. Tenant
+owners control access from [Prospect engagement](lifecycle.md#provider-operation-for-multiple-prospects).
+
+`GET /provider/v1/tenants/{id}/prospect-report` returns the phase and the current
+engagement and access revisions. The POST requires those two revisions and a
+canonical UUID `request_id`. The existing operator session and audit apply to
+both methods. To retry your request, send the same three fields. Withdrawal or
+conversion invalidates the previous request. A pending retry remains eligible
+for the existing supervisor pass. Report content and downloads remain
+available through the tenant's report inbox.
+
+Use `probectl provider prospect-report-status <tenant-id>` to read status and
+`probectl provider request-prospect-report <tenant-id> --body-file <request.json>`
+to request the assessment retry.

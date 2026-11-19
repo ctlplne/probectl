@@ -3710,6 +3710,19 @@ export interface ProspectEngagementInput {
   preparer: string
 }
 
+export interface ProspectProviderAccess {
+  allowed: boolean
+  can_grant: boolean
+  engagement_revision: number
+  revision: number
+}
+
+export interface ProspectProviderAccessInput {
+  access_revision: number
+  allowed: boolean
+  engagement_revision: number
+}
+
 export interface ReadinessAction {
   href: string
   kind: "navigate" | "download"
@@ -5611,6 +5624,17 @@ export interface ConvertProspectEngagementRequest {
 }
 
 export type ConvertProspectEngagementResponse = ProspectEngagement
+
+export interface GetProspectProviderAccessRequest {
+}
+
+export type GetProspectProviderAccessResponse = ProspectProviderAccess
+
+export interface SetProspectProviderAccessRequest {
+  body: ProspectProviderAccessInput
+}
+
+export type SetProspectProviderAccessResponse = ProspectProviderAccess
 
 export interface RevokeProspectConsentRequest {
   body: ProspectEngagementDecision
@@ -7734,6 +7758,18 @@ export class ProbectlSDKClient {
     let path = "/v1/lifecycle/prospect/convert"
     const query = new URLSearchParams()
     return this.requestJSON<ConvertProspectEngagementResponse>("POST", path, query, request.body)
+  }
+
+  async getProspectProviderAccess(): Promise<GetProspectProviderAccessResponse> {
+    let path = "/v1/lifecycle/prospect/provider-access"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetProspectProviderAccessResponse>("GET", path, query, undefined)
+  }
+
+  async setProspectProviderAccess(request: SetProspectProviderAccessRequest): Promise<SetProspectProviderAccessResponse> {
+    let path = "/v1/lifecycle/prospect/provider-access"
+    const query = new URLSearchParams()
+    return this.requestJSON<SetProspectProviderAccessResponse>("POST", path, query, request.body)
   }
 
   async revokeProspectConsent(request: RevokeProspectConsentRequest): Promise<RevokeProspectConsentResponse> {

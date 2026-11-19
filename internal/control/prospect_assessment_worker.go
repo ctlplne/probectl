@@ -21,6 +21,10 @@ import (
 )
 
 func (s *DashboardReportSupervisor) materializeProspectAssessment(ctx context.Context, tenant, tenantName string, now time.Time) error {
+	return s.materializeProspectAssessmentWithRequest(ctx, tenant, tenantName, now, nil)
+}
+
+func (s *DashboardReportSupervisor) materializeProspectAssessmentWithRequest(ctx context.Context, tenant, tenantName string, now time.Time, providerRequest *reporting.ProspectProviderRequest) error {
 	server := s.sourceServer
 	if server == nil {
 		return nil
@@ -108,6 +112,12 @@ func (s *DashboardReportSupervisor) materializeProspectAssessment(ctx context.Co
 		}
 		if latest.Revision != engagement.Revision || latest.ConvertedAt != nil || latest.AssessmentArtifactID != "" {
 			return nil
+		}
+		if providerRequest != nil {
+			active, err := (store.ProspectEngagements{}).CurrentProviderRequest(ctx, sc, providerRequest.ID, providerRequest.EngagementRevision, providerRequest.AccessRevision)
+			if err != nil || !active {
+				return err
+			}
 		}
 		current, err := (store.DashboardReports{}).GetViewForReportPublication(ctx, sc, view.ID, engagement.OwnerID)
 		if err != nil {

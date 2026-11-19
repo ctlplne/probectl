@@ -53,6 +53,7 @@ import (
 type Deps struct {
 	MonthlyReports    reporting.MonthlyReportQueue
 	ComplianceReports reporting.ComplianceReportQueue
+	ProspectReports   reporting.ProspectProviderQueue
 	Pool              *pgxpool.Pool
 	License           *license.Manager
 	Log               *slog.Logger
@@ -175,7 +176,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	sessions := NewSessions(cfg.SessionHMACKey).WithIdleTimeout(cfg.SessionIdleTimeout).WithStore(st)
 	return NewHandler(svc, sessions, tenantAuth, log,
 		cfg.ProviderBootstrapToken, cfg.CookieSecure()).
-		WithMonthlyReports(d.MonthlyReports).WithComplianceReports(d.ComplianceReports).WithTrustedProxies(cfg.TrustedProxies).
+		WithMonthlyReports(d.MonthlyReports).WithComplianceReports(d.ComplianceReports).WithProspectReports(d.ProspectReports).WithTrustedProxies(cfg.TrustedProxies).
 		WithMetering(d.Metering).WithLifecycle(d.Lifecycle).
 		WithFairness(d.Fairness).WithGovernance(d.Governance), nil
 }

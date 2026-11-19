@@ -183,6 +183,8 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/lifecycle/prospect", s.handleStartProspect, permLifecycleErase},
 		{http.MethodPost, "/v1/lifecycle/prospect/convert", s.handleConvertProspect, permLifecycleErase},
 		{http.MethodPost, "/v1/lifecycle/prospect/revoke-consent", s.handleRevokeProspect, permLifecycleErase},
+		{http.MethodGet, "/v1/lifecycle/prospect/provider-access", s.handleProspectProviderAccess, permLifecycleErase},
+		{http.MethodPost, "/v1/lifecycle/prospect/provider-access", s.handleSetProspectProviderAccess, permLifecycleErase},
 		{http.MethodGet, "/v1/security/keys", s.handleKeysStatus, permSecurityKeys},
 		{http.MethodPost, "/v1/api-tokens", s.handleCreateAPIToken, permSecurityKeys},
 		{http.MethodGet, "/v1/api-tokens", s.handleListAPITokens, permSecurityKeys},

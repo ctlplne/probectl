@@ -6,7 +6,12 @@
 import { useState, type FormEvent } from 'react'
 import { apiDownloadURL } from '../../api/client'
 import { useDashboards, useReportSchedules } from '../../api/dashboardReporting'
-import { useProspectEngagement, useProspectEngagementAction } from '../../api/lifecycle'
+import {
+  useProspectEngagement,
+  useProspectEngagementAction,
+  useProspectProviderAccess,
+  useSetProspectProviderAccess,
+} from '../../api/lifecycle'
 import type { ProspectEngagement } from '../../api/sdk.gen'
 import { useAuth } from '../../auth/useAuth'
 import {
@@ -285,6 +290,9 @@ function CurrentProspect({
           Download assessment PDF
         </a>
       ) : null}
+      {!converted ? (
+        <ProspectProviderAccessControl identity={identity} revision={engagement.revision} />
+      ) : null}
       {error ? <p role="alert">{error}</p> : null}
       {!converted ? (
         <div className={styles.row}>
@@ -306,6 +314,42 @@ function CurrentProspect({
           </Button>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function ProspectProviderAccessControl({
+  identity,
+  revision,
+}: {
+  identity: string
+  revision: number
+}) {
+  const { data, isError } = useProspectProviderAccess(identity, true)
+  const update = useSetProspectProviderAccess(identity)
+  if (isError) return <ErrorState description="Could not read provider assessment access." />
+  if (!data || data.engagement_revision !== revision || (!data.allowed && !data.can_grant))
+    return null
+
+  const allowed = data.allowed
+  return (
+    <div className={styles.stack}>
+      <p>Provider access covers assessment status and retries after the engagement ends.</p>
+      <p role="status">{allowed ? 'Provider access granted' : 'Provider access off'}</p>
+      {update.isError ? <p role="alert">Could not update provider assessment access.</p> : null}
+      <Button
+        variant="secondary"
+        disabled={update.isPending}
+        onClick={() =>
+          update.mutate({
+            engagement_revision: revision,
+            access_revision: data.revision,
+            allowed: !allowed,
+          })
+        }
+      >
+        {allowed ? 'Withdraw provider access' : 'Grant provider access'}
+      </Button>
     </div>
   )
 }

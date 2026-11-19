@@ -133,3 +133,72 @@ test('a foreign-tenant response is refused and read-only mode cannot queue', asy
   expect(screen.getByRole('button', { name: 'Queue monthly reports' })).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Select all active tenants' })).toBeDisabled()
 })
+
+test('prospect requests and status use the consented tenant path and preserve read-only controls', async () => {
+  const seen: Array<{ tenant: string; method: string; id?: string; access?: number }> = []
+  let grant = 1
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = pathOf(input)
+      if (path === '/provider/v1/tenants') return jsonResponse({ items: tenants })
+      const match = path.match(/^\/provider\/v1\/tenants\/([^/]+)\/prospect-report$/)
+      if (!match) throw new Error('Unexpected provider route')
+      const method = init?.method ?? 'GET'
+      const body =
+        method === 'POST'
+          ? (JSON.parse(String(init?.body)) as { request_id: string; access_revision: number })
+          : undefined
+      seen.push({ tenant: match[1], method, id: body?.request_id, access: body?.access_revision })
+      if (match[1] === tenants[1].id || (body && body.access_revision !== grant)) {
+        return jsonResponse({ error: { code: 'not_found', message: 'Unavailable' } }, 404)
+      }
+      return jsonResponse(
+        {
+          tenant_id: match[1],
+          phase: 'due',
+          ends_at: '2026-11-19T12:00:00Z',
+          request_pending: method === 'POST',
+          engagement_revision: 7,
+          access_revision: grant,
+        },
+        method === 'POST' ? 202 : 200,
+      )
+    }),
+  )
+  const mounted = mount()
+  const user = userEvent.setup()
+  await user.selectOptions(await screen.findByLabelText('Report family'), 'prospect')
+  await user.click(screen.getByRole('button', { name: 'Select this page' }))
+  await user.click(screen.getByRole('button', { name: 'Request due assessments' }))
+  const progress = screen.getByRole('list', { name: 'Prospect assessment operational progress' })
+  await waitFor(() => expect(progress).toHaveTextContent('due · retry requested'))
+  await waitFor(() => expect(seen).toHaveLength(3))
+  expect(seen.map(({ tenant, method }) => [tenant, method])).toEqual([
+    [tenants[0].id, 'GET'],
+    [tenants[0].id, 'POST'],
+    [tenants[1].id, 'GET'],
+  ])
+  expect(seen[1].id).toMatch(/^[a-f0-9-]{36}$/)
+  expect(seen[1].access).toBe(1)
+  grant = 2
+  await user.click(screen.getByRole('button', { name: 'Retry same report request' }))
+  await waitFor(() => expect(seen).toHaveLength(4))
+  expect(seen[3]).toEqual(seen[1])
+  await waitFor(() => expect(progress).toHaveTextContent('Prospect assessment unavailable'))
+  expect(screen.queryByRole('link')).toBeNull()
+
+  mounted.unmount()
+  mount(true)
+  await user.selectOptions(await screen.findByLabelText('Report family'), 'prospect')
+  await user.click(await screen.findByLabelText('Select Acme'))
+  expect(screen.getByRole('button', { name: 'Request due assessments' })).toBeDisabled()
+  await user.click(screen.getByRole('button', { name: 'Refresh report progress' }))
+  await waitFor(() => expect(seen).toHaveLength(5))
+  expect(seen[4]).toEqual({
+    tenant: tenants[0].id,
+    method: 'GET',
+    id: undefined,
+    access: undefined,
+  })
+})

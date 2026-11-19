@@ -455,6 +455,8 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/lifecycle/prospect":                                         auditExplicit(auditFacetMutation, prospectCreatedAudit),
 	"POST /v1/lifecycle/prospect/convert":                                 auditExplicit(auditFacetMutation, prospectConvertedAudit),
 	"POST /v1/lifecycle/prospect/revoke-consent":                          auditExplicit(auditFacetMutation, prospectRevokedAudit),
+	"GET /v1/lifecycle/prospect/provider-access":                          auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/lifecycle/prospect/provider-access":                         auditExplicit(auditFacetMutation, prospectProviderAccessAudit),
 	"GET /v1/security/keys":                                               auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/api-tokens":                                                  auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/api-tokens":                                                 auditExplicit(auditFacetMutation, "apitoken.create"),

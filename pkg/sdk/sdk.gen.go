@@ -3881,6 +3881,19 @@ type ProspectEngagementInput struct {
 	Preparer               string `json:"preparer"`
 }
 
+type ProspectProviderAccess struct {
+	Allowed            bool `json:"allowed"`
+	CanGrant           bool `json:"can_grant"`
+	EngagementRevision int  `json:"engagement_revision"`
+	Revision           int  `json:"revision"`
+}
+
+type ProspectProviderAccessInput struct {
+	AccessRevision     int  `json:"access_revision"`
+	Allowed            bool `json:"allowed"`
+	EngagementRevision int  `json:"engagement_revision"`
+}
+
 // A safe, non-executing action within the self-hosted deployment.
 type ReadinessAction struct {
 	Href  string `json:"href"`
@@ -8530,6 +8543,35 @@ func (c *Client) ConvertProspectEngagement(ctx context.Context, req ConvertProsp
 	path := "/v1/lifecycle/prospect/convert"
 	query := url.Values{}
 	var out ProspectEngagement
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read provider operational access granted by the owner of the current engagement
+type GetProspectProviderAccessRequest struct {
+}
+
+func (c *Client) GetProspectProviderAccess(ctx context.Context, req GetProspectProviderAccessRequest) (*ProspectProviderAccess, error) {
+	path := "/v1/lifecycle/prospect/provider-access"
+	query := url.Values{}
+	var out ProspectProviderAccess
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Grant or withdraw provider operational access for the exact engagement
+type SetProspectProviderAccessRequest struct {
+	Body *ProspectProviderAccessInput `json:"-"`
+}
+
+func (c *Client) SetProspectProviderAccess(ctx context.Context, req SetProspectProviderAccessRequest) (*ProspectProviderAccess, error) {
+	path := "/v1/lifecycle/prospect/provider-access"
+	query := url.Values{}
+	var out ProspectProviderAccess
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}

@@ -11,6 +11,8 @@ import type {
   LifecycleStatus,
   ProspectEngagement,
   ProspectEngagementInput,
+  ProspectProviderAccess,
+  ProspectProviderAccessInput,
 } from './sdk.gen'
 
 export type { LifecycleRetentionInput, LifecycleStatus } from './sdk.gen'
@@ -127,6 +129,44 @@ export function useProspectEngagementAction(identity: string) {
         jsonInit('POST', input),
       )
     },
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKey, data)
+      void queryClient.invalidateQueries({
+        queryKey: ['lifecycle', 'prospect-provider-access', identity],
+      })
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 409) {
+        void queryClient.invalidateQueries({ queryKey })
+      }
+    },
+  })
+}
+
+export function useProspectProviderAccess(identity: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['lifecycle', 'prospect-provider-access', identity],
+    queryFn: async () => {
+      try {
+        return await apiFetch<ProspectProviderAccess>('/lifecycle/prospect/provider-access')
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return null
+        throw error
+      }
+    },
+    enabled,
+  })
+}
+
+export function useSetProspectProviderAccess(identity: string) {
+  const queryClient = useQueryClient()
+  const queryKey = ['lifecycle', 'prospect-provider-access', identity]
+  return useMutation({
+    mutationFn: (input: ProspectProviderAccessInput) =>
+      apiFetch<ProspectProviderAccess>(
+        '/lifecycle/prospect/provider-access',
+        jsonInit('POST', input),
+      ),
     onSuccess: (data) => queryClient.setQueryData(queryKey, data),
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409) {

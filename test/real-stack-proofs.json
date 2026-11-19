@@ -348,6 +348,20 @@
       ]
     },
     {
+      "ref": "test:ee/provider/prospect_provider_integration_test.go#TestProviderProspectOperationsRequireCurrentTenantGrant",
+      "profile": "integration",
+      "capabilities": [
+        "F51"
+      ]
+    },
+    {
+      "ref": "test:ee/provider/prospect_provider_integration_test.go#TestProviderProspectOperationsServeBothThemes",
+      "profile": "integration",
+      "capabilities": [
+        "F51"
+      ]
+    },
+    {
       "ref": "test:internal/control/sso_real_idp_integration_test.go#TestSSOWithARealIdPRealStack",
       "profile": "integration",
       "capabilities": [
@@ -440,6 +454,13 @@
     },
     {
       "ref": "test:internal/device/prospect_realstack_integration_test.go#TestProspectLifecycleCollectsOriginalSourcesAndErasesShippedStores",
+      "profile": "integration",
+      "capabilities": [
+        "F55"
+      ]
+    },
+    {
+      "ref": "test:internal/control/prospect_provider_worker_integration_test.go#TestProspectProviderWithdrawalFencesInFlightAssessment",
       "profile": "integration",
       "capabilities": [
         "F55"

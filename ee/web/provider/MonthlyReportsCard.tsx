@@ -14,7 +14,7 @@ import {
   Select,
   Table,
 } from "../../../web/src/components";
-import { api, useProviderData } from "./providerData";
+import { api, NotEnabledError, useProviderData } from "./providerData";
 import styles from "./ProviderConsole.module.css";
 
 type Tenant = { id: string; name: string; slug: string; status: string };
@@ -27,10 +27,35 @@ type Progress = {
   inactive: number;
   replay: boolean;
 };
-type Result = { id: string; progress?: Progress; error?: string };
-type ReportKind = "monthly" | "compliance";
+type ProspectRevisions = {
+  engagement_revision: number;
+  access_revision: number;
+};
+type ProspectProgress = ProspectRevisions & {
+  tenant_id: string;
+  phase: "collecting" | "due" | "filed";
+  ends_at: string;
+  request_pending: boolean;
+};
+type ReportBatch = {
+  id: string;
+  tenants: string[];
+  prospectRevisions: Map<string, ProspectRevisions>;
+};
+type Result = {
+  id: string;
+  progress?: Progress | ProspectProgress;
+  error?: string;
+};
+type ReportKind = "monthly" | "compliance" | "prospect";
+const maxProspectSelection = 100;
 
 const reportKinds = {
+  prospect: {
+    title: "Prospect assessments",
+    queue: "Request due assessments",
+    label: "Prospect assessment",
+  },
   monthly: {
     title: "Monthly client reports",
     queue: "Queue monthly reports",
@@ -54,7 +79,7 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
   const [kind, setKind] = useState<ReportKind>("monthly");
   const family = reportKinds[kind];
   const [selected, setSelected] = useState<string[]>([]);
-  const [request, setRequest] = useState<{ id: string; tenants: string[] }>();
+  const [request, setRequest] = useState<ReportBatch>();
   const [results, setResults] = useState<Result[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -71,11 +96,14 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
   async function run(mode: "new" | "retry" | "refresh") {
     if (busy) return;
     const batch =
-      mode === "new"
-        ? { id: crypto.randomUUID(), tenants: [...selected] }
+      mode === "new" || (mode === "refresh" && kind === "prospect")
+        ? {
+            id: mode === "new" ? crypto.randomUUID() : "",
+            tenants: [...selected],
+            prospectRevisions: new Map<string, ProspectRevisions>(),
+          }
         : request;
     if (!batch || batch.tenants.length === 0) return;
-    setRequest(batch);
     setBusy(true);
     setError("");
     setResults([]);
@@ -85,32 +113,67 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
         if (!lifetime.current) return;
         try {
           const path = `/provider/v1/tenants/${encodeURIComponent(id)}/${kind}-reports`;
-          const result =
-            mode === "refresh"
-              ? await api<Progress>(
-                  "GET",
-                  `${path}/${encodeURIComponent(batch.id)}`,
-                )
-              : await api<Progress>("POST", path, { request_id: batch.id });
+          let result: Progress | ProspectProgress;
+          if (kind === "prospect") {
+            const prospectPath = `/provider/v1/tenants/${encodeURIComponent(id)}/prospect-report`;
+            if (mode === "retry") {
+              const revisions = batch.prospectRevisions.get(id);
+              if (!revisions) continue;
+              result = await api<ProspectProgress>("POST", prospectPath, {
+                request_id: batch.id,
+                ...revisions,
+              });
+            } else {
+              result = await api<ProspectProgress>("GET", prospectPath);
+              if (result.tenant_id !== id)
+                throw new Error("Report queue response scope mismatch.");
+              if (mode === "new" && result.phase === "due") {
+                const { engagement_revision, access_revision } = result;
+                const revisions = { engagement_revision, access_revision };
+                batch.prospectRevisions.set(id, revisions);
+                result = await api<ProspectProgress>("POST", prospectPath, {
+                  request_id: batch.id,
+                  ...revisions,
+                });
+              }
+            }
+          } else {
+            result =
+              mode === "refresh"
+                ? await api<Progress>(
+                    "GET",
+                    `${path}/${encodeURIComponent(batch.id)}`,
+                  )
+                : await api<Progress>("POST", path, { request_id: batch.id });
+          }
           if (result.tenant_id !== id)
             throw new Error("Report queue response scope mismatch.");
           collected.push({ id, progress: result });
         } catch (cause) {
-          collected.push({ id, error: String(cause) });
+          collected.push({
+            id,
+            error:
+              kind === "prospect" && cause instanceof NotEnabledError
+                ? "Prospect assessment unavailable"
+                : String(cause),
+          });
         }
         if (lifetime.current) setResults([...collected]);
       }
     } catch (cause) {
       if (lifetime.current) setError(String(cause));
     } finally {
-      if (lifetime.current) setBusy(false);
+      if (lifetime.current) {
+        if (mode === "new") setRequest(batch);
+        setBusy(false);
+      }
     }
   }
   return (
     <Card>
       <CardHeader
         title={family.title}
-        description="Run the selected schedules for tenants that have opted in. This console shows operational counts. Report files stay in tenant inboxes."
+        description="Run the selected work for tenants that have opted in. Report files stay accessible to tenant users."
         actions={<Badge tone="info">Tenant consent required</Badge>}
       />
       <CardBody className={styles.form}>
@@ -123,9 +186,16 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
           options={[
             { value: "monthly", label: "Monthly client operations" },
             { value: "compliance", label: "Compliance control evidence" },
+            { value: "prospect", label: "Prospect assessments" },
           ]}
           onChange={(event) => {
-            setKind(event.target.value as ReportKind);
+            const nextKind = event.target.value as ReportKind;
+            setKind(nextKind);
+            if (
+              nextKind === "prospect" &&
+              selected.length > maxProspectSelection
+            )
+              setSelected([]);
             setRequest(undefined);
             setResults([]);
             setError("");
@@ -133,10 +203,18 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
         />
         <div className={styles.actions}>
           <Button
-            disabled={busy || readOnly || active.length === 0}
-            onClick={() => setSelected(active.map((item) => item.id))}
+            disabled={
+              busy || (readOnly && kind !== "prospect") || active.length === 0
+            }
+            onClick={() =>
+              setSelected(
+                (kind === "prospect" ? rows : active).map((item) => item.id),
+              )
+            }
           >
-            Select all active tenants
+            {kind === "prospect"
+              ? "Select this page"
+              : "Select all active tenants"}
           </Button>
           <Button disabled={busy} onClick={() => setSelected([])}>
             Clear report selection
@@ -149,13 +227,20 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
             {family.queue}
           </Button>
           <Button
-            disabled={busy || readOnly || !request}
+            disabled={
+              busy ||
+              readOnly ||
+              !request ||
+              (kind === "prospect" && request.prospectRevisions.size === 0)
+            }
             onClick={() => void run("retry")}
           >
             Retry same report request
           </Button>
           <Button
-            disabled={busy || !request}
+            disabled={
+              busy || (kind === "prospect" ? selected.length === 0 : !request)
+            }
             onClick={() => void run("refresh")}
           >
             Refresh report progress
@@ -177,7 +262,13 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
                 <label>
                   <input
                     type="checkbox"
-                    disabled={busy || readOnly}
+                    disabled={
+                      busy ||
+                      (readOnly && kind !== "prospect") ||
+                      (kind === "prospect" &&
+                        selected.length >= maxProspectSelection &&
+                        !selected.includes(item.id))
+                    }
                     checked={selected.includes(item.id)}
                     onChange={(event) =>
                       setSelected((old) =>
@@ -224,7 +315,9 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
               :{" "}
               {item.error ??
                 (item.progress
-                  ? `${item.progress.eligible} eligible; ${item.progress.queued} queued; ${item.progress.pending} pending; ${item.progress.delivered} delivered; ${item.progress.inactive} inactive`
+                  ? "phase" in item.progress
+                    ? `${item.progress.phase}${item.progress.request_pending ? " · retry requested" : ""}`
+                    : `${item.progress.eligible} eligible; ${item.progress.queued} queued; ${item.progress.pending} pending; ${item.progress.delivered} delivered; ${item.progress.inactive} inactive`
                   : "unavailable")}
             </li>
           ))}
