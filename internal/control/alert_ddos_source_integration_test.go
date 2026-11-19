@@ -88,7 +88,7 @@ func TestScheduledDDoSUsesAdjacentOwnedWindowsAndSuppressesOneBurst(t *testing.T
 			t.Fatal("failed to bind the owned scheduled detector", err)
 		}
 	}
-	previewInput := prepareOriginalPrefixImpact(t, f, rows, views, selections[0], last.After.Start)
+	previewInput, otherContext := prepareOriginalPrefixImpact(t, f, rows, views, selections[0], last.After.Start, previous.Before.Start)
 	observed := map[string]int{}
 	observer := func(_ context.Context, item *incident.Incident, _ bool) { observed[item.TenantID]++ }
 	for _, tenant := range f.tenants {
@@ -143,6 +143,8 @@ func TestScheduledDDoSUsesAdjacentOwnedWindowsAndSuppressesOneBurst(t *testing.T
 	assertScheduledDDoSClients(t, f, socket, rules[0].ID, fingerprint, decode)
 	previewInput.RuleID, previewInput.ReceiptFingerprint = rules[0].ID, fingerprint
 	assertOriginalPrefixImpact(t, f, socket, previewInput, selections[0], last.After.Start)
+	otherContext.RuleID, otherContext.ReceiptFingerprint = rules[0].ID, fingerprint
+	callSeasonalAPI(t, socket, f.tokens[owned], http.MethodPost, "/v1/remediation/rtbh-preview", otherContext, http.StatusConflict)
 	token, err := auth.RandomToken()
 	if err != nil {
 		t.Fatal(err)
@@ -223,7 +225,7 @@ func (fixture integrationPrefixPreview) PreviewRTBH(ctx context.Context, tenant 
 }
 
 func prepareOriginalPrefixImpact(t *testing.T, f *roleExplanationAPIFixture, rows flowstore.Store,
-	views *flow.PostgresQueryViewStore, filtered flow.SavedQueryView, at time.Time) remediation.RTBHPreviewInput {
+	views *flow.PostgresQueryViewStore, filtered flow.SavedQueryView, at, referenceStart time.Time) (remediation.RTBHPreviewInput, remediation.RTBHPreviewInput) {
 	t.Helper()
 	owned := f.tenants[0]
 	for _, tenant := range f.tenants {
@@ -237,6 +239,7 @@ func prepareOriginalPrefixImpact(t *testing.T, f *roleExplanationAPIFixture, row
 		})
 	}
 	input := remediation.RTBHPreviewInput{Community: "64512:100", RoutingPolicyAgreed: true}
+	otherContext := input
 	f.in(owned, func(ctx context.Context, sc tenancy.Scope) error {
 		registry := store.NewEntityRegistry(f.pool)
 		domain, err := registry.CreateEntityContext(ctx, sc, "Traffic review", "owned-edge")
@@ -256,13 +259,22 @@ func prepareOriginalPrefixImpact(t *testing.T, f *roleExplanationAPIFixture, row
 		if err != nil {
 			return err
 		}
+		otherProtected, err := registry.CreateCanonicalEntityWithNetwork(ctx, sc, other.ContextID, entity.Prefix, "Overlapping network", "192.0.2.0/24")
+		if err != nil {
+			return err
+		}
+		otherBenign, err := registry.CreateCanonicalEntityWithNetwork(ctx, sc, other.ContextID, entity.Prefix, "Other route service", "198.51.101.0/24")
+		if err != nil {
+			return err
+		}
+		otherContext.ContextID, otherContext.ProtectedEntityID, otherContext.BenignEntityID = other.ContextID, otherProtected.ID, otherBenign.ID
 		for _, assignment := range []struct{ context, agent, exporter string }{
 			{domain.ContextID, "passive-assessment-source", "203.0.113.15"},
 			{domain.ContextID, "passive-assessment-source", "203.0.113.16"},
 			{domain.ContextID, "known-benign-source", "203.0.113.17"},
 			{other.ContextID, "other-rtbh-source", "203.0.113.17"},
 		} {
-			since := at.Add(-time.Hour)
+			since := referenceStart.Add(-time.Minute)
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts(tenant_id,context_id,agent_id,assigned_at)
 			 VALUES($1,$2,$3,$4) ON CONFLICT (tenant_id,agent_id) DO NOTHING`, sc.Tenant.String(), assignment.context, assignment.agent, since); err != nil {
 				return err
@@ -282,6 +294,7 @@ func prepareOriginalPrefixImpact(t *testing.T, f *roleExplanationAPIFixture, row
 		t.Fatal(err)
 	}
 	input.WholeViewID, input.WholeViewVersion = whole.ID, whole.Version
+	otherContext.WholeViewID, otherContext.WholeViewVersion = whole.ID, whole.Version
 	measured := at.Add(time.Minute)
 	benignRow := flowstore.Row{TenantID: owned, AgentID: "known-benign-source", Exporter: "203.0.113.17", Protocol: "ipfix",
 		TS: measured, StartTS: measured.Add(-time.Second), SrcAddr: "198.51.101.42", DstAddr: "192.0.2.42", SrcPort: 42001, DstPort: 443,
@@ -291,7 +304,7 @@ func prepareOriginalPrefixImpact(t *testing.T, f *roleExplanationAPIFixture, row
 	if err := rows.Insert(ctx, []flowstore.Row{benignRow, otherVRF}); err != nil {
 		t.Fatal(err)
 	}
-	return input
+	return input, otherContext
 }
 
 func assertOriginalPrefixImpact(t *testing.T, f *roleExplanationAPIFixture, socket *httptest.Server,

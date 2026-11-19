@@ -80,21 +80,25 @@ func (c prefixImpactCapture) preparePlan(plan *flow.QueryPlan) error {
 	if len(c.origins) == 0 {
 		return apierror.Conflict("the routing context has no complete current flow exporter bindings")
 	}
-	assigned := flow.QueryFilterGroup{Mode: "include", Match: "any", Groups: make([]flow.QueryFilterGroup, 0, len(c.origins))}
-	for _, origin := range c.origins {
-		assigned.Groups = append(assigned.Groups, flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{
-			{Field: "agent_id", Op: flow.QueryEqual, Values: []string{origin.AgentID}},
-			{Field: "exporter", Op: flow.QueryEqual, Values: []string{origin.Exporter.String()}},
-		}})
-	}
 	plan.Filter = &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "dst_addr", Op: flow.QueryCIDR, Values: []string{c.prefix.String()}}},
-		Groups: []flow.QueryFilterGroup{assigned}}
+		Groups: []flow.QueryFilterGroup{prefixImpactSenderGroup(c.origins)}}
 	plan.View, plan.DataSeries = "table", "raw"
 	plan.GroupBy, plan.MatrixWith = []string{"agent_id", "exporter", "dst_addr", "src_addr", "sampling"}, nil
 	plan.Metrics = []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"},
 		{Measure: "packets", Calculation: "total", Role: "additional"}, {Measure: "flows", Calculation: "total", Role: "additional"}}
 	plan.RowLimit, plan.PageSize = 25, 25
 	return nil
+}
+
+func prefixImpactSenderGroup(origins []store.PrefixImpactFlowBinding) flow.QueryFilterGroup {
+	assigned := flow.QueryFilterGroup{Mode: "include", Match: "any", Groups: make([]flow.QueryFilterGroup, 0, len(origins))}
+	for _, origin := range origins {
+		assigned.Groups = append(assigned.Groups, flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{
+			{Field: "agent_id", Op: flow.QueryEqual, Values: []string{origin.AgentID}},
+			{Field: "exporter", Op: flow.QueryEqual, Values: []string{origin.Exporter.String()}},
+		}})
+	}
+	return assigned
 }
 
 // ObservePrefixImpact measures the whole observed destination scope using the
@@ -141,7 +145,7 @@ func (s *Server) ObservePrefixImpact(ctx context.Context, tenantID string, input
 	if err != nil {
 		return empty, err
 	}
-	inventory, err := s.readPrefixImpactInventory(ctx, actor, input, windows.After.Start)
+	inventory, err := s.readPrefixImpactInventory(ctx, actor, input, proof.Previous.Before.From)
 	if err != nil {
 		return empty, err
 	}
@@ -168,11 +172,15 @@ func (s *Server) ObservePrefixImpact(ctx context.Context, tenantID string, input
 	if err != nil {
 		return empty, mapDDoSCoverage(err)
 	}
+	capture.Results = nil
+	capture.Close()
+	if err := s.verifyPrefixImpactDetector(ctx, actor, input.RuleID, proof, inventory.origins, budget); err != nil {
+		return empty, err
+	}
 	if err := s.recheckFlowEvidencePublication(ctx, actor, capture); err != nil {
 		return empty, err
 	}
-	capture.Close()
-	current, err := s.readPrefixImpactInventory(ctx, actor, input, windows.After.Start)
+	current, err := s.readPrefixImpactInventory(ctx, actor, input, proof.Previous.Before.From)
 	if err != nil {
 		return empty, err
 	}

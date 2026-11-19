@@ -19,6 +19,7 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -28,6 +29,7 @@ type ddosAssessmentSettings struct {
 	Input     flow.DDoSAssessmentInput
 	Target    netip.Prefix
 	SideField string
+	Origins   []store.PrefixImpactFlowBinding
 }
 
 func (s *Server) handleFlowDDoSAssessment(w http.ResponseWriter, r *http.Request) error {
@@ -102,6 +104,9 @@ func (settings ddosAssessmentSettings) preparePlan(plan *flow.QueryPlan) error {
 		} else {
 			bound.Groups = []flow.QueryFilterGroup{*base}
 		}
+	}
+	if len(settings.Origins) > 0 {
+		bound.Groups = append(slices.Clone(bound.Groups), prefixImpactSenderGroup(settings.Origins))
 	}
 	plan.Filter, plan.View, plan.DataSeries = bound, "table", "raw"
 	plan.GroupBy, plan.MatrixWith = []string{settings.SideField, "transport", "tcp_flags", "src_port", "sampling"}, nil

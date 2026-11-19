@@ -13895,7 +13895,7 @@
       "post": {
         "operationId": "previewRemediationRTBH",
         "summary": "Preview a reviewed destination RTBH candidate",
-        "description": "Measures the latest completed traffic window for the full observed protected prefix and its configured benign source. Requires the original incident receipt, whole-view source and current routing-context permissions.",
+        "description": "Measures the latest completed window for the full protected prefix and its configured benign source. Rechecks the original incident receipt across both detection and reference windows using the current sender bindings of the selected routing context. Requires the exact whole-view source and current routing-context permissions.",
         "tags": [
           "remediation"
         ],
