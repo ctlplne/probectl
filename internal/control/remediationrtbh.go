@@ -8,6 +8,8 @@ package control
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"math"
 	"math/big"
@@ -23,6 +25,7 @@ import (
 	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/remediation"
@@ -105,7 +108,13 @@ func prefixImpactSenderGroup(origins []store.PrefixImpactFlowBinding) flow.Query
 // current tenant's original flow rows and configured prefix identities.
 func (s *Server) ObservePrefixImpact(ctx context.Context, tenantID string, input remediation.PrefixImpactInput,
 	credential func(context.Context) error) (remediation.PrefixImpact, error) {
-	var empty remediation.PrefixImpact
+	prepared, err := s.PreparePrefixImpact(ctx, tenantID, input, time.Time{}, credential)
+	return prepared.Impact, err
+}
+
+func (s *Server) PreparePrefixImpact(ctx context.Context, tenantID string, input remediation.PrefixImpactInput,
+	observedTo time.Time, credential func(context.Context) error) (remediation.RTBHImpactPublication, error) {
+	var empty remediation.RTBHImpactPublication
 	actor := auth.PrincipalFrom(ctx)
 	if actor == nil || actor.UserID == "" || actor.TenantID == "" || actor.TenantID != tenantID || credential == nil {
 		return empty, apierror.Forbidden("current traffic review identity is unavailable")
@@ -145,6 +154,13 @@ func (s *Server) ObservePrefixImpact(ctx context.Context, tenantID string, input
 	if err != nil {
 		return empty, err
 	}
+	if observedTo.IsZero() {
+		observedTo = windows.After.End
+	}
+	observedTo = observedTo.UTC()
+	if !observedTo.Truncate(width).Equal(observedTo) || observedTo.After(windows.After.End) || windows.After.End.Sub(observedTo) > 10*time.Minute {
+		return empty, apierror.Conflict("the selected traffic review window is unavailable")
+	}
 	inventory, err := s.readPrefixImpactInventory(ctx, actor, input, proof.Previous.Before.From)
 	if err != nil {
 		return empty, err
@@ -159,13 +175,13 @@ func (s *Server) ObservePrefixImpact(ctx context.Context, tenantID string, input
 	}
 	settings := prefixImpactCapture{view: reportFlowSourceRef{ID: input.WholeViewID, Version: input.WholeViewVersion}, prefix: protected, width: width, origins: inventory.origins}
 	capture, err := s.captureFlowSourcesWithOptions(ctx, actor, []reportFlowSourceRef{settings.view}, true, false, reportFlowCaptureOptions{
-		SeasonalPeriodEnds: []time.Time{windows.After.End}, CombineSeasonal: true, PrefixImpact: &settings, ReservedMemoryBytes: budget.MemoryBytes / 4,
+		SeasonalPeriodEnds: []time.Time{observedTo}, CombineSeasonal: true, PrefixImpact: &settings, ReservedMemoryBytes: budget.MemoryBytes / 4,
 	})
 	if err != nil {
 		return empty, err
 	}
 	defer capture.Close()
-	if len(capture.Results) != 1 || !matchFlowEvidenceClocks(capture.Inputs, settings.view, []time.Time{windows.After.End}, width) {
+	if len(capture.Results) != 1 || !matchFlowEvidenceClocks(capture.Inputs, settings.view, []time.Time{observedTo}, width) {
 		return empty, apierror.Conflict("complete observations for the whole protected prefix are required")
 	}
 	impact, err := projectPrefixImpact(ctx, capture.Results[0], settings, benign, budget.MemoryBytes/8)
@@ -184,50 +200,103 @@ func (s *Server) ObservePrefixImpact(ctx context.Context, tenantID string, input
 	if err != nil {
 		return empty, err
 	}
-	if !current.protected.UpdatedAt.Equal(inventory.protected.UpdatedAt) || !current.benign.UpdatedAt.Equal(inventory.benign.UpdatedAt) ||
-		!slices.EqualFunc(current.origins, inventory.origins, func(a, b store.PrefixImpactFlowBinding) bool {
-			return a.AgentID == b.AgentID && a.Exporter == b.Exporter && a.Since.Equal(b.Since)
-		}) {
+	if !samePrefixImpactInventory(current, inventory) {
 		return empty, apierror.Conflict("the configured routing prefixes or exporter bindings changed during the review")
 	}
-	if _, err := s.readAlertDDoSReceipt(ctx, actor, input.RuleID, input.ReceiptFingerprint, credential, nil); err != nil {
+	latest, err := s.readAlertDDoSReceipt(ctx, actor, input.RuleID, input.ReceiptFingerprint, credential, nil)
+	if err != nil {
 		return empty, err
 	}
-	return impact, ctx.Err()
+	originalDigest, err := prefixImpactDigest(proof)
+	if err != nil {
+		return empty, err
+	}
+	latestDigest, err := prefixImpactDigest(latest)
+	if err != nil || latestDigest != originalDigest {
+		return empty, apierror.Conflict("the cited traffic receipt changed during the review").Wrap(err)
+	}
+	scope, err := prefixImpactDigest(struct {
+		Receipt           string
+		Protected, Benign time.Time
+		Origins           []store.PrefixImpactFlowBinding
+		Generation        int64
+		ViewID, Version   string
+		From, To          time.Time
+	}{originalDigest, inventory.protected.UpdatedAt.UTC(), inventory.benign.UpdatedAt.UTC(), inventory.origins, capture.SourceGeneration,
+		capture.Inputs[0].ID, capture.Inputs[0].Version, capture.Inputs[0].From.UTC(), capture.Inputs[0].To.UTC()})
+	if err != nil {
+		return empty, err
+	}
+	return remediation.RTBHImpactPublication{Impact: impact, Scope: scope,
+		Publish: func(ctx context.Context, sc tenancy.Scope, permission string, commit func(context.Context, tenancy.Scope) error) error {
+			return s.publishRTBHReview(ctx, sc, actor, input, permission, budget.MemoryBytes/8, originalDigest, proof.Previous.Before.From, inventory, capture, commit)
+		}}, ctx.Err()
+}
+
+func (s *Server) publishRTBHReview(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, input remediation.PrefixImpactInput,
+	permission string, memory int64, digest string, from time.Time, expected prefixImpactInventory, capture *reportFlowCapture,
+	commit func(context.Context, tenancy.Scope) error) error {
+	if sc.Tenant.String() != actor.TenantID || commit == nil {
+		return tenancy.ErrNoTenant
+	}
+	if permission == permRemediationApprove {
+		if err := s.lockRoutingReviewApprovalSession(ctx, sc, actor); err != nil {
+			return err
+		}
+	}
+	return s.loadAlertDDoSReceiptInScope(ctx, sc, actor, input.RuleID, input.ReceiptFingerprint, memory,
+		func(ctx context.Context, sc tenancy.Scope, proof alert.DDoSEvaluationEvidence, _ []byte) error {
+			actual, err := prefixImpactDigest(proof)
+			if err != nil || actual != digest {
+				return apierror.Conflict("the cited traffic receipt changed during publication").Wrap(err)
+			}
+			authority, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
+			if err != nil {
+				return err
+			}
+			ctx, current, err := authority.requestContext(ctx, actor)
+			if err != nil {
+				return err
+			}
+			for _, required := range []string{permAlertRead, permission} {
+				if err := s.authorize(ctx, current, required, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: sc.Tenant.String()}); err != nil {
+					return err
+				}
+			}
+			latest, err := s.readPrefixImpactInventoryInScope(ctx, sc, current, input, from)
+			if err != nil {
+				return err
+			}
+			if !samePrefixImpactInventory(latest, expected) {
+				return apierror.Conflict("the configured routing scope changed during publication")
+			}
+			if err := s.validateReportSourcePublication(ctx, sc, current, capture); err != nil {
+				return err
+			}
+			return commit(ctx, sc)
+		})
+}
+
+func samePrefixImpactInventory(current, expected prefixImpactInventory) bool {
+	return current.protected.UpdatedAt.Equal(expected.protected.UpdatedAt) && current.benign.UpdatedAt.Equal(expected.benign.UpdatedAt) &&
+		slices.EqualFunc(current.origins, expected.origins, func(a, b store.PrefixImpactFlowBinding) bool {
+			return a.AgentID == b.AgentID && a.Exporter == b.Exporter && a.Since.Equal(b.Since)
+		})
+}
+
+func prefixImpactDigest(value any) (string, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(crypto.Hash(raw)), nil
 }
 
 func (s *Server) readPrefixImpactInventory(ctx context.Context, actor *auth.Principal, input remediation.PrefixImpactInput, from time.Time) (prefixImpactInventory, error) {
 	var result prefixImpactInventory
-	registry := store.NewEntityRegistry(s.pool)
 	err := tenancy.InTenantReadSnapshot(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
-		if err != nil {
-			return err
-		}
-		ctx, principal, err := current.requestContext(ctx, actor)
-		if err != nil {
-			return err
-		}
-		contextRecord, err := registry.GetEntityContextInScope(ctx, sc, input.ContextID)
-		if err != nil {
-			return err
-		}
-		if err := s.authorizeFlowRoutingContext(ctx, principal, contextRecord); err != nil {
-			return err
-		}
-		scope := entity.Scope{TenantID: sc.Tenant.String(), ContextID: input.ContextID}
-		result.protected, err = registry.GetEntityInScope(ctx, sc, scope, input.ProtectedEntityID)
-		if err != nil {
-			return err
-		}
-		result.benign, err = registry.GetEntityInScope(ctx, sc, scope, input.BenignEntityID)
-		if err != nil {
-			return err
-		}
-		if result.protected.Kind != entity.Prefix || result.benign.Kind != entity.Prefix || result.protected.NetworkPrefix == "" || result.benign.NetworkPrefix == "" {
-			return apierror.Validation("the routing context needs configured protected and known benign network prefixes")
-		}
-		result.origins, err = store.PrefixImpactFlowBindingsInScope(ctx, sc, input.ContextID, from)
+		var err error
+		result, err = s.readPrefixImpactInventoryInScope(ctx, sc, actor, input, from)
 		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -236,6 +305,41 @@ func (s *Server) readPrefixImpactInventory(ctx context.Context, actor *auth.Prin
 	if errors.Is(err, store.ErrPrefixImpactSources) {
 		return prefixImpactInventory{}, apierror.Conflict("complete current exporter bindings are required for the entire routing scope")
 	}
+	return result, err
+}
+
+func (s *Server) readPrefixImpactInventoryInScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal,
+	input remediation.PrefixImpactInput, from time.Time) (prefixImpactInventory, error) {
+	var result prefixImpactInventory
+	registry := store.NewEntityRegistry(s.pool)
+	current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
+	if err != nil {
+		return result, err
+	}
+	ctx, principal, err := current.requestContext(ctx, actor)
+	if err != nil {
+		return result, err
+	}
+	contextRecord, err := registry.GetEntityContextInScope(ctx, sc, input.ContextID)
+	if err != nil {
+		return result, err
+	}
+	if err := s.authorizeFlowRoutingContext(ctx, principal, contextRecord); err != nil {
+		return result, err
+	}
+	scope := entity.Scope{TenantID: sc.Tenant.String(), ContextID: input.ContextID}
+	result.protected, err = registry.GetEntityInScope(ctx, sc, scope, input.ProtectedEntityID)
+	if err != nil {
+		return result, err
+	}
+	result.benign, err = registry.GetEntityInScope(ctx, sc, scope, input.BenignEntityID)
+	if err != nil {
+		return result, err
+	}
+	if result.protected.Kind != entity.Prefix || result.benign.Kind != entity.Prefix || result.protected.NetworkPrefix == "" || result.benign.NetworkPrefix == "" {
+		return result, apierror.Validation("the routing context needs configured protected and known benign network prefixes")
+	}
+	result.origins, err = store.PrefixImpactFlowBindingsInScope(ctx, sc, input.ContextID, from)
 	return result, err
 }
 

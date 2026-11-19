@@ -511,6 +511,8 @@ var surfaceCommands = map[string]surfaceCommand{
 		"list":         {Method: http.MethodGet, Path: "/v1/remediation/proposals"},
 		"create":       {Method: http.MethodPost, Path: "/v1/remediation/proposals"},
 		"rtbh-preview": {Method: http.MethodPost, Path: "/v1/remediation/rtbh-preview", ExactJSON: true, Description: "measure an owned destination prefix and its configured benign traffic"},
+		"rtbh-propose": {Method: http.MethodPost, Path: "/v1/remediation/rtbh-proposals", ExactJSON: true, Description: "file the exact routing preview for independent review"},
+		"rtbh-review":  {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}/routing-review", ArgName: "id", ExactJSON: true, Description: "read the current evidence for an owned routing review"},
 		"get":          {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}", ArgName: "id"},
 		"approve":      {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/approve", ArgName: "id"},
 		"reject":       {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/reject", ArgName: "id"},

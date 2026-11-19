@@ -1461,6 +1461,27 @@ export const API_CALL_CONTRACTS = [
     generated: 'ApproveRemediationProposalResponse',
   },
   {
+    file: 'api/remediation.ts',
+    method: 'GET',
+    path: "`/remediation/proposals/${encodeURIComponent(id ?? '')}/routing-review`",
+    response: 'RemediationRTBHReview',
+    generated: 'GetRtbhReviewResponse',
+  },
+  {
+    file: 'api/remediation.ts',
+    method: 'POST',
+    path: '/remediation/rtbh-preview',
+    response: 'RemediationRTBHPreview',
+    generated: 'PreviewRemediationRtbhResponse',
+  },
+  {
+    file: 'api/remediation.ts',
+    method: 'POST',
+    path: '/remediation/rtbh-proposals',
+    response: 'Proposal',
+    generated: 'ProposeRtbhReviewResponse',
+  },
+  {
     file: 'api/results.ts',
     method: 'GET',
     path: '/results/latest',

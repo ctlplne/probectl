@@ -58,28 +58,9 @@ func (s *Server) loadAlertDDoSReceipt(ctx context.Context, actor *auth.Principal
 	defer flush(s)
 	var raw []byte
 	err = tenancy.InTenant(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		rules := store.AlertRules{}
-		rule, err := rules.Get(ctx, sc, ruleID)
-		if err != nil {
-			return err
-		}
-		return rules.WithQueryPublication(ctx, sc, ruleID, rule.UpdatedAt, budget.MemoryBytes/8,
-			func(ctx context.Context, sc tenancy.Scope, source alert.QuerySource) error {
-				if source.Condition.Mode != alert.DDoSCondition || source.Condition.DDoS == nil {
-					return apierror.NotFound("traffic assessment receipt not found")
-				}
-				record, err := (store.AlertEvaluations{}).GetFlowReceipt(ctx, sc, store.AlertDDoSReceipt, ruleID, fingerprint, rule.UpdatedAt, budget.MemoryBytes/8)
-				if err != nil {
-					return err
-				}
-				parsed, capture, err := decodeDDoSReceipt(ctx, record, source.Binding(sc.Tenant.String(), ruleID), rule.UpdatedAt, fingerprint, budget.MemoryBytes/8)
-				if err != nil {
-					return err
-				}
-				if err := s.validateReportSourcePublication(store.WithReportSourceAuditLock(ctx, sc), sc, actor, capture); err != nil {
-					return err
-				}
-				evidence, raw = parsed.Evidence, record.Body
+		return s.loadAlertDDoSReceiptInScope(ctx, sc, actor, ruleID, fingerprint, budget.MemoryBytes/8,
+			func(_ context.Context, _ tenancy.Scope, proof alert.DDoSEvaluationEvidence, body []byte) error {
+				evidence, raw = proof, body
 				return nil
 			})
 	})
@@ -90,6 +71,35 @@ func (s *Server) loadAlertDDoSReceipt(ctx context.Context, actor *auth.Principal
 		return alert.DDoSEvaluationEvidence{}, nil, err
 	}
 	return evidence, raw, ctx.Err()
+}
+
+// loadAlertDDoSReceiptInScope keeps the same rule and audit locks around a
+// caller's final publication. The caller supplies current authorization.
+func (s *Server) loadAlertDDoSReceiptInScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, ruleID, fingerprint string,
+	memory int64, publish func(context.Context, tenancy.Scope, alert.DDoSEvaluationEvidence, []byte) error) error {
+	rules := store.AlertRules{}
+	rule, err := rules.Get(ctx, sc, ruleID)
+	if err != nil {
+		return err
+	}
+	return rules.WithQueryPublication(ctx, sc, ruleID, rule.UpdatedAt, memory,
+		func(ctx context.Context, sc tenancy.Scope, source alert.QuerySource) error {
+			if source.Condition.Mode != alert.DDoSCondition || source.Condition.DDoS == nil {
+				return apierror.NotFound("traffic assessment receipt not found")
+			}
+			record, err := (store.AlertEvaluations{}).GetFlowReceipt(ctx, sc, store.AlertDDoSReceipt, ruleID, fingerprint, rule.UpdatedAt, memory)
+			if err != nil {
+				return err
+			}
+			parsed, capture, err := decodeDDoSReceipt(ctx, record, source.Binding(sc.Tenant.String(), ruleID), rule.UpdatedAt, fingerprint, memory)
+			if err != nil {
+				return err
+			}
+			if err := s.validateReportSourcePublication(store.WithReportSourceAuditLock(ctx, sc), sc, actor, capture); err != nil {
+				return err
+			}
+			return publish(store.WithReportSourceAuditLock(ctx, sc), sc, parsed.Evidence, record.Body)
+		})
 }
 
 func decodeDDoSReceipt(ctx context.Context, record store.AlertFlowReceipt, binding alert.QueryGroupBinding, revision time.Time, fingerprint string, memory int64) (storedDDoSReceipt, *reportFlowCapture, error) {

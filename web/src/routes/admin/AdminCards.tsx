@@ -23,7 +23,14 @@ import {
 import { ApiError } from '../../api/client'
 import { useEditions } from '../../api/editions'
 import { useKeys, useRotateKey, type KeyInfo } from '../../api/keys'
-import { useRemediations, useDecideRemediation, type Proposal } from '../../api/remediation'
+import {
+  useRemediations,
+  useDecideRemediation,
+  useRTBHReview,
+  type Proposal,
+} from '../../api/remediation'
+import type { RemediationRTBHReview } from '../../api/sdk.gen'
+import { useAuth } from '../../auth/useAuth'
 import { useI18n } from '../../i18n/useI18n'
 import { DateTime } from '../../time/DateTime'
 
@@ -35,12 +42,23 @@ import { DateTime } from '../../time/DateTime'
  *  (hidden-unlicensed). */
 export function RemediationCard() {
   const { t } = useI18n()
-  const { data, isPending, isError, error } = useRemediations()
+  const { tenant, user, permissions } = useAuth()
+  const identity = `${tenant.id}:${user.id}`
+  const { data, isPending, isError, error } = useRemediations(true, identity)
   const decide = useDecideRemediation()
   // WEB-21 (G8): a remediation decision is human-gated. The row never decides;
   // Approve/Reject fire only from the review dialog, after the operator has seen
   // the dry-run blast radius and the "probectl never executes" guardrail note.
-  const [reviewing, setReviewing] = useState<Proposal | null>(null)
+  const [selection, setSelection] = useState<{ identity: string; proposal: Proposal } | null>(null)
+  const reviewing = selection?.identity === identity ? selection.proposal : null
+  const routing = reviewing?.kind === 'rtbh_review'
+  const review = useRTBHReview(routing ? reviewing?.id : undefined, identity)
+  const ready =
+    review.data &&
+    !review.isError &&
+    !review.isFetching &&
+    Date.parse(review.data.expires_at) > Date.now()
+  const fingerprint = ready ? review.data?.review_fingerprint : undefined
 
   // Hidden-unlicensed: render NOTHING until the API proves the feature is on.
   if (isPending) return null
@@ -88,7 +106,7 @@ export function RemediationCard() {
         p.state !== 'proposed' ? (
           <span>{p.decided_by ? t('remediation.decidedBy', { actor: p.decided_by }) : '—'}</span>
         ) : (
-          <Button variant="ghost" onClick={() => setReviewing(p)}>
+          <Button variant="ghost" onClick={() => setSelection({ identity, proposal: p })}>
             {t('remediation.review')}
           </Button>
         ),
@@ -135,11 +153,11 @@ export function RemediationCard() {
         {reviewing ? (
           <Modal
             open
-            onClose={() => setReviewing(null)}
+            onClose={() => setSelection(null)}
             title={t('remediation.reviewTitle', { title: reviewing.title })}
             footer={
               <>
-                <Button variant="ghost" onClick={() => setReviewing(null)}>
+                <Button variant="ghost" onClick={() => setSelection(null)}>
                   {t('remediation.cancel')}
                 </Button>
                 <Button
@@ -147,17 +165,22 @@ export function RemediationCard() {
                   disabled={decide.isPending}
                   onClick={() => {
                     decide.mutate({ id: reviewing.id, decision: 'reject' })
-                    setReviewing(null)
+                    setSelection(null)
                   }}
                 >
                   {t('remediation.reject')}
                 </Button>
                 <Button
                   variant="primary"
-                  disabled={!approvalsEnabled || decide.isPending}
+                  disabled={
+                    !approvalsEnabled ||
+                    decide.isPending ||
+                    (routing && (!fingerprint || !permissions.includes('remediation.approve')))
+                  }
                   onClick={() => {
-                    decide.mutate({ id: reviewing.id, decision: 'approve' })
-                    setReviewing(null)
+                    if (routing && !fingerprint) return
+                    decide.mutate({ id: reviewing.id, decision: 'approve', fingerprint })
+                    setSelection(null)
                   }}
                 >
                   {t('remediation.approve')}
@@ -195,6 +218,13 @@ export function RemediationCard() {
                 </>
               ) : null}
             </dl>
+            {routing && review.isPending ? <p role="status">Loading routing review…</p> : null}
+            {routing && review.isError ? (
+              <p role="alert">Current routing evidence is unavailable.</p>
+            ) : null}
+            {routing && review.data && !review.isError ? (
+              <RoutingReviewEvidence review={review.data} />
+            ) : null}
             <p role="note" className={styles.editionsLede}>
               {t('remediation.reviewGuardrail')}
             </p>
@@ -202,6 +232,40 @@ export function RemediationCard() {
         ) : null}
       </CardBody>
     </Card>
+  )
+}
+
+function RoutingReviewEvidence({ review }: { review: RemediationRTBHReview }) {
+  const { announcement, impact } = review.candidate
+  return (
+    <dl aria-label="Routing mitigation evidence">
+      <dt>Proposed prefix and community</dt>
+      <dd>
+        {announcement.prefix} · {announcement.community}
+      </dd>
+      <dt>Observation window</dt>
+      <dd>
+        <DateTime value={impact.from} /> – <DateTime value={impact.to} />
+      </dd>
+      <dt>Matched traffic</dt>
+      <dd>
+        {impact.matched.bytes} bytes · {impact.matched.packets} packets
+      </dd>
+      <dt>Known benign traffic</dt>
+      <dd>
+        {impact.known_benign.bytes} bytes · {impact.known_benign.packets} packets
+      </dd>
+      <dt>Unclassified traffic</dt>
+      <dd>
+        {impact.unclassified.bytes} bytes · {impact.unclassified.packets} packets
+      </dd>
+      <dt>Benign packet limit</dt>
+      <dd>{review.max_known_benign_packets}</dd>
+      <dt>Review expires</dt>
+      <dd>
+        <DateTime value={review.expires_at} />
+      </dd>
+    </dl>
   )
 }
 

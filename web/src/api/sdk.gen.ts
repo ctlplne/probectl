@@ -3740,6 +3740,7 @@ export interface RegisteredSVID {
 
 export interface RemediationDecisionRequest {
   note?: string
+  review_fingerprint?: string
 }
 
 export interface RemediationDryRun {
@@ -3775,7 +3776,7 @@ export interface RemediationProposal {
   dry_run?: RemediationDryRun
   id?: string
   incident_id?: string
-  kind?: "reroute_suggestion" | "traffic_shift_suggestion" | "open_ticket" | "trustctl_renewal"
+  kind?: "reroute_suggestion" | "traffic_shift_suggestion" | "open_ticket" | "trustctl_renewal" | "rtbh_review"
   proposed_by?: string
   rationale?: string
   state?: "proposed" | "approved" | "rejected" | "applied"
@@ -3806,6 +3807,7 @@ export interface RemediationRTBHAnnouncement {
 export interface RemediationRTBHPreview {
   announcement: RemediationRTBHAnnouncement
   impact: RemediationPrefixImpact
+  preview_fingerprint?: string
 }
 
 export interface RemediationRTBHPreviewInput {
@@ -3818,6 +3820,21 @@ export interface RemediationRTBHPreviewInput {
   rule_id: string
   whole_view_id: string
   whole_view_version: string
+}
+
+export interface RemediationRTBHProposalInput {
+  max_known_benign_packets: string
+  observed_to: string
+  preview: RemediationRTBHPreviewInput
+  preview_fingerprint: string
+}
+
+export interface RemediationRTBHReview {
+  blast_radius: number
+  candidate: RemediationRTBHPreview
+  expires_at: string
+  max_known_benign_packets: string
+  review_fingerprint: string
 }
 
 export interface ReportEmailDelivery {
@@ -5860,11 +5877,23 @@ export interface RejectRemediationProposalRequest {
 
 export type RejectRemediationProposalResponse = RemediationProposal
 
+export interface GetRtbhReviewRequest {
+  id: string
+}
+
+export type GetRtbhReviewResponse = RemediationRTBHReview
+
 export interface PreviewRemediationRtbhRequest {
   body: RemediationRTBHPreviewInput
 }
 
 export type PreviewRemediationRtbhResponse = RemediationRTBHPreview
+
+export interface ProposeRtbhReviewRequest {
+  body: RemediationRTBHProposalInput
+}
+
+export type ProposeRtbhReviewResponse = RemediationProposal
 
 export interface ListResultsHistoryRequest {
   window?: string
@@ -7989,10 +8018,23 @@ export class ProbectlSDKClient {
     return this.requestJSON<RejectRemediationProposalResponse>("POST", path, query, request.body)
   }
 
+  async getRtbhReview(request: GetRtbhReviewRequest): Promise<GetRtbhReviewResponse> {
+    let path = "/v1/remediation/proposals/{id}/routing-review"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetRtbhReviewResponse>("GET", path, query, undefined)
+  }
+
   async previewRemediationRtbh(request: PreviewRemediationRtbhRequest): Promise<PreviewRemediationRtbhResponse> {
     let path = "/v1/remediation/rtbh-preview"
     const query = new URLSearchParams()
     return this.requestJSON<PreviewRemediationRtbhResponse>("POST", path, query, request.body)
+  }
+
+  async proposeRtbhReview(request: ProposeRtbhReviewRequest): Promise<ProposeRtbhReviewResponse> {
+    let path = "/v1/remediation/rtbh-proposals"
+    const query = new URLSearchParams()
+    return this.requestJSON<ProposeRtbhReviewResponse>("POST", path, query, request.body)
   }
 
   async listResultsHistory(request: ListResultsHistoryRequest = {}): Promise<ListResultsHistoryResponse> {

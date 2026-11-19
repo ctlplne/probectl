@@ -148,7 +148,8 @@ func (s *Server) decideRemediation(w http.ResponseWriter, r *http.Request, appro
 		return apierror.Forbidden("remediation approval requires an interactive session, not an API/MCP bearer token")
 	}
 	var in struct {
-		Note string `json:"note"`
+		Note              string `json:"note"`
+		ReviewFingerprint string `json:"review_fingerprint"`
 	}
 	if r.Body != nil && r.ContentLength != 0 {
 		if err := decodeJSON(r, &in); err != nil {
@@ -157,9 +158,25 @@ func (s *Server) decideRemediation(w http.ResponseWriter, r *http.Request, appro
 	}
 	id := r.PathValue("id")
 	var out remediation.Proposal
-	if approve {
+	switch {
+	case approve && in.ReviewFingerprint != "":
+		reviews, ok := svc.(remediation.RTBHReviews)
+		if !ok {
+			return apierror.NotFound("traffic review is unavailable")
+		}
+		ctx, err := s.routingReviewApprovalContext(r)
+		if err != nil {
+			return err
+		}
+		approved, err := reviews.ApproveRTBH(ctx, tid, "user:"+p.Email, id, in.ReviewFingerprint, in.Note, s.pathAlertRequestCredential(r, p))
+		if err != nil {
+			return mapRemediationErr(err)
+		}
+		writeJSON(w, http.StatusOK, approved)
+		return nil
+	case approve:
 		out, err = svc.Approve(r.Context(), tid, "user:"+p.Email, id, in.Note)
-	} else {
+	default:
 		out, err = svc.Reject(r.Context(), tid, "user:"+p.Email, id, in.Note)
 	}
 	if err != nil {
@@ -173,6 +190,9 @@ func (s *Server) decideRemediation(w http.ResponseWriter, r *http.Request, appro
 // approval errors (disabled / over-limit / unknown radius) are 409 Conflict —
 // the request was well-formed but the state/policy forbids it.
 func mapRemediationErr(err error) error {
+	if _, typed := apierror.As(err); typed {
+		return err
+	}
 	if errors.Is(err, license.ErrReadOnly) {
 		return apierror.Forbidden(err.Error()).WithCode(string(apierror.CodeLicenseReadOnly))
 	}
@@ -183,7 +203,7 @@ func mapRemediationErr(err error) error {
 			return apierror.NotFound(re.Message)
 		case "validation":
 			return apierror.Validation(re.Message)
-		case "approvals_disabled", "blast_radius_exceeded", "blast_radius_unknown", "not_proposed", "proposer_identity_unavailable":
+		case "approvals_disabled", "blast_radius_exceeded", "blast_radius_unknown", "not_proposed", "proposer_identity_unavailable", "review_changed":
 			return apierror.Conflict(re.Message).WithCode(re.Code)
 		case "self_approval", "actor_unavailable":
 			// Four-eyes refusal (AUTHZ-20 / G7-8): forbidden, not a conflict.

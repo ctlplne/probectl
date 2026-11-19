@@ -712,7 +712,11 @@ export function IncidentRoom({
           {!sharedArtifactID ? (
             <>
               <IncidentFieldReceipt signal={selectedSignal?.signal} incidentID={roomIncident.id} />
-              <IncidentDDoSReceipt signal={selectedSignal?.signal} incidentID={roomIncident.id} />
+              <IncidentDDoSReceipt
+                signal={selectedSignal?.signal}
+                incidentID={roomIncident.id}
+                allowRoutingReview={canPropose && permissions.includes('remediation.propose')}
+              />
             </>
           ) : null}
 

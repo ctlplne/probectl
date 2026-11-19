@@ -5,12 +5,13 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
 import { jsonResponse, defaultFetch } from './fetchStub'
 import type { Proposal } from '../api/remediation'
+import type { RemediationRTBHReview } from '../api/sdk.gen'
 
 /** S-EE5 surface: the AI remediation proposals card on Admin. ee-backed:
  *  unlicensed deployments answer 404 and the card renders NOTHING
@@ -32,15 +33,22 @@ const proposals: Proposal[] = [
 
 function licensedFetch(opts?: {
   approvals?: boolean
+  proposal?: Proposal
+  currentRoutingReview?: () => Promise<RemediationRTBHReview>
   onDecide?: (url: string, body: unknown) => void
 }) {
   const base = defaultFetch()
   // Stateful: a decision persists so the post-mutation list refetch reflects it.
-  let row = { ...proposals[0] }
+  let row = { ...(opts?.proposal ?? proposals[0]) }
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/v1/remediation/proposals') && (init?.method ?? 'GET') === 'GET')
       return jsonResponse({ items: [row], approvals_enabled: opts?.approvals ?? false })
+    if (
+      url.endsWith('/v1/remediation/proposals/rem-1/routing-review') &&
+      opts?.currentRoutingReview
+    )
+      return jsonResponse(await opts.currentRoutingReview())
     if (url.includes('/v1/remediation/proposals/rem-1/') && init?.method === 'POST') {
       opts?.onDecide?.(url, JSON.parse(String(init.body)))
       row = {
@@ -148,5 +156,62 @@ describe('guarded remediation (S-EE5)', () => {
     expect(calls).toHaveLength(0)
     // Still proposed — nothing decided it.
     expect(screen.getByText(/reroute around failing hop/i)).toBeInTheDocument()
+  })
+
+  test('routing approval requires the fetched review handle covering the exact declared limit', async () => {
+    const user = userEvent.setup()
+    const decision = vi.fn()
+    let allowReview: (() => void) | undefined
+    const wait = new Promise<void>((release) => {
+      allowReview = release
+    })
+    const fingerprint = 'a'.repeat(64)
+    vi.stubGlobal(
+      'fetch',
+      licensedFetch({
+        approvals: true,
+        proposal: { ...proposals[0], kind: 'rtbh_review', title: 'Routing mitigation review' },
+        currentRoutingReview: async () => {
+          await wait
+          return {
+            candidate: {
+              preview_fingerprint: 'b'.repeat(64),
+              announcement: { family: 'ipv4', prefix: '192.0.2.0/26', community: '64512:100' },
+              impact: {
+                prefix: '192.0.2.0/26',
+                from: '2026-11-19T07:00:00Z',
+                to: '2026-11-19T07:05:00Z',
+                observed_records: 6,
+                observed_addresses: 2,
+                sampled: true,
+                matched: { bytes: '9007199254740993', packets: '101' },
+                known_benign: { bytes: '23', packets: '3' },
+                unclassified: { bytes: '9007199254740970', packets: '98' },
+              },
+            },
+            max_known_benign_packets: '4',
+            blast_radius: 64,
+            expires_at: new Date(Date.now() + 60000).toISOString(),
+            review_fingerprint: fingerprint,
+          }
+        },
+        onDecide: decision,
+      }),
+    )
+    renderApp('/admin', { me: { permissions: ['remediation.approve'] } })
+    await user.click(await screen.findByRole('button', { name: /review/i }))
+    const dialog = await screen.findByRole('dialog')
+    const approve = within(dialog).getByRole('button', { name: /approve/i })
+    expect(approve).toBeDisabled()
+    expect(decision).not.toHaveBeenCalled()
+    allowReview?.()
+    expect(await within(dialog).findByText('9007199254740993 bytes · 101 packets')).toBeVisible()
+    await waitFor(() => expect(approve).toBeEnabled())
+    await user.click(approve)
+    expect(await screen.findByText(/approved \(not executed\)/i)).toBeInTheDocument()
+    expect(decision).toHaveBeenCalledWith(expect.stringMatching(/\/approve$/), {
+      note: '',
+      review_fingerprint: fingerprint,
+    })
   })
 })

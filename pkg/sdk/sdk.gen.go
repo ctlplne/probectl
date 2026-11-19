@@ -3912,7 +3912,8 @@ type RegisteredSVID struct {
 }
 
 type RemediationDecisionRequest struct {
-	Note string `json:"note,omitempty"`
+	Note              string `json:"note,omitempty"`
+	ReviewFingerprint string `json:"review_fingerprint,omitempty"`
 }
 
 type RemediationDryRun struct {
@@ -3977,8 +3978,9 @@ type RemediationRTBHAnnouncement struct {
 }
 
 type RemediationRTBHPreview struct {
-	Announcement RemediationRTBHAnnouncement `json:"announcement"`
-	Impact       RemediationPrefixImpact     `json:"impact"`
+	Announcement       RemediationRTBHAnnouncement `json:"announcement"`
+	Impact             RemediationPrefixImpact     `json:"impact"`
+	PreviewFingerprint string                      `json:"preview_fingerprint,omitempty"`
 }
 
 type RemediationRTBHPreviewInput struct {
@@ -3991,6 +3993,21 @@ type RemediationRTBHPreviewInput struct {
 	RuleId              string `json:"rule_id"`
 	WholeViewId         string `json:"whole_view_id"`
 	WholeViewVersion    string `json:"whole_view_version"`
+}
+
+type RemediationRTBHProposalInput struct {
+	MaxKnownBenignPackets string                      `json:"max_known_benign_packets"`
+	ObservedTo            string                      `json:"observed_to"`
+	Preview               RemediationRTBHPreviewInput `json:"preview"`
+	PreviewFingerprint    string                      `json:"preview_fingerprint"`
+}
+
+type RemediationRTBHReview struct {
+	BlastRadius           int                    `json:"blast_radius"`
+	Candidate             RemediationRTBHPreview `json:"candidate"`
+	ExpiresAt             string                 `json:"expires_at"`
+	MaxKnownBenignPackets string                 `json:"max_known_benign_packets"`
+	ReviewFingerprint     string                 `json:"review_fingerprint"`
 }
 
 type ReportEmailDelivery struct {
@@ -9256,6 +9273,25 @@ func (c *Client) RejectRemediationProposal(ctx context.Context, req RejectRemedi
 	return &out, nil
 }
 
+// Read the proposal’s exact routing review under current tenant and source authority
+type GetRtbhReviewRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetRtbhReview(ctx context.Context, req GetRtbhReviewRequest) (*RemediationRTBHReview, error) {
+	path := "/v1/remediation/proposals/{id}/routing-review"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RemediationRTBHReview
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Preview a reviewed destination RTBH candidate
 type PreviewRemediationRtbhRequest struct {
 	Body *RemediationRTBHPreviewInput `json:"-"`
@@ -9265,6 +9301,21 @@ func (c *Client) PreviewRemediationRtbh(ctx context.Context, req PreviewRemediat
 	path := "/v1/remediation/rtbh-preview"
 	query := url.Values{}
 	var out RemediationRTBHPreview
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Record a routing mitigation proposal from its exact scoped preview and declared collateral limit
+type ProposeRtbhReviewRequest struct {
+	Body *RemediationRTBHProposalInput `json:"-"`
+}
+
+func (c *Client) ProposeRtbhReview(ctx context.Context, req ProposeRtbhReviewRequest) (*RemediationProposal, error) {
+	path := "/v1/remediation/rtbh-proposals"
+	query := url.Values{}
+	var out RemediationProposal
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}

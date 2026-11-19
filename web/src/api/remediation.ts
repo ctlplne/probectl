@@ -6,6 +6,12 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from './client'
+import type {
+  RemediationRTBHPreview,
+  RemediationRTBHPreviewInput,
+  RemediationRTBHProposalInput,
+  RemediationRTBHReview,
+} from './sdk.gen'
 
 /** Guarded agentic remediation (S-EE5, F44 — ee-backed). The AI PROPOSES; a
  *  human APPROVES; probectl NEVER executes — there is no executor. Approve is a
@@ -50,12 +56,51 @@ export interface CreateProposalInput {
   incident_id?: string
 }
 
-export function useRemediations(enabled = true) {
+export function useRemediations(enabled = true, identity?: string) {
   return useQuery({
-    queryKey: ['remediation-proposals'],
+    queryKey: ['remediation-proposals', ...(identity ? [identity] : [])],
     enabled,
     queryFn: () => apiFetch<RemediationList>('/remediation/proposals'),
     retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
+  })
+}
+
+export function useRTBHReview(id: string | undefined, identity: string) {
+  return useQuery({
+    queryKey: ['remediation-proposals', identity, 'routing-review', id],
+    enabled: Boolean(id),
+    retry: false,
+    staleTime: 0,
+    queryFn: () =>
+      apiFetch<RemediationRTBHReview>(
+        `/remediation/proposals/${encodeURIComponent(id ?? '')}/routing-review`,
+      ),
+  })
+}
+
+export function usePreviewRTBH() {
+  return useMutation({
+    mutationFn: async (input: RemediationRTBHPreviewInput) => ({
+      input,
+      assessment: await apiFetch<RemediationRTBHPreview>('/remediation/rtbh-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    }),
+  })
+}
+
+export function useProposeRTBH() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: RemediationRTBHProposalInput) =>
+      apiFetch<Proposal>('/remediation/rtbh-proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['remediation-proposals'] }),
   })
 }
 
@@ -79,15 +124,17 @@ export function useDecideRemediation() {
       id,
       decision,
       note,
+      fingerprint,
     }: {
       id: string
       decision: 'approve' | 'reject'
       note?: string
+      fingerprint?: string
     }) =>
       apiFetch<Proposal>(`/remediation/proposals/${id}/${decision}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: note ?? '' }),
+        body: JSON.stringify({ note: note ?? '', review_fingerprint: fingerprint }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['remediation-proposals'] }),
   })

@@ -108,7 +108,7 @@ func flowObservationTestClock(t *testing.T) time.Time {
 }
 
 func assertShippedSustainedReceipt(t *testing.T, stack *shipped.Stack, lanes []*nativeLane, views [2]flow.SavedQueryView,
-	previous, current anomaly.FlowFieldComparisonClocks) {
+	previous, current anomaly.FlowFieldComparisonClocks) (ruleID, fingerprint string) {
 	t.Helper()
 	var rules [2]alert.Rule
 	var fingerprints [2]string
@@ -152,6 +152,7 @@ func assertShippedSustainedReceipt(t *testing.T, stack *shipped.Stack, lanes []*
 	}
 	lanes[0].do(t, stack, http.MethodGet, "/v1/incidents/"+receipt.IncidentID, nil, nil, http.StatusOK)
 	lanes[1].do(t, stack, http.MethodGet, "/v1/incidents/"+receipt.IncidentID, nil, nil, http.StatusNotFound)
+	return rules[0].ID, fingerprints[0]
 }
 
 func assertShippedTrafficVector(t *testing.T, got flow.DDoSAssessment, view flow.SavedQueryView, clocks anomaly.FlowFieldComparisonClocks, vector trafficVector, changed bool) {

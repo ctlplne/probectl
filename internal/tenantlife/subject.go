@@ -486,7 +486,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	"remediation_proposals": {
 		plane: "postgres:remediation_proposals", disposition: subjectTableDeleteMatches,
 		exact:    []string{"proposed_by", "decided_by", "target", "proposed_user_id"},
-		contains: []string{"rationale", "decision_note", "dry_run"},
+		contains: []string{"rationale", "decision_note", "dry_run", "rtbh_review"},
 	},
 	"results": {plane: "postgres:results", disposition: subjectTableNoSubject},
 	"role_bindings": {

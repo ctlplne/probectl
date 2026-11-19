@@ -44,6 +44,61 @@ func sessionCleanupIdentity(
 	return tenant.ID, userID
 }
 
+func TestLockedInteractiveSessionKeepsExactTenantUserAndCurrentCredential(t *testing.T) {
+	ctx := t.Context()
+	pool := setup(ctx, t)
+	t.Cleanup(pool.Close)
+	first, firstUser := sessionCleanupIdentity(ctx, t, pool, "locked-a")
+	second, secondUser := sessionCleanupIdentity(ctx, t, pool, "locked-b")
+	sessions := NewSessions(pool)
+	key, err := crypto.Random(crypto.KeySize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := auth.NewManager(sessions, time.Hour, true, key).WithIdleTimeout(time.Minute)
+	issue := func(tenant, user string) string {
+		t.Helper()
+		token, err := manager.Issue(ctx, auth.Session{TenantID: tenant, UserID: user, MFASatisfied: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return token
+	}
+	live, peer, old := issue(first, firstUser), issue(second, secondUser), issue(first, firstUser)
+	_, err = manager.VerifyCurrentToken(old, func(hash []byte, _ time.Duration) (bool, error) {
+		inTenant(ctx, t, pool, first, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `UPDATE sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE tenant_id=$1 AND token_hash=$2`, first, hash)
+			return err
+		})
+		return true, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(scope, user, token string, mfa, want bool) {
+		t.Helper()
+		inTenant(ctx, t, pool, scope, func(ctx context.Context, sc tenancy.Scope) error {
+			current, err := manager.VerifyCurrentToken(token, func(hash []byte, idle time.Duration) (bool, error) {
+				return sessions.LockCurrentSessionInScope(ctx, sc, hash, user, mfa, idle)
+			})
+			if err == nil && current != want {
+				t.Fatal("the scoped current session admitted a foreign, stale or insufficient credential")
+			}
+			return err
+		})
+	}
+	check(first, firstUser, live, true, true)
+	check(first, secondUser, live, true, false)
+	check(second, firstUser, live, true, false)
+	check(first, firstUser, live, false, false)
+	check(first, firstUser, old, true, false)
+	if err := manager.Revoke(ctx, live); err != nil {
+		t.Fatal(err)
+	}
+	check(first, firstUser, live, true, false)
+	check(second, secondUser, peer, true, true)
+}
+
 func TestSessionDetailCleanupTenantIsolationAndCallbackRace(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)

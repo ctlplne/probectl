@@ -257,6 +257,15 @@ func TokenFromRequest(r *http.Request) string {
 	return c.Value
 }
 
+// VerifyCurrentToken applies the manager's keyed token representation and
+// idle timeout to a caller's current-session check in an existing transaction.
+func (m *Manager) VerifyCurrentToken(token string, check func([]byte, time.Duration) (bool, error)) (bool, error) {
+	if m == nil || token == "" || check == nil {
+		return false, nil
+	}
+	return check(m.hashToken(token), m.idle)
+}
+
 // hashToken hashes the token through internal/crypto (FIPS-swappable; the token
 // is the secret and is never stored in the clear). When the manager carries a
 // 32-byte HMAC key (PROBECTL_SESSION_HMAC_KEY), the hash is HMAC-SHA256 keyed

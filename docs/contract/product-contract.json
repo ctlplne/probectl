@@ -345,7 +345,7 @@
       ],
       "name": "Guarded remediation",
       "status": "delivered",
-      "evidence": "`ee/remediation` — observe-only/human-gated, dry-run, blast-radius, audited (guardrail intact)"
+      "evidence": "`ee/remediation` provides human-gated, audited proposals with dry-run and blast-radius bounds. Routing review pins original traffic and the declared collateral limit to a separate interactive approval through `internal/control/remediationrtbh.go` and `migrations/0234_rtbh_review_evidence.sql`. `TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview` runs shipped collectors and control, checks two tenant scopes and shows the evidence in the served review dialog."
     },
     {
       "ids": [

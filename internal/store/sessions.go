@@ -29,6 +29,28 @@ type Sessions struct {
 // NewSessions builds the session store over the connection pool.
 func NewSessions(pool *pgxpool.Pool) Sessions { return Sessions{pool: pool} }
 
+// LockCurrentSessionInScope rechecks one previously authenticated interactive
+// credential without changing its idle clock. The authorization transaction
+// and logout serialize on the session row.
+func (Sessions) LockCurrentSessionInScope(ctx context.Context, sc tenancy.Scope, tokenHash []byte, userID string, mfa bool, idleTimeout time.Duration) (bool, error) {
+	bound, ok := tenancy.FromContext(ctx)
+	if !ok || bound != sc.Tenant || sc.Q == nil || userID == "" || len(tokenHash) == 0 {
+		return false, tenancy.ErrNoTenant
+	}
+	if idleTimeout <= 0 {
+		idleTimeout = auth.DefaultSessionIdleTimeout
+	}
+	var active bool
+	err := sc.Q.QueryRow(ctx, `SELECT true FROM sessions
+		WHERE tenant_id=$1 AND token_hash=$2 AND user_id=$3 AND mfa_satisfied=$4 AND replaced_at IS NULL
+		AND expires_at>clock_timestamp() AND last_activity_at>clock_timestamp()-$5::interval FOR SHARE`,
+		sc.Tenant.String(), tokenHash, userID, mfa, idleTimeout.String()).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return active, err
+}
+
 // Create stores a session keyed by the hash of its opaque token.
 func (s Sessions) Create(ctx context.Context, tokenHash []byte, sess auth.Session) error {
 	sess = normalizeSessionTimes(sess)

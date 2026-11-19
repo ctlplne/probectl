@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"time"
 
 	rem "github.com/ctlplne/probectl/internal/remediation"
 )
@@ -24,10 +25,18 @@ func (s *Service) PreviewRTBH(ctx context.Context, tenantID string, input rem.RT
 	if !input.RoutingPolicyAgreed || !canonicalRTBHCommunity(input.Community) {
 		return rem.RTBHPreview{}, rem.Error{Code: "validation", Message: "confirm the routing policy and enter its canonical community"}
 	}
+	if _, ok := s.prefixImpact.(rem.RTBHReviewSource); ok {
+		preview, _, err := s.prepareRTBH(ctx, tenantID, input, time.Time{}, check)
+		return preview, err
+	}
 	impact, err := s.prefixImpact.ObservePrefixImpact(ctx, tenantID, input.PrefixImpactInput, check)
 	if err != nil {
 		return rem.RTBHPreview{}, err
 	}
+	return composeRTBHPreview(ctx, input, impact)
+}
+
+func composeRTBHPreview(ctx context.Context, input rem.RTBHPreviewInput, impact rem.PrefixImpact) (rem.RTBHPreview, error) {
 	prefix, err := netip.ParsePrefix(impact.Prefix)
 	if err != nil || prefix.Bits() < 1 || prefix != prefix.Masked() || prefix.Addr().Is4In6() {
 		return rem.RTBHPreview{}, rem.Error{Code: "validation", Message: "the protected network prefix is unavailable"}

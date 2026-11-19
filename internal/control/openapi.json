@@ -14253,6 +14253,124 @@
         }
       }
     },
+    "/v1/remediation/rtbh-proposals": {
+      "post": {
+        "x-required-permission": "remediation.propose",
+        "operationId": "proposeRTBHReview",
+        "summary": "Record a routing mitigation proposal from its exact scoped preview and declared collateral limit",
+        "tags": [
+          "remediation"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemediationRTBHProposalInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Audited proposal awaiting independent approval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationProposal"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/remediation/proposals/{id}/routing-review": {
+      "get": {
+        "x-required-permission": "remediation.propose",
+        "operationId": "getRTBHReview",
+        "summary": "Read the proposal’s exact routing review under current tenant and source authority",
+        "tags": [
+          "remediation"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Proposal id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current scoped proposal evidence and approval limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationRTBHReview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/remediation/proposals/{id}/approve": {
       "post": {
         "x-required-permission": "remediation.approve",
@@ -19577,6 +19695,11 @@
       "RemediationDecisionRequest": {
         "type": "object",
         "properties": {
+          "review_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Exact reviewed proposal fingerprint, including its collateral and expiration limits."
+          },
           "note": {
             "type": "string",
             "description": "The human's decision note, written to the audit trail."
@@ -19761,6 +19884,11 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "preview_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Exact tenant-bound preview and source scope digest for filing a routing review."
+          },
           "announcement": {
             "$ref": "#/components/schemas/RemediationRTBHAnnouncement"
           },
@@ -19772,6 +19900,66 @@
           "announcement",
           "impact"
         ]
+      },
+      "RemediationRTBHProposalInput": {
+        "type": "object",
+        "required": [
+          "preview",
+          "observed_to",
+          "preview_fingerprint",
+          "max_known_benign_packets"
+        ],
+        "properties": {
+          "preview": {
+            "$ref": "#/components/schemas/RemediationRTBHPreviewInput"
+          },
+          "observed_to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "preview_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "max_known_benign_packets": {
+            "type": "string",
+            "pattern": "^[0-9]{1,64}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemediationRTBHReview": {
+        "type": "object",
+        "required": [
+          "candidate",
+          "max_known_benign_packets",
+          "blast_radius",
+          "expires_at",
+          "review_fingerprint"
+        ],
+        "properties": {
+          "review_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/RemediationRTBHPreview"
+          },
+          "max_known_benign_packets": {
+            "type": "string",
+            "pattern": "^[0-9]{1,64}$"
+          },
+          "blast_radius": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Full configured prefix address count"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
       },
       "RemediationProposal": {
         "type": "object",
@@ -19788,7 +19976,8 @@
               "reroute_suggestion",
               "traffic_shift_suggestion",
               "open_ticket",
-              "trustctl_renewal"
+              "trustctl_renewal",
+              "rtbh_review"
             ]
           },
           "title": {

@@ -155,6 +155,28 @@ require current access. Missing complete inputs keep the preview unavailable.
 Use `POST /v1/remediation/rtbh-preview`, the generated SDK method or
 `probectl remediation rtbh-preview --body-file request.json`.
 
+### File and approve a routing review
+
+Open the traffic pressure receipt in the incident room and select **Prepare
+routing proposal**. Choose the owned routing scope, preview the traffic and
+set the maximum allowed known-benign packet count. Filing records the exact
+preview fingerprint, completed observation window and collateral limit. The
+CLI exposes the same operation as `probectl remediation rtbh-propose --body-file request.json`.
+
+An independent authorized account reviews the candidate under **Admin → AI
+remediation proposals**. The review shows the exact prefix, community,
+matching traffic, known benign and unclassified portions, and expiry.
+`probectl remediation rtbh-review <id>` reads the same current evidence.
+The approval request carries the current `review_fingerprint`. The server
+rechecks the active interactive session, current source permissions, original
+rule receipt, saved view, exporter bindings and declared collateral inside the
+audited decision. Reviews expire ten minutes after the observation window ends.
+
+For routing proposals, the configured blast-radius limit applies to the total
+address count of the candidate prefix. The review also shows the count of
+observed destinations in the selected sample. Approval records an operator's
+decision for use in their existing change process.
+
 ## Dry-run (blast radius)
 
 The estimator runs `topology.Simulate` over a **copy** of the tenant's topology
@@ -172,9 +194,11 @@ All routes are tenant-scoped and hidden (404) when the feature is unlicensed.
 | Method · Route | Permission | Notes |
 |---|---|---|
 | `POST /v1/remediation/rtbh-preview` | `remediation.propose` | measures an owned destination prefix and its configured benign population |
+| `POST /v1/remediation/rtbh-proposals` | `remediation.propose` | files a candidate from the exact preview, clock and declared collateral limit |
 | `GET /v1/remediation/proposals` | `remediation.propose` | list (newest first) + `approvals_enabled` |
 | `POST /v1/remediation/proposals` | `remediation.propose` | files a proposal — always `proposed` |
 | `GET /v1/remediation/proposals/{id}` | `remediation.propose` | one proposal |
+| `GET /v1/remediation/proposals/{id}/routing-review` | `remediation.propose` | current scoped routing evidence and review fingerprint |
 | `POST /v1/remediation/proposals/{id}/approve` | `remediation.approve` | interactive session and independent approver required; fails closed |
 | `POST /v1/remediation/proposals/{id}/reject` | `remediation.approve` | records a decline |
 

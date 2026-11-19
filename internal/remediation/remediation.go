@@ -43,9 +43,11 @@ const (
 	KindTrafficShiftSuggestion Kind = "traffic_shift_suggestion" // suggest shifting traffic/weights
 	KindOpenTicket             Kind = "open_ticket"              // suggest opening an ITSM ticket
 	KindCertRenewal            Kind = "trustctl_renewal"         // suggest a trustctl certificate renewal
+	KindRTBHReview             Kind = "rtbh_review"              // dedicated evidence-backed proposal
 )
 
-// ValidKind reports whether k is a known remediation kind.
+// ValidKind reports whether k is accepted by the generic proposal route.
+// RTBH reviews use the dedicated path with mandatory current evidence.
 func ValidKind(k Kind) bool {
 	switch k {
 	case KindRerouteSuggestion, KindTrafficShiftSuggestion, KindOpenTicket, KindCertRenewal:

@@ -54,6 +54,7 @@ type RTBHAnnouncement struct {
 type RTBHPreview struct {
 	Announcement RTBHAnnouncement `json:"announcement"`
 	Impact       PrefixImpact     `json:"impact"`
+	Fingerprint  string           `json:"preview_fingerprint,omitempty"`
 }
 
 type PrefixImpactSource interface {

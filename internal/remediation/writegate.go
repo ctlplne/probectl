@@ -51,6 +51,36 @@ func (g writeGatedService) PreviewRTBH(ctx context.Context, tenantID string, inp
 	return service.PreviewRTBH(ctx, tenantID, input, check)
 }
 
+func (g writeGatedService) ProposeRTBH(ctx context.Context, tenant, actor string, input RTBHProposalInput, check func(context.Context) error) (Proposal, error) {
+	if !g.writes.Enabled() {
+		return Proposal{}, license.ErrReadOnly
+	}
+	service, ok := g.delegate.(RTBHReviews)
+	if !ok {
+		return Proposal{}, Error{Code: "not_found", Message: "traffic review is unavailable"}
+	}
+	return service.ProposeRTBH(ctx, tenant, actor, input, check)
+}
+
+func (g writeGatedService) GetRTBHReview(ctx context.Context, tenant, id string, check func(context.Context) error) (RTBHReview, error) {
+	service, ok := g.delegate.(RTBHReviews)
+	if !ok {
+		return RTBHReview{}, Error{Code: "not_found", Message: "traffic review is unavailable"}
+	}
+	return service.GetRTBHReview(ctx, tenant, id, check)
+}
+
+func (g writeGatedService) ApproveRTBH(ctx context.Context, tenant, actor, id, fingerprint, note string, check func(context.Context) error) (Proposal, error) {
+	if !g.writes.Enabled() {
+		return Proposal{}, license.ErrReadOnly
+	}
+	service, ok := g.delegate.(RTBHReviews)
+	if !ok {
+		return Proposal{}, Error{Code: "not_found", Message: "traffic review is unavailable"}
+	}
+	return service.ApproveRTBH(ctx, tenant, actor, id, fingerprint, note, check)
+}
+
 func (g writeGatedService) Approve(ctx context.Context, tenantID, approver, id, note string) (Proposal, error) {
 	if !g.writes.Enabled() {
 		return Proposal{}, license.ErrReadOnly

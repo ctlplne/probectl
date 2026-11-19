@@ -11,15 +11,18 @@ import type { Signal } from '../api/incidents'
 import { useAuth } from '../auth/useAuth'
 import { Button, Card, CardBody, CardHeader, ErrorState, LoadingState } from '../components'
 import { DDoSAssessmentEvidence } from './FlowDDoSAssessmentCard'
+import { IncidentRoutingProposal } from './IncidentRoutingProposal'
 
 const digest = /^[a-f0-9]{64}$/
 
 export function IncidentDDoSReceipt({
   signal,
   incidentID,
+  allowRoutingReview = false,
 }: {
   signal?: Signal
   incidentID: string
+  allowRoutingReview?: boolean
 }) {
   if (signal?.kind !== 'alert.ddos_assessment' || signal.plane !== 'flow') return null
   const rule = signal.attributes?.rule_id
@@ -34,6 +37,7 @@ export function IncidentDDoSReceipt({
       fingerprint={fingerprint}
       episode={episode}
       incidentID={incidentID}
+      allowRoutingReview={allowRoutingReview}
     />
   )
 }
@@ -43,13 +47,16 @@ function DDoSReceipt({
   fingerprint,
   episode,
   incidentID,
+  allowRoutingReview,
 }: {
   rule: string
   fingerprint: string
   episode: string
   incidentID: string
+  allowRoutingReview: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [reviewing, setReviewing] = useState(false)
   const { tenant, user, permissions } = useAuth()
   const canRead = ['alert.read', 'ai.query', 'flow.read'].every((permission) =>
     permissions.includes(permission),
@@ -78,6 +85,24 @@ function DDoSReceipt({
             <DDoSAssessmentEvidence result={result.previous} />
             <h3>Second qualifying window</h3>
             <DDoSAssessmentEvidence result={result.current} />
+            {allowRoutingReview && result.current.direction === 'ingress' ? (
+              reviewing ? (
+                <IncidentRoutingProposal
+                  key={`${tenant.id}:${user.id}:${episode}`}
+                  rule={rule}
+                  receipt={fingerprint}
+                  prefix={result.current.prefix}
+                  windowSeconds={
+                    (Date.parse(result.current.after.to) - Date.parse(result.current.after.from)) /
+                    1000
+                  }
+                />
+              ) : (
+                <Button variant="secondary" onClick={() => setReviewing(true)}>
+                  Prepare routing proposal
+                </Button>
+              )
+            ) : null}
           </>
         )}
         {open && result && !matched && (
