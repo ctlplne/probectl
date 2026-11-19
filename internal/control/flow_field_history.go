@@ -41,7 +41,7 @@ func compareHistoricalFlowFields(ctx context.Context, capture *reportFlowCapture
 	if err != nil {
 		return none, err
 	}
-	candidates := make(map[string]bool, min(settings.TopKeys, len(comparison.Changes)))
+	candidates := make(map[string]bool)
 	for _, entry := range comparison.Changes {
 		if entry.Kind == "entered_top_set" {
 			candidates[entry.Key] = true
