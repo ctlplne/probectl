@@ -5,9 +5,10 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { holdLoginRedirect } from '../api/client'
+import type { ProspectEngagement } from '../api/sdk.gen'
 import { renderApp } from './renderApp'
 import { jsonResponse, defaultFetch, pathOf } from './fetchStub'
 
@@ -17,6 +18,133 @@ import { jsonResponse, defaultFetch, pathOf } from './fetchStub'
 
 describe('tenant data lifecycle (S-T5)', () => {
   afterEach(() => holdLoginRedirect(false))
+
+  test('prospect consent requires the exact owned report, durable destination, UTC end and slug', async () => {
+    const user = userEvent.setup()
+    const base = defaultFetch()
+    const writes = vi.fn()
+    const viewRevision = '2026-11-19T07:00:00Z'
+    const endsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16)
+    let current: ProspectEngagement | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = pathOf(input)
+        if (path === '/v1/dashboards') {
+          const owned = {
+            id: 'owned-report',
+            owner_id: 'u_test',
+            name: 'Owned assessment',
+            updated_at: viewRevision,
+            definition: { client_report: {} },
+          }
+          return jsonResponse({
+            items: [
+              owned,
+              {
+                ...owned,
+                id: 'sibling-report',
+                owner_id: 'other',
+                name: 'Another owner’s assessment',
+              },
+            ],
+          })
+        }
+        if (path === '/v1/dashboard-report-schedules') {
+          return jsonResponse({
+            items: [],
+            destinations: [
+              { id: 'archive', name: 'Approved archive', outbound: true, ready: true },
+              { id: 'inbox', name: 'In-tenant inbox', outbound: false, ready: true },
+              { id: 'offline', name: 'Unavailable archive', outbound: true, ready: false },
+            ],
+          })
+        }
+        if (path === '/v1/lifecycle/prospect') {
+          if (init?.method !== 'POST') return jsonResponse(current ?? {}, current ? 200 : 404)
+          const body = JSON.parse(String(init.body))
+          writes(path, body)
+          current = {
+            revision: 1,
+            assessment_view_id: body.assessment_view_id,
+            assessment_view_revision: body.assessment_view_revision,
+            destination_id: body.destination_id,
+            starts_at: viewRevision,
+            ends_at: body.ends_at,
+            preparer: body.preparer,
+            consented_at: viewRevision,
+          }
+          return jsonResponse(current, 201)
+        }
+        if (path === '/v1/lifecycle/prospect/revoke-consent' && current) {
+          writes(path, JSON.parse(String(init?.body)))
+          current = { ...current, revision: 2, consent_revoked_at: viewRevision }
+          return jsonResponse(current)
+        }
+        if (path === '/v1/lifecycle/prospect/convert' && current) {
+          writes(path, JSON.parse(String(init?.body)))
+          current = {
+            ...current,
+            revision: 3,
+            converted_at: viewRevision,
+            assessment_artifact_id: 'filed-pdf',
+            assessment_delivery_state: 'withdrawn',
+          }
+          return jsonResponse(current)
+        }
+        return base(input, init)
+      }),
+    )
+    renderApp('/admin', { me: { permissions: ['lifecycle.erase', 'lifecycle.export'] } })
+    const report = await screen.findByLabelText('Assessment report')
+    await user.selectOptions(report, 'owned-report')
+    expect(
+      within(report).queryByRole('option', { name: 'Another owner’s assessment' }),
+    ).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText('Assessment preparer'), '  Network team  ')
+    await user.click(screen.getByRole('checkbox', { name: /authorize verifiable deletion/i }))
+    const destination = screen.getByLabelText('Delivery destination')
+    await user.selectOptions(
+      destination,
+      await within(destination).findByRole('option', { name: 'Approved archive' }),
+    )
+    expect(within(destination).getAllByRole('option')).toHaveLength(2)
+    const start = screen.getByRole('button', { name: 'Start prospect engagement' })
+    const end = screen.getByLabelText('Engagement end in UTC')
+    fireEvent.change(end, { target: { value: '2020-01-01T12:00' } })
+    const slug = screen.getByLabelText('Confirm tenant slug')
+    await user.type(slug, 'different-tenant')
+    expect(start).toBeDisabled()
+    expect(writes).not.toHaveBeenCalled()
+    await user.clear(slug)
+    await user.type(slug, 'acme-industries')
+    await user.click(start)
+    expect(await screen.findByText('Choose a future engagement end in UTC.')).toBeVisible()
+    expect(writes).not.toHaveBeenCalled()
+    fireEvent.change(end, { target: { value: endsAt } })
+    await user.click(start)
+    expect(await screen.findByText('Scheduled erasure consent recorded')).toBeVisible()
+    expect(writes).toHaveBeenNthCalledWith(1, '/v1/lifecycle/prospect', {
+      assessment_view_id: 'owned-report',
+      assessment_view_revision: viewRevision,
+      preparer: 'Network team',
+      ends_at: `${endsAt}:00.000Z`,
+      destination_id: 'archive',
+      confirm_tenant: 'acme-industries',
+    })
+    await user.click(screen.getByRole('button', { name: 'Withdraw scheduled erasure' }))
+    expect(await screen.findByText('Scheduled erasure consent withdrawn')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Convert to client' }))
+    expect(await screen.findByText('Converted to client')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Download assessment PDF' })).toHaveAttribute(
+      'href',
+      '/v1/dashboard-report-artifacts/filed-pdf',
+    )
+    expect(writes).toHaveBeenNthCalledWith(2, '/v1/lifecycle/prospect/revoke-consent', {
+      revision: 1,
+    })
+    expect(writes).toHaveBeenNthCalledWith(3, '/v1/lifecycle/prospect/convert', { revision: 2 })
+  })
 
   test('the card renders export, isolation visibility, and the retention control', async () => {
     vi.stubGlobal('fetch', defaultFetch())

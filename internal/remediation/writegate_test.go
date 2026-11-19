@@ -9,6 +9,7 @@ package remediation
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -27,6 +28,96 @@ type rtbhPreviewDelegate struct {
 	remediationDelegateSpy
 	tenant string
 	input  RTBHPreviewInput
+}
+
+type rtbhReviewDelegate struct {
+	remediationDelegateSpy
+	proposed    RTBHProposalInput
+	proposalFor []string
+	reviewFor   []string
+	approvalFor []string
+}
+
+func (s *rtbhReviewDelegate) ProposeRTBH(ctx context.Context, tenant, actor string, input RTBHProposalInput, check func(context.Context) error) (Proposal, error) {
+	s.proposalFor = []string{tenant, actor}
+	s.proposed = input
+	return Proposal{ID: "proposal", TenantID: tenant, State: StateProposed}, check(ctx)
+}
+
+func (s *rtbhReviewDelegate) GetRTBHReview(ctx context.Context, tenant, id string, check func(context.Context) error) (RTBHReview, error) {
+	s.reviewFor = []string{tenant, id}
+	return RTBHReview{Fingerprint: "displayed-review"}, check(ctx)
+}
+
+func (s *rtbhReviewDelegate) ApproveRTBH(ctx context.Context, tenant, actor, id, fingerprint, note string, check func(context.Context) error) (Proposal, error) {
+	s.approvalFor = []string{tenant, actor, id, fingerprint, note}
+	return Proposal{ID: id, TenantID: tenant, State: StateApproved}, check(ctx)
+}
+
+func TestRTBHReviewLicenseGate(t *testing.T) {
+	input := RTBHProposalInput{PreviewFingerprint: "displayed-preview", MaxKnownBenignPackets: "9007199254740993"}
+	for _, tc := range []struct {
+		name      string
+		writes    bool
+		supported bool
+		wantCalls int
+	}{
+		{name: "retains scope and authority", writes: true, supported: true, wantCalls: 3},
+		{name: "recalled review remains readable", supported: true, wantCalls: 1},
+		{name: "unavailable delegate", writes: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			checks := 0
+			verify := func(got context.Context) error {
+				if got != ctx {
+					t.Fatal("the authority check received a different context")
+				}
+				checks++
+				return nil
+			}
+			spy := &rtbhReviewDelegate{}
+			var delegate Service = &spy.remediationDelegateSpy
+			if tc.supported {
+				delegate = spy
+			}
+			service := GateServiceWrites(delegate, license.WriteCapability(func() bool { return tc.writes })).(RTBHReviews)
+			proposed, proposeErr := service.ProposeRTBH(ctx, "tenant-a", "proposer", input, verify)
+			review, readErr := service.GetRTBHReview(ctx, "tenant-a", "proposal", verify)
+			approved, approveErr := service.ApproveRTBH(ctx, "tenant-a", "reviewer", "proposal", review.Fingerprint, "approved in review", verify)
+			if checks != tc.wantCalls {
+				t.Fatalf("authority checks = %d, want %d", checks, tc.wantCalls)
+			}
+			if !tc.supported {
+				var unavailable Error
+				for _, err := range []error{proposeErr, readErr, approveErr} {
+					if !errors.As(err, &unavailable) || unavailable.Code != "not_found" {
+						t.Fatal("missing review delegate must fail closed", err)
+					}
+				}
+				return
+			}
+			if readErr != nil || review.Fingerprint != "displayed-review" || !slices.Equal(spy.reviewFor, []string{"tenant-a", "proposal"}) {
+				t.Fatal("the readable review lost its scope, fingerprint, or authority result", review, readErr, spy.reviewFor)
+			}
+			denied := errors.New("current authority withdrawn")
+			if _, err := service.GetRTBHReview(ctx, "tenant-a", "proposal", func(context.Context) error { return denied }); !errors.Is(err, denied) {
+				t.Fatal("the authority failure was lost", err)
+			}
+			if !tc.writes {
+				if !errors.Is(proposeErr, license.ErrReadOnly) || !errors.Is(approveErr, license.ErrReadOnly) || spy.proposalFor != nil || spy.approvalFor != nil {
+					t.Fatal("a read-only mutation reached the delegate", proposeErr, approveErr, spy.proposalFor, spy.approvalFor)
+				}
+				return
+			}
+			if proposeErr != nil || proposed.State != StateProposed || spy.proposed != input || !slices.Equal(spy.proposalFor, []string{"tenant-a", "proposer"}) {
+				t.Fatal("the proposal lost its input or authority result", proposed, proposeErr, spy.proposalFor)
+			}
+			if approveErr != nil || approved.State != StateApproved || !slices.Equal(spy.approvalFor, []string{"tenant-a", "reviewer", "proposal", "displayed-review", "approved in review"}) {
+				t.Fatal("the approval lost its identity, fingerprint, note, or authority result", approved, approveErr, spy.approvalFor)
+			}
+		})
+	}
 }
 
 func (s *rtbhPreviewDelegate) PreviewRTBH(ctx context.Context, tenant string, input RTBHPreviewInput, check func(context.Context) error) (RTBHPreview, error) {
