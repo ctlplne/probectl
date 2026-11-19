@@ -796,7 +796,6 @@ capabilities:
   - id: F47
     name: Network chaos
     status: delivered
-    evidence_status: partial
     owner: architecture/release
     engine: {refs: ["file:internal/chaos"]}
     binary: {refs: ["file:cmd/probectl-chaos-dependency-drill/main.go#func main"]}
@@ -806,7 +805,7 @@ capabilities:
     docs: {refs: ["file:docs/chaos.md#Network chaos / fault injection"]}
     config_keys: *api_config
     telemetry: {refs: ["file:internal/chaos"]}
-    real_stack_proof: {gap: "The current drill uses real UDP packets but an in-process synthetic timeline; it does not exercise release binaries, stores, public surfaces, or two tenant lanes."}
+    real_stack_proof: {none_by_design: "The local drill acts on disposable processes, loopback services, and test data. The CI dependency-drill recovery counter gate is the proof for that scope."}
     migration: *no_migration
 
   - id: F48

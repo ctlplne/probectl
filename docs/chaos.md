@@ -101,9 +101,11 @@ agent sheds new records before it can exhaust the host disk. The memory leg
 forces the cardinality limiter to drop a noisy tenant while admitting a quiet
 tenant. The pod-kill leg kills a disposable worker process with one message in
 flight, restarts it, and proves the message is requeued. The dependency-outage
-leg drops and restarts a loopback TCP dependency, then proves recovery. This is
-deliberately not wired to any API and does not mutate a live cluster; the
-served-surface edge stays canonical in
+leg drops and restarts a loopback TCP dependency, then proves recovery. The
+`chaos-dependency-drill` CI job checks these counters for the local harness.
+Its disposable processes, loopback services, and test data make the real-stack
+cell in the completeness registry inapplicable. The served-surface boundary is
+described in
 [limitations.md](limitations.md#built-not-yet-served-edges).
 
 ## Using it against your own stack

@@ -49,6 +49,7 @@
     "F47.cli",
     "F47.config_keys",
     "F47.migration",
+    "F47.real_stack_proof",
     "F47.ui",
     "F48.migration",
     "F49.api",

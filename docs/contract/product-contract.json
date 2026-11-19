@@ -369,7 +369,7 @@
       ],
       "name": "Network chaos",
       "status": "partial",
-      "evidence": "`internal/chaos`"
+      "evidence": "Local harness in `internal/chaos`, verified by the `chaos-dependency-drill` CI counter gate and scoped in `docs/chaos.md`."
     },
     {
       "ids": [
