@@ -102,19 +102,30 @@ type ProspectAction =
   | { action: 'start'; input: ProspectEngagementInput }
   | { action: 'convert' | 'revoke-consent'; revision: number }
 
+function jsonInit(method: string, body: unknown): RequestInit {
+  return {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }
+}
+
 export function useProspectEngagementAction(identity: string) {
   const queryClient = useQueryClient()
   const queryKey = ['lifecycle', 'prospect', identity]
   return useMutation({
     mutationFn: (request: ProspectAction) => {
-      const start = request.action === 'start'
-      const path = start ? '/lifecycle/prospect' : `/lifecycle/prospect/${request.action}`
-      const input = start ? request.input : { revision: request.revision }
-      return apiFetch<ProspectEngagement>(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
-      })
+      if (request.action === 'start') {
+        return apiFetch<ProspectEngagement>('/lifecycle/prospect', jsonInit('POST', request.input))
+      }
+      const input = { revision: request.revision }
+      if (request.action === 'convert') {
+        return apiFetch<ProspectEngagement>('/lifecycle/prospect/convert', jsonInit('POST', input))
+      }
+      return apiFetch<ProspectEngagement>(
+        '/lifecycle/prospect/revoke-consent',
+        jsonInit('POST', input),
+      )
     },
     onSuccess: (data) => queryClient.setQueryData(queryKey, data),
     onError: (error) => {
