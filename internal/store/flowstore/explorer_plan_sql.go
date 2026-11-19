@@ -96,41 +96,11 @@ func planSQLWithRoutingMetadata(budget ExplorerBudget, plan flow.QueryPlan, tabl
 	params["matrix_depth"] = strconv.Itoa(plan.MatrixDepth)
 
 	params["interfaces"] = planInterfaceNamesJSON(names)
-	filter, err := explorerFilterSQLWithVocabulary(plan.Filter, params, vocabulary)
+	filtered, err := planFilteredCTE(plan, table, params, vocabulary, tagData != nil)
 	if err != nil {
 		return "", nil, err
 	}
-	key := func(fields []string) string {
-		parts := []string{}
-		for _, name := range fields {
-			field, _ := vocabulary.Lookup(name)
-			parts = append(parts, explorerGroupExprWithParams(field, params))
-		}
-		if len(parts) == 0 {
-			return "CAST([],'Array(String)')"
-		}
-		return "[" + strings.Join(parts, ",") + "]"
-	}
-	eventTime := "ts"
-	if strings.HasSuffix(table, sharedFlowRollupsTable) {
-		eventTime = "if(coverage_version=0,toDateTime64(bucket,3),ts)"
-	}
-	sides := planTagPrefixSides(plan)
-	from := planInputSQL(table, eventTime, sides...)
-	if tagData != nil {
-		from += " ANY LEFT JOIN tag_lookup ON tag_lookup.lookup_tenant=tenant_id AND toIPv6OrNull(tag_lookup.lookup_exporter)=toIPv6OrNull(if(position(exporter,'%')=0,exporter,''))"
-		for _, side := range sides {
-			from += prefixTagJoinSQL(side)
-		}
-		from = prefixTagProjectionSQL(from, sides)
-	}
-	from = planInterfaceRoleJoinsSQL(from, plan)
-	from = planRoutingJoinsSQL(from, plan)
-
-	// Original keys have names distinct from the transformed g/c aliases below.
-	// In particular column_input remaps the original column into g and clears c;
-	// nested scalar expansion must keep referring to the original source keys.
-	ctes := []string{"filtered AS (SELECT " + key(plan.GroupBy) + " AS __probectl_source_row," + key(plan.MatrixWith) + " AS __probectl_source_column," + eventTime + " AS event_time,bytes_scaled,packets_scaled," + explorerAddressExpr("src_addr") + " AS canonical_src," + explorerAddressExpr("dst_addr") + " AS canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country FROM " + from + " WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')} AND (" + filter + "))"}
+	ctes := []string{filtered}
 	empty := "CAST([],'Array(String)')"
 	input := func(name, g, c, o, p, condition string) {
 		sql := name + " AS (SELECT " + g + " AS g," + c + " AS c,toUInt8(" + o + ") AS o,toUInt8(" + p + ") AS p," + planSQLColumns + " FROM filtered"
@@ -354,27 +324,87 @@ func planSampleSQL(measure, value, duration string) string {
 	return "toDecimal256(" + value + ",18)"
 }
 
+// The bounded typed input also supports window-partitioned seasonal statistics.
+func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabulary flow.QueryVocabulary, useTags bool) (string, error) {
+	filter, err := explorerFilterSQLWithVocabulary(plan.Filter, params, vocabulary)
+	if err != nil {
+		return "", err
+	}
+	key := func(fields []string) string {
+		parts := []string{}
+		for _, name := range fields {
+			field, _ := vocabulary.Lookup(name)
+			parts = append(parts, explorerGroupExprWithParams(field, params))
+		}
+		if len(parts) == 0 {
+			return "CAST([],'Array(String)')"
+		}
+		return "[" + strings.Join(parts, ",") + "]"
+	}
+	eventTime := "ts"
+	if strings.HasSuffix(table, sharedFlowRollupsTable) {
+		eventTime = "if(coverage_version=0,toDateTime64(bucket,3),ts)"
+	}
+	sides := planTagPrefixSides(plan)
+	from := planInputSQL(table, eventTime, sides...)
+	if useTags {
+		from += " ANY LEFT JOIN tag_lookup ON tag_lookup.lookup_tenant=tenant_id AND toIPv6OrNull(tag_lookup.lookup_exporter)=toIPv6OrNull(if(position(exporter,'%')=0,exporter,''))"
+		for _, side := range sides {
+			from += prefixTagJoinSQL(side)
+		}
+		from = prefixTagProjectionSQL(from, sides)
+	}
+	from = planInterfaceRoleJoinsSQL(from, plan)
+	from = planRoutingJoinsSQL(from, plan)
+
+	// Original keys have names distinct from the transformed g/c aliases below.
+	// In particular column_input remaps the original column into g and clears c;
+	// nested scalar expansion must keep referring to the original source keys.
+	return "filtered AS (SELECT " + key(plan.GroupBy) + " AS __probectl_source_row," + key(plan.MatrixWith) + " AS __probectl_source_column," + eventTime + " AS event_time,bytes_scaled,packets_scaled," + explorerAddressExpr("src_addr") + " AS canonical_src," + explorerAddressExpr("dst_addr") + " AS canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country,tenant_id FROM " + from + " WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')} AND (" + filter + "))", nil
+}
+
+type planStatsPartition struct {
+	groups   string
+	start    string
+	observed bool
+}
+
+func singlePlanStatsPartition() planStatsPartition {
+	return planStatsPartition{groups: planSQLGroup, start: "toUnixTimestamp64Nano({from:DateTime64(9,'UTC')})"}
+}
+
 func planBucketSQL(prefix, input string, plan flow.QueryPlan) string {
+	return partitionedPlanBucketSQL(prefix, input, plan, singlePlanStatsPartition())
+}
+
+func partitionedPlanBucketSQL(prefix, input string, plan flow.QueryPlan, part planStatsPartition) string {
 	values := []string{}
 	measures, _ := planSQLMeasures(plan)
 	for i, measure := range measures {
 		values = append(values, planAggregateSQL(measure)+" AS v"+strconv.Itoa(i))
 	}
-	return prefix + "_buckets AS (SELECT " + planSQLGroup + ",intDiv(toUnixTimestamp64Nano(event_time)-toUnixTimestamp64Nano({from:DateTime64(9,'UTC')}),{width_ns:Int64}) AS bucket_index,least({width_ns:Int64},{window_ns:Int64}-bucket_index*{width_ns:Int64}) AS duration_ns," + strings.Join(values, ",") + " FROM " + input + " GROUP BY " + planSQLGroup + ",bucket_index)"
+	if part.observed {
+		values = append(values, "min(event_time) AS __probectl_bucket_oldest", "any(member_total) AS __probectl_bucket_memberships")
+	}
+	return prefix + "_buckets AS (SELECT " + part.groups + ",intDiv(toUnixTimestamp64Nano(event_time)-" + part.start + ",{width_ns:Int64}) AS bucket_index,least({width_ns:Int64},{window_ns:Int64}-bucket_index*{width_ns:Int64}) AS duration_ns," + strings.Join(values, ",") + " FROM " + input + " GROUP BY " + part.groups + ",bucket_index)"
 }
 
 func planStatsSQL(prefix, input string, plan flow.QueryPlan) []string {
+	return partitionedPlanStatsSQL(prefix, input, plan, singlePlanStatsPartition())
+}
+
+func partitionedPlanStatsSQL(prefix, input string, plan flow.QueryPlan, part planStatsPartition) []string {
 	totals := []string{}
 	measures, indices := planSQLMeasures(plan)
 	for i, measure := range measures {
 		totals = append(totals, planAggregateSQL(measure)+" AS t"+strconv.Itoa(i))
 	}
-	ctes := []string{planBucketSQL(prefix, input, plan)}
+	ctes := []string{partitionedPlanBucketSQL(prefix, input, plan, part)}
 	source := prefix + "_buckets"
 	wholeTotals := planNeedsWholeTotals(plan)
 	if wholeTotals {
-		ctes = append(ctes, prefix+"_totals AS (SELECT "+planSQLGroup+","+strings.Join(totals, ",")+" FROM "+input+" GROUP BY "+planSQLGroup+")")
-		source += " INNER JOIN " + prefix + "_totals USING (" + planSQLGroup + ")"
+		ctes = append(ctes, prefix+"_totals AS (SELECT "+part.groups+","+strings.Join(totals, ",")+" FROM "+input+" GROUP BY "+part.groups+")")
+		source += " INNER JOIN " + prefix + "_totals USING (" + part.groups + ")"
 	}
 	calculations := []string{}
 	bucketCount := "toUInt64(intDiv({window_ns:Int64}-1,{width_ns:Int64})+1)"
@@ -412,7 +442,10 @@ func planStatsSQL(prefix, input string, plan flow.QueryPlan) []string {
 		}
 		calculations = append(calculations, expression+" AS m"+strconv.Itoa(i))
 	}
-	ctes = append(ctes, prefix+"_stats AS (SELECT "+planSQLGroup+","+strings.Join(calculations, ",")+" FROM "+source+" GROUP BY "+planSQLGroup+")")
+	if part.observed {
+		calculations = append(calculations, "min(__probectl_bucket_oldest) AS oldest_input", "any(__probectl_bucket_memberships) AS total_memberships")
+	}
+	ctes = append(ctes, prefix+"_stats AS (SELECT "+part.groups+","+strings.Join(calculations, ",")+" FROM "+source+" GROUP BY "+part.groups+")")
 	return ctes
 }
 

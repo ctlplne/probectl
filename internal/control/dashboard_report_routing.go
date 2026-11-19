@@ -17,6 +17,7 @@ import (
 
 func (s *Server) revalidateReportRoutingScope(ctx context.Context, sc tenancy.Scope, principal *auth.Principal, capture *reportFlowCapture) error {
 	budget := flowstore.ExplorerOperationBudget(ctx, s.flowStore)
+	verified := map[*flowRoutingSnapshotValidity]bool{}
 	for _, input := range capture.Inputs {
 		if !input.RoutingSource {
 			if input.Routing != nil {
@@ -26,6 +27,9 @@ func (s *Server) revalidateReportRoutingScope(ctx context.Context, sc tenancy.Sc
 		}
 		if !capture.ContextSources || !capture.ContextsCaptured || !reportRoutingRequirementsComplete(input) {
 			return apierror.Forbidden("report routing source requirements are incomplete")
+		}
+		if verified[input.Routing] {
+			continue
 		}
 		reads, err := decodeFlowRoutingValidity(ctx, capture.TenantID, input.Routing, budget.MemoryBytes/4)
 		if err != nil {
@@ -38,6 +42,7 @@ func (s *Server) revalidateReportRoutingScope(ctx context.Context, sc tenancy.Sc
 		if current.digest != input.Routing.Digest || current.inputDigest != input.Routing.InputDigest {
 			return apierror.Forbidden("report routing source authority changed")
 		}
+		verified[input.Routing] = true
 	}
 	return ctx.Err()
 }

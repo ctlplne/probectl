@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -34,6 +35,8 @@ import (
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/testsupport/chtest"
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
 
@@ -42,7 +45,7 @@ const seasonalFlowExactCurrent = "36893488147419103228"
 // The evaluator, incident, receipt and two tenant source authority paths are
 // real; the historical flow records are a controlled replay in Explorer memory.
 func TestSeasonalSavedFlowCommitsExactCitedReceiptAndKeepsTenant(t *testing.T) {
-	provePairedSeasonalFlow(t, "", 6)
+	provePairedSeasonalFlow(t, "", 6, false)
 }
 
 func TestSavedFlowCadencesKeepCompleteExactEvidenceInEachTenant(t *testing.T) {
@@ -52,17 +55,24 @@ func TestSavedFlowCadencesKeepCompleteExactEvidenceInEachTenant(t *testing.T) {
 	}{
 		{anomaly.SeasonalDaily, 42},
 		{anomaly.SeasonalWeeklyEarly, 6},
+		{anomaly.SeasonalHourly, 42 * 24},
 	} {
 		t.Run(string(profile.cadence), func(t *testing.T) {
-			provePairedSeasonalFlow(t, profile.cadence, profile.training)
+			provePairedSeasonalFlow(t, profile.cadence, profile.training, false)
 		})
 	}
 }
 
-func provePairedSeasonalFlow(t *testing.T, cadence anomaly.SeasonalCadence, trained int) {
+// Exercise the started alert engine against real PostgreSQL authority and
+// ClickHouse reader policies. Original flow volumes and clocks are controlled.
+func TestHourlySavedFlowReceiptsKeepFullClickHouseHistory(t *testing.T) {
+	provePairedSeasonalFlow(t, anomaly.SeasonalHourly, 42*24, true)
+}
+
+func provePairedSeasonalFlow(t *testing.T, cadence anomaly.SeasonalCadence, trained int, realFlow bool) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
-	flowRows := flowstore.NewMemory()
+	flowRows := seasonalFlowFixtureStore(t, f, realFlow)
 	metrics := tsdb.NewMemory()
 	queries := flow.NewPostgresQueryViewStore(f.pool, 0, audit.TenantRecord)
 	gate := fairness.NewGate(fairness.DefaultPolicy(), nil)
@@ -123,12 +133,23 @@ func provePairedSeasonalFlow(t *testing.T, cadence anomaly.SeasonalCadence, trai
 		}
 		evidence := owned.Items[0].Expectation.Seasonal
 		if evidence == nil || evidence.Exact == nil || evidence.Direction != directions[i] || evidence.Calendar.Cadence != cadence ||
-			evidence.TrainingWindow.Samples != trained || !evidence.ObservedAt.Equal(observed) || evidence.Calendar.Provisional {
+			evidence.TrainingWindow.Samples != trained || evidence.Calendar.Provisional {
 			t.Fatalf("wrong owned seasonal training population for %s: %+v", cadence, evidence)
 		}
+		actual := evidence.ObservedAt
+		if cadence == anomaly.SeasonalHourly {
+			// The 10-minute lookback holds the same seeded originals if the
+			// scheduler reaches the next completed minute during the test.
+			if actual.Before(observed) || !actual.Before(observed.Add(9*time.Minute)) ||
+				evidence.Calendar.Minute == nil || *evidence.Calendar.Minute != actual.In(mustSeasonalFixtureZone(t, input.Timezone)).Minute() {
+				t.Fatal("the hourly receipt did not identify its latest complete civil minute")
+			}
+		} else if !actual.Equal(observed) {
+			t.Fatal("the hourly clock changed an existing complete civil hour")
+		}
 		if i == 0 {
-			assertSeasonalExactFlow(t, owned, observed, active[0].IncidentID)
-			if cadence == "" || cadence == anomaly.SeasonalDaily {
+			assertSeasonalExactFlow(t, owned, actual, active[0].IncidentID)
+			if cadence == "" || cadence == anomaly.SeasonalDaily || cadence == anomaly.SeasonalHourly {
 				exactSeasonalFlowClients(t, f, socket, rules[i].ID, *evidence)
 			}
 		} else if directions[i] == alert.SeasonalBelow && (owned.Items[0].State != alert.EvaluationNormal || evidence.IncidentID != "" || evidence.Exact.Current != seasonalFlowExactCurrent || evidence.Exact.Upper != "36893488147419103227") {
@@ -138,6 +159,46 @@ func provePairedSeasonalFlow(t *testing.T, cadence anomaly.SeasonalCadence, trai
 	}
 	checkSeasonalFlowRestrictedCredential(t, f, socket, rules[0].ID)
 	checkSeasonalFlowViewSupersession(t, f, socket, queries, views[0], rules[0])
+}
+
+func seasonalFlowFixtureStore(t *testing.T, f *roleExplanationAPIFixture, realFlow bool) flowstore.Store {
+	t.Helper()
+	if !realFlow {
+		return flowstore.NewMemory()
+	}
+	endpoint := os.Getenv("PROBECTL_FLOWSTORE_URL")
+	if endpoint == "" {
+		testsupport.SkipOrFatal(t, "PROBECTL_FLOWSTORE_URL required for the hourly seasonal source proof")
+	}
+	ch, err := flowstore.NewClickHouse(endpoint, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ch.Close() })
+	readerUser, reader := chtest.ProvisionReader(t, endpoint, "fx16_hourly_reader")
+	ch.WithTenantScoping(true).WithReader(reader)
+	if err := ch.EnsureReaderRowPolicy(t.Context(), readerUser); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		for _, tenant := range f.tenants {
+			if _, err := ch.DeleteTenant(ctx, tenant); err != nil {
+				t.Error("owned seasonal source cleanup", err)
+			}
+		}
+	})
+	return ch
+}
+
+func mustSeasonalFixtureZone(t *testing.T, name string) *time.Location {
+	t.Helper()
+	zone, err := time.LoadLocation(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return zone
 }
 
 func grantSeasonalFlowFixture(f *roleExplanationAPIFixture, tenant string) {
@@ -164,7 +225,7 @@ func seedSeasonalFlowView(ctx context.Context, t *testing.T, queries *flow.Postg
 	return view
 }
 
-func seedSeasonalFlowRows(t *testing.T, rows *flowstore.Memory, tenant string, model anomaly.WeeklySeasonalModel, observed, end time.Time, change bool) {
+func seedSeasonalFlowRows(t *testing.T, rows flowstore.Store, tenant string, model anomaly.WeeklySeasonalModel, observed, end time.Time, change bool) {
 	t.Helper()
 	periods := append(model.ComparableCompleteEnds(observed), end)
 	population := make([]flowstore.Row, 0, 2*len(periods))
@@ -244,7 +305,8 @@ func exactSeasonalFlowClients(t *testing.T, f *roleExplanationAPIFixture, socket
 		assertSeasonalExactFlow(t, result, expect.ObservedAt, expect.IncidentID)
 		got := result.Items[0].Expectation.Seasonal.Calendar
 		if got.Cadence != expect.Calendar.Cadence || got.TrainingPeriods != expect.Calendar.TrainingPeriods ||
-			len(got.TrainingDays) != len(expect.Calendar.TrainingDays) || got.Provisional != expect.Calendar.Provisional {
+			!slices.Equal(got.TrainingDays, expect.Calendar.TrainingDays) || got.Provisional != expect.Calendar.Provisional ||
+			(got.Minute == nil) != (expect.Calendar.Minute == nil) || (got.Minute != nil && *got.Minute != *expect.Calendar.Minute) {
 			t.Fatal("the client lost the original calendar and its actual training population")
 		}
 	}

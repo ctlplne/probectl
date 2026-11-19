@@ -87,20 +87,25 @@ func (m WeeklySeasonalModel) profileWindows(local time.Time) []SeasonalWindow {
 }
 
 func (m WeeklySeasonalModel) hourlyWindows(wall time.Time, minute, hours int) []SeasonalWindow {
-	minuteOffset := time.Duration(minute) * time.Minute
 	var windows []SeasonalWindow
 	for i := hours; i > 0; i-- {
 		prior := wall.Add(-time.Duration(i) * time.Hour)
 		if m.holidays[prior.Format(time.DateOnly)] {
 			continue
 		}
-		for _, hour := range m.appendLocalHour(nil, prior) {
-			_, offset := hour.Start.In(m.location).Zone()
-			start := prior.Add(minuteOffset - time.Duration(offset)*time.Second)
-			from, to := laterSeasonalTime(start, hour.Start), earlierSeasonalTime(start.Add(time.Minute), hour.End)
-			if from.Before(to) {
-				windows = append(windows, SeasonalWindow{Start: from, End: to})
-			}
+		windows = m.appendLocalMinute(windows, prior, minute)
+	}
+	return windows
+}
+
+func (m WeeklySeasonalModel) appendLocalMinute(windows []SeasonalWindow, wall time.Time, minute int) []SeasonalWindow {
+	minuteOffset := time.Duration(minute) * time.Minute
+	for _, hour := range m.appendLocalHour(nil, wall) {
+		_, offset := hour.Start.In(m.location).Zone()
+		start := wall.Add(minuteOffset - time.Duration(offset)*time.Second)
+		from, to := laterSeasonalTime(start, hour.Start), earlierSeasonalTime(start.Add(time.Minute), hour.End)
+		if from.Before(to) {
+			windows = append(windows, SeasonalWindow{Start: from, End: to})
 		}
 	}
 	return windows

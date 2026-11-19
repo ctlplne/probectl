@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"time"
 
@@ -44,13 +45,14 @@ func (s *Server) readSeasonalFlow(ctx context.Context, actor *auth.Principal, ru
 	}
 	prior := model.ComparableCompleteEnds(observation)
 	ends := append(prior, end)
+	slices.SortFunc(ends, time.Time.Compare)
 	budget := flowstore.ExplorerOperationBudget(ctx, s.flowStore)
 	if err := budget.Validate(); err != nil {
 		return empty, err
 	}
 	ref := reportFlowSourceRef{ID: selection.ViewID, Version: selection.ViewVersion}
 	capture, err := s.captureFlowSourcesWithOptions(ctx, actor, []reportFlowSourceRef{ref}, true, false, reportFlowCaptureOptions{
-		SeasonalPeriodEnds: ends, ReservedMemoryBytes: budget.MemoryBytes / 4,
+		SeasonalPeriodEnds: ends, CombineSeasonal: model.Cadence() == anomaly.SeasonalHourly, ReservedMemoryBytes: budget.MemoryBytes / 4,
 	})
 	if err != nil {
 		return empty, err

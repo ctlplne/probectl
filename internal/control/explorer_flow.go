@@ -163,21 +163,9 @@ func (s *Server) recordFlowSpec(ctx context.Context, tenant string, plan flow.Qu
 		selectedMatrixRows = membership[2]
 	}
 	query := flowstore.PlanQuery{TenantID: tenant, Plan: plan, Tags: tagData, SelectedGroups: selected, SelectedColumns: selectedColumns, SelectedChartGroups: selectedChart, SelectedMatrixRows: selectedMatrixRows}
-	var roleBefore flowRoleSnapshot
-	var routingBefore flowRoutingSnapshot
-	if flowPlanUsesCapturedRouting(plan) {
-		routingBefore, err = s.loadFlowRoutingSnapshot(ctx, auth.PrincipalFrom(ctx), plan, flowstore.ExplorerOperationBudget(ctx, s.flowStore))
-		if err != nil {
-			return flowstore.PlanResult{}, err
-		}
-		query.Routing = routingBefore.data
-	}
-	if flowstore.PlanUsesInterfaceRoles(plan) {
-		roleBefore, err = s.loadFlowRoleSnapshot(ctx, auth.PrincipalFrom(ctx), flowstore.ExplorerOperationBudget(ctx, s.flowStore))
-		if err != nil {
-			return flowstore.PlanResult{}, err
-		}
-		query.Roles = roleBefore.data
+	authority, err := s.bindFlowPlanProjections(ctx, &query, plan)
+	if err != nil {
+		return flowstore.PlanResult{}, err
 	}
 	var result flowstore.PlanResult
 	if batch, ok := ctx.Value(reportFlowBatchKey{}).(*flowstore.PlanBatch); ok {
@@ -191,27 +179,59 @@ func (s *Server) recordFlowSpec(ctx context.Context, tenant string, plan flow.Qu
 	if err != nil {
 		return flowstore.PlanResult{}, flowExplorerStoreError(err)
 	}
+	if err := s.checkFlowPlanProjections(ctx, tenant, plan, &result, authority); err != nil {
+		return flowstore.PlanResult{}, err
+	}
+	return result, nil
+}
+
+type flowPlanAuthority struct {
+	role    flowRoleSnapshot
+	routing flowRoutingSnapshot
+}
+
+func (s *Server) bindFlowPlanProjections(ctx context.Context, query *flowstore.PlanQuery, plan flow.QueryPlan) (flowPlanAuthority, error) {
+	var authority flowPlanAuthority
+	var err error
+	if flowPlanUsesCapturedRouting(plan) {
+		authority.routing, err = s.loadFlowRoutingSnapshot(ctx, auth.PrincipalFrom(ctx), plan, flowstore.ExplorerOperationBudget(ctx, s.flowStore))
+		if err != nil {
+			return flowPlanAuthority{}, err
+		}
+		query.Routing = authority.routing.data
+	}
+	if flowstore.PlanUsesInterfaceRoles(plan) {
+		authority.role, err = s.loadFlowRoleSnapshot(ctx, auth.PrincipalFrom(ctx), flowstore.ExplorerOperationBudget(ctx, s.flowStore))
+		if err != nil {
+			return flowPlanAuthority{}, err
+		}
+		query.Roles = authority.role.data
+	}
+	return authority, ctx.Err()
+}
+
+func (s *Server) checkFlowPlanProjections(ctx context.Context, tenant string, plan flow.QueryPlan, result *flowstore.PlanResult, authority flowPlanAuthority) error {
 	if flowstore.PlanUsesInterfaceRoles(plan) {
 		after, err := s.loadFlowRoleSnapshot(ctx, auth.PrincipalFrom(ctx), flowstore.ExplorerOperationBudget(ctx, s.flowStore))
 		if err != nil {
-			return flowstore.PlanResult{}, err
+			return err
 		}
 		digest, err := after.data.Digest(ctx, tenant, time.Now().UTC())
-		if err != nil || roleBefore.inputDigest != after.inputDigest || result.RoleDigest != digest || result.RoleTenantID != tenant {
-			return flowstore.PlanResult{}, apierror.Unavailable("interface role inputs changed; run a fresh query")
+		if err != nil || authority.role.inputDigest != after.inputDigest || result.RoleDigest != digest || result.RoleTenantID != tenant {
+			return apierror.Unavailable("interface role inputs changed; run a fresh query")
 		}
 	}
 	if flowPlanUsesCapturedRouting(plan) {
-		after, err := s.recheckFlowRoutingSnapshot(ctx, auth.PrincipalFrom(ctx), routingBefore.reads, flowstore.ExplorerOperationBudget(ctx, s.flowStore))
+		after, err := s.recheckFlowRoutingSnapshot(ctx, auth.PrincipalFrom(ctx), authority.routing.reads, flowstore.ExplorerOperationBudget(ctx, s.flowStore))
 		if err != nil {
-			return flowstore.PlanResult{}, err
+			return err
 		}
-		if routingBefore.digest != after.digest || routingBefore.inputDigest != after.inputDigest || result.RoutingProof == nil || result.RoutingProof.Digest != routingBefore.digest {
-			return flowstore.PlanResult{}, apierror.Unavailable("routing source authority changed; run a fresh query")
+		if authority.routing.digest != after.digest || authority.routing.inputDigest != after.inputDigest || result.RoutingProof == nil || result.RoutingProof.Digest != authority.routing.digest {
+			return apierror.Unavailable("routing source authority changed; run a fresh query")
 		}
-		result.RoutingProof.InputDigest, result.RoutingProof.Captures = routingBefore.inputDigest, routingBefore.reads
+		result.RoutingProof.InputDigest, result.RoutingProof.Captures = authority.routing.inputDigest, authority.routing.reads
 	}
-	return result, nil
+	return nil
 }
 
 func (s *Server) authorizeNativeFlow(ctx context.Context, principal *auth.Principal) error {

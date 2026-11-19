@@ -66,7 +66,7 @@ func (s SeasonalBaselineInput) Model() (anomaly.WeeklySeasonalModel, error) {
 		return anomaly.WeeklySeasonalModel{}, ErrSeasonalSource
 	}
 	if s.Flow != nil {
-		if s.TestID != "" || s.Cadence == anomaly.SeasonalHourly || s.Flow.Validate() != nil {
+		if s.TestID != "" || s.Flow.Validate() != nil {
 			return anomaly.WeeklySeasonalModel{}, ErrSeasonalSource
 		}
 	}

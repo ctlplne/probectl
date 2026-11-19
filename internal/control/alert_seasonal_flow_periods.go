@@ -82,5 +82,11 @@ func (s *Server) prepareConfiguredFlowCapture(ctx context.Context, actor *auth.P
 	if !typed || len(refs) != 1 || !opts.PeriodEnd.IsZero() {
 		return nil, 0, 0, apierror.Validation("seasonal captures require one pinned view and complete source clocks")
 	}
-	return s.prepareSeasonalFlowPeriods(ctx, actor, refs[0], opts.SeasonalPeriodEnds, now, memory)
+	ends := opts.SeasonalPeriodEnds
+	if opts.CombineSeasonal {
+		// A typed grouped query materializes the pinned filters and plan
+		// once. It receives the original complete clock list at execution.
+		ends = ends[len(ends)-1:]
+	}
+	return s.prepareSeasonalFlowPeriods(ctx, actor, refs[0], ends, now, memory)
 }

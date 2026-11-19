@@ -54,7 +54,7 @@ func TestSeasonalFlowEditorServedKeepsBothTenantsAndThemes(t *testing.T) {
 	}
 	for lane, tenant := range f.tenants {
 		cookie := seasonalFlowBrowserCookie(t, f, tenant)
-		cadence := []anomaly.SeasonalCadence{anomaly.SeasonalDaily, anomaly.SeasonalWeeklyEarly}[lane]
+		cadence := []anomaly.SeasonalCadence{anomaly.SeasonalDaily, anomaly.SeasonalHourly}[lane]
 		for _, theme := range []string{"light", "dark"} {
 			name := labels[lane] + " " + theme
 			t.Run(name, func(t *testing.T) {

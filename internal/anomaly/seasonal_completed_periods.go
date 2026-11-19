@@ -10,14 +10,17 @@ import (
 	"time"
 )
 
-// LatestCompletedSlot returns the latest fully completed local clock hour.
-// Repeated offset ranges for the same hour both have to be complete. The
+// LatestCompletedSlot returns the latest complete civil hour, or minute for
+// the hourly profile. Both occurrences of a folded slot must finish. The
 // observation is stamped just before its exclusive UTC end for civil grouping.
 func (m WeeklySeasonalModel) LatestCompletedSlot(at time.Time) (observed, end time.Time) {
 	if m.location == nil || at.IsZero() {
 		return time.Time{}, time.Time{}
 	}
 	local := at.In(m.location)
+	if m.cadence == SeasonalHourly {
+		return m.latestCompletedMinute(local, at)
+	}
 	wall := time.Date(local.Year(), local.Month(), local.Day(), local.Hour(), 0, 0, 0, time.UTC)
 	for civil := wall; ; civil = civil.Add(-time.Hour) {
 		candidates := m.appendLocalHour(nil, civil)
@@ -32,11 +35,24 @@ func (m WeeklySeasonalModel) LatestCompletedSlot(at time.Time) (observed, end ti
 	}
 }
 
-// SeasonalFlowMaximumWindows includes each daily comparison date, both
-// offset intervals of folded civil hours and the current observation.
-const SeasonalFlowMaximumWindows = 2*seasonalTrainingDays + 1
+func (m WeeklySeasonalModel) latestCompletedMinute(local, at time.Time) (time.Time, time.Time) {
+	wall := seasonalWall(local).Add(time.Duration(local.Minute()) * time.Minute)
+	for civil := wall; ; civil = civil.Add(-time.Minute) {
+		candidates := m.appendLocalMinute(nil, civil.Truncate(time.Hour), civil.Minute())
+		if len(candidates) > 0 {
+			last := candidates[len(candidates)-1].End
+			if !last.After(at) {
+				return last.Add(-time.Millisecond), last
+			}
+		}
+	}
+}
 
-// ComparableCompleteEnds pins the equivalent prior local hours by their exact
+// SeasonalFlowMaximumWindows bounds both offset intervals of every civil
+// hour across the training span and includes the current observation.
+const SeasonalFlowMaximumWindows = 2*seasonalTrainingDays*24 + 1
+
+// ComparableCompleteEnds pins the equivalent prior local slots by their exact
 // exclusive UTC ends. Both ends in a repeated hour remain distinct inputs,
 // while the model treats their shared date as one training date.
 func (m WeeklySeasonalModel) ComparableCompleteEnds(observation time.Time) []time.Time {

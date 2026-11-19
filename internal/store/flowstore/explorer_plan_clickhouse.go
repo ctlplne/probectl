@@ -34,7 +34,6 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	defer cancel()
 	var vocabulary flow.QueryVocabulary
-	var external []explorerExternalData
 	if query.Tags != nil {
 		vocabulary, err = query.Tags.Vocabulary(query.TenantID)
 		if err != nil {
@@ -51,33 +50,9 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if err := validatePlanCurrentProjections(ctx, query, plan); err != nil {
 		return PlanResult{}, err
 	}
-	if query.Tags != nil {
-		external, err = query.Tags.externalData(ctx, query.TenantID, plan, budget.MemoryBytes/4)
-		if err != nil {
-			return PlanResult{}, err
-		}
-	}
-	if planUsesInterfaceRoles(plan) {
-		remaining := budget.MemoryBytes / 4
-		for _, table := range external {
-			remaining -= int64(len(table.rows))
-		}
-		roles, err := query.Roles.externalRows(ctx, query.TenantID, remaining)
-		if err != nil {
-			return PlanResult{}, err
-		}
-		external = append(external, explorerExternalData{kind: externalInterfaceRoles, rows: roles})
-	}
-	if planUsesRouting(plan) {
-		remaining := budget.MemoryBytes / 4
-		for _, table := range external {
-			remaining -= int64(len(table.rows))
-		}
-		data, err := query.Routing.externalData(ctx, query.TenantID, remaining)
-		if err != nil {
-			return PlanResult{}, err
-		}
-		external = append(external, data...)
+	external, err := planExternalProjections(ctx, query, plan, budget.MemoryBytes/4)
+	if err != nil {
+		return PlanResult{}, err
 	}
 
 	target, err := c.route(ctx, query.TenantID)
@@ -228,6 +203,43 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 		return PlanResult{}, err
 	}
 	return result, nil
+}
+
+// Bind external metadata under the same tenant and cost envelope as the
+// records. The plan grammar cannot select raw joins or external table names.
+func planExternalProjections(ctx context.Context, query PlanQuery, plan flow.QueryPlan, available int64) ([]explorerExternalData, error) {
+	var external []explorerExternalData
+	var err error
+	if query.Tags != nil {
+		external, err = query.Tags.externalData(ctx, query.TenantID, plan, available)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if planUsesInterfaceRoles(plan) {
+		remaining := available
+		for _, table := range external {
+			remaining -= int64(len(table.rows))
+		}
+		roles, err := query.Roles.externalRows(ctx, query.TenantID, remaining)
+		if err != nil {
+			return nil, err
+		}
+		external = append(external, explorerExternalData{kind: externalInterfaceRoles, rows: roles})
+	}
+	if planUsesRouting(plan) {
+		remaining := available
+		for _, table := range external {
+			remaining -= int64(len(table.rows))
+		}
+		data, err := query.Routing.externalData(ctx, query.TenantID, remaining)
+		if err != nil {
+			return nil, err
+		}
+		external = append(external, data...)
+	}
+
+	return external, ctx.Err()
 }
 
 func decodePlanRows(plan flow.QueryPlan, input []map[string]any) (PlanResult, error) {

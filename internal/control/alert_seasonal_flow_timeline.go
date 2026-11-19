@@ -19,12 +19,13 @@ import (
 const seasonalFlowLegacyWindows = 8
 
 type seasonalScopeTimeline struct {
-	ID          string                `json:"id"`
-	ViewVersion string                `json:"view_version"`
-	TagRevision string                `json:"tag_revision,omitempty"`
-	TagAsOf     time.Time             `json:"tag_as_of,omitempty"`
-	Lookback    time.Duration         `json:"lookback_ns"`
-	Periods     []seasonalScopePeriod `json:"periods"`
+	ID            string                       `json:"id"`
+	ViewVersion   string                       `json:"view_version"`
+	TagRevision   string                       `json:"tag_revision,omitempty"`
+	TagAsOf       time.Time                    `json:"tag_as_of,omitempty"`
+	Lookback      time.Duration                `json:"lookback_ns"`
+	SharedRouting *flowRoutingSnapshotValidity `json:"shared_routing,omitempty"`
+	Periods       []seasonalScopePeriod        `json:"periods"`
 }
 
 type seasonalScopePeriod struct {
@@ -43,6 +44,7 @@ func compactSeasonalFlowTimeline(ctx context.Context, inputs []reportFlowInput) 
 	first := inputs[0]
 	common := &seasonalScopeTimeline{ID: first.ID, ViewVersion: first.Version, TagRevision: first.TagRevision,
 		TagAsOf: first.TagAsOf, Lookback: first.To.Sub(first.From), Periods: make([]seasonalScopePeriod, 0, len(inputs))}
+	common.SharedRouting = sharedSeasonalRouting(inputs)
 	var previous time.Time
 	for _, input := range inputs {
 		if err := ctx.Err(); err != nil {
@@ -53,10 +55,27 @@ func compactSeasonalFlowTimeline(ctx context.Context, inputs []reportFlowInput) 
 			common.Lookback <= 0 || !input.To.Add(-common.Lookback).Equal(input.From) || !input.To.After(previous) {
 			return nil, alert.ErrSeasonalSource
 		}
-		common.Periods = append(common.Periods, seasonalScopePeriod{End: input.To, RoutingSource: input.RoutingSource, Routing: input.Routing})
+		period := seasonalScopePeriod{End: input.To, RoutingSource: input.RoutingSource, Routing: input.Routing}
+		if common.SharedRouting != nil {
+			period.Routing = nil
+		}
+		common.Periods = append(common.Periods, period)
 		previous = input.To
 	}
 	return common, ctx.Err()
+}
+
+func sharedSeasonalRouting(inputs []reportFlowInput) *flowRoutingSnapshotValidity {
+	if len(inputs) == 0 || inputs[0].Routing == nil {
+		return nil
+	}
+	shared := inputs[0].Routing
+	for _, input := range inputs {
+		if !input.RoutingSource || input.Routing != shared {
+			return nil
+		}
+	}
+	return shared
 }
 
 func (s storedSeasonalFlowScope) expandedInputs(ctx context.Context, memory int64) ([]reportFlowInput, error) {
@@ -66,8 +85,8 @@ func (s storedSeasonalFlowScope) expandedInputs(ctx context.Context, memory int6
 			return nil, alert.ErrSeasonalSource
 		}
 		return s.Inputs, ctx.Err()
-	case 2:
-		if len(s.Inputs) != 0 || s.Timeline == nil {
+	case 2, 3:
+		if len(s.Inputs) != 0 || s.Timeline == nil || (s.Version == 3) != (s.Timeline.SharedRouting != nil) {
 			return nil, alert.ErrSeasonalSource
 		}
 		return s.Timeline.expand(ctx, memory)
@@ -86,8 +105,15 @@ func (t seasonalScopeTimeline) expand(ctx context.Context, memory int64) ([]repo
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		routing := p.Routing
+		if t.SharedRouting != nil {
+			if !p.RoutingSource || routing != nil {
+				return nil, alert.ErrSeasonalSource
+			}
+			routing = t.SharedRouting
+		}
 		out = append(out, reportFlowInput{ID: t.ID, Version: t.ViewVersion, Period: "current", TagRevision: t.TagRevision, TagAsOf: t.TagAsOf,
-			From: p.End.Add(-t.Lookback), To: p.End, RoutingSource: p.RoutingSource, Routing: p.Routing})
+			From: p.End.Add(-t.Lookback), To: p.End, RoutingSource: p.RoutingSource, Routing: routing})
 	}
 	return out, ctx.Err()
 }

@@ -123,7 +123,7 @@ The learning cadence determines which original observations can enter the band.
 | Weekly, the default | Same local weekday and hour. At least three original dates, looking back up to six weeks. |
 | Weekly early | Same local hour among recent workdays or among recent weekend days, including at least one actual same-weekday date and two total dates. The provisional band includes the original same-weekday range. It switches to weekly training once three matching weekdays have data. |
 | Daily | Same local hour across dates over the retained six weeks. Two dates can form a provisional band. |
-| Hourly | Same local minute across at least three retained hours. Metric and test histories use up to six weeks within tenant query admission. |
+| Hourly | Same local minute across at least three retained hours. Metric, test and saved-flow histories use up to six weeks within tenant query admission. |
 
 One median represents each calendar period. The band uses the larger of
 the configured floor or the rule's sensitivity times the robust spread. The
@@ -147,8 +147,9 @@ govern rule notification channels.
 REST uses `GET`, `PUT` and `DELETE` on `/v1/alerts/rules/{id}/seasonal-source`.
 The generated clients expose the same operations. CLI configuration takes the
 same JSON. Set optional `cadence` to `weekly`, `weekly_early`, `daily` or `hourly`.
-The optional `direction` accepts `above`, `below` or `both`. Clearing an active selection disables the rule. Enable a metric
-rule explicitly to return to its rolling baseline.
+The optional `direction` accepts `above`, `below` or `both`. Clearing an active
+selection disables the rule. Enable a metric rule explicitly to return to its
+rolling baseline.
 
 ```bash
 probectl alert seasonal-source-set "$RULE_ID" --body '{"timezone":"America/New_York","minimum_change":5,"holidays":["2026-12-25"]}'
@@ -162,9 +163,12 @@ on that view and the minimum change in its unit. The rule pins the view revision
 When the view changes, open **Seasonal baseline** and select its current revision
 explicitly before resuming. Clear disables the flow rule until it has a source.
 
-Saved flow rules support the weekly, early weekly and daily profiles. The flow
-evaluator compares the last completed local hour with equivalent
-retained windows from the same view. All windows share one source budget.
+Saved flow rules support all four learning profiles. The hourly profile compares
+the last completed local minute with the same minute in previous hours. The
+daily and weekly profiles compare the last completed local hour with equivalent
+retained windows. Every comparison uses the same lookback and source budget.
+The hourly query charges original records that belong to overlapping windows
+before it forms the per-window groups.
 The history clock advances after a usable window finishes evaluation. When no
 matching source rows have arrived, evaluation can retry the current window.
 Arrivals after a window has already been evaluated enter later comparisons

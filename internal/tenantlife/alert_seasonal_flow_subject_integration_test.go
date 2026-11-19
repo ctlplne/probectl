@@ -59,8 +59,9 @@ func TestSeasonalFlowEvidenceSubjectErasureIncludesOriginalRoutingScope(t *testi
 		t.Fatal(err)
 	}
 	rows := strings.Split(strings.TrimSpace(readTarGz(t, archive.Bytes())[path]), "\n")
-	if len(rows) != 2 || !strings.Contains(strings.Join(rows, "\n"), "seasonal-subject-compact") {
-		t.Fatal("both stored proof versions must expose source subject references")
+	if len(rows) != 3 || !strings.Contains(strings.Join(rows, "\n"), "seasonal-subject-compact") ||
+		!strings.Contains(strings.Join(rows, "\n"), "seasonal-subject-shared") {
+		t.Fatal("all stored proof versions must expose source subject references")
 	}
 	for _, row := range rows {
 		if !strings.Contains(row, red) || !strings.Contains(row, "seasonal-subject") || strings.Contains(row, blue) {
@@ -71,8 +72,8 @@ func TestSeasonalFlowEvidenceSubjectErasureIncludesOriginalRoutingScope(t *testi
 		t.Fatal(err)
 	}
 	const selected = `SELECT count(*) FROM alert_evaluation_receipts WHERE tenant_id=$1 AND fingerprint LIKE $2`
-	if countRows(t, admin, selected, red, "seasonal-subject%") != 0 || countRows(t, admin, selected, red, "seasonal-structural%") != 2 ||
-		countRows(t, admin, selected, blue, "seasonal-subject%") != 2 {
+	if countRows(t, admin, selected, red, "seasonal-subject%") != 0 || countRows(t, admin, selected, red, "seasonal-structural%") != 3 ||
+		countRows(t, admin, selected, blue, "seasonal-subject%") != 3 {
 		t.Fatal("subject erasure did not preserve the unrelated scope and sibling tenant")
 	}
 }
@@ -91,6 +92,10 @@ func seedSeasonalReceiptSubjectRows(ctx context.Context, sc tenancy.Scope, viewI
 			return err
 		}
 		if err := appendSeasonalSubjectReceipt(ctx, sc, rule, label+"-compact", compact); err != nil {
+			return err
+		}
+		shared := map[string]any{"version": 3, "tenant_id": sc.Tenant.String(), "timeline": map[string]any{"id": viewID, "shared_routing": route}}
+		if err := appendSeasonalSubjectReceipt(ctx, sc, rule, label+"-shared", shared); err != nil {
 			return err
 		}
 	}

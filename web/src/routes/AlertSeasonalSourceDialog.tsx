@@ -191,7 +191,7 @@ export function AlertSeasonalSourceDialog({
                 { value: 'weekly', label: 'Weekly (same weekday and hour)' },
                 { value: 'weekly_early', label: 'Weekly (early band)' },
                 { value: 'daily', label: 'Daily (same local hour)' },
-                ...(flow ? [] : [{ value: 'hourly', label: 'Hourly (same local minute)' }]),
+                { value: 'hourly', label: 'Hourly (same local minute)' },
               ]}
               onChange={(e) => setCadence(e.target.value as AlertSeasonalCadence)}
               disabled={!canWrite || busy}

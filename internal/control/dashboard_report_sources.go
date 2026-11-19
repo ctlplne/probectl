@@ -111,6 +111,7 @@ func (s *Server) captureFlowSources(ctx context.Context, actor *auth.Principal, 
 type reportFlowCaptureOptions struct {
 	PeriodEnd           time.Time
 	SeasonalPeriodEnds  []time.Time
+	CombineSeasonal     bool
 	ReservedMemoryBytes int64
 }
 
@@ -217,7 +218,11 @@ func (s *Server) captureFlowSourcesWithOptions(ctx context.Context, actor *auth.
 	if cost > workspace/4 {
 		return nil, reportProjectionLimit()
 	}
-	capture, err := s.collectFlowSources(ctx, principal, prepared, at, workspace, typedResults)
+	var combinedEnds []time.Time
+	if options.CombineSeasonal {
+		combinedEnds = options.SeasonalPeriodEnds
+	}
+	capture, err := s.collectFlowSources(ctx, principal, prepared, at, workspace, typedResults, combinedEnds)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +345,7 @@ func reportPreparedSubjects(prepared []preparedReportFlow) (bool, []string) {
 	return usesTags, subjects
 }
 
-func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prepared []preparedReportFlow, at time.Time, workspace int64, typedResults bool) (*reportFlowCapture, error) {
+func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prepared []preparedReportFlow, at time.Time, workspace int64, typedResults bool, combinedEnds []time.Time) (*reportFlowCapture, error) {
 	batch, ok := ctx.Value(reportFlowBatchKey{}).(*flowstore.PlanBatch)
 	if !ok || batch == nil {
 		return nil, apierror.Unavailable("report source batch is unavailable")
@@ -369,7 +374,7 @@ func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prep
 			return nil, err
 		}
 	}
-	captures := make([]capturedReportFlow, 0, len(prepared)*2)
+	captures := make([]capturedReportFlow, 0, max(len(prepared)*2, len(combinedEnds)))
 	permissions := map[string]bool{permAIQuery: true, permFlowRead: true}
 	contextSources := false
 	if usesTags {
@@ -387,6 +392,17 @@ func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prep
 		}
 		for _, permission := range needed {
 			permissions[permission] = true
+		}
+		if len(combinedEnds) != 0 {
+			results, err := s.recordSeasonalFlowWindows(ctx, p.TenantID, *current.Flow, combinedEnds)
+			if err != nil {
+				return nil, err
+			}
+			for _, result := range results {
+				result.SavedFilterVersions = value.versions
+				captures = append(captures, reportFlowResult(p.TenantID, value.view, "current", result, tagAsOf))
+			}
+			continue
 		}
 		var now, before flowstore.PlanResult
 		if value.previous == nil {
@@ -435,6 +451,7 @@ func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prep
 		result.Permissions = append(result.Permissions, permission)
 	}
 	sort.Strings(result.Permissions)
+	var sharedRouting *flowRoutingSnapshotValidity
 	for _, capture := range captures {
 		input := reportFlowInput{ID: capture.ID, Version: capture.Version, Period: capture.Period, From: capture.Result.Query.From, To: capture.Result.Query.To, TagAsOf: capture.TagAsOf}
 		if capture.Result.TagRevision > 0 {
@@ -442,11 +459,17 @@ func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prep
 		}
 		input.RoutingSource = flowPlanUsesCapturedRouting(capture.Result.Query)
 		if input.RoutingSource {
-			routing, err := encodeFlowRoutingValidity(capture.Result.RoutingProof)
-			if err != nil {
-				return nil, flowExplorerStoreError(err)
+			input.Routing = sharedRouting
+			if input.Routing == nil {
+				routing, err := encodeFlowRoutingValidity(capture.Result.RoutingProof)
+				if err != nil {
+					return nil, flowExplorerStoreError(err)
+				}
+				input.Routing = routing
+				if len(combinedEnds) != 0 {
+					sharedRouting = routing
+				}
 			}
-			input.Routing = routing
 		} else if capture.Result.RoutingProof != nil {
 			return nil, errReportSourceRequirements
 		}

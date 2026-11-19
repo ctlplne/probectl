@@ -27,6 +27,8 @@ const (
 	externalPeeringInterfaces
 	externalPeeringCaptures
 	externalIncidentSources
+	externalSeasonalClocks
+	externalSeasonalWindows
 )
 
 type explorerExternalData struct {
@@ -54,6 +56,10 @@ func (data explorerExternalData) specification() (string, string, error) {
 		return "peering_capture_lookup", "peer_capture_tenant String, peer_key String, peer_clock Int64, peer_state String", nil
 	case externalIncidentSources:
 		return "incident_source_lookup", "impact_tenant String, impact_agent String, impact_exporter String, impact_protocol String, impact_domain UInt32, impact_index UInt32", nil
+	case externalSeasonalClocks:
+		return "seasonal_clock_lookup", "clock_tenant String, clock_at Int64, clock_first UInt64, clock_after UInt64", nil
+	case externalSeasonalWindows:
+		return "seasonal_window_lookup", "window_tenant String, window_index UInt64, window_start Int64", nil
 	default:
 		return "", "", ErrTagQueryScope
 	}

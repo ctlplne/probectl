@@ -131,6 +131,9 @@ func encodeSeasonalFlowScope(ctx context.Context, c *reportFlowCapture, memory i
 			return nil, err
 		}
 		req.Version, req.Inputs, req.Timeline = 2, nil, timeline
+		if timeline.SharedRouting != nil {
+			req.Version = 3
+		}
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -162,11 +165,12 @@ func admitSeasonalFlowScopeEncoding(ctx context.Context, capture *reportFlowCapt
 		}
 	}
 	compact := len(capture.Inputs) > seasonalFlowLegacyWindows
+	sharedRouting := sharedSeasonalRouting(capture.Inputs)
 	for i, input := range capture.Inputs {
 		if !charge(72) || ((!compact || i == 0) && !charge(0, input.ID, input.Version, input.TagRevision)) {
 			return alert.ErrSeasonalSource
 		}
-		if input.Routing == nil {
+		if input.Routing == nil || (compact && sharedRouting != nil && i != 0) {
 			continue
 		}
 		for _, row := range input.Routing.Captures {
@@ -258,14 +262,24 @@ func validateStoredSeasonalFlowInputs(ctx context.Context, inputs []reportFlowIn
 	if !sampleClock.Equal(observed) || len(clocks) != len(inputs) {
 		return alert.ErrSeasonalSource
 	}
+	validatedRouting := map[*flowRoutingSnapshotValidity]bool{}
 	for i, input := range inputs {
 		if input.ID != config.Flow.ViewID || input.Version != config.Flow.ViewVersion || input.Period != "current" || !input.To.Equal(clocks[i]) ||
 			input.To.Sub(input.From) != last.To.Sub(last.From) || input.TagRevision != last.TagRevision ||
 			!input.TagAsOf.Equal(last.TagAsOf) || (i > 0 && !inputs[i-1].To.Before(input.To)) {
 			return alert.ErrSeasonalSource
 		}
-		if err := validateReportSourceInputs(ctx, inputs[i:i+1], usesTags, memory); err != nil {
+		checked := input
+		if input.RoutingSource && validatedRouting[input.Routing] {
+			// The compact document expands one immutable proof to each
+			// complete window. Validate the shared proof on its first use.
+			checked.Routing, checked.RoutingSource = nil, false
+		}
+		if err := validateReportSourceInputs(ctx, []reportFlowInput{checked}, usesTags, memory); err != nil {
 			return err
+		}
+		if input.RoutingSource {
+			validatedRouting[input.Routing] = true
 		}
 	}
 	return ctx.Err()

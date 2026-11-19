@@ -79,6 +79,13 @@
       ]
     },
     {
+      "ref": "test:internal/control/alert_seasonal_flow_integration_test.go#TestHourlySavedFlowReceiptsKeepFullClickHouseHistory",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
       "ref": "test:internal/control/alert_seasonal_flow_integration_test.go#TestSeasonalFlowNativeCreationKeepsCurrentViewAndTenant",
       "profile": "integration",
       "capabilities": [
