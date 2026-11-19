@@ -377,6 +377,10 @@ and invocation. A current ABAC denial of either permission also applies.
 | Saved-query writes                  | `flow_view_save`, `flow_view_delete`                                   | `flow.views.write` and ownership for updates/deletion                 |
 | Personal preference                 | `flow_view_favorite`                                                   | Affects only the authenticated subject                                |
 
+Both `flow_view_field_compare` and `alert_field_receipt_get` encode dimensions
+as ordered `field` and `value` entries. Secondary observations use ordered
+`metric`, `value` and `defined` entries. Exact numbers remain decimal strings.
+
 Save operations create without an ID/revision and update with the exact observed
 revision. Revision tokens and measurement values are decimal strings. Shared
 read access does not grant configuration writes. Native input schemas derive from

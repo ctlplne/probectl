@@ -25,9 +25,9 @@ func (b *recordedAlertQuery) AlertQueryGroupGet(_ context.Context, p *auth.Princ
 	return alert.QueryGroupInspection{Kind: "current_query_group", RuleID: input.RuleID, GroupKey: input.Group}, nil
 }
 
-func (b *recordedAlertQuery) AlertFieldReceiptGet(_ context.Context, p *auth.Principal, _ AlertFieldReceiptInput) (alert.FieldEvaluationEvidence, error) {
+func (b *recordedAlertQuery) AlertFieldReceiptGet(_ context.Context, p *auth.Principal, _ AlertFieldReceiptInput) (NativeAlertFieldReceipt, error) {
 	b.tenants = append(b.tenants, p.TenantID)
-	return alert.FieldEvaluationEvidence{}, nil
+	return NativeAlertFieldReceipt{}, nil
 }
 
 func (b *recordedAlertQuery) AlertQueryCreate(_ context.Context, p *auth.Principal, input alert.QueryRuleInput) (alert.Rule, error) {

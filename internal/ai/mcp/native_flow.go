@@ -35,7 +35,7 @@ type NativeFlowBackend interface {
 	DeleteFlowView(context.Context, *auth.Principal, string, string) (NativeFlowMutationResult, error)
 	FavoriteFlowView(context.Context, *auth.Principal, string, bool) (NativeFlowMutationResult, error)
 	RunFlowView(context.Context, *auth.Principal, string) (NativeFlowExecution, error)
-	CompareFlowViewFields(context.Context, *auth.Principal, string, flow.FieldComparisonInput) (flow.FieldComparison, error)
+	CompareFlowViewFields(context.Context, *auth.Principal, string, flow.FieldComparisonInput) (NativeFlowFieldComparison, error)
 }
 
 type NativeFlowQuestionInput struct {

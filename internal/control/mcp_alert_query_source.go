@@ -14,6 +14,7 @@ import (
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 var _ mcp.AlertQueryBackend = mcpTagMutationBackend{}
@@ -25,11 +26,20 @@ func (b mcpTagMutationBackend) AlertQueryGroupGet(ctx context.Context, p *auth.P
 	return b.server.readAlertQueryGroup(ctx, p, input.RuleID, input.Group)
 }
 
-func (b mcpTagMutationBackend) AlertFieldReceiptGet(ctx context.Context, p *auth.Principal, input mcp.AlertFieldReceiptInput) (alert.FieldEvaluationEvidence, error) {
+func (b mcpTagMutationBackend) AlertFieldReceiptGet(ctx context.Context, p *auth.Principal, input mcp.AlertFieldReceiptInput) (mcp.NativeAlertFieldReceipt, error) {
 	if b.server == nil {
-		return alert.FieldEvaluationEvidence{}, apierror.Unavailable("field receipt inspection is unavailable")
+		return mcp.NativeAlertFieldReceipt{}, apierror.Unavailable("field receipt inspection is unavailable")
 	}
-	return b.server.readAlertFieldReceipt(ctx, p, input.RuleID, input.Fingerprint, mcp.CheckOriginatingCredential, mcp.RetainNativePublication)
+	evidence, err := b.server.readAlertFieldReceipt(ctx, p, input.RuleID, input.Fingerprint, mcp.CheckOriginatingCredential, mcp.RetainNativePublication)
+	if err != nil {
+		return mcp.NativeAlertFieldReceipt{}, err
+	}
+	ctx = tenancy.WithTenant(ctx, tenancy.ID(p.TenantID))
+	comparison, err := b.server.projectNativeFlowFieldComparison(ctx, p, evidence.Comparison)
+	if err != nil {
+		return mcp.NativeAlertFieldReceipt{}, err
+	}
+	return mcp.NativeAlertFieldReceipt{Comparison: comparison, Signals: evidence.Signals}, nil
 }
 
 func (b mcpTagMutationBackend) AlertQueryCreate(ctx context.Context, p *auth.Principal, input alert.QueryRuleInput) (alert.Rule, error) {

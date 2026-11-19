@@ -32,7 +32,7 @@ type AlertFieldReceiptInput struct {
 
 type AlertQueryBackend interface {
 	AlertQueryGroupGet(context.Context, *auth.Principal, AlertQueryGroupInput) (alert.QueryGroupInspection, error)
-	AlertFieldReceiptGet(context.Context, *auth.Principal, AlertFieldReceiptInput) (alert.FieldEvaluationEvidence, error)
+	AlertFieldReceiptGet(context.Context, *auth.Principal, AlertFieldReceiptInput) (NativeAlertFieldReceipt, error)
 	AlertQueryCreate(context.Context, *auth.Principal, alert.QueryRuleInput) (alert.Rule, error)
 	AlertQuerySourceGet(context.Context, *auth.Principal, string) (alert.QuerySourceState, error)
 	AlertQuerySourceSet(context.Context, *auth.Principal, AlertQuerySourceInput) (alert.QuerySourceState, error)

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/audit"
@@ -234,15 +235,16 @@ func assertScheduledFieldClients(t *testing.T, f *roleExplanationAPIFixture, soc
 	authenticator := NewMCPAuthenticator(f.pool, NewTenantStatusCache(f.pool, 0), false)
 	args := map[string]any{"rule_id": ruleID, "fingerprint": fingerprint}
 	for _, wire := range []string{"2026-07-28", "2025-11-25"} {
-		var native alert.FieldEvaluationEvidence
+		var native mcp.NativeAlertFieldReceipt
 		call := interfaceRoleNativeTLSCaller(t, f, wire)
 		call(tenant, "alert_field_receipt_get", args, &native, true)
-		assertScheduledFieldEvidence(t, native, viewID, windows)
-		if native.Comparison.Changes[0].Group["src_addr"] == "192.0.2.41" {
+		comparison := fieldComparisonFromNative(t, native.Comparison)
+		assertScheduledFieldEvidence(t, alert.FieldEvaluationEvidence{Comparison: comparison, Signals: native.Signals}, viewID, windows)
+		if comparison.Changes[0].Group["src_addr"] == "192.0.2.41" {
 			t.Fatal("native field receipt bypassed source redaction")
 		}
 		call(f.tenants[1], "alert_field_receipt_get", args, nil, false)
 		openInterfaceRoleStdio(t, server, authenticator, f.tokens[tenant], wire).call(t, wire, "alert_field_receipt_get", args, &native, true)
-		assertScheduledFieldEvidence(t, native, viewID, windows)
+		assertScheduledFieldEvidence(t, alert.FieldEvaluationEvidence{Comparison: fieldComparisonFromNative(t, native.Comparison), Signals: native.Signals}, viewID, windows)
 	}
 }

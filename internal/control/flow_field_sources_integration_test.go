@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/audit"
@@ -206,15 +207,52 @@ func assertFieldComparisonClients(t *testing.T, f *roleExplanationAPIFixture, so
 	authenticator := NewMCPAuthenticator(f.pool, NewTenantStatusCache(f.pool, 0), false)
 	args := map[string]any{"id": view.ID, "comparison": input}
 	for _, wire := range []string{"2026-07-28", "2025-11-25"} {
-		var native flow.FieldComparison
+		var native mcp.NativeFlowFieldComparison
 		call := interfaceRoleNativeTLSCaller(t, f, wire)
 		call(tenant, "flow_view_field_compare", args, &native, true)
-		assertFieldComparisonCutoff(t, native, view.ID, windows)
-		if native.Changes[0].Group["src_addr"] == "192.0.2.41" {
+		actual := fieldComparisonFromNative(t, native)
+		assertFieldComparisonCutoff(t, actual, view.ID, windows)
+		if actual.Changes[0].Group["src_addr"] == "192.0.2.41" {
 			t.Fatal("native tool let an address escape redaction")
 		}
 		call(f.tenants[1], "flow_view_field_compare", args, nil, false)
 		openInterfaceRoleStdio(t, server, authenticator, f.tokens[tenant], wire).call(t, wire, "flow_view_field_compare", args, &native, true)
-		assertFieldComparisonCutoff(t, native, view.ID, windows)
+		assertFieldComparisonCutoff(t, fieldComparisonFromNative(t, native), view.ID, windows)
 	}
+}
+
+func fieldComparisonFromNative(t *testing.T, source mcp.NativeFlowFieldComparison) flow.FieldComparison {
+	t.Helper()
+	assessment := flow.FieldComparison{ViewID: source.ViewID, Version: source.Version, Mode: source.Mode, Measure: source.Measure,
+		Cadence: source.Cadence, TopKeys: source.TopKeys, Before: source.Before, After: source.After, History: source.History,
+		Changes: make([]flow.FieldChange, 0, len(source.Changes))}
+	observation := func(source *mcp.NativeFlowFieldObservation) *flow.FieldObservation {
+		t.Helper()
+		if source == nil {
+			return nil
+		}
+		value := &flow.FieldObservation{Rank: source.Rank, Value: source.Value, Share: source.Share, Citation: source.Citation}
+		if len(source.Secondary) > 0 {
+			value.Secondary = make(map[string]string, len(source.Secondary))
+		}
+		for _, metric := range source.Secondary {
+			if _, exists := value.Secondary[metric.Metric]; exists || metric.Metric == "" || !metric.Defined {
+				t.Fatal("the native result duplicated or omitted a selected secondary metric")
+			}
+			value.Secondary[metric.Metric] = metric.Value
+		}
+		return value
+	}
+	for _, item := range source.Changes {
+		group := make(map[string]string, len(item.Group))
+		for _, field := range item.Group {
+			if _, exists := group[field.Field]; exists || field.Field == "" {
+				t.Fatal("the native result duplicated or omitted a selected group dimension")
+			}
+			group[field.Field] = field.Value
+		}
+		assessment.Changes = append(assessment.Changes, flow.FieldChange{Kind: item.Kind, Key: item.Key, Group: group,
+			Before: observation(item.Before), After: observation(item.After), Delta: item.Delta})
+	}
+	return assessment
 }

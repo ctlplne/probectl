@@ -122,8 +122,8 @@ func (*nativeBackendProbe) RunFlowView(_ context.Context, _ *auth.Principal, _ s
 	return NativeFlowExecution{}, errors.New("unexpected native operation")
 }
 
-func (*nativeBackendProbe) CompareFlowViewFields(context.Context, *auth.Principal, string, flow.FieldComparisonInput) (flow.FieldComparison, error) {
-	return flow.FieldComparison{}, errors.New("unexpected native operation")
+func (*nativeBackendProbe) CompareFlowViewFields(context.Context, *auth.Principal, string, flow.FieldComparisonInput) (NativeFlowFieldComparison, error) {
+	return NativeFlowFieldComparison{}, errors.New("unexpected native operation")
 }
 
 func nativeProbeServer(b NativeFlowBackend, admit NativeFlowAdmission) *Server {
@@ -343,6 +343,11 @@ func TestNativeMCPDeclaredResultsContainNoUncheckedMapsRecursively(t *testing.T)
 	for i := 0; i < backend.NumMethod(); i++ {
 		walk(backend.Method(i).Type.Out(0))
 	}
+	receipt, ok := reflect.TypeOf((*AlertQueryBackend)(nil)).Elem().MethodByName("AlertFieldReceiptGet")
+	if !ok {
+		t.Fatal("native field receipt result seam is unavailable")
+	}
+	walk(receipt.Type.Out(0))
 }
 
 func TestNativeMCPCancellationDoesNotPublishPreparedData(t *testing.T) {

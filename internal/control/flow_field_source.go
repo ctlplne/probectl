@@ -22,12 +22,21 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-func (b nativeMCPFlowBackend) CompareFlowViewFields(ctx context.Context, actor *auth.Principal, id string, input flow.FieldComparisonInput) (flow.FieldComparison, error) {
+func (b nativeMCPFlowBackend) CompareFlowViewFields(ctx context.Context, actor *auth.Principal, id string, input flow.FieldComparisonInput) (mcp.NativeFlowFieldComparison, error) {
 	if err := b.authorize(ctx, actor); err != nil {
-		return flow.FieldComparison{}, err
+		return mcp.NativeFlowFieldComparison{}, err
 	}
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(actor.TenantID))
-	return b.server.readFlowFieldComparison(ctx, actor, fieldComparisonSettings(id, input), time.Now(), mcp.RetainNativePublication)
+	projectionCtx := ctx
+	result, err := b.server.readFlowFieldComparison(ctx, actor, fieldComparisonSettings(id, input), time.Now(),
+		func(owned context.Context, check func(context.Context) error, release func()) error {
+			projectionCtx = owned
+			return mcp.RetainNativePublication(owned, check, release)
+		})
+	if err != nil {
+		return mcp.NativeFlowFieldComparison{}, err
+	}
+	return b.server.projectNativeFlowFieldComparison(projectionCtx, actor, result)
 }
 
 func (s *Server) readFlowFieldComparison(ctx context.Context, actor *auth.Principal, settings flowFieldComparisonSettings, at time.Time, retain func(context.Context, func(context.Context) error, func()) error) (flow.FieldComparison, error) {
