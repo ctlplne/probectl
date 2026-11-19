@@ -18,16 +18,17 @@ import (
 )
 
 type ProspectEngagement struct {
-	Revision         int64      `json:"revision"`
-	AssessmentViewID string     `json:"assessment_view_id"`
-	AssessmentAt     time.Time  `json:"assessment_view_revision"`
-	Preparer         string     `json:"preparer"`
-	StartsAt         time.Time  `json:"starts_at"`
-	EndsAt           time.Time  `json:"ends_at"`
-	ConvertedAt      *time.Time `json:"converted_at,omitempty"`
-	ConsentedAt      *time.Time `json:"consented_at,omitempty"`
-	ConsentRevokedAt *time.Time `json:"consent_revoked_at,omitempty"`
-	DestinationID    string     `json:"destination_id,omitempty"`
+	Revision             int64      `json:"revision"`
+	AssessmentViewID     string     `json:"assessment_view_id"`
+	AssessmentAt         time.Time  `json:"assessment_view_revision"`
+	Preparer             string     `json:"preparer"`
+	StartsAt             time.Time  `json:"starts_at"`
+	EndsAt               time.Time  `json:"ends_at"`
+	ConvertedAt          *time.Time `json:"converted_at,omitempty"`
+	ConsentedAt          *time.Time `json:"consented_at,omitempty"`
+	ConsentRevokedAt     *time.Time `json:"consent_revoked_at,omitempty"`
+	DestinationID        string     `json:"destination_id,omitempty"`
+	AssessmentArtifactID string     `json:"assessment_artifact_id,omitempty"`
 
 	OwnerID         string `json:"-"`
 	TenantSlug      string `json:"-"`
@@ -37,13 +38,39 @@ type ProspectEngagement struct {
 type ProspectEngagements struct{}
 
 const prospectEngagementColumns = `revision,assessment_view_id,assessment_view_revision,preparer,starts_at,ends_at,
-	converted_at,consented_at,consent_revoked_at,COALESCE(consent_destination_id,''),owner_id::text,tenant_slug,consent_revision`
+	converted_at,consented_at,consent_revoked_at,COALESCE(consent_destination_id,''),owner_id::text,tenant_slug,consent_revision,
+	COALESCE(assessment_artifact_id,'')`
 
 func scanProspectEngagement(row pgx.Row) (ProspectEngagement, error) {
 	var out ProspectEngagement
 	err := row.Scan(&out.Revision, &out.AssessmentViewID, &out.AssessmentAt, &out.Preparer, &out.StartsAt, &out.EndsAt,
-		&out.ConvertedAt, &out.ConsentedAt, &out.ConsentRevokedAt, &out.DestinationID, &out.OwnerID, &out.TenantSlug, &out.ConsentRevision)
+		&out.ConvertedAt, &out.ConsentedAt, &out.ConsentRevokedAt, &out.DestinationID, &out.OwnerID, &out.TenantSlug, &out.ConsentRevision,
+		&out.AssessmentArtifactID)
 	return out, err
+}
+
+// FileAssessment associates one sealed report with the exact completed
+// engagement. The caller inserts the artifact, files it and appends the audit
+// under the same scoped transaction.
+func (ProspectEngagements) FileAssessment(ctx context.Context, sc tenancy.Scope, revision int64, artifactID string, at time.Time) error {
+	if err := prospectScope(ctx, sc); err != nil {
+		return err
+	}
+	tag, err := sc.Q.Exec(ctx, `UPDATE prospect_engagements engagement SET assessment_artifact_id=$3
+		WHERE engagement.tenant_id=$1 AND engagement.revision=$2 AND engagement.ends_at<=$4
+		 AND engagement.converted_at IS NULL AND engagement.assessment_artifact_id IS NULL
+		 AND EXISTS (SELECT 1 FROM dashboard_report_artifacts artifact
+		  WHERE artifact.tenant_id=engagement.tenant_id AND artifact.id=$3 AND artifact.dashboard_id=engagement.assessment_view_id
+		   AND artifact.absolute_from=engagement.starts_at AND artifact.absolute_to=engagement.ends_at
+		   AND artifact.body_storage='chunks' AND artifact.body_bytes>0 AND octet_length(artifact.body_digest)=32)`,
+		sc.Tenant.String(), revision, artifactID, at)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return apierror.Conflict("the completed prospect engagement or sealed assessment changed")
+	}
+	return nil
 }
 
 func prospectScope(ctx context.Context, sc tenancy.Scope) error {

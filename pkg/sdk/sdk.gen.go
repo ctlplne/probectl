@@ -3854,6 +3854,7 @@ type PeeringTransitEstimate struct {
 }
 
 type ProspectEngagement struct {
+	AssessmentArtifactId   string `json:"assessment_artifact_id,omitempty"`
 	AssessmentViewId       string `json:"assessment_view_id"`
 	AssessmentViewRevision string `json:"assessment_view_revision"`
 	ConsentRevokedAt       string `json:"consent_revoked_at,omitempty"`

@@ -91,7 +91,8 @@ func (s *DashboardReportSupervisor) Tick(ctx context.Context) {
 			continue
 		}
 		now := s.now().UTC()
-		err := errors.Join(s.materializeTenantReports(ctx, tenant.ID, now), s.deliverTenantReportEmails(ctx, tenant.ID, now))
+		err := errors.Join(s.materializeTenantReports(ctx, tenant.ID, now), s.materializeProspectAssessment(ctx, tenant.ID, tenant.Name, now),
+			s.deliverTenantReportEmails(ctx, tenant.ID, now))
 		if err != nil {
 			// Tenant id is routing metadata, not report content. Never log the
 			// saved view, exact values, or artifact bytes.

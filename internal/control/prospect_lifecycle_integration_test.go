@@ -9,7 +9,9 @@
 package control
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,8 +21,11 @@ import (
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -140,5 +145,106 @@ func TestProspectEngagementUsesCanonicalTenantWriteFence(t *testing.T) {
 			}
 			return nil
 		})
+	}
+}
+
+func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
+	f := newRoleExplanationAPIFixture(t)
+	f.server.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil)).WithFlowStore(flowstore.NewMemory())
+	supervisor, ok := BuildDashboardReportSupervisor(f.pool, time.Minute, f.server.log)
+	if !ok {
+		t.Fatal("report supervisor unavailable")
+	}
+	supervisor.WithReportSources(f.server)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	end := now.Add(-time.Minute)
+	engagements := map[string]store.ProspectEngagement{}
+	for _, tenant := range f.tenants {
+		slug, _, _, err := f.server.tenantSlugAndMeta(t.Context(), tenant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			for _, permission := range []string{permTestRead, permIncidentRead, permChangeRead, "topology.read", permLifecycleErase} {
+				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
+					return err
+				}
+			}
+			definition := dashboardDefinition{ClientReport: &reporting.ClientReportDefinition{Timezone: "UTC"},
+				RedactionState: "current tenant policy", Provenance: []string{"Owned prospect fixture"}, CoverageLimitations: []string{"Controlled report configuration"}}
+			if err := cleanDashboardDefinition(&definition); err != nil {
+				return err
+			}
+			raw, err := json.Marshal(definition)
+			if err != nil {
+				return err
+			}
+			view, err := (store.DashboardReports{}).CreateView(ctx, sc, store.DashboardViewInput{ID: "prospect-view", OwnerID: f.users[tenant],
+				Name: "Prospect assessment", Preset: "operator", Definition: raw})
+			if err != nil {
+				return err
+			}
+			engagements[tenant], err = (store.ProspectEngagements{}).Create(ctx, sc, store.ProspectEngagement{AssessmentViewID: view.ID,
+				AssessmentAt: view.UpdatedAt, OwnerID: f.users[tenant], TenantSlug: slug,
+				StartsAt: end.AddDate(0, 0, -14), EndsAt: end, Preparer: "Scope " + tenant})
+			return err
+		})
+	}
+	socket := httptest.NewTLSServer(f.server.Handler())
+	t.Cleanup(socket.Close)
+	for _, tenant := range f.tenants {
+		// Before the end no artifact is eligible, regardless of the ordinary
+		// dashboard schedule or wall clock.
+		if err := supervisor.materializeProspectAssessment(t.Context(), tenant, "Prospect", end.Add(-time.Microsecond)); err != nil {
+			t.Fatal(err)
+		}
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			item, err := (store.ProspectEngagements{}).Get(ctx, sc)
+			if err == nil && item.AssessmentArtifactID != "" {
+				t.Fatal("prospect assessment appeared before the exact end")
+			}
+			return err
+		})
+		for range 2 {
+			if err := supervisor.materializeProspectAssessment(t.Context(), tenant, "Prospect", now); err != nil {
+				t.Fatal("due assessment could not be filed", err)
+			}
+		}
+	}
+	for lane, tenant := range f.tenants {
+		var item store.ProspectEngagement
+		var bodySHA string
+		var bodySize int64
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			item, err = (store.ProspectEngagements{}).Get(ctx, sc)
+			if err != nil {
+				return err
+			}
+			artifact, err := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, item.AssessmentArtifactID, f.users[tenant])
+			if err != nil {
+				return err
+			}
+			if !artifact.AbsoluteFrom.Equal(engagements[tenant].StartsAt) || !artifact.AbsoluteTo.Equal(end) || artifact.Format != "pdf" ||
+				artifact.BodyBytes < 1 || len(artifact.BodySHA256) != 64 || artifact.TenantID != tenant || artifact.EmailDelivery != nil {
+				t.Fatal("the filed PDF lost its exact engagement clock or tenant scope")
+			}
+			bodySHA, bodySize = artifact.BodySHA256, artifact.BodyBytes
+			var artifacts, audits int
+			if err := sc.Q.QueryRow(ctx, `SELECT (SELECT count(*) FROM dashboard_report_artifacts WHERE tenant_id=$1),
+			 (SELECT count(*) FROM audit_events WHERE tenant_id=$1 AND action='lifecycle.prospect_assessment_created' AND target=$2)`, tenant, artifact.ID).Scan(&artifacts, &audits); err != nil {
+				return err
+			}
+			if artifacts != 1 || audits != 1 {
+				t.Fatal("the repeated worker run published more than one assessment")
+			}
+			return nil
+		})
+		path := "/v1/dashboard-report-artifacts/" + item.AssessmentArtifactID
+		raw := callComplianceControlReport(t, socket, auditorTestSession(t, f, tenant), http.MethodGet, path, nil, http.StatusOK)
+		if int64(len(raw)) != bodySize || !bytes.HasPrefix(raw, []byte("%PDF-")) || hex.EncodeToString(crypto.Hash(raw)) != bodySHA {
+			t.Fatal("the released assessment did not match its own sealed bytes")
+		}
+		callSeasonalAPI(t, socket, f.tokens[f.tenants[1-lane]], http.MethodGet, path, nil, http.StatusNotFound)
 	}
 }

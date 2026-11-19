@@ -19897,6 +19897,10 @@
             "type": "string",
             "format": "date-time"
           },
+          "assessment_artifact_id": {
+            "type": "string",
+            "description": "The exact PDF sealed for the completed engagement. Access uses the normal dashboard report artifact authorization."
+          },
           "destination_id": {
             "type": "string"
           }

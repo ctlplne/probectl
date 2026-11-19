@@ -352,9 +352,12 @@ email destination.
 
 `GET /v1/lifecycle/prospect` reads the current record. The `convert` and
 `revoke-consent` actions take its exact revision. Both invalidate earlier
-consent and record their change in the tenant audit chain. The preview stores
-the terms and supports withdrawal. Expiry, report delivery verification and
-erasure execution require the lifecycle worker.
+consent and record their change in the tenant audit chain. The existing report
+supervisor files one PDF after the engagement ends. It uses the original view
+revision, the owner’s current report access and the exact stored dates. Read
+the returned `assessment_artifact_id` through the normal authorized report
+download. Collection expiry, external delivery verification and automatic
+erasure are additional lifecycle steps.
 
 Engagement writes take the same tenant writer lease and database trigger as
 other lifecycle data. Once the existing erasure fence closes, PostgreSQL
