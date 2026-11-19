@@ -365,8 +365,17 @@ observation writers refuse new records for that tenant. An empty neighbor
 snapshot cannot replace the previous observations after the cutoff. The
 assessment worker waits for admitted writers before it reads the evidence.
 The report and lifecycle writers remain available. Conversion clears the
-collection deadline. Agent dispatch and automatic erasure are additional
-lifecycle steps.
+collection deadline.
+
+Scheduled erasure matches the original consent and exact archived PDF to
+the corresponding tenant audit events. The account must still hold current erasure,
+export and report source access. The report worker verifies the assessment
+bytes and original owned revision before entering the tenant write fence.
+Conversion, withdrawn consent, a changed destination or unavailable evidence
+keeps the engagement from entering offboarding. If an erasure store is
+unavailable after the authorized fence, retry uses that same provider audit
+receipt. Successful deletion archives the full attestation with the provider
+audit event. Agent dispatch remains an additional lifecycle step.
 
 Engagement writes take the same tenant writer lease and database trigger as
 other lifecycle data. Once the existing erasure fence closes, PostgreSQL

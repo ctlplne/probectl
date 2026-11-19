@@ -87,6 +87,12 @@ func (s *DashboardReportSupervisor) Tick(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		if tenant.Status == "offboarding" {
+			if err := s.eraseDueProspect(ctx, tenant.ID, true); err != nil {
+				s.log.Warn("scheduled prospect erasure is incomplete", "tenant_id", tenant.ID)
+			}
+			continue
+		}
 		if tenant.Status != "active" {
 			continue
 		}
@@ -101,6 +107,13 @@ func (s *DashboardReportSupervisor) Tick(ctx context.Context) {
 				reason = domain.Code
 			}
 			s.log.Warn("dashboard report delivery failed", "tenant_id", tenant.ID, "reason", reason)
+		}
+		if err := s.eraseDueProspect(ctx, tenant.ID, false); err != nil {
+			reason := "unavailable"
+			if domain, ok := apierror.As(err); ok {
+				reason = domain.Code
+			}
+			s.log.Warn("scheduled prospect erasure is waiting", "tenant_id", tenant.ID, "reason", reason)
 		}
 	}
 }

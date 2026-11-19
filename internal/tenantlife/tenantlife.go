@@ -463,6 +463,10 @@ const maxDeletePasses = 6
 // route into their own schema, where encrypted IR evidence remains after the
 // distinct attribution key is crypto-shredded.
 func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attestation, error) {
+	return e.erase(ctx, tenantID, slug, actor, nil)
+}
+
+func (e *Engine) erase(ctx context.Context, tenantID, slug, actor string, prospect *prospectErasure) (Attestation, error) {
 	ctx = tenancy.WithSiloTableLock(ctx) // D-73: the verify and evidence transactions span every table
 	att := Attestation{
 		FormatVersion: 1, TenantID: tenantID, TenantSlug: slug, Actor: actor,
@@ -476,7 +480,7 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 		att.Complete = false
 		return att, fmt.Errorf("tenantlife: erasure refused while the tenant is quarantined; fix the cause and retry once it is released: %w", err)
 	}
-	irPlanID, err := e.prepareErasure(ctx, tenantID, actor)
+	irPlanID, err := e.prepareErasure(ctx, tenantID, actor, prospect)
 	if err != nil {
 		att.Complete = false
 		return att, err
@@ -690,6 +694,7 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 			slug,
 			actor,
 			att,
+			prospect != nil,
 		)
 		if err == nil {
 			return finalized, nil
@@ -709,6 +714,7 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 func (e *Engine) prepareErasure(
 	ctx context.Context,
 	tenantID, actor string,
+	prospect *prospectErasure,
 ) (string, error) {
 	// RTT-04 / VER-01: the IR-attribution crypto-shred is CONDITIONAL, and any
 	// capability or precondition it needs is validated BEFORE the irreversible
@@ -750,7 +756,13 @@ func (e *Engine) prepareErasure(
 		}
 	}
 	if e.pool != nil {
-		if err := e.fenceTenantAuditWrites(ctx, tenantID, actor); err != nil {
+		var err error
+		if prospect == nil {
+			err = e.fenceTenantAuditWrites(ctx, tenantID, actor)
+		} else {
+			err = e.fenceProspectErasure(ctx, tenantID, prospect)
+		}
+		if err != nil {
 			return "", fmt.Errorf(
 				"tenantlife: establish tenant audit write fence: %w",
 				err,
@@ -810,73 +822,73 @@ func (e *Engine) fenceTenantAuditWrites(
 		).Scan(&canonicalTenantID); err != nil {
 			return fmt.Errorf("canonicalize tenant id: %w", err)
 		}
-		if err := tenancy.LockTenantWrites(
-			ctx,
-			q,
-			canonicalTenantID,
-		); err != nil {
+		if err := lockErasureFence(ctx, q, canonicalTenantID); err != nil {
 			return err
 		}
-		if err := audit.LockTenantStream(ctx, q, canonicalTenantID); err != nil {
-			return fmt.Errorf("lock tenant audit stream: %w", err)
-		}
-		var alreadyFenced bool
-		var previousStatus string
-		if err := q.QueryRow(
-			ctx,
-			`SELECT status, audit_write_fenced_at IS NOT NULL
-			   FROM public.tenants
-			  WHERE id = $1::uuid
-			  FOR UPDATE`,
-			canonicalTenantID,
-		).Scan(&previousStatus, &alreadyFenced); err != nil {
-			return fmt.Errorf("lock tenant registry row: %w", err)
-		}
-		if previousStatus == "deleted" {
-			return errors.New("tenant is deleted and not eligible for erasure")
-		}
-		if alreadyFenced && previousStatus != "offboarding" {
-			return fmt.Errorf(
-				"tenant audit fence has invalid status %q",
-				previousStatus,
-			)
-		}
-		tag, err := q.Exec(
-			ctx,
-			`UPDATE public.tenants
-			    SET status = 'offboarding',
-			        audit_write_fenced_at =
-			            COALESCE(audit_write_fenced_at, now()),
-			        updated_at = now()
-			  WHERE id = $1::uuid
-			    AND status IN ('active', 'suspended', 'offboarding')`,
-			canonicalTenantID,
-		)
-		if err != nil {
-			return fmt.Errorf("transition tenant to offboarding: %w", err)
-		}
-		if tag.RowsAffected() != 1 {
-			return errors.New("tenant is absent, deleted, or not eligible for erasure")
-		}
-		appendTx := e.appendProviderAuditTx
-		if appendTx == nil {
-			appendTx = audit.ProviderAppendTx
-		}
-		if _, err := appendTx(
-			ctx,
-			q,
-			actor,
-			"lifecycle.erase_fence",
-			canonicalTenantID,
-			map[string]any{
-				"already_fenced":  alreadyFenced,
-				"previous_status": previousStatus,
-			},
-		); err != nil {
-			return fmt.Errorf("append tenant audit-fence event: %w", err)
-		}
-		return nil
+		return e.markErasureFenced(ctx, q, canonicalTenantID, actor, nil)
 	})
+}
+
+func (e *Engine) markErasureFenced(ctx context.Context, q tenancy.Querier, canonicalTenantID, actor string, prospect *prospectErasure) error {
+	var alreadyFenced bool
+	var previousStatus, slug string
+	if err := q.QueryRow(
+		ctx,
+		`SELECT status, slug, audit_write_fenced_at IS NOT NULL
+		   FROM public.tenants
+		  WHERE id = $1::uuid
+		  FOR UPDATE`,
+		canonicalTenantID,
+	).Scan(&previousStatus, &slug, &alreadyFenced); err != nil {
+		return fmt.Errorf("lock tenant registry row: %w", err)
+	}
+	if previousStatus == "deleted" {
+		return errors.New("tenant is deleted and not eligible for erasure")
+	}
+	if alreadyFenced && previousStatus != "offboarding" {
+		return fmt.Errorf(
+			"tenant audit fence has invalid status %q",
+			previousStatus,
+		)
+	}
+	data := map[string]any{"already_fenced": alreadyFenced, "previous_status": previousStatus}
+	if prospect != nil {
+		if err := prospect.fenceAudit(ctx, q, canonicalTenantID, slug, previousStatus, alreadyFenced, data); err != nil {
+			return err
+		}
+	}
+	tag, err := q.Exec(
+		ctx,
+		`UPDATE public.tenants
+		    SET status = 'offboarding',
+		        audit_write_fenced_at =
+		            COALESCE(audit_write_fenced_at, now()),
+		        updated_at = now()
+		  WHERE id = $1::uuid
+		    AND status IN ('active', 'suspended', 'offboarding')`,
+		canonicalTenantID,
+	)
+	if err != nil {
+		return fmt.Errorf("transition tenant to offboarding: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return errors.New("tenant is absent, deleted, or not eligible for erasure")
+	}
+	appendTx := e.appendProviderAuditTx
+	if appendTx == nil {
+		appendTx = audit.ProviderAppendTx
+	}
+	if _, err := appendTx(
+		ctx,
+		q,
+		actor,
+		"lifecycle.erase_fence",
+		canonicalTenantID,
+		data,
+	); err != nil {
+		return fmt.Errorf("append tenant audit-fence event: %w", err)
+	}
+	return nil
 }
 
 func (e *Engine) finalizeIRAttribution(
@@ -1107,6 +1119,7 @@ func (e *Engine) finalizeSuccessfulErasure(
 	ctx context.Context,
 	tenantID, slug, actor string,
 	att Attestation,
+	prospect bool,
 ) (Attestation, error) {
 	finalized := att
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
@@ -1174,7 +1187,7 @@ func (e *Engine) finalizeSuccessfulErasure(
 			tag, err := sc.Q.Exec(
 				ctx,
 				`UPDATE public.tenants
-				    SET status = 'deleted',
+				    SET status = 'deleted', prospect_collection_ends_at = NULL,
 				        updated_at = now()
 				  WHERE id = $1::uuid
 				    AND status = 'offboarding'
@@ -1191,13 +1204,17 @@ func (e *Engine) finalizeSuccessfulErasure(
 			if appendTx == nil {
 				appendTx = audit.ProviderAppendTx
 			}
+			data := lifecycleAuditData(slug, finalized)
+			if prospect {
+				data["prospect_attestation"] = finalized
+			}
 			if _, err := appendTx(
 				ctx,
 				sc.Q,
 				actor,
 				"lifecycle.erase",
 				tenantID,
-				lifecycleAuditData(slug, finalized),
+				data,
 			); err != nil {
 				return fmt.Errorf("append successful erasure attestation: %w", err)
 			}

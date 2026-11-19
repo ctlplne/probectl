@@ -38,7 +38,9 @@ import (
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/tenantlife"
 	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
@@ -290,6 +292,14 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 	}
 	supervisor.WithReportSources(f.server)
 	owner, sibling := f.tenants[0], f.tenants[1]
+	metrics := &prospectErasureMetrics{Memory: tsdb.NewMemory(), firstFailure: owner}
+	for _, tenant := range f.tenants {
+		if err := metrics.Write(t.Context(), []tsdb.Series{{Metric: "assessment_sample", Labels: map[string]string{tsdb.TenantLabel: tenant},
+			Value: 1, TimeMillis: time.Now().UnixMilli()}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.server.WithTenantLife(tenantlife.New(f.pool, f.server.flowStore, nil, metrics, nil, "owned test fixture", f.server.log))
 	archive := t.TempDir()
 	ca, tlsConfig := alertTestCA(t, "localhost")
 	relay := testsupport.StartArchivingSMTPServer(t, tlsConfig, "reports", "test-only-relay-proof", archive)
@@ -434,6 +444,9 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 		}
 	}
 	callSeasonalAPI(t, socket, f.tokens[sibling], http.MethodPost, "/v1/lifecycle/prospect/revoke-consent", map[string]int{"revision": 1}, http.StatusOK)
+	if err := supervisor.eraseDueProspect(t.Context(), owner, false); err != nil || metrics.attempts != 0 {
+		t.Fatal("a tenant record or inbox-only PDF reached the erasure engine", err)
+	}
 	due := time.Now().UTC().Add(time.Second)
 	if err := supervisor.deliverTenantReportEmails(t.Context(), owner, due); err == nil || len(relay.Messages()) != 0 {
 		t.Fatal("the unsuccessful attempt was recorded as accepted delivery")
@@ -477,6 +490,130 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 		}
 		return err
 	})
+	if err := f.server.SessionManager().Revoke(t.Context(), sessions[owner]); err != nil {
+		t.Fatal(err)
+	}
+	callComplianceControlReport(t, socket, sessions[owner], http.MethodGet, "/v1/lifecycle/prospect", nil, http.StatusUnauthorized)
+	verifyScheduledProspectErasure(t, f, supervisor, metrics, ownerSHA, ownerEngagement.TenantSlug)
+}
+
+type prospectErasureMetrics struct {
+	*tsdb.Memory
+	firstFailure string
+	attempts     int
+}
+
+func (m *prospectErasureMetrics) DeleteTenant(ctx context.Context, tenant string) (int, error) {
+	m.attempts++
+	if tenant == m.firstFailure {
+		m.firstFailure = ""
+		return 0, errors.New("controlled first erasure attempt unavailable")
+	}
+	return m.Memory.DeleteTenant(ctx, tenant)
+}
+
+func verifyScheduledProspectErasure(t *testing.T, f *roleExplanationAPIFixture, supervisor *DashboardReportSupervisor,
+	metrics *prospectErasureMetrics, assessmentSHA, ownerSlug string) {
+	t.Helper()
+	owner, sibling := f.tenants[0], f.tenants[1]
+	f.in(owner, func(ctx context.Context, sc tenancy.Scope) error {
+		return (store.RoleBindings{}).Unbind(ctx, sc, "user", f.users[owner], f.roles[owner])
+	})
+	if err := supervisor.eraseDueProspect(t.Context(), owner, false); err == nil || metrics.attempts != 0 {
+		t.Fatal("withdrawn current owner authority reached an erasure store", err, metrics.attempts)
+	}
+	verifyProspectRegistryState(t, f, owner, "active", false)
+	f.in(owner, func(ctx context.Context, sc tenancy.Scope) error {
+		return (store.RoleBindings{}).Bind(ctx, sc, "user", f.users[owner], f.roles[owner])
+	})
+
+	supervisor.Tick(t.Context())
+	verifyProspectRegistryState(t, f, owner, "offboarding", true)
+	verifyProspectRegistryState(t, f, sibling, "active", false)
+	if metrics.attempts != 1 || len(metrics.Query("assessment_sample", map[string]string{tsdb.TenantLabel: owner})) != 1 {
+		t.Fatal("the failed first store attempt did not leave the correct scoped retry", metrics.attempts)
+	}
+	supervisor.Tick(t.Context())
+	verifyProspectRegistryState(t, f, owner, "deleted", true)
+	verifyProspectRegistryState(t, f, sibling, "active", false)
+	supervisor.Tick(t.Context())
+	if metrics.attempts != 2 || len(metrics.Query("assessment_sample", map[string]string{tsdb.TenantLabel: owner})) != 0 ||
+		len(metrics.Query("assessment_sample", map[string]string{tsdb.TenantLabel: sibling})) != 1 {
+		t.Fatal("erasure retry was not exact, complete and isolated", metrics.attempts)
+	}
+	f.in(sibling, func(ctx context.Context, sc tenancy.Scope) error {
+		engagement, err := (store.ProspectEngagements{}).Get(ctx, sc)
+		if err == nil && (engagement.ConsentRevokedAt == nil || engagement.AssessmentArtifactID == "") {
+			t.Fatal("the sibling lost its archived report or withdrawal")
+		}
+		return err
+	})
+	verifyArchivedProspectAttestation(t, f, owner, ownerSlug, assessmentSHA)
+}
+
+func verifyProspectRegistryState(t *testing.T, f *roleExplanationAPIFixture, tenant, expected string, fenced bool) {
+	t.Helper()
+	err := tenancy.InProvider(t.Context(), f.pool, func(ctx context.Context, q tenancy.Querier) error {
+		var status string
+		var actualFence, cleared bool
+		if err := q.QueryRow(ctx, `SELECT status,audit_write_fenced_at IS NOT NULL,prospect_collection_ends_at IS NULL
+		 FROM public.tenants WHERE id=$1`, tenant).Scan(&status, &actualFence, &cleared); err != nil {
+			return err
+		}
+		if status != expected || actualFence != fenced || (expected == "deleted" && !cleared) {
+			t.Fatal("wrong prospect registry phase", status, actualFence, cleared, "wanted", expected, fenced)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func verifyArchivedProspectAttestation(t *testing.T, f *roleExplanationAPIFixture, tenant, slug, assessmentSHA string) {
+	t.Helper()
+	err := tenancy.InProvider(t.Context(), f.pool, func(ctx context.Context, q tenancy.Querier) error {
+		var raw []byte
+		var authorized, resumed, completed int
+		if err := q.QueryRow(ctx, `SELECT
+		 (SELECT count(*) FROM public.provider_audit_events WHERE target=$1 AND actor=$2 AND action='lifecycle.erase_fence'
+		  AND data->'scheduled_prospect'->>'assessment_sha256'=$3),
+		 (SELECT count(*) FROM public.provider_audit_events WHERE target=$1 AND actor=$2 AND action='lifecycle.erase_fence'
+		  AND data ? 'prospect_resume_fence_hash'),
+		 (SELECT count(*) FROM public.provider_audit_events WHERE target=$1 AND actor=$2 AND action='lifecycle.erase'
+		  AND data ? 'prospect_attestation'),
+		 (SELECT data->'prospect_attestation' FROM public.provider_audit_events WHERE target=$1 AND actor=$2
+		  AND action='lifecycle.erase' AND data ? 'prospect_attestation' ORDER BY seq DESC LIMIT 1)`, tenant, f.users[tenant], assessmentSHA).
+			Scan(&authorized, &resumed, &completed, &raw); err != nil {
+			return err
+		}
+		var att tenantlife.Attestation
+		if err := json.Unmarshal(raw, &att); err != nil {
+			return err
+		}
+		if authorized != 1 || resumed != 1 || completed != 1 || !att.Complete || att.TenantID != tenant || att.TenantSlug != slug ||
+			att.Actor != f.users[tenant] || len(att.Stores) == 0 {
+			t.Fatal("the scheduled operation lost its exact actor, scope, retry, or completed audit", authorized, resumed, completed, att)
+		}
+		for _, result := range att.Stores {
+			if !result.VerifiedZero {
+				t.Fatal("an incomplete store reached the verified erasure receipt", result)
+			}
+		}
+		wanted := att.ReportSHA256
+		att.ReportSHA256 = ""
+		body, err := json.Marshal(att)
+		if err != nil || hex.EncodeToString(crypto.Hash(body)) != wanted {
+			t.Fatal("the retained erasure attestation did not match its digest", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := audit.ProviderVerify(t.Context(), f.pool); err != nil {
+		t.Fatal("scheduled erasure provider audit did not verify", err)
+	}
 }
 
 func verifyArchivedProspectPDF(t *testing.T, archive, expected string) {
