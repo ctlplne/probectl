@@ -36,6 +36,13 @@ export const API_CALL_CONTRACTS = [
     generated: 'GetChangeEffectsResponse',
   },
   {
+    file: 'api/alerts.ts',
+    method: 'GET',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/seasonal-source`',
+    response: 'AlertSeasonalSourceState',
+    generated: 'GetAlertSeasonalSourceResponse',
+  },
+  {
     file: 'api/alertDependencies.ts',
     method: 'GET',
     path: '`/alerts/rules/${encodeURIComponent(ruleID)}/dependency-policy`',
