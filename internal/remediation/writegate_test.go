@@ -23,6 +23,54 @@ type remediationDelegateSpy struct {
 	rejectCalls  []string
 }
 
+type rtbhPreviewDelegate struct {
+	remediationDelegateSpy
+	tenant string
+	input  RTBHPreviewInput
+}
+
+func (s *rtbhPreviewDelegate) PreviewRTBH(ctx context.Context, tenant string, input RTBHPreviewInput, check func(context.Context) error) (RTBHPreview, error) {
+	s.tenant, s.input = tenant, input
+	if err := check(ctx); err != nil {
+		return RTBHPreview{}, err
+	}
+	return RTBHPreview{Impact: PrefixImpact{Matched: PrefixTraffic{Bytes: "9007199254740993", Packets: "1"}}}, nil
+}
+
+func TestRTBHPreviewPreservesReadOnlyScopeAndAuthority(t *testing.T) {
+	readOnly := license.WriteCapability(func() bool { return false })
+	if GateServiceWrites(nil, readOnly) != nil {
+		t.Fatal("the write gate exposed an unavailable service")
+	}
+	const tenant = "tenant-a"
+	input := RTBHPreviewInput{PrefixImpactInput: PrefixImpactInput{WholeViewID: "owned-view"}}
+	for _, supported := range []bool{false, true} {
+		spy := &rtbhPreviewDelegate{}
+		var delegate Service = &spy.remediationDelegateSpy
+		if supported {
+			delegate = spy
+		}
+		preview := GateServiceWrites(delegate, readOnly).(RTBHPreviewer)
+		checks := 0
+		result, err := preview.PreviewRTBH(t.Context(), tenant, input, func(context.Context) error { checks++; return nil })
+		if !supported {
+			var domain Error
+			if !errors.As(err, &domain) || domain.Code != "not_found" || checks != 0 {
+				t.Fatal("the gate exposed unavailable preview authority", err, checks)
+			}
+			continue
+		}
+		if err != nil || checks != 1 || spy.input != input || spy.tenant != tenant || result.Impact.Matched.Bytes != "9007199254740993" {
+			t.Fatal("the read-only gate lost the preview authority or exact result", result, err, spy.tenant, checks)
+		}
+		refused := errors.New("current source grant withdrawn")
+		result, err = preview.PreviewRTBH(t.Context(), tenant, input, func(context.Context) error { return refused })
+		if !errors.Is(err, refused) || result != (RTBHPreview{}) {
+			t.Fatal("the preview escaped the current authority check", result, err)
+		}
+	}
+}
+
 func (s *remediationDelegateSpy) Propose(_ context.Context, tenantID, _ string, in ProposeInput) (Proposal, error) {
 	s.proposeCalls = append(s.proposeCalls, tenantID)
 	return Proposal{ID: "proposal-" + tenantID, TenantID: tenantID, Kind: in.Kind, State: StateProposed}, nil

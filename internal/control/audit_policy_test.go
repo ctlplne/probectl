@@ -12,6 +12,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/ctlplne/probectl/internal/auth"
 )
 
@@ -43,6 +45,28 @@ func TestAuditPolicyMatrixCoversRequiredRoutes(t *testing.T) {
 		if !seen[key] {
 			t.Fatalf("audit policy matrix references unregistered route %s", key)
 		}
+	}
+}
+
+func TestRTBHPreviewRequiresOperationalAudit(t *testing.T) {
+	const tenant = "11111111-1111-4111-8111-111111111111"
+	s := testServer(nil)
+	calls := 0
+	s.routeAudit = func(r *http.Request, action, target string, data map[string]any) error {
+		calls++
+		actor := auth.PrincipalFrom(r.Context())
+		if actor == nil || actor.TenantID != tenant || action != "access.operate.remediation.rtbh_preview" ||
+			target != "/v1/remediation/rtbh-preview" || data["facet"] != "operational_action" {
+			t.Fatal("the preview lost its tenant or operational audit")
+		}
+		return &pgconn.PgError{Code: "25006"}
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/remediation/rtbh-preview", nil)
+	request.Header.Set("X-Probectl-Tenant", tenant)
+	response := httptest.NewRecorder()
+	s.Handler().ServeHTTP(response, request)
+	if calls != 1 || response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") == "" || s.deferredAudit.pending() != 0 {
+		t.Fatal("the preview proceeded without a durable operational audit", calls, response.Code)
 	}
 }
 

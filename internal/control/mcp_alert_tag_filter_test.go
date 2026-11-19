@@ -102,21 +102,33 @@ func TestNativeSavedQueryAlertSchemasKeepExactDecimalAndClosedAuthority(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(schemas) != 6 {
+	want := []string{"alert_query_group_get", "alert_field_receipt_get", "alert_ddos_receipt_get",
+		"alert_query_create", "alert_query_source_get", "alert_query_source_set", "alert_query_source_clear"}
+	if len(schemas) != len(want) {
 		t.Fatal("saved-query configuration and receipt schemas incomplete")
 	}
-	for _, schema := range schemas {
+	for _, name := range want {
+		schema := schemas[name]
 		if !json.Valid(schema) || strings.Contains(string(schema), "#/components/schemas/") {
-			t.Fatal("unresolved saved-query native input schema")
+			t.Fatal("missing or unresolved saved-query native input schema", name)
 		}
 	}
-	var receipt struct {
-		Required   []string `json:"required"`
-		Additional bool     `json:"additionalProperties"`
-	}
-	if json.Unmarshal(schemas["alert_field_receipt_get"], &receipt) != nil || receipt.Additional ||
-		!reflect.DeepEqual(receipt.Required, []string{"rule_id", "fingerprint"}) {
-		t.Fatal("field receipt schema did not pin the rule and exact reference")
+	for _, name := range []string{"alert_field_receipt_get", "alert_ddos_receipt_get"} {
+		var receipt struct {
+			Required   []string `json:"required"`
+			Additional *bool    `json:"additionalProperties"`
+			Properties map[string]struct {
+				Type    string `json:"type"`
+				Format  string `json:"format"`
+				Pattern string `json:"pattern"`
+			} `json:"properties"`
+		}
+		if json.Unmarshal(schemas[name], &receipt) != nil || receipt.Additional == nil || *receipt.Additional ||
+			!reflect.DeepEqual(receipt.Required, []string{"rule_id", "fingerprint"}) || len(receipt.Properties) != 2 ||
+			receipt.Properties["rule_id"].Type != "string" || receipt.Properties["rule_id"].Format != "uuid" ||
+			receipt.Properties["fingerprint"].Type != "string" || receipt.Properties["fingerprint"].Pattern != "^[0-9a-f]{64}$" {
+			t.Fatal("receipt schema did not pin the rule and exact reference", name)
+		}
 	}
 	var input struct {
 		Definitions map[string]json.RawMessage `json:"$defs"`
