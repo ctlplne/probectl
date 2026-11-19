@@ -117,7 +117,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     status: 'delivered',
     source: 'contract:features',
   },
-  { id: 'F14', name: 'MCP server', status: 'partial', source: 'contract:features' },
+  { id: 'F14', name: 'MCP server', status: 'delivered', source: 'contract:features' },
   {
     id: 'F15',
     name: 'Browser synthetic',
