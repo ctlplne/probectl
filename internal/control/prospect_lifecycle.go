@@ -51,20 +51,29 @@ func (s *Server) handleGetProspect(w http.ResponseWriter, r *http.Request) error
 }
 
 func (s *Server) handleStartProspect(w http.ResponseWriter, r *http.Request) error {
-	actor := auth.PrincipalFrom(r.Context())
-	if actor == nil || actor.UserID == "" {
-		return apierror.Forbidden("a current named account is required")
-	}
 	var in startProspectInput
 	if err := decodeJSONLimit(r, 4096, &in); err != nil {
 		return err
 	}
-	at := time.Now().UTC().Truncate(time.Microsecond)
-	input, err := s.prospectStartTerms(r.Context(), actor, in, at)
+	out, err := s.startProspect(r, in)
 	if err != nil {
 		return err
 	}
+	writeJSON(w, http.StatusCreated, out)
+	return nil
+}
+
+func (s *Server) startProspect(r *http.Request, in startProspectInput) (store.ProspectEngagement, error) {
 	var out store.ProspectEngagement
+	actor := auth.PrincipalFrom(r.Context())
+	if actor == nil || actor.UserID == "" {
+		return out, apierror.Forbidden("a current named account is required")
+	}
+	at := time.Now().UTC().Truncate(time.Microsecond)
+	input, err := s.prospectStartTerms(r.Context(), actor, in, at)
+	if err != nil {
+		return out, err
+	}
 	err = s.withProspectAuthority(r, input.DestinationID != "", func(ctx context.Context, sc tenancy.Scope) error {
 		view, err := (store.DashboardReports{}).GetView(ctx, sc, input.AssessmentViewID, actor.UserID)
 		if err != nil {
@@ -88,11 +97,7 @@ func (s *Server) handleStartProspect(w http.ResponseWriter, r *http.Request) err
 			"destination_id": out.DestinationID,
 		})
 	})
-	if err != nil {
-		return err
-	}
-	writeJSON(w, http.StatusCreated, out)
-	return nil
+	return out, err
 }
 
 func (s *Server) prospectStartTerms(ctx context.Context, actor *auth.Principal, in startProspectInput, at time.Time) (store.ProspectEngagement, error) {
@@ -151,10 +156,19 @@ func (s *Server) decideProspect(w http.ResponseWriter, r *http.Request, convert 
 	if in.Revision < 1 {
 		return apierror.Validation("the exact current engagement revision is required")
 	}
+	out, err := s.applyProspectDecision(r, in.Revision, convert, action)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, out)
+	return nil
+}
+
+func (s *Server) applyProspectDecision(r *http.Request, revision int64, convert bool, action string) (store.ProspectEngagement, error) {
 	var out store.ProspectEngagement
 	err := s.withProspectAuthority(r, false, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		out, err = (store.ProspectEngagements{}).Decide(ctx, sc, in.Revision, convert, time.Now().UTC())
+		out, err = (store.ProspectEngagements{}).Decide(ctx, sc, revision, convert, time.Now().UTC())
 		if err != nil {
 			return err
 		}
@@ -163,13 +177,9 @@ func (s *Server) decideProspect(w http.ResponseWriter, r *http.Request, convert 
 				return err
 			}
 		}
-		return s.recordAudit(ctx, sc, r, action, sc.Tenant.String(), map[string]any{"prior_revision": in.Revision, "revision": out.Revision})
+		return s.recordAudit(ctx, sc, r, action, sc.Tenant.String(), map[string]any{"prior_revision": revision, "revision": out.Revision})
 	})
-	if err != nil {
-		return err
-	}
-	writeJSON(w, http.StatusOK, out)
-	return nil
+	return out, err
 }
 
 func (s *Server) withProspectAuthority(r *http.Request, needsExport bool, fn func(context.Context, tenancy.Scope) error) error {

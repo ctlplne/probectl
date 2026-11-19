@@ -716,6 +716,23 @@ Resolve `download_url` against the operator's control-plane REST base URL. It ca
 
 Existing native byte/node bounds and tenant query admission apply. Reporting services own source admission through publication, with no second source-query slot in MCP. Unknown fields, malformed projections and over-budget metadata fail without partial structured output. Consent, egress redaction and protocol/policy/call audits remain in force.
 
+### Native prospect engagement
+
+The named account must hold `lifecycle.erase` for the active tenant. The
+following tools use current authorization over native HTTPS and authenticated
+stdio.
+
+- `prospect_engagement_get` reads the active tenant's exact engagement and revision.
+- `prospect_engagement_start` takes the exact owned assessment view ID and
+  revision, the preparer and an optional end. It creates an engagement without
+  scheduled erasure.
+- `prospect_engagement_convert` and `prospect_engagement_revoke_consent` require
+  the current positive `revision` and `confirmed: true`. Both retire existing
+  scheduled-erasure consent, and conversion clears the server collection deadline.
+
+Use the interactive tenant workflow to record deletion consent. Its exact slug,
+destination and accountable person are verified there. [Prospect engagement consent](lifecycle.md#prospect-engagement-consent)
+
 ### Interface role configuration
 
 `interface_role_explain` takes `context_id` and `interface_id`. It requires a

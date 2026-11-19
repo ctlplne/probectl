@@ -347,6 +347,10 @@ func TestNativeMCPDeclaredResultsContainNoUncheckedMapsRecursively(t *testing.T)
 	for i := 0; i < backend.NumMethod(); i++ {
 		walk(backend.Method(i).Type.Out(0))
 	}
+	prospect := reflect.TypeOf((*ProspectEngagementBackend)(nil)).Elem()
+	for i := 0; i < prospect.NumMethod(); i++ {
+		walk(prospect.Method(i).Type.Out(0))
+	}
 	receipts := reflect.TypeOf((*AlertQueryBackend)(nil)).Elem()
 	for _, name := range []string{"AlertFieldReceiptGet", "AlertDDoSReceiptGet"} {
 		receipt, ok := receipts.MethodByName(name)

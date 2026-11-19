@@ -371,6 +371,11 @@ assessment worker waits for admitted writers before it reads the evidence.
 The report and lifecycle writers remain available. Conversion clears the
 collection deadline.
 
+Native MCP can read the current engagement, start without scheduled erasure,
+convert it and withdraw consent. Conversion and withdrawal require the
+current revision and explicit confirmation. Record scheduled-erasure consent
+in the interactive tenant workflow. [Native prospect tools](mcp.md#native-prospect-engagement)
+
 Scheduled erasure matches the original consent and exact archived PDF to
 the corresponding tenant audit events. The account must still hold current erasure,
 export and report source access. The report worker verifies the assessment
