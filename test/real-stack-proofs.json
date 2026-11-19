@@ -165,6 +165,14 @@
       ]
     },
     {
+      "ref": "test:internal/flow/ddos_realstack_integration_test.go#TestDDoSVectorsUseOriginalObservationsFromBothShippedCollectors",
+      "profile": "integration",
+      "capabilities": [
+        "F8",
+        "F17"
+      ]
+    },
+    {
       "ref": "test:internal/control/alert_ddos_source_integration_test.go#TestScheduledDDoSUsesAdjacentOwnedWindowsAndSuppressesOneBurst",
       "profile": "integration",
       "capabilities": [
