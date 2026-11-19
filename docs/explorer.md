@@ -236,6 +236,39 @@ probectl explorer compare --body '{
 The CLI and web client both use the versioned API. Authentication supplies tenant scope; do not
 put a tenant selector in the body or URL.
 
+### Saved flow field changes
+
+Save a grouped table with a moving lookback of 60, 120 or 300 seconds, or
+604800 seconds for seven-day comparisons. Open the saved revision and select
+**Compare fields**. The server compares the latest completed UTC window with
+its predecessor, the same UTC window last week, or the preceding seven
+complete UTC days when using a seven-day view.
+
+Rank mode reports entries, departures and rank changes among up to 300 keys.
+The saved primary metric sets rank. Two optional secondary metric floors
+can qualify a change. Amount mode compares observed values. Share mode uses
+the complete population total and expresses the threshold in basis points.
+Destination fan-out uses `src_addr` and the primary `unique_dst:total` metric.
+Each result includes both source clocks, measured original values and source
+references. An outside-top-set observation has an absent value. Tied cutoffs
+and incomplete source coverage return a refusal for the comparison.
+
+```sh
+probectl --json explorer field-compare "$VIEW_ID" --body '{
+  "version":"4",
+  "mode":"rank",
+  "measure":"bytes:total",
+  "cadence":"previous_week",
+  "period_seconds":300,
+  "top_keys":25,
+  "minimum_change":"1000"
+}'
+```
+
+The REST operation is `POST /v1/explorer/flow-views/{id}/field-comparison`.
+The SDK exposes `CompareFlowViewFields`. Current view visibility and source
+permissions apply before and after telemetry reads.
+
 ### Complete snapshot manifests
 
 A result is stored in encrypted physical chunks with one authenticated private

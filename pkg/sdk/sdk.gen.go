@@ -2342,6 +2342,65 @@ type FlowExplorerSchema struct {
 	TimeRange       string            `json:"time_range"`
 }
 
+// An omitted observation means the member was outside that ranking.
+type FlowFieldChange struct {
+	After  FlowFieldObservation `json:"after,omitzero"`
+	Before FlowFieldObservation `json:"before,omitzero"`
+	Delta  string               `json:"delta,omitempty"`
+	Group  map[string]string    `json:"group"`
+	Key    string               `json:"key"`
+	Kind   string               `json:"kind"`
+}
+
+type FlowFieldComparison struct {
+	After   FlowFieldComparisonSlice `json:"after"`
+	Before  FlowFieldComparisonSlice `json:"before"`
+	Cadence string                   `json:"cadence"`
+	Changes []FlowFieldChange        `json:"changes"`
+	Measure string                   `json:"measure"`
+	Mode    string                   `json:"mode"`
+	TopKeys int                      `json:"top_keys"`
+	Version string                   `json:"version"`
+	ViewId  string                   `json:"view_id"`
+}
+
+// Pin the exact saved grouped table revision. The lookback must match the chosen UTC window, and measure must be its primary metric. Rank mode accepts an optional rank step, decimal amount floor and two secondary floors. Amount mode needs a positive change floor. Fan-out needs an integral floor, src_addr and unique_dst:total. Share mode needs a positive basis-point floor and an additive measure.
+type FlowFieldComparisonInput struct {
+	Cadence             string                        `json:"cadence"`
+	Measure             string                        `json:"measure"`
+	MinimumChange       string                        `json:"minimum_change,omitempty"`
+	MinimumRankChange   int                           `json:"minimum_rank_change,omitempty"`
+	Mode                string                        `json:"mode"`
+	PeriodSeconds       int                           `json:"period_seconds,omitempty"`
+	SecondaryThresholds []FlowFieldSecondaryThreshold `json:"secondary_thresholds,omitempty"`
+	ShareBasisPoints    int                           `json:"share_basis_points,omitempty"`
+	TopKeys             int                           `json:"top_keys,omitempty"`
+	Version             string                        `json:"version"`
+}
+
+// A complete source slice with an inclusive start and exclusive end. Share mode includes the entire measured population total.
+type FlowFieldComparisonSlice struct {
+	From              string `json:"from"`
+	PopulationTotal   string `json:"population_total,omitempty"`
+	ResolutionSeconds int    `json:"resolution_seconds"`
+	Source            string `json:"source"`
+	To                string `json:"to"`
+	TotalGroups       int    `json:"total_groups"`
+}
+
+type FlowFieldObservation struct {
+	Citation  string            `json:"citation"`
+	Rank      int               `json:"rank"`
+	Secondary map[string]string `json:"secondary,omitempty"`
+	Share     string            `json:"share,omitempty"`
+	Value     string            `json:"value"`
+}
+
+type FlowFieldSecondaryThreshold struct {
+	Measure string `json:"measure"`
+	Minimum string `json:"minimum"`
+}
+
 type FlowFilter struct {
 	Field string `json:"field"`
 	Value string `json:"value"`
@@ -7033,6 +7092,26 @@ func (c *Client) DeleteFlowQueryView(ctx context.Context, req DeleteFlowQueryVie
 		query.Set("version", formatQueryValue(*req.Version))
 	}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Compare completed field rankings in a saved flow view
+type CompareFlowViewFieldsRequest struct {
+	Id   string                    `json:"-"`
+	Body *FlowFieldComparisonInput `json:"-"`
+}
+
+func (c *Client) CompareFlowViewFields(ctx context.Context, req CompareFlowViewFieldsRequest) (*FlowFieldComparison, error) {
+	path := "/v1/explorer/flow-views/{id}/field-comparison"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out FlowFieldComparison
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Set the current user favorite

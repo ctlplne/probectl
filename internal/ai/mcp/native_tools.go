@@ -80,6 +80,10 @@ type nativeFlowCursorArgs struct {
 type nativeFlowIDArgs struct {
 	ID string `json:"id"`
 }
+type nativeFlowFieldComparisonArgs struct {
+	ID         string                    `json:"id"`
+	Comparison flow.FieldComparisonInput `json:"comparison"`
+}
 type nativeFlowDeleteArgs struct {
 	ID      string `json:"id"`
 	Version string `json:"version"`
@@ -136,6 +140,9 @@ func buildNativeFlowTools(b NativeFlowBackend, schemas NativeFlowSchemas) []Tool
 		}),
 		nativeFlowTool("flow_view_run", "Run an authorized stored query without overrides, materializing relative windows once and recording subject-private recency. Returns exact query or comparison data.", schemas["flow_view_run"], "", true, func(ctx context.Context, p *auth.Principal, a nativeFlowIDArgs) (NativeFlowExecution, error) {
 			return b.RunFlowView(ctx, p, a.ID)
+		}),
+		nativeFlowTool("flow_view_field_compare", "Compare completed field rankings in the pinned saved flow view. Returns exact before and after observations under current source grants.", schemas["flow_view_field_compare"], "", true, func(ctx context.Context, p *auth.Principal, a nativeFlowFieldComparisonArgs) (flow.FieldComparison, error) {
+			return b.CompareFlowViewFields(ctx, p, a.ID, a.Comparison)
 		}),
 	}
 }

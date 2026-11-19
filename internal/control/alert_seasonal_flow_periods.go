@@ -88,5 +88,25 @@ func (s *Server) prepareConfiguredFlowCapture(ctx context.Context, actor *auth.P
 		// once. It receives the original complete clock list at execution.
 		ends = ends[len(ends)-1:]
 	}
-	return s.prepareSeasonalFlowPeriods(ctx, actor, refs[0], ends, now, memory)
+	if opts.FieldComparison == nil {
+		return s.prepareSeasonalFlowPeriods(ctx, actor, refs[0], ends, now, memory)
+	}
+	if opts.CombineSeasonal || len(ends) != 2 || opts.FieldComparison.View != refs[0] {
+		return nil, 0, 0, apierror.Validation("field analysis requires a complete saved-query window pair")
+	}
+	prepared, bytes, count, err := s.prepareSeasonalFlowPeriods(ctx, actor, refs[0], ends, now, memory)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	for i := range prepared {
+		plan := &prepared[i].current
+		if err := opts.FieldComparison.validatePlan(*plan); err != nil {
+			return nil, 0, 0, err
+		}
+		// Fetch one additional original to verify a strict Top-N boundary.
+		// The source, view revision and every predicate stay pinned.
+		plan.RowLimit = opts.FieldComparison.TopKeys + 1
+		plan.PageSize = min(plan.PageSize, plan.RowLimit)
+	}
+	return prepared, bytes, count, ctx.Err()
 }

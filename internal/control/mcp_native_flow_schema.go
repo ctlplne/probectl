@@ -54,6 +54,7 @@ func nativeFlowToolSchemas() (mcp.NativeFlowSchemas, error) {
 	for _, name := range []string{"flow_filter_get", "flow_view_get", "flow_view_run"} {
 		roots[name] = object(map[string]any{"id": id}, "id")
 	}
+	roots["flow_view_field_compare"] = object(map[string]any{"id": id, "comparison": ref("FlowFieldComparisonInput")}, "id", "comparison")
 	var filter map[string]any
 	if json.Unmarshal(components["FlowSavedFilterInput"], &filter) != nil {
 		return nil, errors.New("native filter schema is unavailable")

@@ -409,6 +409,13 @@ export const API_CALL_CONTRACTS = [
       'OpenAPI returns either a current-period result or a comparison; the view model retains that discriminated native result union.',
   },
   {
+    file: 'api/flowViews.ts',
+    method: 'POST',
+    path: '`/explorer/flow-views/${encodeURIComponent(id)}/field-comparison`',
+    response: 'FlowFieldComparison',
+    generated: 'CompareFlowViewFieldsResponse',
+  },
+  {
     file: 'api/coverage.ts',
     method: 'GET',
     path: '/coverage/vantages',

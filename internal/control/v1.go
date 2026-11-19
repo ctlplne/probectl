@@ -214,6 +214,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodDelete, "/v1/explorer/flow-views/{id}", s.handleDeleteFlowView, permFlowViewsWrite},
 		{http.MethodPut, "/v1/explorer/flow-views/{id}/preferences", s.handleFlowViewPreference, permAIQuery},
 		{http.MethodPost, "/v1/explorer/flow-views/{id}/query", s.handleRunFlowView, permAIQuery},
+		{http.MethodPost, "/v1/explorer/flow-views/{id}/field-comparison", s.handleFlowFieldComparison, permAIQuery},
 		{http.MethodGet, "/v1/explorer/flow-filters", s.handleListFlowFilters, permAIQuery},
 		{http.MethodPost, "/v1/explorer/flow-filters", s.handleCreateFlowFilter, permFlowFiltersWrite},
 		{http.MethodGet, "/v1/explorer/flow-filters/{id}", s.handleGetFlowFilter, permAIQuery},

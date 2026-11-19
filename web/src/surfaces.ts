@@ -461,6 +461,28 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: EXPLORER_LIVE_RECEIPT,
   },
   {
+    capability: 'Saved flow field changes with before and after evidence',
+    featureIds: ['F17'],
+    sprint: 'FX-17',
+    kind: 'native',
+    route: '/explore',
+    evidence: [
+      'openapi:/v1/explorer/flow-views/{id}/field-comparison',
+      'cli:probectl explorer field-compare',
+      'file:web/src/routes/FlowFieldComparisonCard.tsx',
+    ],
+    liveReceipt: {
+      status: 'live-green',
+      evidence: [
+        'ci:.github/workflows/ci.yml:make test-integration',
+        'test:web/src/test/native-flow.test.tsx:compares saved field keys with exact evidence',
+        'test:internal/control/flow_field_sources_integration_test.go:TestFieldComparisonReadsExactOwnedTopThreeHundred',
+        'test:internal/control/flow_field_served_integration_test.go:TestFieldComparisonServedKeepsBothTenantsAndThemes',
+      ],
+      note: 'The paired tenant ClickHouse reader and TLS API preserve exact top-300 evidence. The served browser proof uses controlled source records in both themes. Scheduled signals remain in development.',
+    },
+  },
+  {
     capability: 'Current canonical identity for an authorized Explorer address',
     featureIds: ['F17', 'F40'],
     sprint: 'FX-2',

@@ -46,6 +46,7 @@ import {
   type FlowDrillAction,
 } from './flowResults'
 import { FlowViewLibrary } from './FlowViewLibrary'
+import { FlowFieldComparisonCard } from './FlowFieldComparisonCard'
 import { FlowFilterLibrary } from './FlowFilterLibrary'
 import { EntityCurrentPivot } from './EntityCurrentPivot'
 import { FlowRoleSources } from './FlowRoleSources'
@@ -676,6 +677,16 @@ function FlowWorkspace({ identity }: { identity: string }) {
             {busy && <p role="status">Flow request running…</p>}
           </CardBody>
         </Card>
+        {saved &&
+          !dirty &&
+          !waitingForSaved &&
+          permissions.includes('ai.query') &&
+          permissions.includes('flow.read') && (
+            <FlowFieldComparisonCard
+              key={`${saved.id}:${saved.version}:${permissions.join(',')}`}
+              view={saved}
+            />
+          )}
         <PeeringEstimateCard />
         <FlowServiceSources />
         <FlowFilterLibrary

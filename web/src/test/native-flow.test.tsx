@@ -177,6 +177,71 @@ function fixture(handler?: typeof fetch, publishedSchema: FlowExplorerSchema = s
 }
 
 describe('native flow workspace', () => {
+  test('compares saved field keys with exact evidence and clears it on tenant switch', async () => {
+    const saved = view()
+    saved.definition.time = { mode: 'lookback', lookback_seconds: 300 }
+    const bodies: unknown[] = []
+    const source = (from: string, to: string) => ({
+      from,
+      to,
+      source: 'raw',
+      resolution_seconds: 1,
+      total_groups: 301,
+    })
+    const base = defaultFetch()
+    fixture(async (input, init) => {
+      const path = pathOf(input)
+      if (path === '/v1/explorer/flow-views/view-red/field-comparison') {
+        bodies.push(JSON.parse(String(init?.body)))
+        return jsonResponse({
+          view_id: saved.id,
+          version: saved.version,
+          mode: 'rank',
+          measure: 'bytes:total',
+          cadence: 'previous_week',
+          top_keys: 300,
+          before: source('2026-10-21T00:00:00Z', '2026-10-21T00:05:00Z'),
+          after: source('2026-10-28T00:00:00Z', '2026-10-28T00:05:00Z'),
+          changes: [
+            {
+              key: 'owned-member',
+              group: { src_addr: '192.0.2.41' },
+              kind: 'entered_top_set',
+              after: { value: '9007199254740993', rank: 300, citation: 'owned-source-row' },
+            },
+          ],
+        })
+      }
+      if (path === '/v1/explorer/flow-views/view-red') return jsonResponse(saved)
+      if (path === '/v1/explorer/flow-views') return jsonResponse({ items: [saved] })
+      return base(input, init)
+    })
+    mount('/explore?native_flow=1&flow_view=view-red')
+    const compare = await screen.findByRole('button', { name: 'Compare fields' })
+    await userEvent.selectOptions(screen.getByLabelText('Reference window'), 'week')
+    await userEvent.clear(screen.getByLabelText('Top keys'))
+    await userEvent.type(screen.getByLabelText('Top keys'), '300')
+    await userEvent.click(compare)
+    expect(await screen.findByText('9007199254740993 · rank 300')).toBeInTheDocument()
+    expect(screen.getByText('Outside top set')).toBeInTheDocument()
+    expect(screen.getByText('2026-10-21T00:05:00Z')).toBeInTheDocument()
+    expect(bodies).toEqual([
+      {
+        version: saved.version,
+        mode: 'rank',
+        measure: 'bytes:total',
+        cadence: 'previous_week',
+        period_seconds: 300,
+        top_keys: 300,
+        minimum_rank_change: 1,
+        minimum_change: '1',
+        secondary_thresholds: [],
+      },
+    ])
+    await userEvent.click(screen.getByRole('button', { name: 'Switch fixture identity' }))
+    expect(screen.queryByText('9007199254740993 · rank 300')).not.toBeInTheDocument()
+  })
+
   test.each([
     'tag.customer',
     'tag.device.customer',

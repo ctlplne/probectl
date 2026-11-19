@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import type { ExplorerComparisonResult, ExplorerResult } from './explorer'
 import type { FlowQueryPlan } from './flowExplorer'
+import type { FlowFieldComparison, FlowFieldComparisonInput } from './sdk.gen'
 
 export interface FlowQueryDisplay {
   time_style?: 'line' | 'stacked_area' | 'stacked_columns' | 'percent_area' | 'horizon'
@@ -140,5 +141,19 @@ export function useRunFlowQueryView() {
         { method: 'POST' },
       ),
     onSuccess: () => cache.invalidateQueries({ queryKey: ['explorer', 'flow-views'] }),
+  })
+}
+
+export function useFlowFieldComparison() {
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: FlowFieldComparisonInput }) =>
+      apiFetch<FlowFieldComparison>(
+        `/explorer/flow-views/${encodeURIComponent(id)}/field-comparison`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        },
+      ),
   })
 }

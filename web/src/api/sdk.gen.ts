@@ -2211,6 +2211,62 @@ export interface FlowExplorerSchema {
   time_range: string
 }
 
+export interface FlowFieldChange {
+  after?: FlowFieldObservation
+  before?: FlowFieldObservation
+  delta?: string
+  group: { [key: string]: string }
+  key: string
+  kind: "entered_top_set" | "left_top_set" | "rank_shift" | "amount_shift" | "share_shift" | "fanout_increase"
+}
+
+export interface FlowFieldComparison {
+  after: FlowFieldComparisonSlice
+  before: FlowFieldComparisonSlice
+  cadence: "previous_period" | "previous_week" | "complete_week"
+  changes: FlowFieldChange[]
+  measure: string
+  mode: "rank" | "amount" | "share" | "fanout"
+  top_keys: number
+  version: string
+  view_id: string
+}
+
+export interface FlowFieldComparisonInput {
+  cadence: "previous_period" | "previous_week" | "complete_week"
+  measure: string
+  minimum_change?: string
+  minimum_rank_change?: number
+  mode: "rank" | "amount" | "share" | "fanout"
+  period_seconds?: number
+  secondary_thresholds?: FlowFieldSecondaryThreshold[]
+  share_basis_points?: number
+  top_keys?: number
+  version: string
+}
+
+export interface FlowFieldComparisonSlice {
+  from: string
+  population_total?: string
+  resolution_seconds: number
+  source: string
+  to: string
+  total_groups: number
+}
+
+export interface FlowFieldObservation {
+  citation: string
+  rank: number
+  secondary?: { [key: string]: string }
+  share?: string
+  value: string
+}
+
+export interface FlowFieldSecondaryThreshold {
+  measure: string
+  minimum: string
+}
+
 export interface FlowFilter {
   field: "src" | "dst" | "src_asn" | "dst_asn" | "as_name" | "group_as_name" | "src_country" | "dst_country" | "port" | "group_port" | "protocol" | "exporter"
   value: string
@@ -4950,6 +5006,13 @@ export interface DeleteFlowQueryViewRequest {
 
 export type DeleteFlowQueryViewResponse = void
 
+export interface CompareFlowViewFieldsRequest {
+  id: string
+  body: FlowFieldComparisonInput
+}
+
+export type CompareFlowViewFieldsResponse = FlowFieldComparison
+
 export interface SetFlowQueryViewFavoriteRequest {
   id: string
   body: JsonObject
@@ -6965,6 +7028,13 @@ export class ProbectlSDKClient {
     const query = new URLSearchParams()
     if (request.version !== undefined) query.set("version", String(request.version))
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async compareFlowViewFields(request: CompareFlowViewFieldsRequest): Promise<CompareFlowViewFieldsResponse> {
+    let path = "/v1/explorer/flow-views/{id}/field-comparison"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<CompareFlowViewFieldsResponse>("POST", path, query, request.body)
   }
 
   async setFlowQueryViewFavorite(request: SetFlowQueryViewFavoriteRequest): Promise<SetFlowQueryViewFavoriteResponse> {
