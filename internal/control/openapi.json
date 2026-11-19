@@ -10191,7 +10191,7 @@
             }
           }
         },
-        "description": "Read-only CI lookup against the configured CMDB provider (ServiceNow or NetBox). A key is answerable only when the caller's tenant owns an agent, device or incident target by that name; other keys return 404 without revealing whether a CI exists elsewhere. NetBox additionally requires a deployment-owned mapping to a distinct source tenant ID, filters requests by that ID, verifies returned ownership and scopes cached enrichment by both tenant identities. Missing or inconsistent source ownership fails closed. 503 when the provider or a required tenant binding is unavailable."
+        "description": "Read-only CI lookup against the configured CMDB provider (ServiceNow or NetBox). A key is answerable only when the caller's tenant owns an agent, device or incident target by that name; other keys return 404 without revealing whether a CI exists elsewhere. ServiceNow binds the integration credential to one deployment-selected tenant. NetBox requires a deployment-owned mapping to a distinct source tenant ID, filters requests by that ID, verifies returned ownership and scopes cached enrichment by both tenant identities. Missing or inconsistent source ownership fails closed. 503 when the provider or a required tenant binding is unavailable."
       }
     },
     "/v1/secrets/health": {

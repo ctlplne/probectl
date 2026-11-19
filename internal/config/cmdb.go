@@ -11,8 +11,32 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/ctlplne/probectl/internal/cmdb"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+// ServiceNowCMDBTenant binds the deployment-wide credential to one tenant.
+// Older single-profile installs default to the established seeded tenant.
+func (c *Config) ServiceNowCMDBTenant() tenancy.ID {
+	if c.CMDBServiceNowTenantID == "" && (c.DeploymentProfile == "single" || c.DeploymentProfile == "") {
+		return tenancy.DefaultTenantID
+	}
+	return tenancy.ID(c.CMDBServiceNowTenantID)
+}
+
+func validateServiceNowTenant(l *loader, cfg *Config) {
+	if cfg.CMDBProvider != "servicenow" && cfg.CMDBServiceNowTenantID == "" {
+		return
+	}
+	const key = "PROBECTL_CMDB_SERVICENOW_TENANT_ID"
+	owner := cfg.ServiceNowCMDBTenant().String()
+	id, err := uuid.Parse(owner)
+	if err != nil || id == uuid.Nil || id.String() != owner {
+		l.errf("%s must be a canonical nonzero tenant UUID; ServiceNow in multi-tenant and regulated profiles requires an explicit owner", key)
+	}
+}
 
 func (l *loader) netBoxTenantMap() map[string]string {
 	const key = "PROBECTL_CMDB_NETBOX_TENANT_MAP"

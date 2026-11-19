@@ -2477,6 +2477,7 @@ is the payments edge proxy, owned by team X". It is off unless configured:
 | `PROBECTL_CMDB_URL`         | (none)    | instance URL, e.g. `https://acme.service-now.com` or `https://netbox.example.com` (https; http only for loopback test doubles; credentials, query parameters and fragments are forbidden) |
 | `PROBECTL_CMDB_SECRET`      | (none)    | ServiceNow `user:password` or NetBox token for a read-only integration user (env only — never in files/logs) |
 | `PROBECTL_CMDB_TABLE`       | `cmdb_ci` | ServiceNow CI table queried via the Table API; ignored for NetBox      |
+| `PROBECTL_CMDB_SERVICENOW_TENANT_ID` | Seeded tenant in `single` profile | Canonical UUID of the one probectl tenant authorized to use the ServiceNow credential. Required in `multi-tenant` and `regulated` profiles. Give the integration credential access only to that tenant’s source inventory. |
 | `PROBECTL_CMDB_CACHE_TTL`   | `10m`     | CI lookup cache TTL (a down CMDB serves stale entries)              |
 | `PROBECTL_CMDB_LOOKUP_TIMEOUT` | `15s` | Positive whole-operation CMDB lookup deadline, shared by pages, related CIs and selected subject facts; raise for larger complete workloads |
 | `PROBECTL_CMDB_MAX_RESPONSE_BYTES` | `4194304` | Positive cumulative CMDB response-byte admission; raise with the complete source workload |

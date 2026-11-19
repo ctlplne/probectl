@@ -7,6 +7,7 @@
 package cmdb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,6 +17,33 @@ import (
 	"testing"
 	"time"
 )
+
+func TestServiceNowCredentialIsBoundToOneTenant(t *testing.T) {
+	var calls atomic.Int64
+	var failure atomic.Bool
+	source := mockSNow(t, &calls, &failure)
+	t.Cleanup(source.Close)
+	provider := NewServiceNow(source.URL, "", "user:pass", netBoxTenantA)
+	resolver := NewResolver(provider, time.Minute)
+	owner := netBoxContext(netBoxTenantA)
+	sibling := netBoxContext(netBoxTenantB)
+	const key = "web.acme.example"
+	owned, err := resolver.Lookup(owner, key)
+	if err != nil || len(owned) != 1 || owned[0].SysID != "def456" {
+		t.Fatalf("bound tenant failed to read its configured source: %+v, %v", owned, err)
+	}
+	for _, lookup := range []func(context.Context, string) ([]CI, error){resolver.Lookup, provider.Lookup} {
+		if rows, err := lookup(sibling, key); rows != nil || !errors.Is(err, ErrTenantBinding) {
+			t.Fatalf("unbound tenant was not refused before source lookup: %v", err)
+		}
+	}
+	if rows, err := resolver.Lookup(owner, key); err != nil || len(rows) != 1 || rows[0].SysID != owned[0].SysID {
+		t.Fatal("a refused lookup altered the owner's result")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected one source read for the bound tenant, received %d", calls.Load())
+	}
+}
 
 func TestCanonicalKey(t *testing.T) {
 	cases := map[string]string{
@@ -75,7 +103,7 @@ func TestServiceNowLookupAndCorrelate(t *testing.T) {
 	ts := mockSNow(t, &calls, &fail)
 	defer ts.Close()
 
-	r := NewResolver(NewServiceNow(ts.URL, "", "user:pass"), time.Minute)
+	r := NewResolver(NewServiceNow(ts.URL, "", "user:pass", netBoxTenantA), time.Minute)
 	ctx := netBoxContext(netBoxTenantA)
 
 	cis, err := r.Lookup(ctx, "10.0.0.1")
@@ -172,7 +200,7 @@ func TestResolverCacheAndGracefulDegrade(t *testing.T) {
 	ts := mockSNow(t, &calls, &fail)
 	defer ts.Close()
 
-	r := NewResolver(NewServiceNow(ts.URL, "", "user:pass"), 50*time.Millisecond)
+	r := NewResolver(NewServiceNow(ts.URL, "", "user:pass", netBoxTenantA), 50*time.Millisecond)
 	ctx := netBoxContext(netBoxTenantA)
 
 	if _, err := r.Lookup(ctx, "10.0.0.1"); err != nil {
@@ -209,7 +237,7 @@ func TestUncachedCMDBLookupRefusesStaleData(t *testing.T) {
 	var fail atomic.Bool
 	ts := mockSNow(t, &calls, &fail)
 	defer ts.Close()
-	resolver := NewResolver(NewServiceNow(ts.URL, "", "user:pass"), time.Hour)
+	resolver := NewResolver(NewServiceNow(ts.URL, "", "user:pass", netBoxTenantA), time.Hour)
 	ctx := netBoxContext(netBoxTenantA)
 	if _, err := resolver.Lookup(ctx, "10.0.0.1"); err != nil {
 		t.Fatal(err)
@@ -235,7 +263,7 @@ func TestResolverNegativeCache(t *testing.T) {
 	ts := mockSNow(t, &calls, &fail)
 	defer ts.Close()
 
-	r := NewResolver(NewServiceNow(ts.URL, "", "user:pass"), time.Minute)
+	r := NewResolver(NewServiceNow(ts.URL, "", "user:pass", netBoxTenantA), time.Minute)
 	for i := 0; i < 3; i++ {
 		if cis, err := r.Lookup(netBoxContext(netBoxTenantA), "203.0.113.99"); err != nil || len(cis) != 0 {
 			t.Fatalf("lookup: cis=%v err=%v", cis, err)

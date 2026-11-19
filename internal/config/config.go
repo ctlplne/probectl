@@ -650,15 +650,16 @@ type Config struct {
 	// CMDB integration (S40): read-only CI correlation. CMDBProvider "" keeps
 	// the feature off; "servicenow" and "netbox" require CMDBURL (https, or
 	// http loopback for tests) and CMDBSecret (env only, never logged).
-	CMDBProvider        string
-	CMDBURL             string
-	CMDBSecret          string
-	CMDBTable           string
-	CMDBCacheTTL        time.Duration
-	CMDBLookupTimeout   time.Duration
-	CMDBResponseBytes   int
-	CMDBMemoryBytes     int
-	CMDBNetBoxTenantMap map[string]string
+	CMDBProvider           string
+	CMDBURL                string
+	CMDBSecret             string
+	CMDBTable              string
+	CMDBCacheTTL           time.Duration
+	CMDBLookupTimeout      time.Duration
+	CMDBResponseBytes      int
+	CMDBMemoryBytes        int
+	CMDBNetBoxTenantMap    map[string]string
+	CMDBServiceNowTenantID string
 
 	// OTLP receiver (S22): TLS-only, authenticated, tenant-scoped ingest of
 	// external OTLP. Enabled when an address + TLS cert/key are set. Static
@@ -1295,6 +1296,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.CMDBURL = l.str("PROBECTL_CMDB_URL", "")
 	cfg.CMDBSecret = l.str("PROBECTL_CMDB_SECRET", "")
 	cfg.CMDBTable = l.str("PROBECTL_CMDB_TABLE", "cmdb_ci")
+	cfg.CMDBServiceNowTenantID = l.str("PROBECTL_CMDB_SERVICENOW_TENANT_ID", "")
 	cfg.CMDBCacheTTL = l.dur("PROBECTL_CMDB_CACHE_TTL", 10*time.Minute)
 	cfg.CMDBLookupTimeout = l.dur("PROBECTL_CMDB_LOOKUP_TIMEOUT", 15*time.Second)
 	if cfg.CMDBLookupTimeout <= 0 {
@@ -1893,6 +1895,7 @@ func validateDataPlaneURLTLS(l *loader, c *Config) {
 }
 
 func validateExternalEndpoints(l *loader, cfg *Config) {
+	validateServiceNowTenant(l, cfg)
 	if cfg.CTEnabled {
 		if err := validateHTTPSOrLoopbackHTTP(cfg.CTEndpoint, "PROBECTL_CT_ENDPOINT"); err != nil {
 			l.errf("%v", err)

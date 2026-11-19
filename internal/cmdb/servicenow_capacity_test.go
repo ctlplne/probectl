@@ -106,7 +106,7 @@ func serviceNowCapacitySource(t *testing.T, mode, calls *atomic.Int64) *httptest
 func TestServiceNowCompletePhysicalPagesKeepAllAuthorizedCIs(t *testing.T) {
 	var mode, calls atomic.Int64
 	source := serviceNowCapacitySource(t, &mode, &calls)
-	provider := NewServiceNow(source.URL, "", "test-user:test-secret")
+	provider := NewServiceNow(source.URL, "", "test-user:test-secret", netBoxTenantA)
 	provider.client.Transport = source.Client().Transport
 	resolver := NewResolver(provider, time.Nanosecond)
 	ctx := netBoxContext(netBoxTenantA)
@@ -148,7 +148,7 @@ func TestServiceNowLookupAdmissionIsCumulativeAcrossPhysicalPages(t *testing.T) 
 	} {
 		policy := DefaultLookupPolicy()
 		change(&policy)
-		provider := NewServiceNow(source.URL, "", "test-user:test-secret", policy)
+		provider := NewServiceNow(source.URL, "", "test-user:test-secret", netBoxTenantA, policy)
 		provider.client.Transport = source.Client().Transport
 		before := calls.Load()
 		if partial, err := provider.Lookup(netBoxContext(netBoxTenantA), "10.0.0.1"); !errors.Is(err, ErrLookupBudget) || partial != nil {
@@ -170,7 +170,7 @@ func TestServiceNowCompleteLookupProfilesAreRaiseableAndCancelBeforeIO(t *testin
 	defer source.Close()
 	policy := DefaultLookupPolicy()
 	policy.Timeout, policy.ResponseBytes, policy.MemoryBytes = 25*time.Hour, 8<<20, 1<<30
-	provider := NewServiceNow(source.URL, "", "test-user:test-secret", policy)
+	provider := NewServiceNow(source.URL, "", "test-user:test-secret", netBoxTenantA, policy)
 	if provider.client.Timeout != 25*time.Hour {
 		t.Fatal("ServiceNow fixed client deadline ignored operator profile")
 	}

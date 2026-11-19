@@ -213,11 +213,16 @@ discipline probectl applies to every external source. Keys are canonicalized
 (case, ports, schemes), and non-keys (CIDR prefixes, free text) are dropped
 before a query is ever made.
 
-**Multi-tenant note:** the CMDB endpoint and credential are deployment-level —
-one CMDB connection for the install. Correlation *requests*, however, are
-tenant-scoped: a caller can only correlate its own tenant's incidents and
-agents. Per-tenant CMDB configurations would ride the per-tenant secrets work
-and are not part of this integration today.
+A ServiceNow Table API credential is bound to one probectl tenant. The
+`single` profile defaults to the seeded tenant. Set
+`PROBECTL_CMDB_SERVICENOW_TENANT_ID` before upgrading a `multi-tenant` or
+`regulated` deployment with ServiceNow enabled. Set it to select another
+tenant in the `single` profile. Use a
+read-only ServiceNow account restricted to that tenant’s inventory. Lookups by
+other probectl tenants fail before the adapter consults its cache or the
+source. NetBox correlation uses the deployment-owned mapping to each tenant’s
+distinct NetBox source ID.
+
 
 ## Testing
 

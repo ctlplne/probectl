@@ -44,7 +44,7 @@ func BuildCMDB(cfg *config.Config, log *slog.Logger) *cmdb.Resolver {
 		return nil
 	case "servicenow":
 		log.Info("cmdb provider configured", "provider", "servicenow", "table", cfg.CMDBTable)
-		return cmdb.NewResolver(cmdb.NewServiceNow(cfg.CMDBURL, cfg.CMDBTable, cfg.CMDBSecret, policy), cfg.CMDBCacheTTL)
+		return cmdb.NewResolver(cmdb.NewServiceNow(cfg.CMDBURL, cfg.CMDBTable, cfg.CMDBSecret, cfg.ServiceNowCMDBTenant(), policy), cfg.CMDBCacheTTL)
 	case "netbox":
 		log.Info("cmdb provider configured", "provider", "netbox")
 		return cmdb.NewResolver(cmdb.NewNetBox(cfg.CMDBURL, cfg.CMDBSecret, cfg.CMDBNetBoxTenantMap, policy), cfg.CMDBCacheTTL)

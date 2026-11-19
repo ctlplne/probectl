@@ -152,7 +152,8 @@ func TestCMDBLookupThroughServiceNowShape(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	srv := testServer(fakePinger{}).WithCMDB(cmdb.NewResolver(cmdb.NewServiceNow(ts.URL, "", "u:p"), time.Minute))
+	resolver := BuildCMDB(&config.Config{CMDBProvider: "servicenow", CMDBURL: ts.URL, CMDBSecret: "u:p", DeploymentProfile: "single"}, slog.Default())
+	srv := testServer(fakePinger{}).WithCMDB(resolver)
 	rec := do(srv, http.MethodGet, "/v1/cmdb/lookup?key=10.0.0.9")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "edge-fw1") {
 		t.Fatalf("servicenow-shaped lookup = %d %s", rec.Code, rec.Body.String())

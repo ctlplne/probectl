@@ -26,6 +26,42 @@ func TestCMDBNetBoxTenantMapConfiguration(t *testing.T) {
 	}
 }
 
+func TestServiceNowCMDBRequiresOneCanonicalTenant(t *testing.T) {
+	const key = "PROBECTL_CMDB_SERVICENOW_TENANT_ID"
+	const owner = "39a4484d-e5df-43ab-ba09-5bb84bd87642"
+	for _, test := range []struct {
+		name, profile, configured, want string
+	}{
+		{"existing single", "single", "", "00000000-0000-0000-0000-000000000001"},
+		{"explicit single", "single", owner, owner},
+		{"one multi-tenant owner", "multi-tenant", owner, owner},
+		{"unbound multi-tenant", "multi-tenant", "", ""},
+		{"unbound regulated", "regulated", "", ""},
+		{"zero UUID", "single", "00000000-0000-0000-0000-000000000000", ""},
+		{"noncanonical UUID", "single", strings.ToUpper(owner), ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := &Config{CMDBProvider: "servicenow", DeploymentProfile: test.profile, CMDBServiceNowTenantID: test.configured}
+			var l loader
+			validateServiceNowTenant(&l, cfg)
+			if test.want == "" {
+				if len(l.errs) != 1 || !strings.Contains(l.errs[0].Error(), key) {
+					t.Fatalf("unsafe credential binding accepted: %v", l.errs)
+				}
+				return
+			}
+			if len(l.errs) != 0 || cfg.ServiceNowCMDBTenant().String() != test.want {
+				t.Fatalf("valid credential binding refused: %v", l.errs)
+			}
+		})
+	}
+	cfg, err := Load(envFunc(map[string]string{key: owner, "PROBECTL_CMDB_PROVIDER": "servicenow",
+		"PROBECTL_CMDB_URL": "https://cmdb.example", "PROBECTL_CMDB_SECRET": "test-user:test-password"}))
+	if err != nil || cfg.ServiceNowCMDBTenant().String() != owner {
+		t.Fatalf("explicit ServiceNow environment binding was not loaded: %v", err)
+	}
+}
+
 func TestCMDBCompleteLookupCapacityProfiles(t *testing.T) {
 	cfg, err := Load(envFunc(nil))
 	if err != nil || cfg.CMDBLookupTimeout != 15*time.Second || cfg.CMDBResponseBytes != 4<<20 || cfg.CMDBMemoryBytes != 512<<20 {

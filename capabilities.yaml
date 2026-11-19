@@ -525,7 +525,7 @@ capabilities:
     cli: {refs: ["cli:probectl cmdb lookup", "cli:probectl metric query", "cli:probectl metric federate"]}
     ui: *federated_ui
     docs: {refs: ["file:docs/ecosystem-integrations.md#Ecosystem integrations"]}
-    config_keys: {refs: ["config:PROBECTL_CMDB_PROVIDER", "config:PROBECTL_CMDB_URL"]}
+    config_keys: {refs: ["config:PROBECTL_CMDB_PROVIDER", "config:PROBECTL_CMDB_URL", "config:PROBECTL_CMDB_SERVICENOW_TENANT_ID"]}
     telemetry: {refs: ["file:internal/control/prometheus.go"]}
     real_stack_proof: {gap: "The existing Prometheus remote-write receipt covers only one slice; no real-stack proof currently covers CMDB lookup, Grafana querying, and Prometheus federation together."}
     migration: {refs: ["file:migrations/0022_metrics_cmdb_permissions.sql"]}

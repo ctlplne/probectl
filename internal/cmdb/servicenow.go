@@ -17,12 +17,14 @@ import (
 	"strings"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // ServiceNow performs read-only Table API correlation using the deployment's
-// existing integration credential and domain access. Pages never add authority.
+// integration credential for one bound probectl tenant.
 type ServiceNow struct {
 	base, table, secret string
+	tenant              tenancy.ID
 	client              *http.Client
 	policy              LookupPolicy
 	policyErr           error
@@ -30,13 +32,24 @@ type ServiceNow struct {
 
 // NewServiceNow builds the provider; table defaults to cmdb_ci. An optional
 // deployment profile replaces starting capacity without imposing an object quota.
-func NewServiceNow(base, table, secret string, profiles ...LookupPolicy) *ServiceNow {
+func NewServiceNow(base, table, secret string, tenant tenancy.ID, profiles ...LookupPolicy) *ServiceNow {
 	if table == "" {
 		table = "cmdb_ci"
 	}
 	policy, err := lookupPolicy(profiles)
-	return &ServiceNow{base: strings.TrimRight(base, "/"), table: table, secret: secret,
+	return &ServiceNow{base: strings.TrimRight(base, "/"), table: table, secret: secret, tenant: tenant,
 		client: crypto.HardenedHTTPClient(policy.Timeout), policy: policy, policyErr: err}
+}
+
+func (s *ServiceNow) cacheScope(ctx context.Context) (string, error) {
+	tenant, err := lookupTenant(ctx)
+	if err != nil {
+		return "", err
+	}
+	if s == nil || tenant != s.tenant {
+		return "", ErrTenantBinding
+	}
+	return tenant.String(), nil
 }
 
 // Name implements Provider.
@@ -53,7 +66,7 @@ type serviceNowCI struct {
 // Lookup implements Provider. Table offsets count physical records before ACL
 // filtering; an empty visible page is not evidence of source exhaustion.
 func (s *ServiceNow) Lookup(ctx context.Context, key string) ([]CI, error) {
-	if _, err := lookupTenant(ctx); err != nil {
+	if _, err := s.cacheScope(ctx); err != nil {
 		return nil, err
 	}
 	ctx, cancel, err := beginLookup(ctx, s, s.policy, s.policyErr)
