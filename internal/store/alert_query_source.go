@@ -134,6 +134,28 @@ func lockAlertQueryRule(ctx context.Context, sc tenancy.Scope, id string, expect
 	return tenancy.LockTenantAuditStream(ctx, sc.Q, sc.Tenant.String())
 }
 
+// WithQueryPublication holds the existing rule revision and tenant audit
+// fences during a current source check for retained query evidence.
+func (r AlertRules) WithQueryPublication(ctx context.Context, sc tenancy.Scope, id string, expected time.Time, maxBytes int64, publish func(context.Context, tenancy.Scope, alert.QuerySource) error) error {
+	if err := alertQueryScope(ctx, sc, expected, maxBytes); err != nil {
+		return err
+	}
+	if publish == nil {
+		return alert.ErrQueryGroups
+	}
+	if err := lockAlertQueryRule(ctx, sc, id, expected); err != nil {
+		return err
+	}
+	current, err := r.GetQuerySource(ctx, sc, id, expected, maxBytes)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return ErrAlertQueryChanged
+	}
+	return publish(ctx, sc, current.Source)
+}
+
 // The caller holds the rule/audit publication locks. Both source parent and
 // active owner are selected through this same FORCE-RLS scope.
 func checkAlertQueryParents(ctx context.Context, sc tenancy.Scope, source alert.QuerySource) error {
@@ -141,14 +163,19 @@ func checkAlertQueryParents(ctx context.Context, sc tenancy.Scope, source alert.
 	if err != nil {
 		return err
 	}
+	measure := source.Condition.Metric
+	if source.Condition.Field != nil {
+		measure = source.Condition.Field.Measure
+	}
 	var present int
 	err = sc.Q.QueryRow(ctx, `SELECT 1 FROM flow_query_views v
  JOIN users u ON u.tenant_id=v.tenant_id AND u.id=$2::text::uuid AND u.status='active'
  WHERE v.tenant_id=$1 AND v.id=$3 AND v.version=$4
  AND (v.owner_id=$2::text OR v.visibility='tenant')
  AND ($5='new_group' OR EXISTS (SELECT 1 FROM jsonb_array_elements(v.definition->'plan'->'metrics') m
-     WHERE (m->>'measure')||':'||(m->>'calculation')=$6))`,
-		sc.Tenant.String(), source.OwnerUserID, source.ViewID, version, source.Condition.Mode, source.Condition.Metric).Scan(&present)
+	     WHERE (m->>'measure')||':'||(m->>'calculation')=$6
+	       AND ($5<>'field_change' OR m->>'role'='primary')))`,
+		sc.Tenant.String(), source.OwnerUserID, source.ViewID, version, source.Condition.Mode, measure).Scan(&present)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrAlertQueryChanged
 	}

@@ -107,6 +107,34 @@
       ]
     },
     {
+      "ref": "test:internal/control/alert_field_source_integration_test.go#TestScheduledFieldChangeCommitsOneCitedTenantEpisode",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
+      "ref": "test:internal/control/alert_field_served_integration_test.go#TestScheduledFieldEditorAndReceiptServedInBothThemes",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
+      "ref": "test:internal/tenantlife/alert_seasonal_flow_subject_integration_test.go#TestScheduledFieldReceiptSubjectErasureKeepsSiblingAndStructuralReferences",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
+      "ref": "test:internal/control/flow_field_sources_integration_test.go#TestFieldComparisonReadsExactOwnedTopThreeHundred",
+      "profile": "integration",
+      "capabilities": [
+        "F17"
+      ]
+    },
+    {
       "ref": "test:internal/control/audit_isolation_integration_test.go#TestTwoTenantAndProviderAuditStreamsIsolateAndContainTampering",
       "profile": "integration",
       "capabilities": [

@@ -32,28 +32,13 @@ func (b nativeMCPFlowBackend) CompareFlowViewFields(ctx context.Context, actor *
 
 func (s *Server) readFlowFieldComparison(ctx context.Context, actor *auth.Principal, settings flowFieldComparisonSettings, at time.Time, retain func(context.Context, func(context.Context) error, func()) error) (flow.FieldComparison, error) {
 	var out flow.FieldComparison
-	tenant, ok := tenancy.FromContext(ctx)
-	if !ok || actor == nil || tenant.String() != actor.TenantID {
-		return out, tenancy.ErrNoTenant
-	}
-	if err := settings.validate(); err != nil {
-		return out, err
-	}
-	windows, err := anomaly.FlowFieldCompletedWindows(at, anomaly.FlowFieldComparisonCadence(settings.Cadence), settings.PeriodSeconds)
-	if err != nil {
-		return out, apierror.Validation("the field comparison requires completed UTC windows")
-	}
 	budget := flowstore.ExplorerOperationBudget(ctx, s.flowStore)
 	if err := budget.Validate(); err != nil {
 		return out, apierror.Unavailable("flow field comparison cost policy is unavailable").Wrap(err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	ctx, flush := scopedABACDenial(ctx)
-	capture, err := s.captureFlowSourcesWithOptions(ctx, actor, []reportFlowSourceRef{settings.View}, true, true, reportFlowCaptureOptions{
-		SeasonalPeriodEnds:  []time.Time{windows.Before.End, windows.After.End},
-		ReservedMemoryBytes: budget.MemoryBytes / 4,
-		FieldComparison:     &settings,
-	})
+	answer, capture, err := s.captureFlowFieldComparison(ctx, actor, settings, at, budget)
 	retained := false
 	release := func() {
 		if capture != nil {
@@ -70,17 +55,6 @@ func (s *Server) readFlowFieldComparison(ctx context.Context, actor *auth.Princi
 	if err != nil {
 		return out, err
 	}
-	if len(capture.Inputs) != 2 || !capture.Inputs[0].From.Equal(windows.Before.Start) || !capture.Inputs[0].To.Equal(windows.Before.End) ||
-		!capture.Inputs[1].From.Equal(windows.After.Start) || !capture.Inputs[1].To.Equal(windows.After.End) {
-		return out, apierror.Conflict("flow source did not return the complete requested window pair")
-	}
-	answer, err := compareCapturedFlowFields(ctx, capture, settings, budget.MemoryBytes/8)
-	if errors.Is(err, anomaly.ErrFlowFieldCoverage) {
-		return out, apierror.Conflict("flow source cannot prove a complete comparable ranking").Wrap(err)
-	}
-	if err != nil {
-		return out, err
-	}
 	check := func(context.Context) error { return s.recheckFlowFieldPublication(ctx, actor, capture) }
 	if retain != nil {
 		if err := retain(ctx, check, release); err != nil {
@@ -91,6 +65,51 @@ func (s *Server) readFlowFieldComparison(ctx context.Context, actor *auth.Princi
 		return out, err
 	}
 	return answer, ctx.Err()
+}
+
+// captureFlowFieldComparison runs with a tenant query admission already held.
+// The caller owns the returned capture until the source publication check.
+func (s *Server) captureFlowFieldComparison(ctx context.Context, actor *auth.Principal, settings flowFieldComparisonSettings, at time.Time, budget flowstore.ExplorerBudget) (_ flow.FieldComparison, _ *reportFlowCapture, resultErr error) {
+	var out flow.FieldComparison
+	tenant, ok := tenancy.FromContext(ctx)
+	if !ok || actor == nil || tenant.String() != actor.TenantID {
+		return out, nil, tenancy.ErrNoTenant
+	}
+	if settings.View.ID == "" || settings.View.Version != settings.Version {
+		return out, nil, apierror.Validation("field comparison requires an exact saved query revision")
+	}
+	if err := settings.Validate(); err != nil {
+		return out, nil, apierror.Validation(err.Error())
+	}
+	windows, err := anomaly.FlowFieldCompletedWindows(at, anomaly.FlowFieldComparisonCadence(settings.Cadence), settings.PeriodSeconds)
+	if err != nil {
+		return out, nil, apierror.Validation("the field comparison requires completed UTC windows")
+	}
+	capture, err := s.captureFlowSourcesWithOptions(ctx, actor, []reportFlowSourceRef{settings.View}, true, true, reportFlowCaptureOptions{
+		SeasonalPeriodEnds:  []time.Time{windows.Before.End, windows.After.End},
+		ReservedMemoryBytes: budget.MemoryBytes / 4,
+		FieldComparison:     &settings,
+	})
+	if err != nil {
+		return out, nil, err
+	}
+	defer func() {
+		if resultErr != nil {
+			capture.Close()
+		}
+	}()
+	if len(capture.Inputs) != 2 || !capture.Inputs[0].From.Equal(windows.Before.Start) || !capture.Inputs[0].To.Equal(windows.Before.End) ||
+		!capture.Inputs[1].From.Equal(windows.After.Start) || !capture.Inputs[1].To.Equal(windows.After.End) {
+		return out, nil, apierror.Conflict("flow source did not return the complete requested window pair")
+	}
+	answer, err := compareCapturedFlowFields(ctx, capture, settings, budget.MemoryBytes/8)
+	if errors.Is(err, anomaly.ErrFlowFieldCoverage) {
+		return out, nil, apierror.Conflict("flow source cannot prove a complete comparable ranking").Wrap(err)
+	}
+	if err != nil {
+		return out, nil, err
+	}
+	return answer, capture, ctx.Err()
 }
 
 // Complete source I/O before locking. A committed visibility, grant,

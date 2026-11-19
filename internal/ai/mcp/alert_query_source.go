@@ -25,8 +25,14 @@ type AlertQueryGroupInput struct {
 	Group  string `json:"group"`
 }
 
+type AlertFieldReceiptInput struct {
+	RuleID      string `json:"rule_id"`
+	Fingerprint string `json:"fingerprint"`
+}
+
 type AlertQueryBackend interface {
 	AlertQueryGroupGet(context.Context, *auth.Principal, AlertQueryGroupInput) (alert.QueryGroupInspection, error)
+	AlertFieldReceiptGet(context.Context, *auth.Principal, AlertFieldReceiptInput) (alert.FieldEvaluationEvidence, error)
 	AlertQueryCreate(context.Context, *auth.Principal, alert.QueryRuleInput) (alert.Rule, error)
 	AlertQuerySourceGet(context.Context, *auth.Principal, string) (alert.QuerySourceState, error)
 	AlertQuerySourceSet(context.Context, *auth.Principal, AlertQuerySourceInput) (alert.QuerySourceState, error)
@@ -40,7 +46,7 @@ func WithAlertQueryBackend(backend AlertQueryBackend, schemas map[string]json.Ra
 		if backend == nil {
 			return
 		}
-		for _, name := range []string{"alert_query_create", "alert_query_group_get", "alert_query_source_get", "alert_query_source_set", "alert_query_source_clear"} {
+		for _, name := range []string{"alert_query_create", "alert_query_group_get", "alert_field_receipt_get", "alert_query_source_get", "alert_query_source_set", "alert_query_source_clear"} {
 			if !json.Valid(schemas[name]) {
 				return
 			}
@@ -52,6 +58,13 @@ func WithAlertQueryBackend(backend AlertQueryBackend, schemas map[string]json.Ra
 					return nil, argErr("an owned rule and canonical opaque group handle are required")
 				}
 				return backend.AlertQueryGroupGet(ctx, p, input)
+			}},
+			{Name: "alert_field_receipt_get", Permission: "alert.read", ExtraPermissions: []string{"ai.query", "flow.read"}, Description: "Read a cited field comparison's original before and after observations with your own current saved view and source grants.", Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
+				var input AlertFieldReceiptInput
+				if err := decodeNativeArgs(raw, &input); err != nil || !validAlertTagRuleID(input.RuleID) || !alert.ValidFieldDigest(input.Fingerprint) {
+					return nil, argErr("an owned rule and canonical field receipt fingerprint are required")
+				}
+				return backend.AlertFieldReceiptGet(ctx, p, input)
 			}},
 			{Name: "alert_query_create", Permission: "alert.write", ExtraPermissions: []string{"ai.query", "flow.read"}, Description: "Create a saved-query alert with complete source admission, exact decimal conditions and current owner grants. Optional delivery uses the normal configured channels.", Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {
 				var input alert.QueryRuleInput

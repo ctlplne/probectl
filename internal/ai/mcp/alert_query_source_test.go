@@ -25,6 +25,11 @@ func (b *recordedAlertQuery) AlertQueryGroupGet(_ context.Context, p *auth.Princ
 	return alert.QueryGroupInspection{Kind: "current_query_group", RuleID: input.RuleID, GroupKey: input.Group}, nil
 }
 
+func (b *recordedAlertQuery) AlertFieldReceiptGet(_ context.Context, p *auth.Principal, _ AlertFieldReceiptInput) (alert.FieldEvaluationEvidence, error) {
+	b.tenants = append(b.tenants, p.TenantID)
+	return alert.FieldEvaluationEvidence{}, nil
+}
+
 func (b *recordedAlertQuery) AlertQueryCreate(_ context.Context, p *auth.Principal, input alert.QueryRuleInput) (alert.Rule, error) {
 	b.tenants = append(b.tenants, p.TenantID)
 	b.input = &input.QuerySource
@@ -47,7 +52,7 @@ func TestSavedQueryAlertMCPRequiresSourceGrantsAndPreservesTenantArguments(t *te
 	const id = "11111111-1111-4111-8111-111111111111"
 	b := &recordedAlertQuery{input: &alert.QuerySourceInput{ViewID: id, ViewVersion: "9007199254740993", Condition: alert.QueryCondition{Mode: "threshold", Metric: "bytes:total", Comparison: alert.GT, Threshold: "18446744073709551617"}}}
 	schemas := map[string]json.RawMessage{}
-	for _, name := range []string{"alert_query_create", "alert_query_group_get", "alert_query_source_get", "alert_query_source_set", "alert_query_source_clear"} {
+	for _, name := range []string{"alert_query_create", "alert_query_group_get", "alert_field_receipt_get", "alert_query_source_get", "alert_query_source_set", "alert_query_source_clear"} {
 		schemas[name] = json.RawMessage(`{"type":"object"}`)
 	}
 	s := newTestServer(&fakeBackend{}, testGate(), WithAlertQueryBackend(b, schemas))
@@ -56,7 +61,7 @@ func TestSavedQueryAlertMCPRequiresSourceGrantsAndPreservesTenantArguments(t *te
 		p := principal("tenant-a", all...)
 		p.UserID = "reader"
 		delete(p.Permissions, missing)
-		for _, name := range []string{"alert_query_group_get", "alert_query_source_get", "alert_query_source_set"} {
+		for _, name := range []string{"alert_query_group_get", "alert_field_receipt_get", "alert_query_source_get", "alert_query_source_set"} {
 			if listedToolNames(t, handle(t, s, p, 1, "tools/list", nil))[name] {
 				t.Fatal("source tool visible without current capability", name, missing)
 			}

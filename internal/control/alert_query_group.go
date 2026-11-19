@@ -67,6 +67,9 @@ func (s *Server) readAlertQueryGroup(ctx context.Context, actor *auth.Principal,
 	if source == nil {
 		return alert.QueryGroupInspection{}, apierror.NotFound("saved-query source not found")
 	}
+	if source.Source.Condition.Field != nil {
+		return alert.QueryGroupInspection{}, apierror.Conflict("inspect the field comparison receipt cited by the incident")
+	}
 	capture, err := s.captureFlowSources(ctx, actor, []reportFlowSourceRef{{ID: source.Source.ViewID, Version: source.Source.ViewVersion}}, true, true)
 	if err != nil {
 		return alert.QueryGroupInspection{}, err

@@ -35,7 +35,8 @@ type Alert struct {
 	At         time.Time
 	// Internal incident routing only. A wire payload cannot nominate a parent
 	// or supply suppression authority, and channels expose no source references.
-	Dependency *DependencyDecision `json:"-"`
+	Dependency             *DependencyDecision `json:"-"`
+	fieldIncidentPublished bool
 }
 
 // WebhookPayloadVersion identifies the outbound webhook schema.

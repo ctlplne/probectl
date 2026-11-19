@@ -18,7 +18,7 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-func (s *Server) readAlertQueryRule(ctx context.Context, tenant string, rule alert.Rule) (alert.RuleMetricRead, error) {
+func (s *Server) readAlertQueryRule(ctx context.Context, tenant string, rule alert.Rule, deps AlertTagDependencies) (alert.RuleMetricRead, error) {
 	if s.pool == nil || s.fairnessGate == nil || tenant == "" || tenant != rule.TenantID || !rule.Enabled || rule.Metric != alert.QueryMetric {
 		return alert.RuleMetricRead{}, alert.ErrQueryGroups
 	}
@@ -66,6 +66,9 @@ func (s *Server) readAlertQueryRule(ctx context.Context, tenant string, rule ale
 	actor, err := configuration.Source.CredentialCeiling(tenant)
 	if err != nil {
 		return alert.RuleMetricRead{}, err
+	}
+	if configuration.Source.Condition.Field != nil {
+		return s.readAlertFieldRule(ctx, rule, *configuration, actor, budget, deps)
 	}
 	capture, err := s.captureFlowSources(ctx, actor, []reportFlowSourceRef{{ID: configuration.Source.ViewID, Version: configuration.Source.ViewVersion}}, true, true)
 	if err != nil {

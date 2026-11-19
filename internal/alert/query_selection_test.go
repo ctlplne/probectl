@@ -36,6 +36,28 @@ func queryEngineForTest() (*Engine, *queryRuleSourceForTest, Rule, Sample) {
 	return NewEngine(source, nil, discard()), source, rule, sample
 }
 
+func TestFieldIncidentsPreserveDeliveryWhenDependencyRoutingIsUnavailable(t *testing.T) {
+	engine, source, rule, _ := queryEngineForTest()
+	rule.HasDependencyPolicy = true
+	source.read.FieldIncidents = true
+	attempts := 0
+	engine.dependencyRouter = func(_ context.Context, _ Rule, reads []DependencyAttempt) ([]DependencyOutcome, error) {
+		attempts += len(reads)
+		return nil, errors.New("dependency evidence unavailable")
+	}
+	var received []State
+	engine.sink = func(_ context.Context, alert Alert) { received = append(received, alert.State) }
+	acted, err := engine.Evaluate(t.Context(), rule)
+	if err != nil || len(acted) != 1 || acted[0].State != StateFiring || attempts != 1 || len(received) != 0 {
+		t.Fatal("a field episode with an existing incident lost delivery or repeated correlation", acted, attempts, received, err)
+	}
+	source.read.Samples = nil
+	acted, err = engine.Evaluate(t.Context(), rule)
+	if err != nil || len(acted) != 1 || acted[0].State != StateResolved || len(received) != 1 || received[0] != StateResolved {
+		t.Fatal("normal complete evidence did not resolve through the current incident adapter", acted, received, err)
+	}
+}
+
 func TestSavedQueryAlertEngineFiresOnceAndResolvesOnlyACompleteDeparture(t *testing.T) {
 	engine, source, rule, sample := queryEngineForTest()
 	for i := range 2 {

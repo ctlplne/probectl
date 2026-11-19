@@ -182,7 +182,7 @@ func TestSavedQueryAlertAPIKeepsCurrentSourceAuthorityAndTwoTenants(t *testing.T
 		if out, err := s.setAlertQuerySource(ctx, current.actor, current.rule.ID, foreign.input); err == nil || out.Configured {
 			t.Fatal("foreign saved view attached to own rule", out, err)
 		}
-		read, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule)
+		read, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule, AlertTagDependencies{})
 		if err != nil || len(read.Samples) != 2 || read.Samples[0].Value != 1 || read.Samples[1].Value != 1 || read.QuerySelection == nil || !read.QuerySelection.Complete {
 			t.Fatal("current owned query did not produce complete grouped predicates", read, err)
 		}
@@ -202,7 +202,7 @@ func TestSavedQueryAlertAPIKeepsCurrentSourceAuthorityAndTwoTenants(t *testing.T
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if next, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule); err != nil || !next.Skip || len(next.Samples) != 0 {
+		if next, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule, AlertTagDependencies{}); err != nil || !next.Skip || len(next.Samples) != 0 {
 			t.Fatal("not-due read executed or invented health", next, err)
 		}
 		// Scheduler polling is metadata work, not an admitted flow query. Even
@@ -213,7 +213,7 @@ func TestSavedQueryAlertAPIKeepsCurrentSourceAuthorityAndTwoTenants(t *testing.T
 			one := fairness.NewGate(fairness.Policy{QueriesPerMin: 6, BurstSeconds: 10, QueryConcurrency: 1}, nil).WithNow(func() time.Time { return at })
 			s.WithFairness(one)
 			for range 2 {
-				if next, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule); err != nil || !next.Skip {
+				if next, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule, AlertTagDependencies{}); err != nil || !next.Skip {
 					t.Fatal("not-due scheduler tick spent the tenant's source query admission", next, err)
 				}
 			}
@@ -246,7 +246,7 @@ func TestSavedQueryAlertAPIKeepsCurrentSourceAuthorityAndTwoTenants(t *testing.T
 		if out, err := s.readAlertQueryGroup(ctx, current.actor, current.rule.ID, read.Samples[0].Labels["query_group"]); err == nil || out.Present {
 			t.Fatal("revoked current source grants still exposed group facts", out, err)
 		}
-		if read, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule); err == nil || len(read.Samples) != 0 || read.QuerySelection != nil {
+		if read, err := s.readAlertQueryRule(ctx, current.actor.TenantID, current.rule, AlertTagDependencies{}); err == nil || len(read.Samples) != 0 || read.QuerySelection != nil {
 			t.Fatal("revoked current source owner still evaluated", read, err)
 		}
 		cleared, err := s.clearAlertQuerySource(ctx, limited, current.rule.ID)

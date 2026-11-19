@@ -312,6 +312,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"DELETE /v1/alerts/maintenance/{id}":                                  auditExplicit(auditFacetMutation, "alert.maintenance_delete"),
 	"GET /v1/alerts/{id}/evaluations":                                     auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/alerts/rules/{id}/query-group":                               auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/alerts/rules/{id}/field-receipt":                             auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/alerts/rules/{id}/query-source":                              auditWrapped(auditFacetSensitiveRead),
 	"PUT /v1/alerts/rules/{id}/query-source":                              auditExplicit(auditFacetMutation, "alert.query_source.set"),
 	"DELETE /v1/alerts/rules/{id}/query-source":                           auditExplicit(auditFacetMutation, "alert.query_source.clear"),

@@ -14,6 +14,7 @@ import { TimeProvider } from '../time/TimeProvider'
 import { savedQueryAlertMetric, type AlertRule } from '../api/alerts'
 import { AlertQueryGroupPanel } from '../routes/AlertQueryGroupPanel'
 import { AlertQuerySourceDialog } from '../routes/AlertQuerySourceDialog'
+import { IncidentFieldReceipt } from '../routes/IncidentFieldReceipt'
 import { jsonResponse } from './fetchStub'
 
 const ruleID = '11111111-1111-4111-8111-111111111111'
@@ -102,7 +103,12 @@ function backend() {
           owner_id: 'owner',
           definition: {
             name: 'Source AS query',
-            plan: { metrics: [{ measure: 'bytes', calculation: 'total', role: 'primary' }] },
+            time: { mode: 'lookback', lookback_seconds: 300 },
+            plan: {
+              view: 'table',
+              group_by: ['src_asn'],
+              metrics: [{ measure: 'bytes', calculation: 'total', role: 'primary' }],
+            },
           },
         }
         return jsonResponse(path.includes('/flow-views/') ? item : { items: [item] })
@@ -181,6 +187,116 @@ test('saved-query alert creation preserves exact source revision and decimal thr
       condition: { mode: 'threshold', metric: 'bytes:total', comparison: 'gt', threshold: exact },
     },
   })
+})
+
+test('a scheduled field rule uses the pinned comparison and whole source cadence', async () => {
+  const calls = backend()
+  const user = userEvent.setup()
+  const dialog = fixture(true)
+  await user.type(screen.getByLabelText('Rule name'), 'New origin')
+  await screen.findByRole('option', { name: `Source AS query · revision ${revision}` })
+  await user.selectOptions(screen.getByLabelText('Saved query'), viewID)
+  await user.selectOptions(screen.getByLabelText('Condition'), 'field_change')
+  await user.selectOptions(screen.getByLabelText('Reference window'), 'previous_week')
+  fireEvent.change(screen.getByLabelText('Top keys'), { target: { value: '300' } })
+  fireEvent.change(screen.getByLabelText('Minimum traffic amount'), { target: { value: exact } })
+  expect(screen.getByLabelText('Minimum seconds between reads')).toHaveValue(300)
+  await user.click(screen.getByRole('button', { name: 'Create query alert' }))
+  await waitFor(() => expect(dialog.close).toHaveBeenCalledOnce())
+  expect(calls.find((call) => call.method === 'POST')).toMatchObject({
+    tenant: 'tenant-a',
+    body: {
+      name: 'New origin',
+      query_source: {
+        view_id: viewID,
+        view_version: revision,
+        every_seconds: 300,
+        condition: {
+          mode: 'field_change',
+          field: {
+            version: revision,
+            measure: 'bytes:total',
+            mode: 'rank',
+            cadence: 'previous_week',
+            period_seconds: 300,
+            top_keys: 300,
+            minimum_rank_change: 1,
+            minimum_change: exact,
+            secondary_thresholds: [],
+          },
+        },
+      },
+    },
+  })
+})
+
+test('a field receipt reuses the original incident link and hides exact values when source access changes', async () => {
+  const fingerprint = 'f'.repeat(64)
+  const episode = 'a'.repeat(64)
+  const change = 'b'.repeat(64)
+  const incident = 'incident-with-field-evidence'
+  const signal = {
+    plane: 'flow',
+    kind: 'alert.field_change',
+    severity: 'warning' as const,
+    title: 'New origin',
+    occurred_at: '2026-11-12T00:00:00Z',
+    tenant_id: 'tenant-a',
+    attributes: {
+      rule_id: ruleID,
+      'probectl.alert.field.receipt_fingerprint': fingerprint,
+      'probectl.alert.field.episode_id': episode,
+    },
+  }
+  const calls = vi.fn(async () =>
+    jsonResponse({
+      comparison: {
+        before: {
+          from: '2026-11-11T23:50:00Z',
+          to: '2026-11-11T23:55:00Z',
+          total_groups: 1,
+          source: 'raw',
+          resolution_seconds: 1,
+        },
+        after: {
+          from: '2026-11-11T23:55:00Z',
+          to: '2026-11-12T00:00:00Z',
+          total_groups: 2,
+          source: 'raw',
+          resolution_seconds: 1,
+        },
+        changes: [
+          {
+            key: change,
+            kind: 'entered_top_set',
+            group: { src_asn: '64512' },
+            after: { rank: 1, value: exact, citation: 'original' },
+          },
+        ],
+      },
+      signals: [{ change_key: change, episode_id: episode, incident_id: incident }],
+    }),
+  )
+  vi.stubGlobal('fetch', calls)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const content = (id: string, permissions = grants) => (
+    <QueryClientProvider client={client}>
+      <AuthContext.Provider value={identity('tenant-a', permissions)}>
+        <IncidentFieldReceipt signal={signal} incidentID={id} />
+      </AuthContext.Provider>
+    </QueryClientProvider>
+  )
+  const view = render(content(incident))
+  expect(calls).not.toHaveBeenCalled()
+  await userEvent.click(screen.getByRole('button', { name: 'Show exact field evidence' }))
+  expect(await screen.findByText(`${exact} · rank 1`)).toBeInTheDocument()
+  expect(calls.mock.calls).toHaveLength(1)
+  view.rerender(content('wrong-incident'))
+  expect(screen.getByText('Field evidence does not match this incident')).toBeInTheDocument()
+  expect(screen.queryByText(`${exact} · rank 1`)).toBeNull()
+  view.rerender(content(incident, ['alert.read']))
+  expect(screen.queryByText(`${exact} · rank 1`)).toBeNull()
+  expect(screen.queryByText('Field comparison receipt')).toBeNull()
 })
 
 test('saved-query editor clears old tenant criteria and retains write-only explicit removal', async () => {

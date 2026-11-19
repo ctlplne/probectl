@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/anomaly"
@@ -56,66 +55,8 @@ func (s *Server) handleFlowFieldComparison(w http.ResponseWriter, r *http.Reques
 }
 
 func fieldComparisonSettings(id string, input flow.FieldComparisonInput) flowFieldComparisonSettings {
-	if input.TopKeys == 0 {
-		input.TopKeys = 25
-	}
-	if input.Mode == "rank" {
-		if input.MinimumRankChange == 0 {
-			input.MinimumRankChange = 1
-		}
-		if input.MinimumChange == "" {
-			input.MinimumChange = "0"
-		}
-	}
+	input = input.WithDefaults()
 	return flowFieldComparisonSettings{View: reportFlowSourceRef{ID: id, Version: input.Version}, FieldComparisonInput: input}
-}
-
-func (s flowFieldComparisonSettings) validate() error {
-	if _, err := flow.QueryViewVersion(s.Version); err != nil || s.View.ID == "" || s.TopKeys < 1 || s.TopKeys > anomaly.MaxFlowFieldRank ||
-		s.Measure == "" || len(s.Measure) > 64 || len(s.SecondaryThresholds) > 2 {
-		return apierror.Validation("a saved query revision, primary measure and between 1 and 300 top keys are required")
-	}
-	if s.Mode != "rank" && (s.MinimumRankChange != 0 || len(s.SecondaryThresholds) != 0) ||
-		s.Mode != "share" && s.ShareBasisPoints != 0 {
-		return apierror.Validation("field comparison thresholds must match its mode")
-	}
-	switch s.Mode {
-	case "rank":
-		if s.MinimumRankChange < 1 || s.MinimumRankChange > s.TopKeys || !flowFieldDecimal(s.MinimumChange, false, false) {
-			return apierror.Validation("rank comparison requires a rank step and a nonnegative traffic floor")
-		}
-		seen := map[string]bool{s.Measure: true}
-		for _, threshold := range s.SecondaryThresholds {
-			if threshold.Measure == "" || len(threshold.Measure) > 64 || seen[threshold.Measure] || !flowFieldDecimal(threshold.Minimum, false, false) {
-				return apierror.Validation("secondary thresholds need distinct measures and nonnegative decimal floors")
-			}
-			seen[threshold.Measure] = true
-		}
-	case "amount", "fanout":
-		if !flowFieldDecimal(s.MinimumChange, true, s.Mode == "fanout") {
-			return apierror.Validation("amount and fan-out comparison require a positive change floor, in whole destinations for fan-out")
-		}
-	case "share":
-		if s.ShareBasisPoints < 1 || s.ShareBasisPoints > 10000 || s.MinimumChange != "" {
-			return apierror.Validation("share comparison needs a floor between 1 and 10000 basis points")
-		}
-	default:
-		return apierror.Validation("unknown flow field comparison mode")
-	}
-	return nil
-}
-
-func flowFieldDecimal(value string, positive, integer bool) bool {
-	if len(value) > 256 {
-		return false
-	}
-	whole, fraction, hasDot := strings.Cut(value, ".")
-	if whole == "" || hasDot && (integer || fraction == "") {
-		return false
-	}
-	digits := whole + fraction
-	return strings.IndexFunc(digits, func(r rune) bool { return r < '0' || r > '9' }) == -1 &&
-		(!positive || strings.Trim(digits, "0") != "")
 }
 
 func (s flowFieldComparisonSettings) validatePlan(plan flow.QueryPlan) error {

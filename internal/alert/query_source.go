@@ -56,16 +56,43 @@ func NormalizeQuerySourceInput(input QuerySourceInput) (QuerySourceInput, error)
 	if _, err := flow.QueryViewVersion(input.ViewVersion); err != nil {
 		return QuerySourceInput{}, err
 	}
+	if input.Condition.Field != nil {
+		field := input.Condition.Field.WithDefaults()
+		input.Condition.Field = &field
+		if input.EverySeconds == 0 {
+			input.EverySeconds = fieldSourceWindowSeconds(field)
+		}
+	}
 	if input.EverySeconds == 0 {
 		input.EverySeconds = 60
 	}
 	if input.EverySeconds <= 0 || input.EverySeconds > math.MaxInt64/int64(time.Second) {
 		return QuerySourceInput{}, ErrQueryGroups
 	}
-	if err := input.Condition.validateShape(); err != nil {
+	if err := validateQuerySourceCondition(input.Condition, input.ViewVersion, input.EverySeconds); err != nil {
 		return QuerySourceInput{}, err
 	}
 	return input, nil
+}
+
+func validateQuerySourceCondition(condition QueryCondition, version string, every int64) error {
+	if err := condition.validateShape(); err != nil {
+		return err
+	}
+	if condition.Field != nil {
+		period := fieldSourceWindowSeconds(*condition.Field)
+		if condition.Field.Version != version || period <= 0 || every < period || every%period != 0 {
+			return ErrQueryGroups
+		}
+	}
+	return nil
+}
+
+func fieldSourceWindowSeconds(field flow.FieldComparisonInput) int64 {
+	if field.Cadence == "complete_week" {
+		return int64((24 * time.Hour) / time.Second)
+	}
+	return int64(field.PeriodSeconds)
 }
 
 func (s QuerySource) Input() QuerySourceInput {
@@ -107,7 +134,7 @@ func (s QuerySource) Validate() error {
 	if _, err := flow.QueryViewVersion(s.ViewVersion); err != nil {
 		return ErrQueryGroups
 	}
-	if err := s.Condition.validateShape(); err != nil {
+	if err := validateQuerySourceCondition(s.Condition, s.ViewVersion, s.EverySeconds); err != nil {
 		return err
 	}
 	return validateReadGrants(s.ReadGrants)

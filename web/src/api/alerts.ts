@@ -9,6 +9,7 @@ import { apiFetch } from './client'
 import { useAuth } from '../auth/useAuth'
 import type { Incident, Severity } from './incidents'
 import type {
+  AlertFieldEvaluationEvidence,
   AlertSeasonalEvaluation,
   AlertSeasonalSourceInput,
   AlertSeasonalSourceState,
@@ -130,6 +131,18 @@ export function getAlertQueryGroup(
       signal,
       headers: { 'X-Probectl-Tenant': tenantID },
     },
+  )
+}
+
+export function getAlertFieldReceipt(
+  tenantID: string,
+  ruleID: string,
+  fingerprint: string,
+  signal: AbortSignal,
+) {
+  return apiFetch<AlertFieldEvaluationEvidence>(
+    `/alerts/rules/${encodeURIComponent(ruleID)}/field-receipt?fingerprint=${encodeURIComponent(fingerprint)}`,
+    { signal, headers: { 'X-Probectl-Tenant': tenantID } },
   )
 }
 

@@ -203,6 +203,19 @@ func admitSeasonalFlowScopeEncoding(ctx context.Context, capture *reportFlowCapt
 }
 
 func decodeSeasonalFlowScope(ctx context.Context, raw []byte, config alert.SeasonalBaselineInput, observed time.Time, memory int64) (*reportFlowCapture, error) {
+	capture, err := decodeStoredFlowScope(ctx, raw, memory)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateStoredSeasonalFlowInputs(ctx, capture.Inputs, config, observed, slices.Contains(capture.Permissions, permTagsRead), memory); err != nil {
+		return nil, err
+	}
+	return capture, ctx.Err()
+}
+
+// decodeStoredFlowScope validates the shared private saved-flow lineage.
+// Each receipt reader then proves the exact clocks for its own source model.
+func decodeStoredFlowScope(ctx context.Context, raw []byte, memory int64) (*reportFlowCapture, error) {
 	if err := admitFlowSnapshotValidity(ctx, raw, alert.SeasonalFlowScopeBytes, memory); err != nil {
 		return nil, err
 	}
@@ -224,9 +237,6 @@ func decodeSeasonalFlowScope(ctx context.Context, raw []byte, config alert.Seaso
 	capture := &reportFlowCapture{TenantID: req.TenantID, SourceGeneration: req.SourceGeneration, Inputs: inputs, Permissions: req.Permissions,
 		Contexts: req.Contexts, ContextsCaptured: req.ContextsCaptured, ContextSources: req.ContextSources, FilterVersions: req.FilterVersions}
 	if err := validateReportCapturedSources(capture); err != nil {
-		return nil, err
-	}
-	if err := validateStoredSeasonalFlowInputs(ctx, inputs, config, observed, slices.Contains(req.Permissions, permTagsRead), memory); err != nil {
 		return nil, err
 	}
 	for _, input := range inputs {

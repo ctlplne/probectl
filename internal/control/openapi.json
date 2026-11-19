@@ -2337,6 +2337,79 @@
         }
       }
     },
+    "/v1/alerts/rules/{id}/field-receipt": {
+      "get": {
+        "operationId": "getAlertFieldReceipt",
+        "summary": "Read exact source evidence for a scheduled field comparison",
+        "description": "The field episode points at a single admitted before and after window. Requires alert.read, current saved view access and all original source grants.",
+        "tags": [
+          "alerts"
+        ],
+        "x-required-permission": "alert.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fingerprint",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized field evaluation evidence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertFieldEvaluationEvidence"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/alerts/rules/{id}/query-group": {
       "get": {
         "operationId": "getAlertQueryGroup",
@@ -22810,7 +22883,8 @@
             "type": "string",
             "enum": [
               "threshold",
-              "new_group"
+              "new_group",
+              "field_change"
             ]
           },
           "metric": {
@@ -22832,6 +22906,10 @@
             "type": "string",
             "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
             "description": "Exact decimal string; never rounded through a JSON floating-point number."
+          },
+          "field": {
+            "$ref": "#/components/schemas/FlowFieldComparisonInput",
+            "description": "Field comparison policy with its version equal to the enclosing view_version. The schedule is a whole multiple of the window cadence."
           }
         },
         "oneOf": [
@@ -22845,7 +22923,12 @@
               "metric",
               "comparison",
               "threshold"
-            ]
+            ],
+            "not": {
+              "required": [
+                "field"
+              ]
+            }
           },
           {
             "properties": {
@@ -22869,10 +22952,86 @@
                   "required": [
                     "threshold"
                   ]
+                },
+                {
+                  "required": [
+                    "field"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "mode": {
+                "const": "field_change"
+              }
+            },
+            "required": [
+              "field"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "metric"
+                  ]
+                },
+                {
+                  "required": [
+                    "comparison"
+                  ]
+                },
+                {
+                  "required": [
+                    "threshold"
+                  ]
                 }
               ]
             }
           }
+        ]
+      },
+      "AlertFieldEvaluationEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "comparison": {
+            "$ref": "#/components/schemas/FlowFieldComparison"
+          },
+          "signals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertFieldSignalLink"
+            }
+          }
+        },
+        "required": [
+          "comparison",
+          "signals"
+        ]
+      },
+      "AlertFieldSignalLink": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "change_key": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "episode_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "change_key",
+          "episode_id",
+          "incident_id"
         ]
       },
       "AlertPathHealthSourceInput": {

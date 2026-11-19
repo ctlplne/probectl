@@ -102,13 +102,21 @@ func TestNativeSavedQueryAlertSchemasKeepExactDecimalAndClosedAuthority(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(schemas) != 5 {
-		t.Fatal("saved-query create/read/set/clear schemas incomplete")
+	if len(schemas) != 6 {
+		t.Fatal("saved-query configuration and receipt schemas incomplete")
 	}
 	for _, schema := range schemas {
 		if !json.Valid(schema) || strings.Contains(string(schema), "#/components/schemas/") {
 			t.Fatal("unresolved saved-query native input schema")
 		}
+	}
+	var receipt struct {
+		Required   []string `json:"required"`
+		Additional bool     `json:"additionalProperties"`
+	}
+	if json.Unmarshal(schemas["alert_field_receipt_get"], &receipt) != nil || receipt.Additional ||
+		!reflect.DeepEqual(receipt.Required, []string{"rule_id", "fingerprint"}) {
+		t.Fatal("field receipt schema did not pin the rule and exact reference")
 	}
 	var input struct {
 		Definitions map[string]json.RawMessage `json:"$defs"`

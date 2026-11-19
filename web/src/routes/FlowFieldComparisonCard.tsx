@@ -8,11 +8,17 @@ import { useId, useState } from 'react'
 import { useFlowFieldComparison, type SavedFlowQueryView } from '../api/flowViews'
 import type {
   FlowFieldChange,
+  FlowFieldComparison,
   FlowFieldComparisonInput,
   FlowFieldComparisonSlice,
   FlowFieldObservation,
 } from '../api/sdk.gen'
 import { Button, Card, CardBody, CardHeader, ErrorState, Field, Select } from '../components'
+import {
+  fieldComparisonPlan,
+  initialFieldComparison,
+  type FieldComparisonPlan,
+} from './flowFieldComparison'
 import styles from './flowExplorer.module.css'
 
 const modeOptions = [
@@ -81,181 +87,209 @@ function FieldObservation({ item }: { item?: FlowFieldObservation }) {
   )
 }
 
-export function FlowFieldComparisonCard({ view }: { view: SavedFlowQueryView }) {
-  const { plan, time } = view.definition
-  const measure = plan?.metrics?.find((metric) => metric.role === 'primary')
-  const period = time?.lookback_seconds ?? 0
-  if (
-    !measure ||
-    plan?.view !== 'table' ||
-    !plan.group_by?.length ||
-    time?.mode !== 'lookback' ||
-    ![60, 120, 300, 604800].includes(period)
-  )
-    return null
-
+export function FieldComparisonFields({
+  plan,
+  input,
+  onChange,
+}: {
+  plan: FieldComparisonPlan
+  input: FlowFieldComparisonInput
+  onChange: (input: FlowFieldComparisonInput) => void
+}) {
+  const update = (patch: Partial<FlowFieldComparisonInput>) => onChange({ ...input, ...patch })
+  const mode = input.mode
+  const choices = modeOptions.filter((option) => {
+    if (option.value === 'share') return additiveMeasures.has(input.measure)
+    if (option.value === 'fanout')
+      return plan.groupedBySource && input.measure === 'unique_dst:total'
+    return true
+  })
+  const number = (value: string) => (value === '' ? undefined : Number(value))
   return (
-    <FieldComparisonForm
-      id={view.id}
-      version={view.version}
-      measure={`${measure.measure}:${measure.calculation}`}
-      secondary={
-        plan.metrics
-          ?.filter((metric) => metric.role === 'secondary')
-          .slice(0, 2)
-          .map((metric) => `${metric.measure}:${metric.calculation}`) ?? []
-      }
-      groupedBySource={plan.group_by.includes('src_addr')}
-      period={period}
-    />
+    <>
+      <div className={styles.grid}>
+        <Select
+          label="Change type"
+          value={mode}
+          options={choices}
+          onChange={(event) => {
+            const next = event.target.value as FlowFieldComparisonInput['mode']
+            update({
+              mode: next,
+              minimum_change: next === 'share' ? undefined : '1',
+              minimum_rank_change: next === 'rank' ? 1 : undefined,
+              share_basis_points: next === 'share' ? 500 : undefined,
+              secondary_thresholds: next === 'rank' ? [] : undefined,
+            })
+          }}
+        />
+        {plan.period !== 604800 && (
+          <Select
+            label="Reference window"
+            value={input.cadence}
+            options={[
+              { value: 'previous_period', label: 'Previous period' },
+              { value: 'previous_week', label: 'Same time last week' },
+            ]}
+            onChange={(event) =>
+              update({ cadence: event.target.value as FlowFieldComparisonInput['cadence'] })
+            }
+          />
+        )}
+        <Field
+          label="Top keys"
+          type="number"
+          min={1}
+          max={300}
+          required
+          value={input.top_keys ?? ''}
+          onChange={(event) => update({ top_keys: number(event.target.value) })}
+        />
+        {mode === 'rank' && (
+          <Field
+            label="Minimum rank change"
+            type="number"
+            min={1}
+            max={input.top_keys}
+            required
+            value={input.minimum_rank_change ?? ''}
+            onChange={(event) => update({ minimum_rank_change: number(event.target.value) })}
+          />
+        )}
+        {mode === 'share' ? (
+          <Field
+            label="Minimum share change (basis points)"
+            type="number"
+            min={1}
+            max={10000}
+            required
+            value={input.share_basis_points ?? ''}
+            onChange={(event) => update({ share_basis_points: number(event.target.value) })}
+          />
+        ) : (
+          <Field
+            label={mode === 'rank' ? 'Minimum traffic amount' : 'Minimum amount change'}
+            inputMode={mode === 'fanout' ? 'numeric' : 'decimal'}
+            required
+            value={input.minimum_change ?? ''}
+            maxLength={256}
+            pattern={mode === 'fanout' ? '[0-9]+' : decimalPattern}
+            onChange={(event) => update({ minimum_change: event.target.value })}
+          />
+        )}
+        {mode === 'rank' &&
+          plan.secondary.map((key) => (
+            <Field
+              key={key}
+              label={`Minimum ${key}`}
+              value={
+                input.secondary_thresholds?.find((item) => item.measure === key)?.minimum ?? ''
+              }
+              inputMode="decimal"
+              pattern={decimalPattern}
+              maxLength={256}
+              onChange={(event) => {
+                const minimum = event.target.value
+                const thresholds = (input.secondary_thresholds ?? []).filter(
+                  (item) => item.measure !== key,
+                )
+                if (minimum) thresholds.push({ measure: key, minimum })
+                update({ secondary_thresholds: thresholds })
+              }}
+            />
+          ))}
+      </div>
+      {plan.period === 604800 && (
+        <p>Last seven complete days compared with the preceding seven days.</p>
+      )}
+    </>
   )
 }
 
-function FieldComparisonForm({
-  id,
-  version,
-  measure,
-  secondary,
-  groupedBySource,
-  period,
-}: {
-  id: string
-  version: string
-  measure: string
-  secondary: string[]
-  groupedBySource: boolean
-  period: number
-}) {
+export function FieldComparisonResults({ result }: { result: FlowFieldComparison }) {
   const region = useId()
-  const [mode, setMode] = useState<FlowFieldComparisonInput['mode']>('rank')
-  const [priorWeek, setPriorWeek] = useState(false)
-  const [topKeys, setTopKeys] = useState('25')
-  const [rankStep, setRankStep] = useState('1')
-  const [minimum, setMinimum] = useState('1')
-  const [basisPoints, setBasisPoints] = useState('500')
-  const [floors, setFloors] = useState<Record<string, string>>({})
-  const comparison = useFlowFieldComparison()
-  const completeWeek = period === 604800
-  const choices = modeOptions.filter((option) => {
-    if (option.value === 'share') return additiveMeasures.has(measure)
-    if (option.value === 'fanout') return groupedBySource && measure === 'unique_dst:total'
-    return true
-  })
-  const result = comparison.data
+  return (
+    <>
+      <dl className={styles.summary}>
+        <FieldWindow label="Before" window={result.before} />
+        <FieldWindow label="After" window={result.after} />
+      </dl>
+      <p id={region} role="status">
+        {result.changes.length
+          ? `${result.changes.length} field changes`
+          : 'No field changes met the comparison thresholds.'}
+      </p>
+      {result.changes.length > 0 && (
+        <ol className={styles.chartGroupList} aria-labelledby={region}>
+          {result.changes.map((change) => (
+            <li key={change.key}>
+              <strong>{changeLabels[change.kind]}</strong>
+              <dl className={styles.summary}>
+                {Object.entries(change.group).map(([field, value]) => (
+                  <div key={field}>
+                    <dt>{field}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+                <div>
+                  <dt>Before</dt>
+                  <dd>
+                    <FieldObservation item={change.before} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>After</dt>
+                  <dd>
+                    <FieldObservation item={change.after} />
+                  </dd>
+                </div>
+                {change.delta !== undefined && (
+                  <div>
+                    <dt>Change</dt>
+                    <dd>{change.delta}</dd>
+                  </div>
+                )}
+              </dl>
+            </li>
+          ))}
+        </ol>
+      )}
+    </>
+  )
+}
 
+export function FlowFieldComparisonCard({ view }: { view: SavedFlowQueryView }) {
+  const plan = fieldComparisonPlan(view)
+  if (!plan) return null
+  return <FieldComparisonForm view={view} plan={plan} />
+}
+
+function FieldComparisonForm({
+  view,
+  plan,
+}: {
+  view: SavedFlowQueryView
+  plan: FieldComparisonPlan
+}) {
+  const [input, setInput] = useState(() => initialFieldComparison(view.version, plan))
+  const comparison = useFlowFieldComparison()
   return (
     <Card>
-      <CardHeader title="Field changes" description={`Saved revision ${version} · ${measure}`} />
+      <CardHeader
+        title="Field changes"
+        description={`Saved revision ${view.version} · ${plan.measure}`}
+      />
       <CardBody className={styles.stack}>
         <form
           className={styles.stack}
           onSubmit={(event) => {
             event.preventDefault()
-            comparison.mutate({
-              id,
-              input: {
-                version,
-                measure,
-                mode,
-                top_keys: Number(topKeys),
-                cadence: completeWeek
-                  ? 'complete_week'
-                  : priorWeek
-                    ? 'previous_week'
-                    : 'previous_period',
-                period_seconds: completeWeek ? undefined : period,
-                minimum_change: mode === 'share' ? undefined : minimum,
-                minimum_rank_change: mode === 'rank' ? Number(rankStep) : undefined,
-                share_basis_points: mode === 'share' ? Number(basisPoints) : undefined,
-                secondary_thresholds:
-                  mode === 'rank'
-                    ? secondary
-                        .filter((key) => floors[key])
-                        .map((key) => ({ measure: key, minimum: floors[key] }))
-                    : undefined,
-              },
-            })
+            comparison.mutate({ id: view.id, input })
           }}
         >
           <fieldset className={styles.group} disabled={comparison.isPending}>
             <legend>Compare completed UTC windows</legend>
-            <div className={styles.grid}>
-              <Select
-                label="Change type"
-                value={mode}
-                options={choices}
-                onChange={(event) =>
-                  setMode(event.target.value as FlowFieldComparisonInput['mode'])
-                }
-              />
-              {!completeWeek && (
-                <Select
-                  label="Reference window"
-                  value={priorWeek ? 'week' : 'period'}
-                  options={[
-                    { value: 'period', label: 'Previous period' },
-                    { value: 'week', label: 'Same time last week' },
-                  ]}
-                  onChange={(event) => setPriorWeek(event.target.value === 'week')}
-                />
-              )}
-              <Field
-                label="Top keys"
-                type="number"
-                min={1}
-                max={300}
-                required
-                value={topKeys}
-                onChange={(event) => setTopKeys(event.target.value)}
-              />
-              {mode === 'rank' && (
-                <Field
-                  label="Minimum rank change"
-                  type="number"
-                  min={1}
-                  max={Number(topKeys)}
-                  required
-                  value={rankStep}
-                  onChange={(event) => setRankStep(event.target.value)}
-                />
-              )}
-              {mode === 'share' ? (
-                <Field
-                  label="Minimum share change (basis points)"
-                  type="number"
-                  min={1}
-                  max={10000}
-                  required
-                  value={basisPoints}
-                  onChange={(event) => setBasisPoints(event.target.value)}
-                />
-              ) : (
-                <Field
-                  label={mode === 'rank' ? 'Minimum traffic amount' : 'Minimum amount change'}
-                  inputMode={mode === 'fanout' ? 'numeric' : 'decimal'}
-                  required
-                  value={minimum}
-                  maxLength={256}
-                  pattern={mode === 'fanout' ? '[0-9]+' : decimalPattern}
-                  onChange={(event) => setMinimum(event.target.value)}
-                />
-              )}
-              {mode === 'rank' &&
-                secondary.map((key) => (
-                  <Field
-                    key={key}
-                    label={`Minimum ${key}`}
-                    inputMode="decimal"
-                    value={floors[key] ?? ''}
-                    pattern={decimalPattern}
-                    maxLength={256}
-                    onChange={(event) => setFloors({ ...floors, [key]: event.target.value })}
-                  />
-                ))}
-            </div>
-            {completeWeek && (
-              <p>Last seven complete days compared with the preceding seven days.</p>
-            )}
+            <FieldComparisonFields plan={plan} input={input} onChange={setInput} />
             <div>
               <Button type="submit">Compare fields</Button>
             </div>
@@ -265,54 +299,7 @@ function FieldComparisonForm({
         {comparison.isError && (
           <ErrorState title="Field comparison unavailable" description={comparison.error.message} />
         )}
-        {result && (
-          <>
-            <dl className={styles.summary}>
-              <FieldWindow label="Before" window={result.before} />
-              <FieldWindow label="After" window={result.after} />
-            </dl>
-            <p id={region} role="status">
-              {result.changes.length
-                ? `${result.changes.length} field changes`
-                : 'No field changes met the comparison thresholds.'}
-            </p>
-            {result.changes.length > 0 && (
-              <ol className={styles.chartGroupList} aria-labelledby={region}>
-                {result.changes.map((change) => (
-                  <li key={change.key}>
-                    <strong>{changeLabels[change.kind]}</strong>
-                    <dl className={styles.summary}>
-                      {Object.entries(change.group).map(([field, value]) => (
-                        <div key={field}>
-                          <dt>{field}</dt>
-                          <dd>{value}</dd>
-                        </div>
-                      ))}
-                      <div>
-                        <dt>Before</dt>
-                        <dd>
-                          <FieldObservation item={change.before} />
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>After</dt>
-                        <dd>
-                          <FieldObservation item={change.after} />
-                        </dd>
-                      </div>
-                      {change.delta !== undefined && (
-                        <div>
-                          <dt>Change</dt>
-                          <dd>{change.delta}</dd>
-                        </div>
-                      )}
-                    </dl>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </>
-        )}
+        {comparison.data && <FieldComparisonResults result={comparison.data} />}
       </CardBody>
     </Card>
   )

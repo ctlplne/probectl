@@ -47,6 +47,7 @@ import {
 } from '../remediation/proposalContext'
 import { DateTime } from '../time/DateTime'
 import { RoutingChangeMetadata } from './RoutingChangeMetadata'
+import { IncidentFieldReceipt } from './IncidentFieldReceipt'
 import { IncidentClock, type IncidentClockItem, type IncidentClockLane } from '../viz/IncidentClock'
 import { useI18n } from '../i18n/useI18n'
 import type { MessageKey } from '../i18n/messages'
@@ -706,6 +707,10 @@ export function IncidentRoom({
             configHref={configHref}
             t={t}
           />
+
+          {!sharedArtifactID ? (
+            <IncidentFieldReceipt signal={selectedSignal?.signal} incidentID={roomIncident.id} />
+          ) : null}
 
           {!sharedArtifactID ? (
             <EntityCurrentPivot ips={currentPivotIPs} source="incident" />

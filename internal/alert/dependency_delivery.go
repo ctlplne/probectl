@@ -100,6 +100,7 @@ func (en *Engine) evaluateDependencyRule(ctx context.Context, rule Rule, read Ru
 		if !present {
 			continue
 		}
+		candidate.fieldIncidentPublished = read.FieldIncidents && candidate.State == StateFiring
 		attempt := DependencyAttempt{Alert: candidate, NotificationDue: due, PreviouslyHeld: held, FiringSince: since, LastNotified: previous, RuleUpdatedAt: rule.UpdatedAt}
 		attempts = append(attempts, attempt)
 		entries = append(entries, dependencyDelivery{attempt: attempt, key: stateKey(rule.ID, s.Labels), since: since, lastNotified: previous, pending: pending})
@@ -184,7 +185,7 @@ func (en *Engine) applyDependencyDelivery(ctx context.Context, rule Rule, entry 
 	if send && en.notifier != nil {
 		en.notifier.Deliver(ctx, rule, a)
 	}
-	if !outcome.IncidentPublished && (entry.attempt.NotificationDue || entry.attempt.PreviouslyHeld) && en.sink != nil {
+	if !outcome.IncidentPublished && !a.fieldIncidentPublished && (entry.attempt.NotificationDue || entry.attempt.PreviouslyHeld) && en.sink != nil {
 		en.sink(ctx, a)
 	}
 	if entry.pending != nil && en.onNotify != nil {

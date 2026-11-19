@@ -322,6 +322,17 @@ type AlertEvaluationsResponse struct {
 	Truncated          bool                     `json:"truncated"`
 }
 
+type AlertFieldEvaluationEvidence struct {
+	Comparison FlowFieldComparison    `json:"comparison"`
+	Signals    []AlertFieldSignalLink `json:"signals"`
+}
+
+type AlertFieldSignalLink struct {
+	ChangeKey  string `json:"change_key"`
+	EpisodeId  string `json:"episode_id"`
+	IncidentId string `json:"incident_id"`
+}
+
 type AlertList struct {
 	Items []AlertRule `json:"items,omitempty"`
 }
@@ -344,10 +355,11 @@ type AlertPathHealthSourceState struct {
 }
 
 type AlertQueryCondition struct {
-	Comparison string `json:"comparison,omitempty"`
-	Metric     string `json:"metric,omitempty"`
-	Mode       string `json:"mode"`
-	Threshold  string `json:"threshold,omitempty"`
+	Comparison string                   `json:"comparison,omitempty"`
+	Field      FlowFieldComparisonInput `json:"field,omitzero"`
+	Metric     string                   `json:"metric,omitempty"`
+	Mode       string                   `json:"mode"`
+	Threshold  string                   `json:"threshold,omitempty"`
 }
 
 // Fresh manual query under the actual reader current source permissions. This is not a historical firing receipt. Baseline, schedule, incident and delivery state are unchanged. Absent groups return no source values.
@@ -4824,6 +4836,29 @@ func (c *Client) ClearAlertDependencyPolicy(ctx context.Context, req ClearAlertD
 	query := url.Values{}
 	var out AlertDependencyPolicyState
 	if err := c.doJSON(ctx, http.MethodDelete, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read exact source evidence for a scheduled field comparison
+type GetAlertFieldReceiptRequest struct {
+	Id          string  `json:"-"`
+	Fingerprint *string `json:"-"`
+}
+
+func (c *Client) GetAlertFieldReceipt(ctx context.Context, req GetAlertFieldReceiptRequest) (*AlertFieldEvaluationEvidence, error) {
+	path := "/v1/alerts/rules/{id}/field-receipt"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.Fingerprint != nil {
+		query.Set("fingerprint", formatQueryValue(*req.Fingerprint))
+	}
+	var out AlertFieldEvaluationEvidence
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

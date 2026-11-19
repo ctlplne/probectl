@@ -616,6 +616,33 @@ with `GET /v1/alerts/rules/{id}/query-group?group=HANDLE`, CLI
 `probectl alert query-group ID --query group=HANDLE`, or native MCP
 `alert_query_group_get`. Historical source-value reconstruction remains unproven.
 
+### Scheduled field comparisons
+
+Choose **Change across completed flow windows** in the saved-query alert editor.
+Pick a grouped table with a 60, 120 or 300 second lookback, or a seven-day
+lookback. The editor uses the saved primary measure and the same rank, amount,
+share and destination fan-out settings as **Compare fields** in Explorer.
+Set the read interval to a whole multiple of the comparison window. Seven-day
+comparisons advance on complete UTC days and use a daily default interval.
+
+A qualifying field episode creates an incident signal and commits its exact
+source receipt in the same transaction as the rule's next evaluation time.
+Consecutive qualifying windows keep the same episode. A complete normal window
+ends it. An unavailable source leaves the current episode state in place.
+Notification delivery still follows the rule's configured holds and channels.
+
+Select a field signal in the incident inspector and choose **Show exact field
+evidence**. The receipt includes the original before and after clocks, the
+observed values and the resulting incident link. The reader needs `alert.read`,
+the saved view and its current source grants. The private evidence follows
+the alert evaluation ledger's existing retention and subject erasure rules.
+
+The `query_source.condition` uses `mode: "field_change"` and a `field` settings
+object. Its `version` must equal the enclosing `view_version`. The CLI reads a
+cited receipt with `probectl alert field-receipt ID --query fingerprint=HANDLE`.
+The same read is available through `GET /v1/alerts/rules/{id}/field-receipt`,
+the generated SDK and native MCP `alert_field_receipt_get`.
+
 ## Notification dependency configuration (preview)
 
 `GET|PUT|DELETE /v1/alerts/rules/{id}/dependency-policy` manages a rule's

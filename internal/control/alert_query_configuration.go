@@ -124,18 +124,34 @@ func (s *Server) prepareAlertQuery(ctx context.Context, actor *auth.Principal, i
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := alertQuerySnapshot(ctx, actor.TenantID, source, capture, budget.MemoryBytes/8)
-	if err == nil {
-		// Admission has no effects or persisted state. The view ID supplies a
-		// local draft namespace before a new rule has its own database ID.
-		_, _, err = alert.EvaluateQueryGroups(ctx, source.Binding(actor.TenantID, source.ViewID), snapshot, alert.QueryGroupState{},
-			alert.QueryGroupBudget{MemoryBytes: budget.MemoryBytes / 4, WorkUnits: budget.MemoryBytes / 4})
-	}
-	if err != nil {
+	if err := validateAlertQueryDraft(ctx, actor.TenantID, source, capture, budget); err != nil {
 		capture.Close()
 		return nil, err
 	}
 	return &preparedAlertQuery{ctx: ctx, cancel: cancel, source: source, capture: capture, ceiling: ceiling}, nil
+}
+
+func validateAlertQueryDraft(ctx context.Context, tenant string, source alert.QuerySource, capture *reportFlowCapture, budget flowstore.ExplorerBudget) error {
+	if source.Condition.Field != nil {
+		settings := fieldComparisonSettings(source.ViewID, *source.Condition.Field)
+		if capture == nil || capture.TenantID != tenant || len(capture.Results) == 0 {
+			return alert.ErrQueryGroups
+		}
+		original := capture.Results[0]
+		if original.TenantID != tenant || original.ID != source.ViewID || original.Version != source.ViewVersion || original.Period != "current" {
+			return alert.ErrQueryGroups
+		}
+		return settings.validatePlan(original.Result.Query)
+	}
+	snapshot, err := alertQuerySnapshot(ctx, tenant, source, capture, budget.MemoryBytes/8)
+	if err != nil {
+		return err
+	}
+	// Admission has no effects or persisted state. The view ID supplies a
+	// local draft namespace before a new rule has its own database ID.
+	_, _, err = alert.EvaluateQueryGroups(ctx, source.Binding(tenant, source.ViewID), snapshot, alert.QueryGroupState{},
+		alert.QueryGroupBudget{MemoryBytes: budget.MemoryBytes / 4, WorkUnits: budget.MemoryBytes / 4})
+	return err
 }
 
 func (s *Server) recordAlertQueryAudit(ctx context.Context, sc tenancy.Scope, actor, action, id string, source *alert.QuerySource) error {

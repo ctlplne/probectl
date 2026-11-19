@@ -24,13 +24,16 @@ import (
 
 var ErrQueryGroups = errors.New("alert: complete current saved-query groups are unavailable")
 
+const FieldChangeCondition = "field_change"
+
 // QueryCondition compares the selected metric as an exact decimal, or watches
 // the complete selected group set for new members. It contains no SQL or grant.
 type QueryCondition struct {
-	Mode       string     `json:"mode"`
-	Metric     string     `json:"metric,omitempty"`
-	Comparison Comparison `json:"comparison,omitempty"`
-	Threshold  string     `json:"threshold,omitempty"`
+	Mode       string                     `json:"mode"`
+	Metric     string                     `json:"metric,omitempty"`
+	Comparison Comparison                 `json:"comparison,omitempty"`
+	Threshold  string                     `json:"threshold,omitempty"`
+	Field      *flow.FieldComparisonInput `json:"field,omitempty"`
 }
 
 // QueryGroupBinding is server-bound configuration. Current source/actor
@@ -85,8 +88,12 @@ func (c QueryCondition) Validate(metrics []flow.QueryMetric) error {
 	if c.Mode == "new_group" {
 		return nil
 	}
+	measure := c.Metric
+	if c.Field != nil {
+		measure = c.Field.Measure
+	}
 	for _, metric := range metrics {
-		if c.Metric == metric.Measure+":"+metric.Calculation {
+		if measure == metric.Measure+":"+metric.Calculation && (c.Field == nil || metric.Role == "primary") {
 			return nil
 		}
 	}
@@ -94,6 +101,15 @@ func (c QueryCondition) Validate(metrics []flow.QueryMetric) error {
 }
 
 func (c QueryCondition) validateShape() error {
+	if c.Mode == FieldChangeCondition {
+		if c.Field == nil || c.Metric != "" || c.Comparison != "" || c.Threshold != "" {
+			return ErrQueryGroups
+		}
+		return c.Field.Validate()
+	}
+	if c.Field != nil {
+		return ErrQueryGroups
+	}
 	if c.Mode == "new_group" && c.Metric == "" && c.Comparison == "" && c.Threshold == "" {
 		return nil
 	}
@@ -287,6 +303,9 @@ func EvaluateQueryGroups(ctx context.Context, binding QueryGroupBinding, snapsho
 	tenant, bound := tenancy.FromContext(ctx)
 	if !bound || tenant.String() != binding.TenantID {
 		return nil, QueryGroupState{}, tenancy.ErrNoTenant
+	}
+	if binding.Condition.Mode == FieldChangeCondition || binding.Condition.Field != nil {
+		return nil, QueryGroupState{}, ErrQueryGroups
 	}
 	if budget.MemoryBytes <= 0 || budget.WorkUnits <= 0 || !snapshot.Complete || snapshot.At.IsZero() || snapshot.TenantID != binding.TenantID || snapshot.ViewID != binding.ViewID || snapshot.ViewVersion != binding.ViewVersion {
 		return nil, QueryGroupState{}, ErrQueryGroups

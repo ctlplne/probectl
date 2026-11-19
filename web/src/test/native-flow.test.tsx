@@ -218,7 +218,7 @@ describe('native flow workspace', () => {
     })
     mount('/explore?native_flow=1&flow_view=view-red')
     const compare = await screen.findByRole('button', { name: 'Compare fields' })
-    await userEvent.selectOptions(screen.getByLabelText('Reference window'), 'week')
+    await userEvent.selectOptions(screen.getByLabelText('Reference window'), 'previous_week')
     await userEvent.clear(screen.getByLabelText('Top keys'))
     await userEvent.type(screen.getByLabelText('Top keys'), '300')
     await userEvent.click(compare)

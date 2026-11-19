@@ -25,6 +25,13 @@ func (b mcpTagMutationBackend) AlertQueryGroupGet(ctx context.Context, p *auth.P
 	return b.server.readAlertQueryGroup(ctx, p, input.RuleID, input.Group)
 }
 
+func (b mcpTagMutationBackend) AlertFieldReceiptGet(ctx context.Context, p *auth.Principal, input mcp.AlertFieldReceiptInput) (alert.FieldEvaluationEvidence, error) {
+	if b.server == nil {
+		return alert.FieldEvaluationEvidence{}, apierror.Unavailable("field receipt inspection is unavailable")
+	}
+	return b.server.readAlertFieldReceipt(ctx, p, input.RuleID, input.Fingerprint, mcp.CheckOriginatingCredential, mcp.RetainNativePublication)
+}
+
 func (b mcpTagMutationBackend) AlertQueryCreate(ctx context.Context, p *auth.Principal, input alert.QueryRuleInput) (alert.Rule, error) {
 	if b.server == nil {
 		return alert.Rule{}, apierror.Unavailable("saved-query alerts are unavailable")
@@ -70,6 +77,7 @@ func alertQueryToolSchemas() (map[string]json.RawMessage, error) {
 	}
 	return alertConfigurationToolSchemas(map[string]any{
 		"alert_query_group_get":    object(map[string]any{"rule_id": id, "group": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "rule_id", "group"),
+		"alert_field_receipt_get":  object(map[string]any{"rule_id": id, "fingerprint": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "rule_id", "fingerprint"),
 		"alert_query_create":       map[string]any{"$ref": "#/components/schemas/SavedQueryAlertCreateInput"},
 		"alert_query_source_get":   object(map[string]any{"rule_id": id}, "rule_id"),
 		"alert_query_source_set":   object(map[string]any{"rule_id": id, "input": map[string]any{"$ref": "#/components/schemas/AlertQuerySourceInput"}}, "rule_id", "input"),

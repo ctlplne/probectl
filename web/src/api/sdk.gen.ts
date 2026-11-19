@@ -242,6 +242,17 @@ export interface AlertEvaluationsResponse {
   truncated: boolean
 }
 
+export interface AlertFieldEvaluationEvidence {
+  comparison: FlowFieldComparison
+  signals: AlertFieldSignalLink[]
+}
+
+export interface AlertFieldSignalLink {
+  change_key: string
+  episode_id: string
+  incident_id: string
+}
+
 export interface AlertList {
   items?: AlertRule[]
 }
@@ -263,8 +274,9 @@ export interface AlertPathHealthSourceState {
 
 export interface AlertQueryCondition {
   comparison?: "gt" | "gte" | "lt" | "lte" | "eq" | "neq"
+  field?: FlowFieldComparisonInput
   metric?: string
-  mode: "threshold" | "new_group"
+  mode: "threshold" | "new_group" | "field_change"
   threshold?: string
 }
 
@@ -4245,6 +4257,13 @@ export interface ClearAlertDependencyPolicyRequest {
 
 export type ClearAlertDependencyPolicyResponse = AlertDependencyPolicyState
 
+export interface GetAlertFieldReceiptRequest {
+  id: string
+  fingerprint: string
+}
+
+export type GetAlertFieldReceiptResponse = AlertFieldEvaluationEvidence
+
 export interface GetAlertPathHealthSourceRequest {
   id: string
 }
@@ -6193,6 +6212,14 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<ClearAlertDependencyPolicyResponse>("DELETE", path, query, undefined)
+  }
+
+  async getAlertFieldReceipt(request: GetAlertFieldReceiptRequest): Promise<GetAlertFieldReceiptResponse> {
+    let path = "/v1/alerts/rules/{id}/field-receipt"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.fingerprint !== undefined) query.set("fingerprint", String(request.fingerprint))
+    return this.requestJSON<GetAlertFieldReceiptResponse>("GET", path, query, undefined)
   }
 
   async getAlertPathHealthSource(request: GetAlertPathHealthSourceRequest): Promise<GetAlertPathHealthSourceResponse> {

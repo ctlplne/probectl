@@ -291,6 +291,7 @@ func (s *Server) alertRoutes() []apiRoute {
 		{http.MethodPut, "/v1/alerts/rules/{id}/tag-filter", s.handlePutAlertTagFilter, permAlertWrite},
 		{http.MethodDelete, "/v1/alerts/rules/{id}/tag-filter", s.handleDeleteAlertTagFilter, permAlertWrite},
 		{http.MethodGet, "/v1/alerts/rules/{id}/query-group", s.handleGetAlertQueryGroup, permAlertRead},
+		{http.MethodGet, "/v1/alerts/rules/{id}/field-receipt", s.handleGetAlertFieldReceipt, permAlertRead},
 		{http.MethodGet, "/v1/alerts/rules/{id}/query-source", s.handleGetAlertQuerySource, permAlertRead},
 		{http.MethodPut, "/v1/alerts/rules/{id}/query-source", s.handlePutAlertQuerySource, permAlertWrite},
 		{http.MethodDelete, "/v1/alerts/rules/{id}/query-source", s.handleDeleteAlertQuerySource, permAlertWrite},

@@ -16,7 +16,7 @@ import {
   type AlertQuerySourceInput,
   type AlertQuerySourceState,
 } from '../api/alerts'
-import { useFlowQueryView, useFlowQueryViews } from '../api/flowViews'
+import { useFlowQueryView, useFlowQueryViews, type SavedFlowQueryView } from '../api/flowViews'
 import {
   Button,
   ConfirmDialog,
@@ -27,6 +27,8 @@ import {
   Select,
 } from '../components'
 import { DateTime } from '../time/DateTime'
+import { FieldComparisonFields } from './FlowFieldComparisonCard'
+import { fieldComparisonPlan, initialFieldComparison } from './flowFieldComparison'
 import styles from './alerts.module.css'
 
 type State =
@@ -207,11 +209,20 @@ function QuerySourceContents({
               onChange={setInput}
             />
             <p>
-              New-group mode warms the initial complete top set without firing, then alerts on newly
-              selected groups. The schedule is a minimum separation; actual evaluation follows the
-              configured alert tick.
+              {input.condition.mode === 'field_change'
+                ? 'Each qualifying episode cites the completed before and after windows in its incident.'
+                : 'New-group mode learns the initial complete top set, then alerts on newly selected groups.'}
+              {' Actual evaluation follows the configured alert tick.'}
             </p>
-            <Button type="submit" disabled={!canWrite || !input.view_id || !input.view_version}>
+            <Button
+              type="submit"
+              disabled={
+                !canWrite ||
+                !input.view_id ||
+                !input.view_version ||
+                (input.condition.mode === 'field_change' && !input.condition.field)
+              }
+            >
               {rule ? 'Save current source' : 'Create query alert'}
             </Button>
           </form>
@@ -261,6 +272,35 @@ function QuerySourceEditor({
   const selected = views.data?.items.find((item) => item.id === value.view_id)
   const current = useFlowQueryView(value.view_id || undefined, identity)
   const source = current.data?.id === value.view_id ? current.data : selected
+  const fieldPlan = fieldComparisonPlan(source)
+  const condition = value.condition
+  const fieldInterval =
+    condition.mode === 'field_change' && condition.field
+      ? (condition.field.period_seconds ?? 86400)
+      : 1
+  const bindQuery = (item: SavedFlowQueryView) => {
+    const next = { ...value, view_id: item.id, view_version: item.version }
+    if (condition.mode === 'field_change') {
+      const plan = fieldComparisonPlan(item)
+      const field = plan && initialFieldComparison(item.version, plan)
+      const prior = condition.field
+      const compatible =
+        plan &&
+        field &&
+        prior &&
+        value.view_id === item.id &&
+        prior.measure === field.measure &&
+        prior.period_seconds === field.period_seconds &&
+        prior.secondary_thresholds?.every((limit) => plan.secondary.includes(limit.measure)) !==
+          false
+      next.condition = {
+        mode: 'field_change',
+        field: compatible ? { ...prior, version: item.version } : field,
+      }
+      next.every_seconds = compatible ? next.every_seconds : (field?.period_seconds ?? 86400)
+    }
+    onChange(next)
+  }
   const metrics = (source?.definition.plan?.metrics ?? []).map((metric) => ({
     value: `${metric.measure}:${metric.calculation}`,
     label: `${metric.measure} · ${metric.calculation}`,
@@ -284,7 +324,6 @@ function QuerySourceEditor({
       value: value.view_id,
       label: `Selected query ${value.view_id} · revision ${value.view_version}`,
     })
-  const condition = value.condition
   return (
     <fieldset className={styles.metadataEditor} disabled={disabled}>
       <legend>Saved Explorer source and grouped condition</legend>
@@ -306,13 +345,13 @@ function QuerySourceEditor({
         options={options}
         onChange={(e) => {
           const item = views.data?.items.find((item) => item.id === e.target.value)
-          if (item) onChange({ ...value, view_id: item.id, view_version: item.version })
+          if (item) bindQuery(item)
         }}
         required
       />
       <p>Bound revision: {value.view_version || 'choose a query'}</p>
       {source && source.version !== value.view_version ? (
-        <Button type="button" onClick={() => onChange({ ...value, view_version: source.version })}>
+        <Button type="button" onClick={() => bindQuery(source)}>
           Bind current revision {source.version}
         </Button>
       ) : null}
@@ -338,21 +377,32 @@ function QuerySourceEditor({
         options={[
           { value: 'new_group', label: 'New group in the selected top set' },
           { value: 'threshold', label: 'Metric threshold for each group' },
+          ...(fieldPlan || condition.mode === 'field_change'
+            ? [{ value: 'field_change', label: 'Change across completed flow windows' }]
+            : []),
         ]}
-        onChange={(e) =>
-          onChange({
-            ...value,
-            condition:
-              e.target.value === 'new_group'
-                ? { mode: 'new_group' }
-                : {
-                    mode: 'threshold',
-                    metric: metrics[0]?.value ?? '',
-                    comparison: 'gt',
-                    threshold: '0',
-                  },
-          })
-        }
+        onChange={(e) => {
+          if (e.target.value === 'field_change' && fieldPlan) {
+            const field = initialFieldComparison(value.view_version, fieldPlan)
+            onChange({
+              ...value,
+              every_seconds: field.period_seconds ?? 86400,
+              condition: { mode: 'field_change', field },
+            })
+          } else if (e.target.value === 'new_group') {
+            onChange({ ...value, condition: { mode: 'new_group' } })
+          } else {
+            onChange({
+              ...value,
+              condition: {
+                mode: 'threshold',
+                metric: metrics[0]?.value ?? '',
+                comparison: 'gt',
+                threshold: '0',
+              },
+            })
+          }
+        }}
       />
       {condition.mode === 'threshold' ? (
         <>
@@ -394,12 +444,25 @@ function QuerySourceEditor({
           />
         </>
       ) : null}
+      {condition.mode === 'field_change' &&
+        (fieldPlan && condition.field ? (
+          <FieldComparisonFields
+            plan={fieldPlan}
+            input={condition.field}
+            onChange={(field) => onChange({ ...value, condition: { mode: 'field_change', field } })}
+          />
+        ) : (
+          <p>
+            Choose a saved grouped table with a 60, 120 or 300 second lookback, or a seven-day
+            lookback.
+          </p>
+        ))}
       <Field
         label="Minimum seconds between reads"
         type="number"
-        min={1}
+        min={fieldInterval}
         max={9223372036}
-        step={1}
+        step={fieldInterval}
         value={String(value.every_seconds ?? 60)}
         onChange={(e) => onChange({ ...value, every_seconds: Number(e.target.value) })}
         required

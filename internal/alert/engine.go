@@ -50,6 +50,7 @@ type RuleMetricRead struct {
 	TagSelection        *TagSelectionReceipt
 	QuerySelection      *QuerySelection
 	SeasonalPublication *SeasonalReadPublication
+	FieldIncidents      bool
 	Skip                bool
 }
 
@@ -312,6 +313,7 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 		alert, notify, receipt, pending := en.evalSample(rule, s, read.TagSelection)
 		en.recordEvaluation(ctx, receipt)
 		if notify {
+			alert.fieldIncidentPublished = read.FieldIncidents && alert.State == StateFiring
 			en.deliver(ctx, rule, alert)
 			// RTO-20: persist the notification bookkeeping after delivery, on the
 			// evaluation goroutine (ticks are serialized per engine), so the write
@@ -331,7 +333,7 @@ func (en *Engine) deliver(ctx context.Context, rule Rule, alert Alert) {
 	if en.notifier != nil {
 		en.notifier.Deliver(ctx, rule, alert)
 	}
-	if en.sink != nil {
+	if en.sink != nil && !alert.fieldIncidentPublished {
 		en.sink(ctx, alert)
 	}
 }
@@ -463,6 +465,9 @@ func (en *Engine) samples(ctx context.Context, rule Rule) (RuleMetricRead, error
 		}
 		if err := ctx.Err(); err != nil {
 			return RuleMetricRead{}, err
+		}
+		if read.FieldIncidents && (rule.Metric != QueryMetric || read.Skip) {
+			return RuleMetricRead{}, ErrQueryGroups
 		}
 		if selectedSourceMetric(rule.Metric) {
 			if rule.HasTagFilter || read.TagSelection != nil {

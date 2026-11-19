@@ -43,6 +43,13 @@ export const API_CALL_CONTRACTS = [
     generated: 'GetAlertSeasonalSourceResponse',
   },
   {
+    file: 'api/alerts.ts',
+    method: 'GET',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/field-receipt?fingerprint=${encodeURIComponent(fingerprint)}`',
+    response: 'AlertFieldEvaluationEvidence',
+    generated: 'GetAlertFieldReceiptResponse',
+  },
+  {
     file: 'api/alertDependencies.ts',
     method: 'GET',
     path: '`/alerts/rules/${encodeURIComponent(ruleID)}/dependency-policy`',

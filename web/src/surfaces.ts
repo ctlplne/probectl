@@ -479,7 +479,30 @@ export const SURFACES: SurfaceDecl[] = [
         'test:internal/control/flow_field_sources_integration_test.go:TestFieldComparisonReadsExactOwnedTopThreeHundred',
         'test:internal/control/flow_field_served_integration_test.go:TestFieldComparisonServedKeepsBothTenantsAndThemes',
       ],
-      note: 'The paired tenant ClickHouse reader and TLS API preserve exact top-300 evidence. The served browser proof uses controlled source records in both themes. Scheduled signals remain in development.',
+      note: 'The paired tenant ClickHouse reader and TLS API preserve exact top-300 evidence. The served browser proof uses controlled source records in both themes.',
+    },
+  },
+  {
+    capability: 'Scheduled field incidents and exact source receipts',
+    featureIds: ['F8', 'F17'],
+    sprint: 'FX-17',
+    kind: 'native',
+    route: '/alerts',
+    evidence: [
+      'openapi:/v1/alerts/rules/{id}/field-receipt',
+      'cli:probectl alert field-receipt',
+      'file:web/src/routes/AlertQuerySourceDialog.tsx',
+      'file:web/src/routes/IncidentFieldReceipt.tsx',
+    ],
+    liveReceipt: {
+      status: 'live-green',
+      evidence: [
+        'ci:.github/workflows/ci.yml:make test-integration',
+        'test:internal/control/alert_field_source_integration_test.go:TestScheduledFieldChangeCommitsOneCitedTenantEpisode',
+        'test:internal/control/alert_field_served_integration_test.go:TestScheduledFieldEditorAndReceiptServedInBothThemes',
+        'test:internal/tenantlife/alert_seasonal_flow_subject_integration_test.go:TestScheduledFieldReceiptSubjectErasureKeepsSiblingAndStructuralReferences',
+      ],
+      note: 'The paired tenant evaluator retains one exact cited episode across retries and restart. The production browser editor and receipt viewer use controlled original flow records in both themes.',
     },
   },
   {

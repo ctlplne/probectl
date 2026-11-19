@@ -6,7 +6,13 @@
 
 package flow
 
-import "time"
+import (
+	"errors"
+	"strings"
+	"time"
+)
+
+const MaxFieldComparisonKeys = 300
 
 // FieldComparisonInput pins an observed saved view revision. The server
 // chooses completed UTC windows and uses the view's retained filters.
@@ -66,4 +72,82 @@ type FieldObservation struct {
 	Secondary map[string]string `json:"secondary,omitempty"`
 	Share     string            `json:"share,omitempty"`
 	Citation  string            `json:"citation"`
+}
+
+// WithDefaults applies the same defaults for an immediate or scheduled comparison.
+func (input FieldComparisonInput) WithDefaults() FieldComparisonInput {
+	if input.TopKeys == 0 {
+		input.TopKeys = 25
+	}
+	if input.Mode == "rank" {
+		if input.MinimumRankChange == 0 {
+			input.MinimumRankChange = 1
+		}
+		if input.MinimumChange == "" {
+			input.MinimumChange = "0"
+		}
+	}
+	return input
+}
+
+// Validate checks configuration only. The consumer still binds the tenant,
+// authorizes the exact saved plan and verifies complete source coverage.
+func (input FieldComparisonInput) Validate() error {
+	if _, err := QueryViewVersion(input.Version); err != nil || input.TopKeys < 1 || input.TopKeys > MaxFieldComparisonKeys ||
+		input.Measure == "" || len(input.Measure) > 64 || len(input.SecondaryThresholds) > 2 {
+		return errors.New("a saved query revision, primary measure and between 1 and 300 top keys are required")
+	}
+	switch input.Cadence {
+	case "complete_week":
+		if input.PeriodSeconds != 0 {
+			return errors.New("a complete-week comparison uses two seven-day windows")
+		}
+	case "previous_period", "previous_week":
+		if input.PeriodSeconds != 60 && input.PeriodSeconds != 120 && input.PeriodSeconds != 300 {
+			return errors.New("field comparison windows must be 60, 120 or 300 seconds")
+		}
+	default:
+		return errors.New("unknown flow field comparison cadence")
+	}
+	if input.Mode != "rank" && (input.MinimumRankChange != 0 || len(input.SecondaryThresholds) != 0) ||
+		input.Mode != "share" && input.ShareBasisPoints != 0 {
+		return errors.New("field comparison thresholds must match its mode")
+	}
+	switch input.Mode {
+	case "rank":
+		if input.MinimumRankChange < 1 || input.MinimumRankChange > input.TopKeys || !flowFieldDecimal(input.MinimumChange, false, false) {
+			return errors.New("rank comparison requires a rank step and a nonnegative traffic floor")
+		}
+		seen := map[string]bool{input.Measure: true}
+		for _, threshold := range input.SecondaryThresholds {
+			if threshold.Measure == "" || len(threshold.Measure) > 64 || seen[threshold.Measure] || !flowFieldDecimal(threshold.Minimum, false, false) {
+				return errors.New("secondary thresholds need distinct measures and nonnegative decimal floors")
+			}
+			seen[threshold.Measure] = true
+		}
+	case "amount", "fanout":
+		if !flowFieldDecimal(input.MinimumChange, true, input.Mode == "fanout") {
+			return errors.New("amount and fan-out comparison require a positive change floor, in whole destinations for fan-out")
+		}
+	case "share":
+		if input.ShareBasisPoints < 1 || input.ShareBasisPoints > 10000 || input.MinimumChange != "" {
+			return errors.New("share comparison needs a floor between 1 and 10000 basis points")
+		}
+	default:
+		return errors.New("unknown flow field comparison mode")
+	}
+	return nil
+}
+
+func flowFieldDecimal(value string, positive, integer bool) bool {
+	if len(value) > 256 {
+		return false
+	}
+	whole, fraction, hasDot := strings.Cut(value, ".")
+	if whole == "" || hasDot && (integer || fraction == "") {
+		return false
+	}
+	digits := whole + fraction
+	return strings.IndexFunc(digits, func(r rune) bool { return r < '0' || r > '9' }) == -1 &&
+		(!positive || strings.Trim(digits, "0") != "")
 }

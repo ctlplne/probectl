@@ -78,6 +78,79 @@ func TestSeasonalFlowEvidenceSubjectErasureIncludesOriginalRoutingScope(t *testi
 	}
 }
 
+func TestScheduledFieldReceiptSubjectErasureKeepsSiblingAndStructuralReferences(t *testing.T) {
+	admin := itPool(t)
+	t.Cleanup(admin.Close)
+	testsupport.LockPostgresPublicCatalog(t, admin)
+	pool := flowQueryRuntime(t, admin)
+	red := mkTenant(t, admin, "field-subject-red-"+flowQueryUUID(t))
+	blue := mkTenant(t, admin, "field-subject-blue-"+flowQueryUUID(t))
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.Background(), `DELETE FROM tenants WHERE id=ANY($1::uuid[])`, []string{red, blue}); err != nil {
+			t.Error(err)
+		}
+	})
+	const subject = "192.0.2.141"
+	viewID := flowQueryUUID(t)
+	group, route, unrelated := strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64)
+	for _, tenant := range []string{red, blue} {
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		if err := tenancy.InTenant(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+			rule, err := (store.AlertRules{}).Create(ctx, sc, alert.Rule{Name: "Owned scheduled field", Type: alert.Threshold, Metric: alert.QueryMetric, Comparison: alert.GTE,
+				Threshold: 1, Severity: alert.SeverityWarning})
+			if err != nil {
+				return err
+			}
+			for _, item := range []struct{ key, groupAddress, routingAddress string }{
+				{group, subject, "192.0.2.250"}, {route, "192.0.2.251", subject}, {unrelated, "192.0.2.252", "192.0.2.253"},
+			} {
+				body, err := json.Marshal(map[string]any{"version": 1,
+					"scope": map[string]any{"version": 1, "tenant_id": tenant,
+						"inputs": []any{map[string]any{"id": viewID, "routing": map[string]any{"captures": []any{map[string]string{"src": item.routingAddress}}}}}},
+					"evidence": map[string]any{"comparison": map[string]any{"view_id": viewID,
+						"changes": []any{map[string]any{"group": map[string]string{"src_addr": item.groupAddress}}}}}})
+				if err != nil {
+					return err
+				}
+				receipt := alert.EvaluationReceipt{ContractVersion: alert.EvaluationReceiptVersion, RuleID: rule.ID,
+					Fingerprint: item.key, RuleRevision: rule.UpdatedAt.UTC().Format(time.RFC3339Nano), State: alert.EvaluationFiring,
+					ObservedAt: time.Now().UTC(), Expectation: alert.EvaluationExpectation{Kind: alert.Threshold}, RequiredBreaches: 1}
+				if err := (store.AlertEvaluations{}).AppendFieldReceipt(ctx, sc, rule.UpdatedAt, receipt, body, 1<<20); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := New(pool, nil, nil, nil, nil, "owned scheduled field scope", testLog())
+	const receiptPath = "postgres/alert_evaluation_receipts.jsonl"
+	var archive bytes.Buffer
+	if _, err := engine.ExportSubject(t.Context(), red, viewID, &archive, false); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(readTarGz(t, archive.Bytes())[receiptPath], unrelated) {
+		t.Fatal("a structural saved query reference was selected as a subject")
+	}
+	archive.Reset()
+	if _, err := engine.ExportSubject(t.Context(), red, subject, &archive, false); err != nil {
+		t.Fatal(err)
+	}
+	selected := readTarGz(t, archive.Bytes())[receiptPath]
+	if !strings.Contains(selected, group) || !strings.Contains(selected, route) || strings.Contains(selected, unrelated) || strings.Contains(selected, blue) {
+		t.Fatal("subject export omitted exact field or routing facts or returned a foreign receipt")
+	}
+	if _, _, err := engine.eraseSubjectPostgres(t.Context(), red, subject, "privacy-admin", "verified scheduled field subject"); err != nil {
+		t.Fatal(err)
+	}
+	const count = `SELECT count(*) FROM alert_evaluation_receipts WHERE tenant_id=$1 AND fingerprint=$2`
+	if countRows(t, admin, count, red, group) != 0 || countRows(t, admin, count, red, route) != 0 ||
+		countRows(t, admin, count, red, unrelated) != 1 || countRows(t, admin, count, blue, group) != 1 || countRows(t, admin, count, blue, route) != 1 {
+		t.Fatal("subject erasure did not retain the unrelated and sibling receipts")
+	}
+}
+
 func seedSeasonalReceiptSubjectRows(ctx context.Context, sc tenancy.Scope, viewID, subject string) error {
 	rule, err := (store.AlertRules{}).Create(ctx, sc, alert.Rule{Name: "Owned flow baseline", Type: alert.Baseline, Metric: alert.SeasonalFlowMetric, Window: 20,
 		Sensitivity: 3, Severity: alert.SeverityWarning})
