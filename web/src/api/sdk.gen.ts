@@ -377,9 +377,12 @@ export interface AlertSeasonalDecimalBand {
   upper: string
 }
 
+export type AlertSeasonalDirection = "both" | "above" | "below"
+
 export interface AlertSeasonalEvaluation {
   calendar: AlertSeasonalCalendar
   citations: AlertSeasonalCitation[]
+  direction?: AlertSeasonalDirection
   exact?: AlertSeasonalDecimalBand | null
   incident_id?: string
   observed_at: string
@@ -395,6 +398,7 @@ export interface AlertSeasonalFlowInput {
 
 export interface AlertSeasonalSourceInput {
   cadence?: AlertSeasonalCadence
+  direction?: AlertSeasonalDirection
   flow?: AlertSeasonalFlowInput | null
   holidays?: string[]
   minimum_change: number

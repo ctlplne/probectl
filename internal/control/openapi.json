@@ -22155,6 +22155,15 @@
           }
         }
       },
+      "AlertSeasonalDirection": {
+        "type": "string",
+        "enum": [
+          "both",
+          "above",
+          "below"
+        ],
+        "description": "Which measured band crossings open an alert episode. The default is both."
+      },
       "AlertSeasonalCadence": {
         "type": "string",
         "enum": [
@@ -22173,6 +22182,9 @@
           "minimum_change"
         ],
         "properties": {
+          "direction": {
+            "$ref": "#/components/schemas/AlertSeasonalDirection"
+          },
           "cadence": {
             "$ref": "#/components/schemas/AlertSeasonalCadence"
           },
@@ -22370,6 +22382,9 @@
           "citations"
         ],
         "properties": {
+          "direction": {
+            "$ref": "#/components/schemas/AlertSeasonalDirection"
+          },
           "subject": {
             "type": "string"
           },

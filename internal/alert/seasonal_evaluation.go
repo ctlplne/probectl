@@ -24,6 +24,7 @@ const (
 )
 
 type SeasonalEvaluationEvidence struct {
+	Direction      SeasonalDirection            `json:"direction,omitempty"`
 	Subject        string                       `json:"subject"`
 	Calendar       SeasonalEvaluationCalendar   `json:"calendar"`
 	ObservedAt     time.Time                    `json:"observed_at"`
@@ -177,7 +178,7 @@ func (en *Engine) evaluateSeasonalSamples(ctx context.Context, rule Rule, sample
 			attempt.receipt.Expectation.Seasonal.FlowScope = publication.Scope
 		}
 		if attempt.alert.State != "" {
-			evidence := seasonalRuleDecision(sample.Seasonal).expectation.Seasonal
+			evidence := seasonalRuleDecision(sample.Seasonal, sample.SeasonalDirection).expectation.Seasonal
 			if evidence == nil {
 				en.rollbackSeasonalSample(attempt)
 				return acted, ErrSeasonalSource
@@ -312,7 +313,7 @@ func checkedSeasonalRead(ctx context.Context, rule Rule, at time.Time, read Rule
 	seen := make(map[string]bool, len(read.Samples))
 	for _, sample := range read.Samples {
 		comparison := sample.Seasonal
-		if comparison == nil || !seasonalObservationMatches(rule, at, sample) || seen[comparison.Observed.Subject] {
+		if comparison == nil || !sample.SeasonalDirection.valid() || !seasonalObservationMatches(rule, at, sample) || seen[comparison.Observed.Subject] {
 			return RuleMetricRead{}, ErrSeasonalSource
 		}
 		seen[comparison.Observed.Subject] = true
@@ -359,7 +360,7 @@ func seasonalCalendarReady(calendar *anomaly.SeasonalEvidence) bool {
 	}
 }
 
-func seasonalRuleDecision(comparison *anomaly.SeasonalComparison) evaluationDecision {
+func seasonalRuleDecision(comparison *anomaly.SeasonalComparison, direction SeasonalDirection) evaluationDecision {
 	expectation := EvaluationExpectation{Kind: Baseline}
 	if comparison == nil {
 		return evaluationDecision{warming: true, reason: "The current seasonal observation is unavailable", expectation: expectation}
@@ -378,13 +379,13 @@ func seasonalRuleDecision(comparison *anomaly.SeasonalComparison) evaluationDeci
 			warmupSamples: comparison.ComparableDays, warmupNeeded: needed}
 	}
 	calendar := *comparison.Evidence
-	evidence := SeasonalEvaluationEvidence{Subject: comparison.Observed.Subject, ObservedAt: comparison.Observed.TS,
+	evidence := SeasonalEvaluationEvidence{Direction: direction, Subject: comparison.Observed.Subject, ObservedAt: comparison.Observed.TS,
 		Calendar: SeasonalEvaluationCalendar{Timezone: calendar.Timezone, Weekday: calendar.Weekday, Hour: calendar.Hour, TrainingDays: calendar.TrainingDays,
 			Cadence: calendar.Cadence, Minute: calendar.Minute, TrainingPeriods: calendar.Periods, Provisional: calendar.Provisional},
 		TrainingWindow: comparison.TrainingWindow, Citations: comparison.Citations, Exact: comparison.Exact}
 	expectation.Seasonal = &evidence
 	if comparison.Exact != nil {
-		return exactSeasonalDecision(comparison, expectation)
+		return exactSeasonalDecision(comparison, expectation, direction)
 	}
 	evidence.Calendar.Median, evidence.Calendar.Spread = floatRef(calendar.Median), floatRef(calendar.RobustSpread)
 	evidence.Calendar.Lower, evidence.Calendar.Upper = floatRef(calendar.Lower), floatRef(calendar.Upper)
@@ -394,8 +395,11 @@ func seasonalRuleDecision(comparison *anomaly.SeasonalComparison) evaluationDeci
 	if calendar.Provisional {
 		reason = "Provisional seasonal band. " + reason
 	}
-	return evaluationDecision{breached: comparison.State == anomaly.SeasonalUp || comparison.State == anomaly.SeasonalDown,
-		reason: reason, expectation: expectation}
+	breached := direction.breached(comparison.State)
+	if !breached && comparison.State != anomaly.SeasonalNormal {
+		reason += " The observation crossed the unmonitored bound."
+	}
+	return evaluationDecision{breached: breached, reason: reason, expectation: expectation}
 }
 
 func seasonalCalendarLabel(calendar anomaly.SeasonalEvidence) string {
@@ -409,10 +413,13 @@ func seasonalCalendarLabel(calendar anomaly.SeasonalEvidence) string {
 	}
 }
 
-func exactSeasonalDecision(comparison *anomaly.SeasonalComparison, expectation EvaluationExpectation) evaluationDecision {
-	changed := comparison.State == anomaly.SeasonalUp || comparison.State == anomaly.SeasonalDown
-	if changed {
+func exactSeasonalDecision(comparison *anomaly.SeasonalComparison, expectation EvaluationExpectation, direction SeasonalDirection) evaluationDecision {
+	if direction.breached(comparison.State) {
 		return evaluationDecision{breached: true, reason: "Saved flow measure outside its seasonal band", expectation: expectation}
 	}
-	return evaluationDecision{reason: "Saved flow measure within its seasonal band", expectation: expectation}
+	reason := "Saved flow measure within its seasonal band"
+	if comparison.State != anomaly.SeasonalNormal {
+		reason = "Saved flow measure crossed the unmonitored bound"
+	}
+	return evaluationDecision{reason: reason, expectation: expectation}
 }

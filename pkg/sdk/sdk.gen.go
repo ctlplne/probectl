@@ -463,9 +463,12 @@ type AlertSeasonalDecimalBand struct {
 	Upper        string `json:"upper"`
 }
 
+type AlertSeasonalDirection string
+
 type AlertSeasonalEvaluation struct {
 	Calendar       AlertSeasonalCalendar       `json:"calendar"`
 	Citations      []AlertSeasonalCitation     `json:"citations"`
+	Direction      AlertSeasonalDirection      `json:"direction,omitempty"`
 	Exact          *AlertSeasonalDecimalBand   `json:"exact,omitempty"`
 	IncidentId     string                      `json:"incident_id,omitempty"`
 	ObservedAt     string                      `json:"observed_at"`
@@ -482,6 +485,7 @@ type AlertSeasonalFlowInput struct {
 // Choose a learning cadence, IANA timezone, local holiday dates and a positive absolute change threshold in the metric unit.
 type AlertSeasonalSourceInput struct {
 	Cadence       AlertSeasonalCadence    `json:"cadence,omitempty"`
+	Direction     AlertSeasonalDirection  `json:"direction,omitempty"`
 	Flow          *AlertSeasonalFlowInput `json:"flow,omitempty"`
 	Holidays      []string                `json:"holidays,omitempty"`
 	MinimumChange float64                 `json:"minimum_change"`

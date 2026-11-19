@@ -59,16 +59,19 @@ func proveSeasonalNativeSource(t *testing.T, wire string) {
 	}
 
 	const get, set, clear = "alert_seasonal_source_get", "alert_seasonal_source_set", "alert_seasonal_source_clear"
+	direction := map[string]alert.SeasonalDirection{f.tenants[0]: alert.SeasonalAbove, f.tenants[1]: alert.SeasonalBelow}
 	getArgs := func(tenant string) map[string]any { return map[string]any{"rule_id": rules[tenant]} }
 	setArgs := func(ruleTenant, testTenant string) map[string]any {
 		return map[string]any{"rule_id": rules[ruleTenant], "input": alert.SeasonalBaselineInput{
-			Cadence: anomaly.SeasonalHourly, Timezone: "America/New_York", MinimumChange: 5, Holidays: []string{"2026-11-26"}, TestID: tests[testTenant],
+			Cadence: anomaly.SeasonalHourly, Direction: direction[ruleTenant], Timezone: "America/New_York",
+			MinimumChange: 5, Holidays: []string{"2026-11-26"}, TestID: tests[testTenant],
 		}}
 	}
 	assertOwned := func(tenant string, state alert.SeasonalSourceState) {
 		t.Helper()
 		if state.RuleID != rules[tenant] || !state.Configured || !state.Enabled || state.Source == nil || state.Source.TestID != tests[tenant] ||
-			state.Source.Cadence != anomaly.SeasonalHourly || state.Source.Timezone != "America/New_York" || state.Source.MinimumChange != 5 || len(state.Source.Holidays) != 1 || state.Source.Holidays[0] != "2026-11-26" {
+			state.Source.Cadence != anomaly.SeasonalHourly || state.Source.Direction != direction[tenant] || state.Source.Timezone != "America/New_York" ||
+			state.Source.MinimumChange != 5 || len(state.Source.Holidays) != 1 || state.Source.Holidays[0] != "2026-11-26" {
 			t.Fatal("native response lost the owned source or its local clock")
 		}
 	}

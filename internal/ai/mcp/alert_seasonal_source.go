@@ -34,7 +34,7 @@ func WithAlertSeasonalSourceBackend(backend AlertSeasonalSourceBackend, schemas 
 		tools := []Tool{
 			{Name: "alert_seasonal_flow_create", Permission: "alert.write", ExtraPermissions: []string{"ai.query", "flow.read"}, Description: "Create a seasonal baseline on one current owned Explorer view and exact flow measure."},
 			{Name: "alert_seasonal_source_get", Permission: "alert.read", ExtraPermissions: []string{"ai.query"}, Description: "Inspect the current local seasonal baseline and its holiday calendar for an owned alert rule."},
-			{Name: "alert_seasonal_source_set", Permission: "alert.write", ExtraPermissions: []string{"ai.query"}, Description: "Set the cadence, timezone, holidays and minimum change of an owned rule and bind its current metric, test or saved flow source."},
+			{Name: "alert_seasonal_source_set", Permission: "alert.write", ExtraPermissions: []string{"ai.query"}, Description: "Set the cadence, alert direction, timezone, holidays and minimum change of an owned rule and bind its current metric, test or saved flow source."},
 			{Name: "alert_seasonal_source_clear", Permission: "alert.write", ExtraPermissions: []string{"ai.query"}, Description: "Confirm clearing the seasonal source and disabling its rule."},
 		}
 		for _, tool := range tools {

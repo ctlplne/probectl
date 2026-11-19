@@ -47,6 +47,7 @@ func TestSeasonalMetricRuleCreatesOneCitedTenantIncident(t *testing.T) {
 		t.Fatal(err)
 	}
 	const metric = "known_interface_receive_rate"
+	directions := [2]alert.SeasonalDirection{alert.SeasonalAbove, alert.SeasonalBelow}
 	var paths [2]string
 	var ruleIDs [2]string
 	for lane, tenant := range f.tenants {
@@ -67,14 +68,16 @@ func TestSeasonalMetricRuleCreatesOneCitedTenantIncident(t *testing.T) {
 		ruleIDs[lane] = rule.ID
 		paths[lane] = "/v1/alerts/rules/" + rule.ID + "/seasonal-source"
 		var selected alertSeasonalState
-		raw := callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodPut, paths[lane], input, http.StatusOK)
-		if err := json.Unmarshal(raw, &selected); err != nil || !selected.Configured || selected.Source == nil || !selected.Enabled ||
+		owned := input
+		owned.Direction = directions[lane]
+		raw := callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodPut, paths[lane], owned, http.StatusOK)
+		if err := json.Unmarshal(raw, &selected); err != nil || !selected.Configured || selected.Source == nil || !selected.Enabled || selected.Source.Direction != directions[lane] ||
 			bytes.Contains(raw, []byte("owner_user_id")) || bytes.Contains(raw, []byte("read_grants")) {
 			t.Fatal("seasonal selection was not stored or exposed an internal grant", err)
 		}
 		client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
 		state, err := client.GetAlertSeasonalSource(t.Context(), sdk.GetAlertSeasonalSourceRequest{Id: rule.ID})
-		if err != nil || state.RuleId != rule.ID || state.Source == nil || state.Source.Timezone != input.Timezone || state.Source.MinimumChange != input.MinimumChange {
+		if err != nil || state.RuleId != rule.ID || state.Source == nil || state.Source.Timezone != input.Timezone || state.Source.MinimumChange != input.MinimumChange || string(state.Source.Direction) != string(directions[lane]) {
 			t.Fatal("generated client lost the tenant's seasonal source", err)
 		}
 		var stdout, stderr bytes.Buffer
@@ -85,7 +88,7 @@ func TestSeasonalMetricRuleCreatesOneCitedTenantIncident(t *testing.T) {
 			t.Fatal("verified HTTPS seasonal CLI read failed", code, stderr.String())
 		}
 		var cliState alertSeasonalState
-		if err := json.Unmarshal(stdout.Bytes(), &cliState); err != nil || cliState.RuleID != rule.ID || cliState.Source == nil || cliState.Source.MinimumChange != input.MinimumChange {
+		if err := json.Unmarshal(stdout.Bytes(), &cliState); err != nil || cliState.RuleID != rule.ID || cliState.Source == nil || cliState.Source.MinimumChange != input.MinimumChange || cliState.Source.Direction != directions[lane] {
 			t.Fatal("CLI lost the tenant's seasonal source", err)
 		}
 	}
@@ -108,7 +111,7 @@ func TestSeasonalMetricRuleCreatesOneCitedTenantIncident(t *testing.T) {
 		for _, window := range model.ComparableWindows(now) {
 			samples = append(samples, point(window.Start, 50+float64(lane)*100))
 		}
-		samples = append(samples, point(now, []float64{75, 150}[lane]))
+		samples = append(samples, point(now, []float64{75, 175}[lane]))
 		if err := memory.Write(t.Context(), samples); err != nil {
 			t.Fatal(err)
 		}
@@ -134,13 +137,13 @@ func TestSeasonalMetricRuleCreatesOneCitedTenantIncident(t *testing.T) {
 			}
 			if lane == 1 {
 				if count != 0 || len(active) != 0 {
-					t.Fatal("normal sibling series borrowed the first tenant's baseline")
+					t.Fatal("the below-only sibling fired on its upper-band crossing")
 				}
 				return nil
 			}
 			var evidence alert.SeasonalEvaluationEvidence
 			if count != 1 || last == nil || len(active) != 1 || active[0].IncidentID == "" || json.Unmarshal([]byte(*last), &evidence) != nil ||
-				len(evidence.Citations) != 3 || (evidence.Calendar.Lower == nil || *evidence.Calendar.Lower != 45) || (evidence.Calendar.Upper == nil || *evidence.Calendar.Upper != 55) || !evidence.ObservedAt.Equal(now) {
+				evidence.Direction != alert.SeasonalAbove || len(evidence.Citations) != 3 || (evidence.Calendar.Lower == nil || *evidence.Calendar.Lower != 45) || (evidence.Calendar.Upper == nil || *evidence.Calendar.Upper != 55) || !evidence.ObservedAt.Equal(now) {
 				t.Fatalf("wanted one complete cited incident, count %d", count)
 			}
 			var ownsSignal bool
@@ -157,6 +160,9 @@ AND attributes->>'rule_id'=$3)`, tenant, active[0].IncidentID, ruleIDs[lane]).Sc
 			t.Fatal("the bounded evaluation ledger lost the seasonal evidence", err)
 		}
 		cited := ledger.Items[0].Expectation.Seasonal
+		if cited.Direction != directions[lane] || (lane == 1 && (ledger.Items[0].State != alert.EvaluationNormal || cited.Calendar.Upper == nil || *cited.Calendar.Upper != 155)) {
+			t.Fatal("the receipt did not preserve the selected direction and measured band")
+		}
 		if (lane == 0 && (cited.IncidentID != active[0].IncidentID || len(cited.Citations) != 3)) || (lane == 1 && cited.IncidentID != "") {
 			t.Fatal("the stored evaluation does not point to its exact owned incident")
 		}

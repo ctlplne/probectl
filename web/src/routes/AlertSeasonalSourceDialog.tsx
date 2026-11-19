@@ -12,6 +12,7 @@ import {
   seasonalFlowAlertMetric,
   type AlertRule,
   type AlertSeasonalCadence,
+  type AlertSeasonalDirection,
   type AlertSeasonalFlowInput,
 } from '../api/alerts'
 import {
@@ -51,6 +52,7 @@ export function AlertSeasonalSourceDialog({
     measure: '',
   })
   const [cadence, setCadence] = useState<AlertSeasonalCadence>('weekly')
+  const [direction, setDirection] = useState<AlertSeasonalDirection>('both')
   const [timezone, setTimezone] = useState('UTC')
   const [minimum, setMinimum] = useState('')
   const [holidays, setHolidays] = useState('')
@@ -70,6 +72,7 @@ export function AlertSeasonalSourceDialog({
         if (state.rule_id !== rule.id) throw new Error('Rule identity changed')
         setConfigured(state.configured)
         setCadence(state.source?.cadence ?? 'weekly')
+        setDirection(state.source?.direction ?? 'both')
         setTimezone(state.source?.timezone ?? 'UTC')
         setMinimum(state.source ? String(state.source.minimum_change) : '')
         setHolidays(state.source?.holidays?.join('\n') ?? '')
@@ -94,6 +97,7 @@ export function AlertSeasonalSourceDialog({
     try {
       const input = {
         ...(cadence === 'weekly' ? {} : { cadence }),
+        ...(direction === 'both' ? {} : { direction }),
         timezone: timezone.trim(),
         minimum_change: Number(minimum),
         holidays: holidays
@@ -190,6 +194,17 @@ export function AlertSeasonalSourceDialog({
                 ...(flow ? [] : [{ value: 'hourly', label: 'Hourly (same local minute)' }]),
               ]}
               onChange={(e) => setCadence(e.target.value as AlertSeasonalCadence)}
+              disabled={!canWrite || busy}
+            />
+            <Select
+              label="Alert when values go"
+              value={direction}
+              options={[
+                { value: 'both', label: 'Above or below the band' },
+                { value: 'above', label: 'Above the band' },
+                { value: 'below', label: 'Below the band' },
+              ]}
+              onChange={(e) => setDirection(e.target.value as AlertSeasonalDirection)}
               disabled={!canWrite || busy}
             />
             <Field

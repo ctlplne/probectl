@@ -110,7 +110,8 @@ explicit degraded field is the automation signal.
 
 Open **Seasonal baseline** on a metric baseline rule to set an IANA timezone,
 an absolute minimum change in the metric's unit, and optional local holiday
-dates. To follow a single test result series, enter an owned test ID. The
+dates. Choose whether an alert fires above, below, or on either side of the band.
+To follow a single test result series, enter an owned test ID. The
 selection is pinned to the test's current revision. Saving it again explicitly
 selects the current revision after a test change, and only observations from
 that revision can enter the comparison.
@@ -145,7 +146,8 @@ govern rule notification channels.
 
 REST uses `GET`, `PUT` and `DELETE` on `/v1/alerts/rules/{id}/seasonal-source`.
 The generated clients expose the same operations. CLI configuration takes the
-same JSON. Set optional `cadence` to `weekly`, `weekly_early`, `daily` or `hourly`. Clearing an active selection disables the rule. Enable a metric
+same JSON. Set optional `cadence` to `weekly`, `weekly_early`, `daily` or `hourly`.
+The optional `direction` accepts `above`, `below` or `both`. Clearing an active selection disables the rule. Enable a metric
 rule explicitly to return to its rolling baseline.
 
 ```bash

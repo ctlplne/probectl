@@ -81,7 +81,7 @@ func (s *Server) readSeasonalMetricRule(ctx context.Context, rule alert.Rule, at
 	samples := make([]alert.Sample, 0, len(scores))
 	for i := range scores {
 		comparison := &scores[i]
-		samples = append(samples, alert.Sample{Labels: labels[comparison.Observed.Subject], Value: comparison.Observed.Value, Seasonal: comparison})
+		samples = append(samples, alert.Sample{Labels: labels[comparison.Observed.Subject], Value: comparison.Observed.Value, Seasonal: comparison, SeasonalDirection: source.Config.Direction})
 	}
 	return alert.RuleMetricRead{Samples: samples}, ctx.Err()
 }

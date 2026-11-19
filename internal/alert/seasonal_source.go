@@ -24,6 +24,7 @@ var ErrSeasonalSource = errors.New("alert: a valid current seasonal source is re
 // independently trusted source claim. Without a test or saved flow view the
 // rule watches its exact metric and label selector.
 type SeasonalBaselineInput struct {
+	Direction     SeasonalDirection       `json:"direction,omitempty"`
 	Cadence       anomaly.SeasonalCadence `json:"cadence,omitempty"`
 	Timezone      string                  `json:"timezone"`
 	Holidays      []string                `json:"holidays,omitempty"`
@@ -61,6 +62,9 @@ type SeasonalSourceState struct {
 const SeasonalMinimumTrainingDays = 3
 
 func (s SeasonalBaselineInput) Model() (anomaly.WeeklySeasonalModel, error) {
+	if !s.Direction.valid() {
+		return anomaly.WeeklySeasonalModel{}, ErrSeasonalSource
+	}
 	if s.Flow != nil {
 		if s.TestID != "" || s.Cadence == anomaly.SeasonalHourly || s.Flow.Validate() != nil {
 			return anomaly.WeeklySeasonalModel{}, ErrSeasonalSource

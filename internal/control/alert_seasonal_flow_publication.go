@@ -60,7 +60,7 @@ func (s *Server) readSeasonalFlowRule(ctx context.Context, rule alert.Rule, sour
 			State:    result.Result.State, ComparableDays: result.Result.ComparableDays, RequiredPeriods: result.Result.RequiredPeriods, Evidence: result.Result.Calendar, Exact: result.Result.Band,
 			TrainingWindow: result.Result.TrainingWindow, Citations: result.Result.Citations,
 		}
-		samples = append(samples, alert.Sample{Labels: map[string]string{promapi.TenantLabel: rule.TenantID}, Seasonal: &comparison})
+		samples = append(samples, alert.Sample{Labels: map[string]string{promapi.TenantLabel: rule.TenantID}, Seasonal: &comparison, SeasonalDirection: source.Config.Direction})
 	}
 	return alert.RuleMetricRead{Samples: samples, SeasonalPublication: publication}, ctx.Err()
 }

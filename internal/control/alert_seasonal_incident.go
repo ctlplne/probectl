@@ -107,7 +107,7 @@ func (s *Server) storeSeasonalIncident(ctx context.Context, sc tenancy.Scope, so
 	if source.Config.Flow != nil && !seasonalFlowReceiptMatches(rule, evidence, receipt) {
 		return none, alert.ErrSeasonalSource
 	}
-	if source.Config.Cadence != evidence.Calendar.Cadence {
+	if source.Config.Cadence != evidence.Calendar.Cadence || source.Config.Direction != evidence.Direction {
 		return none, alert.ErrSeasonalSource
 	}
 	signal, key, err := seasonalIncidentSignal(rule, firing, evidence, source.Config.Timezone)

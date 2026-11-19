@@ -22,7 +22,11 @@ import type { AlertQuerySourceInput, AlertQuerySourceState } from './sdk.gen'
 export type { AlertPathHealthSourceInput, AlertPathHealthSourceState } from './sdk.gen'
 import type { AlertPathHealthSourceInput, AlertPathHealthSourceState } from './sdk.gen'
 
-export type { AlertSeasonalCadence, AlertSeasonalFlowInput } from './sdk.gen'
+export type {
+  AlertSeasonalCadence,
+  AlertSeasonalDirection,
+  AlertSeasonalFlowInput,
+} from './sdk.gen'
 export const seasonalFlowAlertMetric = 'probectl_flow_seasonal_measure'
 
 export function createSeasonalFlowAlert(

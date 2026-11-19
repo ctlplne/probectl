@@ -20,9 +20,10 @@ import (
 
 // Sample is one current value of a metric series.
 type Sample struct {
-	Labels   map[string]string
-	Value    float64
-	Seasonal *anomaly.SeasonalComparison
+	Labels            map[string]string
+	Value             float64
+	Seasonal          *anomaly.SeasonalComparison
+	SeasonalDirection SeasonalDirection
 	// Reason, when set, is the source's own explanation of the value (a trap
 	// source names the trap that set it); metric sources leave it empty.
 	Reason string
@@ -614,7 +615,7 @@ func (en *Engine) breached(rule Rule, st *seriesState, s Sample) evaluationDecis
 		}
 	case Baseline:
 		if rule.HasSeasonalSource {
-			return seasonalRuleDecision(s.Seasonal)
+			return seasonalRuleDecision(s.Seasonal, s.SeasonalDirection)
 		}
 		if st.base == nil {
 			st.base = newBaseline(rule.Window)

@@ -62,6 +62,7 @@ func TestSeasonalEditorServedKeepsBothTenantsAndThemes(t *testing.T) {
 			t.Run(names[lane]+"/"+theme, func(t *testing.T) {
 				selector := "[role=dialog]"
 				cadence := []anomaly.SeasonalCadence{anomaly.SeasonalHourly, anomaly.SeasonalDaily}[lane]
+				direction := []alert.SeasonalDirection{alert.SeasonalAbove, alert.SeasonalBelow}[lane]
 				open := "Seasonal baseline for " + names[lane]
 				modal := open
 				testsupport.RenderUI(t, testsupport.RenderSpec{
@@ -69,8 +70,9 @@ func TestSeasonalEditorServedKeepsBothTenantsAndThemes(t *testing.T) {
 					TrustCertFiles: []string{ca}, CAFile: ca, Theme: theme, Accessibility: true, TimeoutMs: 60000,
 					Expect: []string{"Active alerts", names[lane]}, Absent: []string{names[1-lane]},
 					Steps: []testsupport.RenderStep{
-						{Click: open, ExpectWithin: selector, Expect: []string{modal, "Learning cadence", "Timezone", "Minimum change", "Holiday dates"}},
+						{Click: open, ExpectWithin: selector, Expect: []string{modal, "Learning cadence", "Alert when values go", "Timezone", "Minimum change", "Holiday dates"}},
 						{Select: selector + " label:text-is('Learning cadence') + div select", Value: string(cadence)},
+						{Select: selector + " label:text-is('Alert when values go') + div select", Value: string(direction)},
 						{Fill: selector + " label:text-is('Timezone') + div input", Value: zones[lane]},
 						{Fill: selector + " label:text-is('Minimum change') + div input", Value: "1000.5"},
 						{Fill: selector + " label:text-is('Holiday dates') + div textarea", Value: holidays[lane]},
@@ -87,7 +89,7 @@ func TestSeasonalEditorServedKeepsBothTenantsAndThemes(t *testing.T) {
 						return err
 					}
 					source, err := rules.GetSeasonalSource(ctx, sc, ruleID, rule.UpdatedAt, 1<<20)
-					if err == nil && (source == nil || source.Config.Cadence != cadence || source.Config.Timezone != zones[lane] || source.Config.MinimumChange != 1000.5 ||
+					if err == nil && (source == nil || source.Config.Cadence != cadence || source.Config.Direction != direction || source.Config.Timezone != zones[lane] || source.Config.MinimumChange != 1000.5 ||
 						len(source.Config.Holidays) != 1 || source.Config.Holidays[0] != holidays[lane]) {
 						t.Fatal("served form did not store the tenant's own seasonal calendar")
 					}

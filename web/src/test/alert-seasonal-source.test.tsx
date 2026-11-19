@@ -193,6 +193,7 @@ test('the saved flow editor binds one moving view and preserves its exact revisi
     screen.queryByRole('option', { name: 'Hourly (same local minute)' }),
   ).not.toBeInTheDocument()
   await user.selectOptions(screen.getByRole('combobox', { name: 'Learning cadence' }), 'daily')
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Alert when values go' }), 'above')
   await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Weekly circuit volume')
   await user.type(screen.getByRole('spinbutton', { name: 'Minimum change' }), '1')
   await user.click(screen.getByRole('button', { name: 'Create seasonal flow alert' }))
@@ -202,6 +203,7 @@ test('the saved flow editor binds one moving view and preserves its exact revisi
       name: 'Weekly circuit volume',
       seasonal_source: {
         cadence: 'daily',
+        direction: 'above',
         timezone: 'UTC',
         minimum_change: 1,
         holidays: [],

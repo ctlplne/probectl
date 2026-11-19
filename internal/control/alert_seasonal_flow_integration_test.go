@@ -80,6 +80,10 @@ func provePairedSeasonalFlow(t *testing.T, cadence anomaly.SeasonalCadence, trai
 		t.Fatal(err)
 	}
 	observed, end := model.LatestCompletedSlot(at)
+	var directions [2]alert.SeasonalDirection
+	if cadence == anomaly.SeasonalWeeklyEarly {
+		directions = [2]alert.SeasonalDirection{alert.SeasonalAbove, alert.SeasonalBelow}
+	}
 	var views [2]flow.SavedQueryView
 	var rules [2]alert.Rule
 	for i, tenant := range f.tenants {
@@ -87,8 +91,10 @@ func provePairedSeasonalFlow(t *testing.T, cadence anomaly.SeasonalCadence, trai
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		view := seedSeasonalFlowView(ctx, t, queries, tenant, f.users[tenant], end)
 		views[i] = view
-		seedSeasonalFlowRows(t, flowRows, tenant, model, observed, end, i == 0)
-		rules[i] = createSeasonalFlowFixture(t, socket, f.tokens[tenant], view, input, http.StatusCreated)
+		seedSeasonalFlowRows(t, flowRows, tenant, model, observed, end, i == 0 || directions[i] == alert.SeasonalBelow)
+		owned := input
+		owned.Direction = directions[i]
+		rules[i] = createSeasonalFlowFixture(t, socket, f.tokens[tenant], view, owned, http.StatusCreated)
 	}
 	createSeasonalFlowFixture(t, socket, f.tokens[f.tenants[0]], views[1], input, http.StatusNotFound)
 
@@ -116,7 +122,7 @@ func provePairedSeasonalFlow(t *testing.T, cadence anomaly.SeasonalCadence, trai
 			t.Fatal("the completed window produced duplicate or missing receipts")
 		}
 		evidence := owned.Items[0].Expectation.Seasonal
-		if evidence == nil || evidence.Exact == nil || evidence.Calendar.Cadence != cadence ||
+		if evidence == nil || evidence.Exact == nil || evidence.Direction != directions[i] || evidence.Calendar.Cadence != cadence ||
 			evidence.TrainingWindow.Samples != trained || !evidence.ObservedAt.Equal(observed) || evidence.Calendar.Provisional {
 			t.Fatalf("wrong owned seasonal training population for %s: %+v", cadence, evidence)
 		}
@@ -125,6 +131,8 @@ func provePairedSeasonalFlow(t *testing.T, cadence anomaly.SeasonalCadence, trai
 			if cadence == "" || cadence == anomaly.SeasonalDaily {
 				exactSeasonalFlowClients(t, f, socket, rules[i].ID, *evidence)
 			}
+		} else if directions[i] == alert.SeasonalBelow && (owned.Items[0].State != alert.EvaluationNormal || evidence.IncidentID != "" || evidence.Exact.Current != seasonalFlowExactCurrent || evidence.Exact.Upper != "36893488147419103227") {
+			t.Fatal("the below-only flow created an incident or lost the measured upper crossing")
 		}
 		callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodGet, "/v1/alerts/"+rules[1-i].ID+"/evaluations", nil, http.StatusNotFound)
 	}
