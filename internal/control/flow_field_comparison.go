@@ -110,7 +110,7 @@ func compareCapturedFlowFields(ctx context.Context, capture *reportFlowCapture, 
 		left.Result.RoleDigest != right.Result.RoleDigest {
 		return out, anomaly.ErrFlowFieldCoverage
 	}
-	scope, err := flowFieldAuthorityDigest(capture, settings, right)
+	scope, err := flowEvidenceAuthorityDigest(capture, settings.View, right)
 	if err != nil {
 		return out, err
 	}
@@ -193,14 +193,14 @@ func flowFieldChange(kind string, before, after *anomaly.RankedFlowField) flow.F
 	return result
 }
 
-func flowFieldAuthorityDigest(capture *reportFlowCapture, settings flowFieldComparisonSettings, result capturedReportFlow) (string, error) {
+func flowEvidenceAuthorityDigest(capture *reportFlowCapture, view reportFlowSourceRef, result capturedReportFlow) (string, error) {
 	values, err := json.Marshal(struct {
 		Tenant, View, Revision string
 		SourceGeneration       int64
 		TagRevision            int64
 		InterfaceRoleDigest    string
 		Filters                map[string]int64
-	}{capture.TenantID, settings.View.ID, settings.View.Version, capture.SourceGeneration,
+	}{capture.TenantID, view.ID, view.Version, capture.SourceGeneration,
 		result.Result.TagRevision, result.Result.RoleDigest, capture.FilterVersions})
 	if err != nil {
 		return "", err

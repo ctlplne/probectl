@@ -113,6 +113,7 @@ type reportFlowCaptureOptions struct {
 	SeasonalPeriodEnds  []time.Time
 	CombineSeasonal     bool
 	FieldComparison     *flowFieldComparisonSettings
+	DDoSAssessment      *ddosAssessmentSettings
 	ReservedMemoryBytes int64
 }
 

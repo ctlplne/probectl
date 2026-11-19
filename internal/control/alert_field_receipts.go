@@ -177,7 +177,7 @@ func decodeFieldReceipt(ctx context.Context, record store.AlertFieldReceipt, sou
 		return empty, nil, err
 	}
 	settings := fieldComparisonSettings(source.ViewID, *field)
-	if !matchFlowFieldInputClocks(capture.Inputs, settings, windows) {
+	if !matchFlowEvidenceInputClocks(capture.Inputs, settings.View, windows) {
 		return empty, nil, alert.ErrQueryGroups
 	}
 	usesTags := slices.Contains(capture.Permissions, permTagsRead)

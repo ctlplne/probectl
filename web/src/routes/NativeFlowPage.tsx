@@ -46,6 +46,7 @@ import {
   type FlowDrillAction,
 } from './flowResults'
 import { FlowViewLibrary } from './FlowViewLibrary'
+import { FlowDDoSAssessmentCard } from './FlowDDoSAssessmentCard'
 import { FlowFieldComparisonCard } from './FlowFieldComparisonCard'
 import { FlowFilterLibrary } from './FlowFilterLibrary'
 import { EntityCurrentPivot } from './EntityCurrentPivot'
@@ -682,10 +683,16 @@ function FlowWorkspace({ identity }: { identity: string }) {
           !waitingForSaved &&
           permissions.includes('ai.query') &&
           permissions.includes('flow.read') && (
-            <FlowFieldComparisonCard
-              key={`${saved.id}:${saved.version}:${permissions.join(',')}`}
-              view={saved}
-            />
+            <>
+              <FlowFieldComparisonCard
+                key={`${saved.id}:${saved.version}:${permissions.join(',')}`}
+                view={saved}
+              />
+              <FlowDDoSAssessmentCard
+                key={`ddos:${saved.id}:${saved.version}:${permissions.join(',')}`}
+                view={saved}
+              />
+            </>
           )}
         <PeeringEstimateCard />
         <FlowServiceSources />

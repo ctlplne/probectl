@@ -158,6 +158,13 @@
       ]
     },
     {
+      "ref": "test:internal/control/flow_ddos_assessment_integration_test.go#TestDDoSAssessmentUsesOnlyOriginalScopedTenantTraffic",
+      "profile": "integration",
+      "capabilities": [
+        "F17"
+      ]
+    },
+    {
       "ref": "test:internal/control/audit_isolation_integration_test.go#TestTwoTenantAndProviderAuditStreamsIsolateAndContainTampering",
       "profile": "integration",
       "capabilities": [

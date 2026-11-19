@@ -236,6 +236,29 @@ probectl explorer compare --body '{
 The CLI and web client both use the versioned API. Authentication supplies tenant scope; do not
 put a tenant selector in the body or URL.
 
+### Passive DDoS assessment
+
+Open a saved flow query with a moving lookback of 60, 120 or 300 seconds.
+Choose the protected prefix and observed direction in **DDoS assessment**.
+The prefix narrows the saved filters on the selected side of each flow.
+The assessment compares the latest completed UTC window with the same time
+last week. Both windows require original flow coverage.
+
+Set the byte and packet floors for one window, a minimum traffic increase
+and the minimum share for a qualifying vector. One positive traffic measure
+can satisfy the traffic and growth floors. The record floor counts observed
+flow records independently of the corrected byte and packet totals.
+
+The result shows exact corrected counters, source resolution, both clocks
+and observed addresses. A suspected UDP reflection classification points to
+an observed source-service association. Confidence describes the supporting
+measurements. The preview provides evidence for operator review.
+
+Use `probectl explorer ddos-assess ID --body-file assessment.json` with the
+input defined by `POST /v1/explorer/flow-views/{id}/ddos-assessment`. The
+generated SDK and native MCP `flow_view_ddos_assess` use the same saved
+revision and current source grants.
+
 ### Saved flow field changes
 
 Save a grouped table with a moving lookback of 60, 120 or 300 seconds, or

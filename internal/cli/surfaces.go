@@ -338,6 +338,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"view-favorite": {Method: http.MethodPut, Path: "/v1/explorer/flow-views/{id}/preferences", ArgName: "id", ExactJSON: true, Description: "set private favorite with a boolean favorite body"},
 		"view-run":      {Method: http.MethodPost, Path: "/v1/explorer/flow-views/{id}/query", ArgName: "id", ExactJSON: true, Description: "execute current saved definition and comparison; no overrides"},
 		"field-compare": {Method: http.MethodPost, Path: "/v1/explorer/flow-views/{id}/field-comparison", ArgName: "id", ExactJSON: true, MaxBodyBytes: 4096, Description: "compare completed field rankings for an exact saved query revision"},
+		"ddos-assess":   {Method: http.MethodPost, Path: "/v1/explorer/flow-views/{id}/ddos-assessment", ArgName: "id", ExactJSON: true, MaxBodyBytes: 4096, Description: "assess passive traffic evidence for an exact saved view and protected prefix"},
 		"filter-list":   {Method: http.MethodGet, Path: "/v1/explorer/flow-filters", ExactJSON: true, Description: "list tenant-shared reusable filters; --query after= and --query limit= page results"},
 		"filter-get":    {Method: http.MethodGet, Path: "/v1/explorer/flow-filters/{id}", ArgName: "id", ExactJSON: true},
 		"filter-create": {Method: http.MethodPost, Path: "/v1/explorer/flow-filters", ExactJSON: true, MaxBodyBytes: 2 << 20, Description: "save name, description and nested expression; requires flow.filters.write"},

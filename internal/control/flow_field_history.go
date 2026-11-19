@@ -25,7 +25,7 @@ func compareHistoricalFlowFields(ctx context.Context, capture *reportFlowCapture
 	}
 	hours := clocks.History.Samples
 	if hours == 0 || hours != anomaly.FlowFieldHistoryHours(anomaly.FlowFieldComparisonCadence(settings.Cadence)) ||
-		len(capture.Results) != hours+1 || !matchFlowFieldInputClocks(capture.Inputs, settings, clocks) {
+		len(capture.Results) != hours+1 || !matchFlowEvidenceInputClocks(capture.Inputs, settings.View, clocks) {
 		return none, anomaly.ErrFlowFieldCoverage
 	}
 	pair := &reportFlowCapture{
@@ -33,7 +33,7 @@ func compareHistoricalFlowFields(ctx context.Context, capture *reportFlowCapture
 		Results: capture.Results[hours-1:], Inputs: capture.Inputs[hours-1:],
 	}
 	current := pair.Results[1]
-	scope, err := flowFieldAuthorityDigest(capture, settings, current)
+	scope, err := flowEvidenceAuthorityDigest(capture, settings.View, current)
 	if err != nil {
 		return none, err
 	}

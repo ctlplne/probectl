@@ -126,6 +126,10 @@ func (*nativeBackendProbe) CompareFlowViewFields(context.Context, *auth.Principa
 	return NativeFlowFieldComparison{}, errors.New("unexpected native operation")
 }
 
+func (*nativeBackendProbe) AssessFlowViewDDoS(context.Context, *auth.Principal, string, flow.DDoSAssessmentInput) (flow.DDoSAssessment, error) {
+	return flow.DDoSAssessment{}, nil
+}
+
 func nativeProbeServer(b NativeFlowBackend, admit NativeFlowAdmission) *Server {
 	schemas := NativeFlowSchemas{}
 	for _, tool := range buildNativeFlowTools(b, nil) {

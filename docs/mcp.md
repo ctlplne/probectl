@@ -373,6 +373,7 @@ and invocation. A current ABAC denial of either permission also applies.
 | Reusable filter writes              | `flow_filter_save`, `flow_filter_delete`                               | `flow.filters.write`                                                  |
 | Saved-query reads/execution         | `flow_view_list`, `flow_view_get`, `flow_view_run`                     | Private owner or explicit tenant sharing, with current source grants  |
 | Saved-query field changes           | `flow_view_field_compare`                                              | Current view and source grants, with native response redaction        |
+| Saved-query DDoS evidence           | `flow_view_ddos_assess`                                                | Current view and source grants for an explicit protected prefix     |
 | Scheduled field receipts             | `alert_field_receipt_get`                                              | `alert.read` and current original view and source grants             |
 | Saved-query writes                  | `flow_view_save`, `flow_view_delete`                                   | `flow.views.write` and ownership for updates/deletion                 |
 | Personal preference                 | `flow_view_favorite`                                                   | Affects only the authenticated subject                                |

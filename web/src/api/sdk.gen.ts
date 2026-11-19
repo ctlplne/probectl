@@ -2161,6 +2161,58 @@ export interface FlowCapacityPoint {
   ts?: string
 }
 
+export interface FlowDDoSAssessment {
+  after: FlowDDoSWindowEvidence
+  before: FlowDDoSWindowEvidence
+  detection?: FlowDDoSDetection
+  direction: "ingress" | "egress"
+  prefix: string
+  version: string
+  view_id: string
+}
+
+export interface FlowDDoSAssessmentInput {
+  bytes_floor: string
+  direction: "ingress" | "egress"
+  growth_basis_points: number
+  min_observed_addresses: number
+  min_observed_records: number
+  packets_floor: string
+  period_seconds: number
+  prefix: string
+  vector_share_basis_points: number
+  version: string
+}
+
+export interface FlowDDoSDetection {
+  class: "tcp_syn_pressure" | "udp_reflection_suspected" | "distributed_destination_pressure" | "volumetric_pressure"
+  confidence: "tentative" | "corroborated"
+  contributing_packets?: string
+  current_bytes: string
+  current_citation: string
+  current_packets: string
+  evidence_basis: "volume_growth" | "observed_tcp_flag_share" | "observed_udp_service_port_share" | "observed_destination_spread"
+  observed_addresses: number
+  observed_records: number
+  reference_bytes: string
+  reference_citation: string
+  reference_packets: string
+  service?: "dns" | "ntp" | "memcached" | "cldap" | "ssdp"
+}
+
+export interface FlowDDoSWindowEvidence {
+  bytes: string
+  citation: string
+  from: string
+  observed_addresses: number
+  observed_records: number
+  packets: string
+  resolution_seconds: number
+  sampled: boolean
+  source: "raw"
+  to: string
+}
+
 export interface FlowExplorerMatrixCell {
   column: { [key: string]: string }
   column_other: boolean
@@ -5034,6 +5086,13 @@ export interface DeleteFlowQueryViewRequest {
 
 export type DeleteFlowQueryViewResponse = void
 
+export interface AssessFlowViewDDoSRequest {
+  id: string
+  body: FlowDDoSAssessmentInput
+}
+
+export type AssessFlowViewDDoSResponse = FlowDDoSAssessment
+
 export interface CompareFlowViewFieldsRequest {
   id: string
   body: FlowFieldComparisonInput
@@ -7064,6 +7123,13 @@ export class ProbectlSDKClient {
     const query = new URLSearchParams()
     if (request.version !== undefined) query.set("version", String(request.version))
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async assessFlowViewDDoS(request: AssessFlowViewDDoSRequest): Promise<AssessFlowViewDDoSResponse> {
+    let path = "/v1/explorer/flow-views/{id}/ddos-assessment"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<AssessFlowViewDDoSResponse>("POST", path, query, request.body)
   }
 
   async compareFlowViewFields(request: CompareFlowViewFieldsRequest): Promise<CompareFlowViewFieldsResponse> {

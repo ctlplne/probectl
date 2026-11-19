@@ -8,7 +8,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import type { ExplorerComparisonResult, ExplorerResult } from './explorer'
 import type { FlowQueryPlan } from './flowExplorer'
-import type { FlowFieldComparison, FlowFieldComparisonInput } from './sdk.gen'
+import type {
+  FlowDDoSAssessment,
+  FlowDDoSAssessmentInput,
+  FlowFieldComparison,
+  FlowFieldComparisonInput,
+} from './sdk.gen'
 
 export interface FlowQueryDisplay {
   time_style?: 'line' | 'stacked_area' | 'stacked_columns' | 'percent_area' | 'horizon'
@@ -149,6 +154,20 @@ export function useFlowFieldComparison() {
     mutationFn: ({ id, input }: { id: string; input: FlowFieldComparisonInput }) =>
       apiFetch<FlowFieldComparison>(
         `/explorer/flow-views/${encodeURIComponent(id)}/field-comparison`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        },
+      ),
+  })
+}
+
+export function useFlowDDoSAssessment() {
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: FlowDDoSAssessmentInput }) =>
+      apiFetch<FlowDDoSAssessment>(
+        `/explorer/flow-views/${encodeURIComponent(id)}/ddos-assessment`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

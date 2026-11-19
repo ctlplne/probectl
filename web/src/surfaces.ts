@@ -486,6 +486,27 @@ export const SURFACES: SurfaceDecl[] = [
     },
   },
   {
+    capability: 'Passive DDoS assessment for a saved flow query',
+    featureIds: ['F17'],
+    sprint: 'FX-18',
+    kind: 'native',
+    route: '/explore',
+    evidence: [
+      'openapi:/v1/explorer/flow-views/{id}/ddos-assessment',
+      'cli:probectl explorer ddos-assess',
+      'file:web/src/routes/FlowDDoSAssessmentCard.tsx',
+    ],
+    liveReceipt: {
+      status: 'live-green',
+      evidence: [
+        'ci:.github/workflows/ci.yml:make test-integration',
+        'test:internal/control/flow_ddos_assessment_integration_test.go:TestDDoSAssessmentUsesOnlyOriginalScopedTenantTraffic',
+        'test:internal/control/flow_ddos_served_integration_test.go:TestDDoSAssessmentServedKeepsBothTenantsAndThemes',
+      ],
+      note: 'The paired tenant read validates the protected prefix and saved filters against original ClickHouse inputs. Served Chromium uses controlled source records in both themes.',
+    },
+  },
+  {
     capability: 'Scheduled field incidents and exact source receipts',
     featureIds: ['F8', 'F17'],
     sprint: 'FX-17',

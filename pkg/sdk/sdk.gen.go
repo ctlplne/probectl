@@ -2290,6 +2290,61 @@ type FlowCapacityPoint struct {
 	Ts       string  `json:"ts,omitempty"`
 }
 
+type FlowDDoSAssessment struct {
+	After     FlowDDoSWindowEvidence `json:"after"`
+	Before    FlowDDoSWindowEvidence `json:"before"`
+	Detection FlowDDoSDetection      `json:"detection,omitzero"`
+	Direction string                 `json:"direction"`
+	Prefix    string                 `json:"prefix"`
+	Version   string                 `json:"version"`
+	ViewId    string                 `json:"view_id"`
+}
+
+// Use an exact saved lookback, a canonical protected prefix and explicit thresholds for each completed window.
+type FlowDDoSAssessmentInput struct {
+	BytesFloor             string `json:"bytes_floor"`
+	Direction              string `json:"direction"`
+	GrowthBasisPoints      int    `json:"growth_basis_points"`
+	MinObservedAddresses   int    `json:"min_observed_addresses"`
+	MinObservedRecords     int    `json:"min_observed_records"`
+	PacketsFloor           string `json:"packets_floor"`
+	PeriodSeconds          int    `json:"period_seconds"`
+	Prefix                 string `json:"prefix"`
+	VectorShareBasisPoints int    `json:"vector_share_basis_points"`
+	Version                string `json:"version"`
+}
+
+// Evidence strength is categorical. UDP source-service association alone remains tentative.
+type FlowDDoSDetection struct {
+	Class               string `json:"class"`
+	Confidence          string `json:"confidence"`
+	ContributingPackets string `json:"contributing_packets,omitempty"`
+	CurrentBytes        string `json:"current_bytes"`
+	CurrentCitation     string `json:"current_citation"`
+	CurrentPackets      string `json:"current_packets"`
+	EvidenceBasis       string `json:"evidence_basis"`
+	ObservedAddresses   int    `json:"observed_addresses"`
+	ObservedRecords     int    `json:"observed_records"`
+	ReferenceBytes      string `json:"reference_bytes"`
+	ReferenceCitation   string `json:"reference_citation"`
+	ReferencePackets    string `json:"reference_packets"`
+	Service             string `json:"service,omitempty"`
+}
+
+// Exact sampling-corrected counts, source resolution and independent observations from one completed window.
+type FlowDDoSWindowEvidence struct {
+	Bytes             string `json:"bytes"`
+	Citation          string `json:"citation"`
+	From              string `json:"from"`
+	ObservedAddresses int    `json:"observed_addresses"`
+	ObservedRecords   int    `json:"observed_records"`
+	Packets           string `json:"packets"`
+	ResolutionSeconds int    `json:"resolution_seconds"`
+	Sampled           bool   `json:"sampled"`
+	Source            string `json:"source"`
+	To                string `json:"to"`
+}
+
 type FlowExplorerMatrixCell struct {
 	Column      map[string]string `json:"column"`
 	ColumnOther bool              `json:"column_other"`
@@ -7137,6 +7192,26 @@ func (c *Client) DeleteFlowQueryView(ctx context.Context, req DeleteFlowQueryVie
 		query.Set("version", formatQueryValue(*req.Version))
 	}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Assess DDoS evidence from a pinned saved flow view
+type AssessFlowViewDDoSRequest struct {
+	Id   string                   `json:"-"`
+	Body *FlowDDoSAssessmentInput `json:"-"`
+}
+
+func (c *Client) AssessFlowViewDDoS(ctx context.Context, req AssessFlowViewDDoSRequest) (*FlowDDoSAssessment, error) {
+	path := "/v1/explorer/flow-views/{id}/ddos-assessment"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out FlowDDoSAssessment
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Compare completed field rankings in a saved flow view

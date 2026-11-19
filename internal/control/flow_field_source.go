@@ -64,7 +64,7 @@ func (s *Server) readFlowFieldComparison(ctx context.Context, actor *auth.Princi
 	if err != nil {
 		return out, err
 	}
-	check := func(context.Context) error { return s.recheckFlowFieldPublication(ctx, actor, capture) }
+	check := func(context.Context) error { return s.recheckFlowEvidencePublication(ctx, actor, capture) }
 	if retain != nil {
 		if err := retain(ctx, check, release); err != nil {
 			return out, err
@@ -108,7 +108,7 @@ func (s *Server) captureFlowFieldComparison(ctx context.Context, actor *auth.Pri
 			capture.Close()
 		}
 	}()
-	if !matchFlowFieldInputClocks(capture.Inputs, settings, windows) {
+	if !matchFlowEvidenceInputClocks(capture.Inputs, settings.View, windows) {
 		return out, nil, apierror.Conflict("flow source did not return all requested completed windows")
 	}
 	var answer flow.FieldComparison
@@ -128,7 +128,7 @@ func (s *Server) captureFlowFieldComparison(ctx context.Context, actor *auth.Pri
 
 // Complete source I/O before locking. A committed visibility, grant,
 // vocabulary or source-generation change must win over the captured data.
-func (s *Server) recheckFlowFieldPublication(ctx context.Context, actor *auth.Principal, capture *reportFlowCapture) error {
+func (s *Server) recheckFlowEvidencePublication(ctx context.Context, actor *auth.Principal, capture *reportFlowCapture) error {
 	return tenancy.InTenant(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
 			return err
@@ -137,14 +137,14 @@ func (s *Server) recheckFlowFieldPublication(ctx context.Context, actor *auth.Pr
 	})
 }
 
-func matchFlowFieldInputClocks(inputs []reportFlowInput, settings flowFieldComparisonSettings, windows anomaly.FlowFieldComparisonClocks) bool {
+func matchFlowEvidenceInputClocks(inputs []reportFlowInput, view reportFlowSourceRef, windows anomaly.FlowFieldComparisonClocks) bool {
 	ends := windows.Ends()
 	if len(inputs) != len(ends) {
 		return false
 	}
 	length := windows.After.End.Sub(windows.After.Start)
 	for i, input := range inputs {
-		if input.ID != settings.View.ID || input.Version != settings.View.Version || input.Period != "current" ||
+		if input.ID != view.ID || input.Version != view.Version || input.Period != "current" ||
 			!input.To.Equal(ends[i]) || !input.From.Equal(ends[i].Add(-length)) ||
 			input.TagRevision != inputs[0].TagRevision || !input.TagAsOf.Equal(inputs[0].TagAsOf) {
 			return false
