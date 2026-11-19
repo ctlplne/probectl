@@ -187,6 +187,8 @@ describe('native flow workspace', () => {
       source: 'raw',
       resolution_seconds: 1,
       total_groups: 301,
+      last_included: '9007199254740993',
+      first_excluded: '9007199254740992',
     })
     const base = defaultFetch()
     fixture(async (input, init) => {
@@ -224,6 +226,8 @@ describe('native flow workspace', () => {
     await userEvent.click(compare)
     expect(await screen.findByText('9007199254740993 · rank 300')).toBeInTheDocument()
     expect(screen.getByText('Outside top set')).toBeInTheDocument()
+    expect(screen.getAllByText('Last included amount 9007199254740993')).toHaveLength(2)
+    expect(screen.getAllByText('First excluded amount 9007199254740992')).toHaveLength(2)
     expect(screen.getByText('2026-10-21T00:05:00Z')).toBeInTheDocument()
     expect(bodies).toEqual([
       {
@@ -240,6 +244,7 @@ describe('native flow workspace', () => {
     ])
     await userEvent.click(screen.getByRole('button', { name: 'Switch fixture identity' }))
     expect(screen.queryByText('9007199254740993 · rank 300')).not.toBeInTheDocument()
+    expect(screen.queryAllByText('Last included amount 9007199254740993')).toHaveLength(0)
   })
 
   test.each([

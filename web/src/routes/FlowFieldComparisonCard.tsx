@@ -62,6 +62,12 @@ function FieldWindow({ label, window }: { label: string; window: FlowFieldCompar
         {window.total_groups} groups · {window.source}, {window.resolution_seconds}s resolution
       </dd>
       {window.population_total !== undefined && <dd>Population total {window.population_total}</dd>}
+      {window.last_included !== undefined && window.first_excluded !== undefined && (
+        <>
+          <dd>Last included amount {window.last_included}</dd>
+          <dd>First excluded amount {window.first_excluded}</dd>
+        </>
+      )}
     </div>
   )
 }

@@ -135,6 +135,21 @@
       ]
     },
     {
+      "ref": "test:internal/flow/scheduled_field_realstack_integration_test.go#TestScheduledFieldEpisodeUsesShippedCollectorAndTenantStore",
+      "profile": "integration",
+      "capabilities": [
+        "F8",
+        "F17"
+      ]
+    },
+    {
+      "ref": "test:internal/control/flow_field_golden_integration_test.go#TestGoldenFieldReplaysKeepEveryOriginalDimensionInTwoTenantReaders",
+      "profile": "integration",
+      "capabilities": [
+        "F17"
+      ]
+    },
+    {
       "ref": "test:internal/control/audit_isolation_integration_test.go#TestTwoTenantAndProviderAuditStreamsIsolateAndContainTampering",
       "profile": "integration",
       "capabilities": [

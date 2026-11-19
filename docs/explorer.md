@@ -250,8 +250,10 @@ can qualify a change. Amount mode compares observed values. Share mode uses
 the complete population total and expresses the threshold in basis points.
 Destination fan-out uses `src_addr` and the primary `unique_dst:total` metric.
 Each result includes both source clocks, measured original values and source
-references. An outside-top-set observation has an absent value. Tied cutoffs
-and incomplete source coverage return a refusal for the comparison.
+references. If measured groups fall outside the selected ranking, the receipt
+includes the last included and first excluded amounts. An outside-top-set
+observation has an absent value. Tied cutoffs and incomplete source coverage
+return a refusal for the comparison.
 
 ```sh
 probectl --json explorer field-compare "$VIEW_ID" --body '{

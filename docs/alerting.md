@@ -633,8 +633,10 @@ Notification delivery still follows the rule's configured holds and channels.
 
 Select a field signal in the incident inspector and choose **Show exact field
 evidence**. The receipt includes the original before and after clocks, the
-observed values and the resulting incident link. The reader needs `alert.read`,
-the saved view and its current source grants. The private evidence follows
+observed values and the resulting incident link. When the ranking excludes
+measured groups, the receipt also shows the exact last included and first
+excluded amounts. The reader needs `alert.read`, the saved view and its current
+source grants. The private evidence follows
 the alert evaluation ledger's existing retention and subject erasure rules.
 
 The `query_source.condition` uses `mode: "field_change"` and a `field` settings

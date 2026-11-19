@@ -2392,7 +2392,9 @@ type FlowFieldComparisonInput struct {
 
 // A complete source slice with an inclusive start and exclusive end. Share mode includes the entire measured population total.
 type FlowFieldComparisonSlice struct {
+	FirstExcluded     string `json:"first_excluded,omitempty"`
 	From              string `json:"from"`
+	LastIncluded      string `json:"last_included,omitempty"`
 	PopulationTotal   string `json:"population_total,omitempty"`
 	ResolutionSeconds int    `json:"resolution_seconds"`
 	Source            string `json:"source"`

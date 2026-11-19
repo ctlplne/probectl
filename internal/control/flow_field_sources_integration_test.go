@@ -147,6 +147,11 @@ func assertFieldComparisonCutoff(t *testing.T, got flow.FieldComparison, id stri
 		!got.After.From.Equal(windows.After.Start) || !got.After.To.Equal(windows.After.End) {
 		t.Fatal("comparison lost the pinned view, complete windows or original population")
 	}
+	for _, window := range []flow.FieldComparisonSlice{got.Before, got.After} {
+		if window.LastIncluded != "9007199254740993" || window.FirstExcluded != "9007199254740992" {
+			t.Fatal("receipt lost the exact original boundary amounts")
+		}
+	}
 	entered, left := got.Changes[0], got.Changes[1]
 	if entered.Kind != "entered_top_set" || entered.Group["dst_port"] != "1853" || entered.Before != nil || entered.After == nil ||
 		entered.After.Value != "9007199254740993" || entered.After.Rank != 300 || entered.After.Citation == "" || entered.After.Secondary["flows:total"] != "1" ||

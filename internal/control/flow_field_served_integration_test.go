@@ -63,8 +63,9 @@ func TestFieldComparisonServedKeepsBothTenantsAndThemes(t *testing.T) {
 				if lane == 0 {
 					expected = []string{"Entered top set", "Left top set", "9007199254740993", "Outside top set"}
 				} else {
-					absent = append(absent, "Entered top set", "9007199254740993")
+					absent = append(absent, "Entered top set", "Left top set")
 				}
+				expected = append(expected, "Last included amount 9007199254740993", "First excluded amount 9007199254740992")
 				testsupport.RenderUI(t, testsupport.RenderSpec{
 					URL:            socket.URL + "/ui/explore?native_flow=1&flow_view=" + url.QueryEscape(views[lane].ID),
 					Cookies:        []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: cookie}},

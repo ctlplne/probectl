@@ -2258,7 +2258,9 @@ export interface FlowFieldComparisonInput {
 }
 
 export interface FlowFieldComparisonSlice {
+  first_excluded?: string
   from: string
+  last_included?: string
   population_total?: string
   resolution_seconds: number
   source: string

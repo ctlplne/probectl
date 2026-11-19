@@ -91,7 +91,7 @@ func TestScheduledFieldEditorAndReceiptServedInBothThemes(t *testing.T) {
 					Expect: []string{"alert.field_change"}, Absent: []string{names[1-lane]},
 					Steps: []testsupport.RenderStep{
 						{Click: name, Within: "table:has-text('alert.field_change')", Expect: []string{"Field comparison receipt"}},
-						{Click: "Show exact field evidence", Expect: []string{"Entered top set", scheduledFieldAmount, "Outside top set", windows.Before.Start.Format(time.RFC3339)}},
+						{Click: "Show exact field evidence", Expect: []string{"Entered top set", scheduledFieldAmount, "Outside top set", "First excluded amount 10", windows.Before.Start.Format(time.RFC3339)}},
 					},
 				})
 			})

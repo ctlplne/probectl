@@ -104,7 +104,7 @@ func replaySeasonalFlowGolden(t *testing.T, lane *nativeLane, ends []time.Time, 
 		if sequence == len(ends)-1 {
 			amount = current
 		}
-		packet := seasonalFlowGolden(t, lane, end.Add(-2*time.Minute), sequence, amount)
+		packet := seasonalFlowGolden(t, lane, end.Add(-2*time.Minute), sequence, 443, amount)
 		written, err := connection.Write(packet)
 		if err != nil || written != len(packet) {
 			t.Fatal("writing the complete seasonal IPFIX golden datagram failed")
@@ -112,7 +112,7 @@ func replaySeasonalFlowGolden(t *testing.T, lane *nativeLane, ends []time.Time, 
 	}
 }
 
-func seasonalFlowGolden(t *testing.T, lane *nativeLane, at time.Time, sequence int, amount uint64) []byte {
+func seasonalFlowGolden(t *testing.T, lane *nativeLane, at time.Time, sequence int, destinationPort uint16, amount uint64) []byte {
 	t.Helper()
 	address := [4]byte{10, byte(lane.octet), 19, 1}
 	peer := [4]byte{10, byte(lane.octet), 19, 2}
@@ -120,7 +120,7 @@ func seasonalFlowGolden(t *testing.T, lane *nativeLane, at time.Time, sequence i
 	template := nativeWire(t, uint16(290), uint16(len(fields)/2), fields)
 	body := append(nativeWire(t, uint16(2), uint16(4+len(template))), template...)
 	start, end := uint64(at.Add(-time.Second).UnixMilli()), uint64(at.UnixMilli())
-	record := nativeWire(t, address, peer, uint16(42001), uint16(443), uint8(6), amount, uint64(5), start, end)
+	record := nativeWire(t, address, peer, uint16(42001), destinationPort, uint8(6), amount, uint64(5), start, end)
 	body = append(body, nativeWire(t, uint16(290), uint16(4+len(record)), record)...)
 	return append(nativeWire(t, uint16(10), uint16(16+len(body)), uint32(time.Now().Unix()), uint32(sequence), uint32(17)), body...)
 }

@@ -53,6 +53,8 @@ type FieldComparisonSlice struct {
 	ResolutionSeconds int       `json:"resolution_seconds"`
 	TotalGroups       int       `json:"total_groups"`
 	PopulationTotal   string    `json:"population_total,omitempty"`
+	LastIncluded      string    `json:"last_included,omitempty"`
+	FirstExcluded     string    `json:"first_excluded,omitempty"`
 }
 
 // An absent observation means the member was outside the admitted ranking.

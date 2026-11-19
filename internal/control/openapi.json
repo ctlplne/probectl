@@ -32406,6 +32406,14 @@
           },
           "population_total": {
             "type": "string"
+          },
+          "last_included": {
+            "type": "string",
+            "description": "Exact primary amount at the last included rank when the selected set excludes observed groups."
+          },
+          "first_excluded": {
+            "type": "string",
+            "description": "Exact primary amount at the first excluded rank. A tied cutoff makes the comparison unavailable."
           }
         },
         "required": [

@@ -477,9 +477,10 @@ export const SURFACES: SurfaceDecl[] = [
         'ci:.github/workflows/ci.yml:make test-integration',
         'test:web/src/test/native-flow.test.tsx:compares saved field keys with exact evidence',
         'test:internal/control/flow_field_sources_integration_test.go:TestFieldComparisonReadsExactOwnedTopThreeHundred',
+        'test:internal/control/flow_field_golden_integration_test.go:TestGoldenFieldReplaysKeepEveryOriginalDimensionInTwoTenantReaders',
         'test:internal/control/flow_field_served_integration_test.go:TestFieldComparisonServedKeepsBothTenantsAndThemes',
       ],
-      note: 'The paired tenant ClickHouse reader and TLS API preserve exact top-300 evidence. The served browser proof uses controlled source records in both themes.',
+      note: 'The paired tenant ClickHouse reader preserves exact cutoffs and measures all seven planted field changes. The served browser proof uses controlled source records in both themes.',
     },
   },
   {
@@ -499,10 +500,11 @@ export const SURFACES: SurfaceDecl[] = [
       evidence: [
         'ci:.github/workflows/ci.yml:make test-integration',
         'test:internal/control/alert_field_source_integration_test.go:TestScheduledFieldChangeCommitsOneCitedTenantEpisode',
+        'test:internal/flow/scheduled_field_realstack_integration_test.go:TestScheduledFieldEpisodeUsesShippedCollectorAndTenantStore',
         'test:internal/control/alert_field_served_integration_test.go:TestScheduledFieldEditorAndReceiptServedInBothThemes',
         'test:internal/tenantlife/alert_seasonal_flow_subject_integration_test.go:TestScheduledFieldReceiptSubjectErasureKeepsSiblingAndStructuralReferences',
       ],
-      note: 'The paired tenant evaluator retains one exact cited episode across retries and restart. The production browser editor and receipt viewer use controlled original flow records in both themes.',
+      note: 'Two enrolled IPFIX collector lanes exercise one exact cited episode and a stable sibling. The browser editor and receipt viewer use controlled original flow records in both themes.',
     },
   },
   {

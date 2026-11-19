@@ -123,7 +123,7 @@ func compareCapturedFlowFields(ctx context.Context, capture *reportFlowCapture, 
 		return out, err
 	}
 	out = flow.FieldComparison{ViewID: settings.View.ID, Version: settings.View.Version, Mode: settings.Mode, Measure: settings.Measure,
-		Cadence: settings.Cadence, TopKeys: settings.TopKeys, Before: flowFieldSlice(left.Result), After: flowFieldSlice(right.Result), Changes: []flow.FieldChange{}}
+		Cadence: settings.Cadence, TopKeys: settings.TopKeys, Before: flowFieldSlice(left.Result, settings), After: flowFieldSlice(right.Result, settings), Changes: []flow.FieldChange{}}
 	switch settings.Mode {
 	case "rank":
 		thresholds := make([]anomaly.FlowFieldSecondaryThreshold, 0, len(settings.SecondaryThresholds))
@@ -168,9 +168,16 @@ func compareCapturedFlowFields(ctx context.Context, capture *reportFlowCapture, 
 	return out, ctx.Err()
 }
 
-func flowFieldSlice(result flowstore.PlanResult) flow.FieldComparisonSlice {
-	return flow.FieldComparisonSlice{From: result.Query.From, To: result.Query.To, Source: result.Source,
+// Only called after projection has verified the first excluded original and
+// the strict ordering at the selected cutoff.
+func flowFieldSlice(result flowstore.PlanResult, settings flowFieldComparisonSettings) flow.FieldComparisonSlice {
+	window := flow.FieldComparisonSlice{From: result.Query.From, To: result.Query.To, Source: result.Source,
 		ResolutionSeconds: result.ResolutionSeconds, TotalGroups: result.TotalGroups}
+	if result.TotalGroups > settings.TopKeys {
+		window.LastIncluded = result.Rows[settings.TopKeys-1].Metrics[settings.Measure]
+		window.FirstExcluded = result.Rows[settings.TopKeys].Metrics[settings.Measure]
+	}
+	return window
 }
 
 func flowFieldChange(kind string, before, after *anomaly.RankedFlowField) flow.FieldChange {
