@@ -358,7 +358,7 @@ sflow:
 batch_size: 10
 flush_interval: 1s
 `, tn.id, tn.agent, bus, udp))
-	go shipped.ExportNetFlow(t.Context(), udp)
+	go shipped.ExportNetFlow(t.Context(), udp, [3]byte{10, 55, 0})
 	// A recorded eBPF capture through the shipped eBPF agent (no kernel).
 	// Its recorded PID is not a live runner PID: use an empty proc root so
 	// an unrelated host process cannot change this fixture's workload identity.

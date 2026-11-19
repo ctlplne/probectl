@@ -569,9 +569,16 @@ func (s *Stack) EnrollAgent(t *testing.T, tenant, agentID, name string) string {
 
 // StartAgent runs the shipped agent, with its compiled-in capabilities and
 // config (YAML appended to the control-plane, mTLS, identity and buffer
-// stanzas for the enrolled identity).
-func (s *Stack) StartAgent(t *testing.T, identityDir, name string, capabilities []string, config string) string {
+// stanzas for the enrolled identity). Evidence senders can supply a site label.
+func (s *Stack) StartAgent(t *testing.T, identityDir, name string, capabilities []string, config string, site ...string) string {
 	t.Helper()
+	if len(site) > 1 {
+		t.Fatal("an enrolled agent takes at most one configured site label")
+	}
+	labels := ""
+	if len(site) == 1 {
+		labels = fmt.Sprintf("\n  labels:\n    site: %q", site[0])
+	}
 	full := fmt.Sprintf(`apiVersion: probectl.io/agent/v1
 control_plane:
   grpc_addr: %q
@@ -583,13 +590,13 @@ tls:
 agent:
   hostname: %q
   capabilities: [%s]
-  heartbeat_interval: 1s
+  heartbeat_interval: 1s%s
 buffer:
   dir: %q
   max_records: 100
   drain_pace: 100ms
 %s`, s.AgentAddr, filepath.Join(identityDir, "cert.pem"), filepath.Join(identityDir, "key.pem"), s.CAFile,
-		name, strings.Join(capabilities, ", "), filepath.Join(s.Dir, "buffer-"+name), config)
+		name, strings.Join(capabilities, ", "), labels, filepath.Join(s.Dir, "buffer-"+name), config)
 	cfg := s.write(t, "agent-"+name+".yaml", []byte(full), 0o600)
 	// Each agent's metrics listener gets its own port (the default is shared).
 	return s.start(t, "agent-"+name, s.Agent, []string{"-config", cfg},
@@ -706,7 +713,7 @@ func FreeUDPAddr(t *testing.T) string {
 // records (10.55.0.x -> 192.0.2.10:443 over TCP) from 127.0.0.1 to addr every
 // second until ctx ends. Datagrams sent before the collector's listener is up
 // are refused and dropped, as a router's are.
-func ExportNetFlow(ctx context.Context, addr string) {
+func ExportNetFlow(ctx context.Context, addr string, source [3]byte) {
 	conn, err := net.Dial("udp", addr)
 	if err != nil {
 		return
@@ -723,7 +730,8 @@ func ExportNetFlow(ctx context.Context, addr string) {
 		be.PutUint32(pkt[16:], seq*records) // flow sequence
 		for r := 0; r < records; r++ {
 			rec := pkt[24+48*r:]
-			copy(rec[0:4], []byte{10, 55, 0, byte(r + 1)})
+			copy(rec[0:3], source[:])
+			rec[3] = byte(r + 1)
 			copy(rec[4:8], []byte{192, 0, 2, 10})
 			be.PutUint32(rec[16:], 10)     // packets
 			be.PutUint32(rec[20:], 1500)   // bytes

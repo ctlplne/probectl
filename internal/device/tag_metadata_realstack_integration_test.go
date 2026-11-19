@@ -58,9 +58,29 @@ func prepareSNMPTagProof(t *testing.T, st *shipped.Stack, tn *deviceTenant) *snm
 	snmpTagWrite(t, st, tn, http.StatusCreated, http.MethodPost, "/v1/entity-contexts",
 		map[string]string{"site_label": "same SNMP site", "vrf_label": "same SNMP VRF"}, &routingContext)
 	p.contextID = routingContext.ID
+	p.registerDeviceEvidence(t, st, "same SNMP router")
+	var definition struct{ ID string }
+	snmpTagWrite(t, st, tn, http.StatusCreated, http.MethodPost, "/v1/tags", map[string]string{"key": "snmp_firmware"}, &definition)
+	p.tagID = definition.ID
+	if p.tagID == "" {
+		t.Fatal("SNMP tag has no owned definition")
+	}
+	for _, rule := range []struct{ descr, value string }{{p.initialDescr, p.initialValue}, {p.changedDescr, p.changedValue}} {
+		snmpTagWrite(t, st, tn, http.StatusCreated, http.MethodPost, "/v1/entity-contexts/"+p.contextID+"/tag-rules",
+			map[string]string{"tag_id": p.tagID, "target_kind": "device", "match_kind": "snmp_field",
+				"snmp_field": "sys_descr", "snmp_value": rule.descr, "value": rule.value}, nil)
+	}
+	return p
+}
+
+// registerDeviceEvidence enrolls an independent sender and assigns its exact
+// SNMP target to the selected canonical device in the tenant's context.
+func (p *snmpTagProof) registerDeviceEvidence(t *testing.T, st *shipped.Stack, label string) {
+	t.Helper()
+	tn := p.tenant
 	var target struct{ ID string }
 	snmpTagWrite(t, st, tn, http.StatusCreated, http.MethodPost, "/v1/entities",
-		map[string]string{"context_id": p.contextID, "kind": "device", "label": "same SNMP router"}, &target)
+		map[string]string{"context_id": p.contextID, "kind": "device", "label": label}, &target)
 	p.entityID = target.ID
 	if p.contextID == "" || p.entityID == "" {
 		t.Fatal("SNMP metadata fixture has no owned context or canonical device")
@@ -99,18 +119,6 @@ func prepareSNMPTagProof(t *testing.T, st *shipped.Stack, tn *deviceTenant) *snm
 		"cert_file": filepath.Join(dir, "cert.pem"), "key_file": filepath.Join(dir, "key.pem"),
 		"ca_file": filepath.Join(dir, "server-ca.pem"), "server_name": "localhost"}
 	p.assignSource(t, st, p.contextID, p.entityID)
-	var definition struct{ ID string }
-	snmpTagWrite(t, st, tn, http.StatusCreated, http.MethodPost, "/v1/tags", map[string]string{"key": "snmp_firmware"}, &definition)
-	p.tagID = definition.ID
-	if p.tagID == "" {
-		t.Fatal("SNMP tag has no owned definition")
-	}
-	for _, rule := range []struct{ descr, value string }{{p.initialDescr, p.initialValue}, {p.changedDescr, p.changedValue}} {
-		snmpTagWrite(t, st, tn, http.StatusCreated, http.MethodPost, "/v1/entity-contexts/"+p.contextID+"/tag-rules",
-			map[string]string{"tag_id": p.tagID, "target_kind": "device", "match_kind": "snmp_field",
-				"snmp_field": "sys_descr", "snmp_value": rule.descr, "value": rule.value}, nil)
-	}
-	return p
 }
 
 func (p *snmpTagProof) assignSource(t *testing.T, st *shipped.Stack, contextID, entityID string) {
