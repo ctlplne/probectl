@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -60,19 +61,21 @@ func TestSeasonalEditorServedKeepsBothTenantsAndThemes(t *testing.T) {
 		for _, theme := range []string{"light", "dark"} {
 			t.Run(names[lane]+"/"+theme, func(t *testing.T) {
 				selector := "[role=dialog]"
-				open := "Weekly baseline for " + names[lane]
-				modal := "Weekly seasonal baseline for " + names[lane]
+				cadence := []anomaly.SeasonalCadence{anomaly.SeasonalHourly, anomaly.SeasonalDaily}[lane]
+				open := "Seasonal baseline for " + names[lane]
+				modal := open
 				testsupport.RenderUI(t, testsupport.RenderSpec{
 					URL: socket.URL + "/ui/alerts", Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: cookie}},
 					TrustCertFiles: []string{ca}, CAFile: ca, Theme: theme, Accessibility: true, TimeoutMs: 60000,
 					Expect: []string{"Active alerts", names[lane]}, Absent: []string{names[1-lane]},
 					Steps: []testsupport.RenderStep{
-						{Click: open, ExpectWithin: selector, Expect: []string{modal, "Timezone", "Minimum change", "Holiday dates"}},
+						{Click: open, ExpectWithin: selector, Expect: []string{modal, "Learning cadence", "Timezone", "Minimum change", "Holiday dates"}},
+						{Select: selector + " label:text-is('Learning cadence') + div select", Value: string(cadence)},
 						{Fill: selector + " label:text-is('Timezone') + div input", Value: zones[lane]},
 						{Fill: selector + " label:text-is('Minimum change') + div input", Value: "1000.5"},
 						{Fill: selector + " label:text-is('Holiday dates') + div textarea", Value: holidays[lane]},
-						{Click: "Save weekly baseline", Within: selector, Gone: true, Expect: []string{"Weekly baseline (set)"}},
-						{Click: open, ExpectWithin: selector, Expect: []string{"Clear weekly baseline"}},
+						{Click: "Save seasonal baseline", Within: selector, Gone: true, Expect: []string{"Seasonal baseline (set)"}},
+						{Click: open, ExpectWithin: selector, Expect: []string{"Clear seasonal baseline"}},
 					},
 					Controls: []testsupport.RenderControl{{Role: "textbox", Name: "Timezone", Within: selector},
 						{Role: "spinbutton", Name: "Minimum change", Within: selector}, {Role: "textbox", Name: "Holiday dates", Within: selector}},
@@ -84,9 +87,9 @@ func TestSeasonalEditorServedKeepsBothTenantsAndThemes(t *testing.T) {
 						return err
 					}
 					source, err := rules.GetSeasonalSource(ctx, sc, ruleID, rule.UpdatedAt, 1<<20)
-					if err == nil && (source == nil || source.Config.Timezone != zones[lane] || source.Config.MinimumChange != 1000.5 ||
+					if err == nil && (source == nil || source.Config.Cadence != cadence || source.Config.Timezone != zones[lane] || source.Config.MinimumChange != 1000.5 ||
 						len(source.Config.Holidays) != 1 || source.Config.Holidays[0] != holidays[lane]) {
-						t.Fatal("served form did not store the tenant's own weekly calendar")
+						t.Fatal("served form did not store the tenant's own seasonal calendar")
 					}
 					return err
 				})

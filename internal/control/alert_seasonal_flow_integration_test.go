@@ -42,6 +42,25 @@ const seasonalFlowExactCurrent = "36893488147419103228"
 // The evaluator, incident, receipt and two tenant source authority paths are
 // real; the historical flow records are a controlled replay in Explorer memory.
 func TestSeasonalSavedFlowCommitsExactCitedReceiptAndKeepsTenant(t *testing.T) {
+	provePairedSeasonalFlow(t, "", 6)
+}
+
+func TestSavedFlowCadencesKeepCompleteExactEvidenceInEachTenant(t *testing.T) {
+	for _, profile := range []struct {
+		cadence  anomaly.SeasonalCadence
+		training int
+	}{
+		{anomaly.SeasonalDaily, 42},
+		{anomaly.SeasonalWeeklyEarly, 6},
+	} {
+		t.Run(string(profile.cadence), func(t *testing.T) {
+			provePairedSeasonalFlow(t, profile.cadence, profile.training)
+		})
+	}
+}
+
+func provePairedSeasonalFlow(t *testing.T, cadence anomaly.SeasonalCadence, trained int) {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	flowRows := flowstore.NewMemory()
 	metrics := tsdb.NewMemory()
@@ -52,7 +71,11 @@ func TestSeasonalSavedFlowCommitsExactCitedReceiptAndKeepsTenant(t *testing.T) {
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	at := time.Now().UTC()
-	model, err := (alert.SeasonalBaselineInput{Timezone: "UTC", MinimumChange: 1}).Model()
+	input := alert.SeasonalBaselineInput{Timezone: "UTC", MinimumChange: 1, Cadence: cadence}
+	if at.Minute() >= 30 {
+		input.Timezone = "Asia/Kolkata" // keep isolated replay away from a clock rollover
+	}
+	model, err := input.Model()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,9 +88,9 @@ func TestSeasonalSavedFlowCommitsExactCitedReceiptAndKeepsTenant(t *testing.T) {
 		view := seedSeasonalFlowView(ctx, t, queries, tenant, f.users[tenant], end)
 		views[i] = view
 		seedSeasonalFlowRows(t, flowRows, tenant, model, observed, end, i == 0)
-		rules[i] = createSeasonalFlowFixture(t, socket, f.tokens[tenant], view, http.StatusCreated)
+		rules[i] = createSeasonalFlowFixture(t, socket, f.tokens[tenant], view, input, http.StatusCreated)
 	}
-	createSeasonalFlowFixture(t, socket, f.tokens[f.tenants[0]], views[1], http.StatusNotFound)
+	createSeasonalFlowFixture(t, socket, f.tokens[f.tenants[0]], views[1], input, http.StatusNotFound)
 
 	for i, tenant := range f.tenants {
 		evaluator, ok := BuildAlertEvaluator(f.pool, metrics, alert.ChannelDeps{}, time.Minute, tenancy.ID(tenant), nil, f.server.log, AlertTagDependencies{Gate: gate, Queries: f.server, IncidentWindow: time.Minute})
@@ -92,9 +115,16 @@ func TestSeasonalSavedFlowCommitsExactCitedReceiptAndKeepsTenant(t *testing.T) {
 		if len(owned.Items) != 1 {
 			t.Fatal("the completed window produced duplicate or missing receipts")
 		}
+		evidence := owned.Items[0].Expectation.Seasonal
+		if evidence == nil || evidence.Exact == nil || evidence.Calendar.Cadence != cadence ||
+			evidence.TrainingWindow.Samples != trained || !evidence.ObservedAt.Equal(observed) || evidence.Calendar.Provisional {
+			t.Fatalf("wrong owned seasonal training population for %s: %+v", cadence, evidence)
+		}
 		if i == 0 {
 			assertSeasonalExactFlow(t, owned, observed, active[0].IncidentID)
-			exactSeasonalFlowClients(t, f, socket, rules[i].ID, observed, active[0].IncidentID)
+			if cadence == "" {
+				exactSeasonalFlowClients(t, f, socket, rules[i].ID, observed, active[0].IncidentID)
+			}
 		}
 		callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodGet, "/v1/alerts/"+rules[1-i].ID+"/evaluations", nil, http.StatusNotFound)
 	}
@@ -147,11 +177,10 @@ func seedSeasonalFlowRows(t *testing.T, rows *flowstore.Memory, tenant string, m
 	}
 }
 
-func createSeasonalFlowFixture(t *testing.T, socket *httptest.Server, token string, view flow.SavedQueryView, want int) alert.Rule {
+func createSeasonalFlowFixture(t *testing.T, socket *httptest.Server, token string, view flow.SavedQueryView, input alert.SeasonalBaselineInput, want int) alert.Rule {
 	t.Helper()
-	body := map[string]any{"name": "Weekly protocol volume", "seasonal_source": alert.SeasonalBaselineInput{
-		Timezone: "UTC", MinimumChange: 1, Flow: &alert.SeasonalFlowInput{ViewID: view.ID, ViewVersion: view.Version, Measure: "bytes:total"},
-	}}
+	input.Flow = &alert.SeasonalFlowInput{ViewID: view.ID, ViewVersion: view.Version, Measure: "bytes:total"}
+	body := map[string]any{"name": "Seasonal protocol volume", "seasonal_source": input}
 	raw := callSeasonalAPI(t, socket, token, http.MethodPost, "/v1/alerts", body, want)
 	var rule alert.Rule
 	if want == http.StatusCreated && (json.Unmarshal(raw, &rule) != nil || !rule.HasSeasonalSource || !rule.Enabled || rule.Metric != alert.SeasonalFlowMetric) {
@@ -305,14 +334,14 @@ func TestSeasonalFlowNativeCreationKeepsCurrentViewAndTenant(t *testing.T) {
 
 func seasonalNativeCreateArgs(view flow.SavedQueryView, transport string) map[string]any {
 	return map[string]any{"name": "Owned protocol seasonality via " + transport, "seasonal_source": alert.SeasonalBaselineInput{
-		Timezone: "UTC", MinimumChange: 1, Flow: &alert.SeasonalFlowInput{ViewID: view.ID, ViewVersion: view.Version, Measure: "bytes:total"},
+		Cadence: anomaly.SeasonalDaily, Timezone: "UTC", MinimumChange: 1, Flow: &alert.SeasonalFlowInput{ViewID: view.ID, ViewVersion: view.Version, Measure: "bytes:total"},
 	}}
 }
 
 func assertSeasonalNativeFlowState(t *testing.T, state alert.SeasonalSourceState, view flow.SavedQueryView) {
 	t.Helper()
 	if state.RuleID == "" || !state.Enabled || !state.Configured || state.Source == nil || state.Source.Flow == nil ||
-		state.Source.Flow.ViewID != view.ID || state.Source.Flow.ViewVersion != view.Version || state.Source.Flow.Measure != "bytes:total" {
+		state.Source.Cadence != anomaly.SeasonalDaily || state.Source.Flow.ViewID != view.ID || state.Source.Flow.ViewVersion != view.Version || state.Source.Flow.Measure != "bytes:total" {
 		t.Fatal("native create lost the current owned flow revision")
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -61,13 +62,13 @@ func proveSeasonalNativeSource(t *testing.T, wire string) {
 	getArgs := func(tenant string) map[string]any { return map[string]any{"rule_id": rules[tenant]} }
 	setArgs := func(ruleTenant, testTenant string) map[string]any {
 		return map[string]any{"rule_id": rules[ruleTenant], "input": alert.SeasonalBaselineInput{
-			Timezone: "America/New_York", MinimumChange: 5, Holidays: []string{"2026-11-26"}, TestID: tests[testTenant],
+			Cadence: anomaly.SeasonalHourly, Timezone: "America/New_York", MinimumChange: 5, Holidays: []string{"2026-11-26"}, TestID: tests[testTenant],
 		}}
 	}
 	assertOwned := func(tenant string, state alert.SeasonalSourceState) {
 		t.Helper()
 		if state.RuleID != rules[tenant] || !state.Configured || !state.Enabled || state.Source == nil || state.Source.TestID != tests[tenant] ||
-			state.Source.Timezone != "America/New_York" || state.Source.MinimumChange != 5 || len(state.Source.Holidays) != 1 || state.Source.Holidays[0] != "2026-11-26" {
+			state.Source.Cadence != anomaly.SeasonalHourly || state.Source.Timezone != "America/New_York" || state.Source.MinimumChange != 5 || len(state.Source.Holidays) != 1 || state.Source.Holidays[0] != "2026-11-26" {
 			t.Fatal("native response lost the owned source or its local clock")
 		}
 	}

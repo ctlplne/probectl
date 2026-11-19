@@ -11,6 +11,7 @@ import {
   seasonalAlertSource,
   seasonalFlowAlertMetric,
   type AlertRule,
+  type AlertSeasonalCadence,
   type AlertSeasonalFlowInput,
 } from '../api/alerts'
 import {
@@ -20,6 +21,7 @@ import {
   Field,
   LoadingState,
   Modal,
+  Select,
   TextArea,
 } from '../components'
 import { useAuth } from '../auth/useAuth'
@@ -48,6 +50,7 @@ export function AlertSeasonalSourceDialog({
     view_version: '',
     measure: '',
   })
+  const [cadence, setCadence] = useState<AlertSeasonalCadence>('weekly')
   const [timezone, setTimezone] = useState('UTC')
   const [minimum, setMinimum] = useState('')
   const [holidays, setHolidays] = useState('')
@@ -66,6 +69,7 @@ export function AlertSeasonalSourceDialog({
         if (load.signal.aborted) return
         if (state.rule_id !== rule.id) throw new Error('Rule identity changed')
         setConfigured(state.configured)
+        setCadence(state.source?.cadence ?? 'weekly')
         setTimezone(state.source?.timezone ?? 'UTC')
         setMinimum(state.source ? String(state.source.minimum_change) : '')
         setHolidays(state.source?.holidays?.join('\n') ?? '')
@@ -89,6 +93,7 @@ export function AlertSeasonalSourceDialog({
     setError('')
     try {
       const input = {
+        ...(cadence === 'weekly' ? {} : { cadence }),
         timezone: timezone.trim(),
         minimum_change: Number(minimum),
         holidays: holidays
@@ -142,9 +147,8 @@ export function AlertSeasonalSourceDialog({
       <Modal
         open
         onClose={onClose}
-        title={rule ? `Weekly seasonal baseline for ${rule.name}` : 'Create seasonal flow alert'}
+        title={rule ? `Seasonal baseline for ${rule.name}` : 'Create seasonal flow alert'}
       >
-        <p>Compare each observation with the same local weekday and hour in retained history.</p>
         {error ? <ErrorState description={error} /> : null}
         {!canRead ? (
           <p>
@@ -176,6 +180,18 @@ export function AlertSeasonalSourceDialog({
                 disabled={!canWrite || busy}
               />
             ) : null}
+            <Select
+              label="Learning cadence"
+              value={cadence}
+              options={[
+                { value: 'weekly', label: 'Weekly (same weekday and hour)' },
+                { value: 'weekly_early', label: 'Weekly (early band)' },
+                { value: 'daily', label: 'Daily (same local hour)' },
+                ...(flow ? [] : [{ value: 'hourly', label: 'Hourly (same local minute)' }]),
+              ]}
+              onChange={(e) => setCadence(e.target.value as AlertSeasonalCadence)}
+              disabled={!canWrite || busy}
+            />
             <Field
               label="Timezone"
               value={timezone}
@@ -216,20 +232,20 @@ export function AlertSeasonalSourceDialog({
             ) : null}
             {canWrite ? (
               <Button type="submit" disabled={busy}>
-                {rule ? 'Save weekly baseline' : 'Create seasonal flow alert'}
+                {rule ? 'Save seasonal baseline' : 'Create seasonal flow alert'}
               </Button>
             ) : null}
           </form>
         ) : null}
         {configured && canWrite ? (
           <Button variant="ghost" disabled={busy} onClick={() => setConfirmClear(true)}>
-            Clear weekly baseline
+            Clear seasonal baseline
           </Button>
         ) : null}
       </Modal>
       <ConfirmDialog
         open={confirmClear}
-        title="Clear the weekly baseline and disable this rule?"
+        title="Clear the seasonal baseline and disable this rule?"
         confirmLabel="Clear and disable"
         busyLabel="Clearing…"
         pending={busy}

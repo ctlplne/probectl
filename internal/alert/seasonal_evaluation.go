@@ -37,14 +37,18 @@ type SeasonalEvaluationEvidence struct {
 // SeasonalEvaluationCalendar reports the civil slot and comparable dates. A
 // metric supplies floating bounds here. A flow measure uses its exact band.
 type SeasonalEvaluationCalendar struct {
-	Timezone     string       `json:"timezone"`
-	Weekday      time.Weekday `json:"weekday"`
-	Hour         int          `json:"hour"`
-	TrainingDays []string     `json:"training_days"`
-	Median       *float64     `json:"median,omitempty"`
-	Spread       *float64     `json:"robust_spread,omitempty"`
-	Lower        *float64     `json:"lower,omitempty"`
-	Upper        *float64     `json:"upper,omitempty"`
+	Cadence         anomaly.SeasonalCadence `json:"cadence,omitempty"`
+	Minute          *int                    `json:"minute,omitempty"`
+	TrainingPeriods int                     `json:"training_periods,omitempty"`
+	Provisional     bool                    `json:"provisional,omitempty"`
+	Timezone        string                  `json:"timezone"`
+	Weekday         time.Weekday            `json:"weekday"`
+	Hour            int                     `json:"hour"`
+	TrainingDays    []string                `json:"training_days"`
+	Median          *float64                `json:"median,omitempty"`
+	Spread          *float64                `json:"robust_spread,omitempty"`
+	Lower           *float64                `json:"lower,omitempty"`
+	Upper           *float64                `json:"upper,omitempty"`
 }
 
 // SeasonalPublisher commits the cited incident before delivery may proceed.
@@ -330,7 +334,26 @@ func seasonalObservationMatches(rule Rule, at time.Time, sample Sample) bool {
 	case anomaly.SeasonalUnavailable, anomaly.SeasonalExcluded, anomaly.SeasonalWarming:
 		return comparison.Evidence == nil
 	case anomaly.SeasonalNormal, anomaly.SeasonalUp, anomaly.SeasonalDown:
-		return comparison.Evidence != nil && len(comparison.Evidence.TrainingDays) >= SeasonalMinimumTrainingDays && ((comparison.Exact != nil) == (rule.Metric == SeasonalFlowMetric))
+		return comparison.Evidence != nil && seasonalCalendarReady(comparison.Evidence) && ((comparison.Exact != nil) == (rule.Metric == SeasonalFlowMetric))
+	default:
+		return false
+	}
+}
+
+func seasonalCalendarReady(calendar *anomaly.SeasonalEvidence) bool {
+	days := len(calendar.TrainingDays)
+	switch calendar.Cadence {
+	case "", anomaly.SeasonalWeekly:
+		return days >= SeasonalMinimumTrainingDays
+	case anomaly.SeasonalHourly:
+		return days > 0 && calendar.Minute != nil && *calendar.Minute >= 0 && *calendar.Minute < 60 &&
+			calendar.Periods >= max(days, SeasonalMinimumTrainingDays) && !calendar.Provisional
+	case anomaly.SeasonalDaily, anomaly.SeasonalWeeklyEarly:
+		minimum := SeasonalMinimumTrainingDays
+		if calendar.Provisional {
+			minimum = 2
+		}
+		return calendar.Periods == days && days >= minimum
 	default:
 		return false
 	}
@@ -347,12 +370,17 @@ func seasonalRuleDecision(comparison *anomaly.SeasonalComparison) evaluationDeci
 	case anomaly.SeasonalExcluded:
 		return evaluationDecision{warming: true, reason: "The current local date is excluded by the holiday calendar", expectation: expectation}
 	case anomaly.SeasonalWarming:
-		return evaluationDecision{warming: true, reason: "Waiting for comparable dates in the retained history", expectation: expectation,
-			warmupSamples: comparison.ComparableDays, warmupNeeded: SeasonalMinimumTrainingDays}
+		needed := comparison.RequiredPeriods
+		if needed == 0 {
+			needed = SeasonalMinimumTrainingDays
+		}
+		return evaluationDecision{warming: true, reason: "Waiting for comparable periods in the retained history", expectation: expectation,
+			warmupSamples: comparison.ComparableDays, warmupNeeded: needed}
 	}
 	calendar := *comparison.Evidence
 	evidence := SeasonalEvaluationEvidence{Subject: comparison.Observed.Subject, ObservedAt: comparison.Observed.TS,
-		Calendar:       SeasonalEvaluationCalendar{Timezone: calendar.Timezone, Weekday: calendar.Weekday, Hour: calendar.Hour, TrainingDays: calendar.TrainingDays},
+		Calendar: SeasonalEvaluationCalendar{Timezone: calendar.Timezone, Weekday: calendar.Weekday, Hour: calendar.Hour, TrainingDays: calendar.TrainingDays,
+			Cadence: calendar.Cadence, Minute: calendar.Minute, TrainingPeriods: calendar.Periods, Provisional: calendar.Provisional},
 		TrainingWindow: comparison.TrainingWindow, Citations: comparison.Citations, Exact: comparison.Exact}
 	expectation.Seasonal = &evidence
 	if comparison.Exact != nil {
@@ -361,16 +389,30 @@ func seasonalRuleDecision(comparison *anomaly.SeasonalComparison) evaluationDeci
 	evidence.Calendar.Median, evidence.Calendar.Spread = floatRef(calendar.Median), floatRef(calendar.RobustSpread)
 	evidence.Calendar.Lower, evidence.Calendar.Upper = floatRef(calendar.Lower), floatRef(calendar.Upper)
 	expectation.Lower, expectation.Upper = evidence.Calendar.Lower, evidence.Calendar.Upper
-	reason := fmt.Sprintf("%s %02d:00 in %s normally ranges from %g to %g. Observed %g.",
-		calendar.Weekday, calendar.Hour, calendar.Timezone, calendar.Lower, calendar.Upper, comparison.Observed.Value)
+	reason := fmt.Sprintf("%s in %s normally ranges from %g to %g. Observed %g.",
+		seasonalCalendarLabel(calendar), calendar.Timezone, calendar.Lower, calendar.Upper, comparison.Observed.Value)
+	if calendar.Provisional {
+		reason = "Provisional seasonal band. " + reason
+	}
 	return evaluationDecision{breached: comparison.State == anomaly.SeasonalUp || comparison.State == anomaly.SeasonalDown,
 		reason: reason, expectation: expectation}
+}
+
+func seasonalCalendarLabel(calendar anomaly.SeasonalEvidence) string {
+	switch calendar.Cadence {
+	case anomaly.SeasonalHourly:
+		return fmt.Sprintf("Minute %02d of an hour", *calendar.Minute)
+	case anomaly.SeasonalDaily:
+		return fmt.Sprintf("%02d:00 each day", calendar.Hour)
+	default:
+		return fmt.Sprintf("%s %02d:00", calendar.Weekday, calendar.Hour)
+	}
 }
 
 func exactSeasonalDecision(comparison *anomaly.SeasonalComparison, expectation EvaluationExpectation) evaluationDecision {
 	changed := comparison.State == anomaly.SeasonalUp || comparison.State == anomaly.SeasonalDown
 	if changed {
-		return evaluationDecision{breached: true, reason: "Saved flow measure outside its weekly band", expectation: expectation}
+		return evaluationDecision{breached: true, reason: "Saved flow measure outside its seasonal band", expectation: expectation}
 	}
-	return evaluationDecision{reason: "Saved flow measure within its weekly band", expectation: expectation}
+	return evaluationDecision{reason: "Saved flow measure within its seasonal band", expectation: expectation}
 }

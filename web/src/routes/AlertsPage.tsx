@@ -238,21 +238,33 @@ function evaluationExpectation(expectation: AlertEvaluationExpectation): string 
     return `${expectation.comparison ?? 'comparison unavailable'} ${expectation.threshold ?? 'threshold unavailable'}`
   }
   if (expectation.seasonal) {
-    const { weekday, hour, timezone, training_days } = expectation.seasonal.calendar
+    const calendar = expectation.seasonal.calendar
     const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
-      weekday
+      calendar.weekday
     ]
-    const slot = `${day} ${String(hour).padStart(2, '0')}:00 ${timezone}`
+    const hour = `${String(calendar.hour).padStart(2, '0')}:00`
+    const slot = seasonalBandSlot(calendar.cadence, hour, day, calendar.minute)
+    const population =
+      calendar.cadence === 'hourly'
+        ? `${calendar.training_periods ?? 0} matching hours`
+        : `${calendar.training_days.length} comparable dates`
+    const phase = calendar.provisional ? ' · Provisional band' : ''
     const lower = expectation.seasonal.exact?.lower ?? expectation.lower?.toLocaleString()
     const upper = expectation.seasonal.exact?.upper ?? expectation.upper?.toLocaleString()
     if (lower !== undefined && upper !== undefined) {
-      return `${slot} · ${lower} – ${upper} · ${training_days.length} comparable dates`
+      return `${slot} ${calendar.timezone} · ${lower} – ${upper} · ${population}${phase}`
     }
   }
   if (expectation.lower !== undefined && expectation.upper !== undefined) {
     return `${expectation.lower.toLocaleString()} – ${expectation.upper.toLocaleString()} (mean ${expectation.mean?.toLocaleString() ?? 'unavailable'}, σ ${expectation.stddev?.toLocaleString() ?? 'unavailable'})`
   }
   return 'Baseline band is still warming'
+}
+
+function seasonalBandSlot(cadence: string | undefined, hour: string, day: string, minute?: number) {
+  if (cadence === 'hourly') return `Minute ${String(minute ?? 0).padStart(2, '0')} each hour`
+  if (cadence === 'daily') return `${hour} each day`
+  return `${day} ${hour}`
 }
 
 /** ActiveAlertDetail shows one firing series with its operator actions —
@@ -1439,7 +1451,7 @@ export function AlertsPage() {
               : r.type === 'threshold'
                 ? `${r.comparison ?? 'gt'} ${r.threshold ?? 0}`
                 : r.has_seasonal_source
-                  ? 'Weekly seasonal baseline'
+                  ? 'Seasonal baseline'
                   : r.metric === seasonalFlowAlertMetric
                     ? 'Select a saved flow view to resume'
                     : `baseline ±${r.sensitivity ?? 3}σ`,
@@ -1499,10 +1511,10 @@ export function AlertsPage() {
             <Button
               size="sm"
               variant="ghost"
-              aria-label={`Weekly baseline for ${r.name}`}
+              aria-label={`Seasonal baseline for ${r.name}`}
               onClick={() => setSeasonalEditing({ rule: r, scope: metadataScope })}
             >
-              Weekly baseline{r.has_seasonal_source ? ' (set)' : ''}
+              Seasonal baseline{r.has_seasonal_source ? ' (set)' : ''}
             </Button>
           ) : null}
           {r.metric !== savedQueryAlertMetric &&

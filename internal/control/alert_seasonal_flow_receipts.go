@@ -93,12 +93,12 @@ func (s *Server) recheckSeasonalFlowReceipts(ctx context.Context, actor *auth.Pr
 				if err := s.authorizeSeasonalPublication(ctx, sc, src); err != nil {
 					return err
 				}
-				return s.recheckSeasonalFlowReceiptItems(store.WithReportSourceAuditLock(ctx, sc), sc, actor, *rule, *src.Config.Flow, items, budget.MemoryBytes/8, redact)
+				return s.recheckSeasonalFlowReceiptItems(store.WithReportSourceAuditLock(ctx, sc), sc, actor, *rule, src.Config, items, budget.MemoryBytes/8, redact)
 			})
 	})
 }
 
-func (s *Server) recheckSeasonalFlowReceiptItems(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, rule alert.Rule, selection alert.SeasonalFlowInput, items []*alert.EvaluationReceipt, memory int64, redact bool) error {
+func (s *Server) recheckSeasonalFlowReceiptItems(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, rule alert.Rule, config alert.SeasonalBaselineInput, items []*alert.EvaluationReceipt, memory int64, redact bool) error {
 	checked := make(map[string]time.Time)
 	revision := rule.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	for _, item := range items {
@@ -112,7 +112,7 @@ func (s *Server) recheckSeasonalFlowReceiptItems(ctx context.Context, sc tenancy
 			if len(key) == 32 && checked[key].Equal(evidence.ObservedAt) && !evidence.ObservedAt.IsZero() {
 				err = nil
 			} else {
-				capture, decodeErr := decodeSeasonalFlowScope(ctx, evidence.FlowScope, selection, evidence.ObservedAt, memory)
+				capture, decodeErr := decodeSeasonalFlowScope(ctx, evidence.FlowScope, config, evidence.ObservedAt, memory)
 				if decodeErr == nil {
 					err = s.validateReportSourcePublication(ctx, sc, actor, capture)
 					if err == nil && len(key) == 32 {

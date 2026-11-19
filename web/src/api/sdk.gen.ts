@@ -345,13 +345,19 @@ export interface AlertRule {
   window?: number
 }
 
+export type AlertSeasonalCadence = "weekly" | "weekly_early" | "daily" | "hourly"
+
 export interface AlertSeasonalCalendar {
+  cadence?: AlertSeasonalCadence
   hour: number
   lower?: number
   median?: number
+  minute?: number
+  provisional?: boolean
   robust_spread?: number
   timezone: string
   training_days: string[]
+  training_periods?: number
   upper?: number
   weekday: number
 }
@@ -388,6 +394,7 @@ export interface AlertSeasonalFlowInput {
 }
 
 export interface AlertSeasonalSourceInput {
+  cadence?: AlertSeasonalCadence
   flow?: AlertSeasonalFlowInput | null
   holidays?: string[]
   minimum_change: number

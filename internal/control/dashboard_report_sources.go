@@ -208,6 +208,12 @@ func (s *Server) captureFlowSourcesWithOptions(ctx context.Context, actor *auth.
 	defer batch.Close()
 	ctx = context.WithValue(batch.Context(), reportFlowBatchKey{}, batch)
 	workspace := flowstore.ExplorerOperationBudget(ctx, s.flowStore).MemoryBytes
+	if len(options.SeasonalPeriodEnds) != 0 {
+		// These plans share one view and authorization population. The
+		// caller has already reserved workspace for the whole evaluation;
+		// it remains outside each execution and its retained result share.
+		workspace = options.ReservedMemoryBytes / 4
+	}
 	if cost > workspace/4 {
 		return nil, reportProjectionLimit()
 	}

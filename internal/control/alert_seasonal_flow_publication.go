@@ -57,7 +57,7 @@ func (s *Server) readSeasonalFlowRule(ctx context.Context, rule alert.Rule, sour
 	for _, result := range current.Scores {
 		comparison := anomaly.SeasonalComparison{
 			Observed: anomaly.Feature{TenantID: rule.TenantID, Source: "saved-explorer", Plane: "flow", Subject: result.Subject, Metric: rule.Metric, TS: current.At},
-			State:    result.Result.State, ComparableDays: result.Result.ComparableDays, Evidence: result.Result.Calendar, Exact: result.Result.Band,
+			State:    result.Result.State, ComparableDays: result.Result.ComparableDays, RequiredPeriods: result.Result.RequiredPeriods, Evidence: result.Result.Calendar, Exact: result.Result.Band,
 			TrainingWindow: result.Result.TrainingWindow, Citations: result.Result.Citations,
 		}
 		samples = append(samples, alert.Sample{Labels: map[string]string{promapi.TenantLabel: rule.TenantID}, Seasonal: &comparison})
@@ -106,7 +106,8 @@ type storedSeasonalFlowScope struct {
 	Version          int                        `json:"version"`
 	TenantID         string                     `json:"tenant_id"`
 	SourceGeneration int64                      `json:"source_generation"`
-	Inputs           []reportFlowInput          `json:"inputs"`
+	Inputs           []reportFlowInput          `json:"inputs,omitempty"`
+	Timeline         *seasonalScopeTimeline     `json:"timeline,omitempty"`
 	Permissions      []string                   `json:"permissions"`
 	Contexts         []reportContextRequirement `json:"contexts"`
 	ContextsCaptured bool                       `json:"contexts_captured"`
@@ -124,6 +125,13 @@ func encodeSeasonalFlowScope(ctx context.Context, c *reportFlowCapture, memory i
 	}
 	req := storedSeasonalFlowScope{Version: 1, TenantID: c.TenantID, SourceGeneration: c.SourceGeneration, Inputs: c.Inputs, Permissions: c.Permissions,
 		Contexts: c.Contexts, ContextsCaptured: c.ContextsCaptured, ContextSources: c.ContextSources, FilterVersions: c.FilterVersions}
+	if len(c.Inputs) > seasonalFlowLegacyWindows {
+		timeline, err := compactSeasonalFlowTimeline(ctx, c.Inputs)
+		if err != nil {
+			return nil, err
+		}
+		req.Version, req.Inputs, req.Timeline = 2, nil, timeline
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -145,7 +153,7 @@ func admitSeasonalFlowScopeEncoding(ctx context.Context, capture *reportFlowCapt
 		left -= base
 		return left > 0 && ctx.Err() == nil
 	}
-	if len(capture.Inputs) > 8 || !charge(128, capture.TenantID) {
+	if len(capture.Inputs) > anomaly.SeasonalFlowMaximumWindows || !charge(128, capture.TenantID) {
 		return alert.ErrSeasonalSource
 	}
 	for _, permission := range capture.Permissions {
@@ -153,8 +161,9 @@ func admitSeasonalFlowScopeEncoding(ctx context.Context, capture *reportFlowCapt
 			return alert.ErrSeasonalSource
 		}
 	}
-	for _, input := range capture.Inputs {
-		if !charge(72, input.ID, input.Version, input.TagRevision) {
+	compact := len(capture.Inputs) > seasonalFlowLegacyWindows
+	for i, input := range capture.Inputs {
+		if !charge(72) || ((!compact || i == 0) && !charge(0, input.ID, input.Version, input.TagRevision)) {
 			return alert.ErrSeasonalSource
 		}
 		if input.Routing == nil {
@@ -189,7 +198,7 @@ func admitSeasonalFlowScopeEncoding(ctx context.Context, capture *reportFlowCapt
 	return ctx.Err()
 }
 
-func decodeSeasonalFlowScope(ctx context.Context, raw []byte, selection alert.SeasonalFlowInput, observed time.Time, memory int64) (*reportFlowCapture, error) {
+func decodeSeasonalFlowScope(ctx context.Context, raw []byte, config alert.SeasonalBaselineInput, observed time.Time, memory int64) (*reportFlowCapture, error) {
 	if err := admitFlowSnapshotValidity(ctx, raw, alert.SeasonalFlowScopeBytes, memory); err != nil {
 		return nil, err
 	}
@@ -199,19 +208,24 @@ func decodeSeasonalFlowScope(ctx context.Context, raw []byte, selection alert.Se
 	if err := decoder.Decode(&req); err != nil || decoder.Decode(new(any)) != io.EOF {
 		return nil, alert.ErrSeasonalSource
 	}
-	capture := &reportFlowCapture{TenantID: req.TenantID, SourceGeneration: req.SourceGeneration, Inputs: req.Inputs, Permissions: req.Permissions,
-		Contexts: req.Contexts, ContextsCaptured: req.ContextsCaptured, ContextSources: req.ContextSources, FilterVersions: req.FilterVersions}
+
 	bound, ok := tenancy.FromContext(ctx)
-	if !ok || req.Version != 1 || !reportRequirementUUID(req.TenantID) || req.TenantID != bound.String() || req.SourceGeneration < 1 {
+	if !ok || !reportRequirementUUID(req.TenantID) || req.TenantID != bound.String() || req.SourceGeneration < 1 {
 		return nil, alert.ErrSeasonalSource
 	}
+	inputs, err := req.expandedInputs(ctx, memory)
+	if err != nil {
+		return nil, err
+	}
+	capture := &reportFlowCapture{TenantID: req.TenantID, SourceGeneration: req.SourceGeneration, Inputs: inputs, Permissions: req.Permissions,
+		Contexts: req.Contexts, ContextsCaptured: req.ContextsCaptured, ContextSources: req.ContextSources, FilterVersions: req.FilterVersions}
 	if err := validateReportCapturedSources(capture); err != nil {
 		return nil, err
 	}
-	if err := validateStoredSeasonalFlowInputs(ctx, req.Inputs, selection, observed, slices.Contains(req.Permissions, permTagsRead), memory); err != nil {
+	if err := validateStoredSeasonalFlowInputs(ctx, inputs, config, observed, slices.Contains(req.Permissions, permTagsRead), memory); err != nil {
 		return nil, err
 	}
-	for _, input := range req.Inputs {
+	for _, input := range inputs {
 		if input.RoutingSource && !req.ContextSources {
 			return nil, alert.ErrSeasonalSource
 		}
@@ -229,16 +243,23 @@ func decodeSeasonalFlowScope(ctx context.Context, raw []byte, selection alert.Se
 	return capture, ctx.Err()
 }
 
-func validateStoredSeasonalFlowInputs(ctx context.Context, inputs []reportFlowInput, selection alert.SeasonalFlowInput, observed time.Time, usesTags bool, memory int64) error {
-	if len(inputs) < 1 || len(inputs) > 8 || observed.IsZero() {
+func validateStoredSeasonalFlowInputs(ctx context.Context, inputs []reportFlowInput, config alert.SeasonalBaselineInput, observed time.Time, usesTags bool, memory int64) error {
+	if len(inputs) < 1 || len(inputs) > anomaly.SeasonalFlowMaximumWindows || observed.IsZero() || config.Flow == nil {
 		return alert.ErrSeasonalSource
 	}
 	last := inputs[len(inputs)-1]
-	if !exactSeasonalObservedAt(last.To).Equal(observed) {
+	model, err := config.Model()
+	if err != nil || !exactSeasonalObservedAt(last.To).Equal(observed) {
+		return alert.ErrSeasonalSource
+	}
+	sampleClock, end := model.LatestCompletedSlot(last.To)
+	clocks := append(model.ComparableCompleteEnds(sampleClock), end)
+	slices.SortFunc(clocks, time.Time.Compare)
+	if !sampleClock.Equal(observed) || len(clocks) != len(inputs) {
 		return alert.ErrSeasonalSource
 	}
 	for i, input := range inputs {
-		if input.ID != selection.ViewID || input.Version != selection.ViewVersion || input.Period != "current" ||
+		if input.ID != config.Flow.ViewID || input.Version != config.Flow.ViewVersion || input.Period != "current" || !input.To.Equal(clocks[i]) ||
 			input.To.Sub(input.From) != last.To.Sub(last.From) || input.TagRevision != last.TagRevision ||
 			!input.TagAsOf.Equal(last.TagAsOf) || (i > 0 && !inputs[i-1].To.Before(input.To)) {
 			return alert.ErrSeasonalSource

@@ -431,15 +431,21 @@ type AlertRule struct {
 	Window              int               `json:"window,omitempty"`
 }
 
+type AlertSeasonalCadence string
+
 type AlertSeasonalCalendar struct {
-	Hour         int      `json:"hour"`
-	Lower        float64  `json:"lower,omitempty"`
-	Median       float64  `json:"median,omitempty"`
-	RobustSpread float64  `json:"robust_spread,omitempty"`
-	Timezone     string   `json:"timezone"`
-	TrainingDays []string `json:"training_days"`
-	Upper        float64  `json:"upper,omitempty"`
-	Weekday      int      `json:"weekday"`
+	Cadence         AlertSeasonalCadence `json:"cadence,omitempty"`
+	Hour            int                  `json:"hour"`
+	Lower           float64              `json:"lower,omitempty"`
+	Median          float64              `json:"median,omitempty"`
+	Minute          int                  `json:"minute,omitempty"`
+	Provisional     *bool                `json:"provisional,omitempty"`
+	RobustSpread    float64              `json:"robust_spread,omitempty"`
+	Timezone        string               `json:"timezone"`
+	TrainingDays    []string             `json:"training_days"`
+	TrainingPeriods int                  `json:"training_periods,omitempty"`
+	Upper           float64              `json:"upper,omitempty"`
+	Weekday         int                  `json:"weekday"`
 }
 
 type AlertSeasonalCitation struct {
@@ -473,8 +479,9 @@ type AlertSeasonalFlowInput struct {
 	ViewVersion string `json:"view_version"`
 }
 
-// Choose an IANA timezone, explicit local holiday dates and a positive absolute change threshold in the metric unit.
+// Choose a learning cadence, IANA timezone, local holiday dates and a positive absolute change threshold in the metric unit.
 type AlertSeasonalSourceInput struct {
+	Cadence       AlertSeasonalCadence    `json:"cadence,omitempty"`
 	Flow          *AlertSeasonalFlowInput `json:"flow,omitempty"`
 	Holidays      []string                `json:"holidays,omitempty"`
 	MinimumChange float64                 `json:"minimum_change"`
@@ -4898,7 +4905,7 @@ func (c *Client) ClearAlertQuerySource(ctx context.Context, req ClearAlertQueryS
 	return &out, nil
 }
 
-// Inspect a weekly seasonal baseline
+// Inspect a seasonal baseline
 type GetAlertSeasonalSourceRequest struct {
 	Id string `json:"-"`
 }
@@ -4917,7 +4924,7 @@ func (c *Client) GetAlertSeasonalSource(ctx context.Context, req GetAlertSeasona
 	return &out, nil
 }
 
-// Bind a baseline rule to a local weekly calendar
+// Bind a baseline rule to a local learning calendar
 type SetAlertSeasonalSourceRequest struct {
 	Id   string                    `json:"-"`
 	Body *AlertSeasonalSourceInput `json:"-"`
@@ -4937,7 +4944,7 @@ func (c *Client) SetAlertSeasonalSource(ctx context.Context, req SetAlertSeasona
 	return &out, nil
 }
 
-// Clear a configured weekly seasonal source and disable its rule
+// Clear a configured seasonal source and disable its rule
 type ClearAlertSeasonalSourceRequest struct {
 	Id string `json:"-"`
 }

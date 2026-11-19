@@ -10,12 +10,14 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"time"
 	_ "time/tzdata" // keep IANA calendars available in air-gapped binaries
 )
 
 type WeeklySeasonalConfig struct {
+	Cadence          SeasonalCadence
 	Timezone         string
 	Holidays         []string // local YYYY-MM-DD
 	MinimumDays      int
@@ -23,17 +25,22 @@ type WeeklySeasonalConfig struct {
 }
 
 type SeasonalEvidence struct {
-	Timezone     string       `json:"timezone"`
-	Weekday      time.Weekday `json:"weekday"`
-	Hour         int          `json:"hour"`
-	TrainingDays []string     `json:"training_days"`
-	Median       float64      `json:"median"`
-	RobustSpread float64      `json:"robust_spread"`
-	Lower        float64      `json:"lower"`
-	Upper        float64      `json:"upper"`
+	Cadence      SeasonalCadence `json:"cadence,omitempty"`
+	Periods      int             `json:"training_periods,omitempty"`
+	Minute       *int            `json:"minute,omitempty"`
+	Provisional  bool            `json:"provisional,omitempty"`
+	Timezone     string          `json:"timezone"`
+	Weekday      time.Weekday    `json:"weekday"`
+	Hour         int             `json:"hour"`
+	TrainingDays []string        `json:"training_days"`
+	Median       float64         `json:"median"`
+	RobustSpread float64         `json:"robust_spread"`
+	Lower        float64         `json:"lower"`
+	Upper        float64         `json:"upper"`
 }
 
 type WeeklySeasonalModel struct {
+	cadence          SeasonalCadence
 	location         *time.Location
 	holidays         map[string]bool
 	minimumDays      int
@@ -59,15 +66,7 @@ func (m WeeklySeasonalModel) ComparableWindows(observed time.Time) []SeasonalWin
 	if m.holidays[local.Format(time.DateOnly)] {
 		return nil
 	}
-	wall := time.Date(local.Year(), local.Month(), local.Day(), local.Hour(), 0, 0, 0, time.UTC)
-	windows := make([]SeasonalWindow, 0, WeeklyTrainingWeeks)
-	for weeksBack := WeeklyTrainingWeeks; weeksBack > 0; weeksBack-- {
-		prior := wall.AddDate(0, 0, -7*weeksBack)
-		if !m.holidays[prior.Format(time.DateOnly)] {
-			windows = m.appendLocalHour(windows, prior)
-		}
-	}
-	return windows
+	return m.profileWindows(local)
 }
 
 func (m WeeklySeasonalModel) appendLocalHour(windows []SeasonalWindow, wall time.Time) []SeasonalWindow {
@@ -121,14 +120,15 @@ const (
 // SeasonalComparison preserves a holiday or an incomplete history as an
 // unevaluated observation. Consumers must not resolve a live episode from it.
 type SeasonalComparison struct {
-	State          SeasonalState
-	Observed       Feature
-	ComparableDays int
-	Evidence       *SeasonalEvidence
-	Exact          *SeasonalDecimalBand
-	TrainingWindow TrainingWindow
-	Citations      []Citation
-	Score          float64
+	State           SeasonalState
+	Observed        Feature
+	ComparableDays  int
+	RequiredPeriods int
+	Evidence        *SeasonalEvidence
+	Exact           *SeasonalDecimalBand
+	TrainingWindow  TrainingWindow
+	Citations       []Citation
+	Score           float64
 }
 
 func NewWeeklySeasonalModel(config WeeklySeasonalConfig) (WeeklySeasonalModel, error) {
@@ -136,6 +136,9 @@ func NewWeeklySeasonalModel(config WeeklySeasonalConfig) (WeeklySeasonalModel, e
 	if config.Timezone == "" || config.Timezone == "Local" || config.MinimumDays < 3 ||
 		config.MinimumDeviation <= 0 || !finiteSeasonalValue(config.MinimumDeviation) {
 		return none, fmt.Errorf("anomaly: seasonal model needs an explicit timezone, at least three training days and a positive deviation floor")
+	}
+	if !config.Cadence.Valid() {
+		return none, fmt.Errorf("anomaly: invalid seasonal cadence %q", config.Cadence)
 	}
 	location, err := time.LoadLocation(config.Timezone)
 	if err != nil {
@@ -150,11 +153,16 @@ func NewWeeklySeasonalModel(config WeeklySeasonalConfig) (WeeklySeasonalModel, e
 		holidays[date] = true
 	}
 	return WeeklySeasonalModel{
-		location: location, holidays: holidays, minimumDays: config.MinimumDays, minimumDeviation: config.MinimumDeviation,
+		cadence: config.Cadence, location: location, holidays: holidays, minimumDays: config.MinimumDays, minimumDeviation: config.MinimumDeviation,
 	}, nil
 }
 
-func (WeeklySeasonalModel) Name() string { return "local-weekly-seasonal-v1" }
+func (m WeeklySeasonalModel) Name() string {
+	if m.cadence == "" || m.cadence == SeasonalWeekly {
+		return "local-weekly-seasonal-v1"
+	}
+	return "local-" + string(m.cadence) + "-seasonal-v1"
+}
 
 func (m WeeklySeasonalModel) Evaluate(ctx context.Context, features []Feature, query Query) ([]Finding, error) {
 	comparisons, err := m.Compare(ctx, features, query)
@@ -235,7 +243,7 @@ func (m WeeklySeasonalModel) Compare(ctx context.Context, features []Feature, qu
 func (m WeeklySeasonalModel) compareSeries(ctx context.Context, points []Feature, query Query) (SeasonalComparison, error) {
 	sort.Slice(points, func(i, j int) bool { return points[i].TS.Before(points[j].TS) })
 	current := points[len(points)-1]
-	result := SeasonalComparison{State: SeasonalUnavailable, Observed: current}
+	result := SeasonalComparison{State: SeasonalUnavailable, Observed: current, RequiredPeriods: m.minimumPeriods()}
 	if !finiteSeasonalValue(current.Value) || (query.MinValue != 0 && current.Value < query.MinValue) ||
 		(len(points) > 1 && current.TS.Equal(points[len(points)-2].TS)) {
 		// Even the exact current value is ambiguous in this state.
@@ -248,30 +256,41 @@ func (m WeeklySeasonalModel) compareSeries(ctx context.Context, points []Feature
 		result.State = SeasonalExcluded
 		return result, nil
 	}
-	history, days, err := m.comparableTraining(ctx, points[:len(points)-1], slot, currentDate)
+	history, days, err := m.comparableTraining(ctx, points[:len(points)-1], slot)
 	if err != nil {
 		return SeasonalComparison{}, err
 	}
+	ready, anchors := selectSeasonalPeriods(m, slot, days)
 	result.ComparableDays = len(days)
-	if len(days) < m.minimumDays {
+	if !ready {
 		result.State = SeasonalWarming
 		return result, nil
 	}
-	return m.compareSeasonalBand(result, query, slot, history, days), nil
+	history = slices.DeleteFunc(history, func(point Feature) bool { return days[m.trainingSlot(point.TS, slot)] == nil })
+	return m.compareSeasonalBand(result, query, slot, history, days, anchors), nil
 }
 
-func (m WeeklySeasonalModel) compareSeasonalBand(result SeasonalComparison, query Query, slot time.Time, history []Feature, days map[string][]float64) SeasonalComparison {
-	baseline, spread, dates := seasonalCenter(days)
-	// The configured floor keeps an all-equal training baseline useful and
-	// also prevents tiny floating-point noise from triggering a finding.
+func (m WeeklySeasonalModel) compareSeasonalBand(result SeasonalComparison, query Query, slot time.Time, history []Feature, periods map[string][]float64, anchors map[string]bool) SeasonalComparison {
+	baseline, spread, slots := seasonalCenter(periods)
+	// A measured change floor handles stable series. A provisional weekly
+	// band also includes every available actual same-weekday center.
 	delta := math.Max(spread*query.Sensitivity, m.minimumDeviation)
 	lower, upper := baseline-delta, baseline+delta
+	for anchor := range anchors {
+		center := seasonalMedian(periods[anchor])
+		lower = min(lower, center-m.minimumDeviation)
+		upper = max(upper, center+m.minimumDeviation)
+	}
 	if !finiteSeasonalValue(lower) || !finiteSeasonalValue(upper) {
 		return result
 	}
 	current := result.Observed
 	change := current.Value - baseline
-	score := math.Abs(change) / (delta / query.Sensitivity)
+	radius := delta
+	if len(anchors) > 0 {
+		radius = max(delta, baseline-lower, upper-baseline)
+	}
+	score := math.Abs(change) / (radius / query.Sensitivity)
 	if !finiteSeasonalValue(score) {
 		return result
 	}
@@ -284,50 +303,58 @@ func (m WeeklySeasonalModel) compareSeasonalBand(result SeasonalComparison, quer
 	result.Score = score
 	result.TrainingWindow = TrainingWindow{Start: history[0].TS, End: history[len(history)-1].TS, Samples: len(history)}
 	result.Citations = append(currentCitation(current), trainingCitations(history)...)
-	result.Evidence = &SeasonalEvidence{Timezone: m.location.String(), Weekday: slot.Weekday(), Hour: slot.Hour(),
-		TrainingDays: dates, Median: baseline, RobustSpread: spread, Lower: lower, Upper: upper}
+	evidence := m.profileEvidence(slot, slots, len(anchors) != 0)
+	evidence.Median, evidence.RobustSpread, evidence.Lower, evidence.Upper = baseline, spread, lower, upper
+	result.Evidence = &evidence
 	return result
 }
 
-func (m WeeklySeasonalModel) comparableTraining(ctx context.Context, before []Feature, slot time.Time, currentDate string) ([]Feature, map[string][]float64, error) {
-	days := map[string][]float64{}
+func (m WeeklySeasonalModel) comparableTraining(ctx context.Context, before []Feature, slot time.Time) ([]Feature, map[string][]float64, error) {
+	periods := map[string][]float64{}
 	var history []Feature
 	for i, point := range before {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		// No single timestamp can vote twice. If multiple records claim it,
-		// this model excludes the ambiguous instant from training.
+		// Multiple records at the same instant make that instant ambiguous.
 		if (i > 0 && point.TS.Equal(before[i-1].TS)) || (i+1 < len(before) && point.TS.Equal(before[i+1].TS)) {
 			continue
 		}
-		clock := point.TS.In(m.location)
-		if clock.Weekday() != slot.Weekday() || clock.Hour() != slot.Hour() || !finiteSeasonalValue(point.Value) {
+		period := m.trainingSlot(point.TS, slot)
+		if period == "" || !finiteSeasonalValue(point.Value) {
 			continue
 		}
-		date := clock.Format(time.DateOnly)
-		if date == currentDate || m.holidays[date] {
-			continue
-		}
-		days[date] = append(days[date], point.Value)
+		periods[period] = append(periods[period], point.Value)
 		history = append(history, point)
 	}
-	return history, days, nil
+	return history, periods, nil
 }
 
-func seasonalCenter(days map[string][]float64) (center, spread float64, dates []string) {
-	medians := make([]float64, 0, len(days))
-	dates = make([]string, 0, len(days))
-	for date, values := range days {
-		medians = append(medians, seasonalMedian(values))
-		dates = append(dates, date)
+func seasonalCenter(periods map[string][]float64) (center, spread float64, slots []string) {
+	medians := make([]float64, 0, len(periods))
+	within := make([]float64, 0, len(periods))
+	slots = make([]string, 0, len(periods))
+	for slot, values := range periods {
+		median := seasonalMedian(values)
+		medians = append(medians, median)
+		within = append(within, seasonalAbsoluteDeviation(values, median))
+		slots = append(slots, slot)
 	}
-	sort.Strings(dates)
+	sort.Strings(slots)
 	center = seasonalMedian(medians)
-	for i := range medians {
-		medians[i] = math.Abs(medians[i] - center)
+	// Each period still has one vote. Its typical internal variation
+	// prevents repeatedly observed values within the same clock hour from
+	// triggering merely because the per-hour medians happen to be equal.
+	spread = 1.4826 * max(seasonalAbsoluteDeviation(medians, center), seasonalMedian(within))
+	return center, spread, slots
+}
+
+func seasonalAbsoluteDeviation(values []float64, center float64) float64 {
+	deviations := make([]float64, len(values))
+	for i, value := range values {
+		deviations[i] = math.Abs(value - center)
 	}
-	return center, 1.4826 * seasonalMedian(medians), dates
+	return seasonalMedian(deviations)
 }
 
 func seasonalMedian(values []float64) float64 {

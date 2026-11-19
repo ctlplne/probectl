@@ -2631,8 +2631,8 @@
     "/v1/alerts/rules/{id}/seasonal-source": {
       "get": {
         "operationId": "getAlertSeasonalSource",
-        "summary": "Inspect a weekly seasonal baseline",
-        "description": "Inspect a weekly seasonal baseline. A configured source requires current metric read authority.",
+        "summary": "Inspect a seasonal baseline",
+        "description": "Inspect a seasonal baseline and its current view, test or metric selection. The caller needs current access to the configured source.",
         "x-required-permission": "alert.read",
         "x-probectl-lifecycle": {
           "stage": "preview"
@@ -2699,8 +2699,8 @@
       },
       "put": {
         "operationId": "setAlertSeasonalSource",
-        "summary": "Bind a baseline rule to a local weekly calendar",
-        "description": "Bind a baseline rule to a local weekly calendar. The configuring user and credential must have current metric read authority. The durable evaluator rechecks it before each history read and incident publication.",
+        "summary": "Bind a baseline rule to a local learning calendar",
+        "description": "Bind a baseline rule to a local calendar and learning cadence. The configuring user and credential must have current source read authority. The evaluator rechecks that authority before history reads and incident publication.",
         "x-required-permission": "alert.write",
         "x-probectl-lifecycle": {
           "stage": "preview"
@@ -2777,8 +2777,8 @@
       },
       "delete": {
         "operationId": "clearAlertSeasonalSource",
-        "summary": "Clear a configured weekly seasonal source and disable its rule",
-        "description": "Clear a configured weekly seasonal source and disable its rule. The tenant can separately enable the ordinary baseline. Clearing a source that is already absent leaves the rule as it is.",
+        "summary": "Clear a configured seasonal source and disable its rule",
+        "description": "Clear a configured seasonal source and disable its rule. The tenant can separately enable the ordinary baseline. Clearing a source that is already absent leaves the rule as it is.",
         "x-required-permission": "alert.write",
         "x-probectl-lifecycle": {
           "stage": "preview"
@@ -22155,6 +22155,16 @@
           }
         }
       },
+      "AlertSeasonalCadence": {
+        "type": "string",
+        "enum": [
+          "weekly",
+          "weekly_early",
+          "daily",
+          "hourly"
+        ],
+        "description": "A local calendar comparator. The default weekly cadence requires three actual dates for the same weekday and hour."
+      },
       "AlertSeasonalSourceInput": {
         "type": "object",
         "additionalProperties": false,
@@ -22163,6 +22173,9 @@
           "minimum_change"
         ],
         "properties": {
+          "cadence": {
+            "$ref": "#/components/schemas/AlertSeasonalCadence"
+          },
           "timezone": {
             "type": "string"
           },
@@ -22191,10 +22204,10 @@
                 "type": "null"
               }
             ],
-            "description": "One owned saved Explorer view with a rolling lookback, its exact revision, and one saved measure. Use this selection with no test_id."
+            "description": "One owned saved Explorer view with a rolling lookback, its exact revision, and one saved measure. Use this selection with no test_id and a weekly, weekly_early or daily cadence."
           }
         },
-        "description": "Choose an IANA timezone, explicit local holiday dates and a positive absolute change threshold in the metric unit."
+        "description": "Choose a learning cadence, IANA timezone, local holiday dates and a positive absolute change threshold in the metric unit."
       },
       "AlertSeasonalSourceState": {
         "type": "object",
@@ -22246,6 +22259,24 @@
           "training_days"
         ],
         "properties": {
+          "provisional": {
+            "type": "boolean",
+            "description": "True for a two-date daily band or a weekly band trained on the early weekday cohort."
+          },
+          "training_periods": {
+            "type": "integer",
+            "minimum": 2,
+            "description": "The count of actual comparable local periods. Repeated offsets in a local hour count once."
+          },
+          "minute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 59,
+            "description": "The matched local minute for the hourly cadence."
+          },
+          "cadence": {
+            "$ref": "#/components/schemas/AlertSeasonalCadence"
+          },
           "timezone": {
             "type": "string"
           },

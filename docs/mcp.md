@@ -729,16 +729,16 @@ Native request envelopes use the operator's existing native source-byte
 admission on both HTTP and stdio. The five configuration tools do not grant source freshness or telemetry access. See
 [interface role configuration](features/interface-roles.md).
 
-## Weekly seasonal baseline configuration (preview)
+## Seasonal baseline configuration (preview)
 
 `alert_seasonal_source_get` takes an owned `rule_id`. To set a source,
 `alert_seasonal_source_set` takes `rule_id` and an `input` object with
-`timezone`, `minimum_change`, optional `holidays`, and a selected `test_id`
+`timezone`, `minimum_change`, optional `cadence` and `holidays`, and a selected `test_id`
 or `flow` object when needed. `alert_seasonal_flow_create` takes `name` and
 `seasonal_source` with one saved view's `view_id`, `view_version` and `measure`
 in `flow`. `alert_seasonal_source_clear` requires `rule_id` and `confirmed: true` and
 disables the rule when a selection exists. These tools use the same current
-tenant source checks and calendar as the [alert rule editor](alerting.md#weekly-seasonal-baselines-preview).
+tenant source checks and calendar as the [alert rule editor](alerting.md#seasonal-baselines-preview).
 
 The tools require a tenant user's current originating credential and
 `ai.query`. Get requires `alert.read`. Set and clear require `alert.write`.

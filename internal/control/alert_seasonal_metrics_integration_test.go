@@ -23,11 +23,21 @@ import (
 )
 
 func TestSeasonalMetricHistoryUsesOwnedSeriesAndCurrentReadAuthority(t *testing.T) {
+	proveOwnedSeasonalMetricHistory(t, "", anomaly.WeeklyTrainingWeeks)
+}
+
+func TestSeasonalMetricCadencesKeepFullOriginalScopedHistory(t *testing.T) {
+	t.Run("hourly", func(t *testing.T) { proveOwnedSeasonalMetricHistory(t, anomaly.SeasonalHourly, 42*24) })
+	t.Run("daily", func(t *testing.T) { proveOwnedSeasonalMetricHistory(t, anomaly.SeasonalDaily, 42) })
+}
+
+func proveOwnedSeasonalMetricHistory(t *testing.T, cadence anomaly.SeasonalCadence, windowCount int) {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	memory := tsdb.NewMemory()
 	f.server.WithTSDB(memory).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	model, err := anomaly.NewWeeklySeasonalModel(anomaly.WeeklySeasonalConfig{
-		Timezone: "UTC", MinimumDays: 3, MinimumDeviation: 5,
+		Cadence: cadence, Timezone: "UTC", MinimumDays: 3, MinimumDeviation: 5,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +51,7 @@ func TestSeasonalMetricHistoryUsesOwnedSeriesAndCurrentReadAuthority(t *testing.
 		level := 100 + float64(lane)*100
 		var points []tsdb.Series
 		for _, window := range model.ComparableWindows(at) {
-			points = append(points, tsdb.Series{Metric: metric, Labels: labels, TimeMillis: window.Start.Add(time.Minute).UnixMilli(), Value: level},
+			points = append(points, tsdb.Series{Metric: metric, Labels: labels, TimeMillis: window.Start.Add(time.Second).UnixMilli(), Value: level},
 				tsdb.Series{Metric: metric, Labels: labels, TimeMillis: window.End.UnixMilli(), Value: level * 10})
 		}
 		points = append(points, tsdb.Series{Metric: metric, Labels: labels, TimeMillis: at.UnixMilli(), Value: level + float64(1-lane)*25})
@@ -66,7 +76,7 @@ func TestSeasonalMetricHistoryUsesOwnedSeriesAndCurrentReadAuthority(t *testing.
 		scores, labels, err := f.server.compareSeasonalMetrics(ctx, actor, rule, model, at, time.Time{})
 		if err != nil || len(scores) != 1 || scores[0].State != []anomaly.SeasonalState{anomaly.SeasonalUp, anomaly.SeasonalNormal}[lane] ||
 			scores[0].Observed.TenantID != tenant || scores[0].Evidence.Median != 100+float64(lane)*100 ||
-			scores[0].TrainingWindow.Samples != anomaly.WeeklyTrainingWeeks || labels[scores[0].Observed.Subject][tsdb.TenantLabel] != tenant {
+			scores[0].TrainingWindow.Samples != windowCount || scores[0].Evidence.Cadence != cadence || labels[scores[0].Observed.Subject][tsdb.TenantLabel] != tenant {
 			t.Fatalf("tenant did not receive its own exact calendar history: %+v (%v)", scores, err)
 		}
 		rule.TenantID = f.tenants[1-lane]

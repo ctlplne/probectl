@@ -30,13 +30,15 @@ type SeasonalDecimalBand struct {
 
 type decimalSeasonalTraining struct {
 	medians   []*big.Rat
+	anchors   []*big.Rat
+	within    []*big.Rat
 	precision int
 	work      int64
 }
 
-func compareSeasonalDecimals(ctx context.Context, current string, values map[string][]string, minimum, sensitivity float64, work int64) (SeasonalState, SeasonalDecimalBand, error) {
+func compareSeasonalDecimals(ctx context.Context, current string, values map[string][]string, anchors map[string]bool, minimum, sensitivity float64, work int64) (SeasonalState, SeasonalDecimalBand, error) {
 	var band SeasonalDecimalBand
-	if len(values) < 3 || !finiteSeasonalValue(minimum) || minimum <= 0 || !finiteSeasonalValue(sensitivity) || sensitivity <= 0 {
+	if len(values) < 2 || !finiteSeasonalValue(minimum) || minimum <= 0 || !finiteSeasonalValue(sensitivity) || sensitivity <= 0 {
 		return SeasonalUnavailable, band, ErrSeasonalDecimal
 	}
 	training := decimalSeasonalTraining{work: work}
@@ -52,7 +54,7 @@ func compareSeasonalDecimals(ctx context.Context, current string, values map[str
 	if err != nil {
 		return SeasonalUnavailable, band, err
 	}
-	if err := training.addDates(ctx, values); err != nil {
+	if err := training.addDates(ctx, values, anchors); err != nil {
 		return SeasonalUnavailable, band, err
 	}
 	center, spread := training.center()
@@ -62,6 +64,14 @@ func compareSeasonalDecimals(ctx context.Context, current string, values map[str
 	}
 	lower := new(big.Rat).Sub(center, radius)
 	upper := new(big.Rat).Add(center, radius)
+	for _, anchor := range training.anchors {
+		if candidate := new(big.Rat).Sub(anchor, floor); candidate.Cmp(lower) < 0 {
+			lower = candidate
+		}
+		if candidate := new(big.Rat).Add(anchor, floor); candidate.Cmp(upper) > 0 {
+			upper = candidate
+		}
+	}
 	// Each median can add one decimal digit. MAD normalization uses four.
 	// A sensitivity multiplier can contribute at most its source precision.
 	precision := 2*training.precision + 8
@@ -79,7 +89,7 @@ func compareSeasonalDecimals(ctx context.Context, current string, values map[str
 	}
 }
 
-func (t *decimalSeasonalTraining) addDates(ctx context.Context, dates map[string][]string) error {
+func (t *decimalSeasonalTraining) addDates(ctx context.Context, dates map[string][]string, anchors map[string]bool) error {
 	keys := make([]string, 0, len(dates))
 	for date := range dates {
 		keys = append(keys, date)
@@ -101,7 +111,12 @@ func (t *decimalSeasonalTraining) addDates(ctx context.Context, dates map[string
 			}
 			points = append(points, value)
 		}
-		t.medians = append(t.medians, medianSeasonalRat(points))
+		median := medianSeasonalRat(points)
+		t.medians = append(t.medians, median)
+		t.within = append(t.within, seasonalRatDeviation(points, median))
+		if anchors[date] {
+			t.anchors = append(t.anchors, median)
+		}
 	}
 	return ctx.Err()
 }
@@ -127,12 +142,20 @@ func (t *decimalSeasonalTraining) parse(text string) (*big.Rat, error) {
 
 func (t decimalSeasonalTraining) center() (*big.Rat, *big.Rat) {
 	median := medianSeasonalRat(t.medians)
-	deviations := make([]*big.Rat, 0, len(t.medians))
-	for _, daily := range t.medians {
-		deviations = append(deviations, new(big.Rat).Abs(new(big.Rat).Sub(daily, median)))
+	spread := seasonalRatDeviation(t.medians, median)
+	if within := medianSeasonalRat(t.within); within.Cmp(spread) > 0 {
+		spread = within
 	}
 	scale := big.NewRat(7413, 5000) // exact 1.4826, the same MAD scale as metric samples
-	return median, new(big.Rat).Mul(medianSeasonalRat(deviations), scale)
+	return median, new(big.Rat).Mul(spread, scale)
+}
+
+func seasonalRatDeviation(values []*big.Rat, center *big.Rat) *big.Rat {
+	deviations := make([]*big.Rat, len(values))
+	for i, value := range values {
+		deviations[i] = new(big.Rat).Abs(new(big.Rat).Sub(value, center))
+	}
+	return medianSeasonalRat(deviations)
 }
 
 func medianSeasonalRat(values []*big.Rat) *big.Rat {

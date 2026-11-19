@@ -88,7 +88,7 @@ test('the weekly editor saves its configured civil time, holiday dates, floor an
   )
   await user.type(screen.getByRole('textbox', { name: 'Test ID' }), testID)
   await user.tab()
-  expect(screen.getByRole('button', { name: 'Save weekly baseline' })).toHaveFocus()
+  expect(screen.getByRole('button', { name: 'Save seasonal baseline' })).toHaveFocus()
   await user.keyboard('{Enter}')
   await waitFor(() => expect(view.onClose).toHaveBeenCalledOnce())
   expect(edits).toEqual([
@@ -140,7 +140,7 @@ test('a late sibling load is dropped and a write-only user can confirm clearing'
   expect(screen.queryByDisplayValue('Asia/Kolkata')).toBeNull()
   view.rerender('tenant-b', ['alert.write'])
   expect(screen.queryByRole('textbox', { name: 'Timezone' })).toBeNull()
-  await user.click(screen.getByRole('button', { name: 'Clear weekly baseline' }))
+  await user.click(screen.getByRole('button', { name: 'Clear seasonal baseline' }))
   expect(calls).toHaveLength(2)
   await user.click(screen.getByRole('button', { name: 'Clear and disable' }))
   await waitFor(() => expect(view.onClose).toHaveBeenCalledOnce())
@@ -189,6 +189,10 @@ test('the saved flow editor binds one moving view and preserves its exact revisi
   expect(screen.queryByRole('option', { name: 'Fixed event window' })).not.toBeInTheDocument()
   await user.selectOptions(screen.getByRole('combobox', { name: 'Saved flow view' }), view.id)
   await user.selectOptions(screen.getByRole('combobox', { name: 'Flow measure' }), 'bytes:total')
+  expect(
+    screen.queryByRole('option', { name: 'Hourly (same local minute)' }),
+  ).not.toBeInTheDocument()
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Learning cadence' }), 'daily')
   await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Weekly circuit volume')
   await user.type(screen.getByRole('spinbutton', { name: 'Minimum change' }), '1')
   await user.click(screen.getByRole('button', { name: 'Create seasonal flow alert' }))
@@ -197,6 +201,7 @@ test('the saved flow editor binds one moving view and preserves its exact revisi
     {
       name: 'Weekly circuit volume',
       seasonal_source: {
+        cadence: 'daily',
         timezone: 'UTC',
         minimum_change: 1,
         holidays: [],

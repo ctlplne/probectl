@@ -117,6 +117,7 @@ func (s *Server) loadSeasonalRuleSource(ctx context.Context, rule alert.Rule, me
 type seasonalMetricPopulation struct {
 	features  []anomaly.Feature
 	labels    map[string]map[string]string
+	observed  map[string]time.Time
 	remaining int64
 }
 
@@ -184,6 +185,9 @@ func (s *Server) authorizeSeasonalMetricRead(ctx context.Context, actor *auth.Pr
 
 func (s *Server) compareAdmittedSeasonalMetrics(ctx context.Context, actor *auth.Principal, rule alert.Rule, model anomaly.WeeklySeasonalModel, at, notBefore time.Time, budget flowstore.ExplorerBudget) ([]anomaly.SeasonalComparison, map[string]map[string]string, error) {
 	population := seasonalMetricPopulation{labels: make(map[string]map[string]string), remaining: budget.MemoryBytes / 2}
+	if model.Cadence() == anomaly.SeasonalHourly {
+		population.observed = make(map[string]time.Time)
+	}
 	readBudget := seasonalMetricReadBudget{rows: budget.ReadRows, bytes: budget.ReadBytes}
 	at = at.UTC().Truncate(time.Millisecond)
 	notBefore = notBefore.UTC().Truncate(time.Millisecond)
@@ -202,22 +206,13 @@ func (s *Server) compareAdmittedSeasonalMetrics(ctx context.Context, actor *auth
 	if err != nil {
 		return nil, nil, err
 	}
-	for _, read := range reads {
-		after := seasonalReadStart(read.window.Start.Add(-time.Millisecond), notBefore)
-		through := read.window.End.Add(-time.Millisecond)
-		if !through.After(after) {
-			continue
-		}
-		history, err := s.readSeasonalMetricWindow(ctx, rule, after, through, min(windowBytes, readBudget.bytes))
-		if err != nil {
-			return nil, nil, err
-		}
-		if err := readBudget.charge(history); err != nil {
-			return nil, nil, err
-		}
-		if err := population.addHistory(ctx, rule, read.series, history); err != nil {
-			return nil, nil, err
-		}
+	if population.observed != nil {
+		err = s.readHourlySeasonalHistory(ctx, rule, model, notBefore, &readBudget, windowBytes, &population)
+	} else {
+		err = s.readSelectedSeasonalHistory(ctx, rule, reads, notBefore, &readBudget, windowBytes, &population)
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 	compared, err := model.Compare(ctx, population.features, anomaly.Query{TenantID: rule.TenantID, Sensitivity: rule.Sensitivity})
 	if err != nil {
@@ -227,6 +222,56 @@ func (s *Server) compareAdmittedSeasonalMetrics(ctx context.Context, actor *auth
 		return nil, nil, err
 	}
 	return compared, population.labels, nil
+}
+
+func (s *Server) readSelectedSeasonalHistory(ctx context.Context, rule alert.Rule, reads []seasonalMetricHistoryRead, notBefore time.Time, readBudget *seasonalMetricReadBudget, windowBytes int64, population *seasonalMetricPopulation) error {
+	for _, read := range reads {
+		after := seasonalReadStart(read.window.Start.Add(-time.Millisecond), notBefore)
+		through := read.window.End.Add(-time.Millisecond)
+		if !through.After(after) {
+			continue
+		}
+		history, err := s.readSeasonalMetricWindow(ctx, rule, after, through, min(windowBytes, readBudget.bytes))
+		if err != nil {
+			return err
+		}
+		if err := readBudget.charge(history); err != nil {
+			return err
+		}
+		if err := population.addHistory(ctx, rule, read.series, history); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func (s *Server) readHourlySeasonalHistory(ctx context.Context, rule alert.Rule, model anomaly.WeeklySeasonalModel, notBefore time.Time, budget *seasonalMetricReadBudget, windowBytes int64, population *seasonalMetricPopulation) error {
+	var oldest, newest time.Time
+	for _, observed := range population.observed {
+		if oldest.IsZero() || observed.Before(oldest) {
+			oldest = observed
+		}
+		if observed.After(newest) {
+			newest = observed
+		}
+	}
+	after := seasonalReadStart(model.HourlyReadStart(oldest), notBefore)
+	through := newest.Add(-time.Millisecond)
+	for through.After(after) {
+		chunk := seasonalReadStart(through.Add(-24*time.Hour), after)
+		rows, err := s.readSeasonalMetricWindow(ctx, rule, chunk, through, min(windowBytes, budget.bytes))
+		if err != nil {
+			return err
+		}
+		if err := budget.charge(rows); err != nil {
+			return err
+		}
+		if err := population.addHourlyHistory(ctx, rule, model, rows); err != nil {
+			return err
+		}
+		through = chunk
+	}
+	return ctx.Err()
 }
 
 func seasonalReadStart(after, notBefore time.Time) time.Time {
@@ -293,6 +338,10 @@ func (p *seasonalMetricPopulation) addCurrentSamples(ctx context.Context, rule a
 			return nil, err
 		}
 		p.labels[key] = series.Labels
+		if p.observed != nil {
+			p.observed[key] = time.UnixMilli(point.TimeMillis)
+			continue
+		}
 		for _, window := range model.ComparableWindows(time.UnixMilli(point.TimeMillis)) {
 			index, seen := byWindow[window]
 			if !seen {
@@ -300,6 +349,11 @@ func (p *seasonalMetricPopulation) addCurrentSamples(ctx context.Context, rule a
 				byWindow[window] = index
 				reads = append(reads, seasonalMetricHistoryRead{window: window, series: make(map[string]bool)})
 			}
+			const windowMembershipBytes = 64
+			if p.remaining < windowMembershipBytes {
+				return nil, apierror.Validation("complete seasonal history plan exceeds its memory admission")
+			}
+			p.remaining -= windowMembershipBytes
 			reads[index].series[key] = true
 		}
 	}
@@ -318,6 +372,29 @@ func (p *seasonalMetricPopulation) addHistory(ctx context.Context, rule alert.Ru
 		for _, point := range series.Points {
 			if err := p.addSample(ctx, rule, key, point); err != nil {
 				return err
+			}
+		}
+	}
+	return ctx.Err()
+}
+
+// The bulk reader charges every original it reads. Retain only the comparable
+// points of series that have an accepted current observation.
+func (p *seasonalMetricPopulation) addHourlyHistory(ctx context.Context, rule alert.Rule, model anomaly.WeeklySeasonalModel, result []promapi.ResultSeries) error {
+	for _, series := range result {
+		key, err := seasonalMetricIdentity(rule, series)
+		if err != nil {
+			return err
+		}
+		current, selected := p.observed[key]
+		if !selected {
+			continue
+		}
+		for _, point := range series.Points {
+			if model.ComparableSample(time.UnixMilli(point.TimeMillis), current) {
+				if err := p.addSample(ctx, rule, key, point); err != nil {
+					return err
+				}
 			}
 		}
 	}

@@ -8,6 +8,7 @@ package anomaly
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"time"
 )
@@ -20,16 +21,17 @@ type ExactSeasonalFeature struct {
 }
 
 type ExactSeasonalComparison struct {
-	State          SeasonalState
-	ComparableDays int
-	Calendar       *SeasonalEvidence
-	Band           *SeasonalDecimalBand
-	TrainingWindow TrainingWindow
-	Citations      []Citation
+	State           SeasonalState
+	ComparableDays  int
+	RequiredPeriods int
+	Calendar        *SeasonalEvidence
+	Band            *SeasonalDecimalBand
+	TrainingWindow  TrainingWindow
+	Citations       []Citation
 }
 
 func (m WeeklySeasonalModel) CompareDecimalSeries(ctx context.Context, tenant string, latest ExactSeasonalFeature, previous []ExactSeasonalFeature, sensitivity float64, work int64) (ExactSeasonalComparison, error) {
-	var result ExactSeasonalComparison
+	result := ExactSeasonalComparison{RequiredPeriods: m.minimumPeriods()}
 	if tenant == "" {
 		return result, ErrNoTenant
 	}
@@ -56,16 +58,19 @@ func (m WeeklySeasonalModel) CompareDecimalSeries(ctx context.Context, tenant st
 	if err != nil {
 		return result, err
 	}
+	ready, anchors := selectSeasonalPeriods(m, slot, days)
 	result.ComparableDays = len(days)
-	if len(days) < m.minimumDays {
+	if !ready {
 		result.State = SeasonalWarming
 		return result, ctx.Err()
 	}
-	state, band, err := compareSeasonalDecimals(ctx, latest.Decimal, days, m.minimumDeviation, sensitivity, work)
+	features = slices.DeleteFunc(features, func(point Feature) bool { return days[m.trainingSlot(point.TS, slot)] == nil })
+	state, band, err := compareSeasonalDecimals(ctx, latest.Decimal, days, anchors, m.minimumDeviation, sensitivity, work)
 	if err != nil {
 		return ExactSeasonalComparison{}, err
 	}
-	return finishDecimalSeason(latest.Feature, slot, features, days, state, band), nil
+	result = m.finishDecimalSeason(latest.Feature, slot, features, days, state, band, len(anchors) != 0)
+	return result, nil
 }
 
 func sameDecimalSeries(a, b Feature) bool {
@@ -79,7 +84,6 @@ func (m WeeklySeasonalModel) decimalTrainingDates(ctx context.Context, slot time
 	dates := make(map[string][]string)
 	seen := make(map[time.Time]bool, len(inputs))
 	features := make([]Feature, 0, len(inputs))
-	currentDate := slot.Format(time.DateOnly)
 	for _, input := range inputs {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
@@ -89,27 +93,27 @@ func (m WeeklySeasonalModel) decimalTrainingDates(ctx context.Context, slot time
 			return nil, nil, ErrSeasonalDecimal
 		}
 		seen[at] = true
-		clock := at.In(m.location)
-		date := clock.Format(time.DateOnly)
-		if clock.Weekday() != slot.Weekday() || clock.Hour() != slot.Hour() || date == currentDate || m.holidays[date] {
+		period := m.trainingSlot(at, slot)
+		if period == "" {
 			continue
 		}
-		dates[date] = append(dates[date], input.Decimal)
+		dates[period] = append(dates[period], input.Decimal)
 		features = append(features, input.Feature)
 	}
 	sort.Slice(features, func(i, j int) bool { return features[i].TS.Before(features[j].TS) })
 	return features, dates, ctx.Err()
 }
 
-func finishDecimalSeason(current Feature, slot time.Time, training []Feature, dates map[string][]string, state SeasonalState, band SeasonalDecimalBand) ExactSeasonalComparison {
+func (m WeeklySeasonalModel) finishDecimalSeason(current Feature, slot time.Time, training []Feature, dates map[string][]string, state SeasonalState, band SeasonalDecimalBand, provisional bool) ExactSeasonalComparison {
 	ordered := make([]string, 0, len(dates))
 	for date := range dates {
 		ordered = append(ordered, date)
 	}
 	sort.Strings(ordered)
+	evidence := m.profileEvidence(slot, ordered, provisional)
 	return ExactSeasonalComparison{
-		State: state, ComparableDays: len(dates), Band: &band,
-		Calendar:       &SeasonalEvidence{Timezone: slot.Location().String(), Weekday: slot.Weekday(), Hour: slot.Hour(), TrainingDays: ordered},
+		State: state, ComparableDays: len(dates), RequiredPeriods: m.minimumPeriods(), Band: &band,
+		Calendar:       &evidence,
 		TrainingWindow: TrainingWindow{Start: training[0].TS, End: training[len(training)-1].TS, Samples: len(training)},
 		Citations:      append(currentCitation(current), trainingCitations(training)...),
 	}

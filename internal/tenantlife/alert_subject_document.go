@@ -112,12 +112,16 @@ func alertSubjectUUIDValueSQL(value string) string {
 // while retaining all source labels, sender names and original endpoint IPs.
 func seasonalFlowReceiptSubjectSQL() string {
 	const document = `(convert_from(subject_row.seasonal_flow_scope,'UTF8')::jsonb)`
-	return `(CASE WHEN ` + document + `->'version'='1'::jsonb THEN (
+	return `(CASE WHEN ` + document + `->'version' IN ('1'::jsonb,'2'::jsonb) THEN (
  jsonb_path_query_array(` + document + `,'$.contexts[*].resource.site_label') ||
  jsonb_path_query_array(` + document + `,'$.contexts[*].resource.vrf_label') ||
  jsonb_path_query_array(` + document + `,'$.inputs[*].routing.captures[*].sender') ||
  jsonb_path_query_array(` + document + `,'$.inputs[*].routing.captures[*].exporter') ||
  jsonb_path_query_array(` + document + `,'$.inputs[*].routing.captures[*].src') ||
- jsonb_path_query_array(` + document + `,'$.inputs[*].routing.captures[*].dst')
+ jsonb_path_query_array(` + document + `,'$.inputs[*].routing.captures[*].dst') ||
+ jsonb_path_query_array(` + document + `,'$.timeline.periods[*].routing.captures[*].sender') ||
+ jsonb_path_query_array(` + document + `,'$.timeline.periods[*].routing.captures[*].exporter') ||
+ jsonb_path_query_array(` + document + `,'$.timeline.periods[*].routing.captures[*].src') ||
+ jsonb_path_query_array(` + document + `,'$.timeline.periods[*].routing.captures[*].dst')
  )::text ELSE COALESCE(` + document + `::text,'') END)`
 }

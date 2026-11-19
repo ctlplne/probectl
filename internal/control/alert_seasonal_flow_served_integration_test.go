@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
@@ -53,11 +54,12 @@ func TestSeasonalFlowEditorServedKeepsBothTenantsAndThemes(t *testing.T) {
 	}
 	for lane, tenant := range f.tenants {
 		cookie := seasonalFlowBrowserCookie(t, f, tenant)
+		cadence := []anomaly.SeasonalCadence{anomaly.SeasonalDaily, anomaly.SeasonalWeeklyEarly}[lane]
 		for _, theme := range []string{"light", "dark"} {
 			name := labels[lane] + " " + theme
 			t.Run(name, func(t *testing.T) {
-				renderSeasonalFlowEditor(t, socket.URL, ca, cookie, theme, name, sources[lane], labels[1-lane])
-				checkServedSeasonalFlowSource(t, f, tenant, name, sources[lane])
+				renderSeasonalFlowEditor(t, socket.URL, ca, cookie, theme, name, sources[lane], labels[1-lane], cadence)
+				checkServedSeasonalFlowSource(t, f, tenant, name, sources[lane], cadence)
 			})
 		}
 	}
@@ -79,7 +81,7 @@ func seasonalFlowBrowserCookie(t *testing.T, f *roleExplanationAPIFixture, tenan
 	return cookie
 }
 
-func renderSeasonalFlowEditor(t *testing.T, origin, ca, cookie, theme, name string, source flow.SavedQueryView, sibling string) {
+func renderSeasonalFlowEditor(t *testing.T, origin, ca, cookie, theme, name string, source flow.SavedQueryView, sibling string, cadence anomaly.SeasonalCadence) {
 	t.Helper()
 	const dialog = "[role=dialog]"
 	const create = "Create seasonal flow alert"
@@ -93,16 +95,17 @@ func renderSeasonalFlowEditor(t *testing.T, origin, ca, cookie, theme, name stri
 			{Fill: field("Name", "input"), Value: name},
 			{Select: field("Saved flow view", "select"), Value: source.ID},
 			{Select: field("Flow measure", "select"), Value: "bytes:total"},
+			{Select: field("Learning cadence", "select"), Value: string(cadence)},
 			{Fill: field("Minimum change", "input"), Value: "1.5"},
-			{Click: create, Within: dialog, Gone: true, Expect: []string{name, "Weekly baseline (set)"}},
-			{Click: "Weekly baseline for " + name, ExpectWithin: dialog, Expect: []string{"Saved view revision " + source.Version, "Clear weekly baseline"}, Absent: []string{sibling}},
+			{Click: create, Within: dialog, Gone: true, Expect: []string{name, "Seasonal baseline (set)"}},
+			{Click: "Seasonal baseline for " + name, ExpectWithin: dialog, Expect: []string{"Saved view revision " + source.Version, "Clear seasonal baseline"}, Absent: []string{sibling}},
 		},
 		Controls: []testsupport.RenderControl{{Role: "combobox", Name: "Saved flow view", Within: dialog},
 			{Role: "combobox", Name: "Flow measure", Within: dialog}, {Role: "spinbutton", Name: "Minimum change", Within: dialog}},
 	})
 }
 
-func checkServedSeasonalFlowSource(t *testing.T, f *roleExplanationAPIFixture, tenant, name string, view flow.SavedQueryView) {
+func checkServedSeasonalFlowSource(t *testing.T, f *roleExplanationAPIFixture, tenant, name string, view flow.SavedQueryView, cadence anomaly.SeasonalCadence) {
 	t.Helper()
 	f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 		rules, err := (store.AlertRules{}).List(ctx, sc)
@@ -119,7 +122,7 @@ func checkServedSeasonalFlowSource(t *testing.T, f *roleExplanationAPIFixture, t
 			}
 			if rule.Metric != alert.SeasonalFlowMetric || source == nil || source.Config.Flow == nil ||
 				source.Config.Flow.ViewID != view.ID || source.Config.Flow.ViewVersion != view.Version ||
-				source.Config.Flow.Measure != "bytes:total" || source.Config.MinimumChange != 1.5 {
+				source.Config.Flow.Measure != "bytes:total" || source.Config.MinimumChange != 1.5 || source.Config.Cadence != cadence {
 				t.Fatal("the browser did not commit the exact tenant view and measure")
 			}
 			return nil

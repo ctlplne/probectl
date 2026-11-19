@@ -51,6 +51,20 @@
       ]
     },
     {
+      "ref": "test:internal/control/alert_seasonal_metrics_integration_test.go#TestSeasonalMetricCadencesKeepFullOriginalScopedHistory",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
+      "ref": "test:internal/control/alert_seasonal_flow_integration_test.go#TestSavedFlowCadencesKeepCompleteExactEvidenceInEachTenant",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
       "ref": "test:internal/flow/seasonal_flow_realstack_integration_test.go#TestSeasonalFlowBaselineUsesShippedCollectorAndTenantStore",
       "profile": "integration",
       "capabilities": [

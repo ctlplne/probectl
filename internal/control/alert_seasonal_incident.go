@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -104,6 +105,9 @@ func (s *Server) storeSeasonalIncident(ctx context.Context, sc tenancy.Scope, so
 		return none, alert.ErrSeasonalSource
 	}
 	if source.Config.Flow != nil && !seasonalFlowReceiptMatches(rule, evidence, receipt) {
+		return none, alert.ErrSeasonalSource
+	}
+	if source.Config.Cadence != evidence.Calendar.Cadence {
 		return none, alert.ErrSeasonalSource
 	}
 	signal, key, err := seasonalIncidentSignal(rule, firing, evidence, source.Config.Timezone)
@@ -219,13 +223,17 @@ func seasonalIncidentEvidenceBody(rule alert.Rule, evidence alert.SeasonalEvalua
 	// Use an evidentiary citation on the incident itself. Exact flow quantities
 	// stay in the authorized evaluation receipt, whose reader checks this view.
 	return json.Marshal(struct {
-		Subject       string       `json:"subject"`
-		ObservedAt    time.Time    `json:"observed_at"`
-		Timezone      string       `json:"timezone"`
-		Hour          int          `json:"hour"`
-		Weekday       time.Weekday `json:"weekday"`
-		TrainingDates []string     `json:"training_days"`
-		ReceiptRuleID string       `json:"receipt_rule_id"`
+		Subject         string                  `json:"subject"`
+		ObservedAt      time.Time               `json:"observed_at"`
+		Timezone        string                  `json:"timezone"`
+		Hour            int                     `json:"hour"`
+		Weekday         time.Weekday            `json:"weekday"`
+		TrainingDates   []string                `json:"training_days"`
+		ReceiptRuleID   string                  `json:"receipt_rule_id"`
+		Cadence         anomaly.SeasonalCadence `json:"cadence,omitempty"`
+		Minute          *int                    `json:"minute,omitempty"`
+		TrainingPeriods int                     `json:"training_periods,omitempty"`
+		Provisional     bool                    `json:"provisional,omitempty"`
 	}{evidence.Subject, evidence.ObservedAt, evidence.Calendar.Timezone, evidence.Calendar.Hour, evidence.Calendar.Weekday,
-		evidence.Calendar.TrainingDays, rule.ID})
+		evidence.Calendar.TrainingDays, rule.ID, evidence.Calendar.Cadence, evidence.Calendar.Minute, evidence.Calendar.TrainingPeriods, evidence.Calendar.Provisional})
 }

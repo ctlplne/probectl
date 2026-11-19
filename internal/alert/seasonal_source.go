@@ -24,11 +24,12 @@ var ErrSeasonalSource = errors.New("alert: a valid current seasonal source is re
 // independently trusted source claim. Without a test or saved flow view the
 // rule watches its exact metric and label selector.
 type SeasonalBaselineInput struct {
-	Timezone      string             `json:"timezone"`
-	Holidays      []string           `json:"holidays,omitempty"`
-	MinimumChange float64            `json:"minimum_change"`
-	TestID        string             `json:"test_id,omitempty"`
-	Flow          *SeasonalFlowInput `json:"flow,omitempty"`
+	Cadence       anomaly.SeasonalCadence `json:"cadence,omitempty"`
+	Timezone      string                  `json:"timezone"`
+	Holidays      []string                `json:"holidays,omitempty"`
+	MinimumChange float64                 `json:"minimum_change"`
+	TestID        string                  `json:"test_id,omitempty"`
+	Flow          *SeasonalFlowInput      `json:"flow,omitempty"`
 }
 
 type SeasonalFlowInput struct {
@@ -61,7 +62,7 @@ const SeasonalMinimumTrainingDays = 3
 
 func (s SeasonalBaselineInput) Model() (anomaly.WeeklySeasonalModel, error) {
 	if s.Flow != nil {
-		if s.TestID != "" || s.Flow.Validate() != nil {
+		if s.TestID != "" || s.Cadence == anomaly.SeasonalHourly || s.Flow.Validate() != nil {
 			return anomaly.WeeklySeasonalModel{}, ErrSeasonalSource
 		}
 	}
@@ -69,7 +70,7 @@ func (s SeasonalBaselineInput) Model() (anomaly.WeeklySeasonalModel, error) {
 		return anomaly.WeeklySeasonalModel{}, ErrSeasonalSource
 	}
 	return anomaly.NewWeeklySeasonalModel(anomaly.WeeklySeasonalConfig{
-		Timezone: s.Timezone, Holidays: s.Holidays, MinimumDays: SeasonalMinimumTrainingDays, MinimumDeviation: s.MinimumChange,
+		Cadence: s.Cadence, Timezone: s.Timezone, Holidays: s.Holidays, MinimumDays: SeasonalMinimumTrainingDays, MinimumDeviation: s.MinimumChange,
 	})
 }
 

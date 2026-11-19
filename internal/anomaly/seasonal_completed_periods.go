@@ -32,6 +32,10 @@ func (m WeeklySeasonalModel) LatestCompletedSlot(at time.Time) (observed, end ti
 	}
 }
 
+// SeasonalFlowMaximumWindows includes each daily comparison date, both
+// offset intervals of folded civil hours and the current observation.
+const SeasonalFlowMaximumWindows = 2*seasonalTrainingDays + 1
+
 // ComparableCompleteEnds pins the equivalent prior local hours by their exact
 // exclusive UTC ends. Both ends in a repeated hour remain distinct inputs,
 // while the model treats their shared date as one training date.
