@@ -33,7 +33,7 @@ type seasonalFlowSQLRead struct {
 // Explorer. A tenant-keyed ASOF join finds the clock tuple for each input;
 // range(first, after) is the complete set of windows containing that input.
 func buildSeasonalFlowSQL(ctx context.Context, budget ExplorerBudget, query PlanQuery, plan flow.QueryPlan, table string,
-	names map[string]map[uint32]string, vocabulary flow.QueryVocabulary, clocks seasonalFlowClockRange, membershipLimit int) (seasonalFlowSQLRead, error) {
+	names map[string]map[uint32]string, vocabulary flow.QueryVocabulary, clocks seasonalFlowClockRange, membershipLimit, topKeys int) (seasonalFlowSQLRead, error) {
 	var empty seasonalFlowSQLRead
 	if membershipLimit <= 0 {
 		return empty, ErrExplorerBudget
@@ -81,9 +81,26 @@ func buildSeasonalFlowSQL(ctx context.Context, budget ExplorerBudget, query Plan
 	for i := range plan.Metrics {
 		metrics = append(metrics, "toString(m"+strconv.Itoa(i)+")")
 	}
+	selectPopulation, order := "", "g,c"
+	if topKeys > 0 {
+		primary := -1
+		for i, metric := range plan.Metrics {
+			if metric.Role == "primary" {
+				primary = i
+				break
+			}
+		}
+		if primary < 0 {
+			return empty, ErrExplorerBudget
+		}
+		selectPopulation = ",toString(count() OVER (PARTITION BY period_index)) AS total_groups"
+		params["rank_read_limit"] = strconv.Itoa(topKeys + 1)
+		order = "m" + strconv.Itoa(primary) + " DESC,g,c LIMIT {rank_read_limit:UInt64} BY period_index"
+	}
 	return seasonalFlowSQLRead{
 		sql: "WITH " + strings.Join(ctes, ",") + " SELECT toString(period_index) AS clock_index,g,c,[" + strings.Join(metrics, ",") +
-			"] AS metrics,toString(oldest_input,'UTC') AS oldest_input,toString(total_memberships) AS membership FROM seasonal_stats ORDER BY period_index,g,c " + settings,
+			"] AS metrics,toString(oldest_input,'UTC') AS oldest_input,toString(total_memberships) AS membership" + selectPopulation +
+			" FROM seasonal_stats ORDER BY period_index," + order + " " + settings,
 		params: params, clocks: external,
 	}, ctx.Err()
 }

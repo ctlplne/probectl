@@ -619,11 +619,14 @@ with `GET /v1/alerts/rules/{id}/query-group?group=HANDLE`, CLI
 ### Scheduled field comparisons
 
 Choose **Change across completed flow windows** in the saved-query alert editor.
-Pick a grouped table with a 60, 120 or 300 second lookback, or a seven-day
-lookback. The editor uses the saved primary measure and the same rank, amount,
+Pick a grouped table with a 60, 120 or 300 second lookback, a one-hour
+lookback or a seven-day lookback. The editor uses the saved primary measure and the same rank, amount,
 share and destination fan-out settings as **Compare fields** in Explorer.
 Set the read interval to a whole multiple of the comparison window. Seven-day
 comparisons advance on complete UTC days and use a daily default interval.
+One-hour views detect new top keys against every completed hour in the last
+one or four weeks. Each clock must retain a complete ranking and a verifiable
+cutoff. A missing source window leaves the comparison unavailable.
 
 A qualifying field episode creates an incident signal and commits its exact
 source receipt in the same transaction as the rule's next evaluation time.

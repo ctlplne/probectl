@@ -13,6 +13,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -60,6 +61,12 @@ func EvaluateFieldEpisodes(ctx context.Context, binding QueryGroupBinding, prior
 		comparison.Before.From.IsZero() || !comparison.Before.From.Before(comparison.Before.To) ||
 		comparison.After.From.IsZero() || !comparison.After.From.Before(comparison.After.To) ||
 		comparison.Before.To.After(comparison.After.From) || prior.Initialized && !prior.At.Before(comparison.After.To) {
+		return nil, QueryGroupState{}, ErrQueryGroups
+	}
+	hours := anomaly.FlowFieldHistoryHours(anomaly.FlowFieldComparisonCadence(field.Cadence))
+	history := comparison.History
+	if hours == 0 && history != nil || hours > 0 && (history == nil || history.Hours != hours ||
+		!history.To.Equal(comparison.After.From) || history.To.Sub(history.From) != time.Duration(hours)*time.Hour) {
 		return nil, QueryGroupState{}, ErrQueryGroups
 	}
 	key, err := binding.StateKey()

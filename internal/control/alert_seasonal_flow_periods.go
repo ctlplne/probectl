@@ -12,6 +12,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
@@ -91,8 +92,13 @@ func (s *Server) prepareConfiguredFlowCapture(ctx context.Context, actor *auth.P
 	if opts.FieldComparison == nil {
 		return s.prepareSeasonalFlowPeriods(ctx, actor, refs[0], ends, now, memory)
 	}
-	if opts.CombineSeasonal || len(ends) != 2 || opts.FieldComparison.View != refs[0] {
-		return nil, 0, 0, apierror.Validation("field analysis requires a complete saved-query window pair")
+	history := anomaly.FlowFieldHistoryHours(anomaly.FlowFieldComparisonCadence(opts.FieldComparison.Cadence))
+	expected := 2
+	if history > 0 {
+		expected = history + 1
+	}
+	if opts.CombineSeasonal != (history > 0) || len(opts.SeasonalPeriodEnds) != expected || opts.FieldComparison.View != refs[0] {
+		return nil, 0, 0, apierror.Validation("field analysis requires its complete saved-query clocks")
 	}
 	prepared, bytes, count, err := s.prepareSeasonalFlowPeriods(ctx, actor, refs[0], ends, now, memory)
 	if err != nil {

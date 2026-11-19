@@ -23,7 +23,7 @@ type seasonalMemoryGroup struct {
 
 type seasonalMemoryPeriod map[[2]string]seasonalMemoryGroup
 
-func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, ends []time.Time) ([]PlanResult, error) {
+func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, ends []time.Time, topKeys int) ([]PlanResult, error) {
 	budget, err := explorerPlanBudget(ctx, m, query.TenantID, m)
 	if err != nil {
 		return nil, err
@@ -118,31 +118,54 @@ func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, en
 	}
 	response := budget.ResponseBytes
 	for i := range results {
-		if err := renderSeasonalMemoryPeriod(ctx, &results[i], periods[i], &response); err != nil {
+		if err := renderSeasonalMemoryPeriod(ctx, &results[i], periods[i], &response, topKeys); err != nil {
 			return nil, err
 		}
 	}
 	return results, ctx.Err()
 }
 
-func renderSeasonalMemoryPeriod(ctx context.Context, result *PlanResult, groups seasonalMemoryPeriod, remaining *int64) error {
+func renderSeasonalMemoryPeriod(ctx context.Context, result *PlanResult, groups seasonalMemoryPeriod, remaining *int64, topKeys int) error {
 	keys := make([][2]string, 0, len(groups))
-	for key := range groups {
+	primary := planPrimary(result.Query)
+	if topKeys > 0 && primary == "" {
+		return ErrExplorerBudget
+	}
+	for key, group := range groups {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if topKeys > 0 {
+			if err := group.aggregate.calculate(result.Query); err != nil {
+				return err
+			}
+		}
 		keys = append(keys, key)
 	}
 	slices.SortFunc(keys, func(a, b [2]string) int {
+		if topKeys > 0 {
+			if order := groups[b].aggregate.stats[primary].Cmp(groups[a].aggregate.stats[primary]); order != 0 {
+				return order
+			}
+		}
 		if compare := strings.Compare(a[0], b[0]); compare != 0 {
 			return compare
 		}
 		return strings.Compare(a[1], b[1])
 	})
+	if topKeys > 0 {
+		result.TotalGroups = len(keys)
+		keys = keys[:min(len(keys), topKeys+1)]
+	}
 	for _, key := range keys {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		group := groups[key]
-		if err := group.aggregate.calculate(result.Query); err != nil {
-			return err
+		if topKeys == 0 {
+			if err := group.aggregate.calculate(result.Query); err != nil {
+				return err
+			}
 		}
 		row := group.aggregate.row(false)
 		bytes := int64(128 + len(key[0]) + len(key[1]))

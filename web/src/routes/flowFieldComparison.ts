@@ -26,7 +26,7 @@ export function fieldComparisonPlan(
     plan?.view !== 'table' ||
     !plan.group_by?.length ||
     time?.mode !== 'lookback' ||
-    ![60, 120, 300, 604800].includes(period)
+    ![60, 120, 300, 3600, 604800].includes(period)
   )
     return
   return {
@@ -49,7 +49,11 @@ export function initialFieldComparison(
     version,
     measure: plan.measure,
     mode: 'rank',
-    cadence: completeWeek ? 'complete_week' : 'previous_period',
+    cadence: completeWeek
+      ? 'complete_week'
+      : plan.period === 3600
+        ? 'hourly_1w'
+        : 'previous_period',
     period_seconds: completeWeek ? undefined : plan.period,
     top_keys: 25,
     minimum_rank_change: 1,

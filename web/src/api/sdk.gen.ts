@@ -2235,8 +2235,9 @@ export interface FlowFieldChange {
 export interface FlowFieldComparison {
   after: FlowFieldComparisonSlice
   before: FlowFieldComparisonSlice
-  cadence: "previous_period" | "previous_week" | "complete_week"
+  cadence: "previous_period" | "previous_week" | "complete_week" | "hourly_1w" | "hourly_4w"
   changes: FlowFieldChange[]
+  history?: FlowFieldComparisonHistory
   measure: string
   mode: "rank" | "amount" | "share" | "fanout"
   top_keys: number
@@ -2244,8 +2245,14 @@ export interface FlowFieldComparison {
   view_id: string
 }
 
+export interface FlowFieldComparisonHistory {
+  from: string
+  hours: number
+  to: string
+}
+
 export interface FlowFieldComparisonInput {
-  cadence: "previous_period" | "previous_week" | "complete_week"
+  cadence: "previous_period" | "previous_week" | "complete_week" | "hourly_1w" | "hourly_4w"
   measure: string
   minimum_change?: string
   minimum_rank_change?: number

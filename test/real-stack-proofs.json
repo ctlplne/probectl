@@ -150,6 +150,14 @@
       ]
     },
     {
+      "ref": "test:internal/control/flow_field_history_integration_test.go#TestFieldHourlyHistoryReadsBothTenantCohortsFromClickHouse",
+      "profile": "integration",
+      "capabilities": [
+        "F8",
+        "F17"
+      ]
+    },
+    {
       "ref": "test:internal/control/audit_isolation_integration_test.go#TestTwoTenantAndProviderAuditStreamsIsolateAndContainTampering",
       "profile": "integration",
       "capabilities": [

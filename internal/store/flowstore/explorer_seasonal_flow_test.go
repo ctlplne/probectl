@@ -56,7 +56,7 @@ func checkSeasonalFlowWindowPlan(t *testing.T, store Store, red, blue string) (f
 			t.Fatal(err)
 		}
 		t.Cleanup(batch.Close)
-		result, err := batch.ExploreSeasonalWindows(PlanQuery{TenantID: tenant, Plan: plan}, ends)
+		result, err := batch.ExploreSeasonalWindows(PlanQuery{TenantID: tenant, Plan: plan}, ends, 0)
 		if err != nil || len(result) != periods {
 			t.Fatalf("read %d of %d whole comparison periods: %v", len(result), periods, err)
 		}
@@ -85,7 +85,7 @@ func checkSeasonalFlowWindowPlan(t *testing.T, store Store, red, blue string) (f
 			}
 		}
 		foreign := []string{red, blue}[1-i]
-		if rows, err := batch.ExploreSeasonalWindows(PlanQuery{TenantID: foreign, Plan: plan}, ends); !errors.Is(err, ErrNoTenant) || rows != nil {
+		if rows, err := batch.ExploreSeasonalWindows(PlanQuery{TenantID: foreign, Plan: plan}, ends, 0); !errors.Is(err, ErrNoTenant) || rows != nil {
 			t.Fatal("sibling tenant reached the seasonal plan reader", err)
 		}
 	}

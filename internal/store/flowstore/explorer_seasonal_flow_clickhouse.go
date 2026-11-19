@@ -16,7 +16,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store/chclient"
 )
 
-func (c *ClickHouse) exploreSeasonalWindows(ctx context.Context, query PlanQuery, ends []time.Time) ([]PlanResult, error) {
+func (c *ClickHouse) exploreSeasonalWindows(ctx context.Context, query PlanQuery, ends []time.Time, topKeys int) ([]PlanResult, error) {
 	budget, err := explorerPlanBudget(ctx, c, query.TenantID, c)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (c *ClickHouse) exploreSeasonalWindows(ctx context.Context, query PlanQuery
 		if err != nil {
 			return nil, err
 		}
-		read, err := buildSeasonalFlowSQL(ctx, budget, query, span, source.table, names, vocabulary, clocks, membershipLimit)
+		read, err := buildSeasonalFlowSQL(ctx, budget, query, span, source.table, names, vocabulary, clocks, membershipLimit, topKeys)
 		if err != nil {
 			return nil, err
 		}
@@ -72,7 +72,7 @@ func (c *ClickHouse) exploreSeasonalWindows(ctx context.Context, query PlanQuery
 		if err != nil {
 			return nil, err
 		}
-		memberships, err := decodeSeasonalFlowRows(ctx, result, raw, membershipLimit)
+		memberships, err := decodeSeasonalFlowRows(ctx, result, raw, membershipLimit, topKeys)
 		if err != nil {
 			return nil, err
 		}
@@ -104,7 +104,7 @@ func seasonalMembershipAllowance(ctx context.Context, tenant string) (int, error
 	return b.readRows, ctx.Err()
 }
 
-func decodeSeasonalFlowRows(ctx context.Context, results []PlanResult, input []map[string]any, limit int) (int, error) {
+func decodeSeasonalFlowRows(ctx context.Context, results []PlanResult, input []map[string]any, limit, topKeys int) (int, error) {
 	const invalid = "invalid seasonal flow response"
 	memberships := 0
 	previousPeriod := -1
@@ -123,6 +123,15 @@ func decodeSeasonalFlowRows(ctx context.Context, results []PlanResult, input []m
 		}
 		memberships = repeat
 		result := &results[period]
+		if topKeys > 0 {
+			population, err := strconv.Atoi(chToString(raw["total_groups"]))
+			if err != nil || population < 1 || population > repeat ||
+				result.TotalGroups != 0 && result.TotalGroups != population ||
+				len(result.Rows) >= min(population, topKeys+1) {
+				return 0, errors.New(invalid)
+			}
+			result.TotalGroups = population
+		}
 		clock := chParseTime(chToString(raw["oldest_input"]))
 		if clock.IsZero() || clock.Before(result.Query.From) || !clock.Before(result.Query.To) {
 			return 0, errors.New(invalid)
@@ -148,6 +157,13 @@ func decodeSeasonalFlowRows(ctx context.Context, results []PlanResult, input []m
 	}
 	if len(input) > memberships {
 		return 0, errors.New(invalid)
+	}
+	if topKeys > 0 {
+		for _, result := range results {
+			if len(result.Rows) != min(result.TotalGroups, topKeys+1) {
+				return 0, errors.New(invalid)
+			}
+		}
 	}
 	return memberships, ctx.Err()
 }

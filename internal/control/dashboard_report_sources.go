@@ -220,10 +220,14 @@ func (s *Server) captureFlowSourcesWithOptions(ctx context.Context, actor *auth.
 		return nil, reportProjectionLimit()
 	}
 	var combinedEnds []time.Time
+	var topKeys int
 	if options.CombineSeasonal {
 		combinedEnds = options.SeasonalPeriodEnds
+		if options.FieldComparison != nil {
+			topKeys = options.FieldComparison.TopKeys
+		}
 	}
-	capture, err := s.collectFlowSources(ctx, principal, prepared, at, workspace, typedResults, combinedEnds)
+	capture, err := s.collectFlowSources(ctx, principal, prepared, at, workspace, typedResults, combinedEnds, topKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +350,7 @@ func reportPreparedSubjects(prepared []preparedReportFlow) (bool, []string) {
 	return usesTags, subjects
 }
 
-func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prepared []preparedReportFlow, at time.Time, workspace int64, typedResults bool, combinedEnds []time.Time) (*reportFlowCapture, error) {
+func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prepared []preparedReportFlow, at time.Time, workspace int64, typedResults bool, combinedEnds []time.Time, topKeys int) (*reportFlowCapture, error) {
 	batch, ok := ctx.Value(reportFlowBatchKey{}).(*flowstore.PlanBatch)
 	if !ok || batch == nil {
 		return nil, apierror.Unavailable("report source batch is unavailable")
@@ -395,7 +399,7 @@ func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prep
 			permissions[permission] = true
 		}
 		if len(combinedEnds) != 0 {
-			results, err := s.recordSeasonalFlowWindows(ctx, p.TenantID, *current.Flow, combinedEnds)
+			results, err := s.recordSeasonalFlowWindows(ctx, p.TenantID, *current.Flow, combinedEnds, topKeys)
 			if err != nil {
 				return nil, err
 			}

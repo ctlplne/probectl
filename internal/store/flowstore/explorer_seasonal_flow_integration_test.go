@@ -48,7 +48,7 @@ func TestSeasonalFlowWindowPlanUsesRealClickHouseTenantReader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	limited, err := buildSeasonalFlowSQL(ctx, budget, query, span, table, nil, vocabulary, clocks, 1)
+	limited, err := buildSeasonalFlowSQL(ctx, budget, query, span, table, nil, vocabulary, clocks, 1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

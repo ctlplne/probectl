@@ -32248,7 +32248,9 @@
             "enum": [
               "previous_period",
               "previous_week",
-              "complete_week"
+              "complete_week",
+              "hourly_1w",
+              "hourly_4w"
             ]
           },
           "period_seconds": {
@@ -32256,9 +32258,10 @@
             "enum": [
               60,
               120,
-              300
+              300,
+              3600
             ],
-            "description": "Required for previous_period and previous_week. Complete weeks use seven-day windows."
+            "description": "Required for previous_period and previous_week. Complete weeks use seven-day windows. An hourly membership preset uses 3600 seconds and rank mode."
           },
           "top_keys": {
             "type": "integer",
@@ -32348,7 +32351,9 @@
             "enum": [
               "previous_period",
               "previous_week",
-              "complete_week"
+              "complete_week",
+              "hourly_1w",
+              "hourly_4w"
             ]
           },
           "top_keys": {
@@ -32361,6 +32366,9 @@
           },
           "after": {
             "$ref": "#/components/schemas/FlowFieldComparisonSlice"
+          },
+          "history": {
+            "$ref": "#/components/schemas/FlowFieldComparisonHistory"
           },
           "changes": {
             "type": "array",
@@ -32379,6 +32387,33 @@
           "before",
           "after",
           "changes"
+        ]
+      },
+      "FlowFieldComparisonHistory": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Complete historical hourly rankings considered for new top-key membership.",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hours": {
+            "type": "integer",
+            "enum": [
+              168,
+              672
+            ]
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "hours"
         ]
       },
       "FlowFieldComparisonSlice": {

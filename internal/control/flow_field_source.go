@@ -86,7 +86,8 @@ func (s *Server) captureFlowFieldComparison(ctx context.Context, actor *auth.Pri
 		return out, nil, apierror.Validation("the field comparison requires completed UTC windows")
 	}
 	capture, err := s.captureFlowSourcesWithOptions(ctx, actor, []reportFlowSourceRef{settings.View}, true, true, reportFlowCaptureOptions{
-		SeasonalPeriodEnds:  []time.Time{windows.Before.End, windows.After.End},
+		SeasonalPeriodEnds:  windows.Ends(),
+		CombineSeasonal:     windows.History.Samples > 0,
 		ReservedMemoryBytes: budget.MemoryBytes / 4,
 		FieldComparison:     &settings,
 	})
@@ -98,11 +99,15 @@ func (s *Server) captureFlowFieldComparison(ctx context.Context, actor *auth.Pri
 			capture.Close()
 		}
 	}()
-	if len(capture.Inputs) != 2 || !capture.Inputs[0].From.Equal(windows.Before.Start) || !capture.Inputs[0].To.Equal(windows.Before.End) ||
-		!capture.Inputs[1].From.Equal(windows.After.Start) || !capture.Inputs[1].To.Equal(windows.After.End) {
-		return out, nil, apierror.Conflict("flow source did not return the complete requested window pair")
+	if !matchFlowFieldInputClocks(capture.Inputs, settings, windows) {
+		return out, nil, apierror.Conflict("flow source did not return all requested completed windows")
 	}
-	answer, err := compareCapturedFlowFields(ctx, capture, settings, budget.MemoryBytes/8)
+	var answer flow.FieldComparison
+	if windows.History.Samples > 0 {
+		answer, err = compareHistoricalFlowFields(ctx, capture, settings, windows, budget.MemoryBytes/8)
+	} else {
+		answer, err = compareCapturedFlowFields(ctx, capture, settings, budget.MemoryBytes/8)
+	}
 	if errors.Is(err, anomaly.ErrFlowFieldCoverage) {
 		return out, nil, apierror.Conflict("flow source cannot prove a complete comparable ranking").Wrap(err)
 	}
@@ -121,4 +126,20 @@ func (s *Server) recheckFlowFieldPublication(ctx context.Context, actor *auth.Pr
 		}
 		return s.validateReportSourcePublication(store.WithReportSourceAuditLock(ctx, sc), sc, actor, capture)
 	})
+}
+
+func matchFlowFieldInputClocks(inputs []reportFlowInput, settings flowFieldComparisonSettings, windows anomaly.FlowFieldComparisonClocks) bool {
+	ends := windows.Ends()
+	if len(inputs) != len(ends) {
+		return false
+	}
+	length := windows.After.End.Sub(windows.After.Start)
+	for i, input := range inputs {
+		if input.ID != settings.View.ID || input.Version != settings.View.Version || input.Period != "current" ||
+			!input.To.Equal(ends[i]) || !input.From.Equal(ends[i].Add(-length)) ||
+			input.TagRevision != inputs[0].TagRevision || !input.TagAsOf.Equal(inputs[0].TagAsOf) {
+			return false
+		}
+	}
+	return true
 }

@@ -239,10 +239,13 @@ put a tenant selector in the body or URL.
 ### Saved flow field changes
 
 Save a grouped table with a moving lookback of 60, 120 or 300 seconds, or
-604800 seconds for seven-day comparisons. Open the saved revision and select
+604800 seconds for seven-day comparisons. A 3600-second view also offers one
+or four weeks of hourly rankings for detecting a new top key. Open the saved revision and select
 **Compare fields**. The server compares the latest completed UTC window with
 its predecessor, the same UTC window last week, or the preceding seven
-complete UTC days when using a seven-day view.
+complete UTC days when using a seven-day view. An hourly history check considers
+each completed hour within the selected history and gives its bounds and count
+in the receipt.
 
 Rank mode reports entries, departures and rank changes among up to 300 keys.
 The saved primary metric sets rank. Two optional secondary metric floors

@@ -2365,15 +2365,23 @@ type FlowFieldChange struct {
 }
 
 type FlowFieldComparison struct {
-	After   FlowFieldComparisonSlice `json:"after"`
-	Before  FlowFieldComparisonSlice `json:"before"`
-	Cadence string                   `json:"cadence"`
-	Changes []FlowFieldChange        `json:"changes"`
-	Measure string                   `json:"measure"`
-	Mode    string                   `json:"mode"`
-	TopKeys int                      `json:"top_keys"`
-	Version string                   `json:"version"`
-	ViewId  string                   `json:"view_id"`
+	After   FlowFieldComparisonSlice   `json:"after"`
+	Before  FlowFieldComparisonSlice   `json:"before"`
+	Cadence string                     `json:"cadence"`
+	Changes []FlowFieldChange          `json:"changes"`
+	History FlowFieldComparisonHistory `json:"history,omitzero"`
+	Measure string                     `json:"measure"`
+	Mode    string                     `json:"mode"`
+	TopKeys int                        `json:"top_keys"`
+	Version string                     `json:"version"`
+	ViewId  string                     `json:"view_id"`
+}
+
+// Complete historical hourly rankings considered for new top-key membership.
+type FlowFieldComparisonHistory struct {
+	From  string `json:"from"`
+	Hours int    `json:"hours"`
+	To    string `json:"to"`
 }
 
 // Pin the exact saved grouped table revision. The lookback must match the chosen UTC window, and measure must be its primary metric. Rank mode accepts an optional rank step, decimal amount floor and two secondary floors. Amount mode needs a positive change floor. Fan-out needs an integral floor, src_addr and unique_dst:total. Share mode needs a positive basis-point floor and an additive measure.

@@ -104,6 +104,7 @@ export function FieldComparisonFields({
 }) {
   const update = (patch: Partial<FlowFieldComparisonInput>) => onChange({ ...input, ...patch })
   const mode = input.mode
+  const hourly = plan.period === 3600
   const choices = modeOptions.filter((option) => {
     if (option.value === 'share') return additiveMeasures.has(input.measure)
     if (option.value === 'fanout')
@@ -114,29 +115,38 @@ export function FieldComparisonFields({
   return (
     <>
       <div className={styles.grid}>
-        <Select
-          label="Change type"
-          value={mode}
-          options={choices}
-          onChange={(event) => {
-            const next = event.target.value as FlowFieldComparisonInput['mode']
-            update({
-              mode: next,
-              minimum_change: next === 'share' ? undefined : '1',
-              minimum_rank_change: next === 'rank' ? 1 : undefined,
-              share_basis_points: next === 'share' ? 500 : undefined,
-              secondary_thresholds: next === 'rank' ? [] : undefined,
-            })
-          }}
-        />
+        {!hourly && (
+          <Select
+            label="Change type"
+            value={mode}
+            options={choices}
+            onChange={(event) => {
+              const next = event.target.value as FlowFieldComparisonInput['mode']
+              update({
+                mode: next,
+                minimum_change: next === 'share' ? undefined : '1',
+                minimum_rank_change: next === 'rank' ? 1 : undefined,
+                share_basis_points: next === 'share' ? 500 : undefined,
+                secondary_thresholds: next === 'rank' ? [] : undefined,
+              })
+            }}
+          />
+        )}
         {plan.period !== 604800 && (
           <Select
-            label="Reference window"
+            label={hourly ? 'Historical baseline' : 'Reference window'}
             value={input.cadence}
-            options={[
-              { value: 'previous_period', label: 'Previous period' },
-              { value: 'previous_week', label: 'Same time last week' },
-            ]}
+            options={
+              hourly
+                ? [
+                    { value: 'hourly_1w', label: 'One week of hourly rankings' },
+                    { value: 'hourly_4w', label: 'Four weeks of hourly rankings' },
+                  ]
+                : [
+                    { value: 'previous_period', label: 'Previous period' },
+                    { value: 'previous_week', label: 'Same time last week' },
+                  ]
+            }
             onChange={(event) =>
               update({ cadence: event.target.value as FlowFieldComparisonInput['cadence'] })
             }
@@ -151,7 +161,7 @@ export function FieldComparisonFields({
           value={input.top_keys ?? ''}
           onChange={(event) => update({ top_keys: number(event.target.value) })}
         />
-        {mode === 'rank' && (
+        {mode === 'rank' && !hourly && (
           <Field
             label="Minimum rank change"
             type="number"
@@ -219,6 +229,16 @@ export function FieldComparisonResults({ result }: { result: FlowFieldComparison
       <dl className={styles.summary}>
         <FieldWindow label="Before" window={result.before} />
         <FieldWindow label="After" window={result.after} />
+        {result.history && (
+          <div>
+            <dt>Historical rankings</dt>
+            <dd>{result.history.hours} completed hours</dd>
+            <dd>
+              <time dateTime={result.history.from}>{result.history.from}</time> –{' '}
+              <time dateTime={result.history.to}>{result.history.to}</time>
+            </dd>
+          </div>
+        )}
       </dl>
       <p id={region} role="status">
         {result.changes.length

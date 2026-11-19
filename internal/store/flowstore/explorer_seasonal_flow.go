@@ -15,13 +15,15 @@ import (
 )
 
 type seasonalPlanStore interface {
-	exploreSeasonalWindows(context.Context, PlanQuery, []time.Time) ([]PlanResult, error)
+	exploreSeasonalWindows(context.Context, PlanQuery, []time.Time, int) ([]PlanResult, error)
 }
 
 // ExploreSeasonalWindows evaluates one pinned plan on every completed clock
 // under one query, memory and cumulative-read envelope. The seasonal reader
 // selects original groups; Explorer's visualization limits are presentation.
-func (b *PlanBatch) ExploreSeasonalWindows(query PlanQuery, ends []time.Time) ([]PlanResult, error) {
+// For ranked input, the complete population is counted before returning the
+// requested top keys and the first excluded original from each clock.
+func (b *PlanBatch) ExploreSeasonalWindows(query PlanQuery, ends []time.Time, topKeys int) ([]PlanResult, error) {
 	b.queryMu.Lock()
 	defer b.queryMu.Unlock()
 	if err := b.ctx.Err(); err != nil {
@@ -40,7 +42,11 @@ func (b *PlanBatch) ExploreSeasonalWindows(query PlanQuery, ends []time.Time) ([
 		return nil, ErrExplorerBudget
 	}
 	b.queries--
-	result, err := backend.exploreSeasonalWindows(b.queryContext(), query, ends)
+	if topKeys < 0 || topKeys > flow.MaxFieldComparisonKeys || topKeys != 0 && (query.Plan.View != "table" || query.Plan.RowLimit != topKeys+1) {
+		b.failed = true
+		return nil, ErrExplorerBudget
+	}
+	result, err := backend.exploreSeasonalWindows(b.queryContext(), query, ends, topKeys)
 	if err != nil {
 		b.failed = true
 		return nil, err

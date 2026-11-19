@@ -166,22 +166,32 @@ func decodeFieldReceipt(ctx context.Context, record store.AlertFieldReceipt, sou
 			return empty, nil, alert.ErrQueryGroups
 		}
 	}
+	history := comparison.History
+	if windows.History.Samples == 0 && history != nil || windows.History.Samples > 0 &&
+		(history == nil || history.Hours != windows.History.Samples ||
+			!history.From.Equal(windows.History.Start) || !history.To.Equal(windows.History.End)) {
+		return empty, nil, alert.ErrQueryGroups
+	}
 	capture, err := decodeStoredFlowScope(ctx, proof.Scope, memory/2)
 	if err != nil {
 		return empty, nil, err
 	}
-	if len(capture.Inputs) != 2 || capture.Inputs[0].TagRevision != capture.Inputs[1].TagRevision ||
-		!capture.Inputs[0].TagAsOf.Equal(capture.Inputs[1].TagAsOf) {
+	settings := fieldComparisonSettings(source.ViewID, *field)
+	if !matchFlowFieldInputClocks(capture.Inputs, settings, windows) {
 		return empty, nil, alert.ErrQueryGroups
 	}
-	for i, window := range []anomaly.TrainingWindow{windows.Before, windows.After} {
-		input := capture.Inputs[i]
-		if input.ID != source.ViewID || input.Version != source.ViewVersion || input.Period != "current" ||
-			!input.From.Equal(window.Start) || !input.To.Equal(window.End) {
-			return empty, nil, alert.ErrQueryGroups
+	usesTags := slices.Contains(capture.Permissions, permTagsRead)
+	checkedRouting := map[*flowRoutingSnapshotValidity]bool{}
+	for _, input := range capture.Inputs {
+		checked := input
+		if input.RoutingSource && checkedRouting[input.Routing] {
+			checked.Routing, checked.RoutingSource = nil, false
 		}
-		if err := validateReportSourceInputs(ctx, []reportFlowInput{input}, slices.Contains(capture.Permissions, permTagsRead), memory/2); err != nil {
+		if err := validateReportSourceInputs(ctx, []reportFlowInput{checked}, usesTags, memory/2); err != nil {
 			return empty, nil, err
+		}
+		if input.RoutingSource {
+			checkedRouting[input.Routing] = true
 		}
 	}
 	return proof, capture, ctx.Err()

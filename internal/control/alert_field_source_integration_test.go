@@ -193,6 +193,10 @@ func assertScheduledFieldEvidence(t *testing.T, got alert.FieldEvaluationEvidenc
 	if comparison.ViewID != viewID || !comparison.Before.From.Equal(windows.Before.Start) || !comparison.After.To.Equal(windows.After.End) || len(comparison.Changes) != 1 || len(got.Signals) != 1 {
 		t.Fatal("scheduled receipt omitted its source windows, view or signal")
 	}
+	if windows.History.Samples > 0 && (comparison.History == nil || comparison.History.Hours != windows.History.Samples ||
+		!comparison.History.From.Equal(windows.History.Start) || !comparison.History.To.Equal(windows.History.End)) {
+		t.Fatal("scheduled receipt lost its original historical window population")
+	}
 	change, signal := comparison.Changes[0], got.Signals[0]
 	if change.Kind != "entered_top_set" || change.Group["dst_port"] != "853" || change.Before != nil || change.After == nil ||
 		change.After.Value != scheduledFieldAmount || change.After.Citation == "" || signal.ChangeKey != change.Key || signal.EpisodeID == "" || signal.IncidentID == "" {

@@ -35,15 +35,22 @@ type FieldSecondaryThreshold struct {
 }
 
 type FieldComparison struct {
-	ViewID  string               `json:"view_id"`
-	Version string               `json:"version"`
-	Mode    string               `json:"mode"`
-	Measure string               `json:"measure"`
-	Cadence string               `json:"cadence"`
-	TopKeys int                  `json:"top_keys"`
-	Before  FieldComparisonSlice `json:"before"`
-	After   FieldComparisonSlice `json:"after"`
-	Changes []FieldChange        `json:"changes"`
+	ViewID  string                  `json:"view_id"`
+	Version string                  `json:"version"`
+	Mode    string                  `json:"mode"`
+	Measure string                  `json:"measure"`
+	Cadence string                  `json:"cadence"`
+	TopKeys int                     `json:"top_keys"`
+	Before  FieldComparisonSlice    `json:"before"`
+	After   FieldComparisonSlice    `json:"after"`
+	Changes []FieldChange           `json:"changes"`
+	History *FieldComparisonHistory `json:"history,omitempty"`
+}
+
+type FieldComparisonHistory struct {
+	From  time.Time `json:"from"`
+	To    time.Time `json:"to"`
+	Hours int       `json:"hours"`
 }
 
 type FieldComparisonSlice struct {
@@ -103,6 +110,10 @@ func (input FieldComparisonInput) Validate() error {
 	case "complete_week":
 		if input.PeriodSeconds != 0 {
 			return errors.New("a complete-week comparison uses two seven-day windows")
+		}
+	case "hourly_1w", "hourly_4w":
+		if input.PeriodSeconds != 3600 || input.Mode != "rank" || input.MinimumRankChange != 1 {
+			return errors.New("hourly history compares new membership of completed one-hour rankings")
 		}
 	case "previous_period", "previous_week":
 		if input.PeriodSeconds != 60 && input.PeriodSeconds != 120 && input.PeriodSeconds != 300 {
