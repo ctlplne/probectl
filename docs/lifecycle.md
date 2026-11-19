@@ -340,6 +340,22 @@ console, and the tenant is released by itself once the check passes. Migration
    missing `GRANT`, a schema catch-up precondition) clears without a restart
    within one `PROBECTL_SILO_QUARANTINE_RECHECK_INTERVAL` of the fix.
 
+## Prospect engagement consent
+
+An engagement records an owned assessment view and revision, the report
+preparer and the exact end time. The ordinary engagement defaults to 14 days.
+Scheduled-erasure consent requires an explicit future end, the exact tenant
+slug, an interactive account with `lifecycle.erase` and `lifecycle.export`,
+and a configured delivery destination for that tenant. The tenant report inbox
+is erased with the tenant, so the consent preview requires a configured report
+email destination.
+
+`GET /v1/lifecycle/prospect` reads the current record. The `convert` and
+`revoke-consent` actions take its exact revision. Both invalidate earlier
+consent and record their change in the tenant audit chain. The preview stores
+the terms and supports withdrawal. Expiry, report delivery verification and
+erasure execution require the lifecycle worker.
+
 ## Configuration
 
 See [`configuration.md`](configuration.md) for the `PROBECTL_AGENT_SKEW_WINDOW`

@@ -479,6 +479,10 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	"organizations": {plane: "postgres:organizations", disposition: subjectTableNoSubject},
 	"otlp_tokens":   {plane: "postgres:otlp_tokens", disposition: subjectTableNoSubject},
 	"projects":      {plane: "postgres:projects", disposition: subjectTableNoSubject},
+	"prospect_engagements": {
+		plane: "postgres:prospect_engagements", disposition: subjectTableDeleteMatches,
+		exact: []string{"owner_id"}, contains: []string{"preparer"},
+	},
 	"remediation_proposals": {
 		plane: "postgres:remediation_proposals", disposition: subjectTableDeleteMatches,
 		exact:    []string{"proposed_by", "decided_by", "target", "proposed_user_id"},

@@ -3682,6 +3682,32 @@ export interface PeeringTransitEstimate {
   known_eligible_p95: PeeringRateEstimate
 }
 
+export interface ProspectEngagement {
+  assessment_view_id: string
+  assessment_view_revision: string
+  consent_revoked_at?: string
+  consented_at?: string
+  converted_at?: string
+  destination_id?: string
+  ends_at: string
+  preparer: string
+  revision: number
+  starts_at: string
+}
+
+export interface ProspectEngagementDecision {
+  revision: number
+}
+
+export interface ProspectEngagementInput {
+  assessment_view_id: string
+  assessment_view_revision: string
+  confirm_tenant?: string
+  destination_id?: string
+  ends_at?: string
+  preparer: string
+}
+
 export interface ReadinessAction {
   href: string
   kind: "navigate" | "download"
@@ -5549,6 +5575,29 @@ export interface GetV1LifecycleExportRequest {
 }
 
 export type GetV1LifecycleExportResponse = void
+
+export interface GetProspectEngagementRequest {
+}
+
+export type GetProspectEngagementResponse = ProspectEngagement
+
+export interface StartProspectEngagementRequest {
+  body: ProspectEngagementInput
+}
+
+export type StartProspectEngagementResponse = ProspectEngagement
+
+export interface ConvertProspectEngagementRequest {
+  body: ProspectEngagementDecision
+}
+
+export type ConvertProspectEngagementResponse = ProspectEngagement
+
+export interface RevokeProspectConsentRequest {
+  body: ProspectEngagementDecision
+}
+
+export type RevokeProspectConsentResponse = ProspectEngagement
 
 export interface GetV1LifecycleRetentionRequest {
 }
@@ -7636,6 +7685,30 @@ export class ProbectlSDKClient {
     let path = "/v1/lifecycle/export"
     const query = new URLSearchParams()
     await this.request("GET", path, query, undefined)
+  }
+
+  async getProspectEngagement(): Promise<GetProspectEngagementResponse> {
+    let path = "/v1/lifecycle/prospect"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetProspectEngagementResponse>("GET", path, query, undefined)
+  }
+
+  async startProspectEngagement(request: StartProspectEngagementRequest): Promise<StartProspectEngagementResponse> {
+    let path = "/v1/lifecycle/prospect"
+    const query = new URLSearchParams()
+    return this.requestJSON<StartProspectEngagementResponse>("POST", path, query, request.body)
+  }
+
+  async convertProspectEngagement(request: ConvertProspectEngagementRequest): Promise<ConvertProspectEngagementResponse> {
+    let path = "/v1/lifecycle/prospect/convert"
+    const query = new URLSearchParams()
+    return this.requestJSON<ConvertProspectEngagementResponse>("POST", path, query, request.body)
+  }
+
+  async revokeProspectConsent(request: RevokeProspectConsentRequest): Promise<RevokeProspectConsentResponse> {
+    let path = "/v1/lifecycle/prospect/revoke-consent"
+    const query = new URLSearchParams()
+    return this.requestJSON<RevokeProspectConsentResponse>("POST", path, query, request.body)
   }
 
   async getV1LifecycleRetention(): Promise<GetV1LifecycleRetentionResponse> {

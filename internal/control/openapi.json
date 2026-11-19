@@ -13586,6 +13586,191 @@
         }
       }
     },
+    "/v1/lifecycle/prospect": {
+      "get": {
+        "operationId": "getProspectEngagement",
+        "summary": "Get the tenant’s prospect engagement",
+        "x-required-permission": "lifecycle.erase",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prospect engagement and recorded consent state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectEngagement"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "startProspectEngagement",
+        "summary": "Record a prospect engagement and optional scheduled erasure consent",
+        "description": "The tenant selects its owned saved report and exact revision. Scheduled erasure consent requires an interactive account, lifecycle.export, the exact tenant slug, a future end and a configured durable report destination. This preview records intent. The tenant lifecycle governs erasure.",
+        "x-required-permission": "lifecycle.erase",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProspectEngagementInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Prospect engagement and recorded consent state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectEngagement"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/lifecycle/prospect/convert": {
+      "post": {
+        "operationId": "convertProspectEngagement",
+        "summary": "Convert the current engagement and cancel pending erasure consent",
+        "x-required-permission": "lifecycle.erase",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProspectEngagementDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prospect engagement and recorded consent state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectEngagement"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/lifecycle/prospect/revoke-consent": {
+      "post": {
+        "operationId": "revokeProspectConsent",
+        "summary": "Withdraw scheduled erasure consent for the current engagement revision",
+        "x-required-permission": "lifecycle.erase",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProspectEngagementDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prospect engagement and recorded consent state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectEngagement"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/security/keys": {
       "get": {
         "x-required-permission": "security.keys",
@@ -19665,6 +19850,103 @@
             "description": "PROBECTL_REMEDIATION_APPROVALS_ENABLED — false means review-only: Approve is unavailable."
           }
         }
+      },
+      "ProspectEngagement": {
+        "type": "object",
+        "required": [
+          "revision",
+          "assessment_view_id",
+          "assessment_view_revision",
+          "preparer",
+          "starts_at",
+          "ends_at"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "assessment_view_id": {
+            "type": "string"
+          },
+          "assessment_view_revision": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "preparer": {
+            "type": "string"
+          },
+          "starts_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "converted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "consented_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "consent_revoked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "destination_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProspectEngagementInput": {
+        "type": "object",
+        "required": [
+          "assessment_view_id",
+          "assessment_view_revision",
+          "preparer"
+        ],
+        "properties": {
+          "assessment_view_id": {
+            "type": "string"
+          },
+          "assessment_view_revision": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "preparer": {
+            "type": "string"
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "destination_id": {
+            "type": "string"
+          },
+          "confirm_tenant": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProspectEngagementDecision": {
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
       },
       "LifecycleEraseRequest": {
         "type": "object",

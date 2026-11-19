@@ -3853,6 +3853,32 @@ type PeeringTransitEstimate struct {
 	KnownEligibleP95 PeeringRateEstimate `json:"known_eligible_p95"`
 }
 
+type ProspectEngagement struct {
+	AssessmentViewId       string `json:"assessment_view_id"`
+	AssessmentViewRevision string `json:"assessment_view_revision"`
+	ConsentRevokedAt       string `json:"consent_revoked_at,omitempty"`
+	ConsentedAt            string `json:"consented_at,omitempty"`
+	ConvertedAt            string `json:"converted_at,omitempty"`
+	DestinationId          string `json:"destination_id,omitempty"`
+	EndsAt                 string `json:"ends_at"`
+	Preparer               string `json:"preparer"`
+	Revision               int    `json:"revision"`
+	StartsAt               string `json:"starts_at"`
+}
+
+type ProspectEngagementDecision struct {
+	Revision int `json:"revision"`
+}
+
+type ProspectEngagementInput struct {
+	AssessmentViewId       string `json:"assessment_view_id"`
+	AssessmentViewRevision string `json:"assessment_view_revision"`
+	ConfirmTenant          string `json:"confirm_tenant,omitempty"`
+	DestinationId          string `json:"destination_id,omitempty"`
+	EndsAt                 string `json:"ends_at,omitempty"`
+	Preparer               string `json:"preparer"`
+}
+
 // A safe, non-executing action within the self-hosted deployment.
 type ReadinessAction struct {
 	Href  string `json:"href"`
@@ -8445,6 +8471,65 @@ func (c *Client) GetV1LifecycleExport(ctx context.Context, req GetV1LifecycleExp
 	path := "/v1/lifecycle/export"
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
+}
+
+// Get the tenant’s prospect engagement
+type GetProspectEngagementRequest struct {
+}
+
+func (c *Client) GetProspectEngagement(ctx context.Context, req GetProspectEngagementRequest) (*ProspectEngagement, error) {
+	path := "/v1/lifecycle/prospect"
+	query := url.Values{}
+	var out ProspectEngagement
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Record a prospect engagement and optional scheduled erasure consent
+type StartProspectEngagementRequest struct {
+	Body *ProspectEngagementInput `json:"-"`
+}
+
+func (c *Client) StartProspectEngagement(ctx context.Context, req StartProspectEngagementRequest) (*ProspectEngagement, error) {
+	path := "/v1/lifecycle/prospect"
+	query := url.Values{}
+	var out ProspectEngagement
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Convert the current engagement and cancel pending erasure consent
+type ConvertProspectEngagementRequest struct {
+	Body *ProspectEngagementDecision `json:"-"`
+}
+
+func (c *Client) ConvertProspectEngagement(ctx context.Context, req ConvertProspectEngagementRequest) (*ProspectEngagement, error) {
+	path := "/v1/lifecycle/prospect/convert"
+	query := url.Values{}
+	var out ProspectEngagement
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Withdraw scheduled erasure consent for the current engagement revision
+type RevokeProspectConsentRequest struct {
+	Body *ProspectEngagementDecision `json:"-"`
+}
+
+func (c *Client) RevokeProspectConsent(ctx context.Context, req RevokeProspectConsentRequest) (*ProspectEngagement, error) {
+	path := "/v1/lifecycle/prospect/revoke-consent"
+	query := url.Values{}
+	var out ProspectEngagement
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // The tenant's retention policy + residency/isolation visibility

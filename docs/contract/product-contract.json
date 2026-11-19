@@ -433,7 +433,7 @@
       ],
       "name": "Export/residency/verifiable deletion",
       "status": "delivered",
-      "evidence": "`internal/tenantlife`, `internal/lifecycle` (every plane exported; attested, count-verified erasure across every store — U-027)"
+      "evidence": "`internal/tenantlife`, `internal/lifecycle` (every plane exported; attested, count-verified erasure across every store — U-027). The prospect preview records the tenant's exact assessment revision, end, named account and configured delivery consent in `migrations/0229_prospect_engagements.sql`. Current revision checks and tenant audit serialize conversion and consent withdrawal. `TestProspectEngagementConsentUsesExactOwnedTerms` covers tenant storage isolation and interactive consent. Execution and delivery qualification remain open."
     },
     {
       "ids": [

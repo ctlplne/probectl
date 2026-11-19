@@ -921,16 +921,16 @@ capabilities:
     name: Export/residency/verifiable deletion
     status: delivered
     owner: data/governance
-    engine: {refs: ["file:internal/tenantlife", "file:internal/lifecycle"]}
+    engine: {refs: ["file:internal/tenantlife", "file:internal/lifecycle", "file:internal/store/prospect_engagement.go"]}
     binary: {refs: ["file:cmd/probectl-control/builders.go#srv.WithTenantLife(lifeEngine)"]}
-    api: {refs: ["api:GET /v1/lifecycle/export", "api:POST /v1/lifecycle/erase"]}
-    cli: {refs: ["cli:probectl lifecycle export", "cli:probectl lifecycle erase"]}
+    api: {refs: ["api:GET /v1/lifecycle/export", "api:POST /v1/lifecycle/erase", "api:GET /v1/lifecycle/prospect", "api:POST /v1/lifecycle/prospect", "api:POST /v1/lifecycle/prospect/convert", "api:POST /v1/lifecycle/prospect/revoke-consent"]}
+    cli: {refs: ["cli:probectl lifecycle export", "cli:probectl lifecycle erase", "cli:probectl lifecycle prospect", "cli:probectl lifecycle start-prospect", "cli:probectl lifecycle convert-prospect", "cli:probectl lifecycle revoke-prospect-consent"]}
     ui: {refs: ["ui:F55@/admin"]}
-    docs: {refs: ["file:docs/lifecycle.md#Zero-downtime lifecycle"]}
+    docs: {refs: ["file:docs/lifecycle.md#Zero-downtime lifecycle", "file:docs/lifecycle.md#Prospect engagement consent"]}
     config_keys: *api_config
     telemetry: {refs: ["file:internal/tenantlife"]}
-    real_stack_proof: {refs: ["test:internal/tenantlife/realstack_integration_test.go#TestTenantExportAndErasureRealStack"]}
-    migration: {refs: ["file:migrations/0028_tenant_lifecycle.sql", "file:migrations/0052_tenant_retention_planes.sql", "file:migrations/0077_audit_subject_erasures.sql"]}
+    real_stack_proof: {refs: ["test:internal/tenantlife/realstack_integration_test.go#TestTenantExportAndErasureRealStack", "test:internal/control/prospect_lifecycle_integration_test.go#TestProspectEngagementConsentUsesExactOwnedTerms"]}
+    migration: {refs: ["file:migrations/0028_tenant_lifecycle.sql", "file:migrations/0052_tenant_retention_planes.sql", "file:migrations/0077_audit_subject_erasures.sql", "file:migrations/0229_prospect_engagements.sql"]}
 
   - id: F56
     name: Per-tenant keys/BYOK
