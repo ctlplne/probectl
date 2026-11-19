@@ -111,6 +111,11 @@ func (s *DashboardReportSupervisor) materializeProspectAssessment(ctx context.Co
 		if err := (store.ProspectEngagements{}).FileAssessment(ctx, sc, engagement.Revision, artifact.ID, now); err != nil {
 			return err
 		}
+		if latest.HasCurrentDeliveryConsent() {
+			if err := (store.DashboardReports{}).QueueReportEmail(ctx, sc, artifact.ID, latest.DestinationID); err != nil {
+				return err
+			}
+		}
 		return audit.TenantRecord(ctx, sc, dashboardReportSchedulerActor, "lifecycle.prospect_assessment_created", artifact.ID, map[string]any{
 			"revision": engagement.Revision, "owner_id": engagement.OwnerID, "body_sha256": artifact.BodySHA256,
 			"body_bytes": artifact.BodyBytes, "assessment_view_id": view.ID,

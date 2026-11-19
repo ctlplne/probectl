@@ -120,6 +120,11 @@ func (s *DashboardReportSupervisor) sendCurrentReportEmail(ctx context.Context, 
 	if err != nil {
 		return err
 	}
+	if item.ProspectRevision != nil {
+		if err := server.authorizeProspectExport(ctx, current); err != nil {
+			return err
+		}
+	}
 	permissions := reportBackgroundSourcePermissions()
 	ctx, actor, err := current.backgroundContext(ctx, permissions)
 	if err != nil {
@@ -164,14 +169,19 @@ func (s *DashboardReportSupervisor) sendCurrentReportEmail(ctx context.Context, 
 	ctx, flush := scopedABACDenial(ctx)
 	defer flush(server)
 	if err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if item.ProspectRevision != nil {
+			if err := tenancy.AcquireTenantWriteLease(ctx, sc); err != nil {
+				return err
+			}
+		}
 		if err := audit.LockTenantStream(ctx, sc.Q, tenant.String()); err != nil {
 			return err
 		}
-		schedule, err := (store.DashboardReports{}).GetSchedule(ctx, sc, item.ScheduleID, item.OwnerID)
+		current, err := reportEmailDestinationIsCurrent(ctx, sc, item)
 		if err != nil {
 			return err
 		}
-		if !schedule.Enabled || schedule.DestinationID != item.DestinationID {
+		if !current {
 			return (store.DashboardReports{}).CompleteReportEmail(ctx, sc, item.ID, "withdrawn", now)
 		}
 		latest, err := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, item.ID, item.OwnerID, flowstore.ExplorerQueryBudget(server.flowStore).MemoryBytes/4)
@@ -184,6 +194,11 @@ func (s *DashboardReportSupervisor) sendCurrentReportEmail(ctx context.Context, 
 		owner, err := readCurrentUserAuthorityScope(ctx, sc, item.OwnerID)
 		if err != nil {
 			return err
+		}
+		if item.ProspectRevision != nil {
+			if err := server.authorizeProspectExport(ctx, owner); err != nil {
+				return err
+			}
 		}
 		fresh, principal, err := owner.backgroundContext(ctx, permissions)
 		if err != nil {
@@ -216,13 +231,50 @@ func (s *DashboardReportSupervisor) sendCurrentReportEmail(ctx context.Context, 
 		return err
 	}
 	return tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if item.ProspectRevision != nil {
+			if err := tenancy.AcquireTenantWriteLease(ctx, sc); err != nil {
+				return err
+			}
+		}
 		if err := audit.LockTenantStream(ctx, sc.Q, tenant.String()); err != nil {
 			return err
+		}
+		data := map[string]any{"destination_id": item.DestinationID, "body_sha256": verified.BodySHA256, "body_bytes": verified.BodyBytes}
+		if item.ProspectRevision != nil {
+			current, err := reportEmailDestinationIsCurrent(ctx, sc, item)
+			if err != nil {
+				return err
+			}
+			if !current {
+				return (store.DashboardReports{}).CompleteReportEmail(ctx, sc, item.ID, "withdrawn", time.Now().UTC())
+			}
+			data["prospect_revision"] = *item.ProspectRevision
 		}
 		if err := (store.DashboardReports{}).CompleteReportEmail(ctx, sc, item.ID, "sent", time.Now().UTC()); err != nil {
 			return err
 		}
-		_, err := audit.TenantAppend(ctx, sc, dashboardReportSchedulerActor, "dashboard.report_email_sent", item.ID, map[string]any{"destination_id": item.DestinationID, "body_sha256": verified.BodySHA256, "body_bytes": verified.BodyBytes})
+		_, err := audit.TenantAppend(ctx, sc, dashboardReportSchedulerActor, "dashboard.report_email_sent", item.ID, data)
 		return err
 	})
+}
+
+func (s *Server) authorizeProspectExport(ctx context.Context, current *currentUserAuthority) error {
+	ctx, actor, err := current.requestContext(ctx, current.principal)
+	if err != nil {
+		return err
+	}
+	return s.authorize(ctx, actor, permLifecycleExp, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: actor.TenantID})
+}
+
+func reportEmailDestinationIsCurrent(ctx context.Context, sc tenancy.Scope, item store.PendingReportEmail) (bool, error) {
+	if item.ProspectRevision == nil {
+		schedule, err := (store.DashboardReports{}).GetSchedule(ctx, sc, item.ScheduleID, item.OwnerID)
+		return err == nil && schedule.Enabled && schedule.DestinationID == item.DestinationID, err
+	}
+	engagement, err := (store.ProspectEngagements{}).Get(ctx, sc)
+	if domain, ok := apierror.As(err); ok && domain.Kind == apierror.KindNotFound {
+		return false, nil
+	}
+	return err == nil && engagement.HasCurrentDeliveryConsent() && engagement.Revision == *item.ProspectRevision &&
+		engagement.AssessmentArtifactID == item.ID && engagement.OwnerID == item.OwnerID && engagement.DestinationID == item.DestinationID, err
 }

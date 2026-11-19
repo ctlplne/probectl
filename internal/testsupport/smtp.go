@@ -10,7 +10,9 @@ import (
 	"bufio"
 	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -38,6 +40,7 @@ type SMTPServer struct {
 	tlsCfg   *tls.Config
 	user     string
 	password string
+	archive  string
 
 	mu       sync.Mutex
 	messages []SMTPMessage
@@ -48,11 +51,26 @@ type SMTPServer struct {
 // non-empty user requires AUTH PLAIN with that user and password before MAIL.
 func StartSMTPServer(t *testing.T, tlsCfg *tls.Config, user, password string) *SMTPServer {
 	t.Helper()
+	return startSMTPServer(t, tlsCfg, user, password, "")
+}
+
+// StartArchivingSMTPServer syncs each complete message to the test archive
+// before acknowledging its acceptance to the sender.
+func StartArchivingSMTPServer(t *testing.T, tlsCfg *tls.Config, user, password, archive string) *SMTPServer {
+	t.Helper()
+	if archive == "" {
+		t.Fatal("SMTP archive directory is required")
+	}
+	return startSMTPServer(t, tlsCfg, user, password, archive)
+}
+
+func startSMTPServer(t *testing.T, tlsCfg *tls.Config, user, password, archive string) *SMTPServer {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &SMTPServer{Addr: ln.Addr().String(), ln: ln, tlsCfg: tlsCfg, user: user, password: password}
+	s := &SMTPServer{Addr: ln.Addr().String(), ln: ln, tlsCfg: tlsCfg, user: user, password: password, archive: archive}
 	t.Cleanup(func() { _ = ln.Close() })
 	go func() {
 		for {
@@ -214,12 +232,32 @@ func (ss *smtpSession) data() bool {
 		body.WriteString("\n")
 	}
 	ss.msg.Data = body.String()
+	if ss.s.archive != "" {
+		if err := archiveSMTPMessage(ss.s.archive, ss.msg.Data); err != nil {
+			ss.msg = nil
+			ss.reply("451 archive unavailable")
+			return true
+		}
+	}
 	ss.s.mu.Lock()
 	ss.s.messages = append(ss.s.messages, *ss.msg)
 	ss.s.mu.Unlock()
 	ss.msg = nil
 	ss.reply("250 queued")
 	return true
+}
+
+func archiveSMTPMessage(directory, data string) error {
+	file, err := os.CreateTemp(directory, "message-*.eml")
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.WriteString(data)
+	if err := errors.Join(writeErr, file.Sync(), file.Close()); err != nil {
+		_ = os.Remove(file.Name())
+		return err
+	}
+	return nil
 }
 
 // smtpAddr strips the angle brackets and parameters from a MAIL/RCPT path.

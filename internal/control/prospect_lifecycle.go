@@ -158,6 +158,11 @@ func (s *Server) decideProspect(w http.ResponseWriter, r *http.Request, convert 
 		if err != nil {
 			return err
 		}
+		if out.AssessmentArtifactID != "" {
+			if err := (store.DashboardReports{}).CompleteReportEmail(ctx, sc, out.AssessmentArtifactID, "withdrawn", time.Now().UTC()); err != nil {
+				return err
+			}
+		}
 		return s.recordAudit(ctx, sc, r, action, sc.Tenant.String(), map[string]any{"prior_revision": in.Revision, "revision": out.Revision})
 	})
 	if err != nil {
@@ -172,7 +177,9 @@ func (s *Server) withProspectAuthority(r *http.Request, needsExport bool, fn fun
 	if actor == nil || actor.UserID == "" {
 		return apierror.Forbidden("a current named account is required")
 	}
-	return s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+	ctx, flush := scopedABACDenial(r.Context())
+	defer flush(s)
+	return s.inTenant(r.WithContext(ctx), func(ctx context.Context, sc tenancy.Scope) error {
 		if err := tenancy.AcquireTenantWriteLease(ctx, sc); err != nil {
 			return err
 		}

@@ -11,15 +11,24 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"io"
+	"mime"
+	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/mail"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -27,6 +36,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 func TestProspectEngagementConsentUsesExactOwnedTerms(t *testing.T) {
@@ -77,6 +87,7 @@ func TestProspectEngagementConsentUsesExactOwnedTerms(t *testing.T) {
 	wrong = inputs[owner]
 	wrong.ConfirmTenant = inputs[sibling].ConfirmTenant
 	callComplianceControlReport(t, socket, ownedSession, http.MethodPost, route, wrong, http.StatusUnprocessableEntity)
+	verifyProspectConsentAttributeDenial(t, f, socket, ownedSession, inputs[owner])
 	read := func(raw []byte) store.ProspectEngagement {
 		t.Helper()
 		var out store.ProspectEngagement
@@ -129,6 +140,32 @@ func TestProspectEngagementConsentUsesExactOwnedTerms(t *testing.T) {
 	})
 }
 
+func verifyProspectConsentAttributeDenial(t *testing.T, f *roleExplanationAPIFixture, socket *httptest.Server, cookie string, input startProspectInput) {
+	t.Helper()
+	owner := f.tenants[0]
+	var id string
+	f.in(owner, func(ctx context.Context, sc tenancy.Scope) error {
+		policy, err := (store.ABACPolicies{}).Create(ctx, sc, auth.Policy{Name: "Require export permission for prospect consent",
+			Permission: permLifecycleExp, Effect: auth.PolicyDeny, Enabled: true, Priority: 100})
+		if err == nil {
+			id = policy.ID
+		}
+		return err
+	})
+	callComplianceControlReport(t, socket, cookie, http.MethodPost, "/v1/lifecycle/prospect", input, http.StatusForbidden)
+	f.in(owner, func(ctx context.Context, sc tenancy.Scope) error {
+		var denials, engagements int
+		if err := sc.Q.QueryRow(ctx, `SELECT (SELECT count(*) FROM audit_events WHERE tenant_id=$1 AND action='abac.denied' AND target=$2),
+		 (SELECT count(*) FROM prospect_engagements WHERE tenant_id=$1)`, owner, permLifecycleExp).Scan(&denials, &engagements); err != nil {
+			return err
+		}
+		if denials != 1 || engagements != 0 {
+			t.Fatal("current export denial did not audit the refusal and preserve the engagement table")
+		}
+		return (store.ABACPolicies{}).Delete(ctx, sc, id)
+	})
+}
+
 func TestProspectEngagementUsesCanonicalTenantWriteFence(t *testing.T) {
 	f := newRoleExplanationAPIFixture(t)
 	for _, tenant := range f.tenants {
@@ -156,6 +193,27 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 		t.Fatal("report supervisor unavailable")
 	}
 	supervisor.WithReportSources(f.server)
+	owner, sibling := f.tenants[0], f.tenants[1]
+	archive := t.TempDir()
+	ca, tlsConfig := alertTestCA(t, "localhost")
+	relay := testsupport.StartArchivingSMTPServer(t, tlsConfig, "reports", "test-only-relay-proof", archive)
+	_, port, err := net.SplitHostPort(relay.Addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mailConfig := &config.Config{AlertSMTPAddr: net.JoinHostPort("localhost", port), AlertSMTPFrom: "reports@probectl.test",
+		AlertSMTPTLSMode: "starttls", AlertSMTPUsername: "reports", AlertSMTPPassword: "test-only-relay-proof", AlertSMTPCAFile: ca}
+	deps, err := BuildAlertChannelDeps(mailConfig, nil, f.server.log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := deps.Mail.(alert.AttachmentMailSender)
+	if !ok {
+		t.Fatal("SMTP attachment transport unavailable")
+	}
+	ownerAddress := "prospect@" + owner + ".invalid"
+	mailProbe := &reportMailProbe{transport: transport, fail: map[string]bool{ownerAddress: true}, attempts: map[string][]string{}, sent: map[string][]reportMailReceipt{}}
+	f.server.WithAlertChannelDeps(alert.ChannelDeps{Mail: mailProbe})
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	end := now.Add(-time.Minute)
 	engagements := map[string]store.ProspectEngagement{}
@@ -164,8 +222,10 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		destination := config.ReportEmailDestination{TenantID: tenant, ID: "prospect-archive", Name: "Prospect archive", Recipients: []string{"prospect@" + tenant + ".invalid"}}
+		f.server.cfg.ReportEmailDestinations = append(f.server.cfg.ReportEmailDestinations, destination)
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			for _, permission := range []string{permTestRead, permIncidentRead, permChangeRead, "topology.read", permLifecycleErase} {
+			for _, permission := range []string{permTestRead, permIncidentRead, permChangeRead, "topology.read", permLifecycleErase, permLifecycleExp} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
 					return err
 				}
@@ -186,7 +246,7 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 			}
 			engagements[tenant], err = (store.ProspectEngagements{}).Create(ctx, sc, store.ProspectEngagement{AssessmentViewID: view.ID,
 				AssessmentAt: view.UpdatedAt, OwnerID: f.users[tenant], TenantSlug: slug,
-				StartsAt: end.AddDate(0, 0, -14), EndsAt: end, Preparer: "Scope " + tenant})
+				StartsAt: end.AddDate(0, 0, -14), EndsAt: end, Preparer: "Scope " + tenant, DestinationID: reportEmailDestinationID(destination)})
 			return err
 		})
 	}
@@ -211,6 +271,7 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 			}
 		}
 	}
+	var ownerArtifact, ownerSHA string
 	for lane, tenant := range f.tenants {
 		var item store.ProspectEngagement
 		var bodySHA string
@@ -226,7 +287,8 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 				return err
 			}
 			if !artifact.AbsoluteFrom.Equal(engagements[tenant].StartsAt) || !artifact.AbsoluteTo.Equal(end) || artifact.Format != "pdf" ||
-				artifact.BodyBytes < 1 || len(artifact.BodySHA256) != 64 || artifact.TenantID != tenant || artifact.EmailDelivery != nil {
+				artifact.BodyBytes < 1 || len(artifact.BodySHA256) != 64 || artifact.TenantID != tenant || artifact.EmailDelivery == nil ||
+				artifact.EmailDelivery.State != "pending" || artifact.EmailDelivery.DestinationID != engagements[tenant].DestinationID {
 				t.Fatal("the filed PDF lost its exact engagement clock or tenant scope")
 			}
 			bodySHA, bodySize = artifact.BodySHA256, artifact.BodyBytes
@@ -246,5 +308,69 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 			t.Fatal("the released assessment did not match its own sealed bytes")
 		}
 		callSeasonalAPI(t, socket, f.tokens[f.tenants[1-lane]], http.MethodGet, path, nil, http.StatusNotFound)
+		if tenant == owner {
+			ownerArtifact, ownerSHA = item.AssessmentArtifactID, bodySHA
+		}
+	}
+	callSeasonalAPI(t, socket, f.tokens[sibling], http.MethodPost, "/v1/lifecycle/prospect/revoke-consent", map[string]int{"revision": 1}, http.StatusOK)
+	due := time.Now().UTC().Add(time.Second)
+	if err := supervisor.deliverTenantReportEmails(t.Context(), owner, due); err == nil || len(relay.Messages()) != 0 {
+		t.Fatal("the unsuccessful attempt was recorded as accepted delivery")
+	}
+	for _, tenant := range f.tenants {
+		if err := supervisor.deliverTenantReportEmails(t.Context(), tenant, due.Add(2*time.Minute)); err != nil {
+			t.Fatal("configured report delivery failed", err)
+		}
+	}
+	accepted := relay.Messages()
+	attempts := mailProbe.attempts[ownerAddress]
+	if len(accepted) != 1 || !accepted[0].TLS || len(accepted[0].To) != 1 || accepted[0].To[0] != ownerAddress ||
+		len(attempts) != 2 || attempts[0] != attempts[1] || len(mailProbe.attempts["prospect@"+sibling+".invalid"]) != 0 {
+		t.Fatal("retry or withdrawal lost exact scoped routing")
+	}
+	verifyArchivedProspectPDF(t, archive, ownerSHA)
+	f.in(owner, func(ctx context.Context, sc tenancy.Scope) error {
+		var receipts int
+		err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE tenant_id=$1 AND action='dashboard.report_email_sent'
+		 AND target=$2 AND data->>'body_sha256'=$3 AND data->>'prospect_revision'='1'`, owner, ownerArtifact, ownerSHA).Scan(&receipts)
+		if err == nil && receipts != 1 {
+			t.Fatal("accepted delivery lost its scoped assessment audit receipt")
+		}
+		return err
+	})
+}
+
+func verifyArchivedProspectPDF(t *testing.T, archive, expected string) {
+	t.Helper()
+	entries, err := os.ReadDir(archive)
+	if err != nil || len(entries) != 1 {
+		t.Fatal("the relay archive must contain exactly one accepted report", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(archive, entries[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, parameters, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	if err != nil || parameters["boundary"] == "" {
+		t.Fatal("archived message is missing its MIME boundary", err)
+	}
+	parts := multipart.NewReader(message.Body, parameters["boundary"])
+	for {
+		part, err := parts.NextPart()
+		if err != nil {
+			t.Fatal("archived message is missing the assessment PDF", err)
+		}
+		if !strings.HasPrefix(part.Header.Get("Content-Type"), "application/pdf") {
+			continue
+		}
+		pdf, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, part))
+		if err != nil || hex.EncodeToString(crypto.Hash(pdf)) != expected {
+			t.Fatal("archived PDF differs from the sealed assessment", err)
+		}
+		return
 	}
 }

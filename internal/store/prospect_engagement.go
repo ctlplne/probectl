@@ -37,6 +37,11 @@ type ProspectEngagement struct {
 
 type ProspectEngagements struct{}
 
+func (e ProspectEngagement) HasCurrentDeliveryConsent() bool {
+	return e.ConsentedAt != nil && e.ConsentRevision != nil && *e.ConsentRevision == e.Revision &&
+		e.ConsentRevokedAt == nil && e.ConvertedAt == nil && e.DestinationID != ""
+}
+
 const prospectEngagementColumns = `revision,assessment_view_id,assessment_view_revision,preparer,starts_at,ends_at,
 	converted_at,consented_at,consent_revoked_at,COALESCE(consent_destination_id,''),owner_id::text,tenant_slug,consent_revision,
 	COALESCE(assessment_artifact_id,'')`

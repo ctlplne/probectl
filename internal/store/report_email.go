@@ -18,6 +18,7 @@ import (
 type PendingReportEmail struct {
 	ID, ScheduleID, OwnerID, DestinationID, CurrentDestinationID string
 	Attempts                                                     int64
+	ProspectRevision                                             *int64
 }
 
 func (DashboardReports) QueueReportEmail(ctx context.Context, sc tenancy.Scope, id, destination string) error {
@@ -25,7 +26,22 @@ func (DashboardReports) QueueReportEmail(ctx context.Context, sc tenancy.Scope, 
 	return err
 }
 func (DashboardReports) PendingReportEmails(ctx context.Context, sc tenancy.Scope, now time.Time, limit int) ([]PendingReportEmail, error) {
-	rows, err := sc.Q.Query(ctx, `SELECT a.id,s.id,s.owner_id,a.email_destination_id,s.destination_id,a.email_attempts FROM dashboard_report_artifacts a JOIN dashboard_report_schedules s ON (s.tenant_id,s.id)=(a.tenant_id,a.schedule_id) WHERE a.tenant_id=$1 AND s.tenant_id=$1 AND s.enabled AND a.email_state='pending' AND a.email_next_attempt_at<=$2 ORDER BY a.email_next_attempt_at,a.id LIMIT $3`, sc.Tenant.String(), now, limit)
+	rows, err := sc.Q.Query(ctx, `WITH due AS (
+		SELECT a.id,s.id AS schedule_id,s.owner_id,a.email_destination_id,s.destination_id AS current_destination_id,
+		 a.email_attempts,NULL::bigint AS prospect_revision,a.email_next_attempt_at
+		FROM dashboard_report_artifacts a
+		JOIN dashboard_report_schedules s ON (s.tenant_id,s.id)=(a.tenant_id,a.schedule_id)
+		WHERE a.tenant_id=$1 AND s.tenant_id=$1 AND s.enabled AND a.email_state='pending' AND a.email_next_attempt_at<=$2
+		UNION ALL
+		SELECT a.id,'',p.owner_id::text,a.email_destination_id,p.consent_destination_id,a.email_attempts,p.revision,a.email_next_attempt_at
+		FROM prospect_engagements p
+		JOIN dashboard_report_artifacts a ON (a.tenant_id,a.id)=(p.tenant_id,p.assessment_artifact_id)
+		WHERE p.tenant_id=$1 AND a.tenant_id=$1 AND a.schedule_id IS NULL AND p.ends_at<=$2
+		 AND p.converted_at IS NULL AND p.consented_at IS NOT NULL AND p.consent_revoked_at IS NULL AND p.consent_revision=p.revision
+		 AND a.email_destination_id=p.consent_destination_id AND a.email_state='pending' AND a.email_next_attempt_at<=$2
+	)
+	SELECT id,schedule_id,owner_id,email_destination_id,current_destination_id,email_attempts,prospect_revision
+	FROM due ORDER BY email_next_attempt_at,id LIMIT $3`, sc.Tenant.String(), now, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +49,7 @@ func (DashboardReports) PendingReportEmails(ctx context.Context, sc tenancy.Scop
 	var result []PendingReportEmail
 	for rows.Next() {
 		var item PendingReportEmail
-		if err := rows.Scan(&item.ID, &item.ScheduleID, &item.OwnerID, &item.DestinationID, &item.CurrentDestinationID, &item.Attempts); err != nil {
+		if err := rows.Scan(&item.ID, &item.ScheduleID, &item.OwnerID, &item.DestinationID, &item.CurrentDestinationID, &item.Attempts, &item.ProspectRevision); err != nil {
 			return nil, err
 		}
 		result = append(result, item)

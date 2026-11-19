@@ -356,8 +356,11 @@ consent and record their change in the tenant audit chain. The existing report
 supervisor files one PDF after the engagement ends. It uses the original view
 revision, the owner’s current report access and the exact stored dates. Read
 the returned `assessment_artifact_id` through the normal authorized report
-download. Collection expiry, external delivery verification and automatic
-erasure are additional lifecycle steps.
+download. With current delivery consent, the report worker verifies the PDF
+and sends it through the configured email transport. The delivery audit
+records the accepted destination, engagement revision and PDF digest.
+Conversion and consent withdrawal cancel pending delivery. Collection expiry
+and automatic erasure are additional lifecycle steps.
 
 Engagement writes take the same tenant writer lease and database trigger as
 other lifecycle data. Once the existing erasure fence closes, PostgreSQL
