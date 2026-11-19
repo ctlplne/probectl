@@ -13891,6 +13891,71 @@
         }
       }
     },
+    "/v1/remediation/rtbh-preview": {
+      "post": {
+        "operationId": "previewRemediationRTBH",
+        "summary": "Preview a reviewed destination RTBH candidate",
+        "description": "Measures the latest completed traffic window for the full observed protected prefix and its configured benign source. Requires the original incident receipt, whole-view source and current routing-context permissions.",
+        "tags": [
+          "remediation"
+        ],
+        "x-required-permission": "remediation.propose",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemediationRTBHPreviewInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Scoped traffic impact and the candidate announcement attributes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationRTBHPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/remediation/proposals": {
       "get": {
         "x-required-permission": "remediation.propose",
@@ -19363,6 +19428,165 @@
             "description": "e.g. \"topology unavailable — blast radius unknown\""
           }
         }
+      },
+      "RemediationRTBHPreviewInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "protected_entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "benign_entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "whole_view_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receipt_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "whole_view_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "community": {
+            "type": "string",
+            "pattern": "^[0-9]{1,5}:[0-9]{1,5}$"
+          },
+          "routing_policy_agreed": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "rule_id",
+          "context_id",
+          "protected_entity_id",
+          "benign_entity_id",
+          "whole_view_id",
+          "receipt_fingerprint",
+          "whole_view_version",
+          "community",
+          "routing_policy_agreed"
+        ]
+      },
+      "RemediationPrefixTraffic": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "packets": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        },
+        "required": [
+          "bytes",
+          "packets"
+        ]
+      },
+      "RemediationPrefixImpact": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "prefix": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sampled": {
+            "type": "boolean"
+          },
+          "observed_records": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "observed_addresses": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "matched": {
+            "$ref": "#/components/schemas/RemediationPrefixTraffic"
+          },
+          "known_benign": {
+            "$ref": "#/components/schemas/RemediationPrefixTraffic"
+          },
+          "unclassified": {
+            "$ref": "#/components/schemas/RemediationPrefixTraffic"
+          }
+        },
+        "required": [
+          "prefix",
+          "from",
+          "to",
+          "sampled",
+          "observed_records",
+          "observed_addresses",
+          "matched",
+          "known_benign",
+          "unclassified"
+        ]
+      },
+      "RemediationRTBHAnnouncement": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "family": {
+            "type": "string",
+            "enum": [
+              "ipv4",
+              "ipv6"
+            ]
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "community": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "family",
+          "prefix",
+          "community"
+        ]
+      },
+      "RemediationRTBHPreview": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "announcement": {
+            "$ref": "#/components/schemas/RemediationRTBHAnnouncement"
+          },
+          "impact": {
+            "$ref": "#/components/schemas/RemediationPrefixImpact"
+          }
+        },
+        "required": [
+          "announcement",
+          "impact"
+        ]
       },
       "RemediationProposal": {
         "type": "object",

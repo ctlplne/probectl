@@ -3895,6 +3895,23 @@ type RemediationDryRun struct {
 	Note             string   `json:"note,omitempty"`
 }
 
+type RemediationPrefixImpact struct {
+	From              string                   `json:"from"`
+	KnownBenign       RemediationPrefixTraffic `json:"known_benign"`
+	Matched           RemediationPrefixTraffic `json:"matched"`
+	ObservedAddresses int                      `json:"observed_addresses"`
+	ObservedRecords   int                      `json:"observed_records"`
+	Prefix            string                   `json:"prefix"`
+	Sampled           bool                     `json:"sampled"`
+	To                string                   `json:"to"`
+	Unclassified      RemediationPrefixTraffic `json:"unclassified"`
+}
+
+type RemediationPrefixTraffic struct {
+	Bytes   string `json:"bytes"`
+	Packets string `json:"packets"`
+}
+
 type RemediationProposal struct {
 	CreatedAt    string            `json:"created_at,omitempty"`
 	DecidedAt    string            `json:"decided_at,omitempty"`
@@ -3923,6 +3940,29 @@ type RemediationProposalRequest struct {
 	Rationale  string `json:"rationale,omitempty"`
 	Target     string `json:"target,omitempty"`
 	Title      string `json:"title"`
+}
+
+type RemediationRTBHAnnouncement struct {
+	Community string `json:"community"`
+	Family    string `json:"family"`
+	Prefix    string `json:"prefix"`
+}
+
+type RemediationRTBHPreview struct {
+	Announcement RemediationRTBHAnnouncement `json:"announcement"`
+	Impact       RemediationPrefixImpact     `json:"impact"`
+}
+
+type RemediationRTBHPreviewInput struct {
+	BenignEntityId      string `json:"benign_entity_id"`
+	Community           string `json:"community"`
+	ContextId           string `json:"context_id"`
+	ProtectedEntityId   string `json:"protected_entity_id"`
+	ReceiptFingerprint  string `json:"receipt_fingerprint"`
+	RoutingPolicyAgreed bool   `json:"routing_policy_agreed"`
+	RuleId              string `json:"rule_id"`
+	WholeViewId         string `json:"whole_view_id"`
+	WholeViewVersion    string `json:"whole_view_version"`
 }
 
 type ReportEmailDelivery struct {
@@ -9123,6 +9163,21 @@ func (c *Client) RejectRemediationProposal(ctx context.Context, req RejectRemedi
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out RemediationProposal
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Preview a reviewed destination RTBH candidate
+type PreviewRemediationRtbhRequest struct {
+	Body *RemediationRTBHPreviewInput `json:"-"`
+}
+
+func (c *Client) PreviewRemediationRtbh(ctx context.Context, req PreviewRemediationRtbhRequest) (*RemediationRTBHPreview, error) {
+	path := "/v1/remediation/rtbh-preview"
+	query := url.Values{}
+	var out RemediationRTBHPreview
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}

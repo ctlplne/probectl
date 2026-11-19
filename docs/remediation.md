@@ -133,6 +133,26 @@ flowchart TD
     class STOP stop;
 ```
 
+## Destination RTBH evidence preview
+
+Use an original scheduled DDoS receipt and the exact protected network prefix
+configured in its routing context. Choose a known benign source prefix in the
+same context. Bind an unfiltered saved flow view with a moving lookback that
+matches the original detector window. The preview reads the latest completed
+raw window for the operator-assigned exporters in the same routing context.
+Those bindings must cover the full window and remain current. The preview
+includes exact sampling-corrected bytes and packets, the number
+of observed records and addresses, and the known benign portion. The rest of
+the observed traffic remains unclassified.
+
+Choose the community agreed for that routing policy. The response shows the
+candidate address family, prefix and community for operator review. The
+original receipt, saved view, prefix entities and originating credential all
+require current access. Missing complete inputs keep the preview unavailable.
+
+Use `POST /v1/remediation/rtbh-preview`, the generated SDK method or
+`probectl remediation rtbh-preview --body-file request.json`.
+
 ## Dry-run (blast radius)
 
 The estimator runs `topology.Simulate` over a **copy** of the tenant's topology
@@ -149,6 +169,7 @@ All routes are tenant-scoped and hidden (404) when the feature is unlicensed.
 
 | Method · Route | Permission | Notes |
 |---|---|---|
+| `POST /v1/remediation/rtbh-preview` | `remediation.propose` | measures an owned destination prefix and its configured benign population |
 | `GET /v1/remediation/proposals` | `remediation.propose` | list (newest first) + `approvals_enabled` |
 | `POST /v1/remediation/proposals` | `remediation.propose` | files a proposal — always `proposed` |
 | `GET /v1/remediation/proposals/{id}` | `remediation.propose` | one proposal |

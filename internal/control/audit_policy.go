@@ -464,6 +464,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/diagnostics/bundle":                                          auditWrapped(auditFacetExport),
 	"GET /v1/remediation/proposals":                                       auditWrapped(auditFacetOperational),
 	"POST /v1/remediation/proposals":                                      auditWrapped(auditFacetOperational),
+	"POST /v1/remediation/rtbh-preview":                                   auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/remediation/proposals/{id}":                                  auditWrapped(auditFacetOperational),
 	"POST /v1/remediation/proposals/{id}/approve":                         auditWrapped(auditFacetOperational),
 	"POST /v1/remediation/proposals/{id}/reject":                          auditWrapped(auditFacetOperational),

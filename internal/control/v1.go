@@ -194,6 +194,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/diagnostics/bundle", s.handleDiagnosticsBundle, permDiagnosticsRead},
 		{http.MethodGet, "/v1/remediation/proposals", s.handleRemediationList, permRemediationPropose},
 		{http.MethodPost, "/v1/remediation/proposals", s.handleRemediationPropose, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/rtbh-preview", s.handleRTBHPreview, permRemediationPropose},
 		{http.MethodGet, "/v1/remediation/proposals/{id}", s.handleRemediationGet, permRemediationPropose},
 		{http.MethodPost, "/v1/remediation/proposals/{id}/approve", s.handleRemediationApprove, permRemediationApprove},
 		{http.MethodPost, "/v1/remediation/proposals/{id}/reject", s.handleRemediationReject, permRemediationApprove},

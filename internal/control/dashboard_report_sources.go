@@ -114,6 +114,7 @@ type reportFlowCaptureOptions struct {
 	CombineSeasonal     bool
 	FieldComparison     *flowFieldComparisonSettings
 	DDoSAssessment      *ddosAssessmentSettings
+	PrefixImpact        *prefixImpactCapture
 	ReservedMemoryBytes int64
 }
 

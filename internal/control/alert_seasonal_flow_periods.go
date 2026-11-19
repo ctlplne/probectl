@@ -89,6 +89,19 @@ func (s *Server) prepareConfiguredFlowCapture(ctx context.Context, actor *auth.P
 		// once. It receives the original complete clock list at execution.
 		ends = ends[len(ends)-1:]
 	}
+	if opts.PrefixImpact != nil {
+		if opts.FieldComparison != nil || opts.DDoSAssessment != nil || !opts.CombineSeasonal || len(opts.SeasonalPeriodEnds) != 1 || opts.PrefixImpact.view != refs[0] {
+			return nil, 0, 0, apierror.Validation("traffic review requires the exact whole-prefix source window")
+		}
+		prepared, bytes, count, err := s.prepareSeasonalFlowPeriods(ctx, actor, refs[0], ends, now, memory)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		if err := opts.PrefixImpact.preparePlan(&prepared[0].current); err != nil {
+			return nil, 0, 0, err
+		}
+		return prepared, bytes, count, ctx.Err()
+	}
 	if opts.DDoSAssessment != nil {
 		if opts.FieldComparison != nil || !opts.CombineSeasonal || (len(opts.SeasonalPeriodEnds) != 2 && len(opts.SeasonalPeriodEnds) != 4) || opts.DDoSAssessment.View != refs[0] {
 			return nil, 0, 0, apierror.Validation("flow assessment requires its complete pinned windows")

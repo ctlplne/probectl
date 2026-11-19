@@ -3722,6 +3722,23 @@ export interface RemediationDryRun {
   note?: string
 }
 
+export interface RemediationPrefixImpact {
+  from: string
+  known_benign: RemediationPrefixTraffic
+  matched: RemediationPrefixTraffic
+  observed_addresses: number
+  observed_records: number
+  prefix: string
+  sampled: boolean
+  to: string
+  unclassified: RemediationPrefixTraffic
+}
+
+export interface RemediationPrefixTraffic {
+  bytes: string
+  packets: string
+}
+
 export interface RemediationProposal {
   created_at?: string
   decided_at?: string
@@ -3750,6 +3767,29 @@ export interface RemediationProposalRequest {
   rationale?: string
   target?: string
   title: string
+}
+
+export interface RemediationRTBHAnnouncement {
+  community: string
+  family: "ipv4" | "ipv6"
+  prefix: string
+}
+
+export interface RemediationRTBHPreview {
+  announcement: RemediationRTBHAnnouncement
+  impact: RemediationPrefixImpact
+}
+
+export interface RemediationRTBHPreviewInput {
+  benign_entity_id: string
+  community: string
+  context_id: string
+  protected_entity_id: string
+  receipt_fingerprint: string
+  routing_policy_agreed: boolean
+  rule_id: string
+  whole_view_id: string
+  whole_view_version: string
 }
 
 export interface ReportEmailDelivery {
@@ -5768,6 +5808,12 @@ export interface RejectRemediationProposalRequest {
 }
 
 export type RejectRemediationProposalResponse = RemediationProposal
+
+export interface PreviewRemediationRtbhRequest {
+  body: RemediationRTBHPreviewInput
+}
+
+export type PreviewRemediationRtbhResponse = RemediationRTBHPreview
 
 export interface ListResultsHistoryRequest {
   window?: string
@@ -7866,6 +7912,12 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<RejectRemediationProposalResponse>("POST", path, query, request.body)
+  }
+
+  async previewRemediationRtbh(request: PreviewRemediationRtbhRequest): Promise<PreviewRemediationRtbhResponse> {
+    let path = "/v1/remediation/rtbh-preview"
+    const query = new URLSearchParams()
+    return this.requestJSON<PreviewRemediationRtbhResponse>("POST", path, query, request.body)
   }
 
   async listResultsHistory(request: ListResultsHistoryRequest = {}): Promise<ListResultsHistoryResponse> {

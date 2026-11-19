@@ -504,11 +504,12 @@ var surfaceCommands = map[string]surfaceCommand{
 		"set-fairness":               {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/fairness", ArgName: "id"},
 	}},
 	"remediation": {Name: "remediation", Summary: "human-gated remediation proposals", Ops: map[string]apiOp{
-		"list":    {Method: http.MethodGet, Path: "/v1/remediation/proposals"},
-		"create":  {Method: http.MethodPost, Path: "/v1/remediation/proposals"},
-		"get":     {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}", ArgName: "id"},
-		"approve": {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/approve", ArgName: "id"},
-		"reject":  {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/reject", ArgName: "id"},
+		"list":         {Method: http.MethodGet, Path: "/v1/remediation/proposals"},
+		"create":       {Method: http.MethodPost, Path: "/v1/remediation/proposals"},
+		"rtbh-preview": {Method: http.MethodPost, Path: "/v1/remediation/rtbh-preview", ExactJSON: true, Description: "measure an owned destination prefix and its configured benign traffic"},
+		"get":          {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}", ArgName: "id"},
+		"approve":      {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/approve", ArgName: "id"},
+		"reject":       {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/reject", ArgName: "id"},
 	}},
 	"result": {Name: "result", Summary: "synthetic results", Ops: map[string]apiOp{
 		"latest":  {Method: http.MethodGet, Path: "/v1/results/latest"},

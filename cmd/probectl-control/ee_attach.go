@@ -217,6 +217,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		remed := eeremediation.New(eeremediation.NewPGStore(pool), estimator, eeremediation.NewTenantAudit(pool), eeremediation.Config{
 			ApprovalsEnabled: cfg.RemediationApprovalsEnabled,
 			MaxBlastRadius:   cfg.RemediationMaxBlastRadius,
+			PrefixImpact:     srv,
 		})
 		srv.WithRemediation(remediation.GateServiceWrites(remed, writeCapability))
 		log.Info("guarded remediation attached (S-EE5)",

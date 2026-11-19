@@ -43,6 +43,14 @@ func (g writeGatedService) Get(ctx context.Context, tenantID, id string) (Propos
 	return g.delegate.Get(ctx, tenantID, id)
 }
 
+func (g writeGatedService) PreviewRTBH(ctx context.Context, tenantID string, input RTBHPreviewInput, check func(context.Context) error) (RTBHPreview, error) {
+	service, ok := g.delegate.(RTBHPreviewer)
+	if !ok {
+		return RTBHPreview{}, Error{Code: "not_found", Message: "traffic review is unavailable"}
+	}
+	return service.PreviewRTBH(ctx, tenantID, input, check)
+}
+
 func (g writeGatedService) Approve(ctx context.Context, tenantID, approver, id, note string) (Proposal, error) {
 	if !g.writes.Enabled() {
 		return Proposal{}, license.ErrReadOnly

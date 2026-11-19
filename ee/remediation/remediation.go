@@ -48,9 +48,10 @@ var errAuditUnavailable = errors.New("remediation: mandatory audit sink is unava
 
 // Service is the ee implementation of internal/remediation.Service.
 type Service struct {
-	store     Store
-	estimator rem.Estimator
-	audit     AuditSink
+	store        Store
+	estimator    rem.Estimator
+	audit        AuditSink
+	prefixImpact rem.PrefixImpactSource
 
 	approvalsEnabled bool
 	maxBlastRadius   int
@@ -61,6 +62,7 @@ type Service struct {
 type Config struct {
 	ApprovalsEnabled bool // the advisory-only master switch (default false)
 	MaxBlastRadius   int  // approvable blast-radius ceiling
+	PrefixImpact     rem.PrefixImpactSource
 }
 
 // New builds the service. estimator computes the dry-run blast radius (a
@@ -70,7 +72,7 @@ func New(store Store, estimator rem.Estimator, audit AuditSink, cfg Config) *Ser
 		cfg.MaxBlastRadius = 50
 	}
 	return &Service{
-		store: store, estimator: estimator, audit: audit,
+		store: store, estimator: estimator, audit: audit, prefixImpact: cfg.PrefixImpact,
 		approvalsEnabled: cfg.ApprovalsEnabled, maxBlastRadius: cfg.MaxBlastRadius,
 		now: time.Now,
 	}

@@ -753,10 +753,10 @@ capabilities:
     owner: architecture/release
     engine: {refs: ["file:ee/remediation"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithRemediation("]}
-    api: {refs: ["api:GET /v1/remediation/proposals", "api:POST /v1/remediation/proposals/{id}/approve"]}
-    cli: {refs: ["cli:probectl remediation list", "cli:probectl remediation approve"]}
+    api: {refs: ["api:GET /v1/remediation/proposals", "api:POST /v1/remediation/proposals/{id}/approve", "api:POST /v1/remediation/rtbh-preview"]}
+    cli: {refs: ["cli:probectl remediation list", "cli:probectl remediation approve", "cli:probectl remediation rtbh-preview"]}
     ui: {refs: ["ui:F44@/admin"]}
-    docs: {refs: ["file:docs/remediation.md#Guarded agentic remediation"]}
+    docs: {refs: ["file:docs/remediation.md#Guarded agentic remediation", "file:docs/remediation.md#Destination RTBH evidence preview"]}
     config_keys: {refs: ["config:PROBECTL_REMEDIATION_APPROVALS_ENABLED", "config:PROBECTL_REMEDIATION_MAX_BLAST_RADIUS"]}
     telemetry: {refs: ["file:ee/remediation"]}
     real_stack_proof: {refs: ["test:ee/remediation/human_gate_integration_test.go#TestRemediationIsHumanGatedRealStack"]}
