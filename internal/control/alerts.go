@@ -209,13 +209,14 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	var created *alert.Rule
-	if req.SeasonalSource != nil {
+	switch {
+	case req.SeasonalSource != nil:
 		actor := auth.PrincipalFrom(r.Context())
 		created, err = s.createSeasonalAlertRule(r.Context(), actor, rule, req.SeasonalSource, s.pathAlertRequestCredential(r, actor))
-	} else if req.PathHealthSource != nil {
+	case req.PathHealthSource != nil:
 		actor := auth.PrincipalFrom(r.Context())
 		created, err = s.createPathHealthAlertRule(r.Context(), actor, rule, *req.PathHealthSource, s.pathAlertRequestCredential(r, actor), nil)
-	} else {
+	default:
 		created, err = s.createAlertRule(r.Context(), auth.PrincipalFrom(r.Context()), rule, req.QuerySource,
 			func(ctx context.Context, sc tenancy.Scope, created *alert.Rule) error {
 				return s.recordAudit(ctx, sc, r, "alert.create", created.ID, map[string]any{"name": created.Name})

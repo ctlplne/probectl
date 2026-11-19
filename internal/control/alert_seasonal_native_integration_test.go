@@ -58,7 +58,7 @@ func proveSeasonalNativeSource(t *testing.T, wire string) {
 		rules[tenant] = rule.ID
 	}
 
-	const get, set, clear = "alert_seasonal_source_get", "alert_seasonal_source_set", "alert_seasonal_source_clear"
+	const get, set, clearSource = "alert_seasonal_source_get", "alert_seasonal_source_set", "alert_seasonal_source_clear"
 	direction := map[string]alert.SeasonalDirection{f.tenants[0]: alert.SeasonalAbove, f.tenants[1]: alert.SeasonalBelow}
 	getArgs := func(tenant string) map[string]any { return map[string]any{"rule_id": rules[tenant]} }
 	setArgs := func(ruleTenant, testTenant string) map[string]any {
@@ -80,7 +80,7 @@ func proveSeasonalNativeSource(t *testing.T, wire string) {
 	call(a, set, setArgs(a, b), nil, false)
 	call(a, set, setArgs(b, a), nil, false)
 	call(b, get, getArgs(a), nil, false)
-	call(b, clear, map[string]any{"rule_id": rules[a], "confirmed": true}, nil, false)
+	call(b, clearSource, map[string]any{"rule_id": rules[a], "confirmed": true}, nil, false)
 	cfg := &config.Config{AIRedactIPs: true, AIRedactHostnames: true, AIRedactPII: true}
 	server := NewMCPServerWithPolicyLoader(cfg, f.server.log, f.pool, f.server.pathStore, 0, NewAIEgressGate(cfg, f.server.log, f.pool), nil, nil, f.server.MCPPolicyLoader(), AISources{NativeFlow: f.server})
 	authenticator := NewMCPAuthenticator(f.pool, NewTenantStatusCache(f.pool, 0), false)
@@ -100,9 +100,9 @@ func proveSeasonalNativeSource(t *testing.T, wire string) {
 	})
 	streams[a].call(t, wire, get, getArgs(a), nil, false)
 	streams[a].call(t, wire, set, setArgs(a, a), nil, false)
-	streams[a].call(t, wire, clear, getArgs(a), nil, false)
+	streams[a].call(t, wire, clearSource, getArgs(a), nil, false)
 	var cleared, sibling alert.SeasonalSourceState
-	streams[a].call(t, wire, clear, map[string]any{"rule_id": rules[a], "confirmed": true}, &cleared, true)
+	streams[a].call(t, wire, clearSource, map[string]any{"rule_id": rules[a], "confirmed": true}, &cleared, true)
 	if cleared.Configured || cleared.Source != nil || cleared.Enabled {
 		t.Fatal("confirmed clear left the seasonal source or rule enabled")
 	}

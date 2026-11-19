@@ -71,7 +71,7 @@ func TestWeeklySeasonalSelectsOwnedLocalTrainingDays(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if out, err := model.Evaluate(ctx, points, Query{TenantID: tenant}); !errors.Is(err, context.Canceled) || len(out) != 0 {
-		t.Fatalf("cancelled seasonal read published a prefix: %v (%v)", out, err)
+		t.Fatalf("canceled seasonal read published a prefix: %v (%v)", out, err)
 	}
 }
 

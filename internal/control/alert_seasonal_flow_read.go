@@ -43,8 +43,8 @@ func (s *Server) readSeasonalFlow(ctx context.Context, actor *auth.Principal, ru
 	if end.IsZero() {
 		return empty, alert.ErrSeasonalSource
 	}
-	prior := model.ComparableCompleteEnds(observation)
-	ends := append(prior, end)
+	ends := model.ComparableCompleteEnds(observation)
+	ends = append(ends, end)
 	slices.SortFunc(ends, time.Time.Compare)
 	budget := flowstore.ExplorerOperationBudget(ctx, s.flowStore)
 	if err := budget.Validate(); err != nil {

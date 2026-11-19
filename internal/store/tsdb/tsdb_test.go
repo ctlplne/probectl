@@ -109,9 +109,9 @@ func TestMemoryRawSampleRangePreservesTenantAndOwnedBoundary(t *testing.T) {
 
 func TestMetricSeriesIdentityKeepsExactOwnedLabelSets(t *testing.T) {
 	const metric = "recorded_measurement"
-	first := map[string]string{TenantLabel: "owned", "target": "centre:1 | egress", "device": "Branch 1"}
-	same := map[string]string{"device": "Branch 1", "target": "centre:1 | egress", TenantLabel: "owned"}
-	other := map[string]string{"device": "Branch 1", "target": "centre:1 | egress", TenantLabel: "sibling"}
+	first := map[string]string{TenantLabel: "owned", "target": "center:1 | egress", "device": "Branch 1"}
+	same := map[string]string{"device": "Branch 1", "target": "center:1 | egress", TenantLabel: "owned"}
+	other := map[string]string{"device": "Branch 1", "target": "center:1 | egress", TenantLabel: "sibling"}
 	if a, b, c := SeriesIdentity(metric, first), SeriesIdentity(metric, same), SeriesIdentity(metric, other); a != b || a == c {
 		t.Fatal("canonical metric identity depended on map order or merged tenants")
 	}
