@@ -44,6 +44,7 @@ import {
 import { useSecretsHealth, type SecretBackendHealth } from '../../api/secrets'
 import { RemediationCard, KeysCard } from './AdminCards'
 import { LifecycleCard, SupportCard, EditionsCard } from './LifecycleCards'
+import { ProspectEngagementCard } from './ProspectEngagementCard'
 import { IdentityCard } from './IdentityCard'
 import { EntityRegistryCard } from './EntityRegistryCard'
 import { TenantTagsCard } from './TenantTagsCard'
@@ -1136,6 +1137,7 @@ export function AdminPage() {
           web/src/test/remediation.test.tsx tabs to those buttons and caught it. */}
       <HierarchyCard />
       <SIEMPostureCard />
+      <ProspectEngagementCard />
       <SupportCard />
       <EditionsCard />
     </Page>

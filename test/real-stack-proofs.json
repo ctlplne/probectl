@@ -411,6 +411,13 @@
       ]
     },
     {
+      "ref": "test:internal/control/prospect_served_integration_test.go#TestProspectEngagementServedInBothThemes",
+      "profile": "integration",
+      "capabilities": [
+        "F55"
+      ]
+    },
+    {
       "ref": "test:ee/billing/metering_realstack_integration_test.go#TestMeteringAndBillingExportRealStack",
       "profile": "integration",
       "capabilities": [

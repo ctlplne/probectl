@@ -342,6 +342,10 @@ console, and the tenant is released by itself once the check passes. Migration
 
 ## Prospect engagement consent
 
+In **Admin → Prospect engagement**, choose an owned saved client report, set the
+end and choose whether to authorize scheduled erasure. The card also shows the
+current assessment and provides withdrawal and conversion actions.
+
 An engagement records an owned assessment view and revision, the report
 preparer and the exact end time. The ordinary engagement defaults to 14 days.
 Scheduled-erasure consent requires an explicit future end, the exact tenant

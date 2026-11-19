@@ -227,10 +227,13 @@ export function useImportDashboardManifest() {
   })
 }
 
-export function useReportSchedules() {
+export function useReportSchedules(identity?: string, enabled = true) {
   return useQuery({
-    queryKey: ['dashboards', 'report-schedules'],
+    queryKey: identity
+      ? ['dashboards', 'report-schedules', identity]
+      : ['dashboards', 'report-schedules'],
     queryFn: () => apiFetch<ScheduleList>('/dashboard-report-schedules'),
+    enabled,
     refetchInterval: 60_000,
   })
 }

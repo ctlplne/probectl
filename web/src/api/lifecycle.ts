@@ -5,8 +5,13 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetch, holdLoginRedirect } from './client'
-import type { LifecycleRetentionInput, LifecycleStatus } from './sdk.gen'
+import { ApiError, apiFetch, holdLoginRedirect } from './client'
+import type {
+  LifecycleRetentionInput,
+  LifecycleStatus,
+  ProspectEngagement,
+  ProspectEngagementInput,
+} from './sdk.gen'
 
 export type { LifecycleRetentionInput, LifecycleStatus } from './sdk.gen'
 
@@ -74,6 +79,48 @@ export function useEraseTenantLifecycle() {
     onSuccess: () => {
       holdLoginRedirect()
       void qc.cancelQueries()
+    },
+  })
+}
+
+export function useProspectEngagement(identity: string) {
+  return useQuery({
+    queryKey: ['lifecycle', 'prospect', identity],
+    queryFn: async () => {
+      try {
+        return await apiFetch<ProspectEngagement>('/lifecycle/prospect')
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return null
+        throw error
+      }
+    },
+    refetchInterval: 30_000,
+  })
+}
+
+type ProspectAction =
+  | { action: 'start'; input: ProspectEngagementInput }
+  | { action: 'convert' | 'revoke-consent'; revision: number }
+
+export function useProspectEngagementAction(identity: string) {
+  const queryClient = useQueryClient()
+  const queryKey = ['lifecycle', 'prospect', identity]
+  return useMutation({
+    mutationFn: (request: ProspectAction) => {
+      const start = request.action === 'start'
+      const path = start ? '/lifecycle/prospect' : `/lifecycle/prospect/${request.action}`
+      const input = start ? request.input : { revision: request.revision }
+      return apiFetch<ProspectEngagement>(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      })
+    },
+    onSuccess: (data) => queryClient.setQueryData(queryKey, data),
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 409) {
+        void queryClient.invalidateQueries({ queryKey })
+      }
     },
   })
 }
