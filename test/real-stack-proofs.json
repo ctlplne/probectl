@@ -2,6 +2,20 @@
   "schema": "probectl.real-stack-proofs/v1",
   "proofs": [
     {
+      "ref": "test:internal/otel/otlp/shipped_wire_integration_test.go#TestShippedOTLPTransportsPersistBothTenants",
+      "profile": "integration",
+      "capabilities": [
+        "F12"
+      ]
+    },
+    {
+      "ref": "test:internal/otel/otlp/stock_collector_integration_test.go#TestStockCollectorDeliversAllSignalsToShippedTenants",
+      "profile": "integration",
+      "capabilities": [
+        "F12"
+      ]
+    },
+    {
       "ref": "test:internal/control/alert_dependency_physical_linux_integration_test.go#TestDependencyRouterPhysicalFailureRecoveryAndTenantIsolation",
       "profile": "integration",
       "capabilities": [

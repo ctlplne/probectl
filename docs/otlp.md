@@ -40,6 +40,13 @@ store (see "Deliberate bounds" below).
   queryable, tenant-scoped, at `GET /v1/otlp/traces` and `GET /v1/otlp/logs`. A
   standard OTel Collector exports straight to the receiver — there's a reference
   config at `deploy/otel-collector/config.yaml`.
+
+  The shipped integration suite sends traces and logs over verified HTTPS and
+  gRPC for two independent tenants, checks both readers after restart, and tests
+  ingest token revocation. A pinned stock Collector sends all three signals
+  through separately authenticated TLS receiver lanes. The test reads the
+  exact metric from Prometheus and the original span and log from ClickHouse
+  under each tenant's own access.
 - **OTLP export (all three signals).** When `PROBECTL_OTLP_EXPORT_ENDPOINT` is
   configured, probectl forwards ingested **metrics, traces, and logs** to the
   operator's upstream OTLP collector. For OTLP/HTTP, the configured metrics

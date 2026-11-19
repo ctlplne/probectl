@@ -1740,6 +1740,19 @@ jobs:
           name: selected-row-integration
           path: artifacts/flow-row-capacity/
           retention-days: 90
+      - name: Install the pinned stock OpenTelemetry Collector test fixture
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/probectl-stock-otel"
+          mkdir -p "$dir"
+          archive="$dir/otelcol_0.111.0_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location --proto '=https' --retry 3 --max-time 120 \
+            --output "$archive" \
+            https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.111.0/otelcol_0.111.0_linux_amd64.tar.gz
+          # SHA-256 from the release's signed stock Collector checksum manifest.
+          printf '%s  %s\n' '3c342115b33977ec07ccaf55fe44126f76e5db9f09ee9e72f1e0ff00e19370d0' "$archive" | sha256sum --check -
+          tar -xzf "$archive" -C "$dir" otelcol
+          "$dir/otelcol" --version
       - name: Integration tests (migrations + readiness + result pipeline + cross-plane e2e)
         # WIRE-005: require services so the mTLS/enroll wire-defense integration
         # tests (TestRejectsNonMTLS, TestAgentRegistersOverMTLS,
@@ -1754,6 +1767,8 @@ jobs:
           PROBECTL_TEST_NATS: "nats://localhost:4222"
           PROBECTL_FLOWSTORE_URL: "http://probectl:probectl@localhost:8123"
           PROBECTL_OTELSTORE_URL: "http://probectl:probectl@localhost:8123"
+          PROBECTL_TEST_STOCK_OTEL_COLLECTOR: ${{ runner.temp }}/probectl-stock-otel/otelcol
+          PROBECTL_TEST_REQUIRE_STOCK_OTEL_COLLECTOR: "1"
         run: make test-integration
       - name: Integration-coverage floors for stateful security packages (TQ-09, supersedes U-057)
         # The service-free unit gate (scripts/check_coverage.sh) exempts the

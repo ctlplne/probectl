@@ -88,8 +88,8 @@
         "F12"
       ],
       "name": "OTel-aligned data model + OTLP",
-      "status": "partial",
-      "evidence": "`internal/otel`, `internal/otel/otlp`, `internal/pipeline/otlpexport.go` (metrics/traces/logs ingest/export; three-signal claim pinned by docslint — ARCH-002/003)"
+      "status": "delivered",
+      "evidence": "`internal/otel/otlp` proves trace and log persistence through both shipped TLS transports, token revocation, and tenant-scoped REST and CLI reads after restart. The stock Collector delivers metrics, traces, and logs into independent tenant stores. Docs verify the three-signal contract (ARCH-002/003)."
     },
     {
       "ids": [

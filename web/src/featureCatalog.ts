@@ -108,7 +108,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F12',
     name: 'OTel-aligned data model and OTLP',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

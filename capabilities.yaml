@@ -214,7 +214,6 @@ capabilities:
   - id: F12
     name: OTel-aligned data model and OTLP
     status: delivered
-    evidence_status: partial
     owner: eBPF/quality
     engine: {refs: ["file:internal/otel", "file:internal/pipeline/otlpexport.go"]}
     binary: {refs: ["file:cmd/probectl-control/builders.go#func startOTLPSubsystems"]}
@@ -224,7 +223,7 @@ capabilities:
     docs: {refs: ["file:docs/otlp.md#OTLP exposure & OBI"]}
     config_keys: {refs: ["config:PROBECTL_OTLP_GRPC_ADDR", "config:PROBECTL_OTLP_HTTP_ADDR"]}
     telemetry: {refs: ["file:internal/otel"]}
-    real_stack_proof: {gap: "No real-stack receipt currently sends OTLP over the shipped HTTP and gRPC listeners, persists it, and reads the listed tenant-scoped APIs; the write-fence test is not substituted."}
+    real_stack_proof: {refs: ["test:internal/otel/otlp/shipped_wire_integration_test.go#TestShippedOTLPTransportsPersistBothTenants", "test:internal/otel/otlp/stock_collector_integration_test.go#TestStockCollectorDeliversAllSignalsToShippedTenants"]}
     migration: {refs: ["file:migrations/0046_otlp_tokens.sql"]}
 
   # F13's real-stack receipt gives two tenants genuinely different faults in
