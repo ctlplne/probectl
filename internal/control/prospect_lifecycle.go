@@ -173,6 +173,9 @@ func (s *Server) withProspectAuthority(r *http.Request, needsExport bool, fn fun
 		return apierror.Forbidden("a current named account is required")
 	}
 	return s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := tenancy.AcquireTenantWriteLease(ctx, sc); err != nil {
+			return err
+		}
 		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
 			return err
 		}

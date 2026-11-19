@@ -356,6 +356,10 @@ consent and record their change in the tenant audit chain. The preview stores
 the terms and supports withdrawal. Expiry, report delivery verification and
 erasure execution require the lifecycle worker.
 
+Engagement writes take the same tenant writer lease and database trigger as
+other lifecycle data. Once the existing erasure fence closes, PostgreSQL
+refuses engagement inserts and updates.
+
 ## Configuration
 
 See [`configuration.md`](configuration.md) for the `PROBECTL_AGENT_SKEW_WINDOW`

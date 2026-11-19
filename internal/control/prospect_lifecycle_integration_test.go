@@ -123,3 +123,22 @@ func TestProspectEngagementConsentUsesExactOwnedTerms(t *testing.T) {
 		return nil
 	})
 }
+
+func TestProspectEngagementUsesCanonicalTenantWriteFence(t *testing.T) {
+	f := newRoleExplanationAPIFixture(t)
+	for _, tenant := range f.tenants {
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var guarded bool
+			if err := sc.Q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger
+			 WHERE tgrelid=to_regclass('prospect_engagements') AND NOT tgisinternal
+			 AND tgname='tenant_write_fence' AND tgenabled='A' AND tgtype=23
+			 AND tgfoid='public.probectl_enforce_tenant_write_fence()'::regprocedure)`).Scan(&guarded); err != nil {
+				return err
+			}
+			if !guarded {
+				t.Fatal("prospect engagement storage is missing the tenant lifecycle write fence")
+			}
+			return nil
+		})
+	}
+}

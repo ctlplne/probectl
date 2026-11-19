@@ -282,6 +282,17 @@ func validateWriterTenantID(raw string) error {
 	return nil
 }
 
+// AcquireTenantWriteLease takes the existing shared lifecycle lock for an
+// app-role transaction before it locks the tenant audit stream or source rows.
+// The table trigger still verifies durable write eligibility at mutation time.
+func AcquireTenantWriteLease(ctx context.Context, sc Scope) error {
+	bound, ok := FromContext(ctx)
+	if !ok || bound != sc.Tenant || sc.Q == nil {
+		return ErrNoTenant
+	}
+	return lockTenantWriterLease(ctx, sc.Q, sc.Tenant.String())
+}
+
 func lockTenantWriterLease(
 	ctx context.Context,
 	q Querier,
