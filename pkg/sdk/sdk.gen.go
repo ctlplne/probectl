@@ -438,7 +438,7 @@ type AlertSeasonalCalendar struct {
 	Hour            int                  `json:"hour"`
 	Lower           float64              `json:"lower,omitempty"`
 	Median          float64              `json:"median,omitempty"`
-	Minute          int                  `json:"minute,omitempty"`
+	Minute          *int                 `json:"minute,omitempty"`
 	Provisional     *bool                `json:"provisional,omitempty"`
 	RobustSpread    float64              `json:"robust_spread,omitempty"`
 	Timezone        string               `json:"timezone"`

@@ -22281,7 +22281,7 @@
             "description": "The count of actual comparable local periods. Repeated offsets in a local hour count once."
           },
           "minute": {
-            "type": "integer",
+            "type": ["integer", "null"],
             "minimum": 0,
             "maximum": 59,
             "description": "The matched local minute for the hourly cadence."

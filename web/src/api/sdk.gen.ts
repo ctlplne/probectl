@@ -352,7 +352,7 @@ export interface AlertSeasonalCalendar {
   hour: number
   lower?: number
   median?: number
-  minute?: number
+  minute?: number | null
   provisional?: boolean
   robust_spread?: number
   timezone: string
