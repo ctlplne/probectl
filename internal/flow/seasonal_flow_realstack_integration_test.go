@@ -27,6 +27,15 @@ import (
 // The collector, bus, tenant runtime store, Explorer query and evaluator use
 // shipped binaries. The packet contents replay a controlled retained history.
 func TestSeasonalFlowBaselineUsesShippedCollectorAndTenantStore(t *testing.T) {
+	proveShippedSeasonalFlow(t, "", anomaly.WeeklyTrainingWeeks)
+}
+
+func TestDailyFlowBaselineKeepsWholeHistoryOnShippedCollector(t *testing.T) {
+	proveShippedSeasonalFlow(t, anomaly.SeasonalDaily, 7*anomaly.WeeklyTrainingWeeks)
+}
+
+func proveShippedSeasonalFlow(t *testing.T, cadence anomaly.SeasonalCadence, days int) {
+	t.Helper()
 	st := shipped.Start(t, shipped.Options{Name: "seasonalflow", TenantBand: 4, Env: map[string]string{"PROBECTL_ALERT_EVAL_INTERVAL": "1s"}})
 	operator := st.OnboardOperator(t, "root@msp-seasonalflow.example")
 	run := strconv.FormatInt(time.Now().UnixNano(), 36)
@@ -34,7 +43,7 @@ func TestSeasonalFlowBaselineUsesShippedCollectorAndTenantStore(t *testing.T) {
 	for _, lane := range lanes {
 		lane.provision(t, st, operator, "seasonal-"+run)
 	}
-	input, ends := seasonalWireCalendar(t)
+	input, ends := seasonalWireCalendar(t, cadence, days)
 	baseline := [2]uint64{10_000, 40_000}
 	current := [2]uint64{25_000, 40_000}
 	views := make([]flow.SavedQueryView, len(lanes))
@@ -51,7 +60,10 @@ func TestSeasonalFlowBaselineUsesShippedCollectorAndTenantStore(t *testing.T) {
 		lane.do(t, st, http.MethodPost, "/v1/alerts", map[string]any{"name": "Retained flow " + lane.name, "seasonal_source": input}, &rules[i], http.StatusCreated)
 	}
 	for i, lane := range lanes {
-		receipt := waitSeasonalWireReceipt(t, st, lane, rules[i], ends[len(ends)-1].Add(-time.Millisecond), baseline[i], current[i], i == 0)
+		receipt := waitSeasonalWireReceipt(t, st, lane, rules[i], ends[len(ends)-1].Add(-time.Millisecond), baseline[i], current[i], i == 0, days)
+		if receipt.Expectation.Seasonal.Calendar.Cadence != cadence || receipt.Expectation.Seasonal.Calendar.Provisional {
+			t.Fatal("the shipped receipt did not retain its mature local calendar profile")
+		}
 		lane.do(t, st, http.MethodGet, "/v1/alerts/"+rules[1-i].ID+"/evaluations", nil, nil, http.StatusNotFound)
 		assertSeasonalWireReceiptCLI(t, st, lane, rules[i], receipt)
 		if receipt.Expectation.Seasonal.IncidentID != "" {
@@ -60,22 +72,22 @@ func TestSeasonalFlowBaselineUsesShippedCollectorAndTenantStore(t *testing.T) {
 	}
 }
 
-func seasonalWireCalendar(t *testing.T) (alert.SeasonalBaselineInput, []time.Time) {
+func seasonalWireCalendar(t *testing.T, cadence anomaly.SeasonalCadence, days int) (alert.SeasonalBaselineInput, []time.Time) {
 	t.Helper()
 	now := time.Now().UTC()
 	zone := "UTC"
 	if now.Minute() >= 30 {
 		zone = "Asia/Kolkata" // keep the next completed local hour at least 30 minutes away
 	}
-	input := alert.SeasonalBaselineInput{Timezone: zone, MinimumChange: 1000}
+	input := alert.SeasonalBaselineInput{Cadence: cadence, Timezone: zone, MinimumChange: 1000}
 	model, err := input.Model()
 	if err != nil {
 		t.Fatal(err)
 	}
 	observed, end := model.LatestCompletedSlot(now)
 	ends := append(model.ComparableCompleteEnds(observed), end)
-	if len(ends) != anomaly.WeeklyTrainingWeeks+1 {
-		t.Fatal("the complete history needs six comparable dates")
+	if len(ends) != days+1 {
+		t.Fatalf("the complete history needs %d comparable dates", days)
 	}
 	return input, ends
 }
@@ -170,7 +182,7 @@ func saveSeasonalWireView(t *testing.T, st *shipped.Stack, lane *nativeLane, end
 	return view
 }
 
-func waitSeasonalWireReceipt(t *testing.T, st *shipped.Stack, lane *nativeLane, rule alert.Rule, observed time.Time, baseline, current uint64, firing bool) alert.EvaluationReceipt {
+func waitSeasonalWireReceipt(t *testing.T, st *shipped.Stack, lane *nativeLane, rule alert.Rule, observed time.Time, baseline, current uint64, firing bool, days int) alert.EvaluationReceipt {
 	t.Helper()
 	var selected alert.EvaluationReceipt
 	shipped.Await(t, "scheduled baseline of owned IPFIX history", time.Minute, func() bool {
@@ -182,7 +194,7 @@ func waitSeasonalWireReceipt(t *testing.T, st *shipped.Stack, lane *nativeLane, 
 		selected = receipts.Items[0]
 		details := selected.Expectation.Seasonal
 		if details == nil || details.Exact == nil || details.Exact.Current != strconv.FormatUint(current, 10) ||
-			details.Exact.Median != strconv.FormatUint(baseline, 10) || !details.ObservedAt.Equal(observed) || len(details.Calendar.TrainingDays) != 6 || len(details.Citations) != 3 {
+			details.Exact.Median != strconv.FormatUint(baseline, 10) || !details.ObservedAt.Equal(observed) || len(details.Calendar.TrainingDays) != days || len(details.Citations) != 3 {
 			return false
 		}
 		if firing {
