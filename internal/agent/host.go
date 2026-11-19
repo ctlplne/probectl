@@ -20,6 +20,7 @@ import (
 
 	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
 	"github.com/ctlplne/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/configschema"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/otel"
 )
@@ -231,7 +232,7 @@ func (h *Host) centralIDs() []string {
 }
 
 func (h *Host) probe(ctx context.Context, s scheduled) {
-	if ctx.Err() != nil {
+	if configschema.ProspectCollectionEnded(ctx) {
 		return
 	}
 	c := s.canary

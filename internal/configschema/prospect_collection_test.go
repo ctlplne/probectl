@@ -38,13 +38,13 @@ func TestProspectCollectionEndPreservesParentAndRefusesExpiredWork(t *testing.T)
 		ctx, cancel := configured.Context(parent)
 		actual, ok := ctx.Deadline()
 		cancel()
-		if !ok || !actual.Equal(parentEnd) {
+		if !ok || !actual.Equal(parentEnd) || ProspectCollectionEnded(ctx) {
 			t.Fatal("collector extended the existing parent lifetime", actual)
 		}
 	}
 	ctx, cancel := (ProspectCollectionEnd{Time: time.Now().Add(-time.Minute)}).Context(parent)
 	defer cancel()
-	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) || !ProspectCollectionEnded(ctx) {
 		t.Fatal("completed collector would be allowed to start", ctx.Err())
 	}
 }

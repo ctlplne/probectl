@@ -7,6 +7,7 @@ package configschema
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 // ProspectCollectionEnd is the optional local end of a temporary collector.
 // It limits the workload even when its control-plane channel is unavailable.
 type ProspectCollectionEnd struct{ time.Time }
+
+var errProspectCollectionEnded = errors.New("prospect collection ended")
 
 func (e *ProspectCollectionEnd) UnmarshalYAML(node *yaml.Node) error {
 	var raw string
@@ -36,5 +39,11 @@ func (e ProspectCollectionEnd) Context(parent context.Context) (context.Context,
 	if e.IsZero() {
 		return context.WithCancel(parent)
 	}
-	return context.WithDeadline(parent, e.Time)
+	return context.WithDeadlineCause(parent, e.Time, errProspectCollectionEnded)
+}
+
+// ProspectCollectionEnded distinguishes the local cutoff from ordinary probe
+// cancellation, which can still produce an original runtime outcome.
+func ProspectCollectionEnded(ctx context.Context) bool {
+	return context.Cause(ctx) == errProspectCollectionEnded
 }
