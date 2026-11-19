@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -309,9 +310,8 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 	ownerAddress := "prospect@" + owner + ".invalid"
 	mailProbe := &reportMailProbe{transport: transport, fail: map[string]bool{ownerAddress: true}, attempts: map[string][]string{}, sent: map[string][]reportMailReceipt{}}
 	f.server.WithAlertChannelDeps(alert.ChannelDeps{Mail: mailProbe})
-	now := time.Now().UTC().Truncate(time.Microsecond)
-	end := now.Add(-time.Minute)
-	engagements := map[string]store.ProspectEngagement{}
+	inputs := make(map[string]startProspectInput, len(f.tenants))
+	sessions := make(map[string]string, len(f.tenants))
 	for _, tenant := range f.tenants {
 		slug, _, _, err := f.server.tenantSlugAndMeta(t.Context(), tenant)
 		if err != nil {
@@ -339,14 +339,26 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			engagements[tenant], err = (store.ProspectEngagements{}).Create(ctx, sc, store.ProspectEngagement{AssessmentViewID: view.ID,
-				AssessmentAt: view.UpdatedAt, OwnerID: f.users[tenant], TenantSlug: slug,
-				StartsAt: end.AddDate(0, 0, -14), EndsAt: end, Preparer: "Scope " + tenant, DestinationID: reportEmailDestinationID(destination)})
-			return err
+			inputs[tenant] = startProspectInput{AssessmentViewID: view.ID, AssessmentAt: view.UpdatedAt,
+				ConfirmTenant: slug, Preparer: "Scope " + tenant, DestinationID: reportEmailDestinationID(destination)}
+			return nil
 		})
+		sessions[tenant] = auditorTestSession(t, f, tenant)
 	}
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
+	end := time.Now().UTC().Truncate(time.Microsecond).Add(4 * time.Second)
+	engagements := make(map[string]store.ProspectEngagement, len(f.tenants))
+	for _, tenant := range f.tenants {
+		input := inputs[tenant]
+		input.EndsAt = end
+		raw := callComplianceControlReport(t, socket, sessions[tenant], http.MethodPost, "/v1/lifecycle/prospect", input, http.StatusCreated)
+		var engagement store.ProspectEngagement
+		if err := json.Unmarshal(raw, &engagement); err != nil || engagement.Revision != 1 || !engagement.EndsAt.Equal(end) {
+			t.Fatal("interactive consent did not record the exact assessment end", err)
+		}
+		engagements[tenant] = engagement
+	}
 	for _, tenant := range f.tenants {
 		// Before the end no artifact is eligible, regardless of the ordinary
 		// dashboard schedule or wall clock.
@@ -360,13 +372,23 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 			}
 			return err
 		})
+	}
+	select {
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	case <-time.After(time.Until(end) + time.Millisecond):
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	for _, tenant := range f.tenants {
 		for range 2 {
 			if err := supervisor.materializeProspectAssessment(t.Context(), tenant, "Prospect", now); err != nil {
 				t.Fatal("due assessment could not be filed", err)
 			}
 		}
 	}
-	var ownerArtifact, ownerSHA string
+	var ownerEngagement store.ProspectEngagement
+	var ownerSHA string
+	var ownerSize int64
 	for lane, tenant := range f.tenants {
 		var item store.ProspectEngagement
 		var bodySHA string
@@ -395,16 +417,20 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 			if artifacts != 1 || audits != 1 {
 				t.Fatal("the repeated worker run published more than one assessment")
 			}
-			return nil
+			receipt, err := (store.ProspectEngagements{}).ErasureEvidence(ctx, sc, item, dashboardReportSchedulerActor)
+			if err == nil && receipt != nil {
+				t.Fatal("a report inbox copy satisfied the durable delivery boundary")
+			}
+			return err
 		})
 		path := "/v1/dashboard-report-artifacts/" + item.AssessmentArtifactID
-		raw := callComplianceControlReport(t, socket, auditorTestSession(t, f, tenant), http.MethodGet, path, nil, http.StatusOK)
+		raw := callComplianceControlReport(t, socket, sessions[tenant], http.MethodGet, path, nil, http.StatusOK)
 		if int64(len(raw)) != bodySize || !bytes.HasPrefix(raw, []byte("%PDF-")) || hex.EncodeToString(crypto.Hash(raw)) != bodySHA {
 			t.Fatal("the released assessment did not match its own sealed bytes")
 		}
 		callSeasonalAPI(t, socket, f.tokens[f.tenants[1-lane]], http.MethodGet, path, nil, http.StatusNotFound)
 		if tenant == owner {
-			ownerArtifact, ownerSHA = item.AssessmentArtifactID, bodySHA
+			ownerEngagement, ownerSHA, ownerSize = item, bodySHA, bodySize
 		}
 	}
 	callSeasonalAPI(t, socket, f.tokens[sibling], http.MethodPost, "/v1/lifecycle/prospect/revoke-consent", map[string]int{"revision": 1}, http.StatusOK)
@@ -426,10 +452,28 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 	verifyArchivedProspectPDF(t, archive, ownerSHA)
 	f.in(owner, func(ctx context.Context, sc tenancy.Scope) error {
 		var receipts int
-		err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE tenant_id=$1 AND action='dashboard.report_email_sent'
-		 AND target=$2 AND data->>'body_sha256'=$3 AND data->>'prospect_revision'='1'`, owner, ownerArtifact, ownerSHA).Scan(&receipts)
-		if err == nil && receipts != 1 {
-			t.Fatal("accepted delivery lost its scoped assessment audit receipt")
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE tenant_id=$1 AND action='dashboard.report_email_sent'
+		 AND target=$2 AND data->>'body_sha256'=$3 AND data->>'prospect_revision'='1'`, owner, ownerEngagement.AssessmentArtifactID, ownerSHA).Scan(&receipts); err != nil {
+			return err
+		}
+		if receipts != 1 {
+			t.Fatal("successful delivery did not record exactly one scoped audit event")
+		}
+		receipt, err := (store.ProspectEngagements{}).ErasureEvidence(ctx, sc, ownerEngagement, dashboardReportSchedulerActor)
+		if err != nil {
+			return err
+		}
+		if receipt == nil || receipt.ArtifactID != ownerEngagement.AssessmentArtifactID || receipt.BodySHA256 != ownerSHA || receipt.BodyBytes != ownerSize ||
+			receipt.DestinationID != ownerEngagement.DestinationID || receipt.DeliveredAt.Before(end) || receipt.ConsentAuditSequence < 1 ||
+			receipt.DeliveryAuditSequence <= receipt.ConsentAuditSequence || len(receipt.ConsentAuditHash) != 64 || len(receipt.DeliveryAuditHash) != 64 {
+			t.Fatal("accepted delivery lost its original consent or exact assessment audit receipt", receipt)
+		}
+		return audit.TenantVerify(ctx, sc)
+	})
+	f.in(sibling, func(ctx context.Context, sc tenancy.Scope) error {
+		receipt, err := (store.ProspectEngagements{}).ErasureEvidence(ctx, sc, ownerEngagement, dashboardReportSchedulerActor)
+		if err == nil && receipt != nil {
+			t.Fatal("the sibling found the owner's consent and delivery receipt")
 		}
 		return err
 	})
