@@ -56,6 +56,7 @@ func TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges(t *te
 	query := ai.ExplorerQuery{Source: ai.ExplorerFlow, Flow: &plan}
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
+	var responseJSON []byte
 	read := func(tenant string) (int, explorerResult) {
 		t.Helper()
 		body, err := json.Marshal(query)
@@ -77,6 +78,7 @@ func TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges(t *te
 		if err != nil {
 			t.Fatal(err)
 		}
+		responseJSON = raw
 		var out explorerResult
 		if response.StatusCode == http.StatusOK && json.Unmarshal(raw, &out) != nil {
 			t.Fatal("invalid served role query", string(raw))
@@ -110,6 +112,14 @@ func TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges(t *te
 	rows.mutate = func() { f.peer(a, 64500) }
 	if code, _ := read(a); code != http.StatusServiceUnavailable {
 		t.Fatal("role query published stale source metadata after computation", code)
+	}
+	var refused struct {
+		Error struct{ Code, Message string }
+		Flow  json.RawMessage
+	}
+	if err := json.Unmarshal(responseJSON, &refused); err != nil || len(refused.Flow) != 0 ||
+		refused.Error.Code != "unavailable" || refused.Error.Message != "interface role inputs changed; run a fresh query" {
+		t.Fatal("role publication did not return its exact output-free authority refusal", err, refused.Error)
 	}
 	if err := source.validateRoleAuthorization(ctx, scope, proof); err == nil {
 		t.Fatal("old frozen role source identity survived reclassification")

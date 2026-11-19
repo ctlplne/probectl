@@ -2265,14 +2265,6 @@ EXPLANATION_CONTROLS = {
         "complete saved policy cannot drive role flow queries under the default profile",
         "",
     ),
-    "flow-publication": (
-        "internal/control/explorer_flow.go",
-        "if err != nil || roleBefore.inputDigest != after.inputDigest || result.RoleDigest != digest || result.RoleTenantID != tenant {",
-        "if err != nil || false && (roleBefore.inputDigest != after.inputDigest || result.RoleDigest != digest || result.RoleTenantID != tenant) {",
-        "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges",
-        "role query published stale source metadata after computation",
-        "",
-    ),
     "flow-grant": (
         "internal/control/explorer_flow_roles.go",
         "current.requestContext(ctx, actor)",
@@ -2333,6 +2325,11 @@ EXPLANATION_CONTROLS = {
 
 
 def current_role_explanation_controls():
+    root = "TestFlowRoleQueryKeepsCurrentOwnedSourcesAndRefusesPublicationChanges"
+    result = execute("internal/control", (root,), "role_explanation_flow-publication", integration=True)
+    failures = classify(result.stdout, result.returncode, package=PREFIX + "internal/control", tests=(root,))
+    if failures:
+        raise RuntimeError(f"flow role publication authority proof failed: {failures}")
     out = Path("artifacts/interface-prefix-transport").resolve()
     for name, (file, seam, replacement, root, marker, child) in EXPLANATION_CONTROLS.items():
         source = Path(file).resolve()
