@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -182,6 +183,65 @@ func TestProspectEngagementUsesCanonicalTenantWriteFence(t *testing.T) {
 			}
 			return nil
 		})
+	}
+}
+
+func TestProspectCollectionDeadlineFencesOnlyTheCompletedTenant(t *testing.T) {
+	f := newRoleExplanationAPIFixture(t)
+	finished, collecting := f.tenants[0], f.tenants[1]
+	at := time.Now().UTC().Truncate(time.Microsecond)
+	for lane, tenant := range f.tenants {
+		slug, _, _, err := f.server.tenantSlugAndMeta(t.Context(), tenant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permLifecycleErase); err != nil {
+				return err
+			}
+			view, err := (store.DashboardReports{}).CreateView(ctx, sc, store.DashboardViewInput{ID: "prospect-view", OwnerID: f.users[tenant],
+				Name: "Prospect assessment", Preset: "operator", Definition: []byte(`{"client_report":{"timezone":"UTC"}}`)})
+			if err != nil {
+				return err
+			}
+			end := at.Add(-time.Minute)
+			if lane == 1 {
+				end = at.Add(time.Hour)
+			}
+			_, err = (store.ProspectEngagements{}).Create(ctx, sc, store.ProspectEngagement{AssessmentViewID: view.ID, AssessmentAt: view.UpdatedAt,
+				OwnerID: f.users[tenant], TenantSlug: slug, Preparer: "Example MSP", StartsAt: end.AddDate(0, 0, -14), EndsAt: end})
+			return err
+		})
+	}
+	collection := tenancy.NewPostgresCollectionWriterFence(f.pool)
+	control := tenancy.NewPostgresWriterFence(f.pool)
+	rejected := collection.WithTenantWrites(t.Context(), []string{finished}, func(context.Context) error {
+		t.Fatal("completed prospect reached the external telemetry write")
+		return nil
+	})
+	if !errors.Is(rejected, tenancy.ErrTenantWritesFenced) || !errors.Is(rejected, tenancy.ErrProspectCollectionEnded) {
+		t.Fatal("collection deadline was unavailable at the writer boundary", rejected)
+	}
+	if err := collection.WithPartitionedTenantWrites(t.Context(), f.tenants, func(_ context.Context, rejected map[string]error) error {
+		if len(rejected) != 1 || !errors.Is(rejected[finished], tenancy.ErrProspectCollectionEnded) || rejected[collecting] != nil {
+			t.Fatal("a completed prospect affected its co-batched sibling", rejected)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	if err := control.WithTenantWrites(t.Context(), []string{finished}, func(context.Context) error { called = true; return nil }); err != nil || !called {
+		t.Fatal("the collection deadline fenced the normal lifecycle writer", err)
+	}
+	socket := httptest.NewTLSServer(f.server.Handler())
+	t.Cleanup(socket.Close)
+	const path = "/v1/lifecycle/prospect"
+	callSeasonalAPI(t, socket, f.tokens[finished], http.MethodGet, path, nil, http.StatusOK)
+	callSeasonalAPI(t, socket, f.tokens[finished], http.MethodPost, path+"/convert", map[string]int64{"revision": 1}, http.StatusOK)
+	called = false
+	if err := collection.WithTenantWrites(t.Context(), []string{finished}, func(context.Context) error { called = true; return nil }); err != nil || !called {
+		t.Fatal("conversion did not clear the scoped collection deadline", err)
 	}
 }
 

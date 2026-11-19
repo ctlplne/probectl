@@ -179,33 +179,34 @@ func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *ser
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	g, gctx := errgroup.WithContext(ctx)
 	writerFence := tenancy.NewPostgresWriterFence(db.Pool())
+	collectionFence := tenancy.NewPostgresCollectionWriterFence(db.Pool())
 	flowStore := flowstore.WithTenantWriteFence(
 		st.flowStore,
-		writerFence,
+		collectionFence,
 	)
 	endpointStore := endpointstore.WithTenantWriteFence(
 		st.endpointStore,
-		writerFence,
+		collectionFence,
 	)
 	ebpfStore := ebpfstore.WithTenantWriteFence(
 		st.ebpfStore,
-		writerFence,
+		collectionFence,
 	)
 	otelStore := otelstore.WithTenantWriteFence(
 		st.otelStore,
-		writerFence,
+		collectionFence,
 	)
 	pathStore := pathstore.WithTenantWriteFence(
 		st.pathStore,
-		writerFence,
+		collectionFence,
 	)
 	tenantTSDBWriter := tsdb.WithTenantWriteFence(
 		st.tsdbWriter,
-		writerFence,
+		collectionFence,
 	)
 	ingestWriter := tsdb.WithTenantWriteFence(
 		st.ingestWriter,
-		writerFence,
+		collectionFence,
 	)
 	return &serveRuntime{
 		cfg: cfg, db: db, log: log, secretsResolver: secretsResolver,

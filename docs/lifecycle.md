@@ -359,7 +359,10 @@ the returned `assessment_artifact_id` through the normal authorized report
 download. With current delivery consent, the report worker verifies the PDF
 and sends it through the configured email transport. The delivery audit
 records the accepted destination, engagement revision and PDF digest.
-Conversion and consent withdrawal cancel pending delivery. Collection expiry
+Conversion and consent withdrawal cancel pending delivery. At the engagement
+deadline, the external telemetry writers refuse new writes for that tenant.
+The report and lifecycle writers remain available. Conversion clears the
+collection deadline. Agent dispatch, original PostgreSQL observation intake
 and automatic erasure are additional lifecycle steps.
 
 Engagement writes take the same tenant writer lease and database trigger as

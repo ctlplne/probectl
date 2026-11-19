@@ -23,6 +23,8 @@ import (
 // carries the durable erasure marker.
 var ErrTenantWritesFenced = errors.New("tenancy: tenant writes are fenced")
 
+var ErrProspectCollectionEnded = errors.New("tenancy: prospect telemetry collection ended")
+
 // WriterFence holds the durable shared tenant-writer lease across one external
 // datastore mutation. Implementations acquire leases in deterministic order
 // and invoke write only after every tenant is eligible, so a mixed-tenant batch
@@ -60,13 +62,34 @@ type PartitionedWriterFence interface {
 // tenant registry and transaction-scoped advisory locks are durable and shared
 // by every control-plane replica; no process-local lifecycle cache participates.
 type PostgresWriterFence struct {
-	pool *pgxpool.Pool
+	pool                 *pgxpool.Pool
+	checkCollectionClock bool
 }
 
 // NewPostgresWriterFence builds the external-store writer side of the erasure
 // barrier. The pool must be the control plane's PostgreSQL writer pool.
 func NewPostgresWriterFence(pool *pgxpool.Pool) *PostgresWriterFence {
 	return &PostgresWriterFence{pool: pool}
+}
+
+// NewPostgresCollectionWriterFence applies the same erasure lease and the
+// prospect collection deadline to telemetry writes.
+func NewPostgresCollectionWriterFence(pool *pgxpool.Pool) *PostgresWriterFence {
+	return &PostgresWriterFence{pool: pool, checkCollectionClock: true}
+}
+
+func (f *PostgresWriterFence) tenantWriteState(ctx context.Context, q Querier, tenantID string) (string, bool, bool, error) {
+	var status string
+	var fenced, ended bool
+	const base = `SELECT status, audit_write_fenced_at IS NOT NULL`
+	const predicate = ` FROM public.tenants WHERE id=$1::uuid`
+	if f.checkCollectionClock {
+		err := q.QueryRow(ctx, base+`,COALESCE(prospect_collection_ends_at<=clock_timestamp(),false)`+predicate, tenantID).
+			Scan(&status, &fenced, &ended)
+		return status, fenced, ended, err
+	}
+	err := q.QueryRow(ctx, base+predicate, tenantID).Scan(&status, &fenced)
+	return status, fenced, ended, err
 }
 
 // WithTenantWrites acquires a shared advisory lease for every tenant, verifies
@@ -100,15 +123,8 @@ func (f *PostgresWriterFence) WithTenantWrites(
 			}
 		}
 		for _, tenantID := range canonical {
-			var status string
-			var fenced bool
-			if err := q.QueryRow(
-				ctx,
-				`SELECT status, audit_write_fenced_at IS NOT NULL
-				   FROM public.tenants
-				  WHERE id = $1::uuid`,
-				tenantID,
-			).Scan(&status, &fenced); err != nil {
+			status, fenced, ended, err := f.tenantWriteState(ctx, q, tenantID)
+			if err != nil {
 				return fmt.Errorf(
 					"%w: tenant %s registry lookup: %v",
 					ErrTenantWritesFenced,
@@ -123,6 +139,9 @@ func (f *PostgresWriterFence) WithTenantWrites(
 					tenantID,
 					status,
 				)
+			}
+			if ended {
+				return fmt.Errorf("%w: tenant %s: %w", ErrTenantWritesFenced, tenantID, ErrProspectCollectionEnded)
 			}
 		}
 		return write(ctx)
@@ -168,15 +187,8 @@ func (f *PostgresWriterFence) WithPartitionedTenantWrites(
 		}
 		var fenced map[string]error
 		for _, tenantID := range distinct {
-			var status string
-			var isFenced bool
-			if err := q.QueryRow(
-				ctx,
-				`SELECT status, audit_write_fenced_at IS NOT NULL
-				   FROM public.tenants
-				  WHERE id = $1::uuid`,
-				tenantID,
-			).Scan(&status, &isFenced); err != nil {
+			status, isFenced, ended, err := f.tenantWriteState(ctx, q, tenantID)
+			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					// Absent tenant (fully erased or never existed): fence THIS
 					// tenant per-tenant, never fail the batch — an absent tenant
@@ -211,6 +223,11 @@ func (f *PostgresWriterFence) WithPartitionedTenantWrites(
 					tenantID,
 					status,
 				)
+			} else if ended {
+				if fenced == nil {
+					fenced = make(map[string]error, 1)
+				}
+				fenced[tenantID] = fmt.Errorf("%w: tenant %s: %w", ErrTenantWritesFenced, tenantID, ErrProspectCollectionEnded)
 			}
 		}
 		return write(ctx, fenced)

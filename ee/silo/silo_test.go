@@ -113,6 +113,23 @@ func TestProvisionPlan(t *testing.T) {
 	assertTenantWriteFencePlan(t, joined, "tests")
 }
 
+func TestProspectCollectionDeadlineIsInstalledForSiloCreationAndCatchUp(t *testing.T) {
+	const schema = "t_11111111111141118111111111111111"
+	tables := []string{"prospect_engagements"}
+	for _, plan := range [][]string{ProvisionPlan(schema, tables), CatchUpPlan(schema, Catalog{TenantTables: tables, SchemaTables: tables})} {
+		joined := strings.Join(plan, "\n")
+		for _, statement := range []string{
+			`CREATE TRIGGER prospect_collection_deadline AFTER INSERT OR UPDATE OF ends_at, converted_at ON "` + schema + `"."prospect_engagements"`,
+			`FOR EACH ROW EXECUTE FUNCTION public.probectl_project_prospect_collection_deadline()`,
+			`ALTER TABLE "` + schema + `"."prospect_engagements" ENABLE ALWAYS TRIGGER prospect_collection_deadline`,
+		} {
+			if !strings.Contains(joined, statement) {
+				t.Fatal("silo plan is missing the collection deadline projection", statement)
+			}
+		}
+	}
+}
+
 func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 	tables := []string{"tests", "entity_contexts", "entity_path_test_contexts", "entity_agent_contexts", "entity_source_contexts", "entities", "entity_evidence", "entity_links", "incidents", "incident_signals", "incident_correlation_overrides", "entity_fault_receipts", "nms_import_sources", "nms_import_plans", "nms_import_pages", "nms_import_rows", "nms_import_provenance", "nms_import_capture_steps", "nms_import_groups", "nms_import_group_members", "nms_import_poll_proposals", "alert_rules", "nms_import_alert_bindings"}
 	for name, plan := range map[string][]string{

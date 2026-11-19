@@ -567,6 +567,14 @@ func repairTenantBoundaryPlan(schema, quotedTable, table string) []string {
 	}
 	plan = append(plan, auditWriteFencePlan(quotedTable, table)...)
 	plan = append(plan, tenantWriteFencePlan(quotedTable, table)...)
+	if table == "prospect_engagements" {
+		plan = append(plan,
+			"DROP TRIGGER IF EXISTS prospect_collection_deadline ON "+quotedTable,
+			"CREATE TRIGGER prospect_collection_deadline AFTER INSERT OR UPDATE OF ends_at, converted_at ON "+quotedTable+
+				" FOR EACH ROW EXECUTE FUNCTION public.probectl_project_prospect_collection_deadline()",
+			"ALTER TABLE "+quotedTable+" ENABLE ALWAYS TRIGGER prospect_collection_deadline",
+		)
+	}
 	return append(plan, tableRolePlan(quotedTable, table)...)
 }
 
