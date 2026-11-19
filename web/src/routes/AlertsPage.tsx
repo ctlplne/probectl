@@ -261,8 +261,15 @@ function evaluationExpectation(expectation: AlertEvaluationExpectation): string 
   return 'Baseline band is still warming'
 }
 
-function seasonalBandSlot(cadence: string | undefined, hour: string, day: string, minute?: number) {
-  if (cadence === 'hourly') return `Minute ${String(minute ?? 0).padStart(2, '0')} each hour`
+function seasonalBandSlot(
+  cadence: string | undefined,
+  hour: string,
+  day: string,
+  minute?: number | null,
+) {
+  if (cadence === 'hourly') {
+    return minute == null ? 'Hourly band' : `Minute ${String(minute).padStart(2, '0')} each hour`
+  }
   if (cadence === 'daily') return `${hour} each day`
   return `${day} ${hour}`
 }

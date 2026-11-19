@@ -674,6 +674,51 @@ describe('alerting surface (S-FE1)', () => {
     expect(within(dialog).getByText(/Metadata selection evidence is withheld/)).toBeDefined()
   })
 
+  test('hourly receipts distinguish minute zero from an unavailable minute', async () => {
+    const { fetcher } = alertsBackend()
+    vi.stubGlobal('fetch', async (...args: Parameters<typeof fetch>) => {
+      const response = await fetcher(...args)
+      if (!String(args[0]).includes('/evaluations?')) return response
+      const payload = await response.json()
+      for (const [index, minute] of [0, null].entries()) {
+        const receipt = payload.items[index]
+        receipt.expectation = {
+          kind: 'baseline',
+          lower: 5,
+          upper: 9,
+          seasonal: {
+            subject: 'db',
+            observed_at: receipt.observed_at,
+            calendar: {
+              cadence: 'hourly',
+              hour: 12,
+              weekday: 4,
+              minute,
+              timezone: 'UTC',
+              training_days: ['2026-06-04'],
+              training_periods: 3,
+            },
+            citations: [],
+            training_window: {
+              start: '2026-06-04T09:00:00Z',
+              end: '2026-06-04T11:00:00Z',
+              samples: 3,
+            },
+          },
+        }
+      }
+      return jsonResponse(payload)
+    })
+    renderApp('/alerts', { me: { permissions: ['alert.read'] } })
+    await screen.findByRole('table', { name: 'Active alerts' })
+    await userEvent.click(screen.getAllByRole('button', { name: 'Details' })[0])
+    const timeline = await within(await screen.findByRole('dialog')).findByRole('list', {
+      name: 'Deterministic evaluation receipts',
+    })
+    expect(within(timeline).getByText(/Minute 00 each hour UTC/)).toBeInTheDocument()
+    expect(within(timeline).getByText(/Hourly band UTC/)).toBeInTheDocument()
+  })
+
   test('silence + acknowledge act through the API and render the ENGINE state', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
