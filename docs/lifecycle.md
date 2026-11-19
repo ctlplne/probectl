@@ -363,7 +363,14 @@ the returned `assessment_artifact_id` through the normal authorized report
 download. With current delivery consent, the report worker verifies the PDF
 and sends it through the configured email transport. The delivery audit
 records the accepted destination, engagement revision and PDF digest.
-Conversion and consent withdrawal cancel pending delivery. At the engagement
+Admin and `GET /v1/lifecycle/prospect` show `assessment_delivery_state` for
+that exact artifact and configured destination. `pending` is queued,
+`retrying` is pending after an attempt, `sent` records accepted delivery,
+and `withdrawn` means delivery was canceled. The destination recipient and
+transport error are private. Conversion and consent withdrawal cancel queued
+delivery. The worker may already have handed off a delivery. Scheduled
+erasure still requires current consent and the exact durable receipt at the
+separate erasure fence. At the engagement
 deadline, external telemetry writers and the PostgreSQL device and entity
 observation writers refuse new records for that tenant. An empty neighbor
 snapshot cannot replace the previous observations after the cutoff. The

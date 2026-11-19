@@ -397,6 +397,13 @@
       ]
     },
     {
+      "ref": "test:internal/control/prospect_expiry_race_integration_test.go#TestProspectConversionAndDeliveredExpirySerializeAtWriteFence",
+      "profile": "integration",
+      "capabilities": [
+        "F55"
+      ]
+    },
+    {
       "ref": "test:internal/control/prospect_lifecycle_integration_test.go#TestProspectCollectionDeadlineFencesOnlyTheCompletedTenant",
       "profile": "integration",
       "capabilities": [

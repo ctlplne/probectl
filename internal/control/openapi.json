@@ -19901,6 +19901,16 @@
             "type": "string",
             "description": "The exact PDF sealed for the completed engagement. Access uses the normal dashboard report artifact authorization."
           },
+          "assessment_delivery_state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "retrying",
+              "sent",
+              "withdrawn"
+            ],
+            "description": "The delivery state of this engagement's exact PDF and configured destination. Retrying includes a delivery attempt in progress."
+          },
           "destination_id": {
             "type": "string"
           }

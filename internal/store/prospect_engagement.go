@@ -29,6 +29,7 @@ type ProspectEngagement struct {
 	ConsentRevokedAt     *time.Time `json:"consent_revoked_at,omitempty"`
 	DestinationID        string     `json:"destination_id,omitempty"`
 	AssessmentArtifactID string     `json:"assessment_artifact_id,omitempty"`
+	DeliveryState        string     `json:"assessment_delivery_state,omitempty"`
 
 	OwnerID         string `json:"-"`
 	TenantSlug      string `json:"-"`
@@ -48,10 +49,14 @@ const prospectEngagementColumns = `revision,assessment_view_id,assessment_view_r
 
 func scanProspectEngagement(row pgx.Row) (ProspectEngagement, error) {
 	var out ProspectEngagement
-	err := row.Scan(&out.Revision, &out.AssessmentViewID, &out.AssessmentAt, &out.Preparer, &out.StartsAt, &out.EndsAt,
-		&out.ConvertedAt, &out.ConsentedAt, &out.ConsentRevokedAt, &out.DestinationID, &out.OwnerID, &out.TenantSlug, &out.ConsentRevision,
-		&out.AssessmentArtifactID)
+	err := row.Scan(out.scanFields()...)
 	return out, err
+}
+
+func (e *ProspectEngagement) scanFields() []any {
+	return []any{&e.Revision, &e.AssessmentViewID, &e.AssessmentAt, &e.Preparer, &e.StartsAt, &e.EndsAt,
+		&e.ConvertedAt, &e.ConsentedAt, &e.ConsentRevokedAt, &e.DestinationID, &e.OwnerID, &e.TenantSlug, &e.ConsentRevision,
+		&e.AssessmentArtifactID}
 }
 
 // FileAssessment associates one sealed report with the exact completed
@@ -90,8 +95,14 @@ func (ProspectEngagements) Get(ctx context.Context, sc tenancy.Scope) (ProspectE
 	if err := prospectScope(ctx, sc); err != nil {
 		return ProspectEngagement{}, err
 	}
-	out, err := scanProspectEngagement(sc.Q.QueryRow(ctx, `SELECT `+prospectEngagementColumns+`
-		FROM prospect_engagements WHERE tenant_id=$1`, sc.Tenant.String()))
+	var out ProspectEngagement
+	err := sc.Q.QueryRow(ctx, `SELECT `+prospectEngagementColumns+`, COALESCE((
+		SELECT CASE WHEN artifact.email_state='pending' AND artifact.email_attempts>0 THEN 'retrying' ELSE artifact.email_state END
+		FROM dashboard_report_artifacts artifact
+		WHERE artifact.tenant_id=engagement.tenant_id AND artifact.id=engagement.assessment_artifact_id
+		AND artifact.email_destination_id=engagement.consent_destination_id
+	), '') FROM prospect_engagements engagement WHERE engagement.tenant_id=$1`, sc.Tenant.String()).
+		Scan(append(out.scanFields(), &out.DeliveryState)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProspectEngagement{}, apierror.NotFound("prospect engagement not found")
 	}

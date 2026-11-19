@@ -3684,6 +3684,7 @@ export interface PeeringTransitEstimate {
 
 export interface ProspectEngagement {
   assessment_artifact_id?: string
+  assessment_delivery_state?: "pending" | "retrying" | "sent" | "withdrawn"
   assessment_view_id: string
   assessment_view_revision: string
   consent_revoked_at?: string

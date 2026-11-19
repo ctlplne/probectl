@@ -263,6 +263,18 @@ function CurrentProspect({
             ? 'Scheduled erasure consent withdrawn'
             : 'Scheduled erasure is off'}
       </p>
+      {engagement.assessment_delivery_state === 'pending' ? (
+        <p>Assessment delivery is queued.</p>
+      ) : null}
+      {engagement.assessment_delivery_state === 'retrying' ? (
+        <p>Assessment delivery is pending after an attempt.</p>
+      ) : null}
+      {engagement.assessment_delivery_state === 'sent' ? (
+        <p>Assessment delivered to the configured archive.</p>
+      ) : null}
+      {engagement.assessment_delivery_state === 'withdrawn' ? (
+        <p>Assessment delivery was withdrawn.</p>
+      ) : null}
       {engagement.assessment_artifact_id ? (
         <a
           href={apiDownloadURL(

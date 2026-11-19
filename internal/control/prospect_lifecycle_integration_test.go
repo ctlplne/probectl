@@ -300,6 +300,156 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 		}
 	}
 	f.server.WithTenantLife(tenantlife.New(f.pool, f.server.flowStore, nil, metrics, nil, "owned test fixture", f.server.log))
+	archive, relay, transport := startProspectTestArchive(t, f)
+	ownerAddress := "prospect@" + owner + ".invalid"
+	mailProbe := &reportMailProbe{transport: transport, fail: map[string]bool{ownerAddress: true}, attempts: map[string][]string{}, sent: map[string][]reportMailReceipt{}}
+	f.server.WithAlertChannelDeps(alert.ChannelDeps{Mail: mailProbe})
+	pair := newExpiringProspectPair(t, f)
+	inputs, sessions, engagements, socket, end := pair.inputs, pair.sessions, pair.engagements, pair.socket, pair.end
+	for _, tenant := range f.tenants {
+		// Before the end no artifact is eligible, regardless of the ordinary
+		// dashboard schedule or wall clock.
+		if err := supervisor.materializeProspectAssessment(t.Context(), tenant, "Prospect", end.Add(-time.Microsecond)); err != nil {
+			t.Fatal(err)
+		}
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			item, err := (store.ProspectEngagements{}).Get(ctx, sc)
+			if err == nil && item.AssessmentArtifactID != "" {
+				t.Fatal("prospect assessment appeared before the exact end")
+			}
+			return err
+		})
+	}
+	select {
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	case <-time.After(time.Until(end) + time.Millisecond):
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	for _, tenant := range f.tenants {
+		for range 2 {
+			if err := supervisor.materializeProspectAssessment(t.Context(), tenant, "Prospect", now); err != nil {
+				t.Fatal("due assessment could not be filed", err)
+			}
+		}
+	}
+	var ownerEngagement store.ProspectEngagement
+	var ownerSHA string
+	var ownerSize int64
+	readDelivery := func(raw []byte, tenant, want string) {
+		t.Helper()
+		var view store.ProspectEngagement
+		if err := json.Unmarshal(raw, &view); err != nil || view.AssessmentArtifactID == "" ||
+			view.DeliveryState != want || view.DestinationID != inputs[tenant].DestinationID ||
+			bytes.Contains(raw, []byte("prospect@")) {
+			t.Fatal("the public delivery status lost its exact scoped artifact or disclosed the recipient", err)
+		}
+	}
+	const engagementPath = "/v1/lifecycle/prospect"
+	for lane, tenant := range f.tenants {
+		var item store.ProspectEngagement
+		var bodySHA string
+		var bodySize int64
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			item, err = (store.ProspectEngagements{}).Get(ctx, sc)
+			if err != nil {
+				return err
+			}
+			artifact, err := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, item.AssessmentArtifactID, f.users[tenant])
+			if err != nil {
+				return err
+			}
+			if !artifact.AbsoluteFrom.Equal(engagements[tenant].StartsAt) || !artifact.AbsoluteTo.Equal(end) || artifact.Format != "pdf" ||
+				artifact.BodyBytes < 1 || len(artifact.BodySHA256) != 64 || artifact.TenantID != tenant || artifact.EmailDelivery == nil ||
+				artifact.EmailDelivery.State != "pending" || artifact.EmailDelivery.DestinationID != engagements[tenant].DestinationID {
+				t.Fatal("the filed PDF lost its exact engagement clock or tenant scope")
+			}
+			bodySHA, bodySize = artifact.BodySHA256, artifact.BodyBytes
+			var artifacts, audits int
+			if err := sc.Q.QueryRow(ctx, `SELECT (SELECT count(*) FROM dashboard_report_artifacts WHERE tenant_id=$1),
+			 (SELECT count(*) FROM audit_events WHERE tenant_id=$1 AND action='lifecycle.prospect_assessment_created' AND target=$2)`, tenant, artifact.ID).Scan(&artifacts, &audits); err != nil {
+				return err
+			}
+			if artifacts != 1 || audits != 1 {
+				t.Fatal("the repeated worker run published more than one assessment")
+			}
+			receipt, err := (store.ProspectEngagements{}).ErasureEvidence(ctx, sc, item, dashboardReportSchedulerActor)
+			if err == nil && receipt != nil {
+				t.Fatal("a report inbox copy satisfied the durable delivery boundary")
+			}
+			return err
+		})
+		path := "/v1/dashboard-report-artifacts/" + item.AssessmentArtifactID
+		raw := callComplianceControlReport(t, socket, sessions[tenant], http.MethodGet, path, nil, http.StatusOK)
+		if int64(len(raw)) != bodySize || !bytes.HasPrefix(raw, []byte("%PDF-")) || hex.EncodeToString(crypto.Hash(raw)) != bodySHA {
+			t.Fatal("the released assessment did not match its own sealed bytes")
+		}
+		callSeasonalAPI(t, socket, f.tokens[f.tenants[1-lane]], http.MethodGet, path, nil, http.StatusNotFound)
+		readDelivery(callComplianceControlReport(t, socket, sessions[tenant], http.MethodGet, engagementPath, nil, http.StatusOK), tenant, "pending")
+		if tenant == owner {
+			ownerEngagement, ownerSHA, ownerSize = item, bodySHA, bodySize
+		}
+	}
+	readDelivery(callSeasonalAPI(t, socket, f.tokens[sibling], http.MethodPost, engagementPath+"/revoke-consent", map[string]int{"revision": 1}, http.StatusOK), sibling, "withdrawn")
+	if err := supervisor.eraseDueProspect(t.Context(), owner, false); err != nil || metrics.attempts != 0 {
+		t.Fatal("a tenant record or inbox-only PDF reached the erasure engine", err)
+	}
+	due := time.Now().UTC().Add(time.Second)
+	if err := supervisor.deliverTenantReportEmails(t.Context(), owner, due); err == nil || len(relay.Messages()) != 0 {
+		t.Fatal("the unsuccessful attempt was recorded as accepted delivery")
+	}
+	readDelivery(callComplianceControlReport(t, socket, sessions[owner], http.MethodGet, engagementPath, nil, http.StatusOK), owner, "retrying")
+	for _, tenant := range f.tenants {
+		if err := supervisor.deliverTenantReportEmails(t.Context(), tenant, due.Add(2*time.Minute)); err != nil {
+			t.Fatal("configured report delivery failed", err)
+		}
+	}
+	accepted := relay.Messages()
+	attempts := mailProbe.attempts[ownerAddress]
+	if len(accepted) != 1 || !accepted[0].TLS || len(accepted[0].To) != 1 || accepted[0].To[0] != ownerAddress ||
+		len(attempts) != 2 || attempts[0] != attempts[1] || len(mailProbe.attempts["prospect@"+sibling+".invalid"]) != 0 {
+		t.Fatal("retry or withdrawal lost exact scoped routing")
+	}
+	readDelivery(callComplianceControlReport(t, socket, sessions[owner], http.MethodGet, engagementPath, nil, http.StatusOK), owner, "sent")
+	readDelivery(callComplianceControlReport(t, socket, sessions[sibling], http.MethodGet, engagementPath, nil, http.StatusOK), sibling, "withdrawn")
+	verifyArchivedProspectPDF(t, archive, ownerSHA)
+	f.in(owner, func(ctx context.Context, sc tenancy.Scope) error {
+		var receipts int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE tenant_id=$1 AND action='dashboard.report_email_sent'
+		 AND target=$2 AND data->>'body_sha256'=$3 AND data->>'prospect_revision'='1'`, owner, ownerEngagement.AssessmentArtifactID, ownerSHA).Scan(&receipts); err != nil {
+			return err
+		}
+		if receipts != 1 {
+			t.Fatal("successful delivery did not record exactly one scoped audit event")
+		}
+		receipt, err := (store.ProspectEngagements{}).ErasureEvidence(ctx, sc, ownerEngagement, dashboardReportSchedulerActor)
+		if err != nil {
+			return err
+		}
+		if receipt == nil || receipt.ArtifactID != ownerEngagement.AssessmentArtifactID || receipt.BodySHA256 != ownerSHA || receipt.BodyBytes != ownerSize ||
+			receipt.DestinationID != ownerEngagement.DestinationID || receipt.DeliveredAt.Before(end) || receipt.ConsentAuditSequence < 1 ||
+			receipt.DeliveryAuditSequence <= receipt.ConsentAuditSequence || len(receipt.ConsentAuditHash) != 64 || len(receipt.DeliveryAuditHash) != 64 {
+			t.Fatal("accepted delivery lost its original consent or exact assessment audit receipt", receipt)
+		}
+		return audit.TenantVerify(ctx, sc)
+	})
+	f.in(sibling, func(ctx context.Context, sc tenancy.Scope) error {
+		receipt, err := (store.ProspectEngagements{}).ErasureEvidence(ctx, sc, ownerEngagement, dashboardReportSchedulerActor)
+		if err == nil && receipt != nil {
+			t.Fatal("the sibling found the owner's consent and delivery receipt")
+		}
+		return err
+	})
+	if err := f.server.SessionManager().Revoke(t.Context(), sessions[owner]); err != nil {
+		t.Fatal(err)
+	}
+	callComplianceControlReport(t, socket, sessions[owner], http.MethodGet, "/v1/lifecycle/prospect", nil, http.StatusUnauthorized)
+	verifyScheduledProspectErasure(t, f, supervisor, metrics, ownerSHA, ownerEngagement.TenantSlug)
+}
+
+func startProspectTestArchive(t *testing.T, f *roleExplanationAPIFixture) (string, *testsupport.SMTPServer, alert.AttachmentMailSender) {
+	t.Helper()
 	archive := t.TempDir()
 	ca, tlsConfig := alertTestCA(t, "localhost")
 	relay := testsupport.StartArchivingSMTPServer(t, tlsConfig, "reports", "test-only-relay-proof", archive)
@@ -317,9 +467,19 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 	if !ok {
 		t.Fatal("SMTP attachment transport unavailable")
 	}
-	ownerAddress := "prospect@" + owner + ".invalid"
-	mailProbe := &reportMailProbe{transport: transport, fail: map[string]bool{ownerAddress: true}, attempts: map[string][]string{}, sent: map[string][]reportMailReceipt{}}
-	f.server.WithAlertChannelDeps(alert.ChannelDeps{Mail: mailProbe})
+	return archive, relay, transport
+}
+
+type expiringProspectPair struct {
+	inputs      map[string]startProspectInput
+	sessions    map[string]string
+	engagements map[string]store.ProspectEngagement
+	socket      *httptest.Server
+	end         time.Time
+}
+
+func newExpiringProspectPair(t *testing.T, f *roleExplanationAPIFixture) expiringProspectPair {
+	t.Helper()
 	inputs := make(map[string]startProspectInput, len(f.tenants))
 	sessions := make(map[string]string, len(f.tenants))
 	for _, tenant := range f.tenants {
@@ -369,132 +529,7 @@ func TestProspectAssessmentWorkerFilesOneExactScopedArtifact(t *testing.T) {
 		}
 		engagements[tenant] = engagement
 	}
-	for _, tenant := range f.tenants {
-		// Before the end no artifact is eligible, regardless of the ordinary
-		// dashboard schedule or wall clock.
-		if err := supervisor.materializeProspectAssessment(t.Context(), tenant, "Prospect", end.Add(-time.Microsecond)); err != nil {
-			t.Fatal(err)
-		}
-		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			item, err := (store.ProspectEngagements{}).Get(ctx, sc)
-			if err == nil && item.AssessmentArtifactID != "" {
-				t.Fatal("prospect assessment appeared before the exact end")
-			}
-			return err
-		})
-	}
-	select {
-	case <-t.Context().Done():
-		t.Fatal(t.Context().Err())
-	case <-time.After(time.Until(end) + time.Millisecond):
-	}
-	now := time.Now().UTC().Truncate(time.Microsecond)
-	for _, tenant := range f.tenants {
-		for range 2 {
-			if err := supervisor.materializeProspectAssessment(t.Context(), tenant, "Prospect", now); err != nil {
-				t.Fatal("due assessment could not be filed", err)
-			}
-		}
-	}
-	var ownerEngagement store.ProspectEngagement
-	var ownerSHA string
-	var ownerSize int64
-	for lane, tenant := range f.tenants {
-		var item store.ProspectEngagement
-		var bodySHA string
-		var bodySize int64
-		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			var err error
-			item, err = (store.ProspectEngagements{}).Get(ctx, sc)
-			if err != nil {
-				return err
-			}
-			artifact, err := (store.DashboardReports{}).GetArtifactMetadata(ctx, sc, item.AssessmentArtifactID, f.users[tenant])
-			if err != nil {
-				return err
-			}
-			if !artifact.AbsoluteFrom.Equal(engagements[tenant].StartsAt) || !artifact.AbsoluteTo.Equal(end) || artifact.Format != "pdf" ||
-				artifact.BodyBytes < 1 || len(artifact.BodySHA256) != 64 || artifact.TenantID != tenant || artifact.EmailDelivery == nil ||
-				artifact.EmailDelivery.State != "pending" || artifact.EmailDelivery.DestinationID != engagements[tenant].DestinationID {
-				t.Fatal("the filed PDF lost its exact engagement clock or tenant scope")
-			}
-			bodySHA, bodySize = artifact.BodySHA256, artifact.BodyBytes
-			var artifacts, audits int
-			if err := sc.Q.QueryRow(ctx, `SELECT (SELECT count(*) FROM dashboard_report_artifacts WHERE tenant_id=$1),
-			 (SELECT count(*) FROM audit_events WHERE tenant_id=$1 AND action='lifecycle.prospect_assessment_created' AND target=$2)`, tenant, artifact.ID).Scan(&artifacts, &audits); err != nil {
-				return err
-			}
-			if artifacts != 1 || audits != 1 {
-				t.Fatal("the repeated worker run published more than one assessment")
-			}
-			receipt, err := (store.ProspectEngagements{}).ErasureEvidence(ctx, sc, item, dashboardReportSchedulerActor)
-			if err == nil && receipt != nil {
-				t.Fatal("a report inbox copy satisfied the durable delivery boundary")
-			}
-			return err
-		})
-		path := "/v1/dashboard-report-artifacts/" + item.AssessmentArtifactID
-		raw := callComplianceControlReport(t, socket, sessions[tenant], http.MethodGet, path, nil, http.StatusOK)
-		if int64(len(raw)) != bodySize || !bytes.HasPrefix(raw, []byte("%PDF-")) || hex.EncodeToString(crypto.Hash(raw)) != bodySHA {
-			t.Fatal("the released assessment did not match its own sealed bytes")
-		}
-		callSeasonalAPI(t, socket, f.tokens[f.tenants[1-lane]], http.MethodGet, path, nil, http.StatusNotFound)
-		if tenant == owner {
-			ownerEngagement, ownerSHA, ownerSize = item, bodySHA, bodySize
-		}
-	}
-	callSeasonalAPI(t, socket, f.tokens[sibling], http.MethodPost, "/v1/lifecycle/prospect/revoke-consent", map[string]int{"revision": 1}, http.StatusOK)
-	if err := supervisor.eraseDueProspect(t.Context(), owner, false); err != nil || metrics.attempts != 0 {
-		t.Fatal("a tenant record or inbox-only PDF reached the erasure engine", err)
-	}
-	due := time.Now().UTC().Add(time.Second)
-	if err := supervisor.deliverTenantReportEmails(t.Context(), owner, due); err == nil || len(relay.Messages()) != 0 {
-		t.Fatal("the unsuccessful attempt was recorded as accepted delivery")
-	}
-	for _, tenant := range f.tenants {
-		if err := supervisor.deliverTenantReportEmails(t.Context(), tenant, due.Add(2*time.Minute)); err != nil {
-			t.Fatal("configured report delivery failed", err)
-		}
-	}
-	accepted := relay.Messages()
-	attempts := mailProbe.attempts[ownerAddress]
-	if len(accepted) != 1 || !accepted[0].TLS || len(accepted[0].To) != 1 || accepted[0].To[0] != ownerAddress ||
-		len(attempts) != 2 || attempts[0] != attempts[1] || len(mailProbe.attempts["prospect@"+sibling+".invalid"]) != 0 {
-		t.Fatal("retry or withdrawal lost exact scoped routing")
-	}
-	verifyArchivedProspectPDF(t, archive, ownerSHA)
-	f.in(owner, func(ctx context.Context, sc tenancy.Scope) error {
-		var receipts int
-		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE tenant_id=$1 AND action='dashboard.report_email_sent'
-		 AND target=$2 AND data->>'body_sha256'=$3 AND data->>'prospect_revision'='1'`, owner, ownerEngagement.AssessmentArtifactID, ownerSHA).Scan(&receipts); err != nil {
-			return err
-		}
-		if receipts != 1 {
-			t.Fatal("successful delivery did not record exactly one scoped audit event")
-		}
-		receipt, err := (store.ProspectEngagements{}).ErasureEvidence(ctx, sc, ownerEngagement, dashboardReportSchedulerActor)
-		if err != nil {
-			return err
-		}
-		if receipt == nil || receipt.ArtifactID != ownerEngagement.AssessmentArtifactID || receipt.BodySHA256 != ownerSHA || receipt.BodyBytes != ownerSize ||
-			receipt.DestinationID != ownerEngagement.DestinationID || receipt.DeliveredAt.Before(end) || receipt.ConsentAuditSequence < 1 ||
-			receipt.DeliveryAuditSequence <= receipt.ConsentAuditSequence || len(receipt.ConsentAuditHash) != 64 || len(receipt.DeliveryAuditHash) != 64 {
-			t.Fatal("accepted delivery lost its original consent or exact assessment audit receipt", receipt)
-		}
-		return audit.TenantVerify(ctx, sc)
-	})
-	f.in(sibling, func(ctx context.Context, sc tenancy.Scope) error {
-		receipt, err := (store.ProspectEngagements{}).ErasureEvidence(ctx, sc, ownerEngagement, dashboardReportSchedulerActor)
-		if err == nil && receipt != nil {
-			t.Fatal("the sibling found the owner's consent and delivery receipt")
-		}
-		return err
-	})
-	if err := f.server.SessionManager().Revoke(t.Context(), sessions[owner]); err != nil {
-		t.Fatal(err)
-	}
-	callComplianceControlReport(t, socket, sessions[owner], http.MethodGet, "/v1/lifecycle/prospect", nil, http.StatusUnauthorized)
-	verifyScheduledProspectErasure(t, f, supervisor, metrics, ownerSHA, ownerEngagement.TenantSlug)
+	return expiringProspectPair{inputs: inputs, sessions: sessions, engagements: engagements, socket: socket, end: end}
 }
 
 type prospectErasureMetrics struct {
@@ -526,6 +561,26 @@ func verifyScheduledProspectErasure(t *testing.T, f *roleExplanationAPIFixture, 
 	f.in(owner, func(ctx context.Context, sc tenancy.Scope) error {
 		return (store.RoleBindings{}).Bind(ctx, sc, "user", f.users[owner], f.roles[owner])
 	})
+	registry := store.NewTenants(f.pool)
+	if _, err := registry.UpdateStatus(t.Context(), owner, "suspended"); err != nil {
+		t.Fatal(err)
+	}
+	supervisor.Tick(t.Context())
+	verifyProspectRegistryState(t, f, owner, "suspended", false)
+	if metrics.attempts != 0 {
+		t.Fatal("the scheduler erased a suspended tenant")
+	}
+	if _, err := registry.UpdateStatus(t.Context(), owner, "active"); err != nil {
+		t.Fatal(err)
+	}
+	quarantine := tenancy.CurrentQuarantine()
+	quarantine.Enter(tenancy.QuarantineEntry{TenantID: owner, Reason: tenancy.QuarantineReaderScopeUnproven})
+	defer quarantine.Release(owner)
+	if err := supervisor.eraseDueProspect(t.Context(), owner, false); !errors.Is(err, tenancy.ErrTenantQuarantined) || metrics.attempts != 0 {
+		t.Fatal("a quarantined prospect reached scheduled erasure", err, metrics.attempts)
+	}
+	verifyProspectRegistryState(t, f, owner, "active", false)
+	quarantine.Release(owner)
 
 	supervisor.Tick(t.Context())
 	verifyProspectRegistryState(t, f, owner, "offboarding", true)
@@ -548,7 +603,7 @@ func verifyScheduledProspectErasure(t *testing.T, f *roleExplanationAPIFixture, 
 		}
 		return err
 	})
-	verifyArchivedProspectAttestation(t, f, owner, ownerSlug, assessmentSHA)
+	verifyArchivedProspectAttestation(t, f, owner, ownerSlug, assessmentSHA, 1)
 }
 
 func verifyProspectRegistryState(t *testing.T, f *roleExplanationAPIFixture, tenant, expected string, fenced bool) {
@@ -570,7 +625,7 @@ func verifyProspectRegistryState(t *testing.T, f *roleExplanationAPIFixture, ten
 	}
 }
 
-func verifyArchivedProspectAttestation(t *testing.T, f *roleExplanationAPIFixture, tenant, slug, assessmentSHA string) {
+func verifyArchivedProspectAttestation(t *testing.T, f *roleExplanationAPIFixture, tenant, slug, assessmentSHA string, expectedResumes int) {
 	t.Helper()
 	err := tenancy.InProvider(t.Context(), f.pool, func(ctx context.Context, q tenancy.Querier) error {
 		var raw []byte
@@ -591,9 +646,10 @@ func verifyArchivedProspectAttestation(t *testing.T, f *roleExplanationAPIFixtur
 		if err := json.Unmarshal(raw, &att); err != nil {
 			return err
 		}
-		if authorized != 1 || resumed != 1 || completed != 1 || !att.Complete || att.TenantID != tenant || att.TenantSlug != slug ||
+		if authorized != 1 || resumed != expectedResumes || completed != 1 || !att.Complete || att.TenantID != tenant || att.TenantSlug != slug ||
 			att.Actor != f.users[tenant] || len(att.Stores) == 0 {
-			t.Fatal("the scheduled operation lost its exact actor, scope, retry, or completed audit", authorized, resumed, completed, att)
+			t.Fatalf("scheduled erasure audit mismatch authorized=%d resumed=%d expected_resumes=%d completed=%d complete=%t tenant=%t slug=%t actor=%t stores=%d",
+				authorized, resumed, expectedResumes, completed, att.Complete, att.TenantID == tenant, att.TenantSlug == slug, att.Actor == f.users[tenant], len(att.Stores))
 		}
 		for _, result := range att.Stores {
 			if !result.VerifiedZero {

@@ -3854,17 +3854,18 @@ type PeeringTransitEstimate struct {
 }
 
 type ProspectEngagement struct {
-	AssessmentArtifactId   string `json:"assessment_artifact_id,omitempty"`
-	AssessmentViewId       string `json:"assessment_view_id"`
-	AssessmentViewRevision string `json:"assessment_view_revision"`
-	ConsentRevokedAt       string `json:"consent_revoked_at,omitempty"`
-	ConsentedAt            string `json:"consented_at,omitempty"`
-	ConvertedAt            string `json:"converted_at,omitempty"`
-	DestinationId          string `json:"destination_id,omitempty"`
-	EndsAt                 string `json:"ends_at"`
-	Preparer               string `json:"preparer"`
-	Revision               int    `json:"revision"`
-	StartsAt               string `json:"starts_at"`
+	AssessmentArtifactId    string `json:"assessment_artifact_id,omitempty"`
+	AssessmentDeliveryState string `json:"assessment_delivery_state,omitempty"`
+	AssessmentViewId        string `json:"assessment_view_id"`
+	AssessmentViewRevision  string `json:"assessment_view_revision"`
+	ConsentRevokedAt        string `json:"consent_revoked_at,omitempty"`
+	ConsentedAt             string `json:"consented_at,omitempty"`
+	ConvertedAt             string `json:"converted_at,omitempty"`
+	DestinationId           string `json:"destination_id,omitempty"`
+	EndsAt                  string `json:"ends_at"`
+	Preparer                string `json:"preparer"`
+	Revision                int    `json:"revision"`
+	StartsAt                string `json:"starts_at"`
 }
 
 type ProspectEngagementDecision struct {

@@ -176,6 +176,10 @@ func (s *Server) applyProspectDecision(r *http.Request, revision int64, convert 
 			if err := (store.DashboardReports{}).CompleteReportEmail(ctx, sc, out.AssessmentArtifactID, "withdrawn", time.Now().UTC()); err != nil {
 				return err
 			}
+			out, err = (store.ProspectEngagements{}).Get(ctx, sc)
+			if err != nil {
+				return err
+			}
 		}
 		return s.recordAudit(ctx, sc, r, action, sc.Tenant.String(), map[string]any{"prior_revision": revision, "revision": out.Revision})
 	})
