@@ -124,7 +124,7 @@ sflow:
 batch_size: 10
 flush_interval: 1s
 `, B.id, B.agent, strings.Join(testsupport.KafkaBrokers(), `","`), posture.LaneNamespace.Namespace, udp))
-	go shipped.ExportNetFlow(t.Context(), udp)
+	go shipped.ExportNetFlow(t.Context(), udp, [3]byte{10, 55, 0})
 
 	// 2. Attribution through the usage API, once the recorder has flushed.
 	var usage f53Meters

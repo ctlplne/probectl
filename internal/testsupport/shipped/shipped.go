@@ -710,7 +710,7 @@ func FreeUDPAddr(t *testing.T) string {
 }
 
 // ExportNetFlow is a stand-in router: it sends a NetFlow v5 datagram of five
-// records (10.55.0.x -> 192.0.2.10:443 over TCP) from 127.0.0.1 to addr every
+// records (source prefix -> 192.0.2.10:443 over TCP) from 127.0.0.1 to addr every
 // second until ctx ends. Datagrams sent before the collector's listener is up
 // are refused and dropped, as a router's are.
 func ExportNetFlow(ctx context.Context, addr string, source [3]byte) {
