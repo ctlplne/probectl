@@ -138,11 +138,13 @@ func (s *Server) recheckFlowEvidencePublication(ctx context.Context, actor *auth
 }
 
 func matchFlowEvidenceInputClocks(inputs []reportFlowInput, view reportFlowSourceRef, windows anomaly.FlowFieldComparisonClocks) bool {
-	ends := windows.Ends()
+	return matchFlowEvidenceClocks(inputs, view, windows.Ends(), windows.After.End.Sub(windows.After.Start))
+}
+
+func matchFlowEvidenceClocks(inputs []reportFlowInput, view reportFlowSourceRef, ends []time.Time, length time.Duration) bool {
 	if len(inputs) != len(ends) {
 		return false
 	}
-	length := windows.After.End.Sub(windows.After.Start)
 	for i, input := range inputs {
 		if input.ID != view.ID || input.Version != view.Version || input.Period != "current" ||
 			!input.To.Equal(ends[i]) || !input.From.Equal(ends[i].Add(-length)) ||

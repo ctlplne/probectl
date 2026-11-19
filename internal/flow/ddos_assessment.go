@@ -7,6 +7,8 @@
 package flow
 
 import (
+	"errors"
+	"net/netip"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/anomaly"
@@ -51,4 +53,25 @@ type DDoSWindowEvidence struct {
 func (r DDoSAssessmentInput) Thresholds() anomaly.DDoSThresholds {
 	return anomaly.DDoSThresholds{BytesFloor: r.BytesFloor, PacketsFloor: r.PacketsFloor, GrowthBasisPoints: r.GrowthBasisPoints,
 		VectorShareBasisPoints: r.VectorShareBasisPoints, MinObservedRecords: r.MinObservedRecords, MinObservedAddresses: r.MinObservedAddresses}
+}
+
+// ValidatedPrefix checks the detector configuration and resolves its canonical network.
+func (r DDoSAssessmentInput) ValidatedPrefix() (netip.Prefix, error) {
+	target, err := netip.ParsePrefix(r.Prefix)
+	if err != nil || target != target.Masked() || target.Addr().Is4In6() {
+		return netip.Prefix{}, errors.New("the protected prefix must be a canonical IPv4 or IPv6 prefix")
+	}
+	if _, err := QueryViewVersion(r.Version); err != nil {
+		return netip.Prefix{}, errors.New("the assessment needs an exact saved flow view revision")
+	}
+	if r.Direction != "ingress" && r.Direction != "egress" {
+		return netip.Prefix{}, errors.New("select the observed ingress or egress direction")
+	}
+	if r.PeriodSeconds != 60 && r.PeriodSeconds != 120 && r.PeriodSeconds != 300 {
+		return netip.Prefix{}, errors.New("assessment windows must be 60, 120 or 300 seconds")
+	}
+	if err := r.Thresholds().Validate(); err != nil {
+		return netip.Prefix{}, errors.New("set positive traffic and coverage floors and a valid growth and vector share")
+	}
+	return target, nil
 }

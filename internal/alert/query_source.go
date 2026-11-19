@@ -63,6 +63,9 @@ func NormalizeQuerySourceInput(input QuerySourceInput) (QuerySourceInput, error)
 			input.EverySeconds = fieldSourceWindowSeconds(field)
 		}
 	}
+	if input.EverySeconds == 0 && input.Condition.DDoS != nil {
+		input.EverySeconds = int64(input.Condition.DDoS.PeriodSeconds)
+	}
 	if input.EverySeconds == 0 {
 		input.EverySeconds = 60
 	}
@@ -82,6 +85,12 @@ func validateQuerySourceCondition(condition QueryCondition, version string, ever
 	if condition.Field != nil {
 		period := fieldSourceWindowSeconds(*condition.Field)
 		if condition.Field.Version != version || period <= 0 || every < period || every%period != 0 {
+			return ErrQueryGroups
+		}
+	}
+	if condition.DDoS != nil {
+		period := int64(condition.DDoS.PeriodSeconds)
+		if condition.DDoS.Version != version || period <= 0 || every < period || every%period != 0 {
 			return ErrQueryGroups
 		}
 	}

@@ -7,11 +7,13 @@
 import { useState } from 'react'
 import { useFlowDDoSAssessment, type SavedFlowQueryView } from '../api/flowViews'
 import type {
+  FlowDDoSAssessment,
   FlowDDoSAssessmentInput,
   FlowDDoSDetection,
   FlowDDoSWindowEvidence,
 } from '../api/sdk.gen'
 import { Button, Card, CardBody, CardHeader, ErrorState, Field, Select } from '../components'
+import { ddosAssessmentPeriod, initialDDoSAssessment } from './flowDDoSAssessment'
 import styles from './flowExplorer.module.css'
 
 const labels: Record<FlowDDoSDetection['class'], string> = {
@@ -73,8 +75,8 @@ function EvidenceWindow({ label, evidence }: { label: string; evidence: FlowDDoS
 }
 
 export function FlowDDoSAssessmentCard({ view }: { view: SavedFlowQueryView }) {
-  const period = view.definition.time?.lookback_seconds ?? 0
-  if (view.definition.time?.mode !== 'lookback' || ![60, 120, 300].includes(period)) return null
+  const period = ddosAssessmentPeriod(view)
+  if (!period) return null
   return <DDoSAssessmentForm id={view.id} revision={view.version} period={period} />
 }
 
@@ -87,23 +89,9 @@ function DDoSAssessmentForm({
   revision: string
   period: number
 }) {
-  const [input, setInput] = useState<FlowDDoSAssessmentInput>(() => ({
-    version: revision,
-    prefix: '',
-    direction: 'ingress',
-    period_seconds: period,
-    bytes_floor: '',
-    packets_floor: '',
-    growth_basis_points: 5000,
-    vector_share_basis_points: 6000,
-    min_observed_records: 1,
-    min_observed_addresses: 2,
-  }))
+  const [input, setInput] = useState(() => initialDDoSAssessment(revision, period))
   const assessment = useFlowDDoSAssessment()
-  const update = (patch: Partial<FlowDDoSAssessmentInput>) =>
-    setInput((previous) => ({ ...previous, ...patch }))
   const result = assessment.data
-  const detection = result?.detection
   return (
     <Card>
       <CardHeader title="DDoS assessment" />
@@ -117,52 +105,7 @@ function DDoSAssessmentForm({
         >
           <fieldset className={styles.group} disabled={assessment.isPending}>
             <legend>Compare completed traffic windows</legend>
-            <div className={styles.grid}>
-              <Field
-                label="Protected prefix"
-                value={input.prefix}
-                required
-                maxLength={43}
-                onChange={(event) => update({ prefix: event.target.value })}
-              />
-              <Select
-                label="Observed direction"
-                options={directions}
-                value={input.direction}
-                onChange={(event) =>
-                  update({ direction: event.target.value as FlowDDoSAssessmentInput['direction'] })
-                }
-              />
-              {(
-                [
-                  ['bytes_floor', 'Minimum bytes per window'],
-                  ['packets_floor', 'Minimum packets per window'],
-                ] as const
-              ).map(([key, label]) => (
-                <Field
-                  key={key}
-                  label={label}
-                  value={input[key]}
-                  required
-                  inputMode="numeric"
-                  pattern="[0-9]+"
-                  maxLength={64}
-                  onChange={(event) => update({ [key]: event.target.value })}
-                />
-              ))}
-              {numericFields.map(({ key, label, min, max }) => (
-                <Field
-                  key={key}
-                  label={label}
-                  type="number"
-                  min={min}
-                  max={max}
-                  required
-                  value={Number.isNaN(input[key]) ? '' : input[key]}
-                  onChange={(event) => update({ [key]: event.target.valueAsNumber })}
-                />
-              ))}
-            </div>
+            <DDoSAssessmentFields input={input} onChange={setInput} />
             <div>
               <Button type="submit">Assess traffic</Button>
             </div>
@@ -175,29 +118,92 @@ function DDoSAssessmentForm({
             description={assessment.error.message}
           />
         )}
-        {result && (
-          <>
-            <p role="status">
-              {result.prefix} · {result.direction} ·{' '}
-              {detection ? labels[detection.class] : 'No detection met the thresholds'}
-            </p>
-            {detection && (
-              <p>
-                {detection.confidence === 'corroborated'
-                  ? 'Corroborating measurements'
-                  : 'Tentative evidence'}
-                {detection.service && ` · ${detection.service}`}
-                {detection.contributing_packets &&
-                  ` · ${detection.contributing_packets} contributing packets`}
-              </p>
-            )}
-            <dl className={styles.summary}>
-              <EvidenceWindow label="Same time last week" evidence={result.before} />
-              <EvidenceWindow label="Latest completed window" evidence={result.after} />
-            </dl>
-          </>
-        )}
+        {result && <DDoSAssessmentEvidence result={result} />}
       </CardBody>
     </Card>
+  )
+}
+
+export function DDoSAssessmentFields({
+  input,
+  onChange,
+}: {
+  input: FlowDDoSAssessmentInput
+  onChange: (input: FlowDDoSAssessmentInput) => void
+}) {
+  const update = (patch: Partial<FlowDDoSAssessmentInput>) => onChange({ ...input, ...patch })
+  return (
+    <div className={styles.grid}>
+      <Field
+        label="Protected prefix"
+        value={input.prefix}
+        required
+        maxLength={43}
+        onChange={(event) => update({ prefix: event.target.value })}
+      />
+      <Select
+        label="Observed direction"
+        options={directions}
+        value={input.direction}
+        onChange={(event) =>
+          update({ direction: event.target.value as FlowDDoSAssessmentInput['direction'] })
+        }
+      />
+      {(
+        [
+          ['bytes_floor', 'Minimum bytes per window'],
+          ['packets_floor', 'Minimum packets per window'],
+        ] as const
+      ).map(([key, label]) => (
+        <Field
+          key={key}
+          label={label}
+          value={input[key]}
+          required
+          inputMode="numeric"
+          pattern="[0-9]+"
+          maxLength={64}
+          onChange={(event) => update({ [key]: event.target.value })}
+        />
+      ))}
+      {numericFields.map(({ key, label, min, max }) => (
+        <Field
+          key={key}
+          label={label}
+          type="number"
+          min={min}
+          max={max}
+          required
+          value={Number.isNaN(input[key]) ? '' : input[key]}
+          onChange={(event) => update({ [key]: event.target.valueAsNumber })}
+        />
+      ))}
+    </div>
+  )
+}
+
+export function DDoSAssessmentEvidence({ result }: { result: FlowDDoSAssessment }) {
+  const detection = result.detection
+  return (
+    <>
+      <p role="status">
+        {result.prefix} · {result.direction} ·{' '}
+        {detection ? labels[detection.class] : 'No detection met the thresholds'}
+      </p>
+      {detection && (
+        <p>
+          {detection.confidence === 'corroborated'
+            ? 'Corroborating measurements'
+            : 'Tentative evidence'}
+          {detection.service && ` · ${detection.service}`}
+          {detection.contributing_packets &&
+            ` · ${detection.contributing_packets} contributing packets`}
+        </p>
+      )}
+      <dl className={styles.summary}>
+        <EvidenceWindow label="Same time last week" evidence={result.before} />
+        <EvidenceWindow label="Latest completed window" evidence={result.after} />
+      </dl>
+    </>
   )
 }

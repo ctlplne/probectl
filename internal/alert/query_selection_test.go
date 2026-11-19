@@ -36,10 +36,10 @@ func queryEngineForTest() (*Engine, *queryRuleSourceForTest, Rule, Sample) {
 	return NewEngine(source, nil, discard()), source, rule, sample
 }
 
-func TestFieldIncidentsPreserveDeliveryWhenDependencyRoutingIsUnavailable(t *testing.T) {
+func TestSourceIncidentsPreserveDeliveryWhenDependencyRoutingIsUnavailable(t *testing.T) {
 	engine, source, rule, _ := queryEngineForTest()
 	rule.HasDependencyPolicy = true
-	source.read.FieldIncidents = true
+	source.read.SourceIncidents = true
 	attempts := 0
 	engine.dependencyRouter = func(_ context.Context, _ Rule, reads []DependencyAttempt) ([]DependencyOutcome, error) {
 		attempts += len(reads)

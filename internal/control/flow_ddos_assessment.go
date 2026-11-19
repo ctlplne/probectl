@@ -74,28 +74,16 @@ func (b nativeMCPFlowBackend) AssessFlowViewDDoS(ctx context.Context, actor *aut
 
 func normalizeDDoSAssessment(viewID string, input flow.DDoSAssessmentInput) (ddosAssessmentSettings, error) {
 	var empty ddosAssessmentSettings
-	target, err := netip.ParsePrefix(input.Prefix)
-	if err != nil || target != target.Masked() || target.Addr().Is4In6() {
-		return empty, apierror.Validation("the protected prefix must be a canonical IPv4 or IPv6 prefix")
+	target, err := input.ValidatedPrefix()
+	if err != nil {
+		return empty, apierror.Validation(err.Error())
 	}
-	if _, err := flow.QueryViewVersion(input.Version); err != nil || !reportRequirementUUID(viewID) {
+	if !reportRequirementUUID(viewID) {
 		return empty, apierror.Validation("the assessment needs an exact saved flow view revision")
 	}
-	var side string
-	switch input.Direction {
-	case "ingress":
-		side = "dst_addr"
-	case "egress":
+	side := "dst_addr"
+	if input.Direction == "egress" {
 		side = "src_addr"
-	default:
-		return empty, apierror.Validation("select the observed ingress or egress direction")
-	}
-	if input.PeriodSeconds != 60 && input.PeriodSeconds != 120 && input.PeriodSeconds != 300 {
-		return empty, apierror.Validation("assessment windows must be 60, 120 or 300 seconds")
-	}
-	limits := input.Thresholds()
-	if limits.Validate() != nil {
-		return empty, apierror.Validation("set positive traffic and coverage floors and a valid growth and vector share")
 	}
 	return ddosAssessmentSettings{View: reportFlowSourceRef{ID: viewID, Version: input.Version}, Input: input, Target: target, SideField: side}, nil
 }
@@ -153,18 +141,13 @@ func (s *Server) readFlowDDoSAssessment(ctx context.Context, actor *auth.Princip
 	if err != nil {
 		return empty, apierror.Validation("the assessment needs comparable completed UTC windows")
 	}
-	capture, err = s.captureFlowSourcesWithOptions(ctx, actor, []reportFlowSourceRef{settings.View}, true, true, reportFlowCaptureOptions{
-		SeasonalPeriodEnds: windows.Ends(), CombineSeasonal: true, DDoSAssessment: &settings, ReservedMemoryBytes: budget.MemoryBytes / 4,
-	})
+	capture, err = s.captureDDoSWindows(ctx, actor, settings, windows.Ends(), budget.MemoryBytes/4)
 	if err != nil {
 		return empty, err
 	}
-	result, err := assessCapturedDDoS(ctx, capture, settings, windows, budget.MemoryBytes/8)
-	if errors.Is(err, anomaly.ErrDDoSCoverage) {
-		return empty, apierror.Conflict("the pinned source cannot prove comparable original flow observations").Wrap(err)
-	}
+	result, err := assessCapturedDDoS(ctx, capture, settings, windows, 0, 1, budget.MemoryBytes/8)
 	if err != nil {
-		return empty, err
+		return empty, mapDDoSCoverage(err)
 	}
 	recheck := func(context.Context) error { return s.recheckFlowEvidencePublication(ctx, actor, capture) }
 	if retain != nil {
@@ -176,4 +159,29 @@ func (s *Server) readFlowDDoSAssessment(ctx context.Context, actor *auth.Princip
 		return empty, err
 	}
 	return result, ctx.Err()
+}
+
+func (s *Server) captureDDoSWindows(ctx context.Context, actor *auth.Principal, settings ddosAssessmentSettings, ends []time.Time, reserved int64) (*reportFlowCapture, error) {
+	capture, err := s.captureFlowSourcesWithOptions(ctx, actor, []reportFlowSourceRef{settings.View}, true, true, reportFlowCaptureOptions{
+		SeasonalPeriodEnds: ends, CombineSeasonal: true, DDoSAssessment: &settings, ReservedMemoryBytes: reserved,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(capture.Results) != len(ends) || !matchDDoSEvidenceClocks(capture.Inputs, settings, ends) {
+		capture.Close()
+		return nil, mapDDoSCoverage(anomaly.ErrDDoSCoverage)
+	}
+	return capture, nil
+}
+
+func matchDDoSEvidenceClocks(inputs []reportFlowInput, settings ddosAssessmentSettings, ends []time.Time) bool {
+	return matchFlowEvidenceClocks(inputs, settings.View, ends, time.Duration(settings.Input.PeriodSeconds)*time.Second)
+}
+
+func mapDDoSCoverage(err error) error {
+	if errors.Is(err, anomaly.ErrDDoSCoverage) {
+		return apierror.Conflict("the pinned source cannot prove comparable original flow observations").Wrap(err)
+	}
+	return err
 }

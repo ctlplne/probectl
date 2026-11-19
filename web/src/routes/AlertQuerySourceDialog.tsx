@@ -27,6 +27,8 @@ import {
   Select,
 } from '../components'
 import { DateTime } from '../time/DateTime'
+import { DDoSAssessmentFields } from './FlowDDoSAssessmentCard'
+import { ddosAssessmentPeriod, initialDDoSAssessment } from './flowDDoSAssessment'
 import { FieldComparisonFields } from './FlowFieldComparisonCard'
 import { fieldComparisonPlan, initialFieldComparison } from './flowFieldComparison'
 import styles from './alerts.module.css'
@@ -211,7 +213,9 @@ function QuerySourceContents({
             <p>
               {input.condition.mode === 'field_change'
                 ? 'Each qualifying episode cites the completed before and after windows in its incident.'
-                : 'New-group mode learns the initial complete top set, then alerts on newly selected groups.'}
+                : input.condition.mode === 'ddos_assessment'
+                  ? 'An incident requires two adjacent qualifying traffic windows.'
+                  : 'New-group mode learns the initial complete top set, then alerts on newly selected groups.'}
               {' Actual evaluation follows the configured alert tick.'}
             </p>
             <Button
@@ -220,7 +224,8 @@ function QuerySourceContents({
                 !canWrite ||
                 !input.view_id ||
                 !input.view_version ||
-                (input.condition.mode === 'field_change' && !input.condition.field)
+                (input.condition.mode === 'field_change' && !input.condition.field) ||
+                (input.condition.mode === 'ddos_assessment' && !input.condition.ddos)
               }
             >
               {rule ? 'Save current source' : 'Create query alert'}
@@ -273,11 +278,12 @@ function QuerySourceEditor({
   const current = useFlowQueryView(value.view_id || undefined, identity)
   const source = current.data?.id === value.view_id ? current.data : selected
   const fieldPlan = fieldComparisonPlan(source)
+  const ddosPeriod = ddosAssessmentPeriod(source)
   const condition = value.condition
-  const fieldInterval =
+  const minimumInterval =
     condition.mode === 'field_change' && condition.field
       ? (condition.field.period_seconds ?? 86400)
-      : 1
+      : (condition.ddos?.period_seconds ?? 1)
   const bindQuery = (item: SavedFlowQueryView) => {
     const next = { ...value, view_id: item.id, view_version: item.version }
     if (condition.mode === 'field_change') {
@@ -298,6 +304,20 @@ function QuerySourceEditor({
         field: compatible ? { ...prior, version: item.version } : field,
       }
       next.every_seconds = compatible ? next.every_seconds : (field?.period_seconds ?? 86400)
+    }
+    if (condition.mode === 'ddos_assessment') {
+      const period = ddosAssessmentPeriod(item)
+      const prior = condition.ddos
+      const compatible = prior && item.id === value.view_id && prior.period_seconds === period
+      next.condition = {
+        mode: 'ddos_assessment',
+        ddos: compatible
+          ? { ...prior, version: item.version }
+          : period
+            ? initialDDoSAssessment(item.version, period)
+            : undefined,
+      }
+      next.every_seconds = compatible ? next.every_seconds : period
     }
     onChange(next)
   }
@@ -380,6 +400,9 @@ function QuerySourceEditor({
           ...(fieldPlan || condition.mode === 'field_change'
             ? [{ value: 'field_change', label: 'Change across completed flow windows' }]
             : []),
+          ...(ddosPeriod || condition.mode === 'ddos_assessment'
+            ? [{ value: 'ddos_assessment', label: 'Sustained DDoS pressure' }]
+            : []),
         ]}
         onChange={(e) => {
           if (e.target.value === 'field_change' && fieldPlan) {
@@ -388,6 +411,15 @@ function QuerySourceEditor({
               ...value,
               every_seconds: field.period_seconds ?? 86400,
               condition: { mode: 'field_change', field },
+            })
+          } else if (e.target.value === 'ddos_assessment' && ddosPeriod) {
+            onChange({
+              ...value,
+              every_seconds: ddosPeriod,
+              condition: {
+                mode: 'ddos_assessment',
+                ddos: initialDDoSAssessment(value.view_version, ddosPeriod),
+              },
             })
           } else if (e.target.value === 'new_group') {
             onChange({ ...value, condition: { mode: 'new_group' } })
@@ -457,12 +489,23 @@ function QuerySourceEditor({
             lookback.
           </p>
         ))}
+      {condition.mode === 'ddos_assessment' &&
+        (ddosPeriod && condition.ddos ? (
+          <DDoSAssessmentFields
+            input={condition.ddos}
+            onChange={(ddos) =>
+              onChange({ ...value, condition: { mode: 'ddos_assessment', ddos } })
+            }
+          />
+        ) : (
+          <p>Choose a saved flow view with a 60, 120 or 300 second lookback.</p>
+        ))}
       <Field
         label="Minimum seconds between reads"
         type="number"
-        min={fieldInterval}
+        min={minimumInterval}
         max={9223372036}
-        step={fieldInterval}
+        step={minimumInterval}
         value={String(value.every_seconds ?? 60)}
         onChange={(e) => onChange({ ...value, every_seconds: Number(e.target.value) })}
         required

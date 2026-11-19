@@ -347,11 +347,14 @@ func TestNativeMCPDeclaredResultsContainNoUncheckedMapsRecursively(t *testing.T)
 	for i := 0; i < backend.NumMethod(); i++ {
 		walk(backend.Method(i).Type.Out(0))
 	}
-	receipt, ok := reflect.TypeOf((*AlertQueryBackend)(nil)).Elem().MethodByName("AlertFieldReceiptGet")
-	if !ok {
-		t.Fatal("native field receipt result seam is unavailable")
+	receipts := reflect.TypeOf((*AlertQueryBackend)(nil)).Elem()
+	for _, name := range []string{"AlertFieldReceiptGet", "AlertDDoSReceiptGet"} {
+		receipt, ok := receipts.MethodByName(name)
+		if !ok {
+			t.Fatalf("native receipt result seam %s is unavailable", name)
+		}
+		walk(receipt.Type.Out(0))
 	}
-	walk(receipt.Type.Out(0))
 }
 
 func TestNativeMCPCancellationDoesNotPublishPreparedData(t *testing.T) {

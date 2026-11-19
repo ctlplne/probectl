@@ -122,6 +122,14 @@ func fieldFlowReceiptSubjectSQL() string {
  ELSE COALESCE(` + document + `::text,'') END)`
 }
 
+func ddosFlowReceiptSubjectSQL() string {
+	const document = `(convert_from(subject_row.ddos_receipt,'UTF8')::jsonb)`
+	scope := flowReceiptScopeSubjectSQL(`(` + document + `->'scope')`)
+	return `(CASE WHEN ` + document + `->'version'='1'::jsonb THEN
+ COALESCE(` + document + ` #>> '{evidence,current,prefix}','') || ' ' || ` + scope + `
+ ELSE COALESCE(` + document + `::text,'') END)`
+}
+
 func flowReceiptScopeSubjectSQL(document string) string {
 	return `(CASE WHEN ` + document + `->'version' IN ('1'::jsonb,'2'::jsonb,'3'::jsonb) THEN (
  jsonb_path_query_array(` + document + `,'$.contexts[*].resource.site_label') ||

@@ -16,15 +16,26 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-type AlertFieldReceipt struct {
+type AlertFlowReceipt struct {
 	ObservedAt time.Time
 	Body       []byte
 }
 
-// AppendFieldReceipt retains one complete window on the existing alert
-// ledger. The incident, exact observations and new state share the caller's
-// publication transaction. The ordinary receipt list omits the private body.
-func (r AlertEvaluations) AppendFieldReceipt(ctx context.Context, sc tenancy.Scope, revision time.Time, receipt alert.EvaluationReceipt, body []byte, maxBytes int64) error {
+// AlertFlowReceiptKind selects a fixed, private receipt column. Each kind uses
+// the same tenant predicate, expiry and bounded transfer contract.
+type AlertFlowReceiptKind uint8
+
+const (
+	AlertFieldChangeReceipt AlertFlowReceiptKind = iota + 1
+	AlertDDoSReceipt
+)
+
+// AppendFlowReceipt publishes a complete window on the existing ledger. The
+// incident, evidence and new state share the caller's tenant transaction.
+func (r AlertEvaluations) AppendFlowReceipt(ctx context.Context, sc tenancy.Scope, kind AlertFlowReceiptKind, revision time.Time, receipt alert.EvaluationReceipt, body []byte, maxBytes int64) error {
+	if kind != AlertFieldChangeReceipt && kind != AlertDDoSReceipt {
+		return alert.ErrQueryGroups
+	}
 	if err := alertQueryScope(ctx, sc, revision, maxBytes); err != nil {
 		return err
 	}
@@ -37,9 +48,11 @@ func (r AlertEvaluations) AppendFieldReceipt(ctx context.Context, sc tenancy.Sco
 	if err := r.Append(ctx, sc, receipt); err != nil {
 		return err
 	}
-	updated, err := sc.Q.Exec(ctx, `UPDATE alert_evaluation_receipts SET field_change_receipt=$6
+	updated, err := sc.Q.Exec(ctx, `UPDATE alert_evaluation_receipts SET
+ field_change_receipt=CASE WHEN $7::int=1 THEN $6::bytea ELSE field_change_receipt END,
+ ddos_receipt=CASE WHEN $7::int=2 THEN $6::bytea ELSE ddos_receipt END
  WHERE tenant_id=$1 AND rule_id=$2 AND fingerprint=$3 AND observed_at=$4 AND rule_revision=$5
- AND evaluation_state='firing'`, sc.Tenant.String(), receipt.RuleID, receipt.Fingerprint, receipt.ObservedAt, receipt.RuleRevision, body)
+ AND evaluation_state='firing'`, sc.Tenant.String(), receipt.RuleID, receipt.Fingerprint, receipt.ObservedAt, receipt.RuleRevision, body, int(kind))
 	if err != nil {
 		return err
 	}
@@ -49,10 +62,13 @@ func (r AlertEvaluations) AppendFieldReceipt(ctx context.Context, sc tenancy.Sco
 	return ctx.Err()
 }
 
-// GetFieldReceipt bounds the private PostgreSQL value before transfer. The
-// caller checks the retained source requirements before publishing its body.
-func (AlertEvaluations) GetFieldReceipt(ctx context.Context, sc tenancy.Scope, ruleID, fingerprint string, revision time.Time, maxBytes int64) (AlertFieldReceipt, error) {
-	var out AlertFieldReceipt
+// GetFlowReceipt bounds the private PostgreSQL value before transfer. The
+// caller checks all retained source requirements before publishing its body.
+func (AlertEvaluations) GetFlowReceipt(ctx context.Context, sc tenancy.Scope, kind AlertFlowReceiptKind, ruleID, fingerprint string, revision time.Time, maxBytes int64) (AlertFlowReceipt, error) {
+	var out AlertFlowReceipt
+	if kind != AlertFieldChangeReceipt && kind != AlertDDoSReceipt {
+		return out, alert.ErrQueryGroups
+	}
 	if err := alertQueryScope(ctx, sc, revision, maxBytes); err != nil {
 		return out, err
 	}
@@ -60,17 +76,18 @@ func (AlertEvaluations) GetFieldReceipt(ctx context.Context, sc tenancy.Scope, r
 		return out, alert.ErrQueryGroups
 	}
 	var size int64
-	err := sc.Q.QueryRow(ctx, `SELECT observed_at, octet_length(field_change_receipt)::bigint,
- CASE WHEN octet_length(field_change_receipt) <= $5 THEN field_change_receipt END
- FROM alert_evaluation_receipts WHERE tenant_id=$1 AND rule_id=$2 AND fingerprint=$3 AND rule_revision=$4
- AND evaluation_state='firing' AND expires_at>clock_timestamp() AND field_change_receipt IS NOT NULL
- ORDER BY observed_at DESC LIMIT 1`, sc.Tenant.String(), ruleID, fingerprint, revision.UTC().Format(time.RFC3339Nano), maxBytes).
+	err := sc.Q.QueryRow(ctx, `SELECT observed_at, octet_length(proof.body)::bigint,
+ CASE WHEN octet_length(proof.body) <= $5 THEN proof.body END
+ FROM alert_evaluation_receipts, LATERAL (SELECT CASE $6::int
+ WHEN 1 THEN field_change_receipt WHEN 2 THEN ddos_receipt END) AS proof(body) WHERE tenant_id=$1 AND rule_id=$2 AND fingerprint=$3 AND rule_revision=$4
+ AND evaluation_state='firing' AND expires_at>clock_timestamp() AND proof.body IS NOT NULL
+ ORDER BY observed_at DESC LIMIT 1`, sc.Tenant.String(), ruleID, fingerprint, revision.UTC().Format(time.RFC3339Nano), maxBytes, int(kind)).
 		Scan(&out.ObservedAt, &size, &out.Body)
 	if err != nil {
-		return AlertFieldReceipt{}, err
+		return AlertFlowReceipt{}, err
 	}
 	if size < 1 || size > maxBytes || int64(len(out.Body)) != size {
-		return AlertFieldReceipt{}, alert.ErrQueryGroups
+		return AlertFlowReceipt{}, alert.ErrQueryGroups
 	}
 	return out, ctx.Err()
 }

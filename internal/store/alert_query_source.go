@@ -172,7 +172,7 @@ func checkAlertQueryParents(ctx context.Context, sc tenancy.Scope, source alert.
  JOIN users u ON u.tenant_id=v.tenant_id AND u.id=$2::text::uuid AND u.status='active'
  WHERE v.tenant_id=$1 AND v.id=$3 AND v.version=$4
  AND (v.owner_id=$2::text OR v.visibility='tenant')
- AND ($5='new_group' OR EXISTS (SELECT 1 FROM jsonb_array_elements(v.definition->'plan'->'metrics') m
+ AND ($5 IN ('new_group','ddos_assessment') OR EXISTS (SELECT 1 FROM jsonb_array_elements(v.definition->'plan'->'metrics') m
 	     WHERE (m->>'measure')||':'||(m->>'calculation')=$6
 	       AND ($5<>'field_change' OR m->>'role'='primary')))`,
 		sc.Tenant.String(), source.OwnerUserID, source.ViewID, version, source.Condition.Mode, measure).Scan(&present)

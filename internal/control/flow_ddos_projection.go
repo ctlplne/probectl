@@ -22,16 +22,16 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, settings ddosAssessmentSettings, windows anomaly.FlowFieldComparisonClocks, work int64) (flow.DDoSAssessment, error) {
+func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, settings ddosAssessmentSettings, windows anomaly.FlowFieldComparisonClocks, beforeIndex, afterIndex int, work int64) (flow.DDoSAssessment, error) {
 	var empty flow.DDoSAssessment
 	tenant, ok := tenancy.FromContext(ctx)
 	if !ok || capture == nil || tenant.String() != capture.TenantID {
 		return empty, tenancy.ErrNoTenant
 	}
-	if len(capture.Results) != 2 || capture.SourceGeneration < 1 || !matchFlowEvidenceInputClocks(capture.Inputs, settings.View, windows) {
+	if capture.SourceGeneration < 1 || beforeIndex < 0 || afterIndex <= beforeIndex || afterIndex >= len(capture.Results) {
 		return empty, anomaly.ErrDDoSCoverage
 	}
-	left, right := capture.Results[0], capture.Results[1]
+	left, right := capture.Results[beforeIndex], capture.Results[afterIndex]
 	if left.TenantID != capture.TenantID || right.TenantID != capture.TenantID {
 		return empty, tenancy.ErrNoTenant
 	}

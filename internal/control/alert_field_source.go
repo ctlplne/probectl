@@ -79,7 +79,7 @@ func (s *Server) readAlertFieldRule(ctx context.Context, rule alert.Rule, source
 	for _, key := range next.Keys {
 		samples = append(samples, alert.Sample{Labels: map[string]string{"query_view_id": comparison.ViewID, "query_group": key}, Value: 1, Reason: "saved flow field comparison met"})
 	}
-	return alert.RuleMetricRead{Samples: samples, FieldIncidents: true,
+	return alert.RuleMetricRead{Samples: samples, SourceIncidents: true,
 		QuerySelection: &alert.QuerySelection{TenantID: rule.TenantID, RuleID: rule.ID, Binding: next.Binding, At: next.At, Complete: true}}, nil
 }
 
@@ -87,15 +87,10 @@ func (s *Server) publishAlertFieldEpisodes(ctx context.Context, sc tenancy.Scope
 	if _, err := sc.Q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('incident:'||$1::text,0))`, sc.Tenant.String()); err != nil {
 		return nil, err
 	}
-	identity, err := json.Marshal([4]string{sc.Tenant.String(), rule.ID, rule.UpdatedAt.UTC().Format(time.RFC3339Nano), comparison.After.To.UTC().Format(time.RFC3339Nano)})
+	fingerprint, err := flowEpisodeReceiptFingerprint(sc.Tenant.String(), rule.ID, rule.UpdatedAt, comparison.After.To)
 	if err != nil {
 		return nil, err
 	}
-	digest := crypto.Hash(identity)
-	if len(digest) != 32 {
-		return nil, alert.ErrQueryGroups
-	}
-	fingerprint := hex.EncodeToString(digest)
 	proof := storedFieldReceipt{Version: 1, Scope: scope, Evidence: alert.FieldEvaluationEvidence{Comparison: comparison}}
 	proof.Evidence.Comparison.Changes = make([]flow.FieldChange, 0, len(started))
 	proof.Evidence.Signals = make([]alert.FieldSignalLink, 0, len(started))
@@ -123,7 +118,7 @@ func (s *Server) publishAlertFieldEpisodes(ctx context.Context, sc tenancy.Scope
 	receipt := alert.EvaluationReceipt{ContractVersion: alert.EvaluationReceiptVersion, Fingerprint: fingerprint, RuleID: rule.ID,
 		RuleRevision: rule.UpdatedAt.UTC().Format(time.RFC3339Nano), State: alert.EvaluationFiring, ObservedAt: comparison.After.To,
 		Expectation: alert.EvaluationExpectation{Kind: rule.Type}, BreachCount: 1, RequiredBreaches: 1, Reason: "Saved flow field changes"}
-	if err := (store.AlertEvaluations{}).AppendFieldReceipt(ctx, sc, rule.UpdatedAt, receipt, body, memory); err != nil {
+	if err := (store.AlertEvaluations{}).AppendFlowReceipt(ctx, sc, store.AlertFieldChangeReceipt, rule.UpdatedAt, receipt, body, memory); err != nil {
 		return nil, err
 	}
 	return committed, audit.TenantRecord(ctx, sc, owner, "alert.field.published", fingerprint, map[string]any{"rule_id": rule.ID, "signals": len(started)})
@@ -134,4 +129,16 @@ func fieldIncidentSignal(rule alert.Rule, comparison flow.FieldComparison, episo
 		Title: rule.Name, Summary: "Saved flow field comparison met", Target: "query:" + rule.ID + ":" + episode.GroupKey, OccurredAt: comparison.After.To,
 		Attributes: map[string]string{"rule_id": rule.ID, "query_view_id": comparison.ViewID, "query_group": episode.GroupKey,
 			"probectl.alert.field.episode_id": episode.SignalID, "probectl.alert.field.receipt_fingerprint": receipt}}
+}
+
+func flowEpisodeReceiptFingerprint(tenant, rule string, revision, at time.Time) (string, error) {
+	identity, err := json.Marshal([4]string{tenant, rule, revision.UTC().Format(time.RFC3339Nano), at.UTC().Format(time.RFC3339Nano)})
+	if err != nil {
+		return "", err
+	}
+	digest := crypto.Hash(identity)
+	if len(digest) != 32 {
+		return "", alert.ErrQueryGroups
+	}
+	return hex.EncodeToString(digest), nil
 }

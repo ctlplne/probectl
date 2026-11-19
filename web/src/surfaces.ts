@@ -507,6 +507,29 @@ export const SURFACES: SurfaceDecl[] = [
     },
   },
   {
+    capability: 'Scheduled traffic pressure incidents and original receipts',
+    featureIds: ['F8', 'F17'],
+    sprint: 'FX-18',
+    kind: 'native',
+    route: '/alerts',
+    evidence: [
+      'openapi:/v1/alerts/rules/{id}/ddos-receipt',
+      'cli:probectl alert ddos-receipt',
+      'file:web/src/routes/AlertQuerySourceDialog.tsx',
+      'file:web/src/routes/IncidentDDoSReceipt.tsx',
+    ],
+    liveReceipt: {
+      status: 'live-green',
+      evidence: [
+        'ci:.github/workflows/ci.yml:make test-integration',
+        'test:internal/control/alert_ddos_source_integration_test.go:TestScheduledDDoSUsesAdjacentOwnedWindowsAndSuppressesOneBurst',
+        'test:internal/control/alert_ddos_served_integration_test.go:TestScheduledDDoSEditorAndReceiptServedInBothThemes',
+        'test:internal/tenantlife/alert_seasonal_flow_subject_integration_test.go:TestScheduledDDoSReceiptSubjectErasureKeepsSiblingAndStructuralReferences',
+      ],
+      note: 'The real tenant stores verify two adjacent detections, one cited episode and suppression of the sibling burst. The served browser proof uses controlled records in both themes.',
+    },
+  },
+  {
     capability: 'Scheduled field incidents and exact source receipts',
     featureIds: ['F8', 'F17'],
     sprint: 'FX-17',

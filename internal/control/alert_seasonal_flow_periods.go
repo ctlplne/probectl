@@ -90,8 +90,8 @@ func (s *Server) prepareConfiguredFlowCapture(ctx context.Context, actor *auth.P
 		ends = ends[len(ends)-1:]
 	}
 	if opts.DDoSAssessment != nil {
-		if opts.FieldComparison != nil || !opts.CombineSeasonal || len(opts.SeasonalPeriodEnds) != 2 || opts.DDoSAssessment.View != refs[0] {
-			return nil, 0, 0, apierror.Validation("flow assessment requires its complete pinned window pair")
+		if opts.FieldComparison != nil || !opts.CombineSeasonal || (len(opts.SeasonalPeriodEnds) != 2 && len(opts.SeasonalPeriodEnds) != 4) || opts.DDoSAssessment.View != refs[0] {
+			return nil, 0, 0, apierror.Validation("flow assessment requires its complete pinned windows")
 		}
 		prepared, bytes, count, err := s.prepareSeasonalFlowPeriods(ctx, actor, refs[0], ends, now, memory)
 		if err != nil {

@@ -170,6 +170,13 @@ export interface AlertChannelTestResponse {
   type: "webhook" | "email"
 }
 
+export interface AlertDDoSEvaluationEvidence {
+  current: FlowDDoSAssessment
+  episode_id: string
+  incident_id: string
+  previous: FlowDDoSAssessment
+}
+
 export interface AlertDependencyGraphInput {
   nodes: AlertDependencyNodeInput[]
 }
@@ -274,9 +281,10 @@ export interface AlertPathHealthSourceState {
 
 export interface AlertQueryCondition {
   comparison?: "gt" | "gte" | "lt" | "lte" | "eq" | "neq"
+  ddos?: FlowDDoSAssessmentInput
   field?: FlowFieldComparisonInput
   metric?: string
-  mode: "threshold" | "new_group" | "field_change"
+  mode: "threshold" | "new_group" | "field_change" | "ddos_assessment"
   threshold?: string
 }
 
@@ -4299,6 +4307,13 @@ export interface DeleteMaintenanceWindowRequest {
 
 export type DeleteMaintenanceWindowResponse = void
 
+export interface GetAlertDDoSReceiptRequest {
+  id: string
+  fingerprint: string
+}
+
+export type GetAlertDDoSReceiptResponse = AlertDDoSEvaluationEvidence
+
 export interface GetAlertDependencyPolicyRequest {
   id: string
 }
@@ -6259,6 +6274,14 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async getAlertDDoSReceipt(request: GetAlertDDoSReceiptRequest): Promise<GetAlertDDoSReceiptResponse> {
+    let path = "/v1/alerts/rules/{id}/ddos-receipt"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.fingerprint !== undefined) query.set("fingerprint", String(request.fingerprint))
+    return this.requestJSON<GetAlertDDoSReceiptResponse>("GET", path, query, undefined)
   }
 
   async getAlertDependencyPolicy(request: GetAlertDependencyPolicyRequest): Promise<GetAlertDependencyPolicyResponse> {

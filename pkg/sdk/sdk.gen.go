@@ -250,6 +250,13 @@ type AlertChannelTestResponse struct {
 	Type     string `json:"type"`
 }
 
+type AlertDDoSEvaluationEvidence struct {
+	Current    FlowDDoSAssessment `json:"current"`
+	EpisodeId  string             `json:"episode_id"`
+	IncidentId string             `json:"incident_id"`
+	Previous   FlowDDoSAssessment `json:"previous"`
+}
+
 type AlertDependencyGraphInput struct {
 	Nodes []AlertDependencyNodeInput `json:"nodes"`
 }
@@ -356,6 +363,7 @@ type AlertPathHealthSourceState struct {
 
 type AlertQueryCondition struct {
 	Comparison string                   `json:"comparison,omitempty"`
+	Ddos       FlowDDoSAssessmentInput  `json:"ddos,omitzero"`
 	Field      FlowFieldComparisonInput `json:"field,omitzero"`
 	Metric     string                   `json:"metric,omitempty"`
 	Mode       string                   `json:"mode"`
@@ -4846,6 +4854,29 @@ func (c *Client) DeleteMaintenanceWindow(ctx context.Context, req DeleteMaintena
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Read the original observations for scheduled traffic pressure
+type GetAlertDDoSReceiptRequest struct {
+	Id          string  `json:"-"`
+	Fingerprint *string `json:"-"`
+}
+
+func (c *Client) GetAlertDDoSReceipt(ctx context.Context, req GetAlertDDoSReceiptRequest) (*AlertDDoSEvaluationEvidence, error) {
+	path := "/v1/alerts/rules/{id}/ddos-receipt"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.Fingerprint != nil {
+		query.Set("fingerprint", formatQueryValue(*req.Fingerprint))
+	}
+	var out AlertDDoSEvaluationEvidence
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Read notification dependency configuration

@@ -37,15 +37,24 @@ func (s *Server) handleGetAlertFieldReceipt(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) readAlertFieldReceipt(ctx context.Context, actor *auth.Principal, ruleID, fingerprint string, credential func(context.Context) error, retain pathHealthPublication) (alert.FieldEvaluationEvidence, error) {
-	var out alert.FieldEvaluationEvidence
+	return readAlertFlowReceipt(ctx, s, actor, ruleID, fingerprint, "field", credential, retain,
+		func(ctx context.Context) (alert.FieldEvaluationEvidence, []byte, error) {
+			proof, raw, err := s.loadAlertFieldReceipt(ctx, actor, ruleID, fingerprint)
+			return proof.Evidence, raw, err
+		})
+}
+
+func readAlertFlowReceipt[Evidence any](ctx context.Context, s *Server, actor *auth.Principal, ruleID, fingerprint, kind string,
+	credential func(context.Context) error, retain pathHealthPublication, read func(context.Context) (Evidence, []byte, error)) (Evidence, error) {
+	var out Evidence
 	if !reportRequirementUUID(ruleID) || !alert.ValidFieldDigest(fingerprint) {
-		return out, apierror.Validation("a rule ID and exact field receipt fingerprint are required")
+		return out, apierror.Validation("a rule ID and exact " + kind + " receipt fingerprint are required")
 	}
 	if credential == nil || actor == nil || actor.UserID == "" || actor.TenantID == "" {
-		return out, apierror.Forbidden("current field receipt credential is unavailable")
+		return out, apierror.Forbidden("current " + kind + " receipt credential is unavailable")
 	}
 	if s.fairnessGate == nil {
-		return out, apierror.Unavailable("field receipt admission is unavailable")
+		return out, apierror.Unavailable(kind + " receipt admission is unavailable")
 	}
 	release, err := s.fairnessGate.BeginQuery(ctx, actor.TenantID)
 	if err != nil {
@@ -57,13 +66,13 @@ func (s *Server) readAlertFieldReceipt(ctx context.Context, actor *auth.Principa
 			release()
 		}
 	}()
-	load := func(ctx context.Context) (storedFieldReceipt, []byte, error) {
+	load := func(ctx context.Context) (Evidence, []byte, error) {
 		if err := credential(ctx); err != nil {
-			return storedFieldReceipt{}, nil, err
+			return out, nil, err
 		}
-		proof, raw, err := s.loadAlertFieldReceipt(ctx, actor, ruleID, fingerprint)
+		proof, raw, err := read(ctx)
 		if err != nil {
-			return storedFieldReceipt{}, nil, err
+			return out, nil, err
 		}
 		return proof, raw, credential(ctx)
 	}
@@ -78,7 +87,7 @@ func (s *Server) readAlertFieldReceipt(ctx context.Context, actor *auth.Principa
 				return err
 			}
 			if !bytes.Equal(original, current) {
-				return apierror.Conflict("field receipt changed during publication")
+				return apierror.Conflict(kind + " receipt changed during publication")
 			}
 			return nil
 		}
@@ -87,7 +96,7 @@ func (s *Server) readAlertFieldReceipt(ctx context.Context, actor *auth.Principa
 		}
 		retained = true
 	}
-	return proof.Evidence, ctx.Err()
+	return proof, ctx.Err()
 }
 
 func (s *Server) loadAlertFieldReceipt(ctx context.Context, actor *auth.Principal, ruleID, fingerprint string) (storedFieldReceipt, []byte, error) {
@@ -116,7 +125,7 @@ func (s *Server) loadAlertFieldReceipt(ctx context.Context, actor *auth.Principa
 				if source.Condition.Mode != alert.FieldChangeCondition || source.Condition.Field == nil {
 					return apierror.NotFound("field receipt not found")
 				}
-				record, err := (store.AlertEvaluations{}).GetFieldReceipt(ctx, sc, ruleID, fingerprint, rule.UpdatedAt, budget.MemoryBytes/8)
+				record, err := (store.AlertEvaluations{}).GetFlowReceipt(ctx, sc, store.AlertFieldChangeReceipt, ruleID, fingerprint, rule.UpdatedAt, budget.MemoryBytes/8)
 				if err != nil {
 					return err
 				}
@@ -140,7 +149,7 @@ func (s *Server) loadAlertFieldReceipt(ctx context.Context, actor *auth.Principa
 	return proof, raw, ctx.Err()
 }
 
-func decodeFieldReceipt(ctx context.Context, record store.AlertFieldReceipt, source alert.QuerySource, memory int64) (storedFieldReceipt, *reportFlowCapture, error) {
+func decodeFieldReceipt(ctx context.Context, record store.AlertFlowReceipt, source alert.QuerySource, memory int64) (storedFieldReceipt, *reportFlowCapture, error) {
 	var proof, empty storedFieldReceipt
 	field := source.Condition.Field
 	if field == nil || record.ObservedAt.IsZero() || int64(len(record.Body)) > memory {
@@ -180,6 +189,13 @@ func decodeFieldReceipt(ctx context.Context, record store.AlertFieldReceipt, sou
 	if !matchFlowEvidenceInputClocks(capture.Inputs, settings.View, windows) {
 		return empty, nil, alert.ErrQueryGroups
 	}
+	if err := checkStoredFlowReceiptInputs(ctx, capture, memory/2); err != nil {
+		return empty, nil, err
+	}
+	return proof, capture, ctx.Err()
+}
+
+func checkStoredFlowReceiptInputs(ctx context.Context, capture *reportFlowCapture, memory int64) error {
 	usesTags := slices.Contains(capture.Permissions, permTagsRead)
 	checkedRouting := map[*flowRoutingSnapshotValidity]bool{}
 	for _, input := range capture.Inputs {
@@ -187,12 +203,12 @@ func decodeFieldReceipt(ctx context.Context, record store.AlertFieldReceipt, sou
 		if input.RoutingSource && checkedRouting[input.Routing] {
 			checked.Routing, checked.RoutingSource = nil, false
 		}
-		if err := validateReportSourceInputs(ctx, []reportFlowInput{checked}, usesTags, memory/2); err != nil {
-			return empty, nil, err
+		if err := validateReportSourceInputs(ctx, []reportFlowInput{checked}, usesTags, memory); err != nil {
+			return err
 		}
 		if input.RoutingSource {
 			checkedRouting[input.Routing] = true
 		}
 	}
-	return proof, capture, ctx.Err()
+	return ctx.Err()
 }

@@ -2337,6 +2337,79 @@
         }
       }
     },
+    "/v1/alerts/rules/{id}/ddos-receipt": {
+      "get": {
+        "operationId": "getAlertDDoSReceipt",
+        "summary": "Read the original observations for scheduled traffic pressure",
+        "description": "Returns both adjacent completed observations and their matching weekly reference windows. Requires alert.read, current saved-view access and all original source grants.",
+        "tags": [
+          "alerts"
+        ],
+        "x-required-permission": "alert.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fingerprint",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized traffic assessment evidence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertDDoSEvaluationEvidence"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/alerts/rules/{id}/field-receipt": {
       "get": {
         "operationId": "getAlertFieldReceipt",
@@ -22964,7 +23037,8 @@
             "enum": [
               "threshold",
               "new_group",
-              "field_change"
+              "field_change",
+              "ddos_assessment"
             ]
           },
           "metric": {
@@ -22990,6 +23064,10 @@
           "field": {
             "$ref": "#/components/schemas/FlowFieldComparisonInput",
             "description": "Field comparison policy with its version equal to the enclosing view_version. The schedule is a whole multiple of the window cadence."
+          },
+          "ddos": {
+            "$ref": "#/components/schemas/FlowDDoSAssessmentInput",
+            "description": "The traffic assessment must use the enclosing saved-view revision. An incident requires two adjacent qualifying windows."
           }
         },
         "oneOf": [
@@ -23005,8 +23083,17 @@
               "threshold"
             ],
             "not": {
-              "required": [
-                "field"
+              "anyOf": [
+                {
+                  "required": [
+                    "field"
+                  ]
+                },
+                {
+                  "required": [
+                    "ddos"
+                  ]
+                }
               ]
             }
           },
@@ -23037,6 +23124,11 @@
                   "required": [
                     "field"
                   ]
+                },
+                {
+                  "required": [
+                    "ddos"
+                  ]
                 }
               ]
             }
@@ -23066,10 +23158,75 @@
                   "required": [
                     "threshold"
                   ]
+                },
+                {
+                  "required": [
+                    "ddos"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "mode": {
+                "const": "ddos_assessment"
+              }
+            },
+            "required": [
+              "ddos"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "metric"
+                  ]
+                },
+                {
+                  "required": [
+                    "comparison"
+                  ]
+                },
+                {
+                  "required": [
+                    "threshold"
+                  ]
+                },
+                {
+                  "required": [
+                    "field"
+                  ]
                 }
               ]
             }
           }
+        ]
+      },
+      "AlertDDoSEvaluationEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "previous": {
+            "$ref": "#/components/schemas/FlowDDoSAssessment"
+          },
+          "current": {
+            "$ref": "#/components/schemas/FlowDDoSAssessment"
+          },
+          "episode_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "previous",
+          "current",
+          "episode_id",
+          "incident_id"
         ]
       },
       "AlertFieldEvaluationEvidence": {
@@ -23229,36 +23386,35 @@
       "description": "Create an owned path/interface error-climb rule. Current source admission and configuring-user/credential grants precede atomic tenant-RLS persistence. Renotify zero means one firing notification per episode."
     },
     "AlertQuerySourceInput": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "view_id",
-          "view_version",
-          "condition"
-        ],
-        "properties": {
-          "view_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "view_version": {
-            "type": "string",
-            "description": "Exact saved Explorer revision."
-          },
-          "every_seconds": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0,
-            "maximum": 9223372036,
-            "default": 60,
-            "description": "Minimum separation between admitted reads; zero defaults to 60. Evaluations run on the configured alert tick."
-          },
-          "condition": {
-            "$ref": "#/components/schemas/AlertQueryCondition"
-          }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "view_id",
+        "view_version",
+        "condition"
+      ],
+      "properties": {
+        "view_id": {
+          "type": "string",
+          "format": "uuid"
         },
-        "description": "Uses an exact saved Explorer query. Authenticated owner and read-only credential ceiling are server-authored. New-group mode warms a complete initial baseline without firing."
+        "view_version": {
+          "type": "string",
+          "description": "Exact saved Explorer revision."
+        },
+        "every_seconds": {
+          "type": "integer",
+          "format": "int64",
+          "minimum": 0,
+          "maximum": 9223372036,
+          "description": "Minimum separation between admitted reads. The default is 60 for grouped alerts and one source window for field and traffic assessments. Evaluations run on the configured alert tick."
+        },
+        "condition": {
+          "$ref": "#/components/schemas/AlertQueryCondition"
+        }
       },
+      "description": "Uses an exact saved Explorer query. Authenticated owner and read-only credential ceiling are server-authored. New-group mode warms a complete initial baseline without firing."
+    },
       "AlertQuerySourceState": {
         "type": "object",
         "required": [

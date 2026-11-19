@@ -67,6 +67,9 @@ func (s *Server) readAlertQueryRule(ctx context.Context, tenant string, rule ale
 	if err != nil {
 		return alert.RuleMetricRead{}, err
 	}
+	if configuration.Source.Condition.DDoS != nil {
+		return s.readAlertDDoSRule(ctx, rule, *configuration, actor, budget, deps)
+	}
 	if configuration.Source.Condition.Field != nil {
 		return s.readAlertFieldRule(ctx, rule, *configuration, actor, budget, deps)
 	}

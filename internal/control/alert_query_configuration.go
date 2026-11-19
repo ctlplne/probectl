@@ -132,8 +132,7 @@ func (s *Server) prepareAlertQuery(ctx context.Context, actor *auth.Principal, i
 }
 
 func validateAlertQueryDraft(ctx context.Context, tenant string, source alert.QuerySource, capture *reportFlowCapture, budget flowstore.ExplorerBudget) error {
-	if source.Condition.Field != nil {
-		settings := fieldComparisonSettings(source.ViewID, *source.Condition.Field)
+	if source.Condition.Field != nil || source.Condition.DDoS != nil {
 		if capture == nil || capture.TenantID != tenant || len(capture.Results) == 0 {
 			return alert.ErrQueryGroups
 		}
@@ -141,7 +140,15 @@ func validateAlertQueryDraft(ctx context.Context, tenant string, source alert.Qu
 		if original.TenantID != tenant || original.ID != source.ViewID || original.Version != source.ViewVersion || original.Period != "current" {
 			return alert.ErrQueryGroups
 		}
-		return settings.validatePlan(original.Result.Query)
+		if source.Condition.Field != nil {
+			return fieldComparisonSettings(source.ViewID, *source.Condition.Field).validatePlan(original.Result.Query)
+		}
+		settings, err := normalizeDDoSAssessment(source.ViewID, *source.Condition.DDoS)
+		if err != nil {
+			return err
+		}
+		plan := original.Result.Query
+		return settings.preparePlan(&plan)
 	}
 	snapshot, err := alertQuerySnapshot(ctx, tenant, source, capture, budget.MemoryBytes/8)
 	if err != nil {

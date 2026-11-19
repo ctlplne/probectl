@@ -45,6 +45,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/alerts.ts',
     method: 'GET',
+    path: '`/alerts/rules/${encodeURIComponent(ruleID)}/ddos-receipt?fingerprint=${encodeURIComponent(fingerprint)}`',
+    response: 'AlertDDoSEvaluationEvidence',
+    generated: 'GetAlertDDoSReceiptResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'GET',
     path: '`/alerts/rules/${encodeURIComponent(ruleID)}/field-receipt?fingerprint=${encodeURIComponent(fingerprint)}`',
     response: 'AlertFieldEvaluationEvidence',
     generated: 'GetAlertFieldReceiptResponse',

@@ -24,7 +24,10 @@ import (
 
 var ErrQueryGroups = errors.New("alert: complete current saved-query groups are unavailable")
 
-const FieldChangeCondition = "field_change"
+const (
+	FieldChangeCondition = "field_change"
+	DDoSCondition        = "ddos_assessment"
+)
 
 // QueryCondition compares the selected metric as an exact decimal, or watches
 // the complete selected group set for new members. It contains no SQL or grant.
@@ -34,6 +37,7 @@ type QueryCondition struct {
 	Comparison Comparison                 `json:"comparison,omitempty"`
 	Threshold  string                     `json:"threshold,omitempty"`
 	Field      *flow.FieldComparisonInput `json:"field,omitempty"`
+	DDoS       *flow.DDoSAssessmentInput  `json:"ddos,omitempty"`
 }
 
 // QueryGroupBinding is server-bound configuration. Current source/actor
@@ -85,7 +89,7 @@ func (c QueryCondition) Validate(metrics []flow.QueryMetric) error {
 	if err := c.validateShape(); err != nil {
 		return err
 	}
-	if c.Mode == "new_group" {
+	if c.Mode == "new_group" || c.Mode == DDoSCondition {
 		return nil
 	}
 	measure := c.Metric
@@ -101,13 +105,20 @@ func (c QueryCondition) Validate(metrics []flow.QueryMetric) error {
 }
 
 func (c QueryCondition) validateShape() error {
-	if c.Mode == FieldChangeCondition {
-		if c.Field == nil || c.Metric != "" || c.Comparison != "" || c.Threshold != "" {
+	switch c.Mode {
+	case FieldChangeCondition:
+		if c.Field == nil || c.DDoS != nil || c.Metric != "" || c.Comparison != "" || c.Threshold != "" {
 			return ErrQueryGroups
 		}
 		return c.Field.Validate()
+	case DDoSCondition:
+		if c.DDoS == nil || c.Field != nil || c.Metric != "" || c.Comparison != "" || c.Threshold != "" {
+			return ErrQueryGroups
+		}
+		_, err := c.DDoS.ValidatedPrefix()
+		return err
 	}
-	if c.Field != nil {
+	if c.Field != nil || c.DDoS != nil {
 		return ErrQueryGroups
 	}
 	if c.Mode == "new_group" && c.Metric == "" && c.Comparison == "" && c.Threshold == "" {

@@ -202,7 +202,7 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	"alert_evaluator_status": {plane: "postgres:alert_evaluator_status", disposition: subjectTableNoSubject},
 	"alert_evaluation_receipts": {
 		plane: "postgres:alert_evaluation_receipts", disposition: subjectTableDeleteMatches,
-		contains: []string{"labels", "seasonal_flow_scope", "field_change_receipt"},
+		contains: []string{"labels", "seasonal_flow_scope", "field_change_receipt", "ddos_receipt"},
 	},
 	"alert_maintenance_windows": {
 		plane: "postgres:alert_maintenance_windows", disposition: subjectTableDeleteMatches,
@@ -1460,6 +1460,8 @@ func subjectContainsValue(policy subjectTablePolicy, column string) string {
 			return seasonalFlowReceiptSubjectSQL()
 		case "field_change_receipt":
 			return fieldFlowReceiptSubjectSQL()
+		case "ddos_receipt":
+			return ddosFlowReceiptSubjectSQL()
 		}
 	}
 	if policy.plane == "postgres:dashboard_views" && column == "definition" {

@@ -79,6 +79,15 @@ func TestSeasonalFlowEvidenceSubjectErasureIncludesOriginalRoutingScope(t *testi
 }
 
 func TestScheduledFieldReceiptSubjectErasureKeepsSiblingAndStructuralReferences(t *testing.T) {
+	testScheduledFlowReceiptSubjectErasure(t, store.AlertFieldChangeReceipt)
+}
+
+func TestScheduledDDoSReceiptSubjectErasureKeepsSiblingAndStructuralReferences(t *testing.T) {
+	testScheduledFlowReceiptSubjectErasure(t, store.AlertDDoSReceipt)
+}
+
+func testScheduledFlowReceiptSubjectErasure(t *testing.T, kind store.AlertFlowReceiptKind) {
+	t.Helper()
 	admin := itPool(t)
 	t.Cleanup(admin.Close)
 	testsupport.LockPostgresPublicCatalog(t, admin)
@@ -104,18 +113,22 @@ func TestScheduledFieldReceiptSubjectErasureKeepsSiblingAndStructuralReferences(
 			for _, item := range []struct{ key, groupAddress, routingAddress string }{
 				{group, subject, "192.0.2.250"}, {route, "192.0.2.251", subject}, {unrelated, "192.0.2.252", "192.0.2.253"},
 			} {
+				evidence := map[string]any{"comparison": map[string]any{"view_id": viewID,
+					"changes": []any{map[string]any{"group": map[string]string{"src_addr": item.groupAddress}}}}}
+				if kind == store.AlertDDoSReceipt {
+					evidence = map[string]any{"current": map[string]any{"view_id": viewID, "prefix": item.groupAddress + "/32"}}
+				}
 				body, err := json.Marshal(map[string]any{"version": 1,
 					"scope": map[string]any{"version": 1, "tenant_id": tenant,
 						"inputs": []any{map[string]any{"id": viewID, "routing": map[string]any{"captures": []any{map[string]string{"src": item.routingAddress}}}}}},
-					"evidence": map[string]any{"comparison": map[string]any{"view_id": viewID,
-						"changes": []any{map[string]any{"group": map[string]string{"src_addr": item.groupAddress}}}}}})
+					"evidence": evidence})
 				if err != nil {
 					return err
 				}
 				receipt := alert.EvaluationReceipt{ContractVersion: alert.EvaluationReceiptVersion, RuleID: rule.ID,
 					Fingerprint: item.key, RuleRevision: rule.UpdatedAt.UTC().Format(time.RFC3339Nano), State: alert.EvaluationFiring,
 					ObservedAt: time.Now().UTC(), Expectation: alert.EvaluationExpectation{Kind: alert.Threshold}, RequiredBreaches: 1}
-				if err := (store.AlertEvaluations{}).AppendFieldReceipt(ctx, sc, rule.UpdatedAt, receipt, body, 1<<20); err != nil {
+				if err := (store.AlertEvaluations{}).AppendFlowReceipt(ctx, sc, kind, rule.UpdatedAt, receipt, body, 1<<20); err != nil {
 					return err
 				}
 			}
@@ -124,7 +137,7 @@ func TestScheduledFieldReceiptSubjectErasureKeepsSiblingAndStructuralReferences(
 			t.Fatal(err)
 		}
 	}
-	engine := New(pool, nil, nil, nil, nil, "owned scheduled field scope", testLog())
+	engine := New(pool, nil, nil, nil, nil, "owned scheduled flow scope", testLog())
 	const receiptPath = "postgres/alert_evaluation_receipts.jsonl"
 	var archive bytes.Buffer
 	if _, err := engine.ExportSubject(t.Context(), red, viewID, &archive, false); err != nil {
@@ -139,9 +152,9 @@ func TestScheduledFieldReceiptSubjectErasureKeepsSiblingAndStructuralReferences(
 	}
 	selected := readTarGz(t, archive.Bytes())[receiptPath]
 	if !strings.Contains(selected, group) || !strings.Contains(selected, route) || strings.Contains(selected, unrelated) || strings.Contains(selected, blue) {
-		t.Fatal("subject export omitted exact field or routing facts or returned a foreign receipt")
+		t.Fatal("subject export omitted exact prefix, field or routing facts or returned a foreign receipt")
 	}
-	if _, _, err := engine.eraseSubjectPostgres(t.Context(), red, subject, "privacy-admin", "verified scheduled field subject"); err != nil {
+	if _, _, err := engine.eraseSubjectPostgres(t.Context(), red, subject, "privacy-admin", "verified scheduled flow subject"); err != nil {
 		t.Fatal(err)
 	}
 	const count = `SELECT count(*) FROM alert_evaluation_receipts WHERE tenant_id=$1 AND fingerprint=$2`

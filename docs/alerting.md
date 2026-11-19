@@ -648,6 +648,34 @@ cited receipt with `probectl alert field-receipt ID --query fingerprint=HANDLE`.
 The same read is available through `GET /v1/alerts/rules/{id}/field-receipt`,
 the generated SDK and native MCP `alert_field_receipt_get`.
 
+### Scheduled DDoS pressure
+
+Choose **Sustained DDoS pressure** in the saved-query alert editor. Use a
+60, 120 or 300 second moving lookback and set the protected prefix, direction,
+traffic floors and measured coverage. The saved query's predicates and the
+protected prefix both define the observed population. Set the interval to a
+whole multiple of the lookback. The default is one window.
+
+The evaluator reads two adjacent completed windows and the same two UTC windows
+from the prior week. A persistent qualifying vector opens one incident and
+writes its original measurements and next scheduled clock in the same tenant
+transaction. A single qualifying window does not open an incident. A complete
+normal read ends a sustained episode. Unavailable source coverage preserves
+its existing state. Notification delivery follows the configured alert rule.
+
+Select the traffic pressure signal in its incident and choose **Show original
+traffic evidence**. The receipt shows exact corrected bytes and packets,
+observed input counts, the detection class and references for all four windows.
+Readers need `alert.read` and current grants to the saved view and original
+sources. The receipt follows the evaluation ledger's retention and subject
+erasure rules.
+
+Set `query_source.condition.mode` to `ddos_assessment` and include the `ddos`
+settings object from the [Explorer assessment](explorer.md). Its `version`
+matches the enclosing `view_version`. Read the cited evidence through
+`GET /v1/alerts/rules/{id}/ddos-receipt`, the SDK, native MCP
+`alert_ddos_receipt_get`, or `probectl alert ddos-receipt ID --query fingerprint=HANDLE`.
+
 ## Notification dependency configuration (preview)
 
 `GET|PUT|DELETE /v1/alerts/rules/{id}/dependency-policy` manages a rule's
