@@ -515,6 +515,7 @@
       "ref": "test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack",
       "profile": "integration",
       "capabilities": [
+        "F14",
         "F8",
         "F17",
         "F9"
@@ -531,6 +532,7 @@
       "ref": "test:internal/bgp/interface_role_realstack_integration_test.go#TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride",
       "profile": "integration",
       "capabilities": [
+        "F14",
         "F18"
       ]
     },

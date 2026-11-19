@@ -104,8 +104,8 @@
         "F14"
       ],
       "name": "MCP server",
-      "status": "partial",
-      "evidence": "`internal/ai/mcp`"
+      "status": "delivered",
+      "evidence": "`internal/ai/mcp`. `TestNativeFlowExplorerRealStack` calls the shipped HTTPS listener against two tenants and real flow stores, checks consent and exact counters, and refuses foreign tenant substitution. `TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride` drives the shipped stdio command in both supported revisions against actual PostgreSQL and router evidence. The independent clients verify current credentials and refuse sibling evidence."
     },
     {
       "ids": [

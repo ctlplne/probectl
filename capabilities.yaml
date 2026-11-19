@@ -256,7 +256,6 @@ capabilities:
   - id: F14
     name: MCP server
     status: delivered
-    evidence_status: partial
     owner: AI/security
     engine: {refs: ["file:internal/ai/mcp"]}
     binary: {refs: ["file:cmd/probectl-control/mcp.go#func runMCPStdio"]}
@@ -266,7 +265,7 @@ capabilities:
     docs: {refs: ["file:docs/mcp.md#MCP server"]}
     config_keys: {refs: ["config:PROBECTL_MCP_HTTP_ADDR", "config:PROBECTL_MCP_RATE_PER_MIN"]}
     telemetry: {refs: ["file:internal/ai/mcp"]}
-    real_stack_proof: {gap: "The current test calls Server.Handle directly with a memory path store; it does not exercise the shipped stdio or HTTPS MCP transport from a human-equivalent client across real stores."}
+    real_stack_proof: {refs: ["test:internal/flow/realstack_integration_test.go#TestNativeFlowExplorerRealStack", "test:internal/bgp/interface_role_realstack_integration_test.go#TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride"]}
     migration: {refs: ["file:migrations/0016_mcp_tokens.sql", "file:migrations/0040_mcp_tokens_rls.sql"]}
 
   - id: F15
