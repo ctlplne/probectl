@@ -115,18 +115,18 @@ func (m *rtbhReviewFixtureStore) ApproveRTBHAudited(ctx context.Context, tenant,
 	return saved, err
 }
 
-type rtbhReviewFixtureSource struct {
+type rtbhReviewUnitSource struct {
 	impact        rem.PrefixImpact
 	scope         string
 	beforePublish func()
 	publications  []string
 }
 
-func (*rtbhReviewFixtureSource) ObservePrefixImpact(context.Context, string, rem.PrefixImpactInput, func(context.Context) error) (rem.PrefixImpact, error) {
+func (*rtbhReviewUnitSource) ObservePrefixImpact(context.Context, string, rem.PrefixImpactInput, func(context.Context) error) (rem.PrefixImpact, error) {
 	return rem.PrefixImpact{}, errors.New("the review must use the source's scoped publication")
 }
 
-func (s *rtbhReviewFixtureSource) PreparePrefixImpact(ctx context.Context, tenant string, input rem.PrefixImpactInput, observedTo time.Time,
+func (s *rtbhReviewUnitSource) PreparePrefixImpact(ctx context.Context, tenant string, input rem.PrefixImpactInput, observedTo time.Time,
 	check func(context.Context) error) (rem.RTBHImpactPublication, error) {
 	if tenant != testTenant || input.WholeViewID != "owned-view" || (!observedTo.IsZero() && !observedTo.Equal(s.impact.To)) {
 		return rem.RTBHImpactPublication{}, changedRTBHReview()
@@ -156,7 +156,7 @@ func (s *rtbhReviewFixtureSource) PreparePrefixImpact(ctx context.Context, tenan
 type rtbhReviewFixture struct {
 	service  *Service
 	store    *rtbhReviewFixtureStore
-	source   *rtbhReviewFixtureSource
+	source   *rtbhReviewUnitSource
 	audit    *recAudit
 	now      time.Time
 	proposer context.Context
@@ -171,7 +171,7 @@ func newRTBHReviewFixture(t *testing.T) *rtbhReviewFixture {
 		now:      fixedNow.Add(time.Minute),
 		proposer: remediationTestActor(t.Context(), testTenant, testProposerID),
 		reviewer: remediationTestActor(t.Context(), testTenant, testReviewerID),
-		source: &rtbhReviewFixtureSource{scope: strings.Repeat("a", 64), impact: rem.PrefixImpact{
+		source: &rtbhReviewUnitSource{scope: strings.Repeat("a", 64), impact: rem.PrefixImpact{
 			Prefix: "192.0.2.0/28", From: fixedNow.Add(-time.Minute), To: fixedNow,
 			Matched: rem.PrefixTraffic{Bytes: "9007199254740995", Packets: "100"}, KnownBenign: rem.PrefixTraffic{Bytes: "300", Packets: "3"},
 		}},
