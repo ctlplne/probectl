@@ -698,6 +698,10 @@ func (tc *TopologyConsumer) handleDeviceCollectionOutcomeLane(ctx context.Contex
 	}
 	for _, valid := range validated {
 		if err := tc.collectionOutcomes.UpsertCollectionOutcome(ctx, valid.TenantID, valid); err != nil {
+			if tenancy.IsProspectCollectionEnded(err) {
+				tc.ledger.addRejected("device", 1)
+				return nil
+			}
 			tc.ledger.addPersistFailed("device", 1)
 			tc.log.Error("device collection outcome persist failed; refusing ack so the bus can redeliver",
 				"tenant_id", valid.TenantID, "agent_id", valid.AgentID,
@@ -764,6 +768,10 @@ func (tc *TopologyConsumer) handleDeviceNeighborLane(ctx context.Context, msg bu
 	}
 	if tc.neighbors != nil {
 		if err := tc.neighbors.ReplaceSnapshot(ctx, valid.TenantID, valid); err != nil {
+			if tenancy.IsProspectCollectionEnded(err) {
+				tc.ledger.addRejected("device", 1)
+				return nil
+			}
 			tc.ledger.addPersistFailed("device", 1)
 			tc.log.Error("device neighbor persist failed; refusing ack so the bus can redeliver",
 				"tenant_id", valid.TenantID, "device", valid.DeviceAddress, "error", err.Error())

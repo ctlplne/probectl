@@ -32,6 +32,7 @@ import (
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store"
@@ -190,6 +191,17 @@ func TestProspectCollectionDeadlineFencesOnlyTheCompletedTenant(t *testing.T) {
 	f := newRoleExplanationAPIFixture(t)
 	finished, collecting := f.tenants[0], f.tenants[1]
 	at := time.Now().UTC().Truncate(time.Microsecond)
+	neighbors := store.NewDeviceNeighbors(f.pool)
+	for _, tenant := range f.tenants {
+		err := neighbors.ReplaceSnapshot(t.Context(), tenant, device.NeighborSnapshot{
+			TenantID: tenant, AgentID: "assessment-device", DeviceAddress: "192.0.2.10", ObservedAt: at.Add(-2 * time.Minute),
+			Neighbors: []device.NeighborEvidence{{Protocol: device.NeighborProtocolLLDP,
+				LocalPortID: "port1", RemotePortID: "port2", RemoteChassisID: "fixture-peer"}},
+		})
+		if err != nil {
+			t.Fatal("could not retain the pre-expiry snapshot", tenant, err)
+		}
+	}
 	for lane, tenant := range f.tenants {
 		slug, _, _, err := f.server.tenantSlugAndMeta(t.Context(), tenant)
 		if err != nil {
@@ -233,6 +245,29 @@ func TestProspectCollectionDeadlineFencesOnlyTheCompletedTenant(t *testing.T) {
 	called := false
 	if err := control.WithTenantWrites(t.Context(), []string{finished}, func(context.Context) error { called = true; return nil }); err != nil || !called {
 		t.Fatal("the collection deadline fenced the normal lifecycle writer", err)
+	}
+	for _, tenant := range f.tenants {
+		err := tenancy.InTenant(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `INSERT INTO results (tenant_id) VALUES ($1)`, sc.Tenant.String())
+			return err
+		})
+		if tenant == finished && !tenancy.IsProspectCollectionEnded(err) || tenant == collecting && err != nil {
+			t.Fatal("the PostgreSQL observation trigger used the wrong deadline", tenant, err)
+		}
+		err = neighbors.ReplaceSnapshot(t.Context(), tenant, device.NeighborSnapshot{
+			TenantID: tenant, AgentID: "assessment-device", DeviceAddress: "192.0.2.10", ObservedAt: at,
+		})
+		if tenant == finished && !tenancy.IsProspectCollectionEnded(err) || tenant == collecting && err != nil {
+			t.Fatal("the empty observation snapshot used the wrong deadline", tenant, err)
+		}
+		originals, _, err := neighbors.ListNeighbors(t.Context(), tenant, device.NeighborFilter{})
+		want := 0
+		if tenant == finished {
+			want = 1
+		}
+		if err != nil || len(originals) != want {
+			t.Fatal("the deadline did not preserve the correct tenant's previous evidence", tenant, originals, err)
+		}
 	}
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)

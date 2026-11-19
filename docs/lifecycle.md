@@ -360,10 +360,13 @@ download. With current delivery consent, the report worker verifies the PDF
 and sends it through the configured email transport. The delivery audit
 records the accepted destination, engagement revision and PDF digest.
 Conversion and consent withdrawal cancel pending delivery. At the engagement
-deadline, the external telemetry writers refuse new writes for that tenant.
+deadline, external telemetry writers and the PostgreSQL device and entity
+observation writers refuse new records for that tenant. An empty neighbor
+snapshot cannot replace the previous observations after the cutoff. The
+assessment worker waits for admitted writers before it reads the evidence.
 The report and lifecycle writers remain available. Conversion clears the
-collection deadline. Agent dispatch, original PostgreSQL observation intake
-and automatic erasure are additional lifecycle steps.
+collection deadline. Agent dispatch and automatic erasure are additional
+lifecycle steps.
 
 Engagement writes take the same tenant writer lease and database trigger as
 other lifecycle data. Once the existing erasure fence closes, PostgreSQL

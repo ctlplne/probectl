@@ -19,6 +19,7 @@ import (
 	"github.com/ctlplne/probectl/internal/device"
 	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
 	"github.com/ctlplne/probectl/internal/metrics"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // DeviceTrapGroup owns the trap read model's offsets. It is a SHARED group
@@ -139,6 +140,10 @@ func (c *DeviceTrapConsumer) handleLane(ctx context.Context, msg bus.Message, la
 	for _, rec := range records {
 		inserted, err := c.store.RecordTrapEvent(ctx, tenant, rec)
 		if err != nil {
+			if tenancy.IsProspectCollectionEnded(err) {
+				c.ledger.addTenantRejected(1)
+				return nil
+			}
 			c.log.Error("device trap persist failed; refusing ack so the bus can redeliver",
 				"tenant_id", tenant, "agent_id", rec.AgentID, "error", err.Error())
 			return fmt.Errorf("device trap persist failed: %w", err)

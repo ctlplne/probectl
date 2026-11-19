@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,7 +24,15 @@ import (
 // carries the durable erasure marker.
 var ErrTenantWritesFenced = errors.New("tenancy: tenant writes are fenced")
 
+// ErrProspectCollectionEnded is the tenant-specific collection cutoff.
 var ErrProspectCollectionEnded = errors.New("tenancy: prospect telemetry collection ended")
+
+// IsProspectCollectionEnded recognizes refusals from both external writers and
+// the PostgreSQL observation trigger. Other failures remain retryable.
+func IsProspectCollectionEnded(err error) bool {
+	var pg *pgconn.PgError
+	return errors.Is(err, ErrProspectCollectionEnded) || (errors.As(err, &pg) && pg.Code == "PZC01")
+}
 
 // WriterFence holds the durable shared tenant-writer lease across one external
 // datastore mutation. Implementations acquire leases in deterministic order
@@ -308,6 +317,17 @@ func AcquireTenantWriteLease(ctx context.Context, sc Scope) error {
 		return ErrNoTenant
 	}
 	return lockTenantWriterLease(ctx, sc.Q, sc.Tenant.String())
+}
+
+// RequireTenantCollection admits a scoped observation mutation that can have
+// no incoming rows. The database also holds the writer lease until commit.
+func RequireTenantCollection(ctx context.Context, sc Scope) error {
+	bound, ok := FromContext(ctx)
+	if !ok || bound != sc.Tenant || sc.Q == nil {
+		return ErrNoTenant
+	}
+	_, err := sc.Q.Exec(ctx, `SELECT public.probectl_require_tenant_collection($1::uuid)`, bound.String())
+	return err
 }
 
 func lockTenantWriterLease(

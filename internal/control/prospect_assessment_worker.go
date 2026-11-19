@@ -40,6 +40,21 @@ func (s *DashboardReportSupervisor) materializeProspectAssessment(ctx context.Co
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	defer cancel()
+	// Wait for observations admitted before the cutoff. End the transaction
+	// before reading sources or rendering the document. Use the database clock
+	// just as the telemetry writers do.
+	var ready bool
+	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := tenancy.LockTenantWrites(ctx, sc.Q, sc.Tenant.String()); err != nil {
+			return err
+		}
+		return sc.Q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM prospect_engagements
+			WHERE tenant_id=$1 AND revision=$2 AND converted_at IS NULL
+			AND assessment_artifact_id IS NULL AND ends_at<=clock_timestamp())`, sc.Tenant.String(), engagement.Revision).Scan(&ready)
+	})
+	if err != nil || !ready {
+		return err
+	}
 	ctx, flush := scopedABACDenial(ctx)
 	defer flush(server)
 	authority, err := loadCurrentUserAuthority(ctx, s.pool, tenant, engagement.OwnerID)

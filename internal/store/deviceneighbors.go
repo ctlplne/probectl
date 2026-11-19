@@ -44,6 +44,9 @@ func (s *DeviceNeighbors) ReplaceSnapshot(ctx context.Context, tenant string, sn
 	}
 	ctx = tenancy.WithTenant(ctx, tenancy.ID(tenant))
 	return tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := tenancy.RequireTenantCollection(ctx, sc); err != nil {
+			return err
+		}
 		if _, err := sc.Q.Exec(ctx, `
 			DELETE FROM device_neighbor_evidence
 			 WHERE tenant_id = $1 AND agent_id = $2 AND local_device_address = $3`,
