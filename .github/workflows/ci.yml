@@ -1790,6 +1790,11 @@ jobs:
       - name: Authenticated interface prefix storage and lifecycle isolation
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
+          # The final control builds and enrolls a shipped collector, using
+          # the same services as the positive integration run above.
+          PROBECTL_TEST_KAFKA: "localhost:9092"
+          PROBECTL_FLOWSTORE_URL: "http://probectl:probectl@localhost:8123"
+          PROBECTL_TEST_CLICKHOUSE_URL: "http://probectl:probectl@localhost:8123"
         run: python3 scripts/ci_interface_prefix_transport.py --integration
 
   perf-smoke:
