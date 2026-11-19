@@ -603,10 +603,25 @@ func (g generator) writeGoModels(b *bytes.Buffer) {
 			if !requiredProp && fieldType == "bool" {
 				fieldType = "*bool"
 			}
-			fmt.Fprintf(b, "\t%s %s %s\n", exportedName(prop), fieldType, jsonTag(prop, requiredProp))
+			tag := jsonTag(prop, requiredProp)
+			// A value struct is never empty to encoding/json. Keep the public
+			// Go type while omitting an absent optional object on re-encoding.
+			if !requiredProp && g.isGoModelStruct(fieldType) {
+				tag = fmt.Sprintf("`json:%q`", prop+",omitzero")
+			}
+			fmt.Fprintf(b, "\t%s %s %s\n", exportedName(prop), fieldType, tag)
 		}
 		b.WriteString("}\n\n")
 	}
+}
+
+func (g generator) isGoModelStruct(name string) bool {
+	s := g.doc.Components.Schemas[name]
+	if schemaType(s) != "object" {
+		return false
+	}
+	props, _ := g.flattenObject(s)
+	return len(props) > 0
 }
 
 func (g generator) goType(s *schema) string {

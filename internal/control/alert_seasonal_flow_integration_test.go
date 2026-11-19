@@ -122,8 +122,8 @@ func provePairedSeasonalFlow(t *testing.T, cadence anomaly.SeasonalCadence, trai
 		}
 		if i == 0 {
 			assertSeasonalExactFlow(t, owned, observed, active[0].IncidentID)
-			if cadence == "" {
-				exactSeasonalFlowClients(t, f, socket, rules[i].ID, observed, active[0].IncidentID)
+			if cadence == "" || cadence == anomaly.SeasonalDaily {
+				exactSeasonalFlowClients(t, f, socket, rules[i].ID, *evidence)
 			}
 		}
 		callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodGet, "/v1/alerts/"+rules[1-i].ID+"/evaluations", nil, http.StatusNotFound)
@@ -229,8 +229,25 @@ func checkSeasonalFlowIncident(f *roleExplanationAPIFixture, tenant, ruleID stri
 	})
 }
 
-func exactSeasonalFlowClients(t *testing.T, f *roleExplanationAPIFixture, socket *httptest.Server, ruleID string, at time.Time, incidentID string) {
+func exactSeasonalFlowClients(t *testing.T, f *roleExplanationAPIFixture, socket *httptest.Server, ruleID string, expect alert.SeasonalEvaluationEvidence) {
 	t.Helper()
+	check := func(result alert.EvaluationsResult) {
+		t.Helper()
+		assertSeasonalExactFlow(t, result, expect.ObservedAt, expect.IncidentID)
+		got := result.Items[0].Expectation.Seasonal.Calendar
+		if got.Cadence != expect.Calendar.Cadence || got.TrainingPeriods != expect.Calendar.TrainingPeriods ||
+			len(got.TrainingDays) != len(expect.Calendar.TrainingDays) || got.Provisional != expect.Calendar.Provisional {
+			t.Fatal("the client lost the original calendar and its actual training population")
+		}
+	}
+	decode := func(raw []byte) {
+		t.Helper()
+		var result alert.EvaluationsResult
+		if err := json.Unmarshal(raw, &result); err != nil {
+			t.Fatal(err)
+		}
+		check(result)
+	}
 	tenant := f.tenants[0]
 	client := sdk.NewClient(socket.URL, sdk.WithHTTPClient(socket.Client()), sdk.WithToken(f.tokens[tenant]))
 	got, err := client.ListAlertEvaluations(t.Context(), sdk.ListAlertEvaluationsRequest{Id: ruleID})
@@ -238,9 +255,10 @@ func exactSeasonalFlowClients(t *testing.T, f *roleExplanationAPIFixture, socket
 		t.Fatal(err)
 	}
 	raw, err := json.Marshal(got)
-	if err != nil || !bytes.Contains(raw, []byte(seasonalFlowExactCurrent)) {
-		t.Fatal("generated SDK lost the exact saved-flow value", err)
+	if err != nil {
+		t.Fatal(err)
 	}
+	decode(raw)
 	ca := filepath.Join(t.TempDir(), "seasonal-flow-ca.pem")
 	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: socket.Certificate().Raw}), 0o600); err != nil {
 		t.Fatal(err)
@@ -249,9 +267,10 @@ func exactSeasonalFlowClients(t *testing.T, f *roleExplanationAPIFixture, socket
 	getenv := func(key string) string {
 		return map[string]string{"PROBECTL_API_URL": socket.URL, "PROBECTL_API_TOKEN": f.tokens[tenant], "PROBECTL_CA_FILE": ca}[key]
 	}
-	if code := cli.RunWithStdin([]string{"--json", "alert", "evaluations", ruleID}, getenv, bytes.NewReader(nil), &stdout, &stderr); code != 0 || !bytes.Contains(stdout.Bytes(), []byte(seasonalFlowExactCurrent)) {
-		t.Fatal("verified CLI lost the exact saved-flow receipt", code, stderr.String())
+	if code := cli.RunWithStdin([]string{"--json", "alert", "evaluations", ruleID}, getenv, bytes.NewReader(nil), &stdout, &stderr); code != 0 {
+		t.Fatal("verified CLI could not read the exact saved-flow receipt", code, stderr.String())
 	}
+	decode(stdout.Bytes())
 	cfg := &config.Config{AIRedactIPs: true, AIRedactHostnames: true, AIRedactPII: true}
 	server := NewMCPServerWithPolicyLoader(cfg, f.server.log, f.pool, f.server.pathStore, 0, NewAIEgressGate(cfg, f.server.log, f.pool), nil, nil, f.server.MCPPolicyLoader(), AISources{NativeFlow: f.server})
 	authenticator := NewMCPAuthenticator(f.pool, NewTenantStatusCache(f.pool, 0), false)
@@ -259,9 +278,9 @@ func exactSeasonalFlowClients(t *testing.T, f *roleExplanationAPIFixture, socket
 		var native alert.EvaluationsResult
 		args := map[string]any{"rule_id": ruleID}
 		interfaceRoleNativeTLSCaller(t, f, wire)(tenant, "alert_evaluations", args, &native, true)
-		assertSeasonalExactFlow(t, native, at, incidentID)
+		check(native)
 		openInterfaceRoleStdio(t, server, authenticator, f.tokens[tenant], wire).call(t, wire, "alert_evaluations", args, &native, true)
-		assertSeasonalExactFlow(t, native, at, incidentID)
+		check(native)
 	}
 }
 

@@ -32,6 +32,23 @@ func TestOptionalBooleanPreservesExplicitFalse(t *testing.T) {
 	}
 }
 
+func TestOptionalNamedObjectKeepsValueTypeAndOmitsZero(t *testing.T) {
+	nested := &schema{Ref: "#/components/schemas/Nested"}
+	g := generator{doc: &document{Components: components{Schemas: map[string]*schema{
+		"Nested": {Type: "object", Properties: map[string]*schema{"as_of": {Type: "string"}}, Required: []string{"as_of"}},
+		"Options": {Type: "object", Properties: map[string]*schema{
+			"optional": nested, "required": nested,
+		}, Required: []string{"required"}},
+	}}}}
+	var b bytes.Buffer
+	g.writeGoModels(&b)
+	for _, want := range []string{"Optional Nested `json:\"optional,omitzero\"`", "Required Nested `json:\"required\"`"} {
+		if !strings.Contains(b.String(), want) {
+			t.Fatalf("generated model missing %s:\n%s", want, b.String())
+		}
+	}
+}
+
 func TestNullableScalarTypes(t *testing.T) {
 	g := generator{}
 	s := &schema{Type: []any{"integer", "null"}}

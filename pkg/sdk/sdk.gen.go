@@ -119,7 +119,7 @@ type AIAnswer struct {
 
 type AIAskRequest struct {
 	Question string            `json:"question"`
-	Range    AIQueryRange      `json:"range,omitempty"`
+	Range    AIQueryRange      `json:"range,omitzero"`
 	Subject  map[string]string `json:"subject,omitempty"`
 }
 
@@ -203,7 +203,7 @@ type Agent struct {
 	CreatedAt        string                `json:"created_at,omitempty"`
 	Hostname         string                `json:"hostname,omitempty"`
 	Id               string                `json:"id"`
-	L7CapturePosture AgentL7CapturePosture `json:"l7_capture_posture,omitempty"`
+	L7CapturePosture AgentL7CapturePosture `json:"l7_capture_posture,omitzero"`
 	Labels           map[string]string     `json:"labels"`
 	LastSeenAt       string                `json:"last_seen_at,omitempty"`
 	Name             string                `json:"name"`
@@ -269,7 +269,7 @@ type AlertDependencyPolicyInput struct {
 
 type AlertDependencyPolicyState struct {
 	Configured    bool                       `json:"configured"`
-	Policy        AlertDependencyPolicyInput `json:"policy,omitempty"`
+	Policy        AlertDependencyPolicyInput `json:"policy,omitzero"`
 	RuleId        string                     `json:"rule_id"`
 	RuleUpdatedAt string                     `json:"rule_updated_at"`
 }
@@ -298,7 +298,7 @@ type AlertEvaluationReceipt struct {
 	RuleId           string                     `json:"rule_id"`
 	RuleRevision     string                     `json:"rule_revision"`
 	State            string                     `json:"state"`
-	TagSelection     AlertTagSelectionReceipt   `json:"tag_selection,omitempty"`
+	TagSelection     AlertTagSelectionReceipt   `json:"tag_selection,omitzero"`
 	WarmupRequired   int                        `json:"warmup_required,omitempty"`
 	WarmupSamples    int                        `json:"warmup_samples,omitempty"`
 }
@@ -340,7 +340,7 @@ type AlertPathHealthSourceState struct {
 	Configured    bool                       `json:"configured"`
 	RuleId        string                     `json:"rule_id"`
 	RuleUpdatedAt string                     `json:"rule_updated_at"`
-	Source        AlertPathHealthSourceInput `json:"source,omitempty"`
+	Source        AlertPathHealthSourceInput `json:"source,omitzero"`
 }
 
 type AlertQueryCondition struct {
@@ -545,10 +545,10 @@ type AlertTagFilterLimits struct {
 }
 
 type AlertTagFilterState struct {
-	Editor       AlertTagFilterEditorSchema `json:"editor,omitempty"`
+	Editor       AlertTagFilterEditorSchema `json:"editor,omitzero"`
 	HasTagFilter bool                       `json:"has_tag_filter"`
 	RuleId       string                     `json:"rule_id"`
-	TagFilter    AlertTagFilter             `json:"tag_filter,omitempty"`
+	TagFilter    AlertTagFilter             `json:"tag_filter,omitzero"`
 }
 
 // The actual current authorized metadata snapshot used by this evaluation. Distinct from the rule configuration binding. No subject, tag values, owner or sender attestation. Absent on legacy receipts or when source grants are withheld.
@@ -986,7 +986,7 @@ type CarrierSLATerms struct {
 
 // A change scored as a candidate cause of an incident.
 type ChangeCandidate struct {
-	Event  ChangeEvent `json:"event,omitempty"`
+	Event  ChangeEvent `json:"event,omitzero"`
 	Reason string      `json:"reason,omitempty"`
 	Score  float64     `json:"score,omitempty"`
 }
@@ -1071,13 +1071,13 @@ type ChangeEffectsResponse struct {
 // A normalized tenant-scoped change event from a signed webhook, an authenticated owned-router update or a content-free archive projection.
 type ChangeEvent struct {
 	Actor      string                 `json:"actor,omitempty"`
-	Config     ConfigChangeReference  `json:"config,omitempty"`
+	Config     ConfigChangeReference  `json:"config,omitzero"`
 	Id         string                 `json:"id,omitempty"`
 	Kind       string                 `json:"kind,omitempty"`
 	OccurredAt string                 `json:"occurred_at,omitempty"`
 	Prefix     string                 `json:"prefix,omitempty"`
 	Ref        string                 `json:"ref,omitempty"`
-	Routing    RoutingChangeReference `json:"routing,omitempty"`
+	Routing    RoutingChangeReference `json:"routing,omitzero"`
 	Source     string                 `json:"source,omitempty"`
 	Summary    string                 `json:"summary,omitempty"`
 	Target     string                 `json:"target,omitempty"`
@@ -1192,7 +1192,7 @@ type CollectorRegistration struct {
 	Config       CollectorConfigHint `json:"config"`
 	Hostname     string              `json:"hostname,omitempty"`
 	Plane        string              `json:"plane"`
-	Svid         RegisteredSVID      `json:"svid,omitempty"`
+	Svid         RegisteredSVID      `json:"svid,omitzero"`
 	TenantId     string              `json:"tenant_id"`
 }
 
@@ -1285,7 +1285,7 @@ type CoverageMatrixItem struct {
 	ExecutionCadence        ExecutionCadenceReceipt `json:"execution_cadence"`
 	IndependentVantageCount int                     `json:"independent_vantage_count"`
 	LastEvidenceAt          string                  `json:"last_evidence_at,omitempty"`
-	NextAction              CoverageNextAction      `json:"next_action,omitempty"`
+	NextAction              CoverageNextAction      `json:"next_action,omitzero"`
 	ProbeFamily             string                  `json:"probe_family"`
 	ReadyAgentCount         int                     `json:"ready_agent_count"`
 	Region                  string                  `json:"region"`
@@ -1390,7 +1390,7 @@ type DashboardManifestImportRequest struct {
 }
 
 type DashboardManifestImportResponse struct {
-	Dashboard DashboardView            `json:"dashboard,omitempty"`
+	Dashboard DashboardView            `json:"dashboard,omitzero"`
 	Manifest  DashboardManifest        `json:"manifest"`
 	Preview   DashboardManifestPreview `json:"preview"`
 	Status    string                   `json:"status"`
@@ -1492,10 +1492,10 @@ type DashboardView struct {
 }
 
 type DeepHealth struct {
-	Build       Version             `json:"build,omitempty"`
+	Build       Version             `json:"build,omitzero"`
 	CheckedAt   string              `json:"checked_at"`
 	Checks      []HealthCheck       `json:"checks"`
-	SelfMetrics SelfMetricsSnapshot `json:"self_metrics,omitempty"`
+	SelfMetrics SelfMetricsSnapshot `json:"self_metrics,omitzero"`
 	Status      HealthStatus        `json:"status"`
 }
 
@@ -1847,7 +1847,7 @@ type DiscoverProposal struct {
 	Rationale string   `json:"rationale,omitempty"`
 	Score     int      `json:"score,omitempty"`
 	Source    string   `json:"source,omitempty"`
-	Spec      TestSpec `json:"spec,omitempty"`
+	Spec      TestSpec `json:"spec,omitzero"`
 }
 
 type DiscoverProposalList struct {
@@ -1969,7 +1969,7 @@ type EntityPathContextBinding struct {
 }
 
 type EntityPathHop struct {
-	Health     PathInterfaceHealth `json:"health,omitempty"`
+	Health     PathInterfaceHealth `json:"health,omitzero"`
 	Ip         string              `json:"ip"`
 	Resolution EntityResolution    `json:"resolution"`
 	Ttl        int                 `json:"ttl"`
@@ -2147,7 +2147,7 @@ type ExplorerExecutionTimings struct {
 type ExplorerQuery struct {
 	Dimensions    []string          `json:"dimensions,omitempty"`
 	Filters       map[string]string `json:"filters,omitempty"`
-	Flow          FlowQueryOptions  `json:"flow,omitempty"`
+	Flow          FlowQueryOptions  `json:"flow,omitzero"`
 	From          string            `json:"from,omitempty"`
 	Groupings     []string          `json:"groupings,omitempty"`
 	Limit         int               `json:"limit,omitempty"`
@@ -2164,7 +2164,7 @@ type ExplorerResult struct {
 	Columns      []ExplorerColumn         `json:"columns"`
 	EvidencePath string                   `json:"evidence_path"`
 	Execution    ExplorerExecutionReceipt `json:"execution"`
-	Flow         FlowExplorerResult       `json:"flow,omitempty"`
+	Flow         FlowExplorerResult       `json:"flow,omitzero"`
 	FlowPaging   map[string]any           `json:"flow_paging,omitempty"`
 	Preview      string                   `json:"preview"`
 	Query        ExplorerQuery            `json:"query"`
@@ -2204,7 +2204,7 @@ type FleetAgent struct {
 	IdentityExpiresAt   string                `json:"identity_expires_at,omitempty"`
 	IdentityReason      string                `json:"identity_reason,omitempty"`
 	IdentityState       string                `json:"identity_state,omitempty"`
-	L7CapturePosture    AgentL7CapturePosture `json:"l7_capture_posture,omitempty"`
+	L7CapturePosture    AgentL7CapturePosture `json:"l7_capture_posture,omitzero"`
 	Labels              map[string]string     `json:"labels"`
 	LastFailure         string                `json:"last_failure"`
 	LastSeenAt          string                `json:"last_seen_at,omitempty"`
@@ -2222,7 +2222,7 @@ type FleetAgent struct {
 	SpiffeId            string                `json:"spiffe_id,omitempty"`
 	Status              string                `json:"status"`
 	TenantId            string                `json:"tenant_id"`
-	TestSet             FleetTestSet          `json:"test_set,omitempty"`
+	TestSet             FleetTestSet          `json:"test_set,omitzero"`
 	VersionReason       string                `json:"version_reason"`
 	VersionState        string                `json:"version_state"`
 }
@@ -2252,7 +2252,7 @@ type FlowAnomaly struct {
 	Model            string                `json:"model,omitempty"`
 	Sigma            float64               `json:"sigma,omitempty"`
 	StddevBps        float64               `json:"stddev_bps,omitempty"`
-	TrainingWindow   AnomalyTrainingWindow `json:"training_window,omitempty"`
+	TrainingWindow   AnomalyTrainingWindow `json:"training_window,omitzero"`
 	Ts               string                `json:"ts,omitempty"`
 }
 
@@ -2301,7 +2301,7 @@ type FlowExplorerResult struct {
 	Matrix              []FlowExplorerMatrixCell  `json:"matrix"`
 	MatrixColumns       []FlowExplorerRow         `json:"matrix_columns,omitempty"`
 	MatrixRows          []FlowExplorerRow         `json:"matrix_rows,omitempty"`
-	Other               FlowExplorerRow           `json:"other,omitempty"`
+	Other               FlowExplorerRow           `json:"other,omitzero"`
 	OtherSeries         []FlowExplorerPoint       `json:"other_series"`
 	Query               FlowQueryOptions          `json:"query"`
 	ResolutionSeconds   int                       `json:"resolution_seconds"`
@@ -2446,7 +2446,7 @@ type FlowQueryOptions struct {
 	BucketSeconds    int                  `json:"bucket_seconds,omitempty"`
 	Cursor           string               `json:"cursor,omitempty"`
 	Dataseries       string               `json:"dataseries,omitempty"`
-	Filter           FlowQueryFilterGroup `json:"filter,omitempty"`
+	Filter           FlowQueryFilterGroup `json:"filter,omitzero"`
 	From             string               `json:"from,omitempty"`
 	GroupBy          []string             `json:"group_by,omitempty"`
 	Ipv4PrefixLength int                  `json:"ipv4_prefix_length,omitempty"`
@@ -2473,7 +2473,7 @@ type FlowQueryViewDefinition struct {
 	AutoRefreshSeconds int               `json:"auto_refresh_seconds,omitempty"`
 	Comparison         map[string]any    `json:"comparison,omitempty"`
 	Description        string            `json:"description,omitempty"`
-	Display            FlowQueryDisplay  `json:"display,omitempty"`
+	Display            FlowQueryDisplay  `json:"display,omitzero"`
 	Labels             []string          `json:"labels,omitempty"`
 	Name               string            `json:"name"`
 	Plan               map[string]any    `json:"plan,omitempty"`
@@ -2496,10 +2496,10 @@ type FlowQuestionInput struct {
 type FlowQuestionProposal struct {
 	Assumptions       []string         `json:"assumptions,omitempty"`
 	Comparison        map[string]any   `json:"comparison,omitempty"`
-	Display           FlowQueryDisplay `json:"display,omitempty"`
+	Display           FlowQueryDisplay `json:"display,omitzero"`
 	Guidance          string           `json:"guidance,omitempty"`
 	NeedsConfirmation *bool            `json:"needs_confirmation,omitempty"`
-	Plan              FlowQueryOptions `json:"plan,omitempty"`
+	Plan              FlowQueryOptions `json:"plan,omitzero"`
 	Previous          map[string]any   `json:"previous,omitempty"`
 	Status            string           `json:"status"`
 }
@@ -2579,7 +2579,7 @@ type Health struct {
 
 type HealthCheck struct {
 	Detail  string           `json:"detail,omitempty"`
-	Finding ReadinessFinding `json:"finding,omitempty"`
+	Finding ReadinessFinding `json:"finding,omitzero"`
 	Name    string           `json:"name"`
 	Status  HealthStatus     `json:"status"`
 }
@@ -2664,7 +2664,7 @@ type HopGeo struct {
 
 // One responder at a TTL; multiple nodes at a TTL are ECMP branches.
 type HopNode struct {
-	Geo       HopGeo      `json:"geo,omitempty"`
+	Geo       HopGeo      `json:"geo,omitzero"`
 	Ip        string      `json:"ip"`
 	LossRatio float64     `json:"loss_ratio,omitempty"`
 	Mpls      []MPLSLabel `json:"mpls,omitempty"`
@@ -2813,10 +2813,10 @@ type IncidentImpactCounters struct {
 type IncidentImpactCustomer struct {
 	CaptureKeys            []string               `json:"capture_keys"`
 	ContextId              string                 `json:"context_id"`
-	CurrentObservedTotals  IncidentImpactCounters `json:"current_observed_totals,omitempty"`
+	CurrentObservedTotals  IncidentImpactCounters `json:"current_observed_totals,omitzero"`
 	EvidenceIds            []string               `json:"evidence_ids,omitempty"`
 	PrefixIds              []string               `json:"prefix_ids"`
-	PreviousObservedTotals IncidentImpactCounters `json:"previous_observed_totals,omitempty"`
+	PreviousObservedTotals IncidentImpactCounters `json:"previous_observed_totals,omitzero"`
 	SloIds                 []string               `json:"slo_ids"`
 	TagIds                 []string               `json:"tag_ids,omitempty"`
 	TagKey                 string                 `json:"tag_key"`
@@ -2848,7 +2848,7 @@ type IncidentImpactPeriod struct {
 	Captures          []IncidentImpactCaptureCitation `json:"captures"`
 	Coverage          string                          `json:"coverage"`
 	From              string                          `json:"from"`
-	ObservedTotals    IncidentImpactCounters          `json:"observed_totals,omitempty"`
+	ObservedTotals    IncidentImpactCounters          `json:"observed_totals,omitzero"`
 	To                string                          `json:"to"`
 	UnverifiedRecords int                             `json:"unverified_records"`
 }
@@ -2917,7 +2917,7 @@ type IncidentImpactTestObservation struct {
 	Digest     string                    `json:"digest"`
 	EvidenceId string                    `json:"evidence_id"`
 	ObservedAt string                    `json:"observed_at"`
-	Packets    IncidentImpactTestPackets `json:"packets,omitempty"`
+	Packets    IncidentImpactTestPackets `json:"packets,omitzero"`
 	Reason     string                    `json:"reason"`
 	Status     string                    `json:"status"`
 }
@@ -2935,7 +2935,7 @@ type IncidentImpactTestPeriod struct {
 	Failed       int                             `json:"failed"`
 	From         string                          `json:"from"`
 	Observations []IncidentImpactTestObservation `json:"observations"`
-	Packets      IncidentImpactTestPackets       `json:"packets,omitempty"`
+	Packets      IncidentImpactTestPackets       `json:"packets,omitzero"`
 	Successful   int                             `json:"successful"`
 	To           string                          `json:"to"`
 	Unknown      int                             `json:"unknown"`
@@ -3005,7 +3005,7 @@ type IncidentShareArtifact struct {
 type IncidentShareContext struct {
 	Filters   map[string]string      `json:"filters"`
 	From      string                 `json:"from"`
-	Selection IncidentShareSelection `json:"selection,omitempty"`
+	Selection IncidentShareSelection `json:"selection,omitzero"`
 	To        string                 `json:"to"`
 }
 
@@ -3476,7 +3476,7 @@ type OnboardingProgress struct {
 	AgentRegistered         bool                  `json:"agent_registered"`
 	DeploymentProfile       string                `json:"deployment_profile,omitempty"`
 	Engines                 []OnboardingReadiness `json:"engines"`
-	FirstFinding            OnboardingFinding     `json:"first_finding,omitempty"`
+	FirstFinding            OnboardingFinding     `json:"first_finding,omitzero"`
 	FirstFindingVisible     bool                  `json:"first_finding_visible"`
 	FirstResultReceived     bool                  `json:"first_result_received"`
 	FirstTestCreated        bool                  `json:"first_test_created"`
@@ -3665,7 +3665,7 @@ type PeeringEstimateResponse struct {
 	Direction        string                   `json:"direction"`
 	From             string                   `json:"from"`
 	Interpretation   string                   `json:"interpretation"`
-	KnownEligibleP95 PeeringRateEstimate      `json:"known_eligible_p95,omitempty"`
+	KnownEligibleP95 PeeringRateEstimate      `json:"known_eligible_p95,omitzero"`
 	Preview          bool                     `json:"preview"`
 	Reason           string                   `json:"reason"`
 	Source           string                   `json:"source,omitempty"`
@@ -3752,7 +3752,7 @@ type RemediationProposal struct {
 	DecidedAt    string            `json:"decided_at,omitempty"`
 	DecidedBy    string            `json:"decided_by,omitempty"`
 	DecisionNote string            `json:"decision_note,omitempty"`
-	DryRun       RemediationDryRun `json:"dry_run,omitempty"`
+	DryRun       RemediationDryRun `json:"dry_run,omitzero"`
 	Id           string            `json:"id,omitempty"`
 	IncidentId   string            `json:"incident_id,omitempty"`
 	Kind         string            `json:"kind,omitempty"`
@@ -4055,7 +4055,7 @@ type TestList struct {
 type TestProposal struct {
 	Rationale string   `json:"rationale,omitempty"`
 	Source    string   `json:"source,omitempty"`
-	Spec      TestSpec `json:"spec,omitempty"`
+	Spec      TestSpec `json:"spec,omitzero"`
 }
 
 // The mutable fields of a synthetic test.
