@@ -15,6 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/ctlplne/probectl/internal/a2a"
 	"github.com/ctlplne/probectl/internal/agenttransport"
 	"github.com/ctlplne/probectl/internal/crypto"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
@@ -42,7 +46,8 @@ func TestFetchTestBundleTenantIsolationOverMTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := startTestServer(ctx, t, pool, func(s *agenttransport.Server) { s.WithTestBundles(src) })
+	broker := a2a.NewBroker()
+	ts := startTestServerWithBroker(ctx, t, pool, broker, func(s *agenttransport.Server) { s.WithTestBundles(src) })
 
 	sfx := fmt.Sprintf("%d", time.Now().UnixNano())
 	ta, err := store.NewTenants(pool).Create(ctx, "tb-a-"+sfx, "TB A")
@@ -72,7 +77,7 @@ func TestFetchTestBundleTenantIsolationOverMTLS(t *testing.T) {
 	idB := mk(tb.ID, "b", "https://b.example.com")
 
 	clientA, agentA := agentClient(ctx, t, ts, ta.ID)
-	clientB, _ := agentClient(ctx, t, ts, tb.ID)
+	clientB, agentB := agentClient(ctx, t, ts, tb.ID)
 	rpcCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
@@ -176,6 +181,43 @@ func TestFetchTestBundleTenantIsolationOverMTLS(t *testing.T) {
 				t.Fatalf("delete not reflected: %+v", bundleA.Tests)
 			}
 		}
+	}
+
+	sessionA, err := broker.StartSession(ta.ID, agentA, "peer-a", "tcp", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionB, err := broker.StartSession(tb.ID, agentB, "peer-b", "tcp", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tenancy.InProvider(rpcCtx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		_, err := q.Exec(ctx, `UPDATE public.tenants SET prospect_collection_ends_at=clock_timestamp() WHERE id=$1`, ta.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, known := range []uint64{0, uint64(bundleA.Epoch)} {
+		response, err := clientA.FetchTestBundle(rpcCtx, &agentv1.FetchTestBundleRequest{KnownVersion: known})
+		if status.Code(err) != codes.FailedPrecondition || response != nil {
+			t.Fatalf("completed tenant still received a test set at version %d: %v", known, err)
+		}
+	}
+	_, stillCollecting := pull(clientB, 0)
+	if stillCollecting.TenantID != tb.ID || !slices.Contains(ids(stillCollecting), idB) {
+		t.Fatal("completed tenant changed the sibling's signed test set")
+	}
+	if response, err := clientA.PollCoordination(rpcCtx, &agentv1.PollCoordinationRequest{}); err != nil || response.GetHasTask() {
+		t.Fatal("completed tenant received a new coordination assignment", err)
+	}
+	if _, err := clientA.ReportEndpoint(rpcCtx, &agentv1.ReportEndpointRequest{SessionId: sessionA, Host: "127.0.0.1", Port: 443}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatal("completed tenant could dispatch an initiator assignment", err)
+	}
+	if response, err := clientB.PollCoordination(rpcCtx, &agentv1.PollCoordinationRequest{}); err != nil || !response.GetHasTask() || response.GetTask().GetSessionId() != sessionB {
+		t.Fatal("completed tenant changed the sibling's coordination assignment", err)
+	}
+	if task, queued := broker.PollFor(ta.ID, agentA); !queued || task.SessionID != sessionA {
+		t.Fatal("denied dispatch consumed the completed tenant's queued assignment")
 	}
 }
 

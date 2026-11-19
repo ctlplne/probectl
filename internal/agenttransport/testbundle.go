@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // fetchTestBundleCapability is advertised in RegisterResponse.server_capabilities
@@ -52,6 +53,14 @@ func (svc *service) FetchTestBundle(ctx context.Context, req *agentv1.FetchTestB
 	if svc.testBundles == nil {
 		return nil, status.Error(codes.FailedPrecondition,
 			"central test distribution is not configured (PROBECTL_TESTSYNC_SIGNING_KEY_FILE)")
+	}
+	// Finish admission before the source opens its own tenant transaction.
+	err = svc.requireCollectionDispatch(ctx, id.TenantID)
+	if tenancy.IsProspectCollectionEnded(err) {
+		return nil, status.Error(codes.FailedPrecondition, "prospect collection ended")
+	}
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "tenant collection admission unavailable")
 	}
 	current, err := svc.testBundles.Version(ctx, id.TenantID)
 	if err != nil {

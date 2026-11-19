@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 
+	"github.com/ctlplne/probectl/internal/a2a"
 	"github.com/ctlplne/probectl/internal/agenttransport"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -92,6 +93,10 @@ func writeTemp(t *testing.T, dir, name string, data []byte) string {
 }
 
 func startTestServer(ctx context.Context, t *testing.T, pool *pgxpool.Pool, opts ...func(*agenttransport.Server)) testServer {
+	return startTestServerWithBroker(ctx, t, pool, nil, opts...)
+}
+
+func startTestServerWithBroker(ctx context.Context, t *testing.T, pool *pgxpool.Pool, broker *a2a.Broker, opts ...func(*agenttransport.Server)) testServer {
 	t.Helper()
 	dir := t.TempDir()
 	ca, err := crypto.GenerateCA("probectl-test-ca", time.Hour)
@@ -105,7 +110,7 @@ func startTestServer(ctx context.Context, t *testing.T, pool *pgxpool.Pool, opts
 	}
 	srv, err := agenttransport.New(
 		writeTemp(t, dir, "server.crt", sc), writeTemp(t, dir, "server.key", sk), caFile,
-		pool, bus.NewMemory(), nil, logging.New(io.Discard, "error", "json"))
+		pool, bus.NewMemory(), broker, logging.New(io.Discard, "error", "json"))
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}

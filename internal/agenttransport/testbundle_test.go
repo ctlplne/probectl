@@ -31,6 +31,12 @@ type fakeBundles struct {
 	failRead bool
 }
 
+type testCollectionDispatchFence struct{}
+
+func (testCollectionDispatchFence) WithTenantWrites(ctx context.Context, _ []string, check func(context.Context) error) error {
+	return check(ctx)
+}
+
 func (f *fakeBundles) Version(_ context.Context, tenant string) (uint64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -66,6 +72,7 @@ func testBundleService(t *testing.T) (*service, context.Context, string) {
 		t.Fatal(err)
 	}
 	srv.svc.hb = newHeartbeatBatcher(nil, discardLogger(), time.Minute)
+	srv.svc.collectionFence = testCollectionDispatchFence{}
 	const tenant, agent = "33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444"
 	certPEM, _, err := ca.IssueClientCert(agent, crypto.AgentSPIFFEID(tenant, agent), time.Hour)
 	if err != nil {
@@ -149,6 +156,12 @@ func TestFetchTestBundleUsesCertificateTenant(t *testing.T) {
 	}
 	if hb, err := svc.Heartbeat(ctx, &agentv1.HeartbeatRequest{ConfigEpoch: 1}); err != nil || hb.GetConfigStale() {
 		t.Fatalf("heartbeat on store failure = %+v, %v; want ok, not stale", hb, err)
+	}
+	svc.collectionFence = nil
+	f.failRead = false
+	before := len(f.tenants)
+	if _, err := svc.FetchTestBundle(ctx, &agentv1.FetchTestBundleRequest{}); status.Code(err) != codes.Unavailable || len(f.tenants) != before {
+		t.Fatalf("pull without collection authority = %v, want Unavailable", err)
 	}
 }
 

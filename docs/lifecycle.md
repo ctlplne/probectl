@@ -375,7 +375,13 @@ Conversion, withdrawn consent, a changed destination or unavailable evidence
 keeps the engagement from entering offboarding. If an erasure store is
 unavailable after the authorized fence, retry uses that same provider audit
 receipt. Successful deletion archives the full attestation with the provider
-audit event. Agent dispatch remains an additional lifecycle step.
+audit event.
+
+When a prospect's deadline passes, the existing mTLS agent listener stops
+handing that tenant new signed test sets and coordination assignments. The
+tenant is taken from the agent certificate. The sibling tenants keep their
+normal dispatch. An agent's locally scheduled collection remains a separate
+lifecycle step.
 
 Engagement writes take the same tenant writer lease and database trigger as
 other lifecycle data. Once the existing erasure fence closes, PostgreSQL

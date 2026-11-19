@@ -404,6 +404,13 @@
       ]
     },
     {
+      "ref": "test:internal/agenttransport/testbundle_isolation_integration_test.go#TestFetchTestBundleTenantIsolationOverMTLS",
+      "profile": "integration",
+      "capabilities": [
+        "F55"
+      ]
+    },
+    {
       "ref": "test:ee/billing/metering_realstack_integration_test.go#TestMeteringAndBillingExportRealStack",
       "profile": "integration",
       "capabilities": [

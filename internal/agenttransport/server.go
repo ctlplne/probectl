@@ -151,6 +151,7 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 		// deployment-wide instance via WithWriterFence so every plane shares
 		// one fence object and the inventory regression can see it.
 		svc.fence = tenancy.NewPostgresWriterFence(pool)
+		svc.collectionFence = tenancy.NewPostgresCollectionWriterFence(pool)
 	}
 	if pool != nil {
 		// SCALE-012: heartbeats coalesce into one multi-row UPDATE per tenant

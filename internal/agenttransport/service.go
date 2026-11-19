@@ -143,7 +143,8 @@ type service struct {
 	// fence is the deployment-wide erasure barrier for object-artifact ingest
 	// (S-a9f9db46): INJECTED from the runtime like every other plane's — never
 	// constructed ad hoc per call — so the write-fence inventory sees it.
-	fence tenancy.WriterFence
+	fence           tenancy.WriterFence
+	collectionFence tenancy.WriterFence
 	// Evidence RPCs use a separate tenant bucket from raw result admission.
 	// New() installs bounded defaults; the runtime injects its shared gate.
 	fairness      *fairness.Gate
@@ -480,6 +481,10 @@ func deterministicResultID(r *resultv1.Result) string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", h[0:4], h[4:6], h[6:8], h[8:10], h[10:16])
 }
 
+func (svc *service) requireCollectionDispatch(ctx context.Context, tenant string) error {
+	return tenancy.FencedTenantWrite(ctx, svc.collectionFence, tenant, tenancy.ErrNoTenant, func(context.Context) error { return nil })
+}
+
 // PollCoordination returns the next brokered agent-to-agent task for the calling
 // agent. The tenant and agent are taken from the verified certificate, so an
 // agent can only ever receive its own tasks (docs/guardrails.md G7-1 and G7-5).
@@ -490,6 +495,13 @@ func (svc *service) PollCoordination(ctx context.Context, _ *agentv1.PollCoordin
 	}
 	if svc.broker == nil {
 		return &agentv1.PollCoordinationResponse{HasTask: false}, nil
+	}
+	err = svc.requireCollectionDispatch(ctx, id.TenantID)
+	if tenancy.IsProspectCollectionEnded(err) {
+		return &agentv1.PollCoordinationResponse{HasTask: false}, nil
+	}
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "tenant collection admission unavailable")
 	}
 	task, ok := svc.broker.PollFor(id.TenantID, id.AgentID)
 	if !ok {
@@ -507,6 +519,13 @@ func (svc *service) ReportEndpoint(ctx context.Context, req *agentv1.ReportEndpo
 	}
 	if svc.broker == nil {
 		return nil, status.Error(codes.Unavailable, "coordination not enabled")
+	}
+	err = svc.requireCollectionDispatch(ctx, id.TenantID)
+	if tenancy.IsProspectCollectionEnded(err) {
+		return nil, status.Error(codes.FailedPrecondition, "prospect collection ended")
+	}
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, "tenant collection admission unavailable")
 	}
 	if err := svc.broker.ReportEndpoint(id.TenantID, id.AgentID, req.GetSessionId(), req.GetHost(), req.GetPort()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
