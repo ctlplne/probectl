@@ -108,6 +108,14 @@ func (c *ClickHouse) explorerQueryRows(ctx context.Context, target Target, lane 
 		if code == "158" || code == "159" || code == "160" || code == "202" || code == "241" || code == "307" || code == "396" || code == "191" {
 			return nil, ErrExplorerBudget
 		}
+		if code == "395" && seen[externalSeasonalClocks] && seen[externalSeasonalWindows] {
+			// ClickHouse may frame the code with extra request metadata. Match
+			// the first exception message without forwarding any returned text.
+			_, message, _ := bytes.Cut(raw, []byte("DB::Exception: "))
+			if bytes.HasPrefix(message, []byte(seasonalMembershipBudgetMessage)) {
+				return nil, ErrExplorerBudget
+			}
+		}
 		return nil, fmt.Errorf("flow query store status %d (code %s)", response.StatusCode, code)
 	}
 	if err := chargeBatchResponse(ctx, tenant, response.Header, int64(len(raw))); err != nil {

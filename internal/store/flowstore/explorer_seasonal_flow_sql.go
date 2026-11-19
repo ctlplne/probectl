@@ -19,6 +19,8 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
+const seasonalMembershipBudgetMessage = "seasonal flow membership budget exceeded"
+
 const seasonalPeriodGroup = "g,c,o,p,period_index"
 
 type seasonalFlowSQLRead struct {
@@ -67,7 +69,7 @@ func buildSeasonalFlowSQL(ctx context.Context, budget ExplorerBudget, query Plan
 	// evaluated in the range argument before one row expands into its windows.
 	const admitted = "clock_admitted AS (SELECT *,sum(toUInt128(member_after-member_first)) OVER () AS member_total FROM clock_inputs WHERE member_after>member_first)"
 	const expanded = "clock_expanded AS (SELECT *,arrayJoin(range(member_first,member_after+" +
-		"toUInt64(throwIf(member_total>{clock_membership_limit:UInt64},'seasonal flow membership budget exceeded')))) AS period_index FROM clock_admitted)"
+		"toUInt64(throwIf(member_total>{clock_membership_limit:UInt64},'" + seasonalMembershipBudgetMessage + "')))) AS period_index FROM clock_admitted)"
 	// Every original membership survives the join to its unique clock.
 	const input = "period_inputs AS (SELECT expanded.*,windows.window_start AS period_start FROM clock_expanded AS expanded" +
 		" ALL INNER JOIN seasonal_window_lookup AS windows ON expanded.window_owner=windows.window_tenant AND expanded.period_index=windows.window_index)"

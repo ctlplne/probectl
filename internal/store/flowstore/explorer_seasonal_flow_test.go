@@ -20,7 +20,7 @@ func TestSeasonalFlowWindowPlanPreservesWholeTenantHistory(t *testing.T) {
 	checkSeasonalFlowWindowPlan(t, NewMemory(), "red", "blue")
 }
 
-func checkSeasonalFlowWindowPlan(t *testing.T, store Store, red, blue string) {
+func checkSeasonalFlowWindowPlan(t *testing.T, store Store, red, blue string) (flow.QueryPlan, []time.Time) {
 	t.Helper()
 	const periods = 42*24 + 1
 	last := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Hour)
@@ -89,4 +89,5 @@ func checkSeasonalFlowWindowPlan(t *testing.T, store Store, red, blue string) {
 			t.Fatal("sibling tenant reached the seasonal plan reader", err)
 		}
 	}
+	return plan, ends
 }
