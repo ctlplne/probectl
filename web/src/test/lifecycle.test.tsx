@@ -138,7 +138,7 @@ describe('tenant data lifecycle (S-T5)', () => {
     expect(await screen.findByText('Converted to client')).toBeVisible()
     expect(screen.getByRole('link', { name: 'Download assessment PDF' })).toHaveAttribute(
       'href',
-      '/v1/dashboard-report-artifacts/filed-pdf',
+      new URL('/v1/dashboard-report-artifacts/filed-pdf', window.location.origin).href,
     )
     expect(writes).toHaveBeenNthCalledWith(2, '/v1/lifecycle/prospect/revoke-consent', {
       revision: 1,
