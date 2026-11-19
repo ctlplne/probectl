@@ -51,6 +51,13 @@
       ]
     },
     {
+      "ref": "test:internal/flow/seasonal_flow_realstack_integration_test.go#TestSeasonalFlowBaselineUsesShippedCollectorAndTenantStore",
+      "profile": "integration",
+      "capabilities": [
+        "F8"
+      ]
+    },
+    {
       "ref": "test:internal/control/alert_seasonal_flow_integration_test.go#TestSeasonalFlowNativeCreationKeepsCurrentViewAndTenant",
       "profile": "integration",
       "capabilities": [
