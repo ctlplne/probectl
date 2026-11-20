@@ -62,7 +62,7 @@ func TestAlertSupervisorEvaluatesTwoNonDefaultTenants(t *testing.T) {
 	if err := sup.Sync(ctx); err != nil {
 		t.Fatalf("sync tenants: %v", err)
 	}
-	sup.Tick(ctx)
+	sup.tick(ctx, sup.tickAllRules)
 
 	assertTenantActiveAlert(t, srv, a.ID, "loss-"+a.Slug)
 	assertTenantActiveAlert(t, srv, b.ID, "loss-"+b.Slug)

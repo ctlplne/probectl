@@ -526,11 +526,6 @@ func (s *AlertEvaluatorSupervisor) Sync(ctx context.Context) error {
 	return nil
 }
 
-// Tick evaluates every active tenant, bounded by maxConcurrent workers.
-func (s *AlertEvaluatorSupervisor) Tick(ctx context.Context) {
-	s.tick(ctx, s.tickAllRules)
-}
-
 func (s *AlertEvaluatorSupervisor) tick(ctx context.Context, evaluate func(context.Context, *tenantEvaluator)) {
 	s.mu.Lock()
 	evals := make([]*tenantEvaluator, 0, len(s.evaluators))
