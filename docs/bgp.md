@@ -54,6 +54,9 @@ what *should* be true.
    to the other planes (e.g. the synthetic tests that began failing the same second) —
    not a lonely BGP alert you have to interpret by yourself.
 
+The [prefix visibility preview](bgp-prefix-visibility.md) measures each public
+collector's eligible peer coverage and origins over time from shared archives.
+
 What probectl guarantees you:
 
 - **It only watches — it never touches routing.** probectl does not announce, withdraw,

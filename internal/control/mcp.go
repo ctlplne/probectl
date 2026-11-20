@@ -138,6 +138,11 @@ func newMCPServer(
 		options = append(options, tagReadOptions(pool, policyLoader, src, gate)...)
 		if src.NativeFlow != nil {
 			options = append(options, mcp.WithProspectEngagementBackend(mcpProspectEngagementBackend{server: src.NativeFlow}))
+			if option, err := bgpVisibilityToolOption(src.NativeFlow); err != nil {
+				log.Error("MCP BGP visibility schema is unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, option)
+			}
 			if option, err := changeEffectsToolOption(src.NativeFlow); err != nil {
 				log.Error("MCP change effect schema is unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

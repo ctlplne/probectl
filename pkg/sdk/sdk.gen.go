@@ -686,6 +686,57 @@ type BGPRoutingBindingReplacement struct {
 	SourceRef        string              `json:"source_ref"`
 }
 
+type BGPVisibilityCounts struct {
+	AmbiguousOriginPeers int                   `json:"ambiguous_origin_peers"`
+	EligiblePeers        int                   `json:"eligible_peers"`
+	Origins              []BGPVisibilityOrigin `json:"origins"`
+	VisiblePeers         int                   `json:"visible_peers"`
+}
+
+type BGPVisibilityHistory struct {
+	Items   []BGPVisibilityObservation `json:"items"`
+	Monitor BGPVisibilityMonitor       `json:"monitor"`
+}
+
+type BGPVisibilityMonitor struct {
+	AlertOnLoss               bool   `json:"alert_on_loss"`
+	AlertOnPartial            bool   `json:"alert_on_partial"`
+	CreatedAt                 string `json:"created_at"`
+	Id                        string `json:"id"`
+	MinimumVisibleBasisPoints int    `json:"minimum_visible_basis_points"`
+	Prefix                    string `json:"prefix"`
+}
+
+type BGPVisibilityMonitorInput struct {
+	AlertOnLoss               *bool  `json:"alert_on_loss,omitempty"`
+	AlertOnPartial            *bool  `json:"alert_on_partial,omitempty"`
+	MinimumVisibleBasisPoints int    `json:"minimum_visible_basis_points"`
+	Prefix                    string `json:"prefix"`
+}
+
+type BGPVisibilityMonitorList struct {
+	Items []BGPVisibilityMonitor `json:"items"`
+}
+
+type BGPVisibilityObservation struct {
+	ArchiveClock      string              `json:"archive_clock"`
+	ArchiveSha256     string              `json:"archive_sha256"`
+	Availability      string              `json:"availability"`
+	BaselineClock     string              `json:"baseline_clock"`
+	BaselineSha256    string              `json:"baseline_sha256"`
+	Collector         string              `json:"collector"`
+	Counts            BGPVisibilityCounts `json:"counts,omitzero"`
+	MinimumPeerRoutes int                 `json:"minimum_peer_routes"`
+	ObservedAt        string              `json:"observed_at"`
+	PolicyVersion     string              `json:"policy_version"`
+	Source            string              `json:"source"`
+}
+
+type BGPVisibilityOrigin struct {
+	Asn   int `json:"asn"`
+	Peers int `json:"peers"`
+}
+
 type Branding struct {
 	ProductName    string            `json:"product_name"`
 	TokenOverrides map[string]string `json:"token_overrides,omitempty"`
@@ -5929,6 +5980,77 @@ func (c *Client) ListBgpEvents(ctx context.Context, req ListBgpEventsRequest) (*
 		return nil, err
 	}
 	return &out, nil
+}
+
+// List the tenant's monitored BGP prefixes
+type ListBgpVisibilityMonitorsRequest struct {
+}
+
+func (c *Client) ListBgpVisibilityMonitors(ctx context.Context, req ListBgpVisibilityMonitorsRequest) (*BGPVisibilityMonitorList, error) {
+	path := "/v1/bgp/visibility"
+	query := url.Values{}
+	var out BGPVisibilityMonitorList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Set the visibility monitor and alert choices for an exact prefix
+type SaveBgpVisibilityMonitorRequest struct {
+	Body *BGPVisibilityMonitorInput `json:"-"`
+}
+
+func (c *Client) SaveBgpVisibilityMonitor(ctx context.Context, req SaveBgpVisibilityMonitorRequest) (*BGPVisibilityMonitor, error) {
+	path := "/v1/bgp/visibility"
+	query := url.Values{}
+	var out BGPVisibilityMonitor
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read measured BGP visibility history by collector
+type GetBgpVisibilityHistoryRequest struct {
+	Id     string  `json:"-"`
+	Before *string `json:"-"`
+	Limit  *int    `json:"-"`
+}
+
+func (c *Client) GetBgpVisibilityHistory(ctx context.Context, req GetBgpVisibilityHistoryRequest) (*BGPVisibilityHistory, error) {
+	path := "/v1/bgp/visibility/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.Before != nil {
+		query.Set("before", formatQueryValue(*req.Before))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out BGPVisibilityHistory
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Remove the monitor and its visibility history
+type DeleteBgpVisibilityMonitorRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) DeleteBgpVisibilityMonitor(ctx context.Context, req DeleteBgpVisibilityMonitorRequest) error {
+	path := "/v1/bgp/visibility/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
 // Network energy/carbon estimate (S48)

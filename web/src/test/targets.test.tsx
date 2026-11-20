@@ -313,6 +313,14 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     expect(within(mobileT2!).getByText('Never')).toBeInTheDocument()
     expect(within(mobileT2!).getByText('0 independent vantages')).toBeInTheDocument()
 
+    await user.selectOptions(screen.getByLabelText('Region'), 'ap-south')
+    expect(within(matrix).getByText('apac-api')).toBeInTheDocument()
+    expect(within(matrix).queryByText('edge-dns')).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText('Find coverage'), 'no matching vantage')
+    expect(within(matrix).getByText('No coverage rows match these filters')).toBeInTheDocument()
+    await user.click(within(matrix).getByRole('button', { name: 'Clear filters' }))
+    expect(within(matrix).getByText('apac-api')).toBeInTheDocument()
+
     await user.selectOptions(screen.getByLabelText('Coverage state'), 'uncovered')
     expect(within(matrix).getByText('apac-api')).toBeInTheDocument()
     expect(within(matrix).queryByText('edge-dns')).not.toBeInTheDocument()
@@ -329,6 +337,16 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     expect(
       within(inventory).getByRole('button', { name: 'View YAML for edge-dns' }),
     ).toBeInTheDocument()
+
+    const inventoryCard = document.querySelector<HTMLElement>('[data-targets-inventory]')
+    if (!inventoryCard) throw new Error('missing the scoped test inventory card')
+    await user.click(within(inventoryCard).getByRole('button', { name: /clear exact/i }))
+    await user.selectOptions(within(inventoryCard).getByLabelText('Type'), 'dns')
+    await user.selectOptions(within(inventoryCard).getByLabelText('State'), 'disabled')
+    await user.type(within(inventoryCard).getByLabelText('Find', { exact: true }), 'missing')
+    expect(within(inventory).getByText('No tests match these filters')).toBeInTheDocument()
+    await user.click(within(inventory).getByRole('button', { name: 'Clear filters' }))
+    expect(await within(inventory).findByText('9.9.9.9')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Author another test' }))
     expect(await screen.findByRole('dialog', { name: /create test/i })).toBeInTheDocument()
@@ -726,5 +744,55 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     )
     renderApp('/targets')
     expect(await screen.findByText(/boom/i, {}, { timeout: 4000 })).toBeInTheDocument()
+  })
+
+  test('retries scoped coverage and registry reads before offering test authoring', async () => {
+    const user = userEvent.setup()
+    const fallback = defaultFetch()
+    let inventoryReady = false
+    let coverageReady = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = pathOf(input)
+        if (path === '/v1/tests') {
+          return inventoryReady
+            ? jsonResponse({ items: [] })
+            : jsonResponse({ error: { message: 'Registry unavailable' } }, 503)
+        }
+        if (path === '/v1/coverage/vantages') {
+          return coverageReady
+            ? jsonResponse({
+                items: [],
+                as_of: '2026-10-01T00:00:00Z',
+                evidence_running: true,
+                candidate_limit: 5000,
+                truncated: false,
+              })
+            : jsonResponse({ error: { message: 'Coverage unavailable' } }, 503)
+        }
+        return fallback(input, init)
+      }),
+    )
+    renderApp('/targets', { me: { permissions: ['test.write'] } })
+    const retryInventory = await screen.findByRole('button', {
+      name: 'Retry tenant-scoped request',
+    })
+    const retryCoverage = await screen.findByRole('button', { name: 'Retry coverage query' })
+    inventoryReady = true
+    coverageReady = true
+    await user.click(retryInventory)
+    await user.click(retryCoverage)
+    expect(await screen.findAllByText(/tenant has no test definitions/i)).not.toHaveLength(0)
+    await screen.findByText(/no enabled test definitions produced matrix rows/i)
+    const coverage = document.querySelector<HTMLElement>('[data-targets-coverage]')
+    const inventory = document.querySelector<HTMLElement>('[data-targets-inventory]')
+    if (!coverage || !inventory) throw new Error('missing scoped coverage or inventory card')
+    await user.click(within(coverage).getByRole('button', { name: 'New test' }))
+    const dialog = await screen.findByRole('dialog', { name: /create test/i })
+    await user.click(within(dialog).getByRole('button', { name: 'Close dialog' }))
+    const table = within(inventory).getByRole('table', { name: 'Synthetic tests' })
+    await user.click(within(table).getByRole('button', { name: 'New test' }))
+    expect(await screen.findByRole('dialog', { name: /create test/i })).toBeInTheDocument()
   })
 })

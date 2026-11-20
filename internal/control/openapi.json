@@ -6830,6 +6830,82 @@
         }
       }
     },
+    "/v1/bgp/visibility": {
+      "get": {
+        "operationId": "listBGPVisibilityMonitors",
+        "x-probectl-lifecycle": {"stage": "preview"},
+        "summary": "List the tenant's monitored BGP prefixes",
+        "x-required-permission": "events.read",
+        "tags": ["bgp"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "responses": {
+          "200": {"description": "Monitored prefixes", "content": {"application/json": {
+            "schema": {"$ref": "#/components/schemas/BGPVisibilityMonitorList"}}}},
+          "503": {"$ref": "#/components/responses/ErrorResponse"}
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded", "max_items": 128,
+          "reason": "Each tenant admits up to 128 active visibility monitors."
+        }
+      },
+      "put": {
+        "operationId": "saveBGPVisibilityMonitor",
+        "x-probectl-lifecycle": {"stage": "preview"},
+        "summary": "Set the visibility monitor and alert choices for an exact prefix",
+        "x-required-permission": "alert.write",
+        "tags": ["bgp"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {
+          "schema": {"$ref": "#/components/schemas/BGPVisibilityMonitorInput"}}}},
+        "responses": {
+          "200": {"description": "The tenant's saved visibility monitor", "content": {"application/json": {
+            "schema": {"$ref": "#/components/schemas/BGPVisibilityMonitor"}}}},
+          "503": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
+    "/v1/bgp/visibility/{id}": {
+      "get": {
+        "operationId": "getBGPVisibilityHistory",
+        "x-probectl-lifecycle": {"stage": "preview"},
+        "summary": "Read measured BGP visibility history by collector",
+        "x-required-permission": "events.read",
+        "tags": ["bgp"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "before", "in": "query", "description": "Exclusive observation timestamp cutoff.",
+           "schema": {"type": "string", "format": "date-time"}},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 100}}
+        ],
+        "responses": {
+          "200": {"description": "Stored history and original source receipts for the monitor", "content": {"application/json": {
+            "schema": {"$ref": "#/components/schemas/BGPVisibilityHistory"}}}},
+          "404": {"$ref": "#/components/responses/ErrorResponse"},
+          "503": {"$ref": "#/components/responses/ErrorResponse"}
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded", "limit_param": "limit", "max_items": 200,
+          "reason": "Visibility observations are selected within one tenant monitor and one time boundary."
+        }
+      },
+      "delete": {
+        "operationId": "deleteBGPVisibilityMonitor",
+        "x-probectl-lifecycle": {"stage": "preview"},
+        "summary": "Remove the monitor and its visibility history",
+        "x-required-permission": "alert.write",
+        "tags": ["bgp"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "204": {"description": "Monitor removed"},
+          "404": {"$ref": "#/components/responses/ErrorResponse"},
+          "503": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
     "/v1/entities": {
       "get": {
         "x-required-permission": "entities.read",
@@ -30714,6 +30790,75 @@
             "description": "Continuation for the next page. Empty when the selected history window is exhausted."
           }
         }
+      },
+      "BGPVisibilityMonitorInput": {
+        "type": "object",
+        "required": ["prefix", "minimum_visible_basis_points"],
+        "properties": {
+          "prefix": {"type": "string", "description": "Canonical IPv4 or IPv6 CIDR."},
+          "minimum_visible_basis_points": {"type": "integer", "minimum": 1, "maximum": 10000},
+          "alert_on_partial": {"type": "boolean"},
+          "alert_on_loss": {"type": "boolean"}
+        }
+      },
+      "BGPVisibilityMonitor": {
+        "type": "object",
+        "required": ["id", "prefix", "minimum_visible_basis_points", "alert_on_partial", "alert_on_loss", "created_at"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "prefix": {"type": "string"},
+          "minimum_visible_basis_points": {"type": "integer", "minimum": 1, "maximum": 10000},
+          "alert_on_partial": {"type": "boolean"},
+          "alert_on_loss": {"type": "boolean"},
+          "created_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "BGPVisibilityMonitorList": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {"items": {"type": "array", "maxItems": 128, "items": {
+          "$ref": "#/components/schemas/BGPVisibilityMonitor"}}}
+      },
+      "BGPVisibilityCounts": {
+        "type": "object",
+        "required": ["eligible_peers", "visible_peers", "ambiguous_origin_peers", "origins"],
+        "properties": {
+          "eligible_peers": {"type": "integer", "minimum": 1, "maximum": 65535},
+          "visible_peers": {"type": "integer", "minimum": 0, "maximum": 65535},
+          "ambiguous_origin_peers": {"type": "integer", "minimum": 0, "maximum": 65535},
+          "origins": {"type": "array", "maxItems": 4096, "items": {"$ref": "#/components/schemas/BGPVisibilityOrigin"}}
+        }
+      },
+      "BGPVisibilityOrigin": {
+        "type": "object",
+        "required": ["asn", "peers"],
+        "properties": {"asn": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+                       "peers": {"type": "integer", "minimum": 1, "maximum": 65535}}
+      },
+      "BGPVisibilityObservation": {
+        "type": "object",
+        "required": ["source", "collector", "observed_at", "baseline_clock", "archive_clock", "baseline_sha256",
+          "archive_sha256", "policy_version", "minimum_peer_routes", "availability"],
+        "properties": {
+          "source": {"type": "string"},
+          "collector": {"type": "string"},
+          "observed_at": {"type": "string", "format": "date-time"},
+          "baseline_clock": {"type": "string", "format": "date-time"},
+          "archive_clock": {"type": "string", "format": "date-time"},
+          "baseline_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "archive_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "policy_version": {"type": "string"},
+          "minimum_peer_routes": {"type": "integer", "minimum": 1},
+          "availability": {"type": "string", "enum": ["available", "empty_cohort", "archive_gap", "session_change"]},
+          "counts": {"$ref": "#/components/schemas/BGPVisibilityCounts"}
+        }
+      },
+      "BGPVisibilityHistory": {
+        "type": "object",
+        "required": ["monitor", "items"],
+        "properties": {"monitor": {"$ref": "#/components/schemas/BGPVisibilityMonitor"},
+                       "items": {"type": "array", "maxItems": 200, "items": {
+                         "$ref": "#/components/schemas/BGPVisibilityObservation"}}}
       },
       "BGPEvent": {
         "type": "object",

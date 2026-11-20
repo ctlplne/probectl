@@ -41,7 +41,7 @@
       ],
       "name": "BGP monitoring",
       "status": "delivered",
-      "evidence": "`analyzer/`, `internal/bgp`; FX-2 BMP peer observations use `internal/bgp/bmp_entity_evidence.go` with an independent router SVID."
+      "evidence": "`analyzer/`, `internal/bgp`; FX-2 BMP peer observations use `internal/bgp/bmp_entity_evidence.go` with an independent router SVID. The prefix visibility preview reads immutable published RouteViews archives with verified clock continuity and stores eligible peer and origin counts per tenant. The same tenant history is available through REST, CLI, SDK, the BGP console and the read-only native MCP tool. `TestBGPVisibilitySignalsAndHistoryStayTenantScoped` checks partial and lost observations, exact retries and sibling isolation on TLS PostgreSQL. `TestBGPVisibilityHistoryServedInBothThemes` verifies the served history and explicit gaps. See `docs/bgp-prefix-visibility.md`."
     },
     {
       "ids": [

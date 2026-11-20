@@ -594,6 +594,57 @@ export interface BGPRoutingBindingReplacement {
   source_ref: string
 }
 
+export interface BGPVisibilityCounts {
+  ambiguous_origin_peers: number
+  eligible_peers: number
+  origins: BGPVisibilityOrigin[]
+  visible_peers: number
+}
+
+export interface BGPVisibilityHistory {
+  items: BGPVisibilityObservation[]
+  monitor: BGPVisibilityMonitor
+}
+
+export interface BGPVisibilityMonitor {
+  alert_on_loss: boolean
+  alert_on_partial: boolean
+  created_at: string
+  id: string
+  minimum_visible_basis_points: number
+  prefix: string
+}
+
+export interface BGPVisibilityMonitorInput {
+  alert_on_loss?: boolean
+  alert_on_partial?: boolean
+  minimum_visible_basis_points: number
+  prefix: string
+}
+
+export interface BGPVisibilityMonitorList {
+  items: BGPVisibilityMonitor[]
+}
+
+export interface BGPVisibilityObservation {
+  archive_clock: string
+  archive_sha256: string
+  availability: "available" | "empty_cohort" | "archive_gap" | "session_change"
+  baseline_clock: string
+  baseline_sha256: string
+  collector: string
+  counts?: BGPVisibilityCounts
+  minimum_peer_routes: number
+  observed_at: string
+  policy_version: string
+  source: string
+}
+
+export interface BGPVisibilityOrigin {
+  asn: number
+  peers: number
+}
+
 export interface Branding {
   product_name: "probectl"
   token_overrides?: { [key: string]: string }
@@ -4989,6 +5040,31 @@ export interface ListBgpEventsRequest {
 
 export type ListBgpEventsResponse = BGPEventList
 
+export interface ListBgpVisibilityMonitorsRequest {
+}
+
+export type ListBgpVisibilityMonitorsResponse = BGPVisibilityMonitorList
+
+export interface SaveBgpVisibilityMonitorRequest {
+  body: BGPVisibilityMonitorInput
+}
+
+export type SaveBgpVisibilityMonitorResponse = BGPVisibilityMonitor
+
+export interface GetBgpVisibilityHistoryRequest {
+  id: string
+  before?: string
+  limit?: number
+}
+
+export type GetBgpVisibilityHistoryResponse = BGPVisibilityHistory
+
+export interface DeleteBgpVisibilityMonitorRequest {
+  id: string
+}
+
+export type DeleteBgpVisibilityMonitorResponse = void
+
 export interface GetCarbonRequest {
 }
 
@@ -7128,6 +7204,34 @@ export class ProbectlSDKClient {
     if (request.asn !== undefined) query.set("asn", String(request.asn))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListBgpEventsResponse>("GET", path, query, undefined)
+  }
+
+  async listBgpVisibilityMonitors(): Promise<ListBgpVisibilityMonitorsResponse> {
+    let path = "/v1/bgp/visibility"
+    const query = new URLSearchParams()
+    return this.requestJSON<ListBgpVisibilityMonitorsResponse>("GET", path, query, undefined)
+  }
+
+  async saveBgpVisibilityMonitor(request: SaveBgpVisibilityMonitorRequest): Promise<SaveBgpVisibilityMonitorResponse> {
+    let path = "/v1/bgp/visibility"
+    const query = new URLSearchParams()
+    return this.requestJSON<SaveBgpVisibilityMonitorResponse>("PUT", path, query, request.body)
+  }
+
+  async getBgpVisibilityHistory(request: GetBgpVisibilityHistoryRequest): Promise<GetBgpVisibilityHistoryResponse> {
+    let path = "/v1/bgp/visibility/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.before !== undefined) query.set("before", String(request.before))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<GetBgpVisibilityHistoryResponse>("GET", path, query, undefined)
+  }
+
+  async deleteBgpVisibilityMonitor(request: DeleteBgpVisibilityMonitorRequest): Promise<DeleteBgpVisibilityMonitorResponse> {
+    let path = "/v1/bgp/visibility/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    await this.request("DELETE", path, query, undefined)
   }
 
   async getCarbon(): Promise<GetCarbonResponse> {

@@ -169,8 +169,12 @@ var surfaceCommands = map[string]surfaceCommand{
 		"progress": {Method: http.MethodGet, Path: "/v1/onboarding/progress", Description: "show first-run checklist progress"},
 	}},
 	"bgp": {Name: "bgp", Summary: "BGP/routing events", Ops: map[string]apiOp{
-		"events": {Method: http.MethodGet, Path: "/v1/bgp/events", Description: "list tenant BGP/routing events"},
-		"setup":  {Method: http.MethodPost, Path: "/v1/collectors/register", Description: "register a tenant BGP source/collector"},
+		"events":            {Method: http.MethodGet, Path: "/v1/bgp/events", Description: "list tenant BGP/routing events"},
+		"setup":             {Method: http.MethodPost, Path: "/v1/collectors/register", Description: "register a tenant BGP source/collector"},
+		"visibility-list":   {Method: http.MethodGet, Path: "/v1/bgp/visibility", Description: "list monitored prefixes"},
+		"visibility":        {Method: http.MethodGet, Path: "/v1/bgp/visibility/{id}", ArgName: "id", ExactJSON: true, Description: "read one monitored prefix's collector history"},
+		"visibility-set":    {Method: http.MethodPut, Path: "/v1/bgp/visibility", ExactJSON: true, MaxBodyBytes: 4096, Description: "save an exact prefix and its visibility alert settings"},
+		"visibility-remove": {Method: http.MethodDelete, Path: "/v1/bgp/visibility/{id}", ArgName: "id", Description: "remove one monitor and its visibility history"},
 	}},
 	"carbon": {Name: "carbon", Summary: "carbon and energy estimates", Ops: map[string]apiOp{
 		"summary": {Method: http.MethodGet, Path: "/v1/carbon"},

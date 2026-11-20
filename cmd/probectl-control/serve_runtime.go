@@ -861,6 +861,9 @@ func (rt *serveRuntime) startSignalConsumers() error {
 	if err := rt.startSIEM(); err != nil {
 		return err
 	}
+	if err := rt.startBGPVisibility(); err != nil {
+		return err
+	}
 	rt.startThreatIntel()
 	rt.startTopologyConsumer()
 	rt.startCostCarbonConsumers()
@@ -887,6 +890,20 @@ func (rt *serveRuntime) startSignalConsumers() error {
 		})
 	})
 	return nil
+}
+
+func (rt *serveRuntime) startBGPVisibility() error {
+	if rt.cfg.BGPVisibilityCacheDir == "" && len(rt.cfg.BGPVisibilityCollectors) == 0 {
+		return nil
+	}
+	visibility, err := control.NewBGPVisibilitySupervisor(rt.srv, rt.cfg.BGPVisibilityCacheDir,
+		rt.cfg.BGPVisibilityCollectors, rt.cfg.IncidentWindow, control.NotifyObserver(rt.dispatcher, rt.log))
+	if err != nil {
+		return fmt.Errorf("configure BGP visibility: %w", err)
+	}
+	return rt.singletons.Register("bgp-public-prefix-visibility", func(ctx context.Context, _ cluster.LeaseToken) error {
+		return visibility.Run(ctx)
+	})
 }
 
 func (rt *serveRuntime) startSIEM() error {

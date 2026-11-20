@@ -865,6 +865,11 @@ type Config struct {
 	// cached, and graceful-degrading; an https mirror validates TLS.
 	OutageMirror string
 
+	// Public BGP visibility reads only this local collector archive cache.
+	// Both fields are empty by default, which leaves the supervisor disabled.
+	BGPVisibilityCacheDir   string
+	BGPVisibilityCollectors []string
+
 	// RUM convergence (S47b, F20). OFF by default: enabling opens the beacon
 	// ingest (an unauthenticated-session inbound surface). RUMApps maps public
 	// app keys to "tenant/app" routing bindings, with optional
@@ -1459,6 +1464,8 @@ func loadFeaturePlaneConfig(l *loader, cfg *Config) {
 	cfg.OutageRetention = l.dur("PROBECTL_OUTAGE_RETENTION", 48*time.Hour)
 	cfg.OutageRadarToken = l.str("PROBECTL_OUTAGE_RADAR_TOKEN", "")
 	cfg.OutageMirror = l.str("PROBECTL_OUTAGE_MIRROR", "")
+	cfg.BGPVisibilityCacheDir = l.str("PROBECTL_BGP_VISIBILITY_CACHE_DIR", "")
+	cfg.BGPVisibilityCollectors = l.list("PROBECTL_BGP_VISIBILITY_COLLECTORS")
 	cfg.RUMEnabled = l.boolean("PROBECTL_RUM_ENABLED", false)
 	cfg.RUMApps = l.tokenMap("PROBECTL_RUM_APPS")
 	cfg.RUMRatePerMin = l.intRange("PROBECTL_RUM_RATE_PER_MIN", 300, 0, 1_000_000)

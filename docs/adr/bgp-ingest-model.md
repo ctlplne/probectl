@@ -9,6 +9,13 @@ scoped per tenant" — that described a fan-out that was never built.
 > `docs/bgp.md`; the schema contract carries a matching comment in
 > `proto/probectl/bgp/v1/bgp.proto`.
 
+The [prefix visibility preview](../bgp-prefix-visibility.md) separately
+projects an immutable, deployment-wide public archive cache. The independent
+fetch process selects the public collector and archive clock. The visibility
+worker reads tenant monitor selections locally and commits each tenant's own
+history. This addendum covers visibility analysis. The analyzer architecture
+below governs the existing incident ingestion bridge.
+
 ## The plain version
 
 Every monitored tenant gets its own analyzer subprocess, and that subprocess

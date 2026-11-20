@@ -37,6 +37,10 @@ type MRTRIBEntry struct {
 // octets), never a trial parse. Validate the complete record twice before any
 // entry escapes; raw attributes retain original flags, order and values.
 func DecodeMRTRIB(ctx context.Context, raw []byte, peerCount int, budget UpdateFrameBudget) (MRTRIBRecord, error) {
+	return decodeMRTRIB(ctx, raw, peerCount, budget, false)
+}
+
+func decodeMRTRIB(ctx context.Context, raw []byte, peerCount int, budget UpdateFrameBudget, archiveEncoding bool) (MRTRIBRecord, error) {
 	timestamp, subtype, body, err := decodeMRTTableRecord(ctx, raw, budget)
 	if err != nil {
 		return MRTRIBRecord{}, errors.Join(ErrMRTRecord, err)
@@ -52,10 +56,10 @@ func DecodeMRTRIB(ctx context.Context, raw []byte, peerCount int, budget UpdateF
 		return MRTRIBRecord{}, errors.Join(ErrMRTRecord, err)
 	}
 	// The first pass checks every late path; the second retains owned output.
-	if _, err := decodeMRTRIBEntries(ctx, entries, count, peerCount, family, route, addEntryPath, budget, false); err != nil {
+	if _, err := decodeMRTRIBEntries(ctx, entries, count, peerCount, family, route, addEntryPath, budget, false, archiveEncoding); err != nil {
 		return MRTRIBRecord{}, errors.Join(ErrMRTRecord, err)
 	}
-	output, err := decodeMRTRIBEntries(ctx, entries, count, peerCount, family, route, addEntryPath, budget, true)
+	output, err := decodeMRTRIBEntries(ctx, entries, count, peerCount, family, route, addEntryPath, budget, true, archiveEncoding)
 	if err != nil {
 		return MRTRIBRecord{}, errors.Join(ErrMRTRecord, err)
 	}
@@ -115,7 +119,7 @@ func decodeMRTRIBHeader(ctx context.Context, subtype uint16, body []byte, budget
 	return family, prefixes[0], sequence, body[length+2:], count, addEntryPath, nil
 }
 
-func decodeMRTRIBEntries(ctx context.Context, raw []byte, count, peerCount int, family RouteFamily, route RoutePrefix, addPath bool, budget UpdateFrameBudget, retain bool) ([]MRTRIBEntry, error) {
+func decodeMRTRIBEntries(ctx context.Context, raw []byte, count, peerCount int, family RouteFamily, route RoutePrefix, addPath bool, budget UpdateFrameBudget, retain, archiveEncoding bool) ([]MRTRIBEntry, error) {
 	var output []MRTRIBEntry
 	minimum := 8
 	if addPath {
@@ -163,6 +167,9 @@ func decodeMRTRIBEntries(ctx context.Context, raw []byte, count, peerCount int, 
 			return nil, err
 		}
 		entry.NextHops, err = decodeMRTNextHops(entry.Attributes, family)
+		if err != nil && archiveEncoding {
+			entry.NextHops, err = decodeArchiveMRTNextHops(ctx, entry.Attributes, family, entry.Route, MultiprotocolBudget(part))
+		}
 		if err != nil {
 			return nil, err
 		}
