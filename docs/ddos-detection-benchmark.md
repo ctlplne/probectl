@@ -87,6 +87,32 @@ Version one used 13 trials and two completed 60-second windows. A benign
 flash crowd opened a tentative volume episode on identical aggregates. Its
 source and results remain reproducible at the original commit. [Version-one benchmark and results](https://github.com/ctlplne/probectl/blob/d79fc7993d09b3ce1d4e8242b7b5c869100d2537/docs/ddos-detection-benchmark.md)
 
+## Shipped collector timing
+
+Two two-tenant runs on macOS arm64 seeded synthetic prior-week references in
+ClickHouse and sent synthetic IPFIX records through two enrolled `probectl-flow-agent`
+processes at the default two-second flush interval. The protected host had
+two qualifying five-second windows. The sibling tenant had one and opened no
+episode. The issued receipt identified the original windows and was visible
+only in the owning tenant.
+
+| Measurement | Wall time across two runs |
+| --- | --- |
+| Second IPFIX record write to first raw query that returned it | 1.77–2.21 s |
+| First IPFIX record write to first visible episode receipt | 10.40–10.64 s |
+| Second window close to first visible episode receipt | 1.40–1.64 s |
+
+The measurement includes collection, the broker, storage, the scheduler and
+the authorized API. Its start clock is the synthetic export record sent to the
+local collector. Exporter cache and flush delays are a separate measurement.
+Use the disposable development stack with Dex for this test.
+[Integration stack setup](development.md#testing-layers) · [Timing fixture](../internal/flow/ddos_wire_timing_integration_test.go)
+
+```sh
+PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
+  -run '^TestFastDDoSMeasuresIPFIXRecordDeliveryThroughTheShippedIncident$' ./internal/flow
+```
+
 ## Comparison scope
 
 NETSCOUT documents Arbor Sightline monitoring by managed object using flow,

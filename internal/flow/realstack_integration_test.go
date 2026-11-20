@@ -131,6 +131,7 @@ type nativeLane struct {
 	octet                                   int
 	bytes                                   uint32
 	listeners                               map[string]string
+	useDefaultFlush                         bool
 }
 
 func (lane *nativeLane) do(t *testing.T, st *shipped.Stack, method, path string, body, out any, want int) {
@@ -178,6 +179,9 @@ func (lane *nativeLane) provision(t *testing.T, st *shipped.Stack, operator, run
 	env["PROBECTL_FLOW_BUS_BROKERS"] = strings.Join(testsupport.KafkaBrokers(), ",")
 	env["PROBECTL_FLOW_BUS_ALLOW_PLAINTEXT"] = "true" // existing CI-only development broker profile
 	env["PROBECTL_FLOW_FLUSH_INTERVAL"] = "100ms"
+	if lane.useDefaultFlush {
+		env["PROBECTL_FLOW_FLUSH_INTERVAL"] = flow.Default().FlushInterval.String()
+	}
 	env["PROBECTL_FLOW_METRICS_ADDR"] = shipped.FreeAddr(t)
 	env["PROBECTL_FLOW_METRICS_TLS_CERT_FILE"] = st.ServerCert
 	env["PROBECTL_FLOW_METRICS_TLS_KEY_FILE"] = st.ServerKey
