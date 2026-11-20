@@ -14442,6 +14442,11 @@
           "404": {
             "description": "Routing review is unavailable."
           }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 5,
+          "reason": "The response is the complete release-versioned catalog of upstream transit templates."
         }
       }
     },

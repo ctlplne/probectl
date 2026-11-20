@@ -591,6 +591,7 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/otlp-tokens":                                  "bounded",
 	"/v1/rollouts":                                     "bounded",
 	"/v1/remediation/proposals":                        "bounded",
+	"/v1/remediation/rtbh-templates":                   "bounded",
 	"/v1/dashboards":                                   "bounded",
 	"/v1/dashboard-report-schedules":                   "bounded",
 	"/v1/dashboard-report-artifacts":                   "cursor",
