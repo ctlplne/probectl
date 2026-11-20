@@ -35,17 +35,21 @@ func NewRepository(durable endpointstore.Store, cache *SnapshotStore) *Repositor
 	return &Repository{durable: durable, cache: cache, loaded: map[string]bool{}}
 }
 
-// Persist stores one event before the durable consumer commits its bus offset.
+// Persist stores one event before the durable consumer commits its bus offset
+// and refreshes this replica after a successful durable write.
 func (r *Repository) Persist(ctx context.Context, tenant, agent string, view ResultView) error {
 	if r == nil || r.durable == nil {
 		return errors.New("endpoint: durable event store is unavailable")
 	}
-	return r.durable.Insert(ctx, []endpointstore.Event{toStoredEvent(tenant, agent, view)})
+	if err := r.durable.Insert(ctx, []endpointstore.Event{toStoredEvent(tenant, agent, view)}); err != nil {
+		return err
+	}
+	r.RecordCache(tenant, agent, view)
+	return nil
 }
 
-// RecordCache updates the bounded per-replica view. It is deliberately separate
-// from Persist so the shared durable consumer and per-replica view consumer do
-// not multiply ClickHouse writes.
+// RecordCache updates the bounded per-replica view. The view consumer uses it
+// for live samples; the durable consumer uses it after its storage write.
 func (r *Repository) RecordCache(tenant, agent string, view ResultView) {
 	if r == nil {
 		return

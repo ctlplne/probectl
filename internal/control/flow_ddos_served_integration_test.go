@@ -38,10 +38,7 @@ func TestDDoSAssessmentServedKeepsBothTenantsAndThemes(t *testing.T) {
 	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: socket.Certificate().Raw}), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	windows, err := anomaly.FlowFieldCompletedWindows(time.Now(), anomaly.FlowFieldPreviousWeek, 300)
-	if err != nil {
-		t.Fatal(err)
-	}
+	const period = 5 * time.Minute
 	names := [2]string{"First tenant traffic assessment", "Second tenant traffic assessment"}
 	for lane, tenant := range f.tenants {
 		grantSeasonalFlowFixture(f, tenant)
@@ -55,7 +52,16 @@ func TestDDoSAssessmentServedKeepsBothTenantsAndThemes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		seedDDoSAssessmentRows(t, rows, tenant, windows, lane == 0)
+		// Chromium runs use wall-clock completed windows. Seed consecutive
+		// modeled pairs so the assertions still hold across a UTC boundary.
+		now := time.Now()
+		for window := range 3 {
+			windows, err := anomaly.FlowFieldCompletedWindows(now.Add(time.Duration(window)*period), anomaly.FlowFieldPreviousWeek, int(period/time.Second))
+			if err != nil {
+				t.Fatal(err)
+			}
+			seedDDoSAssessmentRows(t, rows, tenant, windows, lane == 0)
+		}
 		cookie := seasonalFlowBrowserCookie(t, f, tenant)
 		for _, theme := range []string{"light", "dark"} {
 			t.Run(names[lane]+" "+theme, func(t *testing.T) {

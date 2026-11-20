@@ -58,3 +58,37 @@ func TestEndpointDurableRestartAndIsolation(t *testing.T) {
 		t.Fatal("unscoped durable query must fail closed")
 	}
 }
+
+func TestEndpointReplayRefreshesEachTenantAfterFirstRestartRead(t *testing.T) {
+	ctx := t.Context()
+	durable := endpointstore.NewMemory()
+	repository := NewRepository(durable, NewSnapshotStore(0))
+	at := time.Date(2026, 11, 20, 9, 24, 29, 0, time.UTC)
+	const agent = "same-endpoint-id"
+	tenants := []string{"tenant-a", "tenant-b"}
+	for _, tenant := range tenants {
+		if err := repository.Persist(ctx, tenant, agent, ResultView{Type: TypeAttribution, Success: true, ObservedAt: at}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restarted := NewRepository(durable, NewSnapshotStore(0))
+	for _, tenant := range tenants {
+		items, err := restarted.ListFilteredContext(ctx, tenant, ListFilter{})
+		if err != nil || len(items) != 1 || items[0].AgentID != agent || len(items[0].Sessions) != 0 {
+			t.Fatal("first read did not establish the attribution-only snapshot", tenant, items, err)
+		}
+	}
+	for _, tenant := range tenants {
+		view := ResultView{Type: TypeSession, Target: "https://" + tenant + ".example.test/readyz", Success: true,
+			ObservedAt: at.Add(time.Second), Metrics: map[string]float64{"status": 200}}
+		if err := restarted.Persist(ctx, tenant, agent, view); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tenant := range tenants {
+		items, err := restarted.ListFilteredContext(ctx, tenant, ListFilter{})
+		if err != nil || len(items) != 1 || len(items[0].Sessions) != 1 || items[0].Sessions[0].Target != "https://"+tenant+".example.test/readyz" {
+			t.Fatal("late durable replay did not restore exactly the owned session", tenant, items, err)
+		}
+	}
+}

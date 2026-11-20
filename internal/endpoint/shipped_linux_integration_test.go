@@ -80,17 +80,7 @@ targets: [%q]
 	}
 	for _, lane := range lanes {
 		shipped.Await(t, lane.slug+" successful HTTPS session in the endpoint fleet", 75*time.Second, func() bool {
-			got := readShippedEndpointFleet(t, stack, lane.cookie)
-			for _, view := range got.Items {
-				if view.AgentID == lane.agent {
-					for _, session := range view.Sessions {
-						if session.Success && session.Target == lane.target && session.Metrics["status"] == http.StatusOK {
-							return true
-						}
-					}
-				}
-			}
-			return false
+			return shippedEndpointSessionReady(readShippedEndpointFleet(t, stack, lane.cookie), lane)
 		})
 	}
 	for _, lane := range lanes {
@@ -99,6 +89,9 @@ targets: [%q]
 	stack.RestartControl(t, "control-restarted-endpoints", nil)
 	for i, lane := range lanes {
 		sibling := lanes[1-i]
+		shipped.Await(t, lane.slug+" restore of the original HTTPS session", 75*time.Second, func() bool {
+			return shippedEndpointSessionReady(readShippedEndpointFleet(t, stack, lane.cookie), lane)
+		})
 		got := readShippedEndpointFleet(t, stack, lane.cookie)
 		checkShippedEndpointFleet(t, lane, got)
 		token := stack.APIToken(t, lane.cookie, "agent.read")
@@ -114,6 +107,20 @@ targets: [%q]
 			Expect:  []string{"Endpoints", lane.agent}, Absent: []string{sibling.agent},
 		})
 	}
+}
+
+func shippedEndpointSessionReady(fleet shippedEndpointFleet, lane shippedEndpointLane) bool {
+	for _, view := range fleet.Items {
+		if view.AgentID != lane.agent {
+			continue
+		}
+		for _, session := range view.Sessions {
+			if session.Success && session.Target == lane.target && session.Metrics["status"] == http.StatusOK {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func readShippedEndpointFleet(t *testing.T, stack *shipped.Stack, cookie string) shippedEndpointFleet {
