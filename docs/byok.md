@@ -141,6 +141,12 @@ place the distinction matters:**
   To get backup crypto-shred for a managed tenant, move it to BYOK (or destroy
   the backups themselves).
 
+The shipped OpenBao integration proof uses a separate disposable tenant key
+and an independent PostgreSQL copy. After permanently deleting that key in
+OpenBao, a fresh control process sees the original `tk1:` ciphertext in the
+copy and cannot open it. A second tenant's independently keyed destination
+still opens. The copy exercises recovery of the sealed database state.
+
 The deletion attestation carries a `tenant_keys` line recording how many key
 versions were destroyed. Deployments *without* the `byok` feature record "no
 per-tenant keyring installed" — stated honestly, never implied. Destroyed

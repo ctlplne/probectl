@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
 
@@ -59,8 +60,8 @@ func TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant(t *testing.T) {
 	operator := stack.OnboardOperator(t, "root@msp-openbao-receipt.example")
 	stamp := fmt.Sprint(time.Now().UnixNano())
 	type vaultLane struct {
-		cookie, token, ref, path, material string
-		managed, sealed                    string
+		tenant, cookie, token, ref, path, material string
+		managed, sealed                            string
 	}
 	var lanes [2]vaultLane
 	for i, email := range []string{"ada@acme.example", "bob@globex.example"} {
@@ -69,6 +70,7 @@ func TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant(t *testing.T) {
 		var tenant struct{ ID string }
 		stack.MustCLI(t, map[string]string{"PROBECTL_API_TOKEN": operator}, &tenant, "provider", "create-tenant", "--body",
 			fmt.Sprintf(`{"slug":%q,"name":%q,"isolation_model":"pooled"}`, slug, slug))
+		lane.tenant = tenant.ID
 		lane.cookie = stack.SignIn(t, tenant.ID, email, slug)
 		lane.token = stack.APIToken(t, lane.cookie, "security.keys", "tenant.read")
 		lane.managed = createShippedVaultRule(t, stack, lane.cookie, "before-rotation-"+slug, randomKey(t))
@@ -126,6 +128,54 @@ func TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant(t *testing.T) {
 		bytes.Contains(raw, []byte(owner.material)) || bytes.Contains(raw, []byte(secret)) {
 		t.Fatal("the authenticated health view did not report a running redacted resolver", status)
 	}
+
+	// Use a separate disposable key for the permanent deletion proof. Only
+	// its reference enters the independently copied Postgres state.
+	shredPath := "probectl/byok/" + owner.tenant + "/copied-data-key"
+	vault.put(t, shredPath, randomKey(t))
+	var rotation struct{ Version int }
+	stack.MustCLI(t, map[string]string{"PROBECTL_API_TOKEN": owner.token}, &rotation,
+		"key", "rotate", "--body", byokBody("vault:secret/"+shredPath+"#key"))
+	if rotation.Version != 3 {
+		t.Fatal("the separate copy-proof key did not activate")
+	}
+	backedRule := createShippedVaultRule(t, stack, owner.cookie, "copied-before-key-deletion-"+stamp, randomKey(t))
+	originalCiphertext := backedAlertCiphertext(t, stack.AdminDSN, owner.tenant, backedRule)
+	if !strings.HasPrefix(originalCiphertext, "tk1:") {
+		t.Fatal("the original rule was not sealed under a tenant key")
+	}
+
+	restoredDSN := stack.RestartControlOnPostgresCopy(t, "control-restored-key-copy")
+	if code, _ := stack.Do(t, owner.cookie, http.MethodGet, "/v1/alerts/"+backedRule, nil); code != http.StatusOK {
+		t.Fatal("the independent copy could not open before key destruction", code)
+	}
+	if got := backedAlertCiphertext(t, restoredDSN, owner.tenant, backedRule); got != originalCiphertext {
+		t.Fatal("the copied ciphertext differs from the source")
+	}
+	vault.call(t, http.MethodDelete, "/v1/secret/metadata/"+shredPath, nil)
+	if code := vault.request(t, http.MethodGet, "/v1/secret/metadata/"+shredPath, nil); code != http.StatusNotFound {
+		t.Fatalf("the deleted key still has version metadata (HTTP %d)", code)
+	}
+	stack.RestartControl(t, "control-restored-key-destroyed", nil)
+	if code, _ := stack.Do(t, owner.cookie, http.MethodGet, "/v1/alerts/"+backedRule, nil); code != http.StatusInternalServerError {
+		t.Fatal("the original scoped record did not fail closed after permanent key deletion", code)
+	}
+	if got := backedAlertCiphertext(t, restoredDSN, owner.tenant, backedRule); got != originalCiphertext {
+		t.Fatal("the copied row changed during external key destruction")
+	}
+	if code, _ := stack.Do(t, sibling.cookie, http.MethodGet, "/v1/alerts/"+sibling.sealed, nil); code != http.StatusOK {
+		t.Fatal("the sibling could not open its independent external-key record on the copy", code)
+	}
+}
+
+func backedAlertCiphertext(t *testing.T, dsn, tenant, rule string) string {
+	t.Helper()
+	db, err := store.Open(t.Context(), dsn, 1, 0, 5*time.Second)
+	if err != nil {
+		t.Fatal("open the owned ciphertext fixture", err)
+	}
+	defer db.Close()
+	return (&keysStack{db: db}).storedSecret(t, tenant, rule)
 }
 
 func shippedVaultRule(name, secret string) map[string]any {
@@ -175,6 +225,13 @@ func (v openBaoTestVault) put(t *testing.T, path, material string) {
 
 func (v openBaoTestVault) call(t *testing.T, method, path string, body []byte) {
 	t.Helper()
+	if code := v.request(t, method, path, body); code != http.StatusOK && code != http.StatusNoContent {
+		t.Fatalf("owned OpenBao provisioning returned HTTP %d", code)
+	}
+}
+
+func (v openBaoTestVault) request(t *testing.T, method, path string, body []byte) int {
+	t.Helper()
 	req, err := http.NewRequest(method, v.base+path, bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +246,5 @@ func (v openBaoTestVault) call(t *testing.T, method, path string, body []byte) {
 	if _, err := io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10)); err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("owned OpenBao provisioning returned HTTP %d", resp.StatusCode)
-	}
+	return resp.StatusCode
 }
