@@ -750,7 +750,7 @@ capabilities:
     docs: {refs: ["file:docs/remediation.md#Guarded agentic remediation", "file:docs/remediation.md#Destination RTBH evidence preview", "file:docs/remediation.md#Preview and review FlowSpec", "file:docs/remediation.md#Check a router profile"]}
     config_keys: {refs: ["config:PROBECTL_REMEDIATION_APPROVALS_ENABLED", "config:PROBECTL_REMEDIATION_MAX_BLAST_RADIUS"]}
     telemetry: {refs: ["file:ee/remediation"]}
-    real_stack_proof: {refs: ["test:ee/remediation/human_gate_integration_test.go#TestRemediationIsHumanGatedRealStack", "test:internal/flow/rtbh_review_realstack_integration_test.go#TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview", "test:internal/flow/flowspec_review_realstack_integration_test.go#TestFlowSpecReviewUsesOwnedMatchesAndIndependentApproval"]}
+    real_stack_proof: {refs: ["test:ee/remediation/human_gate_integration_test.go#TestRemediationIsHumanGatedRealStack", "test:internal/flow/rtbh_review_realstack_integration_test.go#TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview", "test:internal/flow/flowspec_review_realstack_integration_test.go#TestFlowSpecReviewUsesOwnedMatchesAndIndependentApproval", "test:ee/remediation/flowspec_receiver_integration_test.go#TestFlowSpecTemplateReachesPinnedFRRAndWithdraws"]}
     migration: {refs: ["file:migrations/0035_remediation.sql", "file:migrations/0227_remediation_proposal_actor.sql", "file:migrations/0234_rtbh_review_evidence.sql", "file:migrations/0236_flowspec_review_evidence.sql"]}
 
   - id: F45

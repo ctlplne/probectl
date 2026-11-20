@@ -224,6 +224,12 @@ Use `probectl remediation flowspec-qualify <id> --body-file profile.json`.
 The request selects the profile and `routing_table` of `default` or `vrf`.
 Include `available_entries` when you have the count for that device.
 
+The pinned FRRouting 10.7.1 integration test takes one qualified
+documentation-prefix template through an isolated receiving router. The
+router's RIB shows the exact TCP port and discard action. The same live
+session withdraws that entry and confirms it is absent. The test records
+the router's installation status separately.
+
 ## Dry-run (blast radius)
 
 The estimator runs `topology.Simulate` over a **copy** of the tenant's topology
