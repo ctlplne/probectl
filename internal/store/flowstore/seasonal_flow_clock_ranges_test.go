@@ -9,8 +9,11 @@ package flowstore
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/flow"
 )
 
 func TestSeasonalFlowClocksPreserveOverlapsAndGaps(t *testing.T) {
@@ -77,5 +80,40 @@ func TestSeasonalFlowClocksRefuseMissingAndFutureBounds(t *testing.T) {
 				t.Fatal("an invalid clock reached the query builder", err)
 			}
 		})
+	}
+}
+
+func TestSeasonalFlowStorageQueryPrunesGapsBeforeExactMembership(t *testing.T) {
+	start := time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC)
+	later := start.AddDate(0, 0, 7)
+	ends := []time.Time{start.Add(5 * time.Second), start.Add(7 * time.Second), start.Add(12 * time.Second), later.Add(5 * time.Second), later.Add(10 * time.Second)}
+	clock, err := newSeasonalFlowClockRange(t.Context(), ends, 5*time.Second, ends[len(ends)-1], 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	windows, err := clock.exactReadWindows(t.Context())
+	if err != nil || len(windows) != 2 || !windows[0].from.Equal(start) || !windows[0].to.Equal(ends[2]) ||
+		!windows[1].from.Equal(later) || !windows[1].to.Equal(ends[4]) {
+		t.Fatalf("storage windows filled a gap or discarded an original interval: %+v %v", windows, err)
+	}
+	for _, table := range []string{sharedFlowsTable, sharedFlowRollupsTable} {
+		params := chParams{}
+		filter, err := planFilteredCTE(flow.QueryPlan{}, table, params, flow.QueryVocabulary{}, false, windows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(filter, " WHERE tenant_id={tenant:String} AND ") ||
+			!strings.Contains(filter, ">={window_from_0:DateTime64(9,'UTC')}") ||
+			!strings.Contains(filter, "<{window_to_0:DateTime64(9,'UTC')}) OR (") ||
+			!strings.Contains(filter, ">={window_from_1:DateTime64(9,'UTC')}") ||
+			!strings.Contains(filter, "<{window_to_1:DateTime64(9,'UTC')})) AND (") ||
+			params["window_from_0"] != "2026-10-25 00:00:00" || params["window_to_0"] != "2026-10-25 00:00:12" ||
+			params["window_from_1"] != "2026-11-01 00:00:00" || params["window_to_1"] != "2026-11-01 00:00:10" {
+			t.Fatalf("exact intervals were not admitted inside tenant scope for %s: %s %v", table, filter, params)
+		}
+	}
+	gap := start.Add(time.Hour)
+	if first, after := clock.indices(gap); first != after {
+		t.Fatal("the prefilter changed individual window membership")
 	}
 }

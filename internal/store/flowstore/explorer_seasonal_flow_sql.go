@@ -57,7 +57,11 @@ func buildSeasonalFlowSQL(ctx context.Context, budget ExplorerBudget, query Plan
 		"interfaces": planInterfaceNamesJSON(names), "window_ns": strconv.FormatInt(int64(clocks.lookback), 10),
 		"width_ns": strconv.FormatInt(int64(time.Duration(plan.BucketSeconds)*time.Second), 10),
 	}
-	filtered, err := planFilteredCTE(plan, table, params, vocabulary, query.Tags != nil)
+	readWindows, err := clocks.exactReadWindows(ctx)
+	if err != nil {
+		return empty, err
+	}
+	filtered, err := planFilteredCTE(plan, table, params, vocabulary, query.Tags != nil, readWindows)
 	if err != nil {
 		return empty, err
 	}

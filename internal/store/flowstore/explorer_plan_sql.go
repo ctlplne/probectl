@@ -96,7 +96,7 @@ func planSQLWithRoutingMetadata(budget ExplorerBudget, plan flow.QueryPlan, tabl
 	params["matrix_depth"] = strconv.Itoa(plan.MatrixDepth)
 
 	params["interfaces"] = planInterfaceNamesJSON(names)
-	filtered, err := planFilteredCTE(plan, table, params, vocabulary, tagData != nil)
+	filtered, err := planFilteredCTE(plan, table, params, vocabulary, tagData != nil, nil)
 	if err != nil {
 		return "", nil, err
 	}
@@ -325,7 +325,7 @@ func planSampleSQL(measure, value, duration string) string {
 }
 
 // The bounded typed input also supports window-partitioned seasonal statistics.
-func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabulary flow.QueryVocabulary, useTags bool) (string, error) {
+func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabulary flow.QueryVocabulary, useTags bool, readWindows []seasonalReadWindow) (string, error) {
 	filter, err := explorerFilterSQLWithVocabulary(plan.Filter, params, vocabulary)
 	if err != nil {
 		return "", err
@@ -360,7 +360,23 @@ func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabul
 	// Original keys have names distinct from the transformed g/c aliases below.
 	// In particular column_input remaps the original column into g and clears c;
 	// nested scalar expansion must keep referring to the original source keys.
-	return "filtered AS (SELECT " + key(plan.GroupBy) + " AS __probectl_source_row," + key(plan.MatrixWith) + " AS __probectl_source_column," + eventTime + " AS event_time,bytes_scaled,packets_scaled," + explorerAddressExpr("src_addr") + " AS canonical_src," + explorerAddressExpr("dst_addr") + " AS canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country,tenant_id FROM " + from + " WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')} AND (" + filter + "))", nil
+	return "filtered AS (SELECT " + key(plan.GroupBy) + " AS __probectl_source_row," + key(plan.MatrixWith) + " AS __probectl_source_column," + eventTime + " AS event_time,bytes_scaled,packets_scaled," + explorerAddressExpr("src_addr") + " AS canonical_src," + explorerAddressExpr("dst_addr") + " AS canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country,tenant_id FROM " + from + " WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')}" + planSeasonalReadSQL(eventTime, readWindows, params) + " AND (" + filter + "))", nil
+}
+
+func planSeasonalReadSQL(eventTime string, windows []seasonalReadWindow, params chParams) string {
+	if len(windows) < 2 {
+		return ""
+	}
+	conditions := make([]string, 0, len(windows))
+	for i, window := range windows {
+		suffix := strconv.Itoa(i)
+		from, to := "window_from_"+suffix, "window_to_"+suffix
+		const dateType = ":DateTime64(9,'UTC')}"
+		const clockFormat = "2006-01-02 15:04:05.999999999"
+		params[from], params[to] = window.from.UTC().Format(clockFormat), window.to.UTC().Format(clockFormat)
+		conditions = append(conditions, "("+eventTime+">={"+from+dateType+" AND "+eventTime+"<{"+to+dateType+")")
+	}
+	return " AND (" + strings.Join(conditions, " OR ") + ")"
 }
 
 type planStatsPartition struct {

@@ -73,3 +73,33 @@ func (r seasonalFlowClockRange) transitions(ctx context.Context) ([]seasonalFlow
 	}
 	return transitions, nil
 }
+
+// seasonalReadWindow is one contiguous storage interval. The membership join
+// still decides which individual analysis windows receive each original row.
+type seasonalReadWindow struct {
+	from, to time.Time
+}
+
+// exactReadWindows merges overlapping and adjacent windows, so storage can
+// exclude the gaps before loading any original telemetry. Large fragmented
+// requests keep the ordinary enclosing range and existing membership filter.
+func (r seasonalFlowClockRange) exactReadWindows(ctx context.Context) ([]seasonalReadWindow, error) {
+	const maxSQLIntervals = 64
+	var windows []seasonalReadWindow
+	for _, end := range r.ends {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		start := end.Add(-r.lookback)
+		last := len(windows) - 1
+		if last >= 0 && !start.After(windows[last].to) {
+			windows[last].to = end
+			continue
+		}
+		if len(windows) == maxSQLIntervals {
+			return nil, nil
+		}
+		windows = append(windows, seasonalReadWindow{from: start, to: end})
+	}
+	return windows, nil
+}
