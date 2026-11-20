@@ -12,11 +12,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/remediation"
@@ -114,6 +116,37 @@ func proposeFlowSpecAndApprove(t *testing.T, stack *shipped.Stack, owner, review
 		t.Fatal("the independent reviewer session did not record the exact approval")
 	}
 	reviewer.do(t, stack, http.MethodPost, approve, exact, nil, http.StatusConflict)
+	assertDDoSIncidentReport(t, stack, reviewer, sibling, input, proposal.ID)
+}
+
+func assertDDoSIncidentReport(t *testing.T, stack *shipped.Stack, reviewer, sibling *nativeLane, input remediation.FlowSpecPreviewInput, proposalID string) {
+	t.Helper()
+	var receipt alert.DDoSEvaluationEvidence
+	reviewer.do(t, stack, http.MethodGet, "/v1/alerts/rules/"+input.RuleID+"/ddos-receipt?fingerprint="+input.ReceiptFingerprint, nil, &receipt, http.StatusOK)
+	query := url.Values{"rule_id": {input.RuleID}, "fingerprint": {input.ReceiptFingerprint}}
+	reportPath := "/v1/incidents/" + receipt.IncidentID + "/ddos-report?" + query.Encode()
+	var report alert.DDoSReport
+	reviewer.do(t, stack, http.MethodGet, reportPath, nil, &report, http.StatusOK)
+	sibling.do(t, stack, http.MethodGet, reportPath, nil, nil, http.StatusNotFound)
+	if report.ObservedSeconds != 600 || report.PeakBitRate.Count != "2400000" || report.PeakBitRate.PerSecond != "8000.000" ||
+		report.PeakPacketRate.Count != "4000" || report.PeakPacketRate.PerSecond != "13.333" || !report.ActionsVisible ||
+		len(report.TopSources) != 1 || report.TopSources[0].Bytes != "600000" || report.TopSources[0].Packets != "8000" ||
+		len(report.Actions) != 1 || report.Actions[0].ProposalID != proposalID || report.Actions[0].State != "approved" {
+		t.Fatalf("the report lost the original scoped source, rates or action: %+v", report)
+	}
+	for _, theme := range []string{"light", "dark"} {
+		testsupport.RenderUI(t, testsupport.RenderSpec{
+			URL:            stack.BaseURL + "/ui/incidents?incident=" + url.QueryEscape(receipt.IncidentID),
+			TrustCertFiles: stack.TrustCerts(), CAFile: stack.CAFile, Accessibility: true, Theme: theme,
+			Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: reviewer.cookie}},
+			Expect:  []string{"alert.ddos_assessment"},
+			Steps: []testsupport.RenderStep{
+				{Click: "Sustained traffic red", Within: "table:has-text('alert.ddos_assessment')", Expect: []string{"Traffic pressure receipt"}},
+				{Click: "Show original traffic evidence", Expect: []string{"First qualifying window"}},
+				{Click: "Open DDoS incident report", Expect: []string{"Top observed source addresses by bytes", "600000", "8000.000 bits per second", "FlowSpec · approved"}},
+			},
+		})
+	}
 }
 
 func assertScopedFlowSpecRouterProfile(t *testing.T, stack *shipped.Stack, reviewer, sibling *nativeLane, base string, review remediation.FlowSpecReview) {

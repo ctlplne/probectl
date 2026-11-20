@@ -139,6 +139,88 @@
         }
       }
     },
+    "/v1/incidents/{id}/ddos-report": {
+      "get": {
+        "operationId": "getIncidentDDoSReport",
+        "summary": "Read an incident report from the original traffic receipt",
+        "description": "Revalidates the original tenant-owned flow windows, shows exact window totals and peak window-average rates, and ranks observed sources by bytes. Recorded mitigation decisions require the current remediation read grant.",
+        "tags": [
+          "incidents"
+        ],
+        "x-required-permission": "incident.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "rule_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fingerprint",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current incident and exact scoped source observations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentDDoSReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/incidents/{id}/impact": {
       "parameters": [
         {
@@ -34158,6 +34240,197 @@
           "before",
           "after"
         ]
+      },
+      "IncidentDDoSReportRate": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "count",
+          "seconds",
+          "per_second"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "count": {
+            "type": "string",
+            "pattern": "^[0-9]{1,65}$"
+          },
+          "seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "per_second": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]{3}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "IncidentDDoSReportWindow": {
+        "type": "object",
+        "required": [
+          "evidence",
+          "vector",
+          "confidence"
+        ],
+        "properties": {
+          "evidence": {
+            "$ref": "#/components/schemas/FlowDDoSWindowEvidence"
+          },
+          "vector": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "IncidentDDoSReportSource": {
+        "type": "object",
+        "required": [
+          "address",
+          "bytes",
+          "packets"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "string",
+            "pattern": "^[0-9]{1,65}$"
+          },
+          "packets": {
+            "type": "string",
+            "pattern": "^[0-9]{1,65}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "IncidentDDoSReportDecision": {
+        "type": "object",
+        "required": [
+          "proposal_id",
+          "kind",
+          "state",
+          "created_at"
+        ],
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "IncidentDDoSReport": {
+        "type": "object",
+        "required": [
+          "incident_id",
+          "episode_id",
+          "prefix",
+          "direction",
+          "from",
+          "to",
+          "observed_seconds",
+          "windows",
+          "peak_bit_rate",
+          "peak_packet_rate",
+          "top_sources",
+          "actions_visible"
+        ],
+        "properties": {
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "episode_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "ingress",
+              "egress"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observed_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentDDoSReportWindow"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "peak_bit_rate": {
+            "$ref": "#/components/schemas/IncidentDDoSReportRate"
+          },
+          "peak_packet_rate": {
+            "$ref": "#/components/schemas/IncidentDDoSReportRate"
+          },
+          "top_sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentDDoSReportSource"
+            },
+            "minItems": 0,
+            "maxItems": 20
+          },
+          "actions_visible": {
+            "type": "boolean"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentDDoSReportDecision"
+            },
+            "minItems": 0,
+            "maxItems": 100
+          }
+        },
+        "additionalProperties": false
       },
       "FlowDDoSWindowEvidence": {
         "description": "Exact sampling-corrected counts, source resolution and independent observations from one completed window.",

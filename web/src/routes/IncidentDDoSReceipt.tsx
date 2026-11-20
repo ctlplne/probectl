@@ -7,11 +7,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { getAlertDDoSReceipt } from '../api/alerts'
-import type { Signal } from '../api/incidents'
+import { getIncidentDDoSReport, type Signal } from '../api/incidents'
+import type { IncidentDDoSReport } from '../api/sdk.gen'
 import { useAuth } from '../auth/useAuth'
 import { Button, Card, CardBody, CardHeader, ErrorState, LoadingState } from '../components'
 import { DDoSAssessmentEvidence } from './FlowDDoSAssessmentCard'
 import { IncidentRoutingProposal } from './IncidentRoutingProposal'
+import { DateTime } from '../time/DateTime'
 
 const digest = /^[a-f0-9]{64}$/
 
@@ -57,6 +59,7 @@ function DDoSReceipt({
 }) {
   const [open, setOpen] = useState(false)
   const [reviewing, setReviewing] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const { tenant, user, permissions } = useAuth()
   const canRead = ['alert.read', 'ai.query', 'flow.read'].every((permission) =>
     permissions.includes(permission),
@@ -67,9 +70,24 @@ function DDoSReceipt({
     enabled: canRead && open,
     gcTime: 0,
   })
-  if (!canRead) return null
   const result = receipt.isSuccess && !receipt.isFetching ? receipt.data : undefined
   const matched = result?.incident_id === incidentID && result.episode_id === episode
+  const report = useQuery({
+    queryKey: [
+      'incident-ddos-report',
+      tenant.id,
+      user.id,
+      permissions.join(','),
+      incidentID,
+      rule,
+      fingerprint,
+    ],
+    queryFn: ({ signal }) =>
+      getIncidentDDoSReport(tenant.id, incidentID, rule, fingerprint, signal),
+    enabled: canRead && matched && reportOpen,
+    gcTime: 0,
+  })
+  if (!canRead) return null
   return (
     <Card>
       <CardHeader title="Traffic pressure receipt" />
@@ -85,6 +103,20 @@ function DDoSReceipt({
             <DDoSAssessmentEvidence result={result.previous} />
             <h3>Second qualifying window</h3>
             <DDoSAssessmentEvidence result={result.current} />
+            {!reportOpen ? (
+              <Button variant="secondary" onClick={() => setReportOpen(true)}>
+                Open DDoS incident report
+              </Button>
+            ) : null}
+            {reportOpen && report.isFetching ? (
+              <LoadingState label="Loading DDoS incident report" />
+            ) : null}
+            {reportOpen && report.isError ? (
+              <ErrorState title="DDoS report unavailable" description={report.error.message} />
+            ) : null}
+            {reportOpen && report.isSuccess && !report.isFetching ? (
+              <IncidentTrafficReport report={report.data} />
+            ) : null}
             {allowRoutingReview && result.current.direction === 'ingress' ? (
               reviewing ? (
                 <IncidentRoutingProposal
@@ -110,5 +142,61 @@ function DDoSReceipt({
         )}
       </CardBody>
     </Card>
+  )
+}
+
+function IncidentTrafficReport({ report }: { report: IncidentDDoSReport }) {
+  return (
+    <section aria-label="DDoS incident report">
+      <h3>DDoS incident report</h3>
+      <dl>
+        <dt>Observed period</dt>
+        <dd>
+          <DateTime value={report.from} /> – <DateTime value={report.to} />
+        </dd>
+        <dt>Observed duration</dt>
+        <dd>{report.observed_seconds} seconds</dd>
+        <dt>Peak window-average bit rate</dt>
+        <dd>{report.peak_bit_rate.per_second} bits per second</dd>
+        <dt>Peak window-average packet rate</dt>
+        <dd>{report.peak_packet_rate.per_second} packets per second</dd>
+      </dl>
+      <table>
+        <caption>Top observed source addresses by bytes</caption>
+        <thead>
+          <tr>
+            <th scope="col">Source</th>
+            <th scope="col">Bytes</th>
+            <th scope="col">Packets</th>
+          </tr>
+        </thead>
+        <tbody>
+          {report.top_sources.map((source) => (
+            <tr key={source.address}>
+              <th scope="row">{source.address}</th>
+              <td>{source.bytes}</td>
+              <td>{source.packets}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <h4>Recorded mitigation decisions</h4>
+      {report.actions_visible ? (
+        report.actions?.length ? (
+          <ul>
+            {report.actions.map((action) => (
+              <li key={action.proposal_id}>
+                {action.kind === 'rtbh_review' ? 'RTBH' : 'FlowSpec'} · {action.state} ·{' '}
+                <DateTime value={action.decided_at ?? action.created_at} />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No recorded mitigation decisions for this receipt.</p>
+        )
+      ) : (
+        <p>Mitigation decisions require access to remediation proposals.</p>
+      )}
+    </section>
   )
 }

@@ -676,6 +676,20 @@ matches the enclosing `view_version`. Read the cited evidence through
 `GET /v1/alerts/rules/{id}/ddos-receipt`, the SDK, native MCP
 `alert_ddos_receipt_get`, or `probectl alert ddos-receipt ID --query fingerprint=HANDLE`.
 
+Open **DDoS incident report** from the incident's original traffic receipt.
+The report records the two qualifying windows, vector and confidence, the
+observed duration, and the peak window-average bit and packet rates. The
+original counts and the window length accompany each displayed rate. The
+source list ranks up to 20 observed addresses by corrected bytes across
+both windows. These observations belong to the incident's tenant and the
+current saved-view grants.
+
+Recorded RTBH and FlowSpec decisions are visible to members with the current
+remediation read permission. Their state comes from the proposal audit
+workflow. A recorded approval is the approval record for the operator's
+change process. Use `probectl incident ddos-report ID --query rule_id=RULE
+--query fingerprint=HANDLE` for the typed JSON report. [DDoS response runbook](ddos-response-runbook.md)
+
 ## Notification dependency configuration (preview)
 
 `GET|PUT|DELETE /v1/alerts/rules/{id}/dependency-policy` manages a rule's

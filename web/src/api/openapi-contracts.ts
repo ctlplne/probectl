@@ -995,6 +995,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/incidents.ts',
     method: 'GET',
+    path: '`/incidents/${encodeURIComponent(incidentID)}/ddos-report?rule_id=${encodeURIComponent(ruleID)}&fingerprint=${encodeURIComponent(fingerprint)}`',
+    response: 'IncidentDDoSReport',
+    generated: 'GetIncidentDDoSReportResponse',
+  },
+  {
+    file: 'api/incidents.ts',
+    method: 'GET',
     path: "`/incidents/${encodeURIComponent(id ?? '')}`",
     response: 'Incident',
     generated: 'GetIncidentResponse',

@@ -2762,6 +2762,51 @@ export interface IncidentCorrelationOverrideReverse {
   reason: string
 }
 
+export interface IncidentDDoSReport {
+  actions?: IncidentDDoSReportDecision[]
+  actions_visible: boolean
+  direction: "ingress" | "egress"
+  episode_id: string
+  from: string
+  incident_id: string
+  observed_seconds: number
+  peak_bit_rate: IncidentDDoSReportRate
+  peak_packet_rate: IncidentDDoSReportRate
+  prefix: string
+  to: string
+  top_sources: IncidentDDoSReportSource[]
+  windows: IncidentDDoSReportWindow[]
+}
+
+export interface IncidentDDoSReportDecision {
+  created_at: string
+  decided_at?: string
+  kind: string
+  proposal_id: string
+  state: string
+}
+
+export interface IncidentDDoSReportRate {
+  count: string
+  from: string
+  per_second: string
+  seconds: number
+  to: string
+}
+
+export interface IncidentDDoSReportSource {
+  address: string
+  bytes: string
+  packets: string
+}
+
+export interface IncidentDDoSReportWindow {
+  confidence: string
+  evidence: FlowDDoSWindowEvidence
+  service?: string
+  vector: string
+}
+
 export interface IncidentEvidenceExportInput {
   carrier?: IncidentCarrierInput | null
   impact?: IncidentImpactInput | null
@@ -5615,6 +5660,14 @@ export interface ReverseIncidentCorrelationOverrideRequest {
 
 export type ReverseIncidentCorrelationOverrideResponse = IncidentCorrelationOverride
 
+export interface GetIncidentDDoSReportRequest {
+  id: string
+  ruleId: string
+  fingerprint: string
+}
+
+export type GetIncidentDDoSReportResponse = IncidentDDoSReport
+
 export interface ExportIncidentEvidenceRequest {
   id: string
   body?: IncidentEvidenceExportInput
@@ -7774,6 +7827,15 @@ export class ProbectlSDKClient {
     path = path.replace("{override_id}", encodeURIComponent(String(request.overrideId)))
     const query = new URLSearchParams()
     return this.requestJSON<ReverseIncidentCorrelationOverrideResponse>("POST", path, query, request.body)
+  }
+
+  async getIncidentDDoSReport(request: GetIncidentDDoSReportRequest): Promise<GetIncidentDDoSReportResponse> {
+    let path = "/v1/incidents/{id}/ddos-report"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.ruleId !== undefined) query.set("rule_id", String(request.ruleId))
+    if (request.fingerprint !== undefined) query.set("fingerprint", String(request.fingerprint))
+    return this.requestJSON<GetIncidentDDoSReportResponse>("GET", path, query, undefined)
   }
 
   async exportIncidentEvidence(request: ExportIncidentEvidenceRequest): Promise<ExportIncidentEvidenceResponse> {

@@ -10,6 +10,7 @@ import type { Answer } from './ai'
 import type {
   ChangeEffectsResponse,
   IncidentCarrierInput,
+  IncidentDDoSReport,
   IncidentImpactInput,
   IncidentVerdictInput,
 } from './sdk.gen'
@@ -419,4 +420,17 @@ export function severityTone(s: Severity): 'danger' | 'warning' | 'info' {
   if (s === 'critical') return 'danger'
   if (s === 'warning') return 'warning'
   return 'info'
+}
+
+export function getIncidentDDoSReport(
+  tenantID: string,
+  incidentID: string,
+  ruleID: string,
+  fingerprint: string,
+  signal: AbortSignal,
+) {
+  return apiFetch<IncidentDDoSReport>(
+    `/incidents/${encodeURIComponent(incidentID)}/ddos-report?rule_id=${encodeURIComponent(ruleID)}&fingerprint=${encodeURIComponent(fingerprint)}`,
+    { signal, headers: { 'X-Probectl-Tenant': tenantID } },
+  )
 }

@@ -25,11 +25,12 @@ import (
 )
 
 type ddosAssessmentSettings struct {
-	View      reportFlowSourceRef
-	Input     flow.DDoSAssessmentInput
-	Target    netip.Prefix
-	SideField string
-	Origins   []store.PrefixImpactFlowBinding
+	View           reportFlowSourceRef
+	Input          flow.DDoSAssessmentInput
+	Target         netip.Prefix
+	SideField      string
+	Origins        []store.PrefixImpactFlowBinding
+	IncludeSources bool
 }
 
 func (s *Server) handleFlowDDoSAssessment(w http.ResponseWriter, r *http.Request) error {
@@ -110,6 +111,9 @@ func (settings ddosAssessmentSettings) preparePlan(plan *flow.QueryPlan) error {
 	}
 	plan.Filter, plan.View, plan.DataSeries = bound, "table", "raw"
 	plan.GroupBy, plan.MatrixWith = []string{settings.SideField, "transport", "tcp_flags", "src_port", "sampling"}, nil
+	if settings.IncludeSources && settings.SideField != "src_addr" {
+		plan.GroupBy = append(plan.GroupBy, "src_addr")
+	}
 	plan.Metrics = []flow.QueryMetric{
 		{Measure: "bytes", Calculation: "total", Role: "primary"},
 		{Measure: "packets", Calculation: "total", Role: "additional"},

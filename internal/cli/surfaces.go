@@ -379,9 +379,10 @@ var surfaceCommands = map[string]surfaceCommand{
 			Description: "preview cited fault-domain hypotheses for an explicit observation window; missing coverage remains unknown"},
 		"impact": {Method: http.MethodPost, Path: "/v1/incidents/{id}/impact", ArgName: "id", ExactJSON: true,
 			Description: "compare complete observed incident traffic with the same window a week earlier, with current-source and customer-prefix citations"},
-		"list":   {Method: http.MethodGet, Path: "/v1/incidents"},
-		"get":    {Method: http.MethodGet, Path: "/v1/incidents/{id}", ArgName: "id"},
-		"update": {Method: http.MethodPatch, Path: "/v1/incidents/{id}", ArgName: "id"},
+		"list":        {Method: http.MethodGet, Path: "/v1/incidents"},
+		"get":         {Method: http.MethodGet, Path: "/v1/incidents/{id}", ArgName: "id"},
+		"ddos-report": {Method: http.MethodGet, Path: "/v1/incidents/{id}/ddos-report", ArgName: "id", ExactJSON: true, Description: "read the tenant incident report for a cited rule and fingerprint"},
+		"update":      {Method: http.MethodPatch, Path: "/v1/incidents/{id}", ArgName: "id"},
 		"changes": {
 			Method: http.MethodGet, Path: "/v1/incidents/{id}/changes", ArgName: "id",
 		},

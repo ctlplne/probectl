@@ -2917,6 +2917,51 @@ type IncidentCorrelationOverrideReverse struct {
 	Reason string `json:"reason"`
 }
 
+type IncidentDDoSReport struct {
+	Actions         []IncidentDDoSReportDecision `json:"actions,omitempty"`
+	ActionsVisible  bool                         `json:"actions_visible"`
+	Direction       string                       `json:"direction"`
+	EpisodeId       string                       `json:"episode_id"`
+	From            string                       `json:"from"`
+	IncidentId      string                       `json:"incident_id"`
+	ObservedSeconds int                          `json:"observed_seconds"`
+	PeakBitRate     IncidentDDoSReportRate       `json:"peak_bit_rate"`
+	PeakPacketRate  IncidentDDoSReportRate       `json:"peak_packet_rate"`
+	Prefix          string                       `json:"prefix"`
+	To              string                       `json:"to"`
+	TopSources      []IncidentDDoSReportSource   `json:"top_sources"`
+	Windows         []IncidentDDoSReportWindow   `json:"windows"`
+}
+
+type IncidentDDoSReportDecision struct {
+	CreatedAt  string `json:"created_at"`
+	DecidedAt  string `json:"decided_at,omitempty"`
+	Kind       string `json:"kind"`
+	ProposalId string `json:"proposal_id"`
+	State      string `json:"state"`
+}
+
+type IncidentDDoSReportRate struct {
+	Count     string `json:"count"`
+	From      string `json:"from"`
+	PerSecond string `json:"per_second"`
+	Seconds   int    `json:"seconds"`
+	To        string `json:"to"`
+}
+
+type IncidentDDoSReportSource struct {
+	Address string `json:"address"`
+	Bytes   string `json:"bytes"`
+	Packets string `json:"packets"`
+}
+
+type IncidentDDoSReportWindow struct {
+	Confidence string                 `json:"confidence"`
+	Evidence   FlowDDoSWindowEvidence `json:"evidence"`
+	Service    string                 `json:"service,omitempty"`
+	Vector     string                 `json:"vector"`
+}
+
 // Optional server-recomputed impact/verdict or exclusive carrier selections. Current tenant/user/source/credential grants and original retention are checked again before signed publication. Use the SDK byte-response method for offline verification.
 type IncidentEvidenceExportInput struct {
 	Carrier *IncidentCarrierInput `json:"carrier,omitempty"`
@@ -8367,6 +8412,33 @@ func (c *Client) ReverseIncidentCorrelationOverride(ctx context.Context, req Rev
 	query := url.Values{}
 	var out IncidentCorrelationOverride
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read an incident report from the original traffic receipt
+type GetIncidentDDoSReportRequest struct {
+	Id          string  `json:"-"`
+	RuleId      *string `json:"-"`
+	Fingerprint *string `json:"-"`
+}
+
+func (c *Client) GetIncidentDDoSReport(ctx context.Context, req GetIncidentDDoSReportRequest) (*IncidentDDoSReport, error) {
+	path := "/v1/incidents/{id}/ddos-report"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.RuleId != nil {
+		query.Set("rule_id", formatQueryValue(*req.RuleId))
+	}
+	if req.Fingerprint != nil {
+		query.Set("fingerprint", formatQueryValue(*req.Fingerprint))
+	}
+	var out IncidentDDoSReport
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
