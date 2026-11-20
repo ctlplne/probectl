@@ -20,12 +20,22 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
+type subscriberUsageRequest struct {
+	flow.SubscriberUsageRequest
+	Incident *subscriberIncidentSelection `json:"incident,omitempty"`
+}
+
+type subscriberUsageResponse struct {
+	flow.SubscriberUsageReport
+	Incident *subscriberIncidentEvidence `json:"incident,omitempty"`
+}
+
 func (s *Server) handleSubscriberUsage(w http.ResponseWriter, r *http.Request) error {
 	actor := auth.PrincipalFrom(r.Context())
 	if actor == nil || actor.TenantID == "" || actor.UserID == "" {
 		return apierror.Unauthorized("current tenant identity is required")
 	}
-	var input flow.SubscriberUsageRequest
+	var input subscriberUsageRequest
 	if err := decodeJSONLimit(r, 4096, &input); err != nil {
 		return err
 	}
@@ -36,6 +46,9 @@ func (s *Server) handleSubscriberUsage(w http.ResponseWriter, r *http.Request) e
 	if err := input.Validate(); err != nil {
 		return apierror.Validation(err.Error())
 	}
+	if input.Incident != nil && (!reportRequirementUUID(input.Incident.ContextID) || !validDDoSReportSelection(input.Incident.DDoSReportDefinition)) {
+		return apierror.Validation("select a routing context and exact incident traffic receipt")
+	}
 	ctx := tenancy.WithTenant(r.Context(), tenancy.ID(actor.TenantID))
 	ctx, flush := scopedABACDenial(ctx)
 	defer flush(s)
@@ -45,7 +58,7 @@ func (s *Server) handleSubscriberUsage(w http.ResponseWriter, r *http.Request) e
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	defer cancel()
-	result, err := s.captureSubscriberUsage(ctx, actor, input)
+	result, err := s.captureSubscriberUsage(ctx, actor, input, budget)
 	if errors.Is(err, store.ErrIncidentImpactBudget) {
 		return reportGenerationError(errors.Join(store.ErrClientReportBudget, err))
 	}
@@ -79,11 +92,13 @@ func bindSubscriberUsagePlan(ctx context.Context, tenant string, value *prepared
 	return nil
 }
 
-func (s *Server) captureSubscriberUsage(ctx context.Context, actor *auth.Principal, input flow.SubscriberUsageRequest) (flow.SubscriberUsageReport, error) {
-	var out flow.SubscriberUsageReport
-	options := reportFlowCaptureOptions{SubscriberUsage: &input}
+func (s *Server) captureSubscriberUsage(ctx context.Context, actor *auth.Principal, input subscriberUsageRequest, budget flowstore.ExplorerBudget) (subscriberUsageResponse, error) {
+	var out subscriberUsageResponse
+	options := reportFlowCaptureOptions{SubscriberUsage: &input.SubscriberUsageRequest}
+	var latencyMemory int64
 	if input.IncludeLatency {
-		options.ReservedMemoryBytes = flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes / 8
+		options.ReservedMemoryBytes = budget.MemoryBytes / 8
+		latencyMemory = options.ReservedMemoryBytes / 4
 	}
 	if input.End != nil {
 		options.PeriodEnd = input.End.UTC()
@@ -97,11 +112,12 @@ func (s *Server) captureSubscriberUsage(ctx context.Context, actor *auth.Princip
 	if len(capture.Results) != 1 || !capture.ContextsCaptured {
 		return out, apierror.Conflict("complete subscriber observation and context coverage is unavailable")
 	}
-	original := capture.Results[0]
-	out, err = projectSubscriberUsage(ctx, input, original)
+	tagRevision := capture.Results[0].Result.TagRevision
+	out.SubscriberUsageReport, err = projectSubscriberUsage(ctx, input.SubscriberUsageRequest, capture.Results[0])
 	if err != nil {
 		return out, err
 	}
+	capture.Results = nil
 	var contexts []string
 	for _, item := range capture.Contexts {
 		contexts = append(contexts, item.ContextID)
@@ -110,11 +126,21 @@ func (s *Server) captureSubscriberUsage(ctx context.Context, actor *auth.Princip
 	if input.IncludeLatency {
 		// Reserve space for retained source rows, retained observations and the
 		// projection before admitting the flow query.
-		out.Latency, latency, err = s.captureSubscriberLatency(ctx, actor, contexts, input, out.From, out.To, options.ReservedMemoryBytes/4)
+		out.Latency, latency, err = s.captureSubscriberLatency(ctx, actor, contexts, input.SubscriberUsageRequest, out.From, out.To, latencyMemory)
 		if err != nil {
 			return out, reportGenerationError(err)
 		}
 		out.LatencyIncluded = true
+	}
+	var incident *subscriberIncidentCapture
+	if input.Incident != nil {
+		incidentBudget := budget
+		incidentBudget.MemoryBytes -= options.ReservedMemoryBytes
+		incident, err = s.captureSubscriberIncident(ctx, actor, input, out.SubscriberUsageReport, contexts, incidentBudget)
+		if err != nil {
+			return out, reportGenerationError(err)
+		}
+		defer incident.matched.Close()
 	}
 	err = tenancy.InTenant(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
@@ -131,10 +157,14 @@ func (s *Server) captureSubscriberUsage(ctx context.Context, actor *auth.Princip
 		if err != nil {
 			return err
 		}
-		if current.UsesRules || current.Revision != original.Result.TagRevision || current.StableSince.IsZero() || current.StableSince.After(out.From) {
+		if current.UsesRules || current.Revision != tagRevision || current.StableSince.IsZero() || current.StableSince.After(out.From) {
 			return apierror.Conflict("choose an interval covered by the current explicit subscriber assignments")
 		}
-		return s.verifySubscriberLatency(ctx, sc, actor, latency)
+		if err := s.verifySubscriberLatency(ctx, sc, actor, latency); err != nil {
+			return err
+		}
+		out.Incident, err = s.attachSubscriberIncident(ctx, sc, actor, input, incident, budget.MemoryBytes/8)
+		return err
 	})
 	return out, reportGenerationError(err)
 }

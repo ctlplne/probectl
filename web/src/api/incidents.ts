@@ -33,6 +33,24 @@ export interface Signal {
   occurred_at: string
 }
 
+const ddosDigest = /^[a-f0-9]{64}$/
+
+export function incidentDDoSReceiptReference(signal?: Signal) {
+  if (signal?.kind !== 'alert.ddos_assessment' || signal.plane !== 'flow') return undefined
+  const rule = signal.attributes?.rule_id
+  const fingerprint = signal.attributes?.['probectl.alert.ddos.receipt_fingerprint']
+  const episode = signal.attributes?.['probectl.alert.ddos.episode_id']
+  if (
+    !rule ||
+    !fingerprint ||
+    !episode ||
+    !ddosDigest.test(episode) ||
+    !ddosDigest.test(fingerprint)
+  )
+    return undefined
+  return { rule, fingerprint, episode }
+}
+
 export interface IncidentCorrelationOverride {
   id: string
   tenant_id: string
@@ -216,9 +234,9 @@ export interface AppendIncidentJournalRequest {
 }
 
 /** useIncidents lists the tenant's incidents, most-recently-active first. */
-export function useIncidents(enabled = true) {
+export function useIncidents(enabled = true, identity?: string) {
   return useQuery({
-    queryKey: ['incidents'],
+    queryKey: identity ? ['incidents', identity] : ['incidents'],
     enabled,
     queryFn: () => apiFetch<{ items: Incident[] }>('/incidents').then((r) => r.items),
   })
@@ -235,9 +253,9 @@ export function useChanges(enabled = true) {
 
 /** useIncident fetches one incident with its bounded signal timeline. The
  * server sets signals_truncated when signal_count exceeds the returned rows. */
-export function useIncident(id: string | undefined) {
+export function useIncident(id: string | undefined, identity?: string) {
   return useQuery({
-    queryKey: ['incident', id],
+    queryKey: identity ? ['incident', id, identity] : ['incident', id],
     enabled: !!id,
     queryFn: () => apiFetch<Incident>(`/incidents/${encodeURIComponent(id ?? '')}`),
     // A tenant-scoped miss is authoritative. Retrying an unavailable ID only

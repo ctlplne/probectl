@@ -187,7 +187,7 @@ func (s *Server) readIncidentDDoSDecisions(r *http.Request, actor *auth.Principa
 			}
 			return err
 		}
-		report.Actions, err = store.DDoSReportDecisions(ctx, sc, report.IncidentID, ruleID, fingerprint)
+		report.Actions, err = store.DDoSReportDecisions(ctx, sc, report.IncidentID, ruleID, fingerprint, "")
 		report.ActionsVisible = err == nil
 		return err
 	})

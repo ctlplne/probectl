@@ -697,10 +697,14 @@ function FlowWorkspace({ identity }: { identity: string }) {
                 <SubscriberUsageCard
                   key={`${tenant.id}:${identity}:${saved.id}:${saved.version}:${permissions.join(',')}`}
                   tenantID={tenant.id}
+                  identity={`${identity}:${permissions.join(',')}`}
                   view={saved}
                   canReadLatency={
                     permissions.includes('metrics.read') && permissions.includes('test.read')
                   }
+                  canReadIncident={['incident.read', 'alert.read', 'events.read'].every(
+                    (permission) => permissions.includes(permission),
+                  )}
                 />
               ) : null}
             </>

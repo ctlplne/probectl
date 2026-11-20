@@ -5,9 +5,18 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
+import { useEntityContexts } from '../api/entities'
+import { incidentDDoSReceiptReference, useIncident, useIncidents } from '../api/incidents'
 import { useSubscriberUsage } from '../api/subscriberUsage'
 import { useTagDefinitions } from '../api/tags'
-import type { SavedFlowQueryView, SubscriberLatency, SubscriberUsageReport } from '../api/sdk.gen'
+import type {
+  SavedFlowQueryView,
+  SubscriberIncidentEvidence,
+  SubscriberIncidentSelection,
+  SubscriberLatency,
+  SubscriberUsageReport,
+} from '../api/sdk.gen'
 import { Button, Card, CardBody, CardHeader, ErrorState, Field, Select, Table } from '../components'
 import { DateTime } from '../time/DateTime'
 import styles from './flowExplorer.module.css'
@@ -15,30 +24,39 @@ import styles from './flowExplorer.module.css'
 export function SubscriberUsageCard({
   view,
   tenantID,
+  identity,
   canReadLatency,
+  canReadIncident,
 }: {
   view: Pick<SavedFlowQueryView, 'id' | 'version'>
   tenantID: string
+  identity: string
   canReadLatency: boolean
+  canReadIncident: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [tagID, setTagID] = useState('')
   const [value, setValue] = useState('')
   const [includeLatency, setIncludeLatency] = useState(false)
+  const [includeIncident, setIncludeIncident] = useState(false)
+  const [incident, setIncident] = useState<SubscriberIncidentSelection>()
   const definitions = useTagDefinitions(open ? tenantID : '')
   const report = useSubscriberUsage(tenantID, view.id)
   const choices = definitions.data?.items ?? []
   const tag = choices.find((item) => item.id === tagID)
+  const attachIncident = canReadIncident && includeIncident
+  const canRun = !!tag && !!value.trim() && !report.isPending && (!attachIncident || !!incident)
 
   function run(event: FormEvent) {
     event.preventDefault()
-    if (!tag || !value.trim() || report.isPending) return
+    if (!tag || !canRun) return
     report.mutate({
       version: view.version,
       tag_id: tag.id,
       tag_key: tag.key,
       subscriber: value.trim(),
       include_latency: canReadLatency && includeLatency,
+      incident: attachIncident ? incident : undefined,
     })
   }
 
@@ -90,7 +108,32 @@ export function SubscriberUsageCard({
                   Include original ICMP latency
                 </label>
               ) : null}
-              <Button type="submit" disabled={!tag || !value.trim() || report.isPending}>
+              {canReadIncident && (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={includeIncident}
+                    disabled={report.isPending}
+                    onChange={(event) => {
+                      report.reset()
+                      setIncident(undefined)
+                      setIncludeIncident(event.target.checked)
+                    }}
+                  />{' '}
+                  Include a DDoS incident
+                </label>
+              )}
+              {attachIncident && (
+                <SubscriberIncidentPicker
+                  identity={identity}
+                  disabled={report.isPending}
+                  onChange={(selection) => {
+                    report.reset()
+                    setIncident(selection)
+                  }}
+                />
+              )}
+              <Button type="submit" disabled={!canRun}>
                 Run subscriber report
               </Button>
             </form>
@@ -161,6 +204,156 @@ function SubscriberUsageEvidence({ value }: { value: SubscriberUsageReport }) {
         </p>
       ) : null}
       {value.latency_included && <SubscriberLatencyEvidence rows={value.latency ?? []} />}
+      {value.incident && <SubscriberDDoSEvidence value={value.incident} />}
+    </>
+  )
+}
+
+function SubscriberIncidentPicker({
+  identity,
+  disabled,
+  onChange,
+}: {
+  identity: string
+  disabled: boolean
+  onChange: (selection?: SubscriberIncidentSelection) => void
+}) {
+  const [contextID, setContextID] = useState('')
+  const [incidentID, setIncidentID] = useState('')
+  const [fingerprint, setFingerprint] = useState('')
+  const contexts = useEntityContexts(identity)
+  const incidents = useIncidents(true, identity)
+  const incident = useIncident(incidentID || undefined, identity)
+  const sources =
+    incident.data?.signals?.flatMap((signal) => {
+      const receipt = incidentDDoSReceiptReference(signal)
+      return receipt ? [{ ...receipt, title: signal.title, time: signal.occurred_at }] : []
+    }) ?? []
+
+  function select(context: string, selectedIncident: string, selectedFingerprint: string) {
+    const receipt = sources.find((item) => item.fingerprint === selectedFingerprint)
+    onChange(
+      context && selectedIncident === incident.data?.id && receipt
+        ? {
+            context_id: context,
+            incident_id: selectedIncident,
+            rule_id: receipt.rule,
+            receipt_fingerprint: receipt.fingerprint,
+          }
+        : undefined,
+    )
+  }
+
+  const error = contexts.error ?? incidents.error ?? incident.error
+  return (
+    <>
+      <Select
+        label="Incident routing context"
+        options={[
+          { value: '', label: 'Choose a context' },
+          ...(contexts.data?.pages.flatMap((page) =>
+            page.items.map((item) => ({
+              value: item.context_id,
+              label: `${item.site_label} · ${item.vrf_label}`,
+            })),
+          ) ?? []),
+        ]}
+        value={contextID}
+        disabled={disabled}
+        onChange={(event) => {
+          setContextID(event.target.value)
+          select(event.target.value, incidentID, fingerprint)
+        }}
+      />
+      {contexts.hasNextPage && (
+        <Button
+          variant="secondary"
+          disabled={disabled || contexts.isFetchingNextPage}
+          onClick={() => void contexts.fetchNextPage()}
+        >
+          Load more contexts
+        </Button>
+      )}
+      <Select
+        label="Incident"
+        options={[
+          { value: '', label: 'Choose an incident' },
+          ...(incidents.data?.map((item) => ({ value: item.id, label: item.title })) ?? []),
+        ]}
+        value={incidentID}
+        disabled={disabled}
+        onChange={(event) => {
+          setIncidentID(event.target.value)
+          setFingerprint('')
+          onChange()
+        }}
+      />
+      {sources.length > 0 && (
+        <Select
+          label="DDoS observation"
+          options={[
+            { value: '', label: 'Choose an observation' },
+            ...sources.map((item) => ({
+              value: item.fingerprint,
+              label: `${item.title} · ${item.time}`,
+            })),
+          ]}
+          value={fingerprint}
+          disabled={disabled}
+          onChange={(event) => {
+            setFingerprint(event.target.value)
+            select(contextID, incidentID, event.target.value)
+          }}
+        />
+      )}
+      {incident.isSuccess && !sources.length && (
+        <p>No retained DDoS observation in this incident.</p>
+      )}
+      {error && <ErrorState title="Incident choices unavailable" description={error.message} />}
+    </>
+  )
+}
+
+function SubscriberDDoSEvidence({ value }: { value: SubscriberIncidentEvidence }) {
+  return (
+    <>
+      <h3>DDoS incident</h3>
+      <p>
+        <Link to={`/incidents?incident=${encodeURIComponent(value.incident_id)}`}>
+          Open incident
+        </Link>{' '}
+        · {value.prefix} · {value.direction}
+      </p>
+      <p>
+        <DateTime value={value.from} /> to <DateTime value={value.to} />
+      </p>
+      {value.actions_visible ? (
+        value.actions?.length ? (
+          <Table
+            caption="Recorded incident decisions"
+            rows={value.actions}
+            rowKey={(row) => row.proposal_id}
+            columns={[
+              { key: 'kind', header: 'Action', render: (row) => row.kind.replace(/_/g, ' ') },
+              { key: 'state', header: 'State', render: (row) => row.state },
+              {
+                key: 'created',
+                header: 'Opened',
+                render: (row) => <DateTime value={row.created_at} />,
+              },
+              {
+                key: 'decided',
+                header: 'Decided',
+                render: (row) => (row.decided_at ? <DateTime value={row.decided_at} /> : '—'),
+              },
+            ]}
+          />
+        ) : (
+          <p>No recorded decisions in this routing context.</p>
+        )
+      ) : (
+        <p>Recorded decisions require incident audit or review access.</p>
+      )}
     </>
   )
 }

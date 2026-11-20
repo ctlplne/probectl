@@ -17,6 +17,7 @@ import (
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -126,7 +127,7 @@ func (s *Server) captureDDoSReportPack(ctx context.Context, actor *auth.Principa
 		if err != nil {
 			return err
 		}
-		decisions, actionsVisible, err = s.scopedDDoSReportPackDecisions(ctx, sc, actor, selection)
+		decisions, actionsVisible, err = s.scopedDDoSReportPackDecisions(ctx, sc, actor, selection, nil)
 		return err
 	})
 	if err != nil {
@@ -155,7 +156,7 @@ func (s *Server) captureDDoSReportPack(ctx context.Context, actor *auth.Principa
 	return &reportFlowCapture{TenantID: tenant.String(), ObservedAt: at.UTC(), DDoSReport: requirements, Tables: ddosReportPackTables(tenant.String(), report)}, nil
 }
 
-func (s *Server) scopedDDoSReportPackDecisions(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, selection reporting.DDoSReportDefinition) ([]alert.DDoSReportDecision, bool, error) {
+func (s *Server) scopedDDoSReportPackDecisions(ctx context.Context, sc tenancy.Scope, actor *auth.Principal, selection reporting.DDoSReportDefinition, record *entity.ContextRecord) ([]alert.DDoSReportDecision, bool, error) {
 	current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
 	if err != nil {
 		return nil, false, err
@@ -165,6 +166,14 @@ func (s *Server) scopedDDoSReportPackDecisions(ctx context.Context, sc tenancy.S
 		return nil, false, err
 	}
 	resource := map[string]string{auth.ResourceTenantKey: sc.Tenant.String()}
+	var contextID string
+	if record != nil {
+		if record.TenantID != sc.Tenant.String() || record.ContextID == "" {
+			return nil, false, entity.ErrScopeMismatch
+		}
+		contextID, resource = record.ContextID, entityContextResource(*record)
+		resource["incident_id"], resource["rule_id"] = selection.IncidentID, selection.RuleID
+	}
 	// A scoped audit reader is already allowed to read these recorded decisions.
 	// The worker uses that read-only grant. An interactive reviewer can also use
 	// the existing remediation permission when no audit grant is available.
@@ -179,7 +188,7 @@ func (s *Server) scopedDDoSReportPackDecisions(ctx context.Context, sc tenancy.S
 			return nil, false, err
 		}
 	}
-	decisions, err := store.DDoSReportDecisions(ctx, sc, selection.IncidentID, selection.RuleID, selection.ReceiptFingerprint)
+	decisions, err := store.DDoSReportDecisions(ctx, sc, selection.IncidentID, selection.RuleID, selection.ReceiptFingerprint, contextID)
 	return decisions, true, err
 }
 
@@ -202,7 +211,7 @@ func (s *Server) validateDDoSReportPackScope(ctx context.Context, sc tenancy.Sco
 	if value.DecisionDigest == "" {
 		return ctx.Err()
 	}
-	decisions, visible, err := s.scopedDDoSReportPackDecisions(ctx, sc, actor, value.Selection)
+	decisions, visible, err := s.scopedDDoSReportPackDecisions(ctx, sc, actor, value.Selection, nil)
 	if err != nil {
 		return err
 	}

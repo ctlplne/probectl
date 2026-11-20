@@ -8,15 +8,13 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { getAlertDDoSReceipt } from '../api/alerts'
 import { useCreateDashboard } from '../api/dashboardReporting'
-import { getIncidentDDoSReport, type Signal } from '../api/incidents'
+import { getIncidentDDoSReport, incidentDDoSReceiptReference, type Signal } from '../api/incidents'
 import type { IncidentDDoSReport } from '../api/sdk.gen'
 import { useAuth } from '../auth/useAuth'
 import { Button, Card, CardBody, CardHeader, ErrorState, LoadingState } from '../components'
 import { DDoSAssessmentEvidence } from './FlowDDoSAssessmentCard'
 import { IncidentRoutingProposal } from './IncidentRoutingProposal'
 import { DateTime } from '../time/DateTime'
-
-const digest = /^[a-f0-9]{64}$/
 
 export function IncidentDDoSReceipt({
   signal,
@@ -27,12 +25,9 @@ export function IncidentDDoSReceipt({
   incidentID: string
   allowRoutingReview?: boolean
 }) {
-  if (signal?.kind !== 'alert.ddos_assessment' || signal.plane !== 'flow') return null
-  const rule = signal.attributes?.rule_id
-  const fingerprint = signal.attributes?.['probectl.alert.ddos.receipt_fingerprint']
-  const episode = signal.attributes?.['probectl.alert.ddos.episode_id']
-  if (!rule || !fingerprint || !episode || !digest.test(episode) || !digest.test(fingerprint))
-    return null
+  const reference = incidentDDoSReceiptReference(signal)
+  if (!reference) return null
+  const { rule, fingerprint, episode } = reference
   return (
     <DDoSReceipt
       key={episode}

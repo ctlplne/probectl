@@ -30,9 +30,20 @@ of complete original round-trip measurements in that window. A fractional
 mean is an exact fraction of a nanosecond. Rows show partial or unavailable
 coverage when the original measurements cannot support a full summary.
 
+Choose **Include a DDoS incident** to link one retained observation to a
+subscriber. Select the routing context, incident and DDoS observation.
+Choose a usage interval that contains both qualifying observation windows.
+The protected prefix must fit inside an explicit subscriber assignment in
+that context. A conflicting overlapping assignment or incomplete original
+exporter evidence prevents the link. Incident and alert read permissions
+apply to the context. Audit readers and authorized remediation reviewers can
+also see the recorded decisions for that context.
+
 The equivalent CLI command is `probectl explorer subscriber-usage <view-id>
 --body-file request.json`. Provide the exact saved view `version`, `tag_id`,
 `tag_key` and `subscriber`. For a relative saved view, an optional UTC `end`
 pins its observation clock. Set `include_latency` to `true` for the optional
-latency evidence. Equivalent requests are served at
+latency evidence. For a DDoS link, include an `incident` object with
+`context_id`, `incident_id`, `rule_id` and `receipt_fingerprint` from the
+selected observation. Equivalent requests are served at
 `POST /v1/explorer/flow-views/{id}/subscriber-usage`.

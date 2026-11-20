@@ -29,20 +29,34 @@ func (s *Server) verifyPrefixImpactDetector(ctx context.Context, actor *auth.Pri
 		return err
 	}
 	defer release()
-	settings, err := s.citedDDoSSettings(ctx, ruleID, original, budget.MemoryBytes/8)
-	if err != nil {
-		return err
-	}
-	clocks, err := ddosClocks(original.Current.After.To, settings.Input.PeriodSeconds)
-	if err != nil {
-		return err
-	}
-	settings.Origins = origins
-	capture, err := s.captureDDoSWindows(ctx, actor, settings, clocks.ends(), budget.MemoryBytes/4)
+	capture, err := s.captureMatchedDDoSOrigins(ctx, actor, ruleID, original, origins, budget)
 	if err != nil {
 		return err
 	}
 	defer capture.Close()
+	return s.recheckFlowEvidencePublication(ctx, actor, capture)
+}
+
+func (s *Server) captureMatchedDDoSOrigins(ctx context.Context, actor *auth.Principal, ruleID string, original alert.DDoSEvaluationEvidence,
+	origins []store.PrefixImpactFlowBinding, budget flowstore.ExplorerBudget) (_ *reportFlowCapture, resultErr error) {
+	settings, err := s.citedDDoSSettings(ctx, ruleID, original, budget.MemoryBytes/8)
+	if err != nil {
+		return nil, err
+	}
+	clocks, err := ddosClocks(original.Current.After.To, settings.Input.PeriodSeconds)
+	if err != nil {
+		return nil, err
+	}
+	settings.Origins = origins
+	capture, err := s.captureDDoSWindows(ctx, actor, settings, clocks.ends(), budget.MemoryBytes/4)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if resultErr != nil {
+			capture.Close()
+		}
+	}()
 	for _, window := range []struct {
 		expected      flow.DDoSAssessment
 		clocks        anomaly.FlowFieldComparisonClocks
@@ -53,13 +67,14 @@ func (s *Server) verifyPrefixImpactDetector(ctx context.Context, actor *auth.Pri
 	} {
 		measured, err := assessCapturedDDoS(ctx, capture, settings, window.clocks, window.before, window.after, budget.MemoryBytes/8)
 		if err != nil {
-			return mapDDoSCoverage(err)
+			return nil, mapDDoSCoverage(err)
 		}
 		if !sameDDoSRoutingEvidence(window.expected, measured) {
-			return apierror.Conflict("the original traffic receipt does not fit the selected routing context")
+			return nil, apierror.Conflict("the original traffic receipt does not fit the selected routing context")
 		}
 	}
-	return s.recheckFlowEvidencePublication(ctx, actor, capture)
+	capture.Results = nil
+	return capture, ctx.Err()
 }
 
 func (s *Server) citedDDoSSettings(ctx context.Context, ruleID string, evidence alert.DDoSEvaluationEvidence, memory int64) (ddosAssessmentSettings, error) {

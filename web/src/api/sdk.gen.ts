@@ -4188,6 +4188,25 @@ export interface Signal {
   title?: string
 }
 
+export interface SubscriberIncidentEvidence {
+  actions?: IncidentDDoSReportDecision[]
+  actions_visible: boolean
+  context_id: string
+  direction: "ingress" | "egress"
+  episode_id: string
+  from: string
+  incident_id: string
+  prefix: string
+  to: string
+}
+
+export interface SubscriberIncidentSelection {
+  context_id: string
+  incident_id: string
+  receipt_fingerprint: string
+  rule_id: string
+}
+
 export interface SubscriberLatency {
   agent_id: string
   context_id: string
@@ -4219,6 +4238,7 @@ export interface SubscriberTraffic {
 export interface SubscriberUsageReport {
   download: SubscriberTraffic
   from: string
+  incident?: SubscriberIncidentEvidence
   internal: SubscriberTraffic
   latency?: SubscriberLatency[]
   latency_included: boolean
@@ -4240,6 +4260,7 @@ export interface SubscriberUsageReport {
 
 export interface SubscriberUsageRequest {
   end?: string
+  incident?: SubscriberIncidentSelection
   include_latency?: boolean
   subscriber: string
   tag_id: string

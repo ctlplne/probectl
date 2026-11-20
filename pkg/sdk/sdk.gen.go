@@ -4370,6 +4370,25 @@ type Signal struct {
 	Title      string            `json:"title,omitempty"`
 }
 
+type SubscriberIncidentEvidence struct {
+	Actions        []IncidentDDoSReportDecision `json:"actions,omitempty"`
+	ActionsVisible bool                         `json:"actions_visible"`
+	ContextId      string                       `json:"context_id"`
+	Direction      string                       `json:"direction"`
+	EpisodeId      string                       `json:"episode_id"`
+	From           string                       `json:"from"`
+	IncidentId     string                       `json:"incident_id"`
+	Prefix         string                       `json:"prefix"`
+	To             string                       `json:"to"`
+}
+
+type SubscriberIncidentSelection struct {
+	ContextId          string `json:"context_id"`
+	IncidentId         string `json:"incident_id"`
+	ReceiptFingerprint string `json:"receipt_fingerprint"`
+	RuleId             string `json:"rule_id"`
+}
+
 type SubscriberLatency struct {
 	AgentId      string `json:"agent_id"`
 	ContextId    string `json:"context_id"`
@@ -4399,34 +4418,36 @@ type SubscriberTraffic struct {
 }
 
 type SubscriberUsageReport struct {
-	Download          SubscriberTraffic        `json:"download"`
-	From              string                   `json:"from"`
-	Internal          SubscriberTraffic        `json:"internal"`
-	Latency           []SubscriberLatency      `json:"latency,omitempty"`
-	LatencyIncluded   bool                     `json:"latency_included"`
-	OtherServices     SubscriberTraffic        `json:"other_services"`
-	ResolutionSeconds int                      `json:"resolution_seconds"`
-	Source            string                   `json:"source"`
-	Subscriber        string                   `json:"subscriber"`
-	TagAsOf           string                   `json:"tag_as_of"`
-	TagId             string                   `json:"tag_id"`
-	TagKey            string                   `json:"tag_key"`
-	TagRevision       string                   `json:"tag_revision"`
-	To                string                   `json:"to"`
-	TopServices       []SubscriberServiceUsage `json:"top_services"`
-	Total             SubscriberTraffic        `json:"total"`
-	Upload            SubscriberTraffic        `json:"upload"`
-	ViewId            string                   `json:"view_id"`
-	ViewVersion       string                   `json:"view_version"`
+	Download          SubscriberTraffic          `json:"download"`
+	From              string                     `json:"from"`
+	Incident          SubscriberIncidentEvidence `json:"incident,omitzero"`
+	Internal          SubscriberTraffic          `json:"internal"`
+	Latency           []SubscriberLatency        `json:"latency,omitempty"`
+	LatencyIncluded   bool                       `json:"latency_included"`
+	OtherServices     SubscriberTraffic          `json:"other_services"`
+	ResolutionSeconds int                        `json:"resolution_seconds"`
+	Source            string                     `json:"source"`
+	Subscriber        string                     `json:"subscriber"`
+	TagAsOf           string                     `json:"tag_as_of"`
+	TagId             string                     `json:"tag_id"`
+	TagKey            string                     `json:"tag_key"`
+	TagRevision       string                     `json:"tag_revision"`
+	To                string                     `json:"to"`
+	TopServices       []SubscriberServiceUsage   `json:"top_services"`
+	Total             SubscriberTraffic          `json:"total"`
+	Upload            SubscriberTraffic          `json:"upload"`
+	ViewId            string                     `json:"view_id"`
+	ViewVersion       string                     `json:"view_version"`
 }
 
 type SubscriberUsageRequest struct {
-	End            string `json:"end,omitempty"`
-	IncludeLatency *bool  `json:"include_latency,omitempty"`
-	Subscriber     string `json:"subscriber"`
-	TagId          string `json:"tag_id"`
-	TagKey         string `json:"tag_key"`
-	Version        string `json:"version"`
+	End            string                      `json:"end,omitempty"`
+	Incident       SubscriberIncidentSelection `json:"incident,omitzero"`
+	IncludeLatency *bool                       `json:"include_latency,omitempty"`
+	Subscriber     string                      `json:"subscriber"`
+	TagId          string                      `json:"tag_id"`
+	TagKey         string                      `json:"tag_key"`
+	Version        string                      `json:"version"`
 }
 
 type TagAssignment struct {
