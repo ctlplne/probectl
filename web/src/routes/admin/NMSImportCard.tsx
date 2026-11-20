@@ -27,6 +27,7 @@ import {
   type ImportChoice,
   type ImportDiffItem,
   type ImportDiffPage,
+  type ImportExportSource,
   type ImportRow,
   type ImportRowsPage,
   type ImportPollProposalsPage,
@@ -49,7 +50,7 @@ import styles from '../pages.module.css'
 type ChoiceAction = ImportChoice['action'] | ''
 type PendingChoice = { action: ChoiceAction; target_entity_id: string }
 
-function readExportFile(file: File): Promise<string> {
+function readExportFile(file: File, asArchive = false): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => reject(new Error('Saved export page could not be read.'))
@@ -58,13 +59,18 @@ function readExportFile(file: File): Promise<string> {
         reject(new Error('Saved export page did not contain text.'))
         return
       }
-      resolve(reader.result)
+      resolve(asArchive ? reader.result.slice(reader.result.indexOf(',') + 1) : reader.result)
     }
-    reader.readAsText(file)
+    if (asArchive) reader.readAsDataURL(file)
+    else reader.readAsText(file)
   })
 }
 
 function canCreateImportRow(row: ImportRow): boolean {
+  if (row.object_kind === 'prefix')
+    return row.unmapped_codes.every(
+      (code) => code === 'sightline_additional_columns' || code === 'defenseflow_additional_fields',
+    )
   if (row.object_kind === 'device' || row.object_kind === 'site')
     return row.unmapped_codes.length === 0
   if (row.object_kind === 'group')
@@ -137,9 +143,16 @@ function ImportContents({
   const [origin, setOrigin] = useState('')
   const [credentialRef, setCredentialRef] = useState('')
   const [planID, setPlanID] = useState('')
-  const [exportKind, setExportKind] = useState<'orion' | 'prtg'>('orion')
+  const [exportKind, setExportKind] = useState<ImportExportSource>('orion')
   const [exportResource, setExportResource] = useState('nodes')
   const [exportFile, setExportFile] = useState<File | null>(null)
+  const [prefixFields, setPrefixFields] = useState({ external_id: '', label: '', prefix: '' })
+  const [capturedFormat, setCapturedFormat] = useState<ImportExportSource | null>(null)
+  const [archiveMember, setArchiveMember] = useState('')
+  const [archiveFormat, setArchiveFormat] = useState('json')
+  const [archiveRecordsPath, setArchiveRecordsPath] = useState('')
+  const capturedArchive = capturedFormat === 'defenseflow'
+  const capturedPrefix = capturedFormat === 'sightline' || capturedArchive
   const [exportPageNumber, setExportPageNumber] = useState(0)
   const [exportFirstRow, setExportFirstRow] = useState(0)
   const [isExportPreview, setIsExportPreview] = useState(false)
@@ -266,9 +279,15 @@ function ImportContents({
       const result = await startImportExportPreview(contextID, exportKind, exportInstanceRef)
       setPlanID(result.plan_id)
       setIsExportPreview(true)
+      setCapturedFormat(exportKind)
+      setExportResource(exportKind === 'orion' ? 'nodes' : 'devices')
       setExportPageNumber(0)
       setExportFirstRow(0)
       setExportFile(null)
+      setPrefixFields({ external_id: '', label: '', prefix: '' })
+      setArchiveMember('')
+      setArchiveFormat('json')
+      setArchiveRecordsPath('')
       setSnapshotHash('')
       setReviewHash('')
       setProofReady(false)
@@ -276,7 +295,11 @@ function ImportContents({
       setPage(null)
       setDiffPage(null)
       setChoices({})
-      setMessage('Documented-export preview started. Upload each saved JSON page in source order.')
+      setMessage(
+        exportKind === 'sightline' || exportKind === 'defenseflow'
+          ? 'Preview started. Select the customer export and enter its exact field names.'
+          : 'Documented-export preview started. Upload each saved JSON page in source order.',
+      )
     })
   }
 
@@ -284,27 +307,58 @@ function ImportContents({
     event.preventDefault()
     if (!exportFile) return
     void run(async () => {
-      if (exportFile.size > 64 << 20) throw new Error('Export page exceeds the 64 MiB limit.')
-      const raw = await readExportFile(exportFile)
-      const decoded: unknown = JSON.parse(raw)
-      const records = Array.isArray(decoded)
-        ? decoded
-        : decoded && typeof decoded === 'object' && 'results' in decoded
-          ? decoded.results
-          : null
-      if (!Array.isArray(records)) throw new Error('Export page has no documented row array.')
-      await appendImportExportPage(
+      const limitMiB = capturedPrefix ? 16 : 64
+      if (exportFile.size > limitMiB * (1 << 20))
+        throw new Error(`Export page exceeds the ${limitMiB} MiB limit.`)
+      const raw = await readExportFile(exportFile, capturedArchive)
+      let body = raw
+      let sourceRows = 0
+      let resource = exportResource
+      if (capturedArchive) {
+        const recordsPath: unknown =
+          archiveFormat === 'json' && archiveRecordsPath.trim()
+            ? JSON.parse(archiveRecordsPath)
+            : []
+        if (!Array.isArray(recordsPath) || recordsPath.some((name) => typeof name !== 'string'))
+          throw new Error('Enter the JSON records path as an array of field names.')
+        resource = 'protected_objects'
+        body = JSON.stringify({
+          configuration_zip_base64: raw,
+          member: archiveMember,
+          format: archiveFormat,
+          records_path: recordsPath,
+          field_mapping: prefixFields,
+        })
+      } else if (capturedPrefix) {
+        resource = 'managed_objects'
+        body = JSON.stringify({ column_mapping: prefixFields, csv: raw })
+      } else {
+        const decoded: unknown = JSON.parse(raw)
+        const records = Array.isArray(decoded)
+          ? decoded
+          : decoded && typeof decoded === 'object' && 'results' in decoded
+            ? decoded.results
+            : null
+        if (!Array.isArray(records)) throw new Error('Export page has no documented row array.')
+        sourceRows = records.length
+      }
+      const receipt = await appendImportExportPage(
         contextID,
         planID,
-        exportResource,
+        resource,
         exportPageNumber,
         exportFirstRow,
-        raw,
+        body,
       )
+      const importedRows = capturedPrefix ? receipt.row_count : sourceRows
       setExportPageNumber(exportPageNumber + 1)
-      setExportFirstRow(exportFirstRow + records.length)
+      setExportFirstRow(exportFirstRow + importedRows)
       setExportFile(null)
-      setMessage(`${records.length} rows captured. Continue with the next saved source page.`)
+      setMessage(
+        capturedPrefix
+          ? `${importedRows} protected prefixes captured. Seal the preview to review them.`
+          : `${importedRows} rows captured. Continue with the next saved source page.`,
+      )
     })
   }
 
@@ -477,6 +531,8 @@ function ImportContents({
     })
   }
 
+  const isProtectedPrefixReview = page?.items.some((row) => row.object_kind === 'prefix') === true
+
   function applyChunk() {
     void run(async () => {
       const result = await applyImportReview(contextID, planID, snapshotHash, reviewHash)
@@ -490,7 +546,9 @@ function ImportContents({
         `${result.applied} applied, ${result.skipped} skipped; ${result.remaining} rows remain. ` +
           (result.state === 'applied'
             ? 'Import complete.'
-            : 'Recheck the source before the next chunk.'),
+            : isProtectedPrefixReview
+              ? 'Apply the next reviewed chunk.'
+              : 'Recheck the source before the next chunk.'),
       )
     })
   }
@@ -519,6 +577,8 @@ function ImportContents({
       render: (row) => {
         if (row.object_kind === 'poll_setting' && row.proposed_poll_seconds)
           return `${row.current_poll_seconds ? `${row.current_poll_seconds}s` : 'New'} → ${row.proposed_poll_seconds}s`
+        if (row.object_kind === 'prefix' && row.proposed_network_prefix)
+          return `${row.current_label || 'New'} → ${row.proposed_label} · ${row.proposed_network_prefix}`
         return row.proposed_label
           ? `${row.current_label || 'New'} → ${row.proposed_label}`
           : 'No change'
@@ -592,7 +652,9 @@ function ImportContents({
               ...(canCreateImportRow(row)
                 ? [
                     { value: 'create', label: 'Create' },
-                    ...(row.object_kind === 'device' || row.object_kind === 'site'
+                    ...(row.object_kind === 'device' ||
+                    row.object_kind === 'site' ||
+                    row.object_kind === 'prefix'
                       ? [{ value: 'update', label: 'Update exact ID' }]
                       : row.object_kind === 'group'
                         ? [{ value: 'update', label: 'Update source group' }]
@@ -621,7 +683,9 @@ function ImportContents({
         canWrite &&
         !reviewHash &&
         choices[row.row_number]?.action === 'update' &&
-        (row.object_kind === 'device' || row.object_kind === 'site') ? (
+        (row.object_kind === 'device' ||
+          row.object_kind === 'site' ||
+          row.object_kind === 'prefix') ? (
           <Field
             label={`Exact target entity ID for ${row.external_id}`}
             value={choices[row.row_number]?.target_entity_id ?? ''}
@@ -713,11 +777,8 @@ function ImportContents({
           ) : null}
           {canWrite && contextID ? (
             <div className={styles.stack}>
-              <h3>Orion or PRTG documented-export preview</h3>
-              <p>
-                Capture saved JSON pages without a vendor connection. This preview cannot prove a
-                complete source inventory; every unmapped field stays listed for review.
-              </p>
+              <h3>Saved vendor export preview</h3>
+              <p>Use the exact field names from a customer-authorized protected-object export.</p>
               <div className={styles.row}>
                 <Field
                   label="Export instance"
@@ -729,13 +790,14 @@ function ImportContents({
                   label="Export source format"
                   value={exportKind}
                   onChange={(event) => {
-                    const kind = event.target.value as 'orion' | 'prtg'
+                    const kind = event.target.value as ImportExportSource
                     setExportKind(kind)
-                    setExportResource(kind === 'orion' ? 'nodes' : 'devices')
                   }}
                   options={[
                     { value: 'orion', label: 'SolarWinds Orion SWIS' },
                     { value: 'prtg', label: 'PRTG API v2 experimental' },
+                    { value: 'sightline', label: 'NETSCOUT Arbor Sightline CSV' },
+                    { value: 'defenseflow', label: 'Radware DefenseFlow configuration ZIP' },
                   ]}
                 />
                 <Button onClick={startExportPreview} disabled={busy || !exportInstanceRef}>
@@ -746,48 +808,114 @@ function ImportContents({
                 <>
                   <form className={styles.form} onSubmit={appendExportPage}>
                     <div className={styles.row}>
-                      <Select
-                        label="Source resource"
-                        value={exportResource}
-                        onChange={(event) => setExportResource(event.target.value)}
-                        options={
-                          exportKind === 'orion'
-                            ? [
-                                { value: 'nodes', label: 'Nodes' },
-                                { value: 'groups', label: 'Groups' },
-                                { value: 'rules', label: 'Alert rules' },
-                              ]
-                            : [
-                                { value: 'devices', label: 'Devices' },
-                                { value: 'groups', label: 'Groups' },
-                                { value: 'probes', label: 'Probes' },
-                              ]
-                        }
-                      />
-                      <Field
-                        label="Page number"
-                        type="number"
-                        min={0}
-                        required
-                        value={exportPageNumber}
-                        onChange={(event) => setExportPageNumber(Number(event.target.value))}
-                      />
-                      <Field
-                        label="First row offset"
-                        type="number"
-                        min={0}
-                        required
-                        value={exportFirstRow}
-                        onChange={(event) => setExportFirstRow(Number(event.target.value))}
-                      />
+                      {capturedPrefix ? (
+                        <>
+                          {capturedArchive ? (
+                            <>
+                              <Field
+                                label="ZIP member path"
+                                required
+                                value={archiveMember}
+                                onChange={(event) => setArchiveMember(event.target.value)}
+                              />
+                              <Select
+                                label="ZIP member format"
+                                value={archiveFormat}
+                                onChange={(event) => setArchiveFormat(event.target.value)}
+                                options={[
+                                  { value: 'json', label: 'JSON' },
+                                  { value: 'csv', label: 'CSV' },
+                                ]}
+                              />
+                              {archiveFormat === 'json' ? (
+                                <Field
+                                  label="JSON records path"
+                                  placeholder='["inventory", "objects"]'
+                                  value={archiveRecordsPath}
+                                  onChange={(event) => setArchiveRecordsPath(event.target.value)}
+                                />
+                              ) : null}
+                            </>
+                          ) : null}
+                          {(
+                            [
+                              ['external_id', 'Protected object ID field'],
+                              ['label', 'Protected object label field'],
+                              ['prefix', 'Network prefix field'],
+                            ] as const
+                          ).map(([key, label]) => (
+                            <Field
+                              key={key}
+                              label={label}
+                              required
+                              value={prefixFields[key]}
+                              onChange={(event) =>
+                                setPrefixFields({ ...prefixFields, [key]: event.target.value })
+                              }
+                            />
+                          ))}
+                        </>
+                      ) : (
+                        <>
+                          <Select
+                            label="Source resource"
+                            value={exportResource}
+                            onChange={(event) => setExportResource(event.target.value)}
+                            options={
+                              capturedFormat === 'orion'
+                                ? [
+                                    { value: 'nodes', label: 'Nodes' },
+                                    { value: 'groups', label: 'Groups' },
+                                    { value: 'rules', label: 'Alert rules' },
+                                  ]
+                                : [
+                                    { value: 'devices', label: 'Devices' },
+                                    { value: 'groups', label: 'Groups' },
+                                    { value: 'probes', label: 'Probes' },
+                                  ]
+                            }
+                          />
+                          <Field
+                            label="Page number"
+                            type="number"
+                            min={0}
+                            required
+                            value={exportPageNumber}
+                            onChange={(event) => setExportPageNumber(Number(event.target.value))}
+                          />
+                          <Field
+                            label="First row offset"
+                            type="number"
+                            min={0}
+                            required
+                            value={exportFirstRow}
+                            onChange={(event) => setExportFirstRow(Number(event.target.value))}
+                          />
+                        </>
+                      )}
                       <Field
                         key={exportPageNumber}
-                        label="Saved JSON export page"
+                        label={
+                          capturedArchive
+                            ? 'Customer configuration ZIP'
+                            : capturedPrefix
+                              ? 'Saved managed-object CSV'
+                              : 'Saved JSON export page'
+                        }
                         type="file"
-                        accept="application/json,.json"
+                        accept={
+                          capturedArchive
+                            ? 'application/zip,.zip'
+                            : capturedPrefix
+                              ? 'text/csv,.csv'
+                              : 'application/json,.json'
+                        }
                         onChange={(event) => setExportFile(event.target.files?.[0] ?? null)}
                       />
-                      <Button type="submit" disabled={busy || !exportFile}>
+                      <Button
+                        type="submit"
+                        disabled={busy || !exportFile || (capturedPrefix && exportPageNumber > 0)}
+                      >
                         Capture page
                       </Button>
                     </div>
@@ -1049,10 +1177,15 @@ function ImportContents({
               ) : null}
               {canWrite && !applyComplete ? (
                 <div className={styles.row}>
-                  <Button onClick={verifySource} disabled={busy || !snapshotHash || !reviewHash}>
-                    Recheck next source endpoint
-                  </Button>
-                  <Button onClick={applyChunk} disabled={busy || !proofReady}>
+                  {isProtectedPrefixReview ? null : (
+                    <Button onClick={verifySource} disabled={busy || !snapshotHash || !reviewHash}>
+                      Recheck next source endpoint
+                    </Button>
+                  )}
+                  <Button
+                    onClick={applyChunk}
+                    disabled={busy || (!isProtectedPrefixReview && !proofReady)}
+                  >
                     Apply one reviewed chunk
                   </Button>
                 </div>

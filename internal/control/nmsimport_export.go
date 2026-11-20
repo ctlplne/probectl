@@ -66,7 +66,7 @@ func (s *Server) handleAppendNMSImportExportPage(w http.ResponseWriter, r *http.
 	if err != nil || firstRow < 0 {
 		return apierror.BadRequest("invalid preview first row")
 	}
-	pageHash, err := s.nmsImportCaptureStore(r).AppendPage(ctx, contextID,
+	receipt, err := s.nmsImportCaptureStore(r).AppendPageReceipt(ctx, contextID,
 		r.PathValue("id"), pageNumber, query.Get("resource"), firstRow, r.Body)
 	switch {
 	case errors.Is(err, nmsimport.ErrPlanUnavailable):
@@ -76,7 +76,7 @@ func (s *Server) handleAppendNMSImportExportPage(w http.ResponseWriter, r *http.
 	case err != nil:
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"page_hash": pageHash})
+	writeJSON(w, http.StatusOK, receipt)
 	return nil
 }
 

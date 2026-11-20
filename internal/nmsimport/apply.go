@@ -212,7 +212,7 @@ func applyFrozenRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
 		}
 		var err error
 		switch row.kind {
-		case "device", "site":
+		case "device", "site", "prefix":
 			err = applyEntityRow(ctx, sc, contextID, planID, sourceID, row)
 		case "group":
 			err = applyGroupRow(ctx, sc, contextID, planID, sourceID, row)
@@ -395,6 +395,20 @@ func applyEntityRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
 		return err
 	}
 	entityID := row.targetID
+	var network string
+	if row.kind == "prefix" {
+		network = row.address
+		choice := ReviewChoice{Action: row.action, TargetEntityID: row.targetID}
+		if err := validateProtectedPrefixDestination(ctx, sc, contextID, boundID, choice, label, network); err != nil {
+			if errors.Is(err, ErrInvalidReview) {
+				return ErrReviewStale
+			}
+			return err
+		}
+		if row.action == "create" && boundID != "" {
+			return nil
+		}
+	}
 	if row.action == "create" {
 		if boundID != "" || row.fingerprint != "" {
 			return ErrReviewStale
@@ -404,8 +418,8 @@ func applyEntityRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
 			return err
 		}
 		_, err = sc.Q.Exec(ctx, `INSERT INTO entities
-			(tenant_id,context_id,id,kind,label) VALUES ($1,$2,$3,$4,$5)`,
-			sc.Tenant.String(), contextID, entityID, row.kind, label)
+			(tenant_id,context_id,id,kind,label,network_prefix) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::cidr)`,
+			sc.Tenant.String(), contextID, entityID, row.kind, label, network)
 		if err != nil {
 			return err
 		}
@@ -423,7 +437,8 @@ func applyEntityRow(ctx context.Context, sc tenancy.Scope, contextID, planID,
 		if current != row.fingerprint {
 			return ErrReviewStale
 		}
-		command, err := sc.Q.Exec(ctx, `UPDATE entities SET label=$4,updated_at=clock_timestamp()
+		command, err := sc.Q.Exec(ctx, `UPDATE entities SET label=$4,
+			  updated_at=CASE WHEN kind='prefix' AND label=$4 THEN updated_at ELSE clock_timestamp() END
 			WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND kind=$5`,
 			sc.Tenant.String(), contextID, entityID, label, row.kind)
 		if err != nil {

@@ -22,47 +22,50 @@ import (
 // and context from the authenticated operator and choose the action after a
 // forced-RLS lookup. No source row can declare its own destination context.
 type planRow struct {
-	RowNumber     int64    `json:"row_number"`
-	ObjectKind    string   `json:"object_kind"`
-	ExternalID    string   `json:"external_id"`
-	Label         string   `json:"label"`
-	Address       string   `json:"address"`
-	Hostname      string   `json:"hostname"`
-	ParentID      string   `json:"parent_id"`
-	LocationID    string   `json:"location_id"`
-	LocationLabel string   `json:"location_label"`
-	GroupIDs      []string `json:"group_ids"`
-	PollSeconds   int64    `json:"poll_seconds"`
-	Severity      string   `json:"severity"`
-	UnmappedCodes []string `json:"unmapped_codes"`
-	ReviewOnly    bool     `json:"review_only"`
+	RowNumber           int64    `json:"row_number"`
+	ObjectKind          string   `json:"object_kind"`
+	ExternalID          string   `json:"external_id"`
+	Label               string   `json:"label"`
+	Address             string   `json:"address"`
+	Hostname            string   `json:"hostname"`
+	ParentID            string   `json:"parent_id"`
+	LocationID          string   `json:"location_id"`
+	LocationLabel       string   `json:"location_label"`
+	GroupIDs            []string `json:"group_ids"`
+	PollSeconds         int64    `json:"poll_seconds"`
+	Severity            string   `json:"severity"`
+	UnmappedCodes       []string `json:"unmapped_codes"`
+	ReviewOnly          bool     `json:"review_only"`
+	SourceMappingDigest string   `json:"source_mapping_sha256,omitempty"`
 }
 
 var allowedUnmappedCodes = map[string]bool{
-	"delivery_unmapped":          true,
-	"dns_host_unmapped":          true,
-	"dynamic_predicate_unmapped": true,
-	"expression_unmapped":        true,
-	"group_unmapped":             true,
-	"host_unmapped":              true,
-	"item_id_unavailable":        true,
-	"membership_not_captured":    true,
-	"member_removal_candidate":   true,
-	"missing_ip_address":         true,
-	"missing_safe_label":         true,
-	"multiple_primary_addresses": true,
-	"parent_id_unavailable":      true,
-	"parent_unresolved":          true,
-	"poll_interval_unmapped":     true,
-	"poll_cadence_conflict":      true,
-	"poll_item_unmapped":         true,
-	"poll_proposal":              true,
-	"poll_settings_unmapped":     true,
-	"poll_status_unmapped":       true,
-	"poll_transport_unmapped":    true,
-	"severity_unmapped":          true,
-	"site_unmapped":              true,
-	"trigger_id_unavailable":     true,
+	"delivery_unmapped":             true,
+	"dns_host_unmapped":             true,
+	"dynamic_predicate_unmapped":    true,
+	"expression_unmapped":           true,
+	"group_unmapped":                true,
+	"host_unmapped":                 true,
+	"item_id_unavailable":           true,
+	"membership_not_captured":       true,
+	"member_removal_candidate":      true,
+	"missing_ip_address":            true,
+	"missing_safe_label":            true,
+	"multiple_primary_addresses":    true,
+	"parent_id_unavailable":         true,
+	"parent_unresolved":             true,
+	"poll_interval_unmapped":        true,
+	"poll_cadence_conflict":         true,
+	"poll_item_unmapped":            true,
+	"poll_proposal":                 true,
+	"poll_settings_unmapped":        true,
+	"poll_status_unmapped":          true,
+	"poll_transport_unmapped":       true,
+	"sightline_additional_columns":  true,
+	"defenseflow_additional_fields": true,
+	"severity_unmapped":             true,
+	"site_unmapped":                 true,
+	"trigger_id_unavailable":        true,
 }
 
 // normalizePlanPage checks every parser output again before it can become a
@@ -129,14 +132,14 @@ func normalizePlanPage(tenantID, contextID, sourceInstance, generationHash strin
 			ParentID: row.ParentID, LocationID: row.LocationID, LocationLabel: row.LocationLabel,
 			GroupIDs: canonicalStrings(row.GroupIDs), PollSeconds: row.PollSeconds,
 			Severity: row.Severity, UnmappedCodes: canonicalStrings(row.UnmappedCodes),
-			ReviewOnly: reviewOnly})
+			ReviewOnly: reviewOnly, SourceMappingDigest: row.SourceMappingDigest})
 	}
 	return result, nil
 }
 
 func knownSource(kind Kind) bool {
 	switch kind {
-	case LibreNMS, Zabbix, Orion, PRTG:
+	case LibreNMS, Zabbix, Orion, PRTG, Sightline, DefenseFlow:
 		return true
 	default:
 		return false
@@ -160,7 +163,7 @@ func safeInstanceRef(value string) bool {
 
 func planKind(kind string) string {
 	switch kind {
-	case "device", "group", "site", "membership":
+	case "device", "group", "site", "membership", "prefix":
 		return kind
 	case "probe":
 		return "site"
@@ -215,7 +218,10 @@ func safePlanFields(row Row, source Kind) bool {
 			return false
 		}
 	}
-	if row.Address != "" && safeAddress(row.Address) != row.Address {
+	if row.Kind == "prefix" {
+		return prefixExportSource(source) && safeProtectedPrefixRow(row, source)
+	}
+	if prefixExportSource(source) || row.SourceMappingDigest != "" || row.Address != "" && safeAddress(row.Address) != row.Address {
 		return false
 	}
 	// Zabbix's documented host identity is its host key, not a numeric ID.

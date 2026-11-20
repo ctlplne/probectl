@@ -121,6 +121,10 @@ func knownResource(source Kind, resource string) bool {
 		return resource == "nodes" || resource == "groups" || resource == "rules"
 	case PRTG:
 		return resource == "devices" || resource == "groups" || resource == "probes"
+	case Sightline:
+		return resource == "managed_objects"
+	case DefenseFlow:
+		return resource == "protected_objects"
 	default:
 		return false
 	}

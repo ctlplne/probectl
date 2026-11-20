@@ -74,12 +74,12 @@ func (s CaptureStore) StartPlan(ctx context.Context, contextID string,
 	return s.startPlan(ctx, contextID, source, instanceRef, generationHash, false)
 }
 
-// StartExportPreviewPlan creates an inert Orion or PRTG plan for pages an
+// StartExportPreviewPlan creates an inert vendor plan for pages an
 // authenticated operator exported. Its generation is an internal nonce, not
 // a vendor-supplied tenant, routing context, credential or completeness claim.
 func (s CaptureStore) StartExportPreviewPlan(ctx context.Context, contextID string,
 	source Kind, instanceRef string) (string, error) {
-	if source != Orion && source != PRTG {
+	if source != Orion && source != PRTG && !prefixExportSource(source) {
 		return "", ErrInvalidPage
 	}
 	nonce, err := crypto.Random(32)
@@ -197,16 +197,29 @@ func captureUUID() (string, error) {
 // No entity, rule, credential or agent registration is changed here.
 func (s CaptureStore) AppendPage(ctx context.Context, contextID, planID string,
 	pageNumber int64, resource string, firstRow int64, raw io.Reader) (string, error) {
+	receipt, err := s.AppendPageReceipt(ctx, contextID, planID, pageNumber, resource, firstRow, raw)
+	return receipt.PageHash, err
+}
+
+type ExportPageReceipt struct {
+	PageHash string `json:"page_hash"`
+	RowCount int    `json:"row_count"`
+}
+
+// AppendPageReceipt returns the number of admitted source rows, including for
+// an exact retry. A browser can use this count to seal the captured input.
+func (s CaptureStore) AppendPageReceipt(ctx context.Context, contextID, planID string,
+	pageNumber int64, resource string, firstRow int64, raw io.Reader) (ExportPageReceipt, error) {
 	if s.pool == nil || s.audit == nil {
-		return "", ErrCaptureAuditUnavailable
+		return ExportPageReceipt{}, ErrCaptureAuditUnavailable
 	}
 	contextUUID, err := uuid.Parse(contextID)
 	if err != nil || contextUUID == uuid.Nil {
-		return "", ErrPlanUnavailable
+		return ExportPageReceipt{}, ErrPlanUnavailable
 	}
 	planUUID, err := uuid.Parse(planID)
 	if err != nil || planUUID == uuid.Nil || pageNumber < 0 || firstRow < 0 || raw == nil {
-		return "", ErrInvalidPage
+		return ExportPageReceipt{}, ErrInvalidPage
 	}
 	contextID, planID = contextUUID.String(), planUUID.String()
 	var tenantID string
@@ -218,21 +231,28 @@ func (s CaptureStore) AppendPage(ctx context.Context, contextID, planID string,
 		return readErr
 	})
 	if err != nil {
-		return "", err
+		return ExportPageReceipt{}, err
 	}
 	tenantUUID, err := uuid.Parse(tenantID)
 	if err != nil || tenantUUID == uuid.Nil {
-		return "", ErrPlanUnavailable
+		return ExportPageReceipt{}, ErrPlanUnavailable
 	}
 	tenantID = tenantUUID.String()
 	if meta.state != "capturing" || !knownResource(meta.source, resource) {
-		return "", ErrPlanUnavailable
+		return ExportPageReceipt{}, ErrPlanUnavailable
 	}
-	snapshot, err := parseCapturePage(meta.source, resource, raw)
+	if prefixExportSource(meta.source) && (pageNumber != 0 || firstRow != 0) {
+		return ExportPageReceipt{}, ErrInvalidPage
+	}
+	snapshot, err := parseCapturePage(ctx, meta.source, resource, raw)
 	if err != nil {
-		return "", ErrInvalidPage
+		return ExportPageReceipt{}, ErrInvalidPage
 	}
-	return s.appendSnapshot(ctx, contextID, planID, pageNumber, resource, firstRow, tenantID, meta, snapshot)
+	hash, err := s.appendSnapshot(ctx, contextID, planID, pageNumber, resource, firstRow, tenantID, meta, snapshot)
+	if err != nil {
+		return ExportPageReceipt{}, err
+	}
+	return ExportPageReceipt{PageHash: hash, RowCount: len(snapshot.Rows)}, nil
 }
 
 // appendSnapshot is shared by bounded source pages and the unpaged LibreNMS
@@ -318,13 +338,13 @@ func (s CaptureStore) appendSnapshot(ctx context.Context, contextID, planID stri
 		for _, row := range rows {
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_rows
 				(tenant_id,context_id,plan_id,row_number,object_kind,external_id,label,address,hostname,
-				 parent_external_id,location_id,location_label,group_ids,poll_seconds,severity,unmapped_codes)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+				 parent_external_id,location_id,location_label,group_ids,poll_seconds,severity,unmapped_codes,source_mapping_sha256)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 				tenantID, contextID, planID, row.RowNumber, row.ObjectKind, row.ExternalID,
 				nullText(row.Label), nullText(row.Address), nullText(row.Hostname),
 				nullText(row.ParentID), nullText(row.LocationID), nullText(row.LocationLabel),
 				nonNilStrings(row.GroupIDs), nullPositive(row.PollSeconds), nullText(row.Severity),
-				nonNilStrings(row.UnmappedCodes)); err != nil {
+				nonNilStrings(row.UnmappedCodes), nullText(row.SourceMappingDigest)); err != nil {
 				return captureWriteErr(err)
 			}
 		}
@@ -368,7 +388,7 @@ func loadCaptureMeta(ctx context.Context, sc tenancy.Scope, contextID, planID st
 	return meta, err
 }
 
-func parseCapturePage(source Kind, resource string, raw io.Reader) (Snapshot, error) {
+func parseCapturePage(ctx context.Context, source Kind, resource string, raw io.Reader) (Snapshot, error) {
 	switch {
 	case source == LibreNMS && resource == "devices":
 		return parseLibreNMSDevices(raw)
@@ -392,6 +412,10 @@ func parseCapturePage(source Kind, resource string, raw io.Reader) (Snapshot, er
 		return parsePRTGGroups(raw)
 	case source == PRTG && resource == "probes":
 		return parsePRTGProbes(raw)
+	case source == Sightline && resource == "managed_objects":
+		return parseSightlineManagedObjects(ctx, raw)
+	case source == DefenseFlow && resource == "protected_objects":
+		return parseDefenseFlowProtectedObjects(ctx, raw)
 	default:
 		return Snapshot{}, ErrInvalidPage
 	}

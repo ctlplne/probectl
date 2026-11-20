@@ -121,7 +121,7 @@ func (b mcpNMSImportBackend) NMSImportRows(ctx context.Context, p *auth.Principa
 			UnmappedCodes: item.UnmappedCodes, Action: item.Action,
 			TargetID: item.TargetID, Reviewed: item.Reviewed,
 			State: item.State, AppliedAt: item.AppliedAt,
-			BoundEntityID: item.BoundEntityID, BindingPlanID: item.BindingPlanID})
+			BoundEntityID: item.BoundEntityID, BindingPlanID: item.BindingPlanID, SourceMappingDigest: item.SourceMappingDigest})
 	}
 	return out, nil
 }
@@ -147,6 +147,7 @@ func (b mcpNMSImportBackend) NMSImportDryRun(ctx context.Context, p *auth.Princi
 			RowNumber: item.RowNumber, Kind: item.Kind, ExternalID: item.ExternalID,
 			Action: item.Action, TargetID: item.TargetID,
 			CurrentLabel: item.CurrentLabel, ProposedLabel: item.ProposedLabel,
+			CurrentNetworkPrefix: item.CurrentNetworkPrefix, ProposedNetworkPrefix: item.ProposedNetworkPrefix,
 			CurrentPollSeconds:  item.CurrentPollSeconds,
 			ProposedPollSeconds: item.ProposedPollSeconds,
 			ChangedFields:       item.ChangedFields, UnmappedCodes: item.UnmappedCodes})
@@ -266,6 +267,9 @@ func (b mcpNMSImportBackend) NMSImportExportStart(ctx context.Context, p *auth.P
 	if err != nil {
 		return mcp.NMSImportExportStartResult{}, err
 	}
+	if input.SourceKind == string(nmsimport.Sightline) || input.SourceKind == string(nmsimport.DefenseFlow) {
+		return mcp.NMSImportExportStartResult{}, nmsImportMCPReadError(nmsimport.ErrInvalidPage)
+	}
 	planID, err := b.writeStore(p).StartExportPreviewPlan(ctx, contextID,
 		nmsimport.Kind(input.SourceKind), input.InstanceRef)
 	if err != nil {
@@ -279,6 +283,9 @@ func (b mcpNMSImportBackend) NMSImportExportPage(ctx context.Context, p *auth.Pr
 	ctx, contextID, err := b.scope(ctx, p, input.ContextID, permNMSImportWrite)
 	if err != nil {
 		return mcp.NMSImportExportPageResult{}, err
+	}
+	if input.Resource == "managed_objects" || input.Resource == "protected_objects" {
+		return mcp.NMSImportExportPageResult{}, nmsImportMCPReadError(nmsimport.ErrInvalidPage)
 	}
 	hash, err := b.writeStore(p).AppendPage(ctx, contextID, input.PlanID,
 		input.PageNumber, input.Resource, input.FirstRow, bytes.NewReader(input.Page))

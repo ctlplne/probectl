@@ -3623,17 +3623,19 @@ type NMSImportPollTargetPreviewRequest struct {
 }
 
 type NMSImportReviewDiffItem struct {
-	Action              string   `json:"action"`
-	ChangedFields       []string `json:"changed_fields"`
-	CurrentLabel        string   `json:"current_label,omitempty"`
-	CurrentPollSeconds  int      `json:"current_poll_seconds,omitempty"`
-	ExternalId          string   `json:"external_id"`
-	ObjectKind          string   `json:"object_kind"`
-	ProposedLabel       string   `json:"proposed_label,omitempty"`
-	ProposedPollSeconds int      `json:"proposed_poll_seconds,omitempty"`
-	RowNumber           int      `json:"row_number"`
-	TargetEntityId      string   `json:"target_entity_id,omitempty"`
-	UnmappedCodes       []string `json:"unmapped_codes"`
+	Action                string   `json:"action"`
+	ChangedFields         []string `json:"changed_fields"`
+	CurrentLabel          string   `json:"current_label,omitempty"`
+	CurrentNetworkPrefix  string   `json:"current_network_prefix,omitempty"`
+	CurrentPollSeconds    int      `json:"current_poll_seconds,omitempty"`
+	ExternalId            string   `json:"external_id"`
+	ObjectKind            string   `json:"object_kind"`
+	ProposedLabel         string   `json:"proposed_label,omitempty"`
+	ProposedNetworkPrefix string   `json:"proposed_network_prefix,omitempty"`
+	ProposedPollSeconds   int      `json:"proposed_poll_seconds,omitempty"`
+	RowNumber             int      `json:"row_number"`
+	TargetEntityId        string   `json:"target_entity_id,omitempty"`
+	UnmappedCodes         []string `json:"unmapped_codes"`
 }
 
 type NMSImportReviewDiffPage struct {
@@ -3647,26 +3649,27 @@ type NMSImportReviewDiffPage struct {
 }
 
 type NMSImportSealedRow struct {
-	Action           string   `json:"action"`
-	Address          string   `json:"address,omitempty"`
-	AppliedAt        string   `json:"applied_at,omitempty"`
-	BindingPlanId    string   `json:"binding_plan_id,omitempty"`
-	BoundEntityId    string   `json:"bound_entity_id,omitempty"`
-	ExternalId       string   `json:"external_id"`
-	GroupIds         []string `json:"group_ids"`
-	Hostname         string   `json:"hostname,omitempty"`
-	Label            string   `json:"label,omitempty"`
-	LocationId       string   `json:"location_id,omitempty"`
-	LocationLabel    string   `json:"location_label,omitempty"`
-	ObjectKind       string   `json:"object_kind"`
-	ParentExternalId string   `json:"parent_external_id,omitempty"`
-	PollSeconds      int      `json:"poll_seconds,omitempty"`
-	Reviewed         bool     `json:"reviewed"`
-	RowNumber        int      `json:"row_number"`
-	Severity         string   `json:"severity,omitempty"`
-	State            string   `json:"state"`
-	TargetEntityId   string   `json:"target_entity_id,omitempty"`
-	UnmappedCodes    []string `json:"unmapped_codes"`
+	Action              string   `json:"action"`
+	Address             string   `json:"address,omitempty"`
+	AppliedAt           string   `json:"applied_at,omitempty"`
+	BindingPlanId       string   `json:"binding_plan_id,omitempty"`
+	BoundEntityId       string   `json:"bound_entity_id,omitempty"`
+	ExternalId          string   `json:"external_id"`
+	GroupIds            []string `json:"group_ids"`
+	Hostname            string   `json:"hostname,omitempty"`
+	Label               string   `json:"label,omitempty"`
+	LocationId          string   `json:"location_id,omitempty"`
+	LocationLabel       string   `json:"location_label,omitempty"`
+	ObjectKind          string   `json:"object_kind"`
+	ParentExternalId    string   `json:"parent_external_id,omitempty"`
+	PollSeconds         int      `json:"poll_seconds,omitempty"`
+	Reviewed            bool     `json:"reviewed"`
+	RowNumber           int      `json:"row_number"`
+	Severity            string   `json:"severity,omitempty"`
+	SourceMappingSha256 string   `json:"source_mapping_sha256,omitempty"`
+	State               string   `json:"state"`
+	TargetEntityId      string   `json:"target_entity_id,omitempty"`
+	UnmappedCodes       []string `json:"unmapped_codes"`
 }
 
 type NMSImportSealedRowsPage struct {
@@ -9136,7 +9139,7 @@ func (c *Client) PreviewNmsImportAlertTarget(ctx context.Context, req PreviewNms
 	return &out, nil
 }
 
-// Start an inert Orion or PRTG documented-export preview plan
+// Start an inert saved vendor export preview plan
 type StartNmsImportExportPreviewPlanRequest struct {
 	Body *map[string]any `json:"-"`
 }
@@ -9317,7 +9320,7 @@ func (c *Client) ListNmsImportReviewDiff(ctx context.Context, req ListNmsImportR
 	return &out, nil
 }
 
-// Capture one bounded Orion or PRTG documented-export page
+// Capture one bounded saved vendor export page
 type AppendNmsImportExportPreviewPageRequest struct {
 	Id         string  `json:"-"`
 	ContextId  *string `json:"-"`

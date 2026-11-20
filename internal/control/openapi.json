@@ -7061,7 +7061,7 @@
       "post": {
         "x-required-permission": "nms.import.write",
         "operationId": "startNMSImportExportPreviewPlan",
-        "summary": "Start an inert Orion or PRTG documented-export preview plan",
+        "summary": "Start an inert saved vendor export preview plan",
         "description": "An authenticated operator selects a tenant-owned routing context and source format. The server creates an opaque generation and makes no vendor request or destination write. Saved source pages are untrusted, redacted and reviewed separately; this preview does not prove a complete live source inventory.",
         "tags": ["entities"],
         "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
@@ -7070,7 +7070,7 @@
           "required": ["context_id", "source_kind", "instance_ref"],
           "properties": {
             "context_id": {"type": "string", "format": "uuid"},
-            "source_kind": {"type": "string", "enum": ["orion", "prtg"]},
+            "source_kind": {"type": "string", "enum": ["orion", "prtg", "sightline", "defenseflow"]},
             "instance_ref": {"type": "string", "minLength": 1, "maxLength": 128}
           }
         }}}},
@@ -7125,8 +7125,8 @@
       "post": {
         "x-required-permission": "nms.import.write",
         "operationId": "appendNMSImportExportPreviewPage",
-        "summary": "Capture one bounded Orion or PRTG documented-export page",
-        "description": "The authenticated tenant and selected routing context own the existing plan. The raw vendor JSON is parsed under the plan's source format and only normalized, redacted rows and a page receipt are stored. Page and row offsets must be contiguous; an exact retry is inert. No destination changes here.",
+        "summary": "Capture one bounded saved vendor export page",
+        "description": "The authenticated tenant and selected routing context own the existing plan. The plan selects the source parser. For Sightline managed objects, provide one customer-authorized CSV with exact column headers in column_mapping. For DefenseFlow protected objects, provide a customer-authorized configuration ZIP in configuration_zip_base64, the exact regular member path, format csv or json, and field_mapping. An optional records_path selects the JSON array. These two sources admit one page at offset zero. Only normalized prefix rows, a source-mapping digest and a page receipt are stored. Page and row offsets must be contiguous; an exact retry is inert. No destination changes here.",
         "tags": ["entities"],
         "parameters": [
           {"$ref": "#/components/parameters/TenantHeader"},
@@ -7134,13 +7134,13 @@
           {"name": "context_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}},
           {"name": "page_number", "in": "query", "required": true, "schema": {"type": "integer", "format": "int64", "minimum": 0}},
           {"name": "first_row", "in": "query", "required": true, "schema": {"type": "integer", "format": "int64", "minimum": 0}},
-          {"name": "resource", "in": "query", "required": true, "schema": {"type": "string", "enum": ["nodes", "devices", "groups", "rules", "probes"]}}
+          {"name": "resource", "in": "query", "required": true, "schema": {"type": "string", "enum": ["nodes", "devices", "groups", "rules", "probes", "managed_objects", "protected_objects"]}}
         ],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {}}}},
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {}, "example": {"column_mapping": {"external_id": "Object", "label": "Display", "prefix": "Network"}, "csv": "Object,Display,Network\nexample-1,Example,192.0.2.0/24\n"}}}},
         "responses": {
           "200": {"description": "Normalized page receipt committed or exact retry recognized.", "content": {"application/json": {"schema": {
-            "type": "object", "required": ["page_hash"],
-            "properties": {"page_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+            "type": "object", "required": ["page_hash", "row_count"],
+            "properties": {"page_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "row_count": {"type": "integer", "minimum": 0, "maximum": 10000}}
           }}}},
           "400": {"description": "Invalid source page, ordering, content type or context."},
           "403": {"description": "Import write permission denied in this context."},
@@ -30675,10 +30675,10 @@
         "required": ["row_number", "object_kind", "external_id", "group_ids", "unmapped_codes", "action", "reviewed", "state"],
         "properties": {
           "row_number": {"type": "integer", "minimum": 0, "format": "int64"},
-          "object_kind": {"type": "string", "enum": ["device", "site", "group", "membership", "poll_setting", "alert_rule"]},
+          "object_kind": {"type": "string", "enum": ["device", "site", "group", "membership", "poll_setting", "alert_rule", "prefix"]},
           "external_id": {"type": "string", "maxLength": 256},
           "label": {"type": "string", "maxLength": 256},
-          "address": {"type": "string", "maxLength": 255},
+          "address": {"type": "string", "maxLength": 255, "description": "Normalized host address, or canonical CIDR for a managed-object prefix."},
           "hostname": {"type": "string", "maxLength": 253},
           "parent_external_id": {"type": "string", "maxLength": 256},
           "location_id": {"type": "string", "maxLength": 256},
@@ -30693,7 +30693,8 @@
           "state": {"type": "string", "enum": ["pending", "applied", "skipped"]},
           "applied_at": {"type": "string", "format": "date-time"},
           "bound_entity_id": {"type": "string", "format": "uuid"},
-          "binding_plan_id": {"type": "string", "format": "uuid"}
+          "binding_plan_id": {"type": "string", "format": "uuid"},
+          "source_mapping_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
         }
       },
       "NMSImportSealedRowsPage": {
@@ -30821,15 +30822,17 @@
         "required": ["row_number", "object_kind", "external_id", "action", "changed_fields", "unmapped_codes"],
         "properties": {
           "row_number": {"type": "integer", "minimum": 0, "format": "int64"},
-          "object_kind": {"type": "string", "enum": ["device", "site", "group", "membership", "poll_setting", "alert_rule"]},
+          "object_kind": {"type": "string", "enum": ["device", "site", "group", "membership", "poll_setting", "alert_rule", "prefix"]},
           "external_id": {"type": "string", "maxLength": 256},
           "action": {"type": "string", "enum": ["create", "update", "remove", "skip", "unmapped"]},
           "target_entity_id": {"type": "string", "format": "uuid"},
           "current_label": {"type": "string", "maxLength": 1024},
           "current_poll_seconds": {"type": "integer", "minimum": 15, "maximum": 86400, "format": "int64"},
           "proposed_label": {"type": "string", "maxLength": 256},
+          "current_network_prefix": {"type": "string", "maxLength": 43},
+          "proposed_network_prefix": {"type": "string", "maxLength": 43},
           "proposed_poll_seconds": {"type": "integer", "minimum": 15, "maximum": 86400, "format": "int64"},
-          "changed_fields": {"type": "array", "maxItems": 2, "items": {"type": "string", "enum": ["label", "group", "dynamic_predicate_unmapped", "membership", "membership_removed", "poll_seconds"]}},
+          "changed_fields": {"type": "array", "maxItems": 2, "items": {"type": "string", "enum": ["label", "group", "dynamic_predicate_unmapped", "membership", "membership_removed", "poll_seconds", "network_prefix"]}},
           "unmapped_codes": {"type": "array", "maxItems": 32, "items": {"type": "string"}}
         }
       },

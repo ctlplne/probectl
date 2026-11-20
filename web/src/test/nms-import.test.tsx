@@ -36,8 +36,29 @@ test('Admin export preview uploads documented pages within each selected tenant'
       raw: `[{"id":"101","parentid":"20","name":"Edge R1","basic":{"host":"10.42.0.1","credentials":"source-secret"}}]`,
       externalID: '101',
     },
+    {
+      tenant: '00000000-0000-4000-8000-000000000310',
+      context: '00000000-0000-4000-8000-000000000311',
+      plan: '00000000-0000-4000-8000-000000000312',
+      source: 'sightline',
+      resource: 'managed_objects',
+      raw: 'Local ID,Display,Prefix,Extra\nobject,Edge R1,192.0.2.0/24,source-secret\n',
+      externalID: 'object|192.0.2.0/24',
+    },
+    {
+      tenant: '00000000-0000-4000-8000-000000000313',
+      context: '00000000-0000-4000-8000-000000000314',
+      plan: '00000000-0000-4000-8000-000000000315',
+      source: 'defenseflow',
+      resource: 'protected_objects',
+      raw: 'Customer configuration mock archive',
+      externalID: 'object|192.0.2.0/24',
+    },
   ] as const
   for (const fixture of cases) {
+    const isArchive = fixture.source === 'defenseflow'
+    const isProtected = fixture.source === 'sightline' || isArchive
+    const fields = { external_id: 'Local ID', label: 'Display', prefix: 'Prefix' }
     const fallback = defaultFetch()
     const requests: Array<{ path: string; raw: string }> = []
     vi.stubGlobal(
@@ -61,7 +82,7 @@ test('Admin export preview uploads documented pages within each selected tenant'
         if (path === '/v1/nms-imports/export-plans')
           return jsonResponse({ plan_id: fixture.plan, state: 'capturing', preview: true }, 201)
         if (path === `/v1/nms-imports/${fixture.plan}/export-pages`)
-          return jsonResponse({ page_hash: snapshotHash })
+          return jsonResponse({ page_hash: snapshotHash, row_count: 1 })
         if (path === `/v1/nms-imports/${fixture.plan}/export-seal`)
           return jsonResponse({ state: 'sealed', snapshot_hash: snapshotHash, preview: true })
         if (path === `/v1/nms-imports/${fixture.plan}/rows`)
@@ -74,11 +95,13 @@ test('Admin export preview uploads documented pages within each selected tenant'
             items: [
               {
                 row_number: 0,
-                object_kind: 'device',
+                object_kind: isProtected ? 'prefix' : 'device',
                 external_id: fixture.externalID,
                 label: 'Edge R1',
-                address: '10.42.0.1',
-                unmapped_codes: ['site_unmapped'],
+                address: isProtected ? '192.0.2.0/24' : '10.42.0.1',
+                unmapped_codes: isProtected
+                  ? [isArchive ? 'defenseflow_additional_fields' : 'sightline_additional_columns']
+                  : ['site_unmapped'],
                 action: 'captured',
                 reviewed: false,
                 state: 'pending',
@@ -101,15 +124,33 @@ test('Admin export preview uploads documented pages within each selected tenant'
     await userEvent.type(region.getByLabelText('Export instance'), 'preview-lab')
     await userEvent.selectOptions(region.getByLabelText('Export source format'), fixture.source)
     await userEvent.click(region.getByRole('button', { name: 'Start export preview' }))
-    expect(await region.findByText(/Documented-export preview started/)).toBeInTheDocument()
-    expect(region.getByLabelText('Import plan ID')).toHaveValue(fixture.plan)
-    await userEvent.selectOptions(region.getByLabelText('Source resource'), fixture.resource)
+    expect(await region.findByDisplayValue(fixture.plan)).toBeInTheDocument()
+    if (isProtected) {
+      await userEvent.type(region.getByLabelText('Protected object ID field'), fields.external_id)
+      await userEvent.type(region.getByLabelText('Protected object label field'), fields.label)
+      await userEvent.type(region.getByLabelText('Network prefix field'), fields.prefix)
+      if (isArchive) {
+        await userEvent.type(region.getByLabelText('ZIP member path'), 'customer/objects.json')
+        const path = region.getByLabelText('JSON records path')
+        await userEvent.click(path)
+        await userEvent.paste('["inventory", "objects"]')
+      }
+    } else {
+      await userEvent.selectOptions(region.getByLabelText('Source resource'), fixture.resource)
+    }
+    const file = isArchive
+      ? ['Customer configuration ZIP', 'backup.zip', 'application/zip']
+      : isProtected
+        ? ['Saved managed-object CSV', 'objects.csv', 'text/csv']
+        : ['Saved JSON export page', 'page.json', 'application/json']
     await userEvent.upload(
-      region.getByLabelText('Saved JSON export page'),
-      new File([fixture.raw], 'page.json', { type: 'application/json' }),
+      region.getByLabelText(file[0]),
+      new File([fixture.raw], file[1], { type: file[2] }),
     )
     await userEvent.click(region.getByRole('button', { name: 'Capture page' }))
-    expect(await region.findByText(/1 rows captured/)).toBeInTheDocument()
+    expect(
+      await region.findByText(isProtected ? /1 protected prefixes captured/ : /1 rows captured/),
+    ).toBeInTheDocument()
     await userEvent.click(region.getByRole('button', { name: 'Seal submitted preview' }))
     expect(await region.findByText(/Submitted pages sealed as a preview/)).toBeInTheDocument()
     expect(region.getByRole('table', { name: 'Import source rows' })).toBeInTheDocument()
@@ -122,7 +163,20 @@ test('Admin export preview uploads documented pages within each selected tenant'
       source_kind: fixture.source,
     })
     expect(page?.path).toContain(`context_id=${fixture.context}`)
-    expect(page?.raw).toBe(fixture.raw)
+    expect(page?.path).toContain(`resource=${fixture.resource}`)
+    if (isArchive) {
+      expect(JSON.parse(page?.raw ?? '{}')).toEqual({
+        configuration_zip_base64: btoa(fixture.raw),
+        member: 'customer/objects.json',
+        format: 'json',
+        records_path: ['inventory', 'objects'],
+        field_mapping: fields,
+      })
+    } else if (isProtected) {
+      expect(JSON.parse(page?.raw ?? '{}')).toEqual({ column_mapping: fields, csv: fixture.raw })
+    } else {
+      expect(page?.raw).toBe(fixture.raw)
+    }
     expect(JSON.parse(seal?.raw ?? '{}')).toMatchObject({
       context_id: fixture.context,
       expected_pages: 1,

@@ -141,7 +141,7 @@ func readNormalizedPage(ctx context.Context, sc tenancy.Scope,
 	rows, err := sc.Q.Query(ctx, `SELECT row_number,object_kind,external_id,
 		coalesce(label,''),coalesce(address,''),coalesce(hostname,''),
 		coalesce(parent_external_id,''),coalesce(location_id,''),coalesce(location_label,''),
-		group_ids,coalesce(poll_seconds,0),coalesce(severity,''),unmapped_codes
+		group_ids,coalesce(poll_seconds,0),coalesce(severity,''),unmapped_codes,coalesce(source_mapping_sha256,'')
 		FROM nms_import_rows
 		WHERE tenant_id=$1 AND context_id=$2 AND plan_id=$3 AND row_number >= $4 AND row_number < $5
 		ORDER BY row_number`, tenantID, contextID, planID, firstRow, firstRow+rowCount)
@@ -155,7 +155,7 @@ func readNormalizedPage(ctx context.Context, sc tenancy.Scope,
 		if err := rows.Scan(&row.RowNumber, &row.ObjectKind, &row.ExternalID,
 			&row.Label, &row.Address, &row.Hostname, &row.ParentID,
 			&row.LocationID, &row.LocationLabel, &row.GroupIDs, &row.PollSeconds,
-			&row.Severity, &row.UnmappedCodes); err != nil {
+			&row.Severity, &row.UnmappedCodes, &row.SourceMappingDigest); err != nil {
 			return nil, err
 		}
 		if len(row.GroupIDs) == 0 {

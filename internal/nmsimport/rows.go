@@ -20,26 +20,27 @@ import (
 // for an authorized read. It cannot assign an action or approve a change.
 // Raw vendor JSON, credentials and alert expressions have no stored column.
 type SealedRow struct {
-	Number        int64      `json:"row_number"`
-	Kind          string     `json:"object_kind"`
-	ExternalID    string     `json:"external_id"`
-	Label         string     `json:"label,omitempty"`
-	Address       string     `json:"address,omitempty"`
-	Hostname      string     `json:"hostname,omitempty"`
-	ParentID      string     `json:"parent_external_id,omitempty"`
-	LocationID    string     `json:"location_id,omitempty"`
-	LocationLabel string     `json:"location_label,omitempty"`
-	GroupIDs      []string   `json:"group_ids"`
-	PollSeconds   int64      `json:"poll_seconds,omitempty"`
-	Severity      string     `json:"severity,omitempty"`
-	UnmappedCodes []string   `json:"unmapped_codes"`
-	Action        string     `json:"action"`
-	TargetID      string     `json:"target_entity_id,omitempty"`
-	Reviewed      bool       `json:"reviewed"`
-	State         string     `json:"state"`
-	AppliedAt     *time.Time `json:"applied_at,omitempty"`
-	BoundEntityID string     `json:"bound_entity_id,omitempty"`
-	BindingPlanID string     `json:"binding_plan_id,omitempty"`
+	Number              int64      `json:"row_number"`
+	Kind                string     `json:"object_kind"`
+	ExternalID          string     `json:"external_id"`
+	Label               string     `json:"label,omitempty"`
+	Address             string     `json:"address,omitempty"`
+	Hostname            string     `json:"hostname,omitempty"`
+	ParentID            string     `json:"parent_external_id,omitempty"`
+	LocationID          string     `json:"location_id,omitempty"`
+	LocationLabel       string     `json:"location_label,omitempty"`
+	GroupIDs            []string   `json:"group_ids"`
+	PollSeconds         int64      `json:"poll_seconds,omitempty"`
+	Severity            string     `json:"severity,omitempty"`
+	UnmappedCodes       []string   `json:"unmapped_codes"`
+	Action              string     `json:"action"`
+	TargetID            string     `json:"target_entity_id,omitempty"`
+	Reviewed            bool       `json:"reviewed"`
+	State               string     `json:"state"`
+	AppliedAt           *time.Time `json:"applied_at,omitempty"`
+	BoundEntityID       string     `json:"bound_entity_id,omitempty"`
+	BindingPlanID       string     `json:"binding_plan_id,omitempty"`
+	SourceMappingDigest string     `json:"source_mapping_sha256,omitempty"`
 }
 
 // SealedRowsPage is a bounded page from one inert plan snapshot.
@@ -95,7 +96,7 @@ func (s CaptureStore) ListSealedRows(ctx context.Context, contextID, planID stri
 			coalesce(r.parent_external_id,''),coalesce(r.location_id,''),coalesce(r.location_label,''),
 			r.group_ids,coalesce(r.poll_seconds,0),coalesce(r.severity,''),r.unmapped_codes,
 			r.action,coalesce(r.target_entity_id::text,''),r.reviewed_at IS NOT NULL,
-			r.state,r.applied_at,coalesce(v.entity_id::text,''),coalesce(v.plan_id::text,'')
+			r.state,r.applied_at,coalesce(v.entity_id::text,''),coalesce(v.plan_id::text,''),coalesce(r.source_mapping_sha256,'')
 			FROM nms_import_rows r LEFT JOIN nms_import_provenance v ON
 			  v.tenant_id=r.tenant_id AND v.context_id=r.context_id
 			  AND v.source_id=$6 AND v.object_kind=r.object_kind
@@ -114,7 +115,7 @@ func (s CaptureStore) ListSealedRows(ctx context.Context, contextID, planID stri
 				&item.LocationID, &item.LocationLabel, &item.GroupIDs,
 				&item.PollSeconds, &item.Severity, &item.UnmappedCodes,
 				&item.Action, &item.TargetID, &item.Reviewed, &item.State,
-				&item.AppliedAt, &item.BoundEntityID, &item.BindingPlanID); err != nil {
+				&item.AppliedAt, &item.BoundEntityID, &item.BindingPlanID, &item.SourceMappingDigest); err != nil {
 				return err
 			}
 			if len(page.Items) == limit {

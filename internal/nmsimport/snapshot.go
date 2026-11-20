@@ -34,28 +34,31 @@ var ErrInvalidPage = errors.New("nmsimport: invalid source page")
 type Kind string
 
 const (
-	LibreNMS Kind = "librenms"
-	Zabbix   Kind = "zabbix"
-	Orion    Kind = "orion"
-	PRTG     Kind = "prtg"
+	LibreNMS    Kind = "librenms"
+	Zabbix      Kind = "zabbix"
+	Orion       Kind = "orion"
+	PRTG        Kind = "prtg"
+	Sightline   Kind = "sightline"
+	DefenseFlow Kind = "defenseflow"
 )
 
 // Row is an allowlisted preview candidate. Arbitrary source JSON, macros,
 // community strings, alert expressions and notification targets are never
 // copied into this type. Group and site labels do not select a VRF.
 type Row struct {
-	Kind          string   `json:"kind"`
-	ExternalID    string   `json:"external_id"`
-	Label         string   `json:"label,omitempty"`
-	Address       string   `json:"address,omitempty"`
-	Hostname      string   `json:"hostname,omitempty"`
-	LocationID    string   `json:"location_id,omitempty"`
-	LocationLabel string   `json:"location_label,omitempty"`
-	ParentID      string   `json:"parent_id,omitempty"`
-	GroupIDs      []string `json:"group_ids,omitempty"`
-	PollSeconds   int64    `json:"poll_seconds,omitempty"`
-	Severity      string   `json:"severity,omitempty"`
-	UnmappedCodes []string `json:"unmapped_codes,omitempty"`
+	Kind                string   `json:"kind"`
+	ExternalID          string   `json:"external_id"`
+	Label               string   `json:"label,omitempty"`
+	Address             string   `json:"address,omitempty"`
+	Hostname            string   `json:"hostname,omitempty"`
+	LocationID          string   `json:"location_id,omitempty"`
+	LocationLabel       string   `json:"location_label,omitempty"`
+	ParentID            string   `json:"parent_id,omitempty"`
+	GroupIDs            []string `json:"group_ids,omitempty"`
+	PollSeconds         int64    `json:"poll_seconds,omitempty"`
+	Severity            string   `json:"severity,omitempty"`
+	SourceMappingDigest string   `json:"source_mapping_sha256,omitempty"`
+	UnmappedCodes       []string `json:"unmapped_codes,omitempty"`
 }
 
 // Snapshot is source evidence for a later tenant-bound dry run. The source

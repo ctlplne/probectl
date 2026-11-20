@@ -198,7 +198,7 @@ func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID
 				return false, err
 			}
 		}
-		if kind == "device" || kind == "site" {
+		if kind == "device" || kind == "site" || kind == "prefix" {
 			var bound string
 			err := sc.Q.QueryRow(ctx, `SELECT entity_id::text FROM nms_import_provenance
 				WHERE tenant_id=$1 AND context_id=$2 AND source_id=$3
@@ -207,9 +207,14 @@ func setOneReviewChoice(ctx context.Context, sc tenancy.Scope, contextID, planID
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return false, err
 			}
-			if choice.Action == "create" && bound != "" ||
+			if choice.Action == "create" && bound != "" && kind != "prefix" ||
 				choice.Action == "update" && bound != "" && bound != choice.TargetEntityID {
 				return false, ErrInvalidReview
+			}
+			if kind == "prefix" {
+				if err := validateProtectedPrefixDestination(ctx, sc, contextID, bound, choice, label, address); err != nil {
+					return false, err
+				}
 			}
 			if choice.Action == "update" {
 				fingerprint, err = fingerprintReviewTarget(ctx, sc, contextID,
@@ -261,6 +266,10 @@ func reviewRowCanWrite(kind, action string, unmapped []string, label, hostname, 
 	switch kind {
 	case "device", "site":
 		return len(unmapped) == 0 && proposedEntityLabel(label, hostname, address) != ""
+	case "prefix":
+		return (action == "create" || action == "update") && label != "" && hostname == "" && address != "" &&
+			(len(unmapped) == 0 || len(unmapped) == 1 &&
+				(unmapped[0] == "sightline_additional_columns" || unmapped[0] == "defenseflow_additional_fields"))
 	case "group":
 		if (action != "create" && action != "update") || label == "" || hostname != "" || address != "" {
 			return false
@@ -290,15 +299,15 @@ func reviewRowCanWrite(kind, action string, unmapped []string, label, hostname, 
 // merge cannot overwrite a concurrently edited canonical entity.
 func fingerprintReviewTarget(ctx context.Context, sc tenancy.Scope, contextID,
 	entityID, expectedKind string) (string, error) {
-	var kind, label, parent, agent, configured string
+	var kind, label, parent, agent, configured, network string
 	var index int64
 	var updated time.Time
 	err := sc.Q.QueryRow(ctx, `SELECT kind,label,coalesce(parent_entity_id::text,''),
 		coalesce(source_agent_id,''),coalesce(configured_ref,''),
-		coalesce(interface_index,-1),updated_at FROM entities
+		coalesce(interface_index,-1),updated_at,coalesce(network_prefix::text,'') FROM entities
 		WHERE tenant_id=$1 AND context_id=$2 AND id=$3 FOR SHARE`,
 		sc.Tenant.String(), contextID, entityID).
-		Scan(&kind, &label, &parent, &agent, &configured, &index, &updated)
+		Scan(&kind, &label, &parent, &agent, &configured, &index, &updated, &network)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrInvalidReview
 	}
@@ -311,6 +320,9 @@ func fingerprintReviewTarget(ctx context.Context, sc tenancy.Scope, contextID,
 	fields := []string{"probectl:nms-target:v1", sc.Tenant.String(), contextID,
 		entityID, kind, label, parent, agent, configured,
 		strconv.FormatInt(index, 10), updated.UTC().Format(time.RFC3339Nano)}
+	if kind == "prefix" {
+		fields = append(fields, network)
+	}
 	return hex.EncodeToString(crypto.Default.Hash([]byte(strings.Join(fields, "\x00")))), nil
 }
 

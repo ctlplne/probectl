@@ -3463,12 +3463,14 @@ export interface NMSImportPollTargetPreviewRequest {
 
 export interface NMSImportReviewDiffItem {
   action: "create" | "update" | "remove" | "skip" | "unmapped"
-  changed_fields: ("label" | "group" | "dynamic_predicate_unmapped" | "membership" | "membership_removed" | "poll_seconds")[]
+  changed_fields: ("label" | "group" | "dynamic_predicate_unmapped" | "membership" | "membership_removed" | "poll_seconds" | "network_prefix")[]
   current_label?: string
+  current_network_prefix?: string
   current_poll_seconds?: number
   external_id: string
-  object_kind: "device" | "site" | "group" | "membership" | "poll_setting" | "alert_rule"
+  object_kind: "device" | "site" | "group" | "membership" | "poll_setting" | "alert_rule" | "prefix"
   proposed_label?: string
+  proposed_network_prefix?: string
   proposed_poll_seconds?: number
   row_number: number
   target_entity_id?: string
@@ -3497,12 +3499,13 @@ export interface NMSImportSealedRow {
   label?: string
   location_id?: string
   location_label?: string
-  object_kind: "device" | "site" | "group" | "membership" | "poll_setting" | "alert_rule"
+  object_kind: "device" | "site" | "group" | "membership" | "poll_setting" | "alert_rule" | "prefix"
   parent_external_id?: string
   poll_seconds?: number
   reviewed: boolean
   row_number: number
   severity?: "ok" | "warning" | "critical"
+  source_mapping_sha256?: string
   state: "pending" | "applied" | "skipped"
   target_entity_id?: string
   unmapped_codes: string[]
@@ -6142,7 +6145,7 @@ export interface AppendNmsImportExportPreviewPageRequest {
   contextId: string
   pageNumber: number
   firstRow: number
-  resource: "nodes" | "devices" | "groups" | "rules" | "probes"
+  resource: "nodes" | "devices" | "groups" | "rules" | "probes" | "managed_objects" | "protected_objects"
   body: JsonValue
 }
 

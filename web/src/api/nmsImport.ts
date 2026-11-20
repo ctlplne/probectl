@@ -23,6 +23,7 @@ export interface ImportRow {
   applied_at?: string
   bound_entity_id?: string
   binding_plan_id?: string
+  source_mapping_sha256?: string
 }
 
 export interface ImportRowsPage {
@@ -44,6 +45,8 @@ export interface ImportDiffItem {
   current_label?: string
   current_poll_seconds?: number
   proposed_label?: string
+  current_network_prefix?: string
+  proposed_network_prefix?: string
   proposed_poll_seconds?: number
   changed_fields: string[]
   unmapped_codes: string[]
@@ -77,6 +80,7 @@ export interface ImportExportStartResponse extends ImportStartResponse {
 }
 export interface ImportExportPageResponse {
   page_hash: string
+  row_count: number
 }
 export interface ImportExportSealResponse {
   state: 'sealed'
@@ -190,9 +194,11 @@ export function startImportPlan(contextID: string, instanceRef: string) {
   )
 }
 
+export type ImportExportSource = 'orion' | 'prtg' | 'sightline' | 'defenseflow'
+
 export function startImportExportPreview(
   contextID: string,
-  sourceKind: 'orion' | 'prtg',
+  sourceKind: ImportExportSource,
   instanceRef: string,
 ) {
   return apiFetch<ImportExportStartResponse>(

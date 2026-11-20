@@ -269,3 +269,48 @@ predicates and alert delivery settings are discarded. Site/ancestry,
 polling and alert translation stay explicitly unmapped until an operator can
 bind exact destinations; the preview itself creates no agent, entity, poll
 or alert rule.
+
+## DDoS protected-network inventory
+
+Use an export the customer authorized for this migration. Review the file
+locally and use a scrubbed copy. The source family, source instance and
+routing context belong to the authenticated operators who own the plan.
+
+| Source family | Plan resource | Upload body |
+| --- | --- | --- |
+| `sightline` | `managed_objects` | JSON with `csv` and `column_mapping` |
+| `defenseflow` | `protected_objects` | JSON with `configuration_zip_base64`, `member`, `format`, and `field_mapping` |
+
+For Sightline, supply the CSV text with its original header row. The three
+mapping keys are `external_id`, `label`, and `prefix`. Set each value to the
+exact header from the customer-provided file. For DefenseFlow, inspect the
+configuration ZIP on your workstation and supply the exact path of one
+regular member. Map the same three keys to the exact CSV headers or JSON
+field names. For JSON use `records_path` to specify a list of property names
+leading to an array of objects, or omit it when the array is at the root.
+The importer supports up to 10,000 rows, a 16 MiB file or archive, and a
+16 MiB decompressed member. It reads the selected ZIP member in memory.
+
+Start a plan with `probectl nms-import export-start --body-file <start.json>`
+and supply its ID to `probectl nms-import export-page`. Pass the selected
+context and resource, `page_number=0`, and `first_row=0` as query parameters.
+Store the upload body in a permissions-restricted local file and use
+`--body-file` to avoid placing its content in shell history. Admin accepts
+the same files and exact field mapping. Seal with one expected page and
+the returned `row_count`. Review the normalized prefixes and their
+source-mapping digests in the sealed rows. MCP readers can page those
+approved fields and the dry-run comparison through the existing tools.
+
+A create adds a canonical network prefix. An update requires an explicit
+canonical entity ID in the same routing context, the same network prefix,
+and the same reviewed entity revision. Review the frozen destination diff
+and apply the plan explicitly. The saved-source workflow never fetches or
+modifies an upstream system. Only the ID, label and network needed for
+inventory are retained from each selected row. The file preview provides
+no coverage of mitigation policies, credentials or attack history.
+
+The mapping is supplied by the operator for each file. Format verification
+for a vendor version requires a customer-authorized sample of that version.
+
+[NETSCOUT managed objects](https://www.netscout.com/sites/default/files/2020-09/SECJTF_003_EN-2001%20-%20Arbor%20Sightline%20-%20How%20It%20Works.pdf) ·
+[Radware DefenseFlow configuration backup](https://support.radware.com/app/answers/answer_view/a_id/1056138/~/backup-options-for-defenseflow-configuration-in-defenseflow-and-cybercontroller)

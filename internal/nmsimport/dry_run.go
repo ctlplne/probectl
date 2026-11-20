@@ -23,17 +23,19 @@ var ErrReviewStale = errors.New("nmsimport: reviewed destination changed")
 // write. Source addresses, group names and alert expressions never select a
 // destination. A blank current label means there is no selected target.
 type ReviewDiffItem struct {
-	RowNumber           int64    `json:"row_number"`
-	Kind                string   `json:"object_kind"`
-	ExternalID          string   `json:"external_id"`
-	Action              string   `json:"action"`
-	TargetID            string   `json:"target_entity_id,omitempty"`
-	CurrentLabel        string   `json:"current_label,omitempty"`
-	ProposedLabel       string   `json:"proposed_label,omitempty"`
-	CurrentPollSeconds  int64    `json:"current_poll_seconds,omitempty"`
-	ProposedPollSeconds int64    `json:"proposed_poll_seconds,omitempty"`
-	ChangedFields       []string `json:"changed_fields"`
-	UnmappedCodes       []string `json:"unmapped_codes"`
+	RowNumber             int64    `json:"row_number"`
+	Kind                  string   `json:"object_kind"`
+	ExternalID            string   `json:"external_id"`
+	Action                string   `json:"action"`
+	TargetID              string   `json:"target_entity_id,omitempty"`
+	CurrentLabel          string   `json:"current_label,omitempty"`
+	ProposedLabel         string   `json:"proposed_label,omitempty"`
+	CurrentNetworkPrefix  string   `json:"current_network_prefix,omitempty"`
+	ProposedNetworkPrefix string   `json:"proposed_network_prefix,omitempty"`
+	CurrentPollSeconds    int64    `json:"current_poll_seconds,omitempty"`
+	ProposedPollSeconds   int64    `json:"proposed_poll_seconds,omitempty"`
+	ChangedFields         []string `json:"changed_fields"`
+	UnmappedCodes         []string `json:"unmapped_codes"`
 }
 
 type ReviewDiffPage struct {
@@ -151,6 +153,14 @@ func (s CaptureStore) ListReviewDiff(ctx context.Context, contextID, planID,
 				if !reviewRowCanWrite(item.Kind, item.Action, item.UnmappedCodes,
 					row.label, row.hostname, row.address) {
 					return ErrReviewStale
+				}
+				if item.Kind == "prefix" {
+					item, err = reviewProtectedPrefixDiff(ctx, sc, contextID, sourceID, row)
+					if err != nil {
+						return err
+					}
+					page.Items = append(page.Items, item)
+					continue
 				}
 				if item.Kind == "group" {
 					item, err = reviewGroupDiff(ctx, sc, contextID, sourceID, row)
