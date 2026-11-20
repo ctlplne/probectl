@@ -1023,8 +1023,8 @@ func startAgentTransport(
 	grpcSrv.WithFaultCorrelator(correlator)
 	grpcSrv.WithResolverDNSPressure(dnstap.PressurePolicy{
 		Enabled: cfg.NDREnabled && cfg.DNSTapPressureEnabled,
-		Rule: dnstap.PressureRule{MinResponses: uint32(cfg.DNSTapMinimumResponses), MinErrors: uint32(cfg.DNSTapMinimumErrors),
-			ErrorShareBasisPoints: uint32(cfg.DNSTapErrorShareBP)},
+		Rule: dnstap.PressureRule{MinResponses: cfg.DNSTapMinimumResponses, MinErrors: cfg.DNSTapMinimumErrors,
+			ErrorShareBasisPoints: cfg.DNSTapErrorShareBP},
 	})
 	if srv != nil {
 		grpcSrv.WithMetrics(srv.Metrics())

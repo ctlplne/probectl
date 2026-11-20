@@ -102,3 +102,30 @@ func TestSizedIntConfigKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestDNSTapPressureConfigChecksEveryUnsignedConversion(t *testing.T) {
+	cfg, err := Load(envFunc(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DNSTapMinimumResponses != 100 || cfg.DNSTapMinimumErrors != 50 || cfg.DNSTapErrorShareBP != 5000 {
+		t.Fatal("resolver pressure defaults changed")
+	}
+	const responses = "PROBECTL_DNSTAP_MIN_RESPONSES"
+	const failures = "PROBECTL_DNSTAP_MIN_ERRORS"
+	const share = "PROBECTL_DNSTAP_ERROR_SHARE_BP"
+	cfg, err = Load(envFunc(map[string]string{responses: "+1048576", failures: "1", share: "10000"}))
+	if err != nil || cfg.DNSTapMinimumResponses != 1<<20 || cfg.DNSTapMinimumErrors != 1 || cfg.DNSTapErrorShareBP != 10000 {
+		t.Fatal("valid resolver pressure configuration was lost", err)
+	}
+	for key, above := range map[string]string{responses: "1048577", failures: "1048577", share: "10001"} {
+		t.Run(key, func(t *testing.T) {
+			for _, value := range []string{"0", "-4294967295", "-1", above, "4294967297", "18446744073709551615"} {
+				_, err := Load(envFunc(map[string]string{key: value}))
+				if err == nil || !strings.Contains(err.Error(), key+":") {
+					t.Errorf("%s=%s must refuse startup, got %v", key, value, err)
+				}
+			}
+		})
+	}
+}

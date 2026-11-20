@@ -806,9 +806,9 @@ type Config struct {
 	NDREnabled             bool
 	NDRRulesDir            string
 	DNSTapPressureEnabled  bool
-	DNSTapMinimumResponses int
-	DNSTapMinimumErrors    int
-	DNSTapErrorShareBP     int
+	DNSTapMinimumResponses uint32
+	DNSTapMinimumErrors    uint32
+	DNSTapErrorShareBP     uint32
 
 	// Topology graph engine (S43, F40): "indexed" (default — adjacency-indexed,
 	// the L/XL dedicated engine) or "memory" (the S30 reference store). Both
@@ -1443,9 +1443,9 @@ func loadFeaturePlaneConfig(l *loader, cfg *Config) {
 	cfg.NDREnabled = l.boolean("PROBECTL_NDR_ENABLED", true)
 	cfg.NDRRulesDir = l.str("PROBECTL_NDR_RULES_DIR", "")
 	cfg.DNSTapPressureEnabled = l.boolean("PROBECTL_DNSTAP_PRESSURE_ENABLED", true)
-	cfg.DNSTapMinimumResponses = l.intRange("PROBECTL_DNSTAP_MIN_RESPONSES", 100, 1, 1<<20)
-	cfg.DNSTapMinimumErrors = l.intRange("PROBECTL_DNSTAP_MIN_ERRORS", 50, 1, 1<<20)
-	cfg.DNSTapErrorShareBP = l.intRange("PROBECTL_DNSTAP_ERROR_SHARE_BP", 5000, 1, 10000)
+	cfg.DNSTapMinimumResponses = l.uint32Range("PROBECTL_DNSTAP_MIN_RESPONSES", 100, 1, 1<<20)
+	cfg.DNSTapMinimumErrors = l.uint32Range("PROBECTL_DNSTAP_MIN_ERRORS", 50, 1, 1<<20)
+	cfg.DNSTapErrorShareBP = l.uint32Range("PROBECTL_DNSTAP_ERROR_SHARE_BP", 5000, 1, 10000)
 	cfg.TopologyEngine = l.str("PROBECTL_TOPOLOGY_ENGINE", "indexed")
 	cfg.CostEnabled = l.boolean("PROBECTL_COST_ENABLED", true)
 	cfg.CostZones = l.str("PROBECTL_COST_ZONES", "")
@@ -2692,6 +2692,27 @@ func (l *loader) intRange(key string, def, lo, hi int) int {
 		return def
 	}
 	return n
+}
+
+// uint32Range preserves integer configuration syntax and validates the
+// destination width before converting the value.
+func (l *loader) uint32Range(key string, def, lo, hi uint32) uint32 {
+	v := l.getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseUint(strings.TrimPrefix(v, "+"), 10, 32)
+	switch {
+	case errors.Is(err, strconv.ErrRange):
+		l.errf("%s: %s out of range [%d,%d]", key, v, lo, hi)
+	case err != nil:
+		l.errf("%s: invalid unsigned integer %q", key, v)
+	case n < uint64(lo) || n > uint64(hi):
+		l.errf("%s: %d out of range [%d,%d]", key, n, lo, hi)
+	default:
+		return uint32(n)
+	}
+	return def
 }
 
 // int32Range is intRange for an int32 field. The value is parsed at 32 bits, so
