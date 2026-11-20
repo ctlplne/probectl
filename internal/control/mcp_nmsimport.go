@@ -107,8 +107,8 @@ func (b mcpNMSImportBackend) NMSImportRows(ctx context.Context, p *auth.Principa
 	if err != nil {
 		return mcp.NMSImportRowsResult{}, nmsImportMCPReadError(err)
 	}
-	out := mcp.NMSImportRowsResult{ContextID: page.ContextID, PlanID: page.PlanID,
-		SourceID:     page.SourceID,
+	out := mcp.NMSImportRowsResult{ContextID: mcp.NativeRoleUUID(page.ContextID), PlanID: mcp.NativeRoleUUID(page.PlanID),
+		SourceID:     mcp.NativeRoleUUID(page.SourceID),
 		SnapshotHash: page.SnapshotHash, RowCount: page.RowCount,
 		NextCursor: page.NextCursor, Items: make([]mcp.NMSImportRowResult, 0, len(page.Items))}
 	for _, item := range page.Items {
@@ -119,9 +119,10 @@ func (b mcpNMSImportBackend) NMSImportRows(ctx context.Context, p *auth.Principa
 			LocationLabel: item.LocationLabel, GroupIDs: item.GroupIDs,
 			PollSeconds: item.PollSeconds, Severity: item.Severity,
 			UnmappedCodes: item.UnmappedCodes, Action: item.Action,
-			TargetID: item.TargetID, Reviewed: item.Reviewed,
+			TargetID: mcp.NativeRoleUUID(item.TargetID), Reviewed: item.Reviewed,
 			State: item.State, AppliedAt: item.AppliedAt,
-			BoundEntityID: item.BoundEntityID, BindingPlanID: item.BindingPlanID, SourceMappingDigest: item.SourceMappingDigest})
+			BoundEntityID: mcp.NativeRoleUUID(item.BoundEntityID), BindingPlanID: mcp.NativeRoleUUID(item.BindingPlanID),
+			SourceMappingDigest: item.SourceMappingDigest})
 	}
 	return out, nil
 }

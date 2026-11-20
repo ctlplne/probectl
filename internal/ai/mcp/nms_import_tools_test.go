@@ -8,17 +8,22 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/auth"
 )
 
-type recordedNMSImportBackend struct{ tenants []string }
+type recordedNMSImportBackend struct {
+	tenants []string
+	rows    NMSImportRowsResult
+}
 
 func (b *recordedNMSImportBackend) NMSImportRows(_ context.Context, p *auth.Principal,
 	_ NMSImportRowsInput) (NMSImportRowsResult, error) {
 	b.tenants = append(b.tenants, p.TenantID)
-	return NMSImportRowsResult{Items: []NMSImportRowResult{}}, nil
+	return b.rows, nil
 }
 
 func (b *recordedNMSImportBackend) NMSImportDryRun(_ context.Context, p *auth.Principal,
@@ -69,8 +74,48 @@ func (b *recordedNMSImportBackend) NMSImportExportSeal(_ context.Context, p *aut
 	return NMSImportExportSealResult{State: "sealed", Preview: true}, nil
 }
 
+func TestNMSImportRowsKeepsProvenanceUUIDsAndRedactsSourceText(t *testing.T) {
+	const id = "40000000-0000-4004-8000-abcdefabcdef"
+	const card = "4111-1111-1111-1111"
+	b := &recordedNMSImportBackend{rows: NMSImportRowsResult{
+		ContextID: id, PlanID: id, SourceID: id, Items: []NMSImportRowResult{{
+			TargetID: id, BoundEntityID: id, BindingPlanID: id, ExternalID: id, Label: "card " + card,
+		}},
+	}}
+	s := newTestServer(&fakeBackend{}, testGate(), WithNMSImportBackend(b),
+		WithPolicyLoader(func(context.Context, string) ([]auth.Policy, error) { return nil, nil }))
+	reader := principal("tenant-a", "nms.import.read")
+	reader.UserID = "reader"
+	args := map[string]any{"name": "nms_import_rows", "arguments": map[string]string{"context_id": id, "plan_id": id}}
+	response := resultOf(t, handle(t, s, reader, 1, "tools/call", args))
+	structured, err := json.Marshal(response["structuredContent"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := response["content"].([]any)[0].(map[string]any)["text"].(string)
+	for _, wire := range [][]byte{structured, []byte(content)} {
+		var page NMSImportRowsResult
+		if err := json.Unmarshal(wire, &page); err != nil || len(page.Items) != 1 ||
+			page.ContextID != id || page.PlanID != id || page.SourceID != id {
+			t.Fatal("import rows lost exact authorized page identifiers", err)
+		}
+		row := page.Items[0]
+		if row.TargetID != id || row.BoundEntityID != id || row.BindingPlanID != id {
+			t.Fatal("import rows lost exact authorized provenance identifiers")
+		}
+		if strings.Contains(row.Label, card) || strings.Contains(row.ExternalID, id) ||
+			!strings.Contains(row.Label, "[pan:") || !strings.Contains(row.ExternalID, "[pan:") {
+			t.Fatal("imported source text bypassed payment card redaction")
+		}
+	}
+	b.rows.Items[0].BindingPlanID = card
+	if code, ok := errCode(handle(t, s, reader, 2, "tools/call", args)); !ok || code != codeInternal {
+		t.Fatal("non-UUID provenance was allowed to reach an import result")
+	}
+}
+
 func TestNMSImportMCPAuthorizationAndTenantHint(t *testing.T) {
-	b := &recordedNMSImportBackend{}
+	b := &recordedNMSImportBackend{rows: NMSImportRowsResult{Items: []NMSImportRowResult{}}}
 	s := newTestServer(&fakeBackend{}, testGate(), WithNMSImportBackend(b),
 		WithPolicyLoader(func(context.Context, string) ([]auth.Policy, error) { return nil, nil }))
 	reader := principal("tenant-a", "nms.import.read")

@@ -391,23 +391,23 @@ func TestNMSImportApplyRouteWritesOnlyReviewedTenantAndIsIdempotent(t *testing.T
 			mcp.NMSImportRowsInput{ContextID: own.contextID, PlanID: own.planID})
 		var page mcp.NMSImportRowsResult
 		if failed || json.Unmarshal(data, &page) != nil || len(page.Items) != 1 ||
-			page.SourceID == "" || page.Items[0].State != "applied" ||
+			string(page.PlanID) != own.planID || page.SourceID == "" || page.Items[0].State != "applied" ||
 			page.Items[0].AppliedAt == nil || page.Items[0].BoundEntityID == "" ||
-			page.Items[0].BindingPlanID != own.planID ||
+			string(page.Items[0].BindingPlanID) != own.planID ||
 			strings.Contains(string(data), "source-only-secret") {
 			t.Fatalf("MCP applied provenance tenant=%s: %s", own.tenant, data)
 		}
-		bindings[own.tenant] = page.Items[0].BoundEntityID
+		bindings[own.tenant] = string(page.Items[0].BoundEntityID)
 		rest := apiReq(t, h, http.MethodGet,
 			"/v1/nms-imports/"+own.planID+"/rows?context_id="+own.contextID,
 			own.tenant, nil)
 		var restPage nmsimport.SealedRowsPage
 		if rest.Code != http.StatusOK || json.Unmarshal(rest.Body.Bytes(), &restPage) != nil ||
-			len(restPage.Items) != 1 || restPage.SourceID != page.SourceID ||
+			len(restPage.Items) != 1 || restPage.SourceID != string(page.SourceID) ||
 			restPage.Items[0].State != page.Items[0].State ||
 			restPage.Items[0].AppliedAt == nil ||
-			restPage.Items[0].BoundEntityID != page.Items[0].BoundEntityID ||
-			restPage.Items[0].BindingPlanID != page.Items[0].BindingPlanID ||
+			restPage.Items[0].BoundEntityID != string(page.Items[0].BoundEntityID) ||
+			restPage.Items[0].BindingPlanID != string(page.Items[0].BindingPlanID) ||
 			strings.Contains(rest.Body.String(), "source-only-secret") {
 			t.Fatalf("REST applied provenance tenant=%s: %d %s",
 				own.tenant, rest.Code, rest.Body.String())
