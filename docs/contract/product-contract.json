@@ -200,8 +200,8 @@
         "F26"
       ],
       "name": "SIEM integration",
-      "status": "partial",
-      "evidence": "`internal/siem` (cursor, tenant-routed); API/CLI + native delivery-posture surface ✅ (`/v1/siem/status`, `probectl siem status`, `web/src/routes/admin/SIEMPostureCard.tsx`)"
+      "status": "delivered",
+      "evidence": "`TestShippedSIEMAuditReachesOpenSearchWithExactTenantIdentity` sends owned audit records over verified TLS to OpenSearch with a write-only credential. It checks original tenant, actor, sequence and hash plus sanitized posture through HTTPS, CLI and the served console."
     },
     {
       "ids": [

@@ -177,7 +177,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F26',
     name: 'SIEM integration',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

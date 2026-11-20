@@ -2,6 +2,13 @@
   "schema": "probectl.real-stack-proofs/v1",
   "proofs": [
     {
+      "ref": "test:internal/siem/shipped_opensearch_integration_test.go#TestShippedSIEMAuditReachesOpenSearchWithExactTenantIdentity",
+      "profile": "integration",
+      "capabilities": [
+        "F26"
+      ]
+    },
+    {
       "ref": "test:ee/tenantkeys/shipped_openbao_integration_test.go#TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant",
       "profile": "integration",
       "capabilities": [

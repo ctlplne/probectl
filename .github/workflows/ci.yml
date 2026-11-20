@@ -1760,6 +1760,13 @@ jobs:
           PROBECTL_TEST_CLICKHOUSE_URL: "http://probectl:probectl@localhost:8123"
           PROBECTL_PROM_URL: "http://localhost:9090"
         run: bash scripts/ci_openbao_receipt.sh
+      - name: Authenticated OpenSearch audit delivery receipt
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+          PROBECTL_TEST_KAFKA: "localhost:9092"
+          PROBECTL_TEST_CLICKHOUSE_URL: "http://probectl:probectl@localhost:8123"
+          PROBECTL_PROM_URL: "http://localhost:9090"
+        run: bash scripts/ci_opensearch_receipt.sh
       - name: Integration tests (migrations + readiness + result pipeline + cross-plane e2e)
         # WIRE-005: require services so the mTLS/enroll wire-defense integration
         # tests (TestRejectsNonMTLS, TestAgentRegistersOverMTLS,

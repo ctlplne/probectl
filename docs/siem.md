@@ -91,6 +91,11 @@ HTTP 200 with rejected items is retried. Whole-page retries may duplicate alread
 accepted items, consistent with at-least-once delivery. Single events at `/_doc`
 continue to use the document API.
 
+For OpenSearch, provision a dedicated writer on the intended index. Bulk write
+permission is required at both the cluster and index levels. The shipped
+receipt verifies TLS and exact record receipt, and checks that the writer
+cannot search the index. [OpenSearch security permissions](https://docs.opensearch.org/latest/security/access-control/permissions/)
+
 The token is never logged and never appears in a response; `basic` base64-encodes
 it so an operator does not have to pre-encode a credential into configuration.
 

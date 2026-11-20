@@ -451,7 +451,6 @@ capabilities:
   - id: F26
     name: SIEM integration
     status: delivered
-    evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/siem"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildSIEM("]}
@@ -461,7 +460,7 @@ capabilities:
     docs: {refs: ["file:docs/siem.md#SIEM export"]}
     config_keys: {refs: ["config:PROBECTL_SIEM_ENABLED", "config:PROBECTL_SIEM_ENDPOINT"]}
     telemetry: {refs: ["file:internal/siem"]}
-    real_stack_proof: {gap: "The PostgreSQL cursor/RLS test uses sender doubles and calls the tenant drain internally; no actual SIEM transport or public API, CLI, UI workflow is proven."}
+    real_stack_proof: {refs: ["test:internal/siem/shipped_opensearch_integration_test.go#TestShippedSIEMAuditReachesOpenSearchWithExactTenantIdentity"]}
     migration: {refs: ["file:migrations/0019_siem_delivery.sql"]}
 
   - id: F27
