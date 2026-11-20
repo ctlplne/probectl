@@ -199,6 +199,7 @@ var auditSensitiveReadRoutes = map[string]bool{
 	"POST /v1/explorer/flow-views/{id}/query":                          true,
 	"POST /v1/explorer/flow-views/{id}/field-comparison":               true,
 	"POST /v1/explorer/flow-views/{id}/ddos-assessment":                true,
+	"POST /v1/explorer/flow-views/{id}/subscriber-usage":               true,
 	"POST /v1/explorer/compare":                                        true,
 	"POST /v1/ai/author":                                               true,
 }
@@ -421,6 +422,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/explorer/flow-views/{id}/query":                             auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/explorer/flow-views/{id}/field-comparison":                  auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/explorer/flow-views/{id}/ddos-assessment":                   auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/explorer/flow-views/{id}/subscriber-usage":                  auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/explorer/flow-filters":                                       auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/explorer/flow-filters":                                      auditWrapped(auditFacetMutation),
 	"GET /v1/explorer/flow-filters/{id}":                                  auditWrapped(auditFacetSensitiveRead),

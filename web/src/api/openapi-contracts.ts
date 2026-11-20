@@ -430,6 +430,13 @@ export const API_CALL_CONTRACTS = [
     generated: 'CompareFlowViewFieldsResponse',
   },
   {
+    file: 'api/subscriberUsage.ts',
+    method: 'POST',
+    path: '`/explorer/flow-views/${encodeURIComponent(id)}/subscriber-usage`',
+    response: 'SubscriberUsageReport',
+    generated: 'GetSubscriberUsageResponse',
+  },
+  {
     file: 'api/flowViews.ts',
     method: 'POST',
     path: '`/explorer/flow-views/${encodeURIComponent(id)}/ddos-assessment`',

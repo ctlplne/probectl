@@ -4188,6 +4188,47 @@ export interface Signal {
   title?: string
 }
 
+export interface SubscriberServiceUsage {
+  direction: "upload" | "download"
+  provider?: string
+  service?: string
+  status: "known" | "unknown" | "ambiguous"
+  traffic: SubscriberTraffic
+}
+
+export interface SubscriberTraffic {
+  bytes: string
+  packets: string
+}
+
+export interface SubscriberUsageReport {
+  download: SubscriberTraffic
+  from: string
+  internal: SubscriberTraffic
+  other_services: SubscriberTraffic
+  resolution_seconds: number
+  source: "raw"
+  subscriber: string
+  tag_as_of: string
+  tag_id: string
+  tag_key: string
+  tag_revision: string
+  to: string
+  top_services: SubscriberServiceUsage[]
+  total: SubscriberTraffic
+  upload: SubscriberTraffic
+  view_id: string
+  view_version: string
+}
+
+export interface SubscriberUsageRequest {
+  end?: string
+  subscriber: string
+  tag_id: string
+  tag_key: string
+  version: string
+}
+
 export interface TagAssignment {
   context_id: string
   exporter_agent_id?: string
@@ -5439,6 +5480,13 @@ export interface RunFlowQueryViewRequest {
 }
 
 export type RunFlowQueryViewResponse = JsonValue
+
+export interface GetSubscriberUsageRequest {
+  id: string
+  body: SubscriberUsageRequest
+}
+
+export type GetSubscriberUsageResponse = SubscriberUsageReport
 
 export interface QueryExplorerRequest {
   body: JsonValue
@@ -7615,6 +7663,13 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<RunFlowQueryViewResponse>("POST", path, query, undefined)
+  }
+
+  async getSubscriberUsage(request: GetSubscriberUsageRequest): Promise<GetSubscriberUsageResponse> {
+    let path = "/v1/explorer/flow-views/{id}/subscriber-usage"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetSubscriberUsageResponse>("POST", path, query, request.body)
   }
 
   async queryExplorer(request: QueryExplorerRequest): Promise<QueryExplorerResponse> {

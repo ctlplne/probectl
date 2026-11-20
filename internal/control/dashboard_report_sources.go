@@ -116,6 +116,7 @@ type reportFlowCaptureOptions struct {
 	FieldComparison     *flowFieldComparisonSettings
 	DDoSAssessment      *ddosAssessmentSettings
 	PrefixImpact        *prefixImpactCapture
+	SubscriberUsage     *flow.SubscriberUsageRequest
 	ReservedMemoryBytes int64
 }
 

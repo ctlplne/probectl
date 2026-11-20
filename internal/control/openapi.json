@@ -5671,6 +5671,86 @@
         }
       }
     },
+    "/v1/explorer/flow-views/{id}/subscriber-usage": {
+      "post": {
+        "operationId": "getSubscriberUsage",
+        "summary": "Report observed usage and remote services for one subscriber",
+        "description": "Requires a current authorized saved flow view, an exact tenant prefix tag, and an interval covered by explicit subscriber assignments.",
+        "tags": [
+          "ai"
+        ],
+        "x-required-permission": "ai.query",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriberUsageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Scoped observed usage, exact counters and ranked remote services",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriberUsageReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "415": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/explorer/flow-views/{id}/ddos-assessment": {
       "post": {
         "operationId": "assessFlowViewDDoS",
@@ -22191,6 +22271,183 @@
           "receipt_fingerprint": {
             "type": "string",
             "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SubscriberUsageRequest": {
+        "type": "object",
+        "required": [
+          "version",
+          "tag_id",
+          "tag_key",
+          "subscriber"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "tag_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tag_key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "subscriber": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SubscriberTraffic": {
+        "type": "object",
+        "required": [
+          "bytes",
+          "packets"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "packets": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SubscriberServiceUsage": {
+        "type": "object",
+        "required": [
+          "direction",
+          "status",
+          "traffic"
+        ],
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "upload",
+              "download"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "known",
+              "unknown",
+              "ambiguous"
+            ]
+          },
+          "traffic": {
+            "$ref": "#/components/schemas/SubscriberTraffic"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SubscriberUsageReport": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "view_version",
+          "tag_id",
+          "tag_key",
+          "subscriber",
+          "tag_revision",
+          "tag_as_of",
+          "from",
+          "to",
+          "source",
+          "resolution_seconds",
+          "total",
+          "download",
+          "upload",
+          "internal",
+          "other_services",
+          "top_services"
+        ],
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "view_version": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "tag_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tag_key": {
+            "type": "string"
+          },
+          "subscriber": {
+            "type": "string"
+          },
+          "tag_revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "tag_as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "raw"
+            ]
+          },
+          "resolution_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "total": {
+            "$ref": "#/components/schemas/SubscriberTraffic"
+          },
+          "download": {
+            "$ref": "#/components/schemas/SubscriberTraffic"
+          },
+          "upload": {
+            "$ref": "#/components/schemas/SubscriberTraffic"
+          },
+          "internal": {
+            "$ref": "#/components/schemas/SubscriberTraffic"
+          },
+          "other_services": {
+            "$ref": "#/components/schemas/SubscriberTraffic"
+          },
+          "top_services": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/SubscriberServiceUsage"
+            }
           }
         },
         "additionalProperties": false

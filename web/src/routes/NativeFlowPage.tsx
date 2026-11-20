@@ -47,6 +47,7 @@ import {
 } from './flowResults'
 import { FlowViewLibrary } from './FlowViewLibrary'
 import { FlowDDoSAssessmentCard } from './FlowDDoSAssessmentCard'
+import { SubscriberUsageCard } from './SubscriberUsageCard'
 import { FlowFieldComparisonCard } from './FlowFieldComparisonCard'
 import { FlowFilterLibrary } from './FlowFilterLibrary'
 import { EntityCurrentPivot } from './EntityCurrentPivot'
@@ -692,6 +693,13 @@ function FlowWorkspace({ identity }: { identity: string }) {
                 key={`ddos:${saved.id}:${saved.version}:${permissions.join(',')}`}
                 view={saved}
               />
+              {permissions.includes('tags.read') && permissions.includes('entities.read') ? (
+                <SubscriberUsageCard
+                  key={`${tenant.id}:${identity}:${saved.id}:${saved.version}`}
+                  tenantID={tenant.id}
+                  view={saved}
+                />
+              ) : null}
             </>
           )}
         <PeeringEstimateCard />

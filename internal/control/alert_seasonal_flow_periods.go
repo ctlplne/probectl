@@ -78,7 +78,17 @@ func (s *Server) prepareSeasonalFlowPeriods(ctx context.Context, actor *auth.Pri
 // every comparable clock before admitting one typed batch.
 func (s *Server) prepareConfiguredFlowCapture(ctx context.Context, actor *auth.Principal, refs []reportFlowSourceRef, periodEnd, now time.Time, memory int64, typed bool, opts reportFlowCaptureOptions) ([]preparedReportFlow, int64, int, error) {
 	if len(opts.SeasonalPeriodEnds) == 0 {
-		return s.prepareReportFlows(ctx, actor, refs, periodEnd, memory)
+		prepared, size, count, err := s.prepareReportFlows(ctx, actor, refs, periodEnd, memory)
+		if err != nil || opts.SubscriberUsage == nil {
+			return prepared, size, count, err
+		}
+		if !typed || len(prepared) != 1 || prepared[0].previous != nil {
+			return nil, 0, 0, apierror.Validation("subscriber usage requires one exact flow view with a single observation interval")
+		}
+		if err := bindSubscriberUsagePlan(ctx, actor.TenantID, &prepared[0], *opts.SubscriberUsage); err != nil {
+			return nil, 0, 0, err
+		}
+		return prepared, size, count, nil
 	}
 	if !typed || len(refs) != 1 || !opts.PeriodEnd.IsZero() {
 		return nil, 0, 0, apierror.Validation("seasonal captures require one pinned view and complete source clocks")

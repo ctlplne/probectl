@@ -4370,6 +4370,47 @@ type Signal struct {
 	Title      string            `json:"title,omitempty"`
 }
 
+type SubscriberServiceUsage struct {
+	Direction string            `json:"direction"`
+	Provider  string            `json:"provider,omitempty"`
+	Service   string            `json:"service,omitempty"`
+	Status    string            `json:"status"`
+	Traffic   SubscriberTraffic `json:"traffic"`
+}
+
+type SubscriberTraffic struct {
+	Bytes   string `json:"bytes"`
+	Packets string `json:"packets"`
+}
+
+type SubscriberUsageReport struct {
+	Download          SubscriberTraffic        `json:"download"`
+	From              string                   `json:"from"`
+	Internal          SubscriberTraffic        `json:"internal"`
+	OtherServices     SubscriberTraffic        `json:"other_services"`
+	ResolutionSeconds int                      `json:"resolution_seconds"`
+	Source            string                   `json:"source"`
+	Subscriber        string                   `json:"subscriber"`
+	TagAsOf           string                   `json:"tag_as_of"`
+	TagId             string                   `json:"tag_id"`
+	TagKey            string                   `json:"tag_key"`
+	TagRevision       string                   `json:"tag_revision"`
+	To                string                   `json:"to"`
+	TopServices       []SubscriberServiceUsage `json:"top_services"`
+	Total             SubscriberTraffic        `json:"total"`
+	Upload            SubscriberTraffic        `json:"upload"`
+	ViewId            string                   `json:"view_id"`
+	ViewVersion       string                   `json:"view_version"`
+}
+
+type SubscriberUsageRequest struct {
+	End        string `json:"end,omitempty"`
+	Subscriber string `json:"subscriber"`
+	TagId      string `json:"tag_id"`
+	TagKey     string `json:"tag_key"`
+	Version    string `json:"version"`
+}
+
 type TagAssignment struct {
 	ContextId         string `json:"context_id"`
 	ExporterAgentId   string `json:"exporter_agent_id,omitempty"`
@@ -7607,6 +7648,26 @@ func (c *Client) RunFlowQueryView(ctx context.Context, req RunFlowQueryViewReque
 	query := url.Values{}
 	var out any
 	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Report observed usage and remote services for one subscriber
+type GetSubscriberUsageRequest struct {
+	Id   string                  `json:"-"`
+	Body *SubscriberUsageRequest `json:"-"`
+}
+
+func (c *Client) GetSubscriberUsage(ctx context.Context, req GetSubscriberUsageRequest) (*SubscriberUsageReport, error) {
+	path := "/v1/explorer/flow-views/{id}/subscriber-usage"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out SubscriberUsageReport
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
