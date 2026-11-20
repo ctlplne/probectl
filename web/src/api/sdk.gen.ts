@@ -3810,6 +3810,43 @@ export interface RemediationFlowSpecReview {
   review_fingerprint: string
 }
 
+export interface RemediationFlowSpecRouterCapacity {
+  declared_entries?: number
+  fits_declared?: boolean
+  minimum_entries: number
+}
+
+export interface RemediationFlowSpecRouterComponent {
+  field: "destination_prefix" | "ip_protocol" | "upper_layer_protocol" | "destination_port" | "source_port"
+  type: number
+  value: string
+}
+
+export interface RemediationFlowSpecRouterQualification {
+  address_family: string
+  capacity: RemediationFlowSpecRouterCapacity
+  documentation: string
+  findings: string[]
+  profile: "junos_standard" | "ios_xr_asr9000_7_11" | "eos_4_36_2f" | "frr_10_7_1"
+  review_fingerprint: string
+  routing_table: "default" | "vrf"
+  syntax_compatible: boolean
+  template?: RemediationFlowSpecRouterTemplate
+}
+
+export interface RemediationFlowSpecRouterQualificationInput {
+  available_entries?: number
+  profile: "junos_standard" | "ios_xr_asr9000_7_11" | "eos_4_36_2f" | "frr_10_7_1"
+  routing_table: "default" | "vrf"
+}
+
+export interface RemediationFlowSpecRouterTemplate {
+  action: "discard"
+  afi: number
+  components: RemediationFlowSpecRouterComponent[]
+  safi: number
+}
+
 export interface RemediationFlowSpecTransport {
   destination_port?: number
   protocol: "tcp" | "udp"
@@ -5964,6 +6001,13 @@ export interface ApproveFlowSpecReviewRequest {
 }
 
 export type ApproveFlowSpecReviewResponse = RemediationProposal
+
+export interface QualifyFlowSpecRouterProfileRequest {
+  id: string
+  body: RemediationFlowSpecRouterQualificationInput
+}
+
+export type QualifyFlowSpecRouterProfileResponse = RemediationFlowSpecRouterQualification
 
 export interface GetFlowSpecReviewRequest {
   id: string
@@ -8141,6 +8185,13 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<ApproveFlowSpecReviewResponse>("POST", path, query, request.body)
+  }
+
+  async qualifyFlowSpecRouterProfile(request: QualifyFlowSpecRouterProfileRequest): Promise<QualifyFlowSpecRouterProfileResponse> {
+    let path = "/v1/remediation/proposals/{id}/flowspec-qualification"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<QualifyFlowSpecRouterProfileResponse>("POST", path, query, request.body)
   }
 
   async getFlowSpecReview(request: GetFlowSpecReviewRequest): Promise<GetFlowSpecReviewResponse> {

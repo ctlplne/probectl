@@ -39,6 +39,14 @@ func (g writeGatedService) GetFlowSpecReview(ctx context.Context, tenant, id str
 	return service.GetFlowSpecReview(ctx, tenant, id, check)
 }
 
+func (g writeGatedService) QualifyFlowSpec(ctx context.Context, tenant, id string, input FlowSpecQualificationInput, check func(context.Context) error) (FlowSpecQualification, error) {
+	service, ok := g.delegate.(FlowSpecReviews)
+	if !ok {
+		return FlowSpecQualification{}, Error{Code: "not_found", Message: "traffic review is unavailable"}
+	}
+	return service.QualifyFlowSpec(ctx, tenant, id, input, check)
+}
+
 func (g writeGatedService) ApproveFlowSpec(ctx context.Context, tenant, actor, id, fingerprint, note string, check func(context.Context) error) (Proposal, error) {
 	if !g.writes.Enabled() {
 		return Proposal{}, license.ErrReadOnly

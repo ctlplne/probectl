@@ -1519,6 +1519,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/remediation.ts',
     method: 'POST',
+    path: '`/remediation/proposals/${encodeURIComponent(id)}/flowspec-qualification`',
+    response: 'RemediationFlowSpecRouterQualification',
+    generated: 'QualifyFlowSpecRouterProfileResponse',
+  },
+  {
+    file: 'api/remediation.ts',
+    method: 'POST',
     path: '`/remediation/proposals/${encodeURIComponent(id)}/flowspec-approve`',
     response: 'Proposal',
     generated: 'ApproveFlowSpecReviewResponse',

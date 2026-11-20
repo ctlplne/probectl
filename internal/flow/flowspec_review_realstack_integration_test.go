@@ -95,6 +95,7 @@ func proposeFlowSpecAndApprove(t *testing.T, stack *shipped.Stack, owner, review
 		review.Proposal.WholeScope != preview.WholeScope || review.MaxKnownBenignPackets != "4000" {
 		t.Fatal("the independent reviewer did not receive the same measured surfaces")
 	}
+	assertScopedFlowSpecRouterProfile(t, stack, reviewer, sibling, base, review)
 	assertFlowSpecReviewConsole(t, stack, reviewer, sibling, proposal.Title, review)
 	exact := map[string]string{"review_fingerprint": review.Fingerprint}
 	approve := base + "/flowspec-approve"
@@ -115,6 +116,30 @@ func proposeFlowSpecAndApprove(t *testing.T, stack *shipped.Stack, owner, review
 	reviewer.do(t, stack, http.MethodPost, approve, exact, nil, http.StatusConflict)
 }
 
+func assertScopedFlowSpecRouterProfile(t *testing.T, stack *shipped.Stack, reviewer, sibling *nativeLane, base string, review remediation.FlowSpecReview) {
+	t.Helper()
+	path := base + "/flowspec-qualification"
+	input := remediation.FlowSpecQualificationInput{Profile: remediation.FlowSpecFRR1071, RoutingTable: "vrf"}
+	var rejected remediation.FlowSpecQualification
+	reviewer.do(t, stack, http.MethodPost, path, input, &rejected, http.StatusOK)
+	if rejected.SyntaxCompatible || rejected.Template != nil || len(rejected.Findings) != 2 || rejected.ReviewFingerprint != review.Fingerprint {
+		t.Fatalf("the documented FRRouting limits were not applied: %+v", rejected)
+	}
+	input.Profile, input.RoutingTable = remediation.FlowSpecEOS436, "default"
+	available := uint32(1)
+	input.AvailableEntries = &available
+	var report remediation.FlowSpecQualification
+	reviewer.do(t, stack, http.MethodPost, path, input, &report, http.StatusOK)
+	sibling.do(t, stack, http.MethodPost, path, input, nil, http.StatusNotFound)
+	if !report.SyntaxCompatible || report.ReviewFingerprint != review.Fingerprint || report.AddressFamily != "flow-spec ipv4" ||
+		report.Capacity.FitsDeclared == nil || !*report.Capacity.FitsDeclared || report.Template == nil ||
+		report.Template.SAFI != 133 || len(report.Template.Components) != 4 ||
+		report.Template.Components[0].Value != review.Proposal.Candidate.Destination ||
+		report.Template.Components[2].Value != "443" || report.Template.Components[3].Value != "42001" {
+		t.Fatalf("router profile did not preserve the exact tenant review: %+v", report)
+	}
+}
+
 func assertFlowSpecReviewConsole(t *testing.T, stack *shipped.Stack, reviewer, sibling *nativeLane, title string, review remediation.FlowSpecReview) {
 	t.Helper()
 	spec := testsupport.RenderSpec{
@@ -126,7 +151,12 @@ func assertFlowSpecReviewConsole(t *testing.T, stack *shipped.Stack, reviewer, s
 			review.Proposal.Candidate.Destination, "Proposed FlowSpec match", "source port 42001",
 			"Whole protected prefix", "301250 bytes", "Known benign traffic matching the proposal", "4000 packets",
 			"Benign packet limit",
-		}}},
+		}}, {Select: `select[name="flowspec-router-profile"]`, Value: string(remediation.FlowSpecEOS436)},
+			{Fill: `input[name="flowspec-available-entries"]`, Value: "1"},
+			{Click: "Check router profile", Expect: []string{
+				"Compatible", "Declared entries meet the minimum", "flow-spec ipv4", "Router profile reference",
+			}},
+		},
 	}
 	testsupport.RenderUI(t, spec)
 	spec.Theme = "light"

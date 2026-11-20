@@ -3983,6 +3983,43 @@ type RemediationFlowSpecReview struct {
 	ReviewFingerprint     string                     `json:"review_fingerprint"`
 }
 
+type RemediationFlowSpecRouterCapacity struct {
+	DeclaredEntries int   `json:"declared_entries,omitempty"`
+	FitsDeclared    *bool `json:"fits_declared,omitempty"`
+	MinimumEntries  int   `json:"minimum_entries"`
+}
+
+type RemediationFlowSpecRouterComponent struct {
+	Field string `json:"field"`
+	Type  int    `json:"type"`
+	Value string `json:"value"`
+}
+
+type RemediationFlowSpecRouterQualification struct {
+	AddressFamily     string                            `json:"address_family"`
+	Capacity          RemediationFlowSpecRouterCapacity `json:"capacity"`
+	Documentation     string                            `json:"documentation"`
+	Findings          []string                          `json:"findings"`
+	Profile           string                            `json:"profile"`
+	ReviewFingerprint string                            `json:"review_fingerprint"`
+	RoutingTable      string                            `json:"routing_table"`
+	SyntaxCompatible  bool                              `json:"syntax_compatible"`
+	Template          RemediationFlowSpecRouterTemplate `json:"template,omitzero"`
+}
+
+type RemediationFlowSpecRouterQualificationInput struct {
+	AvailableEntries int    `json:"available_entries,omitempty"`
+	Profile          string `json:"profile"`
+	RoutingTable     string `json:"routing_table"`
+}
+
+type RemediationFlowSpecRouterTemplate struct {
+	Action     string                               `json:"action"`
+	Afi        int                                  `json:"afi"`
+	Components []RemediationFlowSpecRouterComponent `json:"components"`
+	Safi       int                                  `json:"safi"`
+}
+
 type RemediationFlowSpecTransport struct {
 	DestinationPort int    `json:"destination_port,omitempty"`
 	Protocol        string `json:"protocol"`
@@ -9391,6 +9428,26 @@ func (c *Client) ApproveFlowSpecReview(ctx context.Context, req ApproveFlowSpecR
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out RemediationProposal
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Check an owned FlowSpec review against a router profile
+type QualifyFlowSpecRouterProfileRequest struct {
+	Id   string                                       `json:"-"`
+	Body *RemediationFlowSpecRouterQualificationInput `json:"-"`
+}
+
+func (c *Client) QualifyFlowSpecRouterProfile(ctx context.Context, req QualifyFlowSpecRouterProfileRequest) (*RemediationFlowSpecRouterQualification, error) {
+	path := "/v1/remediation/proposals/{id}/flowspec-qualification"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RemediationFlowSpecRouterQualification
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}

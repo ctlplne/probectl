@@ -520,6 +520,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"flowspec-preview": {Method: http.MethodPost, Path: "/v1/remediation/flowspec-preview", ExactJSON: true, Description: "measure a FlowSpec match against owned observations"},
 		"flowspec-propose": {Method: http.MethodPost, Path: "/v1/remediation/flowspec-proposals", ExactJSON: true, Description: "file the exact FlowSpec preview for independent review"},
 		"flowspec-review":  {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}/flowspec-review", ArgName: "id", ExactJSON: true, Description: "read current evidence for an owned FlowSpec review"},
+		"flowspec-qualify": {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/flowspec-qualification", ArgName: "id", ExactJSON: true, Description: "check an owned measured FlowSpec rule against a documented router profile"},
 		"flowspec-approve": {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/flowspec-approve", ArgName: "id", ExactJSON: true, SessionAuth: true, Description: "approve the displayed FlowSpec evidence using a current interactive session"},
 		"get":              {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}", ArgName: "id"},
 		"approve":          {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/approve", ArgName: "id"},

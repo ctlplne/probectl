@@ -12,6 +12,8 @@ import type {
   RemediationFlowSpecPreviewInput,
   RemediationFlowSpecProposalInput,
   RemediationFlowSpecReview,
+  RemediationFlowSpecRouterQualification,
+  RemediationFlowSpecRouterQualificationInput,
   RemediationRTBHPreview,
   RemediationRTBHPreviewInput,
   RemediationRTBHProposalInput,
@@ -145,6 +147,20 @@ export function useProposeFlowSpec() {
         body: JSON.stringify(input),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['remediation-proposals'] }),
+  })
+}
+
+export function useQualifyFlowSpec(id: string) {
+  return useMutation({
+    mutationFn: (input: RemediationFlowSpecRouterQualificationInput) =>
+      apiFetch<RemediationFlowSpecRouterQualification>(
+        `/remediation/proposals/${encodeURIComponent(id)}/flowspec-qualification`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        },
+      ),
   })
 }
 

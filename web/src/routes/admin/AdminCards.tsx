@@ -21,6 +21,7 @@ import {
   Table,
 } from '../../components'
 import { FlowSpecEvidence } from '../../components/FlowSpecEvidence'
+import { FlowSpecRouterQualification } from '../../components/FlowSpecRouterQualification'
 import { ApiError } from '../../api/client'
 import { useEditions } from '../../api/editions'
 import { useKeys, useRotateKey, type KeyInfo } from '../../api/keys'
@@ -243,15 +244,24 @@ export function RemediationCard() {
               <RoutingReviewEvidence review={rtbhReview.data} />
             ) : null}
             {isFlowSpec && flowSpecReview.data && !flowSpecReview.isError ? (
-              <dl aria-label="FlowSpec mitigation evidence">
-                <FlowSpecEvidence preview={flowSpecReview.data.proposal} />
-                <dt>Benign packet limit</dt>
-                <dd>{flowSpecReview.data.max_known_benign_packets}</dd>
-                <dt>Review expires</dt>
-                <dd>
-                  <DateTime value={flowSpecReview.data.expires_at} />
-                </dd>
-              </dl>
+              <>
+                <dl aria-label="FlowSpec mitigation evidence">
+                  <FlowSpecEvidence preview={flowSpecReview.data.proposal} />
+                  <dt>Benign packet limit</dt>
+                  <dd>{flowSpecReview.data.max_known_benign_packets}</dd>
+                  <dt>Review expires</dt>
+                  <dd>
+                    <DateTime value={flowSpecReview.data.expires_at} />
+                  </dd>
+                </dl>
+                {ready && fingerprint ? (
+                  <FlowSpecRouterQualification
+                    key={fingerprint}
+                    proposalID={reviewing.id}
+                    fingerprint={fingerprint}
+                  />
+                ) : null}
+              </>
             ) : null}
             <p role="note" className={styles.editionsLede}>
               {t('remediation.reviewGuardrail')}

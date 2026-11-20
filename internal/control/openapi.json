@@ -14529,6 +14529,86 @@
         }
       }
     },
+    "/v1/remediation/proposals/{id}/flowspec-qualification": {
+      "post": {
+        "operationId": "qualifyFlowSpecRouterProfile",
+        "summary": "Check an owned FlowSpec review against a router profile",
+        "description": "Revalidates the exact reviewed match and compares it with published router-profile limits. The returned template is for review and the capacity result uses operator-declared available entries.",
+        "x-required-permission": "remediation.propose",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "remediation"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Proposal id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemediationFlowSpecRouterQualificationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documented profile check, declared capacity and exact review fingerprint",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationFlowSpecRouterQualification"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "415": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/remediation/proposals/{id}/flowspec-approve": {
       "post": {
         "x-required-permission": "remediation.approve",
@@ -20248,6 +20328,188 @@
           }
         },
         "additionalProperties": false
+      },
+      "RemediationFlowSpecRouterQualificationInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profile",
+          "routing_table"
+        ],
+        "properties": {
+          "profile": {
+            "type": "string",
+            "enum": [
+              "junos_standard",
+              "ios_xr_asr9000_7_11",
+              "eos_4_36_2f",
+              "frr_10_7_1"
+            ]
+          },
+          "routing_table": {
+            "type": "string",
+            "enum": [
+              "default",
+              "vrf"
+            ]
+          },
+          "available_entries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        }
+      },
+      "RemediationFlowSpecRouterCapacity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "minimum_entries"
+        ],
+        "properties": {
+          "minimum_entries": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "declared_entries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "fits_declared": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RemediationFlowSpecRouterComponent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "field",
+          "value"
+        ],
+        "properties": {
+          "type": {
+            "type": "integer",
+            "enum": [
+              1,
+              3,
+              5,
+              6
+            ]
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "destination_prefix",
+              "ip_protocol",
+              "upper_layer_protocol",
+              "destination_port",
+              "source_port"
+            ]
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "RemediationFlowSpecRouterTemplate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "afi",
+          "safi",
+          "components",
+          "action"
+        ],
+        "properties": {
+          "afi": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ]
+          },
+          "safi": {
+            "type": "integer",
+            "enum": [
+              133
+            ]
+          },
+          "components": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/RemediationFlowSpecRouterComponent"
+            }
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "discard"
+            ]
+          }
+        }
+      },
+      "RemediationFlowSpecRouterQualification": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profile",
+          "routing_table",
+          "review_fingerprint",
+          "syntax_compatible",
+          "address_family",
+          "capacity",
+          "documentation",
+          "findings"
+        ],
+        "properties": {
+          "profile": {
+            "type": "string",
+            "enum": [
+              "junos_standard",
+              "ios_xr_asr9000_7_11",
+              "eos_4_36_2f",
+              "frr_10_7_1"
+            ]
+          },
+          "routing_table": {
+            "type": "string",
+            "enum": [
+              "default",
+              "vrf"
+            ]
+          },
+          "review_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "syntax_compatible": {
+            "type": "boolean"
+          },
+          "address_family": {
+            "type": "string"
+          },
+          "capacity": {
+            "$ref": "#/components/schemas/RemediationFlowSpecRouterCapacity"
+          },
+          "documentation": {
+            "type": "string",
+            "format": "uri"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "template": {
+            "$ref": "#/components/schemas/RemediationFlowSpecRouterTemplate"
+          }
+        }
       },
       "RemediationFlowSpecReview": {
         "type": "object",

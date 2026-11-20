@@ -44,6 +44,23 @@ func (s *Server) handleGetFlowSpecReview(w http.ResponseWriter, r *http.Request)
 	return nil
 }
 
+func (s *Server) handleQualifyFlowSpec(w http.ResponseWriter, r *http.Request) error {
+	service, actor, err := s.flowSpecReviewActor(r)
+	if err != nil {
+		return err
+	}
+	var input remediation.FlowSpecQualificationInput
+	if err := decodeJSONLimit(r, 2048, &input); err != nil {
+		return err
+	}
+	result, err := service.QualifyFlowSpec(r.Context(), actor.TenantID, r.PathValue("id"), input, s.pathAlertRequestCredential(r, actor))
+	if err != nil {
+		return mapRemediationErr(err)
+	}
+	writeJSON(w, http.StatusOK, result)
+	return nil
+}
+
 func (s *Server) handleApproveFlowSpecReview(w http.ResponseWriter, r *http.Request) error {
 	service, actor, err := s.flowSpecReviewActor(r)
 	if err != nil {

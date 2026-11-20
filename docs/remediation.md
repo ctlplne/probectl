@@ -203,6 +203,27 @@ The CLI exposes these operations as `probectl remediation flowspec-preview`,
 `flowspec-propose`, `flowspec-review` and `flowspec-approve`. Approval takes the
 shown fingerprint and an interactive session held in an owner-only file.
 
+### Check a router profile
+
+Open an unexpired FlowSpec review in **Admin → AI remediation proposals**
+and choose a router profile. The check reads the same tenant-owned review
+and compares its address family, exact transport match and chosen routing
+table with the documented profile. The display provides the ordered
+FlowSpec components and the reviewed fingerprint. Include the device's
+reported free entries to compare with the profile's documented minimum.
+The resulting capacity check uses that declared count.
+
+The available profiles are Junos standard flow, Cisco ASR 9000 IOS XR
+7.11, Arista EOS 4.36.2F and FRRouting 10.7.1. The FRRouting profile uses the
+default routing table and accepts at most one exact port field.
+For the simple Arista profile the IPv6 rule needs at least two TCAM
+entries. The documented match and lower bound are separate from a
+router's installation and forwarding evidence.
+
+Use `probectl remediation flowspec-qualify <id> --body-file profile.json`.
+The request selects the profile and `routing_table` of `default` or `vrf`.
+Include `available_entries` when you have the count for that device.
+
 ## Dry-run (blast radius)
 
 The estimator runs `topology.Simulate` over a **copy** of the tenant's topology
@@ -224,6 +245,7 @@ All routes are tenant-scoped and hidden (404) when the feature is unlicensed.
 | `POST /v1/remediation/flowspec-preview` | `remediation.propose` | compares the typed match with the whole protected prefix |
 | `POST /v1/remediation/flowspec-proposals` | `remediation.propose` | files the exact FlowSpec preview and benign packet limit |
 | `GET /v1/remediation/proposals/{id}/flowspec-review` | `remediation.propose` | current matching and whole-prefix evidence |
+| `POST /v1/remediation/proposals/{id}/flowspec-qualification` | `remediation.propose` | documented profile check against current review and declared router capacity |
 | `POST /v1/remediation/proposals/{id}/flowspec-approve` | `remediation.approve` | requires the exact review fingerprint and an independent interactive session |
 | `GET /v1/remediation/proposals` | `remediation.propose` | list (newest first) + `approvals_enabled` |
 | `POST /v1/remediation/proposals` | `remediation.propose` | files a proposal — always `proposed` |

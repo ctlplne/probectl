@@ -89,6 +89,7 @@ type FlowSpecReview struct {
 type FlowSpecReviews interface {
 	ProposeFlowSpec(context.Context, string, string, FlowSpecProposalInput, func(context.Context) error) (Proposal, error)
 	GetFlowSpecReview(context.Context, string, string, func(context.Context) error) (FlowSpecReview, error)
+	QualifyFlowSpec(context.Context, string, string, FlowSpecQualificationInput, func(context.Context) error) (FlowSpecQualification, error)
 	ApproveFlowSpec(context.Context, string, string, string, string, string, func(context.Context) error) (Proposal, error)
 }
 

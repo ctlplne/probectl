@@ -207,6 +207,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/remediation/proposals/{id}", s.handleRemediationGet, permRemediationPropose},
 		{http.MethodGet, "/v1/remediation/proposals/{id}/routing-review", s.handleGetRTBHReview, permRemediationPropose},
 		{http.MethodGet, "/v1/remediation/proposals/{id}/flowspec-review", s.handleGetFlowSpecReview, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/proposals/{id}/flowspec-qualification", s.handleQualifyFlowSpec, permRemediationPropose},
 		{http.MethodPost, "/v1/remediation/proposals/{id}/flowspec-approve", s.handleApproveFlowSpecReview, permRemediationApprove},
 		{http.MethodPost, "/v1/remediation/proposals/{id}/approve", s.handleRemediationApprove, permRemediationApprove},
 		{http.MethodPost, "/v1/remediation/proposals/{id}/reject", s.handleRemediationReject, permRemediationApprove},
