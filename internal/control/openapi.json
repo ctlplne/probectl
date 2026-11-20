@@ -38052,6 +38052,53 @@
         ],
         "description": "Current canonical member set applied to the complete selected period, not a historical tag-membership claim. Traffic before a member current identity/source binding remains unknown. Source clock is an upper bound, not a frozen read grant."
       },
+      "CapacityGroupThreshold": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "capacity_bps": {
+            "type": "string",
+            "pattern": "^[0-9]+(\\.[0-9]+)?$"
+          }
+        },
+        "required": [
+          "context_id",
+          "interface_id",
+          "capacity_bps"
+        ]
+      },
+      "CapacityForecastGroupInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "pop",
+              "tower"
+            ]
+          },
+          "thresholds": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/CapacityGroupThreshold"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "thresholds"
+        ]
+      },
       "CapacityForecastInput": {
         "type": "object",
         "additionalProperties": false,
@@ -38093,6 +38140,9 @@
             "items": {
               "$ref": "#/components/schemas/CapacityPhysicalBound"
             }
+          },
+          "group": {
+            "$ref": "#/components/schemas/CapacityForecastGroupInput"
           }
         },
         "required": [
@@ -38124,6 +38174,34 @@
         },
         "required": [
           "reached"
+        ]
+      },
+      "CapacityForecastObservedSample": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bps": {
+            "type": "string",
+            "pattern": "^[0-9]+(/[1-9][0-9]*)?$"
+          },
+          "utilization": {
+            "type": "string",
+            "pattern": "^[0-9]+(/[1-9][0-9]*)?$"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "bps",
+          "utilization"
         ]
       },
       "CapacityForecastResult": {
@@ -38204,6 +38282,9 @@
           },
           "latest": {
             "$ref": "#/components/schemas/CapacityRunoutInterval"
+          },
+          "last_sample": {
+            "$ref": "#/components/schemas/CapacityForecastObservedSample"
           }
         },
         "required": [
@@ -38227,6 +38308,95 @@
           "central",
           "earliest",
           "latest"
+        ]
+      },
+      "CapacityGroupForecast": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "forecasts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/CapacityForecastResult"
+            }
+          }
+        },
+        "required": [
+          "context_id",
+          "interface_id",
+          "forecasts"
+        ]
+      },
+      "CapacityGroupRunout": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "window": {
+            "$ref": "#/components/schemas/CapacityRunoutInterval"
+          }
+        },
+        "required": [
+          "context_id",
+          "interface_id",
+          "direction",
+          "window"
+        ]
+      },
+      "CapacityForecastGroup": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "pop",
+              "tower"
+            ]
+          },
+          "tag_revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "members": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/CapacityGroupForecast"
+            }
+          },
+          "first_constraint": {
+            "$ref": "#/components/schemas/CapacityGroupRunout"
+          },
+          "members_without_complete_forecast": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "kind",
+          "tag_revision",
+          "members",
+          "members_without_complete_forecast"
         ]
       },
       "CapacityForecastMeasurement": {
@@ -38264,6 +38434,9 @@
           "source_valid_until": {
             "type": "string",
             "format": "date-time"
+          },
+          "group": {
+            "$ref": "#/components/schemas/CapacityForecastGroup"
           }
         },
         "required": [

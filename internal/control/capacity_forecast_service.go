@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -88,9 +89,20 @@ func (s *Server) measureRetainedCapacityForecast(op capacityForecastOperation, i
 		label = parameters.target.TagID + ":" + parameters.target.TagValue
 	}
 	phase = "forecast_model"
+	if parameters.group != nil {
+		window.WorkUnits /= 2
+	}
 	forecasts, err := flow.ForecastCapacityMeasured(ctx, window, label, parameters.direction, parameters.capacity, parameters.until, members)
 	if err != nil {
 		return none, err
+	}
+	var group *flow.CapacityForecastGroup
+	if parameters.group != nil {
+		phase = "group_member_forecasts"
+		group, err = flow.ForecastGroupMembers(ctx, window, *parameters.group, parameters.direction, parameters.until, members)
+		if err != nil {
+			return none, err
+		}
 	}
 	phase = "publication_source"
 	after, err := s.capacityForecastSnapshot(ctx, op.actor, parameters, op.budget, &before, rows)
@@ -98,6 +110,13 @@ func (s *Server) measureRetainedCapacityForecast(op capacityForecastOperation, i
 		return none, err
 	}
 	result := flow.CapacityForecastMeasurement{Target: parameters.target, Members: []flow.CapacityBillMember{}, Forecasts: forecasts, MaximumPollGap: parameters.counter.gap.String(), MembershipBasis: "current_member_set_applied_to_complete_period", AsOf: after.asOf}
+	if group != nil {
+		if after.circuit == nil {
+			return none, apierror.Unavailable("current group membership is unavailable")
+		}
+		group.TagRevision = strconv.FormatInt(after.circuit.Revision, 10)
+		result.Group = group
+	}
 	for _, member := range after.members {
 		if result.SourceValidUntil.IsZero() || member.target.ValidUntil.Before(result.SourceValidUntil) {
 			result.SourceValidUntil = member.target.ValidUntil

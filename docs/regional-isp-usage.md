@@ -47,3 +47,41 @@ latency evidence. For a DDoS link, include an `incident` object with
 `context_id`, `incident_id`, `rule_id` and `receipt_fingerprint` from the
 selected observation. Equivalent requests are served at
 `POST /v1/explorer/flow-views/{id}/subscriber-usage`.
+
+## POP and tower capacity
+
+Apply the same effective interface tag and value to every link in a POP or
+tower. In **Capacity planning**, open **Measured capacity forecast** and
+choose **Tagged circuit**. Select **Point of presence** or **Tower** under
+**Capacity group**. Enter the tag ID, its exact value, the training interval,
+forecast horizon and a group operating threshold.
+
+For each current member, supply its canonical context and interface IDs, the
+physical counter bound and its own operating threshold. The physical bound
+validates the counter measurements. The operating threshold sets the point at
+which the forecast flags that link. The report records the tag revision and
+shows the earliest projected constraint among members with complete forecasts.
+A link with gaps remains visible with its sample coverage. The group rate and
+utilization fraction appear when every member contributes to the final aligned
+measurement interval.
+
+Run the same report through `probectl capacity forecast --body-file request.json`
+or `POST /v1/flows/capacity/forecast`. Use the regular circuit target and add
+`group.kind` of `pop` or `tower`. Set `group.thresholds` to one
+`context_id`, `interface_id` and exact decimal `capacity_bps` per member.
+The normal `physical_bounds` remain required separately.
+
+## Upstream SLA evidence
+
+In **Capacity planning**, use **Recorded terms** to select the upstream
+agreement that names the tagged circuit or its actual transit interface.
+Select the exact recorded revision and the carrier's completed billing period.
+Open **Carrier claim draft** for the original scoped measures, coverage and
+the resulting draft. The claim uses the agreement's billing calendar. The
+capacity forecast retains its separately selected training window.
+
+Use the same agreement ID, revision and billing period in a dashboard's
+`carrier_claim.selections` to produce a signed evidence pack. The existing
+carrier report path rechecks current source and financial access and carries
+the original measures with the recorded agreement. A reviewer can verify the
+pack offline. [Signed carrier SLA claim reports](dashboard-reporting.md#signed-carrier-sla-claim-reports-preview)

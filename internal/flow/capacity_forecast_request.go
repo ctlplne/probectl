@@ -15,14 +15,15 @@ import (
 )
 
 type CapacityForecastRequest struct {
-	Target         CapacityTarget          `json:"target"`
-	From           string                  `json:"from"`
-	To             string                  `json:"to"`
-	Until          string                  `json:"until"`
-	Direction      string                  `json:"direction"`
-	CapacityBPS    string                  `json:"capacity_bps"`
-	MaximumPollGap string                  `json:"maximum_poll_gap"`
-	PhysicalBounds []CapacityPhysicalBound `json:"physical_bounds"`
+	Target         CapacityTarget              `json:"target"`
+	From           string                      `json:"from"`
+	To             string                      `json:"to"`
+	Until          string                      `json:"until"`
+	Direction      string                      `json:"direction"`
+	CapacityBPS    string                      `json:"capacity_bps"`
+	MaximumPollGap string                      `json:"maximum_poll_gap"`
+	PhysicalBounds []CapacityPhysicalBound     `json:"physical_bounds"`
+	Group          *CapacityForecastGroupInput `json:"group,omitempty"`
 }
 
 type CapacityForecastMeasurement struct {
@@ -33,6 +34,7 @@ type CapacityForecastMeasurement struct {
 	MembershipBasis  string                   `json:"membership_basis"`
 	AsOf             time.Time                `json:"as_of"`
 	SourceValidUntil time.Time                `json:"source_valid_until"`
+	Group            *CapacityForecastGroup   `json:"group,omitempty"`
 }
 
 // ValidateCapacityForecastThreshold performs the same exact decimal and finite

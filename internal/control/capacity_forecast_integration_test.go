@@ -165,6 +165,7 @@ func TestCapacityForecastServesKnownGrowthWithoutFinancialAccessAndKeepsCurrentT
 		}
 		assertForecast(got)
 	}
+	proveRegionalCapacityGroups(t, f, socket, input, tagID, from, hand)
 	input.Target = interfaceTarget
 	for _, wire := range []string{"2026-07-28", "2025-11-25"} {
 		call := interfaceRoleNativeTLSCaller(t, f, wire)
@@ -229,5 +230,85 @@ func TestCapacityForecastServesKnownGrowthWithoutFinancialAccessAndKeepsCurrentT
 		t.Fatal("source denial damaged sibling forecast", status)
 	} else {
 		assertForecast(got)
+	}
+}
+
+func proveRegionalCapacityGroups(t *testing.T, f *roleExplanationAPIFixture, socket *httptest.Server,
+	base flow.CapacityForecastRequest, tagID string, from, first time.Time) {
+	t.Helper()
+	requests := make([]flow.CapacityForecastRequest, 0, len(f.tenants))
+	for lane, tenant := range f.tenants {
+		memberID := gouuid.NewString()
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := sc.Q.Exec(ctx, `INSERT INTO entities
+ (tenant_id,context_id,id,kind,label,parent_entity_id,source_agent_id,configured_ref,interface_index,created_at)
+ VALUES($1,$2,$3,'interface','unobserved access',$4,'role-snmp','192.0.2.1',8,$5)`,
+				tenant, f.contextID, memberID, f.routerID, from.Add(-time.Hour))
+			if err != nil {
+				return err
+			}
+			_, err = (store.TagAssignments{}).CreateManual(ctx, sc, store.ManualTagAssignmentInput{
+				Scope: tags.Scope{TenantID: tenant, ContextID: f.contextID}, TagID: tagID, TargetKind: "interface", TargetID: memberID, Value: "transit",
+			})
+			return err
+		})
+		input := base
+		input.PhysicalBounds = append([]flow.CapacityPhysicalBound(nil), base.PhysicalBounds...)
+		input.PhysicalBounds = append(input.PhysicalBounds, flow.CapacityPhysicalBound{ContextID: f.contextID, InterfaceID: memberID, MaxBPS: "50000000"})
+		input.Group = &flow.CapacityForecastGroupInput{Kind: []string{"pop", "tower"}[lane], Thresholds: []flow.CapacityGroupThreshold{
+			{ContextID: f.contextID, InterfaceID: f.interfaceID, CapacityBPS: "12000000"},
+			{ContextID: f.contextID, InterfaceID: memberID, CapacityBPS: "18000000"},
+		}}
+		requests = append(requests, input)
+	}
+
+	request := func(tenant string, input flow.CapacityForecastRequest) (int, flow.CapacityForecastMeasurement) {
+		t.Helper()
+		body, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := http.NewRequestWithContext(t.Context(), http.MethodPost, socket.URL+"/v1/flows/capacity/forecast", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Header.Set("Authorization", "Bearer "+f.tokens[tenant])
+		r.Header.Set("Content-Type", "application/json")
+		response, err := socket.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var got flow.CapacityForecastMeasurement
+		if decodeErr := json.NewDecoder(response.Body).Decode(&got); response.StatusCode == http.StatusOK && decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		return response.StatusCode, got
+	}
+	call := interfaceRoleNativeTLSCaller(t, f, "2026-07-28")
+	for lane, tenant := range f.tenants {
+		status, got := request(tenant, requests[lane])
+		if status != http.StatusOK || got.Group == nil || got.Group.Kind != requests[lane].Group.Kind || got.Group.TagRevision == "" ||
+			len(got.Group.Members) != 2 || got.Group.MembersWithoutCompleteForecast != 1 {
+			t.Fatal("the scoped group hid an unavailable link or lost its source revision", status, got)
+		}
+		runout := got.Group.FirstConstraint
+		if runout == nil || runout.InterfaceID != f.interfaceID || runout.Direction != "in" || runout.Window.From == nil || !runout.Window.From.Equal(first) {
+			t.Fatal("the first group threshold did not match the hand-calculated link forecast", runout, first)
+		}
+		for _, forecast := range got.Forecasts {
+			if forecast.LastSample != nil || forecast.LastSampleKnown || forecast.CoverageComplete {
+				t.Fatal("the measured link was incorrectly presented as the complete group", forecast)
+			}
+		}
+		if status, got := request(tenant, requests[1-lane]); status == http.StatusOK || got.Group != nil {
+			t.Fatal("foreign member IDs crossed the scoped configuration boundary", status, got)
+		}
+		var native flow.CapacityForecastMeasurement
+		call(tenant, "capacity_forecast", map[string]any{"forecast": requests[lane]}, &native, true)
+		if native.Group == nil || native.Group.TagRevision != got.Group.TagRevision || native.Group.FirstConstraint == nil ||
+			native.Group.FirstConstraint.ContextID != f.contextID || native.Group.FirstConstraint.InterfaceID != f.interfaceID {
+			t.Fatal("native capacity forecast lost the exact authorized member metadata", native.Group)
+		}
 	}
 }

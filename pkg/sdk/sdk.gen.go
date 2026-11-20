@@ -789,20 +789,35 @@ type CapacityBillingPeriod struct {
 	To             string `json:"to"`
 }
 
+type CapacityForecastGroup struct {
+	FirstConstraint                CapacityGroupRunout     `json:"first_constraint,omitzero"`
+	Kind                           string                  `json:"kind"`
+	Members                        []CapacityGroupForecast `json:"members"`
+	MembersWithoutCompleteForecast int                     `json:"members_without_complete_forecast"`
+	TagRevision                    string                  `json:"tag_revision"`
+}
+
+type CapacityForecastGroupInput struct {
+	Kind       string                   `json:"kind"`
+	Thresholds []CapacityGroupThreshold `json:"thresholds"`
+}
+
 type CapacityForecastInput struct {
-	CapacityBps    string                  `json:"capacity_bps"`
-	Direction      string                  `json:"direction"`
-	From           string                  `json:"from"`
-	MaximumPollGap string                  `json:"maximum_poll_gap"`
-	PhysicalBounds []CapacityPhysicalBound `json:"physical_bounds"`
-	Target         CapacityTarget          `json:"target"`
-	To             string                  `json:"to"`
-	Until          string                  `json:"until"`
+	CapacityBps    string                     `json:"capacity_bps"`
+	Direction      string                     `json:"direction"`
+	From           string                     `json:"from"`
+	Group          CapacityForecastGroupInput `json:"group,omitzero"`
+	MaximumPollGap string                     `json:"maximum_poll_gap"`
+	PhysicalBounds []CapacityPhysicalBound    `json:"physical_bounds"`
+	Target         CapacityTarget             `json:"target"`
+	To             string                     `json:"to"`
+	Until          string                     `json:"until"`
 }
 
 type CapacityForecastMeasurement struct {
 	AsOf             string                   `json:"as_of"`
 	Forecasts        []CapacityForecastResult `json:"forecasts"`
+	Group            CapacityForecastGroup    `json:"group,omitzero"`
 	MaximumPollGap   string                   `json:"maximum_poll_gap"`
 	Members          []CapacityBillMember     `json:"members"`
 	MembershipBasis  string                   `json:"membership_basis"`
@@ -810,30 +825,57 @@ type CapacityForecastMeasurement struct {
 	Target           CapacityTarget           `json:"target"`
 }
 
+type CapacityForecastObservedSample struct {
+	Bps         string `json:"bps"`
+	From        string `json:"from"`
+	To          string `json:"to"`
+	Utilization string `json:"utilization"`
+}
+
 type CapacityForecastResult struct {
-	CapacityDenominator       string                 `json:"capacity_denominator"`
-	CapacityNumerator         string                 `json:"capacity_numerator"`
-	Central                   CapacityRunoutInterval `json:"central"`
-	CounterModel              string                 `json:"counter_model"`
-	CoverageComplete          bool                   `json:"coverage_complete"`
-	Direction                 string                 `json:"direction"`
-	Earliest                  CapacityRunoutInterval `json:"earliest"`
-	ExpectedSamples           int                    `json:"expected_samples"`
-	From                      string                 `json:"from"`
-	IntervalMethod            string                 `json:"interval_method"`
-	LastSampleExceeded        bool                   `json:"last_sample_exceeded"`
-	LastSampleKnown           bool                   `json:"last_sample_known"`
-	Latest                    CapacityRunoutInterval `json:"latest"`
-	Model                     string                 `json:"model"`
-	ObservedExceedances       int                    `json:"observed_exceedances"`
-	ObservedSamples           int                    `json:"observed_samples"`
-	Reason                    string                 `json:"reason,omitempty"`
-	Target                    string                 `json:"target"`
-	To                        string                 `json:"to"`
-	Trained                   bool                   `json:"trained"`
-	TrendBpsPerDayDenominator string                 `json:"trend_bps_per_day_denominator,omitempty"`
-	TrendBpsPerDayNumerator   string                 `json:"trend_bps_per_day_numerator,omitempty"`
-	Until                     string                 `json:"until"`
+	CapacityDenominator       string                         `json:"capacity_denominator"`
+	CapacityNumerator         string                         `json:"capacity_numerator"`
+	Central                   CapacityRunoutInterval         `json:"central"`
+	CounterModel              string                         `json:"counter_model"`
+	CoverageComplete          bool                           `json:"coverage_complete"`
+	Direction                 string                         `json:"direction"`
+	Earliest                  CapacityRunoutInterval         `json:"earliest"`
+	ExpectedSamples           int                            `json:"expected_samples"`
+	From                      string                         `json:"from"`
+	IntervalMethod            string                         `json:"interval_method"`
+	LastSample                CapacityForecastObservedSample `json:"last_sample,omitzero"`
+	LastSampleExceeded        bool                           `json:"last_sample_exceeded"`
+	LastSampleKnown           bool                           `json:"last_sample_known"`
+	Latest                    CapacityRunoutInterval         `json:"latest"`
+	Model                     string                         `json:"model"`
+	ObservedExceedances       int                            `json:"observed_exceedances"`
+	ObservedSamples           int                            `json:"observed_samples"`
+	Reason                    string                         `json:"reason,omitempty"`
+	Target                    string                         `json:"target"`
+	To                        string                         `json:"to"`
+	Trained                   bool                           `json:"trained"`
+	TrendBpsPerDayDenominator string                         `json:"trend_bps_per_day_denominator,omitempty"`
+	TrendBpsPerDayNumerator   string                         `json:"trend_bps_per_day_numerator,omitempty"`
+	Until                     string                         `json:"until"`
+}
+
+type CapacityGroupForecast struct {
+	ContextId   string                   `json:"context_id"`
+	Forecasts   []CapacityForecastResult `json:"forecasts"`
+	InterfaceId string                   `json:"interface_id"`
+}
+
+type CapacityGroupRunout struct {
+	ContextId   string                 `json:"context_id"`
+	Direction   string                 `json:"direction"`
+	InterfaceId string                 `json:"interface_id"`
+	Window      CapacityRunoutInterval `json:"window"`
+}
+
+type CapacityGroupThreshold struct {
+	CapacityBps string `json:"capacity_bps"`
+	ContextId   string `json:"context_id"`
+	InterfaceId string `json:"interface_id"`
 }
 
 // Exact rational bps over the complete five-minute grid. Missing required coverage withholds the percentile, rather than reducing the population or filling zeros.

@@ -20,30 +20,38 @@ type CapacityRunoutInterval struct {
 	To      *time.Time `json:"to,omitempty"`
 }
 
+type CapacityForecastObservedSample struct {
+	From        time.Time `json:"from"`
+	To          time.Time `json:"to"`
+	BPS         string    `json:"bps"`
+	Utilization string    `json:"utilization"`
+}
+
 type CapacityForecastResult struct {
-	Target              string                 `json:"target"`
-	Direction           string                 `json:"direction"`
-	CounterModel        string                 `json:"counter_model"`
-	Model               string                 `json:"model"`
-	IntervalMethod      string                 `json:"interval_method"`
-	From                time.Time              `json:"from"`
-	To                  time.Time              `json:"to"`
-	Until               time.Time              `json:"until"`
-	ExpectedSamples     int                    `json:"expected_samples"`
-	ObservedSamples     int                    `json:"observed_samples"`
-	CoverageComplete    bool                   `json:"coverage_complete"`
-	Trained             bool                   `json:"trained"`
-	Reason              string                 `json:"reason,omitempty"`
-	CapacityNumerator   string                 `json:"capacity_numerator"`
-	CapacityDenominator string                 `json:"capacity_denominator"`
-	TrendNumerator      string                 `json:"trend_bps_per_day_numerator,omitempty"`
-	TrendDenominator    string                 `json:"trend_bps_per_day_denominator,omitempty"`
-	ObservedExceedances int                    `json:"observed_exceedances"`
-	LastSampleKnown     bool                   `json:"last_sample_known"`
-	LastSampleExceeded  bool                   `json:"last_sample_exceeded"`
-	Central             CapacityRunoutInterval `json:"central"`
-	Earliest            CapacityRunoutInterval `json:"earliest"`
-	Latest              CapacityRunoutInterval `json:"latest"`
+	Target              string                          `json:"target"`
+	Direction           string                          `json:"direction"`
+	CounterModel        string                          `json:"counter_model"`
+	Model               string                          `json:"model"`
+	IntervalMethod      string                          `json:"interval_method"`
+	From                time.Time                       `json:"from"`
+	To                  time.Time                       `json:"to"`
+	Until               time.Time                       `json:"until"`
+	ExpectedSamples     int                             `json:"expected_samples"`
+	ObservedSamples     int                             `json:"observed_samples"`
+	CoverageComplete    bool                            `json:"coverage_complete"`
+	Trained             bool                            `json:"trained"`
+	Reason              string                          `json:"reason,omitempty"`
+	CapacityNumerator   string                          `json:"capacity_numerator"`
+	CapacityDenominator string                          `json:"capacity_denominator"`
+	TrendNumerator      string                          `json:"trend_bps_per_day_numerator,omitempty"`
+	TrendDenominator    string                          `json:"trend_bps_per_day_denominator,omitempty"`
+	ObservedExceedances int                             `json:"observed_exceedances"`
+	LastSampleKnown     bool                            `json:"last_sample_known"`
+	LastSampleExceeded  bool                            `json:"last_sample_exceeded"`
+	LastSample          *CapacityForecastObservedSample `json:"last_sample,omitempty"`
+	Central             CapacityRunoutInterval          `json:"central"`
+	Earliest            CapacityRunoutInterval          `json:"earliest"`
+	Latest              CapacityRunoutInterval          `json:"latest"`
 }
 
 // ForecastCapacityMeasured fits the existing exact trend/weekly model to the
@@ -150,6 +158,6 @@ func projectCapacityForecast(in capacityForecast, direction string) CapacityFore
 	return CapacityForecastResult{Target: in.target, Direction: direction, CounterModel: CapacityCounterWindowModel(), Model: in.model, IntervalMethod: in.intervalMethod,
 		From: in.from, To: in.to, Until: in.until, ExpectedSamples: in.expected, ObservedSamples: in.observed, CoverageComplete: in.coverageComplete, Trained: in.trained, Reason: in.reason,
 		CapacityNumerator: in.capacityNumerator, CapacityDenominator: in.capacityDenominator, TrendNumerator: in.trendNumerator, TrendDenominator: in.trendDenominator,
-		ObservedExceedances: in.observedExceedances, LastSampleKnown: in.lastSampleKnown, LastSampleExceeded: in.lastSampleExceeded,
+		ObservedExceedances: in.observedExceedances, LastSampleKnown: in.lastSampleKnown, LastSampleExceeded: in.lastSampleExceeded, LastSample: in.lastSample,
 		Central: projectCapacityRunout(in.central), Earliest: projectCapacityRunout(in.earliest), Latest: projectCapacityRunout(in.latest)}
 }

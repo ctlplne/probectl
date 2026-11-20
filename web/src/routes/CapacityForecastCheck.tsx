@@ -21,11 +21,18 @@ import {
   Field,
   LoadingState,
   Select,
+  Table,
 } from '../components'
 import { CapacityMemberAssumptions } from './CapacityMemberAssumptions'
 import styles from './flowExplorer.module.css'
 
-function emptyForecast(): CapacityForecastInput {
+type ForecastMember = CapacityPhysicalBound & { operating_bps: string }
+type ForecastEditorInput = Omit<CapacityForecastInput, 'physical_bounds' | 'group'> & {
+  physical_bounds: ForecastMember[]
+  group_kind: '' | 'pop' | 'tower'
+}
+
+function emptyForecast(): ForecastEditorInput {
   return {
     target: { kind: 'interface', context_id: '', interface_id: '' },
     from: '',
@@ -34,7 +41,8 @@ function emptyForecast(): CapacityForecastInput {
     direction: 'max_directional_percentiles',
     capacity_bps: '',
     maximum_poll_gap: '5m',
-    physical_bounds: [{ context_id: '', interface_id: '', max_bps: '' }],
+    physical_bounds: [{ context_id: '', interface_id: '', max_bps: '', operating_bps: '' }],
+    group_kind: '',
   }
 }
 
@@ -68,11 +76,11 @@ export function CapacityForecastCheck() {
     )
     return () => window.clearTimeout(timer)
   }, [result])
-  function change<K extends keyof CapacityForecastInput>(key: K, value: CapacityForecastInput[K]) {
+  function change<K extends keyof ForecastEditorInput>(key: K, value: ForecastEditorInput[K]) {
     setResult(undefined)
     setInput((old) => ({ ...old, [key]: value }))
   }
-  function changeBound(index: number, key: keyof CapacityPhysicalBound, value: string) {
+  function changeBound(index: number, key: keyof ForecastMember, value: string) {
     change(
       'physical_bounds',
       input.physical_bounds.map((bound, i) => (i === index ? { ...bound, [key]: value } : bound)),
@@ -89,10 +97,29 @@ export function CapacityForecastCheck() {
     setError('')
     setBusy(true)
     try {
+      const { group_kind, physical_bounds, ...source } = input
+      const body: CapacityForecastInput = {
+        ...source,
+        physical_bounds: physical_bounds.map(({ context_id, interface_id, max_bps }) => ({
+          context_id,
+          interface_id,
+          max_bps,
+        })),
+      }
+      if (source.target.kind === 'circuit' && group_kind) {
+        body.group = {
+          kind: group_kind,
+          thresholds: physical_bounds.map(({ context_id, interface_id, operating_bps }) => ({
+            context_id,
+            interface_id,
+            capacity_bps: operating_bps,
+          })),
+        }
+      }
       const value = await apiFetch<CapacityForecastMeasurement>('/flows/capacity/forecast', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
+        body: JSON.stringify(body),
         signal: request.signal,
       })
       if (current.active && current.epoch === epoch) setResult(value)
@@ -162,6 +189,19 @@ export function CapacityForecastCheck() {
               </>
             ) : (
               <>
+                <Select
+                  label="Capacity group"
+                  value={input.group_kind}
+                  disabled={busy}
+                  options={[
+                    { value: '', label: 'Tagged circuit' },
+                    { value: 'pop', label: 'Point of presence' },
+                    { value: 'tower', label: 'Tower' },
+                  ]}
+                  onChange={(event) =>
+                    change('group_kind', event.target.value as ForecastEditorInput['group_kind'])
+                  }
+                />
                 <Field
                   label="Forecast circuit tag ID"
                   required
@@ -268,6 +308,16 @@ export function CapacityForecastCheck() {
                   value={bound.max_bps}
                   onChange={(event) => changeBound(index, 'max_bps', event.target.value)}
                 />
+                {input.target.kind === 'circuit' && input.group_kind && (
+                  <Field
+                    label={`Forecast member ${index + 1} operating threshold (bps)`}
+                    required
+                    disabled={busy}
+                    inputMode="decimal"
+                    value={bound.operating_bps}
+                    onChange={(event) => changeBound(index, 'operating_bps', event.target.value)}
+                  />
+                )}
               </div>
               {input.physical_bounds.length > 1 && (
                 <Button
@@ -291,7 +341,7 @@ export function CapacityForecastCheck() {
                 onClick={() =>
                   change('physical_bounds', [
                     ...input.physical_bounds,
-                    { context_id: '', interface_id: '', max_bps: '' },
+                    { context_id: '', interface_id: '', max_bps: '', operating_bps: '' },
                   ])
                 }
               >
@@ -353,6 +403,11 @@ function ForecastResult({ result }: { result: CapacityForecastMeasurement }) {
               ['Earliest runout', interval(value.earliest)],
               ['Latest runout', interval(value.latest)],
               ['Observed exceedances', String(value.observed_exceedances)],
+              ['Last interval rate (bps)', value.last_sample?.bps ?? 'Unavailable'],
+              [
+                'Last interval utilization (fraction of threshold)',
+                value.last_sample?.utilization ?? 'Unavailable',
+              ],
               [
                 'Last sample',
                 value.last_sample_known
@@ -378,12 +433,71 @@ function ForecastResult({ result }: { result: CapacityForecastMeasurement }) {
         members={result.members}
         caption="Complete forecast member assumptions"
       />
+      {result.group && <CapacityGroupResults group={result.group} />}
       <details className={styles.completeResult}>
         <summary>Complete measured forecast JSON</summary>
         <pre tabIndex={0} aria-label="Complete measured forecast result">
           {JSON.stringify(result, null, 2)}
         </pre>
       </details>
+    </section>
+  )
+}
+
+function CapacityGroupResults({
+  group,
+}: {
+  group: NonNullable<CapacityForecastMeasurement['group']>
+}) {
+  const first = group.first_constraint
+  return (
+    <section aria-label="Group member forecasts" className={styles.stack}>
+      <h3>{group.kind === 'pop' ? 'Point of presence' : 'Tower'} member forecasts</h3>
+      <p>
+        {first ? (
+          <>
+            Earliest projected link constraint is {interval(first.window)} on {first.interface_id} (
+            {first.direction}).
+          </>
+        ) : (
+          'No measured member forecast crosses its threshold within this horizon.'
+        )}
+      </p>
+      {group.members_without_complete_forecast > 0 && (
+        <p>
+          {group.members_without_complete_forecast} of {group.members.length} members lack a
+          complete trained forecast.
+        </p>
+      )}
+      <Table
+        caption="Member measurements and runout"
+        rows={group.members.flatMap((member) =>
+          member.forecasts.map((forecast) => ({ member, forecast })),
+        )}
+        rowKey={({ member, forecast }) =>
+          JSON.stringify([member.context_id, member.interface_id, forecast.direction])
+        }
+        columns={[
+          { key: 'link', header: 'Interface', render: ({ member }) => member.interface_id },
+          { key: 'direction', header: 'Direction', render: ({ forecast }) => forecast.direction },
+          {
+            key: 'utilization',
+            header: 'Last utilization (fraction)',
+            render: ({ forecast }) => forecast.last_sample?.utilization ?? 'Unavailable',
+          },
+          {
+            key: 'training',
+            header: 'Training coverage',
+            render: ({ forecast }) => `${forecast.observed_samples} / ${forecast.expected_samples}`,
+          },
+          {
+            key: 'runout',
+            header: 'Earliest projected runout',
+            render: ({ forecast }) =>
+              forecast.trained ? interval(forecast.earliest) : 'Unavailable',
+          },
+        ]}
+      />
     </section>
   )
 }

@@ -694,10 +694,24 @@ export interface CapacityBillingPeriod {
   to: string
 }
 
+export interface CapacityForecastGroup {
+  first_constraint?: CapacityGroupRunout
+  kind: "pop" | "tower"
+  members: CapacityGroupForecast[]
+  members_without_complete_forecast: number
+  tag_revision: string
+}
+
+export interface CapacityForecastGroupInput {
+  kind: "pop" | "tower"
+  thresholds: CapacityGroupThreshold[]
+}
+
 export interface CapacityForecastInput {
   capacity_bps: string
   direction: "in" | "out" | "max_directional_percentiles" | "interval_max" | "interval_sum"
   from: string
+  group?: CapacityForecastGroupInput
   maximum_poll_gap: string
   physical_bounds: CapacityPhysicalBound[]
   target: CapacityTarget
@@ -708,11 +722,19 @@ export interface CapacityForecastInput {
 export interface CapacityForecastMeasurement {
   as_of: string
   forecasts: CapacityForecastResult[]
+  group?: CapacityForecastGroup
   maximum_poll_gap: string
   members: CapacityBillMember[]
   membership_basis: "current_member_set_applied_to_complete_period"
   source_valid_until: string
   target: CapacityTarget
+}
+
+export interface CapacityForecastObservedSample {
+  bps: string
+  from: string
+  to: string
+  utilization: string
 }
 
 export interface CapacityForecastResult {
@@ -726,6 +748,7 @@ export interface CapacityForecastResult {
   expected_samples: number
   from: string
   interval_method: string
+  last_sample?: CapacityForecastObservedSample
   last_sample_exceeded: boolean
   last_sample_known: boolean
   latest: CapacityRunoutInterval
@@ -739,6 +762,25 @@ export interface CapacityForecastResult {
   trend_bps_per_day_denominator?: string
   trend_bps_per_day_numerator?: string
   until: string
+}
+
+export interface CapacityGroupForecast {
+  context_id: string
+  forecasts: CapacityForecastResult[]
+  interface_id: string
+}
+
+export interface CapacityGroupRunout {
+  context_id: string
+  direction: string
+  interface_id: string
+  window: CapacityRunoutInterval
+}
+
+export interface CapacityGroupThreshold {
+  capacity_bps: string
+  context_id: string
+  interface_id: string
 }
 
 export interface CapacityPercentileResult {

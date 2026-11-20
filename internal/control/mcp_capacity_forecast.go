@@ -38,7 +38,9 @@ func (b mcpCapacityAgreementBackend) capacityForecast(ctx context.Context, input
 		flow.CapacityForecastMeasurement
 		Target  nativeCapacityTarget       `json:"target"`
 		Members []nativeCapacityBillMember `json:"members"`
-	}{CapacityForecastMeasurement: result, Target: nativeCapacityTarget{result.Target, mcp.NativeRoleUUID(result.Target.ContextID), mcp.NativeRoleUUID(result.Target.InterfaceID), mcp.NativeRoleUUID(result.Target.TagID)}, Members: make([]nativeCapacityBillMember, 0, len(result.Members))}
+		Group   *nativeCapacityGroup       `json:"group,omitempty"`
+	}{CapacityForecastMeasurement: result, Target: nativeCapacityTarget{result.Target, mcp.NativeRoleUUID(result.Target.ContextID), mcp.NativeRoleUUID(result.Target.InterfaceID), mcp.NativeRoleUUID(result.Target.TagID)},
+		Members: make([]nativeCapacityBillMember, 0, len(result.Members)), Group: nativeGroupForecast(result.Group)}
 	for _, member := range result.Members {
 		native.Members = append(native.Members, nativeCapacityBillMember{member, mcp.NativeRoleUUID(member.ContextID), mcp.NativeRoleUUID(member.DeviceID), mcp.NativeRoleUUID(member.InterfaceID)})
 	}
@@ -53,4 +55,48 @@ func (b mcpCapacityAgreementBackend) capacityForecast(ctx context.Context, input
 		return nil, apierror.Unavailable("forecast source authority expired; retry")
 	}
 	return body, op.request.Context().Err()
+}
+
+type nativeCapacityGroup struct {
+	flow.CapacityForecastGroup
+	TagRevision     mcp.NativeRoleRevision      `json:"tag_revision"`
+	Members         []nativeGroupForecastMember `json:"members"`
+	FirstConstraint *nativeGroupConstraint      `json:"first_constraint,omitempty"`
+}
+
+type nativeGroupForecastMember struct {
+	ContextID   mcp.NativeRoleUUID        `json:"context_id"`
+	InterfaceID mcp.NativeRoleUUID        `json:"interface_id"`
+	Forecasts   []nativeGroupLinkForecast `json:"forecasts"`
+}
+
+type nativeGroupLinkForecast struct {
+	flow.CapacityForecastResult
+	Target mcp.NativeRoleUUID `json:"target"`
+}
+
+type nativeGroupConstraint struct {
+	flow.CapacityGroupRunout
+	ContextID   mcp.NativeRoleUUID `json:"context_id"`
+	InterfaceID mcp.NativeRoleUUID `json:"interface_id"`
+}
+
+func nativeGroupForecast(value *flow.CapacityForecastGroup) *nativeCapacityGroup {
+	if value == nil {
+		return nil
+	}
+	native := &nativeCapacityGroup{CapacityForecastGroup: *value, TagRevision: mcp.NativeRoleRevision(value.TagRevision),
+		Members: make([]nativeGroupForecastMember, 0, len(value.Members))}
+	for _, member := range value.Members {
+		out := nativeGroupForecastMember{ContextID: mcp.NativeRoleUUID(member.ContextID), InterfaceID: mcp.NativeRoleUUID(member.InterfaceID),
+			Forecasts: make([]nativeGroupLinkForecast, 0, len(member.Forecasts))}
+		for _, forecast := range member.Forecasts {
+			out.Forecasts = append(out.Forecasts, nativeGroupLinkForecast{forecast, mcp.NativeRoleUUID(forecast.Target)})
+		}
+		native.Members = append(native.Members, out)
+	}
+	if first := value.FirstConstraint; first != nil {
+		native.FirstConstraint = &nativeGroupConstraint{*first, mcp.NativeRoleUUID(first.ContextID), mcp.NativeRoleUUID(first.InterfaceID)}
+	}
+	return native
 }

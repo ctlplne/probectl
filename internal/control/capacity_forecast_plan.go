@@ -25,6 +25,7 @@ type capacityForecastParameters struct {
 	from, to, until     time.Time
 	target              flow.CapacityTarget
 	direction, capacity string
+	group               *flow.CapacityForecastGroupInput
 }
 
 func capacityForecastInput(ctx context.Context, input flow.CapacityForecastRequest, budget flowstore.ExplorerBudget) (capacityForecastParameters, error) {
@@ -75,7 +76,37 @@ func capacityForecastInput(ctx context.Context, input flow.CapacityForecastReque
 	if err := flow.ValidateCapacityForecastThreshold(ctx, input.CapacityBPS, budget.MemoryBytes/32, budget.ReadBytes/32); err != nil {
 		return none, apierror.Validation("a positive exact decimal forecast threshold within arithmetic admission is required")
 	}
-	return capacityForecastParameters{counter: parameters, from: from, to: to, until: until, target: target, direction: input.Direction, capacity: input.CapacityBPS}, nil
+	if err := validateCapacityForecastGroup(ctx, input, parameters, budget); err != nil {
+		return none, err
+	}
+	return capacityForecastParameters{counter: parameters, from: from, to: to, until: until, target: target,
+		direction: input.Direction, capacity: input.CapacityBPS, group: input.Group}, nil
+}
+
+func validateCapacityForecastGroup(ctx context.Context, input flow.CapacityForecastRequest, parameters capacityBillParameters, budget flowstore.ExplorerBudget) error {
+	group := input.Group
+	if group == nil {
+		return nil
+	}
+	count := len(group.Thresholds)
+	if input.Target.Kind != "circuit" || (group.Kind != "pop" && group.Kind != "tower") || count == 0 || count != len(parameters.bounds) {
+		return apierror.Validation("select a tagged POP or tower and one threshold per member")
+	}
+	seen := make(map[capacityBillMemberKey]bool)
+	for _, threshold := range group.Thresholds {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		key := capacityBillMemberKey{threshold.ContextID, threshold.InterfaceID}
+		if parameters.bounds[key] == 0 || seen[key] {
+			return apierror.Validation("operating thresholds must match the complete bounded member set")
+		}
+		if err := flow.ValidateCapacityForecastThreshold(ctx, threshold.CapacityBPS, budget.MemoryBytes/32/int64(count), budget.ReadBytes/32/int64(count)); err != nil {
+			return apierror.Validation("each member requires a positive exact decimal operating threshold")
+		}
+		seen[key] = true
+	}
+	return nil
 }
 
 func (s *Server) capacityForecastSnapshot(ctx context.Context, actor *auth.Principal, parameters capacityForecastParameters, budget flowstore.ExplorerBudget, previous *capacityCounterPlan, rows []flowstore.CounterRow) (capacityCounterPlan, error) {

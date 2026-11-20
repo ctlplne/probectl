@@ -37,6 +37,7 @@ type capacityForecast struct {
 	capacityNumerator, capacityDenominator        string
 	observedExceedances                           int
 	lastSampleKnown, lastSampleExceeded           bool
+	lastSample                                    *CapacityForecastObservedSample
 	trendNumerator, trendDenominator              string // Exact bps/day, including a negative trend.
 	central, earliest, latest                     capacityRunoutWindow
 }
@@ -89,6 +90,7 @@ func forecastCapacity(ctx context.Context, input capacityForecastInput) (capacit
 		}
 		if i == len(input.samples)-1 {
 			result.lastSampleKnown, result.lastSampleExceeded = true, exceeded
+			result.lastSample = &CapacityForecastObservedSample{From: from, To: to, BPS: y.RatString(), Utilization: new(big.Rat).Quo(y, capacity).RatString()}
 		}
 		p.count++
 		p.weight.Add(&p.weight, weight)
