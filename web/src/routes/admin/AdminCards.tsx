@@ -20,6 +20,7 @@ import {
   StatusDot,
   Table,
 } from '../../components'
+import { DiversionReviewDialog } from '../../components/DiversionReviewDialog'
 import { FlowSpecEvidence } from '../../components/FlowSpecEvidence'
 import { FlowSpecHandoffDialog } from '../../components/FlowSpecHandoffDialog'
 import { FlowSpecRouterQualification } from '../../components/FlowSpecRouterQualification'
@@ -63,7 +64,9 @@ export function RemediationCard() {
   const [handoffSelection, setHandoffSelection] = useState<{ identity: string; id: string } | null>(
     null,
   )
-  const reviewing = selection?.identity === identity ? selection.proposal : null
+  const currentSelection = selection?.identity === identity ? selection.proposal : null
+  const diversion = currentSelection?.kind === 'diversion_preview' ? currentSelection : null
+  const reviewing = diversion ? null : currentSelection
   const handoffID = handoffSelection?.identity === identity ? handoffSelection.id : undefined
   const isRTBH = reviewing?.kind === 'rtbh_review'
   const isFlowSpec = reviewing?.kind === 'flowspec_review'
@@ -123,7 +126,11 @@ export function RemediationCard() {
       key: 'actions',
       header: t('remediation.column.decision'),
       render: (p) =>
-        p.kind === 'flowspec_review' && p.state === 'approved' ? (
+        p.kind === 'diversion_preview' && (p.state === 'proposed' || p.state === 'approved') ? (
+          <Button variant="ghost" onClick={() => setSelection({ identity, proposal: p })}>
+            {p.state === 'approved' ? 'Open preview receipt' : 'Review local preview'}
+          </Button>
+        ) : p.kind === 'flowspec_review' && p.state === 'approved' ? (
           <Button variant="ghost" onClick={() => setHandoffSelection({ identity, id: p.id })}>
             Open handoff
           </Button>
@@ -288,6 +295,15 @@ export function RemediationCard() {
               {t('remediation.reviewGuardrail')}
             </p>
           </Modal>
+        ) : null}
+        {diversion ? (
+          <DiversionReviewDialog
+            key={`${identity}:${diversion.id}`}
+            proposal={diversion}
+            identity={identity}
+            canApprove={approvalsEnabled && permissions.includes('remediation.approve')}
+            onClose={() => setSelection(null)}
+          />
         ) : null}
         {handoffID ? (
           <FlowSpecHandoffDialog

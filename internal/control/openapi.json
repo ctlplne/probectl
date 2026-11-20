@@ -14691,6 +14691,276 @@
         }
       }
     },
+    "/v1/remediation/diversion-preview": {
+      "post": {
+        "operationId": "previewDiversion",
+        "summary": "Preview the scope of a local scrubbing diversion",
+        "description": "Choose a protected traffic observation for start or the exact approved local start receipt for stop.",
+        "tags": [
+          "remediation"
+        ],
+        "x-required-permission": "remediation.propose",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemediationDiversionPreviewInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preview the scope of a local scrubbing diversion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationDiversionPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/remediation/diversion-proposals": {
+      "post": {
+        "x-required-permission": "remediation.propose",
+        "operationId": "proposeDiversion",
+        "summary": "File a local diversion preview for independent review",
+        "tags": [
+          "remediation"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemediationDiversionProposalInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Audited proposal awaiting independent approval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationProposal"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Requires a current interactive tenant session. The exact preview fingerprint and bound observation are retained.",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/remediation/proposals/{id}/diversion-review": {
+      "get": {
+        "x-required-permission": "remediation.propose",
+        "operationId": "getDiversionReview",
+        "summary": "Read the protected local diversion review and its receipt",
+        "tags": [
+          "remediation"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Proposal id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read the protected local diversion review and its receipt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationDiversionReview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "description": "Reads the exact scope, approval window and recorded local acknowledgement when present."
+      }
+    },
+    "/v1/remediation/proposals/{id}/diversion-approve": {
+      "post": {
+        "x-required-permission": "remediation.approve",
+        "operationId": "approveDiversion",
+        "summary": "Approve the exact local diversion preview",
+        "tags": [
+          "remediation"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Proposal id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemediationDiversionApprovalInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Approve the exact local diversion preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationDiversionReceipt"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "description": "Fails closed: approvals_disabled, blast_radius_exceeded, blast_radius_unknown or not_proposed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Requires current interactive approval by an independent reviewer. The local preview records a stable acknowledgement.",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        }
+      }
+    },
     "/v1/remediation/proposals/{id}/flowspec-handoff": {
       "get": {
         "x-required-permission": "remediation.propose",
@@ -20792,6 +21062,227 @@
         },
         "additionalProperties": false
       },
+      "RemediationDiversionObservation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "protected_entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "benign_entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "whole_view_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receipt_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "whole_view_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          }
+        },
+        "required": [
+          "rule_id",
+          "context_id",
+          "protected_entity_id",
+          "benign_entity_id",
+          "whole_view_id",
+          "receipt_fingerprint",
+          "whole_view_version"
+        ]
+      },
+      "RemediationDiversionPreviewInput": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop"
+            ]
+          },
+          "observation": {
+            "$ref": "#/components/schemas/RemediationDiversionObservation"
+          },
+          "start_preview_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemediationDiversionPreview": {
+        "type": "object",
+        "required": [
+          "connector",
+          "action",
+          "prefix",
+          "preview_fingerprint"
+        ],
+        "properties": {
+          "connector": {
+            "type": "string",
+            "enum": [
+              "local_preview"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop"
+            ]
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "preview_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "impact": {
+            "$ref": "#/components/schemas/RemediationPrefixImpact"
+          },
+          "start_preview_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemediationDiversionProposalInput": {
+        "type": "object",
+        "required": [
+          "selection",
+          "preview_fingerprint"
+        ],
+        "properties": {
+          "selection": {
+            "$ref": "#/components/schemas/RemediationDiversionPreviewInput"
+          },
+          "preview_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "observed_to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "max_known_benign_packets": {
+            "type": "string",
+            "pattern": "^[0-9]{1,64}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemediationDiversionReview": {
+        "type": "object",
+        "required": [
+          "candidate",
+          "blast_radius",
+          "expires_at",
+          "review_fingerprint"
+        ],
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/RemediationDiversionPreview"
+          },
+          "blast_radius": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "review_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "max_known_benign_packets": {
+            "type": "string",
+            "pattern": "^[0-9]{1,64}$"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/RemediationDiversionReceipt"
+          },
+          "start_stopped_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemediationDiversionApprovalInput": {
+        "type": "object",
+        "required": [
+          "review_fingerprint"
+        ],
+        "properties": {
+          "review_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemediationDiversionReceipt": {
+        "type": "object",
+        "required": [
+          "connector",
+          "action",
+          "prefix",
+          "start_preview_id",
+          "recorded_at"
+        ],
+        "properties": {
+          "connector": {
+            "type": "string",
+            "enum": [
+              "local_preview"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop"
+            ]
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "start_preview_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
       "RemediationFlowSpecReview": {
         "type": "object",
         "required": [
@@ -21085,7 +21576,8 @@
               "open_ticket",
               "trustctl_renewal",
               "rtbh_review",
-              "flowspec_review"
+              "flowspec_review",
+              "diversion_preview"
             ]
           },
           "title": {

@@ -7,8 +7,10 @@ import { useState, type FormEvent } from 'react'
 import { useCanonicalEntities, useEntityContexts } from '../api/entities'
 import { useFlowQueryViews } from '../api/flowViews'
 import {
+  usePreviewDiversion,
   usePreviewFlowSpec,
   usePreviewRTBH,
+  useProposeDiversion,
   useProposeFlowSpec,
   useProposeRTBH,
 } from '../api/remediation'
@@ -37,12 +39,13 @@ export function IncidentRoutingProposal({
   const [benignID, setBenignID] = useState('')
   const [viewID, setViewID] = useState('')
   const [search, setSearch] = useState('')
-  const [method, setMethod] = useState<'rtbh' | 'flowspec'>('rtbh')
+  const [method, setMethod] = useState<'rtbh' | 'flowspec' | 'diversion'>('rtbh')
   const [community, setCommunity] = useState('')
   const [protocol, setProtocol] = useState<'tcp' | 'udp'>('tcp')
   const [sourcePort, setSourcePort] = useState('')
   const [destinationPort, setDestinationPort] = useState('')
   const flowSpec = method === 'flowspec'
+  const diversion = method === 'diversion'
   const [confirmed, setConfirmed] = useState(false)
   const [maximum, setMaximum] = useState('')
   const entities = useCanonicalEntities(identity, contextID)
@@ -65,15 +68,17 @@ export function IncidentRoutingProposal({
     view &&
     (flowSpec
       ? validOptionalPort(sourcePort) && validOptionalPort(destinationPort)
-      : community.trim()) &&
+      : diversion || community.trim()) &&
     confirmed,
   )
   const rtbhPreview = usePreviewRTBH()
   const rtbhFile = useProposeRTBH()
   const flowSpecPreview = usePreviewFlowSpec()
   const flowSpecFile = useProposeFlowSpec()
-  const preview = flowSpec ? flowSpecPreview : rtbhPreview
-  const file = flowSpec ? flowSpecFile : rtbhFile
+  const diversionPreview = usePreviewDiversion()
+  const diversionFile = useProposeDiversion()
+  const preview = diversion ? diversionPreview : flowSpec ? flowSpecPreview : rtbhPreview
+  const file = diversion ? diversionFile : flowSpec ? flowSpecFile : rtbhFile
   const busy = preview.isPending || file.isPending
 
   function previewRouting(event: FormEvent) {
@@ -88,11 +93,13 @@ export function IncidentRoutingProposal({
       benign_entity_id: benignID,
       whole_view_id: view.id,
       whole_view_version: view.version,
-      routing_policy_agreed: confirmed,
     }
-    if (flowSpec) {
+    if (diversion) {
+      diversionPreview.mutate({ action: 'start', observation: scope })
+    } else if (flowSpec) {
       flowSpecPreview.mutate({
         ...scope,
+        routing_policy_agreed: confirmed,
         transport: {
           protocol,
           source_port: sourcePort ? Number(sourcePort) : undefined,
@@ -100,7 +107,11 @@ export function IncidentRoutingProposal({
         },
       })
     } else {
-      rtbhPreview.mutate({ ...scope, community: community.trim() })
+      rtbhPreview.mutate({
+        ...scope,
+        community: community.trim(),
+        routing_policy_agreed: confirmed,
+      })
     }
   }
 
@@ -110,7 +121,16 @@ export function IncidentRoutingProposal({
   }
 
   function fileProposal() {
-    if (flowSpec && flowSpecPreview.data) {
+    if (diversion && diversionPreview.data) {
+      const { input, assessment } = diversionPreview.data
+      if (!assessment.impact) return
+      diversionFile.mutate({
+        selection: input,
+        observed_to: assessment.impact.to,
+        preview_fingerprint: assessment.preview_fingerprint,
+        max_known_benign_packets: maximum,
+      })
+    } else if (flowSpec && flowSpecPreview.data) {
       const { input, assessment } = flowSpecPreview.data
       flowSpecFile.mutate({
         preview: input,
@@ -118,7 +138,7 @@ export function IncidentRoutingProposal({
         preview_fingerprint: assessment.preview_fingerprint,
         max_known_benign_packets: maximum,
       })
-    } else if (!flowSpec && rtbhPreview.data) {
+    } else if (method === 'rtbh' && rtbhPreview.data) {
       const { input, assessment } = rtbhPreview.data
       if (!assessment.preview_fingerprint) return
       rtbhFile.mutate({
@@ -139,9 +159,13 @@ export function IncidentRoutingProposal({
     label: `${item.network_prefix} · ${item.label}`,
     prefix: item.network_prefix,
   }))
-  const rtbhAssessment = flowSpec ? undefined : rtbhPreview.data?.assessment
+  const rtbhAssessment = method === 'rtbh' ? rtbhPreview.data?.assessment : undefined
   const flowSpecAssessment = flowSpec ? flowSpecPreview.data?.assessment : undefined
-  const evidence = rtbhAssessment?.preview_fingerprint ?? flowSpecAssessment?.preview_fingerprint
+  const diversionAssessment = diversion ? diversionPreview.data?.assessment : undefined
+  const evidence =
+    rtbhAssessment?.preview_fingerprint ??
+    flowSpecAssessment?.preview_fingerprint ??
+    diversionAssessment?.preview_fingerprint
 
   return (
     <>
@@ -154,10 +178,12 @@ export function IncidentRoutingProposal({
           options={[
             { value: 'rtbh', label: 'RTBH' },
             { value: 'flowspec', label: 'FlowSpec' },
+            { value: 'diversion', label: 'Diversion (local preview)' },
           ]}
           onChange={(event) => {
             clearPreview()
-            setMethod(event.target.value === 'flowspec' ? 'flowspec' : 'rtbh')
+            const next = event.target.value
+            setMethod(next === 'flowspec' || next === 'diversion' ? next : 'rtbh')
             setConfirmed(false)
             setMaximum('')
           }}
@@ -269,7 +295,7 @@ export function IncidentRoutingProposal({
               }}
             />
           </>
-        ) : (
+        ) : diversion ? null : (
           <Field
             label="Community from your routing policy"
             value={community}
@@ -290,9 +316,11 @@ export function IncidentRoutingProposal({
               setConfirmed(event.target.checked)
             }}
           />{' '}
-          {flowSpec
-            ? 'I checked this FlowSpec match against the selected routing context’s policy'
-            : 'I checked this community against the selected routing context’s policy'}
+          {diversion
+            ? 'I reviewed the protected scope for the local diversion preview'
+            : flowSpec
+              ? 'I checked this FlowSpec match against the selected routing context’s policy'
+              : 'I checked this community against the selected routing context’s policy'}
         </label>
         <div className={styles.actions}>
           <Button type="submit" disabled={!valid || busy}>
@@ -308,6 +336,16 @@ export function IncidentRoutingProposal({
         <>
           <dl aria-label="Scoped routing preview">
             {flowSpecAssessment ? <FlowSpecEvidence preview={flowSpecAssessment} /> : null}
+            {diversionAssessment?.impact ? (
+              <>
+                <dt>Local preview prefix</dt>
+                <dd>{diversionAssessment.prefix}</dd>
+                <dt>Known benign traffic</dt>
+                <dd>{diversionAssessment.impact.known_benign.packets} packets</dd>
+                <dt>Unclassified traffic</dt>
+                <dd>{diversionAssessment.impact.unclassified.packets} packets</dd>
+              </>
+            ) : null}
             {rtbhAssessment ? (
               <>
                 <dt>Proposed prefix and community</dt>

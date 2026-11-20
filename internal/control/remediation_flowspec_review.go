@@ -7,13 +7,11 @@
 package control
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/remediation"
-	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func (s *Server) handleProposeFlowSpecReview(w http.ResponseWriter, r *http.Request) error {
@@ -121,28 +119,7 @@ func (s *Server) handleWithdrawFlowSpecHandoff(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		return err
 	}
-	publication := remediation.RTBHImpactPublication{
-		Publish: func(ctx context.Context, sc tenancy.Scope, permission string, commit func(context.Context, tenancy.Scope) error) error {
-			if sc.Tenant.String() != actor.TenantID || permission != permRemediationApprove || commit == nil {
-				return tenancy.ErrNoTenant
-			}
-			if err := s.lockRoutingReviewApprovalSession(ctx, sc, actor); err != nil {
-				return err
-			}
-			authority, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
-			if err != nil {
-				return err
-			}
-			ctx, current, err := authority.requestContext(ctx, actor)
-			if err != nil {
-				return err
-			}
-			if err := s.authorize(ctx, current, permission, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: sc.Tenant.String()}); err != nil {
-				return err
-			}
-			return commit(ctx, sc)
-		},
-	}
+	publication := s.routingReviewAuthorityPublication(actor, permRemediationApprove)
 	result, err := service.WithdrawFlowSpecHandoff(ctx, actor.TenantID, "user:"+actor.Email, id, publication)
 	if err != nil {
 		return mapRemediationErr(err)

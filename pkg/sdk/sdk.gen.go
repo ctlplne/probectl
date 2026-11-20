@@ -3974,6 +3974,61 @@ type RemediationDecisionRequest struct {
 	ReviewFingerprint string `json:"review_fingerprint,omitempty"`
 }
 
+type RemediationDiversionApprovalInput struct {
+	Note              string `json:"note,omitempty"`
+	ReviewFingerprint string `json:"review_fingerprint"`
+}
+
+type RemediationDiversionObservation struct {
+	BenignEntityId     string `json:"benign_entity_id"`
+	ContextId          string `json:"context_id"`
+	ProtectedEntityId  string `json:"protected_entity_id"`
+	ReceiptFingerprint string `json:"receipt_fingerprint"`
+	RuleId             string `json:"rule_id"`
+	WholeViewId        string `json:"whole_view_id"`
+	WholeViewVersion   string `json:"whole_view_version"`
+}
+
+type RemediationDiversionPreview struct {
+	Action             string                  `json:"action"`
+	Connector          string                  `json:"connector"`
+	Impact             RemediationPrefixImpact `json:"impact,omitzero"`
+	Prefix             string                  `json:"prefix"`
+	PreviewFingerprint string                  `json:"preview_fingerprint"`
+	StartPreviewId     string                  `json:"start_preview_id,omitempty"`
+}
+
+type RemediationDiversionPreviewInput struct {
+	Action         string                          `json:"action"`
+	Observation    RemediationDiversionObservation `json:"observation,omitzero"`
+	StartPreviewId string                          `json:"start_preview_id,omitempty"`
+}
+
+type RemediationDiversionProposalInput struct {
+	MaxKnownBenignPackets string                           `json:"max_known_benign_packets,omitempty"`
+	ObservedTo            string                           `json:"observed_to,omitempty"`
+	PreviewFingerprint    string                           `json:"preview_fingerprint"`
+	Selection             RemediationDiversionPreviewInput `json:"selection"`
+}
+
+type RemediationDiversionReceipt struct {
+	Action         string `json:"action"`
+	Connector      string `json:"connector"`
+	Prefix         string `json:"prefix"`
+	RecordedAt     string `json:"recorded_at"`
+	StartPreviewId string `json:"start_preview_id"`
+}
+
+type RemediationDiversionReview struct {
+	BlastRadius           int                         `json:"blast_radius"`
+	Candidate             RemediationDiversionPreview `json:"candidate"`
+	ExpiresAt             string                      `json:"expires_at"`
+	MaxKnownBenignPackets string                      `json:"max_known_benign_packets,omitempty"`
+	Receipt               RemediationDiversionReceipt `json:"receipt,omitzero"`
+	ReviewFingerprint     string                      `json:"review_fingerprint"`
+	StartStoppedAt        string                      `json:"start_stopped_at,omitempty"`
+}
+
 type RemediationDryRun struct {
 	BlastRadius      int      `json:"blast_radius,omitempty"`
 	Disconnected     []string `json:"disconnected,omitempty"`
@@ -9406,6 +9461,36 @@ func (c *Client) PromRemoteWrite(ctx context.Context, req PromRemoteWriteRequest
 	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
 }
 
+// Preview the scope of a local scrubbing diversion
+type PreviewDiversionRequest struct {
+	Body *RemediationDiversionPreviewInput `json:"-"`
+}
+
+func (c *Client) PreviewDiversion(ctx context.Context, req PreviewDiversionRequest) (*RemediationDiversionPreview, error) {
+	path := "/v1/remediation/diversion-preview"
+	query := url.Values{}
+	var out RemediationDiversionPreview
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// File a local diversion preview for independent review
+type ProposeDiversionRequest struct {
+	Body *RemediationDiversionProposalInput `json:"-"`
+}
+
+func (c *Client) ProposeDiversion(ctx context.Context, req ProposeDiversionRequest) (*RemediationProposal, error) {
+	path := "/v1/remediation/diversion-proposals"
+	query := url.Values{}
+	var out RemediationProposal
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Preview a tenant-scoped FlowSpec proposal
 type PreviewRemediationFlowSpecRequest struct {
 	Body *RemediationFlowSpecPreviewInput `json:"-"`
@@ -9499,6 +9584,45 @@ func (c *Client) ApproveRemediationProposal(ctx context.Context, req ApproveReme
 	query := url.Values{}
 	var out RemediationProposal
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Approve the exact local diversion preview
+type ApproveDiversionRequest struct {
+	Id   string                             `json:"-"`
+	Body *RemediationDiversionApprovalInput `json:"-"`
+}
+
+func (c *Client) ApproveDiversion(ctx context.Context, req ApproveDiversionRequest) (*RemediationDiversionReceipt, error) {
+	path := "/v1/remediation/proposals/{id}/diversion-approve"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RemediationDiversionReceipt
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read the protected local diversion review and its receipt
+type GetDiversionReviewRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetDiversionReview(ctx context.Context, req GetDiversionReviewRequest) (*RemediationDiversionReview, error) {
+	path := "/v1/remediation/proposals/{id}/diversion-review"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RemediationDiversionReview
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

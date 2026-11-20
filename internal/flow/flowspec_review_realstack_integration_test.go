@@ -58,6 +58,7 @@ func TestFlowSpecReviewUsesOwnedMatchesAndIndependentApproval(t *testing.T) {
 		t.Fatalf("wrong scoped FlowSpec candidate or collateral: %+v", preview)
 	}
 	proposeFlowSpecAndApprove(t, stack, owner, reviewer, sibling, input, preview)
+	assertShippedDiversionPreview(t, stack, owner, reviewer, sibling, input.PrefixImpactInput)
 }
 
 func appendFlowSpecControlObservation(t *testing.T, owner *nativeLane, end time.Time) {

@@ -328,3 +328,25 @@ trigger. If a future change ever adds an execution integration, it must remain
 human-gated, dry-run-first, blast-radius-limited, tenant- and RBAC-scoped, and
 fully audited — and it would require a fresh human sign-off, because it changes
 this contract.
+
+### Preview scrubbing diversion
+
+From the traffic pressure receipt, select **Diversion (local preview)** and
+review the whole protected prefix, observed known-benign packets and
+unclassified packets. File the exact preview with a known-benign packet limit.
+An independent reviewer uses **Review local preview** in Admin and approves
+that evidence in a current interactive session. The resulting `local_preview`
+receipt records a simulated start. It carries the fixed prefix, a stable start
+preview ID and the time the local acknowledgement was committed.
+
+From the approved start receipt, select **Preview stop** and file it for
+independent review. Its approval refers to that exact local start. Retrying an
+approved action retrieves its original receipt. Both approved decisions appear
+in the tenant’s DDoS incident report. Scrubbing-provider account and network
+qualification are separate from the local simulation.
+
+The equivalent CLI commands are `probectl remediation diversion-preview`,
+`diversion-propose`, `diversion-review` and `diversion-approve`. An interactive
+session cookie file is required for filing and approval. The start preview
+uses a current protected observation. The stop preview uses the recorded
+`start_preview_id`.

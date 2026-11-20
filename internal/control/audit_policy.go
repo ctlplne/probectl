@@ -174,6 +174,7 @@ var auditExportRoutes = map[string]bool{
 }
 
 var auditSensitiveReadRoutes = map[string]bool{
+	"GET /v1/remediation/proposals/{id}/diversion-review":              true,
 	"GET /v1/remediation/proposals/{id}/flowspec-handoff":              true,
 	"POST /v1/incidents/{id}/verdict":                                  true,
 	"POST /v1/incidents/{id}/impact":                                   true,
@@ -480,6 +481,10 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/remediation/proposals/{id}/flowspec-review":                  auditWrapped(auditFacetOperational),
 	"POST /v1/remediation/proposals/{id}/flowspec-qualification":          auditWrapped(auditFacetOperational),
 	"POST /v1/remediation/proposals/{id}/flowspec-approve":                auditWrapped(auditFacetOperational),
+	"POST /v1/remediation/diversion-preview":                              auditWrapped(auditFacetOperational),
+	"POST /v1/remediation/diversion-proposals":                            auditWrapped(auditFacetOperational),
+	"GET /v1/remediation/proposals/{id}/diversion-review":                 auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/remediation/proposals/{id}/diversion-approve":               auditWrapped(auditFacetOperational),
 	"GET /v1/remediation/proposals/{id}/flowspec-handoff":                 auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/remediation/proposals/{id}/flowspec-withdraw":               auditWrapped(auditFacetOperational),
 	"GET /v1/remediation/proposals/{id}":                                  auditWrapped(auditFacetOperational),

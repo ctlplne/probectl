@@ -3801,6 +3801,61 @@ export interface RemediationDecisionRequest {
   review_fingerprint?: string
 }
 
+export interface RemediationDiversionApprovalInput {
+  note?: string
+  review_fingerprint: string
+}
+
+export interface RemediationDiversionObservation {
+  benign_entity_id: string
+  context_id: string
+  protected_entity_id: string
+  receipt_fingerprint: string
+  rule_id: string
+  whole_view_id: string
+  whole_view_version: string
+}
+
+export interface RemediationDiversionPreview {
+  action: "start" | "stop"
+  connector: "local_preview"
+  impact?: RemediationPrefixImpact
+  prefix: string
+  preview_fingerprint: string
+  start_preview_id?: string
+}
+
+export interface RemediationDiversionPreviewInput {
+  action: "start" | "stop"
+  observation?: RemediationDiversionObservation
+  start_preview_id?: string
+}
+
+export interface RemediationDiversionProposalInput {
+  max_known_benign_packets?: string
+  observed_to?: string
+  preview_fingerprint: string
+  selection: RemediationDiversionPreviewInput
+}
+
+export interface RemediationDiversionReceipt {
+  action: "start" | "stop"
+  connector: "local_preview"
+  prefix: string
+  recorded_at: string
+  start_preview_id: string
+}
+
+export interface RemediationDiversionReview {
+  blast_radius: number
+  candidate: RemediationDiversionPreview
+  expires_at: string
+  max_known_benign_packets?: string
+  receipt?: RemediationDiversionReceipt
+  review_fingerprint: string
+  start_stopped_at?: string
+}
+
 export interface RemediationDryRun {
   blast_radius?: number
   disconnected?: string[]
@@ -3941,7 +3996,7 @@ export interface RemediationProposal {
   dry_run?: RemediationDryRun
   id?: string
   incident_id?: string
-  kind?: "reroute_suggestion" | "traffic_shift_suggestion" | "open_ticket" | "trustctl_renewal" | "rtbh_review" | "flowspec_review"
+  kind?: "reroute_suggestion" | "traffic_shift_suggestion" | "open_ticket" | "trustctl_renewal" | "rtbh_review" | "flowspec_review" | "diversion_preview"
   proposed_by?: string
   rationale?: string
   state?: "proposed" | "approved" | "rejected" | "applied"
@@ -6030,6 +6085,18 @@ export interface PromRemoteWriteRequest {
 
 export type PromRemoteWriteResponse = void
 
+export interface PreviewDiversionRequest {
+  body: RemediationDiversionPreviewInput
+}
+
+export type PreviewDiversionResponse = RemediationDiversionPreview
+
+export interface ProposeDiversionRequest {
+  body: RemediationDiversionProposalInput
+}
+
+export type ProposeDiversionResponse = RemediationProposal
+
 export interface PreviewRemediationFlowSpecRequest {
   body: RemediationFlowSpecPreviewInput
 }
@@ -6065,6 +6132,19 @@ export interface ApproveRemediationProposalRequest {
 }
 
 export type ApproveRemediationProposalResponse = RemediationProposal
+
+export interface ApproveDiversionRequest {
+  id: string
+  body: RemediationDiversionApprovalInput
+}
+
+export type ApproveDiversionResponse = RemediationDiversionReceipt
+
+export interface GetDiversionReviewRequest {
+  id: string
+}
+
+export type GetDiversionReviewResponse = RemediationDiversionReview
 
 export interface ApproveFlowSpecReviewRequest {
   id: string
@@ -8234,6 +8314,18 @@ export class ProbectlSDKClient {
     await this.request("POST", path, query, undefined)
   }
 
+  async previewDiversion(request: PreviewDiversionRequest): Promise<PreviewDiversionResponse> {
+    let path = "/v1/remediation/diversion-preview"
+    const query = new URLSearchParams()
+    return this.requestJSON<PreviewDiversionResponse>("POST", path, query, request.body)
+  }
+
+  async proposeDiversion(request: ProposeDiversionRequest): Promise<ProposeDiversionResponse> {
+    let path = "/v1/remediation/diversion-proposals"
+    const query = new URLSearchParams()
+    return this.requestJSON<ProposeDiversionResponse>("POST", path, query, request.body)
+  }
+
   async previewRemediationFlowSpec(request: PreviewRemediationFlowSpecRequest): Promise<PreviewRemediationFlowSpecResponse> {
     let path = "/v1/remediation/flowspec-preview"
     const query = new URLSearchParams()
@@ -8270,6 +8362,20 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<ApproveRemediationProposalResponse>("POST", path, query, request.body)
+  }
+
+  async approveDiversion(request: ApproveDiversionRequest): Promise<ApproveDiversionResponse> {
+    let path = "/v1/remediation/proposals/{id}/diversion-approve"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ApproveDiversionResponse>("POST", path, query, request.body)
+  }
+
+  async getDiversionReview(request: GetDiversionReviewRequest): Promise<GetDiversionReviewResponse> {
+    let path = "/v1/remediation/proposals/{id}/diversion-review"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetDiversionReviewResponse>("GET", path, query, undefined)
   }
 
   async approveFlowSpecReview(request: ApproveFlowSpecReviewRequest): Promise<ApproveFlowSpecReviewResponse> {

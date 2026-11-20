@@ -18,15 +18,27 @@ import (
 func DDoSReportDecisions(ctx context.Context, sc tenancy.Scope, incidentID, ruleID, fingerprint string) ([]alert.DDoSReportDecision, error) {
 	const limit = 100
 	rows, err := sc.Q.Query(ctx, `
-		SELECT id::text, kind, state, created_at, decided_at
-		FROM remediation_proposals
-		WHERE tenant_id=$1 AND kind IN ('rtbh_review','flowspec_review')
-		  AND (incident_id=$2 OR (
-		       incident_id='' AND
-		       COALESCE(rtbh_review,flowspec_review) #>> '{request,preview,rule_id}'=$3 AND
-		       COALESCE(rtbh_review,flowspec_review) #>> '{request,preview,receipt_fingerprint}'=$4
+		SELECT own.id::text,
+		       CASE WHEN own.kind='diversion_preview' THEN 'diversion_preview_' || (own.diversion_review #>> '{review,candidate,action}')
+		            ELSE own.kind END,
+		       own.state, own.created_at, own.decided_at
+		FROM remediation_proposals own
+		LEFT JOIN remediation_proposals original
+		  ON original.tenant_id=$1 AND original.tenant_id=own.tenant_id AND original.kind='diversion_preview'
+		 AND own.kind='diversion_preview' AND own.diversion_review #>> '{review,candidate,action}'='stop'
+		 AND original.id::text=own.diversion_review #>> '{review,candidate,start_preview_id}'
+		WHERE own.tenant_id=$1 AND own.kind IN ('rtbh_review','flowspec_review','diversion_preview')
+		  AND (own.incident_id=$2 OR (
+		       own.incident_id='' AND
+		       CASE WHEN own.kind='diversion_preview' THEN
+		           COALESCE(own.diversion_review #>> '{selection,observation,rule_id}', original.diversion_review #>> '{selection,observation,rule_id}')=$3 AND
+		           COALESCE(own.diversion_review #>> '{selection,observation,receipt_fingerprint}', original.diversion_review #>> '{selection,observation,receipt_fingerprint}')=$4
+		       ELSE
+		           COALESCE(own.rtbh_review,own.flowspec_review) #>> '{request,preview,rule_id}'=$3 AND
+		           COALESCE(own.rtbh_review,own.flowspec_review) #>> '{request,preview,receipt_fingerprint}'=$4
+		       END
 		  ))
-		ORDER BY created_at,id LIMIT $5`, sc.Tenant.String(), incidentID, ruleID, fingerprint, limit+1)
+		ORDER BY own.created_at,own.id LIMIT $5`, sc.Tenant.String(), incidentID, ruleID, fingerprint, limit+1)
 	if err != nil {
 		return nil, err
 	}

@@ -7,6 +7,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from './client'
 import type {
+  RemediationDiversionApprovalInput,
+  RemediationDiversionPreview,
+  RemediationDiversionPreviewInput,
+  RemediationDiversionProposalInput,
+  RemediationDiversionReceipt,
+  RemediationDiversionReview,
   RemediationFlowSpecApprovalInput,
   RemediationFlowSpecHandoffStatus,
   RemediationFlowSpecPreview,
@@ -239,5 +245,58 @@ export function useDecideRemediation() {
         body: JSON.stringify({ note: note ?? '', review_fingerprint: fingerprint }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['remediation-proposals'] }),
+  })
+}
+
+export function usePreviewDiversion() {
+  return useMutation({
+    mutationFn: async (input: RemediationDiversionPreviewInput) => ({
+      input,
+      assessment: await apiFetch<RemediationDiversionPreview>('/remediation/diversion-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    }),
+  })
+}
+
+export function useProposeDiversion() {
+  const query = useQueryClient()
+  return useMutation({
+    mutationFn: (input: RemediationDiversionProposalInput) =>
+      apiFetch<Proposal>('/remediation/diversion-proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => query.invalidateQueries({ queryKey: ['remediation-proposals'] }),
+  })
+}
+
+export function useDiversionReview(id: string, identity: string) {
+  return useQuery({
+    queryKey: ['remediation-proposals', identity, 'diversion-review', id],
+    retry: false,
+    queryFn: () =>
+      apiFetch<RemediationDiversionReview>(
+        `/remediation/proposals/${encodeURIComponent(id)}/diversion-review`,
+      ),
+  })
+}
+
+export function useApproveDiversion() {
+  const query = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: RemediationDiversionApprovalInput }) =>
+      apiFetch<RemediationDiversionReceipt>(
+        `/remediation/proposals/${encodeURIComponent(id)}/diversion-approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        },
+      ),
+    onSuccess: () => query.invalidateQueries({ queryKey: ['remediation-proposals'] }),
   })
 }
