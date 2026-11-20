@@ -270,7 +270,6 @@ capabilities:
   - id: F15
     name: Browser synthetic
     status: delivered
-    evidence_status: partial
     owner: design system/domain
     engine: {refs: ["file:internal/browsercanary", "file:browser-worker"]}
     binary: {refs: ["file:cmd/probectl-agent/main.go#browsercanary.NewFactory("]}
@@ -280,7 +279,7 @@ capabilities:
     docs: {refs: ["file:docs/browser-synthetic.md#Browser / transaction synthetic"]}
     config_keys: {refs: ["config:PROBECTL_AGENT_BROWSER_DRIVER", "config:PROBECTL_AGENT_BROWSER_WORKER_PATH"]}
     telemetry: {refs: ["file:internal/browser"]}
-    real_stack_proof: {gap: "The Playwright worker is real, but the receipt uses a local httptest app and in-process factory with no agent binary, bus, stores, public API, or two-tenant delivery path."}
+    real_stack_proof: {refs: ["test:internal/browsercanary/shipped_browser_integration_test.go#TestRenderedBrowserCanariesReachOnlyTheirShippedTenant"]}
     migration: *no_migration
 
   - id: F16

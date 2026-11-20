@@ -112,8 +112,8 @@
         "F15"
       ],
       "name": "Browser synthetic",
-      "status": "partial",
-      "evidence": "`browser-worker/` · *browser-worker*"
+      "status": "delivered",
+      "evidence": "`TestRenderedBrowserCanariesReachOnlyTheirShippedTenant` runs signed definitions on shipped agents with the pinned Playwright worker. Separate tenant sessions read rendered results and Prometheus samples. The expected failed step produces a PNG under the owning tenant's object prefix."
     },
     {
       "ids": [

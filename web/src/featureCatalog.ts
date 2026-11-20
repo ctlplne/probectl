@@ -121,7 +121,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F15',
     name: 'Browser synthetic',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

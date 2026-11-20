@@ -252,11 +252,11 @@ per-producer deployment journeys — start at
 
 ## Notes
 
-- **Integration status.** CI runs the real Playwright worker in its pinned
-  Chromium image, then constructs the shipped agent factory with
-  `browser.driver=browser` and asserts the agent receives waterfall and DOM
-  timings. The worker smoke separately proves private-target refusal and both
-  success/failure artifacts.
+- **Integration status.** Two shipped agents execute signed central definitions
+  with the pinned Playwright Chromium. Each tenant reads its rendered success,
+  failed text assertion and Prometheus samples through the HTTPS API. The test
+  checks the failure PNG in the owning tenant's object prefix and checks sibling
+  refusal. The worker smoke also checks private-target refusal.
 - **Architecture choice.** The script format, result model, object-store upload,
   and fleet isolation/concurrency/recycling all live in Go (`internal/browser`,
   fully tested); only rendering is delegated to the packaged Playwright child.

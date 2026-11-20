@@ -1769,6 +1769,8 @@ jobs:
           PROBECTL_OTELSTORE_URL: "http://probectl:probectl@localhost:8123"
           PROBECTL_TEST_STOCK_OTEL_COLLECTOR: ${{ runner.temp }}/probectl-stock-otel/otelcol
           PROBECTL_TEST_REQUIRE_STOCK_OTEL_COLLECTOR: "1"
+          PROBECTL_TEST_SHIPPED_BROWSER_WORKER: ${{ github.workspace }}/browser-worker/worker.mjs
+          PROBECTL_TEST_REQUIRE_SHIPPED_BROWSER_WORKER: "1"
         run: make test-integration
       - name: Integration-coverage floors for stateful security packages (TQ-09, supersedes U-057)
         # The service-free unit gate (scripts/check_coverage.sh) exempts the
