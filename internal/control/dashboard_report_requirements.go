@@ -173,7 +173,6 @@ func validateDDoSReportSourceRequirements(ctx context.Context, value reportSourc
 		return errReportSourceRequirements
 	}
 	return nil
-
 }
 
 func validateFlowReportSourceRequirements(ctx context.Context, value reportSourceRequirements, memory int64) error {
