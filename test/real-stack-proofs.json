@@ -2,6 +2,13 @@
   "schema": "probectl.real-stack-proofs/v1",
   "proofs": [
     {
+      "ref": "test:internal/outage/shipped_fused_integration_test.go#TestShippedOutageFusesOwnedVantagesWithLastGoodMirror",
+      "profile": "integration",
+      "capabilities": [
+        "F19"
+      ]
+    },
+    {
       "ref": "test:internal/siem/shipped_opensearch_integration_test.go#TestShippedSIEMAuditReachesOpenSearchWithExactTenantIdentity",
       "profile": "integration",
       "capabilities": [

@@ -144,8 +144,8 @@
         "F19"
       ],
       "name": "Internet-outage view",
-      "status": "partial",
-      "evidence": "`internal/outage`"
+      "status": "delivered",
+      "evidence": "`TestShippedOutageFusesOwnedVantagesWithLastGoodMirror` joins original tenant probe failures with a shared IODA-format fixture. It checks individual vantage episodes and continued API, CLI and console readback with a failed mirror."
     },
     {
       "ids": [

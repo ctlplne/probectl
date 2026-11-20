@@ -145,7 +145,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F19',
     name: 'Internet-outage view',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   { id: 'F20', name: 'RUM', status: 'delivered', source: 'contract:features' },

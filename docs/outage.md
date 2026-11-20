@@ -125,10 +125,16 @@ flowchart LR
 | `PROBECTL_OUTAGE_FEEDS` | (all) | which feeds to load: `ioda`, `cloudflare_radar` |
 | `PROBECTL_OUTAGE_REFRESH` | `10m` | feed refresh cadence |
 | `PROBECTL_OUTAGE_RETENTION` | `48h` | event window kept / queried |
+| `PROBECTL_OUTAGE_MIRROR` | (none) | operator-managed mirror directory or HTTPS base, with each feed stored by name |
 | `PROBECTL_OUTAGE_RADAR_TOKEN` | (none) | Cloudflare API token (secret-ref resolvable); Radar is omitted without it |
 
 `GET /v1/outages` requires the `metrics.read` permission (it reads the synthetic /
 metrics plane).
+
+The shipped integration exercises the API, CLI and both console themes with
+two enrolled agents and an IODA-format fixture. Each tenant sees its own
+affected targets. The shared event remains visible after the mirror fails,
+and the feed state reports the failure.
 
 Out of scope by design: owning a global probe / BGP fleet. The view leans on your
 vantages plus open data — and says so.

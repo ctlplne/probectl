@@ -342,7 +342,6 @@ capabilities:
   - id: F19
     name: Internet-outage view
     status: delivered
-    evidence_status: partial
     owner: product/path
     engine: {refs: ["file:internal/outage"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildOutage("]}
@@ -352,7 +351,7 @@ capabilities:
     docs: {refs: ["file:docs/outage.md#Collective internet-outage view"]}
     config_keys: {refs: ["config:PROBECTL_OUTAGE_ENABLED", "config:PROBECTL_OUTAGE_FEEDS"]}
     telemetry: {refs: ["file:internal/outage"]}
-    real_stack_proof: {gap: "External feeds may remain hermetic, but the positive fused outage engine, cache, public API, UI, and two-tenant behavior still lacks a real-stack receipt."}
+    real_stack_proof: {refs: ["test:internal/outage/shipped_fused_integration_test.go#TestShippedOutageFusesOwnedVantagesWithLastGoodMirror"]}
     migration: *no_migration
 
   - id: F20
