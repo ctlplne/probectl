@@ -39,9 +39,10 @@ bound evidence leaves generic pressure unevaluated for alarm admission. A
 strong network vector can still qualify using its own flow evidence.
 
 Scheduled and preview assessments use a bounded projection of stored HTTP
-server observations. The read applies the tenant, service, address, port and
-half-open clock before its limit, and needs 20 to 16,383 matching original
-observations per window. The projection keeps exact request counts, successful
+server observations. The read applies the tenant, service, local TCP socket
+and half-open start clock before its limit. A request can count once its span
+has completed, including after its start window closes. Each window needs 20
+to 16,383 matching original observations. The projection keeps exact request counts, successful
 responses, p95 duration and an observation digest. Overflow and a known partial
 window in the in-memory store leave application evidence unavailable.
 
@@ -60,18 +61,18 @@ window in the in-memory store leave application evidence unavailable.
 
 ## Published results
 
-Go 1.26.11 on macOS arm64 with an Apple M1 Max reproduced the same manifest
-and materialized observation digests in two independent accuracy runs.
+Go 1.26.11 on macOS arm64 with an Apple M1 Max reproduced the original v2
+manifest and all 416 trial outcomes. The local socket attributes changed the
+materialized observation digest.
 
 | Measure | Result |
 | --- | --- |
 | Fixture manifest SHA-256 | `5aa5d0055e73fd3f76d8a65c849bd625ad314f06d8cbe20897a32cf97914c9f7` |
-| Materialized observations SHA-256 | `64057bf4f52fba28440f2e341530b49f0dbee616a88cd688a88a412a4c6cc87b` |
+| Materialized observations SHA-256 | `1c9f7ffcd1484bd0ca02df73462edcd26b453ed55a993bfc61c3919d94abf1d2` |
 | True positives / false positives | 208 / 0 |
 | True negatives / false negatives | 80 / 16 |
 | Abstained positives / abstained negatives | 48 / 64 |
 | Modeled onset min / median / p95 / max | 10 s / 12 s / 14 s / 14 s |
-| In-process runtime per 416-trial corpus | 44.57–55.74 ms across five runs |
 
 The detector classified 304 of 416 trials. The 48 abstained positives bring
 the number of positive trials without an opened episode to 64. All 16 matched

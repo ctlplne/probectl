@@ -25,7 +25,8 @@ func TestHTTPObservationReadKeepsCompleteScopedWindowBeyondTraceSearchLimit(t *t
 		HTTPServer: &HTTPServerTarget{Address: netip.MustParseAddr("192.0.2.1"), Port: 443}}
 	base := Span{TenantID: "health-owner", Service: q.Service, Kind: "server", Start: start,
 		TraceID: "observation", Duration: time.Millisecond, Attrs: map[string]string{
-			"server.address": "192.0.2.1", "server.port": "443", "http.response.status_code": "200", "unneeded": "hidden",
+			"network.local.address": "192.0.2.1", "network.local.port": "443", "network.transport": "tcp",
+			"server.address": "site.example", "http.response.status_code": "200", "unneeded": "hidden",
 		}}
 	rows := make([]Span, 0, httpObservationLimit+2)
 	for i := range httpObservationLimit - 1 {
@@ -43,11 +44,11 @@ func TestHTTPObservationReadKeepsCompleteScopedWindowBeyondTraceSearchLimit(t *t
 		t.Fatal(err)
 	}
 	got, err := ReadHTTPObservations(owner, store, "health-owner", q)
-	if err != nil || len(got) != httpObservationLimit-1 || len(got[0].Attrs) != 3 || got[0].Attrs["unneeded"] != "" {
+	if err != nil || len(got) != httpObservationLimit-1 || len(got[0].Attrs) != 4 || got[0].Attrs["unneeded"] != "" || got[0].Attrs["server.address"] != "" {
 		t.Fatalf("the scoped HTTP evidence lost its population or field boundary: %d rows, %v", len(got), err)
 	}
 	for _, row := range got {
-		if row.TenantID != "health-owner" || !row.Start.Equal(start) || row.Attrs["server.port"] != "443" {
+		if row.TenantID != "health-owner" || !row.Start.Equal(start) || row.Attrs["network.local.port"] != "443" {
 			t.Fatal("an observation escaped the exact tenant, port or clock scope")
 		}
 	}
@@ -63,6 +64,40 @@ func TestHTTPObservationReadKeepsCompleteScopedWindowBeyondTraceSearchLimit(t *t
 	}
 	if got, err := ReadHTTPObservations(owner, store, "health-owner", q); got != nil || err != nil {
 		t.Fatal("the observation ceiling returned a partial sample as complete", err)
+	}
+}
+
+func TestHTTPObservationReadRequiresTheProtectedLocalTCPSocket(t *testing.T) {
+	store := NewMemory()
+	const tenant = "health-owner"
+	ctx := tenancy.WithTenant(t.Context(), tenant)
+	start := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	observations := []struct {
+		id, address, port, transport, authority string
+	}{
+		{"matching-socket", "192.0.2.1", "443", "tcp", "site.example"},
+		{"authority-only", "", "", "", "192.0.2.1"},
+		{"different-address", "192.0.2.2", "443", "tcp", "192.0.2.1"},
+		{"different-port", "192.0.2.1", "8443", "tcp", "192.0.2.1"},
+		{"udp", "192.0.2.1", "443", "udp", "192.0.2.1"},
+	}
+	rows := make([]Span, 0, len(observations))
+	for _, observation := range observations {
+		rows = append(rows, Span{TenantID: tenant, Service: "site", Kind: "server", Start: start,
+			TraceID: "local-endpoint", SpanID: observation.id, Duration: time.Millisecond, Attrs: map[string]string{
+				"network.local.address": observation.address, "network.local.port": observation.port,
+				"network.transport": observation.transport, "server.address": observation.authority, "server.port": "443",
+				"http.response.status_code": "200",
+			}})
+	}
+	if err := store.WriteSpans(t.Context(), rows); err != nil {
+		t.Fatal(err)
+	}
+	q := SpanQuery{Service: "site", Since: start, Until: start.Add(5 * time.Second),
+		HTTPServer: &HTTPServerTarget{Address: netip.MustParseAddr("192.0.2.1"), Port: 443}}
+	got, err := ReadHTTPObservations(ctx, store, tenant, q)
+	if err != nil || len(got) != 1 || got[0].SpanID != "matching-socket" {
+		t.Fatal("the requested HTTP authority moved observations across socket identity", len(got), err)
 	}
 }
 

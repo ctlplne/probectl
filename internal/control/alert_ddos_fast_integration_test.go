@@ -218,6 +218,11 @@ func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otel
 			}
 			rows = append(rows, row)
 			for n, span := range benchmarkDDoSAppSpans(sample, window.Start) {
+				if i == 0 && n == 0 {
+					// An original request began in this historical window and
+					// finished immediately after it closed.
+					span.Start = window.End.Add(-5 * time.Millisecond)
+				}
 				span.TenantID = tenant
 				span.TraceID = fmt.Sprintf("%016x%016x", window.Start.UnixNano(), n+1)
 				spans = append(spans, span)
@@ -227,7 +232,8 @@ func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otel
 					spans = append(spans, otelstore.Span{TenantID: tenant, TraceID: fmt.Sprintf("%016x%016x", window.Start.UnixNano(), n+10000),
 						SpanID: "0000000000000001", Kind: "server", Service: "synthetic-public-site",
 						Start: window.Start.Add(time.Second + time.Duration(n)*time.Millisecond), Duration: 20 * time.Millisecond,
-						Attrs: map[string]string{"server.address": "192.0.2.1", "server.port": "8443", "http.response.status_code": "200"}})
+						Attrs: map[string]string{"server.address": "192.0.2.1", "server.port": "443", "http.response.status_code": "200",
+							"network.local.address": "192.0.2.1", "network.local.port": "8443", "network.transport": "tcp"}})
 				}
 			}
 		}

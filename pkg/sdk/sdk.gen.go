@@ -2503,7 +2503,7 @@ type FlowCapacityPoint struct {
 	Ts       string  `json:"ts,omitempty"`
 }
 
-// Independently observed HTTP server spans for this exact protected ingress host.
+// Independently observed HTTP server spans for the exact local TCP socket of the protected ingress host.
 type FlowDDoSApplicationBinding struct {
 	Port    int    `json:"port"`
 	Service string `json:"service"`

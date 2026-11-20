@@ -19,8 +19,9 @@ import (
 // window cannot be used as evidence. This limit is independent of trace search.
 const httpObservationLimit = 16_384
 
-// ReadHTTPObservations reads the fields needed to qualify an exact service
-// window. A nil result with a nil error means no complete bounded projection.
+// ReadHTTPObservations reads an exact service and local TCP socket window.
+// HTTP authority may come from a request header, so it provides no socket
+// identity. A nil result with a nil error means no complete bounded projection.
 func ReadHTTPObservations(ctx context.Context, store Store, tenant string, q SpanQuery) ([]Span, error) {
 	bound, ok := tenancy.FromContext(ctx)
 	if !ok || tenant == "" || tenant != bound.String() {
@@ -63,8 +64,9 @@ func (c *ClickHouse) readHTTPObservations(ctx context.Context, tenant string, q 
 FROM ` + table + ` FINAL
 WHERE tenant_id = {tenant:String} AND service = {svc:String} AND kind = 'server'
   AND start >= fromUnixTimestamp64Micro({since:Int64}) AND start < fromUnixTimestamp64Micro({until:Int64})
-  AND JSONExtractString(attrs, 'server.address') = {http_addr:String}
-  AND JSONExtractString(attrs, 'server.port') = {http_port:String}
+  AND JSONExtractString(attrs, 'network.local.address') = {http_addr:String}
+  AND JSONExtractString(attrs, 'network.local.port') = {http_port:String}
+  AND JSONExtractString(attrs, 'network.transport') = 'tcp'
 LIMIT {lim:UInt32}
 SETTINGS max_rows_to_read = 262144, read_overflow_mode = 'throw'`
 	raw, err := c.queryScoped(ctx, target, tenant, sql, chParams{
@@ -121,7 +123,7 @@ func (m *Memory) readHTTPObservations(ctx context.Context, tenant string, q Span
 			return nil, err
 		}
 		if span.Service != q.Service || span.Kind != "server" || span.Start.Before(q.Since) || !span.Start.Before(q.Until) ||
-			span.Attrs["server.address"] != address || span.Attrs["server.port"] != port {
+			span.Attrs["network.local.address"] != address || span.Attrs["network.local.port"] != port || span.Attrs["network.transport"] != "tcp" {
 			continue
 		}
 		out = append(out, Span{TenantID: span.TenantID, Service: span.Service, Kind: span.Kind, TraceID: span.TraceID,
@@ -135,5 +137,6 @@ func (m *Memory) readHTTPObservations(ctx context.Context, tenant string, q Span
 }
 
 func httpObservationAttributes(address, port, status string) map[string]string {
-	return map[string]string{"server.address": address, "server.port": port, "http.response.status_code": status}
+	return map[string]string{"network.local.address": address, "network.local.port": port,
+		"network.transport": "tcp", "http.response.status_code": status}
 }

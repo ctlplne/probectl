@@ -36260,7 +36260,7 @@
         ]
       },
       "FlowDDoSApplicationBinding": {
-        "description": "Independently observed HTTP server spans for this exact protected ingress host.",
+        "description": "Independently observed HTTP server spans for the exact local TCP socket of the protected ingress host.",
         "type": "object", "additionalProperties": false,
         "required": ["service", "port"],
         "properties": {
@@ -36274,8 +36274,8 @@
         "properties": {
           "from": {"type": "string", "format": "date-time"},
           "to": {"type": "string", "format": "date-time"},
-          "observed_requests": {"type": "integer", "minimum": 20, "maximum": 999},
-          "successful_requests": {"type": "integer", "minimum": 0, "maximum": 999},
+          "observed_requests": {"type": "integer", "minimum": 20, "maximum": 16383},
+          "successful_requests": {"type": "integer", "minimum": 0, "maximum": 16383},
           "p95_nanos": {"type": "string", "pattern": "^[1-9][0-9]*$"},
           "observation_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "matching_flow_bytes": {"type": "string", "pattern": "^[0-9]+$"},

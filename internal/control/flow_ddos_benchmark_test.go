@@ -221,7 +221,8 @@ func benchmarkDDoSAppSpans(window benchmarkDDoSApplication, from time.Time) []ot
 		spans = append(spans, otelstore.Span{TenantID: benchmarkDDoSTenant, TraceID: fmt.Sprintf("%032x", index+1), SpanID: fmt.Sprintf("%016x", index+1),
 			Kind: "server", Service: "synthetic-public-site", Start: from.Add(time.Duration(index) * time.Millisecond),
 			Duration: time.Duration(window.LatencyMS+index%3) * time.Millisecond,
-			Attrs:    map[string]string{"http.response.status_code": status, "server.address": host, "server.port": "443"}})
+			Attrs: map[string]string{"http.response.status_code": status, "server.address": "site.example",
+				"network.local.address": host, "network.local.port": "443", "network.transport": "tcp"}})
 	}
 	return spans
 }
@@ -253,7 +254,7 @@ func benchmarkDDoSAssess(ctx context.Context, settings ddosAssessmentSettings, r
 			if observation.From.Equal(before.From) {
 				window = reference.Application
 			}
-			return projectDDoSApplicationWindow(ctx, observation, binding.Service, binding.Port, benchmarkDDoSAppSpans(window, observation.From))
+			return projectDDoSApplicationWindow(ctx, observation, binding.Service, binding.Port, observation.To, benchmarkDDoSAppSpans(window, observation.From))
 		}
 	}
 	finding, application, err := qualifyProjectedDDoS(ctx, before, after, finding, read, settings.Input.Thresholds(), benchmarkDDoSWork)

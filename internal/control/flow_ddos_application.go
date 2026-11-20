@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -52,7 +51,7 @@ func (s *Server) prepareDDoSApplication(ctx context.Context, actor *auth.Princip
 			s.log.Warn("DDoS application context unavailable", "tenant_id", tenant.String())
 			return anomaly.DDoSApplicationWindow{}, false, nil
 		}
-		return projectDDoSApplicationWindow(ctx, source, binding.Service, binding.Port, spans)
+		return projectDDoSApplicationWindow(ctx, source, binding.Service, binding.Port, time.Now().UTC(), spans)
 	}
 	return nil
 }
@@ -95,9 +94,13 @@ type ddosApplicationRequest struct {
 }
 
 func projectDDoSApplicationWindow(ctx context.Context, source anomaly.DDoSObservation, service string, port uint16,
-	spans []otelstore.Span) (anomaly.DDoSApplicationWindow, bool, error) {
+	knownAt time.Time, spans []otelstore.Span) (anomaly.DDoSApplicationWindow, bool, error) {
 	var empty anomaly.DDoSApplicationWindow
-	target, portText := source.Target.Addr(), strconv.FormatUint(uint64(port), 10)
+	width := source.To.Sub(source.From)
+	if width <= 0 || knownAt.Before(source.To) {
+		return empty, false, nil
+	}
+	address, portText := source.Target.Addr().String(), strconv.FormatUint(uint64(port), 10)
 	requests := make([]ddosApplicationRequest, 0, len(spans))
 	latencies := make([]time.Duration, 0, len(spans))
 	seen := make(map[[2]string]bool)
@@ -112,16 +115,16 @@ func projectDDoSApplicationWindow(ctx context.Context, source anomaly.DDoSObserv
 		if span.Kind != "server" || span.Start.Before(source.From) || !span.Start.Before(source.To) {
 			continue
 		}
-		address, err := netip.ParseAddr(span.Attrs["server.address"])
-		if err != nil || address != target || span.Attrs["server.port"] != portText {
+		if span.Attrs["network.local.address"] != address || span.Attrs["network.local.port"] != portText || span.Attrs["network.transport"] != "tcp" {
 			continue
 		}
 		key := [2]string{span.TraceID, span.SpanID}
 		code, err := strconv.Atoi(span.Attrs["http.response.status_code"])
 		if err != nil || code < 100 || code > 599 || len(key[0]) != 32 || len(key[1]) != 16 || seen[key] ||
-			span.Duration <= 0 || span.Start.Add(span.Duration).After(source.To) {
-			// Matching malformed or still-open application evidence leaves
-			// this window unknown. It cannot suppress a pressure signal.
+			span.Duration <= 0 || span.Duration > width || span.Start.Add(span.Duration).After(knownAt) {
+			// Requests are assigned by their start clock. A request that
+			// finished after the boundary can count once its completed span
+			// is available. Future or malformed evidence leaves it unknown.
 			return empty, false, nil
 		}
 		seen[key] = true
