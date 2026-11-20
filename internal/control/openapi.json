@@ -22303,6 +22303,28 @@
           }
         }
       },
+      "SubscriberExchangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "external_id"
+        ],
+        "properties": {
+          "target": {
+            "type": "string",
+            "enum": [
+              "splynx",
+              "sonar",
+              "uisp"
+            ]
+          },
+          "external_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:@-]{0,127}$"
+          }
+        }
+      },
       "SubscriberUsageRequest": {
         "type": "object",
         "required": [
@@ -22339,6 +22361,9 @@
           },
           "incident": {
             "$ref": "#/components/schemas/SubscriberIncidentSelection"
+          },
+          "exchange": {
+            "$ref": "#/components/schemas/SubscriberExchangeRequest"
           }
         },
         "additionalProperties": false
@@ -22518,6 +22543,32 @@
           }
         }
       },
+      "SubscriberExchangePreview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "preview",
+          "csv"
+        ],
+        "properties": {
+          "target": {
+            "type": "string",
+            "enum": [
+              "splynx",
+              "sonar",
+              "uisp"
+            ]
+          },
+          "preview": {
+            "type": "boolean"
+          },
+          "csv": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        }
+      },
       "SubscriberUsageReport": {
         "type": "object",
         "required": [
@@ -22618,6 +22669,9 @@
           },
           "incident": {
             "$ref": "#/components/schemas/SubscriberIncidentEvidence"
+          },
+          "exchange": {
+            "$ref": "#/components/schemas/SubscriberExchangePreview"
           }
         },
         "additionalProperties": false

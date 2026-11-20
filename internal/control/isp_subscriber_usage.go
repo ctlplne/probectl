@@ -22,12 +22,14 @@ import (
 
 type subscriberUsageRequest struct {
 	flow.SubscriberUsageRequest
-	Incident *subscriberIncidentSelection `json:"incident,omitempty"`
+	Incident *subscriberIncidentSelection    `json:"incident,omitempty"`
+	Exchange *flow.SubscriberExchangeRequest `json:"exchange,omitempty"`
 }
 
 type subscriberUsageResponse struct {
 	flow.SubscriberUsageReport
-	Incident *subscriberIncidentEvidence `json:"incident,omitempty"`
+	Incident *subscriberIncidentEvidence     `json:"incident,omitempty"`
+	Exchange *flow.SubscriberExchangePreview `json:"exchange,omitempty"`
 }
 
 func (s *Server) handleSubscriberUsage(w http.ResponseWriter, r *http.Request) error {
@@ -48,6 +50,11 @@ func (s *Server) handleSubscriberUsage(w http.ResponseWriter, r *http.Request) e
 	}
 	if input.Incident != nil && (!reportRequirementUUID(input.Incident.ContextID) || !validDDoSReportSelection(input.Incident.DDoSReportDefinition)) {
 		return apierror.Validation("select a routing context and exact incident traffic receipt")
+	}
+	if input.Exchange != nil {
+		if err := input.Exchange.Validate(); err != nil {
+			return apierror.Validation(err.Error())
+		}
 	}
 	ctx := tenancy.WithTenant(r.Context(), tenancy.ID(actor.TenantID))
 	ctx, flush := scopedABACDenial(ctx)
@@ -118,6 +125,13 @@ func (s *Server) captureSubscriberUsage(ctx context.Context, actor *auth.Princip
 		return out, err
 	}
 	capture.Results = nil
+	if input.Exchange != nil {
+		preview, err := flow.SubscriberExchangeCSV(out.SubscriberUsageReport, *input.Exchange)
+		if err != nil {
+			return out, err
+		}
+		out.Exchange = &preview
+	}
 	var contexts []string
 	for _, item := range capture.Contexts {
 		contexts = append(contexts, item.ContextID)

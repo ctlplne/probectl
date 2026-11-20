@@ -9,6 +9,7 @@
 package flow_test
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,10 +68,15 @@ func TestShippedSubscriberUsageReconcilesOverlappingTenantAndSubscriberScopes(t 
 		refs[i] = lane.waitAndSaveSubscriberView(t, stack, from, to, want*3000)
 		assertSubscriberLaneUsage(t, stack, lane, refs[i], 0, want*1000, want*40, want*1000)
 		assertSubscriberLaneUsage(t, stack, lane, refs[i], 1, want*2000, want*60, want*1000+100)
+		assertSubscriberExchange(t, stack, lane, refs[i], want*1000, want*40)
 	}
 	for i, lane := range lanes {
 		other := lanes[1-i]
-		foreign := flow.SubscriberUsageRequest{Version: refs[1-i].Version, TagID: other.tagID, TagKey: "subscriber", Subscriber: "alpha", IncludeLatency: true}
+		foreign := struct {
+			flow.SubscriberUsageRequest
+			Exchange flow.SubscriberExchangeRequest `json:"exchange"`
+		}{SubscriberUsageRequest: flow.SubscriberUsageRequest{Version: refs[1-i].Version, TagID: other.tagID, TagKey: "subscriber", Subscriber: "alpha", IncludeLatency: true},
+			Exchange: flow.SubscriberExchangeRequest{Target: "uisp", ExternalID: "foreign-export"}}
 		lane.do(t, stack, http.MethodPost, subscriberUsagePath(refs[1-i].ID), foreign, nil, http.StatusNotFound)
 		foreign.Version = refs[i].Version
 		lane.do(t, stack, http.MethodPost, subscriberUsagePath(refs[i].ID), foreign, nil, http.StatusNotFound)
@@ -80,6 +87,43 @@ func TestShippedSubscriberUsageReconcilesOverlappingTenantAndSubscriberScopes(t 
 	lanes[0].do(t, stack, http.MethodPost, subscriberUsagePath(refs[0].ID), flow.SubscriberUsageRequest{
 		Version: refs[0].Version, TagID: lanes[0].tagID, TagKey: "subscriber", Subscriber: "next-subscriber",
 	}, nil, http.StatusConflict)
+}
+
+func assertSubscriberExchange(t *testing.T, st *shipped.Stack, lane subscriberLane, view flow.SavedQueryView, bytes, packets uint64) {
+	t.Helper()
+	params := struct {
+		flow.SubscriberUsageRequest
+		Exchange flow.SubscriberExchangeRequest `json:"exchange"`
+	}{SubscriberUsageRequest: flow.SubscriberUsageRequest{Version: view.Version, TagID: lane.tagID, TagKey: "subscriber", Subscriber: "alpha"}}
+	externalID := "vendor-" + lane.name + "-account"
+	for _, vendor := range []struct{ target, column string }{{"splynx", "service_id"}, {"sonar", "account_id"}, {"uisp", "subscriber_id"}} {
+		params.Exchange = flow.SubscriberExchangeRequest{Target: vendor.target, ExternalID: externalID}
+		var response struct {
+			flow.SubscriberUsageReport
+			Exchange flow.SubscriberExchangePreview `json:"exchange"`
+		}
+		lane.do(t, st, http.MethodPost, subscriberUsagePath(view.ID), params, &response, http.StatusOK)
+		if response.Exchange.Target != vendor.target || !response.Exchange.Preview {
+			t.Fatal("the exact vendor selection lost its preview state", response.Exchange)
+		}
+		rows, err := csv.NewReader(strings.NewReader(response.Exchange.CSV)).ReadAll()
+		if err != nil || len(rows) != 2 || len(rows[1]) != 13 || rows[0][0] != vendor.column || rows[1][0] != externalID ||
+			rows[1][6] != strconv.FormatUint(bytes, 10) || rows[1][10] != strconv.FormatUint(packets, 10) ||
+			rows[1][11] != response.ViewVersion || rows[1][12] != response.TagRevision {
+			t.Fatal("exchange output failed to reconcile exact scoped counters and provenance", rows, err)
+		}
+		if vendor.target == "splynx" {
+			var fromCLI struct {
+				Exchange flow.SubscriberExchangePreview `json:"exchange"`
+			}
+			st.MustCLI(t, map[string]string{"PROBECTL_API_TOKEN": lane.apiToken}, &fromCLI, "explorer", "subscriber-usage", view.ID, "--body-file", st.SecretFile(t, params))
+			if fromCLI.Exchange != response.Exchange {
+				t.Fatal("native CLI did not preserve the received exact export")
+			}
+		}
+	}
+	params.Exchange.ExternalID = "=1+1"
+	lane.do(t, st, http.MethodPost, subscriberUsagePath(view.ID), params, nil, http.StatusUnprocessableEntity)
 }
 
 func (l *subscriberLane) configureSubscriberProbes(t *testing.T, st *shipped.Stack) {
@@ -256,6 +300,7 @@ func assertSubscriberLaneUsage(t *testing.T, st *shipped.Stack, lane subscriberL
 func proveSubscriberUsageConsole(t *testing.T, st *shipped.Stack, lane subscriberLane, view flow.SavedQueryView) {
 	t.Helper()
 	for _, theme := range []string{"light", "dark"} {
+		export := filepath.Join(t.TempDir(), "subscriber-usage-preview.csv")
 		testsupport.RenderUI(t, testsupport.RenderSpec{
 			URL: st.BaseURL + "/ui/explore?flow_view=" + view.ID, TrustCertFiles: st.TrustCerts(), CAFile: st.CAFile, Accessibility: true, Theme: theme,
 			Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: lane.cookie}}, Expect: []string{"Subscriber usage"},
@@ -264,8 +309,20 @@ func proveSubscriberUsageConsole(t *testing.T, st *shipped.Stack, lane subscribe
 				{Select: "label:text-is('Subscriber prefix tag') + div select", Value: lane.tagID},
 				{Fill: "label:text-is('Subscriber tag value') + div input", Value: "alpha"},
 				{Click: "Include original ICMP latency", Role: "checkbox"},
+				{Select: "label:text-is('ISP exchange preview') + div select", Value: "uisp"},
+				{Fill: "label:text-is('External service or account ID') + div input", Value: "carrier-local-alpha"},
 				{Click: "Run subscriber report", Expect: []string{"Observed usage for alpha", "1000 bytes", "Remote services", "Observed ICMP latency", "3002/3"}, Absent: []string{"beta latency", "6002/3"}},
+				{Click: "Download exchange CSV", Download: export},
 			},
 		})
+		file, err := os.Open(export)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, err := csv.NewReader(file).ReadAll()
+		_ = file.Close()
+		if err != nil || len(rows) != 2 || len(rows[1]) != 13 || rows[0][0] != "subscriber_id" || rows[1][0] != "carrier-local-alpha" || rows[1][6] != "1000" {
+			t.Fatal("the downloaded preview lost its selected identifier or exact counters", rows, err)
+		}
 	}
 }

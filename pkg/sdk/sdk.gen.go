@@ -4412,6 +4412,17 @@ type Signal struct {
 	Title      string            `json:"title,omitempty"`
 }
 
+type SubscriberExchangePreview struct {
+	Csv     string `json:"csv"`
+	Preview bool   `json:"preview"`
+	Target  string `json:"target"`
+}
+
+type SubscriberExchangeRequest struct {
+	ExternalId string `json:"external_id"`
+	Target     string `json:"target"`
+}
+
 type SubscriberIncidentEvidence struct {
 	Actions        []IncidentDDoSReportDecision `json:"actions,omitempty"`
 	ActionsVisible bool                         `json:"actions_visible"`
@@ -4461,6 +4472,7 @@ type SubscriberTraffic struct {
 
 type SubscriberUsageReport struct {
 	Download          SubscriberTraffic          `json:"download"`
+	Exchange          SubscriberExchangePreview  `json:"exchange,omitzero"`
 	From              string                     `json:"from"`
 	Incident          SubscriberIncidentEvidence `json:"incident,omitzero"`
 	Internal          SubscriberTraffic          `json:"internal"`
@@ -4484,6 +4496,7 @@ type SubscriberUsageReport struct {
 
 type SubscriberUsageRequest struct {
 	End            string                      `json:"end,omitempty"`
+	Exchange       SubscriberExchangeRequest   `json:"exchange,omitzero"`
 	Incident       SubscriberIncidentSelection `json:"incident,omitzero"`
 	IncludeLatency *bool                       `json:"include_latency,omitempty"`
 	Subscriber     string                      `json:"subscriber"`

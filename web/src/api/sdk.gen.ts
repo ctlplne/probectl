@@ -4230,6 +4230,17 @@ export interface Signal {
   title?: string
 }
 
+export interface SubscriberExchangePreview {
+  csv: string
+  preview: boolean
+  target: "splynx" | "sonar" | "uisp"
+}
+
+export interface SubscriberExchangeRequest {
+  external_id: string
+  target: "splynx" | "sonar" | "uisp"
+}
+
 export interface SubscriberIncidentEvidence {
   actions?: IncidentDDoSReportDecision[]
   actions_visible: boolean
@@ -4279,6 +4290,7 @@ export interface SubscriberTraffic {
 
 export interface SubscriberUsageReport {
   download: SubscriberTraffic
+  exchange?: SubscriberExchangePreview
   from: string
   incident?: SubscriberIncidentEvidence
   internal: SubscriberTraffic
@@ -4302,6 +4314,7 @@ export interface SubscriberUsageReport {
 
 export interface SubscriberUsageRequest {
   end?: string
+  exchange?: SubscriberExchangeRequest
   incident?: SubscriberIncidentSelection
   include_latency?: boolean
   subscriber: string

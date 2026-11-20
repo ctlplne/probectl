@@ -15,6 +15,8 @@ import type {
   SubscriberIncidentEvidence,
   SubscriberIncidentSelection,
   SubscriberLatency,
+  SubscriberExchangePreview,
+  SubscriberExchangeRequest,
   SubscriberUsageReport,
 } from '../api/sdk.gen'
 import { Button, Card, CardBody, CardHeader, ErrorState, Field, Select, Table } from '../components'
@@ -40,12 +42,19 @@ export function SubscriberUsageCard({
   const [includeLatency, setIncludeLatency] = useState(false)
   const [includeIncident, setIncludeIncident] = useState(false)
   const [incident, setIncident] = useState<SubscriberIncidentSelection>()
+  const [exchangeTarget, setExchangeTarget] = useState<SubscriberExchangeRequest['target'] | ''>('')
+  const [externalID, setExternalID] = useState('')
   const definitions = useTagDefinitions(open ? tenantID : '')
   const report = useSubscriberUsage(tenantID, view.id)
   const choices = definitions.data?.items ?? []
   const tag = choices.find((item) => item.id === tagID)
   const attachIncident = canReadIncident && includeIncident
-  const canRun = !!tag && !!value.trim() && !report.isPending && (!attachIncident || !!incident)
+  const canRun =
+    !!tag &&
+    !!value.trim() &&
+    !report.isPending &&
+    (!attachIncident || !!incident) &&
+    (!exchangeTarget || !!externalID.trim())
 
   function run(event: FormEvent) {
     event.preventDefault()
@@ -57,6 +66,9 @@ export function SubscriberUsageCard({
       subscriber: value.trim(),
       include_latency: canReadLatency && includeLatency,
       incident: attachIncident ? incident : undefined,
+      exchange: exchangeTarget
+        ? { target: exchangeTarget, external_id: externalID.trim() }
+        : undefined,
     })
   }
 
@@ -133,6 +145,35 @@ export function SubscriberUsageCard({
                   }}
                 />
               )}
+              <Select
+                label="ISP exchange preview"
+                value={exchangeTarget}
+                options={[
+                  { value: '', label: 'Usage report only' },
+                  { value: 'splynx', label: 'Splynx' },
+                  { value: 'sonar', label: 'Sonar' },
+                  { value: 'uisp', label: 'UISP' },
+                ]}
+                disabled={report.isPending}
+                onChange={(event) => {
+                  report.reset()
+                  setExchangeTarget(event.target.value as SubscriberExchangeRequest['target'] | '')
+                  setExternalID('')
+                }}
+              />
+              {exchangeTarget && (
+                <Field
+                  label="External service or account ID"
+                  hint="Use the identifier in your vendor export."
+                  value={externalID}
+                  maxLength={128}
+                  disabled={report.isPending}
+                  onChange={(event) => {
+                    report.reset()
+                    setExternalID(event.target.value)
+                  }}
+                />
+              )}
               <Button type="submit" disabled={!canRun}>
                 Run subscriber report
               </Button>
@@ -205,6 +246,29 @@ function SubscriberUsageEvidence({ value }: { value: SubscriberUsageReport }) {
       ) : null}
       {value.latency_included && <SubscriberLatencyEvidence rows={value.latency ?? []} />}
       {value.incident && <SubscriberDDoSEvidence value={value.incident} />}
+      {value.exchange && <SubscriberExchangeDownload value={value.exchange} />}
+    </>
+  )
+}
+
+function SubscriberExchangeDownload({ value }: { value: SubscriberExchangePreview }) {
+  function download() {
+    const href = URL.createObjectURL(new Blob([value.csv], { type: 'text/csv;charset=utf-8' }))
+    try {
+      const link = document.createElement('a')
+      link.href = href
+      link.download = value.target + '-subscriber-usage-preview.csv'
+      link.click()
+    } finally {
+      URL.revokeObjectURL(href)
+    }
+  }
+  return (
+    <>
+      <p>Exchange preview. Validate the mapping in your vendor sandbox before billing.</p>
+      <Button variant="secondary" onClick={download}>
+        Download exchange CSV
+      </Button>
     </>
   )
 }

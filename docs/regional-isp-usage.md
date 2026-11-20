@@ -85,3 +85,21 @@ Use the same agreement ID, revision and billing period in a dashboard's
 carrier report path rechecks current source and financial access and carries
 the original measures with the recorded agreement. A reviewer can verify the
 pack offline. [Signed carrier SLA claim reports](dashboard-reporting.md#signed-carrier-sla-claim-reports-preview)
+
+## Billing and operations exchange previews
+
+Choose Splynx, Sonar or UISP under **ISP exchange preview**. Enter the stable
+external service, account or subscriber identifier from your vendor export.
+Run the subscriber report and download the CSV. Each file contains one usage
+row with exact upload, download, within-subscriber and total counters, the
+observation bounds, saved view revision and tag revision. The first column is
+`service_id` for Splynx, `account_id` for Sonar and `subscriber_id` for UISP.
+
+Use the CSV to check your column and identifier mapping in the vendor sandbox
+before billing. These previews are generated locally from the scoped report.
+The source documents describe the identifiers and exports available for
+reconciliation. [Splynx reports](https://splynx.com/blog/system-administration/reports-in-splynx-overview-and-how-to-guide/) · [Sonar account data](https://docs.sonar.expert/accounts/account-view-overview) · [UISP data management](https://help.uisp.com/hc/en-us/articles/22590983111447-UISP-Security-Data-Management)
+
+For the API or CLI, add `exchange` to the existing subscriber report request
+with `target` and `external_id`. The response's `exchange.csv` is the same
+file content available in the console.
