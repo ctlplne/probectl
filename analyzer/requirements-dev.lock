@@ -156,7 +156,9 @@ coverage==7.17.3 \
     --hash=sha256:ff0ca078fe63faffff1cff24c804afd4010e35d9c75bb593877b3d4321826c91 \
     --hash=sha256:ff273110e4e1505ef7a642523ba43f58eb6770ae9e8f869d72efea816cb4bc2c \
     --hash=sha256:ff5069e99039739c2fade5dd12cf8df7dc1b1217a0b915110605e0bbdddf1187
-    # via pytest-cov
+    # via
+    #   probectl-analyzer (pyproject.toml)
+    #   pytest-cov
 hypothesis==6.141.1 \
     --hash=sha256:8ef356e1e18fbeaa8015aab3c805303b7fe4b868e5b506e87ad83c0bf951f46f \
     --hash=sha256:a5b3c39c16d98b7b4c3c5c8d4262e511e3b2255e6814ced8023af49087ad60b3

@@ -29,6 +29,8 @@ rislive = [
 dev = [
   "pytest==8.4.2",
   "pytest-cov==7.1.0",
+  # Fresh resolution must retain the coverage version in the hashed lock.
+  "coverage==7.17.3",
   "ruff==0.15.16",
   "black==25.11.0",
   # Constrain Black's already-vetted transitive packages so fresh resolution
