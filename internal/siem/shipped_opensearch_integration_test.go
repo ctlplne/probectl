@@ -135,7 +135,7 @@ func stockOpenSearchTarget(t *testing.T) ownedSIEMTarget {
 		index:          "probectl-siem-" + strconv.FormatInt(time.Now().UnixNano(), 36),
 	}
 	if out.base == "" && os.Getenv("PROBECTL_TEST_REQUIRE_OPENSEARCH") != "1" {
-		t.Skip("set the owned local OpenSearch fixture to run the SIEM delivery proof")
+		testsupport.SkipOptIn(t, "PROBECTL_TEST_REQUIRE_OPENSEARCH", "provide the owned OpenSearch TLS fixture for the SIEM delivery receipt")
 	}
 	parsed, err := url.Parse(out.base)
 	if err != nil || parsed.Scheme != "https" || (parsed.Hostname() != "localhost" && parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "opensearch") ||

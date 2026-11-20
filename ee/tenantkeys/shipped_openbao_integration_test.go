@@ -22,13 +22,14 @@ import (
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
 
 func TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant(t *testing.T) {
 	base := strings.TrimRight(os.Getenv("PROBECTL_TEST_OPENBAO_URL"), "/")
 	if base == "" && os.Getenv("PROBECTL_TEST_REQUIRE_OPENBAO") != "1" {
-		t.Skip("set the owned OpenBao TLS fixture to run the live key-revocation receipt")
+		testsupport.SkipOptIn(t, "PROBECTL_TEST_REQUIRE_OPENBAO", "provide the owned OpenBao TLS fixture for the live key receipt")
 	}
 	parsed, err := url.Parse(base)
 	if err != nil || parsed.Scheme != "https" || (parsed.Hostname() != "localhost" && parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "openbao") ||

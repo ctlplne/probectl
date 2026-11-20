@@ -75,19 +75,20 @@ describe('truthful native UI evidence', () => {
       expect(f18).toContain(`#${root}`)
   })
 
-  /**
-   * A closed UI cell must not quietly close the capability's OTHER gaps. F24's
-   * ui cell was its only one, so it is now evidence-complete; F26 still has no
-   * real-stack receipt and has to keep saying so.
-   */
-  test('closing the UI cell did not silently absorb the remaining gaps', () => {
+  test('native UI and real-stack evidence are checked independently', () => {
     const f24 = capabilityBlock('F24')
     expect(f24).toContain('evidence_status: complete')
     expect(f24).not.toContain('{gap:')
 
     const f26 = capabilityBlock('F26')
-    expect(f26).toContain('evidence_status: partial')
-    expect(f26).toContain('real_stack_proof: {gap:')
+    expect(f26).toContain('real_stack_proof: {refs:')
+    expect(f26).toContain('#TestShippedSIEMAuditReachesOpenSearchWithExactTenantIdentity')
+    expect(f26).not.toContain('evidence_status: partial')
+
+    const f37 = capabilityBlock('F37')
+    expect(f37).toContain('ui: {refs: ["ui:F37@/security"]}')
+    expect(f37).toContain('evidence_status: partial')
+    expect(f37).toContain('real_stack_proof: {gap:')
   })
 
   test('the human-gated invariant reuses the guarded-remediation screen with a reason', () => {

@@ -27,6 +27,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
 
@@ -36,7 +37,7 @@ func TestStockCollectorDeliversAllSignalsToShippedTenants(t *testing.T) {
 		if os.Getenv("PROBECTL_TEST_REQUIRE_STOCK_OTEL_COLLECTOR") == "1" {
 			t.Fatal("the stock OpenTelemetry Collector executable is required")
 		}
-		t.Skip("set PROBECTL_TEST_STOCK_OTEL_COLLECTOR to enable the stock Collector fixture")
+		testsupport.SkipOptIn(t, "PROBECTL_TEST_REQUIRE_STOCK_OTEL_COLLECTOR", "set PROBECTL_TEST_STOCK_OTEL_COLLECTOR to the stock Collector executable")
 	}
 	stack := shipped.Start(t, shipped.Options{Name: "stockotlp", TenantBand: 3})
 	operator := stack.OnboardOperator(t, "root@msp-stock-otlp.example")

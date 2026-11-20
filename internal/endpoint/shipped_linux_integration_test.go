@@ -4,7 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-//go:build integration
+//go:build integration && linux
 
 package endpoint_test
 
@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -37,9 +36,6 @@ type shippedEndpointFleet struct {
 }
 
 func TestLinuxEndpointsReachOnlyTheirOwnShippedFleet(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("the shipped endpoint receipt runs on Linux")
-	}
 	stack := shipped.Start(t, shipped.Options{Name: "endpointlinux", TenantBand: 3})
 	operator := stack.OnboardOperator(t, "root@msp-endpoint-receipt.example")
 	// Go's Linux trust loader accepts the fixture CA for endpoint processes.
