@@ -88,6 +88,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPut, "/v1/entities/{id}/network-prefix", s.handleSetEntityNetworkPrefix, permAgentWrite},
 		{http.MethodGet, "/v1/entities/resolve", s.handleResolveEntity, ai.PermEntitiesRead},
 		{http.MethodGet, "/v1/entities/{id}/evidence", s.handleListEntityEvidence, ai.PermEntitiesRead},
+		{http.MethodGet, "/v1/entities/{id}/resolver-dns-coverage", s.handleResolverDNSCoverage, ai.PermEntitiesRead},
 		{http.MethodGet, "/v1/entities/{id}/links", s.handleListEntityLinks, ai.PermEntitiesRead},
 		{http.MethodGet, "/v1/entities/{id}", s.handleGetEntity, ai.PermEntitiesRead},
 		{http.MethodPost, "/v1/entity-contexts", s.handleCreateEntityContext, permAgentWrite},

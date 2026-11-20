@@ -181,7 +181,7 @@ func (s *EntityRegistry) AssignEntitySource(ctx context.Context, sc tenancy.Scop
 	}
 	// Public collector assignments have no router/device anchor. They cannot
 	// authorize entity observations; their routing reader checks this source.
-	if key.Kind == entity.PublicBGP && anchorID != "" {
+	if key.Kind == entity.PublicBGP && anchorID != "" || key.Kind == entity.DNSResolver && anchorID == "" {
 		return entity.ErrInvalidClaim
 	}
 	agent, err := validRegistryUUID(key.AgentID)

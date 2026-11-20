@@ -803,8 +803,12 @@ type Config struct {
 	// ON by default — it makes no outbound calls (sovereignty-safe) and its
 	// detections are SIGNALS, never blocks (guardrail 9). NDRRulesDir overlays
 	// the embedded detection-as-code ruleset (tune/disable/add without code).
-	NDREnabled  bool
-	NDRRulesDir string
+	NDREnabled             bool
+	NDRRulesDir            string
+	DNSTapPressureEnabled  bool
+	DNSTapMinimumResponses int
+	DNSTapMinimumErrors    int
+	DNSTapErrorShareBP     int
 
 	// Topology graph engine (S43, F40): "indexed" (default — adjacency-indexed,
 	// the L/XL dedicated engine) or "memory" (the S30 reference store). Both
@@ -1433,6 +1437,10 @@ func loadFeaturePlaneConfig(l *loader, cfg *Config) {
 	cfg.ThreatIntelMirror = l.str("PROBECTL_THREATINTEL_MIRROR", "")
 	cfg.NDREnabled = l.boolean("PROBECTL_NDR_ENABLED", true)
 	cfg.NDRRulesDir = l.str("PROBECTL_NDR_RULES_DIR", "")
+	cfg.DNSTapPressureEnabled = l.boolean("PROBECTL_DNSTAP_PRESSURE_ENABLED", true)
+	cfg.DNSTapMinimumResponses = l.intRange("PROBECTL_DNSTAP_MIN_RESPONSES", 100, 1, 1<<20)
+	cfg.DNSTapMinimumErrors = l.intRange("PROBECTL_DNSTAP_MIN_ERRORS", 50, 1, 1<<20)
+	cfg.DNSTapErrorShareBP = l.intRange("PROBECTL_DNSTAP_ERROR_SHARE_BP", 5000, 1, 10000)
 	cfg.TopologyEngine = l.str("PROBECTL_TOPOLOGY_ENGINE", "indexed")
 	cfg.CostEnabled = l.boolean("PROBECTL_COST_ENABLED", true)
 	cfg.CostZones = l.str("PROBECTL_COST_ZONES", "")

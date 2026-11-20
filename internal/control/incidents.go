@@ -266,8 +266,8 @@ func (p pgIncidentTxStore) ResolveSignalIdentity(ctx context.Context,
 	if err != nil {
 		return incident.IdentityResolution{}, err
 	}
-	var contextID string
-	err = p.scope.Q.QueryRow(ctx, `SELECT m.context_id::text
+	var contextID, anchorID string
+	err = p.scope.Q.QueryRow(ctx, `SELECT m.context_id::text,COALESCE(m.anchor_entity_id::text,'')
 		FROM entity_source_contexts m
 		JOIN entity_agent_contexts a ON
 		 (a.tenant_id,a.agent_id,a.context_id)=(m.tenant_id,m.agent_id,m.context_id)
@@ -291,7 +291,7 @@ func (p pgIncidentTxStore) ResolveSignalIdentity(ctx context.Context,
 		        AND revoked.revoked_by IS DISTINCT FROM 'entity_registry_delete')
 		FOR SHARE OF m,a,sender`, sig.TenantID, key.AgentID,
 		string(key.Kind), key.SourceRef, source.CertificateSerial(),
-		crypto.EntitySPIFFEID(sig.TenantID, key.AgentID), sig.OccurredAt).Scan(&contextID)
+		crypto.EntitySPIFFEID(sig.TenantID, key.AgentID), sig.OccurredAt).Scan(&contextID, &anchorID)
 	if err == pgx.ErrNoRows {
 		return incident.IdentityResolution{}, nil
 	}
@@ -299,6 +299,9 @@ func (p pgIncidentTxStore) ResolveSignalIdentity(ctx context.Context,
 		return incident.IdentityResolution{}, err
 	}
 	identity := incident.IdentityResolution{ContextID: contextID}
+	if key.Kind == entity.DNSResolver {
+		return p.resolveResolverDNSAnchor(ctx, identity, anchorID, sig.Target)
+	}
 	host := path.TargetHost(sig.Target)
 	alias, err := (entity.AliasKey{Kind: entity.AddressAlias, Value: host}).Normalize()
 	if err != nil {

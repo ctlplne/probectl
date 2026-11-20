@@ -38,6 +38,7 @@ import (
 	"github.com/ctlplne/probectl/internal/metrics"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/threat/dnstap"
 	"github.com/ctlplne/probectl/internal/usage"
 )
 
@@ -155,6 +156,7 @@ type service struct {
 	// The restricted evidence RPC may submit a bounded fault observation with
 	// its live mTLS sender. It never trusts a bus payload for this identity.
 	entityFaultCorrelator *incident.Correlator
+	resolverDNSPressure   *dnstap.PressurePolicy
 
 	// revocations is the SAME registry-driven mTLS deny-list the handshake
 	// consults (U-038). mTLS checks it once, at connect; CRY-01 re-checks it on

@@ -375,6 +375,10 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	"bgp_flow_capture_payloads":        {plane: "postgres:bgp_flow_capture_payloads", disposition: subjectTableNoSubject},
 	"bgp_flow_capture_intents":         {plane: "postgres:bgp_flow_capture_intents", disposition: subjectTableNoSubject},
 	"bgp_flow_capture_intent_payloads": {plane: "postgres:bgp_flow_capture_intent_payloads", disposition: subjectTableNoSubject},
+	"resolver_dns_intervals": {
+		plane: "postgres:resolver_dns_intervals", disposition: subjectTableDeleteMatches,
+		exact: []string{"agent_id"}, contains: []string{"source_ref"},
+	},
 	"entity_fault_receipts": {
 		plane: "postgres:entity_fault_receipts", disposition: subjectTableDeleteMatches,
 		exact: []string{"agent_id"}, contains: []string{"source_ref"},

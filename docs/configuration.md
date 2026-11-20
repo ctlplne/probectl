@@ -3237,6 +3237,10 @@ streams — no outbound calls — and, per the guardrails, only ever *signals*.
 |---|---|---|
 | `PROBECTL_NDR_ENABLED`   | `true` | behavioral detection engine (DGA/exfil/beaconing/egress/lateral) over local DNS/flow/eBPF streams; signals only — never blocks |
 | `PROBECTL_NDR_RULES_DIR` | (none) | detection-as-code overlay directory; rules merge by id over the embedded defaults, malformed directories fail startup, and each overlay file is capped at 1 MiB before decode |
+| `PROBECTL_DNSTAP_PRESSURE_ENABLED` | `true` | Evaluate reduced response counts from explicitly assigned resolver sources when the NDR plane is enabled. Disable to retain admitted coverage without producing new resolver pressure signals. |
+| `PROBECTL_DNSTAP_MIN_RESPONSES` | `100` | Minimum captured client responses in each of two adjacent completed minutes. Range 1–1,048,576. |
+| `PROBECTL_DNSTAP_MIN_ERRORS` | `50` | Minimum captured responses of the same error class in each minute. Range 1–1,048,576. |
+| `PROBECTL_DNSTAP_ERROR_SHARE_BP` | `5000` | Minimum share of that error class among captured client responses per minute, in basis points. Range 1–10,000. |
 
 Detections are confidence-scored threat-plane signals (`ndr.*`) exported to
 incidents, the Security triage surface, and the SIEM (see *SIEM export* above).

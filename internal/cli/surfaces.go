@@ -213,6 +213,8 @@ var surfaceCommands = map[string]surfaceCommand{
 			Description: "get a canonical entity; requires --query context_id=<routing-context UUID>"},
 		"evidence": {Method: http.MethodGet, Path: "/v1/entities/{id}/evidence", ArgName: "id",
 			Description: "page original and current evidence; requires --query context_id=<UUID>, optional limit and cursor"},
+		"resolver-dns-coverage": {Method: http.MethodGet, Path: "/v1/entities/{id}/resolver-dns-coverage", ArgName: "id", ExactJSON: true,
+			Description: "read captured response counters for an exact current resolver source"},
 		"links": {Method: http.MethodGet, Path: "/v1/entities/{id}/links", ArgName: "id",
 			Description: "page typed evidence-backed links; requires --query context_id=<UUID>, optional limit and cursor"},
 		"resolve": {Method: http.MethodGet, Path: "/v1/entities/resolve",

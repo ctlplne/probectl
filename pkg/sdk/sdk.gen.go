@@ -2076,6 +2076,23 @@ type EntityResolution struct {
 	Status         string         `json:"status"`
 }
 
+type EntityResolverDNSCoverage struct {
+	ExpectedIntervals int                         `json:"expected_intervals"`
+	From              string                      `json:"from"`
+	Observations      []EntityResolverDNSInterval `json:"observations"`
+	Status            string                      `json:"status"`
+	To                string                      `json:"to"`
+}
+
+type EntityResolverDNSInterval struct {
+	ClientResponses int    `json:"client_responses"`
+	From            string `json:"from"`
+	NameErrors      int    `json:"name_errors"`
+	ServerFailures  int    `json:"server_failures"`
+	To              string `json:"to"`
+	Truncated       int    `json:"truncated"`
+}
+
 type EntityScope struct {
 	ContextId string `json:"context_id"`
 	TenantId  string `json:"tenant_id"`
@@ -6932,6 +6949,41 @@ func (c *Client) SetCanonicalEntityNetworkPrefix(ctx context.Context, req SetCan
 	query := url.Values{}
 	var out EntityRecord
 	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read captured DNS resolver response coverage
+type GetResolverDnsCoverageRequest struct {
+	Id        string  `json:"-"`
+	ContextId *string `json:"-"`
+	AgentId   *string `json:"-"`
+	SourceRef *string `json:"-"`
+	Minutes   *int    `json:"-"`
+}
+
+func (c *Client) GetResolverDnsCoverage(ctx context.Context, req GetResolverDnsCoverageRequest) (*EntityResolverDNSCoverage, error) {
+	path := "/v1/entities/{id}/resolver-dns-coverage"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.AgentId != nil {
+		query.Set("agent_id", formatQueryValue(*req.AgentId))
+	}
+	if req.SourceRef != nil {
+		query.Set("source_ref", formatQueryValue(*req.SourceRef))
+	}
+	if req.Minutes != nil {
+		query.Set("minutes", formatQueryValue(*req.Minutes))
+	}
+	var out EntityResolverDNSCoverage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

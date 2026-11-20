@@ -58,6 +58,7 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/tenantcrypto"
 	"github.com/ctlplne/probectl/internal/tenantlife"
+	"github.com/ctlplne/probectl/internal/threat/dnstap"
 	"github.com/ctlplne/probectl/internal/topology"
 	"github.com/ctlplne/probectl/internal/version"
 
@@ -1018,6 +1019,11 @@ func startAgentTransport(
 	grpcSrv.WithWriterFence(writerFence)
 	grpcSrv.WithFairness(fairGate)
 	grpcSrv.WithFaultCorrelator(correlator)
+	grpcSrv.WithResolverDNSPressure(dnstap.PressurePolicy{
+		Enabled: cfg.NDREnabled && cfg.DNSTapPressureEnabled,
+		Rule: dnstap.PressureRule{MinResponses: uint32(cfg.DNSTapMinimumResponses), MinErrors: uint32(cfg.DNSTapMinimumErrors),
+			ErrorShareBasisPoints: uint32(cfg.DNSTapErrorShareBP)},
+	})
 	if srv != nil {
 		grpcSrv.WithMetrics(srv.Metrics())
 	}

@@ -485,6 +485,30 @@ message DeviceCounterCapture {
   int64 captured_unix_nanos = 2;
 }
 
+// One closed local resolver capture contributes ordered one-minute counters.
+message ResolverDNSInterval {
+  int64 from_unix_nanos = 1;
+  uint32 client_responses = 2;
+  uint32 name_errors = 3;
+  uint32 server_failures = 4;
+  uint32 truncated = 5;
+}
+
+// Exclusive reduced dnstap evidence. The certificate and current operator
+// assignment supply tenant, sender, context and canonical resolver identity.
+message ResolverDNSCapture {
+  string configured_ref = 1;
+  uint32 parsed_frames = 2;
+  uint32 selected_frames = 3;
+  repeated ResolverDNSInterval intervals = 4;
+}
+
+message ResolverDNSCaptureReceipt {
+  uint32 intervals = 1;
+  uint32 pressure_signals = 2;
+  bytes evidence_digest = 3;
+}
+
 message SubmitEntityEvidenceRequest {
   repeated EntityEvidenceObservation observations = 1;
   repeated EntityFaultObservation faults = 2; // 1–64 combined; message size is also bounded
@@ -495,6 +519,7 @@ message SubmitEntityEvidenceRequest {
   PublicRoutingMessage public_routing_message = 7; // exclusive original MRT record or EOF/reset
   DeviceCounterWitness device_counter = 8; // exclusive; certified sender only
   BmpPeerSessionBatch bmp_peer_sessions = 9; // exclusive; legacy receivers must refuse without writing generic identities
+  ResolverDNSCapture resolver_dns = 10; // exclusive; bound resolver only
 }
 
 // Exclusive wrapper prevents an older receiver from accepting lifecycle facts
@@ -517,4 +542,5 @@ message SubmitEntityEvidenceResponse {
   uint32 probe_outcomes_persisted = 11; // retained configured outcomes, not a legacy generic ack
   uint32 interface_states_persisted = 12; // typed original state retained, not a generic identity ack
   uint32 bmp_peer_sessions_persisted = 13; // typed original lifecycle retained, not an identity ack
+  ResolverDNSCaptureReceipt resolver_dns = 14;
 }

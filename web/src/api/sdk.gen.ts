@@ -1957,6 +1957,23 @@ export interface EntityResolution {
   status: "unresolved" | "resolved" | "conflict"
 }
 
+export interface EntityResolverDNSCoverage {
+  expected_intervals: number
+  from: string
+  observations: EntityResolverDNSInterval[]
+  status: "no_recent_capture" | "missing_closed_file_intervals" | "closed_file_intervals_present"
+  to: string
+}
+
+export interface EntityResolverDNSInterval {
+  client_responses: number
+  from: string
+  name_errors: number
+  server_failures: number
+  to: string
+  truncated: number
+}
+
 export interface EntityScope {
   context_id: string
   tenant_id: string
@@ -1966,7 +1983,7 @@ export interface EntitySourceAssignment {
   agent_id: string
   anchor_entity_id?: string
   context_id: string
-  source_kind: "device_target" | "flow_exporter" | "path_agent" | "bmp_peer" | "agent_site" | "public_bgp"
+  source_kind: "device_target" | "flow_exporter" | "path_agent" | "bmp_peer" | "agent_site" | "public_bgp" | "dns_resolver"
   source_ref: string
 }
 
@@ -5303,6 +5320,16 @@ export interface SetCanonicalEntityNetworkPrefixRequest {
 
 export type SetCanonicalEntityNetworkPrefixResponse = EntityRecord
 
+export interface GetResolverDnsCoverageRequest {
+  id: string
+  contextId: string
+  agentId: string
+  sourceRef: string
+  minutes?: number
+}
+
+export type GetResolverDnsCoverageResponse = EntityResolverDNSCoverage
+
 export interface ListEntityContextsRequest {
   limit?: number
   cursor?: string
@@ -7467,6 +7494,17 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<SetCanonicalEntityNetworkPrefixResponse>("PUT", path, query, request.body)
+  }
+
+  async getResolverDnsCoverage(request: GetResolverDnsCoverageRequest): Promise<GetResolverDnsCoverageResponse> {
+    let path = "/v1/entities/{id}/resolver-dns-coverage"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.agentId !== undefined) query.set("agent_id", String(request.agentId))
+    if (request.sourceRef !== undefined) query.set("source_ref", String(request.sourceRef))
+    if (request.minutes !== undefined) query.set("minutes", String(request.minutes))
+    return this.requestJSON<GetResolverDnsCoverageResponse>("GET", path, query, undefined)
   }
 
   async listEntityContexts(request: ListEntityContextsRequest = {}): Promise<ListEntityContextsResponse> {

@@ -283,6 +283,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/entities/resolve":                                            auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/entities/{id}":                                               auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/entities/{id}/evidence":                                      auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/entities/{id}/resolver-dns-coverage":                         auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/entities/{id}/links":                                         auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/tests/{id}/path":                                            auditWrapped(auditFacetOperational),
 	"GET /v1/agents":                                                      auditWrapped(auditFacetSensitiveRead),

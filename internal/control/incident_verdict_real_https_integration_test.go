@@ -47,7 +47,7 @@ func verdictEvidenceFile(t *testing.T, dir, name string, body []byte) string {
 	return path
 }
 
-func newVerdictEvidenceSender(t *testing.T, f *roleExplanationAPIFixture) func(string, string) *agent.EvidenceClient {
+func newVerdictEvidenceSender(t *testing.T, f *roleExplanationAPIFixture, correlator ...*incident.Correlator) func(string, string) *agent.EvidenceClient {
 	t.Helper()
 	dir := t.TempDir()
 	ca, err := crypto.GenerateCA("probectl-verdict-test", time.Hour)
@@ -64,6 +64,9 @@ func newVerdictEvidenceSender(t *testing.T, f *roleExplanationAPIFixture) func(s
 		t.Fatal(err)
 	}
 	server.WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	if len(correlator) > 0 {
+		server.WithFaultCorrelator(correlator[0])
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

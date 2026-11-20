@@ -6882,6 +6882,93 @@
         "x-probectl-pagination": {"mode": "bounded", "max_items": 3, "reason": "At most three representative candidates; more_candidates marks truncation."}
       }
     },
+    "/v1/entities/{id}/resolver-dns-coverage": {
+      "get": {
+        "operationId": "getResolverDnsCoverage",
+        "summary": "Read captured DNS resolver response coverage",
+        "description": "Read only reduced, closed-file dnstap response counters for one current tenant and routing-context resolver assignment. Each returned clock is a sampled source interval. Missing intervals remain absent and present zero counts describe only observed files. Requires entities.read and metrics.read in the current routing context.",
+        "x-required-permission": "entities.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "tags": [
+          "entities"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "context_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "source_ref",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            }
+          },
+          {
+            "name": "minutes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120,
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Exact capture coverage and admitted response counters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityResolverDNSCoverage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid source selector or interval."
+          },
+          "403": {
+            "description": "Required permissions are unavailable in this context."
+          },
+          "404": {
+            "description": "Resolver or current scoped source unavailable."
+          }
+        }
+      }
+    },
     "/v1/entities/{id}/evidence": {
       "get": {
         "x-required-permission": "entities.read",
@@ -31251,7 +31338,7 @@
         "required": ["agent_id", "source_kind", "source_ref", "context_id"],
         "properties": {
           "agent_id": {"type": "string", "format": "uuid"},
-          "source_kind": {"description": "public_bgp assigns an existing per-tenant public collector without a router anchor; it does not authorize entity evidence or establish RIB completeness.", "type": "string", "enum": ["device_target", "flow_exporter", "path_agent", "bmp_peer", "agent_site", "public_bgp"]},
+          "source_kind": {"description": "public_bgp assigns an existing per-tenant public collector without a router anchor. dns_resolver binds a resolver token to an existing canonical device in this context.", "type": "string", "enum": ["device_target", "flow_exporter", "path_agent", "bmp_peer", "agent_site", "public_bgp", "dns_resolver"]},
           "source_ref": {"type": "string", "minLength": 1, "maxLength": 1024},
           "context_id": {"type": "string", "format": "uuid"},
           "anchor_entity_id": {"type": "string", "format": "uuid"}
@@ -31307,6 +31394,89 @@
           "observed_at": {"type": "string", "format": "date-time"},
           "expires_at": {"type": "string", "format": "date-time"},
           "current": {"type": "boolean"}
+        }
+      },
+      "EntityResolverDNSInterval": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "client_responses",
+          "name_errors",
+          "server_failures",
+          "truncated"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "client_responses": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1048576
+          },
+          "name_errors": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1048576
+          },
+          "server_failures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1048576
+          },
+          "truncated": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1048576
+          }
+        }
+      },
+      "EntityResolverDNSCoverage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "status",
+          "expected_intervals",
+          "observations"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "no_recent_capture",
+              "missing_closed_file_intervals",
+              "closed_file_intervals_present"
+            ]
+          },
+          "expected_intervals": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120
+          },
+          "observations": {
+            "type": "array",
+            "maxItems": 120,
+            "items": {
+              "$ref": "#/components/schemas/EntityResolverDNSInterval"
+            }
+          }
         }
       },
       "EntityEvidencePage": {
