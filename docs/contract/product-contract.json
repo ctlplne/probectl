@@ -120,8 +120,8 @@
         "F16"
       ],
       "name": "Endpoint agent (DEM)",
-      "status": "partial",
-      "evidence": "`internal/endpoint`, cross-OS builds"
+      "status": "delivered",
+      "evidence": "`TestLinuxEndpointsReachOnlyTheirOwnShippedFleet` runs two shipped Linux collectors, verifies HTTPS measurements through tenant Kafka lanes, and reads the persisted fleet through the API, CLI and console after a control-plane restart. Physical Wi-Fi has separate evidence."
     },
     {
       "ids": [

@@ -2,6 +2,13 @@
   "schema": "probectl.real-stack-proofs/v1",
   "proofs": [
     {
+      "ref": "test:internal/endpoint/shipped_linux_integration_test.go#TestLinuxEndpointsReachOnlyTheirOwnShippedFleet",
+      "profile": "integration",
+      "capabilities": [
+        "F16"
+      ]
+    },
+    {
       "ref": "test:internal/browsercanary/shipped_browser_integration_test.go#TestRenderedBrowserCanariesReachOnlyTheirShippedTenant",
       "profile": "integration",
       "capabilities": [

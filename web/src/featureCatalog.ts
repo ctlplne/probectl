@@ -127,7 +127,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F16',
     name: 'Endpoint agent (DEM)',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   // Additive routing fields and the qualified peering estimate remain preview.

@@ -285,7 +285,6 @@ capabilities:
   - id: F16
     name: Endpoint agent (DEM)
     status: delivered
-    evidence_status: partial
     owner: web/quality
     engine: {refs: ["file:internal/endpoint"]}
     binary: {refs: ["file:cmd/probectl-endpoint/main.go#func run"]}
@@ -295,7 +294,7 @@ capabilities:
     docs: {refs: ["file:docs/endpoint-dem.md#Endpoint agent"]}
     config_keys: {refs: ["config:PROBECTL_ENDPOINT_CONFIG", "config:PROBECTL_ENDPOINT_TARGETS"]}
     telemetry: {refs: ["file:internal/endpoint"]}
-    real_stack_proof: {gap: "No real-stack receipt currently starts probectl-endpoint, ingests its tenant-bound DEM data, and reads /v1/endpoints; the write-fence test is not substituted."}
+    real_stack_proof: {refs: ["test:internal/endpoint/shipped_linux_integration_test.go#TestLinuxEndpointsReachOnlyTheirOwnShippedFleet"]}
     migration: *no_migration
 
   - id: F17

@@ -235,6 +235,12 @@ verdict — not when the process starts.
 
 ## Notes and deferrals
 
+The shipped Linux integration runs two independent collectors against exact
+HTTPS targets. The API, CLI and served console read each tenant's original
+session and attribution from the durable fleet after a control-plane restart.
+The test also checks that the sibling fleet stays separate and that withheld
+Wi-Fi identifiers stay absent.
+
 - **Gateway-health derivation (flagged):** gateway health is derived from the
   first hop of the last-mile trace rather than a separate privileged ping — it's
   simpler and needs no raw sockets. A dedicated low-overhead gateway probe is a
