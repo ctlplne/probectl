@@ -8,6 +8,8 @@ package control
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/netip"
@@ -30,8 +32,40 @@ type bgpVisibilityMonitors struct {
 }
 
 type bgpVisibilityHistory struct {
-	Monitor store.BGPVisibilityMonitor       `json:"monitor"`
-	Items   []store.BGPVisibilityObservation `json:"items"`
+	Monitor        store.BGPVisibilityMonitor       `json:"monitor"`
+	Items          []store.BGPVisibilityObservation `json:"items"`
+	Coverage       string                           `json:"coverage"`
+	EffectiveLimit int                              `json:"effective_limit"`
+	NextCursor     string                           `json:"next_cursor,omitempty"`
+}
+
+type bgpVisibilityCursor struct {
+	Monitor  string                      `json:"monitor"`
+	Before   time.Time                   `json:"before"`
+	Position store.BGPVisibilityPosition `json:"position"`
+}
+
+func parseBGPVisibilityHistory(id, before, cursor string) (bgpVisibilityCursor, error) {
+	if cursor != "" {
+		var out bgpVisibilityCursor
+		if before != "" || len(cursor) > 512 {
+			return out, apierror.Validation("provide a visibility cursor or a before timestamp")
+		}
+		body, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil || json.Unmarshal(body, &out) != nil || out.Monitor != id || out.Before.IsZero() || out.Position.ObservedAt.IsZero() {
+			return out, apierror.Validation("invalid visibility cursor")
+		}
+		return out, nil
+	}
+	out := bgpVisibilityCursor{Monitor: id, Before: time.Now().UTC()}
+	if before != "" {
+		var err error
+		out.Before, err = time.Parse(time.RFC3339Nano, before)
+		if err != nil {
+			return out, apierror.Validation("before must be an RFC 3339 timestamp")
+		}
+	}
+	return out, nil
 }
 
 func (s *Server) handleListBGPVisibility(w http.ResponseWriter, r *http.Request) error {
@@ -82,14 +116,15 @@ func (s *Server) handleGetBGPVisibility(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		return err
 	}
-	before, err := bgpVisibilityCutoff(r.URL.Query().Get("before"))
+	query := r.URL.Query()
+	page, err := parseBGPVisibilityHistory(r.PathValue("id"), query.Get("before"), query.Get("cursor"))
 	if err != nil {
 		return err
 	}
 	var out bgpVisibilityHistory
 	err = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		out, err = readBGPVisibilityHistory(ctx, sc, r.PathValue("id"), before, limit)
+		out, err = readBGPVisibilityHistory(ctx, sc, page, limit)
 		return err
 	})
 	if err != nil {
@@ -99,16 +134,33 @@ func (s *Server) handleGetBGPVisibility(w http.ResponseWriter, r *http.Request) 
 	return nil
 }
 
-func readBGPVisibilityHistory(ctx context.Context, sc tenancy.Scope, id string, before time.Time, limit int) (bgpVisibilityHistory, error) {
-	monitor, err := store.BGPVisibilityMonitorInScope(ctx, sc, id)
+func readBGPVisibilityHistory(ctx context.Context, sc tenancy.Scope, page bgpVisibilityCursor, limit int) (bgpVisibilityHistory, error) {
+	monitor, err := store.BGPVisibilityMonitorInScope(ctx, sc, page.Monitor)
 	if err != nil {
 		return bgpVisibilityHistory{}, err
 	}
-	items, err := (store.BGPVisibility{}).History(ctx, sc, id, before, limit)
+	var after *store.BGPVisibilityPosition
+	if !page.Position.ObservedAt.IsZero() {
+		after = &page.Position
+	}
+	items, more, err := (store.BGPVisibility{}).History(ctx, sc, page.Monitor, page.Before, after, limit)
 	if err != nil {
 		return bgpVisibilityHistory{}, err
 	}
-	return bgpVisibilityHistory{Monitor: monitor, Items: items}, nil
+	out := bgpVisibilityHistory{Monitor: monitor, Items: items, Coverage: "no_retained_points", EffectiveLimit: limit}
+	if len(items) > 0 {
+		out.Coverage = "retained_points"
+	}
+	if more {
+		last := items[len(items)-1]
+		page.Position = store.BGPVisibilityPosition{ObservedAt: last.ObservedAt, Source: last.Source, Collector: last.Collector}
+		body, err := json.Marshal(page)
+		if err != nil {
+			return bgpVisibilityHistory{}, err
+		}
+		out.NextCursor = base64.RawURLEncoding.EncodeToString(body)
+	}
+	return out, nil
 }
 
 func (s *Server) handleDeleteBGPVisibility(w http.ResponseWriter, r *http.Request) error {

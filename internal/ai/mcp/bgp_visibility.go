@@ -16,6 +16,7 @@ import (
 type BGPVisibilityCommand struct {
 	ID     string `json:"id"`
 	Before string `json:"before,omitempty"`
+	Cursor string `json:"cursor,omitempty"`
 	Limit  *int   `json:"limit,omitempty"`
 }
 

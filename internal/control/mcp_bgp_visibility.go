@@ -9,12 +9,12 @@ package control
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -40,7 +40,7 @@ func bgpVisibilityToolOption(server *Server) (mcp.Option, error) {
 			properties[parameter.Name] = parameter.Schema
 		}
 	}
-	if len(properties) != 3 {
+	if len(properties) != 4 {
 		return nil, apierror.Unavailable("BGP visibility tool contract is unavailable")
 	}
 	schema, err := json.Marshal(struct {
@@ -93,7 +93,7 @@ func (b mcpBGPVisibilityBackend) BGPVisibility(ctx context.Context, actor *auth.
 	if err := check(ctx); err != nil {
 		return nil, err
 	}
-	before, err := bgpVisibilityCutoff(command.Before)
+	page, err := parseBGPVisibilityHistory(command.ID, command.Before, command.Cursor)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (b mcpBGPVisibilityBackend) BGPVisibility(ctx context.Context, actor *auth.
 	var out bgpVisibilityHistory
 	err = tenancy.InTenantReadSnapshot(ctx, b.server.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		out, err = readBGPVisibilityHistory(ctx, sc, command.ID, before, limit)
+		out, err = readBGPVisibilityHistory(ctx, sc, page, limit)
 		return err
 	})
 	if err != nil {
@@ -118,16 +118,37 @@ func (b mcpBGPVisibilityBackend) BGPVisibility(ctx context.Context, actor *auth.
 	}, func() {}); err != nil {
 		return nil, err
 	}
-	return json.Marshal(out)
+	return marshalNativeBGPVisibility(out)
 }
 
-func bgpVisibilityCutoff(raw string) (time.Time, error) {
-	if raw == "" {
-		return time.Now().UTC(), nil
+func marshalNativeBGPVisibility(history bgpVisibilityHistory) (json.RawMessage, error) {
+	type monitor struct {
+		store.BGPVisibilityMonitor
+		ID mcp.NativeRoleUUID `json:"id"`
 	}
-	parsed, err := time.Parse(time.RFC3339Nano, raw)
-	if err != nil {
-		return time.Time{}, apierror.Validation("before must be an RFC 3339 timestamp")
+	type observation struct {
+		store.BGPVisibilityObservation
+		BaselineSHA256 mcp.NativeRoleDigest `json:"baseline_sha256"`
+		ArchiveSHA256  mcp.NativeRoleDigest `json:"archive_sha256"`
 	}
-	return parsed, nil
+	out := struct {
+		bgpVisibilityHistory
+		Monitor    monitor         `json:"monitor"`
+		Items      []observation   `json:"items"`
+		NextCursor json.RawMessage `json:"next_cursor,omitempty"`
+	}{bgpVisibilityHistory: history, Monitor: monitor{history.Monitor, mcp.NativeRoleUUID(history.Monitor.ID)}, Items: []observation{}}
+	for _, item := range history.Items {
+		out.Items = append(out.Items, observation{item, mcp.NativeRoleDigest(item.BaselineSHA256), mcp.NativeRoleDigest(item.ArchiveSHA256)})
+	}
+	if history.NextCursor != "" {
+		if _, err := parseBGPVisibilityHistory(history.Monitor.ID, "", history.NextCursor); err != nil {
+			return nil, err
+		}
+		cursor, err := nativeValidatedCursorJSON(history.NextCursor)
+		if err != nil {
+			return nil, err
+		}
+		out.NextCursor = cursor
+	}
+	return json.Marshal(out)
 }

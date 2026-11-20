@@ -70,3 +70,29 @@ func mrtUpdateRecordForTest(messageType, subtype uint16, timestamp uint32, paylo
 	binary.BigEndian.PutUint16(raw[4:6], messageType)
 	return raw
 }
+
+func FuzzMRTUpdateArchive(f *testing.F) {
+	attributes := []byte{0x40, 1, 1, 0, 0x40, 2, 6, 2, 1, 0, 0, 0xfb, 0xf0, 0x40, 3, 4, 192, 0, 2, 1}
+	announcement := endOfRIBFrameForTest(nil, attributes, []byte{0, 0, 0, 1, 24, 192, 0, 2})
+	f.Add(mrtUpdateRecordForTest(17, 9, 1_700_000_500, announcement))
+	f.Add(mrtUpdateRecordForTest(16, 5, 1_700_000_500, []byte{0, 6, 0, 1}))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		budget := MRTArchiveBudget{ArchiveBytes: 1 << 16, Records: 32,
+			Frame: UpdateFrameBudget{MemoryBytes: 4 << 20, WorkUnits: 4 << 20}}
+		size, records, err := StageMRTUpdates(t.Context(), bytes.NewReader(raw), budget, func(_ context.Context, update MRTUpdate) error {
+			if !update.PeerAddress.IsValid() || update.ObservedUnixNanos <= 0 {
+				t.Fatal("stage callback received an update without original source facts")
+			}
+			return nil
+		})
+		if err != nil {
+			if size != 0 || records != 0 {
+				t.Fatal("invalid archive produced a receipt", size, records, err)
+			}
+			return
+		}
+		if size != int64(len(raw)) || records > budget.Records {
+			t.Fatal("archive receipt omitted bytes or exceeded its record limit", size, records)
+		}
+	})
+}

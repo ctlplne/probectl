@@ -29,10 +29,10 @@ probectl-control public-mrt-fetch -cache-dir /var/lib/probectl/public-mrt \
 ```
 
 Fetch the collector's RIB at each two-hour UTC boundary and the associated
-updates every 15 minutes after the publisher closes the file. Keep the
-original and its `receipt.json` together when copying the cache to an
-air-gapped deployment. The production reader verifies every file's original
-digest. Configure an absolute cache directory and up to three collectors.
+updates every 15 minutes after the publisher closes the file. Keep each
+original and its `receipt.json` together if you transfer the cache between
+hosts. The reader verifies each file against the digest in its receipt.
+Configure an absolute cache directory and up to three collectors.
 The supervisor reads the directory locally and waits five minutes past the
 nominal end for each update file. Manage archive disk retention on the fetch
 host and keep each in-use baseline and all of its updates together.
@@ -68,5 +68,9 @@ probectl --json bgp visibility MONITOR_ID
 
 The OpenAPI spec and SDK describe `/v1/bgp/visibility`. The native MCP tool
 `bgp_visibility_history` reads one monitor with current `events.read` and
-`ai.query` authority. Leaving prior observations intact lets a reader compare
-their original policy and source evidence.
+`ai.query` authority. Native tool output observes the tenant's egress
+redaction policy. Pass its `next_cursor` as `cursor` to continue the
+selected history, including points where two collectors share a clock. The
+console's **Load earlier observations** control uses the same continuation.
+`no_retained_points` identifies an empty selection. Each retained point
+declares its own availability and carries its original policy and evidence.

@@ -64,6 +64,10 @@ func TestBGPVisibilityKeepsSharedPrefixHistoryTenantScopedAndImmutable(t *testin
 			if added, err := storage.Record(ctx, sc, monitors[lane].ID, point); err != nil || !added {
 				t.Fatal("explicit gap was not retained", added, err)
 			}
+			point.Collector = "route-views.wide"
+			if added, err := storage.Record(ctx, sc, monitors[lane].ID, point); err != nil || !added {
+				t.Fatal("same-time second collector was not retained", added, err)
+			}
 			return nil
 		})
 	}
@@ -72,17 +76,24 @@ func TestBGPVisibilityKeepsSharedPrefixHistoryTenantScopedAndImmutable(t *testin
 	}
 	for lane, tenant := range fixture.tenants {
 		fixture.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			points, err := storage.History(ctx, sc, monitors[lane].ID, at.Add(time.Hour), 10)
-			if err != nil || len(points) != 2 || points[0].Counts != nil || points[0].Availability != "archive_gap" ||
+			before := at.Add(time.Hour)
+			first, more, err := storage.History(ctx, sc, monitors[lane].ID, before, nil, 1)
+			if err != nil || !more || len(first) != 1 || first[0].Counts != nil || first[0].Collector != "route-views.eqix" || first[0].Availability != "archive_gap" {
+				t.Fatal("first page did not show the owned gap in stable collector order", first, more, err)
+			}
+			last := BGPVisibilityPosition{ObservedAt: first[0].ObservedAt, Source: first[0].Source, Collector: first[0].Collector}
+			points, more, err := storage.History(ctx, sc, monitors[lane].ID, before, &last, 2)
+			if err != nil || more || len(points) != 2 || points[0].Collector != "route-views.wide" ||
+				!points[0].ObservedAt.Equal(last.ObservedAt) || points[0].Counts != nil || points[0].Availability != "archive_gap" ||
 				points[1].Counts == nil || points[1].Counts.EligiblePeers != 5+lane || len(points[1].Counts.Origins) != 1 ||
 				points[1].Counts.Origins[0].ASN != uint32(64496+lane) {
-				t.Fatal("history mixed tenant coverage, original origins, or gap state", points, err)
+				t.Fatal("continuation lost shared-clock data or mixed tenant coverage, origins or gaps", points, more, err)
 			}
-			if history, err := storage.History(ctx, sc, monitors[1-lane].ID, at.Add(time.Hour), 10); !errors.Is(err, ErrBGPVisibilityMissing) || len(history) != 0 {
+			if history, _, err := storage.History(ctx, sc, monitors[1-lane].ID, before, &last, 10); !errors.Is(err, ErrBGPVisibilityMissing) || len(history) != 0 {
 				t.Fatal("sibling monitor crossed authorization", history, err)
 			}
 			var count int
-			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_visibility_points`).Scan(&count); err != nil || count != 2 {
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_visibility_points`).Scan(&count); err != nil || count != 3 {
 				t.Fatal("unfiltered SQL crossed tenant isolation", count, err)
 			}
 			return nil

@@ -6874,19 +6874,22 @@
         "parameters": [
           {"$ref": "#/components/parameters/TenantHeader"},
           {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
-          {"name": "before", "in": "query", "description": "Exclusive observation timestamp cutoff.",
+          {"name": "before", "in": "query", "description": "Exclusive observation timestamp cutoff for the first page.",
            "schema": {"type": "string", "format": "date-time"}},
+          {"name": "cursor", "in": "query", "description": "Pass the preceding page's next_cursor without a new before timestamp.",
+           "schema": {"type": "string", "maxLength": 512}},
           {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 100}}
         ],
         "responses": {
           "200": {"description": "Stored history and original source receipts for the monitor", "content": {"application/json": {
             "schema": {"$ref": "#/components/schemas/BGPVisibilityHistory"}}}},
           "404": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"},
           "503": {"$ref": "#/components/responses/ErrorResponse"}
         },
         "x-probectl-pagination": {
-          "mode": "bounded", "limit_param": "limit", "max_items": 200,
-          "reason": "Visibility observations are selected within one tenant monitor and one time boundary."
+          "mode": "cursor", "cursor_param": "cursor", "limit_param": "limit",
+          "next_cursor": "next_cursor", "max_limit": 200
         }
       },
       "delete": {
@@ -30855,8 +30858,12 @@
       },
       "BGPVisibilityHistory": {
         "type": "object",
-        "required": ["monitor", "items"],
+        "required": ["monitor", "items", "coverage", "effective_limit"],
         "properties": {"monitor": {"$ref": "#/components/schemas/BGPVisibilityMonitor"},
+                       "coverage": {"type": "string", "enum": ["retained_points", "no_retained_points"],
+                         "description": "Whether this selection has retained collector points. Each point declares its own availability."},
+                       "effective_limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                       "next_cursor": {"type": "string", "maxLength": 512},
                        "items": {"type": "array", "maxItems": 200, "items": {
                          "$ref": "#/components/schemas/BGPVisibilityObservation"}}}
       },

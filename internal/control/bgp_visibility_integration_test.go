@@ -55,18 +55,45 @@ func TestBGPVisibilitySignalsAndHistoryStayTenantScoped(t *testing.T) {
 		if err := json.Unmarshal(stdout.Bytes(), &cliHistory); err != nil || cliHistory.Monitor.ID != monitors[lane].ID || len(cliHistory.Items) != len(histories[lane].Items) {
 			t.Fatal("CLI changed the authorized monitor or its exact history", err)
 		}
+		stdout.Reset()
+		if code := cli.RunWithStdin([]string{"--json", "bgp", "visibility", monitors[lane].ID, "--query", "limit=1"}, getenv, bytes.NewReader(nil), &stdout, &stderr); code != 0 {
+			t.Fatal("CLI could not request a bounded history page", code, stderr.String())
+		}
+		var first bgpVisibilityHistory
+		if err := json.Unmarshal(stdout.Bytes(), &first); err != nil || first.NextCursor == "" || len(first.Items) != 1 {
+			t.Fatal("CLI did not preserve the history continuation", err)
+		}
+	}
+	type nativeHistory struct {
+		Monitor struct {
+			ID     string `json:"id"`
+			Prefix string `json:"prefix"`
+		} `json:"monitor"`
+		Items      []store.BGPVisibilityObservation `json:"items"`
+		Coverage   string                           `json:"coverage"`
+		NextCursor string                           `json:"next_cursor"`
 	}
 	for _, wire := range []string{"2025-11-25", "2026-07-28"} {
 		call := interfaceRoleNativeTLSCaller(t, f, wire)
 		for lane, tenant := range f.tenants {
-			var native struct {
-				Items []store.BGPVisibilityObservation `json:"items"`
-			}
+			var native nativeHistory
 			call(tenant, "bgp_visibility_history", map[string]any{"id": monitors[lane].ID}, &native, true)
-			if len(native.Items) != len(histories[lane].Items) || native.Items[0].Availability != histories[lane].Items[0].Availability {
-				t.Fatal("native read changed the owned measurement or absence", wire)
+			if len(native.Items) != len(histories[lane].Items) || native.Items[0].Availability != histories[lane].Items[0].Availability ||
+				native.Items[0].ArchiveSHA256 != histories[lane].Items[0].ArchiveSHA256 || native.Monitor.ID != monitors[lane].ID ||
+				native.Monitor.Prefix == "" || strings.Contains(native.Monitor.Prefix, monitors[lane].Prefix.Addr().String()) {
+				t.Fatal("native read changed the owned measurement, provenance or prefix redaction", wire)
+			}
+			var first, rest nativeHistory
+			call(tenant, "bgp_visibility_history", map[string]any{"id": monitors[lane].ID, "limit": 1}, &first, true)
+			if len(first.Items) != 1 || first.NextCursor == "" || first.Coverage != "retained_points" {
+				t.Fatal("native read omitted initial page coverage or continuation", wire)
+			}
+			call(tenant, "bgp_visibility_history", map[string]any{"id": monitors[lane].ID, "cursor": first.NextCursor}, &rest, true)
+			if len(rest.Items) != 3 || rest.NextCursor != "" || rest.Monitor.ID != monitors[lane].ID {
+				t.Fatal("native read did not resume the authorized selection", wire)
 			}
 			call(tenant, "bgp_visibility_history", map[string]any{"id": monitors[1-lane].ID}, &native, false)
+			call(tenant, "bgp_visibility_history", map[string]any{"id": monitors[1-lane].ID, "cursor": first.NextCursor}, &native, false)
 		}
 	}
 }
@@ -91,6 +118,11 @@ func publishBGPVisibilityFixture(t *testing.T, f *roleExplanationAPIFixture, soc
 			map[string]any{"prefix": prefix, "minimum_visible_basis_points": 9500, "alert_on_partial": true, "alert_on_loss": true}, http.StatusOK)
 		if err := json.Unmarshal(created, &monitors[lane]); err != nil || monitors[lane].Prefix != prefix {
 			t.Fatal("shipped route did not capture a tenant prefix monitor", err)
+		}
+		blank := callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodGet, "/v1/bgp/visibility/"+monitors[lane].ID, nil, http.StatusOK)
+		var initial bgpVisibilityHistory
+		if err := json.Unmarshal(blank, &initial); err != nil || initial.Coverage != "no_retained_points" || initial.NextCursor != "" || len(initial.Items) != 0 {
+			t.Fatal("no data was mislabeled as a measured empty cohort", err)
 		}
 		at := monitors[lane].CreatedAt.UTC().Add(time.Microsecond)
 		clock := at.Truncate(2 * time.Hour)
@@ -125,6 +157,18 @@ func publishBGPVisibilityFixture(t *testing.T, f *roleExplanationAPIFixture, soc
 		if err := json.Unmarshal(raw, &histories[lane]); err != nil || len(histories[lane].Items) != 4 || histories[lane].Monitor.ID != monitors[lane].ID {
 			t.Fatal("shipped HTTPS history did not retain four scoped points", err)
 		}
+		var page bgpVisibilityHistory
+		raw = callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodGet, path+"?limit=1", nil, http.StatusOK)
+		if err := json.Unmarshal(raw, &page); err != nil || page.Coverage != "retained_points" || page.EffectiveLimit != 1 || page.NextCursor == "" || len(page.Items) != 1 {
+			t.Fatal("first retained page omitted coverage or continuation", err)
+		}
+		var rest bgpVisibilityHistory
+		raw = callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodGet, path+"?limit=3&cursor="+page.NextCursor, nil, http.StatusOK)
+		if err := json.Unmarshal(raw, &rest); err != nil || rest.NextCursor != "" || len(rest.Items) != 3 ||
+			!rest.Items[0].ObservedAt.Equal(histories[lane].Items[1].ObservedAt) || rest.Monitor.ID != monitors[lane].ID {
+			t.Fatal("continuation did not resume the selected tenant history", err)
+		}
+		callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodGet, path+"?cursor="+page.NextCursor+"&before=2026-10-01T00:00:00Z", nil, http.StatusUnprocessableEntity)
 		callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodGet, "/v1/bgp/visibility/"+monitors[1-lane].ID, nil, http.StatusNotFound)
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			rows, err := listBGPEventItems(ctx, sc, prefix.String(), "", 20)

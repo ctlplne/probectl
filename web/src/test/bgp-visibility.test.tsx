@@ -13,7 +13,7 @@ import { AuthContext } from '../auth/AuthProvider'
 import { I18nProvider } from '../i18n/I18nProvider'
 import { BGPVisibilityPanel } from '../routes/BGPVisibilityPanel'
 import { TimeProvider } from '../time/TimeProvider'
-import { jsonResponse, pathOf } from './fetchStub'
+import { jsonResponse } from './fetchStub'
 
 const clock = '2026-10-01T00:00:00Z'
 const first: BGPVisibilityMonitor = {
@@ -68,10 +68,11 @@ function mount(permissions: string[]) {
   )
 }
 
-function connect(handler: (path: string, init?: RequestInit) => Response) {
-  const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
-    handler(pathOf(input), init),
-  )
+function connect(handler: (path: string, init: RequestInit | undefined, url: URL) => Response) {
+  const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://t.invalid')
+    return handler(url.pathname, init, url)
+  })
   vi.stubGlobal('fetch', api)
   return api
 }
@@ -87,11 +88,21 @@ test('shows no visibility controls or network reads without event access', () =>
 
 test('distinguishes zero observations from missing views and follows the chosen prefix', async () => {
   const user = userEvent.setup()
-  const api = connect((path) => {
+  const api = connect((path, _init, url) => {
     if (path === '/v1/bgp/visibility') return jsonResponse({ items: [first, second] })
+    if (path.endsWith(first.id) && url.searchParams.get('cursor') === 'first-page-token')
+      return jsonResponse({
+        monitor: first,
+        coverage: 'retained_points',
+        effective_limit: 100,
+        items: [{ ...observation, collector: 'route-views.wide' }],
+      })
     if (path.endsWith(first.id))
       return jsonResponse({
         monitor: first,
+        coverage: 'retained_points',
+        effective_limit: 100,
+        next_cursor: 'first-page-token',
         items: [
           observation,
           {
@@ -131,6 +142,12 @@ test('distinguishes zero observations from missing views and follows the chosen 
   expect(within(history).getByText('0 of 4 eligible peers')).toBeInTheDocument()
   expect(within(history).getByText('Archive gap')).toBeInTheDocument()
   expect(within(history).getByText('AS64496 (2)')).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Load earlier observations' }))
+  expect(await within(history).findByText('route-views.wide')).toBeInTheDocument()
+  expect(within(history).getByText('Archive gap')).toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: 'Load earlier observations' }),
+  ).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Set up monitoring' })).not.toBeInTheDocument()
   await user.selectOptions(screen.getByLabelText('Monitored prefix'), second.id)
   const other = await screen.findByRole('table', {
@@ -139,6 +156,7 @@ test('distinguishes zero observations from missing views and follows the chosen 
   expect(within(other).getByText('No eligible peers')).toBeInTheDocument()
   expect(within(other).getByText('Collector session changed')).toBeInTheDocument()
   expect(within(other).queryByText('0 of 4 eligible peers')).not.toBeInTheDocument()
+  expect(within(other).queryByText('route-views.wide')).not.toBeInTheDocument()
 })
 
 test('sends exact alert policy and waits for explicit confirmation before removing the monitor', async () => {

@@ -4,6 +4,8 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
+// Package dnstap reduces complete resolver captures to bounded interval
+// counters without retaining DNS names, addresses or message payloads.
 package dnstap
 
 import (

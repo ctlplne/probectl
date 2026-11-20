@@ -5,7 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { useState, type FormEvent } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import type {
   BGPVisibilityHistory,
@@ -95,11 +95,17 @@ function VisibilityControls({ tenant, allowEdits }: { tenant: string; allowEdits
   const entries = monitors.data?.items ?? []
   const monitor = entries.find((item) => item.id === selected) ?? entries[0]
   const monitorId = monitor?.id ?? ''
-  const history = useQuery({
+  const history = useInfiniteQuery({
     queryKey: [...key, monitorId],
     enabled: monitorId !== '',
-    queryFn: () =>
-      apiFetch<BGPVisibilityHistory>(`/bgp/visibility/${encodeURIComponent(monitorId)}`),
+    initialPageParam: '',
+    queryFn: ({ pageParam }) => {
+      const path = `/bgp/visibility/${encodeURIComponent(monitorId)}`
+      return apiFetch<BGPVisibilityHistory>(
+        pageParam ? `${path}?cursor=${encodeURIComponent(pageParam)}` : path,
+      )
+    },
+    getNextPageParam: (page) => page.next_cursor,
   })
   const save = useMutation({
     mutationFn: (input: BGPVisibilityMonitorInput) =>
@@ -160,15 +166,24 @@ function VisibilityControls({ tenant, allowEdits }: { tenant: string; allowEdits
       )}
       {monitor && history.isLoading && <LoadingState label="Loading visibility history…" />}
       {history.isError && <ErrorState description="Could not load visibility history." />}
-      {history.data && (
+      {history.data && monitor && (
         <>
           <Table
-            caption={`Collector coverage for ${history.data.monitor.prefix}`}
+            caption={`Collector coverage for ${monitor.prefix}`}
             columns={historyColumns}
-            rows={history.data.items}
+            rows={history.data.pages.flatMap((page) => page.items)}
             rowKey={(item) => `${item.source}/${item.collector}/${item.observed_at}`}
             empty="Waiting for a complete collector archive."
           />
+          {history.hasNextPage && (
+            <Button
+              variant="secondary"
+              disabled={history.isFetchingNextPage}
+              onClick={() => void history.fetchNextPage()}
+            >
+              Load earlier observations
+            </Button>
+          )}
           <p>Collector data from the University of Oregon RouteViews Project.</p>
         </>
       )}

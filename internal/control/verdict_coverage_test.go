@@ -54,6 +54,7 @@ var verdictSurfaceKinds = map[string]string{
 	"GET /v1/alerts/maintenance":         verdictSurface,
 	"GET /v1/alerts/{id}/evaluations":    verdictSurface,
 	"GET /v1/bgp/events":                 verdictSurface,
+	"GET /v1/bgp/visibility/{id}":        verdictSurface,
 	"GET /v1/carbon":                     verdictSurface,
 	"GET /v1/changes":                    verdictSurface,
 	"GET /v1/compliance":                 verdictSurface,
@@ -91,6 +92,7 @@ var verdictSurfaceKinds = map[string]string{
 	// means the tenant has not created any, which is unambiguous.
 	"GET /v1/abac/policies":                                recordSurface,
 	"GET /v1/alerts":                                       recordSurface,
+	"GET /v1/bgp/visibility":                               recordSurface,
 	"POST /v1/alerts/maintenance/preview":                  recordSurface,
 	"GET /v1/audit":                                        recordSurface,
 	"GET /v1/dashboard-report-artifacts":                   recordSurface,
@@ -117,6 +119,7 @@ var verdictSurfaceKinds = map[string]string{
 	"GET /v1/api-tokens":                                   recordSurface,
 	"GET /v1/otlp-tokens":                                  recordSurface,
 	"GET /v1/remediation/proposals":                        recordSurface,
+	"GET /v1/remediation/rtbh-templates":                   recordSurface,
 	"GET /v1/security/keys":                                recordSurface,
 	"GET /v1/tests":                                        recordSurface,
 }

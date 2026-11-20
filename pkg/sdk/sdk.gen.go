@@ -694,8 +694,11 @@ type BGPVisibilityCounts struct {
 }
 
 type BGPVisibilityHistory struct {
-	Items   []BGPVisibilityObservation `json:"items"`
-	Monitor BGPVisibilityMonitor       `json:"monitor"`
+	Coverage       string                     `json:"coverage"`
+	EffectiveLimit int                        `json:"effective_limit"`
+	Items          []BGPVisibilityObservation `json:"items"`
+	Monitor        BGPVisibilityMonitor       `json:"monitor"`
+	NextCursor     string                     `json:"next_cursor,omitempty"`
 }
 
 type BGPVisibilityMonitor struct {
@@ -6015,6 +6018,7 @@ func (c *Client) SaveBgpVisibilityMonitor(ctx context.Context, req SaveBgpVisibi
 type GetBgpVisibilityHistoryRequest struct {
 	Id     string  `json:"-"`
 	Before *string `json:"-"`
+	Cursor *string `json:"-"`
 	Limit  *int    `json:"-"`
 }
 
@@ -6027,6 +6031,9 @@ func (c *Client) GetBgpVisibilityHistory(ctx context.Context, req GetBgpVisibili
 	query := url.Values{}
 	if req.Before != nil {
 		query.Set("before", formatQueryValue(*req.Before))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
 	}
 	if req.Limit != nil {
 		query.Set("limit", formatQueryValue(*req.Limit))

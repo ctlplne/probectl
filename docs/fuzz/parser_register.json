@@ -262,11 +262,20 @@
     "bgp.DecodeMRTRIB": {
       "target": "FuzzMRTRIB"
     },
+    "bgp.decodeMRTRIB": {
+      "target": "FuzzMRTRIB"
+    },
     "bgp.decodeMRTRIBHeader": {
       "target": "FuzzMRTRIB"
     },
     "bgp.decodeMRTRIBEntries": {
       "target": "FuzzMRTRIB"
+    },
+    "bgp.decodeMRTUpdate": {
+      "target": "FuzzMRTUpdateArchive"
+    },
+    "bgp.decodeMRTUpdateRoutes": {
+      "target": "FuzzMRTUpdateArchive"
     }
   }
 }

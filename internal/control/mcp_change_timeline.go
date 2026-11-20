@@ -175,11 +175,16 @@ func nativeChangeTimelineCursor(cursor string) (json.RawMessage, error) {
 	if _, err := decodeChangeTimelineCursor(cursor); err != nil {
 		return nil, err
 	}
+	return nativeValidatedCursorJSON(cursor)
+}
+
+// Only pass a server-created continuation after validating its full shape.
+func nativeValidatedCursorJSON(cursor string) (json.RawMessage, error) {
 	var out strings.Builder
 	out.WriteByte('"')
 	for _, character := range cursor {
 		if character > 127 {
-			return nil, apierror.Unavailable("invalid generated change cursor")
+			return nil, apierror.Unavailable("invalid generated page cursor")
 		}
 		out.WriteString(`\u00`)
 		const digits = "0123456789abcdef"

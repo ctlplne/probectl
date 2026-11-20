@@ -117,6 +117,12 @@ func FuzzMRTRIB(f *testing.F) {
 	f.Add(mrtRIBForTest(10, false))
 	f.Add(mrtRIBForTest(12, false))
 	f.Fuzz(func(t *testing.T, raw []byte) {
-		_, _ = DecodeMRTRIB(t.Context(), raw, 2, UpdateFrameBudget{MemoryBytes: 4 << 20, WorkUnits: 4 << 20})
+		budget := UpdateFrameBudget{MemoryBytes: 4 << 20, WorkUnits: 4 << 20}
+		for _, public := range []bool{false, true} {
+			record, err := decodeMRTRIB(t.Context(), raw, 2, budget, public)
+			if err != nil && len(record.Entries) != 0 {
+				t.Fatal("invalid RIB exposed partial entries", err)
+			}
+		}
 	})
 }

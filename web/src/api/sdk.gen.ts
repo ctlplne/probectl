@@ -602,8 +602,11 @@ export interface BGPVisibilityCounts {
 }
 
 export interface BGPVisibilityHistory {
+  coverage: "retained_points" | "no_retained_points"
+  effective_limit: number
   items: BGPVisibilityObservation[]
   monitor: BGPVisibilityMonitor
+  next_cursor?: string
 }
 
 export interface BGPVisibilityMonitor {
@@ -5054,6 +5057,7 @@ export type SaveBgpVisibilityMonitorResponse = BGPVisibilityMonitor
 export interface GetBgpVisibilityHistoryRequest {
   id: string
   before?: string
+  cursor?: string
   limit?: number
 }
 
@@ -7223,6 +7227,7 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     if (request.before !== undefined) query.set("before", String(request.before))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<GetBgpVisibilityHistoryResponse>("GET", path, query, undefined)
   }

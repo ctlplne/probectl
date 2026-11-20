@@ -21,6 +21,12 @@ import (
 
 const BGPVisibilityHistoryMax = 200
 
+type BGPVisibilityPosition struct {
+	ObservedAt time.Time `json:"at"`
+	Source     string    `json:"source"`
+	Collector  string    `json:"collector"`
+}
+
 const bgpVisibilityPointColumns = `source,collector,observed_at,baseline_clock,archive_clock,
  encode(baseline_sha256,'hex'),encode(archive_sha256,'hex'),policy_version,minimum_peer_routes,
  availability,eligible_peers,visible_peers,ambiguous_origin_peers,origins`
@@ -86,31 +92,49 @@ func (BGPVisibility) Record(ctx context.Context, sc tenancy.Scope, id string, ob
 	return false, err
 }
 
-func (BGPVisibility) History(ctx context.Context, sc tenancy.Scope, id string, before time.Time, limit int) ([]BGPVisibilityObservation, error) {
+func (BGPVisibility) History(ctx context.Context, sc tenancy.Scope, id string, before time.Time, after *BGPVisibilityPosition, limit int) ([]BGPVisibilityObservation, bool, error) {
 	if err := verifyBGPVisibilityScope(ctx, sc); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !bgpVisibilityID(id) || before.IsZero() || limit < 1 || limit > BGPVisibilityHistoryMax {
-		return nil, ErrBGPVisibilityInput
+		return nil, false, ErrBGPVisibilityInput
 	}
 	if _, err := BGPVisibilityMonitorInScope(ctx, sc, id); err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	var at *time.Time
+	var source, collector string
+	if after != nil {
+		if after.ObservedAt.IsZero() || !after.ObservedAt.Before(before) || !bgpVisibilitySourceLabel.MatchString(after.Source) ||
+			!bgpVisibilityCollectorLabel.MatchString(after.Collector) {
+			return nil, false, ErrBGPVisibilityInput
+		}
+		at, source, collector = &after.ObservedAt, after.Source, after.Collector
 	}
 	rows, err := sc.Q.Query(ctx, bgpVisibilityHistorySQL+`
- AND observed_at<$3 ORDER BY observed_at DESC,source,collector LIMIT $4`, sc.Tenant.String(), id, before, limit)
+ AND observed_at<$3 AND observed_at<=COALESCE($4::timestamptz,$3::timestamptz)
+ AND ($4::timestamptz IS NULL OR observed_at<$4
+ OR (observed_at=$4 AND (source,collector)>($5::text,$6::text)))
+ ORDER BY observed_at DESC,source,collector LIMIT $7`, sc.Tenant.String(), id, before, at, source, collector, limit+1)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
 	points := []BGPVisibilityObservation{}
 	for rows.Next() {
 		observation, err := scanBGPVisibilityObservation(rows)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		points = append(points, observation)
 	}
-	return points, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	if len(points) > limit {
+		return points[:limit], true, nil
+	}
+	return points, false, nil
 }
 
 func (BGPVisibility) Previous(ctx context.Context, sc tenancy.Scope, id string, point BGPVisibilityObservation) (BGPVisibilityObservation, error) {
