@@ -7,7 +7,7 @@
 import { useState, type FormEvent } from 'react'
 import { useSubscriberUsage } from '../api/subscriberUsage'
 import { useTagDefinitions } from '../api/tags'
-import type { SavedFlowQueryView, SubscriberUsageReport } from '../api/sdk.gen'
+import type { SavedFlowQueryView, SubscriberLatency, SubscriberUsageReport } from '../api/sdk.gen'
 import { Button, Card, CardBody, CardHeader, ErrorState, Field, Select, Table } from '../components'
 import { DateTime } from '../time/DateTime'
 import styles from './flowExplorer.module.css'
@@ -15,13 +15,16 @@ import styles from './flowExplorer.module.css'
 export function SubscriberUsageCard({
   view,
   tenantID,
+  canReadLatency,
 }: {
   view: Pick<SavedFlowQueryView, 'id' | 'version'>
   tenantID: string
+  canReadLatency: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [tagID, setTagID] = useState('')
   const [value, setValue] = useState('')
+  const [includeLatency, setIncludeLatency] = useState(false)
   const definitions = useTagDefinitions(open ? tenantID : '')
   const report = useSubscriberUsage(tenantID, view.id)
   const choices = definitions.data?.items ?? []
@@ -35,6 +38,7 @@ export function SubscriberUsageCard({
       tag_id: tag.id,
       tag_key: tag.key,
       subscriber: value.trim(),
+      include_latency: canReadLatency && includeLatency,
     })
   }
 
@@ -72,6 +76,20 @@ export function SubscriberUsageCard({
                   setValue(event.target.value)
                 }}
               />
+              {canReadLatency ? (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={includeLatency}
+                    disabled={report.isPending}
+                    onChange={(event) => {
+                      report.reset()
+                      setIncludeLatency(event.target.checked)
+                    }}
+                  />{' '}
+                  Include original ICMP latency
+                </label>
+              ) : null}
               <Button type="submit" disabled={!tag || !value.trim() || report.isPending}>
                 Run subscriber report
               </Button>
@@ -142,6 +160,36 @@ function SubscriberUsageEvidence({ value }: { value: SubscriberUsageReport }) {
           packets
         </p>
       ) : null}
+      {value.latency_included && <SubscriberLatencyEvidence rows={value.latency ?? []} />}
     </>
+  )
+}
+
+const latencyCoverage: Record<SubscriberLatency['coverage'], string> = {
+  no_retained_observations: 'No retained observations',
+  observed_original_round_trips_only: 'Original round trips',
+  partial_original_round_trip_coverage: 'Partial round-trip coverage',
+  no_successful_replies: 'No successful replies',
+  unavailable_original_round_trips: 'Original round trips unavailable',
+}
+
+function SubscriberLatencyEvidence({ rows }: { rows: SubscriberLatency[] }) {
+  if (rows.length === 0) return <p>No configured ICMP tests carry this subscriber tag.</p>
+  return (
+    <Table
+      caption="Observed ICMP latency"
+      rows={rows}
+      rowKey={(row) => JSON.stringify([row.context_id, row.entity_id, row.test_id, row.agent_id])}
+      columns={[
+        { key: 'test', header: 'Test', render: (row) => row.test },
+        { key: 'target', header: 'Target', render: (row) => row.target },
+        { key: 'agent', header: 'Measuring agent', render: (row) => row.agent_id },
+        { key: 'count', header: 'Replies measured', render: (row) => row.samples ?? '—' },
+        { key: 'mean', header: 'Mean RTT (ns)', render: (row) => row.mean_nanos ?? '—' },
+        { key: 'min', header: 'Minimum RTT (ns)', render: (row) => row.minimum_nanos ?? '—' },
+        { key: 'max', header: 'Maximum RTT (ns)', render: (row) => row.maximum_nanos ?? '—' },
+        { key: 'coverage', header: 'Coverage', render: (row) => latencyCoverage[row.coverage] },
+      ]}
+    />
   )
 }

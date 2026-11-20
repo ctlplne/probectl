@@ -4370,6 +4370,21 @@ type Signal struct {
 	Title      string            `json:"title,omitempty"`
 }
 
+type SubscriberLatency struct {
+	AgentId      string `json:"agent_id"`
+	ContextId    string `json:"context_id"`
+	Coverage     string `json:"coverage"`
+	EntityId     string `json:"entity_id"`
+	MaximumNanos string `json:"maximum_nanos,omitempty"`
+	MeanNanos    string `json:"mean_nanos,omitempty"`
+	MinimumNanos string `json:"minimum_nanos,omitempty"`
+	Samples      string `json:"samples,omitempty"`
+	SumNanos     string `json:"sum_nanos,omitempty"`
+	Target       string `json:"target"`
+	Test         string `json:"test"`
+	TestId       string `json:"test_id"`
+}
+
 type SubscriberServiceUsage struct {
 	Direction string            `json:"direction"`
 	Provider  string            `json:"provider,omitempty"`
@@ -4387,6 +4402,8 @@ type SubscriberUsageReport struct {
 	Download          SubscriberTraffic        `json:"download"`
 	From              string                   `json:"from"`
 	Internal          SubscriberTraffic        `json:"internal"`
+	Latency           []SubscriberLatency      `json:"latency,omitempty"`
+	LatencyIncluded   bool                     `json:"latency_included"`
 	OtherServices     SubscriberTraffic        `json:"other_services"`
 	ResolutionSeconds int                      `json:"resolution_seconds"`
 	Source            string                   `json:"source"`
@@ -4404,11 +4421,12 @@ type SubscriberUsageReport struct {
 }
 
 type SubscriberUsageRequest struct {
-	End        string `json:"end,omitempty"`
-	Subscriber string `json:"subscriber"`
-	TagId      string `json:"tag_id"`
-	TagKey     string `json:"tag_key"`
-	Version    string `json:"version"`
+	End            string `json:"end,omitempty"`
+	IncludeLatency *bool  `json:"include_latency,omitempty"`
+	Subscriber     string `json:"subscriber"`
+	TagId          string `json:"tag_id"`
+	TagKey         string `json:"tag_key"`
+	Version        string `json:"version"`
 }
 
 type TagAssignment struct {

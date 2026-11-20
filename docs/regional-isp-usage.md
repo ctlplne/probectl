@@ -20,8 +20,19 @@ IP-range attribution of the opposite endpoint. Unknown and ambiguous service
 attribution remain visible. Classification groups outside the top 20 are
 included in the other-services total.
 
+To include latency, assign the same tag and subscriber value to each enabled
+ICMP test in its existing routing context. The test, its measuring agent and
+its registered path must have current bindings in one of the saved view's
+flow contexts. Choose **Include original ICMP latency**. Reading the result
+requires `metrics.read`, `test.read` and `entities.read` for those sources.
+Each row reports the number, exact sum, minimum, maximum and arithmetic mean
+of complete original round-trip measurements in that window. A fractional
+mean is an exact fraction of a nanosecond. Rows show partial or unavailable
+coverage when the original measurements cannot support a full summary.
+
 The equivalent CLI command is `probectl explorer subscriber-usage <view-id>
 --body-file request.json`. Provide the exact saved view `version`, `tag_id`,
 `tag_key` and `subscriber`. For a relative saved view, an optional UTC `end`
-pins its observation clock. Equivalent requests are served at
+pins its observation clock. Set `include_latency` to `true` for the optional
+latency evidence. Equivalent requests are served at
 `POST /v1/explorer/flow-views/{id}/subscriber-usage`.

@@ -4188,6 +4188,21 @@ export interface Signal {
   title?: string
 }
 
+export interface SubscriberLatency {
+  agent_id: string
+  context_id: string
+  coverage: "no_retained_observations" | "observed_original_round_trips_only" | "partial_original_round_trip_coverage" | "no_successful_replies" | "unavailable_original_round_trips"
+  entity_id: string
+  maximum_nanos?: string
+  mean_nanos?: string
+  minimum_nanos?: string
+  samples?: string
+  sum_nanos?: string
+  target: string
+  test: string
+  test_id: string
+}
+
 export interface SubscriberServiceUsage {
   direction: "upload" | "download"
   provider?: string
@@ -4205,6 +4220,8 @@ export interface SubscriberUsageReport {
   download: SubscriberTraffic
   from: string
   internal: SubscriberTraffic
+  latency?: SubscriberLatency[]
+  latency_included: boolean
   other_services: SubscriberTraffic
   resolution_seconds: number
   source: "raw"
@@ -4223,6 +4240,7 @@ export interface SubscriberUsageReport {
 
 export interface SubscriberUsageRequest {
   end?: string
+  include_latency?: boolean
   subscriber: string
   tag_id: string
   tag_key: string

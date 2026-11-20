@@ -13,15 +13,21 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/agent"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/enroll"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/testspec"
 	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
@@ -30,6 +36,8 @@ type subscriberLane struct {
 	*nativeLane
 	tagID, contextID, alphaAssignment string
 	alphaTarget                       string
+	probeTests                        [2]store.Test
+	evidence                          *agent.EvidenceClient
 }
 
 func TestShippedSubscriberUsageReconcilesOverlappingTenantAndSubscriberScopes(t *testing.T) {
@@ -40,11 +48,15 @@ func TestShippedSubscriberUsageReconcilesOverlappingTenantAndSubscriberScopes(t 
 	for i := range lanes {
 		lanes[i].provision(t, stack, operator, run)
 		lanes[i].configureSubscribers(t, stack)
+		lanes[i].configureSubscriberProbes(t, stack)
 	}
 	from := time.Now().UTC().Truncate(time.Millisecond)
 	time.Sleep(5 * time.Millisecond)
 	for i, lane := range lanes {
 		lane.sendSubscriberRecords(t, uint64(i+1))
+		for j, probe := range lane.probeTests {
+			lane.recordSubscriberProbe(t, probe, uint64((i+1)*1000+j*100))
+		}
 	}
 	time.Sleep(5 * time.Millisecond)
 	to := time.Now().UTC()
@@ -52,12 +64,12 @@ func TestShippedSubscriberUsageReconcilesOverlappingTenantAndSubscriberScopes(t 
 	for i, lane := range lanes {
 		want := uint64(i + 1)
 		refs[i] = lane.waitAndSaveSubscriberView(t, stack, from, to, want*3000)
-		assertSubscriberLaneUsage(t, stack, lane, refs[i], "alpha", want*1000, want*40)
-		assertSubscriberLaneUsage(t, stack, lane, refs[i], "beta", want*2000, want*60)
+		assertSubscriberLaneUsage(t, stack, lane, refs[i], 0, want*1000, want*40, want*1000)
+		assertSubscriberLaneUsage(t, stack, lane, refs[i], 1, want*2000, want*60, want*1000+100)
 	}
 	for i, lane := range lanes {
 		other := lanes[1-i]
-		foreign := flow.SubscriberUsageRequest{Version: refs[1-i].Version, TagID: other.tagID, TagKey: "subscriber", Subscriber: "alpha"}
+		foreign := flow.SubscriberUsageRequest{Version: refs[1-i].Version, TagID: other.tagID, TagKey: "subscriber", Subscriber: "alpha", IncludeLatency: true}
 		lane.do(t, stack, http.MethodPost, subscriberUsagePath(refs[1-i].ID), foreign, nil, http.StatusNotFound)
 		foreign.Version = refs[i].Version
 		lane.do(t, stack, http.MethodPost, subscriberUsagePath(refs[i].ID), foreign, nil, http.StatusNotFound)
@@ -68,6 +80,86 @@ func TestShippedSubscriberUsageReconcilesOverlappingTenantAndSubscriberScopes(t 
 	lanes[0].do(t, stack, http.MethodPost, subscriberUsagePath(refs[0].ID), flow.SubscriberUsageRequest{
 		Version: refs[0].Version, TagID: lanes[0].tagID, TagKey: "subscriber", Subscriber: "next-subscriber",
 	}, nil, http.StatusConflict)
+}
+
+func (l *subscriberLane) configureSubscriberProbes(t *testing.T, st *shipped.Stack) {
+	t.Helper()
+	name := "subscriber-icmp-" + l.name
+	csr, key, err := crypto.CreateCSR(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var token struct{ Token string }
+	l.do(t, st, http.MethodPost, "/v1/agents/enroll-tokens", map[string]any{
+		"agent_id": l.agent, "name": name, "ttl_seconds": 600,
+	}, &token, http.StatusCreated)
+	var issued enroll.CollectorIdentity
+	l.do(t, st, http.MethodPost, "/v1/collectors/register", map[string]string{
+		"token": token.Token, "plane": "entity", "hostname": name, "csr_pem": string(csr),
+	}, &issued, http.StatusCreated)
+	if issued.AgentID != l.agent || issued.TenantID != l.id || issued.SVID == nil || issued.SVID.SPIFFEID != crypto.EntitySPIFFEID(l.id, l.agent) {
+		t.Fatal("subscriber measurement identity did not bind to the original tenant and agent")
+	}
+	dir := t.TempDir()
+	certPath, keyPath := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+	for path, pem := range map[string][]byte{certPath: []byte(issued.SVID.CertPEM), keyPath: key} {
+		if err := os.WriteFile(path, pem, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l.evidence, err = agent.DialEntityEvidence(st.AgentAddr, certPath, keyPath, st.CAFile, "localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.evidence.Close() })
+	var anchor entity.Record
+	l.do(t, st, http.MethodPost, "/v1/entities", map[string]string{
+		"context_id": l.contextID, "kind": "device", "label": "Subscriber test vantage",
+	}, &anchor, http.StatusCreated)
+	for i, key := range []string{"alpha", "beta"} {
+		probe := &l.probeTests[i]
+		l.do(t, st, http.MethodPost, "/v1/tests", map[string]any{
+			"name": key + " latency", "type": "icmp", "target": "192.0.2.184", "interval_seconds": 60,
+			"timeout_seconds": 5, "params": map[string]string{"count": "3"},
+		}, probe, http.StatusCreated)
+		l.do(t, st, http.MethodPut, "/v1/tests/"+probe.ID+"/entity-context", map[string]string{
+			"context_id": l.contextID,
+		}, nil, http.StatusOK)
+		l.do(t, st, http.MethodPut, "/v1/entity-source-contexts", map[string]string{
+			"context_id": l.contextID, "agent_id": l.agent, "source_kind": "path_agent", "source_ref": probe.ID, "anchor_entity_id": anchor.ID,
+		}, nil, http.StatusOK)
+		l.do(t, st, http.MethodPost, "/v1/entity-contexts/"+l.contextID+"/tag-assignments", map[string]string{
+			"tag_id": l.tagID, "target_kind": "test", "target_id": probe.ID, "value": key,
+		}, nil, http.StatusCreated)
+	}
+}
+
+func (l *subscriberLane) recordSubscriberProbe(t *testing.T, probe store.Test, base uint64) {
+	t.Helper()
+	digest, err := testspec.DefinitionHash(testspec.ExecutableDefinition{
+		ID: probe.ID, Type: probe.Type, Target: probe.Target, IntervalSeconds: probe.IntervalSeconds, TimeoutSeconds: probe.TimeoutSeconds, Params: probe.Params,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := crypto.UUIDv4()
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UTC()
+	observation := entity.Observation{ID: id, Source: entity.SourceKey{AgentID: l.agent, Kind: entity.PathAgent, SourceRef: probe.ID},
+		Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: probe.Target}, SourceRef: "icmp:configured-test", ObservedAt: at,
+		ICMP: &entity.ICMPMeasurement{Version: 3, DefinitionHash: digest, StartedAt: at, CompletedAt: at,
+			Requested: 3, Attempted: 3, Transmitted: 3, Replies: 3, ReadComplete: true, Responders: []string{probe.Target},
+			RoundTrips: &entity.ICMPRoundTrips{Nanos: []uint64{base, base + 1, base + 1}, ExecutionNanos: 3*base + 2},
+		},
+	}
+	// Submit synthetic measurements over the production evidence transport.
+	// No ICMP packets go to the documentation address used as the target.
+	accepted, unresolved, err := l.evidence.Submit(t.Context(), []entity.Observation{observation})
+	if err != nil || accepted != 1 || unresolved != 0 {
+		t.Fatal("typed original round trips not retained", accepted, unresolved, err)
+	}
 }
 
 func (l *subscriberLane) configureSubscribers(t *testing.T, st *shipped.Stack) {
@@ -131,19 +223,32 @@ func subscriberUsagePath(id string) string {
 	return "/v1/explorer/flow-views/" + id + "/subscriber-usage"
 }
 
-func assertSubscriberLaneUsage(t *testing.T, st *shipped.Stack, lane subscriberLane, view flow.SavedQueryView, value string, bytes, packets uint64) {
+func assertSubscriberLaneUsage(t *testing.T, st *shipped.Stack, lane subscriberLane, view flow.SavedQueryView, subscriber int, bytes, packets, roundTrip uint64) {
 	t.Helper()
+	value := []string{"alpha", "beta"}[subscriber]
 	input := flow.SubscriberUsageRequest{Version: view.Version, TagID: lane.tagID, TagKey: "subscriber", Subscriber: value}
 	var report flow.SubscriberUsageReport
 	lane.do(t, st, http.MethodPost, subscriberUsagePath(view.ID), input, &report, http.StatusOK)
 	want := flow.SubscriberTraffic{Bytes: strconv.FormatUint(bytes, 10), Packets: strconv.FormatUint(packets, 10)}
-	if report.Subscriber != value || report.TagID != lane.tagID || report.Total != want || report.Download != want || report.Upload.Bytes != "0" ||
+	if report.Subscriber != value || report.TagID != lane.tagID || report.Total != want || report.Download != want || report.Upload.Bytes != "0" || report.LatencyIncluded || len(report.Latency) > 0 ||
 		len(report.TopServices) != 1 || report.TopServices[0].Status != "unknown" || report.TopServices[0].Traffic != want {
 		t.Fatalf("subscriber usage did not reconcile the original scoped counters: %+v", report)
 	}
+	input.IncludeLatency = true
+	lane.do(t, st, http.MethodPost, subscriberUsagePath(view.ID), input, &report, http.StatusOK)
+	if !report.LatencyIncluded || len(report.Latency) != 1 {
+		t.Fatalf("expected one original RTT source for the subscriber: %+v", report.Latency)
+	}
+	latency := report.Latency[0]
+	if latency.TestID != lane.probeTests[subscriber].ID || latency.AgentID != lane.agent || latency.ContextID != lane.contextID ||
+		latency.Target != "192.0.2.184" || latency.Coverage != "observed_original_round_trips_only" || latency.Samples != "3" ||
+		latency.SumNanos != strconv.FormatUint(3*roundTrip+2, 10) || latency.MeanNanos != latency.SumNanos+"/3" ||
+		latency.MinimumNanos != strconv.FormatUint(roundTrip, 10) || latency.MaximumNanos != strconv.FormatUint(roundTrip+1, 10) {
+		t.Fatal("original round trips lost precision or subscriber/tenant isolation", latency)
+	}
 	var fromCLI flow.SubscriberUsageReport
 	st.MustCLI(t, map[string]string{"PROBECTL_API_TOKEN": lane.apiToken}, &fromCLI, "explorer", "subscriber-usage", view.ID, "--body-file", st.SecretFile(t, input))
-	if fromCLI.Total != want || fromCLI.TagRevision != report.TagRevision {
+	if fromCLI.Total != want || fromCLI.TagRevision != report.TagRevision || len(fromCLI.Latency) != 1 || fromCLI.Latency[0] != latency {
 		t.Fatal("CLI did not preserve the exact subscriber report")
 	}
 }
@@ -158,7 +263,8 @@ func proveSubscriberUsageConsole(t *testing.T, st *shipped.Stack, lane subscribe
 				{Click: "Open subscriber usage", Expect: []string{"Subscriber prefix tag"}},
 				{Select: "label:text-is('Subscriber prefix tag') + div select", Value: lane.tagID},
 				{Fill: "label:text-is('Subscriber tag value') + div input", Value: "alpha"},
-				{Click: "Run subscriber report", Expect: []string{"Observed usage for alpha", "1000 bytes", "Remote services"}},
+				{Click: "Include original ICMP latency", Role: "checkbox"},
+				{Click: "Run subscriber report", Expect: []string{"Observed usage for alpha", "1000 bytes", "Remote services", "Observed ICMP latency", "3002/3"}, Absent: []string{"beta latency", "6002/3"}},
 			},
 		})
 	}

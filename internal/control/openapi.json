@@ -22304,6 +22304,10 @@
           "end": {
             "type": "string",
             "format": "date-time"
+          },
+          "include_latency": {
+            "type": "boolean",
+            "description": "Include original ICMP measurements from tests explicitly tagged for this subscriber in the selected flow contexts."
           }
         },
         "additionalProperties": false
@@ -22361,6 +22365,72 @@
         },
         "additionalProperties": false
       },
+      "SubscriberLatency": {
+        "type": "object",
+        "required": [
+          "context_id",
+          "entity_id",
+          "agent_id",
+          "test_id",
+          "test",
+          "target",
+          "coverage"
+        ],
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "test_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "test": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "coverage": {
+            "type": "string",
+            "enum": [
+              "no_retained_observations",
+              "observed_original_round_trips_only",
+              "partial_original_round_trip_coverage",
+              "no_successful_replies",
+              "unavailable_original_round_trips"
+            ]
+          },
+          "samples": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "sum_nanos": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "minimum_nanos": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "maximum_nanos": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "mean_nanos": {
+            "type": "string",
+            "pattern": "^[0-9]+(/[1-9][0-9]*)?$"
+          }
+        },
+        "additionalProperties": false
+      },
       "SubscriberUsageReport": {
         "type": "object",
         "required": [
@@ -22380,7 +22450,8 @@
           "upload",
           "internal",
           "other_services",
-          "top_services"
+          "top_services",
+          "latency_included"
         ],
         "properties": {
           "view_id": {
@@ -22447,6 +22518,15 @@
             "maxItems": 20,
             "items": {
               "$ref": "#/components/schemas/SubscriberServiceUsage"
+            }
+          },
+          "latency_included": {
+            "type": "boolean"
+          },
+          "latency": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubscriberLatency"
             }
           }
         },

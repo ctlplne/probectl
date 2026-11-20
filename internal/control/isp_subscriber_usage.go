@@ -46,6 +46,9 @@ func (s *Server) handleSubscriberUsage(w http.ResponseWriter, r *http.Request) e
 	ctx, cancel := context.WithTimeout(ctx, budget.ExecutionLimit)
 	defer cancel()
 	result, err := s.captureSubscriberUsage(ctx, actor, input)
+	if errors.Is(err, store.ErrIncidentImpactBudget) {
+		return reportGenerationError(errors.Join(store.ErrClientReportBudget, err))
+	}
 	if err != nil {
 		return err
 	}
@@ -79,6 +82,9 @@ func bindSubscriberUsagePlan(ctx context.Context, tenant string, value *prepared
 func (s *Server) captureSubscriberUsage(ctx context.Context, actor *auth.Principal, input flow.SubscriberUsageRequest) (flow.SubscriberUsageReport, error) {
 	var out flow.SubscriberUsageReport
 	options := reportFlowCaptureOptions{SubscriberUsage: &input}
+	if input.IncludeLatency {
+		options.ReservedMemoryBytes = flowstore.ExplorerQueryBudget(s.flowStore).MemoryBytes / 8
+	}
 	if input.End != nil {
 		options.PeriodEnd = input.End.UTC()
 	}
@@ -96,16 +102,27 @@ func (s *Server) captureSubscriberUsage(ctx context.Context, actor *auth.Princip
 	if err != nil {
 		return out, err
 	}
+	var contexts []string
+	for _, item := range capture.Contexts {
+		contexts = append(contexts, item.ContextID)
+	}
+	var latency *subscriberLatencyCapture
+	if input.IncludeLatency {
+		// Reserve space for retained source rows, retained observations and the
+		// projection before admitting the flow query.
+		out.Latency, latency, err = s.captureSubscriberLatency(ctx, actor, contexts, input, out.From, out.To, options.ReservedMemoryBytes/4)
+		if err != nil {
+			return out, reportGenerationError(err)
+		}
+		out.LatencyIncluded = true
+	}
 	err = tenancy.InTenant(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
 			return err
 		}
-		if err := s.validateReportSourcePublication(store.WithReportSourceAuditLock(ctx, sc), sc, actor, capture); err != nil {
+		ctx = store.WithReportSourceAuditLock(ctx, sc)
+		if err := s.validateReportSourcePublication(ctx, sc, actor, capture); err != nil {
 			return err
-		}
-		var contexts []string
-		for _, item := range capture.Contexts {
-			contexts = append(contexts, item.ContextID)
 		}
 		current, err := store.SubscriberAssignmentInScope(ctx, sc, contexts, input.TagID, input.TagKey, input.Subscriber)
 		if errors.Is(err, store.ErrSubscriberAssignmentUnavailable) {
@@ -117,7 +134,7 @@ func (s *Server) captureSubscriberUsage(ctx context.Context, actor *auth.Princip
 		if current.UsesRules || current.Revision != original.Result.TagRevision || current.StableSince.IsZero() || current.StableSince.After(out.From) {
 			return apierror.Conflict("choose an interval covered by the current explicit subscriber assignments")
 		}
-		return ctx.Err()
+		return s.verifySubscriberLatency(ctx, sc, actor, latency)
 	})
-	return out, err
+	return out, reportGenerationError(err)
 }

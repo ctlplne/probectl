@@ -18,12 +18,13 @@ import (
 // SubscriberUsageRequest selects an immutable view and a tenant-owned prefix
 // tag. The server resolves the current binding before querying observations.
 type SubscriberUsageRequest struct {
-	ViewID     string     `json:"-"`
-	Version    string     `json:"version"`
-	TagID      string     `json:"tag_id"`
-	TagKey     string     `json:"tag_key"`
-	Subscriber string     `json:"subscriber"`
-	End        *time.Time `json:"end,omitempty"`
+	ViewID         string     `json:"-"`
+	Version        string     `json:"version"`
+	TagID          string     `json:"tag_id"`
+	TagKey         string     `json:"tag_key"`
+	Subscriber     string     `json:"subscriber"`
+	End            *time.Time `json:"end,omitempty"`
+	IncludeLatency bool       `json:"include_latency,omitempty"`
 }
 
 type SubscriberTraffic struct {
@@ -59,6 +60,25 @@ type SubscriberUsageReport struct {
 	Internal          SubscriberTraffic        `json:"internal"`
 	TopServices       []SubscriberServiceUsage `json:"top_services"`
 	OtherServices     SubscriberTraffic        `json:"other_services"`
+	Latency           []SubscriberLatency      `json:"latency,omitempty"`
+	LatencyIncluded   bool                     `json:"latency_included"`
+}
+
+// SubscriberLatency contains only complete original RTT observations and a
+// coverage label. Exact nanosecond totals and means are decimal or rational text.
+type SubscriberLatency struct {
+	ContextID    string `json:"context_id"`
+	EntityID     string `json:"entity_id"`
+	AgentID      string `json:"agent_id"`
+	TestID       string `json:"test_id"`
+	Test         string `json:"test"`
+	Target       string `json:"target"`
+	Coverage     string `json:"coverage"`
+	Samples      string `json:"samples,omitempty"`
+	SumNanos     string `json:"sum_nanos,omitempty"`
+	MinimumNanos string `json:"minimum_nanos,omitempty"`
+	MaximumNanos string `json:"maximum_nanos,omitempty"`
+	MeanNanos    string `json:"mean_nanos,omitempty"`
 }
 
 func (r SubscriberUsageRequest) TagFields() (string, string) {
