@@ -69,3 +69,6 @@ observations to remain readable.
 The provider CLI uses `probectl provider ddos-reports <tenant-id>` with one
 body `request_id` per operation and `probectl provider ddos-report-progress
 <tenant-id> <request-id>` to read the counts. Reuse the request ID to retry.
+
+The [synthetic detection benchmark](ddos-detection-benchmark.md) records the
+replay corpus, alert outcomes and measurement limits.
