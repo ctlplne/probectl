@@ -201,6 +201,13 @@ turning on outbound fetches.
 
 ## Reliability and accuracy caveats
 
+The shipped integration test mirrors one controlled certificate marker in
+SSLBL format and observes a real HTTPS handshake. It checks that the
+detection and incident stay with the tenant that observed the match. The
+shared feed status exposes its usage terms and the last successful refresh
+through the API, CLI and console. If the mirror becomes unavailable, the
+status becomes degraded and the last good indicator stays cached.
+
 - **Graceful degradation** — a down or rate-limited external source must never
   break core function: the `IntelRefresher` keeps
   each source's **last-good** indicators. A feed that is down, rate-limited, or

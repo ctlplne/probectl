@@ -2,6 +2,14 @@
   "schema": "probectl.real-stack-proofs/v1",
   "proofs": [
     {
+      "ref": "test:internal/canary/shipped_tls_posture_integration_test.go#TestShippedHTTPSCanariesExposeOnlyOwnedCertificatePosture",
+      "profile": "integration",
+      "capabilities": [
+        "F36",
+        "F38"
+      ]
+    },
+    {
       "ref": "test:internal/outage/shipped_fused_integration_test.go#TestShippedOutageFusesOwnedVantagesWithLastGoodMirror",
       "profile": "integration",
       "capabilities": [

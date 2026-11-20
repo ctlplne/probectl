@@ -605,7 +605,6 @@ capabilities:
   - id: F36
     name: TLS/cert observability
     status: delivered
-    evidence_status: partial
     owner: eBPF/TLS
     engine: {refs: ["file:internal/threat/analyze.go"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildTLSAnalyzerWithMetrics("]}
@@ -615,7 +614,7 @@ capabilities:
     docs: {refs: ["file:docs/tls-observability.md#TLS / certificate observability"]}
     config_keys: {refs: ["config:PROBECTL_CERT_HOSTS", "config:PROBECTL_CT_ENABLED"]}
     telemetry: {refs: ["file:internal/threat"]}
-    real_stack_proof: {gap: "No real-stack receipt currently emits a certificate posture event from a real TLS exchange and reads /v1/tls/posture; merely attaching the sslsniff source is not substituted."}
+    real_stack_proof: {refs: ["test:internal/canary/shipped_tls_posture_integration_test.go#TestShippedHTTPSCanariesExposeOnlyOwnedCertificatePosture"]}
     migration: *no_migration
 
   - id: F37
@@ -637,7 +636,6 @@ capabilities:
   - id: F38
     name: Threat-intel enrichment
     status: delivered
-    evidence_status: partial
     owner: SRE/quality
     engine: {refs: ["file:internal/opendata/intelsource.go"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildThreatIntel("]}
@@ -647,7 +645,7 @@ capabilities:
     docs: {refs: ["file:docs/threat-intel.md#Threat-intel enrichment"]}
     config_keys: {none_by_design: "The curated feed set and provenance policy are code-governed; operators do not add an undocumented arbitrary-feed environment key."}
     telemetry: {refs: ["file:internal/opendata"]}
-    real_stack_proof: {gap: "External egress may remain hermetic, but cached ingest through match, enrichment, detection, API, and two-tenant scoping is positive runtime behavior without a real-stack receipt."}
+    real_stack_proof: {refs: ["test:internal/canary/shipped_tls_posture_integration_test.go#TestShippedHTTPSCanariesExposeOnlyOwnedCertificatePosture"]}
     migration: *no_migration
 
   # Owned routing/current-source paging is preview; its real-router/effect qualification remains owed.

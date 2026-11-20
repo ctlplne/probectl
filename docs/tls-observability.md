@@ -159,6 +159,13 @@ test at lands in the inventory.
 
 ## The posture surface
 
+The shipped HTTPS canary integration test enrolls two agents independently,
+then verifies each server certificate against its CA and checks the original
+leaf, issuer, serial number and expiry through the API, `probectl tls posture`
+and the console. Its expiry finding points to the observed leaf in the
+trustctl handoff. Each tenant sees its own target in the inventory.
+Consented eBPF capture remains a preview with metadata as the default.
+
 The analyzed posture is retained as a tenant-scoped, in-memory **inventory** (the
 latest posture per target, bounded per tenant, clean certs included) and served
 at `GET /v1/tls/posture` (RBAC `threat.read`, added in migration 0023; a

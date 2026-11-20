@@ -232,7 +232,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F36',
     name: 'TLS/cert observability',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   {
@@ -244,7 +244,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F38',
     name: 'Threat-intel enrichment',
-    status: 'partial',
+    status: 'delivered',
     source: 'contract:features',
   },
   // Original owned-router updates, complete archive comparisons and native cursor paging are additive previews; canonical before/after effects preserve original counters/RTTs as a preview; physical and full served/current-source qualification remain owed.

@@ -280,8 +280,8 @@
         "F36"
       ],
       "name": "TLS/cert observability",
-      "status": "partial",
-      "evidence": "`internal/threat`, trustctl handoff"
+      "status": "delivered",
+      "evidence": "Verified HTTPS canary certificate posture, expiry and trustctl handoff exposed to two scoped tenants. Consented eBPF data is metadata-only by default and remains preview."
     },
     {
       "ids": [
@@ -296,8 +296,8 @@
         "F38"
       ],
       "name": "Threat-intel enrichment",
-      "status": "partial",
-      "evidence": "`internal/opendata` + AUP tracking (resale terms = counsel, §5.3)"
+      "status": "delivered",
+      "evidence": "The SSLBL certificate mirror produces a scoped match and detection, exposes source provenance, and retains the last good cache during source loss. Each feed has its own usage terms."
     },
     {
       "ids": [
