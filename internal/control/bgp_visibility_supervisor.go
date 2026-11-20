@@ -10,8 +10,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/bgp"
@@ -33,7 +35,7 @@ var (
 	bgpVisibilityArchiveBudget = bgp.MRTArchiveBudget{ArchiveBytes: 4 << 30, Records: 4_000_000,
 		Frame: bgp.UpdateFrameBudget{MemoryBytes: 128 << 20, WorkUnits: 32 << 20}}
 	bgpVisibilityBaselinePolicy = bgp.PublicVisibilityBaselinePolicy{
-		MinimumIPv4Routes: 800_000, MinimumIPv6Routes: 150_000, WorkingBytes: 768 << 20}
+		MinimumIPv4Routes: 800_000, MinimumIPv6Routes: 150_000, WorkingBytes: 768 << 20, PathWorkingBytes: 16 << 20}
 )
 
 // BGPVisibilitySupervisor reads only a local deployment cache. The independent
@@ -49,10 +51,17 @@ type BGPVisibilitySupervisor struct {
 
 type bgpVisibilityCollectorState struct {
 	baseline time.Time
-	prefixes []netip.Prefix
+	targets  map[netip.Prefix][]bgpVisibilityTarget
 	series   *bgp.PublicVisibilityCollector
-	pending  []bgp.PublicVisibilityCollectorPoint
+	pending  []bgpVisibilityPublication
+	paths    publicASPathProjection
 	gap      bool
+}
+
+type bgpVisibilityPublication struct {
+	point   bgp.PublicVisibilityCollectorPoint
+	paths   map[netip.Prefix][]store.BGPASPathPublicEvent
+	targets map[netip.Prefix][]bgpVisibilityTarget
 }
 
 type bgpVisibilityTarget struct {
@@ -134,19 +143,27 @@ func (supervisor *BGPVisibilitySupervisor) syncCollector(ctx context.Context, st
 	collector string, prefixes []netip.Prefix, targets map[netip.Prefix][]bgpVisibilityTarget, now time.Time) error {
 	failed := supervisor.retryPublication(ctx, state, targets, now)
 	retain := func(point bgp.PublicVisibilityCollectorPoint) {
-		if err := supervisor.publish(ctx, point, targets, now); err != nil {
+		paths := map[netip.Prefix][]store.BGPASPathPublicEvent{}
+		for _, event := range state.paths.advance(point) {
+			paths[event.Route.Prefix] = append(paths[event.Route.Prefix], event)
+		}
+		point.Paths = nil
+		publication := bgpVisibilityPublication{point: point, paths: paths, targets: targets}
+		if err := supervisor.publishPrepared(ctx, publication, targets, nil, now); err != nil {
 			failed = errors.Join(failed, err)
-			state.savePending(point)
+			state.savePending(publication)
 		}
 	}
 	clock := now.Add(-bgpVisibilityArchiveWait).Truncate(bgpVisibilityBaselineClock)
-	if state.series == nil || !state.baseline.Equal(clock) || !slices.Equal(state.prefixes, prefixes) {
+	// A new monitor on an existing prefix needs the baseline and the intervening
+	// path updates. Replay the sealed local archives even if the prefix set stays equal.
+	if state.series == nil || !state.baseline.Equal(clock) || !maps.EqualFunc(state.targets, targets, slices.Equal) {
 		ref := opendata.PublicMRTArchiveRef{Source: "routeviews", Collector: collector, Kind: opendata.PublicMRTBaseline, At: clock}
 		series, err := bgp.ReadPublicVisibilityCollector(ctx, supervisor.cache, ref, bgpVisibilityArchiveBudget, bgpVisibilityBaselinePolicy, prefixes)
 		if err != nil {
 			return errors.Join(failed, err)
 		}
-		*state = bgpVisibilityCollectorState{baseline: clock, prefixes: slices.Clone(prefixes), series: series, pending: state.pending}
+		*state = bgpVisibilityCollectorState{baseline: clock, targets: targets, series: series, pending: state.pending}
 		retain(series.Point())
 	}
 	for {
@@ -178,14 +195,23 @@ func (supervisor *BGPVisibilitySupervisor) syncCollector(ctx context.Context, st
 
 func (supervisor *BGPVisibilitySupervisor) retryPublication(ctx context.Context, state *bgpVisibilityCollectorState,
 	targets map[netip.Prefix][]bgpVisibilityTarget, now time.Time) error {
+	if len(state.pending) == 0 {
+		return nil
+	}
+	active := map[bgpVisibilityTarget]bool{}
+	for _, monitors := range targets {
+		for _, monitor := range monitors {
+			active[monitor] = true
+		}
+	}
 	var failed error
 	pending := state.pending[:0]
-	for _, point := range state.pending {
-		if point.Through.Before(now.Add(-2 * bgpVisibilityBaselineClock)) {
+	for _, publication := range state.pending {
+		if publication.point.Through.Before(now.Add(-2 * bgpVisibilityBaselineClock)) {
 			continue
 		}
-		if err := supervisor.publish(ctx, point, targets, now); err != nil {
-			pending = append(pending, point)
+		if err := supervisor.publishPrepared(ctx, publication, targets, active, now); err != nil {
+			pending = append(pending, publication)
 			failed = errors.Join(failed, err)
 		}
 	}
@@ -194,19 +220,36 @@ func (supervisor *BGPVisibilitySupervisor) retryPublication(ctx context.Context,
 	return failed
 }
 
-func (state *bgpVisibilityCollectorState) savePending(point bgp.PublicVisibilityCollectorPoint) {
-	index := slices.IndexFunc(state.pending, func(saved bgp.PublicVisibilityCollectorPoint) bool {
-		return saved.Through.Equal(point.Through)
+func (state *bgpVisibilityCollectorState) savePending(publication bgpVisibilityPublication) {
+	index := slices.IndexFunc(state.pending, func(saved bgpVisibilityPublication) bool {
+		return saved.point.Through.Equal(publication.point.Through) && saved.point.Baseline.SHA256 == publication.point.Baseline.SHA256 &&
+			saved.point.Latest.SHA256 == publication.point.Latest.SHA256
 	})
 	if index >= 0 {
-		state.pending[index] = point
+		state.pending[index] = publication
 		return
 	}
 	if len(state.pending) == maxVisibilityPending {
 		copy(state.pending, state.pending[1:])
 		state.pending = state.pending[:maxVisibilityPending-1]
 	}
-	state.pending = append(state.pending, point)
+	state.pending = append(state.pending, publication)
+}
+
+func (supervisor *BGPVisibilitySupervisor) publishPrepared(ctx context.Context, publication bgpVisibilityPublication,
+	targets map[netip.Prefix][]bgpVisibilityTarget, active map[bgpVisibilityTarget]bool, now time.Time) error {
+	failed := supervisor.publish(ctx, publication.point, targets, now)
+	for prefix, events := range publication.paths {
+		for _, target := range publication.targets[prefix] {
+			if active != nil && !active[target] {
+				continue
+			}
+			if err := supervisor.server.publishPublicASPaths(ctx, target.tenant, target.id, events); err != nil {
+				failed = errors.Join(failed, fmt.Errorf("tenant %s: %w", target.tenant, err))
+			}
+		}
+	}
+	return failed
 }
 
 func (supervisor *BGPVisibilitySupervisor) targets(ctx context.Context) (map[netip.Prefix][]bgpVisibilityTarget, error) {
@@ -237,6 +280,9 @@ func (supervisor *BGPVisibilitySupervisor) targets(ctx context.Context) (map[net
 		if len(targets) > maxSharedWatchPrefixes {
 			return nil, store.ErrBGPVisibilityInput
 		}
+	}
+	for _, monitors := range targets {
+		slices.SortFunc(monitors, func(a, b bgpVisibilityTarget) int { return strings.Compare(a.tenant.String(), b.tenant.String()) })
 	}
 	return targets, failed
 }

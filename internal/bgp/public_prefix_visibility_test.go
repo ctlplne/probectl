@@ -7,11 +7,51 @@
 package bgp
 
 import (
+	"bytes"
 	"net/netip"
 	"slices"
 	"testing"
 	"time"
 )
+
+func TestPublicVisibilityArchiveStagesOnlyWatchedOriginalPathUpdates(t *testing.T) {
+	at := time.Unix(1_700_000_500, 0).UTC()
+	prefix := netip.MustParsePrefix("192.0.2.0/24")
+	peer := PublicVisibilityPeer{Address: netip.MustParseAddr("198.51.100.2"), ASN: 65539}
+	roster := map[PublicVisibilityPeer]bool{peer: true}
+	projection := newPrefixVisibilityProjection(prefix, at, 1)
+	interval := publicVisibilityInterval{remaining: 4096, window: at, through: at.Add(time.Minute),
+		rosters: [2]map[PublicVisibilityPeer]bool{roster, roster}, projections: map[netip.Prefix]*PrefixVisibilityProjection{prefix: projection},
+		pathRemaining: 4096, pathUpdates: []PublicArchivePathUpdate{}}
+	attributes := []byte{0x40, 1, 1, 0, 0x40, 2, 6, 2, 1, 0, 0, 0xfb, 0xf0, 0x40, 3, 4, 192, 0, 2, 1}
+	withdraw := []byte{0, 0, 0, 0, 24, 192, 0, 2}
+	announce := []byte{0, 0, 0, 1, 24, 192, 0, 2, 0, 0, 0, 2, 24, 203, 0, 113}
+	raw := mrtUpdateRecordForTest(17, 9, uint32(at.Unix()), endOfRIBFrameForTest(withdraw, attributes, announce))
+	budget := MRTArchiveBudget{ArchiveBytes: int64(len(raw)), Records: 1,
+		Frame: UpdateFrameBudget{MemoryBytes: 4 << 20, WorkUnits: 4 << 20}}
+	if _, _, err := StageMRTUpdates(t.Context(), bytes.NewReader(raw), budget, interval.stage); err != nil {
+		t.Fatal(err)
+	}
+	events := interval.pathUpdates
+	if len(events) != 2 || !events[0].Withdraw || events[0].Route.PathID != 0 || events[1].Withdraw ||
+		events[1].Route != (RoutePrefix{Prefix: prefix, HasPathID: true, PathID: 1}) ||
+		events[1].Peer != peer || events[1].ArchiveRecord != 1 || events[0].OperationIndex != 0 || events[1].OperationIndex != 1 ||
+		events[1].ObservedUnixNanos != at.UnixNano()+123456000 ||
+		!slices.Equal(SummarizeASPath(events[1].Path.Path.Segments).PossibleOrigins, []uint32{64496}) {
+		t.Fatalf("selected path operations changed their scope, path ID, order or original clock: %+v", events)
+	}
+	if projection.Point().VisiblePeers != 0 {
+		t.Fatal("staging changed the currently visible paths before the interval committed")
+	}
+	interval.commit()
+	if projection.Point().VisiblePeers != 1 {
+		t.Fatal("committing the selected interval lost an observed prefix")
+	}
+	if err := interval.stage(t.Context(), MRTUpdate{ObservedUnixNanos: at.Add(time.Second).UnixNano(),
+		PeerAddress: peer.Address, PeerASN: peer.ASN, OldState: 6, NewState: 1}); err != nil || interval.pathUpdates != nil {
+		t.Fatal("a peer reset allowed the interval to continue claiming an uninterrupted history", err)
+	}
+}
 
 func TestPublicPrefixVisibilityCountsDistinctEligiblePeersAcrossWithdrawals(t *testing.T) {
 	peerA := PublicVisibilityPeer{netip.MustParseAddr("198.51.100.1"), 64496}

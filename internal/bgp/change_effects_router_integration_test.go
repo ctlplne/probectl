@@ -308,15 +308,21 @@ func proveRouterOriginalRouteEffects(t *testing.T, st *shipped.Stack, lab *routi
 	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "route-map ORIGIN-A permit 10", "-c", "no set as-path prepend", "-c", "set as-path prepend "+strconv.Itoa(hijackerA), "-c", "exit", "-c", "router bgp "+strconv.Itoa(edgeASN), "-c", "address-family ipv4 unicast", "-c", "network "+prefixA+" route-map ORIGIN-A", "-c", "end")
 	awaitRouterSelectedChangePath(t, lab, path(edgeASN, hijackerA))
 	ids := make([]string, len(registrations))
+	observedChange := changed
 	for lane, reg := range registrations {
 		original := awaitRouterTimelineRoute(t, st, reg, changed, "selected_route_update")
 		if original.Routing == nil || !original.Routing.PriorPresent || !original.Routing.PathChanged {
 			t.Fatal("actual FRR path replacement lost its prior selected-path identity")
 		}
 		ids[lane] = original.ID
+		if at := change.EffectAt(original); at.After(observedChange) {
+			observedChange = at
+		}
 	}
-	replay(t, changed)
-	proveRouterOriginalEffects(t, st, registrations, probes, ids, from, changed)
+	// The comparison splits at the retained BMP clocks. The exporter can
+	// round down to a whole second, so replay waits past the later clock.
+	replay(t, observedChange)
+	proveRouterOriginalEffects(t, st, registrations, probes, ids, from, observedChange)
 
 	withdrawn := time.Now().UTC()
 	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(edgeASN), "-c", "address-family ipv4 unicast", "-c", "no network "+prefixA+" route-map ORIGIN-A", "-c", "end")

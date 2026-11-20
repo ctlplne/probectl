@@ -16,6 +16,7 @@ import (
 type PublicVisibilityBaselinePolicy struct {
 	MinimumIPv4Routes, MinimumIPv6Routes int
 	WorkingBytes                         int64
+	PathWorkingBytes                     int64
 }
 
 type PublicVisibilityPeerPopulation struct {
@@ -28,7 +29,25 @@ type PublicVisibilityBaseline struct {
 	Archive     MRTBaseline
 	Peers       []PublicVisibilityPeerPopulation
 	Projections map[netip.Prefix]*PrefixVisibilityProjection
-	rosters     [2]map[PublicVisibilityPeer]bool
+	// Paths is present when the entire selected path population was admitted.
+	// A present empty slice represents a complete baseline without a match.
+	Paths   []PublicArchivePath
+	rosters [2]map[PublicVisibilityPeer]bool
+}
+
+// PublicArchivePath identifies one original RIB entry for a locally watched
+// prefix. The shared worker binds these records to the sealed archive receipt.
+type PublicArchivePath struct {
+	Peer                MRTIndexPeer
+	PeerIndex           uint16
+	Family              RouteFamily
+	Route               RoutePrefix
+	Path                RouteASPath
+	ArchiveRecord       int64
+	EntryIndex          int
+	RIBSequence         uint32
+	RecordUnixNanos     int64
+	OriginatedUnixNanos int64
 }
 
 type visibilityBaselinePeer struct {
@@ -43,10 +62,12 @@ type visibilityBaselinePath struct {
 }
 
 type visibilityBaselineWork struct {
-	remaining int64
-	peers     []visibilityBaselinePeer
-	ordinals  map[netip.Prefix]int
-	selected  map[netip.Prefix][]visibilityBaselinePath
+	remaining     int64
+	peers         []visibilityBaselinePeer
+	ordinals      map[netip.Prefix]int
+	selected      map[netip.Prefix][]visibilityBaselinePath
+	pathRemaining int64
+	paths         []PublicArchivePath
 }
 
 // ReadPublicVisibilityBaseline counts distinct prefixes from the complete
@@ -60,9 +81,13 @@ func ReadPublicVisibilityBaseline(ctx context.Context, reader io.Reader, archive
 		return PublicVisibilityBaseline{}, ErrMRTBudget
 	}
 	work := visibilityBaselineWork{
-		remaining: policy.WorkingBytes - int64(len(prefixes))*256,
-		ordinals:  map[netip.Prefix]int{},
-		selected:  make(map[netip.Prefix][]visibilityBaselinePath, len(prefixes)),
+		remaining:     policy.WorkingBytes - int64(len(prefixes))*256,
+		ordinals:      map[netip.Prefix]int{},
+		selected:      make(map[netip.Prefix][]visibilityBaselinePath, len(prefixes)),
+		pathRemaining: policy.PathWorkingBytes,
+	}
+	if policy.PathWorkingBytes > 0 {
+		work.paths = []PublicArchivePath{}
 	}
 	for _, prefix := range prefixes {
 		if !prefix.IsValid() || prefix != prefix.Masked() || prefix.Addr().Is4In6() {
@@ -105,7 +130,7 @@ func (work *visibilityBaselineWork) stage(ctx context.Context, index MRTPeerInde
 		work.ordinals[prefix] = ordinal
 	}
 	paths, selected := work.selected[prefix]
-	for _, entry := range rib.Entries {
+	for entryIndex, entry := range rib.Entries {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -118,12 +143,37 @@ func (work *visibilityBaselineWork) stage(ctx context.Context, index MRTPeerInde
 				return ErrMRTBudget
 			}
 			paths = append(paths, visibilityBaselinePath{peer: entry.PeerIndex, route: entry.Route, origin: origin})
+			work.retainOriginalPath(index, rib, entryIndex, entry)
 		}
 	}
 	if selected {
 		work.selected[prefix] = paths
 	}
 	return nil
+}
+
+func (work *visibilityBaselineWork) retainOriginalPath(index MRTPeerIndex, rib MRTRIBRecord, entryIndex int, entry MRTRIBEntry) {
+	if work.paths == nil {
+		return
+	}
+	remaining := work.pathRemaining - publicArchivePathCost(entry.Path)
+	if remaining < 0 {
+		work.paths = nil
+		return
+	}
+	work.pathRemaining = remaining
+	work.paths = append(work.paths, PublicArchivePath{Peer: index.Peers[entry.PeerIndex],
+		PeerIndex: entry.PeerIndex, Family: rib.Family, Route: entry.Route, Path: entry.Path,
+		ArchiveRecord: rib.ArchiveRecord, EntryIndex: entryIndex, RIBSequence: rib.Sequence,
+		RecordUnixNanos: rib.ObservedUnixNanos, OriginatedUnixNanos: entry.OriginatedUnixNanos})
+}
+
+func publicArchivePathCost(path RouteASPath) int64 {
+	cost := int64(256 + len(path.IgnoredAttributes))
+	for _, segment := range path.Path.Segments {
+		cost += 64 + int64(len(segment.Values))*8
+	}
+	return cost
 }
 
 func (work *visibilityBaselineWork) count(index, ordinal int, family RouteFamily) error {
@@ -154,7 +204,7 @@ func (work *visibilityBaselineWork) complete(ctx context.Context, baseline MRTBa
 	if !work.allocate(int64(len(baseline.PeerIndex.Peers)) * 192) {
 		return PublicVisibilityBaseline{}, ErrMRTBudget
 	}
-	out := PublicVisibilityBaseline{Archive: baseline, Peers: make([]PublicVisibilityPeerPopulation, 0, len(baseline.PeerIndex.Peers)),
+	out := PublicVisibilityBaseline{Archive: baseline, Peers: make([]PublicVisibilityPeerPopulation, 0, len(baseline.PeerIndex.Peers)), Paths: work.paths,
 		Projections: make(map[netip.Prefix]*PrefixVisibilityProjection, len(work.selected))}
 	populations := [2]int{}
 	for index := range out.rosters {

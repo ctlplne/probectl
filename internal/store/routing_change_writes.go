@@ -75,7 +75,9 @@ func appendOwnedRoutingChanges(ctx context.Context, sc tenancy.Scope, source BGP
  SELECT input.*,CASE WHEN prior_ordinal IS NOT NULL THEN NOT prior_withdraw ELSE old.prefix IS NOT NULL END AS prior_present,
  CASE WHEN prior_ordinal IS NOT NULL THEN prior_segments ELSE old.segments END AS original_segments,
  CASE WHEN prior_ordinal IS NOT NULL THEN prior_attributes ELSE old.attributes END AS original_attributes,
- CASE WHEN prior_ordinal IS NOT NULL THEN prior_hops ELSE old.next_hops END AS original_hops
+ CASE WHEN prior_ordinal IS NOT NULL THEN prior_hops ELSE old.next_hops END AS original_hops,
+ CASE WHEN prior_ordinal IS NOT NULL THEN $8::timestamptz ELSE old.observed_at END AS original_clock,
+ CASE WHEN prior_ordinal IS NOT NULL THEN $14::bigint ELSE old.sequence END AS original_sequence
  FROM previous input LEFT JOIN bgp_routing_entries old ON
  old.tenant_id=$1 AND old.context_id=$2 AND old.view_id=$3 AND old.generation=$4 AND old.prefix=input."Prefix"
  AND old.has_path_id=input."HasPathID" AND old.path_id=input."PathID"
@@ -88,11 +90,34 @@ func appendOwnedRoutingChanges(ctx context.Context, sc tenancy.Scope, source BGP
  SELECT facts.*,CASE WHEN "Withdraw" THEN 'withdrawal'
  WHEN $9 IN ('loc_rib','operator_loc_rib') AND prior_present AND (path_changed OR attributes_changed) THEN 'selected_route_update'
  ELSE 'announcement' END AS action FROM facts
-)
+), timeline AS (
  INSERT INTO change_events(tenant_id,source,kind,title,summary,target,prefix,ref,occurred_at,routing,routing_source)
  SELECT $1,$10,'route','BGP '||action||' '||"Prefix"::text,
  'Observed owned-router '||action||' in '||$9||'; no forwarding-state claim.',$11,"Prefix"::text,$12,$8,
  $6::jsonb||jsonb_build_object('update_index',ordinality-1,'action',action,'has_path_id',"HasPathID",'path_id',"PathID",'prior_present',prior_present,'path_changed',path_changed,'attributes_changed',attributes_changed),$7::jsonb
- FROM classified`, source.TenantID, source.ContextID, ref.ID, ref.Generation, body, public, private, batch.ObservedAt, view.kind, ownedRoutingChangeSource, source.RouterID, common.BatchDigest)
+ FROM classified RETURNING id,tenant_id,routing
+), watched AS (
+ SELECT tenant_id,id,prefix FROM bgp_visibility_monitors
+ WHERE tenant_id=$1 AND $13::text='current' AND created_at<=$8
+ AND prefix IN (SELECT "Prefix" FROM classified) FOR KEY SHARE
+)
+ INSERT INTO bgp_as_path_history (tenant_id,monitor_id,source_kind,vantage_key,source_epoch,event_digest,
+ observed_at,source_sequence,source_operation,has_path_id,path_id,context_id,router_id,collector_agent_id,source_ref,
+ change_event_id,event_kind,original,previous_path,current_path)
+ SELECT monitor.tenant_id,monitor.id,'router_bmp',$16,$4::uuid::text,$15,$8,$14,(input.ordinality-1)::integer,
+ input."HasPathID",input."PathID",$2,$11::text::uuid,$17,$18,event.id,
+ CASE WHEN input."Withdraw" THEN 'withdrawal' WHEN input.prior_present THEN 'path_change' ELSE 'announcement' END,
+ $7::jsonb,
+ CASE WHEN input.prior_present THEN jsonb_build_object('segments',input.original_segments,
+ 'observed_at',input.original_clock,'sequence',input.original_sequence::text,'update_index',input.prior_ordinal-1,
+ 'next_hops',input.original_hops) END,
+ CASE WHEN NOT input."Withdraw" THEN jsonb_build_object('segments',input."Segments",
+ 'observed_at',$8::timestamptz,'sequence',($14::bigint)::text,'update_index',input.ordinality-1,'next_hops',input."NextHops") END
+ FROM classified input JOIN timeline event ON event.tenant_id=$1 AND (event.routing->>'update_index')::bigint=input.ordinality-1
+ JOIN watched monitor ON monitor.tenant_id=$1 AND monitor.prefix=input."Prefix"
+ WHERE (input."Withdraw" AND input.prior_present)
+ OR (NOT input."Withdraw" AND (NOT input.prior_present OR input.original_segments IS DISTINCT FROM input."Segments"))`,
+		source.TenantID, source.ContextID, ref.ID, ref.Generation, body, public, private, batch.ObservedAt, view.kind, ownedRoutingChangeSource,
+		source.RouterID, common.BatchDigest, view.state, batch.Sequence, digest[:], ownedASPathVantage(source, ref), source.CollectorAgentID, source.SourceRef)
 	return err
 }

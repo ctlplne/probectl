@@ -51,6 +51,18 @@ func decodeRoutingChangeSource(ctx context.Context, sc tenancy.Scope, raw []byte
 	if reference.Validate() != nil {
 		return none, change.ErrRouteReference
 	}
+	original, err := decodeRetainedRoutingChangeSource(ctx, sc, raw, profile)
+	if err != nil {
+		return none, err
+	}
+	if !sameRoutingChangeOriginal(original, reference) {
+		return none, change.ErrRouteReference
+	}
+	return original, ctx.Err()
+}
+
+func decodeRetainedRoutingChangeSource(ctx context.Context, sc tenancy.Scope, raw []byte, profile BGPRoutingBudget) (routingChangeSource, error) {
+	none := routingChangeSource{}
 	if len(raw) == 0 {
 		return none, errRoutingChangeSource
 	}
@@ -64,10 +76,7 @@ func decodeRoutingChangeSource(ctx context.Context, sc tenancy.Scope, raw []byte
 		return none, err
 	}
 	var trailing any
-	if decoder.Decode(&trailing) != io.EOF || original.Version != 1 || original.ViewBornAt.IsZero() || original.Source.ObservedAt.Before(original.ViewBornAt) ||
-		original.ViewID != reference.ViewID || original.Generation != reference.Generation || original.Sequence != reference.Sequence ||
-		original.BatchDigest != reference.BatchDigest || original.View != reference.View || original.AFI != reference.AFI || original.SAFI != reference.SAFI ||
-		original.Source.ContextID != reference.ContextID || original.Source.RouterID != reference.RouterID || !original.Source.ObservedAt.Equal(reference.ObservedAt) {
+	if decoder.Decode(&trailing) != io.EOF || original.Version != 1 || original.ViewBornAt.IsZero() || original.Source.ObservedAt.Before(original.ViewBornAt) {
 		return none, change.ErrRouteReference
 	}
 	if len(original.Selection) > 0 {
@@ -80,11 +89,7 @@ func decodeRoutingChangeSource(ctx context.Context, sc tenancy.Scope, raw []byte
 	if err := validateBGPRoutingSource(ctx, sc, original.Source); err != nil {
 		return none, err
 	}
-	baseContext, baseRouter := original.Source.ContextID, original.Source.RouterID
-	if selected := original.Source.routingSelection; selected != nil {
-		baseContext, baseRouter = selected.BaseContextID, selected.BaseRouterID
-	}
-	if reference.BaseContextID != baseContext || reference.BaseRouterID != baseRouter || !routingSelectionSupportsAFI(original.Source, original.AFI) {
+	if !routingSelectionSupportsAFI(original.Source, original.AFI) {
 		return none, change.ErrRouteReference
 	}
 	return original, ctx.Err()

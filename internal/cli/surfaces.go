@@ -173,6 +173,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"setup":             {Method: http.MethodPost, Path: "/v1/collectors/register", Description: "register a tenant BGP source/collector"},
 		"visibility-list":   {Method: http.MethodGet, Path: "/v1/bgp/visibility", Description: "list monitored prefixes"},
 		"visibility":        {Method: http.MethodGet, Path: "/v1/bgp/visibility/{id}", ArgName: "id", ExactJSON: true, Description: "read one monitored prefix's collector history"},
+		"path-history":      {Method: http.MethodGet, Path: "/v1/bgp/visibility/{id}/paths", ArgName: "id", ExactJSON: true, Description: "read monitored AS paths by vantage and original time"},
 		"visibility-set":    {Method: http.MethodPut, Path: "/v1/bgp/visibility", ExactJSON: true, MaxBodyBytes: 4096, Description: "save an exact prefix and its visibility alert settings"},
 		"visibility-remove": {Method: http.MethodDelete, Path: "/v1/bgp/visibility/{id}", ArgName: "id", Description: "remove one monitor and its visibility history"},
 	}},

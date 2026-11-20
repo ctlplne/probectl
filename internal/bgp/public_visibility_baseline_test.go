@@ -49,3 +49,39 @@ func TestPublicVisibilityBaselineQualifiesPeersFromDistinctFullTableCounts(t *te
 		t.Fatal("a partial source produced public visibility", failed, err)
 	}
 }
+
+func TestPublicVisibilityBaselineRetainsExactSelectedPathEvidence(t *testing.T) {
+	prefix := netip.MustParsePrefix("192.0.2.0/24")
+	absent := netip.MustParsePrefix("203.0.113.0/24")
+	raw := bytes.Join([][]byte{mrtArchivePeerIndexForTest(), mrtRIBForTest(8, false), mrtRIBForTest(10, false)}, nil)
+	archive := MRTArchiveBudget{ArchiveBytes: int64(len(raw)), Records: 3,
+		Frame: UpdateFrameBudget{MemoryBytes: 16 << 20, WorkUnits: 16 << 20}}
+	policy := PublicVisibilityBaselinePolicy{MinimumIPv4Routes: 1, MinimumIPv6Routes: 1, WorkingBytes: 1 << 20, PathWorkingBytes: 4096}
+	read := func(input []byte, selected []netip.Prefix) (PublicVisibilityBaseline, error) {
+		return ReadPublicVisibilityBaseline(t.Context(), bytes.NewReader(input), archive, policy, selected)
+	}
+	baseline, err := read(raw, []netip.Prefix{prefix})
+	if err != nil || len(baseline.Paths) != 2 {
+		t.Fatal("complete RIB did not retain both selected paths", err)
+	}
+	for index, path := range baseline.Paths {
+		if path.ArchiveRecord != 2 || path.EntryIndex != index || path.RIBSequence != ^uint32(0) || path.PeerIndex != uint16(index) ||
+			path.Peer != baseline.Archive.PeerIndex.Peers[index] || path.Route.Prefix != prefix ||
+			!path.Route.HasPathID || path.Route.PathID != uint32(index)*^uint32(0) ||
+			path.RecordUnixNanos != int64(^uint32(0))*1_000_000_000 || path.OriginatedUnixNanos != path.RecordUnixNanos ||
+			len(path.Path.Path.Segments) != 3 || path.Path.Path.Segments[1].Values[1] != path.Path.Path.Segments[1].Values[2] {
+			t.Fatalf("selected path lost its original RIB record, peer or structured segments: %+v", path)
+		}
+	}
+	if empty, err := read(raw, []netip.Prefix{absent}); err != nil || empty.Paths == nil || len(empty.Paths) != 0 {
+		t.Fatal("an admitted empty path population was reported unavailable", err)
+	}
+	if incomplete, err := read(raw[:len(raw)-1], []netip.Prefix{prefix}); !errors.Is(err, errMRTArchiveIncomplete) || incomplete.Paths != nil {
+		t.Fatal("a truncated archive released paths from earlier records", err)
+	}
+	policy.PathWorkingBytes = 1
+	limited, err := read(raw, []netip.Prefix{prefix})
+	if err != nil || limited.Paths != nil || limited.Projections[prefix].Point().VisiblePeers != 2 {
+		t.Fatal("path memory refusal changed the separately admitted visibility counts", err)
+	}
+}

@@ -635,6 +635,91 @@ type AuthorRequest struct {
 	Prompt string `json:"prompt"`
 }
 
+type BGPASPathChanges struct {
+	LengthChanged         bool `json:"length_changed"`
+	OriginChanged         bool `json:"origin_changed"`
+	OriginEvidenceChanged bool `json:"origin_evidence_changed"`
+	SegmentsChanged       bool `json:"segments_changed"`
+	UpstreamChanged       bool `json:"upstream_changed"`
+}
+
+type BGPASPathEvent struct {
+	ChangeEventId string                `json:"change_event_id,omitempty"`
+	Changes       BGPASPathChanges      `json:"changes,omitzero"`
+	ContextId     string                `json:"context_id,omitempty"`
+	Current       BGPASPathStage        `json:"current,omitzero"`
+	HasPathId     bool                  `json:"has_path_id"`
+	Id            string                `json:"id"`
+	Incidents     []BGPASPathIncident   `json:"incidents,omitempty"`
+	Kind          string                `json:"kind"`
+	ObservedAt    string                `json:"observed_at"`
+	Operation     int                   `json:"operation"`
+	OriginalClock string                `json:"original_clock,omitempty"`
+	PathId        int                   `json:"path_id"`
+	Previous      BGPASPathStage        `json:"previous,omitzero"`
+	PublicSource  BGPASPathPublicSource `json:"public_source,omitzero"`
+	RouterId      string                `json:"router_id,omitempty"`
+	RouterView    string                `json:"router_view,omitempty"`
+	Sequence      string                `json:"sequence"`
+	SourceEpoch   string                `json:"source_epoch"`
+	SourceKind    string                `json:"source_kind"`
+	Vantage       string                `json:"vantage"`
+}
+
+type BGPASPathFacts struct {
+	OriginAmbiguous bool  `json:"origin_ambiguous"`
+	PossibleOrigins []int `json:"possible_origins"`
+	SelectionLength int   `json:"selection_length"`
+	UpstreamAsn     int   `json:"upstream_asn,omitempty"`
+}
+
+type BGPASPathHistory struct {
+	Coverage       string               `json:"coverage"`
+	EffectiveLimit int                  `json:"effective_limit"`
+	Items          []BGPASPathEvent     `json:"items"`
+	Monitor        BGPVisibilityMonitor `json:"monitor"`
+	NextCursor     string               `json:"next_cursor,omitempty"`
+}
+
+type BGPASPathIncident struct {
+	Id       string `json:"id"`
+	Relation string `json:"relation"`
+}
+
+type BGPASPathPublicSource struct {
+	ArchiveClock           string `json:"archive_clock"`
+	ArchiveRecord          int    `json:"archive_record"`
+	ArchiveSha256          string `json:"archive_sha256"`
+	BaselineClock          string `json:"baseline_clock"`
+	BaselineSha256         string `json:"baseline_sha256"`
+	Collector              string `json:"collector"`
+	Coverage               string `json:"coverage,omitempty"`
+	ObservedUnixNanos      string `json:"observed_unix_nanos"`
+	OperationIndex         int    `json:"operation_index"`
+	PeerAddress            string `json:"peer_address"`
+	PeerAsn                int    `json:"peer_asn"`
+	RibOriginatedUnixNanos string `json:"rib_originated_unix_nanos,omitempty"`
+	RibPeerIndex           int    `json:"rib_peer_index,omitempty"`
+	RibSequence            int    `json:"rib_sequence,omitempty"`
+	Source                 string `json:"source"`
+}
+
+type BGPASPathSegment struct {
+	Kind   int   `json:"Kind"`
+	Values []int `json:"Values"`
+}
+
+type BGPASPathStage struct {
+	As4Action   string                `json:"as4_action,omitempty"`
+	Facts       BGPASPathFacts        `json:"facts"`
+	NextHops    []string              `json:"next_hops,omitempty"`
+	ObservedAt  string                `json:"observed_at,omitempty"`
+	Original    BGPASPathPublicSource `json:"original,omitzero"`
+	Segments    []BGPASPathSegment    `json:"segments"`
+	Sequence    string                `json:"sequence,omitempty"`
+	UpdateIndex int                   `json:"update_index,omitempty"`
+}
+
 // A tenant-scoped BGP/routing signal projected from the incident timeline.
 type BGPEvent struct {
 	Attributes map[string]string `json:"attributes,omitempty"`
@@ -6058,6 +6143,49 @@ func (c *Client) DeleteBgpVisibilityMonitor(ctx context.Context, req DeleteBgpVi
 	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Read the original AS paths and changes for one monitored prefix
+type GetBgpasPathHistoryRequest struct {
+	Id      string  `json:"-"`
+	From    *string `json:"-"`
+	To      *string `json:"-"`
+	Source  *string `json:"-"`
+	Vantage *string `json:"-"`
+	Cursor  *string `json:"-"`
+	Limit   *int    `json:"-"`
+}
+
+func (c *Client) GetBgpasPathHistory(ctx context.Context, req GetBgpasPathHistoryRequest) (*BGPASPathHistory, error) {
+	path := "/v1/bgp/visibility/{id}/paths"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.From != nil {
+		query.Set("from", formatQueryValue(*req.From))
+	}
+	if req.To != nil {
+		query.Set("to", formatQueryValue(*req.To))
+	}
+	if req.Source != nil {
+		query.Set("source", formatQueryValue(*req.Source))
+	}
+	if req.Vantage != nil {
+		query.Set("vantage", formatQueryValue(*req.Vantage))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out BGPASPathHistory
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Network energy/carbon estimate (S48)

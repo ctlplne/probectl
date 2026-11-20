@@ -544,6 +544,91 @@ export interface AuthorRequest {
   prompt: string
 }
 
+export interface BGPASPathChanges {
+  length_changed: boolean
+  origin_changed: boolean
+  origin_evidence_changed: boolean
+  segments_changed: boolean
+  upstream_changed: boolean
+}
+
+export interface BGPASPathEvent {
+  change_event_id?: string
+  changes?: BGPASPathChanges
+  context_id?: string
+  current?: BGPASPathStage
+  has_path_id: boolean
+  id: string
+  incidents?: BGPASPathIncident[]
+  kind: "baseline" | "announcement" | "withdrawal" | "path_change" | "coverage_gap"
+  observed_at: string
+  operation: number
+  original_clock?: string
+  path_id: number
+  previous?: BGPASPathStage
+  public_source?: BGPASPathPublicSource
+  router_id?: string
+  router_view?: string
+  sequence: string
+  source_epoch: string
+  source_kind: "router_bmp" | "public_mrt"
+  vantage: string
+}
+
+export interface BGPASPathFacts {
+  origin_ambiguous: boolean
+  possible_origins: number[]
+  selection_length: number
+  upstream_asn?: number
+}
+
+export interface BGPASPathHistory {
+  coverage: "retained_points" | "no_retained_points"
+  effective_limit: number
+  items: BGPASPathEvent[]
+  monitor: BGPVisibilityMonitor
+  next_cursor?: string
+}
+
+export interface BGPASPathIncident {
+  id: string
+  relation: "same_public_archive" | "nearby_owned_change"
+}
+
+export interface BGPASPathPublicSource {
+  archive_clock: string
+  archive_record: number
+  archive_sha256: string
+  baseline_clock: string
+  baseline_sha256: string
+  collector: string
+  coverage?: "complete_baseline" | "archive_gap" | "session_change" | "path_unavailable"
+  observed_unix_nanos: string
+  operation_index: number
+  peer_address: string
+  peer_asn: number
+  rib_originated_unix_nanos?: string
+  rib_peer_index?: number
+  rib_sequence?: number
+  source: string
+}
+
+export interface BGPASPathSegment {
+  Kind: number
+  Values: number[]
+}
+
+export interface BGPASPathStage {
+  as4_action?: string
+  facts: BGPASPathFacts
+  next_hops?: string[]
+  observed_at?: string
+  original?: BGPASPathPublicSource
+  segments: BGPASPathSegment[]
+  sequence?: string
+  update_index?: number
+}
+
 export interface BGPEvent {
   attributes?: { [key: string]: string }
   id?: string
@@ -5069,6 +5154,18 @@ export interface DeleteBgpVisibilityMonitorRequest {
 
 export type DeleteBgpVisibilityMonitorResponse = void
 
+export interface GetBgpasPathHistoryRequest {
+  id: string
+  from?: string
+  to?: string
+  source?: "router_bmp" | "public_mrt"
+  vantage?: string
+  cursor?: string
+  limit?: number
+}
+
+export type GetBgpasPathHistoryResponse = BGPASPathHistory
+
 export interface GetCarbonRequest {
 }
 
@@ -7237,6 +7334,19 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async getBgpasPathHistory(request: GetBgpasPathHistoryRequest): Promise<GetBgpasPathHistoryResponse> {
+    let path = "/v1/bgp/visibility/{id}/paths"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.from !== undefined) query.set("from", String(request.from))
+    if (request.to !== undefined) query.set("to", String(request.to))
+    if (request.source !== undefined) query.set("source", String(request.source))
+    if (request.vantage !== undefined) query.set("vantage", String(request.vantage))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<GetBgpasPathHistoryResponse>("GET", path, query, undefined)
   }
 
   async getCarbon(): Promise<GetCarbonResponse> {

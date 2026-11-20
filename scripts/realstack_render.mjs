@@ -237,13 +237,12 @@ async function main() {
       result.missing.push("requested served theme selectors");
     }
     if (spec.accessibility) {
-      // The theme attribute changes before the CSS color transitions finish.
-      // Measure the committed palette after those transitions settle.
-      if (spec.theme) {
-        await page.waitForFunction(() => !document.getAnimations().some(
-          (animation) => animation instanceof CSSTransition && animation.playState === "running",
-        ), undefined, { timeout: remaining() });
-      }
+      // Theme transitions and entering dialogs can blend their colors until
+      // finite motion settles. Recurring indicators can remain animated.
+      await page.waitForFunction(() => !document.getAnimations().some(
+        (animation) => (animation.pending || animation.playState === "running") &&
+          Number.isFinite(animation.effect?.getComputedTiming().endTime),
+      ), undefined, { timeout: remaining() });
       result.accessibility = await page.evaluate(async () => {
         const report = await globalThis.axe.run(
           { include: [["body"]], exclude: [["svg[aria-hidden='true']"]] },

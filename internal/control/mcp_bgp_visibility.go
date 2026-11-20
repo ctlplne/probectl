@@ -21,6 +21,14 @@ import (
 type mcpBGPVisibilityBackend struct{ server *Server }
 
 func bgpVisibilityToolOption(server *Server) (mcp.Option, error) {
+	schema, err := bgpHistoryToolSchema("/v1/bgp/visibility/{id}", 4)
+	if err != nil {
+		return nil, err
+	}
+	return mcp.WithBGPVisibilityBackend(mcpBGPVisibilityBackend{server}, schema), nil
+}
+
+func bgpHistoryToolSchema(path string, count int) (json.RawMessage, error) {
 	var doc struct {
 		Paths map[string]struct {
 			Get struct {
@@ -35,24 +43,20 @@ func bgpVisibilityToolOption(server *Server) (mcp.Option, error) {
 		return nil, err
 	}
 	properties := map[string]json.RawMessage{}
-	for _, parameter := range doc.Paths["/v1/bgp/visibility/{id}"].Get.Parameters {
+	for _, parameter := range doc.Paths[path].Get.Parameters {
 		if parameter.Name != "" && json.Valid(parameter.Schema) {
 			properties[parameter.Name] = parameter.Schema
 		}
 	}
-	if len(properties) != 4 {
-		return nil, apierror.Unavailable("BGP visibility tool contract is unavailable")
+	if len(properties) != count {
+		return nil, apierror.Unavailable("BGP history tool contract is unavailable")
 	}
-	schema, err := json.Marshal(struct {
+	return json.Marshal(struct {
 		Type                 string                     `json:"type"`
 		Properties           map[string]json.RawMessage `json:"properties"`
 		Required             []string                   `json:"required"`
 		AdditionalProperties bool                       `json:"additionalProperties"`
 	}{Type: "object", Properties: properties, Required: []string{"id"}})
-	if err != nil {
-		return nil, err
-	}
-	return mcp.WithBGPVisibilityBackend(mcpBGPVisibilityBackend{server}, schema), nil
 }
 
 func (b mcpBGPVisibilityBackend) BGPVisibility(ctx context.Context, actor *auth.Principal, command mcp.BGPVisibilityCommand) (json.RawMessage, error) {

@@ -143,6 +143,11 @@ func newMCPServer(
 			} else {
 				options = append(options, option)
 			}
+			if option, err := bgpASPathHistoryToolOption(src.NativeFlow); err != nil {
+				log.Error("MCP AS path history schema is unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, option)
+			}
 			if option, err := changeEffectsToolOption(src.NativeFlow); err != nil {
 				log.Error("MCP change effect schema is unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

@@ -29,6 +29,7 @@ import {
   type Column,
 } from '../components'
 import { DateTime } from '../time/DateTime'
+import { BGPASPathHistory } from './BGPASPathHistory'
 import styles from './planes.module.css'
 
 const historyColumns: Column<BGPVisibilityObservation>[] = [
@@ -87,6 +88,7 @@ function VisibilityControls({ tenant, allowEdits }: { tenant: string; allowEdits
   const [selected, setSelected] = useState('')
   const [editing, setEditing] = useState(false)
   const [removing, setRemoving] = useState<BGPVisibilityMonitor | null>(null)
+  const [openPaths, setOpenPaths] = useState(false)
   const key = ['bgp', 'visibility', tenant] as const
   const monitors = useQuery({
     queryKey: key,
@@ -165,6 +167,23 @@ function VisibilityControls({ tenant, allowEdits }: { tenant: string; allowEdits
         </Button>
       )}
       {monitor && history.isLoading && <LoadingState label="Loading visibility history…" />}
+      {monitor && (
+        <Button
+          variant="secondary"
+          aria-expanded={openPaths}
+          onClick={() => setOpenPaths(!openPaths)}
+        >
+          {openPaths ? 'Close AS-path history' : 'Open AS-path history'}
+        </Button>
+      )}
+      {monitor && openPaths && (
+        <BGPASPathHistory
+          key={monitor.id}
+          tenant={tenant}
+          monitorID={monitor.id}
+          prefix={monitor.prefix}
+        />
+      )}
       {history.isError && <ErrorState description="Could not load visibility history." />}
       {history.data && monitor && (
         <>

@@ -368,6 +368,10 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	"bgp_routing_entries":     {plane: "postgres:bgp_routing_entries", disposition: subjectTableNoSubject},
 	"bgp_visibility_monitors": {plane: "postgres:bgp_visibility_monitors", disposition: subjectTableNoSubject},
 	"bgp_visibility_points":   {plane: "postgres:bgp_visibility_points", disposition: subjectTableNoSubject},
+	"bgp_as_path_history": {
+		plane: "postgres:bgp_as_path_history", disposition: subjectTableDeleteMatches,
+		exact: []string{"collector_agent_id", "source_ref"},
+	},
 	// The decoded-document scanner selects source identifiers from this JSON.
 	// Structural scope UUIDs and network inventory are not subject ownership. Content
 	// deletion cascades payload links; hash-only first receipts remain tombstones

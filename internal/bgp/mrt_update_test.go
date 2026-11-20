@@ -36,6 +36,7 @@ func TestMRTUpdateArchivePreservesInboundPathsAndPeerChanges(t *testing.T) {
 	})
 	if err != nil || total != int64(len(raw)) || records != 3 || len(staged) != 2 ||
 		staged[0].PeerAddress != peer || staged[0].PeerASN != 65539 ||
+		staged[0].ArchiveRecord != 1 || staged[1].ArchiveRecord != 3 ||
 		staged[0].ObservedUnixNanos != int64(at)*1_000_000_000+123456000 ||
 		staged[1].OldState != 6 || staged[1].NewState != 1 || len(staged[1].Groups) != 0 {
 		t.Fatalf("the archive lost exact peer state or retained a locally sent copy: %+v, %v", staged, err)

@@ -22,6 +22,7 @@ const (
 // announced/withdrawn unicast paths. A session transition asks the receiver
 // to re-establish coverage from a complete source before claiming visibility.
 type MRTUpdate struct {
+	ArchiveRecord     int64 // original one-based position, including records the readers skip
 	ObservedUnixNanos int64
 	PeerAddress       netip.Addr
 	PeerASN           uint32
@@ -55,6 +56,7 @@ func StageMRTUpdates(ctx context.Context, reader io.Reader, budget MRTArchiveBud
 		if len(update.Groups) == 0 && update.NewState == 0 {
 			continue
 		}
+		update.ArchiveRecord = stream.records
 		if err := stage(ctx, update); err != nil {
 			return 0, 0, stream.recordError(raw, err)
 		}

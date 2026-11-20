@@ -23,10 +23,26 @@ import (
 const publicMRTArchiveRollover = time.Second
 
 type PublicVisibilityCollectorPoint struct {
-	Baseline opendata.PublicMRTReceipt `json:"baseline"`
-	Latest   opendata.PublicMRTReceipt `json:"latest"`
-	Through  time.Time                 `json:"through"`
-	Points   []PublicPrefixVisibility  `json:"points"`
+	Baseline opendata.PublicMRTReceipt  `json:"baseline"`
+	Latest   opendata.PublicMRTReceipt  `json:"latest"`
+	Through  time.Time                  `json:"through"`
+	Points   []PublicPrefixVisibility   `json:"points"`
+	Paths    *PublicArchivePathEvidence `json:"-"`
+}
+
+type PublicArchivePathEvidence struct {
+	RIB     []PublicArchivePath
+	Updates []PublicArchivePathUpdate
+}
+
+type PublicArchivePathUpdate struct {
+	Peer              PublicVisibilityPeer
+	Route             RoutePrefix
+	Path              RouteASPath
+	Withdraw          bool
+	ArchiveRecord     int64
+	OperationIndex    int
+	ObservedUnixNanos int64
 }
 
 // PublicVisibilityCollector projects one collector's complete, sealed public
@@ -42,6 +58,8 @@ type PublicVisibilityCollector struct {
 	expires        time.Time
 	cadence        time.Duration
 	intervalBudget int64
+	pathBudget     int64
+	paths          *PublicArchivePathEvidence
 	rosters        [2]map[PublicVisibilityPeer]bool
 	projections    map[netip.Prefix]*PrefixVisibilityProjection
 	order          []netip.Prefix
@@ -80,10 +98,15 @@ func ReadPublicVisibilityCollector(ctx context.Context, cache *opendata.PublicMR
 		order = append(order, prefix)
 	}
 	slices.SortFunc(order, func(a, b netip.Prefix) int { return a.Compare(b) })
+	var paths *PublicArchivePathEvidence
+	if baseline.Paths != nil {
+		paths = &PublicArchivePathEvidence{RIB: baseline.Paths}
+	}
 	return &PublicVisibilityCollector{baseline: receipt, latest: receipt, observed: observed,
 		next: receipt.ArchiveClock, through: observed, expires: receipt.ArchiveClock.Add(request.Cadence), cadence: updates.Cadence,
 		intervalBudget: policy.WorkingBytes / int64(request.Cadence/updates.Cadence),
-		rosters:        baseline.rosters, projections: baseline.Projections, order: order}, nil
+		pathBudget:     policy.PathWorkingBytes, paths: paths,
+		rosters: baseline.rosters, projections: baseline.Projections, order: order}, nil
 }
 
 // Advance accepts the next original archive interval. Until its compressed
@@ -105,6 +128,10 @@ func (series *PublicVisibilityCollector) Advance(ctx context.Context, cache *ope
 	defer file.Close()
 	staged := publicVisibilityInterval{remaining: series.intervalBudget, after: series.observed, window: receipt.ArchiveClock,
 		through: receipt.ArchiveClock.Add(request.Cadence), rosters: series.rosters, projections: series.projections}
+	if series.paths != nil {
+		staged.pathRemaining = series.pathBudget
+		staged.pathUpdates = []PublicArchivePathUpdate{}
+	}
 	if series.latest.Kind == string(opendata.PublicMRTUpdates) {
 		staged.continuityFloor = series.through
 	}
@@ -116,6 +143,10 @@ func (series *PublicVisibilityCollector) Advance(ctx context.Context, cache *ope
 	}
 	coveredThrough := staged.commit()
 	series.latest, series.next, series.through = receipt, staged.through, coveredThrough
+	series.paths = nil
+	if staged.pathUpdates != nil && !staged.disrupted[0] && !staged.disrupted[1] {
+		series.paths = &PublicArchivePathEvidence{Updates: staged.pathUpdates}
+	}
 	return nil
 }
 
@@ -125,6 +156,7 @@ func (series *PublicVisibilityCollector) MarkGap() {
 	}
 	series.next = series.next.Add(series.cadence)
 	series.through = series.next
+	series.paths = nil
 }
 
 func (series *PublicVisibilityCollector) NextArchive() (opendata.PublicMRTArchiveRef, bool) {
@@ -134,6 +166,7 @@ func (series *PublicVisibilityCollector) NextArchive() (opendata.PublicMRTArchiv
 
 func (series *PublicVisibilityCollector) Point() PublicVisibilityCollectorPoint {
 	out := PublicVisibilityCollectorPoint{Baseline: series.baseline, Latest: series.latest, Through: series.through,
+		Paths:  series.paths,
 		Points: make([]PublicPrefixVisibility, 0, len(series.order))}
 	for _, prefix := range series.order {
 		out.Points = append(out.Points, series.projections[prefix].Point())
@@ -158,6 +191,8 @@ type publicVisibilityInterval struct {
 	projections            map[netip.Prefix]*PrefixVisibilityProjection
 	operations             []publicVisibilityOperation
 	disrupted              [2]bool
+	pathRemaining          int64
+	pathUpdates            []PublicArchivePathUpdate
 }
 
 func (interval *publicVisibilityInterval) commit() time.Time {
@@ -196,33 +231,46 @@ func (interval *publicVisibilityInterval) stage(ctx context.Context, update MRTU
 		return nil
 	}
 	peer := PublicVisibilityPeer{Address: update.PeerAddress, ASN: update.PeerASN}
+	if update.NewState != 0 && update.OldState != update.NewState {
+		interval.pathUpdates = nil
+	}
 	for family, roster := range interval.rosters {
 		eligible, known := roster[peer]
 		if !known || eligible && update.NewState != 0 && update.OldState != update.NewState {
 			interval.disrupted[family] = true
 		}
 	}
+	operationIndex := 0
 	for _, group := range update.Groups {
-		if err := interval.stageRoutes(ctx, peer, group.Withdrawn, publicVisibilityOriginSet{}, true); err != nil {
+		if err := interval.stageRoutes(ctx, peer, group.Withdrawn, update, operationIndex, true); err != nil {
 			return err
 		}
+		operationIndex += len(group.Withdrawn)
 		if len(group.Announced) > 0 {
-			if err := interval.stageRoutes(ctx, peer, group.Announced, publicVisibilityOrigins(update.Path), false); err != nil {
+			if err := interval.stageRoutes(ctx, peer, group.Announced, update, operationIndex, false); err != nil {
 				return err
 			}
 		}
+		operationIndex += len(group.Announced)
 	}
 	return ctx.Err()
 }
 
 func (interval *publicVisibilityInterval) stageRoutes(ctx context.Context, peer PublicVisibilityPeer,
-	routes []RoutePrefix, origin publicVisibilityOriginSet, withdraw bool) error {
-	for _, route := range routes {
+	routes []RoutePrefix, update MRTUpdate, operationIndex int, withdraw bool) error {
+	var origin publicVisibilityOriginSet
+	if !withdraw {
+		origin = publicVisibilityOrigins(update.Path)
+	}
+	for index, route := range routes {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		family := publicVisibilityFamily(route.Prefix)
 		projection := interval.projections[route.Prefix]
+		if projection != nil {
+			interval.retainPathUpdate(peer, route, update, operationIndex+index, withdraw)
+		}
 		if projection == nil || !projection.continuous || !interval.rosters[family][peer] || interval.disrupted[family] {
 			continue
 		}
@@ -233,6 +281,23 @@ func (interval *publicVisibilityInterval) stageRoutes(ctx context.Context, peer 
 		interval.operations = append(interval.operations, publicVisibilityOperation{projection, peer, route, origin, withdraw})
 	}
 	return nil
+}
+
+func (interval *publicVisibilityInterval) retainPathUpdate(peer PublicVisibilityPeer, route RoutePrefix, update MRTUpdate, operationIndex int, withdraw bool) {
+	if interval.pathUpdates == nil {
+		return
+	}
+	point := PublicArchivePathUpdate{Peer: peer, Route: route, Withdraw: withdraw,
+		ArchiveRecord: update.ArchiveRecord, OperationIndex: operationIndex, ObservedUnixNanos: update.ObservedUnixNanos}
+	if !withdraw {
+		point.Path = update.Path
+	}
+	interval.pathRemaining -= publicArchivePathCost(point.Path)
+	if interval.pathRemaining < 0 {
+		interval.pathUpdates = nil
+		return
+	}
+	interval.pathUpdates = append(interval.pathUpdates, point)
 }
 
 func publicVisibilityFamily(prefix netip.Prefix) int {

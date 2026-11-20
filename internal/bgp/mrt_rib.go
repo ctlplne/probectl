@@ -17,6 +17,7 @@ import (
 // Entries refer to the original verified peer table by index. Public paths
 // carry no BMP OPEN, router identity, session capability or forwarding claim.
 type MRTRIBRecord struct {
+	ArchiveRecord     int64
 	ObservedUnixNanos int64
 	Sequence          uint32
 	Family            RouteFamily

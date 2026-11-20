@@ -68,6 +68,7 @@ func StageMRTBaseline(ctx context.Context, reader io.Reader, budget MRTArchiveBu
 		if err != nil {
 			return MRTBaseline{}, stream.recordError(raw, err)
 		}
+		rib.ArchiveRecord = stream.records
 		if err := stage(ctx, index, rib); err != nil {
 			return MRTBaseline{}, err
 		}

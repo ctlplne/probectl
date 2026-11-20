@@ -2,6 +2,9 @@
 
 ## What it is
 
+The BGP plane also provides [AS-path history for monitored prefixes](bgp-as-path-history.md)
+and [public collector visibility history](bgp-prefix-visibility.md).
+
 **BGP** (Border Gateway Protocol) is how the tens of thousands of independent networks
 that make up the internet tell each other where your addresses live: "to reach
 `203.0.113.0/24`, send the traffic to me." Each network is an **autonomous system**,

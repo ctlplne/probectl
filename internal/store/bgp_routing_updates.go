@@ -364,6 +364,11 @@ func (store BGPRouting) applyBatchInScope(ctx context.Context, sc tenancy.Scope,
 	if err := persistRoutingChanges(ctx, sc, source.Scope, ref, batch, plan); err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
+	if batch.EndOfRIB && view.state == "staging" {
+		if err := appendOwnedASPathBaseline(ctx, sc, source, ref, view, batch, digest); err != nil {
+			return BGPRoutingApplyResult{}, err
+		}
+	}
 	// Locks serialize explicit changes, but do not stop time. Refuse and roll
 	// back the whole batch if processing crossed the source or view expiry.
 	if err := store.checkRoutingWriteLease(ctx, sc, birth, view.validUntil); err != nil {

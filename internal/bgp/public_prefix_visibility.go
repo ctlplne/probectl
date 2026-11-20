@@ -73,17 +73,21 @@ func (p *PrefixVisibilityProjection) retain(peer PublicVisibilityPeer, route Rou
 }
 
 func publicVisibilityOrigins(path RouteASPath) publicVisibilityOriginSet {
-	for index := len(path.Path.Segments) - 1; index >= 0; index-- {
-		segment := path.Path.Segments[index]
+	return observedASPathOrigins(path.Path.Segments)
+}
+
+func observedASPathOrigins(path []ASPathSegment) publicVisibilityOriginSet {
+	for index := len(path) - 1; index >= 0; index-- {
+		segment := path[index]
 		values := segment.Values
-		if segment.Kind == 2 && len(values) > 0 {
+		if segment.Kind == ASPathSequence && len(values) > 0 {
 			asn := values[len(values)-1]
 			if asn > 0 && asn != 23456 {
 				return publicVisibilityOriginSet{values: []uint32{asn}}
 			}
 			break
 		}
-		if segment.Kind == 1 {
+		if segment.Kind == ASPathSet {
 			out := publicVisibilityOriginSet{unknown: true}
 			for _, asn := range values {
 				if asn > 0 && asn != 23456 && !slices.Contains(out.values, asn) {

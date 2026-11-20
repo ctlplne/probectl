@@ -11217,6 +11217,40 @@
         }
       }
     },
+    "/v1/bgp/visibility/{id}/paths": {
+      "get": {
+        "operationId": "getBGPASPathHistory",
+        "x-probectl-lifecycle": {"stage": "preview"},
+        "summary": "Read the original AS paths and changes for one monitored prefix",
+        "description": "Results retain the original collector or authorized BMP view and exact operation order. The default range is the previous 30 days. Owned router rows require current entity and source authority.",
+        "x-required-permission": "events.read",
+        "tags": ["bgp"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "from", "in": "query", "schema": {"type": "string", "format": "date-time"}},
+          {"name": "to", "in": "query", "description": "Exclusive end of the original observation window.", "schema": {"type": "string", "format": "date-time"}},
+          {"name": "source", "in": "query", "schema": {"type": "string", "enum": ["router_bmp", "public_mrt"]}},
+          {"name": "vantage", "in": "query", "description": "Use the vantage identifier from an earlier returned event.", "schema": {"type": "string", "maxLength": 256}},
+          {"name": "cursor", "in": "query", "description": "Continue the preceding page's next_cursor with its original filters.", "schema": {"type": "string", "maxLength": 2048}},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "default": 100}}
+        ],
+        "responses": {
+          "200": {"description": "Original tenant-monitored paths, coverage and optional next page", "content": {"application/json": {
+            "schema": {"$ref": "#/components/schemas/BGPASPathHistory"}}}},
+          "403": {"$ref": "#/components/responses/ErrorResponse"},
+          "404": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"},
+          "429": {"$ref": "#/components/responses/ErrorResponse"},
+          "503": {"$ref": "#/components/responses/ErrorResponse"}
+        },
+        "x-probectl-pagination": {
+          "mode": "cursor", "cursor_param": "cursor", "limit_param": "limit", "next_cursor": "next_cursor",
+          "resource_admitted": true,
+          "reason": "An original-time and source-operation continuation. Each complete page is checked against the tenant's query budget and the current source authority."
+        }
+      }
+    },
     "/v1/carbon": {
       "get": {
         "x-required-permission": "metrics.read",
@@ -30866,6 +30900,116 @@
                        "next_cursor": {"type": "string", "maxLength": 512},
                        "items": {"type": "array", "maxItems": 200, "items": {
                          "$ref": "#/components/schemas/BGPVisibilityObservation"}}}
+      },
+      "BGPASPathSegment": {
+        "type": "object",
+        "required": ["Kind", "Values"],
+        "properties": {
+          "Kind": {"type": "integer", "enum": [1, 2, 3, 4], "description": "AS_SET, AS_SEQUENCE, AS_CONFED_SEQUENCE or AS_CONFED_SET, in numeric order."},
+          "Values": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 4294967295}}
+        }
+      },
+      "BGPASPathFacts": {
+        "type": "object",
+        "required": ["selection_length", "possible_origins", "origin_ambiguous"],
+        "properties": {
+          "selection_length": {"type": "integer", "minimum": 0},
+          "possible_origins": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 4294967295}},
+          "origin_ambiguous": {"type": "boolean"},
+          "upstream_asn": {"type": "integer", "minimum": 1, "maximum": 4294967295}
+        }
+      },
+      "BGPASPathChanges": {
+        "type": "object",
+        "required": ["segments_changed", "origin_changed", "origin_evidence_changed", "upstream_changed", "length_changed"],
+        "properties": {
+          "segments_changed": {"type": "boolean"},
+          "origin_changed": {"type": "boolean"},
+          "origin_evidence_changed": {"type": "boolean"},
+          "upstream_changed": {"type": "boolean"},
+          "length_changed": {"type": "boolean"}
+        }
+      },
+      "BGPASPathPublicSource": {
+        "type": "object",
+        "required": ["source", "collector", "baseline_clock", "archive_clock", "baseline_sha256", "archive_sha256",
+          "peer_address", "peer_asn", "archive_record", "operation_index", "observed_unix_nanos"],
+        "properties": {
+          "source": {"type": "string"},
+          "collector": {"type": "string"},
+          "baseline_clock": {"type": "string", "format": "date-time"},
+          "archive_clock": {"type": "string", "format": "date-time"},
+          "baseline_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "archive_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "peer_address": {"type": "string"},
+          "peer_asn": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+          "archive_record": {"type": "integer", "minimum": 0, "description": "Zero denotes a derived source coverage observation."},
+          "operation_index": {"type": "integer", "minimum": 0},
+          "observed_unix_nanos": {"type": "string", "pattern": "^[0-9]+$"},
+          "rib_peer_index": {"type": "integer", "minimum": 0, "maximum": 65535},
+          "rib_sequence": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+          "rib_originated_unix_nanos": {"type": "string", "pattern": "^[0-9]+$"},
+          "coverage": {"type": "string", "enum": ["complete_baseline", "archive_gap", "session_change", "path_unavailable"]}
+        }
+      },
+      "BGPASPathStage": {
+        "type": "object",
+        "required": ["segments", "facts"],
+        "properties": {
+          "segments": {"type": "array", "items": {"$ref": "#/components/schemas/BGPASPathSegment"}},
+          "facts": {"$ref": "#/components/schemas/BGPASPathFacts"},
+          "as4_action": {"type": "string"},
+          "original": {"$ref": "#/components/schemas/BGPASPathPublicSource"},
+          "observed_at": {"type": "string", "format": "date-time"},
+          "sequence": {"type": "string", "pattern": "^[0-9]+$"},
+          "update_index": {"type": "integer", "minimum": 0},
+          "next_hops": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "BGPASPathEvent": {
+        "type": "object",
+        "required": ["id", "observed_at", "vantage", "sequence", "operation", "source_kind", "source_epoch", "kind", "has_path_id", "path_id"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "observed_at": {"type": "string", "format": "date-time"},
+          "vantage": {"type": "string"},
+          "sequence": {"type": "string", "pattern": "^[0-9]+$"},
+          "operation": {"type": "integer", "minimum": 0},
+          "source_kind": {"type": "string", "enum": ["router_bmp", "public_mrt"]},
+          "source_epoch": {"type": "string"},
+          "kind": {"type": "string", "enum": ["baseline", "announcement", "withdrawal", "path_change", "coverage_gap"]},
+          "has_path_id": {"type": "boolean"},
+          "path_id": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+          "context_id": {"type": "string", "format": "uuid"},
+          "router_id": {"type": "string", "format": "uuid"},
+          "change_event_id": {"type": "string", "format": "uuid"},
+          "previous": {"$ref": "#/components/schemas/BGPASPathStage"},
+          "current": {"$ref": "#/components/schemas/BGPASPathStage"},
+          "changes": {"$ref": "#/components/schemas/BGPASPathChanges"},
+          "public_source": {"$ref": "#/components/schemas/BGPASPathPublicSource"},
+          "router_view": {"type": "string"},
+          "original_clock": {"type": "string", "format": "date-time"},
+          "incidents": {"type": "array", "items": {"$ref": "#/components/schemas/BGPASPathIncident"}}
+        }
+      },
+      "BGPASPathIncident": {
+        "type": "object",
+        "required": ["id", "relation"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "relation": {"type": "string", "enum": ["same_public_archive", "nearby_owned_change"]}
+        }
+      },
+      "BGPASPathHistory": {
+        "type": "object",
+        "required": ["monitor", "items", "coverage", "effective_limit"],
+        "properties": {
+          "monitor": {"$ref": "#/components/schemas/BGPVisibilityMonitor"},
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/BGPASPathEvent"}},
+          "coverage": {"type": "string", "enum": ["retained_points", "no_retained_points"]},
+          "effective_limit": {"type": "integer", "minimum": 1},
+          "next_cursor": {"type": "string", "maxLength": 2048}
+        }
       },
       "BGPEvent": {
         "type": "object",

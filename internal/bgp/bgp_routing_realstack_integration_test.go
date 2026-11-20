@@ -35,16 +35,22 @@ import (
 // This is the selected-RIB source/storage proof; flow join, public fallback,
 // estimate, every served field and multi-VRF physical proof remain separate.
 func TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors(t *testing.T) {
-	proveFRRSelectedRIB(t, false)
+	proveFRRSelectedRIB(t, false, false)
 }
 
 func TestFRRSelectedRIBJoinsShippedProtocolGoldenFields(t *testing.T) {
-	proveFRRSelectedRIB(t, true)
+	proveFRRSelectedRIB(t, true, false)
 }
 
-func proveFRRSelectedRIB(t *testing.T, goldenFlows bool) {
+func TestFRRMonitoredASPathHistoryKeepsOriginalTenantSources(t *testing.T) {
+	proveFRRSelectedRIB(t, false, true)
+}
+
+func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory bool) {
 	t.Helper()
-	if runtime.GOOS != "linux" {
+	// The history test reaches the real speakers through the lab's published
+	// loopback BMP port. The earlier proofs keep their Linux lab requirement.
+	if runtime.GOOS != "linux" && !pathHistory {
 		testsupport.SkipOrFatal(t, "selected-RIB integration needs a Linux route to the owned FRR bridge")
 	}
 	lab := startRoutingLabNamed(t, "probectl-qa-beta-selected-rib-"+strconv.FormatInt(time.Now().UnixNano()%1e8, 36))
@@ -70,6 +76,10 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows bool) {
 	}
 	registrations := []edgeFlowRegistration{first, second}
 	pool := st.ApplicationReadPool(t)
+	var monitors []store.BGPVisibilityMonitor
+	if pathHistory {
+		monitors = addFRRPathHistoryMonitors(t, st, registrations)
+	}
 	t.Cleanup(func() {
 		if t.Failed() {
 			logFRRSelectedRouterTables(t, lab)
@@ -116,6 +126,10 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows bool) {
 	}
 	if goldenFlows {
 		proveFRRSelectedGoldenFlowFields(t, st, lab, first, second, []netip.Addr{netip.MustParseAddr(lab.ip["edge"]), netip.MustParseAddr(link.peerIP6)})
+		return
+	}
+	if pathHistory {
+		proveFRRPathHistory(t, st, lab, pool, registrations, listeners, manifests, monitors)
 		return
 	}
 	// Observe genuine source-driven liveness after both complete initial dumps;
