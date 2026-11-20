@@ -140,7 +140,7 @@ func TestFastDDoSSchedulerSeparatesIdenticalFlowCrowdsByTenantApplication(t *tes
 	var proof alert.DDoSEvaluationEvidence
 	if err := json.Unmarshal(body, &proof); err != nil || proof.Previous.Application == nil || proof.Current.Application == nil ||
 		proof.Current.Application.State != anomaly.DDoSApplicationDegraded ||
-		proof.Current.Application.Current.Requests != 120 || proof.Current.Application.Current.Successes != 80 ||
+		proof.Current.Application.Current.Requests != 1440 || proof.Current.Application.Current.Successes != 960 ||
 		proof.Current.Application.Current.FlowBytes != "360000" || proof.Current.Application.Current.FlowPackets != "3600" ||
 		proof.Current.After.To.Sub(proof.Previous.After.From) != 10*time.Second {
 		t.Fatal("round-tripped receipt lost exact observed evidence or duration", err)
@@ -208,12 +208,12 @@ func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otel
 			row := flowstore.Row{TenantID: tenant, AgentID: "passive-assessment-source", Exporter: "203.0.113.15", Protocol: "ipfix",
 				TS: at, StartTS: at.Add(-time.Second), SrcAddr: "198.51.100.42", DstAddr: "192.0.2.1", SrcPort: 42001, DstPort: 443,
 				Transport: "tcp", TCPFlags: 16, Sampling: 1, Bytes: 90000, BytesScaled: 90000, Packets: 900, PacketsScaled: 900}
-			sample := benchmarkDDoSApplication{Requests: 30, LatencyMS: 18}
+			sample := benchmarkDDoSApplication{Requests: 360, LatencyMS: 18}
 			if i == 1 {
 				row.Bytes, row.BytesScaled, row.Packets, row.PacketsScaled = 360000, 360000, 3600, 3600
-				sample.Requests = 120
+				sample.Requests = 1440
 				if degraded {
-					sample.Failures, sample.LatencyMS = 40, 80
+					sample.Failures, sample.LatencyMS = 480, 80
 				}
 			}
 			rows = append(rows, row)

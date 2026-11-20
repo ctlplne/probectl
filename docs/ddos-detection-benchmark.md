@@ -38,6 +38,13 @@ response outcomes and comparable latency are required for suppression. Missing o
 bound evidence leaves generic pressure unevaluated for alarm admission. A
 strong network vector can still qualify using its own flow evidence.
 
+Scheduled and preview assessments use a bounded projection of stored HTTP
+server observations. The read applies the tenant, service, address, port and
+half-open clock before its limit, and needs 20 to 16,383 matching original
+observations per window. The projection keeps exact request counts, successful
+responses, p95 duration and an observation digest. Overflow and a known partial
+window in the in-memory store leave application evidence unavailable.
+
 | Output field | Meaning |
 | --- | --- |
 | `fixture_manifest_sha256` | Exact corpus settings, trial parameters, clocks and independent labels |

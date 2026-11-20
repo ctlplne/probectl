@@ -22,11 +22,12 @@ const memoryMaxPerTenant = 50_000
 
 // Memory is the in-process Store: per-tenant bounded rings, newest kept.
 type Memory struct {
-	mu        sync.RWMutex
-	spans     map[string][]Span
-	logs      map[string][]LogRecord
-	spanIndex map[string]map[string]int
-	logIndex  map[string]map[string]int
+	mu                 sync.RWMutex
+	spans              map[string][]Span
+	spanEvictedThrough map[string]time.Time
+	logs               map[string][]LogRecord
+	spanIndex          map[string]map[string]int
+	logIndex           map[string]map[string]int
 }
 
 // NewMemory returns an empty in-memory store.
@@ -58,6 +59,11 @@ func (m *Memory) WriteSpans(_ context.Context, spans []Span) error {
 		idx[key] = len(m.spans[s.TenantID])
 		m.spans[s.TenantID] = append(m.spans[s.TenantID], s)
 		if over := len(m.spans[s.TenantID]) - memoryMaxPerTenant; over > 0 {
+			for _, removed := range m.spans[s.TenantID][:over] {
+				if removed.Start.After(m.spanEvictedThrough[s.TenantID]) {
+					m.spanEvictedThrough[s.TenantID] = removed.Start
+				}
+			}
 			m.spans[s.TenantID] = m.spans[s.TenantID][over:]
 			m.rebuildSpanIndex(s.TenantID)
 		}
@@ -259,6 +265,7 @@ func (m *Memory) EraseTenant(_ context.Context, tenant string) (deleted, remaini
 	defer m.mu.Unlock()
 	deleted = len(m.spans[tenant]) + len(m.logs[tenant])
 	delete(m.spans, tenant)
+	delete(m.spanEvictedThrough, tenant)
 	delete(m.logs, tenant)
 	delete(m.spanIndex, tenant)
 	delete(m.logIndex, tenant)
@@ -410,6 +417,9 @@ func timeOrNow(t time.Time) time.Time {
 func (m *Memory) initLocked() {
 	if m.spans == nil {
 		m.spans = map[string][]Span{}
+	}
+	if m.spanEvictedThrough == nil {
+		m.spanEvictedThrough = map[string]time.Time{}
 	}
 	if m.logs == nil {
 		m.logs = map[string][]LogRecord{}

@@ -8,6 +8,7 @@ package anomaly
 
 import (
 	"context"
+	"math"
 	"math/big"
 	"net/netip"
 	"time"
@@ -137,7 +138,7 @@ func compareApplicationTraffic(parser *decimalSeasonalTraining, requests [2]int,
 func validDDoSAppWindow(app DDoSApplicationWindow, flow DDoSObservation) bool {
 	return flow.Direction == "ingress" && flow.Target == app.Target && app.Target.IsSingleIP() &&
 		app.From.Equal(flow.From) && app.To.Equal(flow.To) &&
-		app.Requests >= 20 && app.Requests < 1000 && app.Successes >= 0 && app.Successes <= app.Requests &&
+		app.Requests >= 20 && app.Requests <= math.MaxInt/125 && app.Successes >= 0 && app.Successes <= app.Requests &&
 		app.P95 > 0 && app.P95 <= app.To.Sub(app.From) && len(app.Digest) == 64
 }
 

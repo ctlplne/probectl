@@ -41,9 +41,8 @@ func (s *Server) prepareDDoSApplication(ctx context.Context, actor *auth.Princip
 		if !ok || tenant.String() != actor.TenantID || source.TenantID != actor.TenantID {
 			return anomaly.DDoSApplicationWindow{}, false, tenancy.ErrNoTenant
 		}
-		const admissionLimit = 1000
-		spans, err := s.otelStore.QuerySpans(ctx, tenant.String(), otelstore.SpanQuery{
-			Service: binding.Service, Since: source.From, Until: source.To, Limit: admissionLimit,
+		spans, err := otelstore.ReadHTTPObservations(ctx, s.otelStore, tenant.String(), otelstore.SpanQuery{
+			Service: binding.Service, Since: source.From, Until: source.To,
 			HTTPServer: &otelstore.HTTPServerTarget{Address: source.Target.Addr(), Port: binding.Port},
 		})
 		if err != nil {
@@ -51,9 +50,6 @@ func (s *Server) prepareDDoSApplication(ctx context.Context, actor *auth.Princip
 				return anomaly.DDoSApplicationWindow{}, false, ctx.Err()
 			}
 			s.log.Warn("DDoS application context unavailable", "tenant_id", tenant.String())
-			return anomaly.DDoSApplicationWindow{}, false, nil
-		}
-		if len(spans) >= admissionLimit {
 			return anomaly.DDoSApplicationWindow{}, false, nil
 		}
 		return projectDDoSApplicationWindow(ctx, source, binding.Service, binding.Port, spans)
