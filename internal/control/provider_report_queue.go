@@ -28,6 +28,7 @@ type providerReportQueue struct{ server *Server }
 const (
 	providerMonthlyReportKind    = "monthly"
 	providerComplianceReportKind = "compliance"
+	providerDDoSReportKind       = "ddos"
 )
 
 // MonthlyReportQueue is attached only by the licensed provider build seam.
@@ -67,6 +68,23 @@ func (q providerReportQueue) QueueComplianceReports(ctx context.Context, tenant,
 
 func (q providerReportQueue) ComplianceReportProgress(ctx context.Context, tenant, operator, requestID string) (reporting.ProviderReportQueueResult, error) {
 	return q.tenantReports(ctx, tenant, operator, requestID, providerComplianceReportKind, false)
+}
+
+// DDoSReportQueue attaches only at the licensed provider build seam.
+func (s *Server) DDoSReportQueue() reporting.DDoSReportQueue {
+	if s == nil || s.pool == nil || s.fairnessGate == nil {
+		return nil
+	}
+	s.providerReportTriggers = true
+	return providerReportQueue{server: s}
+}
+
+func (q providerReportQueue) QueueDDoSReports(ctx context.Context, tenant, operator, requestID string) (reporting.ProviderReportQueueResult, error) {
+	return q.tenantReports(ctx, tenant, operator, requestID, providerDDoSReportKind, true)
+}
+
+func (q providerReportQueue) DDoSReportProgress(ctx context.Context, tenant, operator, requestID string) (reporting.ProviderReportQueueResult, error) {
+	return q.tenantReports(ctx, tenant, operator, requestID, providerDDoSReportKind, false)
 }
 
 func (q providerReportQueue) tenantReports(ctx context.Context, tenant, operator, requestID, kind string, create bool) (reporting.ProviderReportQueueResult, error) {
@@ -141,7 +159,8 @@ func queueProviderReportSchedules(ctx context.Context, sc tenancy.Scope, request
  WHERE s.tenant_id=$1 AND v.tenant_id=$1 AND s.enabled AND s.provider_trigger_allowed
  AND (v.owner_id=s.owner_id OR v.shared)
  AND (($3::text='monthly' AND jsonb_typeof(v.definition->'client_report')='object')
-   OR ($3::text='compliance' AND v.definition->>'compliance_control'=ANY($4::text[])))),
+   OR ($3::text='compliance' AND v.definition->>'compliance_control'=ANY($4::text[]))
+   OR ($3::text='ddos' AND jsonb_typeof(v.definition->'ddos_report')='object'))),
  queued AS (UPDATE dashboard_report_schedules s SET provider_request_id=$2::uuid,
  provider_original_next_run_at=s.next_run_at,next_run_at=transaction_timestamp(),updated_at=clock_timestamp()
  FROM eligible e WHERE s.tenant_id=$1 AND s.id=e.id AND s.next_run_at>transaction_timestamp()

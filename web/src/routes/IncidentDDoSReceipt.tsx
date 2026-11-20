@@ -7,6 +7,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { getAlertDDoSReceipt } from '../api/alerts'
+import { useCreateDashboard } from '../api/dashboardReporting'
 import { getIncidentDDoSReport, type Signal } from '../api/incidents'
 import type { IncidentDDoSReport } from '../api/sdk.gen'
 import { useAuth } from '../auth/useAuth'
@@ -61,6 +62,7 @@ function DDoSReceipt({
   const [reviewing, setReviewing] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const { tenant, user, permissions } = useAuth()
+  const saveReport = useCreateDashboard()
   const canRead = ['alert.read', 'ai.query', 'flow.read'].every((permission) =>
     permissions.includes(permission),
   )
@@ -115,7 +117,40 @@ function DDoSReceipt({
               <ErrorState title="DDoS report unavailable" description={report.error.message} />
             ) : null}
             {reportOpen && report.isSuccess && !report.isFetching ? (
-              <IncidentTrafficReport report={report.data} />
+              <>
+                <IncidentTrafficReport report={report.data} />
+                {permissions.includes('metrics.write') ? (
+                  <Button
+                    variant="secondary"
+                    disabled={saveReport.isPending || saveReport.isSuccess}
+                    onClick={() =>
+                      saveReport.mutate({
+                        name: `DDoS incident ${incidentID.slice(0, 8)}`,
+                        preset: 'operator',
+                        shared: false,
+                        definition: {
+                          ddos_report: {
+                            incident_id: incidentID,
+                            rule_id: rule,
+                            receipt_fingerprint: fingerprint,
+                          },
+                          provenance: [
+                            'Tenant traffic assessment receipt and retained observations.',
+                          ],
+                          redaction_state: 'Tenant-scoped source data',
+                          coverage_limitations: [
+                            'Source contributions and rates cover the observed windows.',
+                          ],
+                        },
+                      })
+                    }
+                  >
+                    Save incident report
+                  </Button>
+                ) : null}
+                {saveReport.isSuccess ? <p role="status">Saved to your dashboards.</p> : null}
+                {saveReport.isError ? <p role="alert">{saveReport.error.message}</p> : null}
+              </>
             ) : null}
             {allowRoutingReview && result.current.direction === 'ingress' ? (
               reviewing ? (

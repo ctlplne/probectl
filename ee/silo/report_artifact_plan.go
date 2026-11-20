@@ -41,9 +41,15 @@ func reportArtifactStoragePlan(schema string, tables []string) []string {
         AND body_digest IS NOT NULL AND octet_length(body_digest)=32))`
 	statements := []string{
 		fmt.Sprintf(`DO $report_shape$ BEGIN
-    IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass
-        AND conname='dashboard_report_artifacts_body_representation_v8') THEN
-        ALTER TABLE %s ADD CONSTRAINT dashboard_report_artifacts_body_representation_v8 CHECK %s NOT VALID;
+    IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=%[1]s::regclass
+        AND conname IN ('dashboard_report_artifacts_body_representation_v8', 'dashboard_report_artifacts_body_representation_v9',
+            'dashboard_report_artifacts_body_representation_v10', 'dashboard_report_artifacts_body_representation_v11',
+            'dashboard_report_artifacts_body_representation_v12')) THEN
+        ALTER TABLE %[2]s ADD CONSTRAINT dashboard_report_artifacts_body_representation_v8 CHECK %[3]s NOT VALID;
+    END IF;
+    IF EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=%[1]s::regclass
+        AND conname='dashboard_report_artifacts_body_representation_v12') THEN
+        ALTER TABLE %[2]s DROP CONSTRAINT IF EXISTS dashboard_report_artifacts_body_representation_v8;
     END IF;
 END $report_shape$`, quoteLiteral(parent), parent, shape),
 		"ALTER TABLE " + parent + " DROP CONSTRAINT IF EXISTS dashboard_report_artifacts_body_representation_v7",

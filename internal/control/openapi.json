@@ -22172,6 +22172,29 @@
         },
         "description": "Explicit and complete destination-tenant bindings for each declared measurement point and policy slot."
       },
+      "DDoSReportDefinition": {
+        "type": "object",
+        "required": [
+          "incident_id",
+          "rule_id",
+          "receipt_fingerprint"
+        ],
+        "properties": {
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rule_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receipt_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "additionalProperties": false
+      },
       "DashboardDefinition": {
         "type": "object",
         "additionalProperties": false,
@@ -22255,13 +22278,24 @@
           },
           "compliance_control": {
             "type": "string",
-            "enum": ["AU.L2-3.3.1", "SC.L2-3.13.1", "11.4.5", "SI.L2-3.14.6", "1.3.1", "1.3.2"],
+            "enum": [
+              "AU.L2-3.3.1",
+              "SC.L2-3.13.1",
+              "11.4.5",
+              "SI.L2-3.14.6",
+              "1.3.1",
+              "1.3.2"
+            ],
             "description": "Sign one selected control. AU.L2-3.3.1 checks retained audit-chain coverage. SC.L2-3.13.1 and PCI DSS 11.4.5 use declared segmentation rules and selected original flow evidence. SI.L2-3.14.6 reports selected flow monitoring coverage. PCI DSS 1.3.1 and 1.3.2 use only the selected cardholder-data zone direction."
           },
           "compliance_flow": {
             "oneOf": [
-              {"$ref": "#/components/schemas/ComplianceFlowDefinition"},
-              {"type": "null"}
+              {
+                "$ref": "#/components/schemas/ComplianceFlowDefinition"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "carrier_claim": {
@@ -22273,25 +22307,119 @@
                 "type": "null"
               }
             ]
+          },
+          "ddos_report": {
+            "$ref": "#/components/schemas/DDoSReportDefinition"
           }
         },
-        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects offline signed audit-chain, boundary or monitoring evidence. Omit other sources, caller bounds and metrics. Current audit.read is required. Flow-backed controls also require current flow.read and entities.read for each selected context and measurement point.",
-
+        "description": "Choose exact static metrics with absolute bounds, or pinned saved flow_sources. Source-backed reports derive their complete values and absolute time bounds from current owned/shared saved-query results; omit caller metrics and bounds. Current source authority and captured configuration/lifecycle versions are checked again before atomic publication. client_report selects a complete monthly pack of availability/SLOs, incidents/verdicts, capacity/runout, changes and offline signed evidence. Omit caller bounds and metrics. Only an explicit assessment may also select pinned flow_sources: relative query windows end at the assessment end, every complete selected window must fit inside the assessment interval, and current flow/query source grants remain required. Source references are destination-tenant configuration and never grants. carrier_claim selects signed carrier SLA reports from exact recorded financial revisions and complete original measurements; omit other source modes, metrics and caller bounds. Future readers still need current financial and source authority. compliance_control selects offline signed audit-chain, boundary or monitoring evidence. Omit other sources, caller bounds and metrics. Current audit.read is required. Flow-backed controls also require current flow.read and entities.read for each selected context and measurement point. ddos_report selects one tenant incident and exact retained traffic assessment receipt for a current-authority report.",
         "allOf": [
           {
-            "if": {"required": ["compliance_control"], "properties": {"compliance_control": {"enum": ["SC.L2-3.13.1", "11.4.5", "SI.L2-3.14.6", "1.3.1", "1.3.2"]}}},
-            "then": {"required": ["compliance_flow"], "properties": {"compliance_flow": {"type": "object"}}},
-            "else": {"properties": {"compliance_flow": {"type": "null"}}}
+            "if": {
+              "required": [
+                "compliance_control"
+              ],
+              "properties": {
+                "compliance_control": {
+                  "enum": [
+                    "SC.L2-3.13.1",
+                    "11.4.5",
+                    "SI.L2-3.14.6",
+                    "1.3.1",
+                    "1.3.2"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "compliance_flow"
+              ],
+              "properties": {
+                "compliance_flow": {
+                  "type": "object"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "compliance_flow": {
+                  "type": "null"
+                }
+              }
+            }
           },
           {
-            "if": {"required": ["compliance_control"], "properties": {"compliance_control": {"enum": ["SC.L2-3.13.1", "11.4.5", "1.3.1", "1.3.2"]}}},
-            "then": {"properties": {"compliance_flow": {"required": ["policy"]}}},
-            "else": {"properties": {"compliance_flow": {"not": {"required": ["policy"]}}}}
+            "if": {
+              "required": [
+                "compliance_control"
+              ],
+              "properties": {
+                "compliance_control": {
+                  "enum": [
+                    "SC.L2-3.13.1",
+                    "11.4.5",
+                    "1.3.1",
+                    "1.3.2"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "compliance_flow": {
+                  "required": [
+                    "policy"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "compliance_flow": {
+                  "not": {
+                    "required": [
+                      "policy"
+                    ]
+                  }
+                }
+              }
+            }
           },
           {
-            "if": {"required": ["compliance_control"], "properties": {"compliance_control": {"enum": ["1.3.1", "1.3.2"]}}},
-            "then": {"properties": {"compliance_flow": {"required": ["protected_zone"]}}},
-            "else": {"properties": {"compliance_flow": {"not": {"required": ["protected_zone"]}}}}
+            "if": {
+              "required": [
+                "compliance_control"
+              ],
+              "properties": {
+                "compliance_control": {
+                  "enum": [
+                    "1.3.1",
+                    "1.3.2"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "compliance_flow": {
+                  "required": [
+                    "protected_zone"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "compliance_flow": {
+                  "not": {
+                    "required": [
+                      "protected_zone"
+                    ]
+                  }
+                }
+              }
+            }
           }
         ],
         "oneOf": [
@@ -22302,7 +22430,9 @@
               "metrics"
             ],
             "properties": {
-              "compliance_control": { "not": {} },
+              "compliance_control": {
+                "not": {}
+              },
               "flow_sources": {
                 "maxItems": 0
               }
@@ -22324,6 +22454,13 @@
                     "carrier_claim"
                   ]
                 }
+              },
+              {
+                "not": {
+                  "required": [
+                    "ddos_report"
+                  ]
+                }
               }
             ]
           },
@@ -22332,7 +22469,9 @@
               "flow_sources"
             ],
             "properties": {
-              "compliance_control": { "not": {} },
+              "compliance_control": {
+                "not": {}
+              },
               "flow_sources": {
                 "minItems": 1
               },
@@ -22363,6 +22502,13 @@
                     "carrier_claim"
                   ]
                 }
+              },
+              {
+                "not": {
+                  "required": [
+                    "ddos_report"
+                  ]
+                }
               }
             ]
           },
@@ -22371,20 +22517,37 @@
               "client_report"
             ],
             "if": {
-              "required": ["flow_sources"],
-              "properties": {"flow_sources": {"minItems": 1}}
+              "required": [
+                "flow_sources"
+              ],
+              "properties": {
+                "flow_sources": {
+                  "minItems": 1
+                }
+              }
             },
             "then": {
               "properties": {
                 "client_report": {
-                  "required": ["period", "assessment"],
-                  "properties": {"period": {"const": "assessment"}}
+                  "required": [
+                    "period",
+                    "assessment"
+                  ],
+                  "properties": {
+                    "period": {
+                      "const": "assessment"
+                    }
+                  }
                 }
               }
             },
             "properties": {
-              "compliance_control": { "not": {} },
-              "metrics": {"maxProperties": 0},
+              "compliance_control": {
+                "not": {}
+              },
+              "metrics": {
+                "maxProperties": 0
+              },
               "absolute_from": {
                 "const": "0001-01-01T00:00:00Z"
               },
@@ -22402,6 +22565,13 @@
                     "carrier_claim"
                   ]
                 }
+              },
+              {
+                "not": {
+                  "required": [
+                    "ddos_report"
+                  ]
+                }
               }
             ]
           },
@@ -22410,7 +22580,9 @@
               "carrier_claim"
             ],
             "properties": {
-              "compliance_control": { "not": {} },
+              "compliance_control": {
+                "not": {}
+              },
               "carrier_claim": {
                 "$ref": "#/components/schemas/CarrierSLAReportDefinition"
               },
@@ -22433,20 +22605,99 @@
               "required": [
                 "client_report"
               ]
-            }
+            },
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "ddos_report"
+                  ]
+                }
+              }
+            ]
           },
           {
-            "required": ["compliance_control"],
+            "required": [
+              "compliance_control"
+            ],
             "properties": {
-              "flow_sources": {"maxItems": 0},
-              "metrics": {"maxProperties": 0},
-              "absolute_from": {"const": "0001-01-01T00:00:00Z"},
-              "absolute_to": {"const": "0001-01-01T00:00:00Z"}
+              "flow_sources": {
+                "maxItems": 0
+              },
+              "metrics": {
+                "maxProperties": 0
+              },
+              "absolute_from": {
+                "const": "0001-01-01T00:00:00Z"
+              },
+              "absolute_to": {
+                "const": "0001-01-01T00:00:00Z"
+              }
             },
             "not": {
               "anyOf": [
-                {"required": ["client_report"]},
-                {"required": ["carrier_claim"]}
+                {
+                  "required": [
+                    "client_report"
+                  ]
+                },
+                {
+                  "required": [
+                    "carrier_claim"
+                  ]
+                }
+              ]
+            },
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "ddos_report"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "required": [
+              "ddos_report"
+            ],
+            "properties": {
+              "flow_sources": {
+                "maxItems": 0
+              },
+              "metrics": {
+                "maxProperties": 0
+              },
+              "absolute_from": {
+                "const": "0001-01-01T00:00:00Z"
+              },
+              "absolute_to": {
+                "const": "0001-01-01T00:00:00Z"
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "client_report"
+                  ]
+                },
+                {
+                  "required": [
+                    "carrier_claim"
+                  ]
+                },
+                {
+                  "required": [
+                    "compliance_control"
+                  ]
+                },
+                {
+                  "required": [
+                    "compliance_flow"
+                  ]
+                }
               ]
             }
           }

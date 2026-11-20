@@ -16,6 +16,7 @@ import (
 
 	gouuid "github.com/google/uuid"
 
+	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/compliance"
 	"github.com/ctlplne/probectl/internal/flow"
@@ -29,6 +30,7 @@ var errReportSourceRequirements = errors.New("report source requirements are inc
 // This format contains requirements to check against a future reader. It has
 // neither frozen result tables nor any principal, credential or durable grant.
 type reportSourceRequirements struct {
+	DDoSReport        *ddosReportPackRequirements     `json:"ddos_report,omitempty"`
 	Claims            []carrierSLAReportRequirement   `json:"carrier_claims,omitempty"`
 	ComplianceControl string                          `json:"compliance_control,omitempty"`
 	ComplianceFlow    *complianceFlowRequirements     `json:"compliance_flow,omitempty"`
@@ -52,7 +54,7 @@ func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCap
 			return nil, errReportSourceRequirements
 		}
 	}
-	requirements := reportSourceRequirements{Claims: capture.Claims, ComplianceControl: capture.ComplianceControl, ComplianceFlow: capture.ComplianceFlow, Version: 1, TenantID: capture.TenantID,
+	requirements := reportSourceRequirements{DDoSReport: capture.DDoSReport, Claims: capture.Claims, ComplianceControl: capture.ComplianceControl, ComplianceFlow: capture.ComplianceFlow, Version: 1, TenantID: capture.TenantID,
 		Inputs: capture.Inputs, Permissions: capture.Permissions,
 		Contexts: capture.Contexts, ContextsCaptured: capture.ContextsCaptured, ContextSources: capture.ContextSources, Monthly: capture.Monthly}
 	if requirements.Monthly != nil {
@@ -72,6 +74,9 @@ func marshalReportSourceRequirements(ctx context.Context, capture *reportFlowCap
 	}
 	if requirements.ComplianceFlow != nil {
 		requirements.Version = 7
+	}
+	if requirements.DDoSReport != nil {
+		requirements.Version = 8
 	}
 	if err := validateReportSourceRequirements(ctx, requirements, memory); err != nil {
 		return nil, err
@@ -106,7 +111,7 @@ func parseReportSourceRequirements(ctx context.Context, raw json.RawMessage, mem
 	if err := validateReportSourceRequirements(ctx, requirements, memory); err != nil {
 		return nil, err
 	}
-	return &reportFlowCapture{Claims: requirements.Claims, ComplianceControl: requirements.ComplianceControl, ComplianceFlow: requirements.ComplianceFlow, TenantID: requirements.TenantID, Inputs: requirements.Inputs,
+	return &reportFlowCapture{DDoSReport: requirements.DDoSReport, Claims: requirements.Claims, ComplianceControl: requirements.ComplianceControl, ComplianceFlow: requirements.ComplianceFlow, TenantID: requirements.TenantID, Inputs: requirements.Inputs,
 		Permissions: requirements.Permissions, Contexts: requirements.Contexts,
 		ContextsCaptured: requirements.ContextsCaptured, ContextSources: requirements.ContextSources, Monthly: requirements.Monthly}, nil
 }
@@ -119,6 +124,22 @@ func reportRequirementUUID(id string) bool {
 func validateReportSourceRequirements(ctx context.Context, value reportSourceRequirements, memory int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if value.Version == 8 {
+		tenant, bound := tenancy.FromContext(ctx)
+		ddos := value.DDoSReport
+		if !bound || tenant.String() != value.TenantID || !reportRequirementUUID(value.TenantID) || ddos == nil ||
+			!validDDoSReportSelection(ddos.Selection) || !alert.ValidFieldDigest(ddos.ReceiptDigest) ||
+			(ddos.DecisionDigest != "" && !alert.ValidFieldDigest(ddos.DecisionDigest)) ||
+			ddos.ObservedFrom.IsZero() || !ddos.ObservedFrom.Before(ddos.ObservedTo) ||
+			value.ComplianceControl != "" || value.ComplianceFlow != nil || value.Monthly != nil || len(value.Claims) != 0 ||
+			len(value.Inputs) != 0 || len(value.Permissions) != 0 || len(value.Contexts) != 0 || value.ContextSources || value.ContextsCaptured {
+			return errReportSourceRequirements
+		}
+		return nil
+	}
+	if value.DDoSReport != nil {
+		return errReportSourceRequirements
 	}
 	if value.Version > 5 {
 		return validateComplianceControlSourceRequirements(ctx, value, memory)

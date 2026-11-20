@@ -140,6 +140,12 @@ func sourceReportDocument(view *store.DashboardView, definition dashboardDefinit
 	if view == nil || capture == nil || view.TenantID != capture.TenantID || len(capture.Tables) == 0 {
 		return reporting.Document{}, apierror.Forbidden("report captured source scope is unavailable")
 	}
+	if capture.DDoSReport != nil {
+		return reporting.Document{Title: view.Name, Preset: view.Preset, TenantName: tenantName, TenantScope: view.TenantID,
+			AbsoluteFrom: capture.DDoSReport.ObservedFrom, AbsoluteTo: capture.DDoSReport.ObservedTo, GeneratedAt: at,
+			GeneratedBy: generator, Provenance: append(append([]string{}, definition.Provenance...), "Traffic assessment receipt sha256:"+capture.DDoSReport.ReceiptDigest),
+			RedactionState: definition.RedactionState, CoverageLimitations: definition.CoverageLimitations, Tables: capture.Tables}, nil
+	}
 	if capture.ComplianceControl != "" {
 		return complianceControlReportDocument(view, definition, tenantName, generator, at, capture)
 	}
@@ -242,6 +248,9 @@ func (s *Server) validateReportSourcePublication(ctx context.Context, sc tenancy
 	if capture == nil {
 		return apierror.Forbidden("report source capture is unavailable")
 	}
+	if capture.DDoSReport != nil {
+		return s.validateDDoSReportPackScope(ctx, sc, actor, capture.DDoSReport, true)
+	}
 	if capture.ComplianceFlow != nil {
 		return s.revalidateComplianceFlowScope(ctx, sc, actor, capture, true)
 	}
@@ -323,6 +332,9 @@ func reportGenerationError(err error) error {
 }
 
 func reportCaptureSourceCount(capture *reportFlowCapture) int {
+	if capture.DDoSReport != nil {
+		return 1
+	}
 	if capture.ComplianceFlow != nil {
 		return len(capture.ComplianceFlow.Sources)
 	}

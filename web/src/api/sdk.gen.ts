@@ -1253,6 +1253,12 @@ export interface CreatedAPIToken {
   token?: string
 }
 
+export interface DDoSReportDefinition {
+  incident_id: string
+  receipt_fingerprint: string
+  rule_id: string
+}
+
 export interface DashboardCreateRequest {
   definition: DashboardDefinition
   name: string
@@ -1268,6 +1274,7 @@ export interface DashboardDefinition {
   compliance_control?: "AU.L2-3.3.1" | "SC.L2-3.13.1" | "11.4.5" | "SI.L2-3.14.6" | "1.3.1" | "1.3.2"
   compliance_flow?: ComplianceFlowDefinition | null
   coverage_limitations: string[]
+  ddos_report?: DDoSReportDefinition
   flow_sources?: JsonObject[]
   metrics?: { [key: string]: string }
   provenance: string[]

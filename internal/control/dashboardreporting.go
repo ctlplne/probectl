@@ -122,6 +122,9 @@ func cleanDashboardCreate(req dashboardCreateRequest) (dashboardCreateRequest, e
 	if req.Preset != "operator" && req.Preset != "executive" {
 		return req, apierror.Validation("preset must be operator or executive")
 	}
+	if req.Shared && req.Definition.DDoSReport != nil {
+		return req, apierror.Validation("save the traffic assessment as a private tenant report definition")
+	}
 	if err := cleanDashboardDefinition(&req.Definition); err != nil {
 		return req, err
 	}
@@ -129,6 +132,9 @@ func cleanDashboardCreate(req dashboardCreateRequest) (dashboardCreateRequest, e
 }
 
 func cleanDashboardDefinition(d *dashboardDefinition) error {
+	if err := cleanDDoSReportDefinition(*d); err != nil {
+		return err
+	}
 	if err := cleanComplianceControlReportDefinition(d); err != nil {
 		return err
 	}
@@ -341,6 +347,9 @@ func dashboardManifestFromView(view *store.DashboardView) (dashboardManifest, er
 	if err := json.Unmarshal(view.Definition, &definition); err != nil {
 		return dashboardManifest{}, apierror.Internal("stored dashboard definition is invalid").Wrap(err)
 	}
+	if definition.DDoSReport != nil {
+		return dashboardManifest{}, apierror.Validation("traffic assessment definitions use tenant-owned incident and receipt references")
+	}
 	clean, err := cleanDashboardCreate(dashboardCreateRequest{
 		Name: view.Name, Preset: view.Preset, Shared: view.Shared, Definition: definition,
 	})
@@ -401,6 +410,15 @@ func (s *Server) handleCreateDashboard(w http.ResponseWriter, r *http.Request) e
 		}
 		if err := s.authorizeDashboardComplianceDefinition(ctx, sc, auth.PrincipalFrom(r.Context()), clean.Definition); err != nil {
 			return err
+		}
+		if clean.Definition.DDoSReport != nil {
+			budget, err := s.sourceReportBudget()
+			if err != nil {
+				return err
+			}
+			if _, err := s.scopedDDoSReportReceipt(ctx, sc, auth.PrincipalFrom(r.Context()), *clean.Definition.DDoSReport, budget.MemoryBytes/8); err != nil {
+				return err
+			}
 		}
 		created, err := (store.DashboardReports{}).CreateView(ctx, sc, store.DashboardViewInput{
 			ID: id, OwnerID: dashboardActorID(r), Name: clean.Name, Preset: clean.Preset,
@@ -643,7 +661,7 @@ func (s *Server) handleCreateReportSchedule(w http.ResponseWriter, r *http.Reque
 	}
 	defer authority.close()
 	if clean.ProviderTriggerAllowed && !authority.providerTriggerable() {
-		return apierror.Validation("provider triggering requires a monthly client or compliance evidence source schedule")
+		return apierror.Validation("provider triggering requires a monthly client, DDoS incident or compliance evidence schedule")
 	}
 	r = authority.request
 	id, err := crypto.UUIDv4()
@@ -726,7 +744,7 @@ func (s *Server) handleUpdateReportSchedule(w http.ResponseWriter, r *http.Reque
 		}
 		defer authority.close()
 		if req.ProviderTriggerAllowed != nil && *req.ProviderTriggerAllowed && !authority.providerTriggerable() {
-			return apierror.Validation("provider triggering requires a monthly client or compliance evidence source schedule")
+			return apierror.Validation("provider triggering requires a monthly client, DDoS incident or compliance evidence schedule")
 		}
 		r = authority.request
 	}

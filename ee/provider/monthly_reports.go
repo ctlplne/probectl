@@ -21,6 +21,25 @@ func (h *Handler) WithMonthlyReports(queue reporting.MonthlyReportQueue) *Handle
 	return h
 }
 
+func (h *Handler) WithDDoSReports(queue reporting.DDoSReportQueue) *Handler {
+	h.ddosReports = queue
+	return h
+}
+
+func (h *Handler) handleDDoSReports(w http.ResponseWriter, r *http.Request, op Operator) error {
+	if h.ddosReports == nil {
+		return ErrNotFound
+	}
+	return h.queueTenantReports(w, r, op, "provider.ddos_reports_requested", h.ddosReports.QueueDDoSReports)
+}
+
+func (h *Handler) handleDDoSReportProgress(w http.ResponseWriter, r *http.Request, op Operator) error {
+	if h.ddosReports == nil {
+		return ErrNotFound
+	}
+	return h.tenantReportProgress(w, r, op, "provider.ddos_reports_progress", h.ddosReports.DDoSReportProgress)
+}
+
 type providerReportOperation func(context.Context, string, string, string) (reporting.ProviderReportQueueResult, error)
 
 func (h *Handler) WithComplianceReports(queue reporting.ComplianceReportQueue) *Handler {

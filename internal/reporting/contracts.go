@@ -15,7 +15,15 @@ type FlowSourceRef struct {
 	Version string `json:"version"`
 }
 
+// DDoSReportDefinition cites one retained observation in the tenant's incident.
+type DDoSReportDefinition struct {
+	IncidentID         string `json:"incident_id"`
+	RuleID             string `json:"rule_id"`
+	ReceiptFingerprint string `json:"receipt_fingerprint"`
+}
+
 type DashboardDefinition struct {
+	DDoSReport          *DDoSReportDefinition       `json:"ddos_report,omitempty"`
 	CarrierClaim        *CarrierSLAReportDefinition `json:"carrier_claim,omitempty"`
 	ComplianceControl   string                      `json:"compliance_control,omitempty"`
 	ComplianceFlow      *ComplianceFlowDefinition   `json:"compliance_flow,omitempty"`
@@ -55,7 +63,7 @@ type ComplianceFlowManifestBindings struct {
 }
 
 func (d DashboardDefinition) HasSources() bool {
-	return len(d.FlowSources) != 0 || d.ClientReport != nil || d.CarrierClaim != nil || d.ComplianceControl != ""
+	return len(d.FlowSources) != 0 || d.ClientReport != nil || d.CarrierClaim != nil || d.ComplianceControl != "" || d.DDoSReport != nil
 }
 
 type DashboardCreateInput struct {

@@ -27,7 +27,7 @@ import (
 )
 
 func TestFlowSpecReviewUsesOwnedMatchesAndIndependentApproval(t *testing.T) {
-	stack, owner, reviewer, sibling, scoped, end := prepareShippedRoutingReceipt(t, true)
+	stack, owner, reviewer, sibling, scoped, end, operator := prepareShippedRoutingReceipt(t, true)
 	appendFlowSpecControlObservation(t, owner, end)
 	flowSpecPort := uint16(42001)
 	destination := uint16(443)
@@ -59,6 +59,8 @@ func TestFlowSpecReviewUsesOwnedMatchesAndIndependentApproval(t *testing.T) {
 	}
 	proposeFlowSpecAndApprove(t, stack, owner, reviewer, sibling, input, preview)
 	assertShippedDiversionPreview(t, stack, owner, reviewer, sibling, input.PrefixImpactInput)
+	assertShippedDDoSProviderReport(t, stack, owner, sibling, operator, input.PrefixImpactInput)
+	assertDDoSProviderReportConsole(t, stack, operator)
 }
 
 func appendFlowSpecControlObservation(t *testing.T, owner *nativeLane, end time.Time) {

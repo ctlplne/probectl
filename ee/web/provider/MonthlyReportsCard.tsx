@@ -47,7 +47,7 @@ type Result = {
   progress?: Progress | ProspectProgress;
   error?: string;
 };
-type ReportKind = "monthly" | "compliance" | "prospect";
+type ReportKind = "monthly" | "compliance" | "prospect" | "ddos";
 const maxProspectSelection = 100;
 
 const reportKinds = {
@@ -60,6 +60,11 @@ const reportKinds = {
     title: "Monthly client reports",
     queue: "Queue monthly reports",
     label: "Monthly report",
+  },
+  ddos: {
+    title: "DDoS incident reports",
+    queue: "Queue DDoS reports",
+    label: "DDoS incident report",
   },
   compliance: {
     title: "Compliance evidence",
@@ -186,6 +191,7 @@ export function MonthlyReportsCard({ readOnly }: { readOnly: boolean }) {
           options={[
             { value: "monthly", label: "Monthly client operations" },
             { value: "compliance", label: "Compliance control evidence" },
+            { value: "ddos", label: "DDoS incident reports" },
             { value: "prospect", label: "Prospect assessments" },
           ]}
           onChange={(event) => {

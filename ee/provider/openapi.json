@@ -230,6 +230,103 @@
         }
       }
     },
+    "/provider/v1/tenants/{id}/ddos-reports": {
+      "post": {
+        "operationId": "queueTenantDDoSReports",
+        "summary": "Queue tenant-consented DDoS incident reports",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonthlyReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Idempotent queue/progress counts; reports remain behind tenant authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthlyReportProgress"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required."
+          },
+          "403": {
+            "description": "Operator write authority required."
+          },
+          "404": {
+            "description": "Queue is not enabled."
+          },
+          "503": {
+            "description": "Retry the same request ID."
+          }
+        },
+        "description": "Only tenant-consented schedules are eligible. The provider receives operation counts. Report contents and downloads require separate tenant authority."
+      }
+    },
+    "/provider/v1/tenants/{id}/ddos-reports/{request_id}": {
+      "get": {
+        "operationId": "readTenantDDoSReportProgress",
+        "summary": "Read DDoS incident report operation counts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Counts only; no artifact or telemetry access.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthlyReportProgress"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Operator authentication required."
+          },
+          "404": {
+            "description": "Request not found for this operator and tenant."
+          }
+        },
+        "description": "Only tenant-consented schedules are eligible. The provider receives operation counts. Report contents and downloads require separate tenant authority."
+      }
+    },
     "/provider/v1/tenants/{id}/compliance-reports": {
       "post": {
         "operationId": "queueComplianceReports",

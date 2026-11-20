@@ -383,3 +383,12 @@ available through the tenant's report inbox.
 Use `probectl provider prospect-report-status <tenant-id>` to read status and
 `probectl provider request-prospect-report <tenant-id> --body-file <request.json>`
 to request the assessment retry.
+
+### Tenant-consented DDoS incident reports
+
+The provider console can queue a tenant's exact incident report schedule after
+its owner opts in. The operator's request and progress expose counts. Report
+eligibility, generation and delivery are scoped to the owning tenant. Choose
+**DDoS incident reports** in the report family selector. The [DDoS response
+runbook](ddos-response-runbook.md#queue-tenant-report-packs) describes the
+operator workflow and the matching CLI commands.

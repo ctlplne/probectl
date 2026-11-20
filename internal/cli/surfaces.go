@@ -496,6 +496,8 @@ var surfaceCommands = map[string]surfaceCommand{
 		"monthly-report-progress":    {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/monthly-reports/{request_id}", ArgName: "id,request_id", Description: "read report operation progress without queueing work or fetching report content"},
 		"prospect-report-status":     {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/prospect-report", ArgName: "id", Description: "read the tenant-consented prospect phase and current request revisions"},
 		"request-prospect-report":    {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/prospect-report", ArgName: "id", ExactJSON: true, Description: "request a due prospect assessment using the current engagement and grant revisions"},
+		"ddos-reports":               {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/ddos-reports", ArgName: "id", Description: "queue tenant-consented DDoS report runs with a retry-stable request_id"},
+		"ddos-report-progress":       {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/ddos-reports/{request_id}", ArgName: "id,request_id", Description: "read DDoS report operation counts"},
 		"compliance-reports":         {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/compliance-reports", ArgName: "id", Description: "queue tenant-consented compliance evidence runs with a retry-stable request_id"},
 		"compliance-report-progress": {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/compliance-reports/{request_id}", ArgName: "id,request_id", Description: "read compliance report operation counts"},
 		"provisioning":               {Method: http.MethodGet, Path: "/provider/v1/tenants/provisioning", Description: "list stranded tenant provisioning attempts"},

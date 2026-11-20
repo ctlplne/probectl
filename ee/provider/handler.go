@@ -53,6 +53,7 @@ const consentPermission = "directory.write"
 type Handler struct {
 	monthlyReports    reporting.MonthlyReportQueue
 	complianceReports reporting.ComplianceReportQueue
+	ddosReports       reporting.DDoSReportQueue
 	prospectReports   reporting.ProspectProviderQueue
 	svc               *Service
 	sessions          *Sessions
@@ -116,6 +117,8 @@ func routes() []RouteDecl {
 		{http.MethodGet, "/provider/v1/tenants/{id}/monthly-reports/{request_id}"},
 		{http.MethodGet, "/provider/v1/tenants/{id}/prospect-report"},
 		{http.MethodPost, "/provider/v1/tenants/{id}/prospect-report"},
+		{http.MethodPost, "/provider/v1/tenants/{id}/ddos-reports"},
+		{http.MethodGet, "/provider/v1/tenants/{id}/ddos-reports/{request_id}"},
 		{http.MethodPost, "/provider/v1/tenants/{id}/compliance-reports"},
 		{http.MethodGet, "/provider/v1/tenants/{id}/compliance-reports/{request_id}"},
 		{http.MethodGet, "/provider/v1/tenants/provisioning"},
@@ -177,6 +180,8 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	h.handle("POST /provider/v1/tenants/{id}/offboard", h.asOperator("", h.handleOffboard))
 	h.handle("GET /provider/v1/tenants/{id}/monthly-reports/{request_id}", h.asOperator(RoleOperator, h.handleMonthlyReportProgress))
 	h.handle("POST /provider/v1/tenants/{id}/monthly-reports", h.asOperator(RoleOperator, h.handleMonthlyReports))
+	h.handle("GET /provider/v1/tenants/{id}/ddos-reports/{request_id}", h.asOperator(RoleOperator, h.handleDDoSReportProgress))
+	h.handle("POST /provider/v1/tenants/{id}/ddos-reports", h.asOperator(RoleOperator, h.handleDDoSReports))
 	h.handle("GET /provider/v1/tenants/{id}/compliance-reports/{request_id}", h.asOperator(RoleOperator, h.handleComplianceReportProgress))
 	h.handle("GET /provider/v1/tenants/{id}/prospect-report", h.asOperator(RoleOperator, h.handleProspectReportStatus))
 	h.handle("POST /provider/v1/tenants/{id}/prospect-report", h.asOperator(RoleOperator, h.handleRequestProspectReport))

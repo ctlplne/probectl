@@ -14,6 +14,7 @@ import type {
   ComplianceFlowDefinition,
   ComplianceFlowManifestDefinition,
   ComplianceFlowManifestBindings,
+  DDoSReportDefinition,
 } from './sdk.gen'
 export type {
   ClientReportDefinition,
@@ -45,6 +46,7 @@ export function needsCardholderZone(control: FlowComplianceControl) {
 }
 
 export interface DashboardDefinition {
+  ddos_report?: DDoSReportDefinition
   carrier_claim?: CarrierSLAReportDefinition | null
   compliance_control?: typeof cmmcAuditControl | FlowComplianceControl
   compliance_flow?: ComplianceFlowDefinition

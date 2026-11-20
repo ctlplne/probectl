@@ -105,8 +105,18 @@ func reportArtifactSourceCapture(tenant string, capture json.RawMessage) error {
 		TenantID          string          `json:"tenant_id"`
 		ComplianceControl string          `json:"compliance_control"`
 		ComplianceFlow    json.RawMessage `json:"compliance_flow"`
+		DDoSReport        json.RawMessage `json:"ddos_report"`
 	}
-	if err := json.Unmarshal(capture, &envelope); err != nil || envelope.Version < 1 || envelope.Version > 7 || envelope.TenantID != tenant {
+	if err := json.Unmarshal(capture, &envelope); err != nil || envelope.Version < 1 || envelope.Version > 8 || envelope.TenantID != tenant {
+		return ErrReportArtifactIntegrity
+	}
+	if envelope.Version == 8 {
+		if envelope.ComplianceControl == "" && len(envelope.ComplianceFlow) == 0 && len(envelope.DDoSReport) > 0 && envelope.DDoSReport[0] == '{' {
+			return nil
+		}
+		return ErrReportArtifactIntegrity
+	}
+	if len(envelope.DDoSReport) != 0 {
 		return ErrReportArtifactIntegrity
 	}
 	switch envelope.Version {

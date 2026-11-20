@@ -21,6 +21,12 @@ type ComplianceReportQueue interface {
 	ComplianceReportProgress(context.Context, string, string, string) (ProviderReportQueueResult, error)
 }
 
+// DDoSReportQueue exposes only consented queue operations and counts.
+type DDoSReportQueue interface {
+	QueueDDoSReports(context.Context, string, string, string) (ProviderReportQueueResult, error)
+	DDoSReportProgress(context.Context, string, string, string) (ProviderReportQueueResult, error)
+}
+
 type MonthlyReportQueueResult = ProviderReportQueueResult
 
 type ProviderReportQueueResult struct {

@@ -172,7 +172,7 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 		return false, err
 	}
 	if item.Schedule.ProviderRequestID != nil && (!item.Schedule.ProviderTriggerAllowed ||
-		!providerTriggerableReport(definition.ClientReport != nil, definition.ComplianceControl)) {
+		!providerTriggerableReport(definition.ClientReport != nil, definition.ComplianceControl, definition.DDoSReport != nil)) {
 		return false, apierror.Forbidden("provider report consent is no longer applicable")
 	}
 	if definition.HasSources() {

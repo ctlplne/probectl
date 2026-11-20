@@ -52,7 +52,11 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
-	ctx, actor, err := current.backgroundContext(ctx, reportPermissionsForSource(definition.ComplianceControl))
+	permissions := reportPermissionsForSource(definition.ComplianceControl)
+	if definition.DDoSReport != nil {
+		permissions = append(permissions, permAlertRead, permAuditRead)
+	}
+	ctx, actor, err := current.backgroundContext(ctx, permissions)
 	if err != nil {
 		return false, err
 	}

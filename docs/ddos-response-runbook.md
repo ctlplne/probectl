@@ -46,3 +46,26 @@
    record the coverage gap and the last complete observation time.
 3. Review the benign packet limit and detection policy with the customer
    after the incident, using the recorded observations and phase changes.
+
+## Queue tenant report packs
+
+Open the exact DDoS incident report and select **Save incident report**. This
+creates a private report definition tied to the tenant’s incident and receipt.
+Open that definition in Dashboards. Use **Generate CSV** or **Generate PDF**
+for an immediate pack. Current access to the underlying data is checked again
+at generation and download. Authorized reviewers can include the recorded
+mitigation decisions in an immediate pack.
+
+To let an MSP operator queue a run, create a report schedule and enable
+**Allow provider-triggered DDoS incident reports for this schedule**. In the
+provider console, select **DDoS incident reports**, select the tenant or tenants,
+and choose **Queue DDoS reports**. The provider sees operation counts. The
+normal tenant worker generates the pack with the schedule owner's current
+read-only authority and delivers to the configured tenant destination. A
+current tenant audit-read grant lets the worker include the recorded decisions. The tenant can revoke
+the consent on its schedule. Runs need the retained receipt and its original
+observations to remain readable.
+
+The provider CLI uses `probectl provider ddos-reports <tenant-id>` with one
+body `request_id` per operation and `probectl provider ddos-report-progress
+<tenant-id> <request-id>` to read the counts. Reuse the request ID to retry.

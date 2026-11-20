@@ -146,8 +146,11 @@ func (s *DashboardReportSupervisor) sendCurrentReportEmail(ctx context.Context, 
 		return err
 	}
 	if capture != nil {
-		if capture.ComplianceControl != "" {
+		if capture.ComplianceControl != "" || capture.DDoSReport != nil {
 			permissions = reportPermissionsForSource(capture.ComplianceControl)
+			if capture.DDoSReport != nil {
+				permissions = append(permissions, permAlertRead, permAuditRead)
+			}
 			ctx, actor, err = current.backgroundContext(ctx, permissions)
 			if err != nil {
 				return err

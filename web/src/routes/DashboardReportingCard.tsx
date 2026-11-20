@@ -265,7 +265,11 @@ export function DashboardReportingCard({
   const control = activeView?.definition.compliance_control
   const canGenerateSelection =
     activeView &&
-    (!control || (control === cmmcAuditControl ? canReadCompliance : canReadFlowEvidence))
+    (!control || (control === cmmcAuditControl ? canReadCompliance : canReadFlowEvidence)) &&
+    (!activeView.definition.ddos_report ||
+      ['incident.read', 'alert.read', 'flow.read', 'ai.query'].every((permission) =>
+        permissions.includes(permission),
+      ))
   const allowProvider =
     providerConsent.identity === sourceIdentity && providerConsent.view === activeID
       ? providerConsent.allowed
@@ -750,7 +754,9 @@ export function DashboardReportingCard({
               }
             />
             {schedules.data?.provider_trigger_available &&
-            (activeView?.definition.client_report || activeView?.definition.compliance_control) ? (
+            (activeView?.definition.client_report ||
+              activeView?.definition.compliance_control ||
+              activeView?.definition.ddos_report) ? (
               <label className={styles.checkboxLabel}>
                 <input
                   type="checkbox"
@@ -766,7 +772,9 @@ export function DashboardReportingCard({
                 />
                 {activeView?.definition.client_report
                   ? 'Allow provider-triggered monthly runs for this schedule'
-                  : 'Allow provider-triggered compliance runs for this schedule'}
+                  : activeView?.definition.ddos_report
+                    ? 'Allow provider-triggered DDoS incident reports for this schedule'
+                    : 'Allow provider-triggered compliance runs for this schedule'}
               </label>
             ) : null}
             <div className={styles.reportActions}>
@@ -842,6 +850,11 @@ export function DashboardReportingCard({
                   </span>
                   <span>Current source access is checked for every report.</span>
                 </>
+              ) : activeView.definition.ddos_report ? (
+                <p>
+                  DDoS incident report. Every run checks current access to the retained traffic
+                  assessment.
+                </p>
               ) : activeView.definition.flow_sources?.length ? (
                 <span>
                   {activeView.definition.flow_sources.length} saved flow sources; current source
@@ -870,7 +883,7 @@ export function DashboardReportingCard({
                   explicit import.
                 </p>
               </div>
-              {activeView ? (
+              {activeView && !activeView.definition.ddos_report ? (
                 <a
                   className={styles.manifestDownload}
                   href={apiURL(`/dashboards/${encodeURIComponent(activeID)}/manifest`)}

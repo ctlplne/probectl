@@ -48,6 +48,7 @@ type reportFlowInput struct {
 // The caller owns the capture and must Close after staging/publication. Values
 // are frozen records; the requirements never stand in for current reader grants.
 type reportFlowCapture struct {
+	DDoSReport        *ddosReportPackRequirements
 	Claims            []carrierSLAReportRequirement
 	ComplianceControl string
 	ComplianceFlow    *complianceFlowRequirements

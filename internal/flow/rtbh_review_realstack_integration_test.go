@@ -27,11 +27,11 @@ import (
 )
 
 func TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview(t *testing.T) {
-	stack, owner, reviewer, sibling, input, end := prepareShippedRoutingReceipt(t, false)
+	stack, owner, reviewer, sibling, input, end, _ := prepareShippedRoutingReceipt(t, false)
 	assertShippedReviewDecision(t, stack, owner, reviewer, sibling, input, end)
 }
 
-func prepareShippedRoutingReceipt(t *testing.T, separateControlTraffic bool) (*shipped.Stack, *nativeLane, *nativeLane, *nativeLane, remediation.RTBHPreviewInput, time.Time) {
+func prepareShippedRoutingReceipt(t *testing.T, separateControlTraffic bool) (*shipped.Stack, *nativeLane, *nativeLane, *nativeLane, remediation.RTBHPreviewInput, time.Time, string) {
 	t.Helper()
 	stack := shipped.Start(t, shipped.Options{Name: "routingreview", TenantBand: 4, Env: map[string]string{
 		"PROBECTL_ALERT_EVAL_INTERVAL": "1s", "PROBECTL_REMEDIATION_APPROVALS_ENABLED": "true", "PROBECTL_REMEDIATION_MAX_BLAST_RADIUS": "512",
@@ -75,7 +75,7 @@ func prepareShippedRoutingReceipt(t *testing.T, separateControlTraffic bool) (*s
 	var wholeView flow.SavedQueryView
 	owner.do(t, stack, http.MethodPost, "/v1/explorer/flow-views", flow.SaveQueryView{Definition: whole}, &wholeView, http.StatusCreated)
 	input.WholeViewID, input.WholeViewVersion = wholeView.ID, wholeView.Version
-	return stack, owner, reviewer, sibling, input, current.After.End
+	return stack, owner, reviewer, sibling, input, current.After.End, operator
 }
 
 func registerShippedReviewContext(t *testing.T, stack *shipped.Stack, owner *nativeLane, earliest time.Time) remediation.RTBHPreviewInput {

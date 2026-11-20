@@ -853,14 +853,14 @@ capabilities:
     owner: web/quality
     engine: {refs: ["file:ee/provider"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithProviderPlane(h)"]}
-    api: {refs: ["api:GET /provider/v1/tenants", "api:GET /provider/v1/breakglass", "api:POST /provider/v1/tenants/{id}/monthly-reports", "api:GET /provider/v1/tenants/{id}/monthly-reports/{request_id}", "api:POST /provider/v1/tenants/{id}/compliance-reports", "api:GET /provider/v1/tenants/{id}/compliance-reports/{request_id}", "api:GET /provider/v1/tenants/{id}/prospect-report", "api:POST /provider/v1/tenants/{id}/prospect-report"]}
-    cli: {refs: ["cli:probectl provider tenants", "cli:probectl provider breakglass", "cli:probectl provider monthly-reports", "cli:probectl provider monthly-report-progress", "cli:probectl provider compliance-reports", "cli:probectl provider compliance-report-progress", "cli:probectl provider prospect-report-status", "cli:probectl provider request-prospect-report"]}
+    api: {refs: ["api:GET /provider/v1/tenants", "api:GET /provider/v1/breakglass", "api:POST /provider/v1/tenants/{id}/monthly-reports", "api:GET /provider/v1/tenants/{id}/monthly-reports/{request_id}", "api:POST /provider/v1/tenants/{id}/compliance-reports", "api:GET /provider/v1/tenants/{id}/compliance-reports/{request_id}", "api:GET /provider/v1/tenants/{id}/prospect-report", "api:POST /provider/v1/tenants/{id}/prospect-report", "api:POST /provider/v1/tenants/{id}/ddos-reports", "api:GET /provider/v1/tenants/{id}/ddos-reports/{request_id}"]}
+    cli: {refs: ["cli:probectl provider tenants", "cli:probectl provider breakglass", "cli:probectl provider monthly-reports", "cli:probectl provider monthly-report-progress", "cli:probectl provider compliance-reports", "cli:probectl provider compliance-report-progress", "cli:probectl provider prospect-report-status", "cli:probectl provider request-prospect-report", "cli:probectl provider ddos-reports", "cli:probectl provider ddos-report-progress"]}
     ui: {refs: ["ui:F51@/provider"]}
-    docs: {refs: ["file:docs/provider-plane.md#Provider / management plane", "file:docs/provider-plane.md#Tenant-consented monthly and compliance reports", "file:docs/provider-plane.md#Prospect assessments"]}
+    docs: {refs: ["file:docs/provider-plane.md#Provider / management plane", "file:docs/provider-plane.md#Tenant-consented monthly and compliance reports", "file:docs/provider-plane.md#Prospect assessments", "file:docs/ddos-response-runbook.md#Queue tenant report packs"]}
     config_keys: {refs: ["config:PROBECTL_PROVIDER_BOOTSTRAP_TOKEN", "config:PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES"]}
     telemetry: {refs: ["file:ee/provider"]}
     real_stack_proof: {refs: ["test:ee/provider/provider_plane_integration_test.go#TestProviderPlaneRealStack", "test:ee/provider/prospect_provider_integration_test.go#TestProviderProspectOperationsRequireCurrentTenantGrant", "test:ee/provider/prospect_provider_integration_test.go#TestProviderProspectOperationsServeBothThemes"]}
-    migration: {refs: ["file:migrations/0024_provider_plane.sql", "file:migrations/0087_break_glass_single_active_grant.sql", "file:migrations/0209_provider_report_trigger.sql", "file:migrations/0235_prospect_provider_access.sql"]}
+    migration: {refs: ["file:migrations/0024_provider_plane.sql", "file:migrations/0087_break_glass_single_active_grant.sql", "file:migrations/0209_provider_report_trigger.sql", "file:migrations/0235_prospect_provider_access.sql", "file:migrations/0240_ddos_report_requirements.sql"]}
 
   - id: F52
     name: Pooled/siloed/hybrid isolation

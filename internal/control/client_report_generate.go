@@ -40,6 +40,9 @@ func cleanClientReportDefinition(d *dashboardDefinition) error {
 }
 
 func (s *Server) captureConfiguredReportSources(ctx context.Context, actor *auth.Principal, definition dashboardDefinition, at time.Time) (*reportFlowCapture, error) {
+	if definition.DDoSReport != nil {
+		return s.captureDDoSReportPack(ctx, actor, *definition.DDoSReport, at)
+	}
 	if definition.ComplianceControl != "" {
 		budget, err := s.sourceReportBudget()
 		if err != nil {

@@ -100,10 +100,10 @@ func (s *Server) validateScheduledReportAuthority(ctx context.Context, sc tenanc
 }
 
 func (a *scheduledReportAuthority) providerTriggerable() bool {
-	return a.capture != nil && providerTriggerableReport(a.capture.Monthly != nil, a.capture.ComplianceControl)
+	return a.capture != nil && providerTriggerableReport(a.capture.Monthly != nil, a.capture.ComplianceControl, a.capture.DDoSReport != nil)
 }
 
 // Tenant consent and the consuming worker share the same report-family check.
-func providerTriggerableReport(monthly bool, control string) bool {
-	return monthly || compliance.ControlEvidenceSection(control) != ""
+func providerTriggerableReport(monthly bool, control string, ddos bool) bool {
+	return monthly || ddos || compliance.ControlEvidenceSection(control) != ""
 }
