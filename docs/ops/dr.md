@@ -106,6 +106,20 @@ specific WAN, DNS/proxy, control-plane fence-release timing, Kubernetes region
 failure, ClickHouse restore, and object restore remain separate fields in the
 two-region live receipt; none inherits the 655 ms PostgreSQL-only timing.
 
+### Served API recovery rehearsal
+
+The 20 November 2026 rehearsal used two disposable PostgreSQL 16 nodes
+with verified TLS and synchronous `remote_apply`. The integration server
+ran the writer probe and HTTP fence from `e059e31` with the production
+five-second probe interval. The first fenced mutation returned HTTP 503
+204 ms after the test issued the writer loss. After repointing to the
+standby, authenticated readiness reported `writes_usable: false` and
+the existing entity remained readable. The promoted node reported epoch 1
+and `writes_usable: true`. Its first successful API write returned HTTP 201
+8.674 seconds after the loss was issued. The acknowledged pre-loss record
+survived, the fenced writes were absent, and the sibling tenant remained
+denied. [Archived API measurement](drill-logs/failover-api-20261120.log)
+
 ## Real-event quick reference
 
 This is the short version; the full procedure is

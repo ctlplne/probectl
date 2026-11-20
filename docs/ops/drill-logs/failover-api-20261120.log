@@ -1,0 +1,10 @@
+PLAT-21 served API recovery measurement, 2026-11-20 UTC
+Disposable TLS PostgreSQL primary and standby with synchronous remote_apply
+The timer includes the test-controlled repoint and promotion.
+exact product SHA e059e316f88c76f1365c04df44e0b7b96bf9c361
+=== RUN   TestQualifiedAPIFailoverUsesPromotedWriter
+Promoted PostgreSQL reported writer epoch 1
+    qualified_api_failover_integration_test.go:89: writes_usable true -> false -> true, first fenced HTTP write=204.042625ms, first accepted promoted HTTP write=8.673919792s, acknowledged pre-loss entity survived, sibling remained denied
+--- PASS: TestQualifiedAPIFailoverUsesPromotedWriter (11.76s)
+PASS
+ok  	github.com/ctlplne/probectl/internal/control	12.835s
