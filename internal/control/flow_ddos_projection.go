@@ -63,8 +63,12 @@ func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, setting
 	if err != nil {
 		return empty, err
 	}
+	finding, application, err := qualifyProjectedDDoS(ctx, reference, current, finding, settings.readApplication, settings.Input.Thresholds(), work/4)
+	if err != nil {
+		return empty, err
+	}
 	return flow.DDoSAssessment{ViewID: settings.View.ID, Version: settings.View.Version, Prefix: settings.Target.String(),
-		Direction: settings.Input.Direction, Before: before, After: after, Detection: finding}, ctx.Err()
+		Direction: settings.Input.Direction, Before: before, After: after, Detection: finding, Application: application}, ctx.Err()
 }
 
 func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, settings ddosAssessmentSettings, scope string, memory int64) (anomaly.DDoSObservation, flow.DDoSWindowEvidence, error) {
@@ -90,6 +94,7 @@ func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, setting
 	observed := anomaly.DDoSObservation{TenantID: captured.TenantID, Scope: scope, Target: settings.Target, Direction: settings.Input.Direction,
 		From: result.Query.From, To: result.Query.To, Citation: citation, Complete: true,
 		Bytes: totals.bytes.String(), Packets: totals.packets.String(), SYNOnlyPackets: totals.syn.String(), UDPPackets: totals.udp.String(),
+		ApplicationBytes: totals.applicationBytes.String(), ApplicationPackets: totals.applicationPackets.String(),
 		ObservedRecords: totals.records, ObservedAddresses: len(totals.addresses)}
 	for service, packets := range totals.services {
 		observed.Reflection = append(observed.Reflection, anomaly.ReflectionObservation{Service: service, Packets: packets.String()})
@@ -101,11 +106,12 @@ func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, setting
 }
 
 type ddosWindowTotals struct {
-	bytes, packets, syn, udp big.Int
-	records                  int
-	sampled                  bool
-	addresses                map[netip.Addr]bool
-	services                 map[string]*big.Int
+	bytes, packets, syn, udp             big.Int
+	applicationBytes, applicationPackets big.Int
+	records                              int
+	sampled                              bool
+	addresses                            map[netip.Addr]bool
+	services                             map[string]*big.Int
 }
 
 func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstore.PlanRow) error {
@@ -135,6 +141,8 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 		}
 		if flags&2 != 0 && flags&0x15 == 0 {
 			total.syn.Add(&total.syn, packets)
+		} else if err := total.addApplicationFlow(settings.Input.Application, row.Group["dst_port"], bytes, packets); err != nil {
+			return err
 		}
 	case "udp":
 		port, err := strconv.ParseUint(row.Group["src_port"], 10, 16)
@@ -148,6 +156,21 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 			}
 			total.services[service].Add(total.services[service], packets)
 		}
+	}
+	return nil
+}
+
+func (total *ddosWindowTotals) addApplicationFlow(binding *flow.DDoSApplicationBinding, destination string, bytes, packets *big.Int) error {
+	if binding == nil {
+		return nil
+	}
+	port, err := strconv.ParseUint(destination, 10, 16)
+	if err != nil {
+		return anomaly.ErrDDoSCoverage
+	}
+	if port == uint64(binding.Port) {
+		total.applicationBytes.Add(&total.applicationBytes, bytes)
+		total.applicationPackets.Add(&total.applicationPackets, packets)
 	}
 	return nil
 }

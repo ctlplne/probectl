@@ -9,6 +9,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -191,7 +192,30 @@ func (AlertRules) List(ctx context.Context, s tenancy.Scope) ([]alert.Rule, erro
 
 // ListEnabled returns the tenant's enabled rules (the evaluator's working set).
 func (AlertRules) ListEnabled(ctx context.Context, s tenancy.Scope) ([]alert.Rule, error) {
-	rows, err := s.Q.Query(ctx, `SELECT `+alertRuleCols+` FROM alert_rules WHERE enabled ORDER BY created_at`)
+	return listEnabledAlertRules(ctx, s, `WHERE enabled ORDER BY created_at`)
+}
+
+const fastDDoSRule = `query_source#>>'{condition,mode}'='ddos_assessment'
+ AND query_source#>>'{condition,ddos,period_seconds}' IN ('5','10')`
+
+// ListEnabledOrdinary excludes the short-window rules owned by the fast lane.
+func (AlertRules) ListEnabledOrdinary(ctx context.Context, s tenancy.Scope) ([]alert.Rule, error) {
+	return listEnabledAlertRules(ctx, s, `WHERE enabled AND (`+fastDDoSRule+`) IS NOT TRUE ORDER BY created_at`)
+}
+
+// ListDueFastDDoS reads due short-window rules in the owning tenant. The
+// saved-source reader rechecks the rule revision and cadence before any query.
+func (AlertRules) ListDueFastDDoS(ctx context.Context, s tenancy.Scope, at time.Time) ([]alert.Rule, error) {
+	tenant, ok := tenancy.FromContext(ctx)
+	if !ok || tenant != s.Tenant || s.Q == nil {
+		return nil, tenancy.ErrNoTenant
+	}
+	return listEnabledAlertRules(ctx, s, `WHERE tenant_id=$1 AND enabled AND `+fastDDoSRule+`
+ AND (query_next_eval_at IS NULL OR query_next_eval_at<=$2) ORDER BY created_at`, tenant.String(), at)
+}
+
+func listEnabledAlertRules(ctx context.Context, s tenancy.Scope, selection string, args ...any) ([]alert.Rule, error) {
+	rows, err := s.Q.Query(ctx, `SELECT `+alertRuleCols+` FROM alert_rules `+selection, args...)
 	if err != nil {
 		return nil, err
 	}

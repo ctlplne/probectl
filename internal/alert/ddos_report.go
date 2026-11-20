@@ -73,7 +73,8 @@ func SummarizeDDoSReport(receipt DDoSEvaluationEvidence) (DDoSReport, error) {
 		previous.Direction != current.Direction || (current.Direction != "ingress" && current.Direction != "egress") ||
 		receipt.IncidentID == "" || receipt.EpisodeID == "" || previous.ViewID == "" || previous.ViewID != current.ViewID ||
 		previous.Version != current.Version || !previous.After.To.Equal(current.After.From) ||
-		previous.After.To.Sub(previous.After.From) != width || (width != time.Minute && width != 2*time.Minute && width != 5*time.Minute) {
+		previous.After.To.Sub(previous.After.From) != width || width <= 0 || width > 300*time.Second ||
+		width%time.Second != 0 || !anomaly.ValidDDoSPeriod(int(width/time.Second)) {
 		return DDoSReport{}, anomaly.ErrDDoSCoverage
 	}
 	out := DDoSReport{

@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"sort"
 
 	"github.com/ctlplne/probectl/internal/alert"
@@ -39,9 +40,9 @@ func (p *preparedAlertQuery) Close() {
 	}
 }
 
-func alertQueryReadGrants(actor *auth.Principal) []alert.QueryReadGrant {
+func alertQueryReadGrants(actor *auth.Principal, extra ...string) []alert.QueryReadGrant {
 	return alertReadGrants(actor, func(permission string) bool {
-		return permission == permAIQuery || reportFlowReadPermission(permission)
+		return permission == permAIQuery || reportFlowReadPermission(permission) || slices.Contains(extra, permission)
 	})
 }
 
@@ -115,7 +116,18 @@ func (s *Server) prepareAlertQuery(ctx context.Context, actor *auth.Principal, i
 	if err != nil {
 		return nil, apierror.Validation("saved-query source requires its exact view/version, schedule and condition").Wrap(err)
 	}
-	source := alert.QuerySource{Version: 1, OwnerUserID: actor.UserID, ViewID: input.ViewID, ViewVersion: input.ViewVersion, EverySeconds: input.EverySeconds, Condition: input.Condition, ReadGrants: alertQueryReadGrants(actor)}
+	grants := alertQueryReadGrants(actor)
+	if ddos := input.Condition.DDoS; ddos != nil && ddos.Application != nil {
+		settings, err := normalizeDDoSAssessment(input.ViewID, *ddos)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.checkDDoSApplicationAccess(ctx, actor, settings); err != nil {
+			return nil, err
+		}
+		grants = alertQueryReadGrants(actor, permMetricsRead)
+	}
+	source := alert.QuerySource{Version: 1, OwnerUserID: actor.UserID, ViewID: input.ViewID, ViewVersion: input.ViewVersion, EverySeconds: input.EverySeconds, Condition: input.Condition, ReadGrants: grants}
 	ceiling, err := source.CredentialCeiling(actor.TenantID)
 	if err != nil {
 		return nil, apierror.Forbidden("the configuring credential must carry the source read capabilities").Wrap(err)
@@ -188,6 +200,15 @@ func (s *Server) publishAlertQuery(ctx context.Context, sc tenancy.Scope, actor 
 	}
 	if prepared == nil {
 		return nil // explicit clear needs alert.write, with no previous criteria.
+	}
+	if input := prepared.source.Condition.DDoS; input != nil && input.Application != nil {
+		settings, err := normalizeDDoSAssessment(prepared.source.ViewID, *input)
+		if err != nil {
+			return err
+		}
+		if err := s.authorizeDDoSApplicationInScope(ctx, sc, prepared.ceiling, settings); err != nil {
+			return err
+		}
 	}
 	return s.validateReportSourcePublication(ctx, sc, prepared.ceiling, prepared.capture)
 }

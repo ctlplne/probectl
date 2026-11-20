@@ -25,12 +25,13 @@ import (
 )
 
 type ddosAssessmentSettings struct {
-	View           reportFlowSourceRef
-	Input          flow.DDoSAssessmentInput
-	Target         netip.Prefix
-	SideField      string
-	Origins        []store.PrefixImpactFlowBinding
-	IncludeSources bool
+	View            reportFlowSourceRef
+	Input           flow.DDoSAssessmentInput
+	Target          netip.Prefix
+	SideField       string
+	Origins         []store.PrefixImpactFlowBinding
+	IncludeSources  bool
+	readApplication ddosApplicationReader
 }
 
 func (s *Server) handleFlowDDoSAssessment(w http.ResponseWriter, r *http.Request) error {
@@ -92,9 +93,14 @@ func normalizeDDoSAssessment(viewID string, input flow.DDoSAssessmentInput) (ddo
 }
 
 func (settings ddosAssessmentSettings) preparePlan(plan *flow.QueryPlan) error {
-	if plan.To.Sub(plan.From) != time.Duration(settings.Input.PeriodSeconds)*time.Second || plan.Cursor != "" {
-		return apierror.Validation("the saved flow lookback must match the completed assessment window")
+	width := time.Duration(settings.Input.PeriodSeconds) * time.Second
+	savedWidth := plan.To.Sub(plan.From)
+	if plan.Cursor != "" || savedWidth < width || savedWidth != width && !anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds) {
+		return apierror.Validation("the saved flow lookback must cover the assessment window")
 	}
+	// Short observations retain the saved view's exact filters and
+	// authorization while querying only its last completed subwindow.
+	plan.From = plan.To.Add(-width)
 	condition := flow.QueryPredicate{Field: settings.SideField, Op: flow.QueryCIDR, Values: []string{settings.Target.String()}}
 	base := plan.Filter
 	bound := &flow.QueryFilterGroup{Mode: "include", Match: "all", Conditions: []flow.QueryPredicate{condition}}
@@ -111,6 +117,9 @@ func (settings ddosAssessmentSettings) preparePlan(plan *flow.QueryPlan) error {
 	}
 	plan.Filter, plan.View, plan.DataSeries = bound, "table", "raw"
 	plan.GroupBy, plan.MatrixWith = []string{settings.SideField, "transport", "tcp_flags", "src_port", "sampling"}, nil
+	if settings.Input.Application != nil {
+		plan.GroupBy = append(plan.GroupBy, "dst_port")
+	}
 	if settings.IncludeSources && settings.SideField != "src_addr" {
 		plan.GroupBy = append(plan.GroupBy, "src_addr")
 	}
@@ -146,7 +155,7 @@ func (s *Server) readFlowDDoSAssessment(ctx context.Context, actor *auth.Princip
 			release()
 		}
 	}()
-	windows, err := anomaly.FlowFieldCompletedWindows(at, anomaly.FlowFieldPreviousWeek, settings.Input.PeriodSeconds)
+	windows, err := anomaly.DDoSCompletedWindows(at, settings.Input.PeriodSeconds)
 	if err != nil {
 		return empty, apierror.Validation("the assessment needs comparable completed UTC windows")
 	}
@@ -154,11 +163,19 @@ func (s *Server) readFlowDDoSAssessment(ctx context.Context, actor *auth.Princip
 	if err != nil {
 		return empty, err
 	}
+	if err := s.prepareDDoSApplication(ctx, actor, &settings); err != nil {
+		return empty, err
+	}
 	result, err := assessCapturedDDoS(ctx, capture, settings, windows, 0, 1, budget.MemoryBytes/8)
 	if err != nil {
 		return empty, mapDDoSCoverage(err)
 	}
-	recheck := func(context.Context) error { return s.recheckFlowEvidencePublication(ctx, actor, capture) }
+	recheck := func(context.Context) error {
+		if err := s.checkDDoSApplicationAccess(ctx, actor, settings); err != nil {
+			return err
+		}
+		return s.recheckFlowEvidencePublication(ctx, actor, capture)
+	}
 	if retain != nil {
 		if err := retain(ctx, recheck, release); err != nil {
 			return empty, err

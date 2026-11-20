@@ -308,7 +308,11 @@ function QuerySourceEditor({
     if (condition.mode === 'ddos_assessment') {
       const period = ddosAssessmentPeriod(item)
       const prior = condition.ddos
-      const compatible = prior && item.id === value.view_id && prior.period_seconds === period
+      const compatible =
+        period &&
+        prior &&
+        item.id === value.view_id &&
+        (prior.period_seconds === period || [5, 10].includes(prior.period_seconds))
       next.condition = {
         mode: 'ddos_assessment',
         ddos: compatible
@@ -493,8 +497,16 @@ function QuerySourceEditor({
         (ddosPeriod && condition.ddos ? (
           <DDoSAssessmentFields
             input={condition.ddos}
+            savedPeriod={ddosPeriod}
             onChange={(ddos) =>
-              onChange({ ...value, condition: { mode: 'ddos_assessment', ddos } })
+              onChange({
+                ...value,
+                every_seconds:
+                  ddos.period_seconds === condition.ddos?.period_seconds
+                    ? value.every_seconds
+                    : ddos.period_seconds,
+                condition: { mode: 'ddos_assessment', ddos },
+              })
             }
           />
         ) : (

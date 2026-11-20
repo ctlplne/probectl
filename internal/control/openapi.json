@@ -36138,7 +36138,7 @@
         ]
       },
       "FlowDDoSAssessmentInput": {
-        "description": "Use an exact saved lookback, a canonical protected prefix and explicit thresholds for each completed window.",
+        "description": "Use a pinned saved lookback, a canonical protected prefix and explicit thresholds for each completed window. Five- and ten-second assessments use complete raw subwindows of the saved view.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -36162,6 +36162,8 @@
           "period_seconds": {
             "type": "integer",
             "enum": [
+              5,
+              10,
               60,
               120,
               300
@@ -36196,7 +36198,8 @@
           "min_observed_addresses": {
             "type": "integer",
             "minimum": 2
-          }
+          },
+          "application": {"$ref": "#/components/schemas/FlowDDoSApplicationBinding"}
         },
         "required": [
           "version",
@@ -36244,7 +36247,8 @@
           },
           "detection": {
             "$ref": "#/components/schemas/FlowDDoSDetection"
-          }
+          },
+          "application": {"$ref": "#/components/schemas/FlowDDoSApplicationEvidence"}
         },
         "required": [
           "view_id",
@@ -36254,6 +36258,38 @@
           "before",
           "after"
         ]
+      },
+      "FlowDDoSApplicationBinding": {
+        "description": "Independently observed HTTP server spans for this exact protected ingress host.",
+        "type": "object", "additionalProperties": false,
+        "required": ["service", "port"],
+        "properties": {
+          "service": {"type": "string", "minLength": 1, "maxLength": 128},
+          "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+        }
+      },
+      "FlowDDoSApplicationWindow": {
+        "type": "object", "additionalProperties": false,
+        "required": ["from", "to", "observed_requests", "successful_requests", "p95_nanos", "observation_digest", "matching_flow_bytes", "matching_flow_packets"],
+        "properties": {
+          "from": {"type": "string", "format": "date-time"},
+          "to": {"type": "string", "format": "date-time"},
+          "observed_requests": {"type": "integer", "minimum": 20, "maximum": 999},
+          "successful_requests": {"type": "integer", "minimum": 0, "maximum": 999},
+          "p95_nanos": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+          "observation_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "matching_flow_bytes": {"type": "string", "pattern": "^[0-9]+$"},
+          "matching_flow_packets": {"type": "string", "pattern": "^[0-9]+$"}
+        }
+      },
+      "FlowDDoSApplicationEvidence": {
+        "type": "object", "additionalProperties": false,
+        "required": ["reference", "current", "state"],
+        "properties": {
+          "reference": {"$ref": "#/components/schemas/FlowDDoSApplicationWindow"},
+          "current": {"$ref": "#/components/schemas/FlowDDoSApplicationWindow"},
+          "state": {"type": "string", "enum": ["observed_application_demand", "application_health_degraded", "traffic_growth_explained_by_healthy_application_demand", "application_demand_does_not_explain_all_traffic", "traffic_outside_bound_application_exceeds_threshold"]}
+        }
       },
       "IncidentDDoSReportRate": {
         "type": "object",

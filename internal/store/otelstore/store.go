@@ -20,6 +20,9 @@ package otelstore
 
 import (
 	"context"
+	"errors"
+	"net/netip"
+	"strconv"
 	"time"
 )
 
@@ -53,11 +56,32 @@ type LogRecord struct {
 
 // SpanQuery filters a tenant's spans. Zero values mean "any".
 type SpanQuery struct {
-	TraceID string
-	Service string
-	Since   time.Time
-	Until   time.Time
-	Limit   int // <=0 => default 100, capped at 1000
+	TraceID    string
+	Service    string
+	Since      time.Time
+	Until      time.Time
+	Limit      int // <=0 => default 100, capped at 1000
+	HTTPServer *HTTPServerTarget
+}
+
+// HTTPServerTarget restricts a service trace query to one exact ingress host
+// and port before the storage limit applies. Its observation interval is
+// half-open.
+type HTTPServerTarget struct {
+	Address netip.Addr
+	Port    uint16
+}
+
+func (q SpanQuery) httpServerParams() (string, string, error) {
+	if q.HTTPServer == nil {
+		return "", "", nil
+	}
+	target := *q.HTTPServer
+	if q.Service == "" || q.Since.IsZero() || !q.Until.After(q.Since) ||
+		!target.Address.IsValid() || target.Address.Is4In6() || target.Address.Zone() != "" || target.Port == 0 {
+		return "", "", errors.New("otelstore: HTTP server span queries require an exact service, address, port and observation interval")
+	}
+	return target.Address.String(), strconv.FormatUint(uint64(target.Port), 10), nil
 }
 
 // LogQuery filters a tenant's log records. Zero values mean "any".

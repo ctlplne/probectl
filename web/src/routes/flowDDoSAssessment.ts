@@ -10,7 +10,8 @@ import type { FlowDDoSAssessmentInput } from '../api/sdk.gen'
 export function ddosAssessmentPeriod(view?: SavedFlowQueryView) {
   const time = view?.definition.time
   const period = time?.lookback_seconds ?? 0
-  return time?.mode === 'lookback' && [60, 120, 300].includes(period) ? period : undefined
+  if (time?.mode !== 'lookback' || period < 60) return undefined
+  return [60, 120, 300].includes(period) ? period : 5
 }
 
 export function initialDDoSAssessment(revision: string, period: number): FlowDDoSAssessmentInput {

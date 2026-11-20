@@ -26,11 +26,11 @@ type ddosEpisodeClocks struct {
 }
 
 func ddosClocks(at time.Time, seconds int) (ddosEpisodeClocks, error) {
-	current, err := anomaly.FlowFieldCompletedWindows(at, anomaly.FlowFieldPreviousWeek, seconds)
+	current, err := anomaly.DDoSCompletedWindows(at, seconds)
 	if err != nil {
 		return ddosEpisodeClocks{}, err
 	}
-	previous, err := anomaly.FlowFieldCompletedWindows(current.After.Start, anomaly.FlowFieldPreviousWeek, seconds)
+	previous, err := anomaly.DDoSCompletedWindows(current.After.Start, seconds)
 	return ddosEpisodeClocks{Previous: previous, Current: current}, err
 }
 
@@ -66,6 +66,9 @@ func (s *Server) readAlertDDoSRule(ctx context.Context, rule alert.Rule, source 
 		return empty, err
 	}
 	defer capture.Close()
+	if err := s.prepareDDoSApplication(ctx, actor, &settings); err != nil {
+		return empty, err
+	}
 	previous, err := assessCapturedDDoS(ctx, capture, settings, clocks.Previous, 0, 2, budget.MemoryBytes/8)
 	if err != nil {
 		return empty, mapDDoSCoverage(err)
@@ -87,7 +90,7 @@ func (s *Server) readAlertDDoSRule(ctx context.Context, rule alert.Rule, source 
 			return empty, err
 		}
 	}
-	committed, err := s.commitAlertDDoSRead(ctx, rule, source, actor, capture, next, proof, started, deps.IncidentWindow, budget.MemoryBytes/8)
+	committed, err := s.commitAlertDDoSRead(ctx, rule, source, actor, settings, capture, next, proof, started, deps.IncidentWindow, budget.MemoryBytes/8)
 	if err != nil {
 		return empty, err
 	}
@@ -103,13 +106,16 @@ func (s *Server) readAlertDDoSRule(ctx context.Context, rule alert.Rule, source 
 		QuerySelection: &alert.QuerySelection{TenantID: rule.TenantID, RuleID: rule.ID, Binding: next.Binding, At: next.At, Complete: true}}, nil
 }
 
-func (s *Server) commitAlertDDoSRead(ctx context.Context, rule alert.Rule, source store.AlertQuerySource, actor *auth.Principal, capture *reportFlowCapture,
+func (s *Server) commitAlertDDoSRead(ctx context.Context, rule alert.Rule, source store.AlertQuerySource, actor *auth.Principal, settings ddosAssessmentSettings, capture *reportFlowCapture,
 	next alert.QueryGroupState, proof storedDDoSReceipt, started *alert.DDoSEpisode, window time.Duration, memory int64) (seasonalIncidentPublication, error) {
 	var published seasonalIncidentPublication
 	err := tenancy.InTenant(tenancy.WithSiloTableLock(ctx), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		return (store.AlertRules{}).CommitQueryState(ctx, sc, rule.ID, rule.UpdatedAt, source, next, memory,
 			func(ctx context.Context, sc tenancy.Scope) error {
 				if err := s.validateReportSourcePublication(store.WithReportSourceAuditLock(ctx, sc), sc, actor, capture); err != nil {
+					return err
+				}
+				if err := s.authorizeDDoSApplicationInScope(ctx, sc, actor, settings); err != nil {
 					return err
 				}
 				if started == nil {

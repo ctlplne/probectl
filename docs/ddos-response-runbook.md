@@ -1,5 +1,29 @@
 # DDoS response runbook
 
+## Configure short-window detection
+
+Select a pinned saved flow view and choose a five- or ten-second observation
+window in the DDoS query alert. Set volume and observed-record floors for
+that window length. Each episode requires two adjacent completed windows. The
+fast scheduler checks for due short-window rules every two seconds on the
+existing alert leader, independently of the ordinary alert pass. Configure
+export and collection frequently enough to populate both windows. Exporter
+delay and incomplete evidence can delay or prevent an alert.
+
+For generic ingress pressure on one host, enter its HTTP telemetry service
+name and port. The application comparison requires current `metrics.read`
+access and HTTP server spans with `server.address` set to the canonical
+protected IP and `server.port` set to the selected port. A bounded observation needs at
+least 20 completed requests per window. The current successful-request growth
+must explain both byte and packet growth within 25% on the selected TCP port
+and across the protected host. Suppression also requires at most 1%
+unsuccessful requests and a p95 duration no more than 1.5 times the
+reference. Traffic outside the application can still qualify independently
+against the configured traffic floors. Missing, full-page or ambiguous
+application observations leave the bound generic pressure unevaluated for
+episode admission. Explicit network pressure continues through its own flow
+evidence. [Synthetic benchmark](ddos-detection-benchmark.md)
+
 ## Confirm the incident
 
 1. Open the incident for the customer you are assisting. Check the tenant

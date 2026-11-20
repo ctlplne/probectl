@@ -2374,8 +2374,31 @@ export interface FlowCapacityPoint {
   ts?: string
 }
 
+export interface FlowDDoSApplicationBinding {
+  port: number
+  service: string
+}
+
+export interface FlowDDoSApplicationEvidence {
+  current: FlowDDoSApplicationWindow
+  reference: FlowDDoSApplicationWindow
+  state: "observed_application_demand" | "application_health_degraded" | "traffic_growth_explained_by_healthy_application_demand" | "application_demand_does_not_explain_all_traffic" | "traffic_outside_bound_application_exceeds_threshold"
+}
+
+export interface FlowDDoSApplicationWindow {
+  from: string
+  matching_flow_bytes: string
+  matching_flow_packets: string
+  observation_digest: string
+  observed_requests: number
+  p95_nanos: string
+  successful_requests: number
+  to: string
+}
+
 export interface FlowDDoSAssessment {
   after: FlowDDoSWindowEvidence
+  application?: FlowDDoSApplicationEvidence
   before: FlowDDoSWindowEvidence
   detection?: FlowDDoSDetection
   direction: "ingress" | "egress"
@@ -2385,6 +2408,7 @@ export interface FlowDDoSAssessment {
 }
 
 export interface FlowDDoSAssessmentInput {
+  application?: FlowDDoSApplicationBinding
   bytes_floor: string
   direction: "ingress" | "egress"
   growth_basis_points: number

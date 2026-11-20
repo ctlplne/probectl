@@ -613,6 +613,10 @@ func (c *ClickHouse) QuerySpans(ctx context.Context, tenant string, q SpanQuery)
 	if tenant == "" {
 		return nil, ErrNoTenant // TENANT-003: fail closed on an unscoped read
 	}
+	address, port, err := q.httpServerParams()
+	if err != nil {
+		return nil, err
+	}
 	t, err := c.route(ctx, tenant)
 	if err != nil {
 		return nil, err
@@ -632,12 +636,16 @@ WHERE tenant_id = {tenant:String}
   AND ({svc:String} = '' OR service = {svc:String})
   AND ({since:Int64} = 0 OR start >= fromUnixTimestamp64Milli({since:Int64}))
   AND ({until:Int64} = 0 OR start <= fromUnixTimestamp64Milli({until:Int64}))
+  AND ({http_addr:String} = '' OR (kind = 'server'
+    AND start < fromUnixTimestamp64Milli({until:Int64})
+    AND JSONExtractString(attrs, 'server.address') = {http_addr:String}
+    AND JSONExtractString(attrs, 'server.port') = {http_port:String}))
 ORDER BY start DESC
 LIMIT {lim:UInt32}`
 	p := chParams{
 		"tenant": tenant, "trace": q.TraceID, "svc": q.Service,
 		"since": msOrZero(q.Since), "until": msOrZero(q.Until),
-		"lim": strconv.Itoa(clampLimit(q.Limit)),
+		"lim": strconv.Itoa(clampLimit(q.Limit)), "http_addr": address, "http_port": port,
 	}
 	rows, err := c.queryScoped(ctx, t, tenant, sql, p)
 	if err != nil {

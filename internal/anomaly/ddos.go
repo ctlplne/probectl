@@ -19,6 +19,23 @@ import (
 
 var ErrDDoSCoverage = errors.New("anomaly: complete comparable flow observations are required")
 
+// DDoSFastPeriod identifies the short observation windows used by the
+// dedicated saved-rule evaluator. Legacy pressure windows retain their cadence.
+func DDoSFastPeriod(seconds int) bool {
+	return seconds == 5 || seconds == 10
+}
+
+func ValidDDoSPeriod(seconds int) bool {
+	return DDoSFastPeriod(seconds) || seconds == 60 || seconds == 120 || seconds == 300
+}
+
+func DDoSCompletedWindows(at time.Time, seconds int) (FlowFieldComparisonClocks, error) {
+	if at.IsZero() || !ValidDDoSPeriod(seconds) {
+		return FlowFieldComparisonClocks{}, ErrDDoSCoverage
+	}
+	return completeFlowFieldPeriod(at.UTC(), FlowFieldPreviousWeek, time.Duration(seconds)*time.Second)
+}
+
 type DDoSClass string
 
 const (
@@ -39,20 +56,22 @@ type ReflectionObservation struct {
 // admitted source window. Volume uses corrected counters and classifications
 // retain an independent count of observed records.
 type DDoSObservation struct {
-	TenantID          string
-	Scope             string
-	Target            netip.Prefix
-	Direction         string
-	From, To          time.Time
-	Citation          string
-	Complete          bool
-	Bytes             string
-	Packets           string
-	SYNOnlyPackets    string
-	UDPPackets        string
-	ObservedRecords   int
-	ObservedAddresses int
-	Reflection        []ReflectionObservation
+	TenantID           string
+	Scope              string
+	Target             netip.Prefix
+	Direction          string
+	From, To           time.Time
+	Citation           string
+	Complete           bool
+	Bytes              string
+	Packets            string
+	SYNOnlyPackets     string
+	UDPPackets         string
+	ApplicationBytes   string
+	ApplicationPackets string
+	ObservedRecords    int
+	ObservedAddresses  int
+	Reflection         []ReflectionObservation
 }
 
 type DDoSThresholds struct {

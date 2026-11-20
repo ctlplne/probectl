@@ -95,6 +95,10 @@ func (m *Memory) QuerySpans(_ context.Context, tenant string, q SpanQuery) ([]Sp
 	if tenant == "" {
 		return nil, ErrNoTenant // TENANT-003: fail closed on an unscoped read
 	}
+	address, port, err := q.httpServerParams()
+	if err != nil {
+		return nil, err
+	}
 	limit := clampLimit(q.Limit)
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -110,6 +114,10 @@ func (m *Memory) QuerySpans(_ context.Context, tenant string, q SpanQuery) ([]Sp
 			continue
 		}
 		if !q.Until.IsZero() && s.Start.After(q.Until) {
+			continue
+		}
+		if address != "" && (!s.Start.Before(q.Until) || s.Kind != "server" ||
+			s.Attrs["server.address"] != address || s.Attrs["server.port"] != port) {
 			continue
 		}
 		out = append(out, s)

@@ -2503,28 +2503,53 @@ type FlowCapacityPoint struct {
 	Ts       string  `json:"ts,omitempty"`
 }
 
-type FlowDDoSAssessment struct {
-	After     FlowDDoSWindowEvidence `json:"after"`
-	Before    FlowDDoSWindowEvidence `json:"before"`
-	Detection FlowDDoSDetection      `json:"detection,omitzero"`
-	Direction string                 `json:"direction"`
-	Prefix    string                 `json:"prefix"`
-	Version   string                 `json:"version"`
-	ViewId    string                 `json:"view_id"`
+// Independently observed HTTP server spans for this exact protected ingress host.
+type FlowDDoSApplicationBinding struct {
+	Port    int    `json:"port"`
+	Service string `json:"service"`
 }
 
-// Use an exact saved lookback, a canonical protected prefix and explicit thresholds for each completed window.
+type FlowDDoSApplicationEvidence struct {
+	Current   FlowDDoSApplicationWindow `json:"current"`
+	Reference FlowDDoSApplicationWindow `json:"reference"`
+	State     string                    `json:"state"`
+}
+
+type FlowDDoSApplicationWindow struct {
+	From                string `json:"from"`
+	MatchingFlowBytes   string `json:"matching_flow_bytes"`
+	MatchingFlowPackets string `json:"matching_flow_packets"`
+	ObservationDigest   string `json:"observation_digest"`
+	ObservedRequests    int    `json:"observed_requests"`
+	P95Nanos            string `json:"p95_nanos"`
+	SuccessfulRequests  int    `json:"successful_requests"`
+	To                  string `json:"to"`
+}
+
+type FlowDDoSAssessment struct {
+	After       FlowDDoSWindowEvidence      `json:"after"`
+	Application FlowDDoSApplicationEvidence `json:"application,omitzero"`
+	Before      FlowDDoSWindowEvidence      `json:"before"`
+	Detection   FlowDDoSDetection           `json:"detection,omitzero"`
+	Direction   string                      `json:"direction"`
+	Prefix      string                      `json:"prefix"`
+	Version     string                      `json:"version"`
+	ViewId      string                      `json:"view_id"`
+}
+
+// Use a pinned saved lookback, a canonical protected prefix and explicit thresholds for each completed window. Five- and ten-second assessments use complete raw subwindows of the saved view.
 type FlowDDoSAssessmentInput struct {
-	BytesFloor             string `json:"bytes_floor"`
-	Direction              string `json:"direction"`
-	GrowthBasisPoints      int    `json:"growth_basis_points"`
-	MinObservedAddresses   int    `json:"min_observed_addresses"`
-	MinObservedRecords     int    `json:"min_observed_records"`
-	PacketsFloor           string `json:"packets_floor"`
-	PeriodSeconds          int    `json:"period_seconds"`
-	Prefix                 string `json:"prefix"`
-	VectorShareBasisPoints int    `json:"vector_share_basis_points"`
-	Version                string `json:"version"`
+	Application            FlowDDoSApplicationBinding `json:"application,omitzero"`
+	BytesFloor             string                     `json:"bytes_floor"`
+	Direction              string                     `json:"direction"`
+	GrowthBasisPoints      int                        `json:"growth_basis_points"`
+	MinObservedAddresses   int                        `json:"min_observed_addresses"`
+	MinObservedRecords     int                        `json:"min_observed_records"`
+	PacketsFloor           string                     `json:"packets_floor"`
+	PeriodSeconds          int                        `json:"period_seconds"`
+	Prefix                 string                     `json:"prefix"`
+	VectorShareBasisPoints int                        `json:"vector_share_basis_points"`
+	Version                string                     `json:"version"`
 }
 
 // Evidence strength is categorical. UDP source-service association alone remains tentative.

@@ -10,6 +10,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -44,6 +45,14 @@ func EvaluateDDoSEpisode(ctx context.Context, binding QueryGroupBinding, prior Q
 		prior.Initialized && !prior.At.Before(current.After.To) {
 		return nil, QueryGroupState{}, ErrQueryGroups
 	}
+	if input.Application != nil {
+		for _, window := range []flow.DDoSAssessment{previous, current} {
+			if window.Detection != nil && window.Detection.Class == anomaly.DDoSVolumetric &&
+				(window.Application == nil || window.Application.State == anomaly.DDoSApplicationAmbiguous) {
+				return nil, QueryGroupState{}, anomaly.ErrDDoSCoverage
+			}
+		}
+	}
 	key, err := binding.StateKey()
 	if err != nil {
 		return nil, QueryGroupState{}, err
@@ -54,10 +63,19 @@ func EvaluateDDoSEpisode(ctx context.Context, binding QueryGroupBinding, prior Q
 	}
 	next := QueryGroupState{Binding: key, Initialized: true, At: current.After.To.UTC(), Keys: []string{}}
 	before, after := previous.Detection, current.Detection
-	if before == nil || after == nil || before.Class != after.Class || before.Service != after.Service {
+	if before == nil || after == nil {
 		return nil, next, ctx.Err()
 	}
-	group, err := fieldEpisodeKey(key, string(after.Class)+"/"+after.Service, DDoSCondition, time.Time{})
+	twoSpecificVectors := anomaly.DDoSFastPeriod(input.PeriodSeconds) &&
+		before.Class != anomaly.DDoSVolumetric && after.Class != anomaly.DDoSVolumetric
+	if !twoSpecificVectors && (before.Class != after.Class || before.Service != after.Service) {
+		return nil, next, ctx.Err()
+	}
+	groupName := string(after.Class) + "/" + after.Service
+	if anomaly.DDoSFastPeriod(input.PeriodSeconds) {
+		groupName = "protected_traffic_pressure"
+	}
+	group, err := fieldEpisodeKey(key, groupName, DDoSCondition, time.Time{})
 	if err != nil {
 		return nil, QueryGroupState{}, err
 	}
@@ -84,9 +102,29 @@ func matchesDDoSEvaluation(binding QueryGroupBinding, assessment flow.DDoSAssess
 		!before.To.AddDate(0, 0, 7).Equal(after.To) {
 		return false
 	}
+	if app := assessment.Application; app != nil {
+		if input.Application == nil ||
+			!app.Reference.From.Equal(before.From) || !app.Reference.To.Equal(before.To) ||
+			!app.Current.From.Equal(after.From) || !app.Current.To.Equal(after.To) ||
+			!ValidFieldDigest(app.Reference.Digest) || !ValidFieldDigest(app.Current.Digest) ||
+			!matchesDDoSApplicationResult(app.State, assessment.Detection) {
+			return false
+		}
+	}
 	detection := assessment.Detection
 	return detection == nil ||
 		detection.CurrentCitation == after.Citation && detection.ReferenceCitation == before.Citation &&
 			detection.CurrentPackets == after.Packets && detection.ReferencePackets == before.Packets &&
 			detection.CurrentBytes == after.Bytes && detection.ReferenceBytes == before.Bytes
+}
+
+func matchesDDoSApplicationResult(state string, detection *anomaly.DDoSDetection) bool {
+	switch state {
+	case anomaly.DDoSApplicationDemand:
+		return detection == nil
+	case anomaly.DDoSApplicationObserved, anomaly.DDoSApplicationDegraded, anomaly.DDoSApplicationAmbiguous, anomaly.DDoSApplicationResidual:
+		return detection != nil && detection.Class == anomaly.DDoSVolumetric
+	default:
+		return false
+	}
 }

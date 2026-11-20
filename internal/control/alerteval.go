@@ -528,6 +528,10 @@ func (s *AlertEvaluatorSupervisor) Sync(ctx context.Context) error {
 
 // Tick evaluates every active tenant, bounded by maxConcurrent workers.
 func (s *AlertEvaluatorSupervisor) Tick(ctx context.Context) {
+	s.tick(ctx, s.tickAllRules)
+}
+
+func (s *AlertEvaluatorSupervisor) tick(ctx context.Context, evaluate func(context.Context, *tenantEvaluator)) {
 	s.mu.Lock()
 	evals := make([]*tenantEvaluator, 0, len(s.evaluators))
 	for _, ev := range s.evaluators {
@@ -540,32 +544,81 @@ func (s *AlertEvaluatorSupervisor) Tick(ctx context.Context) {
 	}
 	sem := make(chan struct{}, limit)
 	var wg sync.WaitGroup
+	defer wg.Wait()
 	for _, ev := range evals {
-		if ctx.Err() != nil {
-			break
+		select {
+		case <-ctx.Done():
+			return
+		case sem <- struct{}{}:
 		}
-		sem <- struct{}{}
 		wg.Add(1)
 		go func(te *tenantEvaluator) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			// DPR-067: operator actions and maintenance windows taken on any
-			// replica are pulled in before the pass, and the resulting active
-			// set is published for every replica after it.
-			s.reloadShared(ctx, te)
-			if err := te.ev.Tick(ctx); err != nil {
-				s.log.Warn("alert evaluation tick failed", "error", err)
-			}
-			s.publishShared(ctx, te)
+			evaluate(ctx, te)
 		}(ev)
 	}
-	wg.Wait()
 }
 
-// Run periodically syncs tenants and evaluates all active tenant engines.
+func (s *AlertEvaluatorSupervisor) tickAllRules(ctx context.Context, te *tenantEvaluator) {
+	s.reloadShared(ctx, te)
+	if err := te.ev.Tick(ctx); err != nil {
+		s.log.Warn("alert evaluation tick failed", "error", err)
+	}
+	s.publishShared(ctx, te)
+}
+
+func (s *AlertEvaluatorSupervisor) tickOrdinary(ctx context.Context, te *tenantEvaluator) {
+	if s.tagDeps.Queries == nil {
+		s.tickAllRules(ctx, te)
+		return
+	}
+	var rules []alert.Rule
+	err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, te.tenant), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		rules, err = (store.AlertRules{}).ListEnabledOrdinary(ctx, sc)
+		return err
+	})
+	if err != nil {
+		s.log.Warn("alert working set unavailable", "tenant_id", te.tenant.String(), "error", err)
+		return
+	}
+	s.reloadShared(ctx, te)
+	te.ev.EvaluateWorkingSet(ctx, rules)
+	s.publishShared(ctx, te)
+}
+
+func (s *AlertEvaluatorSupervisor) tickFastDDoS(ctx context.Context, te *tenantEvaluator) {
+	var due []alert.Rule
+	err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, te.tenant), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		due, err = (store.AlertRules{}).ListDueFastDDoS(ctx, sc, time.Now().UTC())
+		return err
+	})
+	if err != nil {
+		s.log.Warn("DDoS alert schedule unavailable", "tenant_id", te.tenant.String(), "error", err)
+		return
+	}
+	if len(due) == 0 {
+		return
+	}
+	s.reloadShared(ctx, te)
+	te.ev.EvaluateRules(ctx, due)
+	s.publishShared(ctx, te)
+}
+
+// Run periodically syncs tenants and evaluates the two disjoint working sets.
+// A slow telemetry read in the ordinary pass cannot delay fast DDoS polling.
 func (s *AlertEvaluatorSupervisor) Run(ctx context.Context) {
 	if err := s.Sync(ctx); err != nil {
 		s.log.Warn("alert tenant sync failed", "error", err)
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	var fast sync.WaitGroup
+	defer fast.Wait()
+	defer cancel()
+	if s.tagDeps.Queries != nil {
+		fast.Go(func() { s.runFastDDoS(ctx) })
 	}
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
@@ -578,15 +631,29 @@ func (s *AlertEvaluatorSupervisor) Run(ctx context.Context) {
 				s.log.Warn("alert tenant sync failed", "error", err)
 				continue
 			}
-			s.Tick(ctx)
+			s.tick(ctx, s.tickOrdinary)
+		}
+	}
+}
+
+func (s *AlertEvaluatorSupervisor) runFastDDoS(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.tick(ctx, s.tickFastDDoS)
 		}
 	}
 }
 
 // tenantEvaluator is one tenant's evaluator on the singleton leader.
 type tenantEvaluator struct {
-	ev     *alert.Evaluator
-	tenant tenancy.ID
+	ev       *alert.Evaluator
+	tenant   tenancy.ID
+	sharedMu sync.Mutex
 }
 
 // reloadShared pulls the persisted operator state and maintenance windows into
@@ -595,6 +662,10 @@ func (s *AlertEvaluatorSupervisor) reloadShared(ctx context.Context, te *tenantE
 	if s.pool == nil {
 		return
 	}
+	// The two lanes share operator state and publish a snapshot of the
+	// same engine. Keep their durable snapshots in publication order.
+	te.sharedMu.Lock()
+	defer te.sharedMu.Unlock()
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, te.tenant), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		ops, err := (store.AlertOps{}).List(ctx, sc)
 		if err != nil {
@@ -630,6 +701,10 @@ func (s *AlertEvaluatorSupervisor) publishShared(ctx context.Context, te *tenant
 	if s.pool == nil {
 		return
 	}
+	// The two lanes share operator state and publish a snapshot of the
+	// same engine. Keep their durable snapshots in publication order.
+	te.sharedMu.Lock()
+	defer te.sharedMu.Unlock()
 	active := te.ev.Engine().Active()
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, te.tenant), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		return (store.AlertActiveState{}).Replace(ctx, sc, active, time.Now().UTC(), s.interval)

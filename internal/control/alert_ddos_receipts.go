@@ -98,6 +98,15 @@ func (s *Server) loadAlertDDoSReceiptInScope(ctx context.Context, sc tenancy.Sco
 			if err := s.validateReportSourcePublication(store.WithReportSourceAuditLock(ctx, sc), sc, actor, capture); err != nil {
 				return err
 			}
+			if parsed.Evidence.Previous.Application != nil || parsed.Evidence.Current.Application != nil {
+				settings, err := normalizeDDoSAssessment(source.ViewID, *source.Condition.DDoS)
+				if err != nil {
+					return err
+				}
+				if err := s.authorizeDDoSApplicationInScope(ctx, sc, actor, settings); err != nil {
+					return err
+				}
+			}
 			return publish(store.WithReportSourceAuditLock(ctx, sc), sc, parsed.Evidence, record.Body)
 		})
 }

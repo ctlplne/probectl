@@ -316,8 +316,8 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 			alert.sourceIncidentPublished = read.SourceIncidents && alert.State == StateFiring
 			en.deliver(ctx, rule, alert)
 			// RTO-20: persist the notification bookkeeping after delivery, on the
-			// evaluation goroutine (ticks are serialized per engine), so the write
-			// order matches the notify order and a failover rehydrates the latest.
+			// evaluation goroutine. The scheduler serializes each rule, so the
+			// write order matches delivery and a failover rehydrates the latest.
 			if pending != nil && en.onNotify != nil {
 				en.onNotify(pending.key, pending.state)
 			}
@@ -883,12 +883,24 @@ func (ev *Evaluator) Tick(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("alert: load rules: %w", err)
 	}
+	ev.EvaluateWorkingSet(ctx, rules)
+	return nil
+}
+
+// EvaluateWorkingSet retains seasonal sources from the ordinary working set
+// and then evaluates it. The short-window lane contains no seasonal rules.
+func (ev *Evaluator) EvaluateWorkingSet(ctx context.Context, rules []Rule) {
 	ev.engine.retainSeasonalRules(rules)
+	ev.EvaluateRules(ctx, rules)
+}
+
+// EvaluateRules evaluates an independently scoped subset. A subset cannot
+// change retention for rules it was not asked to evaluate.
+func (ev *Evaluator) EvaluateRules(ctx context.Context, rules []Rule) {
 	for _, rule := range rules {
 		if _, err := ev.engine.Evaluate(ctx, rule); err != nil {
 			// A single rule's evaluation failure must not stop the others.
 			ev.log.Warn("alert rule evaluation failed", "rule", rule.Name, "error", err)
 		}
 	}
-	return nil
 }

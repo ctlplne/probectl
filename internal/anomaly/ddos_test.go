@@ -9,6 +9,7 @@ package anomaly
 import (
 	"errors"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,5 +93,26 @@ func TestDDoSCannotBorrowForeignOrIncompleteEvidence(t *testing.T) {
 	current.UDPPackets = "1100"
 	if got, err := EvaluateDDoS(ctx, reference, current, thresholds, 1<<20); got != nil || !errors.Is(err, ErrDDoSCoverage) {
 		t.Fatal("a measured subset cannot exceed its complete population", err)
+	}
+}
+
+func TestDDoSApplicationDoesNotInferCurrentDegradationFromAnUnhealthyReference(t *testing.T) {
+	const owner = "25ebf92b-c387-451d-9e67-0b323c402a58"
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(owner))
+	start := time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC)
+	earlier := DDoSObservation{TenantID: owner, Scope: "owned service", Target: netip.MustParsePrefix("192.0.2.1/32"), Direction: "ingress",
+		From: start, To: start.Add(5 * time.Second), Citation: "owned reference", Complete: true}
+	current := earlier
+	current.From, current.To, current.Citation = earlier.From.AddDate(0, 0, 7), earlier.To.AddDate(0, 0, 7), "current observation"
+	previousApp := DDoSApplicationWindow{TenantID: owner, Target: earlier.Target, From: earlier.From, To: earlier.To,
+		Requests: 30, Successes: 20, P95: 100 * time.Millisecond, Digest: strings.Repeat("a", 64)}
+	currentApp := previousApp
+	currentApp.From, currentApp.To = current.From, current.To
+	currentApp.Requests, currentApp.Successes, currentApp.P95 = 120, 120, 50*time.Millisecond
+
+	finding := &DDoSDetection{Class: DDoSVolumetric}
+	got, app, err := QualifyDDoSApplication(ctx, earlier, current, previousApp, currentApp, finding, DDoSThresholds{}, 1<<20)
+	if err != nil || got != finding || app == nil || app.State != DDoSApplicationAmbiguous {
+		t.Fatalf("recovery from an unhealthy reference must leave flow pressure inconclusive, got %+v, %v", app, err)
 	}
 }

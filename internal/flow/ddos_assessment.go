@@ -9,32 +9,40 @@ package flow
 import (
 	"errors"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/anomaly"
 )
 
 type DDoSAssessmentInput struct {
-	Version                string `json:"version"`
-	Prefix                 string `json:"prefix"`
-	Direction              string `json:"direction"`
-	PeriodSeconds          int    `json:"period_seconds"`
-	BytesFloor             string `json:"bytes_floor"`
-	PacketsFloor           string `json:"packets_floor"`
-	GrowthBasisPoints      int    `json:"growth_basis_points"`
-	VectorShareBasisPoints int    `json:"vector_share_basis_points"`
-	MinObservedRecords     int    `json:"min_observed_records"`
-	MinObservedAddresses   int    `json:"min_observed_addresses"`
+	Version                string                  `json:"version"`
+	Prefix                 string                  `json:"prefix"`
+	Direction              string                  `json:"direction"`
+	PeriodSeconds          int                     `json:"period_seconds"`
+	BytesFloor             string                  `json:"bytes_floor"`
+	PacketsFloor           string                  `json:"packets_floor"`
+	GrowthBasisPoints      int                     `json:"growth_basis_points"`
+	VectorShareBasisPoints int                     `json:"vector_share_basis_points"`
+	MinObservedRecords     int                     `json:"min_observed_records"`
+	MinObservedAddresses   int                     `json:"min_observed_addresses"`
+	Application            *DDoSApplicationBinding `json:"application,omitempty"`
+}
+
+type DDoSApplicationBinding struct {
+	Service string `json:"service"`
+	Port    uint16 `json:"port"`
 }
 
 type DDoSAssessment struct {
-	ViewID    string                 `json:"view_id"`
-	Version   string                 `json:"version"`
-	Prefix    string                 `json:"prefix"`
-	Direction string                 `json:"direction"`
-	Before    DDoSWindowEvidence     `json:"before"`
-	After     DDoSWindowEvidence     `json:"after"`
-	Detection *anomaly.DDoSDetection `json:"detection,omitempty"`
+	ViewID      string                           `json:"view_id"`
+	Version     string                           `json:"version"`
+	Prefix      string                           `json:"prefix"`
+	Direction   string                           `json:"direction"`
+	Before      DDoSWindowEvidence               `json:"before"`
+	After       DDoSWindowEvidence               `json:"after"`
+	Detection   *anomaly.DDoSDetection           `json:"detection,omitempty"`
+	Application *anomaly.DDoSApplicationEvidence `json:"application,omitempty"`
 }
 
 type DDoSWindowEvidence struct {
@@ -67,8 +75,14 @@ func (r DDoSAssessmentInput) ValidatedPrefix() (netip.Prefix, error) {
 	if r.Direction != "ingress" && r.Direction != "egress" {
 		return netip.Prefix{}, errors.New("select the observed ingress or egress direction")
 	}
-	if r.PeriodSeconds != 60 && r.PeriodSeconds != 120 && r.PeriodSeconds != 300 {
-		return netip.Prefix{}, errors.New("assessment windows must be 60, 120 or 300 seconds")
+	if !anomaly.ValidDDoSPeriod(r.PeriodSeconds) {
+		return netip.Prefix{}, errors.New("assessment windows must be 5, 10, 60, 120 or 300 seconds")
+	}
+	if app := r.Application; app != nil {
+		if r.Direction != "ingress" || !target.IsSingleIP() || app.Port == 0 ||
+			app.Service == "" || len(app.Service) > 128 || strings.TrimSpace(app.Service) != app.Service {
+			return netip.Prefix{}, errors.New("application context requires an exact ingress host, an HTTP service and a positive port")
+		}
 	}
 	if err := r.Thresholds().Validate(); err != nil {
 		return netip.Prefix{}, errors.New("set positive traffic and coverage floors and a valid growth and vector share")

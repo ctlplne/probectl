@@ -80,7 +80,11 @@ func FlowFieldCompletedWindows(at time.Time, cadence FlowFieldComparisonCadence,
 	default:
 		return out, ErrFlowFieldCoverage
 	}
-	period := time.Duration(periodSeconds) * time.Second
+	return completeFlowFieldPeriod(at, cadence, time.Duration(periodSeconds)*time.Second)
+}
+
+func completeFlowFieldPeriod(at time.Time, cadence FlowFieldComparisonCadence, period time.Duration) (FlowFieldComparisonClocks, error) {
+	var out FlowFieldComparisonClocks
 	end := at.Truncate(period)
 	out.After = TrainingWindow{Start: end.Add(-period), End: end}
 	switch cadence {

@@ -1,7 +1,6 @@
 # Synthetic DDoS detection benchmark
 
-Run from a clean probectl source checkout with the Go toolchain declared in
-`go.mod`.
+Run from a clean probectl checkout with the Go toolchain in `go.mod`.
 
 ```sh
 git rev-parse HEAD
@@ -11,65 +10,83 @@ go test -count=1 -v -run '^TestSyntheticDDoSDetectionBenchmark$' ./internal/cont
 GOMAXPROCS=2 go test -run '^$' -bench '^BenchmarkSyntheticDDoSDetection$' -benchmem -count=5 ./internal/control
 ```
 
-The version-one fixture is declared in
-[`flow_ddos_benchmark_test.go`](../internal/control/flow_ddos_benchmark_test.go).
-It consists of 13 independent trials with two adjacent completed 60-second
-observations and each window's same-UTC reference from the previous week. The
-fixture declares traffic aggregates and deterministic row materialization for
-the documentation prefix `192.0.2.0/24`. The separately declared label oracle
-supplies evaluation labels. All replay stays in memory and opens no sockets.
+The version-two corpus contains 416 trials from 26 labeled scenario families.
+A deterministic grid varies the starting offset, volumes, observed counts,
+sampling ratio, number of destinations and HTTP response evidence. The fixture
+uses documentation IPv4 space. Tests materialize in-memory flow rows and
+reduced application observations. Replay runs entirely in process against
+that synthetic telemetry. [Fixture and independent label oracle](../internal/control/flow_ddos_benchmark_test.go)
 
-The build exercises the same row projection, detector and two-window
-episode evaluation used by saved-view alerting. The elapsed observation time
-starts at the first modeled current window. The timing command measures
-in-process generation, projection, classification and episode evaluation
-over the 13 trials. It reports nanoseconds and allocations per full corpus
-iteration. Storage queries, ingestion, scheduler delay, and notification
-delivery are outside this measure.
+Each trial evaluates two adjacent five-second windows against the same UTC
+clocks from the previous week. The detector uses the same projection, traffic
+classification, application comparison and episode decision as saved rule
+evaluation. Modeled onset covers time from the synthetic event's start to
+the second qualifying close, including up to four seconds before the first
+full window. The benchmark command measures in-process allocation and runtime
+for a complete corpus. Exporter flush, ingestion, storage reads, scheduler
+queueing and delivery add their own time in deployment.
 
-The accuracy command emits three types of records in its Go test log.
+The corpus exercises sustained volume, sampled observations, TCP flag
+pressure, five UDP service associations, changing network signals, destination
+spread, stable load, isolated spikes and incomplete observations. The flash
+crowd and volume-pressure fixture share identical flow rows. For an explicitly
+bound ingress host, the application plane determines whether independently
+observed successful requests explain both byte and packet growth on the
+configured TCP port and across the protected host. Pressure on other ports
+can open an episode even during healthy growth on the bound service. Healthy
+response outcomes and comparable latency are required for suppression. Missing or ambiguous
+bound evidence leaves generic pressure unevaluated for alarm admission. A
+strong network vector can still qualify using its own flow evidence.
 
-| Field | Meaning |
+| Output field | Meaning |
 | --- | --- |
-| `fixture_manifest_sha256` | Digest of the deterministic corpus parameters, clocks, detector settings, and labels |
-| `fixture_rows_sha256` | Digest of the materialized flow rows in replay order |
-| `case` | Stable version-one trial name |
-| `label_positive` | Synthetic event oracle label |
-| `class` | Episode class or empty for no episode |
-| `service` | Observed UDP service association, when available |
-| `abstained` | An incomplete observation prevented assessment |
-| `episode_delay_seconds` | Modeled time from the first current window to an episode, or zero when no episode opens |
-| `true_positive`, `false_positive`, `true_negative`, `false_negative` | Classified case totals |
-| `abstained_positive`, `abstained_negative` | Unavailable cases by oracle label |
+| `fixture_manifest_sha256` | Exact corpus settings, trial parameters, clocks and independent labels |
+| `fixture_rows_sha256` | Materialized flow and application observations at the original replay clocks |
+| `case`, `label_positive` | Stable trial ID and independent synthetic event label |
+| `class`, `service` | Opened episode class and observed UDP service when available |
+| `abstained`, `demand_explained` | Coverage refusal or independently corroborated benign demand |
+| `unrelated_pressure` | Traffic outside the selected TCP service exceeded the flow thresholds |
+| `episode_delay_seconds` | Modeled seconds to an opened episode |
+| `true_positive`, `false_positive`, `true_negative`, `false_negative` | Classified totals |
+| `abstained_positive`, `abstained_negative` | Coverage refusals, reported independently by label |
+| `onset_min`, `onset_p50`, `onset_p95`, `onset_max` | Modeled onset distribution across opened episodes |
 
-## Version-one results
+## Published results
 
-The Go 1.26.11 run on macOS arm64 reproduced both corpus digests on two
-independent executions.
+Go 1.26.11 on macOS arm64 with an Apple M1 Max reproduced the same manifest
+and materialized observation digests in two independent accuracy runs.
 
-- Manifest SHA-256 `253cce51b168824e4f82c5b9e0b6b0f2295283158823159b3c4a0f88ffa39500`.
-- Materialized rows SHA-256 `7922db20097553c399aad58de9eef26fff3c901f0a5f2baecfaad250fc4ce315`.
-
-| Result | Trials |
+| Measure | Result |
 | --- | --- |
-| True positives | 2 volume, including sampled input, 1 TCP SYN, 1 suspected UDP reflection, 1 distributed destination |
-| False positive | 1 benign flash crowd classified as volume pressure |
-| True negatives | 4, covering stable traffic, one elevated window, the observation floor and differing consecutive vectors |
-| False negative | 1 low-intensity case below the configured floors |
-| Abstentions | 1 positive and 1 benign case with incomplete coverage |
+| Fixture manifest SHA-256 | `5aa5d0055e73fd3f76d8a65c849bd625ad314f06d8cbe20897a32cf97914c9f7` |
+| Materialized observations SHA-256 | `64057bf4f52fba28440f2e341530b49f0dbee616a88cd688a88a412a4c6cc87b` |
+| True positives / false positives | 208 / 0 |
+| True negatives / false negatives | 80 / 16 |
+| Abstained positives / abstained negatives | 48 / 64 |
+| Modeled onset min / median / p95 / max | 10 s / 12 s / 14 s / 14 s |
+| In-process runtime per 416-trial corpus | 44.57–55.74 ms across five runs |
 
-Precision was 5/6. Recall was 5/6 among classified positive trials and 5/7
-when counting the abstained positive in the denominator. The detector
-abstained on 2/13 trials. Every episode opened at 120 seconds of modeled
-observation. The Apple M1 Max run with two Go workers measured 0.232–0.235
-ms per iteration of all 13 trials across five runs. Each iteration
-allocated roughly 194 kB in 4,966 allocations.
+The detector classified 304 of 416 trials. The 48 abstained positives bring
+the number of positive trials without an opened episode to 64. All 16 matched
+flash-crowd replays were corroborated as healthy demand. The low-intensity
+controls account for the 16 classified misses. The positive abstentions
+cover incomplete flow, unavailable application context and a mixed packet
+profile outside the observed application demand. The two
+separate-port pressure families still produced episodes.
 
-The flash crowd deliberately has the same observed aggregates as the
-volume-pressure case. Both produce the same episode class. The fixture
-reports accuracy only for these 13 cases and the checked-in thresholds.
-Deployment false-alarm rates and attack attribution require separate data.
+Version one used 13 trials and two completed 60-second windows. A benign
+flash crowd opened a tentative volume episode on identical aggregates. Its
+source and results remain reproducible at the original commit. [Version-one benchmark and results](https://github.com/ctlplne/probectl/blob/d79fc7993d09b3ce1d4e8242b7b5c869100d2537/docs/ddos-detection-benchmark.md)
 
-The observed UDP service association carries the same evidence limit as
-the shipped response workflow. See the
-[DDoS response runbook](ddos-response-runbook.md).
+## Comparison scope
+
+NETSCOUT documents Arbor Sightline monitoring by managed object using flow,
+routing and device telemetry, along with configured filters and threat-feed
+context. Radware documents DefensePro using learned traffic baselines and
+multiple request characteristics to distinguish anomalous HTTPS load from
+flash crowds. These are public capability descriptions. The probectl corpus
+measures specific local detection behaviors. Vendor-equivalent accuracy and
+latency require side-by-side measurement. [Arbor Sightline architecture](https://www.netscout.com/sites/default/files/2020-09/SECJTF_003_EN-2001%20-%20Arbor%20Sightline%20-%20How%20It%20Works.pdf) · [Radware HTTPS flood detection](https://support.radware.com/app/answers/answer_view/a_id/1030072/~/the-defensepro-https-flood-protection-module)
+
+See the response runbook for configuring a short window, selecting authorized
+application evidence and reviewing the resulting signals. [DDoS response runbook](ddos-response-runbook.md)

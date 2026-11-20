@@ -23,6 +23,17 @@ const labels: Record<FlowDDoSDetection['class'], string> = {
   volumetric_pressure: 'Volumetric pressure',
 }
 
+const applicationEvidenceLabels = {
+  observed_application_demand: 'Successful requests did not increase with the flow pressure',
+  application_health_degraded: 'HTTP response health degraded during flow pressure',
+  traffic_growth_explained_by_healthy_application_demand:
+    'Healthy application demand explains the spike',
+  application_demand_does_not_explain_all_traffic:
+    'Application demand leaves some flow growth unexplained',
+  traffic_outside_bound_application_exceeds_threshold:
+    'Traffic outside the selected TCP service exceeded the configured floors',
+}
+
 const directions = [
   { value: 'ingress', label: 'Ingress toward the prefix' },
   { value: 'egress', label: 'Egress from the prefix' },
@@ -105,7 +116,7 @@ function DDoSAssessmentForm({
         >
           <fieldset className={styles.group} disabled={assessment.isPending}>
             <legend>Compare completed traffic windows</legend>
-            <DDoSAssessmentFields input={input} onChange={setInput} />
+            <DDoSAssessmentFields input={input} savedPeriod={period} onChange={setInput} />
             <div>
               <Button type="submit">Assess traffic</Button>
             </div>
@@ -126,14 +137,26 @@ function DDoSAssessmentForm({
 
 export function DDoSAssessmentFields({
   input,
+  savedPeriod,
   onChange,
 }: {
   input: FlowDDoSAssessmentInput
+  savedPeriod: number
   onChange: (input: FlowDDoSAssessmentInput) => void
 }) {
   const update = (patch: Partial<FlowDDoSAssessmentInput>) => onChange({ ...input, ...patch })
+  const application = input.application
   return (
     <div className={styles.grid}>
+      <Select
+        label="Observation window"
+        options={Array.from(new Set([5, 10, savedPeriod])).map((seconds) => ({
+          value: String(seconds),
+          label: `${seconds} seconds`,
+        }))}
+        value={String(input.period_seconds)}
+        onChange={(event) => update({ period_seconds: Number(event.target.value) })}
+      />
       <Field
         label="Protected prefix"
         value={input.prefix}
@@ -146,7 +169,10 @@ export function DDoSAssessmentFields({
         options={directions}
         value={input.direction}
         onChange={(event) =>
-          update({ direction: event.target.value as FlowDDoSAssessmentInput['direction'] })
+          update({
+            direction: event.target.value as FlowDDoSAssessmentInput['direction'],
+            application: event.target.value === 'ingress' ? input.application : undefined,
+          })
         }
       />
       {(
@@ -166,6 +192,35 @@ export function DDoSAssessmentFields({
           onChange={(event) => update({ [key]: event.target.value })}
         />
       ))}
+      {input.direction === 'ingress' && (
+        <Field
+          label="HTTP service for demand comparison"
+          hint="Optional. Use the telemetry service name for this exact host prefix."
+          maxLength={128}
+          value={input.application?.service ?? ''}
+          onChange={(event) => {
+            const service = event.target.value
+            update({
+              application: service ? { service, port: input.application?.port ?? 443 } : undefined,
+            })
+          }}
+        />
+      )}
+      {application && (
+        <Field
+          label="HTTP server port"
+          type="number"
+          min={1}
+          max={65535}
+          required
+          value={Number.isNaN(application.port) ? '' : application.port}
+          onChange={(event) =>
+            update({
+              application: { service: application.service, port: event.target.valueAsNumber },
+            })
+          }
+        />
+      )}
       {numericFields.map(({ key, label, min, max }) => (
         <Field
           key={key}
@@ -184,11 +239,16 @@ export function DDoSAssessmentFields({
 
 export function DDoSAssessmentEvidence({ result }: { result: FlowDDoSAssessment }) {
   const detection = result.detection
+  const application = result.application
   return (
     <>
       <p role="status">
         {result.prefix} · {result.direction} ·{' '}
-        {detection ? labels[detection.class] : 'No detection met the thresholds'}
+        {detection
+          ? labels[detection.class]
+          : application
+            ? applicationEvidenceLabels[application.state]
+            : 'No detection met the thresholds'}
       </p>
       {detection && (
         <p>
@@ -199,6 +259,18 @@ export function DDoSAssessmentEvidence({ result }: { result: FlowDDoSAssessment 
           {detection.contributing_packets &&
             ` · ${detection.contributing_packets} contributing packets`}
         </p>
+      )}
+      {application && (
+        <div>
+          {detection && <p>{applicationEvidenceLabels[application.state]}</p>}
+          <p>
+            Successful requests {application.reference.successful_requests} →{' '}
+            {application.current.successful_requests}. Matching flow{' '}
+            {application.reference.matching_flow_bytes} → {application.current.matching_flow_bytes}{' '}
+            bytes and {application.reference.matching_flow_packets} →{' '}
+            {application.current.matching_flow_packets} packets.
+          </p>
+        </div>
       )}
       <dl className={styles.summary}>
         <EvidenceWindow label="Same time last week" evidence={result.before} />
