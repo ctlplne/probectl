@@ -79,6 +79,12 @@ export function IncidentRoutingProposal({
   const diversionFile = useProposeDiversion()
   const preview = diversion ? diversionPreview : flowSpec ? flowSpecPreview : rtbhPreview
   const file = diversion ? diversionFile : flowSpec ? flowSpecFile : rtbhFile
+  const previewError = diversion
+    ? diversionPreview.error
+    : flowSpec
+      ? flowSpecPreview.error
+      : rtbhPreview.error
+  const fileError = diversion ? diversionFile.error : flowSpec ? flowSpecFile.error : rtbhFile.error
   const busy = preview.isPending || file.isPending
 
   function previewRouting(event: FormEvent) {
@@ -331,7 +337,7 @@ export function IncidentRoutingProposal({
       {contexts.isError || entities.isError || views.isError ? (
         <p role="alert">Could not load current routing sources.</p>
       ) : null}
-      {preview.isError ? <p role="alert">{preview.error.message}</p> : null}
+      {previewError ? <p role="alert">{previewError.message}</p> : null}
       {evidence ? (
         <>
           <dl aria-label="Scoped routing preview">
@@ -379,7 +385,7 @@ export function IncidentRoutingProposal({
           </Button>
         </>
       ) : null}
-      {file.isError ? <p role="alert">{file.error.message}</p> : null}
+      {fileError ? <p role="alert">{fileError.message}</p> : null}
       {file.isSuccess ? (
         <p role="status">Routing proposal filed for independent review in Admin.</p>
       ) : null}

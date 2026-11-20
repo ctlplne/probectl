@@ -126,17 +126,7 @@ func validateReportSourceRequirements(ctx context.Context, value reportSourceReq
 		return err
 	}
 	if value.Version == 8 {
-		tenant, bound := tenancy.FromContext(ctx)
-		ddos := value.DDoSReport
-		if !bound || tenant.String() != value.TenantID || !reportRequirementUUID(value.TenantID) || ddos == nil ||
-			!validDDoSReportSelection(ddos.Selection) || !alert.ValidFieldDigest(ddos.ReceiptDigest) ||
-			(ddos.DecisionDigest != "" && !alert.ValidFieldDigest(ddos.DecisionDigest)) ||
-			ddos.ObservedFrom.IsZero() || !ddos.ObservedFrom.Before(ddos.ObservedTo) ||
-			value.ComplianceControl != "" || value.ComplianceFlow != nil || value.Monthly != nil || len(value.Claims) != 0 ||
-			len(value.Inputs) != 0 || len(value.Permissions) != 0 || len(value.Contexts) != 0 || value.ContextSources || value.ContextsCaptured {
-			return errReportSourceRequirements
-		}
-		return nil
+		return validateDDoSReportSourceRequirements(ctx, value)
 	}
 	if value.DDoSReport != nil {
 		return errReportSourceRequirements
@@ -168,6 +158,25 @@ func validateReportSourceRequirements(ctx context.Context, value reportSourceReq
 	if value.Monthly != nil {
 		return errReportSourceRequirements
 	}
+	return validateFlowReportSourceRequirements(ctx, value, memory)
+}
+
+func validateDDoSReportSourceRequirements(ctx context.Context, value reportSourceRequirements) error {
+	tenant, bound := tenancy.FromContext(ctx)
+	ddos := value.DDoSReport
+	if !bound || tenant.String() != value.TenantID || !reportRequirementUUID(value.TenantID) || ddos == nil ||
+		!validDDoSReportSelection(ddos.Selection) || !alert.ValidFieldDigest(ddos.ReceiptDigest) ||
+		(ddos.DecisionDigest != "" && !alert.ValidFieldDigest(ddos.DecisionDigest)) ||
+		ddos.ObservedFrom.IsZero() || !ddos.ObservedFrom.Before(ddos.ObservedTo) ||
+		value.ComplianceControl != "" || value.ComplianceFlow != nil || value.Monthly != nil || len(value.Claims) != 0 ||
+		len(value.Inputs) != 0 || len(value.Permissions) != 0 || len(value.Contexts) != 0 || value.ContextSources || value.ContextsCaptured {
+		return errReportSourceRequirements
+	}
+	return nil
+
+}
+
+func validateFlowReportSourceRequirements(ctx context.Context, value reportSourceRequirements, memory int64) error {
 	tenant, ok := tenancy.FromContext(ctx)
 	if !ok || value.Version != 1 && value.Version != 2 || tenant.String() != value.TenantID || !reportRequirementUUID(value.TenantID) ||
 		len(value.Inputs) == 0 || !slices.Contains(value.Permissions, permAIQuery) || !slices.Contains(value.Permissions, permFlowRead) {

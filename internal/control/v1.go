@@ -199,25 +199,6 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPut, "/v1/governance/policy", s.handleGovernancePolicyPut, permGovernanceWrite},
 		{http.MethodGet, "/v1/diagnostics", s.handleDiagnostics, permDiagnosticsRead},
 		{http.MethodGet, "/v1/diagnostics/bundle", s.handleDiagnosticsBundle, permDiagnosticsRead},
-		{http.MethodGet, "/v1/remediation/proposals", s.handleRemediationList, permRemediationPropose},
-		{http.MethodPost, "/v1/remediation/proposals", s.handleRemediationPropose, permRemediationPropose},
-		{http.MethodPost, "/v1/remediation/rtbh-preview", s.handleRTBHPreview, permRemediationPropose},
-		{http.MethodPost, "/v1/remediation/rtbh-proposals", s.handleProposeRTBHReview, permRemediationPropose},
-		{http.MethodPost, "/v1/remediation/flowspec-preview", s.handleFlowSpecPreview, permRemediationPropose},
-		{http.MethodPost, "/v1/remediation/flowspec-proposals", s.handleProposeFlowSpecReview, permRemediationPropose},
-		{http.MethodGet, "/v1/remediation/proposals/{id}", s.handleRemediationGet, permRemediationPropose},
-		{http.MethodGet, "/v1/remediation/proposals/{id}/routing-review", s.handleGetRTBHReview, permRemediationPropose},
-		{http.MethodGet, "/v1/remediation/proposals/{id}/flowspec-review", s.handleGetFlowSpecReview, permRemediationPropose},
-		{http.MethodPost, "/v1/remediation/proposals/{id}/flowspec-qualification", s.handleQualifyFlowSpec, permRemediationPropose},
-		{http.MethodPost, "/v1/remediation/proposals/{id}/flowspec-approve", s.handleApproveFlowSpecReview, permRemediationApprove},
-		{http.MethodGet, "/v1/remediation/proposals/{id}/flowspec-handoff", s.handleGetFlowSpecHandoff, permRemediationPropose},
-		{http.MethodPost, "/v1/remediation/proposals/{id}/flowspec-withdraw", s.handleWithdrawFlowSpecHandoff, permRemediationApprove},
-		{http.MethodPost, "/v1/remediation/diversion-preview", s.handlePreviewDiversion, permRemediationPropose},
-		{http.MethodPost, "/v1/remediation/diversion-proposals", s.handleProposeDiversion, permRemediationPropose},
-		{http.MethodGet, "/v1/remediation/proposals/{id}/diversion-review", s.handleGetDiversionReview, permRemediationPropose},
-		{http.MethodPost, "/v1/remediation/proposals/{id}/diversion-approve", s.handleApproveDiversion, permRemediationApprove},
-		{http.MethodPost, "/v1/remediation/proposals/{id}/approve", s.handleRemediationApprove, permRemediationApprove},
-		{http.MethodPost, "/v1/remediation/proposals/{id}/reject", s.handleRemediationReject, permRemediationApprove},
 		{http.MethodPost, "/v1/security/keys/rotate", s.handleKeysRotate, permSecurityKeys},
 		{http.MethodPost, "/v1/topology/whatif", s.handleWhatIf, ai.PermTopologyRead},
 		{http.MethodGet, "/v1/topology/whatif/export", s.handleWhatIfExport, ai.PermTopologyRead},
@@ -291,6 +272,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/me", s.handleMe, ""},
 	}
 	routes = append(routes, s.alertRoutes()...)
+	routes = append(routes, s.remediationRoutes()...)
 	routes = append(routes, s.flowRoutes()...)
 	routes = append(routes, s.tagRoutes()...)
 	return append(routes, s.interfaceRoleRoutes()...)
@@ -331,6 +313,30 @@ func (s *Server) alertRoutes() []apiRoute {
 		{http.MethodGet, "/v1/alerts/{id}", s.handleGetAlert, permAlertRead},
 		{http.MethodPut, "/v1/alerts/{id}", s.handleUpdateAlert, permAlertWrite},
 		{http.MethodDelete, "/v1/alerts/{id}", s.handleDeleteAlert, permAlertWrite},
+	}
+}
+
+func (s *Server) remediationRoutes() []apiRoute {
+	return []apiRoute{
+		{http.MethodGet, "/v1/remediation/proposals", s.handleRemediationList, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/proposals", s.handleRemediationPropose, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/rtbh-preview", s.handleRTBHPreview, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/rtbh-proposals", s.handleProposeRTBHReview, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/flowspec-preview", s.handleFlowSpecPreview, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/flowspec-proposals", s.handleProposeFlowSpecReview, permRemediationPropose},
+		{http.MethodGet, "/v1/remediation/proposals/{id}", s.handleRemediationGet, permRemediationPropose},
+		{http.MethodGet, "/v1/remediation/proposals/{id}/routing-review", s.handleGetRTBHReview, permRemediationPropose},
+		{http.MethodGet, "/v1/remediation/proposals/{id}/flowspec-review", s.handleGetFlowSpecReview, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/proposals/{id}/flowspec-qualification", s.handleQualifyFlowSpec, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/proposals/{id}/flowspec-approve", s.handleApproveFlowSpecReview, permRemediationApprove},
+		{http.MethodGet, "/v1/remediation/proposals/{id}/flowspec-handoff", s.handleGetFlowSpecHandoff, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/proposals/{id}/flowspec-withdraw", s.handleWithdrawFlowSpecHandoff, permRemediationApprove},
+		{http.MethodPost, "/v1/remediation/diversion-preview", s.handlePreviewDiversion, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/diversion-proposals", s.handleProposeDiversion, permRemediationPropose},
+		{http.MethodGet, "/v1/remediation/proposals/{id}/diversion-review", s.handleGetDiversionReview, permRemediationPropose},
+		{http.MethodPost, "/v1/remediation/proposals/{id}/diversion-approve", s.handleApproveDiversion, permRemediationApprove},
+		{http.MethodPost, "/v1/remediation/proposals/{id}/approve", s.handleRemediationApprove, permRemediationApprove},
+		{http.MethodPost, "/v1/remediation/proposals/{id}/reject", s.handleRemediationReject, permRemediationApprove},
 	}
 }
 
