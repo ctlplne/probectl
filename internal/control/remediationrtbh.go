@@ -63,6 +63,35 @@ func (s *Server) handleRTBHPreview(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
+func (s *Server) handleFlowSpecPreview(w http.ResponseWriter, r *http.Request) error {
+	svc, err := s.remediationSvc()
+	if err != nil {
+		return err
+	}
+	preview, installed := svc.(remediation.FlowSpecPreviewer)
+	if !installed {
+		return apierror.NotFound("traffic review is unavailable")
+	}
+	tenant, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	var input remediation.FlowSpecPreviewInput
+	if err := decodeJSONLimit(r, 4096, &input); err != nil {
+		return err
+	}
+	actor := auth.PrincipalFrom(r.Context())
+	result, err := preview.PreviewFlowSpec(r.Context(), tenant, input, s.pathAlertRequestCredential(r, actor))
+	if err != nil {
+		if _, typed := apierror.As(err); typed {
+			return err
+		}
+		return mapRemediationErr(err)
+	}
+	writeJSON(w, http.StatusOK, result)
+	return nil
+}
+
 type prefixImpactInventory struct {
 	protected entity.Record
 	benign    entity.Record
@@ -70,10 +99,11 @@ type prefixImpactInventory struct {
 }
 
 type prefixImpactCapture struct {
-	view    reportFlowSourceRef
-	prefix  netip.Prefix
-	width   time.Duration
-	origins []store.PrefixImpactFlowBinding
+	view      reportFlowSourceRef
+	prefix    netip.Prefix
+	width     time.Duration
+	origins   []store.PrefixImpactFlowBinding
+	transport *remediation.FlowSpecTransport
 }
 
 func (c prefixImpactCapture) preparePlan(plan *flow.QueryPlan) error {
@@ -87,6 +117,15 @@ func (c prefixImpactCapture) preparePlan(plan *flow.QueryPlan) error {
 		Groups: []flow.QueryFilterGroup{prefixImpactSenderGroup(c.origins)}}
 	plan.View, plan.DataSeries = "table", "raw"
 	plan.GroupBy, plan.MatrixWith = []string{"agent_id", "exporter", "dst_addr", "src_addr", "sampling"}, nil
+	if c.transport != nil {
+		plan.GroupBy = append(plan.GroupBy, "transport")
+		if c.transport.SourcePort != nil {
+			plan.GroupBy = append(plan.GroupBy, "src_port")
+		}
+		if c.transport.DestinationPort != nil {
+			plan.GroupBy = append(plan.GroupBy, "dst_port")
+		}
+	}
 	plan.Metrics = []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"},
 		{Measure: "packets", Calculation: "total", Role: "additional"}, {Measure: "flows", Calculation: "total", Role: "additional"}}
 	plan.RowLimit, plan.PageSize = 25, 25
@@ -114,6 +153,19 @@ func (s *Server) ObservePrefixImpact(ctx context.Context, tenantID string, input
 
 func (s *Server) PreparePrefixImpact(ctx context.Context, tenantID string, input remediation.PrefixImpactInput,
 	observedTo time.Time, credential func(context.Context) error) (remediation.RTBHImpactPublication, error) {
+	return s.prepareRoutingImpact(ctx, tenantID, input, nil, observedTo, credential)
+}
+
+func (s *Server) PrepareFlowSpecImpact(ctx context.Context, tenantID string, input remediation.PrefixImpactInput,
+	transport remediation.FlowSpecTransport, observedTo time.Time, credential func(context.Context) error) (remediation.RTBHImpactPublication, error) {
+	if err := transport.Validate(); err != nil {
+		return remediation.RTBHImpactPublication{}, err
+	}
+	return s.prepareRoutingImpact(ctx, tenantID, input, &transport, observedTo, credential)
+}
+
+func (s *Server) prepareRoutingImpact(ctx context.Context, tenantID string, input remediation.PrefixImpactInput,
+	transport *remediation.FlowSpecTransport, observedTo time.Time, credential func(context.Context) error) (remediation.RTBHImpactPublication, error) {
 	var empty remediation.RTBHImpactPublication
 	actor := auth.PrincipalFrom(ctx)
 	if actor == nil || actor.UserID == "" || actor.TenantID == "" || actor.TenantID != tenantID || credential == nil {
@@ -173,7 +225,8 @@ func (s *Server) PreparePrefixImpact(ctx context.Context, tenantID string, input
 	if err != nil || benign.Bits() < 1 || benign.Addr().BitLen() != protected.Addr().BitLen() {
 		return empty, apierror.Validation("the known benign prefix must use the protected prefix address family")
 	}
-	settings := prefixImpactCapture{view: reportFlowSourceRef{ID: input.WholeViewID, Version: input.WholeViewVersion}, prefix: protected, width: width, origins: inventory.origins}
+	settings := prefixImpactCapture{view: reportFlowSourceRef{ID: input.WholeViewID, Version: input.WholeViewVersion}, prefix: protected, width: width,
+		origins: inventory.origins, transport: transport}
 	capture, err := s.captureFlowSourcesWithOptions(ctx, actor, []reportFlowSourceRef{settings.view}, true, false, reportFlowCaptureOptions{
 		SeasonalPeriodEnds: []time.Time{observedTo}, CombineSeasonal: true, PrefixImpact: &settings, ReservedMemoryBytes: budget.MemoryBytes / 4,
 	})
@@ -184,7 +237,7 @@ func (s *Server) PreparePrefixImpact(ctx context.Context, tenantID string, input
 	if len(capture.Results) != 1 || !matchFlowEvidenceClocks(capture.Inputs, settings.view, []time.Time{observedTo}, width) {
 		return empty, apierror.Conflict("complete observations for the whole protected prefix are required")
 	}
-	impact, err := projectPrefixImpact(ctx, capture.Results[0], settings, benign, budget.MemoryBytes/8)
+	impact, whole, err := projectPrefixImpact(ctx, capture.Results[0], settings, benign, budget.MemoryBytes/8)
 	if err != nil {
 		return empty, mapDDoSCoverage(err)
 	}
@@ -222,12 +275,13 @@ func (s *Server) PreparePrefixImpact(ctx context.Context, tenantID string, input
 		Generation        int64
 		ViewID, Version   string
 		From, To          time.Time
+		FlowSpec          *remediation.FlowSpecTransport `json:"flow_spec,omitempty"`
 	}{originalDigest, inventory.protected.UpdatedAt.UTC(), inventory.benign.UpdatedAt.UTC(), inventory.origins, capture.SourceGeneration,
-		capture.Inputs[0].ID, capture.Inputs[0].Version, capture.Inputs[0].From.UTC(), capture.Inputs[0].To.UTC()})
+		capture.Inputs[0].ID, capture.Inputs[0].Version, capture.Inputs[0].From.UTC(), capture.Inputs[0].To.UTC(), transport})
 	if err != nil {
 		return empty, err
 	}
-	return remediation.RTBHImpactPublication{Impact: impact, Scope: scope,
+	return remediation.RTBHImpactPublication{Impact: impact, WholeScope: whole, Scope: scope,
 		Publish: func(ctx context.Context, sc tenancy.Scope, permission string, commit func(context.Context, tenancy.Scope) error) error {
 			return s.publishRTBHReview(ctx, sc, actor, input, permission, budget.MemoryBytes/8, originalDigest, proof.Previous.Before.From, inventory, capture, commit)
 		}}, ctx.Err()
@@ -350,40 +404,64 @@ type prefixImpactTotals struct {
 	addresses                                  map[netip.Addr]struct{}
 }
 
-func projectPrefixImpact(ctx context.Context, captured capturedReportFlow, settings prefixImpactCapture, benign netip.Prefix, memory int64) (remediation.PrefixImpact, error) {
+func projectPrefixImpact(ctx context.Context, captured capturedReportFlow, settings prefixImpactCapture, benign netip.Prefix, memory int64) (remediation.PrefixImpact, *remediation.PrefixImpact, error) {
 	var empty remediation.PrefixImpact
 	tenant, ok := tenancy.FromContext(ctx)
 	if !ok || tenant.String() != captured.TenantID {
-		return empty, tenancy.ErrNoTenant
+		return empty, nil, tenancy.ErrNoTenant
 	}
 	result := captured.Result
 	if result.Source != "raw" || result.Coverage == nil || !result.Coverage.CompleteInputs || result.OldestInput.IsZero() ||
 		result.DetailLimited || result.Other != nil || len(result.Rows) == 0 || int64(len(result.Rows)) > memory/512 {
-		return empty, anomaly.ErrDDoSCoverage
+		return empty, nil, anomaly.ErrDDoSCoverage
 	}
 	totals := prefixImpactTotals{addresses: make(map[netip.Addr]struct{})}
+	var matched prefixImpactTotals
+	if settings.transport != nil {
+		matched.addresses = make(map[netip.Addr]struct{})
+	}
 	origins := make(map[store.PrefixImpactFlowBinding]bool, len(settings.origins))
 	for _, origin := range settings.origins {
 		origins[store.PrefixImpactFlowBinding{AgentID: origin.AgentID, Exporter: origin.Exporter}] = true
 	}
 	for _, row := range result.Rows {
 		if err := ctx.Err(); err != nil {
-			return empty, err
+			return empty, nil, err
 		}
 		exporter, err := netip.ParseAddr(row.Group["exporter"])
 		if err != nil || !origins[store.PrefixImpactFlowBinding{AgentID: row.Group["agent_id"], Exporter: exporter.Unmap()}] {
-			return empty, anomaly.ErrDDoSCoverage
+			return empty, nil, anomaly.ErrDDoSCoverage
 		}
 		if err := totals.add(row, settings.prefix, benign); err != nil {
-			return empty, err
+			return empty, nil, err
+		}
+		if settings.transport == nil {
+			continue
+		}
+		switch flowSpecDecisionFromRetainedRow(*settings.transport, row.Group) {
+		case remediation.FlowSpecTransportOutside:
+		case remediation.FlowSpecTransportInside:
+			if err := matched.add(row, settings.prefix, benign); err != nil {
+				return empty, nil, err
+			}
+		default:
+			return empty, nil, anomaly.ErrDDoSCoverage
 		}
 	}
-	return remediation.PrefixImpact{Prefix: settings.prefix.String(), From: result.Query.From, To: result.Query.To, Sampled: totals.sampled,
+	if settings.transport == nil {
+		return totals.impact(settings.prefix, result.Query.From, result.Query.To), nil, ctx.Err()
+	}
+	whole := totals.impact(settings.prefix, result.Query.From, result.Query.To)
+	return matched.impact(settings.prefix, result.Query.From, result.Query.To), &whole, ctx.Err()
+}
+
+func (totals *prefixImpactTotals) impact(prefix netip.Prefix, from, to time.Time) remediation.PrefixImpact {
+	return remediation.PrefixImpact{Prefix: prefix.String(), From: from, To: to, Sampled: totals.sampled,
 		ObservedRecords: totals.records, ObservedAddresses: len(totals.addresses),
 		Matched:     remediation.PrefixTraffic{Bytes: totals.bytes.String(), Packets: totals.packets.String()},
 		KnownBenign: remediation.PrefixTraffic{Bytes: totals.benignBytes.String(), Packets: totals.benignPackets.String()},
 		Unclassified: remediation.PrefixTraffic{Bytes: new(big.Int).Sub(&totals.bytes, &totals.benignBytes).String(),
-			Packets: new(big.Int).Sub(&totals.packets, &totals.benignPackets).String()}}, ctx.Err()
+			Packets: new(big.Int).Sub(&totals.packets, &totals.benignPackets).String()}}
 }
 
 func (totals *prefixImpactTotals) add(row flowstore.PlanRow, protected, benign netip.Prefix) error {

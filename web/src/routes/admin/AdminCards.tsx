@@ -20,12 +20,15 @@ import {
   StatusDot,
   Table,
 } from '../../components'
+import { FlowSpecEvidence } from '../../components/FlowSpecEvidence'
 import { ApiError } from '../../api/client'
 import { useEditions } from '../../api/editions'
 import { useKeys, useRotateKey, type KeyInfo } from '../../api/keys'
 import {
   useRemediations,
+  useApproveFlowSpec,
   useDecideRemediation,
+  useFlowSpecReview,
   useRTBHReview,
   type Proposal,
 } from '../../api/remediation'
@@ -46,13 +49,20 @@ export function RemediationCard() {
   const identity = `${tenant.id}:${user.id}`
   const { data, isPending, isError, error } = useRemediations(true, identity)
   const decide = useDecideRemediation()
+  const approveFlowSpec = useApproveFlowSpec()
   // WEB-21 (G8): a remediation decision is human-gated. The row never decides;
   // Approve/Reject fire only from the review dialog, after the operator has seen
   // the dry-run blast radius and the "probectl never executes" guardrail note.
   const [selection, setSelection] = useState<{ identity: string; proposal: Proposal } | null>(null)
   const reviewing = selection?.identity === identity ? selection.proposal : null
-  const routing = reviewing?.kind === 'rtbh_review'
-  const review = useRTBHReview(routing ? reviewing?.id : undefined, identity)
+  const isRTBH = reviewing?.kind === 'rtbh_review'
+  const isFlowSpec = reviewing?.kind === 'flowspec_review'
+  const routing = isRTBH || isFlowSpec
+  const rtbhReview = useRTBHReview(isRTBH ? reviewing?.id : undefined, identity)
+  const flowSpecReview = useFlowSpecReview(isFlowSpec ? reviewing?.id : undefined, identity)
+  const review = isFlowSpec ? flowSpecReview : rtbhReview
+  const decisionPending = approveFlowSpec.isPending || decide.isPending
+  const decisionError = approveFlowSpec.error ?? decide.error
   const ready =
     review.data &&
     !review.isError &&
@@ -145,9 +155,9 @@ export function RemediationCard() {
             }
           />
         )}
-        {decide.isError ? (
+        {decisionError ? (
           <p role="alert" className={styles.editionsLede}>
-            {decide.error.message}
+            {decisionError.message}
           </p>
         ) : null}
         {reviewing ? (
@@ -162,7 +172,7 @@ export function RemediationCard() {
                 </Button>
                 <Button
                   variant="ghost"
-                  disabled={decide.isPending}
+                  disabled={decisionPending}
                   onClick={() => {
                     decide.mutate({ id: reviewing.id, decision: 'reject' })
                     setSelection(null)
@@ -174,12 +184,19 @@ export function RemediationCard() {
                   variant="primary"
                   disabled={
                     !approvalsEnabled ||
-                    decide.isPending ||
+                    decisionPending ||
                     (routing && (!fingerprint || !permissions.includes('remediation.approve')))
                   }
                   onClick={() => {
                     if (routing && !fingerprint) return
-                    decide.mutate({ id: reviewing.id, decision: 'approve', fingerprint })
+                    if (isFlowSpec && fingerprint) {
+                      approveFlowSpec.mutate({
+                        id: reviewing.id,
+                        input: { review_fingerprint: fingerprint },
+                      })
+                    } else {
+                      decide.mutate({ id: reviewing.id, decision: 'approve', fingerprint })
+                    }
                     setSelection(null)
                   }}
                 >
@@ -222,8 +239,19 @@ export function RemediationCard() {
             {routing && review.isError ? (
               <p role="alert">Current routing evidence is unavailable.</p>
             ) : null}
-            {routing && review.data && !review.isError ? (
-              <RoutingReviewEvidence review={review.data} />
+            {isRTBH && rtbhReview.data && !rtbhReview.isError ? (
+              <RoutingReviewEvidence review={rtbhReview.data} />
+            ) : null}
+            {isFlowSpec && flowSpecReview.data && !flowSpecReview.isError ? (
+              <dl aria-label="FlowSpec mitigation evidence">
+                <FlowSpecEvidence preview={flowSpecReview.data.proposal} />
+                <dt>Benign packet limit</dt>
+                <dd>{flowSpecReview.data.max_known_benign_packets}</dd>
+                <dt>Review expires</dt>
+                <dd>
+                  <DateTime value={flowSpecReview.data.expires_at} />
+                </dd>
+              </dl>
             ) : null}
             <p role="note" className={styles.editionsLede}>
               {t('remediation.reviewGuardrail')}

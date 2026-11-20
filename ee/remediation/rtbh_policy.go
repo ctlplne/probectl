@@ -17,9 +17,13 @@ import (
 // The existing blast limit is an upper bound on the address space of the
 // announcement. The observed address count is separate collateral evidence.
 func rtbhBlastRadius(preview rem.RTBHPreview, limit int) (int, error) {
-	prefix, err := netip.ParsePrefix(preview.Announcement.Prefix)
+	return routingReviewBlastRadius(preview.Announcement.Prefix, preview.Impact.Prefix, limit)
+}
+
+func routingReviewBlastRadius(destination, observedPrefix string, limit int) (int, error) {
+	prefix, err := netip.ParsePrefix(destination)
 	if err != nil || prefix.Bits() < 1 || prefix != prefix.Masked() || prefix.Addr().Is4In6() ||
-		preview.Impact.Prefix != prefix.String() || limit < 1 {
+		observedPrefix != prefix.String() || limit < 1 {
 		return 0, rem.ErrUnknownBlastRadius
 	}
 	hostBits := prefix.Addr().BitLen() - prefix.Bits()
@@ -34,11 +38,15 @@ func rtbhBlastRadius(preview rem.RTBHPreview, limit int) (int, error) {
 }
 
 func rtbhCollateralWithinLimit(preview rem.RTBHPreview, maxBenignPackets string) error {
+	return routingReviewCollateralWithinLimit(preview.Impact.KnownBenign.Packets, maxBenignPackets)
+}
+
+func routingReviewCollateralWithinLimit(benignPackets, maxBenignPackets string) error {
 	limit, ok := rtbhDecimal(maxBenignPackets)
 	if !ok {
 		return rem.Error{Code: "validation", Message: "set the exact approved benign packet limit"}
 	}
-	measured, ok := rtbhDecimal(preview.Impact.KnownBenign.Packets)
+	measured, ok := rtbhDecimal(benignPackets)
 	if !ok {
 		return rem.ErrUnknownBlastRadius
 	}

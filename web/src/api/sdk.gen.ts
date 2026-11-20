@@ -3764,6 +3764,58 @@ export interface RemediationDryRun {
   note?: string
 }
 
+export interface RemediationFlowSpecApprovalInput {
+  note?: string
+  review_fingerprint: string
+}
+
+export interface RemediationFlowSpecCandidate {
+  action: "discard"
+  destination: string
+  family: "ipv4" | "ipv6"
+  transport: RemediationFlowSpecTransport
+}
+
+export interface RemediationFlowSpecPreview {
+  candidate: RemediationFlowSpecCandidate
+  matching: RemediationPrefixImpact
+  preview_fingerprint: string
+  whole_scope: RemediationPrefixImpact
+}
+
+export interface RemediationFlowSpecPreviewInput {
+  benign_entity_id: string
+  context_id: string
+  protected_entity_id: string
+  receipt_fingerprint: string
+  routing_policy_agreed: boolean
+  rule_id: string
+  transport: RemediationFlowSpecTransport
+  whole_view_id: string
+  whole_view_version: string
+}
+
+export interface RemediationFlowSpecProposalInput {
+  max_known_benign_packets: string
+  observed_to: string
+  preview: RemediationFlowSpecPreviewInput
+  preview_fingerprint: string
+}
+
+export interface RemediationFlowSpecReview {
+  blast_radius: number
+  expires_at: string
+  max_known_benign_packets: string
+  proposal: RemediationFlowSpecPreview
+  review_fingerprint: string
+}
+
+export interface RemediationFlowSpecTransport {
+  destination_port?: number
+  protocol: "tcp" | "udp"
+  source_port?: number
+}
+
 export interface RemediationPrefixImpact {
   from: string
   known_benign: RemediationPrefixTraffic
@@ -3789,7 +3841,7 @@ export interface RemediationProposal {
   dry_run?: RemediationDryRun
   id?: string
   incident_id?: string
-  kind?: "reroute_suggestion" | "traffic_shift_suggestion" | "open_ticket" | "trustctl_renewal" | "rtbh_review"
+  kind?: "reroute_suggestion" | "traffic_shift_suggestion" | "open_ticket" | "trustctl_renewal" | "rtbh_review" | "flowspec_review"
   proposed_by?: string
   rationale?: string
   state?: "proposed" | "approved" | "rejected" | "applied"
@@ -5870,6 +5922,18 @@ export interface PromRemoteWriteRequest {
 
 export type PromRemoteWriteResponse = void
 
+export interface PreviewRemediationFlowSpecRequest {
+  body: RemediationFlowSpecPreviewInput
+}
+
+export type PreviewRemediationFlowSpecResponse = RemediationFlowSpecPreview
+
+export interface ProposeFlowSpecReviewRequest {
+  body: RemediationFlowSpecProposalInput
+}
+
+export type ProposeFlowSpecReviewResponse = RemediationProposal
+
 export interface ListRemediationProposalsRequest {
 }
 
@@ -5893,6 +5957,19 @@ export interface ApproveRemediationProposalRequest {
 }
 
 export type ApproveRemediationProposalResponse = RemediationProposal
+
+export interface ApproveFlowSpecReviewRequest {
+  id: string
+  body: RemediationFlowSpecApprovalInput
+}
+
+export type ApproveFlowSpecReviewResponse = RemediationProposal
+
+export interface GetFlowSpecReviewRequest {
+  id: string
+}
+
+export type GetFlowSpecReviewResponse = RemediationFlowSpecReview
 
 export interface RejectRemediationProposalRequest {
   id: string
@@ -8021,6 +8098,18 @@ export class ProbectlSDKClient {
     await this.request("POST", path, query, undefined)
   }
 
+  async previewRemediationFlowSpec(request: PreviewRemediationFlowSpecRequest): Promise<PreviewRemediationFlowSpecResponse> {
+    let path = "/v1/remediation/flowspec-preview"
+    const query = new URLSearchParams()
+    return this.requestJSON<PreviewRemediationFlowSpecResponse>("POST", path, query, request.body)
+  }
+
+  async proposeFlowSpecReview(request: ProposeFlowSpecReviewRequest): Promise<ProposeFlowSpecReviewResponse> {
+    let path = "/v1/remediation/flowspec-proposals"
+    const query = new URLSearchParams()
+    return this.requestJSON<ProposeFlowSpecReviewResponse>("POST", path, query, request.body)
+  }
+
   async listRemediationProposals(): Promise<ListRemediationProposalsResponse> {
     let path = "/v1/remediation/proposals"
     const query = new URLSearchParams()
@@ -8045,6 +8134,20 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<ApproveRemediationProposalResponse>("POST", path, query, request.body)
+  }
+
+  async approveFlowSpecReview(request: ApproveFlowSpecReviewRequest): Promise<ApproveFlowSpecReviewResponse> {
+    let path = "/v1/remediation/proposals/{id}/flowspec-approve"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ApproveFlowSpecReviewResponse>("POST", path, query, request.body)
+  }
+
+  async getFlowSpecReview(request: GetFlowSpecReviewRequest): Promise<GetFlowSpecReviewResponse> {
+    let path = "/v1/remediation/proposals/{id}/flowspec-review"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetFlowSpecReviewResponse>("GET", path, query, undefined)
   }
 
   async rejectRemediationProposal(request: RejectRemediationProposalRequest): Promise<RejectRemediationProposalResponse> {

@@ -27,6 +27,12 @@ import (
 )
 
 func TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview(t *testing.T) {
+	stack, owner, reviewer, sibling, input, end := prepareShippedRoutingReceipt(t, false)
+	assertShippedReviewDecision(t, stack, owner, reviewer, sibling, input, end)
+}
+
+func prepareShippedRoutingReceipt(t *testing.T, separateControlTraffic bool) (*shipped.Stack, *nativeLane, *nativeLane, *nativeLane, remediation.RTBHPreviewInput, time.Time) {
+	t.Helper()
 	stack := shipped.Start(t, shipped.Options{Name: "routingreview", TenantBand: 4, Env: map[string]string{
 		"PROBECTL_ALERT_EVAL_INTERVAL": "1s", "PROBECTL_REMEDIATION_APPROVALS_ENABLED": "true", "PROBECTL_REMEDIATION_MAX_BLAST_RADIUS": "512",
 	}})
@@ -52,6 +58,11 @@ func TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview(t *testing.T)
 		replayOwnedIPFIXObservationVectors(t, lane, previous, current, i == 0)
 		waitOwnedIPFIXObservationVectors(t, stack, lane, previous, current, i == 0)
 		plan := nativeGoldenPlan(lane.octet, current.After.End, []string{"dst_addr"})
+		if separateControlTraffic {
+			plan.Filter.Conditions = append(plan.Filter.Conditions, flow.QueryPredicate{
+				Field: "src_port", Op: flow.QueryEqual, Values: []string{"42001"},
+			})
+		}
 		plan.From, plan.To, plan.DataSeries = current.After.Start, current.After.End, "raw"
 		lane.do(t, stack, http.MethodPost, "/v1/explorer/flow-views", flow.SaveQueryView{Definition: flow.QueryViewDefinition{
 			Name: "Cited protected traffic", Visibility: "tenant", Plan: plan, Time: flow.QueryViewTime{Mode: "lookback", LookbackSeconds: 300},
@@ -64,7 +75,7 @@ func TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview(t *testing.T)
 	var wholeView flow.SavedQueryView
 	owner.do(t, stack, http.MethodPost, "/v1/explorer/flow-views", flow.SaveQueryView{Definition: whole}, &wholeView, http.StatusCreated)
 	input.WholeViewID, input.WholeViewVersion = wholeView.ID, wholeView.Version
-	assertShippedReviewDecision(t, stack, owner, reviewer, sibling, input, current.After.End)
+	return stack, owner, reviewer, sibling, input, current.After.End
 }
 
 func registerShippedReviewContext(t *testing.T, stack *shipped.Stack, owner *nativeLane, earliest time.Time) remediation.RTBHPreviewInput {

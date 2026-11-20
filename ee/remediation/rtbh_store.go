@@ -35,7 +35,23 @@ func (s *PGStore) InsertRTBHAudited(ctx context.Context, tenantID string, p rem.
 	return s.insertAuditedWithReview(ctx, tenantID, p, review, current, sink, event)
 }
 
+func (s *PGStore) InsertFlowSpecAudited(ctx context.Context, tenantID string, p rem.Proposal, review []byte,
+	current rem.RTBHImpactPublication, sink AuditSink, event AuditEvent) (rem.Proposal, error) {
+	if current.Publish == nil || p.Kind != rem.KindFlowSpecReview || len(review) == 0 || len(review) > maxRTBHReviewBytes {
+		return rem.Proposal{}, rem.ErrUnknownBlastRadius
+	}
+	return s.insertAuditedWithReview(ctx, tenantID, p, review, current, sink, event)
+}
+
 func (s *PGStore) LoadRTBHReview(ctx context.Context, tenantID, id string) (rem.Proposal, []byte, error) {
+	return s.loadRoutingReview(ctx, tenantID, id, rem.KindRTBHReview)
+}
+
+func (s *PGStore) LoadFlowSpecReview(ctx context.Context, tenantID, id string) (rem.Proposal, []byte, error) {
+	return s.loadRoutingReview(ctx, tenantID, id, rem.KindFlowSpecReview)
+}
+
+func (s *PGStore) loadRoutingReview(ctx context.Context, tenantID, id string, kind rem.Kind) (rem.Proposal, []byte, error) {
 	scoped, err := remediationTenantContext(ctx, tenantID)
 	if err != nil {
 		return rem.Proposal{}, nil, err
@@ -43,12 +59,15 @@ func (s *PGStore) LoadRTBHReview(ctx context.Context, tenantID, id string) (rem.
 	var p rem.Proposal
 	var review []byte
 	err = tenancy.InTenantReadSnapshot(tenancy.WithSiloTableLock(scoped), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		p, err = scanProposal(sc.Q.QueryRow(ctx, `SELECT `+cols+` FROM remediation_proposals WHERE tenant_id=$1 AND id=$2 AND kind=$3`, tenantID, id, rem.KindRTBHReview))
+		p, err = scanProposal(sc.Q.QueryRow(ctx, `SELECT `+cols+` FROM remediation_proposals WHERE tenant_id=$1 AND id=$2 AND kind=$3`, tenantID, id, kind))
 		if err != nil {
 			return err
 		}
-		return sc.Q.QueryRow(ctx, `SELECT CASE WHEN octet_length(rtbh_review::text)<=$4 THEN rtbh_review END
-		 FROM remediation_proposals WHERE tenant_id=$1 AND id=$2 AND kind=$3`, tenantID, id, rem.KindRTBHReview, maxRTBHReviewBytes).Scan(&review)
+		return sc.Q.QueryRow(ctx, `
+		 SELECT CASE WHEN octet_length(review::text)<=$4 THEN review END
+		 FROM (SELECT CASE kind WHEN 'rtbh_review' THEN rtbh_review WHEN 'flowspec_review' THEN flowspec_review END AS review
+		       FROM remediation_proposals WHERE tenant_id=$1 AND id=$2 AND kind=$3) owned_review`,
+			tenantID, id, kind, maxRTBHReviewBytes).Scan(&review)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return rem.Proposal{}, nil, rem.Error{Code: "not_found", Message: "routing review not found"}
@@ -67,7 +86,15 @@ func (s *PGStore) ApproveRTBHAudited(ctx context.Context, tenantID, id, actor, n
 	if current.Publish == nil || len(expected) == 0 || len(expected) > maxRTBHReviewBytes {
 		return rem.Proposal{}, rem.ErrUnknownBlastRadius
 	}
-	return s.decideAuditedWithReview(ctx, tenantID, id, rem.StateApproved, actor, note, at, expected, current, sink, event)
+	return s.decideAuditedWithReview(ctx, tenantID, id, rem.StateApproved, actor, note, at, rem.KindRTBHReview, expected, current, sink, event)
+}
+
+func (s *PGStore) ApproveFlowSpecAudited(ctx context.Context, tenantID, id, actor, note string, at time.Time, expected []byte,
+	current rem.RTBHImpactPublication, sink AuditSink, event AuditEvent) (rem.Proposal, error) {
+	if current.Publish == nil || len(expected) == 0 || len(expected) > maxRTBHReviewBytes {
+		return rem.Proposal{}, rem.ErrUnknownBlastRadius
+	}
+	return s.decideAuditedWithReview(ctx, tenantID, id, rem.StateApproved, actor, note, at, rem.KindFlowSpecReview, expected, current, sink, event)
 }
 
 func (s *PGStore) withProposalPublication(ctx context.Context, publication rem.RTBHImpactPublication, permission string,

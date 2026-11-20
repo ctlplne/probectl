@@ -3937,6 +3937,58 @@ type RemediationDryRun struct {
 	Note             string   `json:"note,omitempty"`
 }
 
+type RemediationFlowSpecApprovalInput struct {
+	Note              string `json:"note,omitempty"`
+	ReviewFingerprint string `json:"review_fingerprint"`
+}
+
+type RemediationFlowSpecCandidate struct {
+	Action      string                       `json:"action"`
+	Destination string                       `json:"destination"`
+	Family      string                       `json:"family"`
+	Transport   RemediationFlowSpecTransport `json:"transport"`
+}
+
+type RemediationFlowSpecPreview struct {
+	Candidate          RemediationFlowSpecCandidate `json:"candidate"`
+	Matching           RemediationPrefixImpact      `json:"matching"`
+	PreviewFingerprint string                       `json:"preview_fingerprint"`
+	WholeScope         RemediationPrefixImpact      `json:"whole_scope"`
+}
+
+type RemediationFlowSpecPreviewInput struct {
+	BenignEntityId      string                       `json:"benign_entity_id"`
+	ContextId           string                       `json:"context_id"`
+	ProtectedEntityId   string                       `json:"protected_entity_id"`
+	ReceiptFingerprint  string                       `json:"receipt_fingerprint"`
+	RoutingPolicyAgreed bool                         `json:"routing_policy_agreed"`
+	RuleId              string                       `json:"rule_id"`
+	Transport           RemediationFlowSpecTransport `json:"transport"`
+	WholeViewId         string                       `json:"whole_view_id"`
+	WholeViewVersion    string                       `json:"whole_view_version"`
+}
+
+type RemediationFlowSpecProposalInput struct {
+	MaxKnownBenignPackets string                          `json:"max_known_benign_packets"`
+	ObservedTo            string                          `json:"observed_to"`
+	Preview               RemediationFlowSpecPreviewInput `json:"preview"`
+	PreviewFingerprint    string                          `json:"preview_fingerprint"`
+}
+
+type RemediationFlowSpecReview struct {
+	BlastRadius           int                        `json:"blast_radius"`
+	ExpiresAt             string                     `json:"expires_at"`
+	MaxKnownBenignPackets string                     `json:"max_known_benign_packets"`
+	Proposal              RemediationFlowSpecPreview `json:"proposal"`
+	ReviewFingerprint     string                     `json:"review_fingerprint"`
+}
+
+type RemediationFlowSpecTransport struct {
+	DestinationPort int    `json:"destination_port,omitempty"`
+	Protocol        string `json:"protocol"`
+	SourcePort      int    `json:"source_port,omitempty"`
+}
+
 type RemediationPrefixImpact struct {
 	From              string                   `json:"from"`
 	KnownBenign       RemediationPrefixTraffic `json:"known_benign"`
@@ -9227,6 +9279,36 @@ func (c *Client) PromRemoteWrite(ctx context.Context, req PromRemoteWriteRequest
 	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
 }
 
+// Preview a tenant-scoped FlowSpec proposal
+type PreviewRemediationFlowSpecRequest struct {
+	Body *RemediationFlowSpecPreviewInput `json:"-"`
+}
+
+func (c *Client) PreviewRemediationFlowSpec(ctx context.Context, req PreviewRemediationFlowSpecRequest) (*RemediationFlowSpecPreview, error) {
+	path := "/v1/remediation/flowspec-preview"
+	query := url.Values{}
+	var out RemediationFlowSpecPreview
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// File a FlowSpec preview for independent approval
+type ProposeFlowSpecReviewRequest struct {
+	Body *RemediationFlowSpecProposalInput `json:"-"`
+}
+
+func (c *Client) ProposeFlowSpecReview(ctx context.Context, req ProposeFlowSpecReviewRequest) (*RemediationProposal, error) {
+	path := "/v1/remediation/flowspec-proposals"
+	query := url.Values{}
+	var out RemediationProposal
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // List guarded-remediation proposals (S-EE5). Hidden 404 when the remediation feature is unlicensed
 type ListRemediationProposalsRequest struct {
 }
@@ -9290,6 +9372,45 @@ func (c *Client) ApproveRemediationProposal(ctx context.Context, req ApproveReme
 	query := url.Values{}
 	var out RemediationProposal
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Record independent approval of the exact FlowSpec review
+type ApproveFlowSpecReviewRequest struct {
+	Id   string                            `json:"-"`
+	Body *RemediationFlowSpecApprovalInput `json:"-"`
+}
+
+func (c *Client) ApproveFlowSpecReview(ctx context.Context, req ApproveFlowSpecReviewRequest) (*RemediationProposal, error) {
+	path := "/v1/remediation/proposals/{id}/flowspec-approve"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RemediationProposal
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read the current evidence for a FlowSpec review
+type GetFlowSpecReviewRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetFlowSpecReview(ctx context.Context, req GetFlowSpecReviewRequest) (*RemediationFlowSpecReview, error) {
+	path := "/v1/remediation/proposals/{id}/flowspec-review"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RemediationFlowSpecReview
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

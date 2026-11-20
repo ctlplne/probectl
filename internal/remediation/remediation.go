@@ -44,6 +44,7 @@ const (
 	KindOpenTicket             Kind = "open_ticket"              // suggest opening an ITSM ticket
 	KindCertRenewal            Kind = "trustctl_renewal"         // suggest a trustctl certificate renewal
 	KindRTBHReview             Kind = "rtbh_review"              // dedicated evidence-backed proposal
+	KindFlowSpecReview         Kind = "flowspec_review"          // dedicated evidence-backed proposal
 )
 
 // ValidKind reports whether k is accepted by the generic proposal route.

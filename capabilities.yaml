@@ -744,14 +744,14 @@ capabilities:
     owner: architecture/release
     engine: {refs: ["file:ee/remediation"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#srv.WithRemediation("]}
-    api: {refs: ["api:GET /v1/remediation/proposals", "api:POST /v1/remediation/proposals/{id}/approve", "api:POST /v1/remediation/rtbh-preview", "api:POST /v1/remediation/rtbh-proposals", "api:GET /v1/remediation/proposals/{id}/routing-review"]}
-    cli: {refs: ["cli:probectl remediation list", "cli:probectl remediation approve", "cli:probectl remediation rtbh-preview", "cli:probectl remediation rtbh-propose", "cli:probectl remediation rtbh-review"]}
+    api: {refs: ["api:GET /v1/remediation/proposals", "api:POST /v1/remediation/proposals/{id}/approve", "api:POST /v1/remediation/rtbh-preview", "api:POST /v1/remediation/rtbh-proposals", "api:GET /v1/remediation/proposals/{id}/routing-review", "api:POST /v1/remediation/flowspec-preview", "api:POST /v1/remediation/flowspec-proposals", "api:GET /v1/remediation/proposals/{id}/flowspec-review", "api:POST /v1/remediation/proposals/{id}/flowspec-approve"]}
+    cli: {refs: ["cli:probectl remediation list", "cli:probectl remediation approve", "cli:probectl remediation rtbh-preview", "cli:probectl remediation rtbh-propose", "cli:probectl remediation rtbh-review", "cli:probectl remediation flowspec-preview", "cli:probectl remediation flowspec-propose", "cli:probectl remediation flowspec-review", "cli:probectl remediation flowspec-approve"]}
     ui: {refs: ["ui:F44@/admin"]}
-    docs: {refs: ["file:docs/remediation.md#Guarded agentic remediation", "file:docs/remediation.md#Destination RTBH evidence preview"]}
+    docs: {refs: ["file:docs/remediation.md#Guarded agentic remediation", "file:docs/remediation.md#Destination RTBH evidence preview", "file:docs/remediation.md#Preview and review FlowSpec"]}
     config_keys: {refs: ["config:PROBECTL_REMEDIATION_APPROVALS_ENABLED", "config:PROBECTL_REMEDIATION_MAX_BLAST_RADIUS"]}
     telemetry: {refs: ["file:ee/remediation"]}
-    real_stack_proof: {refs: ["test:ee/remediation/human_gate_integration_test.go#TestRemediationIsHumanGatedRealStack", "test:internal/flow/rtbh_review_realstack_integration_test.go#TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview"]}
-    migration: {refs: ["file:migrations/0035_remediation.sql", "file:migrations/0227_remediation_proposal_actor.sql", "file:migrations/0234_rtbh_review_evidence.sql"]}
+    real_stack_proof: {refs: ["test:ee/remediation/human_gate_integration_test.go#TestRemediationIsHumanGatedRealStack", "test:internal/flow/rtbh_review_realstack_integration_test.go#TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview", "test:internal/flow/flowspec_review_realstack_integration_test.go#TestFlowSpecReviewUsesOwnedMatchesAndIndependentApproval"]}
+    migration: {refs: ["file:migrations/0035_remediation.sql", "file:migrations/0227_remediation_proposal_actor.sql", "file:migrations/0234_rtbh_review_evidence.sql", "file:migrations/0236_flowspec_review_evidence.sql"]}
 
   - id: F45
     name: AI authoring and discovery

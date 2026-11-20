@@ -349,6 +349,13 @@
       ]
     },
     {
+      "ref": "test:internal/flow/flowspec_review_realstack_integration_test.go#TestFlowSpecReviewUsesOwnedMatchesAndIndependentApproval",
+      "profile": "integration",
+      "capabilities": [
+        "F44"
+      ]
+    },
+    {
       "ref": "test:internal/flow/rtbh_review_realstack_integration_test.go#TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview",
       "profile": "integration",
       "capabilities": [

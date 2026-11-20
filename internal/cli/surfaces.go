@@ -36,9 +36,9 @@ type apiOp struct {
 	// printing "audit chain broken at seq 2" tells every cron job and monitoring
 	// check that a compromised audit log is fine.
 	VerdictField string
-	// SessionAuth marks a route that accepts ONLY a tenant user's MFA-bearing
-	// browser/OIDC session cookie, never a bearer token: the tenant side of
-	// break-glass consent (AUD-13). The CLI reads that cookie from an owner-only
+	// SessionAuth marks a route that requires a current tenant user session.
+	// The server checks additional authority such as MFA for break-glass
+	// consent (AUD-13). The CLI reads the cookie from an owner-only
 	// --session-cookie-file (env PROBECTL_SESSION_COOKIE_FILE) and refuses to
 	// send the request without one.
 	SessionAuth bool
@@ -512,14 +512,18 @@ var surfaceCommands = map[string]surfaceCommand{
 		"set-fairness":               {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/fairness", ArgName: "id"},
 	}},
 	"remediation": {Name: "remediation", Summary: "human-gated remediation proposals", Ops: map[string]apiOp{
-		"list":         {Method: http.MethodGet, Path: "/v1/remediation/proposals"},
-		"create":       {Method: http.MethodPost, Path: "/v1/remediation/proposals"},
-		"rtbh-preview": {Method: http.MethodPost, Path: "/v1/remediation/rtbh-preview", ExactJSON: true, Description: "measure an owned destination prefix and its configured benign traffic"},
-		"rtbh-propose": {Method: http.MethodPost, Path: "/v1/remediation/rtbh-proposals", ExactJSON: true, Description: "file the exact routing preview for independent review"},
-		"rtbh-review":  {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}/routing-review", ArgName: "id", ExactJSON: true, Description: "read the current evidence for an owned routing review"},
-		"get":          {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}", ArgName: "id"},
-		"approve":      {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/approve", ArgName: "id"},
-		"reject":       {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/reject", ArgName: "id"},
+		"list":             {Method: http.MethodGet, Path: "/v1/remediation/proposals"},
+		"create":           {Method: http.MethodPost, Path: "/v1/remediation/proposals"},
+		"rtbh-preview":     {Method: http.MethodPost, Path: "/v1/remediation/rtbh-preview", ExactJSON: true, Description: "measure an owned destination prefix and its configured benign traffic"},
+		"rtbh-propose":     {Method: http.MethodPost, Path: "/v1/remediation/rtbh-proposals", ExactJSON: true, Description: "file the exact routing preview for independent review"},
+		"rtbh-review":      {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}/routing-review", ArgName: "id", ExactJSON: true, Description: "read the current evidence for an owned routing review"},
+		"flowspec-preview": {Method: http.MethodPost, Path: "/v1/remediation/flowspec-preview", ExactJSON: true, Description: "measure a FlowSpec match against owned observations"},
+		"flowspec-propose": {Method: http.MethodPost, Path: "/v1/remediation/flowspec-proposals", ExactJSON: true, Description: "file the exact FlowSpec preview for independent review"},
+		"flowspec-review":  {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}/flowspec-review", ArgName: "id", ExactJSON: true, Description: "read current evidence for an owned FlowSpec review"},
+		"flowspec-approve": {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/flowspec-approve", ArgName: "id", ExactJSON: true, SessionAuth: true, Description: "approve the displayed FlowSpec evidence using a current interactive session"},
+		"get":              {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}", ArgName: "id"},
+		"approve":          {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/approve", ArgName: "id"},
+		"reject":           {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/reject", ArgName: "id"},
 	}},
 	"result": {Name: "result", Summary: "synthetic results", Ops: map[string]apiOp{
 		"latest":  {Method: http.MethodGet, Path: "/v1/results/latest"},

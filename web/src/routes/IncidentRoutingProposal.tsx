@@ -6,7 +6,13 @@
 import { useState, type FormEvent } from 'react'
 import { useCanonicalEntities, useEntityContexts } from '../api/entities'
 import { useFlowQueryViews } from '../api/flowViews'
-import { usePreviewRTBH, useProposeRTBH } from '../api/remediation'
+import {
+  usePreviewFlowSpec,
+  usePreviewRTBH,
+  useProposeFlowSpec,
+  useProposeRTBH,
+} from '../api/remediation'
+import { FlowSpecEvidence } from '../components/FlowSpecEvidence'
 import { useAuth } from '../auth/useAuth'
 import { Button, Field, Select } from '../components'
 import { DateTime } from '../time/DateTime'
@@ -31,7 +37,12 @@ export function IncidentRoutingProposal({
   const [benignID, setBenignID] = useState('')
   const [viewID, setViewID] = useState('')
   const [search, setSearch] = useState('')
+  const [method, setMethod] = useState<'rtbh' | 'flowspec'>('rtbh')
   const [community, setCommunity] = useState('')
+  const [protocol, setProtocol] = useState<'tcp' | 'udp'>('tcp')
+  const [sourcePort, setSourcePort] = useState('')
+  const [destinationPort, setDestinationPort] = useState('')
+  const flowSpec = method === 'flowspec'
   const [confirmed, setConfirmed] = useState(false)
   const [maximum, setMaximum] = useState('')
   const entities = useCanonicalEntities(identity, contextID)
@@ -52,18 +63,24 @@ export function IncidentRoutingProposal({
     benignID &&
     protectedID !== benignID &&
     view &&
-    community.trim() &&
+    (flowSpec
+      ? validOptionalPort(sourcePort) && validOptionalPort(destinationPort)
+      : community.trim()) &&
     confirmed,
   )
-  const preview = usePreviewRTBH()
-  const file = useProposeRTBH()
+  const rtbhPreview = usePreviewRTBH()
+  const rtbhFile = useProposeRTBH()
+  const flowSpecPreview = usePreviewFlowSpec()
+  const flowSpecFile = useProposeFlowSpec()
+  const preview = flowSpec ? flowSpecPreview : rtbhPreview
+  const file = flowSpec ? flowSpecFile : rtbhFile
   const busy = preview.isPending || file.isPending
 
   function previewRouting(event: FormEvent) {
     event.preventDefault()
     if (busy || !valid || !view) return
     file.reset()
-    preview.mutate({
+    const scope = {
       rule_id: rule,
       receipt_fingerprint: receipt,
       context_id: contextID,
@@ -71,14 +88,46 @@ export function IncidentRoutingProposal({
       benign_entity_id: benignID,
       whole_view_id: view.id,
       whole_view_version: view.version,
-      community: community.trim(),
       routing_policy_agreed: confirmed,
-    })
+    }
+    if (flowSpec) {
+      flowSpecPreview.mutate({
+        ...scope,
+        transport: {
+          protocol,
+          source_port: sourcePort ? Number(sourcePort) : undefined,
+          destination_port: destinationPort ? Number(destinationPort) : undefined,
+        },
+      })
+    } else {
+      rtbhPreview.mutate({ ...scope, community: community.trim() })
+    }
   }
 
   function clearPreview() {
     preview.reset()
     file.reset()
+  }
+
+  function fileProposal() {
+    if (flowSpec && flowSpecPreview.data) {
+      const { input, assessment } = flowSpecPreview.data
+      flowSpecFile.mutate({
+        preview: input,
+        observed_to: assessment.matching.to,
+        preview_fingerprint: assessment.preview_fingerprint,
+        max_known_benign_packets: maximum,
+      })
+    } else if (!flowSpec && rtbhPreview.data) {
+      const { input, assessment } = rtbhPreview.data
+      if (!assessment.preview_fingerprint) return
+      rtbhFile.mutate({
+        preview: input,
+        observed_to: assessment.impact.to,
+        preview_fingerprint: assessment.preview_fingerprint,
+        max_known_benign_packets: maximum,
+      })
+    }
   }
 
   const contextOptions = (contexts.data?.pages.flatMap((page) => page.items) ?? []).map((item) => ({
@@ -90,13 +139,29 @@ export function IncidentRoutingProposal({
     label: `${item.network_prefix} · ${item.label}`,
     prefix: item.network_prefix,
   }))
-  const assessment = preview.data?.assessment
-  const evidence = assessment?.preview_fingerprint
+  const rtbhAssessment = flowSpec ? undefined : rtbhPreview.data?.assessment
+  const flowSpecAssessment = flowSpec ? flowSpecPreview.data?.assessment : undefined
+  const evidence = rtbhAssessment?.preview_fingerprint ?? flowSpecAssessment?.preview_fingerprint
 
   return (
     <>
       <h3>Prepare routing mitigation proposal</h3>
       <form onSubmit={previewRouting}>
+        <Select
+          label="Proposal method"
+          value={method}
+          disabled={busy}
+          options={[
+            { value: 'rtbh', label: 'RTBH' },
+            { value: 'flowspec', label: 'FlowSpec' },
+          ]}
+          onChange={(event) => {
+            clearPreview()
+            setMethod(event.target.value === 'flowspec' ? 'flowspec' : 'rtbh')
+            setConfirmed(false)
+            setMaximum('')
+          }}
+        />
         <Select
           label="Routing context"
           value={contextID}
@@ -168,15 +233,53 @@ export function IncidentRoutingProposal({
             setViewID(event.target.value)
           }}
         />
-        <Field
-          label="Community from your routing policy"
-          value={community}
-          disabled={busy}
-          onChange={(event) => {
-            clearPreview()
-            setCommunity(event.target.value)
-          }}
-        />
+        {flowSpec ? (
+          <>
+            <Select
+              label="Transport protocol"
+              value={protocol}
+              disabled={busy}
+              options={[
+                { value: 'tcp', label: 'TCP' },
+                { value: 'udp', label: 'UDP' },
+              ]}
+              onChange={(event) => {
+                clearPreview()
+                setProtocol(event.target.value === 'udp' ? 'udp' : 'tcp')
+              }}
+            />
+            <Field
+              label="Exact source port (optional)"
+              inputMode="numeric"
+              value={sourcePort}
+              disabled={busy}
+              onChange={(event) => {
+                clearPreview()
+                setSourcePort(event.target.value)
+              }}
+            />
+            <Field
+              label="Exact destination port (optional)"
+              inputMode="numeric"
+              value={destinationPort}
+              disabled={busy}
+              onChange={(event) => {
+                clearPreview()
+                setDestinationPort(event.target.value)
+              }}
+            />
+          </>
+        ) : (
+          <Field
+            label="Community from your routing policy"
+            value={community}
+            disabled={busy}
+            onChange={(event) => {
+              clearPreview()
+              setCommunity(event.target.value)
+            }}
+          />
+        )}
         <label>
           <input
             type="checkbox"
@@ -187,7 +290,9 @@ export function IncidentRoutingProposal({
               setConfirmed(event.target.checked)
             }}
           />{' '}
-          I checked this community against the selected routing context’s policy
+          {flowSpec
+            ? 'I checked this FlowSpec match against the selected routing context’s policy'
+            : 'I checked this community against the selected routing context’s policy'}
         </label>
         <div className={styles.actions}>
           <Button type="submit" disabled={!valid || busy}>
@@ -199,21 +304,26 @@ export function IncidentRoutingProposal({
         <p role="alert">Could not load current routing sources.</p>
       ) : null}
       {preview.isError ? <p role="alert">{preview.error.message}</p> : null}
-      {assessment && evidence ? (
+      {evidence ? (
         <>
           <dl aria-label="Scoped routing preview">
-            <dt>Proposed prefix and community</dt>
-            <dd>
-              {assessment.announcement.prefix} · {assessment.announcement.community}
-            </dd>
-            <dt>Window ended</dt>
-            <dd>
-              <DateTime value={assessment.impact.to} />
-            </dd>
-            <dt>Known benign traffic</dt>
-            <dd>{assessment.impact.known_benign.packets} packets</dd>
-            <dt>Unclassified traffic</dt>
-            <dd>{assessment.impact.unclassified.packets} packets</dd>
+            {flowSpecAssessment ? <FlowSpecEvidence preview={flowSpecAssessment} /> : null}
+            {rtbhAssessment ? (
+              <>
+                <dt>Proposed prefix and community</dt>
+                <dd>
+                  {rtbhAssessment.announcement.prefix} · {rtbhAssessment.announcement.community}
+                </dd>
+                <dt>Window ended</dt>
+                <dd>
+                  <DateTime value={rtbhAssessment.impact.to} />
+                </dd>
+                <dt>Known benign traffic</dt>
+                <dd>{rtbhAssessment.impact.known_benign.packets} packets</dd>
+                <dt>Unclassified traffic</dt>
+                <dd>{rtbhAssessment.impact.unclassified.packets} packets</dd>
+              </>
+            ) : null}
           </dl>
           <Field
             label="Maximum known benign packets"
@@ -225,15 +335,7 @@ export function IncidentRoutingProposal({
           <Button
             type="button"
             disabled={busy || file.isSuccess || !/^[0-9]{1,64}$/.test(maximum)}
-            onClick={() => {
-              if (!preview.data) return
-              file.mutate({
-                preview: preview.data.input,
-                observed_to: assessment.impact.to,
-                preview_fingerprint: evidence,
-                max_known_benign_packets: maximum,
-              })
-            }}
+            onClick={fileProposal}
           >
             File exact routing proposal
           </Button>
@@ -245,4 +347,8 @@ export function IncidentRoutingProposal({
       ) : null}
     </>
   )
+}
+
+function validOptionalPort(port: string) {
+  return port === '' || (/^[1-9][0-9]{0,4}$/.test(port) && Number(port) <= 65535)
 }

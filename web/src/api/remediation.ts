@@ -7,6 +7,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from './client'
 import type {
+  RemediationFlowSpecApprovalInput,
+  RemediationFlowSpecPreview,
+  RemediationFlowSpecPreviewInput,
+  RemediationFlowSpecProposalInput,
+  RemediationFlowSpecReview,
   RemediationRTBHPreview,
   RemediationRTBHPreviewInput,
   RemediationRTBHProposalInput,
@@ -96,6 +101,58 @@ export function useProposeRTBH() {
   return useMutation({
     mutationFn: (input: RemediationRTBHProposalInput) =>
       apiFetch<Proposal>('/remediation/rtbh-proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['remediation-proposals'] }),
+  })
+}
+
+export function useFlowSpecReview(id: string | undefined, identity: string) {
+  return useQuery({
+    queryKey: ['remediation-proposals', identity, 'flowspec-review', id],
+    enabled: Boolean(id),
+    retry: false,
+    staleTime: 0,
+    queryFn: () =>
+      apiFetch<RemediationFlowSpecReview>(
+        `/remediation/proposals/${encodeURIComponent(id ?? '')}/flowspec-review`,
+      ),
+  })
+}
+
+export function usePreviewFlowSpec() {
+  return useMutation({
+    mutationFn: async (input: RemediationFlowSpecPreviewInput) => ({
+      input,
+      assessment: await apiFetch<RemediationFlowSpecPreview>('/remediation/flowspec-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    }),
+  })
+}
+
+export function useProposeFlowSpec() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: RemediationFlowSpecProposalInput) =>
+      apiFetch<Proposal>('/remediation/flowspec-proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['remediation-proposals'] }),
+  })
+}
+
+export function useApproveFlowSpec() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: RemediationFlowSpecApprovalInput }) =>
+      apiFetch<Proposal>(`/remediation/proposals/${encodeURIComponent(id)}/flowspec-approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),

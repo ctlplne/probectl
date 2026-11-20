@@ -177,6 +177,32 @@ address count of the candidate prefix. The review also shows the count of
 observed destinations in the selected sample. Approval records an operator's
 decision for use in their existing change process.
 
+### Preview and review FlowSpec
+
+From **Prepare routing mitigation proposal** on a sustained traffic receipt,
+choose **FlowSpec**. Select TCP or UDP and optionally enter exact source and
+destination ports. The protected destination comes from the receipt and its
+configured routing context. The preview records a proposed discard action and
+the original observation window.
+
+The preview shows the whole protected prefix and a second set of totals for
+traffic matching the selected protocol and ports. Each set includes the known
+benign and unclassified portions. Sampled exports produce sampling-adjusted
+counts. If the retained records leave the proposed match undecidable, the
+preview returns an evidence conflict. Port zero cannot be measured reliably
+with the current retained schema. The review supports destination prefixes,
+TCP or UDP, and exact ports.
+
+File the exact preview with a benign packet limit and have an independent
+reviewer open it under **Admin → AI remediation proposals**. The same
+destination blast-radius limit and review expiry as RTBH apply. Approval
+revalidates the review fingerprint, evidence and current interactive
+reviewer session, then records the decision in the tenant audit.
+
+The CLI exposes these operations as `probectl remediation flowspec-preview`,
+`flowspec-propose`, `flowspec-review` and `flowspec-approve`. Approval takes the
+shown fingerprint and an interactive session held in an owner-only file.
+
 ## Dry-run (blast radius)
 
 The estimator runs `topology.Simulate` over a **copy** of the tenant's topology
@@ -195,6 +221,10 @@ All routes are tenant-scoped and hidden (404) when the feature is unlicensed.
 |---|---|---|
 | `POST /v1/remediation/rtbh-preview` | `remediation.propose` | measures an owned destination prefix and its configured benign population |
 | `POST /v1/remediation/rtbh-proposals` | `remediation.propose` | files a candidate from the exact preview, clock and declared collateral limit |
+| `POST /v1/remediation/flowspec-preview` | `remediation.propose` | compares the typed match with the whole protected prefix |
+| `POST /v1/remediation/flowspec-proposals` | `remediation.propose` | files the exact FlowSpec preview and benign packet limit |
+| `GET /v1/remediation/proposals/{id}/flowspec-review` | `remediation.propose` | current matching and whole-prefix evidence |
+| `POST /v1/remediation/proposals/{id}/flowspec-approve` | `remediation.approve` | requires the exact review fingerprint and an independent interactive session |
 | `GET /v1/remediation/proposals` | `remediation.propose` | list (newest first) + `approvals_enabled` |
 | `POST /v1/remediation/proposals` | `remediation.propose` | files a proposal — always `proposed` |
 | `GET /v1/remediation/proposals/{id}` | `remediation.propose` | one proposal |

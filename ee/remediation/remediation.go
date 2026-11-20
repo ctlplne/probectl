@@ -181,7 +181,7 @@ func (s *Service) Approve(ctx context.Context, tenantID, approver, id, note stri
 	if p.State != rem.StateProposed {
 		return rem.Proposal{}, rem.ErrNotProposed
 	}
-	if p.Kind == rem.KindRTBHReview {
+	if p.Kind == rem.KindRTBHReview || p.Kind == rem.KindFlowSpecReview {
 		return rem.Proposal{}, rem.Error{Code: "validation", Message: "approve this proposal from its exact routing review"}
 	}
 	userID, err := remediationActor(ctx, tenantID, true)

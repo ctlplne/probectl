@@ -14339,6 +14339,270 @@
         }
       }
     },
+    "/v1/remediation/flowspec-preview": {
+      "post": {
+        "operationId": "previewRemediationFlowSpec",
+        "summary": "Preview a tenant-scoped FlowSpec proposal",
+        "description": "Measures the complete protected scope and the typed traffic match in the same completed window. Requires a current detection receipt, routing-context grants and known transport fields for the selected match.",
+        "tags": [
+          "remediation"
+        ],
+        "x-required-permission": "remediation.propose",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemediationFlowSpecPreviewInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Typed proposal and scoped observed traffic before and after applying the match predicate to the observations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationFlowSpecPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/remediation/flowspec-proposals": {
+      "post": {
+        "x-required-permission": "remediation.propose",
+        "operationId": "proposeFlowSpecReview",
+        "summary": "File a FlowSpec preview for independent approval",
+        "tags": [
+          "remediation"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemediationFlowSpecProposalInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Audited proposal awaiting independent approval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationProposal"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Recomputes the exact typed preview and original observation window under the current tenant grants. Records a proposal only.",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        }
+      }
+    },
+    "/v1/remediation/proposals/{id}/flowspec-review": {
+      "get": {
+        "x-required-permission": "remediation.propose",
+        "operationId": "getFlowSpecReview",
+        "summary": "Read the current evidence for a FlowSpec review",
+        "tags": [
+          "remediation"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Proposal id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current scoped proposal evidence and approval limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationFlowSpecReview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        }
+      }
+    },
+    "/v1/remediation/proposals/{id}/flowspec-approve": {
+      "post": {
+        "x-required-permission": "remediation.approve",
+        "operationId": "approveFlowSpecReview",
+        "summary": "Record independent approval of the exact FlowSpec review",
+        "tags": [
+          "remediation"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Proposal id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemediationFlowSpecApprovalInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The proposal in state approved (a recorded, audited human authorization — nothing was executed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationProposal"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "description": "Fails closed: approvals_disabled, blast_radius_exceeded, blast_radius_unknown or not_proposed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "description": "Requires a current interactive session and a reviewer distinct from the proposer. Approval records the decision and does not announce a route.",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        }
+      }
+    },
     "/v1/remediation/rtbh-proposals": {
       "post": {
         "x-required-permission": "remediation.propose",
@@ -19823,6 +20087,217 @@
           }
         }
       },
+      "RemediationFlowSpecTransport": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol"
+        ],
+        "properties": {
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp"
+            ]
+          },
+          "source_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "destination_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        }
+      },
+      "RemediationFlowSpecPreviewInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "protected_entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "benign_entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "whole_view_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receipt_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "whole_view_version": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "routing_policy_agreed": {
+            "type": "boolean",
+            "const": true
+          },
+          "transport": {
+            "$ref": "#/components/schemas/RemediationFlowSpecTransport"
+          }
+        },
+        "required": [
+          "rule_id",
+          "context_id",
+          "protected_entity_id",
+          "benign_entity_id",
+          "whole_view_id",
+          "receipt_fingerprint",
+          "whole_view_version",
+          "routing_policy_agreed",
+          "transport"
+        ]
+      },
+      "RemediationFlowSpecCandidate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "family",
+          "destination",
+          "transport",
+          "action"
+        ],
+        "properties": {
+          "family": {
+            "type": "string",
+            "enum": [
+              "ipv4",
+              "ipv6"
+            ]
+          },
+          "destination": {
+            "type": "string"
+          },
+          "transport": {
+            "$ref": "#/components/schemas/RemediationFlowSpecTransport"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "discard"
+            ]
+          }
+        }
+      },
+      "RemediationFlowSpecPreview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate",
+          "matching",
+          "whole_scope",
+          "preview_fingerprint"
+        ],
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/RemediationFlowSpecCandidate"
+          },
+          "matching": {
+            "$ref": "#/components/schemas/RemediationPrefixImpact"
+          },
+          "whole_scope": {
+            "$ref": "#/components/schemas/RemediationPrefixImpact"
+          },
+          "preview_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Exact tenant-bound preview and source scope digest for filing a routing review."
+          }
+        }
+      },
+      "RemediationFlowSpecProposalInput": {
+        "type": "object",
+        "required": [
+          "preview",
+          "observed_to",
+          "preview_fingerprint",
+          "max_known_benign_packets"
+        ],
+        "properties": {
+          "preview": {
+            "$ref": "#/components/schemas/RemediationFlowSpecPreviewInput"
+          },
+          "observed_to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "preview_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "max_known_benign_packets": {
+            "type": "string",
+            "pattern": "^[0-9]{1,64}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemediationFlowSpecReview": {
+        "type": "object",
+        "required": [
+          "proposal",
+          "max_known_benign_packets",
+          "blast_radius",
+          "expires_at",
+          "review_fingerprint"
+        ],
+        "properties": {
+          "review_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "max_known_benign_packets": {
+            "type": "string",
+            "pattern": "^[0-9]{1,64}$"
+          },
+          "blast_radius": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Full configured destination prefix address count"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "proposal": {
+            "$ref": "#/components/schemas/RemediationFlowSpecPreview"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemediationFlowSpecApprovalInput": {
+        "type": "object",
+        "required": [
+          "review_fingerprint"
+        ],
+        "properties": {
+          "review_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "RemediationRTBHPreviewInput": {
         "type": "object",
         "additionalProperties": false,
@@ -20063,7 +20538,8 @@
               "traffic_shift_suggestion",
               "open_ticket",
               "trustctl_renewal",
-              "rtbh_review"
+              "rtbh_review",
+              "flowspec_review"
             ]
           },
           "title": {
