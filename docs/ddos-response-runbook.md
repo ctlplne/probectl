@@ -7,8 +7,11 @@ window in the DDoS query alert. Set volume and observed-record floors for
 that window length. Each episode requires two adjacent completed windows. The
 fast scheduler checks for due short-window rules every two seconds on the
 existing alert leader, independently of the ordinary alert pass. Configure
-export and collection frequently enough to populate both windows. Exporter
-delay and incomplete evidence can delay or prevent an alert.
+export and collection frequently enough to populate both windows. After an
+evaluation has established a clock, a missed short-window pair stays eligible
+through the following completed window. If its observations arrive in time,
+the episode cites their original clocks. Longer export delays and incomplete
+evidence can still delay or prevent an alert.
 
 For generic ingress pressure on one host, enter its HTTP telemetry service
 name and port. The application comparison requires current `metrics.read`

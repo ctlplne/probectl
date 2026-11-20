@@ -45,7 +45,7 @@ type storedDDoSReceipt struct {
 }
 
 func (s *Server) readAlertDDoSRule(ctx context.Context, rule alert.Rule, source store.AlertQuerySource, actor *auth.Principal,
-	budget flowstore.ExplorerBudget, deps AlertTagDependencies) (alert.RuleMetricRead, error) {
+	budget flowstore.ExplorerBudget, deps AlertTagDependencies, at time.Time) (alert.RuleMetricRead, error) {
 	var empty alert.RuleMetricRead
 	input := source.Source.Condition.DDoS
 	if source.Source.Condition.Mode != alert.DDoSCondition || input == nil || actor == nil || actor.TenantID != rule.TenantID {
@@ -55,9 +55,18 @@ func (s *Server) readAlertDDoSRule(ctx context.Context, rule alert.Rule, source 
 	if err != nil {
 		return empty, err
 	}
-	clocks, err := ddosClocks(time.Now(), input.PeriodSeconds)
+	clocks, err := ddosClocks(at, input.PeriodSeconds)
 	if err != nil {
 		return empty, err
+	}
+	// Finish one skipped short window when its original inputs have had
+	// time to arrive. The durable state selects the clock, so another
+	// worker or a restart cannot reopen an already evaluated pair.
+	if anomaly.DDoSFastPeriod(input.PeriodSeconds) && source.State.Initialized && source.State.At.Equal(clocks.Previous.After.Start) {
+		clocks, err = ddosClocks(clocks.Current.After.Start, input.PeriodSeconds)
+		if err != nil {
+			return empty, err
+		}
 	}
 	ctx, flush := scopedABACDenial(ctx)
 	defer flush(s)

@@ -61,9 +61,9 @@ window in the in-memory store leave application evidence unavailable.
 
 ## Published results
 
-Go 1.26.11 on macOS arm64 with an Apple M1 Max reproduced the original v2
+Two replays on Go 1.26.11 and an Apple M1 Max reproduced the original v2
 manifest and all 416 trial outcomes. The local socket attributes changed the
-materialized observation digest.
+materialized observation digest, which matched across both replays.
 
 | Measure | Result |
 | --- | --- |
@@ -73,6 +73,7 @@ materialized observation digest.
 | True negatives / false negatives | 80 / 16 |
 | Abstained positives / abstained negatives | 48 / 64 |
 | Modeled onset min / median / p95 / max | 10 s / 12 s / 14 s / 14 s |
+| In-process runtime per 416-trial corpus | 52.19–94.43 ms across five runs |
 
 The detector classified 304 of 416 trials. The 48 abstained positives bring
 the number of positive trials without an opened episode to 64. All 16 matched
