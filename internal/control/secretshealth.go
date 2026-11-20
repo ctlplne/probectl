@@ -41,9 +41,9 @@ type secretsHealthResponse struct {
 }
 
 // handleSecretsHealth serves GET /v1/secrets/health. Health snapshots are
-// process-wide operational metadata (never tenant telemetry, never secret
-// material); access still requires an authenticated principal with directory
-// read (the admin-surface permission, enforced by the route table).
+// deployment-scoped operational metadata. Tenant-owned resolution is excluded
+// before publication. The route requires an authenticated principal with
+// directory read (the admin-surface permission).
 func (s *Server) handleSecretsHealth(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.principalTenant(r); err != nil {
 		return err

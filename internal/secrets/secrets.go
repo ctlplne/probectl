@@ -136,7 +136,7 @@ type BackendHealth struct {
 	Resolves     int       `json:"resolves"`
 	Failures     int       `json:"failures"`
 	LastOK       time.Time `json:"last_ok,omitempty"`
-	LastError    string    `json:"last_error,omitempty"` // redacted message
+	LastError    string    `json:"last_error,omitempty"` // fixed deployment error category
 	LastErrorAt  time.Time `json:"last_error_at,omitempty"`
 	CachedLeases int       `json:"cached_leases"`
 }
@@ -198,11 +198,10 @@ func (r *Resolver) ResolveBytes(ctx context.Context, raw string) ([]byte, func()
 	return r.resolveBytes(ctx, raw, true)
 }
 
-// ResolveBytesUncached is ResolveBytes without the lease cache: every call
-// asks the backend, and nothing it returns is kept. It is for a value whose
-// owner's revocation must apply on the next use — a tenant's BYOK key
-// (docs/byok.md), which a cached copy would keep answering for up to the lease
-// TTL after the customer deleted it.
+// ResolveBytesUncached resolves a tenant-owned reference on every use. It
+// leaves deployment leases and shared health counters untouched. This lets a
+// tenant revoke a BYOK key (docs/byok.md) without waiting for a lease to expire
+// or disclosing tenant activity through the deployment health view.
 func (r *Resolver) ResolveBytesUncached(ctx context.Context, raw string) ([]byte, func(), error) {
 	return r.resolveBytes(ctx, raw, false)
 }
@@ -223,14 +222,15 @@ func (r *Resolver) resolveBytes(ctx context.Context, raw string, cached bool) ([
 		r.mu.Unlock()
 		return nil, nil, fmt.Errorf("secrets: resolver is closed")
 	}
-	if e, ok := r.cache[raw]; cached && ok && now.Before(e.expires) {
-		plain, derr := crypto.Default.Decrypt(r.key, e.sealed, []byte(raw))
-		r.mu.Unlock()
-		if derr != nil {
-			return nil, nil, fmt.Errorf("secrets: cache unseal %s: %w", ref.Redacted(), derr)
+	if e, ok := r.cache[raw]; cached && ok {
+		if now.Before(e.expires) {
+			plain, derr := crypto.Default.Decrypt(r.key, e.sealed, []byte(raw))
+			r.mu.Unlock()
+			if derr != nil {
+				return nil, nil, fmt.Errorf("secrets: cache unseal %s: %w", ref.Redacted(), derr)
+			}
+			return plain, func() { crypto.Zeroize(plain) }, nil
 		}
-		return plain, func() { crypto.Zeroize(plain) }, nil
-	} else if ok {
 		crypto.Zeroize(e.sealed)
 		delete(r.cache, raw)
 	}
@@ -250,23 +250,27 @@ func (r *Resolver) resolveBytes(ctx context.Context, raw string, cached bool) ([
 		return nil, nil, fmt.Errorf("secrets: resolver is closed")
 	}
 	if ferr != nil {
-		st.Failures++
-		st.LastError = ferr.Error()
-		st.LastErrorAt = now
-		// Fail closed: no stale fallback for credentials — a rotated-away secret
-		// must stop being used (the S41 'watch out for').
-		if old, ok := r.cache[raw]; ok {
-			crypto.Zeroize(old.sealed)
-			delete(r.cache, raw)
+		if cached {
+			st.Failures++
+			st.LastError = "secrets: backend resolution failed"
+			if errors.Is(ferr, ErrUnavailable) {
+				st.LastError = ErrUnavailable.Error()
+			}
+			st.LastErrorAt = now
+			// A failed deployment lookup invalidates its cached lease.
+			if old, ok := r.cache[raw]; ok {
+				crypto.Zeroize(old.sealed)
+				delete(r.cache, raw)
+			}
 		}
 		cleanupBytes(valueBytes, valueCleanup)
 		return nil, nil, fmt.Errorf("secrets: resolve %s: %w", ref.Redacted(), ferr)
 	}
-	st.Resolves++
-	st.LastOK = now
 	if !cached {
 		return valueBytes, func() { cleanupBytes(valueBytes, valueCleanup) }, nil
 	}
+	st.Resolves++
+	st.LastOK = now
 	sealed, serr := crypto.Default.Encrypt(r.key, valueBytes, []byte(raw))
 	if serr == nil {
 		if old, ok := r.cache[raw]; ok {
@@ -295,7 +299,8 @@ func cleanupBytes(b []byte, cleanup func()) {
 	}
 }
 
-// Health returns per-backend snapshots (sorted, no secret material).
+// Health returns sorted deployment backend snapshots. Tenant-owned lookups
+// contribute no activity, lease state or error details to this shared view.
 func (r *Resolver) Health() []BackendHealth {
 	r.mu.Lock()
 	defer r.mu.Unlock()

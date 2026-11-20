@@ -115,11 +115,11 @@ counter and logging a warning) rather than polling a device with stale material.
 
 ## Observability
 
-`GET /v1/secrets/health` returns per-backend counters, live lease counts, last
-success time, and the last error — **redacted**: never any secret material, and
-reference fragments are masked (`vault:kv/x#…`). The Admin UI renders this as the
-**Secret backends** card; a `resolver_running=false` flag distinguishes an
-unwired resolver from one that is simply idle.
+`GET /v1/secrets/health` returns deployment-level backend counters, live lease
+counts, last success time, and a fixed error category. Tenant-owned key and
+credential lookups leave this shared view unchanged. The Admin UI renders this
+as the **Secret backends** card. The `resolver_running` flag shows whether the
+deployment wired a resolver.
 
 ## trustctl machine identities (agent mTLS)
 

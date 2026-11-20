@@ -89,6 +89,10 @@ func TestBYOKExternalKeyLifecycleRealStack(t *testing.T) {
 	}
 
 	// 2. BYOK through the CLI, fenced to A's namespace and lockout-guarded.
+	healthStatus, siblingHealth := bob.do(t, st, http.MethodGet, "/v1/secrets/health", nil)
+	if healthStatus != http.StatusOK {
+		t.Fatal("tenant B could not read the shared deployment health", healthStatus)
+	}
 	keyPath := func(tenant, name string) string { return "probectl/byok/" + tenant + "/" + name }
 	ref := func(tenant, name string) string { return "vault:secret/" + keyPath(tenant, name) + "#key" }
 	vault.put(keyPath(A, "kek"), randomKey(t))
@@ -126,6 +130,9 @@ func TestBYOKExternalKeyLifecycleRealStack(t *testing.T) {
 	}
 	if code := bob.getRule(t, st, bob.createRule(t, st, "b1-managed", "secret-b")); code != http.StatusOK {
 		t.Fatalf("tenant B's managed value = %d during tenant A's revocation, want 200", code)
+	}
+	if code, got := bob.do(t, st, http.MethodGet, "/v1/secrets/health", nil); code != http.StatusOK || !bytes.Equal(got, siblingHealth) {
+		t.Fatal("tenant A's key activity changed the deployment health visible to tenant B", code)
 	}
 	vault.putRaw(keyPath(A, "kek"), material)
 	if code := ada.getRule(t, st, r2); code != http.StatusOK {
@@ -333,7 +340,7 @@ func newKeysStack(t *testing.T, vault *vaultStandIn) *keysStack {
 	}
 	tenantcrypto.SetPrimary(ring)
 
-	srv := control.New(cfg, log, db, db.Pool(), nil, nil).WithLicense(lic)
+	srv := control.New(cfg, log, db, db.Pool(), nil, nil).WithLicense(lic).WithSecrets(resolver)
 	srv.WithKeyManager(tenantcrypto.GateKeyManagerWrites(tenantkeys.NewManager(ring), lic.WriteCapability()))
 	httpSrv := httptest.NewServer(srv.Handler())
 	t.Cleanup(httpSrv.Close)

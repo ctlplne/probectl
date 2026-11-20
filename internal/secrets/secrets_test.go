@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -232,6 +233,9 @@ func TestLeaseCacheSealedAndFailClosedOnRotation(t *testing.T) {
 	if !strings.Contains(health, `"failures":1`) || !strings.Contains(health, `"resolves":2`) {
 		t.Fatalf("health counters wrong: %s", health)
 	}
+	if got := res.Health()[0].LastError; got != ErrUnavailable.Error() {
+		t.Fatal("deployment health must publish a fixed category")
+	}
 }
 
 // A BYOK key the customer deletes must stop answering on the next use, inside
@@ -263,6 +267,41 @@ func TestResolveBytesUncachedSeesRevocationInsideTheLease(t *testing.T) {
 	src.fail = true // the customer deleted the key
 	if _, _, err := res.ResolveBytesUncached(ctxT(t), ref); err == nil {
 		t.Fatal("a revoked value still resolved inside the lease")
+	}
+}
+
+func TestUncachedTenantResolutionPreservesDeploymentHealthAndLease(t *testing.T) {
+	src := &countingSource{value: "deployment-lease"}
+	res, err := NewResolver(time.Hour, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(res.Close)
+	ctx := ctxT(t)
+	const ref = "vault:kv/owned-fixture#key"
+	if got, err := res.Resolve(ctx, ref); err != nil || got != "deployment-lease" {
+		t.Fatal("deployment lookup did not populate its lease", err)
+	}
+	before := res.Health()
+
+	src.value = "fresh-tenant-value"
+	plain, cleanup, err := res.ResolveBytesUncached(ctx, ref)
+	if err != nil || string(plain) != "fresh-tenant-value" {
+		t.Fatal("tenant lookup did not use the current backend value", err)
+	}
+	cleanup()
+	src.fail = true
+	if _, _, err := res.ResolveBytesUncached(ctx, ref); err == nil {
+		t.Fatal("tenant lookup used stale data after backend failure")
+	}
+	if got := res.Health(); !slices.Equal(got, before) {
+		t.Fatal("tenant lookups changed the deployment health snapshot")
+	}
+	if got, err := res.Resolve(ctx, ref); err != nil || got != "deployment-lease" {
+		t.Fatal("tenant lookups changed the deployment lease", err)
+	}
+	if src.calls != 3 {
+		t.Fatalf("backend calls = %d, want deployment lookup and two uncached tenant lookups", src.calls)
 	}
 }
 
