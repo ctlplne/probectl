@@ -11,6 +11,7 @@ package control
 import (
 	"context"
 	"encoding/pem"
+	"log/slog"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
+	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -31,7 +33,7 @@ import (
 )
 
 func TestScheduledDDoSEditorAndReceiptServedInBothThemes(t *testing.T) {
-	f := newRoleExplanationAPIFixture(t)
+	f := newRoleExplanationAPIFixture(t, slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{Level: slog.LevelWarn})))
 	queries := flow.NewPostgresQueryViewStore(f.pool, 0, audit.TenantRecord)
 	rows, metrics := flowstore.NewMemory(), tsdb.NewMemory()
 	gate := fairness.NewGate(fairness.DefaultPolicy(), nil)
@@ -42,17 +44,16 @@ func TestScheduledDDoSEditorAndReceiptServedInBothThemes(t *testing.T) {
 	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: socket.Certificate().Raw}), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	windows, err := ddosClocks(time.Now(), 300)
-	if err != nil {
-		t.Fatal(err)
-	}
+	const periodSeconds = 300
+	const period = periodSeconds * time.Second
+	anchor := time.Now().UTC().Truncate(period)
 	names := [2]string{"First tenant traffic source", "Second tenant traffic source"}
 	themes := [2]string{"light", "dark"}
 	for lane, tenant := range f.tenants {
 		grantSeasonalFlowFixture(f, tenant)
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		definition := fieldComparisonViewDefinition(names[lane])
-		definition.Time.LookbackSeconds = 300
+		definition.Time.LookbackSeconds = periodSeconds
 		definition.Plan.Filter = &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{
 			{Field: "exporter", Op: flow.QueryEqual, Values: []string{"203.0.113.15"}},
 		}}
@@ -60,8 +61,16 @@ func TestScheduledDDoSEditorAndReceiptServedInBothThemes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		seedDDoSAssessmentRows(t, rows, tenant, windows.Previous, lane == 0)
-		seedDDoSAssessmentRows(t, rows, tenant, windows.Current, true)
+		// Browser work can straddle a completed UTC window boundary. Retain
+		// adjacent comparisons at either clock and give the quiet tenant one
+		// qualifying spike in that entire fixture.
+		for offset := -1; offset <= 2; offset++ {
+			windows, err := anomaly.DDoSCompletedWindows(anchor.Add(time.Duration(offset)*period), periodSeconds)
+			if err != nil {
+				t.Fatal(err)
+			}
+			seedDDoSAssessmentRows(t, rows, tenant, windows, lane == 0 || offset == 0)
+		}
 		cookie := seasonalFlowBrowserCookie(t, f, tenant)
 		for _, theme := range themes {
 			name := names[lane] + " " + theme
@@ -86,9 +95,15 @@ func TestScheduledDDoSEditorAndReceiptServedInBothThemes(t *testing.T) {
 		for _, theme := range themes {
 			name := names[lane] + " " + theme
 			var incidentID string
+			var observedAt time.Time
 			f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-				return sc.Q.QueryRow(ctx, `SELECT incident_id::text FROM incident_signals WHERE tenant_id=$1 AND title=$2 AND kind='alert.ddos_assessment'`, tenant, name).Scan(&incidentID)
+				return sc.Q.QueryRow(ctx, `SELECT incident_id::text,occurred_at FROM incident_signals
+ WHERE tenant_id=$1 AND title=$2 AND kind='alert.ddos_assessment'`, tenant, name).Scan(&incidentID, &observedAt)
 			})
+			windows, err := ddosClocks(observedAt, periodSeconds)
+			if err != nil {
+				t.Fatal(err)
+			}
 			t.Run(name+" receipt", func(t *testing.T) {
 				testsupport.RenderUI(t, testsupport.RenderSpec{
 					URL: socket.URL + "/ui/incidents?incident=" + url.QueryEscape(incidentID), Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: cookie}},
@@ -147,8 +162,11 @@ func verifyScheduledDDoSBrowserRules(ctx context.Context, t *testing.T, sc tenan
 				return err
 			}
 			if rule.TenantID != tenant || source == nil || source.Source.ViewID != view.ID || source.Source.ViewVersion != view.Version ||
-				source.Source.Condition.DDoS == nil || source.Source.Condition.DDoS.Prefix != "192.0.2.0/24" || source.Source.EverySeconds != 300 || !source.State.Initialized {
-				t.Fatal("the browser did not commit the owned scheduled traffic source")
+				source.Source.Condition.DDoS == nil || source.Source.Condition.DDoS.Prefix != "192.0.2.0/24" || source.Source.EverySeconds != 300 {
+				t.Fatal("the browser did not commit the owned scheduled traffic source", rule.Name)
+			}
+			if !source.State.Initialized {
+				t.Fatal("the scheduler did not evaluate both seeded closed windows", rule.Name)
 			}
 			found = true
 		}
