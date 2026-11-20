@@ -1,0 +1,11 @@
+PLAT-21 large backup and restore measurement, 2026-11-20 UTC
+Clean product source d33b0459c64d925563c5b6d4f5a4b260990671d8
+Apple M1 Max, arm64 Docker Desktop, internal-only disposable Compose network
+Two synthetic tenant populations, 458752 bulk rows and 1879048192 payload bytes each in PostgreSQL and ClickHouse
+PostgreSQL ordered source digest d1b80f37001d28920ab5cb9427f3fba9e5cb858ee2de401a5ea67d07219014f5
+ClickHouse ordered source digest 8abb603641a960d0a7309572fe38cb8a269cc96c3d50f0280684fe7a0a8e000c
+Named source databases and object-store working tree were removed from the restore path
+The PostgreSQL carried application role and its RLS policy restored
+All ordered database row digests and 56 tenant object digests matched
+All signed WORM segment, signature and public key bytes matched
+BACKUP_RESTORE_RESULT run_at=2026-11-20T08:23:59Z git_sha=d33b0459c64d profile=local-three-store-10gb pg_rows=137 ch_rows=251 ch_other_rows=17 worm_events=3 postgres_artifact_bytes=4294958553 clickhouse_artifact_bytes=3763782280 objectstore_artifact_bytes=3758256278 artifact_bytes=11816997111 backup_secs=328 restore_secs=123 rpo_seconds=86400 rto_budget_seconds=0

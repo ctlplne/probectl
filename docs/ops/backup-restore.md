@@ -442,6 +442,12 @@ helm upgrade probectl deploy/helm/probectl --reuse-values \
 | 2026-07-01 | `small` / dev compose | 137 PG rows; 251 tenant CH rows; 345,746 B artifacts | 1 s | 2 s | RPO `86,400` s; CH zip 7,379 B; transcript row in `docs/ops/backup-restore-results.csv` |
 | 2026-07-01 | `medium` / dev compose | 5,000 PG rows; 50,000 tenant CH rows; 470,028 B artifacts | 1 s | 2 s | RPO `86,400` s; CH zip 118,806 B; transcript row in `docs/ops/backup-restore-results.csv` |
 | 2026-07-01 | `large` / dev compose | 20,000 PG rows; 250,000 tenant CH rows; 1,004,783 B artifacts | 0 s | 1 s | RPO `86,400` s; CH zip 611,640 B; archived log `docs/ops/drill-logs/backup-restore-large-20260701.log`; transcript row in `docs/ops/backup-restore-results.csv` |
+| 2026-11-20 | `local-three-store-10gb` / isolated arm64 Docker Desktop on Apple M1 Max | 917,504 bulk rows in each database, 56 tenant objects, 3 signed WORM events, 11,816,997,111 B of sealed artifacts | 328 s | 123 s | Both tenant populations and every bulk digest matched after restore. [Archived measurement](drill-logs/backup-restore-large-20261120.log) |
+
+The local run measured off-box artifact recovery in disposable Compose
+volumes from `d33b0459c64d`. The RPO field records the configured
+24-hour backup cadence. Production capacity, regional failover and API
+recovery have separate qualification.
 
 The committed transcript is a release artifact seed; CI's `backup-drill` job
 publishes the same CSV shape as a downloadable `backup-restore-results`
