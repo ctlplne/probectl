@@ -520,6 +520,7 @@ var surfaceCommands = map[string]surfaceCommand{
 	"remediation": {Name: "remediation", Summary: "human-gated remediation proposals", Ops: map[string]apiOp{
 		"list":              {Method: http.MethodGet, Path: "/v1/remediation/proposals"},
 		"create":            {Method: http.MethodPost, Path: "/v1/remediation/proposals"},
+		"rtbh-templates":    {Method: http.MethodGet, Path: "/v1/remediation/rtbh-templates", ExactJSON: true, Description: "read documented transit RTBH policy templates"},
 		"rtbh-preview":      {Method: http.MethodPost, Path: "/v1/remediation/rtbh-preview", ExactJSON: true, Description: "measure an owned destination prefix and its configured benign traffic"},
 		"rtbh-propose":      {Method: http.MethodPost, Path: "/v1/remediation/rtbh-proposals", ExactJSON: true, Description: "file the exact routing preview for independent review"},
 		"rtbh-review":       {Method: http.MethodGet, Path: "/v1/remediation/proposals/{id}/routing-review", ArgName: "id", ExactJSON: true, Description: "read the current evidence for an owned routing review"},

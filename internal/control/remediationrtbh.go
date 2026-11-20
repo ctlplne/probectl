@@ -34,6 +34,23 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
+func (s *Server) handleRTBHUpstreamTemplates(w http.ResponseWriter, r *http.Request) error {
+	svc, err := s.remediationSvc()
+	if err != nil {
+		return err
+	}
+	if _, installed := svc.(remediation.RTBHPreviewer); !installed {
+		return apierror.NotFound("traffic review is unavailable")
+	}
+	if _, err := s.principalTenant(r); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Items []remediation.RTBHUpstreamTemplate `json:"items"`
+	}{remediation.RTBHUpstreamTemplates()})
+	return nil
+}
+
 func (s *Server) handleRTBHPreview(w http.ResponseWriter, r *http.Request) error {
 	svc, err := s.remediationSvc()
 	if err != nil {

@@ -14411,6 +14411,40 @@
         }
       }
     },
+    "/v1/remediation/rtbh-templates": {
+      "get": {
+        "operationId": "listRemediationRtbhTemplates",
+        "summary": "Read published transit RTBH templates",
+        "description": "Read versioned, documented communities and prefix safety limits for an operator-selected customer transit product. Selecting a template requires the same exact tenant-scoped traffic evidence and human approval as a manually entered RTBH community.",
+        "tags": [
+          "remediation"
+        ],
+        "x-required-permission": "remediation.propose",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Documented customer RTBH templates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationRTBHUpstreamTemplates"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Routing review is unavailable."
+          }
+        }
+      }
+    },
     "/v1/remediation/rtbh-preview": {
       "post": {
         "operationId": "previewRemediationRTBH",
@@ -21502,6 +21536,79 @@
         },
         "additionalProperties": false
       },
+      "RemediationRTBHUpstreamTemplate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "provider",
+          "session_asn",
+          "community",
+          "scope",
+          "requirement",
+          "source",
+          "verified_on"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "provider": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "session_asn": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "community": {
+            "type": "string",
+            "pattern": "^[0-9]{1,5}:[0-9]{1,5}$"
+          },
+          "ipv4_minimum": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "ipv6_minimum": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 128
+          },
+          "scope": {
+            "type": "string"
+          },
+          "requirement": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "format": "uri"
+          },
+          "verified_on": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "RemediationRTBHUpstreamTemplates": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/RemediationRTBHUpstreamTemplate"
+            }
+          }
+        }
+      },
       "RemediationRTBHPreviewInput": {
         "type": "object",
         "additionalProperties": false,
@@ -21537,6 +21644,10 @@
           "community": {
             "type": "string",
             "pattern": "^[0-9]{1,5}:[0-9]{1,5}$"
+          },
+          "upstream_template_id": {
+            "type": "string",
+            "maxLength": 80
           },
           "routing_policy_agreed": {
             "type": "boolean",
@@ -21649,6 +21760,9 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "upstream_template": {
+            "$ref": "#/components/schemas/RemediationRTBHUpstreamTemplate"
+          },
           "preview_fingerprint": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",

@@ -24,8 +24,8 @@ func (s *Service) prepareRTBH(ctx context.Context, tenant string, input rem.RTBH
 	if !ok || credential == nil {
 		return empty, rem.RTBHImpactPublication{}, unavailableRTBHReview()
 	}
-	if !input.RoutingPolicyAgreed || !canonicalRTBHCommunity(input.Community) {
-		return empty, rem.RTBHImpactPublication{}, rem.Error{Code: "validation", Message: "confirm the routing policy and enter its canonical community"}
+	if err := validateRTBHPolicySelection(input); err != nil {
+		return empty, rem.RTBHImpactPublication{}, err
 	}
 	prepared, err := source.PreparePrefixImpact(ctx, tenant, input.PrefixImpactInput, observedTo, credential)
 	if err != nil {

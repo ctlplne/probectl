@@ -11,6 +11,7 @@ package flow_test
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -28,6 +29,36 @@ import (
 
 func TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview(t *testing.T) {
 	stack, owner, reviewer, sibling, input, end, _ := prepareShippedRoutingReceipt(t, false)
+	var catalog struct {
+		Items []remediation.RTBHUpstreamTemplate `json:"items"`
+	}
+	owner.do(t, stack, http.MethodGet, "/v1/remediation/rtbh-templates", nil, &catalog, http.StatusOK)
+	if len(catalog.Items) != 5 {
+		t.Fatal("the published template catalog did not reach the routed API", catalog.Items)
+	}
+	token := stack.APIToken(t, owner.cookie, "remediation.propose")
+	listed := catalog
+	listed.Items = nil
+	stack.MustCLI(t, map[string]string{"PROBECTL_API_TOKEN": token}, &listed, "remediation", "rtbh-templates")
+	if !slices.Equal(catalog.Items, listed.Items) {
+		t.Fatal("the named CLI lost a provider, revision, or policy field", listed.Items)
+	}
+	template, found := remediation.RTBHUpstreamTemplateByID("hurricane-electric-transit-v1")
+	if !found {
+		t.Fatal("expected the published Hurricane Electric template")
+	}
+	var manual remediation.RTBHPreview
+	owner.do(t, stack, http.MethodPost, "/v1/remediation/rtbh-preview", input, &manual, http.StatusOK)
+	if manual.UpstreamTemplate != nil || manual.Fingerprint == "" {
+		t.Fatal("the existing manual review lost its evidence")
+	}
+	input.Community, input.UpstreamTemplateID = template.Community, template.ID
+	var published remediation.RTBHPreview
+	owner.do(t, stack, http.MethodPost, "/v1/remediation/rtbh-preview", input, &published, http.StatusOK)
+	if published.UpstreamTemplate == nil || *published.UpstreamTemplate != template ||
+		published.Fingerprint == manual.Fingerprint {
+		t.Fatal("the reviewed provider template was not bound to the observed source")
+	}
 	assertShippedReviewDecision(t, stack, owner, reviewer, sibling, input, end)
 }
 
@@ -142,6 +173,10 @@ func assertShippedReviewDecision(t *testing.T, stack *shipped.Stack, owner, revi
 	if review.Fingerprint == "" || review.Fingerprint == preview.Fingerprint || review.Candidate.Impact != preview.Impact || review.MaxKnownBenignPackets != "4000" {
 		t.Fatal("the independent reviewer did not receive the exact bounded evidence")
 	}
+	if input.UpstreamTemplateID != "" && (review.Candidate.UpstreamTemplate == nil ||
+		preview.UpstreamTemplate == nil || *review.Candidate.UpstreamTemplate != *preview.UpstreamTemplate) {
+		t.Fatal("the independent review did not retain the exact published template")
+	}
 	assertShippedReviewConsole(t, stack, reviewer, sibling, proposal.Title, review)
 	approve := base + "/approve"
 	confirmed := map[string]string{"review_fingerprint": review.Fingerprint}
@@ -167,6 +202,9 @@ func assertShippedReviewConsole(t *testing.T, stack *shipped.Stack, reviewer, si
 			"Known benign traffic", review.Candidate.Impact.KnownBenign.Packets + " packets",
 			"Benign packet limit", review.MaxKnownBenignPackets,
 		}}},
+	}
+	if template := review.Candidate.UpstreamTemplate; template != nil {
+		spec.Steps[0].Expect = append(spec.Steps[0].Expect, template.Provider)
 	}
 	testsupport.RenderUI(t, spec)
 	spec.Theme = "light"

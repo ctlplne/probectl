@@ -25,6 +25,7 @@ import type {
   RemediationRTBHPreviewInput,
   RemediationRTBHProposalInput,
   RemediationRTBHReview,
+  RemediationRTBHUpstreamTemplates,
 } from './sdk.gen'
 
 /** Guarded agentic remediation (S-EE5, F44 — ee-backed). The AI PROPOSES; a
@@ -89,6 +90,15 @@ export function useRTBHReview(id: string | undefined, identity: string) {
       apiFetch<RemediationRTBHReview>(
         `/remediation/proposals/${encodeURIComponent(id ?? '')}/routing-review`,
       ),
+  })
+}
+
+export function useRTBHUpstreamTemplates(identity: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['remediation-proposals', identity, 'rtbh-templates'],
+    enabled,
+    retry: false,
+    queryFn: () => apiFetch<RemediationRTBHUpstreamTemplates>('/remediation/rtbh-templates'),
   })
 }
 

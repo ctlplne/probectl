@@ -36,6 +36,29 @@
    approved plan, a route accepted in the control plane and an active
    forwarding action.
 
+## Use a published transit RTBH template
+
+Under **Published transit template**, choose the exact transit product
+and BGP session ASN. Confirm the customer has blackholing enabled
+on that session, verify the allowed prefix, and check the provider's
+published propagation scope. The review pins the template version,
+community, destination prefix and exact observed collateral. A different
+interactive tenant user still approves the same measured proposal.
+
+The catalog includes [Arelion](https://www.arelion.com/our-network/bgp-routing/bgp-communities),
+[GTT](https://www.gtt.net/services/managed-networking/internet/ip-transit/bgp-communities/),
+[Hurricane Electric](https://www.he.net/adm/blackhole.html),
+[Inter.link](https://inter.link/knowledgebase/bgp-communities/) and
+[Lumen Internet On-Demand](https://docs.lumen.com/intelligent-internet/adding-intelligent-internet-with-bgp-routing/).
+Some providers enable the feature per session or service. Inter.link's
+global template can propagate to peers and other upstreams.
+
+Run `probectl remediation rtbh-templates` to read the current catalog from
+the authorized control plane. Use the exact community and
+`upstream_template_id` from its response on the existing preview call.
+When a published template does not match your agreement, use the community
+from your verified routing policy.
+
 ## Close and retain evidence
 
 1. Confirm removal through the same authorized route or provider scope.

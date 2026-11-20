@@ -296,6 +296,18 @@ test('incident report accepts only its exact receipt and saves a private dashboa
             created_at: from,
             decided_at: to,
           },
+          {
+            proposal_id: 'proposal-flowspec',
+            kind: 'flowspec_review',
+            state: 'pending',
+            created_at: from,
+          },
+          {
+            proposal_id: 'proposal-diversion',
+            kind: 'diversion_preview',
+            state: 'pending',
+            created_at: from,
+          },
         ],
       })
     }
@@ -327,6 +339,9 @@ test('incident report accepts only its exact receipt and saves a private dashboa
   await screen.findByRole('region', { name: 'DDoS incident report' })
   expect(screen.getByText('80000 bits per second')).toBeInTheDocument()
   expect(screen.getByText('198.51.100.12')).toBeInTheDocument()
+  expect(screen.getByText(/RTBH · approved/)).toBeInTheDocument()
+  expect(screen.getByText(/FlowSpec · pending/)).toBeInTheDocument()
+  expect(screen.getByText(/Diversion · pending/)).toBeInTheDocument()
   click('Save incident report')
   await screen.findByText('Saved to your dashboards.')
   expect(saved).toMatchObject({
@@ -363,13 +378,29 @@ const impact = {
   unclassified: { bytes: '598800', packets: '5988' },
 }
 
-test.each(['rtbh', 'flowspec', 'diversion'] as const)(
+test.each(['rtbh', 'rtbh-template', 'flowspec', 'diversion'] as const)(
   'routing review files the exact %s preview after policy confirmation',
-  async (method) => {
+  async (selection) => {
+    const published = selection === 'rtbh-template'
+    const method = published ? 'rtbh' : selection
+    const carrier = {
+      id: 'hurricane-electric-transit-v1',
+      provider: 'Hurricane Electric IP Transit',
+      session_asn: 6939,
+      community: '6939:666',
+      ipv4_minimum: 24,
+      scope: 'Hurricane Electric core',
+      requirement: 'Confirm blackholing on the session.',
+      source: 'https://www.he.net/adm/blackhole.html',
+      verified_on: '2026-11-20',
+    }
+    const community = published ? carrier.community : '64512:100'
     let prepared: unknown
     let filed: unknown
     apiFixture((url, init) => {
       switch (url.pathname) {
+        case '/v1/remediation/rtbh-templates':
+          return jsonResponse({ items: [carrier] })
         case '/v1/entity-contexts':
           return jsonResponse({
             items: [{ context_id: 'context-red', site_label: 'Region', vrf_label: 'Red' }],
@@ -425,7 +456,8 @@ test.each(['rtbh', 'flowspec', 'diversion'] as const)(
           prepared = JSON.parse(String(init?.body))
           if (method === 'rtbh') {
             return jsonResponse({
-              announcement: { prefix: impact.prefix, family: 'ipv4', community: '64512:100' },
+              announcement: { prefix: impact.prefix, family: 'ipv4', community },
+              upstream_template: published ? carrier : undefined,
               impact,
               preview_fingerprint: episode,
             })
@@ -476,8 +508,18 @@ test.each(['rtbh', 'flowspec', 'diversion'] as const)(
     fill('Whole-prefix flow view', 'view-red')
     const send = screen.getByRole('button', { name: 'Preview scoped collateral' })
     expect(send).toBeDisabled()
-    if (method === 'rtbh') {
-      fill('Community from your routing policy', '64512:100')
+    if (published) {
+      await screen.findByRole('option', { name: 'Hurricane Electric IP Transit (AS6939)' })
+      fill('Published transit template', carrier.id)
+      expect(screen.getByLabelText('Community from your routing policy')).toHaveValue(community)
+      expect(screen.getByLabelText('Community from your routing policy')).toBeDisabled()
+      expect(screen.getByRole('link', { name: 'Carrier policy' })).toHaveAttribute(
+        'href',
+        carrier.source,
+      )
+      expect(send).toBeDisabled()
+    } else if (method === 'rtbh') {
+      fill('Community from your routing policy', community)
     } else if (method === 'flowspec') {
       fill('Transport protocol', 'udp')
       fill('Exact source port (optional)', '123')
@@ -491,7 +533,12 @@ test.each(['rtbh', 'flowspec', 'diversion'] as const)(
     await screen.findByLabelText('Scoped routing preview')
     expect(prepared).toEqual(
       method === 'rtbh'
-        ? { ...routingScope, routing_policy_agreed: true, community: '64512:100' }
+        ? {
+            ...routingScope,
+            routing_policy_agreed: true,
+            community,
+            ...(published ? { upstream_template_id: carrier.id } : {}),
+          }
         : method === 'flowspec'
           ? {
               ...routingScope,
@@ -500,6 +547,10 @@ test.each(['rtbh', 'flowspec', 'diversion'] as const)(
             }
           : { action: 'start', observation: routingScope },
     )
+    if (published)
+      expect(screen.getByLabelText('Scoped routing preview')).toHaveTextContent(
+        'Hurricane Electric IP Transit (AS6939)',
+      )
     const file = screen.getByRole('button', { name: 'File exact routing proposal' })
     expect(file).toBeDisabled()
     fill('Maximum known benign packets', '12')

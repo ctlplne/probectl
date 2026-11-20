@@ -4267,9 +4267,10 @@ type RemediationRTBHAnnouncement struct {
 }
 
 type RemediationRTBHPreview struct {
-	Announcement       RemediationRTBHAnnouncement `json:"announcement"`
-	Impact             RemediationPrefixImpact     `json:"impact"`
-	PreviewFingerprint string                      `json:"preview_fingerprint,omitempty"`
+	Announcement       RemediationRTBHAnnouncement     `json:"announcement"`
+	Impact             RemediationPrefixImpact         `json:"impact"`
+	PreviewFingerprint string                          `json:"preview_fingerprint,omitempty"`
+	UpstreamTemplate   RemediationRTBHUpstreamTemplate `json:"upstream_template,omitzero"`
 }
 
 type RemediationRTBHPreviewInput struct {
@@ -4280,6 +4281,7 @@ type RemediationRTBHPreviewInput struct {
 	ReceiptFingerprint  string `json:"receipt_fingerprint"`
 	RoutingPolicyAgreed bool   `json:"routing_policy_agreed"`
 	RuleId              string `json:"rule_id"`
+	UpstreamTemplateId  string `json:"upstream_template_id,omitempty"`
 	WholeViewId         string `json:"whole_view_id"`
 	WholeViewVersion    string `json:"whole_view_version"`
 }
@@ -4297,6 +4299,23 @@ type RemediationRTBHReview struct {
 	ExpiresAt             string                 `json:"expires_at"`
 	MaxKnownBenignPackets string                 `json:"max_known_benign_packets"`
 	ReviewFingerprint     string                 `json:"review_fingerprint"`
+}
+
+type RemediationRTBHUpstreamTemplate struct {
+	Community   string `json:"community"`
+	Id          string `json:"id"`
+	Ipv4Minimum int    `json:"ipv4_minimum,omitempty"`
+	Ipv6Minimum int    `json:"ipv6_minimum,omitempty"`
+	Provider    string `json:"provider"`
+	Requirement string `json:"requirement"`
+	Scope       string `json:"scope"`
+	SessionAsn  int    `json:"session_asn"`
+	Source      string `json:"source"`
+	VerifiedOn  string `json:"verified_on"`
+}
+
+type RemediationRTBHUpstreamTemplates struct {
+	Items []RemediationRTBHUpstreamTemplate `json:"items"`
 }
 
 type ReportEmailDelivery struct {
@@ -10006,6 +10025,20 @@ func (c *Client) ProposeRtbhReview(ctx context.Context, req ProposeRtbhReviewReq
 	query := url.Values{}
 	var out RemediationProposal
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read published transit RTBH templates
+type ListRemediationRtbhTemplatesRequest struct {
+}
+
+func (c *Client) ListRemediationRtbhTemplates(ctx context.Context, req ListRemediationRtbhTemplatesRequest) (*RemediationRTBHUpstreamTemplates, error) {
+	path := "/v1/remediation/rtbh-templates"
+	query := url.Values{}
+	var out RemediationRTBHUpstreamTemplates
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

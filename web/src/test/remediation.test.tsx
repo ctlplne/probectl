@@ -313,6 +313,7 @@ test('the routing form binds the current scoped preview and preserves an exact p
           ],
         })
       }
+      if (path === '/v1/remediation/rtbh-templates') return jsonResponse({ items: [] })
       if (path === '/v1/remediation/rtbh-preview' && init?.method === 'POST') {
         const body = JSON.parse(String(init.body))
         onPreview(body)

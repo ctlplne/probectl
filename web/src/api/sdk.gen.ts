@@ -4097,6 +4097,7 @@ export interface RemediationRTBHPreview {
   announcement: RemediationRTBHAnnouncement
   impact: RemediationPrefixImpact
   preview_fingerprint?: string
+  upstream_template?: RemediationRTBHUpstreamTemplate
 }
 
 export interface RemediationRTBHPreviewInput {
@@ -4107,6 +4108,7 @@ export interface RemediationRTBHPreviewInput {
   receipt_fingerprint: string
   routing_policy_agreed: boolean
   rule_id: string
+  upstream_template_id?: string
   whole_view_id: string
   whole_view_version: string
 }
@@ -4124,6 +4126,23 @@ export interface RemediationRTBHReview {
   expires_at: string
   max_known_benign_packets: string
   review_fingerprint: string
+}
+
+export interface RemediationRTBHUpstreamTemplate {
+  community: string
+  id: string
+  ipv4_minimum?: number
+  ipv6_minimum?: number
+  provider: string
+  requirement: string
+  scope: string
+  session_asn: number
+  source: string
+  verified_on: string
+}
+
+export interface RemediationRTBHUpstreamTemplates {
+  items: RemediationRTBHUpstreamTemplate[]
 }
 
 export interface ReportEmailDelivery {
@@ -6382,6 +6401,11 @@ export interface ProposeRtbhReviewRequest {
 
 export type ProposeRtbhReviewResponse = RemediationProposal
 
+export interface ListRemediationRtbhTemplatesRequest {
+}
+
+export type ListRemediationRtbhTemplatesResponse = RemediationRTBHUpstreamTemplates
+
 export interface ListResultsHistoryRequest {
   window?: string
 }
@@ -8634,6 +8658,12 @@ export class ProbectlSDKClient {
     let path = "/v1/remediation/rtbh-proposals"
     const query = new URLSearchParams()
     return this.requestJSON<ProposeRtbhReviewResponse>("POST", path, query, request.body)
+  }
+
+  async listRemediationRtbhTemplates(): Promise<ListRemediationRtbhTemplatesResponse> {
+    let path = "/v1/remediation/rtbh-templates"
+    const query = new URLSearchParams()
+    return this.requestJSON<ListRemediationRtbhTemplatesResponse>("GET", path, query, undefined)
   }
 
   async listResultsHistory(request: ListResultsHistoryRequest = {}): Promise<ListResultsHistoryResponse> {

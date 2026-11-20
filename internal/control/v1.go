@@ -321,6 +321,7 @@ func (s *Server) remediationRoutes() []apiRoute {
 	return []apiRoute{
 		{http.MethodGet, "/v1/remediation/proposals", s.handleRemediationList, permRemediationPropose},
 		{http.MethodPost, "/v1/remediation/proposals", s.handleRemediationPropose, permRemediationPropose},
+		{http.MethodGet, "/v1/remediation/rtbh-templates", s.handleRTBHUpstreamTemplates, permRemediationPropose},
 		{http.MethodPost, "/v1/remediation/rtbh-preview", s.handleRTBHPreview, permRemediationPropose},
 		{http.MethodPost, "/v1/remediation/rtbh-proposals", s.handleProposeRTBHReview, permRemediationPropose},
 		{http.MethodPost, "/v1/remediation/flowspec-preview", s.handleFlowSpecPreview, permRemediationPropose},

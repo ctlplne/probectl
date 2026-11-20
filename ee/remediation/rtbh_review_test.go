@@ -284,3 +284,48 @@ func TestRTBHReviewRefusesChangedEvidenceAndExpiryAtPublication(t *testing.T) {
 		t.Fatal("a refused review mutated the ledger", got, err, f.audit.actions(), f.source.publications)
 	}
 }
+
+func TestRTBHUpstreamTemplateStaysBoundThroughIndependentReview(t *testing.T) {
+	f := newRTBHReviewFixture(t)
+	template, found := rem.RTBHUpstreamTemplateByID("hurricane-electric-transit-v1")
+	if !found {
+		t.Fatal("published template was missing")
+	}
+	input := rem.RTBHPreviewInput{PrefixImpactInput: rem.PrefixImpactInput{WholeViewID: "owned-view"},
+		Community: template.Community, UpstreamTemplateID: template.ID, RoutingPolicyAgreed: true}
+	for _, changed := range []rem.RTBHPreviewInput{
+		{Community: template.Community, UpstreamTemplateID: template.ID},
+		{Community: "64512:100", UpstreamTemplateID: template.ID, RoutingPolicyAgreed: true},
+		{Community: template.Community, UpstreamTemplateID: "other-v1", RoutingPolicyAgreed: true},
+		{Community: "3356:9999", UpstreamTemplateID: "lumen-on-demand-v1", RoutingPolicyAgreed: true},
+	} {
+		if preview, err := f.service.PreviewRTBH(f.proposer, testTenant, changed, context.Context.Err); err == nil || preview.Fingerprint != "" {
+			t.Fatalf("invalid template acquired a review fingerprint: %+v, %v", preview, err)
+		}
+	}
+	preview, err := f.service.PreviewRTBH(f.proposer, testTenant, input, context.Context.Err)
+	if err != nil || preview.UpstreamTemplate == nil || *preview.UpstreamTemplate != template ||
+		preview.Announcement.Prefix != "192.0.2.0/28" {
+		t.Fatalf("owned scoped preview lost the documented policy: %+v, %v", preview, err)
+	}
+	proposal := rem.RTBHProposalInput{
+		Preview: input, ObservedTo: preview.Impact.To, PreviewFingerprint: preview.Fingerprint, MaxKnownBenignPackets: "3",
+	}
+	substitution := proposal
+	substitution.Preview.UpstreamTemplateID = ""
+	if _, err := f.service.ProposeRTBH(f.proposer, testTenant, "proposer", substitution, context.Context.Err); err == nil {
+		t.Fatal("a changed upstream binding reused the preview fingerprint")
+	}
+	filed := f.propose(t, proposal)
+	review, err := f.service.GetRTBHReview(f.reviewer, testTenant, filed.ID, context.Context.Err)
+	if err != nil || review.Candidate.UpstreamTemplate == nil || *review.Candidate.UpstreamTemplate != template {
+		t.Fatalf("durable review lost the upstream template: %+v, %v", review, err)
+	}
+	if _, err := f.service.ApproveRTBH(f.proposer, testTenant, "proposer", filed.ID, review.Fingerprint, "", context.Context.Err); err == nil {
+		t.Fatal("a published template bypassed independent approval")
+	}
+	approved, err := f.service.ApproveRTBH(f.reviewer, testTenant, "reviewer", filed.ID, review.Fingerprint, "", context.Context.Err)
+	if err != nil || approved.State != rem.StateApproved {
+		t.Fatalf("independently reviewed template proposal: %+v, %v", approved, err)
+	}
+}

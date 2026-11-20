@@ -319,13 +319,22 @@ export function RemediationCard() {
 }
 
 function RoutingReviewEvidence({ review }: { review: RemediationRTBHReview }) {
-  const { announcement, impact } = review.candidate
+  const { announcement, impact, upstream_template: upstream } = review.candidate
   return (
     <dl aria-label="Routing mitigation evidence">
       <dt>Proposed prefix and community</dt>
       <dd>
         {announcement.prefix} · {announcement.community}
       </dd>
+      {upstream ? (
+        <>
+          <dt>Published transit template</dt>
+          <dd>
+            {upstream.provider} (AS{upstream.session_asn}) · {upstream.scope}.{' '}
+            <a href={upstream.source}>Carrier policy</a>
+          </dd>
+        </>
+      ) : null}
       <dt>Observation window</dt>
       <dd>
         <DateTime value={impact.from} /> – <DateTime value={impact.to} />

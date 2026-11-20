@@ -22,8 +22,8 @@ func (s *Service) PreviewRTBH(ctx context.Context, tenantID string, input rem.RT
 	if _, err := remediationActor(ctx, tenantID, false); err != nil {
 		return rem.RTBHPreview{}, err
 	}
-	if !input.RoutingPolicyAgreed || !canonicalRTBHCommunity(input.Community) {
-		return rem.RTBHPreview{}, rem.Error{Code: "validation", Message: "confirm the routing policy and enter its canonical community"}
+	if err := validateRTBHPolicySelection(input); err != nil {
+		return rem.RTBHPreview{}, err
 	}
 	if _, ok := s.prefixImpact.(rem.RTBHReviewSource); ok {
 		preview, _, err := s.prepareRTBH(ctx, tenantID, input, time.Time{}, check)
@@ -45,7 +45,28 @@ func composeRTBHPreview(ctx context.Context, input rem.RTBHPreviewInput, impact 
 	if prefix.Addr().Is4() {
 		family = "ipv4"
 	}
-	return rem.RTBHPreview{Announcement: rem.RTBHAnnouncement{Family: family, Prefix: prefix.String(), Community: input.Community}, Impact: impact}, ctx.Err()
+	result := rem.RTBHPreview{Announcement: rem.RTBHAnnouncement{Family: family, Prefix: prefix.String(), Community: input.Community}, Impact: impact}
+	if input.UpstreamTemplateID != "" {
+		template, ok := rem.RTBHUpstreamTemplateByID(input.UpstreamTemplateID)
+		if !ok || template.Community != input.Community || !template.SupportsPrefix(prefix) {
+			return rem.RTBHPreview{}, rem.Error{Code: "validation", Message: "the confirmed upstream template does not cover this destination prefix"}
+		}
+		result.UpstreamTemplate = &template
+	}
+	return result, ctx.Err()
+}
+
+func validateRTBHPolicySelection(input rem.RTBHPreviewInput) error {
+	if !input.RoutingPolicyAgreed || !canonicalRTBHCommunity(input.Community) {
+		return rem.Error{Code: "validation", Message: "confirm the routing policy and enter its canonical community"}
+	}
+	if input.UpstreamTemplateID != "" {
+		template, found := rem.RTBHUpstreamTemplateByID(input.UpstreamTemplateID)
+		if !found || template.Community != input.Community {
+			return rem.Error{Code: "validation", Message: "select the published community for the confirmed upstream template"}
+		}
+	}
+	return nil
 }
 
 func canonicalRTBHCommunity(value string) bool {

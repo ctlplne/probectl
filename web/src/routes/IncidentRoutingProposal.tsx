@@ -10,6 +10,7 @@ import {
   usePreviewDiversion,
   usePreviewFlowSpec,
   usePreviewRTBH,
+  useRTBHUpstreamTemplates,
   useProposeDiversion,
   useProposeFlowSpec,
   useProposeRTBH,
@@ -41,6 +42,7 @@ export function IncidentRoutingProposal({
   const [search, setSearch] = useState('')
   const [method, setMethod] = useState<'rtbh' | 'flowspec' | 'diversion'>('rtbh')
   const [community, setCommunity] = useState('')
+  const [templateID, setTemplateID] = useState('')
   const [protocol, setProtocol] = useState<'tcp' | 'udp'>('tcp')
   const [sourcePort, setSourcePort] = useState('')
   const [destinationPort, setDestinationPort] = useState('')
@@ -71,6 +73,8 @@ export function IncidentRoutingProposal({
       : diversion || community.trim()) &&
     confirmed,
   )
+  const rtbhTemplates = useRTBHUpstreamTemplates(identity, method === 'rtbh')
+  const template = rtbhTemplates.data?.items.find((candidate) => candidate.id === templateID)
   const rtbhPreview = usePreviewRTBH()
   const rtbhFile = useProposeRTBH()
   const flowSpecPreview = usePreviewFlowSpec()
@@ -116,6 +120,7 @@ export function IncidentRoutingProposal({
       rtbhPreview.mutate({
         ...scope,
         community: community.trim(),
+        upstream_template_id: templateID || undefined,
         routing_policy_agreed: confirmed,
       })
     }
@@ -202,6 +207,7 @@ export function IncidentRoutingProposal({
           onChange={(event) => {
             clearPreview()
             setContextID(event.target.value)
+            setConfirmed(false)
             setProtectedID('')
             setBenignID('')
           }}
@@ -302,15 +308,48 @@ export function IncidentRoutingProposal({
             />
           </>
         ) : diversion ? null : (
-          <Field
-            label="Community from your routing policy"
-            value={community}
-            disabled={busy}
-            onChange={(event) => {
-              clearPreview()
-              setCommunity(event.target.value)
-            }}
-          />
+          <>
+            <Select
+              label="Published transit template"
+              disabled={busy}
+              value={templateID}
+              options={[
+                { value: '', label: 'Enter the community from my routing policy' },
+                ...(rtbhTemplates.data?.items ?? []).map((candidate) => ({
+                  value: candidate.id,
+                  label: `${candidate.provider} (AS${candidate.session_asn})`,
+                })),
+              ]}
+              onChange={(event) => {
+                clearPreview()
+                setConfirmed(false)
+                const id = event.target.value
+                setTemplateID(id)
+                setCommunity(
+                  rtbhTemplates.data?.items.find((item) => item.id === id)?.community ?? '',
+                )
+              }}
+            />
+            <Field
+              label="Community from your routing policy"
+              value={community}
+              disabled={busy || Boolean(templateID)}
+              onChange={(event) => {
+                clearPreview()
+                setConfirmed(false)
+                setCommunity(event.target.value)
+              }}
+            />
+            {template ? (
+              <p>
+                {template.scope}. {template.requirement}{' '}
+                <a href={template.source}>Carrier policy</a>
+              </p>
+            ) : null}
+            {rtbhTemplates.error ? (
+              <p role="alert">Could not load published transit templates.</p>
+            ) : null}
+          </>
         )}
         <label>
           <input
@@ -326,7 +365,9 @@ export function IncidentRoutingProposal({
             ? 'I reviewed the protected scope for the local diversion preview'
             : flowSpec
               ? 'I checked this FlowSpec match against the selected routing context’s policy'
-              : 'I checked this community against the selected routing context’s policy'}
+              : template
+                ? 'I confirmed this template and blackholing on the selected routing context’s provider session'
+                : 'I checked this community against the selected routing context’s policy'}
         </label>
         <div className={styles.actions}>
           <Button type="submit" disabled={!valid || busy}>
@@ -357,6 +398,9 @@ export function IncidentRoutingProposal({
                 <dt>Proposed prefix and community</dt>
                 <dd>
                   {rtbhAssessment.announcement.prefix} · {rtbhAssessment.announcement.community}
+                  {rtbhAssessment.upstream_template
+                    ? ` · ${rtbhAssessment.upstream_template.provider} (AS${rtbhAssessment.upstream_template.session_asn})`
+                    : ''}
                 </dd>
                 <dt>Window ended</dt>
                 <dd>

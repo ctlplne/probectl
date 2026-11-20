@@ -1497,6 +1497,13 @@ export const API_CALL_CONTRACTS = [
   },
   {
     file: 'api/remediation.ts',
+    method: 'GET',
+    path: '/remediation/rtbh-templates',
+    response: 'RemediationRTBHUpstreamTemplates',
+    generated: 'ListRemediationRtbhTemplatesResponse',
+  },
+  {
+    file: 'api/remediation.ts',
     method: 'POST',
     path: '/remediation/rtbh-preview',
     response: 'RemediationRTBHPreview',

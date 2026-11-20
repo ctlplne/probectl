@@ -42,6 +42,7 @@ type PrefixImpact struct {
 type RTBHPreviewInput struct {
 	PrefixImpactInput
 	Community           string `json:"community"`
+	UpstreamTemplateID  string `json:"upstream_template_id,omitempty"`
 	RoutingPolicyAgreed bool   `json:"routing_policy_agreed"`
 }
 
@@ -52,9 +53,10 @@ type RTBHAnnouncement struct {
 }
 
 type RTBHPreview struct {
-	Announcement RTBHAnnouncement `json:"announcement"`
-	Impact       PrefixImpact     `json:"impact"`
-	Fingerprint  string           `json:"preview_fingerprint,omitempty"`
+	Announcement     RTBHAnnouncement      `json:"announcement"`
+	Impact           PrefixImpact          `json:"impact"`
+	Fingerprint      string                `json:"preview_fingerprint,omitempty"`
+	UpstreamTemplate *RTBHUpstreamTemplate `json:"upstream_template,omitempty"`
 }
 
 type PrefixImpactSource interface {

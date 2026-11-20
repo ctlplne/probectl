@@ -32,6 +32,7 @@ func decodeStoredRTBHReview(raw []byte, memory int64) (storedRTBHReview, error) 
 		!validRTBHDigest(review.SourceScope) || !validRTBHDigest(review.Request.PreviewFingerprint) || review.Review.ExpiresAt.IsZero() ||
 		!review.Review.Candidate.Impact.To.Equal(review.Request.ObservedTo) || !review.Request.ObservedTo.Before(review.Review.ExpiresAt) ||
 		review.Review.Candidate.Announcement.Community != review.Request.Preview.Community ||
+		!storedRTBHTemplateMatches(review.Request.Preview, review.Review.Candidate.UpstreamTemplate) ||
 		review.Review.Candidate.Fingerprint != review.Request.PreviewFingerprint ||
 		review.Review.MaxKnownBenignPackets != review.Request.MaxKnownBenignPackets {
 		return empty, rem.ErrUnknownBlastRadius
@@ -57,4 +58,11 @@ func validateCurrentRTBHReview(stored storedRTBHReview, current rem.RTBHPreview,
 		return rem.Error{Code: "review_changed", Message: "refresh the proposal with current scoped observations"}
 	}
 	return rtbhCollateralWithinLimit(current, stored.Review.MaxKnownBenignPackets)
+}
+
+func storedRTBHTemplateMatches(input rem.RTBHPreviewInput, template *rem.RTBHUpstreamTemplate) bool {
+	if template == nil {
+		return input.UpstreamTemplateID == ""
+	}
+	return template.ID != "" && template.ID == input.UpstreamTemplateID && template.Community == input.Community
 }

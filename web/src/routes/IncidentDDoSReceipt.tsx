@@ -16,6 +16,12 @@ import { DDoSAssessmentEvidence } from './FlowDDoSAssessmentCard'
 import { IncidentRoutingProposal } from './IncidentRoutingProposal'
 import { DateTime } from '../time/DateTime'
 
+const mitigationLabels = new Map([
+  ['rtbh_review', 'RTBH'],
+  ['flowspec_review', 'FlowSpec'],
+  ['diversion_preview', 'Diversion'],
+])
+
 export function IncidentDDoSReceipt({
   signal,
   incidentID,
@@ -216,7 +222,7 @@ function IncidentTrafficReport({ report }: { report: IncidentDDoSReport }) {
           <ul>
             {report.actions.map((action) => (
               <li key={action.proposal_id}>
-                {action.kind === 'rtbh_review' ? 'RTBH' : 'FlowSpec'} · {action.state} ·{' '}
+                {mitigationLabels.get(action.kind) ?? 'Mitigation'} · {action.state} ·{' '}
                 <DateTime value={action.decided_at ?? action.created_at} />
               </li>
             ))}
