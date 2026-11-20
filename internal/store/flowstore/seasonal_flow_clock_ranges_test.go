@@ -98,7 +98,7 @@ func TestSeasonalFlowStorageQueryPrunesGapsBeforeExactMembership(t *testing.T) {
 	}
 	for _, table := range []string{sharedFlowsTable, sharedFlowRollupsTable} {
 		params := chParams{}
-		filter, err := planFilteredCTE(flow.QueryPlan{}, table, params, flow.QueryVocabulary{}, false, windows)
+		filter, err := planFilteredCTE(flow.QueryPlan{}, table, params, flow.QueryVocabulary{}, false, windows, false)
 		if err != nil {
 			t.Fatal(err)
 		}

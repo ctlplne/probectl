@@ -80,10 +80,11 @@ func (c *reportFlowCapture) Close() {
 }
 
 type preparedReportFlow struct {
-	view     flow.SavedQueryView
-	current  flow.QueryPlan
-	previous *flow.QueryPlan
-	versions map[string]int64
+	view                     flow.SavedQueryView
+	current                  flow.QueryPlan
+	previous                 *flow.QueryPlan
+	versions                 map[string]int64
+	ddosSourcePortProjection bool
 }
 
 func (p preparedReportFlow) executions() int {
@@ -403,7 +404,7 @@ func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prep
 			permissions[permission] = true
 		}
 		if len(combinedEnds) != 0 {
-			results, err := s.recordSeasonalFlowWindows(ctx, p.TenantID, *current.Flow, combinedEnds, topKeys)
+			results, err := s.recordSeasonalFlowWindows(ctx, p.TenantID, *current.Flow, combinedEnds, topKeys, value.ddosSourcePortProjection)
 			if err != nil {
 				return nil, err
 			}

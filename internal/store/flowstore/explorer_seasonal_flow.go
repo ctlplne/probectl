@@ -9,6 +9,7 @@ package flowstore
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/flow"
@@ -23,6 +24,8 @@ type seasonalPlanStore interface {
 // selects original groups; Explorer's visualization limits are presentation.
 // For ranked input, the complete population is counted before returning the
 // requested top keys and the first excluded original from each clock.
+// DDoS reads combine equivalent non-UDP source ports after filtering the
+// original source fields.
 func (b *PlanBatch) ExploreSeasonalWindows(query PlanQuery, ends []time.Time, topKeys int) ([]PlanResult, error) {
 	b.queryMu.Lock()
 	defer b.queryMu.Unlock()
@@ -43,6 +46,11 @@ func (b *PlanBatch) ExploreSeasonalWindows(query PlanQuery, ends []time.Time, to
 	}
 	b.queries--
 	if topKeys < 0 || topKeys > flow.MaxFieldComparisonKeys || topKeys != 0 && (query.Plan.View != "table" || query.Plan.RowLimit != topKeys+1) {
+		b.failed = true
+		return nil, ErrExplorerBudget
+	}
+	if query.DDoSSourcePortProjection && (topKeys != 0 || query.Plan.View != "table" || query.Plan.DataSeries != "raw" ||
+		!slices.Contains(query.Plan.GroupBy, "src_port") || !slices.Contains(query.Plan.GroupBy, "transport")) {
 		b.failed = true
 		return nil, ErrExplorerBudget
 	}

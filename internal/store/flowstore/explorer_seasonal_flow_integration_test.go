@@ -59,6 +59,18 @@ func TestSeasonalFlowWindowPlanUsesRealClickHouseTenantReader(t *testing.T) {
 	}
 }
 
+func TestSeasonalDDoSPreservesPinnedPortFilterOnClickHouse(t *testing.T) {
+	store := explorerIntegrationStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+	red := fmt.Sprintf("probectl-qa-beta-ddos-port-projection-%d", time.Now().UnixNano())
+	blue := red + "-blue"
+	t.Cleanup(func() {
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
+	})
+	checkSeasonalDDoSSourcePortProjection(t, store, red, blue)
+}
+
 func TestSeasonalFlowDistantWindowsAvoidGapRowsOnTenantReader(t *testing.T) {
 	store := explorerIntegrationStore(t)
 	t.Cleanup(func() { _ = store.Close() })

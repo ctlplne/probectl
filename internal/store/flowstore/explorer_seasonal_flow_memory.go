@@ -92,7 +92,16 @@ func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, en
 		if err := chargeBatchRead(ctx, query.TenantID, after-first, 0); err != nil {
 			return nil, err
 		}
-		rowKey, row := planTuple(value, span.GroupBy)
+		groupValue := value
+		if query.DDoSSourcePortProjection && value("transport") != "udp" {
+			groupValue = func(field string) string {
+				if field == "src_port" {
+					return "0"
+				}
+				return value(field)
+			}
+		}
+		rowKey, row := planTuple(groupValue, span.GroupBy)
 		colKey, column := planTuple(value, span.MatrixWith)
 		key := [2]string{rowKey, colKey}
 		for i := first; i < after; i++ {

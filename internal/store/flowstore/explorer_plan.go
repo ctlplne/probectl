@@ -41,6 +41,10 @@ type PlanQuery struct {
 	// Chart and matrix axes are independent of the detail/page row count.
 	SelectedChartGroups [][]string
 	SelectedMatrixRows  [][]string
+	// DDoSSourcePortProjection is a server-selected seasonal read option.
+	// UDP source ports retain their service associations. Source ports for
+	// other transports do not split identical detector measurements.
+	DDoSSourcePortProjection bool
 }
 
 // PlanRow's decimal strings preserve counters above JavaScript's integer limit.

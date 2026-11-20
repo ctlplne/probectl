@@ -61,7 +61,7 @@ func buildSeasonalFlowSQL(ctx context.Context, budget ExplorerBudget, query Plan
 	if err != nil {
 		return empty, err
 	}
-	filtered, err := planFilteredCTE(plan, table, params, vocabulary, query.Tags != nil, readWindows)
+	filtered, err := planFilteredCTE(plan, table, params, vocabulary, query.Tags != nil, readWindows, query.DDoSSourcePortProjection)
 	if err != nil {
 		return empty, err
 	}
