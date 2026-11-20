@@ -530,7 +530,6 @@ capabilities:
   - id: F31
     name: Secrets integration
     status: delivered
-    evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/secrets"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#WithSecrets(rt.secretsResolver)"]}
@@ -540,7 +539,7 @@ capabilities:
     docs: {refs: ["file:docs/secrets.md#Secrets integration"]}
     config_keys: {refs: ["config:PROBECTL_ENVELOPE_KEY_FILE"]}
     telemetry: {refs: ["file:internal/secrets"]}
-    real_stack_proof: {gap: "Operator selection does not make backend execution inapplicable; the documented Vault, CyberArk, and cloud resolvers lack a real-backend, fail-closed shipping receipt."}
+    real_stack_proof: {refs: ["test:ee/tenantkeys/shipped_openbao_integration_test.go#TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant"]}
     migration: *no_migration
 
   - id: F32

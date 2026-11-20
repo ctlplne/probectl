@@ -240,8 +240,8 @@
         "F31"
       ],
       "name": "Secrets integration",
-      "status": "partial",
-      "evidence": "`internal/secrets` (seam + Vault path), device creds"
+      "status": "delivered",
+      "evidence": "The beta supports Vault-compatible KV v2. `TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant` uses TLS OpenBao with AppRole through the shipped control plane and checks immediate revocation, restoration, sibling isolation and redacted health."
     },
     {
       "ids": [

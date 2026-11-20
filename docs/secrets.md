@@ -8,8 +8,10 @@ enterprise secret store at the moment it is needed. A reference works like a
 library call number: the config file holds the catalog card, not the book —
 stealing the card tells a thief which shelf to look at, but the library still
 checks *probectl's* credentials at the desk before handing anything over.
-Supported backend in the beta: **HashiCorp Vault** (and OpenBao, its API-compatible
-fork), proven end to end and fail-closed. Resolvers for CyberArk CCP, AWS Secrets
+The beta supports **Vault-compatible KV v2**, including HashiCorp Vault and
+OpenBao. The shipped receipt uses OpenBao over verified TLS with AppRole. It
+checks immediate tenant key revocation, restoration and sibling isolation.
+Resolvers for CyberArk CCP, AWS Secrets
 Manager, Azure Key Vault and GCP Secret Manager exist but are **not yet proven
 against a real backend**, so the beta does not support them; they return when
 each has a real-backend proof.

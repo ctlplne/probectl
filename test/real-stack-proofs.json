@@ -2,6 +2,13 @@
   "schema": "probectl.real-stack-proofs/v1",
   "proofs": [
     {
+      "ref": "test:ee/tenantkeys/shipped_openbao_integration_test.go#TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant",
+      "profile": "integration",
+      "capabilities": [
+        "F31"
+      ]
+    },
+    {
       "ref": "test:internal/endpoint/shipped_linux_integration_test.go#TestLinuxEndpointsReachOnlyTheirOwnShippedFleet",
       "profile": "integration",
       "capabilities": [
