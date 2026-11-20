@@ -89,11 +89,12 @@ func (s *PGStore) ApproveRTBHAudited(ctx context.Context, tenantID, id, actor, n
 	return s.decideAuditedWithReview(ctx, tenantID, id, rem.StateApproved, actor, note, at, rem.KindRTBHReview, expected, current, sink, event)
 }
 
-func (s *PGStore) ApproveFlowSpecAudited(ctx context.Context, tenantID, id, actor, note string, at time.Time, expected []byte,
+func (s *PGStore) ApproveFlowSpecAudited(ctx context.Context, tenantID, id, actor, note string, at time.Time, expected, handoff []byte,
 	current rem.RTBHImpactPublication, sink AuditSink, event AuditEvent) (rem.Proposal, error) {
-	if current.Publish == nil || len(expected) == 0 || len(expected) > maxRTBHReviewBytes {
+	if current.Publish == nil || len(expected) == 0 || len(expected) > maxRTBHReviewBytes || len(handoff) > maxFlowSpecHandoffBytes {
 		return rem.Proposal{}, rem.ErrUnknownBlastRadius
 	}
+	current = attachFlowSpecHandoff(current, id, handoff)
 	return s.decideAuditedWithReview(ctx, tenantID, id, rem.StateApproved, actor, note, at, rem.KindFlowSpecReview, expected, current, sink, event)
 }
 

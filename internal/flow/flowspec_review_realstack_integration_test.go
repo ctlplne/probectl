@@ -97,10 +97,19 @@ func proposeFlowSpecAndApprove(t *testing.T, stack *shipped.Stack, owner, review
 		review.Proposal.WholeScope != preview.WholeScope || review.MaxKnownBenignPackets != "4000" {
 		t.Fatal("the independent reviewer did not receive the same measured surfaces")
 	}
-	assertScopedFlowSpecRouterProfile(t, stack, reviewer, sibling, base, review)
+	qualification, qualificationFingerprint := assertScopedFlowSpecRouterProfile(t, stack, reviewer, sibling, base, review)
 	assertFlowSpecReviewConsole(t, stack, reviewer, sibling, proposal.Title, review)
 	exact := map[string]string{"review_fingerprint": review.Fingerprint}
 	approve := base + "/flowspec-approve"
+	approved := remediation.FlowSpecApprovalInput{Fingerprint: review.Fingerprint, Handoff: &remediation.FlowSpecHandoffInput{
+		Qualification: qualification, QualificationFingerprint: qualificationFingerprint, DurationSeconds: 90,
+	}}
+	wrong := approved
+	wrongHandoff := *approved.Handoff
+	wrongHandoff.QualificationFingerprint = review.Fingerprint
+	wrong.Handoff = &wrongHandoff
+	reviewer.do(t, stack, http.MethodPost, approve, wrong, nil, http.StatusConflict)
+	reviewer.do(t, stack, http.MethodGet, base+"/flowspec-handoff", nil, nil, http.StatusNotFound)
 	reviewer.do(t, stack, http.MethodPost, base+"/approve", map[string]string{"note": "not typed"}, nil, http.StatusUnprocessableEntity)
 	reviewer.do(t, stack, http.MethodPost, base+"/approve", exact, nil, http.StatusNotFound)
 	owner.do(t, stack, http.MethodPost, approve, exact, nil, http.StatusForbidden)
@@ -111,12 +120,69 @@ func proposeFlowSpecAndApprove(t *testing.T, stack *shipped.Stack, owner, review
 		t.Fatal(err)
 	}
 	stack.MustCLI(t, nil, &proposal, "remediation", "flowspec-approve", proposal.ID,
-		"--session-cookie-file", sessionFile, "--body-file", stack.SecretFile(t, exact))
+		"--session-cookie-file", sessionFile, "--body-file", stack.SecretFile(t, approved))
 	if proposal.State != remediation.StateApproved || proposal.DecidedBy != "user:alice@acme.example" {
 		t.Fatal("the independent reviewer session did not record the exact approval")
 	}
 	reviewer.do(t, stack, http.MethodPost, approve, exact, nil, http.StatusConflict)
 	assertDDoSIncidentReport(t, stack, reviewer, sibling, input, proposal.ID)
+	assertFlowSpecHandoffWithdrawal(t, stack, reviewer, sibling, base, approved)
+	assertFlowSpecHandoffExpires(t, stack, owner, reviewer, file, qualification)
+}
+
+func assertFlowSpecHandoffWithdrawal(t *testing.T, stack *shipped.Stack, reviewer, sibling *nativeLane, base string, approval remediation.FlowSpecApprovalInput) {
+	t.Helper()
+	var handoff remediation.FlowSpecHandoffStatus
+	reviewer.do(t, stack, http.MethodGet, base+"/flowspec-handoff", nil, &handoff, http.StatusOK)
+	sibling.do(t, stack, http.MethodGet, base+"/flowspec-handoff", nil, nil, http.StatusNotFound)
+	sibling.do(t, stack, http.MethodPost, base+"/flowspec-withdraw", nil, nil, http.StatusNotFound)
+	if handoff.State != remediation.FlowSpecAuthorized || handoff.ReviewFingerprint != approval.Fingerprint ||
+		handoff.Qualification.QualificationFingerprint != approval.Handoff.QualificationFingerprint ||
+		handoff.ExpiresAt.Sub(handoff.IssuedAt) != time.Duration(approval.Handoff.DurationSeconds)*time.Second {
+		t.Fatalf("handoff authorization lost its fixed scope or expiry: %+v", handoff)
+	}
+	for _, theme := range []string{"light", "dark"} {
+		steps := []testsupport.RenderStep{
+			{Click: "Open handoff", Expect: []string{"Approved FlowSpec handoff", "Authorized", "flow-spec ipv4"}},
+		}
+		if theme == "dark" {
+			steps = append(steps, testsupport.RenderStep{Click: "Withdraw handoff", Expect: []string{"Withdrawal requested"}})
+		}
+		testsupport.RenderUI(t, testsupport.RenderSpec{
+			URL: stack.BaseURL + "/ui/admin", TrustCertFiles: stack.TrustCerts(), CAFile: stack.CAFile, Accessibility: true, Theme: theme,
+			Cookies: []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: reviewer.cookie}},
+			Expect:  []string{"AI remediation proposals"}, Steps: steps,
+		})
+	}
+	var first, repeated remediation.FlowSpecHandoffStatus
+	reviewer.do(t, stack, http.MethodGet, base+"/flowspec-handoff", nil, &first, http.StatusOK)
+	reviewer.do(t, stack, http.MethodPost, base+"/flowspec-withdraw", nil, &repeated, http.StatusOK)
+	if first.State != remediation.FlowSpecWithdrawalRequested || first.WithdrawRequested == nil || repeated.WithdrawRequested == nil ||
+		!repeated.WithdrawRequested.Equal(*first.WithdrawRequested) || !first.ExpiresAt.Equal(handoff.ExpiresAt) {
+		t.Fatal("withdrawal did not retain one audited intent for the original handoff")
+	}
+}
+
+func assertFlowSpecHandoffExpires(t *testing.T, stack *shipped.Stack, owner, reviewer *nativeLane,
+	file remediation.FlowSpecProposalInput, qualification remediation.FlowSpecQualificationInput,
+) {
+	t.Helper()
+	var second remediation.Proposal
+	owner.do(t, stack, http.MethodPost, "/v1/remediation/flowspec-proposals", file, &second, http.StatusCreated)
+	base := "/v1/remediation/proposals/" + second.ID
+	var review remediation.FlowSpecReview
+	reviewer.do(t, stack, http.MethodGet, base+"/flowspec-review", nil, &review, http.StatusOK)
+	var report remediation.FlowSpecQualification
+	reviewer.do(t, stack, http.MethodPost, base+"/flowspec-qualification", qualification, &report, http.StatusOK)
+	input := remediation.FlowSpecApprovalInput{Fingerprint: review.Fingerprint, Handoff: &remediation.FlowSpecHandoffInput{
+		Qualification: qualification, QualificationFingerprint: report.QualificationFingerprint, DurationSeconds: 3,
+	}}
+	reviewer.do(t, stack, http.MethodPost, base+"/flowspec-approve", input, nil, http.StatusOK)
+	shipped.Await(t, "the exact handoff expires under its approved clock", 15*time.Second, func() bool {
+		var expired remediation.FlowSpecHandoffStatus
+		reviewer.do(t, stack, http.MethodGet, base+"/flowspec-handoff", nil, &expired, http.StatusOK)
+		return expired.State == remediation.FlowSpecExpired && expired.WithdrawRequested == nil
+	})
 }
 
 func assertDDoSIncidentReport(t *testing.T, stack *shipped.Stack, reviewer, sibling *nativeLane, input remediation.FlowSpecPreviewInput, proposalID string) {
@@ -149,7 +215,7 @@ func assertDDoSIncidentReport(t *testing.T, stack *shipped.Stack, reviewer, sibl
 	}
 }
 
-func assertScopedFlowSpecRouterProfile(t *testing.T, stack *shipped.Stack, reviewer, sibling *nativeLane, base string, review remediation.FlowSpecReview) {
+func assertScopedFlowSpecRouterProfile(t *testing.T, stack *shipped.Stack, reviewer, sibling *nativeLane, base string, review remediation.FlowSpecReview) (remediation.FlowSpecQualificationInput, string) {
 	t.Helper()
 	path := base + "/flowspec-qualification"
 	input := remediation.FlowSpecQualificationInput{Profile: remediation.FlowSpecFRR1071, RoutingTable: "vrf"}
@@ -171,6 +237,10 @@ func assertScopedFlowSpecRouterProfile(t *testing.T, stack *shipped.Stack, revie
 		report.Template.Components[2].Value != "443" || report.Template.Components[3].Value != "42001" {
 		t.Fatalf("router profile did not preserve the exact tenant review: %+v", report)
 	}
+	if report.QualificationFingerprint == "" {
+		t.Fatal("the router profile omitted its exact qualification fingerprint")
+	}
+	return input, report.QualificationFingerprint
 }
 
 func assertFlowSpecReviewConsole(t *testing.T, stack *shipped.Stack, reviewer, sibling *nativeLane, title string, review remediation.FlowSpecReview) {

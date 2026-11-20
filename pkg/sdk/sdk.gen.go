@@ -3983,8 +3983,9 @@ type RemediationDryRun struct {
 }
 
 type RemediationFlowSpecApprovalInput struct {
-	Note              string `json:"note,omitempty"`
-	ReviewFingerprint string `json:"review_fingerprint"`
+	Handoff           RemediationFlowSpecHandoffInput `json:"handoff,omitzero"`
+	Note              string                          `json:"note,omitempty"`
+	ReviewFingerprint string                          `json:"review_fingerprint"`
 }
 
 type RemediationFlowSpecCandidate struct {
@@ -3992,6 +3993,22 @@ type RemediationFlowSpecCandidate struct {
 	Destination string                       `json:"destination"`
 	Family      string                       `json:"family"`
 	Transport   RemediationFlowSpecTransport `json:"transport"`
+}
+
+type RemediationFlowSpecHandoffInput struct {
+	DurationSeconds          int                                         `json:"duration_seconds"`
+	Qualification            RemediationFlowSpecRouterQualificationInput `json:"qualification"`
+	QualificationFingerprint string                                      `json:"qualification_fingerprint"`
+}
+
+type RemediationFlowSpecHandoffStatus struct {
+	ExpiresAt           string                                 `json:"expires_at"`
+	IssuedAt            string                                 `json:"issued_at"`
+	ProposalId          string                                 `json:"proposal_id"`
+	Qualification       RemediationFlowSpecRouterQualification `json:"qualification"`
+	ReviewFingerprint   string                                 `json:"review_fingerprint"`
+	State               string                                 `json:"state"`
+	WithdrawRequestedAt string                                 `json:"withdraw_requested_at,omitempty"`
 }
 
 type RemediationFlowSpecPreview struct {
@@ -4041,15 +4058,16 @@ type RemediationFlowSpecRouterComponent struct {
 }
 
 type RemediationFlowSpecRouterQualification struct {
-	AddressFamily     string                            `json:"address_family"`
-	Capacity          RemediationFlowSpecRouterCapacity `json:"capacity"`
-	Documentation     string                            `json:"documentation"`
-	Findings          []string                          `json:"findings"`
-	Profile           string                            `json:"profile"`
-	ReviewFingerprint string                            `json:"review_fingerprint"`
-	RoutingTable      string                            `json:"routing_table"`
-	SyntaxCompatible  bool                              `json:"syntax_compatible"`
-	Template          RemediationFlowSpecRouterTemplate `json:"template,omitzero"`
+	AddressFamily            string                            `json:"address_family"`
+	Capacity                 RemediationFlowSpecRouterCapacity `json:"capacity"`
+	Documentation            string                            `json:"documentation"`
+	Findings                 []string                          `json:"findings"`
+	Profile                  string                            `json:"profile"`
+	QualificationFingerprint string                            `json:"qualification_fingerprint"`
+	ReviewFingerprint        string                            `json:"review_fingerprint"`
+	RoutingTable             string                            `json:"routing_table"`
+	SyntaxCompatible         bool                              `json:"syntax_compatible"`
+	Template                 RemediationFlowSpecRouterTemplate `json:"template,omitzero"`
 }
 
 type RemediationFlowSpecRouterQualificationInput struct {
@@ -9506,6 +9524,25 @@ func (c *Client) ApproveFlowSpecReview(ctx context.Context, req ApproveFlowSpecR
 	return &out, nil
 }
 
+// Read the approved FlowSpec handoff and its current expiry state
+type GetFlowSpecHandoffRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetFlowSpecHandoff(ctx context.Context, req GetFlowSpecHandoffRequest) (*RemediationFlowSpecHandoffStatus, error) {
+	path := "/v1/remediation/proposals/{id}/flowspec-handoff"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RemediationFlowSpecHandoffStatus
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Check an owned FlowSpec review against a router profile
 type QualifyFlowSpecRouterProfileRequest struct {
 	Id   string                                       `json:"-"`
@@ -9540,6 +9577,25 @@ func (c *Client) GetFlowSpecReview(ctx context.Context, req GetFlowSpecReviewReq
 	query := url.Values{}
 	var out RemediationFlowSpecReview
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Record withdrawal intent for an approved FlowSpec handoff
+type WithdrawFlowSpecHandoffRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) WithdrawFlowSpecHandoff(ctx context.Context, req WithdrawFlowSpecHandoffRequest) (*RemediationFlowSpecHandoffStatus, error) {
+	path := "/v1/remediation/proposals/{id}/flowspec-withdraw"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RemediationFlowSpecHandoffStatus
+	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

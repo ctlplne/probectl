@@ -1532,6 +1532,20 @@ export const API_CALL_CONTRACTS = [
   },
   {
     file: 'api/remediation.ts',
+    method: 'GET',
+    path: '`/remediation/proposals/${encodeURIComponent(id)}/flowspec-handoff`',
+    response: 'RemediationFlowSpecHandoffStatus',
+    generated: 'GetFlowSpecHandoffResponse',
+  },
+  {
+    file: 'api/remediation.ts',
+    method: 'POST',
+    path: '`/remediation/proposals/${encodeURIComponent(id)}/flowspec-withdraw`',
+    response: 'RemediationFlowSpecHandoffStatus',
+    generated: 'WithdrawFlowSpecHandoffResponse',
+  },
+  {
+    file: 'api/remediation.ts',
     method: 'POST',
     path: '`/remediation/proposals/${encodeURIComponent(id)}/flowspec-approve`',
     response: 'Proposal',

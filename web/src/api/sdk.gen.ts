@@ -3810,6 +3810,7 @@ export interface RemediationDryRun {
 }
 
 export interface RemediationFlowSpecApprovalInput {
+  handoff?: RemediationFlowSpecHandoffInput
   note?: string
   review_fingerprint: string
 }
@@ -3819,6 +3820,22 @@ export interface RemediationFlowSpecCandidate {
   destination: string
   family: "ipv4" | "ipv6"
   transport: RemediationFlowSpecTransport
+}
+
+export interface RemediationFlowSpecHandoffInput {
+  duration_seconds: number
+  qualification: RemediationFlowSpecRouterQualificationInput
+  qualification_fingerprint: string
+}
+
+export interface RemediationFlowSpecHandoffStatus {
+  expires_at: string
+  issued_at: string
+  proposal_id: string
+  qualification: RemediationFlowSpecRouterQualification
+  review_fingerprint: string
+  state: "authorized" | "withdrawal_requested" | "expired"
+  withdraw_requested_at?: string
 }
 
 export interface RemediationFlowSpecPreview {
@@ -3873,6 +3890,7 @@ export interface RemediationFlowSpecRouterQualification {
   documentation: string
   findings: string[]
   profile: "junos_standard" | "ios_xr_asr9000_7_11" | "eos_4_36_2f" | "frr_10_7_1"
+  qualification_fingerprint: string
   review_fingerprint: string
   routing_table: "default" | "vrf"
   syntax_compatible: boolean
@@ -6055,6 +6073,12 @@ export interface ApproveFlowSpecReviewRequest {
 
 export type ApproveFlowSpecReviewResponse = RemediationProposal
 
+export interface GetFlowSpecHandoffRequest {
+  id: string
+}
+
+export type GetFlowSpecHandoffResponse = RemediationFlowSpecHandoffStatus
+
 export interface QualifyFlowSpecRouterProfileRequest {
   id: string
   body: RemediationFlowSpecRouterQualificationInput
@@ -6067,6 +6091,12 @@ export interface GetFlowSpecReviewRequest {
 }
 
 export type GetFlowSpecReviewResponse = RemediationFlowSpecReview
+
+export interface WithdrawFlowSpecHandoffRequest {
+  id: string
+}
+
+export type WithdrawFlowSpecHandoffResponse = RemediationFlowSpecHandoffStatus
 
 export interface RejectRemediationProposalRequest {
   id: string
@@ -8249,6 +8279,13 @@ export class ProbectlSDKClient {
     return this.requestJSON<ApproveFlowSpecReviewResponse>("POST", path, query, request.body)
   }
 
+  async getFlowSpecHandoff(request: GetFlowSpecHandoffRequest): Promise<GetFlowSpecHandoffResponse> {
+    let path = "/v1/remediation/proposals/{id}/flowspec-handoff"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetFlowSpecHandoffResponse>("GET", path, query, undefined)
+  }
+
   async qualifyFlowSpecRouterProfile(request: QualifyFlowSpecRouterProfileRequest): Promise<QualifyFlowSpecRouterProfileResponse> {
     let path = "/v1/remediation/proposals/{id}/flowspec-qualification"
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
@@ -8261,6 +8298,13 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<GetFlowSpecReviewResponse>("GET", path, query, undefined)
+  }
+
+  async withdrawFlowSpecHandoff(request: WithdrawFlowSpecHandoffRequest): Promise<WithdrawFlowSpecHandoffResponse> {
+    let path = "/v1/remediation/proposals/{id}/flowspec-withdraw"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<WithdrawFlowSpecHandoffResponse>("POST", path, query, undefined)
   }
 
   async rejectRemediationProposal(request: RejectRemediationProposalRequest): Promise<RejectRemediationProposalResponse> {

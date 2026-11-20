@@ -203,6 +203,19 @@ The CLI exposes these operations as `probectl remediation flowspec-preview`,
 `flowspec-propose`, `flowspec-review` and `flowspec-approve`. Approval takes the
 shown fingerprint and an interactive session held in an owner-only file.
 
+A reviewer can attach a time-limited handoff after checking the router and
+its declared capacity. Set the duration inside the current review window
+and select **Attach time-limited handoff** before approving. The handoff
+contains the exact qualification and its expiry. Open it from the approved
+row. **Withdraw handoff** records a request against the same authorization.
+The handoff shows **Authorization expired** at its original expiry. For
+the receiver, confirm rule removal through the authorized change process
+or the local validation fixture.
+
+`probectl remediation flowspec-handoff ID` reads the same state.
+`probectl remediation flowspec-withdraw ID --session-cookie-file SESSION`
+records withdrawal from an interactive session.
+
 ### Check a router profile
 
 Open an unexpired FlowSpec review in **Admin → AI remediation proposals**
@@ -253,6 +266,8 @@ All routes are tenant-scoped and hidden (404) when the feature is unlicensed.
 | `GET /v1/remediation/proposals/{id}/flowspec-review` | `remediation.propose` | current matching and whole-prefix evidence |
 | `POST /v1/remediation/proposals/{id}/flowspec-qualification` | `remediation.propose` | documented profile check against current review and declared router capacity |
 | `POST /v1/remediation/proposals/{id}/flowspec-approve` | `remediation.approve` | requires the exact review fingerprint and an independent interactive session |
+| `GET /v1/remediation/proposals/{id}/flowspec-handoff` | `remediation.propose` | exact approved qualification and current expiry or withdrawal state |
+| `POST /v1/remediation/proposals/{id}/flowspec-withdraw` | `remediation.approve` | records withdrawal intent for the same approved handoff |
 | `GET /v1/remediation/proposals` | `remediation.propose` | list (newest first) + `approvals_enabled` |
 | `POST /v1/remediation/proposals` | `remediation.propose` | files a proposal — always `proposed` |
 | `GET /v1/remediation/proposals/{id}` | `remediation.propose` | one proposal |

@@ -35,15 +35,16 @@ type FlowSpecRuleTemplate struct {
 }
 
 type FlowSpecQualification struct {
-	ReviewFingerprint string                  `json:"review_fingerprint"`
-	Profile           FlowSpecRouterProfile   `json:"profile"`
-	RoutingTable      string                  `json:"routing_table"`
-	AddressFamily     string                  `json:"address_family"`
-	SyntaxCompatible  bool                    `json:"syntax_compatible"`
-	Capacity          FlowSpecProfileCapacity `json:"capacity"`
-	Documentation     string                  `json:"documentation"`
-	Findings          []string                `json:"findings"`
-	Template          *FlowSpecRuleTemplate   `json:"template,omitempty"`
+	ReviewFingerprint        string                  `json:"review_fingerprint"`
+	QualificationFingerprint string                  `json:"qualification_fingerprint,omitempty"`
+	Profile                  FlowSpecRouterProfile   `json:"profile"`
+	RoutingTable             string                  `json:"routing_table"`
+	AddressFamily            string                  `json:"address_family"`
+	SyntaxCompatible         bool                    `json:"syntax_compatible"`
+	Capacity                 FlowSpecProfileCapacity `json:"capacity"`
+	Documentation            string                  `json:"documentation"`
+	Findings                 []string                `json:"findings"`
+	Template                 *FlowSpecRuleTemplate   `json:"template,omitempty"`
 }
 
 type FlowSpecProfileCapacity struct {

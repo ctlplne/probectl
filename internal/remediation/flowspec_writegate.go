@@ -47,7 +47,7 @@ func (g writeGatedService) QualifyFlowSpec(ctx context.Context, tenant, id strin
 	return service.QualifyFlowSpec(ctx, tenant, id, input, check)
 }
 
-func (g writeGatedService) ApproveFlowSpec(ctx context.Context, tenant, actor, id, fingerprint, note string, check func(context.Context) error) (Proposal, error) {
+func (g writeGatedService) ApproveFlowSpec(ctx context.Context, tenant, actor, id string, input FlowSpecApprovalInput, check func(context.Context) error) (Proposal, error) {
 	if !g.writes.Enabled() {
 		return Proposal{}, license.ErrReadOnly
 	}
@@ -55,5 +55,24 @@ func (g writeGatedService) ApproveFlowSpec(ctx context.Context, tenant, actor, i
 	if !ok {
 		return Proposal{}, Error{Code: "not_found", Message: "traffic review is unavailable"}
 	}
-	return service.ApproveFlowSpec(ctx, tenant, actor, id, fingerprint, note, check)
+	return service.ApproveFlowSpec(ctx, tenant, actor, id, input, check)
+}
+
+func (g writeGatedService) GetFlowSpecHandoff(ctx context.Context, tenant, id string, check func(context.Context) error) (FlowSpecHandoffStatus, error) {
+	service, ok := g.delegate.(FlowSpecReviews)
+	if !ok {
+		return FlowSpecHandoffStatus{}, Error{Code: "not_found", Message: "traffic review is unavailable"}
+	}
+	return service.GetFlowSpecHandoff(ctx, tenant, id, check)
+}
+
+func (g writeGatedService) WithdrawFlowSpecHandoff(ctx context.Context, tenant, actor, id string, publication RTBHImpactPublication) (FlowSpecHandoffStatus, error) {
+	if !g.writes.Enabled() {
+		return FlowSpecHandoffStatus{}, license.ErrReadOnly
+	}
+	service, ok := g.delegate.(FlowSpecReviews)
+	if !ok {
+		return FlowSpecHandoffStatus{}, Error{Code: "not_found", Message: "traffic review is unavailable"}
+	}
+	return service.WithdrawFlowSpecHandoff(ctx, tenant, actor, id, publication)
 }

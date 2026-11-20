@@ -27,7 +27,7 @@ type storedFlowSpecReview struct {
 type flowSpecReviewStore interface {
 	InsertFlowSpecAudited(context.Context, string, rem.Proposal, []byte, rem.RTBHImpactPublication, AuditSink, AuditEvent) (rem.Proposal, error)
 	LoadFlowSpecReview(context.Context, string, string) (rem.Proposal, []byte, error)
-	ApproveFlowSpecAudited(context.Context, string, string, string, string, time.Time, []byte, rem.RTBHImpactPublication, AuditSink, AuditEvent) (rem.Proposal, error)
+	ApproveFlowSpecAudited(context.Context, string, string, string, string, time.Time, []byte, []byte, rem.RTBHImpactPublication, AuditSink, AuditEvent) (rem.Proposal, error)
 }
 
 func (s *Service) ProposeFlowSpec(ctx context.Context, tenant, actor string, input rem.FlowSpecProposalInput,
@@ -105,7 +105,7 @@ func (s *Service) GetFlowSpecReview(ctx context.Context, tenant, id string, cred
 	return stored.Review, ctx.Err()
 }
 
-func (s *Service) ApproveFlowSpec(ctx context.Context, tenant, actor, id, fingerprint, note string,
+func (s *Service) ApproveFlowSpec(ctx context.Context, tenant, actor, id string, input rem.FlowSpecApprovalInput,
 	credential func(context.Context) error,
 ) (rem.Proposal, error) {
 	var empty rem.Proposal
@@ -141,17 +141,28 @@ func (s *Service) ApproveFlowSpec(ctx context.Context, tenant, actor, id, finger
 	if err != nil {
 		return empty, err
 	}
-	if fingerprint != stored.Review.Fingerprint {
+	if input.Fingerprint != stored.Review.Fingerprint {
 		return empty, changedRTBHReview()
 	}
 	prepared, err := s.refreshFlowSpecReview(ctx, tenant, stored, credential)
 	if err != nil {
 		return empty, err
 	}
-	return store.ApproveFlowSpecAudited(ctx, tenant, id, actor, note, s.now().UTC(), raw,
-		s.withRTBHExpiry(prepared, stored.Review.ExpiresAt), s.audit,
-		AuditEvent{Actor: actor, Action: "remediation.approve", Target: id,
-			Data: map[string]any{"state": rem.StateApproved, "note": note, "approver_user_id": user}})
+	now := s.now().UTC()
+	handoff, err := prepareFlowSpecHandoff(id, stored.Review, input.Handoff, now)
+	if err != nil {
+		return empty, err
+	}
+	expiry := stored.Review.ExpiresAt
+	auditData := map[string]any{"state": rem.StateApproved, "note": input.Note, "approver_user_id": user}
+	if input.Handoff != nil {
+		expiry = now.Add(time.Duration(input.Handoff.DurationSeconds) * time.Second)
+		auditData["handoff_expires_at"] = expiry
+		auditData["qualification_fingerprint"] = input.Handoff.QualificationFingerprint
+	}
+	return store.ApproveFlowSpecAudited(ctx, tenant, id, actor, input.Note, now, raw, handoff,
+		s.withRTBHExpiry(prepared, expiry), s.audit,
+		AuditEvent{Actor: actor, Action: "remediation.approve", Target: id, Data: auditData})
 }
 
 func (s *Service) refreshFlowSpecReview(ctx context.Context, tenant string, stored storedFlowSpecReview,

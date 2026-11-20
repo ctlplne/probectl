@@ -47,7 +47,12 @@ func (s *Service) QualifyFlowSpec(ctx context.Context, tenant, id string, input 
 	if err != nil {
 		return rem.FlowSpecQualification{}, err
 	}
-	return qualifyFlowSpec(review, input)
+	out, err := qualifyFlowSpec(review, input)
+	if err != nil {
+		return out, err
+	}
+	out.QualificationFingerprint, err = digestFlowSpecQualification(out)
+	return out, err
 }
 
 func qualifyFlowSpec(review rem.FlowSpecReview, input rem.FlowSpecQualificationInput) (rem.FlowSpecQualification, error) {

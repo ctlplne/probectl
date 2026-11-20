@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from './client'
 import type {
   RemediationFlowSpecApprovalInput,
+  RemediationFlowSpecHandoffStatus,
   RemediationFlowSpecPreview,
   RemediationFlowSpecPreviewInput,
   RemediationFlowSpecProposalInput,
@@ -174,6 +175,34 @@ export function useApproveFlowSpec() {
         body: JSON.stringify(input),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['remediation-proposals'] }),
+  })
+}
+
+export function useFlowSpecHandoff(id: string, identity: string) {
+  return useQuery({
+    queryKey: ['remediation-proposals', identity, 'flowspec-handoff', id],
+    queryFn: () =>
+      apiFetch<RemediationFlowSpecHandoffStatus>(
+        `/remediation/proposals/${encodeURIComponent(id)}/flowspec-handoff`,
+      ),
+    retry: false,
+    refetchInterval: ({ state }) => {
+      if (state.data?.state !== 'authorized') return false
+      return Math.max(250, Math.min(5000, Date.parse(state.data.expires_at) - Date.now() + 100))
+    },
+  })
+}
+
+export function useWithdrawFlowSpec(id: string, identity: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<RemediationFlowSpecHandoffStatus>(
+        `/remediation/proposals/${encodeURIComponent(id)}/flowspec-withdraw`,
+        { method: 'POST' },
+      ),
+    onSuccess: (handoff) =>
+      qc.setQueryData(['remediation-proposals', identity, 'flowspec-handoff', id], handoff),
   })
 }
 

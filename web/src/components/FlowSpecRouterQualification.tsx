@@ -7,6 +7,7 @@
 import { Fragment, useState, type FormEvent } from 'react'
 import { useQualifyFlowSpec } from '../api/remediation'
 import type {
+  RemediationFlowSpecHandoffInput,
   RemediationFlowSpecRouterQualification,
   RemediationFlowSpecRouterQualificationInput,
 } from '../api/sdk.gen'
@@ -23,28 +24,38 @@ const profiles = [
 export function FlowSpecRouterQualification({
   proposalID,
   fingerprint,
+  prepared,
+  onPrepare,
 }: {
   proposalID: string
   fingerprint: string
+  prepared: boolean
+  onPrepare: (input?: RemediationFlowSpecHandoffInput) => void
 }) {
   const [profile, setProfile] = useState<
     RemediationFlowSpecRouterQualificationInput['profile'] | ''
   >('')
   const [routingTable, setRoutingTable] = useState<'default' | 'vrf'>('default')
   const [available, setAvailable] = useState('')
+  const [duration, setDuration] = useState('60')
   const check = useQualifyFlowSpec(proposalID)
   const validCount =
     available === '' || (/^[0-9]{1,10}$/.test(available) && Number(available) <= 4294967295)
   const result = check.data?.review_fingerprint === fingerprint ? check.data : undefined
+  const validDuration = /^[1-9][0-9]{0,2}$/.test(duration) && Number(duration) <= 600
+  const input = profile
+    ? {
+        profile,
+        routing_table: routingTable,
+        available_entries: available === '' ? undefined : Number(available),
+      }
+    : undefined
 
   function validate(event: FormEvent) {
     event.preventDefault()
-    if (!profile || !validCount || check.isPending) return
-    check.mutate({
-      profile,
-      routing_table: routingTable,
-      available_entries: available === '' ? undefined : Number(available),
-    })
+    if (!input || !validCount || check.isPending) return
+    onPrepare()
+    check.mutate(input)
   }
 
   return (
@@ -58,6 +69,7 @@ export function FlowSpecRouterQualification({
           options={profiles}
           onChange={(event) => {
             check.reset()
+            onPrepare()
             setProfile(profiles.find((option) => option.value === event.target.value)?.value ?? '')
           }}
         />
@@ -71,6 +83,7 @@ export function FlowSpecRouterQualification({
           disabled={check.isPending}
           onChange={(event) => {
             check.reset()
+            onPrepare()
             setRoutingTable(event.target.value === 'vrf' ? 'vrf' : 'default')
           }}
         />
@@ -82,6 +95,7 @@ export function FlowSpecRouterQualification({
           disabled={check.isPending}
           onChange={(event) => {
             check.reset()
+            onPrepare()
             setAvailable(event.target.value)
           }}
         />
@@ -90,12 +104,44 @@ export function FlowSpecRouterQualification({
         </Button>
       </form>
       {check.isError ? <p role="alert">{check.error.message}</p> : null}
-      {result ? <RouterProfileResult result={result} /> : null}
+      {result ? <FlowSpecProfileResult result={result} /> : null}
+      {input && result?.syntax_compatible && result.capacity.fits_declared ? (
+        <>
+          <Field
+            label="Handoff duration in seconds"
+            inputMode="numeric"
+            value={duration}
+            onChange={(event) => {
+              onPrepare()
+              setDuration(event.target.value)
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={!validDuration || prepared}
+            onClick={() =>
+              onPrepare({
+                qualification: input,
+                qualification_fingerprint: result.qualification_fingerprint,
+                duration_seconds: Number(duration),
+              })
+            }
+          >
+            Attach time-limited handoff
+          </Button>
+          {prepared ? <p role="status">Handoff attached to this approval.</p> : null}
+        </>
+      ) : null}
     </>
   )
 }
 
-function RouterProfileResult({ result }: { result: RemediationFlowSpecRouterQualification }) {
+export function FlowSpecProfileResult({
+  result,
+}: {
+  result: RemediationFlowSpecRouterQualification
+}) {
   const { capacity } = result
   const capacityLabel =
     capacity.fits_declared === undefined

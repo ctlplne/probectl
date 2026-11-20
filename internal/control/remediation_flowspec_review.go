@@ -7,11 +7,13 @@
 package control
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/remediation"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func (s *Server) handleProposeFlowSpecReview(w http.ResponseWriter, r *http.Request) error {
@@ -73,15 +75,75 @@ func (s *Server) handleApproveFlowSpecReview(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		return err
 	}
-	var in struct {
-		Fingerprint string `json:"review_fingerprint"`
-		Note        string `json:"note"`
-	}
+	var in remediation.FlowSpecApprovalInput
 	if err := decodeJSONLimit(r, 4096, &in); err != nil {
 		return err
 	}
 	result, err := service.ApproveFlowSpec(ctx, actor.TenantID, "user:"+actor.Email, r.PathValue("id"),
-		in.Fingerprint, in.Note, s.pathAlertRequestCredential(r, actor))
+		in, s.pathAlertRequestCredential(r, actor))
+	if err != nil {
+		return mapRemediationErr(err)
+	}
+	writeJSON(w, http.StatusOK, result)
+	return nil
+}
+
+func (s *Server) handleGetFlowSpecHandoff(w http.ResponseWriter, r *http.Request) error {
+	service, actor, err := s.flowSpecReviewActor(r)
+	if err != nil {
+		return err
+	}
+	id := r.PathValue("id")
+	if !reportRequirementUUID(id) {
+		return apierror.Validation("select an approved routing proposal")
+	}
+	result, err := service.GetFlowSpecHandoff(r.Context(), actor.TenantID, id, s.pathAlertRequestCredential(r, actor))
+	if err != nil {
+		return mapRemediationErr(err)
+	}
+	writeJSON(w, http.StatusOK, result)
+	return nil
+}
+
+func (s *Server) handleWithdrawFlowSpecHandoff(w http.ResponseWriter, r *http.Request) error {
+	service, actor, err := s.flowSpecReviewActor(r)
+	if err != nil {
+		return err
+	}
+	if actor.ViaBearerToken {
+		return apierror.Forbidden("routing withdrawal requires a current interactive session")
+	}
+	id := r.PathValue("id")
+	if !reportRequirementUUID(id) {
+		return apierror.Validation("select an approved routing proposal")
+	}
+	ctx, err := s.routingReviewApprovalContext(r)
+	if err != nil {
+		return err
+	}
+	publication := remediation.RTBHImpactPublication{
+		Publish: func(ctx context.Context, sc tenancy.Scope, permission string, commit func(context.Context, tenancy.Scope) error) error {
+			if sc.Tenant.String() != actor.TenantID || permission != permRemediationApprove || commit == nil {
+				return tenancy.ErrNoTenant
+			}
+			if err := s.lockRoutingReviewApprovalSession(ctx, sc, actor); err != nil {
+				return err
+			}
+			authority, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
+			if err != nil {
+				return err
+			}
+			ctx, current, err := authority.requestContext(ctx, actor)
+			if err != nil {
+				return err
+			}
+			if err := s.authorize(ctx, current, permission, auth.RBACGlobal, map[string]string{auth.ResourceTenantKey: sc.Tenant.String()}); err != nil {
+				return err
+			}
+			return commit(ctx, sc)
+		},
+	}
+	result, err := service.WithdrawFlowSpecHandoff(ctx, actor.TenantID, "user:"+actor.Email, id, publication)
 	if err != nil {
 		return mapRemediationErr(err)
 	}

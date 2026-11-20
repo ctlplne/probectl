@@ -8,6 +8,7 @@
 """Check one documented prefix on a pinned receiver in an internal network."""
 
 from contextlib import ExitStack
+from datetime import datetime, timezone
 import ipaddress
 import json
 import os
@@ -30,7 +31,17 @@ MARKER = bytes([255]) * 16
 
 
 def fixture_route():
-    template = json.loads(sys.stdin.buffer.read(2049))
+    input_data = json.loads(sys.stdin.buffer.read(2049))
+    if not isinstance(input_data, dict) or set(input_data) - {'template', 'expires_at'}:
+        raise ValueError('Unexpected fixture authorization.')
+    expires = input_data.get('expires_at')
+    if expires:
+        expiry = datetime.fromisoformat(expires.replace('Z', '+00:00')).timestamp()
+        if not 0 < expiry - datetime.now(timezone.utc).timestamp() <= 45:
+            raise ValueError('The fixture requires a short-lived authorization.')
+    else:
+        expiry = None
+    template = input_data['template']
     expected = {
         'afi': 1, 'safi': 133, 'action': 'discard',
         'components': [
@@ -46,7 +57,7 @@ def fixture_route():
     protocol = bytes((3, 0x81, int(template['components'][1]['value'])))
     port = bytes((5, 0x91)) + struct.pack('!H', int(template['components'][2]['value']))
     components = destination + protocol + port
-    return bytes((len(components),)) + components
+    return bytes((len(components),)) + components, expiry
 
 
 def docker(*args, check=True):
@@ -150,7 +161,7 @@ router bgp {ASN}
         docker('cp', str(path), receiver + ':/etc/frr/' + name)
 
 
-def check_session(proc, router, neighbor, route):
+def check_session(proc, router, neighbor, route, expiry):
     capability = bytes((1, 4, 0, 1, 0, 133))
     options = bytes((2, len(capability))) + capability
     opening = struct.pack('!BHH4sB', 4, ASN, 90, bytes((192, 0, 2, 2)), len(options))
@@ -161,6 +172,8 @@ def check_session(proc, router, neighbor, route):
     send(proc, frame(4))
     if read_frame(proc) != (4, b''):
         raise RuntimeError('FRRouting did not send the expected KEEPALIVE.')
+    if expiry is not None and expiry <= time.time():
+        raise RuntimeError('Authorization expired before the fixture announced the template.')
     send(proc, update(route, withdraw=False))
 
     def present():
@@ -175,6 +188,10 @@ def check_session(proc, router, neighbor, route):
         return table if all(line in table for line in expected) else None
 
     print(wait_for('the exact template in the receiver RIB', present), flush=True)
+    if expiry is not None:
+        while time.time() < expiry:
+            time.sleep(min(0.25, max(0, expiry - time.time())))
+        print('The recorded authorization reached its expiry.', flush=True)
     send(proc, update(route, withdraw=True))
     wait_for('withdrawal of the exact template', lambda: PREFIX not in router('show bgp ipv4 flowspec detail'))
     if 'BGP state = Established' not in neighbor():
@@ -182,7 +199,7 @@ def check_session(proc, router, neighbor, route):
     print('FRRouting accepted and withdrew the exact template with the session still up.', flush=True)
 
 
-def run(route):
+def run(route, expiry):
     base = 'probectl-qa-beta-flowspec-rib-' + uuid.uuid4().hex[:10]
     network, receiver, sender = base + '-net', base + '-receiver', base + '-sender'
     with ExitStack() as stack:
@@ -221,7 +238,7 @@ def run(route):
             )
             with proc:
                 try:
-                    check_session(proc, router, neighbor, route)
+                    check_session(proc, router, neighbor, route, expiry)
                 finally:
                     proc.stdin.close()
                     try:
@@ -241,4 +258,4 @@ def stop(_signum, _frame):
 
 if __name__ == '__main__':
     signal.signal(signal.SIGTERM, stop)
-    run(fixture_route())
+    run(*fixture_route())

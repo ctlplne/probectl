@@ -14691,6 +14691,132 @@
         }
       }
     },
+    "/v1/remediation/proposals/{id}/flowspec-handoff": {
+      "get": {
+        "x-required-permission": "remediation.propose",
+        "operationId": "getFlowSpecHandoff",
+        "summary": "Read the approved FlowSpec handoff and its current expiry state",
+        "tags": [
+          "remediation"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Proposal id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Exact immutable handoff and current withdrawal intent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationFlowSpecHandoffStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        }
+      }
+    },
+    "/v1/remediation/proposals/{id}/flowspec-withdraw": {
+      "post": {
+        "x-required-permission": "remediation.approve",
+        "operationId": "withdrawFlowSpecHandoff",
+        "summary": "Record withdrawal intent for an approved FlowSpec handoff",
+        "tags": [
+          "remediation"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Proposal id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Exact immutable handoff and current withdrawal intent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationFlowSpecHandoffStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "description": "Requires a current interactive tenant session. Repeated requests return the recorded state of the same handle.",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ]
+      }
+    },
     "/v1/remediation/proposals/{id}/flowspec-approve": {
       "post": {
         "x-required-permission": "remediation.approve",
@@ -20546,7 +20672,8 @@
           "address_family",
           "capacity",
           "documentation",
-          "findings"
+          "findings",
+          "qualification_fingerprint"
         ],
         "properties": {
           "profile": {
@@ -20590,8 +20717,80 @@
           },
           "template": {
             "$ref": "#/components/schemas/RemediationFlowSpecRouterTemplate"
+          },
+          "qualification_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
           }
         }
+      },
+      "RemediationFlowSpecHandoffInput": {
+        "type": "object",
+        "required": [
+          "qualification",
+          "qualification_fingerprint",
+          "duration_seconds"
+        ],
+        "properties": {
+          "qualification": {
+            "$ref": "#/components/schemas/RemediationFlowSpecRouterQualificationInput"
+          },
+          "qualification_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "duration_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 600
+          }
+        },
+        "additionalProperties": false
+      },
+      "RemediationFlowSpecHandoffStatus": {
+        "type": "object",
+        "required": [
+          "proposal_id",
+          "review_fingerprint",
+          "qualification",
+          "issued_at",
+          "expires_at",
+          "state"
+        ],
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "review_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "qualification": {
+            "$ref": "#/components/schemas/RemediationFlowSpecRouterQualification"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "authorized",
+              "withdrawal_requested",
+              "expired"
+            ]
+          },
+          "withdraw_requested_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
       },
       "RemediationFlowSpecReview": {
         "type": "object",
@@ -20638,6 +20837,9 @@
           },
           "note": {
             "type": "string"
+          },
+          "handoff": {
+            "$ref": "#/components/schemas/RemediationFlowSpecHandoffInput"
           }
         },
         "additionalProperties": false

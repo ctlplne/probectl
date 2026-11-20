@@ -90,7 +90,9 @@ type FlowSpecReviews interface {
 	ProposeFlowSpec(context.Context, string, string, FlowSpecProposalInput, func(context.Context) error) (Proposal, error)
 	GetFlowSpecReview(context.Context, string, string, func(context.Context) error) (FlowSpecReview, error)
 	QualifyFlowSpec(context.Context, string, string, FlowSpecQualificationInput, func(context.Context) error) (FlowSpecQualification, error)
-	ApproveFlowSpec(context.Context, string, string, string, string, string, func(context.Context) error) (Proposal, error)
+	ApproveFlowSpec(context.Context, string, string, string, FlowSpecApprovalInput, func(context.Context) error) (Proposal, error)
+	GetFlowSpecHandoff(context.Context, string, string, func(context.Context) error) (FlowSpecHandoffStatus, error)
+	WithdrawFlowSpecHandoff(context.Context, string, string, string, RTBHImpactPublication) (FlowSpecHandoffStatus, error)
 }
 
 type RTBHReviews interface {

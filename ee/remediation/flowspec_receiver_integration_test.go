@@ -48,7 +48,46 @@ func TestFlowSpecTemplateReachesPinnedFRRAndWithdraws(t *testing.T) {
 	if err != nil || !qualification.SyntaxCompatible || qualification.Template == nil {
 		t.Fatalf("the owned rule did not qualify: %+v %v", qualification, err)
 	}
-	template, err := json.Marshal(qualification.Template)
+	t.Run("operator withdrawal", func(t *testing.T) {
+		runFlowSpecReceiver(ctx, t, qualification.Template, nil)
+	})
+	t.Run("authorized expiry", func(t *testing.T) {
+		at := time.Now().UTC()
+		review.ExpiresAt = at.Add(time.Minute)
+		available := uint32(1)
+		input := rem.FlowSpecQualificationInput{Profile: rem.FlowSpecFRR1071, RoutingTable: "default", AvailableEntries: &available}
+		qualified, err := qualifyFlowSpec(review, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fingerprint, err := digestFlowSpecQualification(qualified)
+		if err != nil {
+			t.Fatal(err)
+		}
+		const id = "00000000-0000-4000-8000-000000000001"
+		encoded, err := prepareFlowSpecHandoff(id, review, &rem.FlowSpecHandoffInput{
+			Qualification: input, QualificationFingerprint: fingerprint, DurationSeconds: 30,
+		}, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		handoff, err := decodeFlowSpecHandoff(id, encoded)
+		if err != nil || handoff.State(at) != rem.FlowSpecAuthorized {
+			t.Fatalf("the fixture lacks its exact authorized handoff: %+v %v", handoff, err)
+		}
+		runFlowSpecReceiver(ctx, t, handoff.Qualification.Template, &handoff.ExpiresAt)
+		if handoff.State(time.Now()) != rem.FlowSpecExpired {
+			t.Fatal("the recorded handoff remained authorized after removal")
+		}
+	})
+}
+
+func runFlowSpecReceiver(ctx context.Context, t *testing.T, route *rem.FlowSpecRuleTemplate, expires *time.Time) {
+	t.Helper()
+	template, err := json.Marshal(struct {
+		Template  *rem.FlowSpecRuleTemplate `json:"template"`
+		ExpiresAt *time.Time                `json:"expires_at,omitempty"`
+	}{route, expires})
 	if err != nil {
 		t.Fatal(err)
 	}

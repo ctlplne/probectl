@@ -21,6 +21,7 @@ import {
   Table,
 } from '../../components'
 import { FlowSpecEvidence } from '../../components/FlowSpecEvidence'
+import { FlowSpecHandoffDialog } from '../../components/FlowSpecHandoffDialog'
 import { FlowSpecRouterQualification } from '../../components/FlowSpecRouterQualification'
 import { ApiError } from '../../api/client'
 import { useEditions } from '../../api/editions'
@@ -33,7 +34,7 @@ import {
   useRTBHReview,
   type Proposal,
 } from '../../api/remediation'
-import type { RemediationRTBHReview } from '../../api/sdk.gen'
+import type { RemediationFlowSpecHandoffInput, RemediationRTBHReview } from '../../api/sdk.gen'
 import { useAuth } from '../../auth/useAuth'
 import { useI18n } from '../../i18n/useI18n'
 import { DateTime } from '../../time/DateTime'
@@ -54,8 +55,16 @@ export function RemediationCard() {
   // WEB-21 (G8): a remediation decision is human-gated. The row never decides;
   // Approve/Reject fire only from the review dialog, after the operator has seen
   // the dry-run blast radius and the "probectl never executes" guardrail note.
-  const [selection, setSelection] = useState<{ identity: string; proposal: Proposal } | null>(null)
+  const [selection, setSelection] = useState<{
+    identity: string
+    proposal: Proposal
+    handoff?: RemediationFlowSpecHandoffInput
+  } | null>(null)
+  const [handoffSelection, setHandoffSelection] = useState<{ identity: string; id: string } | null>(
+    null,
+  )
   const reviewing = selection?.identity === identity ? selection.proposal : null
+  const handoffID = handoffSelection?.identity === identity ? handoffSelection.id : undefined
   const isRTBH = reviewing?.kind === 'rtbh_review'
   const isFlowSpec = reviewing?.kind === 'flowspec_review'
   const routing = isRTBH || isFlowSpec
@@ -114,7 +123,11 @@ export function RemediationCard() {
       key: 'actions',
       header: t('remediation.column.decision'),
       render: (p) =>
-        p.state !== 'proposed' ? (
+        p.kind === 'flowspec_review' && p.state === 'approved' ? (
+          <Button variant="ghost" onClick={() => setHandoffSelection({ identity, id: p.id })}>
+            Open handoff
+          </Button>
+        ) : p.state !== 'proposed' ? (
           <span>{p.decided_by ? t('remediation.decidedBy', { actor: p.decided_by }) : '—'}</span>
         ) : (
           <Button variant="ghost" onClick={() => setSelection({ identity, proposal: p })}>
@@ -193,7 +206,7 @@ export function RemediationCard() {
                     if (isFlowSpec && fingerprint) {
                       approveFlowSpec.mutate({
                         id: reviewing.id,
-                        input: { review_fingerprint: fingerprint },
+                        input: { review_fingerprint: fingerprint, handoff: selection?.handoff },
                       })
                     } else {
                       decide.mutate({ id: reviewing.id, decision: 'approve', fingerprint })
@@ -259,6 +272,14 @@ export function RemediationCard() {
                     key={fingerprint}
                     proposalID={reviewing.id}
                     fingerprint={fingerprint}
+                    prepared={Boolean(selection?.handoff)}
+                    onPrepare={(handoff) =>
+                      setSelection((current) =>
+                        current?.proposal.id === reviewing.id && current.identity === identity
+                          ? { ...current, handoff }
+                          : current,
+                      )
+                    }
                   />
                 ) : null}
               </>
@@ -267,6 +288,14 @@ export function RemediationCard() {
               {t('remediation.reviewGuardrail')}
             </p>
           </Modal>
+        ) : null}
+        {handoffID ? (
+          <FlowSpecHandoffDialog
+            id={handoffID}
+            identity={identity}
+            allowWithdraw={permissions.includes('remediation.approve')}
+            onClose={() => setHandoffSelection(null)}
+          />
         ) : null}
       </CardBody>
     </Card>
