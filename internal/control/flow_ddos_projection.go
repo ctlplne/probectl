@@ -118,16 +118,8 @@ func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, s
 		!slices.ContainsFunc(captured.Result.Rows, func(row flowstore.PlanRow) bool { return row.CrossesWindowStart }) {
 		return ctx.Err()
 	}
-	if finding == nil {
-		// A low counter cannot establish quiet coverage when every report
-		// describes a longer interval. Keep the existing episode and clock.
-		if !slices.ContainsFunc(captured.Result.Rows, func(row flowstore.PlanRow) bool { return !row.CrossesWindowStart }) {
-			return errDDoSTimingCoverage
-		}
-		return ctx.Err()
-	}
-	// Keep all of the reference's end-clock counters. The current finding
-	// needs enough independent support after removing known crossing reports.
+	// Keep the reference's end-clock counters. The contained reports must
+	// support the current decision, including quiet coverage after an episode.
 	current, err := projectDDoSWindowRows(ctx, captured, settings, scope, work, true)
 	if errors.Is(err, anomaly.ErrDDoSCoverage) {
 		return errDDoSTimingCoverage
@@ -135,8 +127,11 @@ func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, s
 	if err != nil {
 		return err
 	}
-	if !maps.Equal(reference.exporterRates, current.exporterRates) {
+	if current.observation.ObservedRecords == 0 || !maps.Equal(reference.exporterRates, current.exporterRates) {
 		return errDDoSTimingCoverage
+	}
+	if finding == nil {
+		return ctx.Err()
 	}
 	limits := settings.Input.Thresholds()
 	confirmed, err := anomaly.EvaluateDDoS(ctx, reference.observation, current.observation, limits, work)

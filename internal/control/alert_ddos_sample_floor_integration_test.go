@@ -172,7 +172,7 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 				vector := high && !crossingQuiet && (coverageGap != nil || offset != 1)
 				row := delayFixtureFlow(tenant, clock, vector)
 				row.SrcPort += uint16(index)
-				if crossingQuiet {
+				if crossingQuiet && index > 0 {
 					row.StartTS = clock.Add(-4 * width)
 					row.ClockBasis = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL
 				}

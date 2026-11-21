@@ -136,6 +136,22 @@ func TestDDoSTimingRequiresComparableSamplingAfterRemovingCrossingReports(t *tes
 	if !errors.Is(err, errDDoSTimingCoverage) || got.Detection != nil {
 		t.Fatal("removing a crossing interval made a changed sampling profile look comparable", got, err)
 	}
+	// Repeat with steady totals. The unsampled row still fits the current
+	// window, but only a crossing interval supports the second rate.
+	capture.Results[1] = fixtureDDoSTimingWindow(settings, clocks.After, reference)
+	for _, row := range capture.Results[1].Result.Rows {
+		row.Group["exporter"] = exporter
+	}
+	sampled := &capture.Results[1].Result.Rows[1]
+	sampled.Group["sampling"] = "8"
+	sampled.Metrics["flows:total"] = "50"
+	if got, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork); err != nil || got.Detection != nil {
+		t.Fatal("steady traffic from both rates should establish quiet coverage", got, err)
+	}
+	sampled.CrossesWindowStart = true
+	if got, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork); !errors.Is(err, errDDoSTimingCoverage) {
+		t.Fatal("a contained row at a different rate established quiet coverage", got, err)
+	}
 }
 
 func TestDDoSSampledEvidenceRequiresOwnOriginalRecords(t *testing.T) {

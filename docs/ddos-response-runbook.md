@@ -16,10 +16,12 @@ evidence can still delay or prevent an alert.
 Short-window admission checks whether the finding still qualifies after
 setting aside reports with a known exporter start before the current window.
 If those reports supplied necessary traffic or application evidence, the
-assessment reports timing coverage as unknown. When every report spans the
-start boundary, a quiet aggregate also leaves coverage unknown and the rule
-keeps its previous episode state. Reports with only fallback timestamps and
-older records still contribute to their end-time windows.
+assessment reports timing coverage as unknown. Quiet totals also leave
+coverage unknown when the contained reports are absent, lack a required
+exporter or its reference sampling rates, or fall below the configured
+record minimum for a sampled group. The rule keeps its previous episode
+state until observations can establish recovery. Reports with only fallback
+timestamps and older records still contribute to their end-time windows.
 The receipt retains the end-time totals from the pinned view.
 
 Select **Representative week from the last four** when one unusual week could
