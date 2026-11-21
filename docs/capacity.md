@@ -127,7 +127,7 @@ load waves. A single spike is a page candidate, not an immediate reshard.
 | Kafka | Producer p95 or consumer lag | Publish p95 exceeds the tier ceiling, lag rises for two waves, or disk is above 70%. Add partitions/brokers before increasing buffers. |
 | ClickHouse flow/eBPF | Part pressure or query tail | `active_parts` grows wave-over-wave, insert p95 or flow query p95 exceeds 2s, or disk is above 70%. Add shards before raising retention. |
 | TSDB | Remote-write/query tail | Remote-write rejects rise, query p95 exceeds the hot-path target, or cardinality-index memory exceeds 10% of control-plane RSS. Add storage/select shards and check the cardinality worksheet before adding replicas. |
-| Postgres | RLS query tail | Pooled tenant query p95 exceeds 250ms in `perf-smoke`, lock waits rise, or CPU stays above 70%. Add read replicas first; split provider/global tables only with a migration plan. |
+| Postgres | RLS query tail | Pooled tenant query p95 exceeds 250ms in `perf-smoke`, lock waits rise, or CPU stays above 70%. Check query plans and writer capacity first. Adding a replica for readiness and cluster probes leaves tenant queries on the writer. |
 | Control plane | CPU/RSS/goroutines | CPU stays above 70%, RSS is a staircase during soak, or goroutines/open FDs do not return to baseline. Add stateless replicas and check backpressure first. |
 
 The ELI5 rule: if queues grow, scale the slow consumer; if disks grow, shorten

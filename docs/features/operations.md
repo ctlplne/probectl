@@ -48,9 +48,9 @@ Each capability answers a concrete fear:
   not everyone.
 - **"Can we satisfy a regulator who demands a validated crypto module?"** Yes —
   there is a build that operates one.
-- **"What happens if a region dies?"** The control plane keeps serving reads and
-  ingest everywhere; the database fails *closed* on writes during the flip so it
-  can never corrupt state.
+- **"What happens if a region dies?"** The control plane fences writes while
+  it verifies the new primary. Tenant API reads depend on the writer endpoint.
+  Availability of the telemetry lanes depends on their backing services.
 - **"Can we honor a deletion or residency obligation, and prove it?"** Yes —
   erasure produces a proof document anyone can re-derive.
 - **"Can we get a diagnostic file to support without leaking credentials?"** Yes —
@@ -126,10 +126,9 @@ The safety core is **split-brain fencing**. "Split-brain" is the nightmare where
 two nodes both believe they are the primary and both accept writes, silently
 diverging. probectl refuses to write unless the target is *provably* the current
 primary: it probes the writer endpoint every few seconds and **fails writes
-closed** (returning a retry-after) whenever it cannot prove that — while reads
-keep serving and telemetry ingest never pauses. A monotonic promotion counter
-catches a stale ex-primary; a lower counter can never reclaim the writer role.
-The principle: degrade to read-only, never lose or corrupt data.
+closed** (returning a retry-after) whenever it cannot prove that. A monotonic
+promotion counter catches a stale ex-primary. A lower counter can never
+reclaim the writer role.
 
 Be precise about one asymmetry: the durable state database carries over with a
 seconds-scale recovery point. The high-volume telemetry store does **not**
@@ -210,8 +209,8 @@ What you should observe: `self_test_passed: true` means the power-on self-test
 ran and the validated module is live. If the self-test had failed, the process
 would not have started at all.
 
-**Watch the cluster during a failover.** The readiness endpoint carries the
-cluster view; a node stays ready for *reads* while writes pause:
+**Watch the cluster during a failover.** An authenticated readiness response
+can show a reachable database and a paused writer:
 
 ```json
 {
@@ -220,10 +219,10 @@ cluster view; a node stays ready for *reads* while writes pause:
 }
 ```
 
-What you should observe: `writes_usable: false` tells operators and automation
-that writes paused (fenced) during the flip; reads and ingest keep flowing.
-Writes resume automatically on the next probe once the writer endpoint resolves
-to the promoted primary — no restart needed.
+`writes_usable: false` indicates the write fence is active. Check that
+`GET /v1/tests` succeeds with a tenant session to verify authenticated
+read access. Writes resume automatically once the writer endpoint resolves to
+the promoted primary and the fence verifies it.
 
 **Produce a support bundle.** Either live from the API or offline straight from
 the binary with no running server:

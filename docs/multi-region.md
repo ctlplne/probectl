@@ -50,16 +50,16 @@ flowchart LR
         CA["control / ingest replicas"]
         PGA[("Postgres PRIMARY")]
         CA -->|writer pool| PGA
-        CA -.->|read pool| RLA[("local replica (optional)")]
+        CA -.->|readiness and replica probes| RLA[("local replica (optional)")]
     end
 
     subgraph RB["Region B — standby (active ingest)"]
         CB["control / ingest replicas"]
         RLB[("Postgres REPLICA")]
-        CB -->|read pool| RLB
+        CB -.->|readiness and replica probes| RLB
     end
 
-    CB -->|"writes → writer endpoint (DNS / proxy)"| PGA
+    CB -->|"authenticated API → writer endpoint (DNS / proxy)"| PGA
     PGA ==>|streaming replication| RLB
     PGA -. "on failover: endpoint re-points; B's REPLICA is promoted to PRIMARY" .-> RLB
 ```
@@ -77,10 +77,12 @@ flowchart LR
 - **Writer endpoint:** a single DNS name / proxy (e.g. a managed-DB failover
   endpoint, Patroni + a VIP, or PgBouncer/HAProxy tracking the leader) that
   always resolves to the current primary. `PROBECTL_DATABASE_URL` points here.
-- **Read endpoint (optional):** `PROBECTL_DATABASE_READ_URL` points at the
-  local replica for read locality. Reads route there; writes always go to the
-  writer endpoint. (Read-routing is opt-in per query path via `DB.ReadPool()`;
-  by default reads use the writer, so nothing breaks if unset.)
+- **Replica endpoint (optional)** — `PROBECTL_DATABASE_READ_URL` supplies the
+  database readiness check and the cluster's replica probe. Session and bearer
+  token validation, permission checks and tenant API queries such as
+  `GET /v1/tests` use the writer endpoint. A healthy replica can keep
+  `/readyz` at 200 while authenticated requests fail because the writer
+  endpoint is unreachable.
 
 ## Replication model & RPO
 
@@ -116,12 +118,10 @@ target is
 *provably* the current primary. The control plane probes the writer endpoint
 every 5 seconds, **and re-verifies it synchronously on each mutating request**,
 and **fails writes closed** (HTTP 503 `writer_unavailable`, with a `Retry-After`)
-whenever it can't prove that — while **reads keep serving** and **telemetry
-ingest never pauses**. The per-request re-check is what makes the fence
+whenever it can't prove that. The per-request re-check makes the fence
 authoritative *at write time*: a node that stops being the primary between
 probes fences the **very next** write, instead of acknowledging (201) up to one
-probe interval of writes the promoted primary never sees. The principle: degrade
-to read-only, never lose or corrupt data.
+probe interval of writes the promoted primary never sees.
 
 There are two specific failure modes it catches:
 
@@ -158,16 +158,16 @@ existing connections are recycled), so those background writers fail closed
 exactly as they would on a standby. `/readyz` reports it as
 `cluster.pool_fenced: true` and the control plane logs `writer pool fenced
 read-only`; that connection-level pool fence engages and lifts on the periodic
-probe once the endpoint resolves to the current primary. Reads keep serving
-throughout.
+probe once the endpoint resolves to the current primary.
 
-Reads keep serving even though their audit events cannot be written: a
-sensitive read (`access.read.*`) is served and its event is kept in a bounded
-per-replica queue that is appended, stamped with `deferred_at` and the reason,
-once writes are usable again (`probectl_audit_deferred_total` counts the
-deferrals, `probectl_audit_deferred_dropped_total` any overflow). Exports,
-operational actions and mutations whose audit event cannot be written are
-refused with `503 writer_unavailable` and a `Retry-After`, never a `500`.
+When the writer endpoint reaches a readable database and authentication
+succeeds, a sensitive read (`access.read.*`) can be served while its audit
+event waits in a bounded per-replica queue. Once writes are usable again,
+the audit append records `deferred_at` and the reason.
+`probectl_audit_deferred_total` counts deferrals and
+`probectl_audit_deferred_dropped_total` counts overflow. Exports, operational
+actions and mutations whose audit event cannot be written return
+`503 writer_unavailable` and a `Retry-After`.
 
 ## RTO
 
@@ -177,10 +177,10 @@ probectl re-probe (≤ one 5s cycle). Each probe is itself bounded to 5 seconds,
 so a primary that vanishes without closing its connections is detected within
 one cycle rather than after the kernel's TCP give-up. The dominant terms are
 your Postgres failover controller's detection + promotion times. probectl resumes
-writes automatically once the endpoint resolves to the promoted primary: a
-mutating request re-probes synchronously, so it need not wait for the next
-periodic cycle (reads, status, and the connection-level pool fence follow the
-≤ 5 s cycle) — no probectl restart required.
+writes automatically once the endpoint resolves to the promoted primary. A
+mutating request re-probes synchronously. Status and the connection-level
+pool fence follow the periodic cycle. Authentication and tenant API queries
+recover when their writer connections reach a readable database.
 
 ## The RPO/RTO targets: locally rehearsed, regional proof still required
 

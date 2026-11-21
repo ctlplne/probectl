@@ -28,8 +28,10 @@ created by migration `0032_cluster_state.sql`).
 A failover is for a **primary-region loss** — the primary is down or network-
 isolated — not for transient replication lag. Check `/readyz` across regions and
 the `probectl_cluster_replica_lag_seconds` metric. If the primary is already
-unreachable, probectl will be fencing writes for you (a retryable `503` with the
-code `writer_unavailable`), while reads and telemetry ingest keep flowing.
+unreachable, the write fence returns a retryable `503` with code
+`writer_unavailable` on mutating API requests it fences. Authentication and
+tenant API reads use the writer endpoint and can fail during the outage.
+Measure telemetry availability for each configured ingest lane.
 
 ## 1. Confirm the standby is caught up (this sets your RPO)
 
@@ -74,8 +76,8 @@ Move `PROBECTL_DATABASE_URL`'s DNS name / proxy to the promoted primary:
 - **Patroni / HAProxy:** tracks the leader for you.
 - **Manual DNS:** update the record and wait out the TTL.
 
-The per-region read replicas (`PROBECTL_DATABASE_READ_URL`) keep pointing at
-their own local node — reads stay local.
+Keep `PROBECTL_DATABASE_READ_URL` pointed at the intended local database for
+readiness and replica probes. Tenant API requests follow the writer endpoint.
 
 ## 5. Verify (platform operator) — the RTO check
 
@@ -90,10 +92,12 @@ GET /readyz  →  cluster.writes_usable:        true
 
 (The cluster view is nested under the `cluster` key of the `/readyz` JSON; the
 writer node's reported region is the `writer_region` field on `cluster.writer`.)
-A mutating request — e.g. saving a config — should now succeed instead of
-returning `503`. The elapsed time from primary loss to `writes_usable: true` is
-your realized **RTO**; compare it against `PROBECTL_RTO_SECONDS` (default and
-provisional target: 60 s).
+Use an existing tenant session to verify that `GET /v1/tests` returns the
+tenant's tests and that a mutating request, such as saving a config, succeeds.
+Verify separately that a sibling tenant cannot read those tests. Record
+elapsed time from primary loss to `writes_usable: true` and to the first
+successful authenticated read. Compare the write recovery time with
+`PROBECTL_RTO_SECONDS` (provisional target of 60 seconds by default).
 
 ## 6. Rebuild the old region as a standby
 

@@ -57,10 +57,10 @@ observes — you are keeping the observer healthy while it observes.
      "cluster": { "topology": { "region": "eu" }, "writer": { "role": "reader" }, "writes_usable": false }
    }
    ```
-   You observe `writes_usable: false` during the flip: writes pause (fenced) so
-   state can never corrupt, while reads and telemetry ingest keep flowing. Writes
-   resume automatically on the next probe once the writer endpoint resolves to the
-   promoted primary. Be precise in your runbook: the durable state database
+   You observe `writes_usable: false` while the fence blocks writes. Check
+   authenticated tenant reads and telemetry ingestion separately from readiness.
+   Writes resume once the fence verifies that the writer endpoint reaches the
+   promoted primary. The durable state database
    recovers in seconds, but the high-volume telemetry store does **not** replicate
    cross-region by default — its recovery point equals your off-region backup
    cadence unless you opt into telemetry-store replication. This is backup-cadence

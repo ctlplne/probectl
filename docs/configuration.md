@@ -3223,10 +3223,9 @@ a bound is admission-controlled (shed + counted), never silently corrupted.
 
 Inert unless `PROBECTL_REGION` is set (single-region deployments need none of
 these). The control plane stays stateless and active in every region; the
-split-brain fence pauses API writes during a failover while reads + telemetry
-keep flowing — **split-brain** being the failure where two regions each believe
-*they* hold the writable database and diverge, which a write-pause makes
-impossible. Two vocabulary keys below: **RPO** (recovery point objective) is how
+split-brain fence pauses API writes during a failover when the current writer
+cannot be verified. Authentication and tenant API queries use the writer
+endpoint. **RPO** (recovery point objective) is how
 much recent data a disaster may cost you, **RTO** (recovery time objective) how
 long recovery may take — both recorded here as declared targets for humans to
 sign off, not values the software can promise. Full model + the failover
@@ -3238,7 +3237,7 @@ runbook: `docs/multi-region.md`,
 | `PROBECTL_REGION` | (empty) | this replica's region; empty = single-region (fence inert) |
 | `PROBECTL_REGIONS` | (empty) | comma list of all regions in the deployment |
 | `PROBECTL_DATABASE_URL` | … | the writer `postgres://` or `postgresql://` endpoint (DNS/proxy that resolves to the current primary) |
-| `PROBECTL_DATABASE_READ_URL` | (empty) | optional local read-replica `postgres://` or `postgresql://` endpoint; keyword/value DSNs are rejected and empty means reads use the writer. `multi-tenant`/`regulated` profiles require PostgreSQL TLS (`sslmode=require`, `verify-ca`, or `verify-full`) |
+| `PROBECTL_DATABASE_READ_URL` | (empty) | Optional local replica `postgres://` or `postgresql://` URL for readiness and replica probes. With no replica URL, readiness pings the writer. The `multi-tenant` and `regulated` profiles require `sslmode=verify-ca` or `verify-full` with `sslrootcert`. |
 | `PROBECTL_REPLICATION_MODE` | `async` | `sync` (RPO 0) or `async` (RPO ≈ lag) — descriptive; configure Postgres to match |
 | `PROBECTL_RESIDENCY` | (empty) | default data-residency region (governance) |
 | `PROBECTL_RPO_SECONDS` | `0` | provisional RPO target (human sign-off) |
