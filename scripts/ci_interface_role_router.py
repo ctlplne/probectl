@@ -14,6 +14,13 @@ from ci_interface_prefix_transport import overlay_source_path
 
 ROOT = "TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride"
 PACKAGE = "github.com/ctlplne/probectl/internal/bgp"
+CONTROL_ROOT = ROOT + "/signed-directional-control"
+BOUNDARY_ROOT = CONTROL_ROOT + "/live-boundary-and-monitoring"
+COMPLIANCE = (
+    CONTROL_ROOT,
+    BOUNDARY_ROOT,
+    *(BOUNDARY_ROOT + "/" + ref for ref in ("11.4.5", "SC.L2-3.13.1", "SI.L2-3.14.6")),
+)
 SURFACES = tuple(ROOT + "/" + theme + "/" + tenant + "/" + surface
                  for theme in ("light", "dark")
                  for tenant in ("primary", "paired")
@@ -61,7 +68,13 @@ def main():
     (out / "router.stderr.txt").write_text(result.stderr)
     print(result.stdout, end="")
     print(result.stderr, end="")
-    errors = classify(result.stdout, result.returncode, package=PACKAGE, tests=(ROOT, ROOT + "/signed-directional-control", *SURFACES, *PATH_HEALTH, *CHANGE_EFFECTS, *(ROOT + "/stdio/" + wire for wire in ("2026-07-28", "2025-11-25"))))
+    errors = classify(
+        result.stdout,
+        result.returncode,
+        package=PACKAGE,
+        tests=(ROOT, *COMPLIANCE, *SURFACES, *PATH_HEALTH, *CHANGE_EFFECTS,
+               *(ROOT + "/stdio/" + wire for wire in ("2026-07-28", "2025-11-25"))),
+    )
     if errors:
         raise RuntimeError("required real-router role proof missing/failed: " + str(errors))
     # One focused real child models an unexecuted/missing browser report. The
