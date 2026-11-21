@@ -123,9 +123,11 @@ The provider plane exposes one place for a tenant's data governance
 - `GET /provider/v1/tenants/{id}/governance` — the **composed view**: the effective
   classification of every category + the redaction policy + remote-AI egress
   consent + residency + isolation model + retention + BYOK status.
-- `PUT /provider/v1/tenants/{id}/governance` — set the policy: classification
-  overrides, the redaction floor (`redact_from`), `redact_export`, and the
-  tenant's remote-AI egress consent (`ai_remote_egress`). Audited to the
+- `PUT /provider/v1/tenants/{id}/governance` sets classification overrides,
+  the redaction floor (`redact_from`) and `redact_export`. Omitting
+  `classifications` preserves the current overrides. An empty object clears
+  them. Only the tenant can change its own remote-AI egress consent. The
+  provider policy change is audited to the
   separate, tamper-evident **provider audit stream**
   (`provider.governance_set`), admin-only, and blocked by the read-only license
   degrade.

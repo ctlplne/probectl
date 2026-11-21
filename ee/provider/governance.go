@@ -30,10 +30,9 @@ import (
 // ee/governance.Store over Postgres; a memstore drives the unit tests).
 type GovernanceStore interface {
 	PolicyFor(ctx context.Context, tenantID string) (govern.Policy, bool, error)
-	Upsert(ctx context.Context, tenantID string, pol govern.Policy, by string) error
-	// UpsertAudited stores the policy and runs auditTx in the SAME transaction,
-	// so a failing audit append rolls the policy change back (AUD-11).
-	UpsertAudited(ctx context.Context, tenantID string, pol govern.Policy, by string, auditTx func(context.Context, tenancy.Querier) error) error
+	ChangeAudited(ctx context.Context, tenantID, by string,
+		change func(govern.Policy) (govern.Policy, error),
+		auditTx func(context.Context, tenancy.Querier, govern.Policy, bool, govern.Policy) error) error
 }
 
 // Governance bundles the ee/ governance capability for the handler.
@@ -139,7 +138,7 @@ func (h *Handler) handlePutGovernance(w http.ResponseWriter, r *http.Request, op
 	if in.RedactFrom != "" && pol.RedactFrom == govern.ClassUnset {
 		return errBadJSON{strErr("redact_from must be one of: public, internal, confidential, pii, restricted")}
 	}
-	if len(in.Overrides) > 0 {
+	if in.Overrides != nil {
 		pol.Overrides = map[govern.Category]govern.Class{}
 		for cat, cls := range in.Overrides {
 			c := govern.ParseClass(cls)
@@ -150,26 +149,22 @@ func (h *Handler) handlePutGovernance(w http.ResponseWriter, r *http.Request, op
 		}
 	}
 	tenantID := r.PathValue("id")
-	// AUD-11: read the prior policy so the audit event can record the consent +
-	// redaction OLD/NEW, then upsert the new policy and append the provider
-	// audit event in ONE transaction (UpsertAudited). A failing audit sink rolls
-	// the policy change back, so a consent change (ai_remote_egress) can never
-	// persist unaudited.
-	prior, priorFound, err := h.governance.Store.PolicyFor(r.Context(), tenantID)
-	if err != nil {
-		return err
-	}
-	// AUD-11: the provider console may never change the tenant's remote-AI
-	// egress consent. Refuse an explicit change (either direction) and always
-	// carry the tenant's prior value through, so an MSP operator cannot enable
-	// (or silently weaken) a tenant's remote-model telemetry egress.
-	if in.AIRemoteEgress != nil && *in.AIRemoteEgress != prior.AIRemoteEgress {
-		return errForbiddenConsent
-	}
-	pol.AIRemoteEgress = prior.AIRemoteEgress
-	if err := h.governance.Store.UpsertAudited(r.Context(), tenantID, pol, op.Email,
-		func(ctx context.Context, q tenancy.Querier) error {
-			return h.svc.AppendGovernanceAuditTx(ctx, q, op.Email, tenantID, prior, priorFound, pol)
+	if err := h.governance.Store.ChangeAudited(r.Context(), tenantID, op.Email,
+		func(prior govern.Policy) (govern.Policy, error) {
+			// AUD-11: only the tenant can change its AI egress consent. Use
+			// the locked current value so a concurrent revocation survives.
+			if in.AIRemoteEgress != nil && *in.AIRemoteEgress != prior.AIRemoteEgress {
+				return govern.Policy{}, errForbiddenConsent
+			}
+			next := pol
+			next.AIRemoteEgress = prior.AIRemoteEgress
+			if in.Overrides == nil {
+				next.Overrides = prior.Overrides
+			}
+			return next, nil
+		},
+		func(ctx context.Context, q tenancy.Querier, prior govern.Policy, priorFound bool, next govern.Policy) error {
+			return h.svc.AppendGovernanceAuditTx(ctx, q, op.Email, tenantID, prior, priorFound, next)
 		}); err != nil {
 		return err
 	}

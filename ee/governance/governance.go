@@ -15,6 +15,7 @@ package governance
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ctlplne/probectl/internal/govern"
@@ -55,15 +56,44 @@ func (s *Store) Upsert(ctx context.Context, tenantID string, pol govern.Policy, 
 	})
 }
 
-// UpsertAudited stores the policy AND runs auditTx in the SAME provider
-// transaction (AUD-11). A consent/redaction change must never persist without
-// its audit record: if auditTx returns an error the whole transaction rolls
-// back, so tenant_governance is left unchanged and the caller's PUT fails.
-func (s *Store) UpsertAudited(ctx context.Context, tenantID string, pol govern.Policy, by string, auditTx func(context.Context, tenancy.Querier) error) error {
+// ChangeAudited reads the current policy under the same row lock as its
+// replacement. Both the policy change and its audit append commit together.
+func (s *Store) ChangeAudited(ctx context.Context, tenantID, by string,
+	change func(govern.Policy) (govern.Policy, error),
+	auditTx func(context.Context, tenancy.Querier, govern.Policy, bool, govern.Policy) error,
+) error {
+	if auditTx == nil {
+		return govern.ErrAuditReceiptRequired
+	}
 	return tenancy.InProvider(ctx, s.pool, func(ctx context.Context, q tenancy.Querier) error {
-		if err := govern.UpsertPolicyTx(ctx, q, tenantID, pol, by); err != nil {
+		// A first edit must also serialize with a tenant's first policy
+		// write. A provisional default row is invisible until commit.
+		result, err := q.Exec(ctx, `
+			INSERT INTO tenant_governance (tenant_id) VALUES ($1) ON CONFLICT (tenant_id) DO NOTHING`, tenantID)
+		if err != nil {
 			return err
 		}
-		return auditTx(ctx, q)
+		var prior govern.Policy
+		priorFound := result.RowsAffected() == 0
+		if priorFound {
+			var exists bool
+			prior, exists, err = govern.ScanPolicy(q.QueryRow(ctx, `
+				SELECT classifications, redact_from, redact_export, ai_remote_egress
+				  FROM tenant_governance WHERE tenant_id = $1 FOR UPDATE`, tenantID))
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return pgx.ErrNoRows
+			}
+		}
+		next, err := change(prior)
+		if err != nil {
+			return err
+		}
+		if err := govern.UpsertPolicyTx(ctx, q, tenantID, next, by); err != nil {
+			return err
+		}
+		return auditTx(ctx, q, prior, priorFound, next)
 	})
 }

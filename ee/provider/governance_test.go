@@ -34,19 +34,23 @@ func (m *memGovStore) PolicyFor(_ context.Context, tenantID string) (govern.Poli
 	p, ok := m.pols[tenantID]
 	return p, ok, nil
 }
-func (m *memGovStore) Upsert(_ context.Context, tenantID string, pol govern.Policy, _ string) error {
-	m.pols[tenantID] = pol
-	return nil
-}
 
-// UpsertAudited mirrors the PG transaction (ee/governance.Store.UpsertAudited):
+// ChangeAudited mirrors the PG transaction (ee/governance.Store.ChangeAudited):
 // the audit append and the policy write commit or roll back together, so a
 // failing audit leaves the policy unchanged (AUD-11).
-func (m *memGovStore) UpsertAudited(ctx context.Context, tenantID string, pol govern.Policy, _ string, auditTx func(context.Context, tenancy.Querier) error) error {
-	if err := auditTx(ctx, nil); err != nil {
+func (m *memGovStore) ChangeAudited(ctx context.Context, tenantID, _ string,
+	change func(govern.Policy) (govern.Policy, error),
+	auditTx func(context.Context, tenancy.Querier, govern.Policy, bool, govern.Policy) error,
+) error {
+	prior, found := m.pols[tenantID]
+	next, err := change(prior)
+	if err != nil {
 		return err
 	}
-	m.pols[tenantID] = pol
+	if err := auditTx(ctx, nil, prior, found, next); err != nil {
+		return err
+	}
+	m.pols[tenantID] = next
 	return nil
 }
 
@@ -285,6 +289,38 @@ func TestGovernancePut(t *testing.T) {
 	if rec := f.doAuthed(t, token, http.MethodPut, "/provider/v1/tenants/tn_1/governance",
 		map[string]any{"classifications": map[string]string{"ip_address": "nonsense"}}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid class: %d", rec.Code)
+	}
+}
+
+func TestGovernanceRedactionEditKeepsUnspecifiedClassifications(t *testing.T) {
+	f, store, token := governedFixture(t)
+	store.pols["tn_1"] = govern.Policy{Overrides: map[govern.Category]govern.Class{govern.CatHostname: govern.ClassRestricted}}
+	store.pols["tn_2"] = govern.Policy{Overrides: map[govern.Category]govern.Class{govern.CatUserAgent: govern.ClassPII}}
+	const path = "/provider/v1/tenants/tn_1/governance"
+	rec := f.doAuthed(t, token, http.MethodPut, path, map[string]any{
+		"redact_from": "pii", "redact_export": true,
+	})
+	if got := store.pols["tn_1"]; rec.Code != http.StatusOK || !got.RedactExport || got.Overrides[govern.CatHostname] != govern.ClassRestricted {
+		t.Fatalf("redaction edit removed an existing classification: status %d, policy %+v", rec.Code, got)
+	}
+	rec = f.doAuthed(t, token, http.MethodPut, path, map[string]any{
+		"redact_from": "pii", "redact_export": true, "classifications": map[string]string{},
+	})
+	if got := store.pols["tn_1"]; rec.Code != http.StatusOK || len(got.Overrides) != 0 {
+		t.Fatalf("explicit reset did not clear classifications: status %d, policy %+v", rec.Code, got)
+	}
+	if sibling := store.pols["tn_2"]; sibling.RedactExport || sibling.Overrides[govern.CatUserAgent] != govern.ClassPII {
+		t.Fatalf("provider changed the sibling policy: %+v", sibling)
+	}
+}
+
+func TestGovernanceDatabaseWriteRequiresTransactionalAudit(t *testing.T) {
+	f, _, _ := governedFixture(t)
+	query := struct{ tenancy.Querier }{}
+	err := f.h.svc.AppendGovernanceAuditTx(t.Context(), query, "operator", "tn_1", govern.Policy{}, false,
+		govern.Policy{RedactExport: true})
+	if !errors.Is(err, govern.ErrAuditReceiptRequired) {
+		t.Fatalf("database policy write accepted an audit sink outside its transaction: %v", err)
 	}
 }
 

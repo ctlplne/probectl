@@ -246,16 +246,19 @@ func (s *Service) CheckWritable() error { return s.writable() }
 // AppendGovernanceAuditTx appends the provider governance-set audit event
 // (AUD-11). It records the consent and redaction OLD/NEW values — crucially
 // ai_remote_egress, the remote-AI telemetry consent (U-013), which the prior
-// event omitted entirely. When q is non-nil and the sink can join a
-// transaction, the append runs ON that transaction so the policy upsert and
-// this record commit or roll back together (ee/governance.Store.UpsertAudited);
-// otherwise (unit sinks) it appends directly.
+// event omitted entirely. The database append joins the policy write
+// transaction. The in-memory store supplies no transaction and uses its
+// in-memory audit sink directly.
 func (s *Service) AppendGovernanceAuditTx(ctx context.Context, q tenancy.Querier, actor, tenantID string, prior govern.Policy, priorFound bool, next govern.Policy) error {
 	data := governanceAuditData(prior, priorFound, next)
-	if tx, ok := s.audit.(transactionalAuditSink); ok && q != nil {
-		return tx.AppendTx(ctx, q, actor, "provider.governance_set", tenantID, data)
+	if q == nil {
+		return s.audit.Append(ctx, actor, "provider.governance_set", tenantID, data)
 	}
-	return s.audit.Append(ctx, actor, "provider.governance_set", tenantID, data)
+	tx, ok := s.audit.(transactionalAuditSink)
+	if !ok {
+		return govern.ErrAuditReceiptRequired
+	}
+	return tx.AppendTx(ctx, q, actor, "provider.governance_set", tenantID, data)
 }
 
 // governanceAuditData renders the before/after of a governance change so the
