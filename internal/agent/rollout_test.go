@@ -7,6 +7,7 @@
 package agent
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -107,16 +108,26 @@ func TestPlanRolloutWavesAreDeterministicAndOrdered(t *testing.T) {
 func TestPlanRolloutExcludesAgentsAlreadyOnTarget(t *testing.T) {
 	fleet := testFleet(10, "v0.1.0")
 	fleet[3].Version = "v0.2.0"
+	fleet[3].Digest = goodArtifact().Digest
+	fleet[4].Version = "v0.2.0"
+	fleet[4].Digest = "sha256:" + strings.Repeat("c", 64)
+	fleet[5].Version = "v0.2.0"
 	p := mustPlan(t, fleet)
+	planned := make(map[string]bool)
 	for _, w := range p.Waves {
 		for _, id := range w.AgentIDs {
-			if id == fleet[3].ID {
-				t.Fatal("an agent already on the target was planned for upgrade")
-			}
+			planned[id] = true
 		}
 	}
+	if planned[fleet[3].ID] || !planned[fleet[4].ID] || !planned[fleet[5].ID] {
+		t.Fatal("wave membership must match the exact artifact as well as the version")
+	}
 	// A fully-upgraded fleet has nothing to do.
-	if _, err := PlanRolloutAt(testFleet(5, "v0.2.0"), goodArtifact(), lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{}); err == nil {
+	upToDate := testFleet(5, "v0.2.0")
+	for i := range upToDate {
+		upToDate[i].Digest = goodArtifact().Digest
+	}
+	if _, err := PlanRolloutAt(upToDate, goodArtifact(), lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{}); err == nil {
 		t.Fatal("planning over an up-to-date fleet must refuse")
 	}
 }
@@ -210,7 +221,7 @@ func TestRolloutHaltsOnStragglerAfterWindow(t *testing.T) {
 	}
 	// Past the window: HALT, loudly, naming the straggler.
 	late := t0.Add(p.VerifyWindow + time.Minute)
-	if _, err := p.Verify(fleet, late); err == nil || !p.Halted {
+	if _, err := p.Verify(fleet, late); !errors.Is(err, ErrRolloutVerificationHalted) || !p.Halted {
 		t.Fatalf("straggler past the window must halt, err=%v halted=%v", err, p.Halted)
 	}
 	if !strings.Contains(p.HaltReason, w.AgentIDs[0]) || !strings.Contains(p.HaltReason, "still on v0.1.0") {
@@ -273,6 +284,25 @@ func TestRolloutResumeIsExplicitAndRecovers(t *testing.T) {
 	}
 }
 
+func TestRolloutVerifyRequiresHeartbeatAfterWaveRelease(t *testing.T) {
+	fleet := testFleet(1, "v0.1.0")
+	plan := mustPlan(t, fleet)
+	wave, err := plan.Advance(t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := t0.Add(time.Minute)
+	for _, heartbeat := range []time.Time{t0.Add(-time.Second), t0, now.Add(time.Second)} {
+		observed := upgraded(fleet, wave, goodArtifact().Version, heartbeat)
+		if complete, err := plan.Verify(observed, now); err != nil || complete || len(plan.Stragglers) != 1 {
+			t.Fatal("a heartbeat outside the current verification interval completed the wave", heartbeat, complete, err)
+		}
+	}
+	if complete, err := plan.Verify(upgraded(fleet, wave, goodArtifact().Version, now), now); err != nil || !complete {
+		t.Fatal("current heartbeat with the exact artifact did not complete the wave", complete, err)
+	}
+}
+
 // TestPlanRolloutAtSkipsAgentsOfflineBeforeTheRollout (DPR-099): on the lab
 // every registered-but-dead probe and the never-connected router landed in a
 // wave they could never verify, so the wave would halt on them. Agents whose
@@ -285,19 +315,20 @@ func TestPlanRolloutAtSkipsAgentsOfflineBeforeTheRollout(t *testing.T) {
 		{ID: "live-2", Version: "v0.1.0", LastSeen: now.Add(-2 * time.Minute)},
 		{ID: "dead-1", Version: "v0.1.0", LastSeen: now.Add(-3 * time.Hour)},
 		{ID: "never", Version: ""},
-		{ID: "done", Version: "v0.2.0", LastSeen: now.Add(-40 * time.Hour)},
+		{ID: "done", Version: "v0.2.0", Digest: goodArtifact().Digest, LastSeen: now.Add(-40 * time.Hour)},
+		{ID: "unconfirmed", Version: "v0.2.0", LastSeen: now.Add(-40 * time.Hour)},
 	}
 	p, err := PlanRolloutAt(fleet, goodArtifact(), lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := p.SkippedOffline; len(got) != 2 || got[0] != "dead-1" || got[1] != "never" {
+	if got := p.SkippedOffline; len(got) != 3 || got[0] != "dead-1" || got[1] != "never" || got[2] != "unconfirmed" {
 		t.Fatalf("offline and never-connected agents must be skipped and listed, got %v", got)
 	}
 	planned := 0
 	for _, w := range p.Waves {
 		for _, id := range w.AgentIDs {
-			if id == "dead-1" || id == "never" || id == "done" {
+			if id == "dead-1" || id == "never" || id == "done" || id == "unconfirmed" {
 				t.Fatalf("%s must not be in a wave", id)
 			}
 			planned++

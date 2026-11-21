@@ -156,6 +156,9 @@ record's method when planning. The operator performs the signature check.
 Snapshot the fleet from the registry (`GET /v1/agents`) and plan. Waves render
 like `canary[3]=pending early[11]=pending main[46]=pending`. The wave
 membership — the exact agent ids in each wave — is the orchestrator's worklist.
+Planning excludes a current agent once the registry has both the target
+version and its exact deployed digest. A same-version rebuild with a different
+digest remains eligible for the rollout.
 Agents whose last heartbeat is older than the heartbeat SLO at planning time —
 offline before the rollout, or never connected — are left out of the waves and
 listed under `skipped_offline` (they take the target on the next rollout once
@@ -210,14 +213,14 @@ probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
 ### 3. Verify from the registry — the agents are the evidence
 
 Every wave member needs the **target version**, the **exact deployed digest**
-and a **fresh heartbeat** from the agent (seen within the last 5 m). All three
-are required for confirmation. The registry currently lacks the agent's
+and a **fresh heartbeat** from the agent after wave release, seen within the
+last 5 m. All three are required for confirmation. The registry currently lacks the agent's
 reported digest, so a live wave stays unverified even after version and
 liveness converge. A digest mismatch or an unreported digest appears in the
 straggler list. An unverified wave halts when its verification window expires.
 
-The `probectl_agents` Ansible role follows the same rule. Its local
-`systemctl is-active` check is only a liveness precheck; by default the role also
+The `probectl_agents` Ansible role checks liveness and version after install.
+Its local `systemctl is-active` check verifies service liveness. The role also
 queries `GET /v1/agents/{id}` and waits until the tenant-scoped registry row has
 the expected `agent_version`, `online` status, and a `last_seen_at` newer than
 the start of the role run. Provide `probectl_control_api_url`,
@@ -241,8 +244,9 @@ orchestrator's remaining worklist is explicit rather than inferred from a count.
 Once the verify window expires, **any** straggler — still on the old version,
 reporting nothing, or vanished from the registry entirely ("upgraded, then went
 dark") — **halts the whole rollout** and names the offending agents. A halted
-rollout exposes no current wave, refuses both Advance and Verify, and never
-resumes on its own.
+rollout requires an explicit Resume before it can advance or verify again.
+When Verify reports the timeout, the controller has recorded the halt and its
+audit event. `GET /v1/rollouts/{id}` returns that saved state.
 
 ```sh
 probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \

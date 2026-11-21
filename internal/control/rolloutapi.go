@@ -9,6 +9,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -351,6 +352,7 @@ func (s *Server) rolloutAction(w http.ResponseWriter, r *http.Request, action st
 		return nil
 	}
 	var view *agent.RolloutPlan
+	var verificationError error
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		rec, err := (store.Rollouts{}).Get(ctx, sc, id)
 		if err != nil {
@@ -361,7 +363,7 @@ func (s *Server) rolloutAction(w http.ResponseWriter, r *http.Request, action st
 			return err
 		}
 		meta, serr := step(ctx, sc, p)
-		if serr != nil {
+		if serr != nil && !errors.Is(serr, agent.ErrRolloutVerificationHalted) {
 			return rolloutStepErr(serr)
 		}
 		raw, err := encodeRolloutPlan(p)
@@ -377,15 +379,23 @@ func (s *Server) rolloutAction(w http.ResponseWriter, r *http.Request, action st
 		if meta == nil {
 			meta = map[string]any{}
 		}
+		if serr != nil {
+			meta["outcome"] = "failure"
+		}
 		if err := s.recordAudit(ctx, sc, r, action, id, meta); err != nil {
 			return err
 		}
 		view = p
+		verificationError = serr
 		return nil
 	}); err != nil {
 		return err
 	}
 	s.rolloutMgr().remember(tid, id, view)
+	// A timed-out verification commits the halt and audit event before replying.
+	if verificationError != nil {
+		return rolloutStepErr(verificationError)
+	}
 	writeJSON(w, http.StatusOK, rolloutView(id, view))
 	return nil
 }

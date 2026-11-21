@@ -17323,6 +17323,7 @@
         "x-required-permission": "agent.write",
         "operationId": "verifyRollout",
         "summary": "Verify the applying rollout wave from the live agent registry",
+        "description": "Require the target version, exact deployed digest and a fresh heartbeat after wave release. A timeout with unresolved agents records the halted wave and its audit event before returning an error.",
         "tags": [
           "rollouts"
         ],

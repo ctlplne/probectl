@@ -32,6 +32,7 @@ package agent
 // (RTO-24; docs/guardrails.md G7-8).
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -146,8 +147,8 @@ type RolloutPlan struct {
 	// the next rollout once they are back.
 	SkippedOffline []string `json:"skipped_offline,omitempty"`
 	// Stragglers is the last verification's list of agents in the applying
-	// wave that have not yet reported the target version with a fresh
-	// heartbeat (DPR-099) — the operator's worklist while the window runs.
+	// wave awaiting the target artifact and a fresh heartbeat after release
+	// (DPR-099). This is the operator's worklist while the window runs.
 	Stragglers []string `json:"stragglers,omitempty"`
 }
 
@@ -156,11 +157,14 @@ const (
 	defaultHeartbeatSLO = 5 * time.Minute
 )
 
+// ErrRolloutVerificationHalted marks a failed verification that changed the plan to halted.
+var ErrRolloutVerificationHalted = errors.New("agent: ROLLOUT HALTED")
+
 // PlanRolloutAt partitions the live fleet into deterministic waves (the
 // lifecycle cohorts: canary → early → main) for target. It fails closed on an
 // unattested artifact, on a target that violates the version-skew policy
-// against the control plane, and on an empty fleet; agents already running the
-// target are excluded because there is nothing to apply to them.
+// against the control plane, and on an empty fleet. Agents reporting the
+// target version and exact digest are already on the target artifact.
 //
 // Planning happens as of now (DPR-099): an agent whose last heartbeat is older
 // than the heartbeat SLO — offline before the rollout started, or never
@@ -171,40 +175,31 @@ func PlanRolloutAt(fleet []FleetAgent, target VerifiedArtifact, split lifecycle.
 	if err := target.validate(); err != nil {
 		return nil, err
 	}
-	var skipped []string
-	if !now.IsZero() {
-		live := fleet[:0:0]
-		for _, a := range fleet {
-			if a.LastSeen.IsZero() || now.Sub(a.LastSeen) > defaultHeartbeatSLO {
-				if a.ID != "" && a.Version != target.Version {
-					skipped = append(skipped, a.ID)
-				}
-				continue
-			}
-			live = append(live, a)
-		}
-		fleet = live
-		sort.Strings(skipped)
-	}
 	if ok, reason := pol.Check(controlVersion, target.Version); !ok {
 		return nil, fmt.Errorf("agent: rollout target %s would break the version-skew gate: %s", target.Version, reason)
 	}
 
 	byCohort := map[lifecycle.Cohort][]string{}
+	var skipped []string
 	pending := 0
 	for _, a := range fleet {
-		if a.ID == "" || a.Version == target.Version {
+		if a.ID == "" || a.Version == target.Version && a.Digest == target.Digest {
+			continue
+		}
+		if !now.IsZero() && (a.LastSeen.IsZero() || now.Sub(a.LastSeen) > defaultHeartbeatSLO) {
+			skipped = append(skipped, a.ID)
 			continue
 		}
 		c := lifecycle.CohortOf(a.ID, split)
 		byCohort[c] = append(byCohort[c], a.ID)
 		pending++
 	}
+	sort.Strings(skipped)
 	if pending == 0 {
 		if len(skipped) > 0 {
-			return nil, fmt.Errorf("agent: nothing to roll out — the %d agent(s) below %s were all offline at planning time (%s)", len(skipped), target.Version, strings.Join(skipped, ", "))
+			return nil, fmt.Errorf("agent: nothing to roll out — the %d agent(s) requiring the target artifact for %s were all offline at planning time (%s)", len(skipped), target.Version, strings.Join(skipped, ", "))
 		}
-		return nil, fmt.Errorf("agent: nothing to roll out — no live agents below %s", target.Version)
+		return nil, fmt.Errorf("agent: nothing to roll out — no live agents require the target artifact for %s", target.Version)
 	}
 
 	p := &RolloutPlan{Target: target, VerifyWindow: defaultVerifyWindow, HeartbeatSLO: defaultHeartbeatSLO, SkippedOffline: skipped}
@@ -265,7 +260,7 @@ func (p *RolloutPlan) Advance(now time.Time) (*Wave, error) {
 
 // Verify checks the applying wave against a fresh registry snapshot: every
 // member must report the exact DEPLOYED DIGEST (not just the target version)
-// with a heartbeat within HeartbeatSLO. All good → the wave completes.
+// with a heartbeat after wave release and within HeartbeatSLO.
 // Stragglers inside VerifyWindow → still converging (no state change).
 // Stragglers after VerifyWindow — wrong version, wrong/absent artifact digest,
 // gone dark, or missing from the registry — HALT the whole rollout.
@@ -304,6 +299,10 @@ func (p *RolloutPlan) Verify(fleet []FleetAgent, now time.Time) (complete bool, 
 			stragglers = append(stragglers, fmt.Sprintf("%s (%s)", id, digestStragglerReason(a.Digest, p.Target.Digest)))
 		case now.Sub(a.LastSeen) > p.HeartbeatSLO:
 			stragglers = append(stragglers, fmt.Sprintf("%s (no heartbeat for %s — dark after upgrade?)", id, now.Sub(a.LastSeen).Round(time.Second)))
+		case a.LastSeen.After(now):
+			stragglers = append(stragglers, id+" (heartbeat is ahead of the verification clock)")
+		case w.AppliedAt.IsZero() || !a.LastSeen.After(w.AppliedAt):
+			stragglers = append(stragglers, id+" (awaiting a heartbeat after wave release)")
 		}
 	}
 	p.Stragglers = stragglers
@@ -316,7 +315,7 @@ func (p *RolloutPlan) Verify(fleet []FleetAgent, now time.Time) (complete bool, 
 		p.Halted = true
 		p.HaltReason = fmt.Sprintf("wave %q failed verification after %s: %s",
 			w.Cohort, p.VerifyWindow, strings.Join(stragglers, "; "))
-		return false, fmt.Errorf("agent: ROLLOUT HALTED — %s", p.HaltReason)
+		return false, fmt.Errorf("%w — %s", ErrRolloutVerificationHalted, p.HaltReason)
 	}
 	return false, nil // inside the window: keep converging, verify again
 }
