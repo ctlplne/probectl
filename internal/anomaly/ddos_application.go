@@ -136,7 +136,7 @@ func compareApplicationTraffic(parser *decimalSeasonalTraining, requests [2]int,
 	residualAfter := new(big.Rat).Sub(after, appAfter)
 	return applicationTrafficComparison{
 		explained: comparableDDoSDemand(appBefore, appAfter, requests[0], requests[1]) &&
-			comparableDDoSDemand(before, after, requests[0], requests[1]),
+			(residualAfter.Cmp(residualBefore) <= 0 || comparableDDoSDemand(before, after, requests[0], requests[1])),
 		listenerPressure: exceedsDDoSVolume(appAfter, appBefore, floor, growth),
 		residualPressure: exceedsDDoSVolume(residualAfter, residualBefore, floor, growth),
 	}, nil

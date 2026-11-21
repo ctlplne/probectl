@@ -36,6 +36,142 @@ func TestFastDDoSKeepsChangedTraceSamplingSeparateFromListenerPressure(t *testin
 	verifyDDoSApplicationAttribution(t, true)
 }
 
+func TestFastDDoSSeparatesStableNetworkBackgroundFromGrowingVector(t *testing.T) {
+	for _, vector := range []anomaly.DDoSClass{anomaly.DDoSSYN, anomaly.DDoSReflection} {
+		t.Run(string(vector), func(t *testing.T) {
+			verifyDDoSNetworkBackground(t, vector)
+		})
+	}
+}
+
+func verifyDDoSNetworkBackground(t *testing.T, vector anomaly.DDoSClass) {
+	t.Helper()
+	f := newRoleExplanationAPIFixture(t)
+	rows := seasonalFlowFixtureStore(t, f, true)
+	traces := fastDDoSApplicationFixtureStore(t, f.tenants)
+	views := flow.NewPostgresQueryViewStore(f.pool, 0, audit.TenantRecord)
+	gate := fairness.NewGate(fairness.DefaultPolicy(), nil)
+	f.server.WithTSDB(tsdb.NewMemory()).WithFlowStore(rows).WithFlowQueryViews(views).WithFairness(gate).WithOTelStore(traces)
+	server := httptest.NewTLSServer(f.server.Handler())
+	t.Cleanup(server.Close)
+
+	end := time.Now().UTC().Add(-30 * time.Second).Truncate(5 * time.Second)
+	clocks, err := ddosClocks(end, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var positiveReceipt string
+	for lane, tenant := range f.tenants {
+		grantSeasonalFlowFixture(f, tenant)
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		definition := fieldComparisonViewDefinition("Protected host with steady network background")
+		definition.Time.LookbackSeconds = 60
+		definition.Plan.Filter = &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{
+			{Field: "exporter", Op: flow.QueryEqual, Values: []string{"203.0.113.15"}},
+		}}
+		view, err := views.SaveQueryView(ctx, tenant, f.users[tenant], flow.SaveQueryView{Definition: definition})
+		if err != nil {
+			t.Fatal(err)
+		}
+		input := flow.DDoSAssessmentInput{Version: view.Version, Prefix: "192.0.2.1/32", Direction: "ingress", PeriodSeconds: 5,
+			BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000, VectorShareBasisPoints: 6000,
+			MinObservedRecords: 2, MinObservedAddresses: 2,
+			Application: &flow.DDoSApplicationBinding{Service: "synthetic-public-site", Port: 443}}
+		sourceInput := alert.QuerySourceInput{ViewID: view.ID, ViewVersion: view.Version,
+			Condition: alert.QueryCondition{Mode: alert.DDoSCondition, DDoS: &input}}
+		body := callSeasonalAPI(t, server, f.tokens[tenant], http.MethodPost, "/v1/alerts",
+			map[string]any{"name": "Protected service with shared-host traffic", "query_source": sourceInput}, http.StatusCreated)
+		var rule alert.Rule
+		if err := json.Unmarshal(body, &rule); err != nil || rule.ID == "" {
+			t.Fatal("could not configure the protected host", err)
+		}
+		seedDDoSNetworkBackground(t, rows, traces, tenant, clocks, vector, lane == 0)
+		source, due, err := f.server.loadAlertQueryRule(ctx, rule, 1<<20)
+		if err != nil || !due || source == nil {
+			t.Fatal("could not load the due rule", err)
+		}
+		actor, err := source.Source.CredentialCeiling(tenant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		release, err := gate.BeginQuery(ctx, tenant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := f.server.readAlertDDoSRule(ctx, rule, *source, actor, flowstore.ExplorerQueryBudget(rows),
+			AlertTagDependencies{IncidentWindow: time.Minute}, end.Add(time.Second))
+		release()
+		if err != nil || got.QuerySelection == nil || !got.QuerySelection.Complete {
+			t.Fatal("both lanes must have complete evaluated windows", err)
+		}
+		for _, item := range getSeasonalFlowReceipts(t, server, f.tokens[tenant], rule.ID).Items {
+			if item.Reason != "Sustained flow traffic pressure" {
+				continue
+			}
+			if lane != 0 || positiveReceipt != "" {
+				t.Fatalf("opened an episode on steady vector background or duplicated the growing vector: lane %d", lane)
+			}
+			positiveReceipt = "/v1/alerts/rules/" + rule.ID + "/ddos-receipt?fingerprint=" + item.Fingerprint
+		}
+		if lane == 0 && (len(got.Samples) != 1 || positiveReceipt == "") {
+			t.Fatal("the growing vector lost its episode")
+		}
+		if lane == 1 && len(got.Samples) != 0 {
+			t.Fatal("healthy growth with a flat network vector was not explained")
+		}
+	}
+	var proof alert.DDoSEvaluationEvidence
+	body := callSeasonalAPI(t, server, f.tokens[f.tenants[0]], http.MethodGet, positiveReceipt, nil, http.StatusOK)
+	if err := json.Unmarshal(body, &proof); err != nil || proof.Current.Detection == nil ||
+		proof.Current.Detection.Class != vector || proof.Current.Detection.ContributingPackets != "2300" ||
+		proof.Current.Before.Packets != "2500" || proof.Current.After.Packets != "3100" {
+		t.Fatal("receipt lost the tenant's original vector and host counters", err)
+	}
+	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, positiveReceipt, nil, http.StatusNotFound)
+}
+
+func seedDDoSNetworkBackground(t *testing.T, rows flowstore.Store, traces otelstore.Store, tenant string,
+	clocks ddosEpisodeClocks, vector anomaly.DDoSClass, growing bool) {
+	t.Helper()
+	var flows []flowstore.Row
+	var spans []otelstore.Span
+	for _, pair := range []anomaly.FlowFieldComparisonClocks{clocks.Previous, clocks.Current} {
+		for index, window := range []anomaly.TrainingWindow{pair.Before, pair.After} {
+			listener := delayFixtureFlow(tenant, window.Start.Add(2*time.Second), false)
+			background := listener
+			background.SrcPort, background.DstPort, background.TCPFlags = 42002, 8443, 2
+			if vector == anomaly.DDoSReflection {
+				background.Transport, background.SrcPort, background.TCPFlags = "udp", 53, 0
+			}
+			listenerBytes, listenerPackets := uint64(70000), uint64(600)
+			backgroundBytes, backgroundPackets := uint64(120000), uint64(1900)
+			requests := 30
+			if index == 1 {
+				requests = 60
+				listenerBytes, listenerPackets = 140000, 1200
+				if growing {
+					listenerBytes, listenerPackets = 100000, 800
+					backgroundBytes, backgroundPackets = 160000, 2300
+				}
+			}
+			listener.Bytes, listener.BytesScaled, listener.Packets, listener.PacketsScaled = listenerBytes, listenerBytes, listenerPackets, listenerPackets
+			background.Bytes, background.BytesScaled, background.Packets, background.PacketsScaled = backgroundBytes, backgroundBytes, backgroundPackets, backgroundPackets
+			flows = append(flows, listener, background)
+			for i, span := range benchmarkDDoSAppSpans(benchmarkDDoSApplication{Requests: requests, LatencyMS: 25}, window.Start) {
+				span.TenantID = tenant
+				span.TraceID = fmt.Sprintf("%016x%016x", window.Start.UnixNano(), i+1)
+				spans = append(spans, span)
+			}
+		}
+	}
+	if err := rows.Insert(t.Context(), flows); err != nil {
+		t.Fatal(err)
+	}
+	if err := traces.WriteSpans(t.Context(), spans); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func verifyDDoSApplicationAttribution(t *testing.T, samplingHoldout bool) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)

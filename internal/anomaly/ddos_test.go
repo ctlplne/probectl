@@ -96,6 +96,31 @@ func TestDDoSCannotBorrowForeignOrIncompleteEvidence(t *testing.T) {
 	}
 }
 
+func TestDDoSReflectionComparesEachServiceToItsOwnReference(t *testing.T) {
+	const owner = "25ebf92b-c387-451d-9e67-0b323c402a58"
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(owner))
+	start := time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC)
+	before := DDoSObservation{TenantID: owner, Scope: "owned host", Target: netip.MustParsePrefix("192.0.2.1/32"), Direction: "ingress",
+		From: start, To: start.Add(5 * time.Second), Citation: "reference", Complete: true,
+		Bytes: "200000", Packets: "2500", SYNOnlyPackets: "0", UDPPackets: "2200", ObservedRecords: 100, ObservedAddresses: 1,
+		Reflection: []ReflectionObservation{{Service: "dns", Packets: "1800"}, {Service: "ntp", Packets: "400"}}}
+	after := before
+	after.From, after.To, after.Citation = before.From.AddDate(0, 0, 7), before.To.AddDate(0, 0, 7), "current"
+	after.Bytes, after.Packets, after.UDPPackets = "310000", "3200", "3000"
+	after.Reflection = []ReflectionObservation{{Service: "dns", Packets: "1800"}, {Service: "ntp", Packets: "1200"}}
+	limits := DDoSThresholds{BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
+		VectorShareBasisPoints: 3500, MinObservedRecords: 50, MinObservedAddresses: 2}
+	finding, err := EvaluateDDoS(ctx, before, after, limits, 1<<20)
+	if err != nil || finding == nil || finding.Class != DDoSReflection || finding.Service != "ntp" || finding.ContributingPackets != "1200" {
+		t.Fatalf("the growing vector must win over larger steady background, got %+v, %v", finding, err)
+	}
+	limits.VectorShareBasisPoints = 4000
+	finding, err = EvaluateDDoS(ctx, before, after, limits, 1<<20)
+	if err != nil || finding == nil || finding.Class != DDoSVolumetric {
+		t.Fatalf("a growing below-share vector cannot corroborate pressure, got %+v, %v", finding, err)
+	}
+}
+
 func TestDDoSApplicationQualifiesDegradationWithAHealthyReference(t *testing.T) {
 	const owner = "25ebf92b-c387-451d-9e67-0b323c402a58"
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(owner))

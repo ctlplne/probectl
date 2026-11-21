@@ -31,8 +31,9 @@ behind a proxy or NAT need telemetry from the listener at the same network
 boundary as the selected flow view. `server.address` and `server.port` can
 describe the HTTP authority supplied in request headers. A bounded observation
 needs at least 20 completed requests per window. The current successful-request
-growth must explain both byte and packet growth within 25% on the selected TCP port
-and across the protected host. Suppression also requires at most 1%
+growth must explain both byte and packet growth within 25% on the selected TCP
+port. If traffic elsewhere on the host increased, the same comparison applies
+to that host-wide counter. Suppression also requires at most 1%
 unsuccessful requests and a p95 duration no more than 1.5 times the
 reference. Degraded HTTP responses corroborate pressure only when traffic
 on the selected listener independently meets the configured volume and
@@ -40,10 +41,10 @@ growth thresholds. Traffic outside the listener can qualify on its own
 volume and growth. When neither component reaches those thresholds,
 degraded responses leave the host-wide increase ambiguous. Missing,
 full-page or ambiguous application observations leave the bound generic
-pressure unevaluated for episode admission. Explicit network pressure
-continues through its own flow
-evidence. HTTP requests are assigned by their start time and can count after
-completion even when they cross a window boundary.
+pressure unevaluated for episode admission. A SYN or UDP service vector must
+meet the configured share of current packets and the growth threshold against
+its own historical packet count. HTTP requests are assigned by their start
+time and can count after completion even when they cross a window boundary.
 [OpenTelemetry HTTP span conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/#http-server-span)
 
 For sampled tracing, use locally rooted HTTP server spans with consistent

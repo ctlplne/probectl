@@ -33,10 +33,14 @@ crowd and volume-pressure fixture share identical flow rows. For an explicitly
 bound ingress host, the application plane determines whether independently
 observed successful requests explain both byte and packet growth on the
 configured TCP port and across the protected host. Pressure on other ports
-can open an episode even during healthy growth on the bound service. Healthy
-response outcomes and comparable latency are required for suppression. Missing or ambiguous
-bound evidence leaves generic pressure unevaluated for alarm admission. A
-strong network vector can still qualify using its own flow evidence.
+can open an episode even during healthy growth on the bound service. If the
+traffic outside that TCP listener stays flat or falls, the listener comparison
+can explain growth across the host. Healthy response outcomes and comparable
+latency are required for suppression. Missing or ambiguous bound evidence
+leaves generic pressure unevaluated for alarm admission. A SYN or UDP
+service association can qualify on its own flow evidence when its packet count
+grows against the same historical vector and meets the configured share of
+current packets.
 
 Scheduled and preview assessments use a bounded projection of stored HTTP
 server observations. The read applies the tenant, service, local TCP socket
@@ -87,6 +91,17 @@ separate-port pressure families still produced episodes.
 Version one used 13 trials and two completed 60-second windows. A benign
 flash crowd opened a tentative volume episode on identical aggregates. Its
 source and results remain reproducible at the original commit. [Version-one benchmark and results](https://github.com/ctlplne/probectl/blob/d79fc7993d09b3ce1d4e8242b7b5c869100d2537/docs/ddos-detection-benchmark.md)
+
+## Stable network background holdout
+
+Two paired replays compare healthy HTTP growth on a shared host with equal
+host-wide traffic in both tenants. Total packets rise from 2,500 to 3,100.
+In one lane the dominant network vector stays at 1,900 packets and the
+bound listener accounts for the increase. In the other lane that vector
+grows to 2,300 packets and opens one episode with its original counters.
+Both SYN flags and a UDP service association are exercised. The previous
+detector opened an episode in both benign lanes. These trials run through
+the saved-rule and receipt paths and are separate from the 416. [Paired datastore fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
 
 ## Shared host and unrelated application outage holdout
 

@@ -165,13 +165,15 @@ func EvaluateDDoS(ctx context.Context, reference, current DDoSObservation, limit
 		CurrentCitation: current.Citation, ReferenceCitation: reference.Citation,
 		ObservedRecords: current.ObservedRecords, ObservedAddresses: current.ObservedAddresses,
 	}
+	reflectionService, reflectionPackets := growingDDoSReflection(earlier, latest, limits)
 	switch {
-	case hasDDoSShare(latest.syn, latest.packets, limits.VectorShareBasisPoints):
+	case hasDDoSShare(latest.syn, latest.packets, limits.VectorShareBasisPoints) &&
+		growsDDoSVolume(latest.syn, earlier.syn, limits.GrowthBasisPoints):
 		result.Class, result.EvidenceBasis, result.Confidence = DDoSSYN, "observed_tcp_flag_share", "corroborated"
 		result.ContributingPackets = latest.syn.Num().String()
-	case hasDDoSShare(latest.reflected, latest.packets, limits.VectorShareBasisPoints):
-		result.Class, result.Service, result.EvidenceBasis = DDoSReflection, latest.service, "observed_udp_service_port_share"
-		result.ContributingPackets = latest.reflected.Num().String()
+	case reflectionService != "":
+		result.Class, result.Service, result.EvidenceBasis = DDoSReflection, reflectionService, "observed_udp_service_port_share"
+		result.ContributingPackets = reflectionPackets.Num().String()
 	case current.Direction == "ingress" && current.Target.Bits() < current.Target.Addr().BitLen() &&
 		current.ObservedAddresses >= limits.MinObservedAddresses && current.ObservedAddresses > reference.ObservedAddresses:
 		result.Class, result.EvidenceBasis, result.Confidence = DDoSPrefixSpread, "observed_destination_spread", "corroborated"
@@ -195,12 +197,12 @@ func checkDDoSWindows(ctx context.Context, reference, current DDoSObservation) e
 }
 
 type ddosCounts struct {
-	bytes, packets, syn, reflected *big.Rat
-	service                        string
+	bytes, packets, syn *big.Rat
+	reflected           map[string]*big.Rat
 }
 
 func parseDDoSCounts(parser *decimalSeasonalTraining, data DDoSObservation) (ddosCounts, error) {
-	result := ddosCounts{reflected: new(big.Rat)}
+	var result ddosCounts
 	var err error
 	if result.bytes, err = ddosCounter(parser, data.Bytes); err != nil {
 		return ddosCounts{}, err
@@ -218,7 +220,9 @@ func parseDDoSCounts(parser *decimalSeasonalTraining, data DDoSObservation) (ddo
 	if err != nil || new(big.Rat).Add(result.syn, udp).Cmp(result.packets) > 0 || len(data.Reflection) > 5 {
 		return ddosCounts{}, ErrDDoSCoverage
 	}
-	seen := make(map[string]bool, len(data.Reflection))
+	if len(data.Reflection) > 0 {
+		result.reflected = make(map[string]*big.Rat, len(data.Reflection))
+	}
 	total := new(big.Rat)
 	for _, observation := range data.Reflection {
 		switch observation.Service {
@@ -226,23 +230,39 @@ func parseDDoSCounts(parser *decimalSeasonalTraining, data DDoSObservation) (ddo
 		default:
 			return ddosCounts{}, ErrDDoSCoverage
 		}
-		if seen[observation.Service] {
+		if result.reflected[observation.Service] != nil {
 			return ddosCounts{}, ErrDDoSCoverage
 		}
-		seen[observation.Service] = true
 		value, err := ddosCounter(parser, observation.Packets)
 		if err != nil {
 			return ddosCounts{}, err
 		}
 		total.Add(total, value)
-		if comparison := value.Cmp(result.reflected); comparison > 0 || (comparison == 0 && observation.Service < result.service) {
-			result.reflected, result.service = value, observation.Service
-		}
+		result.reflected[observation.Service] = value
 	}
 	if total.Cmp(udp) > 0 {
 		return ddosCounts{}, ErrDDoSCoverage
 	}
 	return result, nil
+}
+
+// A large share of current packets can be ordinary background. Compare each
+// service against the same service in the original reference window.
+func growingDDoSReflection(earlier, latest ddosCounts, limits DDoSThresholds) (string, *big.Rat) {
+	var strongest *big.Rat
+	var service string
+	for name, packets := range latest.reflected {
+		if !hasDDoSShare(packets, latest.packets, limits.VectorShareBasisPoints) {
+			continue
+		}
+		if before := earlier.reflected[name]; before != nil && !growsDDoSVolume(packets, before, limits.GrowthBasisPoints) {
+			continue
+		}
+		if strongest == nil || packets.Cmp(strongest) > 0 || (packets.Cmp(strongest) == 0 && name < service) {
+			service, strongest = name, packets
+		}
+	}
+	return service, strongest
 }
 
 func ddosCounter(parser *decimalSeasonalTraining, text string) (*big.Rat, error) {
@@ -257,7 +277,11 @@ func ddosCounter(parser *decimalSeasonalTraining, text string) (*big.Rat, error)
 }
 
 func exceedsDDoSVolume(now, before, floor *big.Rat, growth int) bool {
-	return now.Cmp(floor) >= 0 && now.Cmp(before) > 0 &&
+	return now.Cmp(floor) >= 0 && growsDDoSVolume(now, before, growth)
+}
+
+func growsDDoSVolume(now, before *big.Rat, growth int) bool {
+	return now.Cmp(before) > 0 &&
 		hasDDoSShare(new(big.Rat).Sub(now, before), before, growth)
 }
 
