@@ -67,16 +67,17 @@ func TestDDoSAssessmentUsesOnlyOriginalScopedTenantTraffic(t *testing.T) {
 	}
 	input := flow.DDoSAssessmentInput{Version: views[0].Version, Prefix: "192.0.2.0/24", Direction: "ingress",
 		PeriodSeconds: 300, BytesFloor: "10000000000000000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
-		VectorShareBasisPoints: 6000, MinObservedRecords: 1, MinObservedAddresses: 2}
+		VectorShareBasisPoints: 6000, MinObservedRecords: 1, MinObservedAddresses: 2,
+		RequiredExporters: []string{"203.0.113.15"}}
 	endpoint := func(view flow.SavedQueryView) string {
 		return "/v1/explorer/flow-views/" + view.ID + "/ddos-assessment"
 	}
 	owned, sibling := f.tenants[0], f.tenants[1]
 	raw := callSeasonalAPI(t, socket, f.tokens[owned], http.MethodPost, endpoint(views[0]), input, http.StatusOK)
-	assertDDoSAssessment(t, raw, views[0].ID, windows)
+	assertConfirmedDDoSExporters(t, assertDDoSAssessment(t, raw, views[0].ID, windows))
 	raw = callSeasonalAPI(t, socket, f.tokens[sibling], http.MethodPost, endpoint(views[1]), input, http.StatusOK)
 	var stable flow.DDoSAssessment
-	if err := json.Unmarshal(raw, &stable); err != nil || stable.Detection != nil || stable.After.Packets != "1000" {
+	if err := json.Unmarshal(raw, &stable); err != nil || stable.Detection != nil || stable.After.Packets != "1000" || stable.After.ObservedExporters != 1 {
 		t.Fatal("quiet evidence inherited another tenant's traffic", err)
 	}
 	callSeasonalAPI(t, socket, f.tokens[owned], http.MethodPost, endpoint(views[1]), input, http.StatusNotFound)
@@ -84,6 +85,13 @@ func TestDDoSAssessmentUsesOnlyOriginalScopedTenantTraffic(t *testing.T) {
 	absent := input
 	absent.Prefix = "198.51.100.0/24"
 	callSeasonalAPI(t, socket, f.tokens[owned], http.MethodPost, endpoint(views[0]), absent, http.StatusConflict)
+	outside := input
+	outside.RequiredExporters = []string{"203.0.113.15", "203.0.113.16"}
+	refused := callSeasonalAPI(t, socket, f.tokens[owned], http.MethodPost, endpoint(views[0]), outside, http.StatusConflict)
+	if !bytes.Contains(refused, []byte("a configured exporter has no stored observation in a required window")) ||
+		bytes.Contains(refused, []byte(ddosFixtureAmount)) {
+		t.Fatal("the exporter requirement did not preserve the saved filter and refuse incomplete scope", string(refused))
+	}
 	assertDDoSAssessmentClients(t, f, socket, views[0], input, windows)
 	verifyDDoSAssessmentCurrentGrants(t, f, socket, queries, gate, views[0], input, endpoint(views[0]))
 }
@@ -160,7 +168,7 @@ func seedDDoSAssessmentRows(t *testing.T, rows flowstore.Store, tenant string, w
 	}
 }
 
-func assertDDoSAssessment(t *testing.T, raw []byte, viewID string, windows anomaly.FlowFieldComparisonClocks) {
+func assertDDoSAssessment(t *testing.T, raw []byte, viewID string, windows anomaly.FlowFieldComparisonClocks) flow.DDoSAssessment {
 	t.Helper()
 	var got flow.DDoSAssessment
 	if err := json.Unmarshal(raw, &got); err != nil {
@@ -173,6 +181,14 @@ func assertDDoSAssessment(t *testing.T, raw []byte, viewID string, windows anoma
 		finding == nil || finding.Class != anomaly.DDoSSYN || finding.ContributingPackets != "4000" || finding.Confidence != "corroborated" ||
 		finding.CurrentCitation != got.After.Citation || finding.ReferenceCitation != got.Before.Citation {
 		t.Fatal("assessment lost its original scoped counter, vector or source clock", got.After, finding)
+	}
+	return got
+}
+
+func assertConfirmedDDoSExporters(t *testing.T, got flow.DDoSAssessment) {
+	t.Helper()
+	if got.Before.ObservedExporters != 1 || got.After.ObservedExporters != 1 {
+		t.Fatal("the exporter evidence did not survive the operator surface", got.Before, got.After)
 	}
 }
 
@@ -198,7 +214,7 @@ func assertDDoSAssessmentClients(t *testing.T, f *roleExplanationAPIFixture, soc
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertDDoSAssessment(t, raw, view.ID, windows)
+		assertConfirmedDDoSExporters(t, assertDDoSAssessment(t, raw, view.ID, windows))
 	}
 	assert(result)
 	ca := filepath.Join(t.TempDir(), "passive-assessment-ca.pem")
@@ -212,7 +228,7 @@ func assertDDoSAssessmentClients(t *testing.T, f *roleExplanationAPIFixture, soc
 	if code := cli.RunWithStdin([]string{"--json", "explorer", "ddos-assess", view.ID, "--body", string(payload)}, getenv, bytes.NewReader(nil), &stdout, &stderr); code != 0 {
 		t.Fatal("CLI traffic assessment failed", code, stderr.String())
 	}
-	assertDDoSAssessment(t, stdout.Bytes(), view.ID, windows)
+	assertConfirmedDDoSExporters(t, assertDDoSAssessment(t, stdout.Bytes(), view.ID, windows))
 	cfg := &config.Config{AIRedactIPs: true, AIRedactHostnames: true, AIRedactPII: true}
 	server := NewMCPServerWithPolicyLoader(cfg, f.server.log, f.pool, f.server.pathStore, 0, NewAIEgressGate(cfg, f.server.log, f.pool), nil, nil, f.server.MCPPolicyLoader(), AISources{NativeFlow: f.server})
 	authenticator := NewMCPAuthenticator(f.pool, NewTenantStatusCache(f.pool, 0), false)

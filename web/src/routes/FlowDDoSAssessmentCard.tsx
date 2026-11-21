@@ -73,6 +73,9 @@ function EvidenceWindow({ label, evidence }: { label: string; evidence: FlowDDoS
         {evidence.observed_records} observed records · {evidence.observed_addresses} protected
         addresses
       </dd>
+      {evidence.observed_exporters ? (
+        <dd>Required exporters observed · {evidence.observed_exporters}</dd>
+      ) : null}
       <dd>
         {evidence.sampled ? 'Sampling corrected' : 'Unsampled'} · {evidence.resolution_seconds}s
         resolution
@@ -148,6 +151,8 @@ export function DDoSAssessmentFields({
 }) {
   const update = (patch: Partial<FlowDDoSAssessmentInput>) => onChange({ ...input, ...patch })
   const application = input.application
+  const exporterValue = input.required_exporters?.join(', ') ?? ''
+  const [exporterDraft, setExporterDraft] = useState({ text: '', normalized: '' })
   return (
     <div className={styles.grid}>
       <Select
@@ -179,6 +184,21 @@ export function DDoSAssessmentFields({
         required
         maxLength={43}
         onChange={(event) => update({ prefix: event.target.value })}
+      />
+      <Field
+        label="Required exporter IPs"
+        hint="Optional. List up to eight comma-separated IPs. Each needs an original observation in every compared window."
+        value={exporterDraft.normalized === exporterValue ? exporterDraft.text : exporterValue}
+        maxLength={350}
+        onChange={(event) => {
+          const text = event.target.value
+          const exporters = text
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean)
+          setExporterDraft({ text, normalized: exporters.join(', ') })
+          update({ required_exporters: exporters.length ? exporters : undefined })
+        }}
       />
       <Select
         label="Observed direction"

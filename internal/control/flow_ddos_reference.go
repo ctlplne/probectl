@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
@@ -84,12 +85,13 @@ func pickCapturedDDoSReference(ctx context.Context, capture *reportFlowCapture, 
 			result.Result.RoleDigest != latest.Result.RoleDigest || result.Result.RoutingProof != latest.Result.RoutingProof {
 			return time.Time{}, anomaly.ErrDDoSCoverage
 		}
-		if i < len(observations)-windowCount && len(result.Result.Rows) == 0 {
+		observation, _, err := projectDDoSWindow(ctx, result, settings, scope, work/2/int64(len(observations)))
+		if i < len(observations)-windowCount &&
+			(len(result.Result.Rows) == 0 || errors.Is(err, errDDoSExporterCoverage)) {
 			observations[i] = anomaly.DDoSObservation{TenantID: capture.TenantID, Scope: scope, Target: settings.Target,
 				Direction: settings.Input.Direction, From: result.Result.Query.From, To: result.Result.Query.To}
 			continue
 		}
-		observation, _, err := projectDDoSWindow(ctx, result, settings, scope, work/2/int64(len(observations)))
 		if err != nil {
 			return time.Time{}, err
 		}

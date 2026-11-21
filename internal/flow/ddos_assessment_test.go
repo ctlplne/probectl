@@ -31,6 +31,16 @@ func TestDDoSAssessmentPinsCanonicalNetworkAndDecimalThresholds(t *testing.T) {
 		{"direction not selected", func(in *DDoSAssessmentInput) { in.Direction = "both" }, false},
 		{"window not supported", func(in *DDoSAssessmentInput) { in.PeriodSeconds = 30 }, false},
 		{"no packet floor", func(in *DDoSAssessmentInput) { in.PacketsFloor = "0" }, false},
+		{"dual stack exporters", func(in *DDoSAssessmentInput) {
+			in.RequiredExporters = []string{"2001:db8::2", "192.0.2.1"}
+		}, true},
+		{"noncanonical exporter", func(in *DDoSAssessmentInput) { in.RequiredExporters = []string{"2001:DB8::2"} }, false},
+		{"duplicate exporter", func(in *DDoSAssessmentInput) { in.RequiredExporters = []string{"192.0.2.1", "192.0.2.1"} }, false},
+		{"scoped exporter address", func(in *DDoSAssessmentInput) { in.RequiredExporters = []string{"fe80::1%eth0"} }, false},
+		{"unspecified exporter address", func(in *DDoSAssessmentInput) { in.RequiredExporters = []string{"0.0.0.0"} }, false},
+		{"too many exporters", func(in *DDoSAssessmentInput) {
+			in.RequiredExporters = []string{"192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4", "192.0.2.5", "192.0.2.6", "192.0.2.7", "192.0.2.8", "192.0.2.9"}
+		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in := base

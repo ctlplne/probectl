@@ -10,6 +10,7 @@ package control
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -26,6 +27,16 @@ import (
 )
 
 func TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth(t *testing.T) {
+	testDDoSEdgeScope(t, false, false)
+}
+
+func TestFastDDoSRequiresOriginalExporterCoverage(t *testing.T) {
+	t.Run("legacy_partial_reference", func(t *testing.T) { testDDoSEdgeScope(t, true, false) })
+	t.Run("required_original_exporters", func(t *testing.T) { testDDoSEdgeScope(t, true, true) })
+}
+
+func testDDoSEdgeScope(t *testing.T, partialReference, required bool) {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	rows := seasonalFlowFixtureStore(t, f, true)
 	views := flow.NewPostgresQueryViewStore(f.pool, 0, audit.TenantRecord)
@@ -43,9 +54,9 @@ func TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth(t *test
 	var receipt string
 	for lane, tenant := range f.tenants {
 		grantSeasonalFlowFixture(f, tenant)
-		seedDDoSEdgeRedistribution(t, rows, tenant, exporters, clocks, lane == 0)
+		seedDDoSEdgeRedistribution(t, rows, tenant, exporters, clocks, lane == 0, lane == 1 && partialReference)
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
-		run := func(selected []string) (alert.RuleMetricRead, []alert.EvaluationReceipt, string) {
+		run := func(selected []string) (alert.RuleMetricRead, []alert.EvaluationReceipt, string, error) {
 			t.Helper()
 			label := "Both authorized edges"
 			if len(selected) == 1 {
@@ -63,6 +74,9 @@ func TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth(t *test
 			input := flow.DDoSAssessmentInput{Version: view.Version, Prefix: "192.0.2.1/32", Direction: "ingress",
 				PeriodSeconds: period, BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
 				VectorShareBasisPoints: 6000, MinObservedRecords: len(selected), MinObservedAddresses: 2}
+			if required {
+				input.RequiredExporters = selected
+			}
 			sourceInput := alert.QuerySourceInput{ViewID: view.ID, ViewVersion: view.Version,
 				Condition: alert.QueryCondition{Mode: alert.DDoSCondition, DDoS: &input}}
 			body := callSeasonalAPI(t, server, f.tokens[tenant], http.MethodPost, "/v1/alerts",
@@ -86,12 +100,24 @@ func TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth(t *test
 			got, err := f.server.readAlertDDoSRule(ctx, rule, *source, actor, flowstore.ExplorerQueryBudget(rows),
 				AlertTagDependencies{IncidentWindow: time.Minute}, end.Add(time.Second))
 			release()
-			if err != nil || got.QuerySelection == nil || !got.QuerySelection.Complete {
-				t.Fatal("the exact selected observations must be complete", err)
-			}
-			return got, getSeasonalFlowReceipts(t, server, f.tokens[tenant], rule.ID).Items, rule.ID
+			return got, getSeasonalFlowReceipts(t, server, f.tokens[tenant], rule.ID).Items, rule.ID, err
 		}
-		evaluated, items, id := run(exporters[:])
+		evaluated, items, id, err := run(exporters[:])
+		if lane == 1 && partialReference && required {
+			if !errors.Is(err, errDDoSExporterCoverage) || evaluated.QuerySelection != nil || len(items) != 0 {
+				t.Fatal("a missing original exporter became a complete baseline or produced a receipt", err)
+			}
+			continue
+		}
+		if err != nil || evaluated.QuerySelection == nil || !evaluated.QuerySelection.Complete {
+			t.Fatal("the exact selected observations must be complete", err)
+		}
+		if lane == 1 && partialReference {
+			if len(evaluated.Samples) != 1 || len(items) != 1 {
+				t.Fatal("legacy comparison did not reproduce the apparent aggregate growth")
+			}
+			continue
+		}
 		for _, item := range items {
 			if item.Reason != "Sustained flow traffic pressure" {
 				continue
@@ -106,8 +132,8 @@ func TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth(t *test
 			t.Fatal("the aggregate detector did not separate the planted traffic populations")
 		}
 		if lane == 1 {
-			single, _, _ := run(exporters[:1])
-			if len(single.Samples) != 1 {
+			single, _, _, err := run(exporters[:1])
+			if err != nil || len(single.Samples) != 1 {
 				t.Fatal("the single-edge control did not observe the local surge")
 			}
 		}
@@ -116,13 +142,14 @@ func TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth(t *test
 	body := callSeasonalAPI(t, server, f.tokens[f.tenants[0]], http.MethodGet, receipt, nil, http.StatusOK)
 	if err := json.Unmarshal(body, &proof); err != nil || proof.Current.Detection == nil ||
 		proof.Current.Detection.Class != anomaly.DDoSReflection || proof.Current.Detection.Service != "dns" ||
-		proof.Current.Before.Packets != "3600" || proof.Current.After.Packets != "7200" {
+		proof.Current.Before.Packets != "3600" || proof.Current.After.Packets != "7200" ||
+		required && (proof.Current.Before.ObservedExporters != 2 || proof.Current.After.ObservedExporters != 2) {
 		t.Fatal("the assessed population lost the original aggregate clocks, vector or counters", err)
 	}
 	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, receipt, nil, http.StatusNotFound)
 }
 
-func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant string, exporters [2]string, clocks ddosEpisodeClocks, growth bool) {
+func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant string, exporters [2]string, clocks ddosEpisodeClocks, growth, missingReferenceEdge bool) {
 	t.Helper()
 	var rows []flowstore.Row
 	for _, pair := range []anomaly.FlowFieldComparisonClocks{clocks.Previous, clocks.Current} {
@@ -134,7 +161,13 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 					packets = [2]uint64{3600, 3600}
 				}
 			}
+			if missingReferenceEdge && i == 1 {
+				packets = [2]uint64{400, 3200}
+			}
 			for edge, exporter := range exporters {
+				if missingReferenceEdge && i == 0 && edge == 1 {
+					continue
+				}
 				row := delayFixtureFlow(tenant, window.Start.Add(2*time.Second), false)
 				row.Exporter, row.Transport, row.SrcPort, row.DstPort, row.TCPFlags = exporter, "udp", 53, 43001, 0
 				row.Packets, row.PacketsScaled = packets[edge], packets[edge]

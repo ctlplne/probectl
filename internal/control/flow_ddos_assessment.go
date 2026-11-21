@@ -90,6 +90,8 @@ func normalizeDDoSAssessment(viewID string, input flow.DDoSAssessmentInput) (ddo
 	if input.Direction == "egress" {
 		side = "src_addr"
 	}
+	input.RequiredExporters = slices.Clone(input.RequiredExporters)
+	slices.Sort(input.RequiredExporters)
 	return ddosAssessmentSettings{View: reportFlowSourceRef{ID: viewID, Version: input.Version}, Input: input, Target: target, SideField: side}, nil
 }
 
@@ -105,10 +107,15 @@ func (settings ddosAssessmentSettings) preparePlan(plan *flow.QueryPlan) error {
 	condition := flow.QueryPredicate{Field: settings.SideField, Op: flow.QueryCIDR, Values: []string{settings.Target.String()}}
 	base := plan.Filter
 	bound := &flow.QueryFilterGroup{Mode: "include", Match: "all", Conditions: []flow.QueryPredicate{condition}}
+	if len(settings.Input.RequiredExporters) != 0 {
+		bound.Conditions = append(bound.Conditions, flow.QueryPredicate{
+			Field: "exporter", Op: flow.QueryIn, Values: slices.Clone(settings.Input.RequiredExporters),
+		})
+	}
 	if base != nil {
 		if base.Mode == "include" && base.Match == "all" {
 			bound = &flow.QueryFilterGroup{Mode: base.Mode, Match: base.Match, Groups: base.Groups, Saved: base.Saved,
-				Conditions: append(slices.Clone(base.Conditions), condition)}
+				Conditions: append(slices.Clone(base.Conditions), bound.Conditions...)}
 		} else {
 			bound.Groups = []flow.QueryFilterGroup{*base}
 		}
@@ -123,6 +130,9 @@ func (settings ddosAssessmentSettings) preparePlan(plan *flow.QueryPlan) error {
 	}
 	if settings.IncludeSources && settings.SideField != "src_addr" {
 		plan.GroupBy = append(plan.GroupBy, "src_addr")
+	}
+	if len(settings.Input.RequiredExporters) != 0 {
+		plan.GroupBy = append(plan.GroupBy, "exporter")
 	}
 	plan.Metrics = []flow.QueryMetric{
 		{Measure: "bytes", Calculation: "total", Role: "primary"},
@@ -212,6 +222,9 @@ func matchDDoSEvidenceClocks(inputs []reportFlowInput, settings ddosAssessmentSe
 }
 
 func mapDDoSCoverage(err error) error {
+	if errors.Is(err, errDDoSExporterCoverage) {
+		return apierror.Conflict("a configured exporter has no stored observation in a required window").Wrap(err)
+	}
 	if errors.Is(err, anomaly.ErrDDoSCoverage) {
 		return apierror.Conflict("the pinned source cannot prove comparable original flow observations").Wrap(err)
 	}

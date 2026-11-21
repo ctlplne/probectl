@@ -9,10 +9,13 @@ package control
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"math/big"
 	"net/netip"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/anomaly"
@@ -21,6 +24,8 @@ import (
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+var errDDoSExporterCoverage = fmt.Errorf("%w: a required exporter was unobserved", anomaly.ErrDDoSCoverage)
 
 func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, settings ddosAssessmentSettings, windows anomaly.FlowFieldComparisonClocks, beforeIndex, afterIndex int, work int64) (flow.DDoSAssessment, error) {
 	var empty flow.DDoSAssessment
@@ -70,8 +75,13 @@ func ddosCaptureScope(capture *reportFlowCapture, settings ddosAssessmentSetting
 	if err != nil {
 		return "", err
 	}
-	// The canonical prefix and direction are part of the cited evidence.
-	digest := crypto.Hash([]byte(authority + "\x00" + settings.Target.String() + "\x00" + settings.Input.Direction))
+	// Include the selected exporter set in scoped citations. Keep citations
+	// for existing rules stable when no exporter set was configured.
+	material := authority + "\x00" + settings.Target.String() + "\x00" + settings.Input.Direction
+	if len(settings.Input.RequiredExporters) != 0 {
+		material += "\x00" + strings.Join(settings.Input.RequiredExporters, "\x00")
+	}
+	digest := crypto.Hash([]byte(material))
 	if len(digest) != 32 {
 		return "", anomaly.ErrDDoSCoverage
 	}
@@ -89,6 +99,8 @@ func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, setting
 		return none, empty, anomaly.ErrDDoSCoverage
 	}
 	totals := ddosWindowTotals{addresses: make(map[netip.Addr]bool), services: make(map[string]*big.Int)}
+	required := settings.Input.RequiredExporters
+	observedExporters := make(map[string]bool, len(required))
 	for _, row := range result.Rows {
 		if err := ctx.Err(); err != nil {
 			return none, empty, err
@@ -96,6 +108,16 @@ func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, setting
 		if err := totals.add(settings, row); err != nil {
 			return none, empty, err
 		}
+		if len(required) != 0 {
+			exporter := row.Group["exporter"]
+			if !slices.Contains(required, exporter) {
+				return none, empty, errDDoSExporterCoverage
+			}
+			observedExporters[exporter] = true
+		}
+	}
+	if len(observedExporters) != len(required) {
+		return none, empty, errDDoSExporterCoverage
 	}
 	citation := captured.ID + ":" + captured.Version + ":" + result.Query.To.UTC().Format(time.RFC3339Nano) + ":" + scope
 	observed := anomaly.DDoSObservation{TenantID: captured.TenantID, Scope: scope, Target: settings.Target, Direction: settings.Input.Direction,
@@ -109,7 +131,7 @@ func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, setting
 	}
 	evidence := flow.DDoSWindowEvidence{From: observed.From, To: observed.To, Source: result.Source, ResolutionSeconds: result.ResolutionSeconds,
 		Bytes: observed.Bytes, Packets: observed.Packets, ObservedRecords: observed.ObservedRecords, ObservedAddresses: observed.ObservedAddresses,
-		Sampled: totals.sampled, Citation: observed.Citation}
+		ObservedExporters: len(observedExporters), Sampled: totals.sampled, Citation: observed.Citation}
 	return observed, evidence, ctx.Err()
 }
 

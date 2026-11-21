@@ -2677,6 +2677,7 @@ export interface FlowDDoSAssessmentInput {
   period_seconds: number
   prefix: string
   reference_mode?: "weekly_representative"
+  required_exporters?: string[]
   vector_share_basis_points: number
   version: string
 }
@@ -2702,6 +2703,7 @@ export interface FlowDDoSWindowEvidence {
   citation: string
   from: string
   observed_addresses: number
+  observed_exporters?: number
   observed_records: number
   packets: string
   resolution_seconds: number

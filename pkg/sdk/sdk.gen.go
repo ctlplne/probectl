@@ -2809,6 +2809,7 @@ type FlowDDoSAssessmentInput struct {
 	PeriodSeconds          int                        `json:"period_seconds"`
 	Prefix                 string                     `json:"prefix"`
 	ReferenceMode          string                     `json:"reference_mode,omitempty"`
+	RequiredExporters      []string                   `json:"required_exporters,omitempty"`
 	VectorShareBasisPoints int                        `json:"vector_share_basis_points"`
 	Version                string                     `json:"version"`
 }
@@ -2836,6 +2837,7 @@ type FlowDDoSWindowEvidence struct {
 	Citation          string `json:"citation"`
 	From              string `json:"from"`
 	ObservedAddresses int    `json:"observed_addresses"`
+	ObservedExporters int    `json:"observed_exporters,omitempty"`
 	ObservedRecords   int    `json:"observed_records"`
 	Packets           string `json:"packets"`
 	ResolutionSeconds int    `json:"resolution_seconds"`

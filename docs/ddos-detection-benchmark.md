@@ -242,3 +242,34 @@ latency require side-by-side measurement. [Arbor Sightline architecture](https:/
 
 See the response runbook for configuring a short window, selecting authorized
 application evidence and reviewing the resulting signals. [DDoS response runbook](ddos-response-runbook.md)
+
+### Required exporter coverage
+
+A protected rule or assessment can list up to eight required exporter IPs.
+These addresses narrow the existing saved view. Each required exporter
+needs an original flow observation for the protected population in each
+compared window. An empty contribution leaves the comparison unavailable.
+It can mean an exporter was quiet, late or absent. An unavailable window
+cannot establish a healthy baseline, start an episode or end an existing
+one. A representative reference requires three usable weekly candidates.
+
+This option compares the stored population for addresses the operator already
+authorized. Per-exporter presence is limited to these original records. Export completeness
+and physical identity depend on the measurement point. A truncated or unauthoritative
+capture remains unavailable. A successful assessment reports the count of
+required exporters present in each cited window.
+
+The paired holdout removes one exporter's 3,200 packets from the reference
+and restores that exporter's ordinary contribution in the current window.
+Without the explicit requirement, the saved rule sees apparent growth
+from 400 to 3,600 and opens an episode. With the requirement, the comparison
+is unavailable. The fully observed sibling still opens one episode for
+3,600 to 7,200 packets and retains both exporter counts in its receipt.
+The incomplete tenant cannot read the sibling's receipt.
+
+```sh
+PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
+  -run '^TestFastDDoSRequiresOriginalExporterCoverage$' ./internal/control
+```
+
+[Paired synthetic fixture](../internal/control/alert_ddos_multi_edge_integration_test.go)

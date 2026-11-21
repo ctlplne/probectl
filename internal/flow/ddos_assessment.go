@@ -28,6 +28,7 @@ type DDoSAssessmentInput struct {
 	MinObservedRecords     int                     `json:"min_observed_records"`
 	MinObservedAddresses   int                     `json:"min_observed_addresses"`
 	Application            *DDoSApplicationBinding `json:"application,omitempty"`
+	RequiredExporters      []string                `json:"required_exporters,omitempty"`
 }
 
 type DDoSApplicationBinding struct {
@@ -56,6 +57,7 @@ type DDoSWindowEvidence struct {
 	Packets           string    `json:"packets"`
 	ObservedRecords   int       `json:"observed_records"`
 	ObservedAddresses int       `json:"observed_addresses"`
+	ObservedExporters int       `json:"observed_exporters,omitempty"`
 	Sampled           bool      `json:"sampled"`
 	Citation          string    `json:"citation"`
 }
@@ -101,5 +103,24 @@ func (r DDoSAssessmentInput) ValidatedPrefix() (netip.Prefix, error) {
 	if err := r.Thresholds().Validate(); err != nil {
 		return netip.Prefix{}, errors.New("set positive traffic and coverage floors and a valid growth and vector share")
 	}
+	if err := validateDDoSExporters(r.RequiredExporters); err != nil {
+		return netip.Prefix{}, err
+	}
 	return target, nil
+}
+
+func validateDDoSExporters(exporters []string) error {
+	if len(exporters) > 8 {
+		return errors.New("select at most eight required exporters")
+	}
+	seen := make(map[string]bool, len(exporters))
+	for _, exporter := range exporters {
+		address, err := netip.ParseAddr(exporter)
+		if err != nil || address.Zone() != "" || address.Is4In6() ||
+			address.IsUnspecified() || address.String() != exporter || seen[exporter] {
+			return errors.New("required exporters must be distinct canonical IP addresses")
+		}
+		seen[exporter] = true
+	}
+	return nil
 }

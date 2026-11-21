@@ -61,7 +61,7 @@ func TestDDoSAssessmentServedKeepsBothTenantsAndThemes(t *testing.T) {
 		cookie := seasonalFlowBrowserCookie(t, f, tenant)
 		for _, theme := range []string{"light", "dark"} {
 			t.Run(names[lane]+" "+theme, func(t *testing.T) {
-				expect := []string{"Latest completed window", "Sampling corrected"}
+				expect := []string{"Latest completed window", "Sampling corrected", "Required exporters observed · 1"}
 				absent := []string{names[1-lane]}
 				if lane == 0 {
 					expect = append(expect, "TCP SYN pressure", "Corroborating measurements", ddosFixtureAmount+" bytes")
@@ -78,9 +78,17 @@ func TestDDoSAssessmentServedKeepsBothTenantsAndThemes(t *testing.T) {
 						{Fill: "label:text-is('Protected prefix') + div input", Value: "192.0.2.0/24"},
 						{Fill: "label:text-is('Minimum bytes per window') + div input", Value: "10000000000000000"},
 						{Fill: "label:text-is('Minimum packets per window') + div input", Value: "2500"},
+						{Fill: "label:text-is('Required exporter IPs') + div input", Value: "203.0.113.15"},
 						{Click: "Assess traffic", Expect: expect, Absent: absent},
+						{Fill: "label:text-is('Required exporter IPs') + div input", Value: "203.0.113.15, 203.0.113.16"},
+						{Click: "Assess traffic", Expect: []string{
+							"Traffic assessment unavailable", "a configured exporter has no stored observation in a required window",
+						}, Absent: []string{"Latest completed window", ddosFixtureAmount}},
 					},
-					Controls: []testsupport.RenderControl{{Role: "combobox", Name: "Observed direction"}, {Role: "button", Name: "Assess traffic"}},
+					Controls: []testsupport.RenderControl{
+						{Role: "combobox", Name: "Observed direction"}, {Role: "button", Name: "Assess traffic"},
+						{Role: "textbox", Name: "Required exporter IPs"},
+					},
 				})
 			})
 		}

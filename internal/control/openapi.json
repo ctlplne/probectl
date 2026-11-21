@@ -37483,7 +37483,14 @@
             "type": "integer",
             "minimum": 2
           },
-          "application": {"$ref": "#/components/schemas/FlowDDoSApplicationBinding"}
+          "application": {"$ref": "#/components/schemas/FlowDDoSApplicationBinding"},
+          "required_exporters": {
+            "type": "array",
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {"type": "string", "maxLength": 39},
+            "description": "Required exporter IPs within the existing saved view. Each compared window needs an original observation from every explicitly selected exporter."
+          }
         },
         "required": [
           "version",
@@ -37814,6 +37821,7 @@
             "type": "integer",
             "minimum": 0
           },
+          "observed_exporters": {"type": "integer", "minimum": 1, "maximum": 8},
           "sampled": {
             "type": "boolean"
           },
