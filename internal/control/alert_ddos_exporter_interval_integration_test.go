@@ -51,9 +51,11 @@ func testExporterIntervals(t *testing.T, originalClocks bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, tenant := range f.tenants {
+		grantSeasonalFlowFixture(f, tenant)
+	}
 	var ownReceipt [2]string
 	for lane, tenant := range f.tenants {
-		grantSeasonalFlowFixture(f, tenant)
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		original := exporterIntervalFlowRows(tenant, clocks, lane == 1, originalClocks)
 		if err := rows.Insert(ctx, original); err != nil {
