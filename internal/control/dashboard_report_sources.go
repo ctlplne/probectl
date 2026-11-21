@@ -80,12 +80,13 @@ func (c *reportFlowCapture) Close() {
 }
 
 type preparedReportFlow struct {
-	view                     flow.SavedQueryView
-	current                  flow.QueryPlan
-	previous                 *flow.QueryPlan
-	versions                 map[string]int64
-	ddosSourcePortProjection bool
-	ddosVerifySampling       bool
+	view                      flow.SavedQueryView
+	current                   flow.QueryPlan
+	previous                  *flow.QueryPlan
+	versions                  map[string]int64
+	ddosSourcePortProjection  bool
+	ddosVerifySampling        bool
+	ddosGroupSampledExporters bool
 }
 
 func (p preparedReportFlow) executions() int {

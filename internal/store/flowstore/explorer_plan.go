@@ -46,6 +46,9 @@ type PlanQuery struct {
 	DDoSProjection bool
 	// DDoSVerifySampling checks original counters for prospective assessments.
 	DDoSVerifySampling bool
+	// DDoSGroupSampledExporters keeps sampled exporter identities and combines
+	// rate-one exporters after filtering.
+	DDoSGroupSampledExporters bool
 }
 
 // PlanRow's decimal strings preserve counters above JavaScript's integer limit.

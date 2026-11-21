@@ -301,15 +301,17 @@ incomparable rates and still requires three comparable weeks. The check
 uses the rates in the stored records. Changes to the underlying sampling
 method or to a population sharing an exporter address may be invisible
 when those records report the same rates. Five- and ten-second rules
-without a required exporter list compare the aggregate rate sets. For
-these rules, moving an unchanged rate between exporters can still be
-invisible when both rates remain present. A longer rule can require
-exporters to enable the per-exporter comparison.
+without a required exporter list compare the reported rates and keep the
+stored exporter identity for sampled groups. Their rate-one rows share an
+exporter group after the original view filters are applied. Records with
+no stored exporter identity share a sampled group for their reported rate.
+A longer rule can require exporters to enable a per-exporter comparison.
 
 The synthetic holdout keeps raw counts at 400 and 100 for two exporters.
 Swapping the 1 and 8 multipliers raises the corrected aggregate from 1,200
 to 3,300 packets with the same two rates present. The evaluation must
-abstain. A paired tenant keeps both exporters and their original rates,
+abstain with or without explicit exporter requirements. A paired tenant
+keeps both exporters and their original rates,
 while the corrected packet counts grow from 3,600 to 7,200. The positive
 case must open one original receipt, which the sibling cannot read.
 In the unpinned fixture, both exporters report one in eight in the current
@@ -318,7 +320,7 @@ original counts. The rule abstains because the unsampled group disappeared.
 
 ```sh
 PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
-  -run '^TestFastDDoSRequiresComparable(RequiredExporter|Aggregate)Sampling$' ./internal/control
+  -run '^TestFastDDoSRequiresComparable(RequiredExporter|DefaultExporter|Aggregate)Sampling$' ./internal/control
 ```
 
 [Paired synthetic fixture](../internal/control/alert_ddos_multi_edge_integration_test.go)

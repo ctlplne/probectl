@@ -96,7 +96,7 @@ func planSQLWithRoutingMetadata(budget ExplorerBudget, plan flow.QueryPlan, tabl
 	params["matrix_depth"] = strconv.Itoa(plan.MatrixDepth)
 
 	params["interfaces"] = planInterfaceNamesJSON(names)
-	filtered, err := planFilteredCTE(plan, table, params, vocabulary, tagData != nil, nil, false)
+	filtered, err := planFilteredCTE(plan, table, params, vocabulary, tagData != nil, nil, false, false)
 	if err != nil {
 		return "", nil, err
 	}
@@ -325,7 +325,7 @@ func planSampleSQL(measure, value, duration string) string {
 }
 
 // The bounded typed input also supports window-partitioned seasonal statistics.
-func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabulary flow.QueryVocabulary, useTags bool, readWindows []seasonalReadWindow, ddosProjection bool) (string, error) {
+func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabulary flow.QueryVocabulary, useTags bool, readWindows []seasonalReadWindow, ddosProjection, groupSampledExporters bool) (string, error) {
 	filter, err := explorerFilterSQLWithVocabulary(plan.Filter, params, vocabulary)
 	if err != nil {
 		return "", err
@@ -338,7 +338,11 @@ func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabul
 				continue
 			}
 			field, _ := vocabulary.Lookup(name)
-			parts = append(parts, explorerGroupExprWithParams(field, params))
+			expr := explorerGroupExprWithParams(field, params)
+			if groupSampledExporters && name == "exporter" {
+				expr = "if(sampling=1,''," + expr + ")"
+			}
+			parts = append(parts, expr)
 		}
 		if len(parts) == 0 {
 			return "CAST([],'Array(String)')"

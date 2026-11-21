@@ -92,6 +92,69 @@ func TestSeasonalDDoSSeparatesOriginalCrossingIntervals(t *testing.T) {
 	checkSeasonalDDoSClockProjection(t, NewMemory(), "red", "blue")
 }
 
+func TestSeasonalDDoSScopesSampledExporterGroups(t *testing.T) {
+	checkSeasonalDDoSSampledExporterGroups(t, NewMemory(), "red", "blue")
+}
+
+func checkSeasonalDDoSSampledExporterGroups(t *testing.T, store Store, red, blue string) {
+	t.Helper()
+	const west, east, outside = "203.0.113.15", "203.0.113.16", "203.0.113.17"
+	end := time.Now().UTC().Add(-time.Minute).Truncate(5 * time.Second)
+	plan := flow.QueryPlan{From: end.Add(-5 * time.Second), To: end, View: "table", DataSeries: "raw", BucketSeconds: 1,
+		GroupBy: []string{"dst_addr", "transport", "tcp_flags", "src_port", "sampling", "exporter"},
+		Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"},
+			{Measure: "packets", Calculation: "total", Role: "additional"}, {Measure: "flows", Calculation: "total", Role: "additional"}},
+		Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "exporter", Op: flow.QueryIn, Values: []string{west, east}}}}}
+	tenants := []string{red, blue}
+	factors := [...]uint64{5, 7}
+	for lane, tenant := range tenants {
+		var rows []Row
+		for _, fixture := range []struct {
+			exporter         string
+			sampling, amount uint64
+			port             uint16
+		}{{west, 1, 2, 20000}, {east, 1, 3, 20001}, {west, 8, 4, 20002}, {east, 8, 5, 20003}, {outside, 1, 900, 20004}} {
+			row := explorerFixtureRow(tenant)
+			row.Exporter, row.Sampling, row.SrcPort = fixture.exporter, fixture.sampling, fixture.port
+			row.TS, row.StartTS = end.Add(-time.Second), end.Add(-2*time.Second)
+			row.Bytes = fixture.amount * factors[lane]
+			row.Packets = 1
+			row.BytesScaled, row.PacketsScaled = row.Bytes*row.Sampling, row.Packets*row.Sampling
+			rows = append(rows, row)
+		}
+		if err := store.Insert(t.Context(), rows); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for lane, tenant := range tenants {
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		batch, err := NewPlanBatch(ctx, store, tenant, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		query := PlanQuery{TenantID: tenant, Plan: plan, DDoSProjection: true, DDoSVerifySampling: true, DDoSGroupSampledExporters: true}
+		out, err := batch.ExploreSeasonalWindows(query, []time.Time{end}, 0)
+		batch.Close()
+		if err != nil || len(out) != 1 || len(out[0].Rows) != 3 {
+			t.Fatal("the reader did not fold the rate-one group and preserve both sampled exporters", out, err)
+		}
+		factor := factors[lane]
+		want := map[string]struct {
+			bytes         uint64
+			packets, rows string
+		}{"1:": {5 * factor, "2", "2"}, "8:" + west: {32 * factor, "8", "1"}, "8:" + east: {40 * factor, "8", "1"}}
+		for _, row := range out[0].Rows {
+			key := row.Group["sampling"] + ":" + row.Group["exporter"]
+			expected, ok := want[key]
+			if !ok || row.Metrics["bytes:total"] != strconv.FormatUint(expected.bytes, 10) ||
+				row.Metrics["packets:total"] != expected.packets || row.Metrics["flows:total"] != expected.rows {
+				t.Fatalf("exporter grouping changed the authorized scoped observations: %+v", row)
+			}
+			delete(want, key)
+		}
+	}
+}
+
 func checkSeasonalDDoSClockProjection(t *testing.T, store Store, red, blue string) {
 	t.Helper()
 	end := time.Now().UTC().Add(-time.Minute).Truncate(5 * time.Second)

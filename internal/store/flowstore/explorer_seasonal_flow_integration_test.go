@@ -83,6 +83,18 @@ func TestSeasonalDDoSSeparatesOriginalCrossingIntervalsOnClickHouse(t *testing.T
 	checkSeasonalDDoSClockProjection(t, store, red, blue)
 }
 
+func TestSeasonalDDoSScopesSampledExporterGroupsOnClickHouse(t *testing.T) {
+	store := explorerIntegrationStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+	red := fmt.Sprintf("probectl-qa-beta-ddos-exporter-projection-%d", time.Now().UnixNano())
+	blue := red + "-blue"
+	t.Cleanup(func() {
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
+	})
+	checkSeasonalDDoSSampledExporterGroups(t, store, red, blue)
+}
+
 func TestSeasonalDDoSRetainsScopedInvalidSamplingCountersOnClickHouse(t *testing.T) {
 	store := explorerIntegrationStore(t)
 	t.Cleanup(func() { _ = store.Close() })

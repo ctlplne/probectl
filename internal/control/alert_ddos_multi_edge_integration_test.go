@@ -48,6 +48,10 @@ func TestFastDDoSRequiresComparableRequiredExporterSampling(t *testing.T) {
 	testDDoSEdgeScope(t, false, true, ddosEdgeRateChange)
 }
 
+func TestFastDDoSRequiresComparableDefaultExporterSampling(t *testing.T) {
+	testDDoSEdgeScope(t, false, false, ddosEdgeRateChange)
+}
+
 func TestFastDDoSRequiresComparableAggregateSampling(t *testing.T) {
 	testDDoSEdgeScope(t, false, false, ddosEdgeRateSetChange)
 }

@@ -191,8 +191,9 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 	totals := ddosWindowTotals{addresses: make(map[netip.Addr]bool), services: make(map[string]*big.Int)}
 	required := settings.Input.RequiredExporters
 	observedExporters := make(map[string]bool, len(required))
+	groupSampledExporters := settings.groupSampledExporters()
 	var samplingRates map[ddosExporterRate]struct{}
-	if len(required) != 0 || (!settings.Cited && anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds)) {
+	if len(required) != 0 || groupSampledExporters {
 		samplingRates = make(map[ddosExporterRate]struct{}, len(required))
 	}
 	for _, row := range result.Rows {
@@ -215,6 +216,8 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 				return empty, errDDoSExporterCoverage
 			}
 			observedExporters[exporter] = true
+		} else if groupSampledExporters && row.Group["sampling"] != "1" {
+			exporter = row.Group["exporter"]
 		}
 		if samplingRates != nil {
 			samplingRates[ddosExporterRate{exporter: exporter, rate: row.Group["sampling"]}] = struct{}{}

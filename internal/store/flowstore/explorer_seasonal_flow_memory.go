@@ -102,10 +102,13 @@ func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, en
 			return nil, err
 		}
 		groupValue := value
-		if query.DDoSProjection && value("transport") != "udp" {
+		if query.DDoSProjection {
 			groupValue = func(field string) string {
-				if field == "src_port" {
+				switch {
+				case field == "src_port" && value("transport") != "udp":
 					return "0"
+				case field == "exporter" && query.DDoSGroupSampledExporters && entry.row.Sampling == 1:
+					return ""
 				}
 				return value(field)
 			}

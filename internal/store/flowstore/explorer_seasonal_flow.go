@@ -50,8 +50,12 @@ func (b *PlanBatch) ExploreSeasonalWindows(query PlanQuery, ends []time.Time, to
 		b.failed = true
 		return nil, ErrExplorerBudget
 	}
-	if (query.DDoSVerifySampling || query.DDoSProjection) && (!query.DDoSProjection || topKeys != 0 || query.Plan.View != "table" || query.Plan.DataSeries != "raw" ||
+	if (query.DDoSVerifySampling || query.DDoSProjection || query.DDoSGroupSampledExporters) && (!query.DDoSProjection || topKeys != 0 || query.Plan.View != "table" || query.Plan.DataSeries != "raw" ||
 		!slices.Contains(query.Plan.GroupBy, "src_port") || !slices.Contains(query.Plan.GroupBy, "transport")) {
+		b.failed = true
+		return nil, ErrExplorerBudget
+	}
+	if query.DDoSGroupSampledExporters && (!slices.Contains(query.Plan.GroupBy, "exporter") || !slices.Contains(query.Plan.GroupBy, "sampling")) {
 		b.failed = true
 		return nil, ErrExplorerBudget
 	}

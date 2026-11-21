@@ -25,7 +25,8 @@ func (s *Server) recordSeasonalFlowWindows(ctx context.Context, tenant string, l
 		return nil, err
 	}
 	query := flowstore.PlanQuery{TenantID: tenant, Plan: latest, Tags: tagData,
-		DDoSProjection: source.ddosSourcePortProjection, DDoSVerifySampling: source.ddosVerifySampling}
+		DDoSProjection: source.ddosSourcePortProjection, DDoSVerifySampling: source.ddosVerifySampling,
+		DDoSGroupSampledExporters: source.ddosGroupSampledExporters}
 	span := latest
 	span.From = ends[0].Add(-latest.To.Sub(latest.From))
 	authority, err := s.bindFlowPlanProjections(ctx, &query, span)

@@ -95,6 +95,10 @@ func normalizeDDoSAssessment(viewID string, input flow.DDoSAssessmentInput) (ddo
 	return ddosAssessmentSettings{View: reportFlowSourceRef{ID: viewID, Version: input.Version}, Input: input, Target: target, SideField: side}, nil
 }
 
+func (settings ddosAssessmentSettings) groupSampledExporters() bool {
+	return !settings.Cited && len(settings.Input.RequiredExporters) == 0 && anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds)
+}
+
 func (settings ddosAssessmentSettings) preparePlan(plan *flow.QueryPlan) error {
 	width := time.Duration(settings.Input.PeriodSeconds) * time.Second
 	savedWidth := plan.To.Sub(plan.From)
@@ -131,7 +135,7 @@ func (settings ddosAssessmentSettings) preparePlan(plan *flow.QueryPlan) error {
 	if settings.IncludeSources && settings.SideField != "src_addr" {
 		plan.GroupBy = append(plan.GroupBy, "src_addr")
 	}
-	if len(settings.Input.RequiredExporters) != 0 {
+	if len(settings.Input.RequiredExporters) != 0 || settings.groupSampledExporters() {
 		plan.GroupBy = append(plan.GroupBy, "exporter")
 	}
 	plan.Metrics = []flow.QueryMetric{
@@ -238,7 +242,7 @@ func mapDDoSCoverage(err error) error {
 		return apierror.Conflict("flow reports spanning the window boundary leave its traffic state unconfirmed").Wrap(err)
 	}
 	if errors.Is(err, errDDoSExporterSampling) {
-		return apierror.Conflict("the reported flow sampling rates differ between comparison windows").Wrap(err)
+		return apierror.Conflict("the reported sampling rates or their exporters differ between comparison windows").Wrap(err)
 	}
 	if errors.Is(err, errDDoSExporterCoverage) {
 		return apierror.Conflict("a configured exporter has no stored observation in a required window").Wrap(err)
