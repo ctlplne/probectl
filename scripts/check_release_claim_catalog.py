@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG = ROOT / "docs" / "claims" / "release-catalog.json"
 REGISTER = ROOT / "docs" / "claims" / "register.json"
+CONTRACT = ROOT / "docs" / "contract" / "product-contract.json"
 
 
 def fail(message: str) -> None:
@@ -25,6 +26,7 @@ def fail(message: str) -> None:
 def main() -> None:
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
     register = json.loads(REGISTER.read_text(encoding="utf-8"))
+    contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
     rows = catalog.get("claims")
     if not isinstance(rows, list):
         fail("claims must be an array")
@@ -47,7 +49,7 @@ def main() -> None:
         fail("duplicate ids")
 
     required = {
-        *(f"F{i}" for i in range(1, 58)),
+        *(feature_id for feature in contract["features"] for feature_id in feature["ids"]),
         *(f"N{i}" for i in range(1, 14)),
         *(f"BL-{i:03d}" for i in range(1, 49)),
         *(row["id"] for row in register["claims"]),
@@ -59,7 +61,7 @@ def main() -> None:
 
     print(
         "release-claim-catalog: OK "
-        f"({len(rows)} claims; F1-F57, N1-N13, BL-001-BL-048, governed register)"
+        f"({len(rows)} claims; product contract, N1-N13, BL-001-BL-048, governed register)"
     )
 
 

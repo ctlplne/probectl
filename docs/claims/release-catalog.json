@@ -897,6 +897,41 @@
       "kind": "governed-claim",
       "owner": "release/docs",
       "title": "Audit verification preserves unambiguous v0.6.5 hashes without rewriting history; ambiguous historical headers and foreign streams fail closed, and timestamp-bound current records do not downgrade to the historical format. Historical timestamps were not hash-bound."
+    },
+    {
+      "id": "CLM-NMS-ZABBIX-ITEM-ID-FAIL-CLOSED",
+      "kind": "governed-claim",
+      "owner": "release/docs"
+    },
+    {
+      "id": "CLM-NMS-ALERT-TENANT-TARGET",
+      "kind": "governed-claim",
+      "owner": "release/docs"
+    },
+    {
+      "id": "CLM-ENTITY-PREFIX-FACT-CONFLICT",
+      "kind": "governed-claim",
+      "owner": "release/docs"
+    },
+    {
+      "id": "CLM-ENTITY-AGENT-SNAPSHOT-CONFLICT",
+      "kind": "governed-claim",
+      "owner": "release/docs"
+    },
+    {
+      "id": "CLM-ENTITY-EVIDENCE-SUBJECT-LIFECYCLE",
+      "kind": "governed-claim",
+      "owner": "release/docs"
+    },
+    {
+      "id": "CLM-BGP-ROUTING-SOURCE-FORMAT",
+      "kind": "governed-claim",
+      "owner": "release/docs"
+    },
+    {
+      "id": "CLM-ENTITY-TYPED-HTTP-DOCUMENT",
+      "kind": "governed-claim",
+      "owner": "release/docs"
     }
   ]
 }
