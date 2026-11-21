@@ -99,6 +99,19 @@ the failed listener stays flat. Traffic on a different port increases while
 remaining below both floors. That combination leaves aggregate pressure
 ambiguous. [Paired scheduler fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
 
+## Trace sampling holdout
+
+The holdout starts with 24 recorded successful requests that represent 24
+healthy requests. Flow and actual demand rise fourfold, while the trace
+export retains 24 of the 96 current requests. The baseline opened a generic
+pressure episode. The detector now reports incomparable application evidence
+when the authorized span windows carry different known sampling thresholds.
+Mixed coverage also leaves generic pressure unqualified. The paired datastore
+fixture keeps both tenants' flow totals identical. Its tenant with comparable
+sampling and actual HTTP degradation opens one scoped episode. The tenant
+with changed sampling stays quiet and cannot access that receipt. These
+holdouts are separate from the 416-trial corpus. [Synthetic holdout](../internal/control/flow_ddos_application_test.go) · [Paired datastore fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
+
 ## Representative reference holdout
 
 The scheduled detector's separate holdout compares the same synthetic input

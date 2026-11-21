@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -168,22 +169,65 @@ func convertSpansWithContextAt(ctx context.Context, req *coltracepb.ExportTraceS
 				start, dur := spanTimeAndDuration(sp, receivedAt)
 				attrs := boundedAttrs(resAttrs, sp.GetAttributes(), pol)
 				out = append(out, otelstore.Span{
-					TenantID:     tenant,
-					TraceID:      hex.EncodeToString(sp.GetTraceId()),
-					SpanID:       hex.EncodeToString(sp.GetSpanId()),
-					ParentSpanID: hex.EncodeToString(sp.GetParentSpanId()),
-					Name:         govern.RedactTelemetryText(pol, sp.GetName()),
-					Kind:         spanKind(sp.GetKind()),
-					Service:      service,
-					Start:        start,
-					Duration:     dur,
-					StatusCode:   statusCode(sp.GetStatus()),
-					Attrs:        attrs,
+					TenantID:          tenant,
+					TraceID:           hex.EncodeToString(sp.GetTraceId()),
+					SpanID:            hex.EncodeToString(sp.GetSpanId()),
+					ParentSpanID:      hex.EncodeToString(sp.GetParentSpanId()),
+					Name:              govern.RedactTelemetryText(pol, sp.GetName()),
+					Kind:              spanKind(sp.GetKind()),
+					Service:           service,
+					Start:             start,
+					Duration:          dur,
+					StatusCode:        statusCode(sp.GetStatus()),
+					Attrs:             attrs,
+					SamplingThreshold: spanSamplingThreshold(sp),
 				})
 			}
 		}
 	}
 	return out
+}
+
+func spanSamplingThreshold(span *tracepb.Span) string {
+	const sampled = 1
+	state := span.GetTraceState()
+	// A server span with a parent may have inherited caller-controlled trace
+	// state. The sampling comparison only accepts locally rooted server spans.
+	if span.GetKind() != tracepb.Span_SPAN_KIND_SERVER || len(span.GetParentSpanId()) != 0 ||
+		span.GetFlags()&sampled == 0 || len(state) > 512 {
+		return ""
+	}
+	var otelState string
+	for member := range strings.SplitSeq(state, ",") {
+		if value, ok := strings.CutPrefix(strings.TrimSpace(member), "ot="); ok {
+			if otelState != "" || value == "" {
+				return ""
+			}
+			otelState = value
+		}
+	}
+	return parseSamplingThreshold(otelState)
+}
+
+func parseSamplingThreshold(otelState string) string {
+	var threshold string
+	for pair := range strings.SplitSeq(otelState, ";") {
+		value, ok := strings.CutPrefix(pair, "th:")
+		if !ok {
+			continue
+		}
+		if threshold != "" || value == "" || len(value) > 14 || strings.IndexFunc(value, func(r rune) bool {
+			return (r < '0' || r > '9') && (r < 'a' || r > 'f')
+		}) >= 0 {
+			return ""
+		}
+		// OpenTelemetry permits omitting trailing zeroes from 56-bit th.
+		threshold = strings.TrimRight(value, "0")
+		if threshold == "" {
+			threshold = "0"
+		}
+	}
+	return threshold
 }
 
 func spanTimeAndDuration(sp *tracepb.Span, receivedAt time.Time) (time.Time, time.Duration) {

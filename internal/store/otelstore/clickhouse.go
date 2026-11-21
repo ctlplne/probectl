@@ -171,6 +171,9 @@ func chMigrationsFor(spans, logs string) []chmigrate.Migration {
 			Destructive:   true,
 			Justification: "atomic dedup rebuild of spans+logs: rows are INSERT...SELECT-copied before each RENAME and the v1 tables are kept as _pre_dedup — no data loss",
 		},
+		{Version: 3, Name: "trace_sampling_threshold", Statements: []string{
+			"ALTER TABLE " + spans + " ADD COLUMN IF NOT EXISTS trace_sampling_threshold LowCardinality(String) DEFAULT ''",
+		}},
 	}
 }
 
@@ -413,17 +416,18 @@ func NewClickHouseWithClient(rawURL string, retentionDays int, client *http.Clie
 // --- writes (JSONEachRow batches) ---
 
 type chSpan struct {
-	TenantID     string `json:"tenant_id"`
-	TraceID      string `json:"trace_id"`
-	SpanID       string `json:"span_id"`
-	ParentSpanID string `json:"parent_span_id"`
-	Name         string `json:"name"`
-	Kind         string `json:"kind"`
-	Service      string `json:"service"`
-	Start        string `json:"start"`
-	DurationNS   uint64 `json:"duration_ns"`
-	StatusCode   string `json:"status_code"`
-	Attrs        string `json:"attrs"`
+	TenantID          string `json:"tenant_id"`
+	TraceID           string `json:"trace_id"`
+	SpanID            string `json:"span_id"`
+	ParentSpanID      string `json:"parent_span_id"`
+	Name              string `json:"name"`
+	Kind              string `json:"kind"`
+	Service           string `json:"service"`
+	Start             string `json:"start"`
+	DurationNS        uint64 `json:"duration_ns"`
+	StatusCode        string `json:"status_code"`
+	Attrs             string `json:"attrs"`
+	SamplingThreshold string `json:"trace_sampling_threshold,omitempty"`
 }
 
 // WriteSpans inserts JSONEachRow batches, routed per tenant (TENANT-001):
@@ -463,6 +467,7 @@ func (c *ClickHouse) WriteSpans(ctx context.Context, spans []Span) error {
 					Name: s.Name, Kind: s.Kind, Service: s.Service,
 					Start:      timeOrNow(s.Start).UTC().Format("2006-01-02 15:04:05.000000"),
 					DurationNS: uint64(max64(int64(s.Duration), 0)), StatusCode: s.StatusCode, Attrs: string(attrs),
+					SamplingThreshold: s.SamplingThreshold,
 				}
 				if err := enc.Encode(row); err != nil {
 					return fmt.Errorf("otelstore: encode span: %w", err)

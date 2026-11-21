@@ -20,16 +20,17 @@ import (
 // The authenticated tenant, application binding and exact flow clock must
 // be checked before it can qualify an inferred flash crowd.
 type DDoSApplicationWindow struct {
-	TenantID    string        `json:"-"`
-	Target      netip.Prefix  `json:"-"`
-	From        time.Time     `json:"from"`
-	To          time.Time     `json:"to"`
-	Requests    int           `json:"observed_requests"`
-	Successes   int           `json:"successful_requests"`
-	P95         time.Duration `json:"p95_nanos,string"`
-	Digest      string        `json:"observation_digest"`
-	FlowBytes   string        `json:"matching_flow_bytes"`
-	FlowPackets string        `json:"matching_flow_packets"`
+	TenantID          string        `json:"-"`
+	Target            netip.Prefix  `json:"-"`
+	From              time.Time     `json:"from"`
+	To                time.Time     `json:"to"`
+	Requests          int           `json:"observed_requests"`
+	Successes         int           `json:"successful_requests"`
+	P95               time.Duration `json:"p95_nanos,string"`
+	Digest            string        `json:"observation_digest"`
+	FlowBytes         string        `json:"matching_flow_bytes"`
+	FlowPackets       string        `json:"matching_flow_packets"`
+	SamplingThreshold string        `json:"-"`
 }
 
 type DDoSApplicationEvidence struct {
@@ -44,6 +45,8 @@ const (
 	DDoSApplicationDemand    = "traffic_growth_explained_by_healthy_application_demand"
 	DDoSApplicationAmbiguous = "application_demand_does_not_explain_all_traffic"
 	DDoSApplicationResidual  = "traffic_outside_bound_application_exceeds_threshold"
+	DDoSApplicationSampling  = "application_trace_sampling_incomparable"
+	DDoSSamplingMixed        = "mixed"
 )
 
 // QualifyDDoSApplication compares independently observed successful requests
@@ -92,6 +95,8 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 	switch {
 	case bytes.residualPressure || packets.residualPressure:
 		proof.State = DDoSApplicationResidual
+	case earlier.SamplingThreshold != latest.SamplingThreshold || earlier.SamplingThreshold == DDoSSamplingMixed:
+		proof.State = DDoSApplicationSampling
 	case degraded && listenerPressure:
 		proof.State = DDoSApplicationDegraded
 	case degraded:

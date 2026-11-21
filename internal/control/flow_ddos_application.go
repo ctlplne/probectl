@@ -87,10 +87,11 @@ func (s *Server) authorizeDDoSApplicationInScope(ctx context.Context, sc tenancy
 }
 
 type ddosApplicationRequest struct {
-	Trace, Span string
-	Started     time.Time
-	Duration    time.Duration
-	Success     bool
+	Trace, Span       string
+	Started           time.Time
+	Duration          time.Duration
+	Success           bool
+	SamplingThreshold string `json:",omitempty"`
 }
 
 func projectDDoSApplicationWindow(ctx context.Context, source anomaly.DDoSObservation, service string, port uint16,
@@ -104,6 +105,7 @@ func projectDDoSApplicationWindow(ctx context.Context, source anomaly.DDoSObserv
 	latencies := make([]time.Duration, 0, len(spans))
 	seen := make(map[[2]string]bool)
 	succeeded := 0
+	var samplingThreshold string
 	for _, span := range spans {
 		if err := ctx.Err(); err != nil {
 			return empty, false, err
@@ -131,7 +133,13 @@ func projectDDoSApplicationWindow(ctx context.Context, source anomaly.DDoSObserv
 		if success {
 			succeeded++
 		}
-		requests = append(requests, ddosApplicationRequest{key[0], key[1], span.Start, span.Duration, success})
+		if len(requests) == 0 {
+			samplingThreshold = span.SamplingThreshold
+		} else if samplingThreshold != span.SamplingThreshold {
+			samplingThreshold = anomaly.DDoSSamplingMixed
+		}
+		requests = append(requests, ddosApplicationRequest{Trace: key[0], Span: key[1], Started: span.Start,
+			Duration: span.Duration, Success: success, SamplingThreshold: span.SamplingThreshold})
 		latencies = append(latencies, span.Duration)
 	}
 	if len(requests) < 20 {
@@ -149,7 +157,8 @@ func projectDDoSApplicationWindow(ctx context.Context, source anomaly.DDoSObserv
 		return empty, false, err
 	}
 	return anomaly.DDoSApplicationWindow{TenantID: source.TenantID, Target: source.Target, From: source.From, To: source.To,
-		Requests: len(requests), Successes: succeeded, P95: latencies[(len(latencies)*95+99)/100-1], Digest: hex.EncodeToString(crypto.Hash(body))}, true, ctx.Err()
+		Requests: len(requests), Successes: succeeded, P95: latencies[(len(latencies)*95+99)/100-1], Digest: hex.EncodeToString(crypto.Hash(body)),
+		SamplingThreshold: samplingThreshold}, true, ctx.Err()
 }
 
 func qualifyProjectedDDoS(ctx context.Context, reference, current anomaly.DDoSObservation, finding *anomaly.DDoSDetection,

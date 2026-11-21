@@ -235,6 +235,38 @@ func TestOTLPValidSpanDurationStillUsesRawStartAndEnd(t *testing.T) {
 	}
 }
 
+func TestOTLPTraceSamplingUsesProtocolMetadata(t *testing.T) {
+	for _, test := range []struct {
+		name, state, want string
+		flags             uint32
+	}{
+		{"canonical short threshold", "vendorkey=value,ot=th:c000;rv:dddddddddddddd", "c", 1},
+		{"always on", "ot=th:000", "0", 1},
+		{"no threshold", "ot=rv:dddddddddddddd", "", 1},
+		{"no sampled flag", "ot=th:c", "", 0},
+		{"ambiguous threshold", "ot=th:0;th:c", "", 1},
+		{"ambiguous member", "ot=th:0,ot=th:c", "", 1},
+		{"invalid hexadecimal", "ot=th:C", "", 1},
+		{"invalid width", "ot=th:00000000000000a", "", 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			span := &tracepb.Span{Kind: tracepb.Span_SPAN_KIND_SERVER, TraceState: test.state, Flags: test.flags,
+				Attributes: []*commonpb.KeyValue{kv("trace_sampling_threshold", "b")}}
+			req := &coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{
+				ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{span}}},
+			}}}
+			rows := convertSpans(req, "sampling-owner")
+			if len(rows) != 1 || rows[0].TenantID != "sampling-owner" || rows[0].SamplingThreshold != test.want {
+				t.Fatal("the original exporter metadata supplied an unexpected threshold", rows)
+			}
+			span.ParentSpanId = bytes.Repeat([]byte{0x1}, 8)
+			if threshold := spanSamplingThreshold(span); threshold != "" {
+				t.Fatal("inherited trace state provided permission to compare sampling windows", threshold)
+			}
+		})
+	}
+}
+
 // PRIVACY-003: traces/logs are stored as bounded correlation receipts, not raw
 // APM/log warehouse rows. The conversion layer must redact PII and secrets
 // before memory/ClickHouse stores ever see the row.

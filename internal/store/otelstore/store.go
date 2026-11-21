@@ -39,6 +39,8 @@ type Span struct {
 	Duration     time.Duration     `json:"duration"`
 	StatusCode   string            `json:"status_code"` // unset|ok|error
 	Attrs        map[string]string `json:"attrs,omitempty"`
+	// SamplingThreshold is derived from OTLP metadata independently of attributes.
+	SamplingThreshold string `json:"-"`
 }
 
 // LogRecord is one stored log record.

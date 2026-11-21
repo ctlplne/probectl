@@ -444,12 +444,12 @@ func TestOtelEnsureTenantDatabaseUpgradesOldTenantLedger(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	var joined []string
-	var sawTenantV2Record bool
+	tenantVersions := map[string]bool{}
 	for _, h := range hits {
 		joined = append(joined, h.query)
 		if strings.Contains(h.query, "INSERT INTO probectl_ch_migrations") &&
-			h.component == "otelstore:probectl_t_old" && h.version == "2" {
-			sawTenantV2Record = true
+			h.component == "otelstore:probectl_t_old" {
+			tenantVersions[h.version] = true
 		}
 	}
 	body := strings.Join(joined, "\n")
@@ -466,12 +466,13 @@ func TestOtelEnsureTenantDatabaseUpgradesOldTenantLedger(t *testing.T) {
 		"RENAME TABLE probectl_t_old.probectl_otel_spans TO probectl_t_old.probectl_otel_spans_pre_dedup",
 		"CREATE TABLE IF NOT EXISTS probectl_t_old.probectl_otel_logs_dedup",
 		"RENAME TABLE probectl_t_old.probectl_otel_logs TO probectl_t_old.probectl_otel_logs_pre_dedup",
+		"ALTER TABLE probectl_t_old.probectl_otel_spans ADD COLUMN IF NOT EXISTS trace_sampling_threshold",
 	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("old tenant ledger did not apply pending v2 %q in:\n%s", want, body)
+			t.Fatalf("old tenant ledger did not apply pending migration %q in:\n%s", want, body)
 		}
 	}
-	if !sawTenantV2Record {
-		t.Fatalf("pending tenant v2 was not recorded under the tenant component key: %+v", hits)
+	if len(tenantVersions) != 2 || !tenantVersions["2"] || !tenantVersions["3"] {
+		t.Fatalf("pending migrations were not recorded under the tenant component key: %+v", hits)
 	}
 }

@@ -88,12 +88,25 @@ func TestDDoSAssessmentServedKeepsBothTenantsAndThemes(t *testing.T) {
 }
 
 func TestFastDDoSAssessmentServedKeepsApplicationEvidenceScoped(t *testing.T) {
+	verifyFastDDoSAssessmentApplicationEvidence(t, false)
+}
+
+func TestFastDDoSAssessmentServedExplainsIncomparableTraceSampling(t *testing.T) {
+	verifyFastDDoSAssessmentApplicationEvidence(t, true)
+}
+
+func verifyFastDDoSAssessmentApplicationEvidence(t *testing.T, changedSampling bool) {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	queries := flow.NewPostgresQueryViewStore(f.pool, 0, audit.TenantRecord)
 	f.server.WithFlowQueryViews(queries).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	names := [2]string{"First protected service", "Second protected service"}
 	outcomes := [2]string{"HTTP response health degraded during flow pressure", "Healthy application demand explains the spike"}
 	successCounts := [2]string{"Successful requests 360 → 960", "Successful requests 360 → 1440"}
+	if changedSampling {
+		outcomes[1] = "Trace sampling differed or was incomplete across the observation windows"
+		successCounts[1] = "Successful requests 360 → 360"
+	}
 	for lane, tenant := range f.tenants {
 		grantSeasonalFlowFixture(f, tenant)
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
@@ -113,7 +126,7 @@ func TestFastDDoSAssessmentServedKeepsApplicationEvidenceScoped(t *testing.T) {
 				rows, traces := flowstore.NewMemory(), otelstore.NewMemory()
 				center := time.Now().UTC().Truncate(5 * time.Second)
 				for index, owner := range f.tenants {
-					seedFastDDoSPairedEvidence(t, rows, traces, owner, center, index == 0)
+					seedFastDDoSPairedEvidence(t, rows, traces, owner, center, index == 0, index == 1 && changedSampling)
 				}
 				f.server.WithFlowStore(rows).WithOTelStore(traces)
 				socket, ca := serveDDoSBrowserFixture(t, f)

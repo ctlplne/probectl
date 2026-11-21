@@ -43,7 +43,16 @@ full-page or ambiguous application observations leave the bound generic
 pressure unevaluated for episode admission. Explicit network pressure
 continues through its own flow
 evidence. HTTP requests are assigned by their start time and can count after
-completion even when they cross a window boundary. [OpenTelemetry HTTP span conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/#http-server-span) · [Synthetic benchmark](ddos-detection-benchmark.md)
+completion even when they cross a window boundary.
+[OpenTelemetry HTTP span conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/#http-server-span)
+
+For sampled tracing, use locally rooted HTTP server spans with consistent
+OpenTelemetry probability metadata. Different known thresholds, or a mix of
+known and unknown thresholds, leave generic application pressure unevaluated.
+Two windows with no metadata still compare their recorded requests. The
+detector cannot infer a sampling change in those windows from the trace
+counts alone. Separately qualifying network evidence continues to use its
+original admission rules. [OpenTelemetry probability metadata](https://opentelemetry.io/docs/specs/otel/trace/tracestate-handling/) · [Synthetic benchmark](ddos-detection-benchmark.md)
 
 ## Confirm the incident
 

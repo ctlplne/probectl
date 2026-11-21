@@ -23,7 +23,7 @@ func TestHTTPObservationReadKeepsCompleteScopedWindowBeyondTraceSearchLimit(t *t
 	start := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	q := SpanQuery{Service: "site", Since: start, Until: start.Add(5 * time.Second),
 		HTTPServer: &HTTPServerTarget{Address: netip.MustParseAddr("192.0.2.1"), Port: 443}}
-	base := Span{TenantID: "health-owner", Service: q.Service, Kind: "server", Start: start,
+	base := Span{TenantID: "health-owner", Service: q.Service, Kind: "server", Start: start, SamplingThreshold: "c",
 		TraceID: "observation", Duration: time.Millisecond, Attrs: map[string]string{
 			"network.local.address": "192.0.2.1", "network.local.port": "443", "network.transport": "tcp",
 			"server.address": "site.example", "http.response.status_code": "200", "unneeded": "hidden",
@@ -36,6 +36,7 @@ func TestHTTPObservationReadKeepsCompleteScopedWindowBeyondTraceSearchLimit(t *t
 	}
 	foreign, adjacent, port := base, base, base
 	foreign.TenantID, foreign.SpanID = "other-owner", "foreign"
+	foreign.SamplingThreshold = "0"
 	adjacent.Start, adjacent.SpanID = q.Until, "next-window"
 	port.SpanID = "other-port"
 	port.Attrs = httpObservationAttributes("192.0.2.1", "8443", "200")
@@ -48,14 +49,14 @@ func TestHTTPObservationReadKeepsCompleteScopedWindowBeyondTraceSearchLimit(t *t
 		t.Fatalf("the scoped HTTP evidence lost its population or field boundary: %d rows, %v", len(got), err)
 	}
 	for _, row := range got {
-		if row.TenantID != "health-owner" || !row.Start.Equal(start) || row.Attrs["network.local.port"] != "443" {
+		if row.TenantID != "health-owner" || !row.Start.Equal(start) || row.Attrs["network.local.port"] != "443" || row.SamplingThreshold != "c" {
 			t.Fatal("an observation escaped the exact tenant, port or clock scope")
 		}
 	}
 	if got, err := ReadHTTPObservations(other, store, "health-owner", q); got != nil || !errors.Is(err, ErrNoTenant) {
 		t.Fatal("a sibling context could read another tenant's window", err)
 	}
-	if got, err := ReadHTTPObservations(other, store, "other-owner", q); err != nil || len(got) != 1 || got[0].SpanID != "foreign" {
+	if got, err := ReadHTTPObservations(other, store, "other-owner", q); err != nil || len(got) != 1 || got[0].SpanID != "foreign" || got[0].SamplingThreshold != "0" {
 		t.Fatal("the sibling's overlap lost its own scope", err)
 	}
 	base.SpanID = "sentinel"

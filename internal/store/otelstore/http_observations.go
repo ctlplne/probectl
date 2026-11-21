@@ -60,7 +60,7 @@ func (c *ClickHouse) readHTTPObservations(ctx context.Context, tenant string, q 
 	}
 	sql := `SELECT tenant_id, service, trace_id, span_id,
   toString(toUnixTimestamp64Micro(start)) AS start_us, toString(duration_ns) AS duration_ns, status_code,
-  JSONExtractString(attrs, 'http.response.status_code') AS http_status
+  JSONExtractString(attrs, 'http.response.status_code') AS http_status, trace_sampling_threshold
 FROM ` + table + ` FINAL
 WHERE tenant_id = {tenant:String} AND service = {svc:String} AND kind = 'server'
   AND start >= fromUnixTimestamp64Micro({since:Int64}) AND start < fromUnixTimestamp64Micro({until:Int64})
@@ -94,7 +94,7 @@ SETTINGS max_rows_to_read = 262144, read_overflow_mode = 'throw'`
 		out = append(out, Span{TenantID: tenant, Service: q.Service, Kind: "server", TraceID: str(row["trace_id"]),
 			SpanID: str(row["span_id"]), Start: start,
 			Duration: time.Duration(durationNS), StatusCode: str(row["status_code"]),
-			Attrs: httpObservationAttributes(address, port, str(row["http_status"]))})
+			Attrs: httpObservationAttributes(address, port, str(row["http_status"])), SamplingThreshold: str(row["trace_sampling_threshold"])})
 	}
 	return out, nil
 }
@@ -128,7 +128,7 @@ func (m *Memory) readHTTPObservations(ctx context.Context, tenant string, q Span
 		}
 		out = append(out, Span{TenantID: span.TenantID, Service: span.Service, Kind: span.Kind, TraceID: span.TraceID,
 			SpanID: span.SpanID, Start: span.Start, Duration: span.Duration, StatusCode: span.StatusCode,
-			Attrs: httpObservationAttributes(address, port, span.Attrs["http.response.status_code"])})
+			Attrs: httpObservationAttributes(address, port, span.Attrs["http.response.status_code"]), SamplingThreshold: span.SamplingThreshold})
 		if len(out) == httpObservationLimit {
 			break
 		}

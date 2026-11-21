@@ -29,6 +29,15 @@ import (
 )
 
 func TestFastDDoSDoesNotAttributeAnotherListenersTrafficToAnHTTPOutage(t *testing.T) {
+	verifyDDoSApplicationAttribution(t, false)
+}
+
+func TestFastDDoSKeepsChangedTraceSamplingSeparateFromListenerPressure(t *testing.T) {
+	verifyDDoSApplicationAttribution(t, true)
+}
+
+func verifyDDoSApplicationAttribution(t *testing.T, samplingHoldout bool) {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	rows := seasonalFlowFixtureStore(t, f, true)
 	traces := fastDDoSApplicationFixtureStore(t, f.tenants)
@@ -68,7 +77,8 @@ func TestFastDDoSDoesNotAttributeAnotherListenersTrafficToAnHTTPOutage(t *testin
 		if err := json.Unmarshal(body, &rule); err != nil || rule.ID == "" {
 			t.Fatal("could not configure the protected host", err)
 		}
-		seedDDoSSplitListenerPressure(t, rows, traces, tenant, clocks, lane == 0)
+		seedDDoSSplitListenerPressure(t, rows, traces, tenant, clocks,
+			lane == 0 || samplingHoldout, samplingHoldout, lane == 1 && samplingHoldout)
 		source, due, err := f.server.loadAlertQueryRule(ctx, rule, 1<<20)
 		if err != nil || !due || source == nil {
 			t.Fatal("could not load the due rule", err)
@@ -88,7 +98,7 @@ func TestFastDDoSDoesNotAttributeAnotherListenersTrafficToAnHTTPOutage(t *testin
 			t.Fatal("independent pressure on the failed listener lost its episode", err)
 		}
 		if lane == 1 && (!errors.Is(err, anomaly.ErrDDoSCoverage) || got.QuerySelection != nil) {
-			t.Fatal("an unrelated HTTP outage qualified aggregate traffic from another listener", err)
+			t.Fatal("incomparable application demand qualified a sibling episode", samplingHoldout, err)
 		}
 		for _, item := range getSeasonalFlowReceipts(t, server, f.tokens[tenant], rule.ID).Items {
 			if item.Reason != "Sustained flow traffic pressure" {
@@ -105,16 +115,21 @@ func TestFastDDoSDoesNotAttributeAnotherListenersTrafficToAnHTTPOutage(t *testin
 	}
 	var proof alert.DDoSEvaluationEvidence
 	body := callSeasonalAPI(t, server, f.tokens[f.tenants[0]], http.MethodGet, positiveReceipt, nil, http.StatusOK)
+	listenerBytes, listenerPackets, hostBytes, hostPackets := "210000", "2700", "290000", "3500"
+	if samplingHoldout {
+		listenerBytes, listenerPackets, hostBytes, hostPackets = "560000", "6800", "560000", "6800"
+	}
 	if err := json.Unmarshal(body, &proof); err != nil || proof.Current.Application == nil ||
 		proof.Current.Application.State != anomaly.DDoSApplicationDegraded ||
-		proof.Current.Application.Current.FlowBytes != "210000" || proof.Current.Application.Current.FlowPackets != "2700" ||
-		proof.Current.Application.Current.Successes != 20 || proof.Current.After.Bytes != "290000" || proof.Current.After.Packets != "3500" {
+		proof.Current.Application.Current.FlowBytes != listenerBytes || proof.Current.Application.Current.FlowPackets != listenerPackets ||
+		proof.Current.Application.Current.Successes != 20 || proof.Current.After.Bytes != hostBytes || proof.Current.After.Packets != hostPackets {
 		t.Fatal("receipt lost the original listener-specific and host-wide evidence", err)
 	}
 	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, positiveReceipt, nil, http.StatusNotFound)
 }
 
-func seedDDoSSplitListenerPressure(t *testing.T, rows flowstore.Store, traces otelstore.Store, tenant string, clocks ddosEpisodeClocks, pressureOnListener bool) {
+func seedDDoSSplitListenerPressure(t *testing.T, rows flowstore.Store, traces otelstore.Store, tenant string, clocks ddosEpisodeClocks,
+	pressureOnListener, samplingKnown, samplingChanged bool) {
 	t.Helper()
 	var flows []flowstore.Row
 	var observations []otelstore.Span
@@ -126,20 +141,36 @@ func seedDDoSSplitListenerPressure(t *testing.T, rows flowstore.Store, traces ot
 			listenerBytes, listenerPackets := uint64(140000), uint64(1700)
 			otherBytes, otherPackets := uint64(80000), uint64(800)
 			http := benchmarkDDoSApplication{Requests: 30, LatencyMS: 25}
+			threshold := ""
+			if samplingKnown {
+				threshold = "0"
+			}
 			if index == 1 {
 				http.Failures, http.LatencyMS = 10, 80
-				if pressureOnListener {
+				if samplingChanged {
+					threshold = "c"
+					http = benchmarkDDoSApplication{Requests: 120, LatencyMS: 25}
+				}
+				switch {
+				case samplingKnown:
+					listenerBytes, listenerPackets = listenerBytes*4, listenerPackets*4
+				case pressureOnListener:
 					listenerBytes, listenerPackets = 210000, 2700
-				} else {
+				default:
 					otherBytes, otherPackets = 150000, 1800
 				}
 			}
 			listener.Bytes, listener.BytesScaled, listener.Packets, listener.PacketsScaled = listenerBytes, listenerBytes, listenerPackets, listenerPackets
-			other.Bytes, other.BytesScaled, other.Packets, other.PacketsScaled = otherBytes, otherBytes, otherPackets, otherPackets
-			flows = append(flows, listener, other)
-			for i, span := range benchmarkDDoSAppSpans(http, window.Start) {
+			flows = append(flows, listener)
+			if !samplingKnown {
+				other.Bytes, other.BytesScaled, other.Packets, other.PacketsScaled = otherBytes, otherBytes, otherPackets, otherPackets
+				flows = append(flows, other)
+			}
+			spans := benchmarkDDoSAppSpans(http, window.Start)
+			for i, span := range spans[:30] {
 				span.TenantID = tenant
 				span.TraceID = fmt.Sprintf("%016x%016x", window.Start.UnixNano(), i+1)
+				span.SamplingThreshold = threshold
 				observations = append(observations, span)
 			}
 		}

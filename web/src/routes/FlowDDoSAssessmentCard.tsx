@@ -32,6 +32,8 @@ const applicationEvidenceLabels = {
     'Application demand leaves some flow growth unexplained',
   traffic_outside_bound_application_exceeds_threshold:
     'Traffic outside the selected TCP service exceeded the configured floors',
+  application_trace_sampling_incomparable:
+    'Trace sampling differed or was incomplete across the observation windows',
 }
 
 const directions = [

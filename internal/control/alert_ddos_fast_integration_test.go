@@ -67,7 +67,7 @@ func TestFastDDoSSchedulerSeparatesIdenticalFlowCrowdsByTenantApplication(t *tes
 
 	center := time.Now().UTC().Truncate(5 * time.Second)
 	for lane, tenant := range f.tenants {
-		seedFastDDoSPairedEvidence(t, rows, traces, tenant, center, lane == 0)
+		seedFastDDoSPairedEvidence(t, rows, traces, tenant, center, lane == 0, false)
 		source := alert.QuerySourceInput{ViewID: viewIDs[lane], ViewVersion: inputs[lane].Version,
 			Condition: alert.QueryCondition{Mode: alert.DDoSCondition, DDoS: &inputs[lane]}}
 		raw := callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodPost, "/v1/alerts",
@@ -346,7 +346,8 @@ func fastDDoSApplicationFixtureStore(t *testing.T, tenants []string) otelstore.S
 	return traces
 }
 
-func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otelstore.Store, tenant string, center time.Time, degraded bool) {
+func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otelstore.Store, tenant string, center time.Time,
+	degraded, changedSampling bool) {
 	t.Helper()
 	var rows []flowstore.Row
 	var spans []otelstore.Span
@@ -371,6 +372,15 @@ func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otel
 			}
 			rows = append(rows, row)
 			for n, span := range benchmarkDDoSAppSpans(sample, window.Start) {
+				if changedSampling {
+					span.SamplingThreshold = "0"
+					if i == 1 {
+						if n >= 360 {
+							break
+						}
+						span.SamplingThreshold = "c"
+					}
+				}
 				if i == 0 && n == 0 {
 					// A completed slow request belongs to its start window,
 					// including when its duration exceeds the window width.
