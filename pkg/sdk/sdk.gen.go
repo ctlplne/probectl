@@ -740,6 +740,23 @@ type BGPEventList struct {
 	Items          []BGPEvent `json:"items,omitempty"`
 }
 
+type BGPIRRRouteReceipt struct {
+	ModifiedAt string `json:"modified_at,omitempty"`
+	OriginAsn  int    `json:"origin_asn"`
+	Review     string `json:"review"`
+}
+
+type BGPIRRSourcePosture struct {
+	Objects      []BGPIRRRouteReceipt `json:"objects"`
+	ObservedAt   string               `json:"observed_at,omitempty"`
+	RpkiFiltered bool                 `json:"rpki_filtered"`
+	Sha256       string               `json:"sha256,omitempty"`
+	Source       string               `json:"source"`
+	Status       string               `json:"status"`
+	Terms        string               `json:"terms,omitempty"`
+	ValidUntil   string               `json:"valid_until,omitempty"`
+}
+
 type BGPRPKICoveringAssertion struct {
 	Asn       int    `json:"asn"`
 	MaxLength int    `json:"max_length"`
@@ -769,15 +786,16 @@ type BGPRPKIHijack struct {
 }
 
 type BGPRPKIPathPosture struct {
-	Generation     string          `json:"generation"`
-	HasPathId      bool            `json:"has_path_id"`
-	OriginAsn      int             `json:"origin_asn,omitempty"`
-	PathId         int             `json:"path_id"`
-	RelatedHijacks []BGPRPKIHijack `json:"related_hijacks,omitempty"`
-	RouterId       string          `json:"router_id"`
-	Rpki           BGPRPKIVerdict  `json:"rpki"`
-	Vantage        string          `json:"vantage"`
-	ViewObservedAt string          `json:"view_observed_at"`
+	Generation     string                `json:"generation"`
+	HasPathId      bool                  `json:"has_path_id"`
+	Irr            []BGPIRRSourcePosture `json:"irr,omitempty"`
+	OriginAsn      int                   `json:"origin_asn,omitempty"`
+	PathId         int                   `json:"path_id"`
+	RelatedHijacks []BGPRPKIHijack       `json:"related_hijacks,omitempty"`
+	RouterId       string                `json:"router_id"`
+	Rpki           BGPRPKIVerdict        `json:"rpki"`
+	Vantage        string                `json:"vantage"`
+	ViewObservedAt string                `json:"view_observed_at"`
 }
 
 type BGPRPKITrendPoint struct {

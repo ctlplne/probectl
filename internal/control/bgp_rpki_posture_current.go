@@ -27,6 +27,7 @@ type bgpRPKIPathPosture struct {
 	PathID         uint32                `json:"path_id"`
 	HasPathID      bool                  `json:"has_path_id"`
 	RPKI           opendata.RPKIPosture  `json:"rpki"`
+	IRR            []opendata.IRRPosture `json:"irr,omitempty"`
 	RelatedHijacks []store.BGPRPKIHijack `json:"related_hijacks,omitempty"`
 }
 
@@ -65,6 +66,7 @@ func (s *Server) readBGPRPKICurrentInScope(ctx context.Context, sc tenancy.Scope
 	seen := make(map[string]bool)
 	authorized := s.routingChangeAuthorizer(actor)
 	snapshot := s.openDataEnricher.RPKI(at)
+	registry := s.openDataEnricher.IRR()
 	// A bounded history page also bounds how much work any one source can
 	// account for, including copied validator assertions.
 	sourceCount := int64(max(1, len(records)))
@@ -89,7 +91,7 @@ func (s *Server) readBGPRPKICurrentInScope(ctx context.Context, sc tenancy.Scope
 			continue
 		}
 		seen[original.Vantage] = true
-		paths, available, err := evaluateBGPRPKILiveSource(ctx, sc, target.Monitor.Prefix, original, snapshot, at, intendedOrigin, sourceBudget, authorized)
+		paths, available, err := evaluateBGPRPKILiveSource(ctx, sc, target.Monitor.Prefix, original, snapshot, registry, at, intendedOrigin, sourceBudget, authorized)
 		if err != nil {
 			return empty, err
 		}
@@ -115,7 +117,7 @@ func (s *Server) readBGPRPKICurrentInScope(ctx context.Context, sc tenancy.Scope
 }
 
 func evaluateBGPRPKILiveSource(ctx context.Context, sc tenancy.Scope, prefix netip.Prefix, original store.BGPASPathHistoryRecord,
-	snapshot opendata.RPKISnapshot, at time.Time, intendedOrigin uint32, budget store.BGPRoutingBudget,
+	snapshot opendata.RPKISnapshot, registry *opendata.IRRIndex, at time.Time, intendedOrigin uint32, budget store.BGPRoutingBudget,
 	authorize store.RoutingChangeAuthorizer) ([]bgpRPKIPathPosture, bool, error) {
 	readBudget := store.BGPRoutingBudget{MemoryBytes: budget.MemoryBytes / 2, WorkUnits: budget.WorkUnits / 2, StateBytes: budget.StateBytes}
 	lookup, err := store.CurrentBGPRPKIPrefixInScope(ctx, sc, prefix, original, readBudget, authorize)
@@ -136,9 +138,13 @@ func evaluateBGPRPKILiveSource(ctx context.Context, sc tenancy.Scope, prefix net
 		if err != nil {
 			return nil, false, err
 		}
+		registration, err := registry.Assess(ctx, prefix, origin, at, budget.MemoryBytes/(8*pathCount))
+		if err != nil {
+			return nil, false, err
+		}
 		results = append(results, bgpRPKIPathPosture{RouterID: original.RouterID, Vantage: original.Vantage,
 			Generation: lookup.View.Generation, ViewObservedAt: lookup.LastObservedAt, Origin: origin,
-			PathID: path.PathID, HasPathID: path.HasPathID, RPKI: verdict})
+			PathID: path.PathID, HasPathID: path.HasPathID, RPKI: verdict, IRR: registration})
 	}
 	return results, true, nil
 }

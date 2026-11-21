@@ -31075,7 +31075,31 @@
           "path_id": {"type": "integer", "minimum": 0, "maximum": 4294967295},
           "has_path_id": {"type": "boolean"},
           "rpki": {"$ref": "#/components/schemas/BGPRPKIVerdict"},
+          "irr": {"type": "array", "maxItems": 16, "items": {"$ref": "#/components/schemas/BGPIRRSourcePosture"}},
           "related_hijacks": {"type": "array", "maxItems": 16, "items": {"$ref": "#/components/schemas/BGPRPKIHijack"}}
+        }
+      },
+      "BGPIRRSourcePosture": {
+        "type": "object", "additionalProperties": false,
+        "required": ["source", "status", "rpki_filtered", "objects"],
+        "properties": {
+          "source": {"type": "string", "pattern": "^[A-Z][A-Z0-9_-]{0,31}$"},
+          "status": {"type": "string", "enum": ["match", "origin_mismatch", "not_found", "unavailable", "unknown_origin"]},
+          "observed_at": {"type": "string", "format": "date-time"},
+          "valid_until": {"type": "string", "format": "date-time"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "terms": {"type": "string", "format": "uri"},
+          "rpki_filtered": {"type": "boolean"},
+          "objects": {"type": "array", "items": {"$ref": "#/components/schemas/BGPIRRRouteReceipt"}}
+        }
+      },
+      "BGPIRRRouteReceipt": {
+        "type": "object", "additionalProperties": false,
+        "required": ["origin_asn", "review"],
+        "properties": {
+          "origin_asn": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+          "modified_at": {"type": "string", "format": "date-time"},
+          "review": {"type": "string", "enum": ["current", "past_review_age", "clock_unavailable"]}
         }
       },
       "BGPRPKIHijack": {

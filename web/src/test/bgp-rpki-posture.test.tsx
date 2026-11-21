@@ -82,6 +82,25 @@ test('reaches the exact owned prefix and keeps earlier validation after the live
                 rpki: live
                   ? { ...invalid, suggestion: { prefix: monitor.prefix, origin_asn: origin } }
                   : { status: 'unknown', reason: 'validator_unavailable', covering: [] },
+                irr: [
+                  {
+                    source: 'LAB',
+                    status: 'origin_mismatch',
+                    observed_at: snapshot,
+                    sha256: 'b'.repeat(64),
+                    terms: 'https://registry.example/terms',
+                    rpki_filtered: true,
+                    objects: [
+                      {
+                        origin_asn: 64497,
+                        modified_at: '2024-10-01T00:00:00Z',
+                        review: 'past_review_age',
+                      },
+                      { origin_asn: 64496, review: 'clock_unavailable' },
+                    ],
+                  },
+                  { source: 'SECOND', status: 'unavailable', rpki_filtered: false, objects: [] },
+                ],
                 related_hijacks: live
                   ? [{ incident_id: 'owned-incident', observed_at: clock }]
                   : [],
@@ -140,6 +159,15 @@ test('reaches the exact owned prefix and keeps earlier validation after the live
   })
   const trend = screen.getByRole('table', { name: 'RPKI trend for retained route observations' })
   expect(within(current).getByText(`${monitor.prefix} from AS${origin}`)).toBeInTheDocument()
+  await user.click(within(current).getByText('LAB · Different registered origin'))
+  expect(within(current).getByText(/Due for review/)).toBeInTheDocument()
+  expect(within(current).getByText(/Modification time unavailable/)).toBeInTheDocument()
+  expect(within(current).getByText('Registry filtered by RPKI')).toBeInTheDocument()
+  expect(within(current).getByText('SECOND · Snapshot unavailable')).toBeInTheDocument()
+  expect(within(current).getByRole('link', { name: 'LAB terms' })).toHaveAttribute(
+    'href',
+    'https://registry.example/terms',
+  )
   expect(within(current).getByRole('link', { name: /Possible hijack/ })).toHaveAttribute(
     'href',
     '/incidents?incident=owned-incident',

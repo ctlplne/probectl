@@ -83,12 +83,17 @@ func marshalNativeBGPRPKIPosture(result bgpRPKICurrentPosture) (json.RawMessage,
 		store.BGPRPKIHijack
 		IncidentID mcp.NativeRoleUUID `json:"incident_id"`
 	}
+	type registryVerdict struct {
+		opendata.IRRPosture
+		SHA256 mcp.NativeRoleDigest `json:"sha256,omitempty"`
+	}
 	type path struct {
 		bgpRPKIPathPosture
 		RouterID       mcp.NativeRoleUUID   `json:"router_id"`
 		Vantage        mcp.NativeRoleDigest `json:"vantage"`
 		Generation     mcp.NativeRoleUUID   `json:"generation"`
 		RPKI           verdict              `json:"rpki"`
+		IRR            []registryVerdict    `json:"irr,omitempty"`
 		RelatedHijacks []incidentLink       `json:"related_hijacks,omitempty"`
 	}
 	type point struct {
@@ -109,6 +114,9 @@ func marshalNativeBGPRPKIPosture(result bgpRPKICurrentPosture) (json.RawMessage,
 	for _, row := range result.Paths {
 		v := path{bgpRPKIPathPosture: row, RouterID: mcp.NativeRoleUUID(row.RouterID), Vantage: mcp.NativeRoleDigest(row.Vantage),
 			Generation: mcp.NativeRoleUUID(row.Generation), RPKI: verdict{row.RPKI, mcp.NativeRoleDigest(row.RPKI.ValidatorVersion)}}
+		for _, registry := range row.IRR {
+			v.IRR = append(v.IRR, registryVerdict{registry, mcp.NativeRoleDigest(registry.SHA256)})
+		}
 		for _, link := range row.RelatedHijacks {
 			v.RelatedHijacks = append(v.RelatedHijacks, incidentLink{link, mcp.NativeRoleUUID(link.IncidentID)})
 		}

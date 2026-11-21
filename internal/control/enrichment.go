@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -28,11 +29,22 @@ import (
 // with the load error — and the control plane keeps serving (open data
 // degrades gracefully, docs/guardrails.md G7-10).
 func BuildEnrichment(cfg *config.Config, log *slog.Logger) (*opendata.Enricher, bool) {
-	if !cfg.FlowEnrichASN && cfg.FlowEnrichGeoDB == "" && cfg.FlowEnrichRIRDir == "" && !cfg.FlowEnrichIXP && cfg.FlowEnrichASNFile == "" && cfg.FlowEnrichIXPrefixFile == "" && cfg.FlowEnrichIXMembershipFile == "" && cfg.FlowEnrichRPKIFile == "" && cfg.FlowEnrichServiceFile == "" {
+	if !cfg.FlowEnrichASN && cfg.FlowEnrichGeoDB == "" && cfg.FlowEnrichRIRDir == "" && !cfg.FlowEnrichIXP && cfg.FlowEnrichASNFile == "" && cfg.FlowEnrichIXPrefixFile == "" && cfg.FlowEnrichIXMembershipFile == "" && cfg.FlowEnrichRPKIFile == "" && cfg.FlowEnrichIRRManifest == "" && cfg.FlowEnrichServiceFile == "" {
 		return nil, false
 	}
 	en := opendata.NewEnricher(log, opendata.WithCacheMaxEntries(cfg.FlowEnrichCacheMax))
 	registerRPKIEnrichment(en, cfg, log)
+	if cfg.FlowEnrichIRRManifest != "" {
+		index, err := opendata.LoadIRRIndex(context.Background(), cfg.FlowEnrichIRRManifest, time.Now(), cfg.FlowEnrichIRRMaxAge,
+			cfg.FlowEnrichIRRReviewAge, int64(cfg.FlowEnrichIRRMemoryBytes), int64(cfg.FlowEnrichIRRWorkUnits))
+		if err != nil {
+			log.Warn("local IRR snapshot manifest unavailable")
+			en.RegisterUnavailable(&opendata.IRRIndex{}, errors.New("local IRR snapshot manifest unavailable"))
+		} else {
+			en.Register(index)
+			log.Info("local IRR snapshot manifest loaded")
+		}
+	}
 	registerServiceRangeEnrichment(en, cfg, log)
 	if cfg.FlowEnrichGeoDB != "" {
 		if reader, err := opendata.OpenMMDB(cfg.FlowEnrichGeoDB); err != nil {

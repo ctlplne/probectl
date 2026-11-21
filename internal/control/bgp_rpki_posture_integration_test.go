@@ -10,6 +10,7 @@ package control
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
@@ -44,8 +46,11 @@ func seedBGPRPKIPosture(t *testing.T) (*roleExplanationAPIFixture, *httptest.Ser
 	if err := os.WriteFile(vrps, []byte(source), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	registry := localPostureIRRManifest(t, filepath.Dir(vrps), now.Add(-time.Minute))
 	en, ok := BuildEnrichment(&config.Config{FlowEnrichRPKIFile: vrps, FlowEnrichRPKIMaxAge: time.Hour,
-		FlowEnrichRPKIMemoryBytes: 1 << 20, FlowEnrichRPKIWorkUnits: 1 << 20, FlowEnrichCacheMax: 16}, statusQuietLog())
+		FlowEnrichRPKIMemoryBytes: 1 << 20, FlowEnrichRPKIWorkUnits: 1 << 20, FlowEnrichCacheMax: 16,
+		FlowEnrichIRRManifest: registry, FlowEnrichIRRMaxAge: time.Hour, FlowEnrichIRRReviewAge: 365 * 24 * time.Hour,
+		FlowEnrichIRRMemoryBytes: 1 << 20, FlowEnrichIRRWorkUnits: 1 << 20}, statusQuietLog())
 	if !ok {
 		t.Fatal("the local validator was unavailable")
 	}
@@ -82,6 +87,26 @@ func seedBGPRPKIPosture(t *testing.T) (*roleExplanationAPIFixture, *httptest.Ser
 	return f, socket, paths, commands
 }
 
+func localPostureIRRManifest(t *testing.T, dir string, stamp time.Time) string {
+	t.Helper()
+	data := []byte("route: " + rpkiTestNetwork + "\norigin: AS64497\nsource: LAB\n")
+	if err := os.WriteFile(filepath.Join(dir, "local.rpsl"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := json.Marshal(map[string]any{"version": 1, "sources": []map[string]any{{
+		"source": "LAB", "generated_at": stamp, "sha256": hex.EncodeToString(crypto.Hash(data)),
+		"file": "local.rpsl", "terms": "https://registry.example/terms", "rpki_filtered": false,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "irr-manifest.json")
+	if err := os.WriteFile(path, manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestBGPRPKIPostureUsesEachTenantsCurrentOwnedOrigin(t *testing.T) {
 	f, socket, paths, commands := seedBGPRPKIPosture(t)
 	var hijacks [2]string
@@ -104,7 +129,7 @@ func TestBGPRPKIPostureUsesEachTenantsCurrentOwnedOrigin(t *testing.T) {
 			return err
 		})
 	}
-	var validatorVersions [2]string
+	var validatorVersions, registryChecksums [2]string
 	for lane, tenant := range f.tenants {
 		out := readBGPRPKITestView(t, socket, f.tokens[tenant], paths[lane])
 		want := [2]string{"valid", "invalid"}[lane]
@@ -119,6 +144,12 @@ func TestBGPRPKIPostureUsesEachTenantsCurrentOwnedOrigin(t *testing.T) {
 			t.Fatal("the history did not keep its original validator and owned origin", out.Trend)
 		}
 		validatorVersions[lane] = out.Trend[0].Posture.ValidatorVersion
+		registry := out.Paths[0].IRR
+		if len(registry) != 1 || registry[0].Source != "LAB" || registry[0].Status != [2]string{"match", "origin_mismatch"}[lane] ||
+			len(registry[0].SHA256) != 64 || len(registry[0].Objects) != 1 || registry[0].Objects[0].Origin != 64497 {
+			t.Fatal("the scope lost its exact owned origin or source registration", registry)
+		}
+		registryChecksums[lane] = registry[0].SHA256
 		suggestion := out.Paths[0].RPKI.Suggestion
 		if (suggestion != nil) != (lane == 1) || suggestion != nil &&
 			(suggestion.Prefix.String() != rpkiTestNetwork || suggestion.OriginASN != 64498) {
@@ -136,7 +167,12 @@ func TestBGPRPKIPostureUsesEachTenantsCurrentOwnedOrigin(t *testing.T) {
 		for lane, tenant := range f.tenants {
 			var native struct {
 				Prefix string `json:"prefix"`
-				Trend  []struct {
+				Paths  []struct {
+					IRR []struct {
+						SHA256 string `json:"sha256"`
+					} `json:"irr"`
+				} `json:"paths"`
+				Trend []struct {
 					Origin  uint32 `json:"origin_asn"`
 					Posture struct {
 						ValidatorVersion string `json:"validator_version"`
@@ -147,6 +183,9 @@ func TestBGPRPKIPostureUsesEachTenantsCurrentOwnedOrigin(t *testing.T) {
 			if len(native.Trend) != 1 || native.Trend[0].Origin != uint32(64497+lane) ||
 				native.Trend[0].Posture.ValidatorVersion != validatorVersions[lane] || native.Prefix == "" || strings.Contains(native.Prefix, "198.19.0.0") {
 				t.Fatal("native posture changed the tenant's original evidence or disclosed its prefix", wire, native)
+			}
+			if len(native.Paths) != 1 || len(native.Paths[0].IRR) != 1 || native.Paths[0].IRR[0].SHA256 != registryChecksums[lane] {
+				t.Fatal("native posture changed the original registry digest", wire, native.Paths)
 			}
 			call(tenant, "bgp_rpki_posture", commands[1-lane], nil, false)
 		}
@@ -181,7 +220,7 @@ func TestBGPRPKIPostureBrowserShowsOwnedCurrentAndRetainedResults(t *testing.T) 
 				own, foreign := strconv.Itoa(64497+lane), strconv.Itoa(64498-lane)
 				verdict := [2]string{"Valid", "Invalid"}[lane]
 				currentTable := "table:has(caption:text-is('Current RPKI posture for " + rpkiTestNetwork + "'))"
-				current := []string{"AS" + own, verdict}
+				current := []string{"AS" + own, verdict, [2]string{"LAB · Exact route object", "LAB · Different registered origin"}[lane]}
 				if lane == 1 {
 					current = append(current, rpkiTestNetwork+" from AS"+own)
 				}

@@ -648,6 +648,23 @@ export interface BGPEventList {
   items?: BGPEvent[]
 }
 
+export interface BGPIRRRouteReceipt {
+  modified_at?: string
+  origin_asn: number
+  review: "current" | "past_review_age" | "clock_unavailable"
+}
+
+export interface BGPIRRSourcePosture {
+  objects: BGPIRRRouteReceipt[]
+  observed_at?: string
+  rpki_filtered: boolean
+  sha256?: string
+  source: string
+  status: "match" | "origin_mismatch" | "not_found" | "unavailable" | "unknown_origin"
+  terms?: string
+  valid_until?: string
+}
+
 export interface BGPRPKICoveringAssertion {
   asn: number
   max_length: number
@@ -678,6 +695,7 @@ export interface BGPRPKIHijack {
 export interface BGPRPKIPathPosture {
   generation: string
   has_path_id: boolean
+  irr?: BGPIRRSourcePosture[]
   origin_asn?: number
   path_id: number
   related_hijacks?: BGPRPKIHijack[]

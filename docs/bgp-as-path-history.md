@@ -82,3 +82,23 @@ probectl --json bgp rpki-posture MONITOR_ID \
 The matching read-only native MCP tool is `bgp_rpki_posture`. It requires
 `events.read`, `entities.read` and `ai.query`, with current resource and
 credential checks and the tenant's egress redaction policy.
+
+## Compare an owned route with IRR registrations
+
+Configure an operator-authorized IRR manifest to show each registry's
+evidence beside the observed origin and RPKI suggestion. Locate the exact
+announced prefix and origin ASN in that registry's `route` or `route6`
+objects. A parent prefix represents a different object. A current complete
+snapshot can show a matching origin, a different registered origin or no
+exact object. Each result keeps its source clock and digest. A fresh snapshot
+can contain an older object whose last modification time is due for review.
+The source label identifies snapshots filtered by RPKI so their dependence is
+visible during review. [Configuration and freshness settings](configuration.md)
+
+Supply a JSON manifest with version `1` and a `sources` array. Each source
+entry includes `source`, `generated_at` in RFC 3339, `sha256` of the original
+plain or gzip file, `terms` as the registry's HTTPS terms reference,
+`rpki_filtered` as a boolean, and `file` relative to the manifest directory.
+The control plane verifies each file against its digest and caches the index
+locally. Obtain the export under the publisher's terms for your deployment.
+[RPSL route objects](https://www.rfc-editor.org/rfc/rfc2622.html#section-5.2) · [RPSLng route6 objects](https://www.rfc-editor.org/rfc/rfc4012.html#section-3)

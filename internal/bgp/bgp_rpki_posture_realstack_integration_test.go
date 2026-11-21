@@ -9,6 +9,7 @@
 package bgp_test
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/store"
@@ -31,6 +33,7 @@ const frrRPKINotFound = "2001:db8:6000::/48"
 type frrRPKICase struct {
 	prefix, status, reason string
 	origin                 uint32
+	registryStatus         string
 }
 
 type frrRPKITarget struct {
@@ -52,12 +55,39 @@ func prepareFRRRPKICases(t *testing.T, lab *routingLab, advertised6, link6 strin
 	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	registry := seedFRRRegistrySnapshot(t, advertised6, link6)
 	return []frrRPKICase{
-		{prefixA, "valid", "matching_prefix_and_origin", originA},
-		{advertised6, "invalid", "origin_mismatch", originA},
-		{link6, "invalid", "prefix_length_exceeds_origin_authorization", edgeASN},
-		{frrRPKINotFound, "not_found", "no_covering_assertion", originA},
-	}, map[string]string{"PROBECTL_FLOW_ENRICH_RPKI_FILE": file}
+		{prefixA, "valid", "matching_prefix_and_origin", originA, "match"},
+		{advertised6, "invalid", "origin_mismatch", originA, "origin_mismatch"},
+		{link6, "invalid", "prefix_length_exceeds_origin_authorization", edgeASN, "match"},
+		{frrRPKINotFound, "not_found", "no_covering_assertion", originA, "not_found"},
+	}, map[string]string{"PROBECTL_FLOW_ENRICH_RPKI_FILE": file, "PROBECTL_FLOW_ENRICH_IRR_MANIFEST": registry}
+}
+
+func seedFRRRegistrySnapshot(t *testing.T, advertised6, link6 string) string {
+	t.Helper()
+	dir := t.TempDir()
+	stamp := time.Now().UTC().Add(-time.Minute)
+	content := []byte(fmt.Sprintf("route: %s\norigin: AS%d\nlast-modified: %s\nsource: LAB\n\n"+
+		"route6: %s\norigin: AS%d\nsource: LAB\n\nroute6: %s\norigin: AS%d\nsource: LAB\n\n"+
+		"route6: 2001:db8::/32\norigin: AS%d\nsource: LAB\n", prefixA, originA, stamp.AddDate(-2, 0, 0).Format(time.RFC3339),
+		advertised6, originB, link6, edgeASN, originA))
+	if err := os.WriteFile(filepath.Join(dir, "lab.rpsl"), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := hex.EncodeToString(crypto.Hash(content))
+	manifest, err := json.Marshal(map[string]any{"version": 1, "sources": []map[string]any{
+		{"source": "LAB", "file": "lab.rpsl", "generated_at": stamp, "sha256": digest, "terms": "https://registry.example/terms", "rpki_filtered": false},
+		{"source": "UNAVAILABLE", "file": "unavailable.rpsl", "generated_at": stamp, "sha256": digest, "terms": "https://registry.example/terms", "rpki_filtered": false},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "manifest.json")
+	if err := os.WriteFile(path, manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func addFRRRPKIMonitors(t *testing.T, st *shipped.Stack, lanes []edgeFlowRegistration, cases []frrRPKICase) [][]frrRPKITarget {
@@ -91,8 +121,9 @@ func proveFRRRPKI(t *testing.T, st *shipped.Stack, lanes []edgeFlowRegistration,
 			var result struct {
 				Prefix string `json:"prefix"`
 				Paths  []struct {
-					Origin uint32               `json:"origin_asn"`
-					RPKI   opendata.RPKIPosture `json:"rpki"`
+					Origin uint32                `json:"origin_asn"`
+					RPKI   opendata.RPKIPosture  `json:"rpki"`
+					IRR    []opendata.IRRPosture `json:"irr"`
 				} `json:"paths"`
 				Trend []store.BGPRPKIHistoryObservation `json:"trend"`
 			}
@@ -101,6 +132,13 @@ func proveFRRRPKI(t *testing.T, st *shipped.Stack, lanes []edgeFlowRegistration,
 				return code == http.StatusOK && json.Unmarshal(raw, &result) == nil && len(result.Paths) == 1 && len(result.Trend) > 0
 			})
 			current, original := result.Paths[0], result.Trend[0]
+			if len(current.IRR) != 2 || current.IRR[0].Source != "LAB" || current.IRR[0].Status != target.registryStatus ||
+				len(current.IRR[0].SHA256) != 64 || current.IRR[0].ObservedAt == nil || current.IRR[1].Status != "unavailable" {
+				t.Fatal("the exact prefix and original registry coverage were lost", target, current.IRR)
+			}
+			if target.prefix == prefixA && (len(current.IRR[0].Objects) != 1 || current.IRR[0].Objects[0].Review != "past_review_age") {
+				t.Fatal("the old matching object lost its review state", current.IRR[0])
+			}
 			if result.Prefix != target.prefix || current.Origin != target.origin || current.RPKI.Status != target.status || current.RPKI.Reason != target.reason ||
 				current.RPKI.ValidatorVersion == "" || original.Posture.ValidatorVersion != current.RPKI.ValidatorVersion ||
 				original.Origin == nil || *original.Origin != target.origin || original.Posture.Status != target.status || original.Posture.Suggestion != nil {

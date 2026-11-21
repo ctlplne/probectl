@@ -174,6 +174,61 @@ const trendColumns: Column<BGPRPKITrendPoint>[] = [
   },
 ]
 
+const irrStatus = {
+  match: 'Exact route object',
+  origin_mismatch: 'Different registered origin',
+  not_found: 'No exact route object',
+  unavailable: 'Snapshot unavailable',
+  unknown_origin: 'Observed origin unknown',
+}
+
+const registryColumn: Column<BGPRPKIPathPosture> = {
+  key: 'registries',
+  header: 'IRR route objects',
+  render: ({ irr }) => (
+    <div className={styles.visualStack}>
+      {irr?.map((registry) => (
+        <details key={registry.source}>
+          <summary>
+            {registry.source} · {irrStatus[registry.status]}
+          </summary>
+          {registry.observed_at && (
+            <p>
+              Snapshot generated <DateTime value={registry.observed_at} />
+            </p>
+          )}
+          {registry.rpki_filtered && <p>Registry filtered by RPKI</p>}
+          {registry.objects.length > 0 && (
+            <ul>
+              {registry.objects.map((object) => (
+                <li key={object.origin_asn}>
+                  AS{object.origin_asn}
+                  {object.modified_at && (
+                    <>
+                      {' · Modified '}
+                      <DateTime value={object.modified_at} />
+                    </>
+                  )}
+                  {object.review === 'past_review_age' && ' · Due for review'}
+                  {object.review === 'clock_unavailable' && ' · Modification time unavailable'}
+                </li>
+              ))}
+            </ul>
+          )}
+          {registry.sha256 && <code className="break-all">{registry.sha256}</code>}
+          {registry.terms && (
+            <p>
+              <a href={registry.terms} target="_blank" rel="noreferrer">
+                {registry.source} terms
+              </a>
+            </p>
+          )}
+        </details>
+      ))}
+    </div>
+  ),
+}
+
 export function BGPRPKIPosture({
   tenant,
   monitor,
@@ -287,7 +342,11 @@ export function BGPRPKIPosture({
           )}
           <Table
             caption={`Current RPKI posture for ${monitor.prefix}`}
-            columns={columns}
+            columns={
+              query.data.paths.some((path) => path.irr?.length)
+                ? [...columns, registryColumn]
+                : columns
+            }
             rows={query.data.paths}
             rowKey={(row) => `${row.vantage}/${row.generation}/${row.has_path_id}/${row.path_id}`}
             empty="No currently observed owned origins."

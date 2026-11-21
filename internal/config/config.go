@@ -598,6 +598,11 @@ type Config struct {
 	FlowEnrichRPKIMaxAge      time.Duration
 	FlowEnrichRPKIMemoryBytes int
 	FlowEnrichRPKIWorkUnits   int
+	FlowEnrichIRRManifest     string
+	FlowEnrichIRRMaxAge       time.Duration
+	FlowEnrichIRRReviewAge    time.Duration
+	FlowEnrichIRRMemoryBytes  int
+	FlowEnrichIRRWorkUnits    int
 	// Complete offline publisher exports; never enables an outbound lookup.
 	FlowEnrichServiceFile        string
 	FlowEnrichServiceMaxAge      time.Duration
@@ -1277,6 +1282,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.FlowEnrichRIRDir = l.str("PROBECTL_FLOW_ENRICH_RIR_DIR", "")
 	cfg.FlowEnrichASNFile = l.str("PROBECTL_FLOW_ENRICH_ASN_FILE", "")
 	loadRPKIConfig(l, cfg)
+	loadIRRConfig(l, cfg)
 	loadServiceRangeConfig(l, cfg)
 	cfg.FlowEnrichIXPrefixFile = l.str("PROBECTL_FLOW_ENRICH_IX_PREFIX_FILE", "")
 	cfg.FlowEnrichIXPrefixMaxAge = l.dur("PROBECTL_FLOW_ENRICH_IX_PREFIX_MAX_AGE", 24*time.Hour)
