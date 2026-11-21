@@ -898,9 +898,14 @@ func (ev *Evaluator) EvaluateWorkingSet(ctx context.Context, rules []Rule) {
 // change retention for rules it was not asked to evaluate.
 func (ev *Evaluator) EvaluateRules(ctx context.Context, rules []Rule) {
 	for _, rule := range rules {
-		if _, err := ev.engine.Evaluate(ctx, rule); err != nil {
-			// A single rule's evaluation failure must not stop the others.
-			ev.log.Warn("alert rule evaluation failed", "rule", rule.Name, "error", err)
-		}
+		ev.EvaluateRule(ctx, rule)
+	}
+}
+
+// EvaluateRule runs an independent due rule. The caller serializes each
+// rule's evaluations to preserve its notification and receipt write order.
+func (ev *Evaluator) EvaluateRule(ctx context.Context, rule Rule) {
+	if _, err := ev.engine.Evaluate(ctx, rule); err != nil {
+		ev.log.Warn("alert rule evaluation failed", "rule", rule.Name, "error", err)
 	}
 }

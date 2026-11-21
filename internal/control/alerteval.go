@@ -598,8 +598,42 @@ func (s *AlertEvaluatorSupervisor) tickFastDDoS(ctx context.Context, te *tenantE
 		return
 	}
 	s.reloadShared(ctx, te)
-	te.ev.EvaluateRules(ctx, due)
+	parallel := 2
+	if gate := s.tagDeps.Gate; gate != nil && gate.EffectivePolicy(ctx, te.tenant.String()).QueryConcurrency == 1 {
+		parallel = 1
+	}
+	evaluateDueFastDDoSRules(ctx, te.ev, due, parallel)
 	s.publishShared(ctx, te)
+}
+
+func evaluateDueFastDDoSRules(ctx context.Context, evaluator *alert.Evaluator, due []alert.Rule, parallel int) {
+	// The fast lane waits for the pass to finish before loading due rules
+	// again. Distinct rules can progress in parallel within tenant query
+	// admission, while each rule keeps a single evaluation in flight.
+	if parallel == 1 || len(due) <= 1 {
+		evaluator.EvaluateRules(ctx, due)
+		return
+	}
+	jobs := make(chan alert.Rule)
+	var workers sync.WaitGroup
+	defer func() {
+		close(jobs)
+		workers.Wait()
+	}()
+	for range parallel {
+		workers.Go(func() {
+			for rule := range jobs {
+				evaluator.EvaluateRule(ctx, rule)
+			}
+		})
+	}
+	for _, rule := range due {
+		select {
+		case jobs <- rule:
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 // Run periodically syncs tenants and evaluates the two disjoint working sets.

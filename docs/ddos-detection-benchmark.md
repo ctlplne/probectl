@@ -110,6 +110,18 @@ missing. The receipt and incident report preserve the selected clocks. The
 holdout is separate from the 416 benchmark trials.
 [Selector holdout](../internal/anomaly/ddos_weekly_reference_test.go) · [Paired runtime fixture](../internal/control/flow_ddos_reference_integration_test.go)
 
+## Concurrent rules holdout
+
+An older fast rule holds one of two tenant query slots and waits on its
+telemetry source. A second rule for a different protected host reads its own
+stored flow windows and publishes an authorized episode while the first rule
+is still waiting. A quiet sibling tenant completes its evaluation and cannot
+read the other tenant's receipt. The serial baseline exceeded the fixture's
+eight-second wait. The bounded two-worker pass produced a visible receipt in
+0.22–0.25 seconds across two local runs. This measures progress within an already
+started scheduler pass. A tenant configured for one concurrent query keeps
+serial evaluation. [Paired scheduler fixture](../internal/control/alert_ddos_fast_integration_test.go)
+
 ## Shipped collector timing
 
 Two two-tenant runs on macOS arm64 seeded synthetic prior-week references in

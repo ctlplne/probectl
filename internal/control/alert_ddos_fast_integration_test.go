@@ -168,6 +168,159 @@ func (m *blockedDDoSFixtureMetric) InstantVector(ctx context.Context, _ string) 
 	return nil, ctx.Err()
 }
 
+func TestFastDDoSContinuesPastAnotherRuleWaitingOnTelemetry(t *testing.T) {
+	f := newRoleExplanationAPIFixture(t)
+	rows := seasonalFlowFixtureStore(t, f, true)
+	views := flow.NewPostgresQueryViewStore(f.pool, 0, audit.TenantRecord)
+	metrics := tsdb.NewMemory()
+	policy := fairness.DefaultPolicy()
+	policy.QueryConcurrency = 2
+	gate := fairness.NewGate(policy, nil)
+	f.server.WithTSDB(metrics).WithFlowStore(rows).WithFlowQueryViews(views).WithFairness(gate)
+	socket := httptest.NewTLSServer(f.server.Handler())
+	t.Cleanup(socket.Close)
+	var waitingRule string
+	var ruleIDs [2]string
+	for lane, tenant := range f.tenants {
+		grantSeasonalFlowFixture(f, tenant)
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		definition := fieldComparisonViewDefinition("Fast rule scheduling fixture")
+		definition.Time.LookbackSeconds = 60
+		view, err := views.SaveQueryView(ctx, tenant, f.users[tenant], flow.SaveQueryView{Definition: definition})
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings := flow.DDoSAssessmentInput{Version: view.Version, Prefix: "192.0.2.1/32", Direction: "ingress", PeriodSeconds: 5,
+			BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000, VectorShareBasisPoints: 6000,
+			MinObservedRecords: 1, MinObservedAddresses: 2}
+		createRule := func(name string, input flow.DDoSAssessmentInput) string {
+			t.Helper()
+			source := alert.QuerySourceInput{ViewID: view.ID, ViewVersion: view.Version,
+				Condition: alert.QueryCondition{Mode: alert.DDoSCondition, DDoS: &input}}
+			body := callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodPost, "/v1/alerts",
+				map[string]any{"name": name, "query_source": source}, http.StatusCreated)
+			var rule alert.Rule
+			if err := json.Unmarshal(body, &rule); err != nil || rule.ID == "" {
+				t.Fatal("fast rule could not be created", err)
+			}
+			return rule.ID
+		}
+		if lane == 0 {
+			slow := settings
+			slow.Prefix = "192.0.2.2/32"
+			waitingRule = createRule("Older rule with a slow telemetry read", slow)
+		}
+		ruleIDs[lane] = createRule("Independent protected host", settings)
+	}
+	deps := AlertTagDependencies{Gate: gate, Queries: f.server, IncidentWindow: time.Minute}
+	sup, ok := BuildAlertEvaluatorSupervisor(f.pool, metrics, alert.ChannelDeps{}, time.Second, nil, f.server.log, nil, nil, deps)
+	if !ok {
+		t.Fatal("fast evaluator is unavailable")
+	}
+	owner := f.tenants[0]
+	sup.listTenants = func(context.Context) ([]store.Tenant, error) {
+		return []store.Tenant{{ID: owner, Status: "active"}, {ID: f.tenants[1], Status: "active"}}, nil
+	}
+	if err := sup.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	waiting := &waitingFastDDoSRuleSource{alertTagMetricSource: alertTagMetricSource{tenant: owner, pool: f.pool, deps: deps},
+		id: waitingRule, ready: make(chan struct{}), finished: make(chan error, 1)}
+	sup.evaluators[owner].ev = alert.NewEvaluator(alert.NewEngine(waiting, nil, f.server.log), nil, time.Second, f.server.log)
+	var seeded []flowstore.Row
+	center := time.Now().UTC().Truncate(5 * time.Second)
+	for lane, tenant := range f.tenants {
+		for offset := -5; offset <= 1; offset++ {
+			at := center.Add(time.Duration(offset)*5*time.Second - 2*time.Second)
+			seeded = append(seeded, delayFixtureFlow(tenant, at.AddDate(0, 0, -7), false), delayFixtureFlow(tenant, at, lane == 0))
+		}
+	}
+	if err := rows.Insert(t.Context(), seeded); err != nil {
+		t.Fatal(err)
+	}
+	run, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sup.tick(run, sup.tickFastDDoS)
+	}()
+	t.Cleanup(func() { cancel(); <-done })
+	select {
+	case <-waiting.ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the older fast rule did not start its waiting read")
+	}
+	started := time.Now()
+	select {
+	case err := <-waiting.finished:
+		if err != nil {
+			t.Fatal("the protected host's rule could not read its tenant telemetry", err)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("the protected host's fast rule waited behind another rule")
+	}
+	var receipt string
+	for _, item := range getSeasonalFlowReceipts(t, socket, f.tokens[owner], ruleIDs[0]).Items {
+		if item.Reason == "Sustained flow traffic pressure" {
+			if receipt != "" {
+				t.Fatal("the independent rule emitted more than one episode")
+			}
+			receipt = item.Fingerprint
+		}
+	}
+	if !alert.ValidFieldDigest(receipt) {
+		t.Fatal("the independent rule did not open an episode")
+	}
+	path := "/v1/alerts/rules/" + ruleIDs[0] + "/ddos-receipt?fingerprint=" + receipt
+	body := callSeasonalAPI(t, socket, f.tokens[owner], http.MethodGet, path, nil, http.StatusOK)
+	var proof alert.DDoSEvaluationEvidence
+	if err := json.Unmarshal(body, &proof); err != nil || proof.Current.After.To.Sub(proof.Previous.After.From) != 10*time.Second {
+		t.Fatal("the independent rule lost its original adjacent pressure windows", err)
+	}
+	callSeasonalAPI(t, socket, f.tokens[f.tenants[1]], http.MethodGet, path, nil, http.StatusNotFound)
+	sibling := f.tenants[1]
+	shipped.Await(t, "the quiet sibling's fast rule completed a real evaluation", 5*time.Second, func() bool {
+		var evaluated bool
+		f.in(sibling, func(ctx context.Context, sc tenancy.Scope) error {
+			return sc.Q.QueryRow(ctx, `SELECT query_next_eval_at IS NOT NULL FROM alert_rules WHERE tenant_id=$1 AND id=$2`,
+				sibling, ruleIDs[1]).Scan(&evaluated)
+		})
+		return evaluated
+	})
+	for _, item := range getSeasonalFlowReceipts(t, socket, f.tokens[sibling], ruleIDs[1]).Items {
+		if item.Reason == "Sustained flow traffic pressure" {
+			t.Fatal("quiet sibling received an episode")
+		}
+	}
+	if gate.SnapshotTenant(t.Context(), owner).Queries.InFlight != 1 {
+		t.Fatal("the older rule did not keep its shared tenant query admission while waiting")
+	}
+	t.Logf("real-integration: tenant-scoped episode available in %s while the older fast rule still waited", time.Since(started))
+}
+
+type waitingFastDDoSRuleSource struct {
+	alertTagMetricSource
+	id       string
+	ready    chan struct{}
+	finished chan error
+}
+
+func (s *waitingFastDDoSRuleSource) CurrentRule(ctx context.Context, rule alert.Rule) (alert.RuleMetricRead, error) {
+	if rule.ID != s.id {
+		read, err := s.alertTagMetricSource.CurrentRule(ctx, rule)
+		s.finished <- err
+		return read, err
+	}
+	release, err := s.deps.Gate.BeginQuery(ctx, s.tenant)
+	if err != nil {
+		return alert.RuleMetricRead{}, err
+	}
+	defer release()
+	close(s.ready)
+	<-ctx.Done()
+	return alert.RuleMetricRead{}, ctx.Err()
+}
+
 func fastDDoSApplicationFixtureStore(t *testing.T, tenants []string) otelstore.Store {
 	t.Helper()
 	endpoint := os.Getenv("PROBECTL_FLOWSTORE_URL")
