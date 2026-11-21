@@ -135,8 +135,8 @@ export function DeviceSyslogPatternsCard() {
                 className="mt-4 space-y-2 text-body"
               >
                 <p className="text-muted-foreground">
-                  {t('device.syslog.frequency.interval')}{' '}
-                  <DateTime value={frequencyFrom} /> – <DateTime value={frequencyTo} />
+                  {t('device.syslog.frequency.interval')} <DateTime value={frequencyFrom} /> –{' '}
+                  <DateTime value={frequencyTo} />
                 </p>
                 {frequencyQuery.isPending ? (
                   <LoadingState label={t('device.syslog.pattern.loading')} />

@@ -599,7 +599,8 @@ const en = {
   'device.syslog.frequency.column': 'Weekly frequency',
   'device.syslog.frequency.compare': 'Compare',
   'device.syslog.frequency.interval': 'Completed hour',
-  'device.syslog.frequency.unavailable': 'No indexed observations for this pattern in the completed hour.',
+  'device.syslog.frequency.unavailable':
+    'No indexed observations for this pattern in the completed hour.',
   'device.syslog.frequency.warming': 'More comparable weeks are needed.',
   'device.syslog.frequency.normal': 'Frequency is within the expected range.',
   'device.syslog.frequency.up': 'Frequency is above the expected range.',
@@ -2237,7 +2238,8 @@ const es: Record<MessageKey, string> = {
   'device.syslog.frequency.column': 'Frecuencia semanal',
   'device.syslog.frequency.compare': 'Comparar',
   'device.syslog.frequency.interval': 'Hora completada',
-  'device.syslog.frequency.unavailable': 'Este patrón no tiene observaciones indexadas en la hora completada.',
+  'device.syslog.frequency.unavailable':
+    'Este patrón no tiene observaciones indexadas en la hora completada.',
   'device.syslog.frequency.warming': 'Se necesitan más semanas comparables.',
   'device.syslog.frequency.normal': 'La frecuencia está dentro del intervalo esperado.',
   'device.syslog.frequency.up': 'La frecuencia supera el intervalo esperado.',
