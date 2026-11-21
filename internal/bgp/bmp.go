@@ -810,6 +810,11 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 
 	l.log.Info("bmp peer session admitted",
 		"tenant_id", id.TenantID, "agent_id", id.AgentID, "spiffe_id", id.SPIFFEID, "remote", bmpRemoteAddr(conn))
+	return l.serveAuthenticatedSession(ctx, conn, id, liveHandle, sessionEvidence)
+}
+
+func (l *BMPListener) serveAuthenticatedSession(ctx context.Context, conn net.Conn, id bmpIdentity,
+	liveHandle uint64, sessionEvidence *bmpSessionEvidenceStream) error {
 	var published, suppressed uint64
 	defer func() {
 		l.log.Info("bmp peer session ended",

@@ -456,6 +456,7 @@
    "surfaces": [
     "CONTRIBUTING.md",
     "docs/architecture.md",
+    "docs/bgp.md",
     "docs/buyer-memo.md",
     "docs/configuration.md",
     "docs/dependency-policy.md",
@@ -484,11 +485,13 @@
     "web/src/i18n/messages.ts"
    ],
    "code": [
+    "internal/control/bmp_session_signals.go",
     "internal/ebpf/observeonly_test.go",
     "ee/remediation"
    ],
    "proof": [
     "selftest-label:DOCS-S04",
+    "test:internal/bgp/bmp_session_realstack_integration_test.go#TestFRRBMPSessionHistoryKeepsTransitionsAndTenantSignals",
     "test:internal/ebpf/observeonly_test.go"
    ]
   },
