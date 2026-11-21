@@ -6,7 +6,7 @@ Run from a clean probectl checkout with the Go toolchain in `go.mod`.
 git rev-parse HEAD
 go version
 go env GOOS GOARCH
-go test -count=1 -v -run '^TestSyntheticDDoSDetectionBenchmark$' ./internal/control
+go test -count=1 -v -run '^TestSyntheticDDoS(DetectionBenchmark|ProtectedServiceSensitivity)$' ./internal/control
 GOMAXPROCS=2 go test -run '^$' -bench '^BenchmarkSyntheticDDoSDetection$' -benchmem -count=5 ./internal/control
 ```
 
@@ -91,6 +91,23 @@ separate-port pressure families still produced episodes.
 Version one used 13 trials and two completed 60-second windows. A benign
 flash crowd opened a tentative volume episode on identical aggregates. Its
 source and results remain reproducible at the original commit. [Version-one benchmark and results](https://github.com/ctlplne/probectl/blob/d79fc7993d09b3ce1d4e8242b7b5c869100d2537/docs/ddos-detection-benchmark.md)
+
+## Protected service sensitivity holdout
+
+Sixteen variants model the same 70% ingress growth with different original
+volumes and HTTP request counts. The reference stays below 102,000 bytes
+and 1,100 packets per five seconds. The surge carries 153,000–172,405 bytes
+and 1,530–1,861 packets. The fixture compares the corpus thresholds with
+service thresholds of 140,000 bytes and 1,400 packets per five seconds.
+
+| Scenario | Result across 16 variants |
+| --- | --- |
+| Degraded service with the original benchmark thresholds | 16 below both floors |
+| Degraded service with the tested service thresholds | 16 episodes in 10–14 modeled seconds |
+| Same traffic with proportionate successful demand and healthy responses | 16 suppressed as explained demand |
+| Same traffic with missing application observations | 16 abstentions |
+
+These 64 comparisons are separate from the 416-trial corpus. [Sensitivity fixture](../internal/control/flow_ddos_sensitivity_test.go)
 
 ## Stable network background holdout
 
