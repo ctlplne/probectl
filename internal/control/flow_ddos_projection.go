@@ -127,7 +127,8 @@ func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, s
 	if err != nil {
 		return err
 	}
-	if current.observation.ObservedRecords == 0 || !maps.Equal(reference.samplingRates, current.samplingRates) {
+	if current.observation.ObservedRecords < settings.Input.MinObservedRecords ||
+		!maps.Equal(reference.samplingRates, current.samplingRates) {
 		return errDDoSTimingCoverage
 	}
 	if finding == nil {

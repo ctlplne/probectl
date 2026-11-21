@@ -28,26 +28,31 @@ import (
 )
 
 func TestFastDDoSKeepsEpisodeThroughAnUndersampledWindow(t *testing.T) {
-	testFastDDoSContinuesEpisode(t, errDDoSSampleCoverage)
+	testFastDDoSContinuesEpisode(t, errDDoSSampleCoverage, 8)
 }
 
 func TestFastDDoSKeepsEpisodeThroughInvalidSamplingWindow(t *testing.T) {
-	testFastDDoSContinuesEpisode(t, errDDoSCounterIntegrity)
+	testFastDDoSContinuesEpisode(t, errDDoSCounterIntegrity, 8)
 }
 
 func TestFastDDoSKeepsEpisodeThroughSparseUnsampledPressure(t *testing.T) {
-	testFastDDoSContinuesEpisode(t, anomaly.ErrDDoSRecordSupport)
+	testFastDDoSContinuesEpisode(t, anomaly.ErrDDoSRecordSupport, 1)
 }
 
 func TestFastDDoSDoesNotReopenOnChangingPressureClass(t *testing.T) {
-	testFastDDoSContinuesEpisode(t, nil)
+	testFastDDoSContinuesEpisode(t, nil, 8)
 }
 
 func TestFastDDoSKeepsEpisodeThroughQuietTotalsFromCrossingIntervals(t *testing.T) {
-	testFastDDoSContinuesEpisode(t, errDDoSTimingCoverage)
+	t.Run("sampled", func(t *testing.T) {
+		testFastDDoSContinuesEpisode(t, errDDoSTimingCoverage, 8)
+	})
+	t.Run("unsampled", func(t *testing.T) {
+		testFastDDoSContinuesEpisode(t, errDDoSTimingCoverage, 1)
+	})
 }
 
-func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error) {
+func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error, rate uint64) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	rows := seasonalFlowFixtureStore(t, f, true)
@@ -83,7 +88,7 @@ func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error) {
 		if err := json.Unmarshal(body, &rule); err != nil || rule.ID == "" {
 			t.Fatal("could not bind the sampled rule", err)
 		}
-		seedDDoSContinuityWindows(t, rows, tenant, end, width, lane == 0, coverageGap)
+		seedDDoSContinuityWindows(t, rows, tenant, end, width, lane == 0, coverageGap, rate)
 		wantSamples := 0
 		if lane == 0 {
 			wantSamples = 1
@@ -133,9 +138,8 @@ func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error) {
 			path = "/v1/alerts/rules/" + rule.ID + "/ddos-receipt?fingerprint=" + items[0].Fingerprint
 			body = callSeasonalAPI(t, server, f.tokens[tenant], http.MethodGet, path, nil, http.StatusOK)
 			var proof alert.DDoSEvaluationEvidence
-			wantSampled := coverageGap != anomaly.ErrDDoSRecordSupport
 			if err := json.Unmarshal(body, &proof); err != nil || !proof.Current.After.To.Equal(end) ||
-				proof.Current.After.Sampled != wantSampled || proof.Current.After.ObservedRecords != 4 || proof.Current.After.Packets != "6400" {
+				proof.Current.After.Sampled != (rate > 1) || proof.Current.After.ObservedRecords != 4 || proof.Current.After.Packets != "6400" {
 				t.Fatal("the original episode receipt lost its sampling or original record evidence", err)
 			}
 		}
@@ -143,12 +147,8 @@ func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error) {
 	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, path, nil, http.StatusNotFound)
 }
 
-func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant string, end time.Time, width time.Duration, pressure bool, coverageGap error) {
+func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant string, end time.Time, width time.Duration, pressure bool, coverageGap error, rate uint64) {
 	t.Helper()
-	rate := uint64(8)
-	if coverageGap == anomaly.ErrDDoSRecordSupport {
-		rate = 1
-	}
 	var rows []flowstore.Row
 	for offset := -1; offset <= 3; offset++ {
 		at := end.Add(time.Duration(offset)*width - 2*time.Second)

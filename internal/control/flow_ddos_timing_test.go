@@ -97,6 +97,15 @@ func TestDDoSTimingCannotEstablishQuietFromCrossingReportsAlone(t *testing.T) {
 		if got, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork); err != nil || got.Detection != nil {
 			t.Fatal("contained observations did not support quiet", seconds, got, err)
 		}
+		rows[0].Metrics["flows:total"] = "1"
+		got, err = assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
+		if anomaly.DDoSFastPeriod(seconds) {
+			if !errors.Is(err, errDDoSTimingCoverage) {
+				t.Fatal("one contained unsampled record established short-window quiet", seconds, got, err)
+			}
+		} else if err != nil || got.Detection != nil {
+			t.Fatal("the longer cadence lost its quiet observation", seconds, got, err)
+		}
 	}
 }
 

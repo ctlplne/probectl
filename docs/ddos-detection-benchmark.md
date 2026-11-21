@@ -350,6 +350,29 @@ PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
 
 [Paired synthetic fixture](../internal/control/alert_ddos_sample_floor_integration_test.go)
 
+### Incomplete timing during episode recovery
+
+If any original exporter report crosses the start of a five- or ten-second
+window, reports wholly inside that window must meet the rule's existing
+minimum original record count before the detector accepts a quiet result.
+The detector also checks that those reports cover the comparable sampling
+groups. An incomplete window leaves the previous decision and its clock in
+place.
+
+The paired recovery fixture lowers traffic to its historical total for one
+window of an active episode. Three of four reports cross the start, leaving
+one contained report against a minimum of four. The sampled and unsampled
+variants both require the episode to stay active. Qualifying traffic resumes
+with four contained reports and the original receipt. The quiet sibling
+cannot read that receipt. These cases use synthetic records and are separate
+from the 416-trial corpus.
+
+```sh
+PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
+  -run '^TestFastDDoSKeepsEpisodeThroughQuietTotalsFromCrossingIntervals$' ./internal/control
+```
+
+[Unit fixture](../internal/control/flow_ddos_timing_test.go) · [Paired fixture](../internal/control/alert_ddos_sample_floor_integration_test.go)
 
 ### Sustained pressure across a classification change
 
