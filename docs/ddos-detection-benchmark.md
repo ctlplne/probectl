@@ -184,6 +184,26 @@ concurrency bound. A ten-tenant scheduling test verifies that waiting tenants
 take free slots without waiting for another polling interval.
 [Stalled tenant and slot-limit fixtures](../internal/control/alert_ddos_fast_integration_test.go) · [Ten-tenant check](../internal/control/alerteval_test.go)
 
+## Exporter redistribution holdout
+
+Two synthetic exporters observe the same protected host through a saved view.
+The first tenant's aggregate grows from 3,600 to 7,200 packets in each
+five-second comparison and opens one episode for DNS-associated UDP traffic.
+The second tenant's two exporters swap their 400 and 3,200 packet counts.
+Their combined total stays at 3,600 and no episode opens. Selecting only the
+growing edge in the second tenant produces a local signal. An excluded third
+exporter does not affect the result, and the sibling tenant cannot read the
+first tenant's receipt. The fixture models complete flow observations at
+both edges. [Synthetic redistribution fixture](../internal/control/alert_ddos_multi_edge_integration_test.go)
+
+Run the holdout on the disposable PostgreSQL and ClickHouse integration stack.
+[Integration stack setup](development.md#testing-layers)
+
+```sh
+PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
+  -run '^TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth$' ./internal/control
+```
+
 ## Shipped collector timing
 
 Two two-tenant runs on macOS arm64 seeded synthetic prior-week references in
