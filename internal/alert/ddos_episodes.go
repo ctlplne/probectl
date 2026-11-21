@@ -67,21 +67,25 @@ func EvaluateDDoSEpisode(ctx context.Context, binding QueryGroupBinding, prior Q
 	if before == nil || after == nil {
 		return nil, next, ctx.Err()
 	}
-	twoSpecificVectors := anomaly.DDoSFastPeriod(input.PeriodSeconds) &&
-		before.Class != anomaly.DDoSVolumetric && after.Class != anomaly.DDoSVolumetric
-	if !twoSpecificVectors && (before.Class != after.Class || before.Service != after.Service) {
-		return nil, next, ctx.Err()
-	}
+	shortWindow := anomaly.DDoSFastPeriod(input.PeriodSeconds)
 	groupName := string(after.Class) + "/" + after.Service
-	if anomaly.DDoSFastPeriod(input.PeriodSeconds) {
+	if shortWindow {
 		groupName = "protected_traffic_pressure"
 	}
 	group, err := fieldEpisodeKey(key, groupName, DDoSCondition, time.Time{})
 	if err != nil {
 		return nil, QueryGroupState{}, err
 	}
+	// Once open, the short-window episode is bound to the protected scope.
+	// Both observations still have to qualify before it can stay active.
+	twoSpecificVectors := shortWindow && before.Class != anomaly.DDoSVolumetric && after.Class != anomaly.DDoSVolumetric
+	sameVector := before.Class == after.Class && before.Service == after.Service
+	alreadyOpen := active[group]
+	if !sameVector && !twoSpecificVectors && !(shortWindow && alreadyOpen) {
+		return nil, next, ctx.Err()
+	}
 	next.Keys = append(next.Keys, group)
-	if active[group] {
+	if alreadyOpen {
 		return nil, next, ctx.Err()
 	}
 	signal, err := fieldEpisodeKey(key, group, DDoSCondition, next.At)

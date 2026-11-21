@@ -41,6 +41,8 @@ type Record struct {
 
 	ObservedAt time.Time // collector receive time
 	Start, End time.Time // flow start/end (exporter clock mapped to unix)
+	// Keep field provenance through the legacy export-time fallback.
+	exporterStart, exporterEnd bool
 
 	SrcAddr, DstAddr netip.Addr
 	SrcPort, DstPort uint16
@@ -109,6 +111,7 @@ func (r Record) ToProto() *flowv1.FlowRecord {
 		ObservedAtUnixNano: unixNano(r.ObservedAt),
 		StartUnixNano:      unixNano(r.Start),
 		EndUnixNano:        unixNano(r.End),
+		ClockBasis:         r.clockBasis(),
 		SourcePort:         uint32(r.SrcPort),
 		DestinationPort:    uint32(r.DstPort),
 		NetworkTransport:   transportName(r.Transport),
@@ -136,6 +139,27 @@ func (r Record) ToProto() *flowv1.FlowRecord {
 		pr.NextHop = r.NextHop.Unmap().String()
 	}
 	return pr
+}
+
+func (r Record) clockBasis() flowv1.FlowClockBasis {
+	if !validFlowClock(r.Start) || !validFlowClock(r.End) || r.Start.After(r.End) {
+		return flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_UNSPECIFIED
+	}
+	if r.exporterStart && r.exporterEnd {
+		return flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL
+	}
+	if r.Protocol == ProtoSFlow5 && r.Start.Equal(r.ObservedAt) && r.End.Equal(r.ObservedAt) {
+		return flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE
+	}
+	return flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_UNSPECIFIED
+}
+
+func validFlowClock(at time.Time) bool {
+	if at.IsZero() {
+		return false
+	}
+	nanos := at.UnixNano()
+	return nanos > 0 && time.Unix(0, nanos).Equal(at)
 }
 
 func unixNano(t time.Time) int64 {

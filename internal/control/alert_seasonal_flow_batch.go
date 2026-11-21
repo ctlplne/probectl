@@ -15,7 +15,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 )
 
-func (s *Server) recordSeasonalFlowWindows(ctx context.Context, tenant string, latest flow.QueryPlan, ends []time.Time, topKeys int, ddosProjection bool) ([]flowstore.PlanResult, error) {
+func (s *Server) recordSeasonalFlowWindows(ctx context.Context, tenant string, latest flow.QueryPlan, ends []time.Time, topKeys int, source preparedReportFlow) ([]flowstore.PlanResult, error) {
 	batch, present := ctx.Value(reportFlowBatchKey{}).(*flowstore.PlanBatch)
 	if !present || batch == nil || len(ends) == 0 || !latest.To.Equal(ends[len(ends)-1]) || !latest.From.Before(latest.To) {
 		return nil, apierror.Unavailable("seasonal flow query requires a complete admitted window batch")
@@ -24,7 +24,8 @@ func (s *Server) recordSeasonalFlowWindows(ctx context.Context, tenant string, l
 	if err != nil {
 		return nil, err
 	}
-	query := flowstore.PlanQuery{TenantID: tenant, Plan: latest, Tags: tagData, DDoSSourcePortProjection: ddosProjection}
+	query := flowstore.PlanQuery{TenantID: tenant, Plan: latest, Tags: tagData,
+		DDoSProjection: source.ddosSourcePortProjection, DDoSVerifySampling: source.ddosVerifySampling}
 	span := latest
 	span.From = ends[0].Add(-latest.To.Sub(latest.From))
 	authority, err := s.bindFlowPlanProjections(ctx, &query, span)

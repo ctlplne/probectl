@@ -9,11 +9,13 @@ package flowstore
 import (
 	"context"
 	"errors"
+	"math"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/flow"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 )
 
 type seasonalMemoryGroup struct {
@@ -21,7 +23,13 @@ type seasonalMemoryGroup struct {
 	column    map[string]string
 }
 
-type seasonalMemoryPeriod map[[2]string]seasonalMemoryGroup
+type seasonalMemoryKey struct {
+	row, column             string
+	crossesWindowStart      bool
+	invalidSamplingCounters bool
+}
+
+type seasonalMemoryPeriod map[seasonalMemoryKey]seasonalMemoryGroup
 
 func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, ends []time.Time, topKeys int) ([]PlanResult, error) {
 	budget, err := explorerPlanBudget(ctx, m, query.TenantID, m)
@@ -64,6 +72,7 @@ func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, en
 	distinct := planDistinctFields(span)
 	cost := &planCost{budget: snapshotBudget}
 	periods := make([]seasonalMemoryPeriod, len(results))
+	clockEvidence := usesDDoSWindowClock(query, clocks.lookback)
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -93,7 +102,7 @@ func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, en
 			return nil, err
 		}
 		groupValue := value
-		if query.DDoSSourcePortProjection && value("transport") != "udp" {
+		if query.DDoSProjection && value("transport") != "udp" {
 			groupValue = func(field string) string {
 				if field == "src_port" {
 					return "0"
@@ -103,11 +112,14 @@ func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, en
 		}
 		rowKey, row := planTuple(groupValue, span.GroupBy)
 		colKey, column := planTuple(value, span.MatrixWith)
-		key := [2]string{rowKey, colKey}
+		invalidCounters := query.DDoSVerifySampling && seasonalSamplingCountersInvalid(entry.row)
 		for i := first; i < after; i++ {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
+			key := seasonalMemoryKey{row: rowKey, column: colKey, invalidSamplingCounters: invalidCounters, crossesWindowStart: clockEvidence &&
+				entry.row.ClockBasis == flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL &&
+				!entry.row.StartTS.IsZero() && entry.row.StartTS.Before(results[i].Query.From)}
 			group, found := periods[i][key]
 			if !found {
 				if err := cost.charge(1, 640+len(rowKey)+len(colKey)); err != nil {
@@ -134,8 +146,17 @@ func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, en
 	return results, ctx.Err()
 }
 
+func seasonalSamplingCountersInvalid(row Row) bool {
+	if row.Sampling == 0 {
+		return true
+	}
+	maximum := math.MaxUint64 / row.Sampling
+	return row.Bytes > maximum || row.Packets > maximum ||
+		row.Bytes*row.Sampling != row.BytesScaled || row.Packets*row.Sampling != row.PacketsScaled
+}
+
 func renderSeasonalMemoryPeriod(ctx context.Context, result *PlanResult, groups seasonalMemoryPeriod, remaining *int64, topKeys int) error {
-	keys := make([][2]string, 0, len(groups))
+	keys := make([]seasonalMemoryKey, 0, len(groups))
 	primary := planPrimary(result.Query)
 	if topKeys > 0 && primary == "" {
 		return ErrExplorerBudget
@@ -151,16 +172,31 @@ func renderSeasonalMemoryPeriod(ctx context.Context, result *PlanResult, groups 
 		}
 		keys = append(keys, key)
 	}
-	slices.SortFunc(keys, func(a, b [2]string) int {
+	slices.SortFunc(keys, func(a, b seasonalMemoryKey) int {
 		if topKeys > 0 {
 			if order := groups[b].aggregate.stats[primary].Cmp(groups[a].aggregate.stats[primary]); order != 0 {
 				return order
 			}
 		}
-		if compare := strings.Compare(a[0], b[0]); compare != 0 {
+		if compare := strings.Compare(a.row, b.row); compare != 0 {
 			return compare
 		}
-		return strings.Compare(a[1], b[1])
+		if compare := strings.Compare(a.column, b.column); compare != 0 {
+			return compare
+		}
+		if a.crossesWindowStart != b.crossesWindowStart {
+			if a.crossesWindowStart {
+				return 1
+			}
+			return -1
+		}
+		if a.invalidSamplingCounters != b.invalidSamplingCounters {
+			if a.invalidSamplingCounters {
+				return 1
+			}
+			return -1
+		}
+		return 0
 	})
 	if topKeys > 0 {
 		result.TotalGroups = len(keys)
@@ -177,7 +213,9 @@ func renderSeasonalMemoryPeriod(ctx context.Context, result *PlanResult, groups 
 			}
 		}
 		row := group.aggregate.row(false)
-		bytes := int64(128 + len(key[0]) + len(key[1]))
+		row.CrossesWindowStart = key.crossesWindowStart
+		row.InvalidSamplingCounters = key.invalidSamplingCounters
+		bytes := int64(128 + len(key.row) + len(key.column))
 		for name, value := range row.Metrics {
 			bytes += int64(16 + len(name) + len(value))
 		}

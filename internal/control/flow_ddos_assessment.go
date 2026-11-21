@@ -182,7 +182,7 @@ func (s *Server) readFlowDDoSAssessment(ctx context.Context, actor *auth.Princip
 		return empty, mapDDoSCoverage(err)
 	}
 	match := selected[0]
-	result, err := assessCapturedDDoS(ctx, capture, settings, match.clocks, match.beforeIndex, match.afterIndex, budget.MemoryBytes/8)
+	result, err := assessMatchedDDoS(ctx, capture, settings, match, budget.MemoryBytes/8)
 	if err != nil {
 		return empty, mapDDoSCoverage(err)
 	}
@@ -222,6 +222,24 @@ func matchDDoSEvidenceClocks(inputs []reportFlowInput, settings ddosAssessmentSe
 }
 
 func mapDDoSCoverage(err error) error {
+	if errors.Is(err, errDDoSCounterIntegrity) {
+		return apierror.Conflict("the stored counters do not match the original flow and reported sampling rate").Wrap(err)
+	}
+	if errors.Is(err, errDDoSTrendCoverage) {
+		return apierror.Conflict("volume growth follows the original weekly trend and needs independent corroboration").Wrap(err)
+	}
+	if errors.Is(err, errDDoSSampleCoverage) {
+		return apierror.Conflict("a sampling group has fewer original flow records than the configured minimum").Wrap(err)
+	}
+	if errors.Is(err, anomaly.ErrDDoSRecordSupport) {
+		return apierror.Conflict("measured flow pressure has fewer original flow records than the configured minimum").Wrap(err)
+	}
+	if errors.Is(err, errDDoSTimingCoverage) {
+		return apierror.Conflict("traffic reports spanning the window leave its pressure unconfirmed").Wrap(err)
+	}
+	if errors.Is(err, errDDoSExporterSampling) {
+		return apierror.Conflict("the reported sampling rates changed for a configured exporter across the comparison windows").Wrap(err)
+	}
 	if errors.Is(err, errDDoSExporterCoverage) {
 		return apierror.Conflict("a configured exporter has no stored observation in a required window").Wrap(err)
 	}

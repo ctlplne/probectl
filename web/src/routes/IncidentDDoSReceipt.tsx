@@ -197,6 +197,7 @@ function IncidentTrafficReport({ report }: { report: IncidentDDoSReport }) {
         <dt>Peak window-average packet rate</dt>
         <dd>{report.peak_packet_rate.per_second} packets per second</dd>
       </dl>
+      <p>Rates divide the totals from flow reports ending in each window by the window duration.</p>
       <table>
         <caption>Top observed source addresses by bytes</caption>
         <thead>

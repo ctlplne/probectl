@@ -13,6 +13,13 @@ through the following completed window. If its observations arrive in time,
 the episode cites their original clocks. Longer export delays and incomplete
 evidence can still delay or prevent an alert.
 
+Short-window admission checks whether the finding still qualifies after
+setting aside reports with a known exporter start before the current window.
+If those reports supplied necessary traffic or application evidence, the
+assessment reports timing coverage as unknown. Reports with only fallback
+timestamps and older records still contribute to their end-time windows.
+The receipt retains the end-time totals from the pinned view.
+
 Select **Representative week from the last four** when one unusual week could
 distort the comparison. The view must retain raw flow coverage across the
 four UTC weeks, with populated windows in at least three. The assessment
@@ -43,11 +50,13 @@ degraded responses leave the host-wide increase ambiguous. Missing,
 full-page or ambiguous application observations leave the bound generic
 pressure unevaluated for episode admission. A SYN or UDP service vector must
 meet the configured share of current packets and the growth threshold against
-its own historical packet count. A historical TCP record with zero flags or
-a UDP record without a source port may belong to the vector. The current
-observed vector must exceed that historical upper bound by the configured
-growth threshold. HTTP requests are assigned by their start time and can
-count after completion even when they cross a window boundary.
+its own historical packet count. If aggregate traffic fails the volume
+comparison, the measured vector must also reach the packet floor by itself.
+A historical TCP record with zero flags or a UDP record without a source
+port may belong to the vector. The current observed vector must exceed that
+historical upper bound by the configured growth threshold. HTTP requests
+are assigned by their start time and can count after completion even when
+they cross a window boundary.
 [OpenTelemetry HTTP span conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/#http-server-span)
 
 For sampled tracing, use locally rooted HTTP server spans with consistent
@@ -69,9 +78,11 @@ original admission rules. [OpenTelemetry probability metadata](https://opentelem
    source addresses. Export the typed report through the incident CLI if
    you need to retain it with the customer's case.
 3. Check source coverage and sampling before comparing rates with device
-   counters. The report's source addresses describe observations from
-   the selected view. A reflector association alone cannot establish
-   who originated the activity.
+   counters. Window-average rates divide the counters of reports ending in
+   each window by that window's duration. The source addresses describe
+   observations from the selected view. Treat a reflector association as
+   evidence about the observed UDP service. Use independent evidence to
+   establish traffic origin.
 
 ## Review a response
 

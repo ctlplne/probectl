@@ -26,16 +26,32 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
+type ddosEdgeSampling int
+
+const (
+	ddosEdgeUnsampled ddosEdgeSampling = iota
+	ddosEdgeRateChange
+	ddosEdgeSparseSampling
+)
+
 func TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth(t *testing.T) {
-	testDDoSEdgeScope(t, false, false)
+	testDDoSEdgeScope(t, false, false, ddosEdgeUnsampled)
 }
 
 func TestFastDDoSRequiresOriginalExporterCoverage(t *testing.T) {
-	t.Run("legacy_partial_reference", func(t *testing.T) { testDDoSEdgeScope(t, true, false) })
-	t.Run("required_original_exporters", func(t *testing.T) { testDDoSEdgeScope(t, true, true) })
+	t.Run("legacy_partial_reference", func(t *testing.T) { testDDoSEdgeScope(t, true, false, ddosEdgeUnsampled) })
+	t.Run("required_original_exporters", func(t *testing.T) { testDDoSEdgeScope(t, true, true, ddosEdgeUnsampled) })
 }
 
-func testDDoSEdgeScope(t *testing.T, partialReference, required bool) {
+func TestFastDDoSRequiresComparableRequiredExporterSampling(t *testing.T) {
+	testDDoSEdgeScope(t, false, true, ddosEdgeRateChange)
+}
+
+func TestFastDDoSRequiresOriginalRecordsFromTheSampledExporter(t *testing.T) {
+	testDDoSEdgeScope(t, false, true, ddosEdgeSparseSampling)
+}
+
+func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling ddosEdgeSampling) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	rows := seasonalFlowFixtureStore(t, f, true)
@@ -54,7 +70,7 @@ func testDDoSEdgeScope(t *testing.T, partialReference, required bool) {
 	var receipt string
 	for lane, tenant := range f.tenants {
 		grantSeasonalFlowFixture(f, tenant)
-		seedDDoSEdgeRedistribution(t, rows, tenant, exporters, clocks, lane == 0, lane == 1 && partialReference)
+		seedDDoSEdgeRedistribution(t, rows, tenant, exporters, clocks, lane == 0, lane == 1 && partialReference, sampling)
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		run := func(selected []string) (alert.RuleMetricRead, []alert.EvaluationReceipt, string, error) {
 			t.Helper()
@@ -103,6 +119,18 @@ func testDDoSEdgeScope(t *testing.T, partialReference, required bool) {
 			return got, getSeasonalFlowReceipts(t, server, f.tokens[tenant], rule.ID).Items, rule.ID, err
 		}
 		evaluated, items, id, err := run(exporters[:])
+		if lane == 1 && sampling == ddosEdgeRateChange {
+			if !errors.Is(err, errDDoSExporterSampling) || evaluated.QuerySelection != nil || len(items) != 0 {
+				t.Fatal("a change in rates for the same two exporters advanced the detector or published an episode", err)
+			}
+			continue
+		}
+		if lane == 1 && sampling == ddosEdgeSparseSampling {
+			if !errors.Is(err, errDDoSSampleCoverage) || evaluated.QuerySelection != nil || len(items) != 0 {
+				t.Fatal("an unsampled edge supplied missing record support for the sampled estimate", err)
+			}
+			continue
+		}
 		if lane == 1 && partialReference && required {
 			if !errors.Is(err, errDDoSExporterCoverage) || evaluated.QuerySelection != nil || len(items) != 0 {
 				t.Fatal("a missing original exporter became a complete baseline or produced a receipt", err)
@@ -143,13 +171,14 @@ func testDDoSEdgeScope(t *testing.T, partialReference, required bool) {
 	if err := json.Unmarshal(body, &proof); err != nil || proof.Current.Detection == nil ||
 		proof.Current.Detection.Class != anomaly.DDoSReflection || proof.Current.Detection.Service != "dns" ||
 		proof.Current.Before.Packets != "3600" || proof.Current.After.Packets != "7200" ||
-		required && (proof.Current.Before.ObservedExporters != 2 || proof.Current.After.ObservedExporters != 2) {
+		required && (proof.Current.Before.ObservedExporters != 2 || proof.Current.After.ObservedExporters != 2) ||
+		sampling != ddosEdgeUnsampled && (!proof.Current.Before.Sampled || !proof.Current.After.Sampled) {
 		t.Fatal("the assessed population lost the original aggregate clocks, vector or counters", err)
 	}
 	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, receipt, nil, http.StatusNotFound)
 }
 
-func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant string, exporters [2]string, clocks ddosEpisodeClocks, growth, missingReferenceEdge bool) {
+func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant string, exporters [2]string, clocks ddosEpisodeClocks, growth, missingReferenceEdge bool, sampling ddosEdgeSampling) {
 	t.Helper()
 	var rows []flowstore.Row
 	for _, pair := range []anomaly.FlowFieldComparisonClocks{clocks.Previous, clocks.Current} {
@@ -164,15 +193,47 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 			if missingReferenceEdge && i == 1 {
 				packets = [2]uint64{400, 3200}
 			}
+			rates := [2]uint64{1, 1}
+			switch sampling {
+			case ddosEdgeRateChange:
+				rates = [2]uint64{1, 8}
+				if !growth {
+					// Unchanged per-exporter raw counts. The switch alone
+					// raises the estimate from 1,200 to 3,300 packets.
+					raw := [2]uint64{400, 100}
+					if i == 1 {
+						rates = [2]uint64{8, 1}
+					}
+					packets = [2]uint64{raw[0] * rates[0], raw[1] * rates[1]}
+				}
+			case ddosEdgeSparseSampling:
+				rates = [2]uint64{1, 8}
+				if !growth && i == 1 {
+					packets = [2]uint64{400, 6800}
+				}
+			}
 			for edge, exporter := range exporters {
 				if missingReferenceEdge && i == 0 && edge == 1 {
 					continue
 				}
-				row := delayFixtureFlow(tenant, window.Start.Add(2*time.Second), false)
-				row.Exporter, row.Transport, row.SrcPort, row.DstPort, row.TCPFlags = exporter, "udp", 53, 43001, 0
-				row.Packets, row.PacketsScaled = packets[edge], packets[edge]
-				row.Bytes, row.BytesScaled = 100*packets[edge], 100*packets[edge]
-				rows = append(rows, row)
+				rate := rates[edge]
+				records := uint64(1)
+				if rate > 1 && !(sampling == ddosEdgeSparseSampling && !growth && i == 1) {
+					records = 2
+				}
+				raw := packets[edge] / rate
+				for index := range records {
+					row := delayFixtureFlow(tenant, window.Start.Add(2*time.Second), false)
+					row.Exporter, row.Transport, row.SrcPort, row.DstPort, row.TCPFlags = exporter, "udp", 53, 43001, 0
+					row.SrcAddr = [...]string{"198.51.100.42", "198.51.100.43"}[index]
+					row.Sampling, row.Packets = rate, raw/records
+					if index < raw%records {
+						row.Packets++
+					}
+					row.PacketsScaled = row.Packets * rate
+					row.Bytes, row.BytesScaled = 100*row.Packets, 100*row.PacketsScaled
+					rows = append(rows, row)
+				}
 			}
 			outside := delayFixtureFlow(tenant, window.Start.Add(2*time.Second), i == 1)
 			outside.Exporter = "203.0.113.196"

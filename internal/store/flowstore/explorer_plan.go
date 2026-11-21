@@ -41,10 +41,11 @@ type PlanQuery struct {
 	// Chart and matrix axes are independent of the detail/page row count.
 	SelectedChartGroups [][]string
 	SelectedMatrixRows  [][]string
-	// DDoSSourcePortProjection is a server-selected seasonal read option.
-	// UDP source ports retain their service associations. Source ports for
-	// other transports do not split identical detector measurements.
-	DDoSSourcePortProjection bool
+	// DDoSProjection retains UDP service ports and separates reports with a
+	// known original start before the short observation window.
+	DDoSProjection bool
+	// DDoSVerifySampling checks original counters for prospective assessments.
+	DDoSVerifySampling bool
 }
 
 // PlanRow's decimal strings preserve counters above JavaScript's integer limit.
@@ -53,6 +54,10 @@ type PlanRow struct {
 	Group   map[string]string `json:"group"`
 	Other   bool              `json:"other"`
 	Metrics map[string]string `json:"metrics"`
+	// CrossesWindowStart is private to the DDoS comparison.
+	CrossesWindowStart bool `json:"-"`
+	// InvalidSamplingCounters marks a corrected counter inconsistent with its original evidence.
+	InvalidSamplingCounters bool `json:"-"`
 }
 
 type PlanPoint struct {

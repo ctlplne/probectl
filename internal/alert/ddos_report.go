@@ -64,7 +64,8 @@ type DDoSReportRate struct {
 }
 
 // SummarizeDDoSReport takes the already authorized, server-owned episode
-// receipt. It keeps traffic totals, timestamps and vector citations together.
+// receipt. Rates divide each window's counters by its duration. The counters
+// are assigned by the reports' end clocks.
 func SummarizeDDoSReport(receipt DDoSEvaluationEvidence) (DDoSReport, error) {
 	previous, current := receipt.Previous, receipt.Current
 	prefix, err := netip.ParsePrefix(current.Prefix)

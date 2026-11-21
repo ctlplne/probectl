@@ -71,6 +71,30 @@ func TestSeasonalDDoSPreservesPinnedPortFilterOnClickHouse(t *testing.T) {
 	checkSeasonalDDoSSourcePortProjection(t, store, red, blue)
 }
 
+func TestSeasonalDDoSSeparatesOriginalCrossingIntervalsOnClickHouse(t *testing.T) {
+	store := explorerIntegrationStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+	red := fmt.Sprintf("probectl-qa-beta-ddos-interval-projection-%d", time.Now().UnixNano())
+	blue := red + "-blue"
+	t.Cleanup(func() {
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
+	})
+	checkSeasonalDDoSClockProjection(t, store, red, blue)
+}
+
+func TestSeasonalDDoSRetainsScopedInvalidSamplingCountersOnClickHouse(t *testing.T) {
+	store := explorerIntegrationStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+	red := fmt.Sprintf("probectl-qa-beta-ddos-interval-projection-%d", time.Now().UnixNano())
+	blue := red + "-blue"
+	t.Cleanup(func() {
+		cleanupExplorerFixtureTenant(t, store, red)
+		cleanupExplorerFixtureTenant(t, store, blue)
+	})
+	checkSeasonalDDoSInvalidSamplingCounters(t, store, red, blue)
+}
+
 func TestSeasonalFlowDistantWindowsAvoidGapRowsOnTenantReader(t *testing.T) {
 	store := explorerIntegrationStore(t)
 	t.Cleanup(func() { _ = store.Close() })
@@ -138,7 +162,7 @@ func TestSeasonalFlowDistantWindowsAvoidGapRowsOnTenantReader(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		members, err := decodeSeasonalFlowRows(ctx, results, rows, budget.ReadRows, 0)
+		members, err := decodeSeasonalFlowRows(ctx, results, rows, budget.ReadRows, 0, false, false)
 		if err != nil || members != 2 {
 			t.Fatal("the membership join saw a row outside the selected clocks", members, err)
 		}

@@ -2831,7 +2831,7 @@ type FlowDDoSDetection struct {
 	Service             string `json:"service,omitempty"`
 }
 
-// Exact sampling-corrected counts, source resolution and independent observations from one completed window.
+// Exact sampling-corrected counts and source resolution from flow reports whose end timestamps fall in the completed comparison window.
 type FlowDDoSWindowEvidence struct {
 	Bytes             string `json:"bytes"`
 	Citation          string `json:"citation"`
@@ -3434,6 +3434,7 @@ type IncidentDDoSReportDecision struct {
 	State      string `json:"state"`
 }
 
+// The total from reports ending in the cited comparison window, divided by that window's duration.
 type IncidentDDoSReportRate struct {
 	Count     string `json:"count"`
 	From      string `json:"from"`

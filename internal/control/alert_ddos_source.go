@@ -82,11 +82,11 @@ func (s *Server) readAlertDDoSRule(ctx context.Context, rule alert.Rule, source 
 	if err != nil {
 		return empty, mapDDoSCoverage(err)
 	}
-	previous, err := assessCapturedDDoS(ctx, capture, settings, selected[0].clocks, selected[0].beforeIndex, selected[0].afterIndex, budget.MemoryBytes/8)
+	previous, err := assessMatchedDDoS(ctx, capture, settings, selected[0], budget.MemoryBytes/8)
 	if err != nil {
 		return empty, mapDDoSCoverage(err)
 	}
-	current, err := assessCapturedDDoS(ctx, capture, settings, selected[1].clocks, selected[1].beforeIndex, selected[1].afterIndex, budget.MemoryBytes/8)
+	current, err := assessMatchedDDoS(ctx, capture, settings, selected[1], budget.MemoryBytes/8)
 	if err != nil {
 		return empty, mapDDoSCoverage(err)
 	}

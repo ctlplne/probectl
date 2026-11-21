@@ -146,16 +146,22 @@ func applyIE(rec *Record, id uint16, val []byte, clk ieClock) (samplingRate uint
 		}
 	case ieFirstSwitched:
 		rec.Start = clk.fromUptimeMS(readUint(val))
+		rec.exporterStart = len(val) == 4 && !clk.boot.IsZero() && !rec.Start.After(clk.export)
 	case ieLastSwitched:
 		rec.End = clk.fromUptimeMS(readUint(val))
+		rec.exporterEnd = len(val) == 4 && !clk.boot.IsZero() && !rec.End.After(clk.export)
 	case ieFlowStartSec:
 		rec.Start = time.Unix(int64(readUint(val)), 0)
+		rec.exporterStart = len(val) == 4
 	case ieFlowEndSec:
 		rec.End = time.Unix(int64(readUint(val)), 0)
+		rec.exporterEnd = len(val) == 4
 	case ieFlowStartMs:
 		rec.Start = time.UnixMilli(int64(readUint(val)))
+		rec.exporterStart = len(val) == 8
 	case ieFlowEndMs:
 		rec.End = time.UnixMilli(int64(readUint(val)))
+		rec.exporterEnd = len(val) == 8
 	case ieSamplingIvl, ieSamplerRandIvl, ieSamplingPktIvl:
 		return readUint(val)
 	}

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/flow"
 )
 
@@ -25,7 +26,7 @@ type seasonalPlanStore interface {
 // For ranked input, the complete population is counted before returning the
 // requested top keys and the first excluded original from each clock.
 // DDoS reads combine equivalent non-UDP source ports after filtering the
-// original source fields.
+// original source fields and preserve known intervals across short windows.
 func (b *PlanBatch) ExploreSeasonalWindows(query PlanQuery, ends []time.Time, topKeys int) ([]PlanResult, error) {
 	b.queryMu.Lock()
 	defer b.queryMu.Unlock()
@@ -49,7 +50,7 @@ func (b *PlanBatch) ExploreSeasonalWindows(query PlanQuery, ends []time.Time, to
 		b.failed = true
 		return nil, ErrExplorerBudget
 	}
-	if query.DDoSSourcePortProjection && (topKeys != 0 || query.Plan.View != "table" || query.Plan.DataSeries != "raw" ||
+	if (query.DDoSVerifySampling || query.DDoSProjection) && (!query.DDoSProjection || topKeys != 0 || query.Plan.View != "table" || query.Plan.DataSeries != "raw" ||
 		!slices.Contains(query.Plan.GroupBy, "src_port") || !slices.Contains(query.Plan.GroupBy, "transport")) {
 		b.failed = true
 		return nil, ErrExplorerBudget
@@ -60,6 +61,10 @@ func (b *PlanBatch) ExploreSeasonalWindows(query PlanQuery, ends []time.Time, to
 		return nil, err
 	}
 	return result, nil
+}
+
+func usesDDoSWindowClock(query PlanQuery, lookback time.Duration) bool {
+	return query.DDoSProjection && lookback%time.Second == 0 && anomaly.DDoSFastPeriod(int(lookback/time.Second))
 }
 
 func seasonalFlowPlan(ctx context.Context, query PlanQuery, ends []time.Time, vocabulary flow.QueryVocabulary, budget ExplorerBudget) (flow.QueryPlan, seasonalFlowClockRange, error) {

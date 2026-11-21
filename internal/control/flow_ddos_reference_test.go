@@ -8,6 +8,7 @@ package control
 
 import (
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -92,8 +93,78 @@ func TestDDoSWeeklyReferenceRequiresExporterCoverage(t *testing.T) {
 		t.Fatal("two complete historical weeks were accepted as a representative reference", err)
 	}
 	capture.Results[latest-4].Result.Rows = complete
-	capture.Results[latest].Result.Rows = capture.Results[latest].Result.Rows[:1]
+
+	// Restore the most recent week, but give only its second window a
+	// different reported rate at one of the original exporters.
+	recent := capture.Results[latest-2].Result.Rows
+	capture.Results[latest-2].Result.Rows = recent[:2]
+	capture.Results[latest-2].Result.Rows[1].Group["sampling"] = "8"
+	selected, err = ddosMatchedWindows(ctx, capture, settings, benchmarkDDoSWork, clocks.Previous, clocks.Current)
+	if err != nil || len(selected) != 2 || !selected[1].clocks.Before.End.Equal(end.AddDate(0, 0, -14)) {
+		t.Fatal("a week with an incomparable exporter rate entered the representative pair", selected, err)
+	}
+	capture.Results[latest-4].Result.Rows[1].Group["sampling"] = "8"
+	if _, err := ddosMatchedWindows(ctx, capture, settings, benchmarkDDoSWork, clocks.Previous, clocks.Current); !errors.Is(err, anomaly.ErrDDoSCoverage) {
+		t.Fatal("two sampling-comparable weeks were accepted as a representative reference", err)
+	}
+	capture.Results[latest-4].Result.Rows[1].Group["sampling"] = "1"
+	current := capture.Results[latest].Result.Rows
+	capture.Results[latest].Result.Rows = current[:1]
 	if _, err := ddosMatchedWindows(ctx, capture, settings, benchmarkDDoSWork, clocks.Previous, clocks.Current); !errors.Is(err, errDDoSExporterCoverage) {
 		t.Fatal("the latest partial observation was accepted", err)
+	}
+	capture.Results[latest].Result.Rows = current
+	capture.Results[latest-2].Result.Rows = capture.Results[latest-2].Result.Rows[:2]
+	settings.Input.MinObservedRecords = 4
+	for _, result := range capture.Results {
+		for _, row := range result.Result.Rows {
+			row.Group["sampling"] = "8"
+		}
+	}
+	capture.Results[latest-2].Result.Rows[0].Metrics["flows:total"] = "1"
+	selected, err = ddosMatchedWindows(ctx, capture, settings, benchmarkDDoSWork, clocks.Previous, clocks.Current)
+	if err != nil || len(selected) != 2 || !selected[1].clocks.Before.End.Equal(end.AddDate(0, 0, -14)) {
+		t.Fatal("a sparsely sampled window entered the representative week", selected, err)
+	}
+	current[0].Metrics["flows:total"] = "1"
+	if _, err := ddosMatchedWindows(ctx, capture, settings, benchmarkDDoSWork, clocks.Previous, clocks.Current); !errors.Is(err, errDDoSSampleCoverage) {
+		t.Fatal("the sparse current observation became usable coverage", err)
+	}
+}
+
+func TestDDoSWeeklyTrendRequiresFourComparableOriginalWeeks(t *testing.T) {
+	end := time.Date(2026, time.November, 20, 14, 15, 5, 0, time.UTC)
+	const minimum = 20
+	counts := [5]int{3400, 3680, 3960, 4640, 5200}
+	build := func() []anomaly.DDoSObservation {
+		observations := make([]anomaly.DDoSObservation, len(counts))
+		for i, packets := range counts {
+			observations[i] = anomaly.DDoSObservation{
+				To: end.AddDate(0, 0, -7*(4-i)), Complete: true, ObservedRecords: minimum,
+				Packets: strconv.Itoa(packets), Bytes: strconv.Itoa(100 * packets),
+			}
+		}
+		return observations
+	}
+	for _, candidate := range []struct {
+		name   string
+		update func([]anomaly.DDoSObservation)
+		want   bool
+	}{
+		{name: "same-clock observed growth", update: func([]anomaly.DDoSObservation) {}, want: true},
+		{name: "missing original window", update: func(o []anomaly.DDoSObservation) { o[1].Complete = false }},
+		{name: "insufficient source rows", update: func(o []anomaly.DDoSObservation) { o[1].ObservedRecords = minimum - 1 }},
+		{name: "different historical clock", update: func(o []anomaly.DDoSObservation) { o[1].To = o[1].To.Add(-time.Second) }},
+		{name: "byte growth faster than history", update: func(o []anomaly.DDoSObservation) { o[4].Bytes = "660000" }},
+		{name: "packet growth faster than history", update: func(o []anomaly.DDoSObservation) { o[4].Packets = "6600" }},
+		{name: "the prior week did not grow", update: func(o []anomaly.DDoSObservation) { o[3].Packets = o[2].Packets }},
+	} {
+		t.Run(candidate.name, func(t *testing.T) {
+			observations := build()
+			candidate.update(observations)
+			if got := followsDDoSWeeklyTrend(observations, 1, 0, minimum); got != candidate.want {
+				t.Fatalf("trend comparison: got %t, want %t", got, candidate.want)
+			}
+		})
 	}
 }

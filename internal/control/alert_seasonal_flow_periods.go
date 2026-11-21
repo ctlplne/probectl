@@ -128,6 +128,7 @@ func (s *Server) prepareConfiguredFlowCapture(ctx context.Context, actor *auth.P
 			return nil, 0, 0, err
 		}
 		prepared[0].ddosSourcePortProjection = true
+		prepared[0].ddosVerifySampling = !opts.DDoSAssessment.Cited
 		return prepared, bytes, count, ctx.Err()
 	}
 	if opts.FieldComparison == nil {

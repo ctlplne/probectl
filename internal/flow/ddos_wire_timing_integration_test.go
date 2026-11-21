@@ -28,8 +28,19 @@ import (
 // The lab seeds the previous week's synthetic reference in raw ClickHouse.
 // The timed observations enter through the two enrolled shipped collectors.
 func TestFastDDoSMeasuresIPFIXRecordDeliveryThroughTheShippedIncident(t *testing.T) {
-	stack := shipped.Start(t, shipped.Options{Name: "ddos-wire-timing", TenantBand: 4})
+	// Each period uses a fresh pair of tenants alongside the seeded tenant.
+	stack := shipped.Start(t, shipped.Options{Name: "ddos-wire-timing", TenantBand: 5})
 	operator := stack.OnboardOperator(t, "root@msp-timing.example")
+	for _, period := range []int{5, 10} {
+		t.Run(fmt.Sprintf("%ds", period), func(t *testing.T) {
+			measureShippedDDoSWireDelivery(t, stack, operator, period)
+		})
+	}
+}
+
+func measureShippedDDoSWireDelivery(t *testing.T, stack *shipped.Stack, operator string, period int) {
+	t.Helper()
+	width := time.Duration(period) * time.Second
 	run := strconv.FormatInt(time.Now().UnixNano(), 36)
 	lanes := []*nativeLane{{name: "red", octet: 183, useDefaultFlush: true}, {name: "blue", octet: 183, useDefaultFlush: true}}
 	var views [2]flow.SavedQueryView
@@ -45,25 +56,24 @@ func TestFastDDoSMeasuresIPFIXRecordDeliveryThroughTheShippedIncident(t *testing
 		t.Cleanup(func() { _ = client.Close() })
 		at := time.Now().UTC()
 		plan := nativeGoldenPlan(lane.octet, at, []string{"dst_addr"})
-		plan.DataSeries, plan.BucketSeconds, plan.From, plan.To = "raw", 5, at.Add(-time.Minute), at
+		plan.DataSeries, plan.BucketSeconds, plan.From, plan.To = "raw", period, at.Add(-time.Minute), at
 		lane.do(t, stack, http.MethodPost, "/v1/explorer/flow-views", flow.SaveQueryView{Definition: flow.QueryViewDefinition{
 			Name: "Protected timing observations", Visibility: "private", Plan: plan,
 			Time: flow.QueryViewTime{Mode: "lookback", LookbackSeconds: 60},
 		}}, &views[i], http.StatusCreated)
 		settings := flow.DDoSAssessmentInput{Version: views[i].Version, Prefix: fmt.Sprintf("10.%d.1.1/32", lane.octet), Direction: "ingress",
-			PeriodSeconds: 5, BytesFloor: "250000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
+			PeriodSeconds: period, BytesFloor: "250000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
 			VectorShareBasisPoints: 6000, MinObservedRecords: 1, MinObservedAddresses: 2}
 		input := alert.QuerySourceInput{ViewID: views[i].ID, ViewVersion: views[i].Version,
 			Condition: alert.QueryCondition{Mode: alert.DDoSCondition, DDoS: &settings}}
 		lane.do(t, stack, http.MethodPost, "/v1/alerts", map[string]any{"name": "Early traffic episode " + lane.name, "query_source": input}, &rules[i], http.StatusCreated)
 	}
-	const width = 5 * time.Second
-	start := time.Now().UTC().Truncate(width).Add(4 * width)
-	first, err := anomaly.DDoSCompletedWindows(start.Add(width), 5)
+	start := time.Now().UTC().Add(20 * time.Second).Truncate(width).Add(width)
+	first, err := anomaly.DDoSCompletedWindows(start.Add(width), period)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := anomaly.DDoSCompletedWindows(start.Add(2*width), 5)
+	second, err := anomaly.DDoSCompletedWindows(start.Add(2*width), period)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +118,7 @@ func TestFastDDoSMeasuresIPFIXRecordDeliveryThroughTheShippedIncident(t *testing
 	readWindow := func(lane int, window anomaly.TrainingWindow) (flowstore.PlanResult, int) {
 		t.Helper()
 		plan := nativeGoldenPlan(lanes[lane].octet, window.End, []string{"dst_addr"})
-		plan.DataSeries, plan.BucketSeconds, plan.From, plan.To = "raw", 5, window.Start, window.End
+		plan.DataSeries, plan.BucketSeconds, plan.From, plan.To = "raw", period, window.Start, window.End
 		if now := time.Now().UTC(); plan.To.After(now) {
 			plan.To = now
 		}
@@ -200,6 +210,6 @@ func TestFastDDoSMeasuresIPFIXRecordDeliveryThroughTheShippedIncident(t *testing
 	assertShippedTrafficVector(t, receipt.Current, views[0], second, trafficVectors[0], true)
 	lanes[0].do(t, stack, http.MethodGet, "/v1/incidents/"+receipt.IncidentID, nil, nil, http.StatusOK)
 	lanes[1].do(t, stack, http.MethodGet, "/v1/incidents/"+receipt.IncidentID, nil, nil, http.StatusNotFound)
-	t.Logf("synthetic IPFIX timing with %s collector flush: second write to first query with stored data=%s, first write to first visible receipt=%s, second window close to first visible receipt=%s",
-		flow.Default().FlushInterval, available.Sub(sent[1]), firstReceipt.Sub(sent[0]), firstReceipt.Sub(second.After.End))
+	t.Logf("synthetic IPFIX timing with %s windows and %s collector flush: second write to first query with stored data=%s, first write to first visible receipt=%s, second window close to first visible receipt=%s",
+		width, flow.Default().FlushInterval, available.Sub(sent[1]), firstReceipt.Sub(sent[0]), firstReceipt.Sub(second.After.End))
 }

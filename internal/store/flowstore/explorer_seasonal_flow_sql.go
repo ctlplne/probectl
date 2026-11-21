@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/flow"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -61,11 +62,33 @@ func buildSeasonalFlowSQL(ctx context.Context, budget ExplorerBudget, query Plan
 	if err != nil {
 		return empty, err
 	}
-	filtered, err := planFilteredCTE(plan, table, params, vocabulary, query.Tags != nil, readWindows, query.DDoSSourcePortProjection)
+	filtered, err := planFilteredCTE(plan, table, params, vocabulary, query.Tags != nil, readWindows, query.DDoSProjection)
 	if err != nil {
 		return empty, err
 	}
-	const joined = "clock_inputs AS (SELECT flow_input.tenant_id AS window_owner,__probectl_source_row AS g,__probectl_source_column AS c,toUInt8(0) AS o,toUInt8(0) AS p," + planSQLColumns +
+	columns, groups, order := planSQLColumns, seasonalPeriodGroup, "g,c"
+	admissionColumns, admissionSelect := "", ""
+	if usesDDoSWindowClock(query, clocks.lookback) {
+		columns += ",start_ts,clock_basis"
+		groups += ",crosses_window_start"
+		order += ",crosses_window_start"
+		exporter := strconv.Itoa(int(flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL))
+		admissionColumns = ",toUInt8(expanded.clock_basis=" + exporter +
+			" AND toUnixTimestamp64Nano(expanded.start_ts)<windows.window_start) AS crosses_window_start"
+		admissionSelect = ",toString(crosses_window_start) AS crosses_window_start"
+	}
+	if query.DDoSVerifySampling {
+		columns += ",bytes,packets,sampling"
+		groups += ",invalid_sampling_counters"
+		order += ",invalid_sampling_counters"
+		// A product of two UInt64 inputs fits in UInt128. Comparing the
+		// widened result also rejects a corrected value that wrapped.
+		admissionColumns += ",toUInt8(expanded.sampling=0" +
+			" OR toUInt128(expanded.bytes)*toUInt128(expanded.sampling)!=toUInt128(expanded.bytes_scaled)" +
+			" OR toUInt128(expanded.packets)*toUInt128(expanded.sampling)!=toUInt128(expanded.packets_scaled)) AS invalid_sampling_counters"
+		admissionSelect += ",toString(invalid_sampling_counters) AS invalid_sampling_counters"
+	}
+	joined := "clock_inputs AS (SELECT flow_input.tenant_id AS window_owner,__probectl_source_row AS g,__probectl_source_column AS c,toUInt8(0) AS o,toUInt8(0) AS p," + columns +
 		",ifNull(periods.clock_first,toUInt64(0)) AS member_first,ifNull(periods.clock_after,toUInt64(0)) AS member_after FROM " +
 		"(SELECT *,toUnixTimestamp64Nano(event_time) AS event_clock FROM filtered) AS flow_input ASOF LEFT JOIN seasonal_clock_lookup AS periods" +
 		" ON flow_input.tenant_id=periods.clock_tenant AND flow_input.event_clock>=periods.clock_at)"
@@ -75,17 +98,17 @@ func buildSeasonalFlowSQL(ctx context.Context, budget ExplorerBudget, query Plan
 	const expanded = "clock_expanded AS (SELECT *,arrayJoin(range(member_first,member_after+" +
 		"toUInt64(throwIf(member_total>{clock_membership_limit:UInt64},'" + seasonalMembershipBudgetMessage + "')))) AS period_index FROM clock_admitted)"
 	// Every original membership survives the join to its unique clock.
-	const input = "period_inputs AS (SELECT expanded.*,windows.window_start AS period_start FROM clock_expanded AS expanded" +
+	input := "period_inputs AS (SELECT expanded.*,windows.window_start AS period_start" + admissionColumns + " FROM clock_expanded AS expanded" +
 		" ALL INNER JOIN seasonal_window_lookup AS windows ON expanded.window_owner=windows.window_tenant AND expanded.period_index=windows.window_index)"
 	ctes := []string{filtered, joined, admitted, expanded, input}
 	ctes = append(ctes, partitionedPlanStatsSQL("seasonal", "period_inputs", plan, planStatsPartition{
-		groups: seasonalPeriodGroup, start: "period_start", observed: true,
+		groups: groups, start: "period_start", observed: true,
 	})...)
 	metrics := make([]string, 0, len(plan.Metrics))
 	for i := range plan.Metrics {
 		metrics = append(metrics, "toString(m"+strconv.Itoa(i)+")")
 	}
-	selectPopulation, order := "", "g,c"
+	selectPopulation := ""
 	if topKeys > 0 {
 		primary := -1
 		for i, metric := range plan.Metrics {
@@ -103,7 +126,7 @@ func buildSeasonalFlowSQL(ctx context.Context, budget ExplorerBudget, query Plan
 	}
 	return seasonalFlowSQLRead{
 		sql: "WITH " + strings.Join(ctes, ",") + " SELECT toString(period_index) AS clock_index,g,c,[" + strings.Join(metrics, ",") +
-			"] AS metrics,toString(oldest_input,'UTC') AS oldest_input,toString(total_memberships) AS membership" + selectPopulation +
+			"] AS metrics,toString(oldest_input,'UTC') AS oldest_input,toString(total_memberships) AS membership" + selectPopulation + admissionSelect +
 			" FROM seasonal_stats ORDER BY period_index," + order + " " + settings,
 		params: params, clocks: external,
 	}, ctx.Err()

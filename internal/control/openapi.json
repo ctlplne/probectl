@@ -37434,7 +37434,7 @@
           "reference_mode": {
             "type": "string",
             "enum": ["weekly_representative"],
-            "description": "Use one actual representative reference from the four preceding weeks. Omitting this selects the same clock in the preceding week."
+            "description": "Use one actual representative reference from the four preceding weeks. Five- and ten-second flow-only volume that continues the observed weekly growth band needs independent corroboration, including when it reaches more addresses in a protected prefix. Omitting this mode selects the same clock in the preceding week."
           },
           "direction": {
             "type": "string",
@@ -37477,7 +37477,8 @@
           },
           "min_observed_records": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "description": "Minimum original flow records for a finding in the current window. Qualifying pressure below this count is unavailable. In both windows, each reported sampling rate above one needs this many original records. When required exporters are configured, apply the minimum per exporter and rate."
           },
           "min_observed_addresses": {
             "type": "integer",
@@ -37489,7 +37490,7 @@
             "maxItems": 8,
             "uniqueItems": true,
             "items": {"type": "string", "maxLength": 39},
-            "description": "Required exporter IPs within the existing saved view. Each compared window needs an original observation from every explicitly selected exporter."
+            "description": "Required exporter IPs within the existing saved view. Each compared window needs an original observation from every explicitly selected exporter. The set of reported sampling rates must match per exporter between paired windows."
           }
         },
         "required": [
@@ -37588,6 +37589,7 @@
         }
       },
       "IncidentDDoSReportRate": {
+        "description": "The total from reports ending in the cited comparison window, divided by that window's duration.",
         "type": "object",
         "required": [
           "from",
@@ -37779,7 +37781,7 @@
         "additionalProperties": false
       },
       "FlowDDoSWindowEvidence": {
-        "description": "Exact sampling-corrected counts, source resolution and independent observations from one completed window.",
+        "description": "Exact sampling-corrected counts and source resolution from flow reports whose end timestamps fall in the completed comparison window.",
         "type": "object",
         "additionalProperties": false,
         "properties": {

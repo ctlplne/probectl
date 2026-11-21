@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/chtest"
 )
@@ -41,8 +42,8 @@ func TestFlowReaderLaneEnforcesTenantIsolationAtTheDB(t *testing.T) {
 		_, _ = c.DeleteTenant(ctx, tb)
 	})
 	if err := c.Insert(ctx, []Row{
-		{TenantID: ta, Exporter: "edge-a", Protocol: "netflow", TS: now, StartTS: now.Add(-time.Second), SrcAddr: "198.51.100.10", DstAddr: "203.0.113.10", Bytes: 100, Packets: 1},
-		{TenantID: tb, Exporter: "edge-b", Protocol: "netflow", TS: now, StartTS: now.Add(-time.Second), SrcAddr: "192.0.2.99", DstAddr: "203.0.113.99", Bytes: 900, Packets: 9},
+		{TenantID: ta, Exporter: "edge-a", Protocol: "ipfix", TS: now, StartTS: now.Add(-time.Second), SrcAddr: "198.51.100.10", DstAddr: "203.0.113.10", Bytes: 100, Packets: 1, ClockBasis: flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL},
+		{TenantID: tb, Exporter: "edge-b", Protocol: "ipfix", TS: now, StartTS: now.Add(-time.Second), SrcAddr: "192.0.2.99", DstAddr: "203.0.113.99", Bytes: 900, Packets: 9},
 	}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -66,6 +67,13 @@ func TestFlowReaderLaneEnforcesTenantIsolationAtTheDB(t *testing.T) {
 	}
 	if n := chCount(rows[0]["n"]); n != 1 {
 		t.Fatalf("CROSS-TENANT LEAK at the DB: a predicate-free tenant A read through the reader lane counted %d flows, want only A's 1", n)
+	}
+	for _, test := range []struct{ tenant, basis string }{{ta, "1"}, {tb, "0"}} {
+		read := "SELECT tenant_id,toString(clock_basis) AS clock_basis FROM " + sharedFlowsTable
+		owned, err := scoped.queryScoped(ctx, Target{}, test.tenant, read, nil)
+		if err != nil || len(owned) != 1 || chToString(owned[0]["tenant_id"]) != test.tenant || chToString(owned[0]["clock_basis"]) != test.basis {
+			t.Fatal("clock provenance leaked between lanes or an old row gained provenance", err)
+		}
 	}
 	top, err := scoped.TopTalkers(ctx, TopQuery{TenantID: ta, By: BySrc, Window: time.Hour, Now: now.Add(time.Minute), Limit: 10})
 	if err != nil || len(top) != 1 || top[0].Key != "198.51.100.10" {

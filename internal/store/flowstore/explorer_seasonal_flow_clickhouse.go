@@ -72,7 +72,7 @@ func (c *ClickHouse) exploreSeasonalWindows(ctx context.Context, query PlanQuery
 		if err != nil {
 			return nil, err
 		}
-		memberships, err := decodeSeasonalFlowRows(ctx, result, raw, membershipLimit, topKeys)
+		memberships, err := decodeSeasonalFlowRows(ctx, result, raw, membershipLimit, topKeys, usesDDoSWindowClock(query, clocks.lookback), query.DDoSVerifySampling)
 		if err != nil {
 			return nil, err
 		}
@@ -104,7 +104,7 @@ func seasonalMembershipAllowance(ctx context.Context, tenant string) (int, error
 	return b.readRows, ctx.Err()
 }
 
-func decodeSeasonalFlowRows(ctx context.Context, results []PlanResult, input []map[string]any, limit, topKeys int) (int, error) {
+func decodeSeasonalFlowRows(ctx context.Context, results []PlanResult, input []map[string]any, limit, topKeys int, clockEvidence, verifySampling bool) (int, error) {
 	const invalid = "invalid seasonal flow response"
 	memberships := 0
 	previousPeriod := -1
@@ -152,7 +152,26 @@ func decodeSeasonalFlowRows(ctx context.Context, results []PlanResult, input []m
 		if result.Query.View == "matrix" {
 			result.Matrix = append(result.Matrix, PlanMatrixCell{Row: row, Column: column, Metrics: metrics})
 		} else {
-			result.Rows = append(result.Rows, PlanRow{Group: row, Metrics: metrics})
+			data := PlanRow{Group: row, Metrics: metrics}
+			if clockEvidence {
+				switch chToString(raw["crosses_window_start"]) {
+				case "0":
+				case "1":
+					data.CrossesWindowStart = true
+				default:
+					return 0, errors.New(invalid)
+				}
+			}
+			if verifySampling {
+				switch chToString(raw["invalid_sampling_counters"]) {
+				case "0":
+				case "1":
+					data.InvalidSamplingCounters = true
+				default:
+					return 0, errors.New(invalid)
+				}
+			}
+			result.Rows = append(result.Rows, data)
 		}
 	}
 	if len(input) > memberships {

@@ -69,6 +69,7 @@ leave application evidence unavailable.
 Two replays on Go 1.26.11 and an Apple M1 Max reproduced the original v2
 manifest and all 416 trial outcomes. The local socket attributes changed the
 materialized observation digest, which matched across both replays.
+[Baseline revision](https://github.com/ctlplne/probectl/blob/a7b1997/docs/ddos-detection-benchmark.md)
 
 | Measure | Result |
 | --- | --- |
@@ -87,6 +88,17 @@ controls account for the 16 classified misses. The positive abstentions
 cover incomplete flow, unavailable application context and a mixed packet
 profile outside the observed application demand. The two
 separate-port pressure families still produced episodes.
+
+The current replay expects an abstention for the 16 negative trials with
+pressure above the configured thresholds and fewer original records than
+the rule requires. Its oracle expects 208 true positives, 0 false positives,
+64 true negatives, 16 false negatives, 48 positive abstentions and 80 negative
+abstentions. The replay prints the current manifest digest and measured totals.
+
+For sampled windows, each reported rate needs the configured minimum number
+of original records. A rule with required exporters checks the minimum for
+each selected exporter and rate. Well-observed traffic at one rate cannot
+supply missing records for a different estimate.
 
 Version one used 13 trials and two completed 60-second windows. A benign
 flash crowd opened a tentative volume episode on identical aggregates. Its
@@ -222,6 +234,8 @@ only in the owning tenant.
 The measurement includes collection, the broker, storage, the scheduler and
 the authorized API. Its start clock is the synthetic export record sent to the
 local collector. Exporter cache and flush delays are a separate measurement.
+The current fixture runs the same checks at five- and ten-second cadences,
+with a fresh tenant pair for each. The table records the five-second runs.
 Use the disposable development stack with Dex for this test.
 [Integration stack setup](development.md#testing-layers) · [Timing fixture](../internal/flow/ddos_wire_timing_integration_test.go)
 
@@ -233,12 +247,11 @@ PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
 ## Comparison scope
 
 NETSCOUT documents Arbor Sightline monitoring by managed object using flow,
-routing and device telemetry, along with configured filters and threat-feed
-context. Radware documents DefensePro using learned traffic baselines and
+routing and device telemetry, with configured protection scopes. Radware documents DefensePro using learned traffic baselines and
 multiple request characteristics to distinguish anomalous HTTPS load from
 flash crowds. These are public capability descriptions. The probectl corpus
 measures specific local detection behaviors. Vendor-equivalent accuracy and
-latency require side-by-side measurement. [Arbor Sightline architecture](https://www.netscout.com/sites/default/files/2020-09/SECJTF_003_EN-2001%20-%20Arbor%20Sightline%20-%20How%20It%20Works.pdf) · [Radware HTTPS flood detection](https://support.radware.com/app/answers/answer_view/a_id/1030072/~/the-defensepro-https-flood-protection-module)
+latency require side-by-side measurement. [Arbor Sightline datasheet](https://www.netscout.com/sites/default/files/2022-05/NETSCOUT%20-%20Arbor%20Sightline.pdf) · [NETSCOUT on flow, routing and device context](https://ir.netscout.com/news/news-details/2018/NETSCOUT-Converts-Visibility-into-Operational-Insights/default.aspx) · [Radware HTTPS flood detection](https://support.radware.com/app/answers/answer_view/a_id/1030072/~/the-defensepro-https-flood-protection-module)
 
 See the response runbook for configuring a short window, selecting authorized
 application evidence and reviewing the resulting signals. [DDoS response runbook](ddos-response-runbook.md)
@@ -273,3 +286,107 @@ PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
 ```
 
 [Paired synthetic fixture](../internal/control/alert_ddos_multi_edge_integration_test.go)
+
+
+### Exporter sampling comparability holdout
+
+For a rule or assessment with required exporters, each paired current and
+reference window must contain the same set of reported sampling rates at
+each exporter. A comparison with changed rates is unavailable. It leaves
+the evaluation clock and any active episode in place. Representative
+selection excludes a historical pair if either of its windows has
+incomparable rates and still requires three comparable weeks. The check
+uses the rates in the stored records. Changes to the underlying sampling
+method or to a population sharing an exporter address may be invisible
+when those records report the same rates. Rules without a required
+exporter list use the existing sampling-corrected aggregate.
+
+The synthetic holdout keeps raw counts at 400 and 100 for two exporters.
+Swapping the 1 and 8 multipliers raises the corrected aggregate from 1,200
+to 3,300 packets with the same two rates present. The evaluation must
+abstain. A paired tenant keeps both exporters and their original rates,
+while the corrected packet counts grow from 3,600 to 7,200. The positive
+case must open one original receipt, which the sibling cannot read.
+
+```sh
+PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
+  -run '^TestFastDDoSRequiresComparableRequiredExporterSampling$' ./internal/control
+```
+
+[Paired synthetic fixture](../internal/control/alert_ddos_multi_edge_integration_test.go)
+
+
+### Sparse sampled window holdout
+
+With reported flow sampling, both compared windows need the configured
+minimum number of original records. The corrected byte and packet totals
+still measure estimated volume. They cannot substitute for the original
+sample count. A sparse current window leaves the evaluation clock and any
+active episode in place. Representative selection considers the other
+historical weeks when a sampled reference falls below that record minimum.
+
+The synthetic holdout keeps 6,400 corrected packets in each window of an
+ongoing episode. The exporter reports the same rate of one in eight
+throughout. One window contains a single original record, below the
+configured floor of four. The next two windows have four records each.
+The evaluator must keep the original episode through the sparse window
+and publish no duplicate when complete comparisons resume. A sibling with
+steady, adequately sampled traffic stays quiet and cannot read the receipt.
+
+```sh
+PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
+  -run '^TestFastDDoSKeepsEpisodeThroughAnUndersampledWindow$' ./internal/control
+```
+
+[Paired synthetic fixture](../internal/control/alert_ddos_sample_floor_integration_test.go)
+
+
+### Sustained pressure across a classification change
+
+A five- or ten-second episode stays active when both adjacent windows
+qualify on its protected scope and the classification changes between a
+specific vector and general volume pressure. The original receipt keeps
+its evidence. A new episode still requires two compatible findings.
+Configured application context must qualify a volume finding before
+either decision. A complete quiet comparison clears the active episode.
+
+The paired synthetic holdout keeps corrected traffic steady at 6,400
+packets per window after the episode opens. The second comparison shifts
+from observed SYN pressure to general volume pressure. Later windows
+return to SYN pressure. The original episode must keep one receipt, with
+continued evaluation, and its quiet sibling must be denied that receipt.
+
+
+### Continuing weekly growth holdout
+
+A short-window rule with the representative weekly reference can see a
+large difference from its chosen reference even when both bytes and
+packets keep growing at the rates measured across four complete original
+weeks. For flow-only general volume in that measured growth band, the
+assessment requests independent corroboration, even when traffic reaches
+more destinations within the protected prefix. It leaves the active
+episode and clock in place. A sudden acceleration above the observed
+band and independently qualifying network vectors still use their
+original evidence. A rule with a bound application keeps its existing
+cross-plane comparison.
+
+A trend needs the original same-clock windows and sufficient raw
+observations at both ends of every compared increase. Sampled traffic
+requires named exporters with comparable reported sampling rates in
+all five windows before this trend check can apply.
+
+A separate holdout uses 240 independently labeled synthetic scenarios
+and evaluates each in both reference modes. It includes matching flow
+volumes and destination spread for benign traffic and concurrent pressure,
+a new acceleration, and independently qualifying SYN pressure while
+aggregate volume follows the trend. Missing or indistinguishable evidence remains an
+explicit abstention. The original 416-trial corpus is independently
+reproducible.
+
+```sh
+go test -count=1 -v -run '^TestSyntheticDDoSChangingWeeklyBaselineHoldout$' ./internal/control
+PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
+  -run '^TestWeeklyDDoSRequiresIndependentContextForAContinuingVolumeTrend$' ./internal/control
+```
+
+[Offline holdout](../internal/control/flow_ddos_weekly_holdout_test.go) · [Paired synthetic fixture](../internal/control/flow_ddos_reference_integration_test.go)

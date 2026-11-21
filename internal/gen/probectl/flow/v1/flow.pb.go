@@ -37,6 +37,56 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// FlowClockBasis classifies the origin of both clocks for timing evidence.
+type FlowClockBasis int32
+
+const (
+	FlowClockBasis_FLOW_CLOCK_BASIS_UNSPECIFIED       FlowClockBasis = 0
+	FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL FlowClockBasis = 1
+	FlowClockBasis_FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE  FlowClockBasis = 2
+)
+
+// Enum value maps for FlowClockBasis.
+var (
+	FlowClockBasis_name = map[int32]string{
+		0: "FLOW_CLOCK_BASIS_UNSPECIFIED",
+		1: "FLOW_CLOCK_BASIS_EXPORTER_INTERVAL",
+		2: "FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE",
+	}
+	FlowClockBasis_value = map[string]int32{
+		"FLOW_CLOCK_BASIS_UNSPECIFIED":       0,
+		"FLOW_CLOCK_BASIS_EXPORTER_INTERVAL": 1,
+		"FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE":  2,
+	}
+)
+
+func (x FlowClockBasis) Enum() *FlowClockBasis {
+	p := new(FlowClockBasis)
+	*p = x
+	return p
+}
+
+func (x FlowClockBasis) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FlowClockBasis) Descriptor() protoreflect.EnumDescriptor {
+	return file_probectl_flow_v1_flow_proto_enumTypes[0].Descriptor()
+}
+
+func (FlowClockBasis) Type() protoreflect.EnumType {
+	return &file_probectl_flow_v1_flow_proto_enumTypes[0]
+}
+
+func (x FlowClockBasis) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FlowClockBasis.Descriptor instead.
+func (FlowClockBasis) EnumDescriptor() ([]byte, []int) {
+	return file_probectl_flow_v1_flow_proto_rawDescGZIP(), []int{0}
+}
+
 type FlowRecord struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// --- Resource identity (OTel resource attributes) ---
@@ -79,8 +129,11 @@ type FlowRecord struct {
 	DestinationAsn     uint32 `protobuf:"varint,29,opt,name=destination_asn,json=destinationAsn,proto3" json:"destination_asn,omitempty"`            // -> "destination.as.number"
 	DestinationAsName  string `protobuf:"bytes,30,opt,name=destination_as_name,json=destinationAsName,proto3" json:"destination_as_name,omitempty"`  // -> "destination.as.organization.name"
 	DestinationCountry string `protobuf:"bytes,31,opt,name=destination_country,json=destinationCountry,proto3" json:"destination_country,omitempty"` // -> "destination.geo.country.iso_code"
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Missing, substituted and unverifiable clocks use UNSPECIFIED. A
+	// collector-clock sample is a different observation from a flow interval.
+	ClockBasis    FlowClockBasis `protobuf:"varint,32,opt,name=clock_basis,json=clockBasis,proto3,enum=probectl.flow.v1.FlowClockBasis" json:"clock_basis,omitempty"` // -> "probectl.flow.clock_basis"
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FlowRecord) Reset() {
@@ -328,6 +381,13 @@ func (x *FlowRecord) GetDestinationCountry() string {
 		return x.DestinationCountry
 	}
 	return ""
+}
+
+func (x *FlowRecord) GetClockBasis() FlowClockBasis {
+	if x != nil {
+		return x.ClockBasis
+	}
+	return FlowClockBasis_FLOW_CLOCK_BASIS_UNSPECIFIED
 }
 
 // FlowBatch is the bus payload on probectl.flow.events: one collector flush,
@@ -639,7 +699,7 @@ var File_probectl_flow_v1_flow_proto protoreflect.FileDescriptor
 
 const file_probectl_flow_v1_flow_proto_rawDesc = "" +
 	"\n" +
-	"\x1bprobectl/flow/v1/flow.proto\x12\x10probectl.flow.v1\"\xfd\b\n" +
+	"\x1bprobectl/flow/v1/flow.proto\x12\x10probectl.flow.v1\"\xc0\t\n" +
 	"\n" +
 	"FlowRecord\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
@@ -675,7 +735,9 @@ const file_probectl_flow_v1_flow_proto_rawDesc = "" +
 	"\x0esource_country\x18\x1c \x01(\tR\rsourceCountry\x12'\n" +
 	"\x0fdestination_asn\x18\x1d \x01(\rR\x0edestinationAsn\x12.\n" +
 	"\x13destination_as_name\x18\x1e \x01(\tR\x11destinationAsName\x12/\n" +
-	"\x13destination_country\x18\x1f \x01(\tR\x12destinationCountry\"d\n" +
+	"\x13destination_country\x18\x1f \x01(\tR\x12destinationCountry\x12A\n" +
+	"\vclock_basis\x18  \x01(\x0e2 .probectl.flow.v1.FlowClockBasisR\n" +
+	"clockBasis\"d\n" +
 	"\tFlowBatch\x122\n" +
 	"\x05flows\x18\x01 \x03(\v2\x1c.probectl.flow.v1.FlowRecordR\x05flows\x12#\n" +
 	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\"\xc7\x06\n" +
@@ -703,7 +765,11 @@ const file_probectl_flow_v1_flow_proto_rawDesc = "" +
 	"nextAction\"\x8b\x01\n" +
 	"\x16FlowIngestQualityBatch\x12)\n" +
 	"\x10contract_version\x18\x01 \x01(\tR\x0fcontractVersion\x12F\n" +
-	"\breceipts\x18\x02 \x03(\v2*.probectl.flow.v1.FlowIngestQualityReceiptR\breceiptsBBZ@github.com/ctlplne/probectl/internal/gen/probectl/flow/v1;flowv1b\x06proto3"
+	"\breceipts\x18\x02 \x03(\v2*.probectl.flow.v1.FlowIngestQualityReceiptR\breceipts*\x81\x01\n" +
+	"\x0eFlowClockBasis\x12 \n" +
+	"\x1cFLOW_CLOCK_BASIS_UNSPECIFIED\x10\x00\x12&\n" +
+	"\"FLOW_CLOCK_BASIS_EXPORTER_INTERVAL\x10\x01\x12%\n" +
+	"!FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE\x10\x02BBZ@github.com/ctlplne/probectl/internal/gen/probectl/flow/v1;flowv1b\x06proto3"
 
 var (
 	file_probectl_flow_v1_flow_proto_rawDescOnce sync.Once
@@ -717,21 +783,24 @@ func file_probectl_flow_v1_flow_proto_rawDescGZIP() []byte {
 	return file_probectl_flow_v1_flow_proto_rawDescData
 }
 
+var file_probectl_flow_v1_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_probectl_flow_v1_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_probectl_flow_v1_flow_proto_goTypes = []any{
-	(*FlowRecord)(nil),               // 0: probectl.flow.v1.FlowRecord
-	(*FlowBatch)(nil),                // 1: probectl.flow.v1.FlowBatch
-	(*FlowIngestQualityReceipt)(nil), // 2: probectl.flow.v1.FlowIngestQualityReceipt
-	(*FlowIngestQualityBatch)(nil),   // 3: probectl.flow.v1.FlowIngestQualityBatch
+	(FlowClockBasis)(0),              // 0: probectl.flow.v1.FlowClockBasis
+	(*FlowRecord)(nil),               // 1: probectl.flow.v1.FlowRecord
+	(*FlowBatch)(nil),                // 2: probectl.flow.v1.FlowBatch
+	(*FlowIngestQualityReceipt)(nil), // 3: probectl.flow.v1.FlowIngestQualityReceipt
+	(*FlowIngestQualityBatch)(nil),   // 4: probectl.flow.v1.FlowIngestQualityBatch
 }
 var file_probectl_flow_v1_flow_proto_depIdxs = []int32{
-	0, // 0: probectl.flow.v1.FlowBatch.flows:type_name -> probectl.flow.v1.FlowRecord
-	2, // 1: probectl.flow.v1.FlowIngestQualityBatch.receipts:type_name -> probectl.flow.v1.FlowIngestQualityReceipt
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	0, // 0: probectl.flow.v1.FlowRecord.clock_basis:type_name -> probectl.flow.v1.FlowClockBasis
+	1, // 1: probectl.flow.v1.FlowBatch.flows:type_name -> probectl.flow.v1.FlowRecord
+	3, // 2: probectl.flow.v1.FlowIngestQualityBatch.receipts:type_name -> probectl.flow.v1.FlowIngestQualityReceipt
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_probectl_flow_v1_flow_proto_init() }
@@ -744,13 +813,14 @@ func file_probectl_flow_v1_flow_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_flow_v1_flow_proto_rawDesc), len(file_probectl_flow_v1_flow_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_probectl_flow_v1_flow_proto_goTypes,
 		DependencyIndexes: file_probectl_flow_v1_flow_proto_depIdxs,
+		EnumInfos:         file_probectl_flow_v1_flow_proto_enumTypes,
 		MessageInfos:      file_probectl_flow_v1_flow_proto_msgTypes,
 	}.Build()
 	File_probectl_flow_v1_flow_proto = out.File

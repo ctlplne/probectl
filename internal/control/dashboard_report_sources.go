@@ -85,6 +85,7 @@ type preparedReportFlow struct {
 	previous                 *flow.QueryPlan
 	versions                 map[string]int64
 	ddosSourcePortProjection bool
+	ddosVerifySampling       bool
 }
 
 func (p preparedReportFlow) executions() int {
@@ -404,7 +405,7 @@ func (s *Server) collectFlowSources(ctx context.Context, p *auth.Principal, prep
 			permissions[permission] = true
 		}
 		if len(combinedEnds) != 0 {
-			results, err := s.recordSeasonalFlowWindows(ctx, p.TenantID, *current.Flow, combinedEnds, topKeys, value.ddosSourcePortProjection)
+			results, err := s.recordSeasonalFlowWindows(ctx, p.TenantID, *current.Flow, combinedEnds, topKeys, value)
 			if err != nil {
 				return nil, err
 			}

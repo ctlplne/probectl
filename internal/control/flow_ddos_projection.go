@@ -9,7 +9,9 @@ package control
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"math/big"
 	"net/netip"
@@ -25,7 +27,37 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-var errDDoSExporterCoverage = fmt.Errorf("%w: a required exporter was unobserved", anomaly.ErrDDoSCoverage)
+var (
+	errDDoSTimingCoverage   = fmt.Errorf("%w: the short-window finding depends on reports spanning its start", anomaly.ErrDDoSCoverage)
+	errDDoSExporterCoverage = fmt.Errorf("%w: a required exporter was unobserved", anomaly.ErrDDoSCoverage)
+	errDDoSExporterSampling = fmt.Errorf("%w: reported rates changed for a required exporter", anomaly.ErrDDoSCoverage)
+	errDDoSSampleCoverage   = fmt.Errorf("%w: a sampling group contains too few original flow records", anomaly.ErrDDoSCoverage)
+	errDDoSTrendCoverage    = fmt.Errorf("%w: volume follows a weekly trend without independent corroboration", anomaly.ErrDDoSCoverage)
+	errDDoSCounterIntegrity = fmt.Errorf("%w: corrected flow counters disagree with their original evidence", anomaly.ErrDDoSCoverage)
+)
+
+type ddosExporterRate struct {
+	exporter, rate string
+}
+
+type ddosProjectedWindow struct {
+	observation   anomaly.DDoSObservation
+	evidence      flow.DDoSWindowEvidence
+	exporterRates map[ddosExporterRate]struct{}
+}
+
+func assessMatchedDDoS(ctx context.Context, capture *reportFlowCapture, settings ddosAssessmentSettings, match ddosMatchedWindow, work int64) (flow.DDoSAssessment, error) {
+	assessment, err := assessCapturedDDoS(ctx, capture, settings, match.clocks, match.beforeIndex, match.afterIndex, work)
+	if err == nil && match.volumeFollowsTrend && assessment.Detection != nil {
+		// A growing destination count describes the same flow population as
+		// the volume increase. It cannot corroborate a continuing trend.
+		switch assessment.Detection.Class {
+		case anomaly.DDoSVolumetric, anomaly.DDoSPrefixSpread:
+			return flow.DDoSAssessment{}, errDDoSTrendCoverage
+		}
+	}
+	return assessment, err
+}
 
 func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, settings ddosAssessmentSettings, windows anomaly.FlowFieldComparisonClocks, beforeIndex, afterIndex int, work int64) (flow.DDoSAssessment, error) {
 	var empty flow.DDoSAssessment
@@ -50,14 +82,19 @@ func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, setting
 	if err != nil {
 		return empty, err
 	}
-	reference, before, err := projectDDoSWindow(ctx, left, settings, scope, work/4)
+	before, err := projectDDoSWindow(ctx, left, settings, scope, work/4)
 	if err != nil {
 		return empty, err
 	}
-	current, after, err := projectDDoSWindow(ctx, right, settings, scope, work/4)
+	after, err := projectDDoSWindow(ctx, right, settings, scope, work/4)
 	if err != nil {
 		return empty, err
 	}
+	// Cited reads reconstruct an already admitted receipt at its original clocks.
+	if !settings.Cited && !maps.Equal(before.exporterRates, after.exporterRates) {
+		return empty, errDDoSExporterSampling
+	}
+	reference, current := before.observation, after.observation
 	finding, err := anomaly.EvaluateDDoS(ctx, reference, current, settings.Input.Thresholds(), work/2)
 	if err != nil {
 		return empty, err
@@ -66,8 +103,54 @@ func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, setting
 	if err != nil {
 		return empty, err
 	}
+	if err := checkDDoSTimingEvidence(ctx, right, settings, scope, before, finding, application, work/4); err != nil {
+		return empty, err
+	}
 	return flow.DDoSAssessment{ViewID: settings.View.ID, Version: settings.View.Version, Prefix: settings.Target.String(),
-		Direction: settings.Input.Direction, ReferenceMode: settings.Input.ReferenceMode, Before: before, After: after, Detection: finding, Application: application}, ctx.Err()
+		Direction: settings.Input.Direction, ReferenceMode: settings.Input.ReferenceMode, Before: before.evidence, After: after.evidence, Detection: finding, Application: application}, ctx.Err()
+}
+
+func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, settings ddosAssessmentSettings, scope string,
+	reference ddosProjectedWindow, finding *anomaly.DDoSDetection, application *anomaly.DDoSApplicationEvidence, work int64) error {
+	// Cited reads reconstruct the already admitted receipt. New detection
+	// policy applies during prospective assessment and episode admission.
+	if settings.Cited || finding == nil || !anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds) ||
+		!slices.ContainsFunc(captured.Result.Rows, func(row flowstore.PlanRow) bool { return row.CrossesWindowStart }) {
+		return ctx.Err()
+	}
+	// Keep all of the reference's end-clock counters. The current finding
+	// needs enough independent support after removing known crossing reports.
+	current, err := projectDDoSWindowRows(ctx, captured, settings, scope, work, true)
+	if errors.Is(err, anomaly.ErrDDoSCoverage) {
+		return errDDoSTimingCoverage
+	}
+	if err != nil {
+		return err
+	}
+	if !maps.Equal(reference.exporterRates, current.exporterRates) {
+		return errDDoSTimingCoverage
+	}
+	limits := settings.Input.Thresholds()
+	confirmed, err := anomaly.EvaluateDDoS(ctx, reference.observation, current.observation, limits, work)
+	if errors.Is(err, anomaly.ErrDDoSRecordSupport) {
+		return errDDoSTimingCoverage
+	}
+	if err != nil {
+		return err
+	}
+	if confirmed == nil || confirmed.Class != finding.Class || confirmed.Service != finding.Service {
+		return errDDoSTimingCoverage
+	}
+	if application != nil {
+		confirmed, timedApplication, err := anomaly.QualifyDDoSApplication(ctx, reference.observation, current.observation, application.Reference, application.Current, confirmed, limits, work)
+		if err != nil {
+			return err
+		}
+		if confirmed == nil || timedApplication == nil || timedApplication.State != application.State {
+			return errDDoSTimingCoverage
+		}
+	}
+	return ctx.Err()
 }
 
 func ddosCaptureScope(capture *reportFlowCapture, settings ddosAssessmentSettings, result capturedReportFlow) (string, error) {
@@ -88,36 +171,58 @@ func ddosCaptureScope(capture *reportFlowCapture, settings ddosAssessmentSetting
 	return hex.EncodeToString(digest), nil
 }
 
-func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, settings ddosAssessmentSettings, scope string, memory int64) (anomaly.DDoSObservation, flow.DDoSWindowEvidence, error) {
-	var none anomaly.DDoSObservation
-	var empty flow.DDoSWindowEvidence
+func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, settings ddosAssessmentSettings, scope string, memory int64) (ddosProjectedWindow, error) {
+	return projectDDoSWindowRows(ctx, captured, settings, scope, memory, false)
+}
+
+func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, settings ddosAssessmentSettings, scope string, memory int64,
+	excludeCrossing bool) (ddosProjectedWindow, error) {
+	var empty ddosProjectedWindow
 	result := captured.Result
 	if captured.ID != settings.View.ID || captured.Version != settings.View.Version || scope == "" ||
 		result.Source != "raw" || result.Coverage == nil || !result.Coverage.CompleteInputs || result.OldestInput.IsZero() ||
 		result.Query.View != "table" || result.DetailLimited || result.Other != nil || result.ResolutionSeconds < 1 || result.ResolutionSeconds > settings.Input.PeriodSeconds ||
 		len(result.Rows) == 0 || int64(len(result.Rows)) > memory/512 {
-		return none, empty, anomaly.ErrDDoSCoverage
+		return empty, anomaly.ErrDDoSCoverage
 	}
 	totals := ddosWindowTotals{addresses: make(map[netip.Addr]bool), services: make(map[string]*big.Int)}
 	required := settings.Input.RequiredExporters
 	observedExporters := make(map[string]bool, len(required))
+	var exporterRates map[ddosExporterRate]struct{}
+	if len(required) != 0 {
+		exporterRates = make(map[ddosExporterRate]struct{}, len(required))
+	}
 	for _, row := range result.Rows {
 		if err := ctx.Err(); err != nil {
-			return none, empty, err
+			return empty, err
+		}
+		if !settings.Cited && row.InvalidSamplingCounters {
+			return empty, errDDoSCounterIntegrity
+		}
+		if excludeCrossing && row.CrossesWindowStart {
+			continue
 		}
 		if err := totals.add(settings, row); err != nil {
-			return none, empty, err
+			return empty, err
 		}
 		if len(required) != 0 {
 			exporter := row.Group["exporter"]
 			if !slices.Contains(required, exporter) {
-				return none, empty, errDDoSExporterCoverage
+				return empty, errDDoSExporterCoverage
 			}
 			observedExporters[exporter] = true
+			exporterRates[ddosExporterRate{exporter: exporter, rate: row.Group["sampling"]}] = struct{}{}
 		}
 	}
 	if len(observedExporters) != len(required) {
-		return none, empty, errDDoSExporterCoverage
+		return empty, errDDoSExporterCoverage
+	}
+	// Records from other sampling rates cannot support this estimate. When
+	// exporters are required, each named exporter supplies its own evidence.
+	for _, records := range totals.sampledRecords {
+		if records < settings.Input.MinObservedRecords {
+			return empty, errDDoSSampleCoverage
+		}
 	}
 	citation := captured.ID + ":" + captured.Version + ":" + result.Query.To.UTC().Format(time.RFC3339Nano) + ":" + scope
 	observed := anomaly.DDoSObservation{TenantID: captured.TenantID, Scope: scope, Target: settings.Target, Direction: settings.Input.Direction,
@@ -132,7 +237,7 @@ func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, setting
 	evidence := flow.DDoSWindowEvidence{From: observed.From, To: observed.To, Source: result.Source, ResolutionSeconds: result.ResolutionSeconds,
 		Bytes: observed.Bytes, Packets: observed.Packets, ObservedRecords: observed.ObservedRecords, ObservedAddresses: observed.ObservedAddresses,
 		ObservedExporters: len(observedExporters), Sampled: totals.sampled, Citation: observed.Citation}
-	return observed, evidence, ctx.Err()
+	return ddosProjectedWindow{observation: observed, evidence: evidence, exporterRates: exporterRates}, ctx.Err()
 }
 
 type ddosWindowTotals struct {
@@ -141,6 +246,7 @@ type ddosWindowTotals struct {
 	applicationBytes, applicationPackets big.Int
 	records                              int
 	sampled                              bool
+	sampledRecords                       map[ddosExporterRate]int
 	addresses                            map[netip.Addr]bool
 	services                             map[string]*big.Int
 }
@@ -163,7 +269,19 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 	total.packets.Add(&total.packets, packets)
 	total.records += records
 	total.addresses[protected] = true
-	total.sampled = total.sampled || sampling > 1
+	if sampling > 1 {
+		total.sampled = true
+		if !settings.Cited {
+			key := ddosExporterRate{rate: row.Group["sampling"]}
+			if len(settings.Input.RequiredExporters) != 0 {
+				key.exporter = row.Group["exporter"]
+			}
+			if total.sampledRecords == nil {
+				total.sampledRecords = make(map[ddosExporterRate]int)
+			}
+			total.sampledRecords[key] += records
+		}
+	}
 	switch protocol {
 	case "tcp":
 		flags, err := strconv.ParseUint(row.Group["tcp_flags"], 10, 8)

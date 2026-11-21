@@ -67,7 +67,7 @@ function EvidenceWindow({ label, evidence }: { label: string; evidence: FlowDDoS
         <time dateTime={evidence.to}>{evidence.to}</time>
       </dd>
       <dd>
-        {evidence.bytes} bytes · {evidence.packets} packets
+        {evidence.bytes} bytes · {evidence.packets} packets in reports ending in this window
       </dd>
       <dd>
         {evidence.observed_records} observed records · {evidence.observed_addresses} protected

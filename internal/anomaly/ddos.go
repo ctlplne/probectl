@@ -10,6 +10,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/netip"
 	"strings"
@@ -19,6 +20,9 @@ import (
 )
 
 var ErrDDoSCoverage = errors.New("anomaly: complete comparable flow observations are required")
+
+// ErrDDoSRecordSupport reports measurable pressure with too few original records to classify it.
+var ErrDDoSRecordSupport = fmt.Errorf("%w: pressure has fewer original records than required", ErrDDoSCoverage)
 
 // DDoSFastPeriod identifies the short observation windows used by the
 // dedicated saved-rule evaluator. Legacy pressure windows retain their cadence.
@@ -157,33 +161,43 @@ func EvaluateDDoS(ctx context.Context, reference, current DDoSObservation, limit
 	if bytesFloor.Sign() <= 0 || packetsFloor.Sign() <= 0 {
 		return nil, ErrDDoSCoverage
 	}
-	if current.ObservedRecords < limits.MinObservedRecords ||
-		!exceedsDDoSVolume(latest.bytes, earlier.bytes, bytesFloor, limits.GrowthBasisPoints) &&
-			!exceedsDDoSVolume(latest.packets, earlier.packets, packetsFloor, limits.GrowthBasisPoints) {
-		return nil, ctx.Err()
+	volumePressure := exceedsDDoSVolume(latest.bytes, earlier.bytes, bytesFloor, limits.GrowthBasisPoints) ||
+		exceedsDDoSVolume(latest.packets, earlier.packets, packetsFloor, limits.GrowthBasisPoints)
+	// Falling traffic in the rest of the protected population can hide a
+	// growing vector. In that case the vector must clear the packet floor
+	// on its own, in addition to the existing growth and share checks.
+	var independentFloor *big.Rat
+	if !volumePressure {
+		independentFloor = packetsFloor
 	}
 
-	result := &DDoSDetection{
-		Class: DDoSVolumetric, EvidenceBasis: "volume_growth", Confidence: "tentative",
+	class, basis, confidence := DDoSVolumetric, "volume_growth", "tentative"
+	var service, contributingPackets string
+	reflectionService, reflectionPackets := growingDDoSReflection(earlier, latest, limits, independentFloor)
+	switch {
+	case qualifyingDDoSVectorSize(latest.syn, latest.packets, independentFloor, limits.VectorShareBasisPoints) &&
+		growsDDoSVolume(latest.syn, earlier.possibleSYN, limits.GrowthBasisPoints):
+		class, basis, confidence = DDoSSYN, "observed_tcp_flag_share", "corroborated"
+		contributingPackets = latest.syn.Num().String()
+	case reflectionService != "":
+		class, service, basis = DDoSReflection, reflectionService, "observed_udp_service_port_share"
+		contributingPackets = reflectionPackets.Num().String()
+	case !volumePressure:
+		return nil, ctx.Err()
+	case current.Direction == "ingress" && current.Target.Bits() < current.Target.Addr().BitLen() &&
+		current.ObservedAddresses >= limits.MinObservedAddresses && current.ObservedAddresses > reference.ObservedAddresses:
+		class, basis, confidence = DDoSPrefixSpread, "observed_destination_spread", "corroborated"
+	}
+	if current.ObservedRecords < limits.MinObservedRecords {
+		return nil, ErrDDoSRecordSupport
+	}
+	return &DDoSDetection{
+		Class: class, Service: service, EvidenceBasis: basis, Confidence: confidence, ContributingPackets: contributingPackets,
 		CurrentBytes: current.Bytes, CurrentPackets: current.Packets,
 		ReferenceBytes: reference.Bytes, ReferencePackets: reference.Packets,
 		CurrentCitation: current.Citation, ReferenceCitation: reference.Citation,
 		ObservedRecords: current.ObservedRecords, ObservedAddresses: current.ObservedAddresses,
-	}
-	reflectionService, reflectionPackets := growingDDoSReflection(earlier, latest, limits)
-	switch {
-	case hasDDoSShare(latest.syn, latest.packets, limits.VectorShareBasisPoints) &&
-		growsDDoSVolume(latest.syn, earlier.possibleSYN, limits.GrowthBasisPoints):
-		result.Class, result.EvidenceBasis, result.Confidence = DDoSSYN, "observed_tcp_flag_share", "corroborated"
-		result.ContributingPackets = latest.syn.Num().String()
-	case reflectionService != "":
-		result.Class, result.Service, result.EvidenceBasis = DDoSReflection, reflectionService, "observed_udp_service_port_share"
-		result.ContributingPackets = reflectionPackets.Num().String()
-	case current.Direction == "ingress" && current.Target.Bits() < current.Target.Addr().BitLen() &&
-		current.ObservedAddresses >= limits.MinObservedAddresses && current.ObservedAddresses > reference.ObservedAddresses:
-		result.Class, result.EvidenceBasis, result.Confidence = DDoSPrefixSpread, "observed_destination_spread", "corroborated"
-	}
-	return result, ctx.Err()
+	}, ctx.Err()
 }
 
 func checkDDoSWindows(ctx context.Context, reference, current DDoSObservation) error {
@@ -264,11 +278,11 @@ func parseDDoSCounts(parser *decimalSeasonalTraining, data DDoSObservation) (ddo
 
 // A large share of current packets can be ordinary background. Compare each
 // service against the same service in the original reference window.
-func growingDDoSReflection(earlier, latest ddosCounts, limits DDoSThresholds) (string, *big.Rat) {
+func growingDDoSReflection(earlier, latest ddosCounts, limits DDoSThresholds, independentFloor *big.Rat) (string, *big.Rat) {
 	var strongest *big.Rat
 	var service string
 	for name, packets := range latest.reflected {
-		if !hasDDoSShare(packets, latest.packets, limits.VectorShareBasisPoints) {
+		if !qualifyingDDoSVectorSize(packets, latest.packets, independentFloor, limits.VectorShareBasisPoints) {
 			continue
 		}
 		before := earlier.unclassifiedUDP
@@ -283,6 +297,10 @@ func growingDDoSReflection(earlier, latest ddosCounts, limits DDoSThresholds) (s
 		}
 	}
 	return service, strongest
+}
+
+func qualifyingDDoSVectorSize(packets, total, independentFloor *big.Rat, share int) bool {
+	return (independentFloor == nil || packets.Cmp(independentFloor) >= 0) && hasDDoSShare(packets, total, share)
 }
 
 func ddosCounter(parser *decimalSeasonalTraining, text string) (*big.Rat, error) {

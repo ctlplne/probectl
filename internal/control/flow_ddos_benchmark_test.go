@@ -92,7 +92,7 @@ func benchmarkDDoSLabels() map[string]benchmarkDDoSLabel {
 		"matched_flash_crowd":           {DemandProven: true},
 		"stable":                        {},
 		"single_window":                 {},
-		"below_observation_floor":       {},
+		"below_observation_floor":       {Abstained: true},
 		"inconsistent_pressure":         {},
 		"partial_flow_benign":           {Abstained: true},
 		"app_for_another_host":          {Abstained: true},
@@ -228,10 +228,11 @@ func benchmarkDDoSAppSpans(window benchmarkDDoSApplication, from time.Time) []ot
 }
 
 func benchmarkDDoSProjection(ctx context.Context, settings ddosAssessmentSettings, window benchmarkDDoSWindow, from, to time.Time) (anomaly.DDoSObservation, flow.DDoSWindowEvidence, error) {
-	return projectDDoSWindow(ctx, capturedReportFlow{ID: settings.View.ID, Version: settings.View.Version, TenantID: benchmarkDDoSTenant,
+	projected, err := projectDDoSWindow(ctx, capturedReportFlow{ID: settings.View.ID, Version: settings.View.Version, TenantID: benchmarkDDoSTenant,
 		Result: flowstore.PlanResult{OldestInput: from, Coverage: &flowstore.PlanSourceCoverage{CompleteInputs: window.Complete},
 			Query: flow.QueryPlan{View: "table", From: from, To: to}, Source: "raw", ResolutionSeconds: 1, Rows: benchmarkDDoSRows(window)},
 	}, settings, "synthetic-fixture-v2", benchmarkDDoSWork)
+	return projected.observation, projected.evidence, err
 }
 
 func benchmarkDDoSAssess(ctx context.Context, settings ddosAssessmentSettings, reference, current benchmarkDDoSWindow, clocks anomaly.FlowFieldComparisonClocks) (flow.DDoSAssessment, error) {

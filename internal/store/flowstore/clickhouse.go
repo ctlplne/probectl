@@ -431,6 +431,9 @@ func chMigrationsFor(table string) []chmigrate.Migration {
 		counterHistoryMigration(table),
 		counterSpeedMigration(table),
 		serviceAttributionMigration(table, rollupTable, rollupView),
+		{Version: 11, Name: "flow_clock_basis", Statements: []string{
+			"ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS clock_basis UInt8 DEFAULT 0",
+		}},
 	}
 }
 
@@ -544,9 +547,10 @@ func (c *ClickHouse) DropTenantDatabase(ctx context.Context, t Target) error {
 // chRow is the JSONEachRow insert shape (times rendered as ClickHouse strings).
 type chRow struct {
 	Row
-	TSStr    string `json:"ts"`
-	StartStr string `json:"start_ts"`
-	RowID    string `json:"row_id"` // CORRECT-002 dedup key
+	TSStr       string `json:"ts"`
+	StartStr    string `json:"start_ts"`
+	RowID       string `json:"row_id"` // CORRECT-002 dedup key
+	TimingBasis int32  `json:"clock_basis,omitempty"`
 }
 
 // Insert streams rows as JSONEachRow batches — one request per routed target
@@ -586,9 +590,10 @@ func (c *ClickHouse) Insert(ctx context.Context, rows []Row) error {
 			enc := json.NewEncoder(&buf)
 			for i := range chunk {
 				r := chRow{Row: chunk[i],
-					TSStr:    chunk[i].TS.UTC().Format("2006-01-02 15:04:05.000"),
-					StartStr: chunk[i].StartTS.UTC().Format("2006-01-02 15:04:05.000"),
-					RowID:    flowRowID(chunk[i])} // CORRECT-002 dedup key
+					TSStr:       chunk[i].TS.UTC().Format("2006-01-02 15:04:05.000"),
+					StartStr:    chunk[i].StartTS.UTC().Format("2006-01-02 15:04:05.000"),
+					RowID:       flowRowID(chunk[i]), // CORRECT-002 dedup key
+					TimingBasis: int32(chunk[i].ClockBasis)}
 				if err := enc.Encode(r); err != nil {
 					return fmt.Errorf("flowstore: encode row: %w", err)
 				}

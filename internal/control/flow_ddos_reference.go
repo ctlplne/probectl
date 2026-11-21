@@ -9,6 +9,8 @@ package control
 import (
 	"context"
 	"errors"
+	"maps"
+	"math/big"
 	"slices"
 	"time"
 
@@ -21,6 +23,12 @@ import (
 type ddosMatchedWindow struct {
 	clocks                  anomaly.FlowFieldComparisonClocks
 	beforeIndex, afterIndex int
+	volumeFollowsTrend      bool
+}
+
+type ddosWeeklyReferenceChoice struct {
+	end                time.Time
+	volumeFollowsTrend [2]bool
 }
 
 func ddosReferenceEnds(weeks int, windows ...anomaly.FlowFieldComparisonClocks) []time.Time {
@@ -46,12 +54,14 @@ func ddosMatchedWindows(ctx context.Context, capture *reportFlowCapture, setting
 		return nil, anomaly.ErrDDoSCoverage
 	}
 	beforeAt, afterAt := 0, weeks*count
+	var choice ddosWeeklyReferenceChoice
 	if weeks > 1 {
-		chosen, err := pickCapturedDDoSReference(ctx, capture, settings, count, work/4)
+		var err error
+		choice, err = pickCapturedDDoSReference(ctx, capture, settings, count, work/4)
 		if err != nil {
 			return nil, err
 		}
-		beforeAt = slices.IndexFunc(capture.Results[:afterAt], func(result capturedReportFlow) bool { return result.Result.Query.To.Equal(chosen) })
+		beforeAt = slices.IndexFunc(capture.Results[:afterAt], func(result capturedReportFlow) bool { return result.Result.Query.To.Equal(choice.end) })
 		if beforeAt < 0 || beforeAt%count != count-1 {
 			return nil, anomaly.ErrDDoSCoverage
 		}
@@ -61,53 +71,120 @@ func ddosMatchedWindows(ctx context.Context, capture *reportFlowCapture, setting
 	for i, window := range windows {
 		before := capture.Results[beforeAt+i].Result.Query
 		window.Before = anomaly.TrainingWindow{Start: before.From, End: before.To}
-		matched[i] = ddosMatchedWindow{clocks: window, beforeIndex: beforeAt + i, afterIndex: afterAt + i}
+		matched[i] = ddosMatchedWindow{clocks: window, beforeIndex: beforeAt + i, afterIndex: afterAt + i,
+			volumeFollowsTrend: choice.volumeFollowsTrend[i]}
 	}
 	return matched, ctx.Err()
 }
 
-func pickCapturedDDoSReference(ctx context.Context, capture *reportFlowCapture, settings ddosAssessmentSettings, windowCount int, work int64) (time.Time, error) {
+func pickCapturedDDoSReference(ctx context.Context, capture *reportFlowCapture, settings ddosAssessmentSettings, windowCount int, work int64) (ddosWeeklyReferenceChoice, error) {
 	last := len(capture.Results) - 1
 	latest := capture.Results[last]
 	if latest.TenantID != capture.TenantID {
-		return time.Time{}, tenancy.ErrNoTenant
+		return ddosWeeklyReferenceChoice{}, tenancy.ErrNoTenant
 	}
 	scope, err := ddosCaptureScope(capture, settings, latest)
 	if err != nil {
-		return time.Time{}, err
+		return ddosWeeklyReferenceChoice{}, err
 	}
 	observations := make([]anomaly.DDoSObservation, len(capture.Results))
-	for i, result := range capture.Results {
+	historyEnd := len(observations) - windowCount
+	currentRates := make([]map[ddosExporterRate]struct{}, windowCount)
+	var samplingUnverified [2]bool
+	// Read the current observations first so each historical window can be
+	// compared with the rates reported by the same exporters at its paired clock.
+	for i := last; i >= 0; i-- {
+		result := capture.Results[i]
 		if result.TenantID != capture.TenantID {
-			return time.Time{}, tenancy.ErrNoTenant
+			return ddosWeeklyReferenceChoice{}, tenancy.ErrNoTenant
 		}
 		if result.Result.TagRevision != latest.Result.TagRevision || !result.TagAsOf.Equal(latest.TagAsOf) ||
 			result.Result.RoleDigest != latest.Result.RoleDigest || result.Result.RoutingProof != latest.Result.RoutingProof {
-			return time.Time{}, anomaly.ErrDDoSCoverage
+			return ddosWeeklyReferenceChoice{}, anomaly.ErrDDoSCoverage
 		}
-		observation, _, err := projectDDoSWindow(ctx, result, settings, scope, work/2/int64(len(observations)))
-		if i < len(observations)-windowCount &&
-			(len(result.Result.Rows) == 0 || errors.Is(err, errDDoSExporterCoverage)) {
+		projected, err := projectDDoSWindow(ctx, result, settings, scope, work/2/int64(len(observations)))
+		if i < historyEnd &&
+			(len(result.Result.Rows) == 0 || errors.Is(err, errDDoSExporterCoverage) || errors.Is(err, errDDoSSampleCoverage) || errors.Is(err, errDDoSCounterIntegrity)) {
 			observations[i] = anomaly.DDoSObservation{TenantID: capture.TenantID, Scope: scope, Target: settings.Target,
 				Direction: settings.Input.Direction, From: result.Result.Query.From, To: result.Result.Query.To}
 			continue
 		}
 		if err != nil {
-			return time.Time{}, err
+			return ddosWeeklyReferenceChoice{}, err
 		}
-		observations[i] = observation
+		if i >= historyEnd {
+			currentRates[i-historyEnd] = projected.exporterRates
+		} else if !maps.Equal(projected.exporterRates, currentRates[i%windowCount]) {
+			projected.observation.Complete = false
+		}
+		if projected.evidence.Sampled && len(settings.Input.RequiredExporters) == 0 {
+			samplingUnverified[i%windowCount] = true
+		}
+		observations[i] = projected.observation
 	}
+	var choice ddosWeeklyReferenceChoice
 	if windowCount == 1 {
 		chosen, err := anomaly.SelectDDoSWeeklyReference(ctx, observations[last], observations[:last], work/2)
-		return chosen.To, err
+		if err != nil {
+			return choice, err
+		}
+		choice.end = chosen.To
+	} else {
+		prior := make([]anomaly.DDoSObservationPair, 0, last/2)
+		for i := 0; i+1 < last-1; i += 2 {
+			prior = append(prior, anomaly.DDoSObservationPair{Previous: observations[i], Current: observations[i+1]})
+		}
+		chosen, err := anomaly.SelectDDoSWeeklyReferencePair(ctx,
+			anomaly.DDoSObservationPair{Previous: observations[last-1], Current: observations[last]}, prior, work/2)
+		if err != nil {
+			return choice, err
+		}
+		choice.end = chosen.Current.To
 	}
-	prior := make([]anomaly.DDoSObservationPair, 0, last/2)
-	for i := 0; i+1 < last-1; i += 2 {
-		prior = append(prior, anomaly.DDoSObservationPair{Previous: observations[i], Current: observations[i+1]})
+	if settings.Input.Application == nil && anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds) && len(observations) == 5*windowCount {
+		for i := range windowCount {
+			choice.volumeFollowsTrend[i] = !samplingUnverified[i] && followsDDoSWeeklyTrend(observations, windowCount, i, settings.Input.MinObservedRecords)
+		}
 	}
-	chosen, err := anomaly.SelectDDoSWeeklyReferencePair(ctx,
-		anomaly.DDoSObservationPair{Previous: observations[last-1], Current: observations[last]}, prior, work/2)
-	return chosen.Current.To, err
+	return choice, ctx.Err()
+}
+
+// followsDDoSWeeklyTrend checks four complete original weeks and the
+// current window at the same clock. It only identifies when volume by itself
+// cannot distinguish the latest increase from the observed trend.
+func followsDDoSWeeklyTrend(observations []anomaly.DDoSObservation, windowCount, offset, minRecords int) bool {
+	var bytes, packets [5]*big.Int
+	currentEnd := observations[4*windowCount+offset].To.UTC()
+	for week := range bytes {
+		window := observations[week*windowCount+offset]
+		if !window.Complete || window.ObservedRecords < minRecords || !window.To.Equal(currentEnd.AddDate(0, 0, -7*(4-week))) {
+			return false
+		}
+		var byteOK, packetOK bool
+		bytes[week], byteOK = ddosWindowCounter(window.Bytes)
+		packets[week], packetOK = ddosWindowCounter(window.Packets)
+		if !byteOK || !packetOK || bytes[week].Sign() <= 0 || packets[week].Sign() <= 0 {
+			return false
+		}
+	}
+	return continuesDDoSWeeklyGrowth(bytes) && continuesDDoSWeeklyGrowth(packets)
+}
+
+func continuesDDoSWeeklyGrowth(counts [5]*big.Int) bool {
+	latest := new(big.Rat).SetFrac(counts[4], counts[3])
+	if counts[4].Cmp(counts[3]) <= 0 {
+		return false
+	}
+	var withinLower, withinUpper bool
+	for week := 1; week < 4; week++ {
+		if counts[week].Cmp(counts[week-1]) <= 0 {
+			return false
+		}
+		cmp := latest.Cmp(new(big.Rat).SetFrac(counts[week], counts[week-1]))
+		withinLower = withinLower || cmp >= 0
+		withinUpper = withinUpper || cmp <= 0
+	}
+	return withinLower && withinUpper
 }
 
 // citedDDoSClocks reconstructs the selected reference from the retained

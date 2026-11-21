@@ -360,11 +360,15 @@ func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabul
 	}
 	from = planInterfaceRoleJoinsSQL(from, plan)
 	from = planRoutingJoinsSQL(from, plan)
+	originalEvidence := ""
+	if ddosProjection {
+		originalEvidence = ",start_ts,clock_basis,bytes,packets,sampling"
+	}
 
 	// Original keys have names distinct from the transformed g/c aliases below.
 	// In particular column_input remaps the original column into g and clears c;
 	// nested scalar expansion must keep referring to the original source keys.
-	return "filtered AS (SELECT " + key(plan.GroupBy) + " AS __probectl_source_row," + key(plan.MatrixWith) + " AS __probectl_source_column," + eventTime + " AS event_time,bytes_scaled,packets_scaled," + explorerAddressExpr("src_addr") + " AS canonical_src," + explorerAddressExpr("dst_addr") + " AS canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country,tenant_id FROM " + from + " WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')}" + planSeasonalReadSQL(eventTime, readWindows, params) + " AND (" + filter + "))", nil
+	return "filtered AS (SELECT " + key(plan.GroupBy) + " AS __probectl_source_row," + key(plan.MatrixWith) + " AS __probectl_source_column," + eventTime + " AS event_time,bytes_scaled,packets_scaled," + explorerAddressExpr("src_addr") + " AS canonical_src," + explorerAddressExpr("dst_addr") + " AS canonical_dst,src_port,dst_port,src_asn,dst_asn,src_country,dst_country,tenant_id" + originalEvidence + " FROM " + from + " WHERE tenant_id={tenant:String} AND " + eventTime + ">={from:DateTime64(9,'UTC')} AND " + eventTime + "<{to:DateTime64(9,'UTC')}" + planSeasonalReadSQL(eventTime, readWindows, params) + " AND (" + filter + "))", nil
 }
 
 func planSeasonalReadSQL(eventTime string, windows []seasonalReadWindow, params chParams) string {

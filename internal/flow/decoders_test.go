@@ -10,6 +10,8 @@ import (
 	"net/netip"
 	"testing"
 	"time"
+
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 )
 
 const exporter = "203.0.113.10"
@@ -60,6 +62,9 @@ func TestNetFlow5Decode(t *testing.T) {
 	}
 	// Sampling correction surfaces in the proto mapping.
 	pr := r.ToProto()
+	if pr.GetClockBasis() != flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL {
+		t.Error("NetFlow v5 lost its original flow clock basis")
+	}
 	if pr.GetBytesScaled() != 2000 || pr.GetPacketsScaled() != 20 {
 		t.Errorf("scaled = %d/%d, want 2000/20", pr.GetBytesScaled(), pr.GetPacketsScaled())
 	}
@@ -142,6 +147,9 @@ func TestNetFlow9TemplateThenData(t *testing.T) {
 	// boot = export - 100s; first = +10s => start = export - 90s.
 	if want := testTime.Add(-90 * time.Second); !r.Start.Equal(want) {
 		t.Errorf("start = %v, want %v", r.Start, want)
+	}
+	if r.ToProto().GetClockBasis() != flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL {
+		t.Error("NetFlow v9 lost its original uptime clock basis")
 	}
 	// The same data from a DIFFERENT exporter must miss (templates are scoped).
 	_, misses, _ = d.Decode(data, "198.51.100.99", testTime)
@@ -287,6 +295,39 @@ func TestIPFIXDecode(t *testing.T) {
 	if !r.Start.Equal(time.UnixMilli(int64(startMs))) || !r.End.Equal(time.UnixMilli(int64(endMs))) {
 		t.Errorf("absolute times = %v..%v", r.Start, r.End)
 	}
+	if r.ToProto().GetClockBasis() != flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL {
+		t.Error("IPFIX lost its original absolute clock basis")
+	}
+}
+
+func TestIPFIXClockBasisRefusesFallbackClocks(t *testing.T) {
+	exportTime := testTime.Truncate(time.Second)
+	for _, test := range []struct {
+		name   string
+		fields []ipfixField
+		times  []byte
+	}{
+		{name: "missing start and end"},
+		{name: "missing end", fields: []ipfixField{{ID: ieFlowStartSec, Len: 4}}, times: (&wireBuf{}).u32(uint32(exportTime.Add(-time.Second).Unix())).b},
+		{name: "uptime without a boot clock", fields: []ipfixField{{ID: ieFirstSwitched, Len: 4}, {ID: ieLastSwitched, Len: 4}},
+			times: (&wireBuf{}).u32(100).u32(200).b},
+		{name: "wrong absolute field width", fields: []ipfixField{{ID: ieFlowStartSec, Len: 8}, {ID: ieFlowEndSec, Len: 4}},
+			times: (&wireBuf{}).u64(uint64(exportTime.Add(-time.Second).Unix())).u32(uint32(exportTime.Unix())).b},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			d := NewDecoder(time.Hour, 128)
+			fields := append([]ipfixField{{ID: ieIPv4Src, Len: 4}, {ID: ieIPv4Dst, Len: 4}}, test.fields...)
+			row := (&wireBuf{}).raw([]byte{192, 0, 2, 1, 198, 51, 100, 2}).raw(test.times).b
+			msg := ipfixMsg(uint32(exportTime.Unix()), 9, ipfixTemplateSet(2, 305, 0, fields), ipfixDataSet(305, row))
+			records, misses, err := d.Decode(msg, exporter, testTime)
+			if err != nil || misses != 0 || len(records) != 1 {
+				t.Fatal("the existing IPFIX record must remain decodable", len(records), misses, err)
+			}
+			if got := records[0].ToProto(); got.GetClockBasis() != flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_UNSPECIFIED || got.GetEndUnixNano() != exportTime.UnixNano() {
+				t.Fatal("an incomplete IPFIX interval gained original timing evidence or lost its existing end clock", got)
+			}
+		})
+	}
 }
 
 // TestIPFIXVariableAndEnterprise checks RFC 7011 variable-length encoding and
@@ -398,6 +439,9 @@ func TestSFlowRawHeaderSample(t *testing.T) {
 	}
 	if got := r.ToProto().GetBytesScaled(); got != 1500*1024 {
 		t.Errorf("scaled = %d", got)
+	}
+	if r.ToProto().GetClockBasis() != flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE {
+		t.Error("sFlow lost its original observation clock basis")
 	}
 }
 

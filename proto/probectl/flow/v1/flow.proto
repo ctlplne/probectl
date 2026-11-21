@@ -19,6 +19,13 @@ package probectl.flow.v1;
 
 option go_package = "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1;flowv1";
 
+// FlowClockBasis classifies the origin of both clocks for timing evidence.
+enum FlowClockBasis {
+  FLOW_CLOCK_BASIS_UNSPECIFIED = 0;
+  FLOW_CLOCK_BASIS_EXPORTER_INTERVAL = 1;
+  FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE = 2;
+}
+
 message FlowRecord {
   // --- Resource identity (OTel resource attributes) ---
   string tenant_id = 1;        // -> "probectl.tenant.id" (outermost scope, F50)
@@ -66,6 +73,10 @@ message FlowRecord {
   uint32 destination_asn = 29;        // -> "destination.as.number"
   string destination_as_name = 30;    // -> "destination.as.organization.name"
   string destination_country = 31;    // -> "destination.geo.country.iso_code"
+
+  // Missing, substituted and unverifiable clocks use UNSPECIFIED. A
+  // collector-clock sample is a different observation from a flow interval.
+  FlowClockBasis clock_basis = 32; // -> "probectl.flow.clock_basis"
 }
 
 // FlowBatch is the bus payload on probectl.flow.events: one collector flush,

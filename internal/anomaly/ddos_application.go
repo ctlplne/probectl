@@ -74,10 +74,6 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 	if finding == nil || finding.Class != DDoSVolumetric {
 		return finding, proof, ctx.Err()
 	}
-	if !withinDDoSApplicationErrorBudget(earlier) {
-		proof.State = DDoSApplicationAmbiguous
-		return finding, proof, ctx.Err()
-	}
 	parser := decimalSeasonalTraining{work: work}
 	requests := [2]int{earlier.Successes, latest.Successes}
 	bytes, err := compareApplicationTraffic(&parser, requests, reference.Bytes, current.Bytes,
@@ -95,6 +91,8 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 	switch {
 	case bytes.residualPressure || packets.residualPressure:
 		proof.State = DDoSApplicationResidual
+	case !withinDDoSApplicationErrorBudget(earlier):
+		proof.State = DDoSApplicationAmbiguous
 	case earlier.SamplingThreshold != latest.SamplingThreshold || earlier.SamplingThreshold == DDoSSamplingMixed:
 		proof.State = DDoSApplicationSampling
 	case degraded && listenerPressure:

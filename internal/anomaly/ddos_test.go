@@ -33,6 +33,21 @@ func TestDDoSClassificationKeepsPassiveMeasuredEvidence(t *testing.T) {
 	if finding, err := EvaluateDDoS(ctx, reference, current, thresholds, 1<<20); err != nil || finding != nil {
 		t.Fatal("stable measured traffic created a finding", finding, err)
 	}
+	t.Run("sparse evidence distinguishes quiet from unsupported pressure", func(t *testing.T) {
+		input := current
+		input.ObservedRecords = thresholds.MinObservedRecords - 1
+		if finding, err := EvaluateDDoS(ctx, reference, input, thresholds, 1<<20); err != nil || finding != nil {
+			t.Fatal("sparse quiet traffic should remain a quiet comparison", finding, err)
+		}
+		input.Packets = "4000"
+		if finding, err := EvaluateDDoS(ctx, reference, input, thresholds, 1<<20); !errors.Is(err, ErrDDoSRecordSupport) || finding != nil {
+			t.Fatal("sparse pressure was treated as quiet or classified without enough records", finding, err)
+		}
+		input.ObservedRecords++
+		if finding, err := EvaluateDDoS(ctx, reference, input, thresholds, 1<<20); err != nil || finding == nil || finding.Class != DDoSVolumetric {
+			t.Fatal("pressure with the exact minimum original records should qualify", finding, err)
+		}
+	})
 
 	tests := []struct {
 		name, syn, udp, service string
@@ -129,6 +144,64 @@ func TestDDoSReflectionComparesEachServiceToItsOwnReference(t *testing.T) {
 	}
 }
 
+func TestDDoSDetectsMeasuredVectorWhenPopulationVolumeFalls(t *testing.T) {
+	const owner = "25ebf92b-c387-451d-9e67-0b323c402a58"
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(owner))
+	start := time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC)
+	for _, vector := range []DDoSClass{DDoSSYN, DDoSReflection} {
+		t.Run(string(vector), func(t *testing.T) {
+			for _, scenario := range []struct {
+				name, baseline, previouslyUnknown, packets, total string
+				records                                           int
+				positive                                          bool
+			}{
+				{"falling total", "1900", "0", "2800", "4000", 50, true},
+				{"flat total at vector floor", "1900", "0", "2500", "4200", 50, true},
+				{"below packet floor", "1900", "0", "2499", "4000", 50, false},
+				{"below vector share", "1900", "0", "2500", "4300", 50, false},
+				{"insufficient vector growth", "2400", "0", "2800", "4000", 50, false},
+				{"steady vector", "2800", "0", "2800", "4000", 50, false},
+				{"historical classification missing", "0", "2400", "2800", "4000", 50, false},
+				{"below observation floor", "1900", "0", "2800", "4000", 49, false},
+			} {
+				t.Run(scenario.name, func(t *testing.T) {
+					before := DDoSObservation{TenantID: owner, Scope: "owned host", Target: netip.MustParsePrefix("192.0.2.1/32"), Direction: "ingress",
+						From: start, To: start.Add(5 * time.Second), Citation: "reference", Complete: true,
+						Bytes: "420000", Packets: "4200", SYNOnlyPackets: "0", UDPPackets: "0", ObservedRecords: 50, ObservedAddresses: 1}
+					after := before
+					after.From, after.To, after.Citation = before.From.AddDate(0, 0, 7), before.To.AddDate(0, 0, 7), "current"
+					after.Bytes, after.Packets, after.ObservedRecords = "400000", scenario.total, scenario.records
+					service := ""
+					if vector == DDoSSYN {
+						before.SYNOnlyPackets, before.UnclassifiedTCPPackets = scenario.baseline, scenario.previouslyUnknown
+						after.SYNOnlyPackets = scenario.packets
+					} else {
+						service = "dns"
+						before.UDPPackets = scenario.baseline
+						if scenario.previouslyUnknown != "0" {
+							before.UDPPackets = scenario.previouslyUnknown
+						}
+						before.UnclassifiedUDPPackets = scenario.previouslyUnknown
+						before.Reflection = []ReflectionObservation{{Service: service, Packets: scenario.baseline}}
+						after.UDPPackets = scenario.packets
+						after.Reflection = []ReflectionObservation{{Service: service, Packets: scenario.packets}}
+					}
+					limits := DDoSThresholds{BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
+						VectorShareBasisPoints: 5900, MinObservedRecords: 50, MinObservedAddresses: 2}
+					got, err := EvaluateDDoS(ctx, before, after, limits, 1<<20)
+					if err != nil || (got != nil) != scenario.positive {
+						t.Fatalf("expected finding=%t, got %+v, %v", scenario.positive, got, err)
+					}
+					if got != nil && (got.Class != vector || got.Service != service || got.ContributingPackets != scenario.packets ||
+						got.ReferencePackets != before.Packets || got.CurrentPackets != after.Packets) {
+						t.Fatalf("finding must cite the measured vector and original population, got %+v", got)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestDDoSApplicationQualifiesDegradationWithAHealthyReference(t *testing.T) {
 	const owner = "25ebf92b-c387-451d-9e67-0b323c402a58"
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(owner))
@@ -174,17 +247,23 @@ func TestDDoSApplicationRequiresPressureOnTheDegradedListener(t *testing.T) {
 		VectorShareBasisPoints: 6000, MinObservedRecords: 50, MinObservedAddresses: 2}
 	for _, scenario := range []struct {
 		name, bytes, packets, listenerBytes, listenerPackets, state string
+		referenceFailures                                           int
 	}{
-		{"unrelated load below both floors", "290000", "3500", "140000", "1700", DDoSApplicationAmbiguous},
-		{"unrelated load above both floors", "400000", "4500", "140000", "1700", DDoSApplicationResidual},
-		{"listener byte pressure", "440000", "2500", "360000", "1700", DDoSApplicationDegraded},
-		{"listener packet pressure", "220000", "4400", "140000", "3600", DDoSApplicationDegraded},
+		{"unrelated load below both floors", "290000", "3500", "140000", "1700", DDoSApplicationAmbiguous, 0},
+		{"unrelated load above both floors", "400000", "4500", "140000", "1700", DDoSApplicationResidual, 0},
+		{"listener byte pressure", "440000", "2500", "360000", "1700", DDoSApplicationDegraded, 0},
+		{"listener packet pressure", "220000", "4400", "140000", "3600", DDoSApplicationDegraded, 0},
+		{"independent pressure outside degraded reference listener", "400000", "4500", "140000", "1700", DDoSApplicationResidual, 8},
+		{"subthreshold traffic outside degraded reference listener", "290000", "3500", "140000", "1700", DDoSApplicationAmbiguous, 8},
+		{"degraded reference cannot corroborate pressure at its own listener", "440000", "2500", "360000", "1700", DDoSApplicationAmbiguous, 8},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			after := before
 			after.From, after.To, after.Citation = before.From.AddDate(0, 0, 7), before.To.AddDate(0, 0, 7), "current"
 			after.Bytes, after.Packets = scenario.bytes, scenario.packets
 			after.ApplicationBytes, after.ApplicationPackets = scenario.listenerBytes, scenario.listenerPackets
+			earlierApp := previousApp
+			earlierApp.Successes -= scenario.referenceFailures
 			latestApp := previousApp
 			latestApp.From, latestApp.To, latestApp.Successes = after.From, after.To, 20
 			latestApp.P95, latestApp.Digest = 80*time.Millisecond, strings.Repeat("b", 64)
@@ -192,7 +271,7 @@ func TestDDoSApplicationRequiresPressureOnTheDegradedListener(t *testing.T) {
 			if err != nil || finding == nil || finding.Class != DDoSVolumetric {
 				t.Fatalf("fixture must reach volume qualification, got %+v, %v", finding, err)
 			}
-			got, app, err := QualifyDDoSApplication(ctx, before, after, previousApp, latestApp, finding, limits, 1<<20)
+			got, app, err := QualifyDDoSApplication(ctx, before, after, earlierApp, latestApp, finding, limits, 1<<20)
 			if err != nil || got != finding || app == nil || app.State != scenario.state {
 				t.Fatalf("qualifier state want %q, got %+v, %v", scenario.state, app, err)
 			}

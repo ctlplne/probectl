@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/anomaly"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 )
 
 // Row is one stored flow record (post-decode, post-enrichment).
@@ -47,6 +48,8 @@ type Row struct {
 
 	TS      time.Time `json:"-"` // analytics time axis (flow end)
 	StartTS time.Time `json:"-"`
+	// ClockBasis is private source provenance for exact timing reads.
+	ClockBasis flowv1.FlowClockBasis `json:"-"`
 
 	SrcAddr   string `json:"src_addr"`
 	DstAddr   string `json:"dst_addr"`

@@ -18,6 +18,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/fairness"
+	"github.com/ctlplne/probectl/internal/flow"
 	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/metrics"
 	"github.com/ctlplne/probectl/internal/opendata"
@@ -403,6 +404,7 @@ func rowFromProtoAt(f *flowv1.FlowRecord, now time.Time) flowstore.Row {
 		Protocol:      f.GetFlowProtocol(),
 		TS:            ts,
 		StartTS:       startTS,
+		ClockBasis:    storedFlowClockBasis(f, startTS, ts),
 		SrcAddr:       f.GetSourceAddress(),
 		DstAddr:       f.GetDestinationAddress(),
 		SrcPort:       uint16(f.GetSourcePort()),
@@ -427,4 +429,28 @@ func rowFromProtoAt(f *flowv1.FlowRecord, now time.Time) flowstore.Row {
 		DstASName:     f.GetDestinationAsName(),
 		DstCountry:    f.GetDestinationCountry(),
 	}
+}
+
+func storedFlowClockBasis(f *flowv1.FlowRecord, start, end time.Time) flowv1.FlowClockBasis {
+	const unknown = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_UNSPECIFIED
+	// Normalization can fill, clamp or repair a clock. Its value remains
+	// available for existing readers, with unknown timing evidence.
+	if f.GetStartUnixNano() <= 0 || f.GetEndUnixNano() <= 0 ||
+		f.GetStartUnixNano() != start.UnixNano() || f.GetEndUnixNano() != end.UnixNano() ||
+		start.After(end) {
+		return unknown
+	}
+	basis := f.GetClockBasis()
+	switch basis {
+	case flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL:
+		switch f.GetFlowProtocol() {
+		case flow.ProtoNetFlow5, flow.ProtoNetFlow9, flow.ProtoIPFIX:
+			return basis
+		}
+	case flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE:
+		if f.GetFlowProtocol() == flow.ProtoSFlow5 && start.Equal(end) && f.GetObservedAtUnixNano() == f.GetEndUnixNano() {
+			return basis
+		}
+	}
+	return unknown
 }

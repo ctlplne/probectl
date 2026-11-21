@@ -247,7 +247,7 @@ func ddosReportPackTables(tenant string, report alert.DDoSReport) []reporting.CS
 		table("ddos-summary", "Observed DDoS incident", []string{"incident", "episode", "prefix", "direction", "observed_seconds", "decisions_visible"},
 			[][]string{{report.IncidentID, report.EpisodeID, report.Prefix, report.Direction, strconv.FormatInt(report.ObservedSeconds, 10), strconv.FormatBool(report.ActionsVisible)}}),
 		table("ddos-windows", "Observed traffic windows", []string{"from", "to", "vector", "service", "confidence", "bytes", "packets", "records", "sampled", "citation"}, windows),
-		table("ddos-peak-rates", "Peak observed window averages", []string{"unit", "numerator", "observed_seconds", "per_second", "from", "to"},
+		table("ddos-peak-rates", "Peak rates from flow reports ending in each window", []string{"unit", "numerator", "observed_seconds", "per_second", "from", "to"},
 			[][]string{ddosReportRateRow("bits", report.PeakBitRate), ddosReportRateRow("packets", report.PeakPacketRate)}),
 		table("ddos-top-sources", "Top observed sources", []string{"source_address", "bytes", "packets"}, sources),
 	}

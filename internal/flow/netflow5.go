@@ -91,6 +91,8 @@ func decodeNetFlow5(pkt []byte, exporter string, now time.Time) ([]Record, error
 			ObservedAt:        now,
 			Start:             bootTime.Add(time.Duration(first) * time.Millisecond),
 			End:               bootTime.Add(time.Duration(last) * time.Millisecond),
+			exporterStart:     first <= sysUptimeMS,
+			exporterEnd:       last <= sysUptimeMS,
 			SrcAddr:           netip.AddrFrom4(src),
 			DstAddr:           netip.AddrFrom4(dst),
 			NextHop:           netip.AddrFrom4(nextHop),
