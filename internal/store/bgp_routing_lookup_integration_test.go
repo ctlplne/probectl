@@ -278,3 +278,44 @@ func TestBGPRoutingRouterLookupUsesOwnContextAndRefusesConflictingCompleteViews(
 		t.Fatal("router conflict crossed the tenant boundary", err)
 	}
 }
+
+func TestBGPRoutingExactPrefixKeepsParentAtSharedBaseAddressAndTenantScope(t *testing.T) {
+	f := newRoleInputsFixture(t)
+	parent := netip.MustParsePrefix("192.0.2.0/24")
+	child := netip.MustParsePrefix("192.0.2.0/25")
+	for lane, tenant := range f.tenants {
+		source := routingFixtureSource(f, lane)
+		ref := routingLookupBegin(t, f, source, routingLookupDefinition(1))
+		wide, narrow := routingChangeFixture(), routingChangeFixture()
+		wide.Prefix, narrow.Prefix = parent, child
+		wide.Segments[1].Values[0] = uint32(64496 + lane)
+		narrow.Segments[1].Values[0] = uint32(64498 + lane)
+		routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 1, AFI: 1, SAFI: 1, Changes: []BGPRoutingChange{wide, narrow}})
+		routingLookupApply(t, f, source, ref, BGPRoutingBatch{Sequence: 2, AFI: 1, SAFI: 1, EndOfRIB: true})
+		longest, err := routingLookupRead(t, f, source, ref, parent.Addr().String(), routingViewBudget())
+		if err != nil || longest.Prefix != child {
+			t.Fatal("the ordinary reader should prefer the more-specific path", longest.Prefix, err)
+		}
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		if err := tenancy.InTenantReadSnapshot(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			exact, err := (BGPRouting{}).lookupExactPrefixInScope(ctx, sc, source, ref, parent, routingViewBudget())
+			if err != nil || exact.Prefix != parent || exact.Source.TenantID != tenant ||
+				len(exact.Paths) != 1 || exact.Paths[0].Segments[1].Values[0] != uint32(64496+lane) {
+				t.Fatal("the exact-prefix lookup lost the current parent or mixed tenant origins", exact, err)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		foreign := tenancy.WithTenant(t.Context(), tenancy.ID(f.tenants[1-lane]))
+		if err := tenancy.InTenantReadSnapshot(foreign, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			exact, err := (BGPRouting{}).lookupExactPrefixInScope(ctx, sc, source, ref, parent, routingViewBudget())
+			if err == nil || len(exact.Paths) != 0 {
+				t.Fatal("another tenant read the exact overlapping parent", exact, err)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

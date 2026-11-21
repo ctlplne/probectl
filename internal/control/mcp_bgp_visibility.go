@@ -51,6 +51,14 @@ func bgpHistoryToolSchema(path string, count int, required ...string) (json.RawM
 	if len(properties) != count {
 		return nil, apierror.Unavailable("BGP history tool contract is unavailable")
 	}
+	if len(required) == 0 {
+		required = []string{"id"}
+	}
+	for _, name := range required {
+		if _, present := properties[name]; !present {
+			return nil, apierror.Unavailable("required BGP tool parameter is unavailable")
+		}
+	}
 	return json.Marshal(struct {
 		Type                 string                     `json:"type"`
 		Properties           map[string]json.RawMessage `json:"properties"`

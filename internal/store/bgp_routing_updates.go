@@ -356,7 +356,15 @@ func (store BGPRouting) applyBatchInScope(ctx context.Context, sc tenancy.Scope,
 	if err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
-	if err := appendOwnedRoutingChanges(ctx, sc, source, ref, view, batch, digest, prepared, profile); errors.Is(err, ErrBGPRoutingBudget) {
+	validator := store.rpkiHistory.RPKI(batch.ObservedAt)
+	var rpkiObservations []byte
+	if view.state == "current" {
+		rpkiObservations, err = captureBGPChangeRPKI(ctx, sc, source, validator, prepared, profile)
+		if err != nil {
+			return BGPRoutingApplyResult{}, err
+		}
+	}
+	if err := appendOwnedRoutingChanges(ctx, sc, source, ref, view, batch, digest, prepared, profile, rpkiObservations); errors.Is(err, ErrBGPRoutingBudget) {
 		return invalidateRoutingView(ctx, sc, source, ref, "change-history-budget")
 	} else if err != nil {
 		return BGPRoutingApplyResult{}, err
@@ -365,7 +373,7 @@ func (store BGPRouting) applyBatchInScope(ctx context.Context, sc tenancy.Scope,
 		return BGPRoutingApplyResult{}, err
 	}
 	if batch.EndOfRIB && view.state == "staging" {
-		if err := appendOwnedASPathBaseline(ctx, sc, source, ref, view, batch, digest); err != nil {
+		if err := appendOwnedASPathBaseline(ctx, sc, source, ref, view, batch, digest, validator, profile); err != nil {
 			return BGPRoutingApplyResult{}, err
 		}
 	}

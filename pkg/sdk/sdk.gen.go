@@ -740,6 +740,63 @@ type BGPEventList struct {
 	Items          []BGPEvent `json:"items,omitempty"`
 }
 
+type BGPRPKICoveringAssertion struct {
+	Asn       int    `json:"asn"`
+	MaxLength int    `json:"max_length"`
+	Prefix    string `json:"prefix"`
+}
+
+type BGPRPKICurrentPosture struct {
+	AsOf      string               `json:"as_of"`
+	ContextId string               `json:"context_id"`
+	Coverage  string               `json:"coverage"`
+	MonitorId string               `json:"monitor_id"`
+	Paths     []BGPRPKIPathPosture `json:"paths"`
+	Prefix    string               `json:"prefix"`
+	PrefixId  string               `json:"prefix_id"`
+	Trend     []BGPRPKITrendPoint  `json:"trend"`
+}
+
+// Exact announced prefix and intended origin. An omitted maxLength authorizes only the listed prefix length.
+type BGPRPKIExactROA struct {
+	OriginAsn int    `json:"origin_asn"`
+	Prefix    string `json:"prefix"`
+}
+
+type BGPRPKIHijack struct {
+	IncidentId string `json:"incident_id"`
+	ObservedAt string `json:"observed_at"`
+}
+
+type BGPRPKIPathPosture struct {
+	Generation     string          `json:"generation"`
+	HasPathId      bool            `json:"has_path_id"`
+	OriginAsn      int             `json:"origin_asn,omitempty"`
+	PathId         int             `json:"path_id"`
+	RelatedHijacks []BGPRPKIHijack `json:"related_hijacks,omitempty"`
+	RouterId       string          `json:"router_id"`
+	Rpki           BGPRPKIVerdict  `json:"rpki"`
+	Vantage        string          `json:"vantage"`
+	ViewObservedAt string          `json:"view_observed_at"`
+}
+
+type BGPRPKITrendPoint struct {
+	Id         string         `json:"id"`
+	ObservedAt string         `json:"observed_at"`
+	OriginAsn  int            `json:"origin_asn,omitempty"`
+	Posture    BGPRPKIVerdict `json:"posture"`
+	Vantage    string         `json:"vantage"`
+}
+
+type BGPRPKIVerdict struct {
+	Covering            []BGPRPKICoveringAssertion `json:"covering"`
+	Reason              string                     `json:"reason"`
+	Status              string                     `json:"status"`
+	Suggestion          BGPRPKIExactROA            `json:"suggestion,omitzero"`
+	ValidatorObservedAt string                     `json:"validator_observed_at,omitempty"`
+	ValidatorVersion    string                     `json:"validator_version,omitempty"`
+}
+
 type BGPRoutingBinding struct {
 	BgpIdentifier string `json:"bgp_identifier"`
 	ContextId     string `json:"context_id"`
@@ -6368,6 +6425,37 @@ func (c *Client) GetBgpasPathHistory(ctx context.Context, req GetBgpasPathHistor
 		query.Set("limit", formatQueryValue(*req.Limit))
 	}
 	var out BGPASPathHistory
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read validation of current paths to an owned monitored prefix
+type GetBgprpkiPostureRequest struct {
+	Id          string  `json:"-"`
+	ContextId   *string `json:"-"`
+	PrefixId    *string `json:"-"`
+	IntendedAsn *int    `json:"-"`
+}
+
+func (c *Client) GetBgprpkiPosture(ctx context.Context, req GetBgprpkiPostureRequest) (*BGPRPKICurrentPosture, error) {
+	path := "/v1/bgp/visibility/{id}/rpki-posture"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.PrefixId != nil {
+		query.Set("prefix_id", formatQueryValue(*req.PrefixId))
+	}
+	if req.IntendedAsn != nil {
+		query.Set("intended_asn", formatQueryValue(*req.IntendedAsn))
+	}
+	var out BGPRPKICurrentPosture
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}

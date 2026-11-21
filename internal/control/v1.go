@@ -121,6 +121,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/bgp/visibility/{id}", s.handleGetBGPVisibility, ai.PermEventsRead},
 		{http.MethodGet, "/v1/bgp/visibility/{id}/paths", s.handleBGPASPathHistory, ai.PermEventsRead},
 		{http.MethodGet, "/v1/bgp/sessions/{router_id}", s.handleBMPSessionHistory, ai.PermEventsRead},
+		{http.MethodGet, "/v1/bgp/visibility/{id}/rpki-posture", s.handleBGPRPKIPosture, ai.PermEventsRead},
 		{http.MethodDelete, "/v1/bgp/visibility/{id}", s.handleDeleteBGPVisibility, permAlertWrite},
 		{http.MethodGet, "/v1/devices", s.handleListDevices, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/device/metrics", s.handleDeviceMetrics, ai.PermMetricsRead},

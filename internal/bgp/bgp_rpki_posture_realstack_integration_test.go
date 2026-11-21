@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+//go:build integration
+
+package bgp_test
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/netip"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/opendata"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/testsupport/shipped"
+)
+
+const frrRPKINotFound = "2001:db8:6000::/48"
+
+type frrRPKICase struct {
+	prefix, status, reason string
+	origin                 uint32
+}
+
+type frrRPKITarget struct {
+	frrRPKICase
+	path string
+}
+
+func prepareFRRRPKICases(t *testing.T, lab *routingLab, advertised6, link6 string) ([]frrRPKICase, map[string]string) {
+	t.Helper()
+	lab.docker(t, "exec", lab.container("edge"), "ip", "-6", "addr", "add", "2001:db8:6000::1/48", "dev", "lo")
+	lab.docker(t, "exec", lab.container("edge"), "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(edgeASN),
+		"-c", "address-family ipv6 unicast", "-c", "network "+frrRPKINotFound+" route-map FX5-V6-ORIGIN", "-c", "end")
+	link := netip.MustParsePrefix(link6)
+	parent := netip.PrefixFrom(link.Addr(), link.Bits()-1).Masked()
+	body := fmt.Sprintf(`{"metadata":{"generated":%d},"roas":[{"prefix":%q,"asn":%d,"maxLength":24},`+
+		`{"prefix":%q,"asn":%d,"maxLength":48},{"prefix":%q,"asn":%d,"maxLength":%d}]}`,
+		time.Now().UTC().Add(-time.Minute).Unix(), prefixA, originA, advertised6, originB, parent.String(), edgeASN, parent.Bits())
+	file := filepath.Join(t.TempDir(), "isolated-rpki-validator.json")
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return []frrRPKICase{
+		{prefixA, "valid", "matching_prefix_and_origin", originA},
+		{advertised6, "invalid", "origin_mismatch", originA},
+		{link6, "invalid", "prefix_length_exceeds_origin_authorization", edgeASN},
+		{frrRPKINotFound, "not_found", "no_covering_assertion", originA},
+	}, map[string]string{"PROBECTL_FLOW_ENRICH_RPKI_FILE": file}
+}
+
+func addFRRRPKIMonitors(t *testing.T, st *shipped.Stack, lanes []edgeFlowRegistration, cases []frrRPKICase) [][]frrRPKITarget {
+	t.Helper()
+	out := make([][]frrRPKITarget, len(lanes))
+	for i, lane := range lanes {
+		for _, item := range cases {
+			code, raw := st.Do(t, lane.cookie, http.MethodPost, "/v1/entities", map[string]any{
+				"context_id": lane.contextID, "kind": "prefix", "network_prefix": item.prefix, "label": "Owned FRR validation prefix",
+			})
+			var prefix entity.Record
+			if code != http.StatusCreated || json.Unmarshal(raw, &prefix) != nil || prefix.ID == "" || prefix.Scope.TenantID != lane.tenantID {
+				t.Fatalf("could not inventory the owned validation prefix: HTTP %d", code)
+			}
+			code, raw = st.Do(t, lane.cookie, http.MethodPut, "/v1/bgp/visibility", map[string]any{"prefix": item.prefix, "minimum_visible_basis_points": 9500})
+			var monitor store.BGPVisibilityMonitor
+			if code != http.StatusOK || json.Unmarshal(raw, &monitor) != nil || monitor.Prefix.String() != item.prefix {
+				t.Fatalf("could not monitor the exact FRR validation prefix: HTTP %d", code)
+			}
+			q := url.Values{"context_id": {lane.contextID}, "prefix_id": {prefix.ID}, "intended_asn": {strconv.FormatUint(uint64(item.origin), 10)}}
+			out[i] = append(out[i], frrRPKITarget{frrRPKICase: item, path: "/v1/bgp/visibility/" + monitor.ID + "/rpki-posture?" + q.Encode()})
+		}
+	}
+	return out
+}
+
+func proveFRRRPKI(t *testing.T, st *shipped.Stack, lanes []edgeFlowRegistration, targets [][]frrRPKITarget) {
+	t.Helper()
+	for i, lane := range lanes {
+		for item, target := range targets[i] {
+			var result struct {
+				Prefix string `json:"prefix"`
+				Paths  []struct {
+					Origin uint32               `json:"origin_asn"`
+					RPKI   opendata.RPKIPosture `json:"rpki"`
+				} `json:"paths"`
+				Trend []store.BGPRPKIHistoryObservation `json:"trend"`
+			}
+			shipped.Await(t, "owned current and original validation for "+target.prefix, 25*time.Second, func() bool {
+				code, raw := st.Do(t, lane.cookie, http.MethodGet, target.path, nil)
+				return code == http.StatusOK && json.Unmarshal(raw, &result) == nil && len(result.Paths) == 1 && len(result.Trend) > 0
+			})
+			current, original := result.Paths[0], result.Trend[0]
+			if result.Prefix != target.prefix || current.Origin != target.origin || current.RPKI.Status != target.status || current.RPKI.Reason != target.reason ||
+				current.RPKI.ValidatorVersion == "" || original.Posture.ValidatorVersion != current.RPKI.ValidatorVersion ||
+				original.Origin == nil || *original.Origin != target.origin || original.Posture.Status != target.status || original.Posture.Suggestion != nil {
+				t.Fatalf("validated output disagrees with the FRR route and original local validator, target=%+v result=%+v", target, result)
+			}
+			exact := current.RPKI.Suggestion
+			if (exact != nil) != (target.status != "valid") || exact != nil && (exact.Prefix.String() != target.prefix || exact.OriginASN != target.origin) {
+				t.Fatal("ROA suggestion exceeded the exact observed and intended route", target, exact)
+			}
+			if code, _ := st.Do(t, lane.cookie, http.MethodGet, targets[1-i][item].path, nil); code != http.StatusNotFound {
+				t.Fatal("foreign RPKI posture scope returned HTTP", code)
+			}
+		}
+	}
+	t.Log("real-integration: pinned FRR announced all four validation cases through both issued BMP identities and tenant-scoped storage; original validator generations and exact ROA suggestions passed")
+}

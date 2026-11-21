@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -22,7 +23,9 @@ var ErrBGPRoutingSourceUnavailable = errors.New("current routing source authorit
 
 // BGPRouting uses an existing tenant transaction. It never derives a tenant or
 // canonical router from a packet, peer address, ASN, or retained view row.
-type BGPRouting struct{}
+type BGPRouting struct {
+	rpkiHistory *opendata.Enricher
+}
 
 // BGPRoutingSource must come from the authenticated sender/origin transport.
 // This storage check is additional to certificate/signature verification.

@@ -30,6 +30,7 @@ import {
 } from '../components'
 import { DateTime } from '../time/DateTime'
 import { BGPASPathHistory } from './BGPASPathHistory'
+import { BGPRPKIPosture } from './BGPRPKIPosture'
 import styles from './planes.module.css'
 
 const historyColumns: Column<BGPVisibilityObservation>[] = [
@@ -72,7 +73,11 @@ export function BGPVisibilityPanel() {
       <CardHeader title="Public prefix visibility" />
       <CardBody>
         {open ? (
-          <VisibilityControls tenant={tenant.id} allowEdits={permissions.includes('alert.write')} />
+          <VisibilityControls
+            tenant={tenant.id}
+            allowEdits={permissions.includes('alert.write')}
+            allowPosture={permissions.includes('entities.read')}
+          />
         ) : (
           <Button variant="secondary" onClick={() => setOpen(true)}>
             Open prefix visibility
@@ -83,12 +88,21 @@ export function BGPVisibilityPanel() {
   )
 }
 
-function VisibilityControls({ tenant, allowEdits }: { tenant: string; allowEdits: boolean }) {
+function VisibilityControls({
+  tenant,
+  allowEdits,
+  allowPosture,
+}: {
+  tenant: string
+  allowEdits: boolean
+  allowPosture: boolean
+}) {
   const cache = useQueryClient()
   const [selected, setSelected] = useState('')
   const [editing, setEditing] = useState(false)
   const [removing, setRemoving] = useState<BGPVisibilityMonitor | null>(null)
   const [openPaths, setOpenPaths] = useState(false)
+  const [openPosture, setOpenPosture] = useState(false)
   const key = ['bgp', 'visibility', tenant] as const
   const monitors = useQuery({
     queryKey: key,
@@ -183,6 +197,18 @@ function VisibilityControls({ tenant, allowEdits }: { tenant: string; allowEdits
           monitorID={monitor.id}
           prefix={monitor.prefix}
         />
+      )}
+      {monitor && allowPosture && (
+        <Button
+          variant="secondary"
+          aria-expanded={openPosture}
+          onClick={() => setOpenPosture(!openPosture)}
+        >
+          {openPosture ? 'Close RPKI posture' : 'Open RPKI posture'}
+        </Button>
+      )}
+      {monitor && allowPosture && openPosture && (
+        <BGPRPKIPosture key={`${tenant}/${monitor.id}`} tenant={tenant} monitor={monitor} />
       )}
       {history.isError && <ErrorState description="Could not load visibility history." />}
       {history.data && monitor && (

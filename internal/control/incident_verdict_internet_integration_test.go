@@ -35,6 +35,11 @@ import (
 // here is modeled. Physical routed fault/receiver qualification is separate.
 func seedInternetRoutingView(t *testing.T, f *roleExplanationAPIFixture, tenant string, origin uint32) store.BGPRoutingStagedView {
 	t.Helper()
+	return seedInternetRoutingViewWithStore(t, f, tenant, origin, store.BGPRouting{})
+}
+
+func seedInternetRoutingViewWithStore(t *testing.T, f *roleExplanationAPIFixture, tenant string, origin uint32, routing store.BGPRouting) store.BGPRoutingStagedView {
+	t.Helper()
 	raw := internetPhysicalUpForTest(64500, 4294967295)
 	open := append([]byte(nil), raw[68:105]...)
 	definition := store.BGPRoutingViewDefinition{Kind: "loc_rib", AFI: 1, SAFI: 1, Peer: store.BGPRoutingPeer{Type: 3, ASN: 64500, BGPIdentifier: netip.MustParseAddr("192.0.2.1"), SentOpen: open, ReceivedOpen: append([]byte(nil), open...)}}
@@ -51,7 +56,7 @@ func seedInternetRoutingView(t *testing.T, f *roleExplanationAPIFixture, tenant 
 	var staged store.BGPRoutingStageResult
 	write(func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		staged, err = (store.BGPRouting{}).StagePeerInScope(ctx, sc, input, profile)
+		staged, err = routing.StagePeerInScope(ctx, sc, input, profile)
 		return err
 	})
 	if staged.Status != "staged" || len(staged.Views) != 1 {
@@ -60,7 +65,7 @@ func seedInternetRoutingView(t *testing.T, f *roleExplanationAPIFixture, tenant 
 	for sequence := int64(1); sequence <= 2; sequence++ {
 		stream := store.BGPRoutingStreamInput{CollectorAgentID: input.CollectorAgentID, SenderSerial: input.SenderSerial, SourceRef: input.SourceRef, OriginSerial: input.OriginSerial, Generation: input.ObservationID, Sequence: sequence, ObservedAt: f.observedAt(tenant)}
 		write(func(ctx context.Context, sc tenancy.Scope) error {
-			result, err := (store.BGPRouting{}).ApplyPeerMessageInScope(ctx, sc, stream, profile, func(context.Context, store.BGPRoutingPeer, []store.BGPRoutingStagedView) ([]store.BGPRoutingBatch, error) {
+			result, err := routing.ApplyPeerMessageInScope(ctx, sc, stream, profile, func(context.Context, store.BGPRoutingPeer, []store.BGPRoutingStagedView) ([]store.BGPRoutingBatch, error) {
 				batch := store.BGPRoutingBatch{AFI: 1, SAFI: 1, EndOfRIB: sequence == 2}
 				if sequence == 1 {
 					batch.Changes = []store.BGPRoutingChange{{Prefix: netip.MustParsePrefix("198.19.0.0/24"), Segments: []store.BGPRoutingSegment{{Kind: 2, Values: []uint32{4294967295, origin}}}, Attributes: store.BGPRoutingAttributes{Wire: []store.BGPRoutingAttribute{}}, NextHops: []netip.Addr{netip.MustParseAddr("192.0.2.7")}}}

@@ -175,6 +175,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"visibility":        {Method: http.MethodGet, Path: "/v1/bgp/visibility/{id}", ArgName: "id", ExactJSON: true, Description: "read one monitored prefix's collector history"},
 		"session-history":   {Method: http.MethodGet, Path: "/v1/bgp/sessions/{router_id}", ArgName: "router_id", ExactJSON: true, Description: "read authenticated router BMP session history"},
 		"path-history":      {Method: http.MethodGet, Path: "/v1/bgp/visibility/{id}/paths", ArgName: "id", ExactJSON: true, Description: "read monitored AS paths by vantage and original time"},
+		"rpki-posture":      {Method: http.MethodGet, Path: "/v1/bgp/visibility/{id}/rpki-posture", ArgName: "id", ExactJSON: true, Description: "read RPKI posture for an owned monitored prefix with --query context_id=,prefix_id=,intended_asn="},
 		"visibility-set":    {Method: http.MethodPut, Path: "/v1/bgp/visibility", ExactJSON: true, MaxBodyBytes: 4096, Description: "save an exact prefix and its visibility alert settings"},
 		"visibility-remove": {Method: http.MethodDelete, Path: "/v1/bgp/visibility/{id}", ArgName: "id", Description: "remove one monitor and its visibility history"},
 	}},

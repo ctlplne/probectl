@@ -20,7 +20,7 @@ import (
 // source metadata commit atomically with the complete accepted route batch.
 // It runs before entry mutation so selected-route updates compare the actual
 // previous path, not an inferred public feed or a later current RIB.
-func appendOwnedRoutingChanges(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef, view routingWriteView, batch BGPRoutingBatch, digest [32]byte, updates []routingPreparedChange, profile BGPRoutingBudget) error {
+func appendOwnedRoutingChanges(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef, view routingWriteView, batch BGPRoutingBatch, digest [32]byte, updates []routingPreparedChange, profile BGPRoutingBudget, rpkiObservations []byte) error {
 	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func appendOwnedRoutingChanges(ctx context.Context, sc tenancy.Scope, source BGP
 )
  INSERT INTO bgp_as_path_history (tenant_id,monitor_id,source_kind,vantage_key,source_epoch,event_digest,
  observed_at,source_sequence,source_operation,has_path_id,path_id,context_id,router_id,collector_agent_id,source_ref,
- change_event_id,event_kind,original,previous_path,current_path)
+ change_event_id,event_kind,original,previous_path,current_path,rpki_observation)
  SELECT monitor.tenant_id,monitor.id,'router_bmp',$16,$4::uuid::text,$15,$8,$14,(input.ordinality-1)::integer,
  input."HasPathID",input."PathID",$2,$11::text::uuid,$17,$18,event.id,
  CASE WHEN input."Withdraw" THEN 'withdrawal' WHEN input.prior_present THEN 'path_change' ELSE 'announcement' END,
@@ -112,12 +112,13 @@ func appendOwnedRoutingChanges(ctx context.Context, sc tenancy.Scope, source BGP
  'observed_at',input.original_clock,'sequence',input.original_sequence::text,'update_index',input.prior_ordinal-1,
  'next_hops',input.original_hops) END,
  CASE WHEN NOT input."Withdraw" THEN jsonb_build_object('segments',input."Segments",
- 'observed_at',$8::timestamptz,'sequence',($14::bigint)::text,'update_index',input.ordinality-1,'next_hops',input."NextHops") END
+ 'observed_at',$8::timestamptz,'sequence',($14::bigint)::text,'update_index',input.ordinality-1,'next_hops',input."NextHops") END,
+ $19::jsonb->((input.ordinality-1)::text)
  FROM classified input JOIN timeline event ON event.tenant_id=$1 AND (event.routing->>'update_index')::bigint=input.ordinality-1
  JOIN watched monitor ON monitor.tenant_id=$1 AND monitor.prefix=input."Prefix"
  WHERE (input."Withdraw" AND input.prior_present)
  OR (NOT input."Withdraw" AND (NOT input.prior_present OR input.original_segments IS DISTINCT FROM input."Segments"))`,
 		source.TenantID, source.ContextID, ref.ID, ref.Generation, body, public, private, batch.ObservedAt, view.kind, ownedRoutingChangeSource,
-		source.RouterID, common.BatchDigest, view.state, batch.Sequence, digest[:], ownedASPathVantage(source, ref), source.CollectorAgentID, source.SourceRef)
+		source.RouterID, common.BatchDigest, view.state, batch.Sequence, digest[:], ownedASPathVantage(source, ref), source.CollectorAgentID, source.SourceRef, rpkiObservations)
 	return err
 }

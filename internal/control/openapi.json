@@ -11251,6 +11251,32 @@
         }
       }
     },
+    "/v1/bgp/visibility/{id}/rpki-posture": {
+      "get": {
+        "operationId": "getBGPRPKIPosture",
+        "x-probectl-lifecycle": {"stage": "preview"},
+        "summary": "Read validation of current paths to an owned monitored prefix",
+        "description": "The monitored prefix must exactly match the named inventory prefix. The view distinguishes an unavailable validator from an available validator with no covering assertion.",
+        "x-required-permission": "events.read",
+        "tags": ["bgp"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "context_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "prefix_id", "in": "query", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "intended_asn", "in": "query", "description": "Optional intended origin for an exact ROA suggestion. The same origin must be observed in a current owned path.", "schema": {"type": "integer", "minimum": 1, "maximum": 4294967295}}
+        ],
+        "responses": {
+          "200": {"description": "Current tenant-owned paths and original validator evidence", "content": {"application/json": {
+            "schema": {"$ref": "#/components/schemas/BGPRPKICurrentPosture"}}}},
+          "403": {"$ref": "#/components/responses/ErrorResponse"},
+          "404": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"},
+          "429": {"$ref": "#/components/responses/ErrorResponse"},
+          "503": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
     "/v1/bgp/sessions/{router_id}": {
       "get": {
         "operationId": "getBMPSessionHistory",
@@ -31007,6 +31033,90 @@
             "type": "string",
             "description": "Continuation for the next page. Empty when the selected history window is exhausted."
           }
+        }
+      },
+      "BGPRPKICurrentPosture": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["context_id", "prefix_id", "monitor_id", "prefix", "as_of", "coverage", "paths", "trend"],
+        "properties": {
+          "context_id": {"type": "string", "format": "uuid"},
+          "prefix_id": {"type": "string", "format": "uuid"},
+          "monitor_id": {"type": "string", "format": "uuid"},
+          "prefix": {"type": "string"},
+          "as_of": {"type": "string", "format": "date-time"},
+          "coverage": {"type": "string", "enum": ["no_retained_sources", "incomplete_source_population", "observed_source_population"]},
+          "paths": {"type": "array", "items": {"$ref": "#/components/schemas/BGPRPKIPathPosture"}},
+          "trend": {"type": "array", "maxItems": 128, "items": {"$ref": "#/components/schemas/BGPRPKITrendPoint"}}
+        }
+      },
+      "BGPRPKITrendPoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "observed_at", "vantage", "posture"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "observed_at": {"type": "string", "format": "date-time"},
+          "vantage": {"type": "string"},
+          "origin_asn": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+          "posture": {"$ref": "#/components/schemas/BGPRPKIVerdict"}
+        }
+      },
+      "BGPRPKIPathPosture": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["router_id", "vantage", "generation", "view_observed_at", "path_id", "has_path_id", "rpki"],
+        "properties": {
+          "router_id": {"type": "string", "format": "uuid"},
+          "vantage": {"type": "string"},
+          "generation": {"type": "string", "format": "uuid"},
+          "view_observed_at": {"type": "string", "format": "date-time"},
+          "origin_asn": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+          "path_id": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+          "has_path_id": {"type": "boolean"},
+          "rpki": {"$ref": "#/components/schemas/BGPRPKIVerdict"},
+          "related_hijacks": {"type": "array", "maxItems": 16, "items": {"$ref": "#/components/schemas/BGPRPKIHijack"}}
+        }
+      },
+      "BGPRPKIHijack": {
+        "type": "object", "additionalProperties": false,
+        "required": ["incident_id", "observed_at"],
+        "properties": {
+          "incident_id": {"type": "string", "format": "uuid"},
+          "observed_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "BGPRPKIVerdict": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "reason", "covering"],
+        "properties": {
+          "status": {"type": "string", "enum": ["valid", "invalid", "not_found", "unknown"]},
+          "reason": {"type": "string"},
+          "validator_version": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "validator_observed_at": {"type": "string", "format": "date-time"},
+          "covering": {"type": "array", "items": {"$ref": "#/components/schemas/BGPRPKICoveringAssertion"}},
+          "suggestion": {"$ref": "#/components/schemas/BGPRPKIExactROA"}
+        }
+      },
+      "BGPRPKICoveringAssertion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["prefix", "asn", "max_length"],
+        "properties": {
+          "prefix": {"type": "string"},
+          "asn": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+          "max_length": {"type": "integer", "minimum": 0, "maximum": 128}
+        }
+      },
+      "BGPRPKIExactROA": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Exact announced prefix and intended origin. An omitted maxLength authorizes only the listed prefix length.",
+        "required": ["prefix", "origin_asn"],
+        "properties": {
+          "prefix": {"type": "string"},
+          "origin_asn": {"type": "integer", "minimum": 1, "maximum": 4294967295}
         }
       },
       "BGPVisibilityMonitorInput": {

@@ -16,13 +16,14 @@ import (
 
 	"github.com/ctlplne/probectl/internal/change"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // Record the complete prefix population only when the authenticated source
 // reaches End-of-RIB. A staging or repaired view has its own generation.
 func appendOwnedASPathBaseline(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef,
-	view routingWriteView, batch BGPRoutingBatch, digest [32]byte) error {
+	view routingWriteView, batch BGPRoutingBatch, digest [32]byte, validator opendata.RPKISnapshot, profile BGPRoutingBudget) error {
 	selection, err := routingSelectionJSON(source)
 	if err != nil {
 		return err
@@ -41,22 +42,27 @@ func appendOwnedASPathBaseline(ctx context.Context, sc tenancy.Scope, source BGP
 	if batch.AFI == 1 {
 		family = 4
 	}
+	rpkiObservations, err := captureBGPBaselineRPKI(ctx, sc, source, ref, family, validator, profile)
+	if err != nil {
+		return err
+	}
 	_, err = sc.Q.Exec(ctx, `WITH watched AS (
  SELECT tenant_id,id,prefix FROM bgp_visibility_monitors
  WHERE tenant_id=$1 AND family(prefix)=$12 AND created_at<=$8::timestamptz FOR KEY SHARE
 )
  INSERT INTO bgp_as_path_history (tenant_id,monitor_id,source_kind,vantage_key,source_epoch,event_digest,
  observed_at,source_sequence,source_operation,has_path_id,path_id,context_id,router_id,collector_agent_id,source_ref,
- event_kind,original,current_path)
+ event_kind,original,current_path,rpki_observation)
  SELECT monitor.tenant_id,monitor.id,'router_bmp',$6,$4::uuid::text,$7,$8,$9,
  (row_number() OVER (PARTITION BY monitor.id ORDER BY entry.has_path_id,entry.path_id)-1)::integer,
  COALESCE(entry.has_path_id,false),COALESCE(entry.path_id,0),$2,$5,$10,$11,'baseline',$13::jsonb,
  CASE WHEN entry.prefix IS NOT NULL THEN jsonb_build_object('segments',entry.segments,
- 'observed_at',entry.observed_at,'sequence',entry.sequence::text,'next_hops',entry.next_hops) END
+ 'observed_at',entry.observed_at,'sequence',entry.sequence::text,'next_hops',entry.next_hops) END,
+ $14::jsonb->(entry.prefix::text||'/'||entry.has_path_id::text||'/'||entry.path_id::text)
  FROM watched monitor LEFT JOIN bgp_routing_entries entry ON entry.tenant_id=$1 AND entry.context_id=$2
  AND entry.view_id=$3 AND entry.generation=$4 AND entry.prefix=monitor.prefix`,
 		source.TenantID, source.ContextID, ref.ID, ref.Generation, source.RouterID, vantage, digest[:], batch.ObservedAt,
-		batch.Sequence, source.CollectorAgentID, source.SourceRef, family, body)
+		batch.Sequence, source.CollectorAgentID, source.SourceRef, family, body, rpkiObservations)
 	return err
 }
 

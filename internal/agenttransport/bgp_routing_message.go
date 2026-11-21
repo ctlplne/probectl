@@ -52,7 +52,7 @@ func (svc *service) applyRoutingMessage(ctx context.Context, id crypto.SPIFFEID,
 	err := tenancy.FencedTenantWrite(ctx, svc.fence, id.TenantID, entity.ErrScopeMismatch, func(ctx context.Context) error {
 		return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), svc.pool, func(ctx context.Context, sc tenancy.Scope) error {
 			var err error
-			result, err = (store.BGPRouting{}).ApplyPeerMessageInScope(ctx, sc, input, profile,
+			result, err = (store.BGPRouting{}).WithRPKIHistory(svc.routingLimits.rpki).ApplyPeerMessageInScope(ctx, sc, input, profile,
 				func(ctx context.Context, peer store.BGPRoutingPeer, views []store.BGPRoutingStagedView) ([]store.BGPRoutingBatch, error) {
 					return decodeRoutingMessage(ctx, raw, peer, views, profile)
 				})

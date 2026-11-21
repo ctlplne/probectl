@@ -35,22 +35,26 @@ import (
 // This is the selected-RIB source/storage proof; flow join, public fallback,
 // estimate, every served field and multi-VRF physical proof remain separate.
 func TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors(t *testing.T) {
-	proveFRRSelectedRIB(t, false, false)
+	proveFRRSelectedRIB(t, false, false, false)
 }
 
 func TestFRRSelectedRIBJoinsShippedProtocolGoldenFields(t *testing.T) {
-	proveFRRSelectedRIB(t, true, false)
+	proveFRRSelectedRIB(t, true, false, false)
 }
 
 func TestFRRMonitoredASPathHistoryKeepsOriginalTenantSources(t *testing.T) {
-	proveFRRSelectedRIB(t, false, true)
+	proveFRRSelectedRIB(t, false, true, false)
 }
 
-func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory bool) {
+func TestFRROwnedAnnouncementsRetainOriginalRPKIValidation(t *testing.T) {
+	proveFRRSelectedRIB(t, false, false, true)
+}
+
+func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory, rpki bool) {
 	t.Helper()
 	// The history test reaches the real speakers through the lab's published
 	// loopback BMP port. The earlier proofs keep their Linux lab requirement.
-	if runtime.GOOS != "linux" && !pathHistory {
+	if runtime.GOOS != "linux" && !pathHistory && !rpki {
 		testsupport.SkipOrFatal(t, "selected-RIB integration needs a Linux route to the owned FRR bridge")
 	}
 	lab := startRoutingLabNamed(t, "probectl-qa-beta-selected-rib-"+strconv.FormatInt(time.Now().UnixNano()%1e8, 36))
@@ -67,7 +71,12 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory bool) {
 	// selected path merely to satisfy a stored-state assertion.
 	lab.awaitRoutes(t, "rtr-a", map[string]string{prefixA: path(edgeASN, originA)})
 	logFRRSelectedRouterTables(t, lab)
-	st := shipped.Start(t, shipped.Options{Name: "selected-rib", TenantBand: 4})
+	options := shipped.Options{Name: "selected-rib", TenantBand: 4}
+	var rpkiCases []frrRPKICase
+	if rpki {
+		rpkiCases, options.Env = prepareFRRRPKICases(t, lab, external6, link.prefix6)
+	}
+	st := shipped.Start(t, options)
 	first := registerEdgeFlowEvidence(t, st, lab.ip["rtr-a"])
 	second := registerSecondRouterTenant(t, st, first)
 	listeners := []*bgpTenant{
@@ -79,6 +88,10 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory bool) {
 	var monitors []store.BGPVisibilityMonitor
 	if pathHistory {
 		monitors = addFRRPathHistoryMonitors(t, st, registrations)
+	}
+	var rpkiTargets [][]frrRPKITarget
+	if rpki {
+		rpkiTargets = addFRRRPKIMonitors(t, st, registrations, rpkiCases)
 	}
 	t.Cleanup(func() {
 		if t.Failed() {
@@ -98,12 +111,15 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory bool) {
 		before[lane] = awaitFRRSelectedPath(t, pool, reg, "203.0.113.1", prefixA, []uint32{edgeASN, originA}, netip.MustParseAddr(lab.ip["edge"]))
 		v6 := awaitFRRSelectedPath(t, pool, reg, "2001:db8:5000::1", external6, []uint32{edgeASN, originA}, netip.MustParseAddr(link.peerIP6))
 		awaitFRRSelectedPath(t, pool, reg, netip.MustParsePrefix(link.prefix6).Addr().Next().String(), link.prefix6, []uint32{edgeASN}, netip.MustParseAddr(link.peerIP6))
-		// The owned source configuration has exactly one IPv4 selected prefix
-		// and two IPv6 prefixes; every prefix/path is checked above.
+		v6Count := 2
+		if rpki {
+			awaitFRRSelectedPath(t, pool, reg, "2001:db8:6000::1", frrRPKINotFound, []uint32{edgeASN, originA}, netip.MustParseAddr(link.peerIP6))
+			v6Count++
+		}
 		for _, expected := range []struct {
 			view  store.BGPRoutingLookup
 			count int
-		}{{before[lane], 1}, {v6, 2}} {
+		}{{before[lane], 1}, {v6, v6Count}} {
 			var rows int
 			if err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(reg.tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 				return sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_entries WHERE tenant_id=$1 AND context_id=$2 AND view_id=$3 AND generation=$4`, reg.tenantID, reg.contextID, expected.view.View.ID, expected.view.View.Generation).Scan(&rows)
@@ -126,6 +142,10 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory bool) {
 	}
 	if goldenFlows {
 		proveFRRSelectedGoldenFlowFields(t, st, lab, first, second, []netip.Addr{netip.MustParseAddr(lab.ip["edge"]), netip.MustParseAddr(link.peerIP6)})
+		return
+	}
+	if rpki {
+		proveFRRRPKI(t, st, registrations, rpkiTargets)
 		return
 	}
 	if pathHistory {

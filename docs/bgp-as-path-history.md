@@ -52,3 +52,33 @@ resource permissions. Private router history requires `events.read` and
 `entities.read`. MCP also requires `ai.query` and follows the tenant's
 egress redaction policy. Incident and change links use their corresponding
 read permissions.
+
+## RPKI posture for an owned prefix
+
+Open **RPKI posture** for the monitored prefix and select the routing context
+that owns the same network in inventory. The view uses complete, current
+owned BMP sources. A complete local validator distinguishes a valid origin,
+an invalid origin or prefix length, and an announcement with no covering
+authorization. Unavailable validator evidence or an ambiguous path origin
+shows as unknown.
+
+The trend includes the original local validator generation from retained
+owned path observations. Earlier path records without a captured validator
+result show unknown. Historical results continue to use the validator received
+at the route observation clock. The current view links related hijack incidents only when the scope,
+prefix, origin and observation time match and the viewer can read the incident.
+
+An optional intended origin lets the view suggest an exact ROA for a currently
+observed owned origin. The suggestion uses the announced prefix and omits
+`maxLength`, which gives the ROA the same length as the exact prefix. Review
+this evidence before editing any authorization in the existing RPKI authority.
+[ROA profile](https://www.rfc-editor.org/rfc/rfc9582.html#section-4.3.2.2)
+
+```sh
+probectl --json bgp rpki-posture MONITOR_ID \
+  --query context_id=CONTEXT_ID --query prefix_id=PREFIX_ID --query intended_asn=64500
+```
+
+The matching read-only native MCP tool is `bgp_rpki_posture`. It requires
+`events.read`, `entities.read` and `ai.query`, with current resource and
+credential checks and the tenant's egress redaction policy.

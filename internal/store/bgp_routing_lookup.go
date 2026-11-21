@@ -51,6 +51,21 @@ type routingReadView struct {
 // escape an admission, source, lease or decoding failure.
 func (store BGPRouting) lookupViewInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource,
 	ref BGPRoutingViewRef, address netip.Addr, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
+	return store.lookupCurrentRoutingInScope(ctx, sc, source, ref, address, netip.Prefix{}, budget)
+}
+
+// lookupExactPrefixInScope preserves the exact announced network when its
+// base address also has a more-specific match in the same view.
+func (store BGPRouting) lookupExactPrefixInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource,
+	ref BGPRoutingViewRef, prefix netip.Prefix, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
+	if !prefix.IsValid() || prefix != prefix.Masked() || prefix.Addr().Is4In6() {
+		return BGPRoutingLookup{}, ErrBGPRoutingView
+	}
+	return store.lookupCurrentRoutingInScope(ctx, sc, source, ref, prefix.Addr(), prefix, budget)
+}
+
+func (store BGPRouting) lookupCurrentRoutingInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource,
+	ref BGPRoutingViewRef, address netip.Addr, exact netip.Prefix, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
 	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
 		return BGPRoutingLookup{}, err
 	}
@@ -98,7 +113,12 @@ func (store BGPRouting) lookupViewInScope(ctx context.Context, sc tenancy.Scope,
 	if !deadline.After(authority.AsOf) {
 		return BGPRoutingLookup{}, ErrBGPRoutingSourceUnavailable
 	}
-	result, err := readRoutingLongestPrefix(ctx, sc, birth, ref, address, afi, view, budget)
+	var result BGPRoutingLookup
+	if exact.IsValid() {
+		result, err = readRoutingExactPrefix(ctx, sc, birth, ref, exact, afi, view, budget)
+	} else {
+		result, err = readRoutingLongestPrefix(ctx, sc, birth, ref, address, afi, view, budget)
+	}
 	if err != nil && !errors.Is(err, ErrBGPRoutingRouteMissing) {
 		return BGPRoutingLookup{}, err
 	}
@@ -165,38 +185,47 @@ func readRoutingLongestPrefix(ctx context.Context, sc tenancy.Scope, source BGPR
 			return BGPRoutingLookup{}, err
 		}
 		prefix := netip.PrefixFrom(address, bits).Masked()
-		var count, encoded int64
-		err := sc.Q.QueryRow(ctx, `SELECT count(*),COALESCE(sum(octet_length(segments::text)+octet_length(attributes::text)+octet_length(next_hops::text)+256),0)::bigint
- FROM bgp_routing_entries WHERE tenant_id=$1 AND context_id=$2 AND view_id=$3 AND generation=$4 AND prefix=$5::cidr AND afi=$6 AND safi=1`,
-			source.TenantID, source.ContextID, ref.ID, ref.Generation, prefix.String(), afi).Scan(&count, &encoded)
-		if err != nil {
-			return BGPRoutingLookup{}, err
-		}
-		if count == 0 {
+		result, err := readRoutingExactPrefix(ctx, sc, source, ref, prefix, afi, view, budget)
+		if errors.Is(err, ErrBGPRoutingRouteMissing) {
 			continue
 		}
-		// Charge complete JSON/inet decoding and every output row before reading
-		// bodies. The snapshot binds this account to exactly the rows read below.
-		if count < 0 || encoded < 0 || encoded > budget.MemoryBytes/32 || encoded > budget.WorkUnits/8 ||
-			count > budget.MemoryBytes/1024 || count > budget.WorkUnits/256 {
-			return BGPRoutingLookup{}, ErrBGPRoutingBudget
-		}
-		if err := routingBatchCharge(&budget, encoded*32, encoded*8); err != nil {
-			return BGPRoutingLookup{}, err
-		}
-		if count > budget.MemoryBytes/1024 || count > budget.WorkUnits/256 {
-			return BGPRoutingLookup{}, ErrBGPRoutingBudget
-		}
-		if err := routingBatchCharge(&budget, count*1024, count*256); err != nil {
-			return BGPRoutingLookup{}, err
-		}
-		paths, err := readRoutingPaths(ctx, sc, source.Scope, ref, prefix, afi, view, count)
-		if err != nil {
-			return BGPRoutingLookup{}, err
-		}
-		return BGPRoutingLookup{Source: source, View: ref, Prefix: prefix, Paths: paths, LastSequence: view.lastSequence, LastObservedAt: *view.lastObservedAt}, nil
+		return result, err
 	}
 	return BGPRoutingLookup{}, ErrBGPRoutingRouteMissing
+}
+
+func readRoutingExactPrefix(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef,
+	prefix netip.Prefix, afi uint16, view routingReadView, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
+	var count, encoded int64
+	err := sc.Q.QueryRow(ctx, `SELECT count(*),COALESCE(sum(octet_length(segments::text)+octet_length(attributes::text)+octet_length(next_hops::text)+256),0)::bigint
+ FROM bgp_routing_entries WHERE tenant_id=$1 AND context_id=$2 AND view_id=$3 AND generation=$4 AND prefix=$5::cidr AND afi=$6 AND safi=1`,
+		source.TenantID, source.ContextID, ref.ID, ref.Generation, prefix.String(), afi).Scan(&count, &encoded)
+	if err != nil {
+		return BGPRoutingLookup{}, err
+	}
+	if count == 0 {
+		return BGPRoutingLookup{}, ErrBGPRoutingRouteMissing
+	}
+	// Charge complete JSON/inet decoding and every output row before reading
+	// bodies. The snapshot binds this account to exactly the rows read below.
+	if count < 0 || encoded < 0 || encoded > budget.MemoryBytes/32 || encoded > budget.WorkUnits/8 ||
+		count > budget.MemoryBytes/1024 || count > budget.WorkUnits/256 {
+		return BGPRoutingLookup{}, ErrBGPRoutingBudget
+	}
+	if err := routingBatchCharge(&budget, encoded*32, encoded*8); err != nil {
+		return BGPRoutingLookup{}, err
+	}
+	if count > budget.MemoryBytes/1024 || count > budget.WorkUnits/256 {
+		return BGPRoutingLookup{}, ErrBGPRoutingBudget
+	}
+	if err := routingBatchCharge(&budget, count*1024, count*256); err != nil {
+		return BGPRoutingLookup{}, err
+	}
+	paths, err := readRoutingPaths(ctx, sc, source.Scope, ref, prefix, afi, view, count)
+	if err != nil {
+		return BGPRoutingLookup{}, err
+	}
+	return BGPRoutingLookup{Source: source, View: ref, Prefix: prefix, Paths: paths, LastSequence: view.lastSequence, LastObservedAt: *view.lastObservedAt}, nil
 }
 
 func readRoutingPaths(ctx context.Context, sc tenancy.Scope, source entity.Scope, ref BGPRoutingViewRef,

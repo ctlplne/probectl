@@ -648,6 +648,62 @@ export interface BGPEventList {
   items?: BGPEvent[]
 }
 
+export interface BGPRPKICoveringAssertion {
+  asn: number
+  max_length: number
+  prefix: string
+}
+
+export interface BGPRPKICurrentPosture {
+  as_of: string
+  context_id: string
+  coverage: "no_retained_sources" | "incomplete_source_population" | "observed_source_population"
+  monitor_id: string
+  paths: BGPRPKIPathPosture[]
+  prefix: string
+  prefix_id: string
+  trend: BGPRPKITrendPoint[]
+}
+
+export interface BGPRPKIExactROA {
+  origin_asn: number
+  prefix: string
+}
+
+export interface BGPRPKIHijack {
+  incident_id: string
+  observed_at: string
+}
+
+export interface BGPRPKIPathPosture {
+  generation: string
+  has_path_id: boolean
+  origin_asn?: number
+  path_id: number
+  related_hijacks?: BGPRPKIHijack[]
+  router_id: string
+  rpki: BGPRPKIVerdict
+  vantage: string
+  view_observed_at: string
+}
+
+export interface BGPRPKITrendPoint {
+  id: string
+  observed_at: string
+  origin_asn?: number
+  posture: BGPRPKIVerdict
+  vantage: string
+}
+
+export interface BGPRPKIVerdict {
+  covering: BGPRPKICoveringAssertion[]
+  reason: string
+  status: "valid" | "invalid" | "not_found" | "unknown"
+  suggestion?: BGPRPKIExactROA
+  validator_observed_at?: string
+  validator_version?: string
+}
+
 export interface BGPRoutingBinding {
   bgp_identifier: string
   context_id: string
@@ -5299,6 +5355,15 @@ export interface GetBgpasPathHistoryRequest {
 
 export type GetBgpasPathHistoryResponse = BGPASPathHistory
 
+export interface GetBgprpkiPostureRequest {
+  id: string
+  contextId: string
+  prefixId: string
+  intendedAsn?: number
+}
+
+export type GetBgprpkiPostureResponse = BGPRPKICurrentPosture
+
 export interface GetCarbonRequest {
 }
 
@@ -7500,6 +7565,16 @@ export class ProbectlSDKClient {
     if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<GetBgpasPathHistoryResponse>("GET", path, query, undefined)
+  }
+
+  async getBgprpkiPosture(request: GetBgprpkiPostureRequest): Promise<GetBgprpkiPostureResponse> {
+    let path = "/v1/bgp/visibility/{id}/rpki-posture"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.prefixId !== undefined) query.set("prefix_id", String(request.prefixId))
+    if (request.intendedAsn !== undefined) query.set("intended_asn", String(request.intendedAsn))
+    return this.requestJSON<GetBgprpkiPostureResponse>("GET", path, query, undefined)
   }
 
   async getCarbon(): Promise<GetCarbonResponse> {
