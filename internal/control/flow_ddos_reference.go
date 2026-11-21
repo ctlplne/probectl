@@ -92,7 +92,7 @@ func pickCapturedDDoSReference(ctx context.Context, capture *reportFlowCapture, 
 	currentRates := make([]map[ddosExporterRate]struct{}, windowCount)
 	var samplingUnverified [2]bool
 	// Read the current observations first so each historical window can be
-	// compared with the rates reported by the same exporters at its paired clock.
+	// compared with the sampling rates reported at its paired clock.
 	for i := last; i >= 0; i-- {
 		result := capture.Results[i]
 		if result.TenantID != capture.TenantID {
@@ -113,8 +113,8 @@ func pickCapturedDDoSReference(ctx context.Context, capture *reportFlowCapture, 
 			return ddosWeeklyReferenceChoice{}, err
 		}
 		if i >= historyEnd {
-			currentRates[i-historyEnd] = projected.exporterRates
-		} else if !maps.Equal(projected.exporterRates, currentRates[i%windowCount]) {
+			currentRates[i-historyEnd] = projected.samplingRates
+		} else if !maps.Equal(projected.samplingRates, currentRates[i%windowCount]) {
 			projected.observation.Complete = false
 		}
 		if projected.evidence.Sampled && len(settings.Input.RequiredExporters) == 0 {

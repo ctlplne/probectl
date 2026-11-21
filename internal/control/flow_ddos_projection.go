@@ -30,7 +30,7 @@ import (
 var (
 	errDDoSTimingCoverage   = fmt.Errorf("%w: original reports do not independently support the short-window decision", anomaly.ErrDDoSCoverage)
 	errDDoSExporterCoverage = fmt.Errorf("%w: a required exporter was unobserved", anomaly.ErrDDoSCoverage)
-	errDDoSExporterSampling = fmt.Errorf("%w: reported rates changed for a required exporter", anomaly.ErrDDoSCoverage)
+	errDDoSExporterSampling = fmt.Errorf("%w: the reported sampling rate sets differ", anomaly.ErrDDoSCoverage)
 	errDDoSSampleCoverage   = fmt.Errorf("%w: a sampling group contains too few original flow records", anomaly.ErrDDoSCoverage)
 	errDDoSTrendCoverage    = fmt.Errorf("%w: volume follows a weekly trend without independent corroboration", anomaly.ErrDDoSCoverage)
 	errDDoSCounterIntegrity = fmt.Errorf("%w: corrected flow counters disagree with their original evidence", anomaly.ErrDDoSCoverage)
@@ -43,7 +43,7 @@ type ddosExporterRate struct {
 type ddosProjectedWindow struct {
 	observation   anomaly.DDoSObservation
 	evidence      flow.DDoSWindowEvidence
-	exporterRates map[ddosExporterRate]struct{}
+	samplingRates map[ddosExporterRate]struct{}
 }
 
 func assessMatchedDDoS(ctx context.Context, capture *reportFlowCapture, settings ddosAssessmentSettings, match ddosMatchedWindow, work int64) (flow.DDoSAssessment, error) {
@@ -91,7 +91,7 @@ func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, setting
 		return empty, err
 	}
 	// Cited reads reconstruct an already admitted receipt at its original clocks.
-	if !settings.Cited && !maps.Equal(before.exporterRates, after.exporterRates) {
+	if !settings.Cited && !maps.Equal(before.samplingRates, after.samplingRates) {
 		return empty, errDDoSExporterSampling
 	}
 	reference, current := before.observation, after.observation
@@ -127,7 +127,7 @@ func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, s
 	if err != nil {
 		return err
 	}
-	if current.observation.ObservedRecords == 0 || !maps.Equal(reference.exporterRates, current.exporterRates) {
+	if current.observation.ObservedRecords == 0 || !maps.Equal(reference.samplingRates, current.samplingRates) {
 		return errDDoSTimingCoverage
 	}
 	if finding == nil {
@@ -191,9 +191,9 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 	totals := ddosWindowTotals{addresses: make(map[netip.Addr]bool), services: make(map[string]*big.Int)}
 	required := settings.Input.RequiredExporters
 	observedExporters := make(map[string]bool, len(required))
-	var exporterRates map[ddosExporterRate]struct{}
-	if len(required) != 0 {
-		exporterRates = make(map[ddosExporterRate]struct{}, len(required))
+	var samplingRates map[ddosExporterRate]struct{}
+	if len(required) != 0 || (!settings.Cited && anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds)) {
+		samplingRates = make(map[ddosExporterRate]struct{}, len(required))
 	}
 	for _, row := range result.Rows {
 		if err := ctx.Err(); err != nil {
@@ -208,13 +208,16 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 		if err := totals.add(settings, row); err != nil {
 			return empty, err
 		}
+		var exporter string
 		if len(required) != 0 {
-			exporter := row.Group["exporter"]
+			exporter = row.Group["exporter"]
 			if !slices.Contains(required, exporter) {
 				return empty, errDDoSExporterCoverage
 			}
 			observedExporters[exporter] = true
-			exporterRates[ddosExporterRate{exporter: exporter, rate: row.Group["sampling"]}] = struct{}{}
+		}
+		if samplingRates != nil {
+			samplingRates[ddosExporterRate{exporter: exporter, rate: row.Group["sampling"]}] = struct{}{}
 		}
 	}
 	if len(observedExporters) != len(required) {
@@ -240,7 +243,7 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 	evidence := flow.DDoSWindowEvidence{From: observed.From, To: observed.To, Source: result.Source, ResolutionSeconds: result.ResolutionSeconds,
 		Bytes: observed.Bytes, Packets: observed.Packets, ObservedRecords: observed.ObservedRecords, ObservedAddresses: observed.ObservedAddresses,
 		ObservedExporters: len(observedExporters), Sampled: totals.sampled, Citation: observed.Citation}
-	return ddosProjectedWindow{observation: observed, evidence: evidence, exporterRates: exporterRates}, ctx.Err()
+	return ddosProjectedWindow{observation: observed, evidence: evidence, samplingRates: samplingRates}, ctx.Err()
 }
 
 type ddosWindowTotals struct {

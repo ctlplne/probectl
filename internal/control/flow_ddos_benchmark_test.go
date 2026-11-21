@@ -73,7 +73,7 @@ type benchmarkDDoSLabel struct {
 func benchmarkDDoSLabels() map[string]benchmarkDDoSLabel {
 	return map[string]benchmarkDDoSLabel{
 		"volume_health_drop":            {Positive: true, Class: anomaly.DDoSVolumetric},
-		"sampled_volume_health_drop":    {Positive: true, Class: anomaly.DDoSVolumetric},
+		"sampled_volume_health_drop":    {Positive: true, Abstained: true},
 		"tcp_syn":                       {Positive: true, Class: anomaly.DDoSSYN},
 		"udp_dns":                       {Positive: true, Class: anomaly.DDoSReflection, Service: "dns"},
 		"udp_ntp":                       {Positive: true, Class: anomaly.DDoSReflection, Service: "ntp"},
@@ -227,40 +227,33 @@ func benchmarkDDoSAppSpans(window benchmarkDDoSApplication, from time.Time) []ot
 	return spans
 }
 
-func benchmarkDDoSProjection(ctx context.Context, settings ddosAssessmentSettings, window benchmarkDDoSWindow, from, to time.Time) (anomaly.DDoSObservation, flow.DDoSWindowEvidence, error) {
-	projected, err := projectDDoSWindow(ctx, capturedReportFlow{ID: settings.View.ID, Version: settings.View.Version, TenantID: benchmarkDDoSTenant,
+func benchmarkDDoSCapturedWindow(settings ddosAssessmentSettings, window benchmarkDDoSWindow, from, to time.Time) capturedReportFlow {
+	return capturedReportFlow{ID: settings.View.ID, Version: settings.View.Version, TenantID: benchmarkDDoSTenant,
 		Result: flowstore.PlanResult{OldestInput: from, Coverage: &flowstore.PlanSourceCoverage{CompleteInputs: window.Complete},
 			Query: flow.QueryPlan{View: "table", From: from, To: to}, Source: "raw", ResolutionSeconds: 1, Rows: benchmarkDDoSRows(window)},
-	}, settings, "synthetic-fixture-v2", benchmarkDDoSWork)
+	}
+}
+
+func benchmarkDDoSProjection(ctx context.Context, settings ddosAssessmentSettings, window benchmarkDDoSWindow, from, to time.Time) (anomaly.DDoSObservation, flow.DDoSWindowEvidence, error) {
+	projected, err := projectDDoSWindow(ctx, benchmarkDDoSCapturedWindow(settings, window, from, to), settings, "synthetic-fixture-v2", benchmarkDDoSWork)
 	return projected.observation, projected.evidence, err
 }
 
 func benchmarkDDoSAssess(ctx context.Context, settings ddosAssessmentSettings, reference, current benchmarkDDoSWindow, clocks anomaly.FlowFieldComparisonClocks) (flow.DDoSAssessment, error) {
-	before, beforeEvidence, err := benchmarkDDoSProjection(ctx, settings, reference, clocks.Before.Start, clocks.Before.End)
-	if err != nil {
-		return flow.DDoSAssessment{}, err
-	}
-	after, afterEvidence, err := benchmarkDDoSProjection(ctx, settings, current, clocks.After.Start, clocks.After.End)
-	if err != nil {
-		return flow.DDoSAssessment{}, err
-	}
-	finding, err := anomaly.EvaluateDDoS(ctx, before, after, settings.Input.Thresholds(), benchmarkDDoSWork)
-	if err != nil {
-		return flow.DDoSAssessment{}, err
-	}
-	var read ddosApplicationReader
 	if binding := settings.Input.Application; binding != nil {
-		read = func(ctx context.Context, observation anomaly.DDoSObservation) (anomaly.DDoSApplicationWindow, bool, error) {
+		settings.readApplication = func(ctx context.Context, observation anomaly.DDoSObservation) (anomaly.DDoSApplicationWindow, bool, error) {
 			window := current.Application
-			if observation.From.Equal(before.From) {
+			if observation.From.Equal(clocks.Before.Start) {
 				window = reference.Application
 			}
 			return projectDDoSApplicationWindow(ctx, observation, binding.Service, binding.Port, observation.To, benchmarkDDoSAppSpans(window, observation.From))
 		}
 	}
-	finding, application, err := qualifyProjectedDDoS(ctx, before, after, finding, read, settings.Input.Thresholds(), benchmarkDDoSWork)
-	return flow.DDoSAssessment{ViewID: settings.View.ID, Version: settings.View.Version, Prefix: settings.Target.String(),
-		Direction: settings.Input.Direction, Before: beforeEvidence, After: afterEvidence, Detection: finding, Application: application}, err
+	capture := &reportFlowCapture{TenantID: benchmarkDDoSTenant, SourceGeneration: 1, Results: []capturedReportFlow{
+		benchmarkDDoSCapturedWindow(settings, reference, clocks.Before.Start, clocks.Before.End),
+		benchmarkDDoSCapturedWindow(settings, current, clocks.After.Start, clocks.After.End),
+	}}
+	return assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
 }
 
 type benchmarkDDoSOutcome struct {

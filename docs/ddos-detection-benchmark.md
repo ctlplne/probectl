@@ -89,11 +89,13 @@ cover incomplete flow, unavailable application context and a mixed packet
 profile outside the observed application demand. The two
 separate-port pressure families still produced episodes.
 
-The current replay expects an abstention for the 16 negative trials with
-pressure above the configured thresholds and fewer original records than
-the rule requires. Its oracle expects 208 true positives, 0 false positives,
-64 true negatives, 16 false negatives, 48 positive abstentions and 80 negative
-abstentions. The replay prints the current manifest digest and measured totals.
+The current replay uses the same scoped assessment as scheduled rules.
+Its oracle expects an abstention for the 16 negative trials whose pressure
+has fewer original records than the rule requires, and for the 16 positive
+trials whose two flow windows report different sampling rates. The expected
+totals are 192 true positives, 0 false positives, 64 true negatives, 16 false
+negatives, 64 positive abstentions and 80 negative abstentions. The replay
+prints the current manifest digest and measured totals.
 
 For sampled windows, each reported rate needs the configured minimum number
 of original records. A rule with required exporters checks the minimum for
@@ -298,8 +300,11 @@ selection excludes a historical pair if either of its windows has
 incomparable rates and still requires three comparable weeks. The check
 uses the rates in the stored records. Changes to the underlying sampling
 method or to a population sharing an exporter address may be invisible
-when those records report the same rates. Rules without a required
-exporter list use the existing sampling-corrected aggregate.
+when those records report the same rates. Five- and ten-second rules
+without a required exporter list compare the aggregate rate sets. For
+these rules, moving an unchanged rate between exporters can still be
+invisible when both rates remain present. A longer rule can require
+exporters to enable the per-exporter comparison.
 
 The synthetic holdout keeps raw counts at 400 and 100 for two exporters.
 Swapping the 1 and 8 multipliers raises the corrected aggregate from 1,200
@@ -307,10 +312,13 @@ to 3,300 packets with the same two rates present. The evaluation must
 abstain. A paired tenant keeps both exporters and their original rates,
 while the corrected packet counts grow from 3,600 to 7,200. The positive
 case must open one original receipt, which the sibling cannot read.
+In the unpinned fixture, both exporters report one in eight in the current
+window. The apparent total rises from 1,200 to 4,000 packets with the same
+original counts. The rule abstains because the unsampled group disappeared.
 
 ```sh
 PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
-  -run '^TestFastDDoSRequiresComparableRequiredExporterSampling$' ./internal/control
+  -run '^TestFastDDoSRequiresComparable(RequiredExporter|Aggregate)Sampling$' ./internal/control
 ```
 
 [Paired synthetic fixture](../internal/control/alert_ddos_multi_edge_integration_test.go)

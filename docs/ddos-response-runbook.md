@@ -24,6 +24,12 @@ state until observations can establish recovery. Reports with only fallback
 timestamps and older records still contribute to their end-time windows.
 The receipt retains the end-time totals from the pinned view.
 
+Short-window comparisons also need the same reported flow sampling rates
+in the current and reference windows. Requiring exporters checks the rates
+for each exporter individually. A rate change leaves coverage unknown and
+the detector keeps the prior episode and evaluation clock. Check each
+exporter's configuration before interpreting corrected totals as growth.
+
 Select **Representative week from the last four** when one unusual week could
 distort the comparison. The view must retain raw flow coverage across the
 four UTC weeks, with populated windows in at least three. The assessment

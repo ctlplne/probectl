@@ -31,6 +31,7 @@ type ddosEdgeSampling int
 const (
 	ddosEdgeUnsampled ddosEdgeSampling = iota
 	ddosEdgeRateChange
+	ddosEdgeRateSetChange
 	ddosEdgeSparseSampling
 )
 
@@ -45,6 +46,10 @@ func TestFastDDoSRequiresOriginalExporterCoverage(t *testing.T) {
 
 func TestFastDDoSRequiresComparableRequiredExporterSampling(t *testing.T) {
 	testDDoSEdgeScope(t, false, true, ddosEdgeRateChange)
+}
+
+func TestFastDDoSRequiresComparableAggregateSampling(t *testing.T) {
+	testDDoSEdgeScope(t, false, false, ddosEdgeRateSetChange)
 }
 
 func TestFastDDoSRequiresOriginalRecordsFromTheSampledExporter(t *testing.T) {
@@ -119,7 +124,7 @@ func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling d
 			return got, getSeasonalFlowReceipts(t, server, f.tokens[tenant], rule.ID).Items, rule.ID, err
 		}
 		evaluated, items, id, err := run(exporters[:])
-		if lane == 1 && sampling == ddosEdgeRateChange {
+		if lane == 1 && (sampling == ddosEdgeRateChange || sampling == ddosEdgeRateSetChange) {
 			if !errors.Is(err, errDDoSExporterSampling) || evaluated.QuerySelection != nil || len(items) != 0 {
 				t.Fatal("a change in rates for the same two exporters advanced the detector or published an episode", err)
 			}
@@ -195,14 +200,17 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 			}
 			rates := [2]uint64{1, 1}
 			switch sampling {
-			case ddosEdgeRateChange:
+			case ddosEdgeRateChange, ddosEdgeRateSetChange:
 				rates = [2]uint64{1, 8}
 				if !growth {
-					// Unchanged per-exporter raw counts. The switch alone
-					// raises the estimate from 1,200 to 3,300 packets.
+					// The reported sampling rates change while the original
+					// per-exporter packet counts stay fixed.
 					raw := [2]uint64{400, 100}
 					if i == 1 {
 						rates = [2]uint64{8, 1}
+						if sampling == ddosEdgeRateSetChange {
+							rates[1] = 8
+						}
 					}
 					packets = [2]uint64{raw[0] * rates[0], raw[1] * rates[1]}
 				}
