@@ -74,14 +74,20 @@ func (s *Server) handleSLOs(w http.ResponseWriter, r *http.Request) error {
 		writeJSON(w, http.StatusOK, map[string]any{"slo_running": false, "items": []slo.Status{}})
 		return nil
 	}
+	statuses := s.sloEngine.Statuses(tid)
 	response := map[string]any{
 		"slo_running": true,
-		"items":       s.sloEngine.Statuses(tid),
+		"items":       statuses,
 	}
-	// CORRECT-008: expose the current tenant's evaluation boundary when one
-	// exists. An engine with no applicable definitions has no window yet;
-	// Go's zero time is not a historical evaluation start.
-	if since := s.sloEngine.DataSince(tid); !since.IsZero() {
+	// The evaluation boundary begins when this tenant supplies its first
+	// observation for an applicable objective. Use the same snapshot as items.
+	var since time.Time
+	for _, status := range statuses {
+		if !status.DataSince.IsZero() && (since.IsZero() || status.DataSince.Before(since)) {
+			since = status.DataSince
+		}
+	}
+	if !since.IsZero() {
 		response["data_since"] = since
 	}
 	writeJSON(w, http.StatusOK, response)

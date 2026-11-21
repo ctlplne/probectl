@@ -58,8 +58,9 @@ type minuteBucket struct {
 
 // sloState is one SLO's per-tenant event window + alert latching.
 type sloState struct {
-	buckets map[int64]*minuteBucket // unix-minute → counts (pruned to window)
-	firing  map[string]bool         // burn-window name → currently firing
+	buckets   map[int64]*minuteBucket // unix-minute → counts (pruned to window)
+	firing    map[string]bool         // burn-window name → currently firing
+	dataSince time.Time               // first accepted result in this process
 }
 
 // BurnRate is one window's current burn (status payload).
@@ -85,7 +86,7 @@ type Status struct {
 	TotalEvents          uint64  `json:"total_events"`
 	ColdStart            bool    `json:"cold_start"`
 	// WindowFilling is true while less than a full budget window has elapsed
-	// since this process started observing the tenant (now-DataSince < Window).
+	// since this process received the first matching result (now-DataSince < Window).
 	// The engine is in-RAM (docs/adr/volatile-stores.md), so a control-plane
 	// restart resets the accumulators and a burned budget is NOT reconstructable
 	// from the live stream within the window: while this flag is set the
@@ -96,10 +97,9 @@ type Status struct {
 	// floor and flips to false once 50 events accrue in the first post-restart
 	// minutes, long before the budget window is representative. CORRECT-008.
 	WindowFilling bool `json:"window_filling"`
-	// DataSince is when this tenant's in-RAM accumulators started filling in THIS
-	// process (zero if the tenant has produced no data yet) — the window-open
-	// time behind WindowFilling. CORRECT-008.
-	DataSince time.Time  `json:"data_since,omitempty"`
+	// DataSince starts with the first matching result for this SLO. A status
+	// read and a different SLO's activity cannot establish this boundary.
+	DataSince time.Time  `json:"data_since,omitzero"`
 	BurnRates []BurnRate `json:"burn_rates"`
 }
 
@@ -109,29 +109,15 @@ type Engine struct {
 	slos    []SLO
 	tenants map[string]map[string]*sloState // tenant → slo name → state
 	clock   func() time.Time
-	// dataSince records when each tenant's error-budget window started filling
-	// in THIS process (CORRECT-008). The SLO engine is in-RAM, so a restart
-	// resets budgets; surfacing dataSince stops the UI from showing a freshly
-	// reset budget as a full-window attainment.
-	dataSince map[string]time.Time
 }
 
 // NewEngine builds the engine over validated SLOs.
 func NewEngine(slos []SLO) *Engine {
 	return &Engine{
-		slos:      append([]SLO(nil), slos...),
-		tenants:   map[string]map[string]*sloState{},
-		clock:     time.Now,
-		dataSince: map[string]time.Time{},
+		slos:    append([]SLO(nil), slos...),
+		tenants: map[string]map[string]*sloState{},
+		clock:   time.Now,
 	}
-}
-
-// DataSince reports when this tenant's in-RAM SLO accumulators started filling
-// (zero if the tenant has produced no data yet) — CORRECT-008.
-func (e *Engine) DataSince(tenant string) time.Time {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.dataSince[tenant]
 }
 
 // WithClock overrides the engine's time source and returns the engine.
@@ -172,13 +158,10 @@ func (e *Engine) state(tenant, name string) *sloState {
 	if !ok {
 		ts = map[string]*sloState{}
 		e.tenants[tenant] = ts
-		if _, seen := e.dataSince[tenant]; !seen {
-			e.dataSince[tenant] = e.clock() // CORRECT-008: window-open time
-		}
 	}
 	st, ok := ts[name]
 	if !ok {
-		st = &sloState{buckets: map[int64]*minuteBucket{}, firing: map[string]bool{}}
+		st = &sloState{buckets: map[int64]*minuteBucket{}, firing: map[string]bool{}, dataSince: e.clock()}
 		ts[name] = st
 	}
 	return st
@@ -316,7 +299,10 @@ func (e *Engine) Statuses(tenant string) []Status {
 
 	out := make([]Status, 0, len(e.slos))
 	for _, s := range e.SLOsFor(tenant) {
-		st := e.state(tenant, s.Name)
+		st := e.tenants[tenant][s.Name]
+		if st == nil {
+			st = &sloState{}
+		}
 		good, total := st.rates(s.Window, now)
 		attainment := 1.0
 		if total > 0 {
@@ -329,11 +315,7 @@ func (e *Engine) Statuses(tenant string) []Status {
 				budgetRemaining = 0
 			}
 		}
-		// CORRECT-008: e.state above guarantees dataSince is set for this tenant.
-		// The budget window is only representative once a full Window has elapsed
-		// since the accumulators started filling in THIS process; until then the
-		// attainment/budget are over a partial window (a post-restart reset).
-		dataSince := e.dataSince[tenant]
+		dataSince := st.dataSince
 		windowFilling := dataSince.IsZero() || now.Sub(dataSince) < s.Window
 		status := Status{
 			Name:                 s.Name,

@@ -476,3 +476,51 @@ func TestTenantBoundDefinitionsStayWithTheirTenant(t *testing.T) {
 		t.Fatalf("single-tenant load: %v", err)
 	}
 }
+
+func TestSLOEvaluationStartsAtEachObjectivesFirstObservation(t *testing.T) {
+	first := parsed(t)
+	first.TenantID = "tenant-a"
+	second := first
+	second.Name = "on-demand-service"
+	second.Target = "on-demand.example"
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := base
+	engine := NewEngine([]SLO{first, second}).WithClock(func() time.Time { return now })
+	engine.ObserveResult("tenant-a", "http", "unrelated.example", "", true, now)
+
+	before := engine.Statuses("tenant-a")
+	if len(before) != 2 {
+		t.Fatal("expected both configured objectives", before)
+	}
+	for _, status := range before {
+		if !status.WindowFilling || !status.ColdStart || !status.DataSince.IsZero() {
+			t.Fatal("an unobserved objective gained a coverage timestamp", status)
+		}
+	}
+	for sample := range 60 {
+		now = base.Add(first.Window * time.Duration(sample) / 60)
+		engine.ObserveResult("tenant-a", "http", first.Target, "", true, now)
+	}
+	now = base.Add(first.Window + time.Minute)
+	engine.ObserveResult("tenant-a", "http", first.Target, "", true, now)
+	for range MinEvents {
+		engine.ObserveResult("tenant-a", "http", second.Target, "", true, now)
+	}
+	for _, status := range engine.Statuses("tenant-a") {
+		switch status.Name {
+		case first.Name:
+			if status.WindowFilling || status.ColdStart || !status.DataSince.Equal(base) {
+				t.Fatal("the original objective lost its observation boundary", status)
+			}
+		case second.Name:
+			if !status.WindowFilling || status.ColdStart || !status.DataSince.Equal(now) {
+				t.Fatal("fresh samples inherited the older objective's coverage", status)
+			}
+		default:
+			t.Fatal("unexpected SLO", status.Name)
+		}
+	}
+	if sibling := engine.Statuses("tenant-b"); len(sibling) != 0 {
+		t.Fatal("objectives or their evaluation clocks leaked to another tenant", sibling)
+	}
+}

@@ -208,10 +208,12 @@ counts, pruned to the SLO window. Burn over any window is computed by summing
 the buckets in that window — so the same data answers both the live status and
 the alert evaluation.
 
-An enabled engine with no applicable definitions returns an empty `items` list
-and omits `data_since` from `GET /v1/slos`: no evaluation window exists yet.
-Once a tenant evaluation window opens, the API reports its timestamp so that
-a process restart cannot look like a complete historical window.
+An enabled engine returns an empty `items` list when no definitions apply to
+the tenant. `GET /v1/slos` adds the top-level `data_since` after the first
+matching result for any of the tenant's objectives. Each objective reports its
+own first matching result and keeps `window_filling` true until a full budget
+window has elapsed. The in-memory evaluation starts again after a control-plane
+restart.
 
 ## Configuration
 

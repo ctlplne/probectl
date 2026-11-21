@@ -52,10 +52,10 @@ func TestSLOEvaluationStartOmitsUnknownTime(t *testing.T) {
 			check := func(label string, value map[string]any) {
 				t.Helper()
 				since, exists := value["data_since"]
-				if !tc.definitions && exists {
+				if !tc.own && exists {
 					t.Errorf("%s unknown evaluation start must be absent, got %v", label, since)
 				}
-				if tc.definitions && since != at.Format(time.RFC3339) {
+				if tc.own && since != at.Format(time.RFC3339) {
 					t.Errorf("%s known evaluation start changed: %v", label, since)
 				}
 			}
