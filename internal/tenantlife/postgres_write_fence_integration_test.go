@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +43,10 @@ func TestPooledTenantErasePostgresWriteFenceTwoTenant(t *testing.T) {
 	tenantA := mkTenant(t, pool, "pg-write-fence-a-"+stamp)
 	tenantB := mkTenant(t, pool, "pg-write-fence-b-"+stamp)
 	pathContexts := map[string]string{}
+	syslogEvents := map[string][2]string{}
+	const insertQueue = `INSERT INTO public.device_syslog_fault_queue
+(tenant_id,event_id,target,subject,observed_at) VALUES ($1,$2,$3,'port',statement_timestamp())`
+	target := "device-syslog:" + strings.Repeat("a", 64)
 	assertPublicTenantWriteFenceCoverage(ctx, t, pool)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(
@@ -76,6 +81,15 @@ VALUES($1,'fenced-view','alice','Owned report','operator','{}')`, tenant); err !
 		if _, err := pool.Exec(ctx, `INSERT INTO public.dashboard_report_artifacts
 (tenant_id,id,dashboard_id,format,media_type,filename,content,generated_by,absolute_from,absolute_to,redaction_state,body_storage,body_bytes,body_digest,source_capture)
 VALUES($1,'fenced-artifact','fenced-view','csv','text/csv','owned.csv',NULL,'alice',statement_timestamp()-interval '1 hour',statement_timestamp(),'none','chunks',4,decode(repeat('00',32),'hex'),jsonb_build_object('version',1,'tenant_id',$1::uuid::text))`, tenant); err != nil {
+			t.Fatal(err)
+		}
+		events := [2]string{uuid.NewString(), uuid.NewString()}
+		syslogEvents[tenant] = events
+		if _, err := pool.Exec(ctx, `INSERT INTO public.device_syslog (tenant_id,id,device,message)
+VALUES ($1,$2,'edge','pending'),($1,$3,'edge','unqueued')`, tenant, events[0], events[1]); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, insertQueue, tenant, events[0], target); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -151,6 +165,20 @@ VALUES($1,'fenced-artifact',0,$2)`, tenantA, []byte("body")); !errors.As(err, &f
 	}
 	if err := appendChunk(tenantB); err != nil {
 		t.Fatalf("sibling chunk INSERT blocked by other tenant's fence: %v", err)
+	}
+	for _, write := range []struct {
+		query string
+		event int
+	}{
+		{insertQueue, 1},
+		{`UPDATE public.device_syslog_fault_queue SET target=$3 WHERE tenant_id=$1 AND event_id=$2`, 0},
+	} {
+		if _, err := pool.Exec(ctx, write.query, tenantA, syslogEvents[tenantA][write.event], target); !errors.As(err, &fenced) || fenced.Code != "55000" {
+			t.Fatalf("table-owner fault queue write after tenant fence = %v, want SQLSTATE 55000", err)
+		}
+		if _, err := pool.Exec(ctx, write.query, tenantB, syslogEvents[tenantB][write.event], target); err != nil {
+			t.Fatalf("active sibling fault queue write was blocked: %v", err)
+		}
 	}
 	for _, query := range []string{
 		`INSERT INTO public.entity_path_targets(tenant_id,path_target,context_id) VALUES($1,'192.0.2.78',$2)`,
