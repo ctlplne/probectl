@@ -159,9 +159,9 @@ type tenantCost struct {
 	dataSince time.Time
 }
 
-// NewEngine builds the engine. prices nil = volume-only; mapper must be
-// non-nil (use NewMapper(nil, nil) for the fully-degraded mode).
-func NewEngine(mapper *Mapper, prices *PriceTable, budgets []Budget) *Engine {
+// NewEngine builds the engine with the supplied observation clock.
+// A nil price table selects volume-only mode.
+func NewEngine(mapper *Mapper, prices *PriceTable, budgets []Budget, clock func() time.Time) *Engine {
 	if mapper == nil {
 		mapper = NewMapper(nil, nil)
 	}
@@ -171,16 +171,8 @@ func NewEngine(mapper *Mapper, prices *PriceTable, budgets []Budget) *Engine {
 		budgets: budgets,
 		chatty:  DefaultChattyThresholdBytes,
 		tenants: map[string]*tenantCost{},
-		clock:   time.Now,
+		clock:   clock,
 	}
-}
-
-// WithClock sets the observation clock used for deterministic evaluation.
-func (e *Engine) WithClock(now func() time.Time) *Engine {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.clock = now
-	return e
 }
 
 func (e *Engine) tenant(id string) *tenantCost {

@@ -44,11 +44,10 @@ func TestCrossPlaneFlowBatchPopulatesAllThreeEngines(t *testing.T) {
 
 	// Engines wired exactly as production builds them.
 	comp := complianceTestEngine(t)
-	costEng, on, err := BuildCost(costTestConfig(), intelTestLog())
+	costEng, on, err := buildCost(costTestConfig(), intelTestLog(), func() time.Time { return at })
 	if err != nil || !on {
 		t.Fatalf("BuildCost: on=%v err=%v", on, err)
 	}
-	costEng.WithClock(func() time.Time { return at })
 	carbEng, on, err := BuildCarbon(&config.Config{CarbonEnabled: true, CarbonGridGCO2E: 400}, intelTestLog())
 	if err != nil || !on {
 		t.Fatalf("BuildCarbon: on=%v err=%v", on, err)

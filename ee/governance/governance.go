@@ -49,13 +49,6 @@ func (s *Store) PolicyFor(ctx context.Context, tenantID string) (govern.Policy, 
 	return pol, found, err
 }
 
-// Upsert stores a tenant's governance policy (the provider tuning surface).
-func (s *Store) Upsert(ctx context.Context, tenantID string, pol govern.Policy, by string) error {
-	return tenancy.InProvider(ctx, s.pool, func(ctx context.Context, q tenancy.Querier) error {
-		return govern.UpsertPolicyTx(ctx, q, tenantID, pol, by)
-	})
-}
-
 // ChangeAudited reads the current policy under the same row lock as its
 // replacement. Both the policy change and its audit append commit together.
 func (s *Store) ChangeAudited(ctx context.Context, tenantID, by string,

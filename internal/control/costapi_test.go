@@ -106,12 +106,11 @@ func TestBuildCostRefusesUntenantedMapsInMultiTenant(t *testing.T) {
 // Flow batch → attributed spend in the summary + a budget breach correlated
 // into an incident (the S44 'Done when', end to end at the consumer).
 func TestCostConsumerAttributesAndAlerts(t *testing.T) {
-	eng, on, err := BuildCost(costTestConfig(), intelTestLog())
+	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	eng, on, err := buildCost(costTestConfig(), intelTestLog(), func() time.Time { return at })
 	if err != nil || !on {
 		t.Fatalf("BuildCost: %v", err)
 	}
-	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	eng.WithClock(func() time.Time { return at })
 	correlator := incident.NewCorrelator(incident.NewMemoryStore(), time.Hour, intelTestLog())
 	cc := NewCostConsumer(nil, eng, correlator, intelTestLog())
 
@@ -143,12 +142,11 @@ func TestCostConsumerAttributesAndAlerts(t *testing.T) {
 }
 
 func TestCostSummaryEndpoint(t *testing.T) {
-	eng, _, err := BuildCost(costTestConfig(), intelTestLog())
+	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	eng, _, err := buildCost(costTestConfig(), intelTestLog(), func() time.Time { return at })
 	if err != nil {
 		t.Fatal(err)
 	}
-	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	eng.WithClock(func() time.Time { return at })
 	eng.Observe("other-tenant", cost.FlowSample{
 		Src: "10.0.1.9", Dst: "10.0.2.9", Bytes: 99 << 30, At: at})
 
@@ -223,11 +221,10 @@ func TestCostBudgetBreachIsExportedOnceAcrossReplicas(t *testing.T) {
 	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	batch := costBreachBatch(t, at)
 	run := func(gate *fakeCostGate) (incidents int, exceeded bool, claims []string) {
-		eng, on, err := BuildCost(costTestConfig(), intelTestLog())
+		eng, on, err := buildCost(costTestConfig(), intelTestLog(), func() time.Time { return at })
 		if err != nil || !on {
 			t.Fatalf("BuildCost: %v", err)
 		}
-		eng.WithClock(func() time.Time { return at })
 		store := incident.NewMemoryStore()
 		cc := NewCostConsumer(nil, eng, incident.NewCorrelator(store, time.Hour, intelTestLog()), intelTestLog()).WithBudgetGate(gate)
 		if err := cc.handle(context.Background(), batch); err != nil {

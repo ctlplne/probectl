@@ -37,6 +37,10 @@ import (
 // disabled; malformed zone/owner/budget/pricing config is a startup ERROR
 // (fail closed — silently mispriced cost data is worse than none).
 func BuildCost(cfg *config.Config, log *slog.Logger) (*cost.Engine, bool, error) {
+	return buildCost(cfg, log, time.Now)
+}
+
+func buildCost(cfg *config.Config, log *slog.Logger, clock func() time.Time) (*cost.Engine, bool, error) {
 	if cfg == nil || !cfg.CostEnabled {
 		return nil, false, nil
 	}
@@ -74,7 +78,7 @@ func BuildCost(cfg *config.Config, log *slog.Logger) (*cost.Engine, bool, error)
 			return nil, false, err
 		}
 	}
-	eng := cost.NewEngine(cost.NewMapper(zones, owners), prices, budgets)
+	eng := cost.NewEngine(cost.NewMapper(zones, owners), prices, budgets, clock)
 	if log != nil {
 		log.Info("cost engine enabled",
 			"zones", len(zones), "owners", len(owners), "budgets", len(budgets),

@@ -21,7 +21,7 @@ var costT = time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 
 // fixtureEngine: two AZs in us-east-1 + one zone in eu-west-1; checkout
 // (payments team) in 1a, inventory (logistics) in 1b, analytics in eu-west-1a.
-func fixtureEngine(t *testing.T, prices *PriceTable, budgets []Budget) *Engine {
+func fixtureEngine(t *testing.T, prices *PriceTable, budgets []Budget, clock func() time.Time) *Engine {
 	t.Helper()
 	zones, err := ParseZoneRules("10.0.1.0/24=us-east-1a, 10.0.2.0/24=us-east-1b, 10.9.0.0/16=eu-west-1a")
 	if err != nil {
@@ -31,13 +31,13 @@ func fixtureEngine(t *testing.T, prices *PriceTable, budgets []Budget) *Engine {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewEngine(NewMapper(zones, owners), prices, budgets)
+	return NewEngine(NewMapper(zones, owners), prices, budgets, clock)
 }
 
 // The sprint's named test: fixture flows + pricing → expected dollars per
 // service (and team showback).
 func TestCostAttribution(t *testing.T) {
-	e := fixtureEngine(t, DefaultPriceTable(), nil)
+	e := fixtureEngine(t, DefaultPriceTable(), nil, time.Now)
 
 	// checkout → inventory: 10 GiB inter-AZ @ $0.01/GiB = $0.10
 	e.Observe("t1", FlowSample{Src: "10.0.1.5", Dst: "10.0.2.7", Bytes: 10 << 30, At: costT})
@@ -79,7 +79,7 @@ func TestCostAttribution(t *testing.T) {
 
 // The sprint's named test: a cross-AZ "chatty service" is detected.
 func TestChattyCrossAZDetection(t *testing.T) {
-	e := fixtureEngine(t, DefaultPriceTable(), nil)
+	e := fixtureEngine(t, DefaultPriceTable(), nil, time.Now)
 
 	// 600 MiB ×2 inter-AZ from checkout: crosses the 1 GiB chatty threshold.
 	for i := 0; i < 2; i++ {
@@ -106,7 +106,7 @@ func TestChattyCrossAZDetection(t *testing.T) {
 
 // The sprint's named test: no pricing → volume-only, honestly flagged.
 func TestDegradationWithoutPricing(t *testing.T) {
-	e := fixtureEngine(t, nil, nil) // nil price table = volume-only
+	e := fixtureEngine(t, nil, nil, time.Now) // nil price table = volume-only
 
 	e.Observe("t1", FlowSample{Src: "10.0.1.5", Dst: "10.0.2.7", Bytes: 10 << 30, At: costT})
 	s := e.Summary("t1")
@@ -120,7 +120,7 @@ func TestDegradationWithoutPricing(t *testing.T) {
 		t.Fatalf("volume accounting must survive: %+v", s)
 	}
 	// Without zone rules everything is unknown-class volume — still counted.
-	bare := NewEngine(NewMapper(nil, nil), nil, nil)
+	bare := NewEngine(NewMapper(nil, nil), nil, nil, time.Now)
 	bare.Observe("t1", FlowSample{Src: "10.0.1.5", Dst: "10.0.2.7", Bytes: 1 << 20, At: costT})
 	bs := bare.Summary("t1")
 	if bs.ZonesMapped || bs.ByClass[ClassUnknown].Bytes != 1<<20 {
@@ -134,9 +134,8 @@ func TestBudgetAlertFiresOncePerMonth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := fixtureEngine(t, DefaultPriceTable(), budgets)
 	now := costT
-	e.WithClock(func() time.Time { return now })
+	e := fixtureEngine(t, DefaultPriceTable(), budgets, func() time.Time { return now })
 
 	// 10 GiB inter-AZ = $0.10: under budget, no signal.
 	if sigs := e.Observe("t1", FlowSample{Src: "10.0.1.5", Dst: "10.0.2.7", Bytes: 10 << 30, At: costT}); len(sigs) != 0 {
@@ -179,9 +178,8 @@ func TestBudgetAlertFiresOncePerMonth(t *testing.T) {
 }
 
 func TestCostCoverageStartsOnObservation(t *testing.T) {
-	engine := fixtureEngine(t, DefaultPriceTable(), nil)
 	now := costT
-	engine.WithClock(func() time.Time { return now })
+	engine := fixtureEngine(t, DefaultPriceTable(), nil, func() time.Time { return now })
 	cold := engine.Summary("owner")
 	body, err := json.Marshal(cold)
 	if err != nil || !cold.DataSince.IsZero() || bytes.Contains(body, []byte("data_since")) || len(engine.tenants) != 0 {
@@ -204,9 +202,9 @@ func TestCostCoverageStartsOnObservation(t *testing.T) {
 }
 
 func TestBudgetUsesCurrentUTCMonthDespiteLateObservations(t *testing.T) {
-	engine := fixtureEngine(t, DefaultPriceTable(), []Budget{{Kind: "team", Name: "payments", MonthlyUSD: 0.15}})
 	now := time.Date(2026, 7, 1, 0, 1, 0, 0, time.UTC)
-	engine.WithClock(func() time.Time { return now })
+	engine := fixtureEngine(t, DefaultPriceTable(), []Budget{{Kind: "team", Name: "payments", MonthlyUSD: 0.15}},
+		func() time.Time { return now })
 	observe := func(tenant string, bytes uint64, at time.Time) int {
 		t.Helper()
 		signals := engine.Observe(tenant, FlowSample{Src: "10.0.1.5", Dst: "10.0.2.7", Bytes: bytes, At: at})

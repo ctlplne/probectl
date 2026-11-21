@@ -56,6 +56,16 @@ func itTenant(t *testing.T, pool *pgxpool.Pool, slug string) string {
 	return id
 }
 
+func setTestProviderPolicy(ctx context.Context, store *Store, tenant string, policy govern.Policy) error {
+	const actor = "op@msp.example"
+	return store.ChangeAudited(ctx, tenant, actor,
+		func(govern.Policy) (govern.Policy, error) { return policy, nil },
+		func(ctx context.Context, q tenancy.Querier, _ govern.Policy, _ bool, _ govern.Policy) error {
+			_, err := audit.ProviderAppendTx(ctx, q, actor, "provider.governance_set", tenant, nil)
+			return err
+		})
+}
+
 func TestGovernancePolicyRoundTripPG(t *testing.T) {
 	pool := itPool(t)
 	defer pool.Close()
@@ -76,7 +86,7 @@ func TestGovernancePolicyRoundTripPG(t *testing.T) {
 		RedactFrom:   govern.ClassConfidential,
 		RedactExport: true,
 	}
-	if err := store.Upsert(ctx, tnA, in, "op@msp.example"); err != nil {
+	if err := setTestProviderPolicy(ctx, store, tnA, in); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := store.PolicyFor(ctx, tnA)
@@ -98,7 +108,7 @@ func TestGovernancePolicyRoundTripPG(t *testing.T) {
 	}
 
 	// Update narrows the floor; no override.
-	if err := store.Upsert(ctx, tnA, govern.Policy{RedactFrom: govern.ClassPII}, "op@msp.example"); err != nil {
+	if err := setTestProviderPolicy(ctx, store, tnA, govern.Policy{RedactFrom: govern.ClassPII}); err != nil {
 		t.Fatal(err)
 	}
 	got, _, _ = store.PolicyFor(ctx, tnA)
@@ -145,7 +155,7 @@ func TestProviderGovernanceEditUsesTheCommittedTenantPolicy(t *testing.T) {
 					AIRemoteEgress: true,
 					Overrides:      map[govern.Category]govern.Class{govern.CatHostname: govern.ClassInternal},
 				}
-				if err := store.Upsert(ctx, owner, original, "setup"); err != nil {
+				if err := setTestProviderPolicy(ctx, store, owner, original); err != nil {
 					t.Fatal(err)
 				}
 			}
