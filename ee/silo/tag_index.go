@@ -16,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type tagIndexTarget struct {
+type siloIndexTarget struct {
 	table, name     string
 	columns         []string
 	nonUnique       bool
@@ -24,7 +24,7 @@ type tagIndexTarget struct {
 	descending      map[string]bool
 }
 
-var tagIndexTargets = []tagIndexTarget{
+var tagIndexTargets = []siloIndexTarget{
 	{table: "entities", name: "entities_tenant_context_parent_idx",
 		columns: []string{"tenant_id", "context_id", "parent_entity_id"}, nonUnique: true, allowEquivalent: true},
 	{table: "entity_path_test_contexts", name: "entity_path_test_target_context_idx",
@@ -36,6 +36,20 @@ var tagIndexTargets = []tagIndexTarget{
 	{table: "entity_evidence", name: "entity_evidence_tenant_source_latest_idx",
 		columns:   []string{"tenant_id", "context_id", "agent_id", "source_kind", "configured_ref", "observed_at", "id"},
 		nonUnique: true, descending: map[string]bool{"observed_at": true}},
+}
+
+// ensurePrePlanIndexes prepares FK targets on existing tables before the
+// transactional DDL adds references. New tables copy their public indexes.
+func (p *Provisioner) ensurePrePlanIndexes(ctx context.Context, schema string, cat Catalog) error {
+	if err := p.ensureTagStorageIndexes(ctx, schema, cat); err != nil {
+		return err
+	}
+	if slices.Contains(cat.TenantTables, "device_syslog_fault_queue") && slices.Contains(cat.SchemaTables, "device_syslog") {
+		return p.ensureSiloIndex(ctx, schema, siloIndexTarget{
+			table: "device_syslog", name: "device_syslog_tenant_id_id_idx", columns: []string{"tenant_id", "id"},
+		})
+	}
+	return nil
 }
 
 // ensureTagStorageIndexes builds missing entity/tag access paths on an existing
@@ -56,14 +70,14 @@ func (p *Provisioner) ensureTagStorageIndexes(ctx context.Context, schema string
 			// including an equivalent index, while the silo is still closed.
 			continue
 		}
-		if err := p.ensureTagIndex(ctx, schema, target); err != nil {
+		if err := p.ensureSiloIndex(ctx, schema, target); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (p *Provisioner) ensureTagIndex(ctx context.Context, schema string, target tagIndexTarget) error {
+func (p *Provisioner) ensureSiloIndex(ctx context.Context, schema string, target siloIndexTarget) error {
 	expectedDescending := make([]bool, len(target.columns))
 	for i, column := range target.columns {
 		expectedDescending[i] = target.descending[column]
@@ -90,7 +104,7 @@ func (p *Provisioner) ensureTagIndex(ctx context.Context, schema string, target 
 			return false, false, false, nil
 		}
 		if err != nil {
-			return false, false, false, fmt.Errorf("silo: inspect tag index %s: %w", target.name, err)
+			return false, false, false, fmt.Errorf("silo: inspect index %s: %w", target.name, err)
 		}
 		return true, usable, table == target.table && unique != target.nonUnique && unpredicated &&
 			slices.Equal(columns, target.columns) &&
@@ -101,7 +115,7 @@ func (p *Provisioner) ensureTagIndex(ctx context.Context, schema string, target 
 		return err
 	}
 	if exists && !correct {
-		return fmt.Errorf("silo: tag index %s has unexpected table or columns", target.name)
+		return fmt.Errorf("silo: index %s has unexpected table or columns", target.name)
 	}
 	if exists && valid {
 		return nil
@@ -133,7 +147,7 @@ func (p *Provisioner) ensureTagIndex(ctx context.Context, schema string, target 
 	if exists {
 		if _, err := p.ddlPool().Exec(ctx,
 			"DROP INDEX CONCURRENTLY IF EXISTS "+quoteIdent(schema)+"."+quoteIdent(target.name)); err != nil {
-			return fmt.Errorf("silo: discard invalid tag index %s: %w", target.name, err)
+			return fmt.Errorf("silo: discard invalid index %s: %w", target.name, err)
 		}
 	}
 	columns := make([]string, len(target.columns))
@@ -151,14 +165,14 @@ func (p *Provisioner) ensureTagIndex(ctx context.Context, schema string, target 
 		"CREATE "+unique+"INDEX CONCURRENTLY IF NOT EXISTS "+quoteIdent(target.name)+
 			" ON "+quoteIdent(schema)+"."+quoteIdent(target.table)+
 			" ("+strings.Join(columns, ",")+")"); err != nil {
-		return fmt.Errorf("silo: build tag index %s: %w", target.name, err)
+		return fmt.Errorf("silo: build index %s: %w", target.name, err)
 	}
 	exists, valid, correct, err = inspect()
 	if err != nil {
 		return err
 	}
 	if !exists || !valid || !correct {
-		return fmt.Errorf("silo: tag index %s did not become valid", target.name)
+		return fmt.Errorf("silo: index %s did not become valid", target.name)
 	}
 	return nil
 }

@@ -58,7 +58,7 @@ func TestDeviceSyslogPatternsServeExactScopedCounts(t *testing.T) {
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		for n := range lane + 1 {
 			_, err := ops.RecordSyslogForPatternSource(ctx, device.SyslogEvent{TenantID: tenant, Device: router,
-				ObservedAt: left.Add(time.Duration(n+1) * time.Second), Message: messages[lane]}, families[lane])
+				ObservedAt: left.Add(time.Duration(n+1) * time.Second), Message: messages[lane]}, device.SyslogPatternSource{Family: families[lane]})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -159,7 +159,7 @@ func TestDeviceSyslogPatternsServeWeeklyFrequency(t *testing.T) {
 		write := func(at time.Time) {
 			t.Helper()
 			event.ObservedAt = at
-			stored, err := ops.RecordSyslogForPatternSource(ctx, event, "cisco_ios")
+			stored, err := ops.RecordSyslogForPatternSource(ctx, event, device.SyslogPatternSource{Family: "cisco_ios"})
 			if err != nil || (ids[lane] != "" && ids[lane] != stored.PatternID) {
 				t.Fatal("did not preserve this tenant's original pattern", err)
 			}

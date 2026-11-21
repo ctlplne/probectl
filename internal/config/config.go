@@ -1096,6 +1096,8 @@ type SyslogSourceConfig struct {
 	HMACSecret       string `json:"hmac_secret,omitempty"`
 	RateLimit        int    `json:"rate_limit,omitempty"`
 	PatternFamily    string `json:"pattern_family,omitempty"`
+	FaultDevice      string `json:"fault_device,omitempty"`
+	FaultInstance    string `json:"fault_routing_instance,omitempty"`
 }
 
 // Load resolves configuration using the supplied getenv function (use

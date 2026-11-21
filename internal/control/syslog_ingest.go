@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/siem"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // deviceSyslogSink adapts the authenticated TLS syslog receiver (internal/siem)
@@ -27,7 +28,7 @@ type deviceSyslogSink struct {
 }
 
 type authenticatedSyslogPatternStore interface {
-	RecordSyslogForPatternSource(context.Context, device.SyslogEvent, string) (device.SyslogEvent, error)
+	RecordSyslogForPatternSource(context.Context, device.SyslogEvent, device.SyslogPatternSource) (device.SyslogEvent, error)
 }
 
 // NewDeviceSyslogSink wires the authenticated TLS syslog receiver's store onto
@@ -72,7 +73,13 @@ func (s *deviceSyslogSink) RecordSyslog(ctx context.Context, ev siem.SyslogEvent
 	var stored device.SyslogEvent
 	var err error
 	if writer, ok := s.ops.(authenticatedSyslogPatternStore); ok {
-		stored, err = writer.RecordSyslogForPatternSource(ctx, row, ev.PatternFamily)
+		if bound, present := tenancy.FromContext(ctx); present && bound.String() != ev.TenantID {
+			return siem.SyslogEvent{}, tenancy.ErrNoTenant
+		}
+		ctx = tenancy.WithTenant(ctx, tenancy.ID(ev.TenantID))
+		stored, err = writer.RecordSyslogForPatternSource(ctx, row, device.SyslogPatternSource{
+			Family: ev.PatternFamily, Name: ev.SourceName, FaultDevice: ev.FaultDevice, RoutingInstance: ev.FaultInstance,
+		})
 	} else {
 		stored, err = s.ops.RecordSyslog(ctx, row)
 	}

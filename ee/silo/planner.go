@@ -160,6 +160,12 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 		keys = append(keys, foreignKey{"device_config_policy_revisions", "device_config_policy_device_fk",
 			"tenant_id, context_id, device_entity_id", "entities", "tenant_id, context_id, id"})
 	}
+	if owned["device_syslog_fault_queue"] && owned["device_syslog"] {
+		keys = append(keys,
+			foreignKey{"device_syslog_fault_queue", "device_syslog_fault_tenant_fk", "tenant_id", "public.tenants", "id"},
+			foreignKey{"device_syslog_fault_queue", "device_syslog_fault_event_fk", "tenant_id, event_id", "device_syslog", "tenant_id, id"},
+		)
+	}
 	if owned["entity_fault_receipts"] {
 		keys = append(keys,
 			foreignKey{"entity_fault_receipts", "fx2_fault_receipt_tenant_fk", "tenant_id", "public.tenants", "id"},

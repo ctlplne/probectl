@@ -716,6 +716,27 @@
       ]
     },
     {
+      "ref": "test:internal/control/device_syslog_patterns_integration_test.go#TestDeviceSyslogPatternsServeWeeklyFrequency",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
+      "ref": "test:internal/control/device_syslog_faults_integration_test.go#TestDeviceSyslogAuthenticatedFlapsKeepOneScopedIncident",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
+      "ref": "test:ee/silo/device_syslog_fault_queue_integration_test.go#TestSiloSyslogFaultQueueKeepsLocalOriginalsAfterCatchUp",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
       "ref": "test:internal/control/incident_impact_integration_test.go#TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation",
       "profile": "integration",
       "capabilities": [

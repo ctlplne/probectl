@@ -67,9 +67,10 @@ func DeriveSyslogPattern(row SyslogEvent, trustedFamily string) (SyslogPattern, 
 	return pattern, len(pattern.ID) == 64
 }
 
-func (row *SyslogEvent) stampSyslogPattern(trustedFamily string) {
+func (row *SyslogEvent) stampSyslogPattern(trustedFamily string) SyslogPattern {
 	pattern, _ := DeriveSyslogPattern(*row, trustedFamily)
 	row.PatternID, row.PatternVersion, row.PatternKind = pattern.ID, pattern.Version, pattern.Kind
+	return pattern
 }
 
 func ciscoSyslogPattern(row SyslogEvent, pattern SyslogPattern) SyslogPattern {

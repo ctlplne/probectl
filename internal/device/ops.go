@@ -95,12 +95,12 @@ func NewMemoryOpsStore() *MemoryOpsStore {
 }
 
 func (m *MemoryOpsStore) RecordSyslog(ctx context.Context, ev SyslogEvent) (SyslogEvent, error) {
-	return m.RecordSyslogForPatternSource(ctx, ev, "")
+	return m.RecordSyslogForPatternSource(ctx, ev, SyslogPatternSource{})
 }
 
 // RecordSyslogForPatternSource adds the authenticated receiver's configured
 // source family to pattern derivation. Raw event content supplies no family.
-func (m *MemoryOpsStore) RecordSyslogForPatternSource(_ context.Context, ev SyslogEvent, trustedFamily string) (SyslogEvent, error) {
+func (m *MemoryOpsStore) RecordSyslogForPatternSource(_ context.Context, ev SyslogEvent, source SyslogPatternSource) (SyslogEvent, error) {
 	if ev.TenantID == "" {
 		return SyslogEvent{}, errors.New("device ops: tenant_id is required")
 	}
@@ -117,7 +117,7 @@ func (m *MemoryOpsStore) RecordSyslogForPatternSource(_ context.Context, ev Sysl
 	if ev.SeverityText == "" {
 		ev.SeverityText = SyslogSeverityText(ev.Severity)
 	}
-	ev.stampSyslogPattern(trustedFamily)
+	ev.stampSyslogPattern(source.Family)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.next++

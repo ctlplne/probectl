@@ -656,6 +656,15 @@ band with links to the current, earliest and latest observations used.
 Intervals without a matching indexed observation, with unindexed rows, or
 that exceed input admission contribute no training point.
 
+An authenticated syslog source can explicitly bind to a device with
+`fault_device`. Recognized interface-down and power-supply fault messages
+from that device become warning signals. BGP neighbor faults also need a
+`fault_routing_instance` matching any instance in the original message.
+Repeated faults from the same device and subject within the correlation
+window appear in one incident. Each signal retains the original syslog
+event ID and receiver clock. A source with a pattern family alone provides
+pattern counts.
+
 The device operations surface covers two NMS/NCM table-stakes workflows without
 turning probectl into a vendor-managed collector:
 

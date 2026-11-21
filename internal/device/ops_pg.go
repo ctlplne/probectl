@@ -42,12 +42,12 @@ func (s *PostgresOpsStore) inTenant(ctx context.Context, tenant string, fn func(
 }
 
 func (s *PostgresOpsStore) RecordSyslog(ctx context.Context, ev SyslogEvent) (SyslogEvent, error) {
-	return s.RecordSyslogForPatternSource(ctx, ev, "")
+	return s.RecordSyslogForPatternSource(ctx, ev, SyslogPatternSource{})
 }
 
 // RecordSyslogForPatternSource derives a pattern using the authenticated
 // receiver's configured source family in the original write transaction.
-func (s *PostgresOpsStore) RecordSyslogForPatternSource(ctx context.Context, ev SyslogEvent, trustedFamily string) (SyslogEvent, error) {
+func (s *PostgresOpsStore) RecordSyslogForPatternSource(ctx context.Context, ev SyslogEvent, source SyslogPatternSource) (SyslogEvent, error) {
 	if ev.TenantID == "" {
 		return SyslogEvent{}, errors.New("device ops: tenant_id is required")
 	}
@@ -64,13 +64,21 @@ func (s *PostgresOpsStore) RecordSyslogForPatternSource(ctx context.Context, ev 
 	if ev.SeverityText == "" {
 		ev.SeverityText = SyslogSeverityText(ev.Severity)
 	}
-	ev.stampSyslogPattern(trustedFamily)
+	pattern := ev.stampSyslogPattern(source.Family)
+	fault := syslogFaultForPattern(ev, pattern, source)
+	if fault.target != "" {
+		bound, ok := tenancy.FromContext(ctx)
+		if !ok || bound.String() != ev.TenantID {
+			return SyslogEvent{}, tenancy.ErrNoTenant
+		}
+		ctx = tenancy.WithSiloTableLock(ctx)
+	}
 	labels, err := json.Marshal(ev.Labels)
 	if err != nil {
 		return SyslogEvent{}, fmt.Errorf("device ops: encode labels: %w", err)
 	}
 	err = s.inTenant(ctx, ev.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
-		return sc.Q.QueryRow(ctx, `
+		err := sc.Q.QueryRow(ctx, `
 INSERT INTO device_syslog
     (tenant_id, device, source_address, facility, severity, severity_text, hostname, app_name, message, raw, labels, observed_at,
      pattern_version, pattern_id, pattern_kind)
@@ -78,6 +86,13 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, NULLIF($13, 0)
 RETURNING id::text`,
 			ev.TenantID, ev.Device, ev.SourceAddress, ev.Facility, ev.Severity, ev.SeverityText,
 			ev.Hostname, ev.AppName, ev.Message, ev.Raw, string(labels), ev.ObservedAt, ev.PatternVersion, ev.PatternID, string(ev.PatternKind)).Scan(&ev.ID)
+		if err != nil || fault.target == "" {
+			return err
+		}
+		_, err = sc.Q.Exec(ctx, `
+INSERT INTO device_syslog_fault_queue (tenant_id, event_id, target, subject, observed_at)
+VALUES ($1, $2, $3, $4, $5)`, ev.TenantID, ev.ID, fault.target, fault.subject, ev.ObservedAt)
+		return err
 	})
 	if err != nil {
 		return SyslogEvent{}, fmt.Errorf("device ops: record syslog: %w", err)

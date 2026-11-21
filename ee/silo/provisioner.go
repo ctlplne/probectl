@@ -565,7 +565,7 @@ func (p *Provisioner) Provision(ctx context.Context, tenantID, residency string,
 		// Provision is also an idempotent entry point for an existing silo.
 		// Prepare indexes online before its normal DDL transaction, just as
 		// catch-up does; a missing index must not block active writers here.
-		if err := p.ensureTagStorageIndexes(ctx, SchemaName(tenantID), cat); err != nil {
+		if err := p.ensurePrePlanIndexes(ctx, SchemaName(tenantID), cat); err != nil {
 			return err
 		}
 		if err := p.execPlan(ctx, ProvisionPlan(SchemaName(tenantID), cat.TenantTables)); err != nil {
@@ -603,7 +603,7 @@ func (p *Provisioner) CatchUpSchema(ctx context.Context, tenantID string) error 
 	if err != nil {
 		return err
 	}
-	if err := p.ensureTagStorageIndexes(ctx, schema, cat); err != nil {
+	if err := p.ensurePrePlanIndexes(ctx, schema, cat); err != nil {
 		return err
 	}
 	plan := CatchUpPlan(schema, cat)

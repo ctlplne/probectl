@@ -425,6 +425,8 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// free-text log bodies). Like device_configs it is tenant operational state
 	// rather than DSAR per-subject data, removed on full-tenant erase via CASCADE.
 	"device_syslog": {plane: "postgres:device_syslog", disposition: subjectTableNoSubject},
+	// Fault queue rows retain typed device observations and expire with the raw row.
+	"device_syslog_fault_queue": {plane: "postgres:device_syslog_fault_queue", disposition: subjectTableNoSubject},
 	// Saved expressions can contain addresses or operator-entered identities.
 	// Known saved-filter/tag UUID references are structural; the decoded
 	// selector preserves criteria, personal keys and unknown/invalid values.

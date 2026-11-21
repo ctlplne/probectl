@@ -11,12 +11,14 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/control"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/siem"
 )
 
@@ -32,6 +34,7 @@ func startSyslogSubsystem(
 	g *errgroup.Group,
 	cfg *config.Config,
 	srv *control.Server,
+	observer incident.Observer,
 	log *slog.Logger,
 ) error {
 	if !cfg.SyslogEnabled() {
@@ -53,6 +56,7 @@ func startSyslogSubsystem(
 		return fmt.Errorf("syslog tls: %w", err)
 	}
 	sources := make([]siem.SyslogSource, 0, len(cfg.SyslogSources))
+	var faultTenants []string
 	for _, s := range cfg.SyslogSources {
 		sources = append(sources, siem.SyslogSource{
 			Name:             s.Name,
@@ -62,7 +66,16 @@ func startSyslogSubsystem(
 			TLSClientSubject: s.TLSClientSubject,
 			RateLimit:        s.RateLimit,
 			PatternFamily:    s.PatternFamily,
+			FaultDevice:      s.FaultDevice,
+			FaultInstance:    s.FaultInstance,
 		})
+		if s.FaultDevice != "" {
+			tenant := s.TenantID
+			if tenant == "" {
+				tenant = cfg.SyslogDefaultTenantID
+			}
+			faultTenants = append(faultTenants, tenant)
+		}
 	}
 	receiver, err := siem.NewSyslogReceiver(siem.SyslogReceiverConfig{
 		TenantID:     cfg.SyslogDefaultTenantID,
@@ -72,6 +85,13 @@ func startSyslogSubsystem(
 	}, control.NewDeviceSyslogSink(srv.DeviceOps()))
 	if err != nil {
 		return fmt.Errorf("syslog receiver: %w", err)
+	}
+	if len(faultTenants) != 0 {
+		slices.Sort(faultTenants)
+		faultTenants = slices.Compact(faultTenants)
+		g.Go(func() error {
+			return srv.RunDeviceSyslogFaults(ctx, faultTenants, cfg.IncidentWindow, observer)
+		})
 	}
 	addr := cfg.SyslogListenAddr
 	g.Go(func() error {

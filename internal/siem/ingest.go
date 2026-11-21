@@ -17,6 +17,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"net"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +41,7 @@ var (
 	ErrSyslogRateLimited     = errors.New("siem syslog ingest: rate limited")
 	ErrSyslogParse           = errors.New("siem syslog ingest: parse")
 	ErrSyslogPersistence     = errors.New("siem syslog ingest: persistence")
+	syslogFaultBindingName   = regexp.MustCompile(`^[A-Za-z0-9_.:/-]{1,128}$`)
 )
 
 // SyslogSource is one authenticated sender allowed to emit syslog records.
@@ -56,6 +58,8 @@ type SyslogSource struct {
 	RateLimit        int
 	RateLimitWindow  time.Duration
 	PatternFamily    string
+	FaultDevice      string
+	FaultInstance    string
 }
 
 // SyslogReceiverConfig configures one tenant-bound inbound syslog receiver.
@@ -102,6 +106,8 @@ type SyslogEvent struct {
 	OriginalLength  int               `json:"original_length"`
 	ParserHardening []string          `json:"parser_hardening,omitempty"`
 	PatternFamily   string            `json:"-"`
+	FaultDevice     string            `json:"-"`
+	FaultInstance   string            `json:"-"`
 }
 
 // SyslogStore persists normalized syslog events.
@@ -154,6 +160,9 @@ func NewSyslogReceiver(cfg SyslogReceiverConfig, store SyslogStore) (*SyslogRece
 		default:
 			return nil, fmt.Errorf("siem syslog ingest: source %q has an unsupported pattern_family", sources[i].Name)
 		}
+		if !validSyslogFaultBinding(sources[i]) {
+			return nil, fmt.Errorf("siem syslog ingest: source %q has an invalid device fault binding", sources[i].Name)
+		}
 	}
 	return &SyslogReceiver{
 		cfg:     cfg,
@@ -162,6 +171,15 @@ func NewSyslogReceiver(cfg SyslogReceiverConfig, store SyslogStore) (*SyslogRece
 		health:  ingesthealth.New(cfg.TenantID, SourceSyslog, cfg.Log, cfg.Now),
 		hits:    map[string][]time.Time{},
 	}, nil
+}
+
+func validSyslogFaultBinding(source SyslogSource) bool {
+	if source.FaultDevice == "" {
+		return source.FaultInstance == ""
+	}
+	return source.PatternFamily != "" && syslogFaultBindingName.MatchString(source.Name) &&
+		syslogFaultBindingName.MatchString(source.FaultDevice) &&
+		(source.FaultInstance == "" || len(source.FaultInstance) <= 64 && syslogFaultBindingName.MatchString(source.FaultInstance))
 }
 
 // syslogSignature returns the canonical HMAC-SHA256 signature header value for
@@ -220,6 +238,8 @@ func (r *SyslogReceiver) Record(ctx context.Context, env SyslogEnvelope) (Syslog
 		OriginalLength:  len(env.Line),
 		ParserHardening: []string{"max_line_bytes", "pri_bounds", "nul_reject"},
 		PatternFamily:   source.PatternFamily,
+		FaultDevice:     source.FaultDevice,
+		FaultInstance:   source.FaultInstance,
 		Provenance: map[string]string{
 			"source.name":    source.Name,
 			"source.address": hostOnly(env.SourceAddress),

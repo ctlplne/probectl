@@ -2435,6 +2435,14 @@ to the same authenticated sender as the original line. Sources with an
 omitted family collect structural patterns. Syslog counts use the existing
 query memory, response and execution admission settings.
 
+Set `fault_device` to the exact hostname for a directly authenticated
+device to enable fault signals for its recognized messages. Give a BGP
+source a `fault_routing_instance` to bind peer events to the intended
+routing instance. A reported instance must match that binding. Leave
+`fault_device` empty on a relay that authenticates on behalf of several
+devices. Fault signals use the existing incident correlation window and
+notification settings.
+
 ### OTLP export
 
 probectl can *export* OTLP to an upstream collector. All three signals are
