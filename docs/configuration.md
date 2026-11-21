@@ -2514,6 +2514,46 @@ source read; stale enrichment never authorizes an import.
 The CI-only real NetBox source proof has separate
 [test harness settings and proof scope](../test/netbox/README.md).
 
+#### Local vendor SNMP profiles
+
+In a device-agent YAML file, set `devices[].snmp_vendor_profile` to
+`auto` or a named built-in or local profile ID. Omitting the key keeps
+standard polling. With `auto`, an exact observed `sysObjectID` takes
+precedence over a matching subtree. Choose a named profile to narrow
+selection to one definition while still checking its identity.
+
+Add local definitions under `snmp_vendor_profiles`. Each profile declares
+its ID, vendor, platform, numeric `sys_object_id` and original objects.
+Use `match_subtree: true` to include children on complete OID arc boundaries.
+Use `sys_descr_prefix` to narrow selection when the identity is shared.
+A profile and all its objects are validated during config load.
+
+```yaml
+snmp_vendor_profiles:
+  - id: example-appliance
+    vendor: Example
+    platform: Appliance
+    sys_object_id: .1.3.6.1.4.1.32473.42
+    objects:
+      - mib_object: EXAMPLE-MIB::cpuLoad
+        oid: .1.3.6.1.4.1.32473.42.2.0
+        kind: scalar
+        syntax: gauge32
+        metric: probectl.device.cpu.utilization
+        unit: percent
+```
+
+Use `kind: scalar` with an explicit `.0` instance or `kind: column`
+with a table-column root. The original ASN.1 type is `integer` or
+`gauge32`. Set a positive `multiplier` for documented unit scaling,
+`zero_unavailable: true` for a documented zero sentinel, or
+`valid_values` for exact integer state codes. Use `index: if_index` only
+where the vendor documents a single IF-MIB interface index. Other columns
+retain the full numeric component index. Each read uses the same credential
+reference and target connection as its standard SNMP poll.
+
+[Built-in vendor catalogue](device-telemetry.md#vendor-snmp-object-profiles)
+
 ### Cloud metric import
 
 `probectl-cloud-metrics` imports already-exported AWS CloudWatch, Azure Monitor,

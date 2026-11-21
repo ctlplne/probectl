@@ -327,6 +327,36 @@ Admin → Register collector exposes the same three profiles and returns the
 selected `PROBECTL_DEVICE_PROFILE` / `collection_profile` hint. That selection
 is not centrally persisted; the deployed local config remains authoritative.
 
+## Vendor SNMP object profiles
+
+Set `snmp_vendor_profile: auto` on an SNMP target to read the applicable
+vendor objects. A specific profile ID also verifies the currently observed
+`sysObjectID` before it reads those objects. Ambiguous identities, missing
+objects and mismatched SNMP wire types leave the existing standard readings
+available. Profiles use the target's current SNMP credential and collection
+cadence. They issue only read operations.
+
+| Profile | First supported identity | Additional original readings |
+| --- | --- | --- |
+| `cisco-ios` | Catalyst 2960-X | CPU by processor index |
+| `cisco-ios-xe` | ISR 4331 | CPU by processor index |
+| `cisco-nx-os` | Nexus 9396PX | CPU by processor index |
+| `arista-eos` | Documented Arista product subtree | HOST-RESOURCES-MIB per-processor CPU |
+| `fortinet-forti-os` | FortiGate product subtree | System CPU and memory utilization |
+| `juniper-junos` | Junos product subtree | CPU by chassis component and Tx/Rx optical power by reported interface index |
+| `mikrotik-router-os` | RouterOS product subtree | Temperature, fan RPM and indexed Tx/Rx optical power |
+| `palo-alto-pan-os` | PA-440 | Active sessions and HOST-RESOURCES-MIB CPU |
+| `palo-alto-pa-5450` | PA-5450 | Active sessions and indexed power-supply capacity |
+| `ubiquiti-unifi` | UniFi AP product subtree | Associated stations per virtual access point |
+| `hpe-aruba-5406r` | 5406R zl2 J9850A chassis | Fan and power-supply state codes by original index |
+
+The Device metrics view and API keep the selected profile, original system
+object ID, MIB name, numeric read OID, unit and table instance. The catalogue
+uses original vendor definitions and independently authored SNMP simulator
+fixtures. Individual model and firmware support follows the actual wire
+observations. The native MCP reader applies its existing full redaction
+policy to sender-supplied metadata. [Configure local extensions](configuration.md#local-vendor-snmp-profiles)
+
 ## Physical adjacency — direct LLDP/CDP evidence
 
 Metrics say how a port feels; LLDP/CDP says which port is plugged into which

@@ -50,6 +50,19 @@ message DeviceMetric {
   // "0" is an observed channel, not absence.
   string component = 14;
   string physical_channel = 15;
+
+  // Provenance for a matched vendor profile reading. Absent for standard
+  // polls and older collectors. This information conveys no source authority.
+  DeviceSNMPMetricSource snmp_metric_source = 16;
+}
+
+message DeviceSNMPMetricSource {
+  string profile_id = 1;
+  string system_object_id = 2;
+  string mib_object = 3;
+  // Scalar instance or table column root. Component or if_index carries
+  // the original table instance.
+  string oid = 4;
 }
 
 // Raw observation metadata, never a continuity or current-source grant.

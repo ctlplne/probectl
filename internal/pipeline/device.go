@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/device"
 	"github.com/ctlplne/probectl/internal/fairness"
 	devicev1 "github.com/ctlplne/probectl/internal/gen/probectl/device/v1"
 	"github.com/ctlplne/probectl/internal/metrics"
@@ -43,6 +44,11 @@ var deviceLabelNames = map[string]string{
 	otel.AttrDeviceIfName:          "if_name",
 	otel.AttrDeviceComponent:       "component",
 	otel.AttrDevicePhysicalChannel: "physical_channel",
+	otel.AttrDeviceSNMPProfile:     "snmp_profile",
+	otel.AttrDeviceSNMPSystemOID:   "snmp_system_object_id",
+	otel.AttrDeviceSNMPMIBObject:   "snmp_mib_object",
+	otel.AttrDeviceSNMPObjectOID:   "snmp_oid",
+	otel.AttrDeviceSNMPMetricUnit:  "snmp_unit",
 }
 
 // DeviceConsumer drains probectl.device.metrics into the TSDB, where the
@@ -319,6 +325,14 @@ func (c *DeviceConsumer) deadLetter(ctx context.Context, msg bus.Message, laneTo
 // OTel-aligned, cardinality-bounded labels.
 func DeviceMetricToSeries(m *devicev1.DeviceMetric) tsdb.Series {
 	attrs := otel.DeviceMetricAttributes(m)
+	if source := m.GetSnmpMetricSource(); source != nil && m.GetSource() == device.SourceSNMP &&
+		device.ValidSNMPMetricSource(m.GetName(), m.GetUnit(), source.GetProfileId(), source.GetSystemObjectId(), source.GetMibObject(), source.GetOid()) {
+		attrs[otel.AttrDeviceSNMPProfile] = source.GetProfileId()
+		attrs[otel.AttrDeviceSNMPSystemOID] = source.GetSystemObjectId()
+		attrs[otel.AttrDeviceSNMPMIBObject] = source.GetMibObject()
+		attrs[otel.AttrDeviceSNMPObjectOID] = source.GetOid()
+		attrs[otel.AttrDeviceSNMPMetricUnit] = m.GetUnit()
+	}
 	labels := make(map[string]string, len(deviceLabelNames))
 	for otelKey, promName := range deviceLabelNames {
 		if v, ok := attrs[otelKey]; ok {

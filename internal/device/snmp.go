@@ -18,13 +18,12 @@ import (
 	"github.com/gosnmp/gosnmp"
 )
 
-// SNMP OIDs probectl maps (standard MIBs only; vendor MIBs are deliberately
-// out of scope — "MIB coverage variance" is handled by graceful degradation,
-// not by chasing every enterprise tree).
+// Standard SNMP OIDs collected independently of the optional vendor profile.
 const (
-	oidSysDescr  = ".1.3.6.1.2.1.1.1.0"
-	oidSysUpTime = ".1.3.6.1.2.1.1.3.0" // TimeTicks (1/100 s)
-	oidSysName   = ".1.3.6.1.2.1.1.5.0"
+	oidSysDescr    = ".1.3.6.1.2.1.1.1.0"
+	oidSysObjectID = ".1.3.6.1.2.1.1.2.0"
+	oidSysUpTime   = ".1.3.6.1.2.1.1.3.0" // TimeTicks (1/100 s)
+	oidSysName     = ".1.3.6.1.2.1.1.5.0"
 
 	// IF-MIB ifTable / ifXTable (per-ifIndex columns).
 	oidIfDescr       = ".1.3.6.1.2.1.2.2.1.2"
@@ -187,7 +186,11 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 
 	// System group: identity + uptime. Total failure here means the device is
 	// unreachable/misauthenticated — that IS an error (the caller counts it).
-	pdus, err := conn.Get([]string{oidSysName, oidSysUpTime, oidSysDescr})
+	identityOIDs := []string{oidSysName, oidSysUpTime, oidSysDescr}
+	if len(dev.vendorProfiles) != 0 {
+		identityOIDs = append(identityOIDs, oidSysObjectID)
+	}
+	pdus, err := conn.Get(identityOIDs)
 	if err != nil {
 		return nil, inv, fmt.Errorf("device %s: system group: %w", dev.Address, err)
 	}
@@ -339,6 +342,7 @@ func pollSNMP(ctx context.Context, conn snmpConn, dev Target, tenant, agent stri
 	}
 
 	out = append(out, pollSNMPHostResources(conn, dev, inv.SysName, base)...)
+	out = appendSNMPVendorMetrics(ctx, conn, dev, &inv, base, out, pdus)
 
 	completed := now.Add(time.Since(started))
 	for i := range out {

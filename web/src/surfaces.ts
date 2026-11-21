@@ -1023,6 +1023,7 @@ export const SURFACES: SurfaceDecl[] = [
       'cli:probectl device conflicts',
       'cli:probectl device traps',
       'file:docs/features/telemetry-planes.md',
+      'file:docs/device-telemetry.md',
     ],
     liveReceipt: DEVICE_LIVE_RECEIPT,
   },

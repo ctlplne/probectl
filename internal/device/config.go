@@ -78,6 +78,9 @@ type Target struct {
 	// CollectionOverrides intentionally separate profile changes from the
 	// legacy collection knobs above. Mixing the two is rejected as ambiguous.
 	CollectionOverrides CollectionOverrides `yaml:"collection_overrides,omitempty"`
+
+	SNMPVendorProfile string `yaml:"snmp_vendor_profile,omitempty"`
+	vendorProfiles    []SNMPVendorProfile
 }
 
 // TrapSourceRef names one authenticated SNMP trap sender. Credential is a
@@ -156,7 +159,8 @@ type Config struct {
 
 	// CollectionProfile selects one compiled evidence budget for every target.
 	// Empty preserves the pre-profile explicit configuration behavior.
-	CollectionProfile CollectionProfile `yaml:"collection_profile,omitempty"`
+	CollectionProfile  CollectionProfile   `yaml:"collection_profile,omitempty"`
+	SNMPVendorProfiles []SNMPVendorProfile `yaml:"snmp_vendor_profiles,omitempty"`
 
 	// CorrelationRetention bounds the in-agent device/interface identity cache
 	// used to enrich path/flow signals with sysName and interface labels.
@@ -401,6 +405,9 @@ func (c *Config) Validate() error {
 		// Expand into a copy so one invalid later target cannot leave an
 		// earlier target partially mutated after validation fails.
 		devices = append([]Target(nil), c.Devices...)
+	}
+	if err := configureSNMPVendorTargets(devices, c.SNMPVendorProfiles); err != nil {
+		return err
 	}
 	for i := range devices {
 		d := &devices[i]

@@ -33311,6 +33311,26 @@
             "type": "string",
             "description": "Device-reported physical-channel index. The nonempty string zero is an observed channel; omission denotes a component-level measurement or an unreported channel."
           },
+          "snmp_profile": {
+            "type": "string",
+            "description": "Local vendor profile that read this original SNMP observation."
+          },
+          "snmp_system_object_id": {
+            "type": "string",
+            "description": "Canonical numeric SNMP system identity returned by the polled device."
+          },
+          "snmp_mib_object": {
+            "type": "string",
+            "description": "Original MIB module and object name declared by the selected profile."
+          },
+          "snmp_oid": {
+            "type": "string",
+            "description": "Numeric scalar instance or table-column root. Component or if_index carries the original table instance."
+          },
+          "snmp_unit": {
+            "type": "string",
+            "description": "Normalized unit declared for the profile metric."
+          },
           "if_index": {
             "type": "string"
           },

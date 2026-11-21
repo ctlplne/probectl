@@ -372,6 +372,11 @@ export function useDeviceConfigs(limit = 5, enabled = true, configIDs: readonly 
 export interface DeviceMetricSummary {
   component?: string
   physical_channel?: string
+  snmp_profile?: string
+  snmp_system_object_id?: string
+  snmp_mib_object?: string
+  snmp_oid?: string
+  snmp_unit?: string
   id: string
   device: string
   device_name?: string

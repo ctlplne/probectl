@@ -53,6 +53,11 @@ type deviceMetricSummary struct {
 	IfName          string    `json:"if_name,omitempty"`
 	Component       string    `json:"component,omitempty"`
 	PhysicalChannel string    `json:"physical_channel,omitempty"`
+	SNMPProfile     string    `json:"snmp_profile,omitempty"`
+	SNMPSystemOID   string    `json:"snmp_system_object_id,omitempty"`
+	SNMPMIBObject   string    `json:"snmp_mib_object,omitempty"`
+	SNMPOID         string    `json:"snmp_oid,omitempty"`
+	SNMPUnit        string    `json:"snmp_unit,omitempty"`
 	Name            string    `json:"name,omitempty"`
 	Summary         string    `json:"summary,omitempty"`
 	Metric          string    `json:"metric"`
@@ -657,6 +662,11 @@ func latestDeviceMetricSummaries(series []tsdb.Series, tenant, deviceFilter, met
 			IfName:          s.Labels["if_name"],
 			Component:       s.Labels["component"],
 			PhysicalChannel: s.Labels["physical_channel"],
+			SNMPProfile:     s.Labels["snmp_profile"],
+			SNMPSystemOID:   s.Labels["snmp_system_object_id"],
+			SNMPMIBObject:   s.Labels["snmp_mib_object"],
+			SNMPOID:         s.Labels["snmp_oid"],
+			SNMPUnit:        s.Labels["snmp_unit"],
 			Name:            s.Metric,
 			Summary:         deviceMetricSummaryText(s.Labels),
 			Metric:          s.Metric,
@@ -698,6 +708,9 @@ func deviceMetricSummaryText(labels map[string]string) string {
 		parts = append(parts, labels["if_name"])
 	} else if labels["if_index"] != "" {
 		parts = append(parts, "ifIndex "+labels["if_index"])
+	}
+	if labels["snmp_profile"] != "" {
+		parts = append(parts, labels["snmp_profile"], labels["snmp_mib_object"])
 	}
 	return strings.Join(nonEmptyStrings(parts), " ")
 }

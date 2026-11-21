@@ -63,6 +63,10 @@ type Metric struct {
 	// Component and PhysicalChannel are device model keys, never guessed
 	// interface names. A channel's observed zero is the nonempty string "0".
 	Component, PhysicalChannel string
+	// Vendor profile provenance is present only for a matched read. The
+	// source OID names the scalar or column and the instance is carried by
+	// Component or IfIndex.
+	SNMPProfile, SNMPSystemObjectID, SNMPMIBObject, SNMPOID string
 	// InterfaceAddresses are the normalized addresses assigned to IfIndex.
 	// They travel with the interface sample so the control plane can rebuild
 	// correlation and conflict state by replaying the tenant-tagged bus.
@@ -111,6 +115,11 @@ func (m Metric) ToProto() *devicev1.DeviceMetric {
 			[]string(nil),
 			m.InterfaceAddresses...,
 		),
+	}
+	if m.SNMPProfile != "" {
+		out.SnmpMetricSource = &devicev1.DeviceSNMPMetricSource{
+			ProfileId: m.SNMPProfile, SystemObjectId: m.SNMPSystemObjectID, MibObject: m.SNMPMIBObject, Oid: m.SNMPOID,
+		}
 	}
 	if m.ExactCounter != nil {
 		out.ExactCounter = &devicev1.DeviceCounter{Value: m.ExactCounter.Value, Width: m.ExactCounter.Width}
@@ -162,10 +171,12 @@ type Interface struct {
 // Inventory is one device's discovered identity + interfaces, fed to the
 // Correlator after every poll.
 type Inventory struct {
-	Device     string // management address (the config key)
-	SysName    string
-	SysDescr   string
-	Interfaces map[uint32]Interface
+	Device        string // management address (the config key)
+	SysName       string
+	SysDescr      string
+	SysObjectID   string
+	VendorProfile string
+	Interfaces    map[uint32]Interface
 	// The connected SNMP peer, retained only inside this collector. A DNS
 	// target can report its actual observed IP without a query-time lookup.
 	peerAddress netip.Addr

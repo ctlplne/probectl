@@ -62,8 +62,11 @@ type DeviceMetric struct {
 	// "0" is an observed channel, not absence.
 	Component       string `protobuf:"bytes,14,opt,name=component,proto3" json:"component,omitempty"`
 	PhysicalChannel string `protobuf:"bytes,15,opt,name=physical_channel,json=physicalChannel,proto3" json:"physical_channel,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Provenance for a matched vendor profile reading. Absent for standard
+	// polls and older collectors. This information conveys no source authority.
+	SnmpMetricSource *DeviceSNMPMetricSource `protobuf:"bytes,16,opt,name=snmp_metric_source,json=snmpMetricSource,proto3" json:"snmp_metric_source,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *DeviceMetric) Reset() {
@@ -201,6 +204,83 @@ func (x *DeviceMetric) GetPhysicalChannel() string {
 	return ""
 }
 
+func (x *DeviceMetric) GetSnmpMetricSource() *DeviceSNMPMetricSource {
+	if x != nil {
+		return x.SnmpMetricSource
+	}
+	return nil
+}
+
+type DeviceSNMPMetricSource struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ProfileId      string                 `protobuf:"bytes,1,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`
+	SystemObjectId string                 `protobuf:"bytes,2,opt,name=system_object_id,json=systemObjectId,proto3" json:"system_object_id,omitempty"`
+	MibObject      string                 `protobuf:"bytes,3,opt,name=mib_object,json=mibObject,proto3" json:"mib_object,omitempty"`
+	// Scalar instance or table column root. Component or if_index carries
+	// the original table instance.
+	Oid           string `protobuf:"bytes,4,opt,name=oid,proto3" json:"oid,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceSNMPMetricSource) Reset() {
+	*x = DeviceSNMPMetricSource{}
+	mi := &file_probectl_device_v1_device_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceSNMPMetricSource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceSNMPMetricSource) ProtoMessage() {}
+
+func (x *DeviceSNMPMetricSource) ProtoReflect() protoreflect.Message {
+	mi := &file_probectl_device_v1_device_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceSNMPMetricSource.ProtoReflect.Descriptor instead.
+func (*DeviceSNMPMetricSource) Descriptor() ([]byte, []int) {
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *DeviceSNMPMetricSource) GetProfileId() string {
+	if x != nil {
+		return x.ProfileId
+	}
+	return ""
+}
+
+func (x *DeviceSNMPMetricSource) GetSystemObjectId() string {
+	if x != nil {
+		return x.SystemObjectId
+	}
+	return ""
+}
+
+func (x *DeviceSNMPMetricSource) GetMibObject() string {
+	if x != nil {
+		return x.MibObject
+	}
+	return ""
+}
+
+func (x *DeviceSNMPMetricSource) GetOid() string {
+	if x != nil {
+		return x.Oid
+	}
+	return ""
+}
+
 // Raw observation metadata, never a continuity or current-source grant.
 type DeviceCounter struct {
 	state                   protoimpl.MessageState `protogen:"open.v1"`
@@ -219,7 +299,7 @@ type DeviceCounter struct {
 
 func (x *DeviceCounter) Reset() {
 	*x = DeviceCounter{}
-	mi := &file_probectl_device_v1_device_proto_msgTypes[1]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -231,7 +311,7 @@ func (x *DeviceCounter) String() string {
 func (*DeviceCounter) ProtoMessage() {}
 
 func (x *DeviceCounter) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_device_v1_device_proto_msgTypes[1]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -244,7 +324,7 @@ func (x *DeviceCounter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceCounter.ProtoReflect.Descriptor instead.
 func (*DeviceCounter) Descriptor() ([]byte, []int) {
-	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{1}
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *DeviceCounter) GetValue() uint64 {
@@ -309,7 +389,7 @@ type DeviceMetricBatch struct {
 
 func (x *DeviceMetricBatch) Reset() {
 	*x = DeviceMetricBatch{}
-	mi := &file_probectl_device_v1_device_proto_msgTypes[2]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -321,7 +401,7 @@ func (x *DeviceMetricBatch) String() string {
 func (*DeviceMetricBatch) ProtoMessage() {}
 
 func (x *DeviceMetricBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_device_v1_device_proto_msgTypes[2]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -334,7 +414,7 @@ func (x *DeviceMetricBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceMetricBatch.ProtoReflect.Descriptor instead.
 func (*DeviceMetricBatch) Descriptor() ([]byte, []int) {
-	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{2}
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *DeviceMetricBatch) GetMetrics() []*DeviceMetric {
@@ -377,7 +457,7 @@ type DeviceNeighborEvidence struct {
 
 func (x *DeviceNeighborEvidence) Reset() {
 	*x = DeviceNeighborEvidence{}
-	mi := &file_probectl_device_v1_device_proto_msgTypes[3]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -389,7 +469,7 @@ func (x *DeviceNeighborEvidence) String() string {
 func (*DeviceNeighborEvidence) ProtoMessage() {}
 
 func (x *DeviceNeighborEvidence) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_device_v1_device_proto_msgTypes[3]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -402,7 +482,7 @@ func (x *DeviceNeighborEvidence) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceNeighborEvidence.ProtoReflect.Descriptor instead.
 func (*DeviceNeighborEvidence) Descriptor() ([]byte, []int) {
-	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{3}
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *DeviceNeighborEvidence) GetTenantId() string {
@@ -533,7 +613,7 @@ type DeviceNeighborSnapshot struct {
 
 func (x *DeviceNeighborSnapshot) Reset() {
 	*x = DeviceNeighborSnapshot{}
-	mi := &file_probectl_device_v1_device_proto_msgTypes[4]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -545,7 +625,7 @@ func (x *DeviceNeighborSnapshot) String() string {
 func (*DeviceNeighborSnapshot) ProtoMessage() {}
 
 func (x *DeviceNeighborSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_device_v1_device_proto_msgTypes[4]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -558,7 +638,7 @@ func (x *DeviceNeighborSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceNeighborSnapshot.ProtoReflect.Descriptor instead.
 func (*DeviceNeighborSnapshot) Descriptor() ([]byte, []int) {
-	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{4}
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *DeviceNeighborSnapshot) GetTenantId() string {
@@ -624,7 +704,7 @@ type DeviceCollectionOutcome struct {
 
 func (x *DeviceCollectionOutcome) Reset() {
 	*x = DeviceCollectionOutcome{}
-	mi := &file_probectl_device_v1_device_proto_msgTypes[5]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -636,7 +716,7 @@ func (x *DeviceCollectionOutcome) String() string {
 func (*DeviceCollectionOutcome) ProtoMessage() {}
 
 func (x *DeviceCollectionOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_device_v1_device_proto_msgTypes[5]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -649,7 +729,7 @@ func (x *DeviceCollectionOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceCollectionOutcome.ProtoReflect.Descriptor instead.
 func (*DeviceCollectionOutcome) Descriptor() ([]byte, []int) {
-	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{5}
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *DeviceCollectionOutcome) GetTenantId() string {
@@ -733,7 +813,7 @@ type DeviceCollectionOutcomeBatch struct {
 
 func (x *DeviceCollectionOutcomeBatch) Reset() {
 	*x = DeviceCollectionOutcomeBatch{}
-	mi := &file_probectl_device_v1_device_proto_msgTypes[6]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -745,7 +825,7 @@ func (x *DeviceCollectionOutcomeBatch) String() string {
 func (*DeviceCollectionOutcomeBatch) ProtoMessage() {}
 
 func (x *DeviceCollectionOutcomeBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_device_v1_device_proto_msgTypes[6]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -758,7 +838,7 @@ func (x *DeviceCollectionOutcomeBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceCollectionOutcomeBatch.ProtoReflect.Descriptor instead.
 func (*DeviceCollectionOutcomeBatch) Descriptor() ([]byte, []int) {
-	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{6}
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DeviceCollectionOutcomeBatch) GetOutcomes() []*DeviceCollectionOutcome {
@@ -781,7 +861,7 @@ type DeviceTrapVarBind struct {
 
 func (x *DeviceTrapVarBind) Reset() {
 	*x = DeviceTrapVarBind{}
-	mi := &file_probectl_device_v1_device_proto_msgTypes[7]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -793,7 +873,7 @@ func (x *DeviceTrapVarBind) String() string {
 func (*DeviceTrapVarBind) ProtoMessage() {}
 
 func (x *DeviceTrapVarBind) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_device_v1_device_proto_msgTypes[7]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -806,7 +886,7 @@ func (x *DeviceTrapVarBind) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceTrapVarBind.ProtoReflect.Descriptor instead.
 func (*DeviceTrapVarBind) Descriptor() ([]byte, []int) {
-	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{7}
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DeviceTrapVarBind) GetOid() string {
@@ -860,7 +940,7 @@ type DeviceTrapEvent struct {
 
 func (x *DeviceTrapEvent) Reset() {
 	*x = DeviceTrapEvent{}
-	mi := &file_probectl_device_v1_device_proto_msgTypes[8]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -872,7 +952,7 @@ func (x *DeviceTrapEvent) String() string {
 func (*DeviceTrapEvent) ProtoMessage() {}
 
 func (x *DeviceTrapEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_device_v1_device_proto_msgTypes[8]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -885,7 +965,7 @@ func (x *DeviceTrapEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceTrapEvent.ProtoReflect.Descriptor instead.
 func (*DeviceTrapEvent) Descriptor() ([]byte, []int) {
-	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{8}
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *DeviceTrapEvent) GetTenantId() string {
@@ -1013,7 +1093,7 @@ type DeviceTrapEventBatch struct {
 
 func (x *DeviceTrapEventBatch) Reset() {
 	*x = DeviceTrapEventBatch{}
-	mi := &file_probectl_device_v1_device_proto_msgTypes[9]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1025,7 +1105,7 @@ func (x *DeviceTrapEventBatch) String() string {
 func (*DeviceTrapEventBatch) ProtoMessage() {}
 
 func (x *DeviceTrapEventBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_probectl_device_v1_device_proto_msgTypes[9]
+	mi := &file_probectl_device_v1_device_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1038,7 +1118,7 @@ func (x *DeviceTrapEventBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceTrapEventBatch.ProtoReflect.Descriptor instead.
 func (*DeviceTrapEventBatch) Descriptor() ([]byte, []int) {
-	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{9}
+	return file_probectl_device_v1_device_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DeviceTrapEventBatch) GetEvents() []*DeviceTrapEvent {
@@ -1052,7 +1132,7 @@ var File_probectl_device_v1_device_proto protoreflect.FileDescriptor
 
 const file_probectl_device_v1_device_proto_rawDesc = "" +
 	"\n" +
-	"\x1fprobectl/device/v1/device.proto\x12\x12probectl.device.v1\"\x80\x04\n" +
+	"\x1fprobectl/device/v1/device.proto\x12\x12probectl.device.v1\"\xda\x04\n" +
 	"\fDeviceMetric\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12%\n" +
@@ -1070,7 +1150,15 @@ const file_probectl_device_v1_device_proto_rawDesc = "" +
 	"\x13interface_addresses\x18\f \x03(\tR\x12interfaceAddresses\x12F\n" +
 	"\rexact_counter\x18\r \x01(\v2!.probectl.device.v1.DeviceCounterR\fexactCounter\x12\x1c\n" +
 	"\tcomponent\x18\x0e \x01(\tR\tcomponent\x12)\n" +
-	"\x10physical_channel\x18\x0f \x01(\tR\x0fphysicalChannel\"\x87\x03\n" +
+	"\x10physical_channel\x18\x0f \x01(\tR\x0fphysicalChannel\x12X\n" +
+	"\x12snmp_metric_source\x18\x10 \x01(\v2*.probectl.device.v1.DeviceSNMPMetricSourceR\x10snmpMetricSource\"\x92\x01\n" +
+	"\x16DeviceSNMPMetricSource\x12\x1d\n" +
+	"\n" +
+	"profile_id\x18\x01 \x01(\tR\tprofileId\x12(\n" +
+	"\x10system_object_id\x18\x02 \x01(\tR\x0esystemObjectId\x12\x1d\n" +
+	"\n" +
+	"mib_object\x18\x03 \x01(\tR\tmibObject\x12\x10\n" +
+	"\x03oid\x18\x04 \x01(\tR\x03oid\"\x87\x03\n" +
 	"\rDeviceCounter\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\x04R\x05value\x12\x14\n" +
 	"\x05width\x18\x02 \x01(\rR\x05width\x12&\n" +
@@ -1166,31 +1254,33 @@ func file_probectl_device_v1_device_proto_rawDescGZIP() []byte {
 	return file_probectl_device_v1_device_proto_rawDescData
 }
 
-var file_probectl_device_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_probectl_device_v1_device_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_probectl_device_v1_device_proto_goTypes = []any{
 	(*DeviceMetric)(nil),                 // 0: probectl.device.v1.DeviceMetric
-	(*DeviceCounter)(nil),                // 1: probectl.device.v1.DeviceCounter
-	(*DeviceMetricBatch)(nil),            // 2: probectl.device.v1.DeviceMetricBatch
-	(*DeviceNeighborEvidence)(nil),       // 3: probectl.device.v1.DeviceNeighborEvidence
-	(*DeviceNeighborSnapshot)(nil),       // 4: probectl.device.v1.DeviceNeighborSnapshot
-	(*DeviceCollectionOutcome)(nil),      // 5: probectl.device.v1.DeviceCollectionOutcome
-	(*DeviceCollectionOutcomeBatch)(nil), // 6: probectl.device.v1.DeviceCollectionOutcomeBatch
-	(*DeviceTrapVarBind)(nil),            // 7: probectl.device.v1.DeviceTrapVarBind
-	(*DeviceTrapEvent)(nil),              // 8: probectl.device.v1.DeviceTrapEvent
-	(*DeviceTrapEventBatch)(nil),         // 9: probectl.device.v1.DeviceTrapEventBatch
+	(*DeviceSNMPMetricSource)(nil),       // 1: probectl.device.v1.DeviceSNMPMetricSource
+	(*DeviceCounter)(nil),                // 2: probectl.device.v1.DeviceCounter
+	(*DeviceMetricBatch)(nil),            // 3: probectl.device.v1.DeviceMetricBatch
+	(*DeviceNeighborEvidence)(nil),       // 4: probectl.device.v1.DeviceNeighborEvidence
+	(*DeviceNeighborSnapshot)(nil),       // 5: probectl.device.v1.DeviceNeighborSnapshot
+	(*DeviceCollectionOutcome)(nil),      // 6: probectl.device.v1.DeviceCollectionOutcome
+	(*DeviceCollectionOutcomeBatch)(nil), // 7: probectl.device.v1.DeviceCollectionOutcomeBatch
+	(*DeviceTrapVarBind)(nil),            // 8: probectl.device.v1.DeviceTrapVarBind
+	(*DeviceTrapEvent)(nil),              // 9: probectl.device.v1.DeviceTrapEvent
+	(*DeviceTrapEventBatch)(nil),         // 10: probectl.device.v1.DeviceTrapEventBatch
 }
 var file_probectl_device_v1_device_proto_depIdxs = []int32{
-	1, // 0: probectl.device.v1.DeviceMetric.exact_counter:type_name -> probectl.device.v1.DeviceCounter
-	0, // 1: probectl.device.v1.DeviceMetricBatch.metrics:type_name -> probectl.device.v1.DeviceMetric
-	3, // 2: probectl.device.v1.DeviceNeighborSnapshot.neighbors:type_name -> probectl.device.v1.DeviceNeighborEvidence
-	5, // 3: probectl.device.v1.DeviceCollectionOutcomeBatch.outcomes:type_name -> probectl.device.v1.DeviceCollectionOutcome
-	7, // 4: probectl.device.v1.DeviceTrapEvent.varbinds:type_name -> probectl.device.v1.DeviceTrapVarBind
-	8, // 5: probectl.device.v1.DeviceTrapEventBatch.events:type_name -> probectl.device.v1.DeviceTrapEvent
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	2, // 0: probectl.device.v1.DeviceMetric.exact_counter:type_name -> probectl.device.v1.DeviceCounter
+	1, // 1: probectl.device.v1.DeviceMetric.snmp_metric_source:type_name -> probectl.device.v1.DeviceSNMPMetricSource
+	0, // 2: probectl.device.v1.DeviceMetricBatch.metrics:type_name -> probectl.device.v1.DeviceMetric
+	4, // 3: probectl.device.v1.DeviceNeighborSnapshot.neighbors:type_name -> probectl.device.v1.DeviceNeighborEvidence
+	6, // 4: probectl.device.v1.DeviceCollectionOutcomeBatch.outcomes:type_name -> probectl.device.v1.DeviceCollectionOutcome
+	8, // 5: probectl.device.v1.DeviceTrapEvent.varbinds:type_name -> probectl.device.v1.DeviceTrapVarBind
+	9, // 6: probectl.device.v1.DeviceTrapEventBatch.events:type_name -> probectl.device.v1.DeviceTrapEvent
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_probectl_device_v1_device_proto_init() }
@@ -1198,14 +1288,14 @@ func file_probectl_device_v1_device_proto_init() {
 	if File_probectl_device_v1_device_proto != nil {
 		return
 	}
-	file_probectl_device_v1_device_proto_msgTypes[1].OneofWrappers = []any{}
+	file_probectl_device_v1_device_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_probectl_device_v1_device_proto_rawDesc), len(file_probectl_device_v1_device_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -78,3 +78,43 @@ func TestOpticalDeviceConsumerKeepsTenantComponentAndChannelStorageDimensions(t 
 		t.Fatal("component labels bypassed tenant/agent admission")
 	}
 }
+
+func TestVendorProfileDeviceMetricsKeepOriginalEvidenceInTenantStorage(t *testing.T) {
+	writer := tsdb.NewMemory()
+	binding := &fakeBinding{pairs: map[[2]string]bool{{"tenant-a", "agent-a"}: true, {"tenant-b", "agent-b"}: true}}
+	consumer := NewDeviceConsumer(nil, writer, testLogger()).WithTenantBinding(binding)
+	profile := &devicev1.DeviceSNMPMetricSource{ProfileId: "hpe-aruba-5406r",
+		SystemObjectId: ".1.3.6.1.4.1.11.2.3.7.11.160", MibObject: "FAN-MIB::hpicfFanState", Oid: ".1.3.6.1.4.1.11.2.14.11.5.1.54.2.1.1.4"}
+	for _, lane := range []struct {
+		tenant, agent string
+		value         float64
+	}{{"tenant-a", "agent-a", 0}, {"tenant-b", "agent-b", 5}} {
+		batch := &devicev1.DeviceMetricBatch{Metrics: []*devicev1.DeviceMetric{{
+			TenantId: lane.tenant, AgentId: lane.agent, DeviceAddress: "192.0.2.50", Source: "snmp",
+			Component: "4", Name: "probectl.device.fan.state", Value: lane.value, Unit: "1",
+			SnmpMetricSource: profile, TimeUnixNano: time.Now().UnixNano(),
+		}}}
+		raw, err := proto.Marshal(batch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := consumer.handleLane(t.Context(), bus.Message{Key: bus.TenantKey(lane.tenant, lane.agent), Value: raw}, bus.DeviceMetricsTopic, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, lane := range []struct {
+		tenant string
+		value  float64
+	}{{"tenant-a", 0}, {"tenant-b", 5}} {
+		got := writer.Query("probectl_device_fan_state", map[string]string{"tenant_id": lane.tenant, "device": "192.0.2.50"})
+		if len(got) != 1 || got[0].Value != lane.value {
+			t.Fatal("vendor values crossed the tenant storage selector", got)
+		}
+		labels := got[0].Labels
+		if labels["component"] != "4" || labels["snmp_profile"] != profile.ProfileId ||
+			labels["snmp_system_object_id"] != profile.SystemObjectId || labels["snmp_oid"] != profile.Oid ||
+			labels["snmp_mib_object"] != profile.MibObject || labels["snmp_unit"] != "1" {
+			t.Fatal("stored samples lost their original MIB identity", labels)
+		}
+	}
+}

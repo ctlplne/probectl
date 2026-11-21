@@ -63,6 +63,7 @@ function pivot(items: DeviceMetricSummary[]): {
   const interfaces = new Map<string, InterfaceRow>()
   const components = new Map<string, ComponentRow>()
   for (const m of items) {
+    if (m.snmp_profile && (m.component || m.if_index)) continue
     const name = m.metric.startsWith(metricPrefix) ? m.metric.slice(metricPrefix.length) : m.metric
     const deviceKey = `${m.agent_id ?? ''}|${m.device}`
     const base = {
@@ -129,6 +130,7 @@ export function DeviceMetricsCard() {
   const metrics = useDeviceMetrics(Number.MAX_SAFE_INTEGER)
   const items = metrics.data?.items
   const { devices, interfaces, components } = useMemo(() => pivot(items ?? []), [items])
+  const vendorReadings = useMemo(() => (items ?? []).filter((m) => m.snmp_profile), [items])
   const bounded =
     metrics.data !== undefined &&
     metrics.data.effective_limit > 0 &&
@@ -335,6 +337,65 @@ export function DeviceMetricsCard() {
       render: (row) => <DateTime value={row.lastSeen} />,
     },
   ]
+  const vendorColumns: Column<DeviceMetricSummary>[] = [
+    {
+      key: 'device',
+      header: t('device.metrics.column.device'),
+      render: (r) => (
+        <span>
+          <strong>{r.device_name || r.device}</strong>
+          {r.device_name ? (
+            <div className="text-caption text-muted-foreground">{r.device}</div>
+          ) : null}
+        </span>
+      ),
+    },
+    {
+      key: 'profile',
+      header: t('device.metrics.vendor.profile'),
+      render: (r) => (
+        <div>
+          <span>{r.snmp_profile}</span>
+          <div className="text-caption text-muted-foreground">
+            <code dir="ltr">{r.snmp_system_object_id}</code>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'object',
+      header: t('device.metrics.vendor.object'),
+      render: (r) => (
+        <div>
+          <code dir="ltr">{r.snmp_mib_object}</code>
+          <div className="text-caption text-muted-foreground">
+            <code dir="ltr">{r.snmp_oid}</code>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'component',
+      header: t('device.metrics.column.component'),
+      render: (r) => r.if_name || r.component || r.if_index || none,
+    },
+    {
+      key: 'value',
+      header: t('device.metrics.vendor.value'),
+      numeric: true,
+      render: (r) => (
+        <span dir="ltr">
+          {formatDecimal(r.value, locale, { maximumFractionDigits: 6 })}{' '}
+          {r.snmp_unit === '1' ? '' : r.snmp_unit}
+        </span>
+      ),
+    },
+    {
+      key: 'observed',
+      header: t('device.metrics.column.observed'),
+      render: (r) => <DateTime value={r.last_seen} />,
+    },
+  ]
 
   return (
     <Card>
@@ -353,13 +414,25 @@ export function DeviceMetricsCard() {
             title={t('device.metrics.unavailable.title')}
             description={t('device.metrics.unavailable.description')}
           />
-        ) : devices.length === 0 && interfaces.length === 0 && components.length === 0 ? (
+        ) : devices.length === 0 &&
+          interfaces.length === 0 &&
+          components.length === 0 &&
+          vendorReadings.length === 0 ? (
           <EmptyState
             title={t('device.metrics.empty.title')}
             description={t('device.metrics.empty.description')}
           />
         ) : (
           <div className="grid gap-4">
+            {vendorReadings.length > 0 ? (
+              <Table
+                caption={t('device.metrics.vendor.caption')}
+                columns={vendorColumns}
+                rows={vendorReadings}
+                maxRows={vendorReadings.length}
+                rowKey={(r) => r.id}
+              />
+            ) : null}
             <Table
               caption={t('device.metrics.devices.caption')}
               columns={deviceColumns}

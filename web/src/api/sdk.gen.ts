@@ -1991,6 +1991,11 @@ export interface DeviceMetricSummary {
   metric?: string
   name?: string
   physical_channel?: string
+  snmp_mib_object?: string
+  snmp_oid?: string
+  snmp_profile?: string
+  snmp_system_object_id?: string
+  snmp_unit?: string
   source?: string
   summary?: string
   value?: number

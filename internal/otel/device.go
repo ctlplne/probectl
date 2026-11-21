@@ -24,6 +24,11 @@ const (
 	AttrDeviceIfName          = "probectl.device.interface.name"
 	AttrDeviceComponent       = "probectl.device.component.name"
 	AttrDevicePhysicalChannel = "probectl.device.component.physical_channel"
+	AttrDeviceSNMPProfile     = "probectl.device.snmp.profile"
+	AttrDeviceSNMPSystemOID   = "probectl.device.snmp.system_object_id"
+	AttrDeviceSNMPMIBObject   = "probectl.device.snmp.mib_object"
+	AttrDeviceSNMPObjectOID   = "probectl.device.snmp.object_oid"
+	AttrDeviceSNMPMetricUnit  = "probectl.device.snmp.unit"
 )
 
 // Register the device keys into the shared conformance set.
@@ -31,6 +36,7 @@ func init() {
 	for _, k := range []string{
 		AttrDeviceAddress, AttrDeviceName, AttrDeviceSource, AttrDeviceIfIndex, AttrDeviceIfName,
 		AttrDeviceComponent, AttrDevicePhysicalChannel,
+		AttrDeviceSNMPProfile, AttrDeviceSNMPSystemOID, AttrDeviceSNMPMIBObject, AttrDeviceSNMPObjectOID, AttrDeviceSNMPMetricUnit,
 	} {
 		KnownAttributes[k] = true
 	}
