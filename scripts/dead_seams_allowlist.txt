@@ -122,7 +122,6 @@ symbol github.com/ctlplne/probectl/internal/tenantlife.Engine.Export — superse
 symbol github.com/ctlplne/probectl/internal/audit.ProviderHeadSeq — provider-chain head probe consumed by ee/silo isolation suites
 symbol github.com/ctlplne/probectl/internal/notify.Dispatcher.Drain — connector-drain hook consumed by cmd shutdown tests
 symbol github.com/ctlplne/probectl/internal/siem.Forwarder.Stats — forwarder counters asserted by cmd SIEM wiring tests
-symbol github.com/ctlplne/probectl/internal/fairness.Gate.EffectivePolicy — effective-policy probe asserted by cmd fairness tests
 symbol github.com/ctlplne/probectl/internal/tenantcrypto.AddOpener — envelope-opener registration used by ee/tenantkeys BYOK tests
 
 # ---- FX-2 tenant-bound identity verification seams --------------------------
