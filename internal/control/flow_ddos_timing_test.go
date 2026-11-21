@@ -63,6 +63,43 @@ func TestDDoSTimingRechecksCrossPlaneDemand(t *testing.T) {
 	}
 }
 
+func TestDDoSTimingCannotEstablishQuietFromCrossingReportsAlone(t *testing.T) {
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
+	for _, seconds := range []int{5, 10, 60} {
+		settings, err := normalizeDDoSAssessment(benchmarkDDoSView, flow.DDoSAssessmentInput{
+			Version: "7", Prefix: "192.0.2.0/24", Direction: "ingress", PeriodSeconds: seconds,
+			BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
+			VectorShareBasisPoints: 6000, MinObservedRecords: 4, MinObservedAddresses: 2,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		clocks, err := anomaly.DDoSCompletedWindows(benchmarkDDoSEpoch, seconds)
+		if err != nil {
+			t.Fatal(err)
+		}
+		quiet := benchmarkDDoSWindow{Bytes: 320000, Packets: 3200, Records: 8, Addresses: 2, Sampling: 1}
+		capture := &reportFlowCapture{TenantID: benchmarkDDoSTenant, SourceGeneration: 1,
+			Results: []capturedReportFlow{fixtureDDoSTimingWindow(settings, clocks.Before, quiet), fixtureDDoSTimingWindow(settings, clocks.After, quiet)}}
+		rows := capture.Results[1].Result.Rows
+		for i := range rows {
+			rows[i].CrossesWindowStart = true
+		}
+		got, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
+		if anomaly.DDoSFastPeriod(seconds) {
+			if !errors.Is(err, errDDoSTimingCoverage) {
+				t.Fatal("crossing reports alone established short-window quiet", seconds, got, err)
+			}
+		} else if err != nil || got.Detection != nil {
+			t.Fatal("the longer cadence lost its quiet observation", seconds, got, err)
+		}
+		rows[0].CrossesWindowStart = false
+		if got, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork); err != nil || got.Detection != nil {
+			t.Fatal("contained observations did not support quiet", seconds, got, err)
+		}
+	}
+}
+
 func TestDDoSTimingRequiresComparableSamplingAfterRemovingCrossingReports(t *testing.T) {
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
 	const exporter = "203.0.113.15"

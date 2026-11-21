@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	errDDoSTimingCoverage   = fmt.Errorf("%w: the short-window finding depends on reports spanning its start", anomaly.ErrDDoSCoverage)
+	errDDoSTimingCoverage   = fmt.Errorf("%w: original reports do not independently support the short-window decision", anomaly.ErrDDoSCoverage)
 	errDDoSExporterCoverage = fmt.Errorf("%w: a required exporter was unobserved", anomaly.ErrDDoSCoverage)
 	errDDoSExporterSampling = fmt.Errorf("%w: reported rates changed for a required exporter", anomaly.ErrDDoSCoverage)
 	errDDoSSampleCoverage   = fmt.Errorf("%w: a sampling group contains too few original flow records", anomaly.ErrDDoSCoverage)
@@ -114,8 +114,16 @@ func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, s
 	reference ddosProjectedWindow, finding *anomaly.DDoSDetection, application *anomaly.DDoSApplicationEvidence, work int64) error {
 	// Cited reads reconstruct the already admitted receipt. New detection
 	// policy applies during prospective assessment and episode admission.
-	if settings.Cited || finding == nil || !anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds) ||
+	if settings.Cited || !anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds) ||
 		!slices.ContainsFunc(captured.Result.Rows, func(row flowstore.PlanRow) bool { return row.CrossesWindowStart }) {
+		return ctx.Err()
+	}
+	if finding == nil {
+		// A low counter cannot establish quiet coverage when every report
+		// describes a longer interval. Keep the existing episode and clock.
+		if !slices.ContainsFunc(captured.Result.Rows, func(row flowstore.PlanRow) bool { return !row.CrossesWindowStart }) {
+			return errDDoSTimingCoverage
+		}
 		return ctx.Err()
 	}
 	// Keep all of the reference's end-clock counters. The current finding

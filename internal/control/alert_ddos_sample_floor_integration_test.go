@@ -21,6 +21,7 @@ import (
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
@@ -41,6 +42,10 @@ func TestFastDDoSKeepsEpisodeThroughSparseUnsampledPressure(t *testing.T) {
 
 func TestFastDDoSDoesNotReopenOnChangingPressureClass(t *testing.T) {
 	testFastDDoSContinuesEpisode(t, nil)
+}
+
+func TestFastDDoSKeepsEpisodeThroughQuietTotalsFromCrossingIntervals(t *testing.T) {
+	testFastDDoSContinuesEpisode(t, errDDoSTimingCoverage)
 }
 
 func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error) {
@@ -113,7 +118,7 @@ func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error) {
 			release()
 			if lane == 0 && coverageGap != nil && (offset == 1 || offset == 2) {
 				if !errors.Is(err, coverageGap) || got.QuerySelection != nil {
-					t.Fatal("too few actual records were interpreted as quiet coverage", offset, err)
+					t.Fatal("incomplete observations were interpreted as quiet coverage", offset, err)
 				}
 				continue
 			}
@@ -160,10 +165,18 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 					count = 1
 				}
 			}
+			crossingQuiet := high && offset == 1 && coverageGap == errDDoSTimingCoverage
+			if crossingQuiet {
+				packets = 3200
+			}
 			for index := range count {
-				vector := high && (coverageGap != nil || offset != 1)
+				vector := high && !crossingQuiet && (coverageGap != nil || offset != 1)
 				row := delayFixtureFlow(tenant, clock, vector)
 				row.SrcPort += uint16(index)
+				if crossingQuiet {
+					row.StartTS = clock.Add(-4 * width)
+					row.ClockBasis = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL
+				}
 				row.Sampling = rate
 				row.PacketsScaled = packets / uint64(count)
 				row.Packets = row.PacketsScaled / rate
