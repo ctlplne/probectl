@@ -381,10 +381,11 @@ func TestArtifactDigestMustBeAnExactSHA256(t *testing.T) {
 // (docs/guardrails.md G7-12).
 func TestPlanRolloutRefusesANonVerifyingMethod(t *testing.T) {
 	fleet := testFleet(5, "v0.1.0")
-	// A method that only MENTIONS cosign is not a cosign verification either:
-	// the substring match accepted all of the last four.
 	for _, bad := range []string{"none", "None", " none ", "", "skip", "manual", "unverified", "trust me", "n/a", "off",
-		"skipped cosign", "no cosign", "cosign-less", "did not run cosign verify"} {
+		"skipped cosign", "no cosign", "cosign-less", "did not run cosign verify",
+		"cosign", "cosign help", "cosign sign", "cosign sign-blob",
+		"cosign verify-attestation", "cosign verify --help", "cosign verify-blob -h",
+		"cosign verify --help=true", "cosign verify-blob -h=true"} {
 		a := goodArtifact()
 		a.Method = bad
 		if _, err := PlanRolloutAt(fleet, a, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), time.Time{}); err == nil {

@@ -18,7 +18,7 @@ package agent
 //
 //	verify artifact (cosign) → PlanRollout → for each wave:
 //	    Advance → orchestrator applies → Verify (registry: target version +
-//	    fresh heartbeat per member) → next wave
+//	    exact deployed digest + fresh heartbeat per member) → next wave
 //
 // Verification failure HALTS the rollout: no later wave can start until an
 // operator explicitly Resumes after remediation. The plan refuses targets
@@ -74,31 +74,21 @@ type VerifiedArtifact struct {
 	VerifiedBy string // operator identity (audit trail)
 }
 
-// recognizedVerifiers are the signature-verification tools a rollout accepts in
-// its Method record (C6; docs/ops/verify-artifacts.md). A Method naming none of
-// them — "none", a blank, or any unrecognized string — is not a verification,
-// so recording it as "verified" is refused at plan time rather than trusted
-// (RTO-24; docs/guardrails.md G7-12: missing signature → fail closed).
-var recognizedVerifiers = []string{"cosign"}
-
-// methodVerifies reports whether Method names a real signature verification. It
-// is deliberately a positive allowlist (fail closed): an unrecognized method —
-// crucially "none" — is NOT a verification. The method is the command that was
-// run ("cosign verify …", "cosign verify-blob …"), so its FIRST word must be a
-// recognized verifier: a method that merely mentions one ("skipped cosign",
-// "no cosign", "cosign-less") is refused. Extend the allowlist in one place
-// when a new verifier is adopted.
+// methodVerifies recognizes the signature-verification subcommand in the
+// operator's audit record. The operator verifies the artifact outside the
+// rollout planner.
 func methodVerifies(method string) bool {
 	fields := strings.Fields(strings.ToLower(method))
-	if len(fields) == 0 {
+	if len(fields) < 2 || fields[0] != "cosign" || (fields[1] != "verify" && fields[1] != "verify-blob") {
 		return false
 	}
-	for _, v := range recognizedVerifiers {
-		if fields[0] == v {
-			return true
+	for _, argument := range fields[2:] {
+		flag, _, _ := strings.Cut(argument, "=")
+		if flag == "-h" || flag == "--help" {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func (a VerifiedArtifact) validate() error {
@@ -112,9 +102,7 @@ func (a VerifiedArtifact) validate() error {
 	case a.Method == "":
 		return fmt.Errorf("agent: rollout artifact needs the signature-verification method (C6 — how was cosign run?)")
 	case !methodVerifies(a.Method):
-		// RTO-24: "none"/unknown is not a verification. Accepting it would let a
-		// rollout claim "verified" without any — fail closed (docs/guardrails.md G7-12).
-		return fmt.Errorf("agent: rollout verify_method %q is not a recognized signature verification — record how the artifact was cosign-verified; %q or an unverifiable method is refused (C6; docs/guardrails.md G7-12)", a.Method, "none")
+		return fmt.Errorf("agent: rollout verify_method must record cosign verify or cosign verify-blob (C6; docs/guardrails.md G7-12)")
 	case a.VerifiedBy == "":
 		return fmt.Errorf("agent: rollout artifact needs the verifier's identity (who ran the verification?)")
 	}

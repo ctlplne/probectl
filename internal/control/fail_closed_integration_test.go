@@ -129,11 +129,12 @@ func TestFailClosedSignatureTenantBindingCredentialLicenseRealStack(t *testing.T
 
 		// Rollouts: an artifact that was never signature-verified never plans.
 		digest := "sha256:" + hex.EncodeToString(crypto.Hash([]byte("fc-artifact-"+st.suffix)))
-		for _, method := range []string{"none", "skipped cosign"} {
+		for _, method := range []string{"none", "skipped cosign", "cosign sign", "cosign verify --help=true", "cosign verify-blob -h"} {
 			code, body := st.alice.do(t, http.MethodPost, "/v1/rollouts",
 				map[string]any{"version": "v9.9.9", "digest": digest, "verify_method": method})
 			// Refused BY the signature-verification check, not by anything later.
-			if code != http.StatusBadRequest || !strings.Contains(string(body), "is not a recognized signature verification") {
+			if code != http.StatusBadRequest || !strings.Contains(string(body), "must record cosign verify or cosign verify-blob") ||
+				strings.Contains(string(body), method) {
 				t.Fatalf("rollout with verify_method %q = %d %s, want 400 refusing the unverified artifact", method, code, body)
 			}
 		}

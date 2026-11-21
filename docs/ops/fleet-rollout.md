@@ -146,8 +146,10 @@ artifact kinds verify differently:
   `checksums.txt` — the identity pin proves the signature chains to this
   repository's release workflow running on a release tag.
 
-The plan requires the exact **digest**, the verification **method**, and **who
-verified** it — an unattested artifact refuses to plan.
+Record the exact **digest** and the **method** after you verify the signature.
+Use `cosign verify` for an image and `cosign verify-blob` for a VM binary.
+The controller records the signed-in operator as verifier. It checks the
+record's method when planning. The operator performs the signature check.
 
 ### 1. Plan
 
@@ -207,11 +209,12 @@ probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
 
 ### 3. Verify from the registry — the agents are the evidence
 
-Every wave member must re-register on the **target version** with a **fresh
-heartbeat** (seen within the last 5 m). The orchestrator's "applied
-successfully" is *not* proof — only the agent itself reporting back, alive and
-on the new version, counts. All good → the wave completes and you can advance
-the next one. Stragglers still inside the window: keep waiting, re-verify.
+Every wave member needs the **target version**, the **exact deployed digest**
+and a **fresh heartbeat** from the agent (seen within the last 5 m). All three
+are required for confirmation. The registry currently lacks the agent's
+reported digest, so a live wave stays unverified even after version and
+liveness converge. A digest mismatch or an unreported digest appears in the
+straggler list. An unverified wave halts when its verification window expires.
 
 The `probectl_agents` Ansible role follows the same rule. Its local
 `systemctl is-active` check is only a liveness precheck; by default the role also

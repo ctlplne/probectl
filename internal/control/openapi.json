@@ -17195,6 +17195,7 @@
         "x-required-permission": "agent.write",
         "operationId": "createRollout",
         "summary": "Plan a staged rollout over the live fleet",
+        "description": "Record an exact artifact digest and the operator's cosign verify or cosign verify-blob method. The operator verifies the signature before creating the plan.",
         "tags": [
           "rollouts"
         ],
