@@ -13,6 +13,14 @@ through the following completed window. If its observations arrive in time,
 the episode cites their original clocks. Longer export delays and incomplete
 evidence can still delay or prevent an alert.
 
+Select **Representative week from the last four** when one unusual week could
+distort the comparison. The view must retain raw flow coverage across the
+four UTC weeks, with populated windows in at least three. The assessment
+selects one original week closest to the median byte and packet counts.
+Scheduled episodes use two adjacent windows from that same original week.
+The receipt retains the chosen clocks for incident reports and routing review.
+The default is **Same time last week**.
+
 For generic ingress pressure on one host, enter its HTTP telemetry service
 name and port. The application comparison requires current `metrics.read`
 access and HTTP server spans with `network.local.address` set to the canonical

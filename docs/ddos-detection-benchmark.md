@@ -87,6 +87,17 @@ Version one used 13 trials and two completed 60-second windows. A benign
 flash crowd opened a tentative volume episode on identical aggregates. Its
 source and results remain reproducible at the original commit. [Version-one benchmark and results](https://github.com/ctlplne/probectl/blob/d79fc7993d09b3ce1d4e8242b7b5c869100d2537/docs/ddos-detection-benchmark.md)
 
+## Representative reference holdout
+
+The scheduled detector's separate holdout compares the same synthetic input
+against both reference modes. Pressure in the previous week matches the
+current traffic, so that single-week comparison has no growth. The
+representative mode uses two adjacent windows from a quieter original week
+and opens one episode. Its sibling stays quiet even with one historical week
+missing. The receipt and incident report preserve the selected clocks. The
+holdout is separate from the 416 benchmark trials.
+[Selector holdout](../internal/anomaly/ddos_weekly_reference_test.go) · [Paired runtime fixture](../internal/control/flow_ddos_reference_integration_test.go)
+
 ## Shipped collector timing
 
 Two two-tenant runs on macOS arm64 seeded synthetic prior-week references in

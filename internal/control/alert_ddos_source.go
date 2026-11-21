@@ -70,7 +70,7 @@ func (s *Server) readAlertDDoSRule(ctx context.Context, rule alert.Rule, source 
 	}
 	ctx, flush := scopedABACDenial(ctx)
 	defer flush(s)
-	capture, err := s.captureDDoSWindows(ctx, actor, settings, clocks.ends(), budget.MemoryBytes/4)
+	capture, err := s.captureDDoSWindows(ctx, actor, settings, ddosReferenceEnds(settings.Input.ReferenceWeeks(), clocks.Previous, clocks.Current), budget.MemoryBytes/4)
 	if err != nil {
 		return empty, err
 	}
@@ -78,11 +78,15 @@ func (s *Server) readAlertDDoSRule(ctx context.Context, rule alert.Rule, source 
 	if err := s.prepareDDoSApplication(ctx, actor, &settings); err != nil {
 		return empty, err
 	}
-	previous, err := assessCapturedDDoS(ctx, capture, settings, clocks.Previous, 0, 2, budget.MemoryBytes/8)
+	selected, err := ddosMatchedWindows(ctx, capture, settings, budget.MemoryBytes/8, clocks.Previous, clocks.Current)
 	if err != nil {
 		return empty, mapDDoSCoverage(err)
 	}
-	current, err := assessCapturedDDoS(ctx, capture, settings, clocks.Current, 1, 3, budget.MemoryBytes/8)
+	previous, err := assessCapturedDDoS(ctx, capture, settings, selected[0].clocks, selected[0].beforeIndex, selected[0].afterIndex, budget.MemoryBytes/8)
+	if err != nil {
+		return empty, mapDDoSCoverage(err)
+	}
+	current, err := assessCapturedDDoS(ctx, capture, settings, selected[1].clocks, selected[1].beforeIndex, selected[1].afterIndex, budget.MemoryBytes/8)
 	if err != nil {
 		return empty, mapDDoSCoverage(err)
 	}

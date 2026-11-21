@@ -93,11 +93,11 @@ func (s *Server) readIncidentDDoSTopSources(ctx context.Context, actor *auth.Pri
 	if err != nil {
 		return nil, err
 	}
-	clocks, err := ddosClocks(proof.Current.After.To, settings.Input.PeriodSeconds)
+	clocks, err := citedDDoSClocks(proof, settings)
 	if err != nil {
 		return nil, err
 	}
-	settings.IncludeSources = true
+	settings.IncludeSources, settings.Cited = true, true
 	capture, err := s.captureDDoSWindows(ctx, actor, settings, clocks.ends(), budget.MemoryBytes/4)
 	if err != nil {
 		return nil, err

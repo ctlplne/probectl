@@ -2527,14 +2527,15 @@ type FlowDDoSApplicationWindow struct {
 }
 
 type FlowDDoSAssessment struct {
-	After       FlowDDoSWindowEvidence      `json:"after"`
-	Application FlowDDoSApplicationEvidence `json:"application,omitzero"`
-	Before      FlowDDoSWindowEvidence      `json:"before"`
-	Detection   FlowDDoSDetection           `json:"detection,omitzero"`
-	Direction   string                      `json:"direction"`
-	Prefix      string                      `json:"prefix"`
-	Version     string                      `json:"version"`
-	ViewId      string                      `json:"view_id"`
+	After         FlowDDoSWindowEvidence      `json:"after"`
+	Application   FlowDDoSApplicationEvidence `json:"application,omitzero"`
+	Before        FlowDDoSWindowEvidence      `json:"before"`
+	Detection     FlowDDoSDetection           `json:"detection,omitzero"`
+	Direction     string                      `json:"direction"`
+	Prefix        string                      `json:"prefix"`
+	ReferenceMode string                      `json:"reference_mode,omitempty"`
+	Version       string                      `json:"version"`
+	ViewId        string                      `json:"view_id"`
 }
 
 // Use a pinned saved lookback, a canonical protected prefix and explicit thresholds for each completed window. Five- and ten-second assessments use complete raw subwindows of the saved view.
@@ -2548,6 +2549,7 @@ type FlowDDoSAssessmentInput struct {
 	PacketsFloor           string                     `json:"packets_floor"`
 	PeriodSeconds          int                        `json:"period_seconds"`
 	Prefix                 string                     `json:"prefix"`
+	ReferenceMode          string                     `json:"reference_mode,omitempty"`
 	VectorShareBasisPoints int                        `json:"vector_share_basis_points"`
 	Version                string                     `json:"version"`
 }

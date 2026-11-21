@@ -20,6 +20,7 @@ type DDoSAssessmentInput struct {
 	Prefix                 string                  `json:"prefix"`
 	Direction              string                  `json:"direction"`
 	PeriodSeconds          int                     `json:"period_seconds"`
+	ReferenceMode          string                  `json:"reference_mode,omitempty"`
 	BytesFloor             string                  `json:"bytes_floor"`
 	PacketsFloor           string                  `json:"packets_floor"`
 	GrowthBasisPoints      int                     `json:"growth_basis_points"`
@@ -35,14 +36,15 @@ type DDoSApplicationBinding struct {
 }
 
 type DDoSAssessment struct {
-	ViewID      string                           `json:"view_id"`
-	Version     string                           `json:"version"`
-	Prefix      string                           `json:"prefix"`
-	Direction   string                           `json:"direction"`
-	Before      DDoSWindowEvidence               `json:"before"`
-	After       DDoSWindowEvidence               `json:"after"`
-	Detection   *anomaly.DDoSDetection           `json:"detection,omitempty"`
-	Application *anomaly.DDoSApplicationEvidence `json:"application,omitempty"`
+	ViewID        string                           `json:"view_id"`
+	Version       string                           `json:"version"`
+	Prefix        string                           `json:"prefix"`
+	Direction     string                           `json:"direction"`
+	ReferenceMode string                           `json:"reference_mode,omitempty"`
+	Before        DDoSWindowEvidence               `json:"before"`
+	After         DDoSWindowEvidence               `json:"after"`
+	Detection     *anomaly.DDoSDetection           `json:"detection,omitempty"`
+	Application   *anomaly.DDoSApplicationEvidence `json:"application,omitempty"`
 }
 
 type DDoSWindowEvidence struct {
@@ -56,6 +58,15 @@ type DDoSWindowEvidence struct {
 	ObservedAddresses int       `json:"observed_addresses"`
 	Sampled           bool      `json:"sampled"`
 	Citation          string    `json:"citation"`
+}
+
+const DDoSReferenceWeeklyRepresentative = "weekly_representative"
+
+func (r DDoSAssessmentInput) ReferenceWeeks() int {
+	if r.ReferenceMode == DDoSReferenceWeeklyRepresentative {
+		return 4
+	}
+	return 1
 }
 
 func (r DDoSAssessmentInput) Thresholds() anomaly.DDoSThresholds {
@@ -77,6 +88,9 @@ func (r DDoSAssessmentInput) ValidatedPrefix() (netip.Prefix, error) {
 	}
 	if !anomaly.ValidDDoSPeriod(r.PeriodSeconds) {
 		return netip.Prefix{}, errors.New("assessment windows must be 5, 10, 60, 120 or 300 seconds")
+	}
+	if r.ReferenceMode != "" && r.ReferenceMode != DDoSReferenceWeeklyRepresentative {
+		return netip.Prefix{}, errors.New("use the previous week or a representative weekly reference")
 	}
 	if app := r.Application; app != nil {
 		if r.Direction != "ingress" || !target.IsSingleIP() || app.Port == 0 ||

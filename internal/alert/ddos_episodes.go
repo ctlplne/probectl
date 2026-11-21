@@ -95,11 +95,11 @@ func matchesDDoSEvaluation(binding QueryGroupBinding, assessment flow.DDoSAssess
 	width := time.Duration(input.PeriodSeconds) * time.Second
 	before, after := assessment.Before, assessment.After
 	if assessment.ViewID != binding.ViewID || assessment.Version != binding.ViewVersion ||
-		assessment.Prefix != prefix || assessment.Direction != input.Direction ||
+		assessment.Prefix != prefix || assessment.Direction != input.Direction || assessment.ReferenceMode != input.ReferenceMode ||
 		before.Source != "raw" || after.Source != "raw" || before.Citation == "" || after.Citation == "" ||
 		width <= 0 || before.From.IsZero() || after.From.IsZero() ||
 		before.To.Sub(before.From) != width || after.To.Sub(after.From) != width ||
-		!before.To.AddDate(0, 0, 7).Equal(after.To) {
+		!matchesDDoSReferenceClock(before.To, after.To, input.ReferenceWeeks()) {
 		return false
 	}
 	if app := assessment.Application; app != nil {
@@ -116,6 +116,15 @@ func matchesDDoSEvaluation(binding QueryGroupBinding, assessment flow.DDoSAssess
 		detection.CurrentCitation == after.Citation && detection.ReferenceCitation == before.Citation &&
 			detection.CurrentPackets == after.Packets && detection.ReferencePackets == before.Packets &&
 			detection.CurrentBytes == after.Bytes && detection.ReferenceBytes == before.Bytes
+}
+
+func matchesDDoSReferenceClock(before, after time.Time, maxWeeks int) bool {
+	for week := 1; week <= maxWeeks; week++ {
+		if before.UTC().AddDate(0, 0, 7*week).Equal(after) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchesDDoSApplicationResult(state string, detection *anomaly.DDoSDetection) bool {

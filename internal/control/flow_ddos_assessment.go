@@ -31,6 +31,7 @@ type ddosAssessmentSettings struct {
 	SideField       string
 	Origins         []store.PrefixImpactFlowBinding
 	IncludeSources  bool
+	Cited           bool
 	readApplication ddosApplicationReader
 }
 
@@ -159,14 +160,19 @@ func (s *Server) readFlowDDoSAssessment(ctx context.Context, actor *auth.Princip
 	if err != nil {
 		return empty, apierror.Validation("the assessment needs comparable completed UTC windows")
 	}
-	capture, err = s.captureDDoSWindows(ctx, actor, settings, windows.Ends(), budget.MemoryBytes/4)
+	capture, err = s.captureDDoSWindows(ctx, actor, settings, ddosReferenceEnds(settings.Input.ReferenceWeeks(), windows), budget.MemoryBytes/4)
 	if err != nil {
 		return empty, err
 	}
 	if err := s.prepareDDoSApplication(ctx, actor, &settings); err != nil {
 		return empty, err
 	}
-	result, err := assessCapturedDDoS(ctx, capture, settings, windows, 0, 1, budget.MemoryBytes/8)
+	selected, err := ddosMatchedWindows(ctx, capture, settings, budget.MemoryBytes/8, windows)
+	if err != nil {
+		return empty, mapDDoSCoverage(err)
+	}
+	match := selected[0]
+	result, err := assessCapturedDDoS(ctx, capture, settings, match.clocks, match.beforeIndex, match.afterIndex, budget.MemoryBytes/8)
 	if err != nil {
 		return empty, mapDDoSCoverage(err)
 	}

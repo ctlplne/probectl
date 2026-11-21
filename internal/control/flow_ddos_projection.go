@@ -41,16 +41,10 @@ func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, setting
 		!right.Result.Query.From.Equal(windows.After.Start) || !right.Result.Query.To.Equal(windows.After.End) {
 		return empty, anomaly.ErrDDoSCoverage
 	}
-	authority, err := flowEvidenceAuthorityDigest(capture, settings.View, right)
+	scope, err := ddosCaptureScope(capture, settings, right)
 	if err != nil {
 		return empty, err
 	}
-	// The canonical prefix and direction are part of the cited evidence.
-	digest := crypto.Hash([]byte(authority + "\x00" + settings.Target.String() + "\x00" + settings.Input.Direction))
-	if len(digest) != 32 {
-		return empty, anomaly.ErrDDoSCoverage
-	}
-	scope := hex.EncodeToString(digest)
 	reference, before, err := projectDDoSWindow(ctx, left, settings, scope, work/4)
 	if err != nil {
 		return empty, err
@@ -68,7 +62,20 @@ func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, setting
 		return empty, err
 	}
 	return flow.DDoSAssessment{ViewID: settings.View.ID, Version: settings.View.Version, Prefix: settings.Target.String(),
-		Direction: settings.Input.Direction, Before: before, After: after, Detection: finding, Application: application}, ctx.Err()
+		Direction: settings.Input.Direction, ReferenceMode: settings.Input.ReferenceMode, Before: before, After: after, Detection: finding, Application: application}, ctx.Err()
+}
+
+func ddosCaptureScope(capture *reportFlowCapture, settings ddosAssessmentSettings, result capturedReportFlow) (string, error) {
+	authority, err := flowEvidenceAuthorityDigest(capture, settings.View, result)
+	if err != nil {
+		return "", err
+	}
+	// The canonical prefix and direction are part of the cited evidence.
+	digest := crypto.Hash([]byte(authority + "\x00" + settings.Target.String() + "\x00" + settings.Input.Direction))
+	if len(digest) != 32 {
+		return "", anomaly.ErrDDoSCoverage
+	}
+	return hex.EncodeToString(digest), nil
 }
 
 func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, settings ddosAssessmentSettings, scope string, memory int64) (anomaly.DDoSObservation, flow.DDoSWindowEvidence, error) {

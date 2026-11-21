@@ -43,11 +43,11 @@ func (s *Server) captureMatchedDDoSOrigins(ctx context.Context, actor *auth.Prin
 	if err != nil {
 		return nil, err
 	}
-	clocks, err := ddosClocks(original.Current.After.To, settings.Input.PeriodSeconds)
+	clocks, err := citedDDoSClocks(original, settings)
 	if err != nil {
 		return nil, err
 	}
-	settings.Origins = origins
+	settings.Origins, settings.Cited = origins, true
 	capture, err := s.captureDDoSWindows(ctx, actor, settings, clocks.ends(), budget.MemoryBytes/4)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func (s *Server) citedDDoSSettings(ctx context.Context, ruleID string, evidence 
 
 func sameDDoSRoutingEvidence(cited, measured flow.DDoSAssessment) bool {
 	return cited.ViewID == measured.ViewID && cited.Version == measured.Version && cited.Prefix == measured.Prefix &&
-		cited.Direction == measured.Direction && sameDDoSRoutingWindow(cited.Before, measured.Before) && sameDDoSRoutingWindow(cited.After, measured.After) &&
+		cited.Direction == measured.Direction && cited.ReferenceMode == measured.ReferenceMode && sameDDoSRoutingWindow(cited.Before, measured.Before) && sameDDoSRoutingWindow(cited.After, measured.After) &&
 		cited.Detection != nil && measured.Detection != nil && *cited.Detection == *measured.Detection
 }
 

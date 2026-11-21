@@ -149,6 +149,20 @@ export function DDoSAssessmentFields({
   return (
     <div className={styles.grid}>
       <Select
+        label="Traffic reference"
+        options={[
+          { value: '', label: 'Same time last week' },
+          { value: 'weekly_representative', label: 'Representative week from the last four' },
+        ]}
+        value={input.reference_mode ?? ''}
+        onChange={(event) =>
+          update({
+            reference_mode:
+              event.target.value === 'weekly_representative' ? 'weekly_representative' : undefined,
+          })
+        }
+      />
+      <Select
         label="Observation window"
         options={Array.from(new Set([5, 10, savedPeriod])).map((seconds) => ({
           value: String(seconds),
@@ -273,7 +287,10 @@ export function DDoSAssessmentEvidence({ result }: { result: FlowDDoSAssessment 
         </div>
       )}
       <dl className={styles.summary}>
-        <EvidenceWindow label="Same time last week" evidence={result.before} />
+        <EvidenceWindow
+          label={result.reference_mode ? 'Representative original window' : 'Same time last week'}
+          evidence={result.before}
+        />
         <EvidenceWindow label="Latest completed window" evidence={result.after} />
       </dl>
     </>

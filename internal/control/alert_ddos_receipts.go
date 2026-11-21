@@ -144,7 +144,7 @@ func decodeDDoSReceipt(ctx context.Context, record store.AlertFlowReceipt, bindi
 	if err != nil {
 		return empty, nil, err
 	}
-	if !matchDDoSEvidenceClocks(capture.Inputs, settings, clocks.ends()) {
+	if !matchDDoSEvidenceClocks(capture.Inputs, settings, ddosReferenceEnds(input.ReferenceWeeks(), clocks.Previous, clocks.Current)) {
 		return empty, nil, alert.ErrQueryGroups
 	}
 	if err := checkStoredFlowReceiptInputs(ctx, capture, memory/2); err != nil {

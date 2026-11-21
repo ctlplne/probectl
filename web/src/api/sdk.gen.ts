@@ -2403,6 +2403,7 @@ export interface FlowDDoSAssessment {
   detection?: FlowDDoSDetection
   direction: "ingress" | "egress"
   prefix: string
+  reference_mode?: "weekly_representative"
   version: string
   view_id: string
 }
@@ -2417,6 +2418,7 @@ export interface FlowDDoSAssessmentInput {
   packets_floor: string
   period_seconds: number
   prefix: string
+  reference_mode?: "weekly_representative"
   vector_share_basis_points: number
   version: string
 }
