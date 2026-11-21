@@ -57,6 +57,18 @@ var rtbhUpstreamTemplates = []RTBHUpstreamTemplate{
 		Requirement: "Confirm the blackholing option is selected on the exact BGP service.",
 		Source:      "https://docs.lumen.com/intelligent-internet/adding-intelligent-internet-with-bgp-routing/", VerifiedOn: "2026-11-20",
 	},
+	{
+		ID: "ntt-gin-global-v1", Provider: "NTT DATA Global IP Network", SessionASN: 2914, Community: "2914:666",
+		IPv4Minimum: 32, IPv6Minimum: 128, Scope: "Ingress to the NTT Global IP Network",
+		Requirement: "Confirm NTT has enabled blackholing on this BGP session and its existing ingress filter covers the protected host.",
+		Source:      "https://www.gin.ntt.net/support-center/policies-procedures/routing/", VerifiedOn: "2026-11-21",
+	},
+	{
+		ID: "retn-transit-v1", Provider: "RETN IP Transit", SessionASN: 9002, Community: "9002:666",
+		IPv4Minimum: 32, IPv6Minimum: 128, Scope: "Ingress to the RETN network",
+		Requirement: "Confirm RTBH is available on this IP Transit session and verify that it accepts the owned host prefix.",
+		Source:      "https://retn.net/products/ddos-protection", VerifiedOn: "2026-11-21",
+	},
 }
 
 func RTBHUpstreamTemplates() []RTBHUpstreamTemplate {

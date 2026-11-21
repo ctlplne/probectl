@@ -89,8 +89,10 @@ interactive tenant user still approves the same measured proposal.
 The catalog includes [Arelion](https://www.arelion.com/our-network/bgp-routing/bgp-communities),
 [GTT](https://www.gtt.net/services/managed-networking/internet/ip-transit/bgp-communities/),
 [Hurricane Electric](https://www.he.net/adm/blackhole.html),
-[Inter.link](https://inter.link/knowledgebase/bgp-communities/) and
-[Lumen Internet On-Demand](https://docs.lumen.com/intelligent-internet/adding-intelligent-internet-with-bgp-routing/).
+[Inter.link](https://inter.link/knowledgebase/bgp-communities/),
+[Lumen Internet On-Demand](https://docs.lumen.com/intelligent-internet/adding-intelligent-internet-with-bgp-routing/),
+[NTT DATA Global IP Network](https://www.gin.ntt.net/support-center/policies-procedures/routing/)
+and [RETN](https://retn.net/products/ddos-protection).
 Some providers enable the feature per session or service. Inter.link's
 global template can propagate to peers and other upstreams.
 

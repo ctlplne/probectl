@@ -33,7 +33,7 @@ func TestRTBHReviewFromShippedReceiptsKeepsIndependentTenantReview(t *testing.T)
 		Items []remediation.RTBHUpstreamTemplate `json:"items"`
 	}
 	owner.do(t, stack, http.MethodGet, "/v1/remediation/rtbh-templates", nil, &catalog, http.StatusOK)
-	if len(catalog.Items) != 5 {
+	if !slices.Equal(catalog.Items, remediation.RTBHUpstreamTemplates()) {
 		t.Fatal("the published template catalog did not reach the routed API", catalog.Items)
 	}
 	token := stack.APIToken(t, owner.cookie, "remediation.propose")
