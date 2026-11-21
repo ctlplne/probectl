@@ -66,6 +66,7 @@ import { BMPSessionHistory } from './BMPSessionHistory'
 import { IdentityConflictsCard } from './IdentityConflictsCard'
 import { DeviceMetricsCard } from '../components/DeviceMetricsCard'
 import { ConfigDiffDialog, type ConfigComparison } from './ConfigDiffDialog'
+import { DeviceConfigPolicyAction } from './DeviceConfigPolicyDialog'
 import { ConfigArchiveBinding } from '../components/ConfigArchiveBinding'
 import { findPreviousConfig } from './configDiff'
 
@@ -1179,7 +1180,12 @@ function DevicePanel({
     {
       key: 'comparison',
       header: t('planes.device.column.comparison'),
-      render: configComparisonControl,
+      render: (config) => (
+        <div className={styles.configDiffSummary}>
+          {configComparisonControl(config)}
+          <DeviceConfigPolicyAction config={config} />
+        </div>
+      ),
     },
   ]
   const neighborColumns: Column<DeviceNeighborEvidence>[] = [
@@ -1420,6 +1426,7 @@ function DevicePanel({
                       </dl>
                       <div className={styles.configVersionAction}>
                         {configComparisonControl(config)}
+                        <DeviceConfigPolicyAction config={config} />
                       </div>
                     </li>
                   ))}

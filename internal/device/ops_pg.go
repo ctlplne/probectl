@@ -119,6 +119,13 @@ SELECT id::text, tenant_id::text, device, source_address, facility, severity, se
 }
 
 func (s *PostgresOpsStore) ArchiveConfig(ctx context.Context, cfg ConfigVersion) (ConfigVersion, error) {
+	return s.ArchiveConfigWithCommit(ctx, cfg, nil)
+}
+
+// ArchiveConfigWithCommit lets a caller retain authorized evidence and audit
+// alongside the new archive row. A failed callback rolls back the archive.
+func (s *PostgresOpsStore) ArchiveConfigWithCommit(ctx context.Context, cfg ConfigVersion,
+	commit func(context.Context, tenancy.Scope, ConfigVersion) error) (ConfigVersion, error) {
 	if cfg.TenantID == "" {
 		return ConfigVersion{}, errors.New("device ops: tenant_id is required")
 	}
@@ -177,13 +184,20 @@ func (s *PostgresOpsStore) ArchiveConfig(ctx context.Context, cfg ConfigVersion)
 			bindingValues = []any{b.ContextID, b.DeviceEntityID, b.AgentID, b.SourceRef, b.SourceAssignedAt, b.AgentAssignedAt, b.BoundAt}
 		}
 		args := append([]any{cfg.TenantID, cfg.Device, cfg.Source, cfg.Version, cfg.Content, cfg.ContentHash, cfg.PreviousHash, cfg.Drifted, cfg.ObservedAt, cfg.ArchivedAt}, bindingValues...)
-		return sc.Q.QueryRow(ctx, `
+		err = sc.Q.QueryRow(ctx, `
 INSERT INTO device_configs
     (tenant_id, device, source, version, content, content_hash, previous_hash, drifted, observed_at, archived_at,
      entity_context_id,device_entity_id,binding_agent_id,binding_source_ref,binding_source_assigned_at,binding_agent_assigned_at,bound_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11,$12,$13,$14,$15,$16,$17)
 RETURNING id::text`,
 			args...).Scan(&cfg.ID)
+		if err != nil {
+			return err
+		}
+		if commit != nil {
+			return commit(ctx, sc, cfg)
+		}
+		return nil
 	})
 	if err != nil {
 		return ConfigVersion{}, fmt.Errorf("device ops: archive config: %w", err)

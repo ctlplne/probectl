@@ -8992,6 +8992,329 @@
         "description": "Archives redacted operator-submitted content. Optional binding explicitly selects an owned context/device and configured source. Binding requires a current tenant user with metrics.write and entities.read in that context; current credential authority is rechecked. Postgres stamps assignment epochs and bound_at; observations must fall within those assignments and no later than bound_at. Version/hash chains are independent per canonical source assignment and survive display-name changes. Name-only records remain a separate stream. The binding is an operator assertion, not device-collection attestation."
       }
     },
+    "/v1/device/config-policy": {
+      "get": {
+        "x-required-permission": "metrics.read",
+        "operationId": "getDeviceConfigPolicy",
+        "summary": "Read the active policy for an owned device",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "context_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "device_entity_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "source_ref",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current device policy. Revision zero represents an unconfigured device.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceConfigPolicyRevision"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The credential is missing or has expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current tenant user or device context authority denies access.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The exact owned device source or original archive is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid configuration rule or source binding.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Configuration policy is temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "x-required-permission": "metrics.write",
+        "operationId": "putDeviceConfigPolicy",
+        "summary": "Publish a new immutable device configuration policy revision",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceConfigPolicyPut"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current device policy. Revision zero represents an unconfigured device.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceConfigPolicyRevision"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The expected policy revision changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The credential is missing or has expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current tenant user or device context authority denies access.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The exact owned device source or original archive is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid configuration rule or source binding.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Configuration policy is temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/device/configs/{id}/policy-evaluation": {
+      "get": {
+        "x-required-permission": "metrics.read",
+        "operationId": "getDeviceConfigPolicyEvaluation",
+        "summary": "Read or export the retained evaluation for an exact owned archive",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "default": "json"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Original audit-ready evaluation. JSON can report absence of an evaluation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceConfigPolicyArchiveEvaluation"
+                }
+              },
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The archive ID or response format is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The credential is missing or has expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current tenant user or device context authority denies access.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The exact owned device source or original archive is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid configuration rule or source binding.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Configuration policy is temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/ebpf/service-map": {
       "get": {
         "x-required-permission": "topology.read",
@@ -40100,6 +40423,289 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 1024
+          }
+        }
+      },
+      "DeviceConfigPolicyBindingInput": {
+        "type": "object",
+        "required": [
+          "context_id",
+          "device_entity_id",
+          "agent_id",
+          "source_ref"
+        ],
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_entity_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeviceConfigPolicyRuleInput": {
+        "type": "object",
+        "required": [
+          "id",
+          "mode"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9_-]+$"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "must_contain",
+              "must_not_contain",
+              "template"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "ios_ntp_server",
+              "ios_snmpv3_only",
+              "ios_vty_ssh_only",
+              "ios_aaa_login",
+              "ios_remote_logging",
+              "frr_configured_logging",
+              "chrony_ntp_source"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeviceConfigPolicyRule": {
+        "type": "object",
+        "required": [
+          "id",
+          "mode",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9_-]+$"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "must_contain",
+              "must_not_contain",
+              "template"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "ios_ntp_server",
+              "ios_snmpv3_only",
+              "ios_vty_ssh_only",
+              "ios_aaa_login",
+              "ios_remote_logging",
+              "frr_configured_logging",
+              "chrony_ntp_source"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          }
+        }
+      },
+      "DeviceConfigPolicyPut": {
+        "type": "object",
+        "required": [
+          "binding",
+          "expected_revision",
+          "rules"
+        ],
+        "properties": {
+          "binding": {
+            "$ref": "#/components/schemas/DeviceConfigPolicyBindingInput"
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "rules": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "$ref": "#/components/schemas/DeviceConfigPolicyRuleInput"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeviceConfigPolicyRevision": {
+        "type": "object",
+        "required": [
+          "version",
+          "published_at",
+          "rules"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceConfigPolicyRule"
+            }
+          }
+        }
+      },
+      "DeviceConfigPolicyLine": {
+        "type": "object",
+        "required": [
+          "line_number",
+          "redacted_line"
+        ],
+        "properties": {
+          "line_number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "redacted_line": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceConfigPolicyVerdict": {
+        "type": "object",
+        "required": [
+          "rule_id",
+          "rule_revision",
+          "archive_id",
+          "archive_sha256",
+          "state",
+          "total_matches"
+        ],
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9_-]+$"
+          },
+          "rule_revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "archive_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "archive_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "violation",
+              "evidence_unavailable"
+            ]
+          },
+          "total_matches": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "offending_lines": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/DeviceConfigPolicyLine"
+            }
+          }
+        }
+      },
+      "DeviceConfigPolicyEvaluation": {
+        "type": "object",
+        "required": [
+          "policy_version",
+          "evaluated_at",
+          "verdicts"
+        ],
+        "properties": {
+          "policy_version": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          },
+          "evaluated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verdicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceConfigPolicyVerdict"
+            }
+          }
+        }
+      },
+      "DeviceConfigPolicyArchiveEvaluation": {
+        "type": "object",
+        "required": [
+          "archive_id",
+          "observed_at",
+          "evaluation"
+        ],
+        "properties": {
+          "archive_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evaluation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceConfigPolicyEvaluation"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },

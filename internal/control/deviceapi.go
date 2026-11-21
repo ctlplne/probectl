@@ -257,15 +257,27 @@ func (s *Server) handleArchiveDeviceConfig(w http.ResponseWriter, r *http.Reques
 			return err
 		}
 	}
-	row, err := s.deviceOps.ArchiveConfig(r.Context(), device.ConfigVersion{
+	config := device.ConfigVersion{
 		TenantID:   tid,
 		Device:     req.Device,
 		Source:     strings.TrimSpace(req.Source),
 		Content:    req.Content,
 		ObservedAt: req.ObservedAt,
 		Binding:    binding,
-	})
+	}
+	writer, supportsPolicyCommit := s.deviceOps.(deviceConfigArchiveCommitter)
+	atomicArchive := supportsPolicyCommit && binding != nil && s.pool != nil
+	var row device.ConfigVersion
+	if atomicArchive {
+		row, err = s.archiveConfigWithPolicy(r, writer, config)
+	} else {
+		row, err = s.deviceOps.ArchiveConfig(r.Context(), config)
+	}
 	if err != nil {
+		var publishedErr *apierror.Error
+		if errors.As(err, &publishedErr) {
+			return publishedErr
+		}
 		if errors.Is(err, device.ErrConfigBinding) {
 			return apierror.Validation("a complete current owned archive binding and observation time are required")
 		}
@@ -278,7 +290,7 @@ func (s *Server) handleArchiveDeviceConfig(w http.ResponseWriter, r *http.Reques
 	// the audit-policy matrix, so the handler appends the declared tenant-chain
 	// event after the snapshot is stored. Pool-less lightweight servers have no
 	// audit chain and skip the append (see handleOncallTest for the pattern).
-	if s.pool != nil {
+	if s.pool != nil && !atomicArchive {
 		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 			return s.recordAudit(ctx, sc, r, "device.config_archive", row.Device,
 				map[string]any{"config_id": row.ID, "version": row.Version, "drifted": row.Drifted})

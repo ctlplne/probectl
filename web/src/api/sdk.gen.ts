@@ -1835,6 +1835,67 @@ export interface DeviceConfigList {
   redaction_policy?: string
 }
 
+export interface DeviceConfigPolicyArchiveEvaluation {
+  archive_id: string
+  evaluation: DeviceConfigPolicyEvaluation | null
+  observed_at: string
+}
+
+export interface DeviceConfigPolicyBindingInput {
+  agent_id: string
+  context_id: string
+  device_entity_id: string
+  source_ref: string
+}
+
+export interface DeviceConfigPolicyEvaluation {
+  evaluated_at: string
+  policy_version: string
+  verdicts: DeviceConfigPolicyVerdict[]
+}
+
+export interface DeviceConfigPolicyLine {
+  line_number: number
+  redacted_line: string
+}
+
+export interface DeviceConfigPolicyPut {
+  binding: DeviceConfigPolicyBindingInput
+  expected_revision: string
+  rules: DeviceConfigPolicyRuleInput[]
+}
+
+export interface DeviceConfigPolicyRevision {
+  published_at: string
+  rules: DeviceConfigPolicyRule[]
+  version: string
+}
+
+export interface DeviceConfigPolicyRule {
+  id: string
+  mode: "must_contain" | "must_not_contain" | "template"
+  revision: string
+  template?: "ios_ntp_server" | "ios_snmpv3_only" | "ios_vty_ssh_only" | "ios_aaa_login" | "ios_remote_logging" | "frr_configured_logging" | "chrony_ntp_source"
+  text?: string
+}
+
+export interface DeviceConfigPolicyRuleInput {
+  id: string
+  mode: "must_contain" | "must_not_contain" | "template"
+  template?: "ios_ntp_server" | "ios_snmpv3_only" | "ios_vty_ssh_only" | "ios_aaa_login" | "ios_remote_logging" | "frr_configured_logging" | "chrony_ntp_source"
+  text?: string
+}
+
+export interface DeviceConfigPolicyVerdict {
+  archive_id: string
+  archive_sha256: string
+  offending_lines?: DeviceConfigPolicyLine[]
+  rule_id: string
+  rule_revision: string
+  state: "pass" | "violation" | "evidence_unavailable"
+  total_matches: number
+}
+
 export interface DeviceConfigVersion {
   archived_at?: string
   binding?: DeviceConfigArchiveBinding | null
@@ -5524,6 +5585,21 @@ export interface ListDeviceCollectionOutcomesRequest {
 
 export type ListDeviceCollectionOutcomesResponse = DeviceCollectionOutcomeResponse
 
+export interface GetDeviceConfigPolicyRequest {
+  contextId: string
+  deviceEntityId: string
+  agentId: string
+  sourceRef: string
+}
+
+export type GetDeviceConfigPolicyResponse = DeviceConfigPolicyRevision
+
+export interface PutDeviceConfigPolicyRequest {
+  body: DeviceConfigPolicyPut
+}
+
+export type PutDeviceConfigPolicyResponse = DeviceConfigPolicyRevision
+
 export interface ListDeviceConfigsRequest {
   device?: string
   limit?: number
@@ -5537,6 +5613,13 @@ export interface ArchiveDeviceConfigRequest {
 }
 
 export type ArchiveDeviceConfigResponse = DeviceConfigVersion
+
+export interface GetDeviceConfigPolicyEvaluationRequest {
+  id: string
+  format?: "json" | "csv"
+}
+
+export type GetDeviceConfigPolicyEvaluationResponse = DeviceConfigPolicyArchiveEvaluation
 
 export interface ListDeviceIdentityConflictsRequest {
   q?: string
@@ -7754,6 +7837,22 @@ export class ProbectlSDKClient {
     return this.requestJSON<ListDeviceCollectionOutcomesResponse>("GET", path, query, undefined)
   }
 
+  async getDeviceConfigPolicy(request: GetDeviceConfigPolicyRequest): Promise<GetDeviceConfigPolicyResponse> {
+    let path = "/v1/device/config-policy"
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.deviceEntityId !== undefined) query.set("device_entity_id", String(request.deviceEntityId))
+    if (request.agentId !== undefined) query.set("agent_id", String(request.agentId))
+    if (request.sourceRef !== undefined) query.set("source_ref", String(request.sourceRef))
+    return this.requestJSON<GetDeviceConfigPolicyResponse>("GET", path, query, undefined)
+  }
+
+  async putDeviceConfigPolicy(request: PutDeviceConfigPolicyRequest): Promise<PutDeviceConfigPolicyResponse> {
+    let path = "/v1/device/config-policy"
+    const query = new URLSearchParams()
+    return this.requestJSON<PutDeviceConfigPolicyResponse>("PUT", path, query, request.body)
+  }
+
   async listDeviceConfigs(request: ListDeviceConfigsRequest = {}): Promise<ListDeviceConfigsResponse> {
     let path = "/v1/device/configs"
     const query = new URLSearchParams()
@@ -7767,6 +7866,14 @@ export class ProbectlSDKClient {
     let path = "/v1/device/configs"
     const query = new URLSearchParams()
     return this.requestJSON<ArchiveDeviceConfigResponse>("POST", path, query, request.body)
+  }
+
+  async getDeviceConfigPolicyEvaluation(request: GetDeviceConfigPolicyEvaluationRequest): Promise<GetDeviceConfigPolicyEvaluationResponse> {
+    let path = "/v1/device/configs/{id}/policy-evaluation"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    if (request.format !== undefined) query.set("format", String(request.format))
+    return this.requestJSON<GetDeviceConfigPolicyEvaluationResponse>("GET", path, query, undefined)
   }
 
   async listDeviceIdentityConflicts(request: ListDeviceIdentityConflictsRequest = {}): Promise<ListDeviceIdentityConflictsResponse> {

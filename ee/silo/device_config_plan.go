@@ -19,7 +19,7 @@ func deviceConfigStoragePlan(schema string, tables []string) []string {
 		return nil
 	}
 	child, parent := quoteIdent(schema)+`."device_configs"`, quoteIdent(schema)+`."entities"`
-	return []string{"ALTER TABLE " + child + ` ADD COLUMN IF NOT EXISTS entity_context_id uuid,
+	plan := []string{"ALTER TABLE " + child + ` ADD COLUMN IF NOT EXISTS entity_context_id uuid,
  ADD COLUMN IF NOT EXISTS device_entity_id uuid, ADD COLUMN IF NOT EXISTS binding_agent_id text,
  ADD COLUMN IF NOT EXISTS binding_source_ref text, ADD COLUMN IF NOT EXISTS binding_source_assigned_at timestamptz,
  ADD COLUMN IF NOT EXISTS binding_agent_assigned_at timestamptz, ADD COLUMN IF NOT EXISTS bound_at timestamptz`, fmt.Sprintf(`DO $config_shape$ BEGIN
@@ -38,4 +38,15 @@ func deviceConfigStoragePlan(schema string, tables []string) []string {
    REFERENCES %s(tenant_id,context_id,id) ON DELETE CASCADE NOT VALID;
  END IF;
 END $config_shape$`, quoteLiteral(child), child, quoteLiteral(child), child, parent)}
+	if owned["device_config_policy_revisions"] {
+		plan = append(plan, "ALTER TABLE "+child+" ADD COLUMN IF NOT EXISTS config_policy_evaluation jsonb",
+			fmt.Sprintf(`DO $config_policy_shape$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname='device_configs_policy_evaluation_shape') THEN
+  ALTER TABLE %s ADD CONSTRAINT device_configs_policy_evaluation_shape CHECK (config_policy_evaluation IS NULL OR (
+   entity_context_id IS NOT NULL AND jsonb_typeof(config_policy_evaluation)='object' AND
+   octet_length(config_policy_evaluation::text)<=262144)) NOT VALID;
+ END IF;
+END $config_policy_shape$`, quoteLiteral(child), child))
+	}
+	return plan
 }

@@ -1948,6 +1948,67 @@ type DeviceConfigList struct {
 	RedactionPolicy string                `json:"redaction_policy,omitempty"`
 }
 
+type DeviceConfigPolicyArchiveEvaluation struct {
+	ArchiveId  string                        `json:"archive_id"`
+	Evaluation *DeviceConfigPolicyEvaluation `json:"evaluation"`
+	ObservedAt string                        `json:"observed_at"`
+}
+
+type DeviceConfigPolicyBindingInput struct {
+	AgentId        string `json:"agent_id"`
+	ContextId      string `json:"context_id"`
+	DeviceEntityId string `json:"device_entity_id"`
+	SourceRef      string `json:"source_ref"`
+}
+
+type DeviceConfigPolicyEvaluation struct {
+	EvaluatedAt   string                      `json:"evaluated_at"`
+	PolicyVersion string                      `json:"policy_version"`
+	Verdicts      []DeviceConfigPolicyVerdict `json:"verdicts"`
+}
+
+type DeviceConfigPolicyLine struct {
+	LineNumber   int    `json:"line_number"`
+	RedactedLine string `json:"redacted_line"`
+}
+
+type DeviceConfigPolicyPut struct {
+	Binding          DeviceConfigPolicyBindingInput `json:"binding"`
+	ExpectedRevision string                         `json:"expected_revision"`
+	Rules            []DeviceConfigPolicyRuleInput  `json:"rules"`
+}
+
+type DeviceConfigPolicyRevision struct {
+	PublishedAt string                   `json:"published_at"`
+	Rules       []DeviceConfigPolicyRule `json:"rules"`
+	Version     string                   `json:"version"`
+}
+
+type DeviceConfigPolicyRule struct {
+	Id       string `json:"id"`
+	Mode     string `json:"mode"`
+	Revision string `json:"revision"`
+	Template string `json:"template,omitempty"`
+	Text     string `json:"text,omitempty"`
+}
+
+type DeviceConfigPolicyRuleInput struct {
+	Id       string `json:"id"`
+	Mode     string `json:"mode"`
+	Template string `json:"template,omitempty"`
+	Text     string `json:"text,omitempty"`
+}
+
+type DeviceConfigPolicyVerdict struct {
+	ArchiveId      string                   `json:"archive_id"`
+	ArchiveSha256  string                   `json:"archive_sha256"`
+	OffendingLines []DeviceConfigPolicyLine `json:"offending_lines,omitempty"`
+	RuleId         string                   `json:"rule_id"`
+	RuleRevision   string                   `json:"rule_revision"`
+	State          string                   `json:"state"`
+	TotalMatches   int                      `json:"total_matches"`
+}
+
 type DeviceConfigVersion struct {
 	ArchivedAt   string                      `json:"archived_at,omitempty"`
 	Binding      *DeviceConfigArchiveBinding `json:"binding,omitempty"`
@@ -6893,6 +6954,51 @@ func (c *Client) ListDeviceCollectionOutcomes(ctx context.Context, req ListDevic
 	return &out, nil
 }
 
+// Read the active policy for an owned device
+type GetDeviceConfigPolicyRequest struct {
+	ContextId      *string `json:"-"`
+	DeviceEntityId *string `json:"-"`
+	AgentId        *string `json:"-"`
+	SourceRef      *string `json:"-"`
+}
+
+func (c *Client) GetDeviceConfigPolicy(ctx context.Context, req GetDeviceConfigPolicyRequest) (*DeviceConfigPolicyRevision, error) {
+	path := "/v1/device/config-policy"
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.DeviceEntityId != nil {
+		query.Set("device_entity_id", formatQueryValue(*req.DeviceEntityId))
+	}
+	if req.AgentId != nil {
+		query.Set("agent_id", formatQueryValue(*req.AgentId))
+	}
+	if req.SourceRef != nil {
+		query.Set("source_ref", formatQueryValue(*req.SourceRef))
+	}
+	var out DeviceConfigPolicyRevision
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Publish a new immutable device configuration policy revision
+type PutDeviceConfigPolicyRequest struct {
+	Body *DeviceConfigPolicyPut `json:"-"`
+}
+
+func (c *Client) PutDeviceConfigPolicy(ctx context.Context, req PutDeviceConfigPolicyRequest) (*DeviceConfigPolicyRevision, error) {
+	path := "/v1/device/config-policy"
+	query := url.Values{}
+	var out DeviceConfigPolicyRevision
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // List tenant-scoped device config versions
 type ListDeviceConfigsRequest struct {
 	Device *string   `json:"-"`
@@ -6931,6 +7037,29 @@ func (c *Client) ArchiveDeviceConfig(ctx context.Context, req ArchiveDeviceConfi
 	query := url.Values{}
 	var out DeviceConfigVersion
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read or export the retained evaluation for an exact owned archive
+type GetDeviceConfigPolicyEvaluationRequest struct {
+	Id     string  `json:"-"`
+	Format *string `json:"-"`
+}
+
+func (c *Client) GetDeviceConfigPolicyEvaluation(ctx context.Context, req GetDeviceConfigPolicyEvaluationRequest) (*DeviceConfigPolicyArchiveEvaluation, error) {
+	path := "/v1/device/configs/{id}/policy-evaluation"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	if req.Format != nil {
+		query.Set("format", formatQueryValue(*req.Format))
+	}
+	var out DeviceConfigPolicyArchiveEvaluation
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

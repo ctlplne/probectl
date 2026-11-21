@@ -707,6 +707,34 @@
       "capabilities": [
         "F9"
       ]
+    },
+    {
+      "ref": "test:internal/control/device_config_policy_integration_test.go#TestDeviceConfigPolicyCommitsOwnedEvaluationsAndRedactedWitnesses",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
+      "ref": "test:internal/control/device_config_policy_served_integration_test.go#TestDeviceConfigPolicyBrowserShowsOwnedRulesAndEvidence",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
+      "ref": "test:internal/bgp/config_policy_realstack_integration_test.go#TestFRRConfigPolicyChecksOriginalRunningConfigs",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
+      "ref": "test:ee/silo/device_config_policy_integration_test.go#TestSiloConfigPolicyKeepsImmutableRevisionsAndLocalForeignKeys",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
     }
   ]
 }

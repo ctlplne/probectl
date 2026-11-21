@@ -158,6 +158,11 @@ func newMCPServer(
 			} else {
 				options = append(options, option)
 			}
+			if option, err := deviceConfigPolicyToolOption(src.NativeFlow); err != nil {
+				log.Error("MCP device configuration policy schema is unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, option)
+			}
 			if option, err := changeEffectsToolOption(src.NativeFlow); err != nil {
 				log.Error("MCP change effect schema is unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

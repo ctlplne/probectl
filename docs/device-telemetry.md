@@ -657,6 +657,38 @@ inside the SNMP library — they are protocol-mandated, exactly like a TLS
 handshake, not a probectl crypto path. SNMPv3's older MD5 and DES options are not
 FIPS-approved, so prefer SHA-2 + AES, or use gNMI over TLS.
 
+### Configuration policy
+
+Open **Configuration policy** on a canonically bound archive under
+**Planes → Device → Config archive**. Readers can inspect the archived
+evaluation and download its CSV. Operators with current `metrics.write`
+and `entities.read` for the device can publish a new revision. Each edit
+includes the expected current revision, so a concurrent update leaves the
+new draft uncommitted. An empty revision deactivates the policy.
+
+Use literal required or forbidden text or choose a supported template.
+Cisco IOS templates check NTP servers, SNMPv3, VTY input transports, the
+default AAA login method and remote logging. FRRouting templates check
+an explicit syslog or file destination. Chrony templates check a captured
+server, pool or peer directive. Captures with missing or ambiguous
+configuration can yield **Evidence unavailable**. A chrony include whose
+content is absent can keep a missing time source unresolved.
+
+New, canonically bound archives use the active revision when they are
+stored. The result cites that revision, the exact original redacted
+archive hash and the offending line positions. A forbidden line is read
+back from the same redacted archive under current device authority. New
+revisions apply to later archives and leave existing evaluations readable
+with their original revision. A violation emits an operator-facing
+incident signal referring to that archive. The signal has no device action.
+
+`GET /v1/device/config-policy` and `PUT /v1/device/config-policy` read or
+publish the rules for an explicitly supplied device binding.
+`GET /v1/device/configs/{id}/policy-evaluation` returns the retained result.
+Use `format=csv` for the complete authorized export. The corresponding CLI
+operations are `probectl device config-policy`,
+`probectl device set-config-policy` and `probectl device config-policy-evaluation`.
+
 ## gNMI transport security
 
 gNMI always dials **TLS with certificate verification** — using the system root

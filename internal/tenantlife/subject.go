@@ -417,6 +417,9 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	// archive is removed on FULL-tenant erasure through the tenants ON DELETE
 	// CASCADE; a per-subject erase leaves it untouched.
 	"device_configs": {plane: "postgres:device_configs", disposition: subjectTableNoSubject},
+	// Configuration rules are device policy and carry no subject identity.
+	// Tenant deletion removes each revision through its owned device.
+	"device_config_policy_revisions": {plane: "postgres:device_config_policy_revisions", disposition: subjectTableNoSubject},
 	// device_syslog is the tenant's own device syslog archive (device/source
 	// address/hostname identify the tenant's infrastructure; message/raw/labels are
 	// free-text log bodies). Like device_configs it is tenant operational state

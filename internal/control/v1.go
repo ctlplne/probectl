@@ -133,6 +133,9 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/device/syslog", s.handleIngestDeviceSyslog, permMetricsWrite},
 		{http.MethodGet, "/v1/device/configs", s.handleListDeviceConfigs, ai.PermMetricsRead},
 		{http.MethodPost, "/v1/device/configs", s.handleArchiveDeviceConfig, permMetricsWrite},
+		{http.MethodGet, "/v1/device/config-policy", s.handleGetDeviceConfigPolicy, ai.PermMetricsRead},
+		{http.MethodPut, "/v1/device/config-policy", s.handlePutDeviceConfigPolicy, permMetricsWrite},
+		{http.MethodGet, "/v1/device/configs/{id}/policy-evaluation", s.handleGetDeviceConfigPolicyEvaluation, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/ebpf/service-map", s.handleEBPFServiceMap, ai.PermTopologyRead},
 		// D-43/D-64: the tenant's L7 capture redaction floor — a core setting.
 		{http.MethodGet, "/v1/ebpf/l7-capture-policy", s.handleL7CapturePolicyGet, permGovernanceRead},

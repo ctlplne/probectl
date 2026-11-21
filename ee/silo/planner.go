@@ -7,11 +7,11 @@
 package silo
 
 import (
-	"github.com/ctlplne/probectl/internal/tenancy"
-
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 // The Postgres schema planner: PURE functions from catalog facts to ordered
@@ -155,6 +155,10 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 		{"incident_correlation_overrides", "fx2_override_source_fk", "tenant_id, source_incident_id", "incidents", "tenant_id, id"},
 		{"incident_correlation_overrides", "fx2_override_detached_fk", "tenant_id, detached_incident_id", "incidents", "tenant_id, id"},
 		{"incident_correlation_overrides", "fx2_override_signal_fk", "tenant_id, source_signal_id", "incident_signals", "tenant_id, id"},
+	}
+	if owned["device_config_policy_revisions"] {
+		keys = append(keys, foreignKey{"device_config_policy_revisions", "device_config_policy_device_fk",
+			"tenant_id, context_id, device_entity_id", "entities", "tenant_id, context_id, id"})
 	}
 	if owned["entity_fault_receipts"] {
 		keys = append(keys,
@@ -462,7 +466,7 @@ func tableRolePlan(quotedTable, table string) []string {
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
 			"GRANT SELECT, INSERT ON " + quotedTable + " TO probectl_provider",
 		}
-	case "dashboard_report_artifacts", "dashboard_report_artifact_chunks", "bgp_flow_capture_objects", "bgp_flow_capture_receipts", "bgp_flow_capture_payloads", "bgp_flow_capture_intents", "bgp_flow_capture_intent_payloads", "device_counter_captures", "device_counter_capture_sources":
+	case "dashboard_report_artifacts", "dashboard_report_artifact_chunks", "bgp_flow_capture_objects", "bgp_flow_capture_receipts", "bgp_flow_capture_payloads", "bgp_flow_capture_intents", "bgp_flow_capture_intent_payloads", "device_counter_captures", "device_counter_capture_sources", "device_config_policy_revisions":
 		return []string{
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_app",
 			"GRANT SELECT, INSERT, DELETE ON " + quotedTable + " TO probectl_app",
