@@ -702,6 +702,20 @@
       ]
     },
     {
+      "ref": "test:internal/control/device_vendor_profiles_integration_test.go#TestVendorProfileMetricsUseOriginalTenantReadings",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
+      "ref": "test:internal/control/device_syslog_patterns_integration_test.go#TestDeviceSyslogPatternsServeExactScopedCounts",
+      "profile": "integration",
+      "capabilities": [
+        "F18"
+      ]
+    },
+    {
       "ref": "test:internal/control/incident_impact_integration_test.go#TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation",
       "profile": "integration",
       "capabilities": [
