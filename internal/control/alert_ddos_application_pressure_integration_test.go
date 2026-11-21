@@ -39,12 +39,20 @@ func TestFastDDoSKeepsChangedTraceSamplingSeparateFromListenerPressure(t *testin
 func TestFastDDoSSeparatesStableNetworkBackgroundFromGrowingVector(t *testing.T) {
 	for _, vector := range []anomaly.DDoSClass{anomaly.DDoSSYN, anomaly.DDoSReflection} {
 		t.Run(string(vector), func(t *testing.T) {
-			verifyDDoSNetworkBackground(t, vector)
+			verifyDDoSNetworkBackground(t, vector, false)
 		})
 	}
 }
 
-func verifyDDoSNetworkBackground(t *testing.T, vector anomaly.DDoSClass) {
+func TestFastDDoSSeparatesClassificationFieldCoverageFromGrowingVector(t *testing.T) {
+	for _, vector := range []anomaly.DDoSClass{anomaly.DDoSSYN, anomaly.DDoSReflection} {
+		t.Run(string(vector), func(t *testing.T) {
+			verifyDDoSNetworkBackground(t, vector, true)
+		})
+	}
+}
+
+func verifyDDoSNetworkBackground(t *testing.T, vector anomaly.DDoSClass, unclassifiedReference bool) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	rows := seasonalFlowFixtureStore(t, f, true)
@@ -85,7 +93,7 @@ func verifyDDoSNetworkBackground(t *testing.T, vector anomaly.DDoSClass) {
 		if err := json.Unmarshal(body, &rule); err != nil || rule.ID == "" {
 			t.Fatal("could not configure the protected host", err)
 		}
-		seedDDoSNetworkBackground(t, rows, traces, tenant, clocks, vector, lane == 0)
+		seedDDoSNetworkBackground(t, rows, traces, tenant, clocks, vector, lane == 0, unclassifiedReference)
 		source, due, err := f.server.loadAlertQueryRule(ctx, rule, 1<<20)
 		if err != nil || !due || source == nil {
 			t.Fatal("could not load the due rule", err)
@@ -131,7 +139,7 @@ func verifyDDoSNetworkBackground(t *testing.T, vector anomaly.DDoSClass) {
 }
 
 func seedDDoSNetworkBackground(t *testing.T, rows flowstore.Store, traces otelstore.Store, tenant string,
-	clocks ddosEpisodeClocks, vector anomaly.DDoSClass, growing bool) {
+	clocks ddosEpisodeClocks, vector anomaly.DDoSClass, growing, unclassifiedReference bool) {
 	t.Helper()
 	var flows []flowstore.Row
 	var spans []otelstore.Span
@@ -142,6 +150,9 @@ func seedDDoSNetworkBackground(t *testing.T, rows flowstore.Store, traces otelst
 			background.SrcPort, background.DstPort, background.TCPFlags = 42002, 8443, 2
 			if vector == anomaly.DDoSReflection {
 				background.Transport, background.SrcPort, background.TCPFlags = "udp", 53, 0
+			}
+			if index == 0 && unclassifiedReference {
+				background.SrcPort, background.TCPFlags = 0, 0
 			}
 			listenerBytes, listenerPackets := uint64(70000), uint64(600)
 			backgroundBytes, backgroundPackets := uint64(120000), uint64(1900)

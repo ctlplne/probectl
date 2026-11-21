@@ -101,6 +101,7 @@ func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, setting
 	observed := anomaly.DDoSObservation{TenantID: captured.TenantID, Scope: scope, Target: settings.Target, Direction: settings.Input.Direction,
 		From: result.Query.From, To: result.Query.To, Citation: citation, Complete: true,
 		Bytes: totals.bytes.String(), Packets: totals.packets.String(), SYNOnlyPackets: totals.syn.String(), UDPPackets: totals.udp.String(),
+		UnclassifiedTCPPackets: totals.unclassifiedTCP.String(), UnclassifiedUDPPackets: totals.unclassifiedUDP.String(),
 		ApplicationBytes: totals.applicationBytes.String(), ApplicationPackets: totals.applicationPackets.String(),
 		ObservedRecords: totals.records, ObservedAddresses: len(totals.addresses)}
 	for service, packets := range totals.services {
@@ -114,6 +115,7 @@ func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, setting
 
 type ddosWindowTotals struct {
 	bytes, packets, syn, udp             big.Int
+	unclassifiedTCP, unclassifiedUDP     big.Int
 	applicationBytes, applicationPackets big.Int
 	records                              int
 	sampled                              bool
@@ -146,6 +148,9 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 		if err != nil {
 			return anomaly.ErrDDoSCoverage
 		}
+		if flags == 0 {
+			total.unclassifiedTCP.Add(&total.unclassifiedTCP, packets)
+		}
 		if flags&2 != 0 && flags&0x15 == 0 {
 			total.syn.Add(&total.syn, packets)
 		} else if err := total.addApplicationFlow(settings.Input.Application, row.Group["dst_port"], bytes, packets); err != nil {
@@ -157,6 +162,9 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 			return anomaly.ErrDDoSCoverage
 		}
 		total.udp.Add(&total.udp, packets)
+		if port == 0 {
+			total.unclassifiedUDP.Add(&total.unclassifiedUDP, packets)
+		}
 		if service := reflectionService(port); service != "" {
 			if total.services[service] == nil {
 				total.services[service] = new(big.Int)

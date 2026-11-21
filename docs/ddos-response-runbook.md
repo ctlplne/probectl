@@ -43,8 +43,11 @@ degraded responses leave the host-wide increase ambiguous. Missing,
 full-page or ambiguous application observations leave the bound generic
 pressure unevaluated for episode admission. A SYN or UDP service vector must
 meet the configured share of current packets and the growth threshold against
-its own historical packet count. HTTP requests are assigned by their start
-time and can count after completion even when they cross a window boundary.
+its own historical packet count. A historical TCP record with zero flags or
+a UDP record without a source port may belong to the vector. The current
+observed vector must exceed that historical upper bound by the configured
+growth threshold. HTTP requests are assigned by their start time and can
+count after completion even when they cross a window boundary.
 [OpenTelemetry HTTP span conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/#http-server-span)
 
 For sampled tracing, use locally rooted HTTP server spans with consistent

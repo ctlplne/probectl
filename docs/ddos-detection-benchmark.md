@@ -103,6 +103,13 @@ Both SYN flags and a UDP service association are exercised. The previous
 detector opened an episode in both benign lanes. These trials run through
 the saved-rule and receipt paths and are separate from the 416. [Paired datastore fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
 
+The field-coverage replay uses the same totals and hides the previous week's
+TCP flags or UDP source port on the 1,900 background packets. The earlier
+detector counted the newly reported field as vector growth and fired in both
+healthy controls. The corrected detector lets all 1,900 unclassified
+historical packets count toward the possible previous vector. Both healthy
+lanes stay quiet and both growing vectors still qualify. [Field-coverage fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
+
 ## Shared host and unrelated application outage holdout
 
 The paired fixture stores identical host-wide totals of 290,000 bytes and

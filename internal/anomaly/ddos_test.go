@@ -94,6 +94,14 @@ func TestDDoSCannotBorrowForeignOrIncompleteEvidence(t *testing.T) {
 	if got, err := EvaluateDDoS(ctx, reference, current, thresholds, 1<<20); got != nil || !errors.Is(err, ErrDDoSCoverage) {
 		t.Fatal("a measured subset cannot exceed its complete population", err)
 	}
+	current.UDPPackets, current.UnclassifiedTCPPackets, current.UnclassifiedUDPPackets = "600", "401", "0"
+	if got, err := EvaluateDDoS(ctx, reference, current, thresholds, 1<<20); got != nil || !errors.Is(err, ErrDDoSCoverage) {
+		t.Fatal("unclassified TCP cannot overlap the UDP population", err)
+	}
+	current.UnclassifiedTCPPackets, current.UnclassifiedUDPPackets = "0", "601"
+	if got, err := EvaluateDDoS(ctx, reference, current, thresholds, 1<<20); got != nil || !errors.Is(err, ErrDDoSCoverage) {
+		t.Fatal("unclassified UDP cannot exceed the UDP population", err)
+	}
 }
 
 func TestDDoSReflectionComparesEachServiceToItsOwnReference(t *testing.T) {

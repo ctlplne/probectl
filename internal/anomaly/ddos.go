@@ -7,6 +7,7 @@
 package anomaly
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"math/big"
@@ -56,22 +57,26 @@ type ReflectionObservation struct {
 // admitted source window. Volume uses corrected counters and classifications
 // retain an independent count of observed records.
 type DDoSObservation struct {
-	TenantID           string
-	Scope              string
-	Target             netip.Prefix
-	Direction          string
-	From, To           time.Time
-	Citation           string
-	Complete           bool
-	Bytes              string
-	Packets            string
-	SYNOnlyPackets     string
-	UDPPackets         string
-	ApplicationBytes   string
-	ApplicationPackets string
-	ObservedRecords    int
-	ObservedAddresses  int
-	Reflection         []ReflectionObservation
+	TenantID       string
+	Scope          string
+	Target         netip.Prefix
+	Direction      string
+	From, To       time.Time
+	Citation       string
+	Complete       bool
+	Bytes          string
+	Packets        string
+	SYNOnlyPackets string
+	UDPPackets     string
+	// Older collector records can use zero for missing TCP flags or UDP source
+	// ports. Their packets cannot establish a vector's historical absence.
+	UnclassifiedTCPPackets string
+	UnclassifiedUDPPackets string
+	ApplicationBytes       string
+	ApplicationPackets     string
+	ObservedRecords        int
+	ObservedAddresses      int
+	Reflection             []ReflectionObservation
 }
 
 type DDoSThresholds struct {
@@ -168,7 +173,7 @@ func EvaluateDDoS(ctx context.Context, reference, current DDoSObservation, limit
 	reflectionService, reflectionPackets := growingDDoSReflection(earlier, latest, limits)
 	switch {
 	case hasDDoSShare(latest.syn, latest.packets, limits.VectorShareBasisPoints) &&
-		growsDDoSVolume(latest.syn, earlier.syn, limits.GrowthBasisPoints):
+		growsDDoSVolume(latest.syn, earlier.possibleSYN, limits.GrowthBasisPoints):
 		result.Class, result.EvidenceBasis, result.Confidence = DDoSSYN, "observed_tcp_flag_share", "corroborated"
 		result.ContributingPackets = latest.syn.Num().String()
 	case reflectionService != "":
@@ -198,6 +203,8 @@ func checkDDoSWindows(ctx context.Context, reference, current DDoSObservation) e
 
 type ddosCounts struct {
 	bytes, packets, syn *big.Rat
+	possibleSYN         *big.Rat
+	unclassifiedUDP     *big.Rat
 	reflected           map[string]*big.Rat
 }
 
@@ -216,8 +223,17 @@ func parseDDoSCounts(parser *decimalSeasonalTraining, data DDoSObservation) (ddo
 	if result.syn, err = ddosCounter(parser, data.SYNOnlyPackets); err != nil {
 		return ddosCounts{}, err
 	}
+	unclassifiedTCP, err := ddosCounter(parser, cmp.Or(data.UnclassifiedTCPPackets, "0"))
+	if err != nil {
+		return ddosCounts{}, err
+	}
+	result.possibleSYN = unclassifiedTCP.Add(unclassifiedTCP, result.syn)
 	udp, err := ddosCounter(parser, data.UDPPackets)
-	if err != nil || new(big.Rat).Add(result.syn, udp).Cmp(result.packets) > 0 || len(data.Reflection) > 5 {
+	if err != nil || new(big.Rat).Add(result.possibleSYN, udp).Cmp(result.packets) > 0 || len(data.Reflection) > 5 {
+		return ddosCounts{}, ErrDDoSCoverage
+	}
+	result.unclassifiedUDP, err = ddosCounter(parser, cmp.Or(data.UnclassifiedUDPPackets, "0"))
+	if err != nil {
 		return ddosCounts{}, ErrDDoSCoverage
 	}
 	if len(data.Reflection) > 0 {
@@ -240,7 +256,7 @@ func parseDDoSCounts(parser *decimalSeasonalTraining, data DDoSObservation) (ddo
 		total.Add(total, value)
 		result.reflected[observation.Service] = value
 	}
-	if total.Cmp(udp) > 0 {
+	if total.Add(total, result.unclassifiedUDP).Cmp(udp) > 0 {
 		return ddosCounts{}, ErrDDoSCoverage
 	}
 	return result, nil
@@ -255,7 +271,11 @@ func growingDDoSReflection(earlier, latest ddosCounts, limits DDoSThresholds) (s
 		if !hasDDoSShare(packets, latest.packets, limits.VectorShareBasisPoints) {
 			continue
 		}
-		if before := earlier.reflected[name]; before != nil && !growsDDoSVolume(packets, before, limits.GrowthBasisPoints) {
+		before := earlier.unclassifiedUDP
+		if measured := earlier.reflected[name]; measured != nil {
+			before = new(big.Rat).Add(before, measured)
+		}
+		if !growsDDoSVolume(packets, before, limits.GrowthBasisPoints) {
 			continue
 		}
 		if strongest == nil || packets.Cmp(strongest) > 0 || (packets.Cmp(strongest) == 0 && name < service) {
