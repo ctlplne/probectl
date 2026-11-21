@@ -157,6 +157,11 @@ func (lane *nativeLane) provision(t *testing.T, st *shipped.Stack, operator, run
 	}
 	lane.cookie = st.SignIn(t, lane.id, email, "Native "+lane.name)
 	lane.apiToken = st.APIToken(t, lane.cookie, "read", "ai.query")
+	lane.enrollCollector(t, st)
+}
+
+func (lane *nativeLane) enrollCollector(t *testing.T, st *shipped.Stack) {
+	t.Helper()
 	var join struct{ Token string }
 	lane.do(t, st, http.MethodPost, "/v1/agents/enroll-tokens", map[string]any{"name": "native-" + lane.name, "ttl_seconds": 600}, &join, http.StatusCreated)
 	var registration struct {
