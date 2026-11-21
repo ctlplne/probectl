@@ -62,13 +62,11 @@ function ApplyProposal({
   spec,
   onApply,
   creating,
-  canCreate,
   label,
 }: {
   spec: TestSpec
   onApply: (s: TestSpec) => void
   creating: boolean
-  canCreate: boolean
   label: string
 }) {
   const { permissions } = useAuth()
@@ -88,7 +86,7 @@ function ApplyProposal({
             type="checkbox"
             checked={allowPrivate}
             onChange={(e) => setAllowPrivate(e.target.checked)}
-            disabled={creating || !canCreate}
+            disabled={creating}
           />
           <span>Allow private or loopback targets for {spec.target}</span>
         </label>
@@ -97,12 +95,7 @@ function ApplyProposal({
         Private targets require test.allow_private permission and explicit consent here. The agent
         must also enable test_sync.allow_private_targets.
       </p>
-      <Button
-        variant="secondary"
-        onClick={apply}
-        disabled={creating || !canCreate}
-        title={!canCreate ? 'Requires test.write permission' : undefined}
-      >
+      <Button variant="secondary" onClick={apply} disabled={creating}>
         {label}
       </Button>
     </div>
@@ -114,13 +107,11 @@ function ProposalCard({
   onApply,
   onDismiss,
   creating,
-  canCreate,
 }: {
   proposal: TestProposal
   onApply: (s: TestSpec) => void
   onDismiss: () => void
   creating: boolean
-  canCreate: boolean
 }) {
   return (
     <div className={styles.proposal}>
@@ -134,7 +125,6 @@ function ProposalCard({
           spec={proposal.spec}
           onApply={onApply}
           creating={creating}
-          canCreate={canCreate}
           label="Create test"
         />
         <Button variant="ghost" onClick={onDismiss}>
@@ -150,23 +140,22 @@ function ProposalCard({
  *  until the user confirms. */
 export function AuthoringPanel() {
   const { permissions } = useAuth()
-  const canAuthor = permissions.includes('ai.query')
-  const canCreate = permissions.includes('test.write')
+  const canWrite = permissions.includes('test.write')
   const [prompt, setPrompt] = useState('')
   const author = useAuthorTest()
-  const discover = useDiscover(canAuthor)
+  const discover = useDiscover(canWrite)
   const create = useCreateTest()
   const { push } = useToast()
 
   function propose(e: FormEvent) {
     e.preventDefault()
-    if (!canAuthor) return
+    if (!canWrite) return
     const p = prompt.trim()
     if (p) author.mutate(p)
   }
 
   function apply(spec: TestSpec, label: string) {
-    if (!canCreate) return
+    if (!canWrite) return
     create.mutate(specToInput(spec), {
       onSuccess: () => {
         push({ tone: 'success', title: 'Test created', message: label })
@@ -183,10 +172,10 @@ export function AuthoringPanel() {
         description="Describe what to monitor, or add a suggested target. Nothing is created until you confirm."
       />
       <CardBody>
-        {!canAuthor ? (
+        {!canWrite ? (
           <EmptyState
             title="Read-only access"
-            description="AI authoring and telemetry suggestions require ai.query permission. Creating a proposed test also requires test.write permission."
+            description="Test authoring requires test.write permission."
           />
         ) : (
           <>
@@ -210,7 +199,6 @@ export function AuthoringPanel() {
                 onApply={(s) => apply(s, s.name)}
                 onDismiss={() => author.reset()}
                 creating={create.isPending}
-                canCreate={canCreate}
               />
             ) : null}
 
@@ -238,7 +226,6 @@ export function AuthoringPanel() {
                         spec={d.spec}
                         onApply={(s) => apply(s, s.target)}
                         creating={create.isPending}
-                        canCreate={canCreate}
                         label="Add"
                       />
                     </li>
@@ -246,11 +233,6 @@ export function AuthoringPanel() {
                 </ul>
               )}
             </div>
-            {!canCreate ? (
-              <p className={styles.permissionHint} role="status">
-                Creating a proposed test requires test.write permission.
-              </p>
-            ) : null}
           </>
         )}
       </CardBody>

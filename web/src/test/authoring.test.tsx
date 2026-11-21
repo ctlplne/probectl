@@ -126,7 +126,7 @@ describe('AI test authoring', () => {
 
   test('lists suggestions and creates an authored test on confirmation (review-and-apply)', async () => {
     const posts = stub()
-    renderApp('/targets', { me: { permissions: ['ai.query', 'test.write'] } })
+    renderApp('/targets', { me: { permissions: ['test.read', 'test.write'] } })
     await screen.findByRole('heading', { name: /author with ai/i })
 
     // Auto-discovery proposes an observed-but-unmonitored target.
@@ -150,6 +150,15 @@ describe('AI test authoring', () => {
     expect(posts.some((p) => p.url.endsWith('/v1/tests') && p.body?.target === '9.9.9.9')).toBe(
       true,
     )
+  })
+
+  test('AI query permission alone does not request test proposals or telemetry suggestions', async () => {
+    const posts = stub()
+    renderApp('/targets', { me: { permissions: ['test.read', 'ai.query'] } })
+    await screen.findByRole('heading', { name: 'Read-only access' })
+    expect(screen.queryByLabelText('Describe a test')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Propose a test' })).not.toBeInTheDocument()
+    expect(posts.some((request) => request.url.includes('/v1/ai/'))).toBe(false)
   })
 
   test('keeps a flow-derived suggestion propose-only until the operator presses Add', async () => {
