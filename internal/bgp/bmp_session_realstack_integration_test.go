@@ -58,10 +58,18 @@ func TestFRRBMPSessionHistoryKeepsTransitionsAndTenantSignals(t *testing.T) {
 		if code != http.StatusOK {
 			return false
 		}
-		if json.Unmarshal(body, &retained[lane]) != nil || retained[lane].Source.RouterID != regs[lane].deviceID ||
-			retained[lane].Source.ContextID != regs[lane].contextID {
+		// Decode each poll into a fresh page. Reusing the slice would let
+		// omitted fields on a new row inherit evidence from an earlier poll.
+		var page frrBMPSessionPage
+		if json.Unmarshal(body, &page) != nil || page.Source.RouterID != regs[lane].deviceID || page.Source.ContextID != regs[lane].contextID {
 			t.Fatal("served BMP history lost its exact authorized tuple")
 		}
+		for _, item := range page.Items {
+			if (item.Kind == "neighbor") != (item.Neighbor != nil) {
+				t.Fatal("served BMP row has mismatched neighbor evidence", item.Kind, item.Sequence)
+			}
+		}
+		retained[lane] = page
 		return true
 	}
 	awaitNeighbors := func(expected []string) {
