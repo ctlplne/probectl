@@ -149,7 +149,7 @@ func normalizeConfigPolicyRules(raw []ConfigPolicyRule, revision string) ([]Conf
 	rules := make([]ConfigPolicyRule, len(raw))
 	for i, rule := range raw {
 		if rule.ID == "" || len(rule.ID) > 64 || strings.IndexFunc(rule.ID, func(c rune) bool {
-			return !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_')
+			return (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' && c != '_'
 		}) >= 0 || rule.Revision != "" || seen[rule.ID] || !validConfigPolicyRule(rule) {
 			return nil, ErrConfigPolicyRules
 		}

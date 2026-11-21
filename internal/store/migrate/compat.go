@@ -155,9 +155,9 @@ func CheckSQL(file, sql string) []Violation {
 	return out
 }
 
-// Inspect each ADD COLUMN declaration independently. Procedural IS NOT NULL
-// tests after an EXECUTE string are not column declarations; a DEFAULT on a
-// different column cannot make an unsafe declaration additive either.
+// Inspect each ADD COLUMN declaration independently. Only top-level constraints
+// belong to the column. Nested CHECK predicates and procedural tests after an
+// EXECUTE string can also contain IS NOT NULL.
 func addedColumnWithoutDefault(norm string) bool {
 	for _, match := range addColumn.FindAllStringIndex(norm, -1) {
 		clause := addedColumnClause(norm[match[0]:])
@@ -175,17 +175,20 @@ func addedColumnClause(input string) string {
 		switch input[i] {
 		case '"':
 			i = skipColumnQuoted(input, i, '"') - 1
-			out.WriteString(" quoted_identifier ")
+			if depth == 0 {
+				out.WriteString(" quoted_identifier ")
+			}
 		case '\'':
 			if depth == 0 {
 				return out.String()
 			}
 			i = skipColumnQuoted(input, i, '\'') - 1
-			out.WriteString(" literal ")
 		case '$':
 			tag, quoted := dollarTag([]rune(input[i:]), 0)
 			if !quoted {
-				out.WriteByte(input[i])
+				if depth == 0 {
+					out.WriteByte(input[i])
+				}
 				continue
 			}
 			if depth == 0 {
@@ -196,23 +199,24 @@ func addedColumnClause(input string) string {
 				return out.String()
 			}
 			i += len(tag)*2 + end - 1
-			out.WriteString(" literal ")
 		case '(':
+			if depth == 0 {
+				out.WriteString(" () ")
+			}
 			depth++
-			out.WriteByte(input[i])
 		case ')':
 			if depth == 0 {
 				return out.String()
 			}
 			depth--
-			out.WriteByte(input[i])
 		case ',', ';':
 			if depth == 0 {
 				return out.String()
 			}
-			out.WriteByte(input[i])
 		default:
-			out.WriteByte(input[i])
+			if depth == 0 {
+				out.WriteByte(input[i])
+			}
 		}
 	}
 	return out.String()
