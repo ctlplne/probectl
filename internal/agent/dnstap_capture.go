@@ -38,12 +38,12 @@ func (c *EvidenceClient) SubmitResolverDNS(ctx context.Context, source string, c
 	}
 	ctx, cancel := context.WithTimeout(ctx, evidenceDeliveryTimeout)
 	defer cancel()
-	response, err := c.submitPublicRouting(ctx, &agentv1.SubmitEntityEvidenceRequest{ResolverDns: data})
+	response, err := c.submitExclusiveEvidence(ctx, &agentv1.SubmitEntityEvidenceRequest{ResolverDns: data})
 	if err != nil {
 		return nil, err
 	}
 	receipt := response.GetResolverDns()
-	if !exclusiveResolverDNSReceipt(response) || receipt == nil || receipt.GetIntervals() != uint32(len(capture.Intervals)) ||
+	if !exclusiveEvidenceReceipt(response, "resolver_dns") || receipt == nil || receipt.GetIntervals() != uint32(len(capture.Intervals)) ||
 		receipt.GetPressureSignals() > 2*receipt.GetIntervals() || !bytes.Equal(receipt.GetEvidenceDigest(), crypto.Hash(wire)) ||
 		len(receipt.ProtoReflect().GetUnknown()) != 0 {
 		return nil, ErrEvidenceBatchInvalid
@@ -51,13 +51,13 @@ func (c *EvidenceClient) SubmitResolverDNS(ctx context.Context, source string, c
 	return receipt, nil
 }
 
-func exclusiveResolverDNSReceipt(response *agentv1.SubmitEntityEvidenceResponse) bool {
+func exclusiveEvidenceReceipt(response *agentv1.SubmitEntityEvidenceResponse, allowed protoreflect.Name) bool {
 	if response == nil || len(response.ProtoReflect().GetUnknown()) != 0 {
 		return false
 	}
 	exclusive := true
 	response.ProtoReflect().Range(func(field protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
-		exclusive = field.Name() == "resolver_dns"
+		exclusive = field.Name() == allowed
 		return exclusive
 	})
 	return exclusive

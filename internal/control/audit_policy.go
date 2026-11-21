@@ -362,6 +362,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/changes":                                                     auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/changes/{id}/effects":                                        auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/bgp/events":                                                  auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/bgp/sessions/{router_id}":                                    auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/bgp/visibility":                                              auditWrapped(auditFacetSensitiveRead),
 	"PUT /v1/bgp/visibility":                                              auditWrapped(auditFacetMutation),
 	"GET /v1/bgp/visibility/{id}":                                         auditWrapped(auditFacetSensitiveRead),

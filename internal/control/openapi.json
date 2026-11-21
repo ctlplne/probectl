@@ -11251,6 +11251,187 @@
         }
       }
     },
+    "/v1/bgp/sessions/{router_id}": {
+      "get": {
+        "operationId": "getBMPSessionHistory",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "summary": "Read authenticated BMP session history for one router source",
+        "description": "The default range is the previous 24 hours. Session events, statistics and observed update counts retain separate coverage. Current source assignments and entity access are required.",
+        "x-required-permission": "events.read",
+        "tags": [
+          "bgp"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "router_id",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "name": "context_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "name": "collector_agent_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "required": true
+          },
+          {
+            "name": "source_ref",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "required": true
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Inclusive listener observation clock."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Exclusive listener observation clock."
+          },
+          {
+            "name": "peer",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Canonical IPv4 or IPv6 neighbor address. Connection lifecycle observations remain visible."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "Continue the original query using the returned cursor and its same source identifiers."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 100
+            }
+          },
+          {
+            "name": "statistic",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": "IANA BMP gauge type to compare."
+          },
+          {
+            "name": "afi",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": "Address family for a family-scoped gauge."
+          },
+          {
+            "name": "safi",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            "description": "Subsequent address family for a family-scoped gauge."
+          },
+          {
+            "name": "expected_min",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$"
+            },
+            "description": "Exact unsigned inclusive gauge floor."
+          },
+          {
+            "name": "expected_max",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$"
+            },
+            "description": "Exact unsigned inclusive gauge ceiling."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Retained original observations scoped to the current router assignment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BMPSessionHistory"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "cursor",
+          "cursor_param": "cursor",
+          "limit_param": "limit",
+          "next_cursor": "next_cursor",
+          "resource_admitted": true,
+          "reason": "Continuation uses the original listener observation clock, connection and sequence under current tenant query admission."
+        }
+      }
+    },
     "/v1/carbon": {
       "get": {
         "x-required-permission": "metrics.read",
@@ -30999,6 +31180,393 @@
           "id": {"type": "string", "format": "uuid"},
           "relation": {"type": "string", "enum": ["same_public_archive", "nearby_owned_change"]}
         }
+      },
+      "BMPSessionHistory": {
+        "type": "object",
+        "required": [
+          "source",
+          "items",
+          "coverage",
+          "effective_limit"
+        ],
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/BMPSessionSource"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BMPSessionPoint"
+            }
+          },
+          "coverage": {
+            "type": "string",
+            "enum": [
+              "no_retained_points",
+              "retained_points"
+            ]
+          },
+          "effective_limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "next_cursor": {
+            "type": "string"
+          },
+          "expected_range": {
+            "$ref": "#/components/schemas/BMPStatisticRange"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BMPSessionPoint": {
+        "type": "object",
+        "required": [
+          "observed_unix_nanos",
+          "connection_id",
+          "sequence",
+          "observed_at",
+          "kind",
+          "evidence_digest",
+          "coverage_gap"
+        ],
+        "properties": {
+          "observed_unix_nanos": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sequence": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "statistics",
+              "neighbor",
+              "update_churn",
+              "initiation",
+              "termination",
+              "transport_closed"
+            ]
+          },
+          "evidence_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "coverage_gap": {
+            "type": "boolean"
+          },
+          "statistics": {
+            "$ref": "#/components/schemas/BMPSessionStatistics"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/BMPConnectionLifecycle"
+          },
+          "neighbor": {
+            "$ref": "#/components/schemas/BMPNeighborTransition"
+          },
+          "update_churn": {
+            "$ref": "#/components/schemas/BMPUpdateChurn"
+          },
+          "range_status": {
+            "type": "string",
+            "enum": [
+              "coverage_gap",
+              "missing",
+              "below_range",
+              "within_range",
+              "above_range"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "BMPSessionSource": {
+        "type": "object",
+        "required": [
+          "context_id",
+          "router_id",
+          "collector_agent_id",
+          "source_ref"
+        ],
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "router_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "collector_agent_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "source_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "additionalProperties": false
+      },
+      "BMPSessionPeer": {
+        "type": "object",
+        "required": [
+          "peer_type",
+          "flags",
+          "peer_asn",
+          "bgp_identifier",
+          "view",
+          "filtered"
+        ],
+        "properties": {
+          "peer_type": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "flags": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "distinguisher": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "peer_address": {
+            "type": "string"
+          },
+          "peer_asn": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "bgp_identifier": {
+            "type": "string"
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "adj_rib_in_pre_policy",
+              "adj_rib_in_post_policy",
+              "adj_rib_out_pre_policy",
+              "adj_rib_out_post_policy",
+              "loc_rib"
+            ]
+          },
+          "filtered": {
+            "type": "boolean"
+          },
+          "original_clock": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BMPSessionStatistics": {
+        "type": "object",
+        "required": [
+          "peer",
+          "samples"
+        ],
+        "properties": {
+          "peer": {
+            "$ref": "#/components/schemas/BMPSessionPeer"
+          },
+          "samples": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BMPSessionStatistic"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "BMPSessionStatistic": {
+        "type": "object",
+        "required": [
+          "type",
+          "value",
+          "counter"
+        ],
+        "properties": {
+          "type": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "afi": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "safi": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "value": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "counter": {
+            "type": "boolean"
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "adj_rib_in_pre_policy",
+              "adj_rib_in_post_policy",
+              "adj_rib_out_pre_policy",
+              "adj_rib_out_post_policy",
+              "loc_rib",
+              "legacy_adj_rib_in"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "BMPConnectionLifecycle": {
+        "type": "object",
+        "required": [
+          "terminated",
+          "reason",
+          "reason_known"
+        ],
+        "properties": {
+          "terminated": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "reason_known": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BMPNeighborTransition": {
+        "type": "object",
+        "required": [
+          "peer",
+          "state",
+          "frame_digest"
+        ],
+        "properties": {
+          "peer": {
+            "$ref": "#/components/schemas/BMPSessionPeer"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "monitoring_withdrawn"
+            ]
+          },
+          "frame_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "down_reason": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "fsm_event": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "notification_code": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "notification_subcode": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          }
+        },
+        "additionalProperties": false
+      },
+      "BMPUpdateChurn": {
+        "type": "object",
+        "required": [
+          "peer",
+          "first_observed_at",
+          "last_observed_at",
+          "updates"
+        ],
+        "properties": {
+          "peer": {
+            "$ref": "#/components/schemas/BMPSessionPeer"
+          },
+          "first_observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updates": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BMPStatisticRange": {
+        "type": "object",
+        "required": [
+          "type",
+          "minimum",
+          "maximum"
+        ],
+        "properties": {
+          "type": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65534
+          },
+          "afi": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "safi": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 255
+          },
+          "minimum": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "maximum": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          }
+        },
+        "additionalProperties": false
       },
       "BGPASPathHistory": {
         "type": "object",

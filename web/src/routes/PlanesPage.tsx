@@ -62,6 +62,7 @@ import {
 } from './pivotContext'
 import { ExplainView } from './ExplainView'
 import { BGPVisibilityPanel } from './BGPVisibilityPanel'
+import { BMPSessionHistory } from './BMPSessionHistory'
 import { IdentityConflictsCard } from './IdentityConflictsCard'
 import { DeviceMetricsCard } from '../components/DeviceMetricsCard'
 import { ConfigDiffDialog, type ConfigComparison } from './ConfigDiffDialog'
@@ -439,6 +440,7 @@ function BGPPanel({
     <section id="plane-panel-bgp" role="tabpanel" className={styles.panelGrid}>
       <BGPEventsCard events={events} isLoading={eventsLoading} isError={eventsError} />
       <BGPVisibilityPanel />
+      <BMPSessionHistory />
       <Card>
         <CardHeader
           title={t('planes.bgp.card.title')}

@@ -28,6 +28,9 @@
     "bgp.DecodePhysicalPeerSession": {
       "target": "FuzzBMPRouteMonitoring"
     },
+    "bgp.DecodeBMPNeighborTransition": {
+      "target": "FuzzBMPRouteMonitoring"
+    },
     "bgp.parseBMPPeerDown": {
       "target": "FuzzBMPRouteMonitoring"
     },
@@ -42,6 +45,18 @@
     },
     "bgp.ParseBMPRouteViewHeader": {
       "target": "FuzzBMPRouteMonitoring"
+    },
+    "bgp.ParseBMPStatisticsReport": {
+      "target": "FuzzBMPStatisticsReport"
+    },
+    "bgp.parseBMPStatistic": {
+      "target": "FuzzBMPStatisticsReport"
+    },
+    "bgp.ParseBMPConnectionEvent": {
+      "target": "FuzzBMPConnectionEvent"
+    },
+    "bgp.parseBMPTermination": {
+      "target": "FuzzBMPConnectionEvent"
     },
     "bgp.parseMPReachRoutes": {
       "target": "FuzzBMPRouteMonitoring"

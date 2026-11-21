@@ -21,7 +21,7 @@ import (
 type mcpBGPASPathHistoryBackend struct{ server *Server }
 
 func bgpASPathHistoryToolOption(server *Server) (mcp.Option, error) {
-	schema, err := bgpHistoryToolSchema("/v1/bgp/visibility/{id}/paths", 7)
+	schema, err := bgpHistoryToolSchema("/v1/bgp/visibility/{id}/paths", 7, "id")
 	if err != nil {
 		return nil, err
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/ctlplne/probectl/internal/bus"
 	probectlc "github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	"github.com/ctlplne/probectl/internal/wire"
 )
 
@@ -149,6 +150,7 @@ type BMPListener struct {
 	evidenceAgent     string
 	evidence          BMPEvidenceEmitter
 	evidenceQueue     chan bmpPeerEvidence
+	sessionEvidence   chan *agentv1.BmpSessionEvidence
 	evidenceReset     chan struct{}
 	routingLossWake   chan struct{}
 	routingStateBytes int64
@@ -215,6 +217,9 @@ func WithBMPEntityEvidence(listenerAgentID string, emitter BMPEvidenceEmitter) B
 			l.evidenceQueue = make(chan bmpPeerEvidence, 128)
 			l.evidenceReset = make(chan struct{}, 1)
 			l.routingLossWake = make(chan struct{}, 1)
+			if _, ok := emitter.(bmpSessionEvidenceWriter); ok {
+				l.sessionEvidence = make(chan *agentv1.BmpSessionEvidence, 64)
+			}
 		}
 	}
 }
@@ -448,6 +453,9 @@ func (l *BMPListener) Serve(ctx context.Context) error {
 	}
 	if l.evidence != nil {
 		go l.evidenceLoop(ctx)
+		if writer, ok := l.evidence.(bmpSessionEvidenceWriter); ok {
+			go l.sessionEvidenceLoop(ctx, writer)
+		}
 	}
 	go func() {
 		<-ctx.Done()
@@ -794,6 +802,10 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 	// this session within one refresh tick, even if it goes quiet (ING-11).
 	liveHandle := l.registerLive(&bmpLiveSession{id: id, notAfter: id.NotAfter, cancel: sessCancel})
 	defer l.deregisterLive(liveHandle)
+	sessionEvidence := l.newBMPSessionEvidence(id)
+	if sessionEvidence != nil {
+		defer l.endBMPSessionEvidence(ctx, sessionEvidence)
+	}
 	defer l.endRoutingEvidence(ctx, id, liveHandle)
 
 	l.log.Info("bmp peer session admitted",
@@ -832,6 +844,26 @@ func (l *BMPListener) handleConn(ctx context.Context, conn net.Conn, releasePreA
 		// empty list, matching the per-RPC agent-transport recheck (CRY-01).
 		if l.identityRevoked(id) {
 			return fmt.Errorf("bgp bmp: registry-revoked router identity refused mid-session (serial %s)", id.Serial)
+		}
+		if sessionEvidence != nil {
+			switch msgType {
+			case bmpRouteMonitoring:
+				l.observeBMPSessionUpdate(sessionEvidence, payload)
+			case bmpPeerUp, 2, bmpStatisticsReport:
+				// Physical global peers are owned by the authenticated base
+				// assignment. Delegated peers need their own context selection.
+				if len(payload) >= bmpPeerHeaderLen && payload[0] == 0 {
+					l.flushBMPSessionUpdates(sessionEvidence, l.now().UTC())
+					l.queueBMPSessionEvidence(sessionEvidence, msgType, payload)
+				}
+			case bmpInitiation:
+				l.queueBMPSessionEvidence(sessionEvidence, msgType, payload)
+				continue
+			case bmpTermination:
+				l.flushBMPSessionUpdates(sessionEvidence, l.now().UTC())
+				l.queueBMPSessionEvidence(sessionEvidence, msgType, payload)
+				return nil
+			}
 		}
 		if l.dispatchPeerEvidence(ctx, id, liveHandle, msgType, payload) {
 			continue

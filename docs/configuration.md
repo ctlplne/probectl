@@ -134,6 +134,9 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_AGENT_MAX_RECEIVE_BYTES` | `16777216` | Positive, operator-raiseable gRPC message byte admission, up to the protobuf implementation's representable size. The default admits a complete 100000-probe ICMP network-error population, including IPv6 responders. Increase together with public routing operation budgets for larger original MRT records. Per-tenant evidence byte admission still applies. |
 | `PROBECTL_BGP_VISIBILITY_CACHE_DIR` | empty | Absolute opt-in path to the shared [public MRT archive cache](bgp-prefix-visibility.md). The control plane opens local files. |
 | `PROBECTL_BGP_VISIBILITY_COLLECTORS` | empty | Comma-separated list of one to three published RouteViews collectors. Both visibility settings enable the supervisor. |
+| `PROBECTL_BMP_SESSION_SIGNALS_ENABLED` | `true` | Enable observed session-loss and flap findings from [authorized BMP session history](bgp-session-history.md). |
+| `PROBECTL_BMP_SESSION_FLAP_THRESHOLD` | `2` | Confirmed peer losses on the same continuous BMP source required for a flap finding. Range 2–100. |
+| `PROBECTL_BMP_SESSION_FLAP_WINDOW_MINUTES` | `5` | Window for those confirmed losses. Range 1–1440 minutes. |
 | `PROBECTL_PUBLIC_ROUTING_MEMORY_BYTES` | `2147483648` | Positive whole-operation memory admission for complete raw public peer tables/RIB records and raw/authenticated flow routing capture. Both capture writers share this policy. Refusal invalidates a known uncertain public source instead of truncating it. |
 | `PROBECTL_PUBLIC_ROUTING_WORK_UNITS` | `2147483648` | Positive whole-operation work admission for public-source decoding and raw/authenticated flow routing capture. Raising it never changes source/tenant authority. |
 | `PROBECTL_BGP_ROUTING_STATE_BYTES` | `68719476736` | Positive per-tenant retained routing-state admission shared by BMP and public writers. All writers account against the same allowance. |

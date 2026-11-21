@@ -1002,6 +1002,7 @@ func startAgentTransport(
 	enrollSvc *enroll.Service,
 	fairGate *fairness.Gate,
 	correlator *incident.Correlator,
+	incidentObserver incident.Observer,
 	writerFence tenancy.WriterFence,
 	testBundles agenttransport.TestBundles,
 	ipEnricher *opendata.Enricher,
@@ -1021,6 +1022,11 @@ func startAgentTransport(
 	grpcSrv.WithWriterFence(writerFence)
 	grpcSrv.WithFairness(fairGate)
 	grpcSrv.WithFaultCorrelator(correlator)
+	if cfg.BMPSessionSignalsEnabled {
+		grpcSrv.WithBMPSessionSignals(store.BMPSessionSignalPolicy{LossEnabled: true, FlapThreshold: cfg.BMPSessionFlapThreshold,
+			FlapWindow: time.Duration(cfg.BMPSessionFlapWindowMinutes) * time.Minute},
+			control.BMPSessionSignalWriter(cfg.IncidentWindow, log, incidentObserver))
+	}
 	grpcSrv.WithResolverDNSPressure(dnstap.PressurePolicy{
 		Enabled: cfg.NDREnabled && cfg.DNSTapPressureEnabled,
 		Rule: dnstap.PressureRule{MinResponses: cfg.DNSTapMinimumResponses, MinErrors: cfg.DNSTapMinimumErrors,

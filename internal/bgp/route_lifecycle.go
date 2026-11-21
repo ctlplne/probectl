@@ -9,6 +9,7 @@ package bgp
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 )
 
 // DecodeRoutingLifecycle accepts a complete source statistics frame or Peer
@@ -37,31 +38,19 @@ func DecodeRoutingLifecycle(ctx context.Context, raw []byte, peer PeerUp, budget
 		}
 		return true, nil
 	}
-	if raw[5] != 1 || len(raw) < offset+4 {
+	if raw[5] != bmpStatisticsReport {
 		return false, errBMPSourceRoute
 	}
-	count := binary.BigEndian.Uint32(raw[offset : offset+4])
-	remaining := raw[offset+4:]
-	if count == 0 || uint64(count) > uint64(len(remaining)/4) {
+	err = scanBMPStatisticTLVs(ctx, raw[offset:], func(kind uint16, data []byte) error {
+		if !validRoutingStatistic(kind, len(data)) {
+			return ErrBMPStatisticsReport
+		}
+		return nil
+	})
+	if errors.Is(err, ErrBMPStatisticsReport) {
 		return false, errBMPSourceRoute
 	}
-	for range count {
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
-		if len(remaining) < 4 {
-			return false, errBMPSourceRoute
-		}
-		size := int(binary.BigEndian.Uint16(remaining[2:4]))
-		if size > len(remaining)-4 || !validRoutingStatistic(binary.BigEndian.Uint16(remaining[:2]), size) {
-			return false, errBMPSourceRoute
-		}
-		remaining = remaining[4+size:]
-	}
-	if len(remaining) != 0 {
-		return false, errBMPSourceRoute
-	}
-	return false, nil
+	return false, err
 }
 
 // RFC7854 section4.2 specifies the complete numeric encodings. Unknown
@@ -74,8 +63,6 @@ func validRoutingStatistic(kind uint16, size int) bool {
 		return size == 8
 	case 9, 10:
 		return size == 11
-	case 65535:
-		return false
 	default:
 		return true
 	}

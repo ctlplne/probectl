@@ -65,6 +65,33 @@ func DecodePhysicalPeerSession(ctx context.Context, raw []byte, budget PeerMessa
 	return out, ctx.Err()
 }
 
+// BMPNeighborTransition retains the protected protocol identity and typed
+// reason. The existing physical evidence path retains the original bytes.
+type BMPNeighborTransition struct {
+	Peer                BMPObservationPeer `json:"peer"`
+	State               string             `json:"state"`
+	DownReason          *uint32            `json:"down_reason,omitempty"`
+	FSMEvent            *uint32            `json:"fsm_event,omitempty"`
+	NotificationCode    *uint32            `json:"notification_code,omitempty"`
+	NotificationSubcode *uint32            `json:"notification_subcode,omitempty"`
+	FrameDigest         string             `json:"frame_digest"`
+}
+
+// DecodeBMPNeighborTransition uses the physical session decoder's original
+// validation and omits opaque OPEN or NOTIFICATION payloads.
+func DecodeBMPNeighborTransition(ctx context.Context, raw []byte, budget PeerMessageBudget) (BMPNeighborTransition, error) {
+	fact, err := DecodePhysicalPeerSession(ctx, raw, budget)
+	if err != nil {
+		return BMPNeighborTransition{}, err
+	}
+	header, err := ParseBMPRouteViewHeader(raw[bmpCommonHeaderLen : bmpCommonHeaderLen+bmpPeerHeaderLen])
+	if err != nil {
+		return BMPNeighborTransition{}, err
+	}
+	return BMPNeighborTransition{Peer: observeBMPPeer(header), State: fact.State, DownReason: fact.DownReason, FSMEvent: fact.FSMEvent,
+		NotificationCode: fact.NotificationCode, NotificationSubcode: fact.NotificationSubcode, FrameDigest: fact.FrameDigest}, nil
+}
+
 // PhysicalPeerASNs describes the two complete original OPENs. Neither ASN
 // selects canonical ownership or proves a forwarding path.
 type PhysicalPeerASNs struct{ Local, Remote uint32 }

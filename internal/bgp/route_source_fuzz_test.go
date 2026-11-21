@@ -54,6 +54,9 @@ func fuzzRouteSourceParsers(t *testing.T, raw []byte) {
 	}
 	ctx := context.Background()
 	memory, work := int64(len(raw))*128+1024, int64(len(raw))*64+1024
+	if out, err := DecodeBMPNeighborTransition(ctx, raw, PeerMessageBudget{memory, work}); err != nil && !reflect.DeepEqual(out, BMPNeighborTransition{}) {
+		t.Fatal("invalid neighbor evidence exposed a partial transition")
+	}
 	if out, err := ParseBMPRouteViewHeader(raw); err != nil && !reflect.DeepEqual(out, BMPRouteViewHeader{}) {
 		t.Fatal("invalid route-view header exposed partial source identity")
 	}

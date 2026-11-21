@@ -650,6 +650,13 @@
       ]
     },
     {
+      "ref": "test:internal/bgp/bmp_session_realstack_integration_test.go#TestFRRBMPSessionHistoryKeepsTransitionsAndTenantSignals",
+      "profile": "integration",
+      "capabilities": [
+        "F6"
+      ]
+    },
+    {
       "ref": "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBJoinsShippedProtocolGoldenFields",
       "profile": "integration",
       "capabilities": [

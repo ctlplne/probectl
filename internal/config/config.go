@@ -867,8 +867,11 @@ type Config struct {
 
 	// Public BGP visibility reads only this local collector archive cache.
 	// Both fields are empty by default, which leaves the supervisor disabled.
-	BGPVisibilityCacheDir   string
-	BGPVisibilityCollectors []string
+	BGPVisibilityCacheDir       string
+	BGPVisibilityCollectors     []string
+	BMPSessionSignalsEnabled    bool
+	BMPSessionFlapThreshold     int
+	BMPSessionFlapWindowMinutes int
 
 	// RUM convergence (S47b, F20). OFF by default: enabling opens the beacon
 	// ingest (an unauthenticated-session inbound surface). RUMApps maps public
@@ -1466,6 +1469,9 @@ func loadFeaturePlaneConfig(l *loader, cfg *Config) {
 	cfg.OutageMirror = l.str("PROBECTL_OUTAGE_MIRROR", "")
 	cfg.BGPVisibilityCacheDir = l.str("PROBECTL_BGP_VISIBILITY_CACHE_DIR", "")
 	cfg.BGPVisibilityCollectors = l.list("PROBECTL_BGP_VISIBILITY_COLLECTORS")
+	cfg.BMPSessionSignalsEnabled = l.boolean("PROBECTL_BMP_SESSION_SIGNALS_ENABLED", true)
+	cfg.BMPSessionFlapThreshold = l.intRange("PROBECTL_BMP_SESSION_FLAP_THRESHOLD", 2, 2, 100)
+	cfg.BMPSessionFlapWindowMinutes = l.intRange("PROBECTL_BMP_SESSION_FLAP_WINDOW_MINUTES", 5, 1, 1440)
 	cfg.RUMEnabled = l.boolean("PROBECTL_RUM_ENABLED", false)
 	cfg.RUMApps = l.tokenMap("PROBECTL_RUM_APPS")
 	cfg.RUMRatePerMin = l.intRange("PROBECTL_RUM_RATE_PER_MIN", 300, 0, 1_000_000)

@@ -152,11 +152,19 @@ func routingStageSource(ctx context.Context, sc tenancy.Scope, input BGPRoutingP
 			return BGPRoutingSource{}, err
 		}
 	}
+	source := BGPRoutingSource{CollectorAgentID: input.CollectorAgentID, SenderSerial: input.SenderSerial, SourceRef: input.SourceRef, OriginSerial: input.OriginSerial, ObservedAt: input.ObservedAt}
+	source.TenantID = tenant.String()
+	return resolveOwnedRouterEvidenceSource(ctx, sc, source)
+}
+
+func resolveOwnedRouterEvidenceSource(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource) (BGPRoutingSource, error) {
+	tenant, present := tenancy.FromContext(ctx)
+	if !present || tenant != sc.Tenant || source.TenantID != tenant.String() {
+		return BGPRoutingSource{}, entity.ErrScopeMismatch
+	}
 	if sc.Q == nil {
 		return BGPRoutingSource{}, ErrBGPRoutingSourceUnavailable
 	}
-	source := BGPRoutingSource{CollectorAgentID: input.CollectorAgentID, SenderSerial: input.SenderSerial, SourceRef: input.SourceRef, OriginSerial: input.OriginSerial, ObservedAt: input.ObservedAt}
-	source.TenantID = tenant.String()
 	err := sc.Q.QueryRow(ctx, `SELECT context_id::text,anchor_entity_id::text FROM entity_source_contexts
  WHERE tenant_id=$1 AND agent_id=$2 AND source_kind='bmp_peer' AND source_ref=$3 AND anchor_entity_id IS NOT NULL`, source.TenantID, source.CollectorAgentID, source.SourceRef).Scan(&source.ContextID, &source.RouterID)
 	if errors.Is(err, pgx.ErrNoRows) {

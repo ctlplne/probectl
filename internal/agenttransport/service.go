@@ -157,6 +157,8 @@ type service struct {
 	// its live mTLS sender. It never trusts a bus payload for this identity.
 	entityFaultCorrelator *incident.Correlator
 	resolverDNSPressure   *dnstap.PressurePolicy
+	bmpSessionPolicy      store.BMPSessionSignalPolicy
+	bmpSessionSignals     func(context.Context, tenancy.Scope, []incident.Signal) (func(), error)
 
 	// revocations is the SAME registry-driven mTLS deny-list the handshake
 	// consults (U-038). mTLS checks it once, at connect; CRY-01 re-checks it on

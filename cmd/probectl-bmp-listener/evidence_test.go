@@ -20,10 +20,12 @@ type evidenceAdapterCapture struct {
 	ctx              context.Context
 	up               *agentv1.BmpRoutingPeerUp
 	message          *agentv1.BmpRoutingMessage
+	session          *agentv1.BmpSessionEvidence
 	stage            *agentv1.BmpRoutingStagingReceipt
 	receipt          *agentv1.BmpRoutingMessageReceipt
 	err              error
 	stages, messages int
+	sessions         int
 }
 
 func (c *evidenceAdapterCapture) Submit(context.Context, []entity.Observation) (int, int, error) {
@@ -48,6 +50,15 @@ func (c *evidenceAdapterCapture) SubmitRoutingMessage(ctx context.Context, messa
 	return c.receipt, c.err
 }
 
+func (c *evidenceAdapterCapture) SubmitBMPSessionEvidence(ctx context.Context, session *agentv1.BmpSessionEvidence) error {
+	c.t.Helper()
+	if ctx != c.ctx || session != c.session {
+		c.t.Fatal("adapter replaced BMP session evidence context or original request")
+	}
+	c.sessions++
+	return c.err
+}
+
 // The command's metrics wrapper must retain the optional routing interfaces.
 // The RPC sink is modeled here; actual mTLS has its separate integration proof.
 func TestBMPEvidenceAdapterKeepsCompleteRoutingTransport(t *testing.T) {
@@ -56,6 +67,7 @@ func TestBMPEvidenceAdapterKeepsCompleteRoutingTransport(t *testing.T) {
 	capture := &evidenceAdapterCapture{t: t, ctx: ctx,
 		up:      &agentv1.BmpRoutingPeerUp{Message: []byte{1, 2, 3}},
 		message: &agentv1.BmpRoutingMessage{Message: []byte{4, 5, 6}, Sequence: 17},
+		session: &agentv1.BmpSessionEvidence{Frame: []byte{3, 0, 0, 0, 6, 5}, Sequence: 18},
 		stage:   &agentv1.BmpRoutingStagingReceipt{Status: "staged"},
 		receipt: &agentv1.BmpRoutingMessageReceipt{Status: "applied", Sequence: 17}}
 	var adapter any = observedBMPEvidence{client: capture}
@@ -71,6 +83,12 @@ func TestBMPEvidenceAdapterKeepsCompleteRoutingTransport(t *testing.T) {
 	if !ok {
 		t.Fatal("shipped metrics adapter hides routing message transport")
 	}
+	sessions, ok := adapter.(interface {
+		SubmitBMPSessionEvidence(context.Context, *agentv1.BmpSessionEvidence) error
+	})
+	if !ok {
+		t.Fatal("shipped metrics adapter hides BMP session evidence transport")
+	}
 	for _, err := range []error{nil, errors.New("evidence unavailable")} {
 		capture.err = err
 		stage, gotErr := stager.StageRoutingPeer(ctx, capture.up)
@@ -81,8 +99,11 @@ func TestBMPEvidenceAdapterKeepsCompleteRoutingTransport(t *testing.T) {
 		if receipt != capture.receipt || gotErr != err {
 			t.Fatal("adapter altered complete stream receipt or error")
 		}
+		if gotErr := sessions.SubmitBMPSessionEvidence(ctx, capture.session); gotErr != err {
+			t.Fatal("adapter altered BMP session acknowledgement")
+		}
 	}
-	if capture.stages != 2 || capture.messages != 2 {
+	if capture.stages != 2 || capture.messages != 2 || capture.sessions != 2 {
 		t.Fatal("adapter did not forward each routing call exactly once")
 	}
 }

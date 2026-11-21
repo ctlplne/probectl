@@ -509,6 +509,34 @@ message ResolverDNSCaptureReceipt {
   bytes evidence_digest = 3;
 }
 
+// Original BMP statistics or connection lifecycle from an authenticated router.
+// The server resolves tenant and router identity from the existing evidence
+// channel, the verified router certificate and the current source assignment.
+message BmpSessionEvidence {
+  string configured_ref = 1;
+  string origin_serial = 2;
+  string connection_id = 3;
+  int64 sequence = 4;
+  int64 observed_unix_nanos = 5;
+  bytes frame = 6;
+  bool transport_closed = 7;
+  BmpSessionUpdateWindow update_window = 8;
+}
+
+message BmpSessionUpdateWindow {
+  bytes peer_header = 1; // original 42-byte peer header
+  int64 first_observed_unix_nanos = 2;
+  int64 last_observed_unix_nanos = 3;
+  uint64 updates = 4;
+}
+
+message BmpSessionEvidenceReceipt {
+  string connection_id = 1;
+  int64 sequence = 2;
+  bytes evidence_digest = 3;
+  bool coverage_gap = 4;
+}
+
 message SubmitEntityEvidenceRequest {
   repeated EntityEvidenceObservation observations = 1;
   repeated EntityFaultObservation faults = 2; // 1–64 combined; message size is also bounded
@@ -520,6 +548,7 @@ message SubmitEntityEvidenceRequest {
   DeviceCounterWitness device_counter = 8; // exclusive; certified sender only
   BmpPeerSessionBatch bmp_peer_sessions = 9; // exclusive; legacy receivers must refuse without writing generic identities
   ResolverDNSCapture resolver_dns = 10; // exclusive; bound resolver only
+  BmpSessionEvidence bmp_session_evidence = 11; // exclusive; bound BMP router only
 }
 
 // Exclusive wrapper prevents an older receiver from accepting lifecycle facts
@@ -543,4 +572,5 @@ message SubmitEntityEvidenceResponse {
   uint32 interface_states_persisted = 12; // typed original state retained, not a generic identity ack
   uint32 bmp_peer_sessions_persisted = 13; // typed original lifecycle retained, not an identity ack
   ResolverDNSCaptureReceipt resolver_dns = 14;
+  BmpSessionEvidenceReceipt bmp_session_evidence = 15;
 }

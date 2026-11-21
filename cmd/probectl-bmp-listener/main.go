@@ -375,6 +375,7 @@ type bmpEvidenceClient interface {
 	Submit(context.Context, []entity.Observation) (int, int, error)
 	StageRoutingPeer(context.Context, *agentv1.BmpRoutingPeerUp) (*agentv1.BmpRoutingStagingReceipt, error)
 	SubmitRoutingMessage(context.Context, *agentv1.BmpRoutingMessage) (*agentv1.BmpRoutingMessageReceipt, error)
+	SubmitBMPSessionEvidence(context.Context, *agentv1.BmpSessionEvidence) error
 }
 
 type observedBMPEvidence struct {
@@ -398,6 +399,12 @@ func (o observedBMPEvidence) SubmitRoutingMessage(ctx context.Context, request *
 	receipt, err := o.client.SubmitRoutingMessage(ctx, request)
 	o.metrics.EntityEvidence(0, 0, err)
 	return receipt, err
+}
+
+func (o observedBMPEvidence) SubmitBMPSessionEvidence(ctx context.Context, request *agentv1.BmpSessionEvidence) error {
+	err := o.client.SubmitBMPSessionEvidence(ctx, request)
+	o.metrics.EntityEvidence(0, 0, err)
+	return err
 }
 
 func (o observedBMPEvidence) QueueDrop() { o.metrics.EntityEvidenceQueueDrop() }

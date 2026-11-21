@@ -540,6 +540,7 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/bgp/events":                             "bounded",
 	"/v1/bgp/visibility":                         "bounded",
 	"/v1/bgp/visibility/{id}":                    "cursor",
+	"/v1/bgp/sessions/{router_id}":               "cursor",
 	"/v1/bgp/visibility/{id}/paths":              "cursor",
 	"/v1/entities":                               "cursor",
 	"/v1/entities/{id}/evidence":                 "cursor",

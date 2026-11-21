@@ -733,6 +733,94 @@ export interface BGPVisibilityOrigin {
   peers: number
 }
 
+export interface BMPConnectionLifecycle {
+  reason: number
+  reason_known: boolean
+  terminated: boolean
+}
+
+export interface BMPNeighborTransition {
+  down_reason?: number
+  frame_digest: string
+  fsm_event?: number
+  notification_code?: number
+  notification_subcode?: number
+  peer: BMPSessionPeer
+  state: "up" | "down" | "monitoring_withdrawn"
+}
+
+export interface BMPSessionHistory {
+  coverage: "no_retained_points" | "retained_points"
+  effective_limit: number
+  expected_range?: BMPStatisticRange
+  items: BMPSessionPoint[]
+  next_cursor?: string
+  source: BMPSessionSource
+}
+
+export interface BMPSessionPeer {
+  bgp_identifier: string
+  distinguisher?: string
+  filtered: boolean
+  flags: number
+  original_clock?: string
+  peer_address?: string
+  peer_asn: number
+  peer_type: number
+  view: "adj_rib_in_pre_policy" | "adj_rib_in_post_policy" | "adj_rib_out_pre_policy" | "adj_rib_out_post_policy" | "loc_rib"
+}
+
+export interface BMPSessionPoint {
+  connection_id: string
+  coverage_gap: boolean
+  evidence_digest: string
+  kind: "statistics" | "neighbor" | "update_churn" | "initiation" | "termination" | "transport_closed"
+  lifecycle?: BMPConnectionLifecycle
+  neighbor?: BMPNeighborTransition
+  observed_at: string
+  observed_unix_nanos: string
+  range_status?: "coverage_gap" | "missing" | "below_range" | "within_range" | "above_range"
+  sequence: string
+  statistics?: BMPSessionStatistics
+  update_churn?: BMPUpdateChurn
+}
+
+export interface BMPSessionSource {
+  collector_agent_id: string
+  context_id: string
+  router_id: string
+  source_ref: string
+}
+
+export interface BMPSessionStatistic {
+  afi?: number
+  counter: boolean
+  safi?: number
+  type: number
+  value: string
+  view?: "adj_rib_in_pre_policy" | "adj_rib_in_post_policy" | "adj_rib_out_pre_policy" | "adj_rib_out_post_policy" | "loc_rib" | "legacy_adj_rib_in"
+}
+
+export interface BMPSessionStatistics {
+  peer: BMPSessionPeer
+  samples: BMPSessionStatistic[]
+}
+
+export interface BMPStatisticRange {
+  afi?: number
+  maximum: string
+  minimum: string
+  safi?: number
+  type: number
+}
+
+export interface BMPUpdateChurn {
+  first_observed_at: string
+  last_observed_at: string
+  peer: BMPSessionPeer
+  updates: string
+}
+
 export interface Branding {
   product_name: "probectl"
   token_overrides?: { [key: string]: string }
@@ -5154,6 +5242,25 @@ export interface ListBgpEventsRequest {
 
 export type ListBgpEventsResponse = BGPEventList
 
+export interface GetBmpSessionHistoryRequest {
+  routerId: string
+  contextId: string
+  collectorAgentId: string
+  sourceRef: string
+  from?: string
+  to?: string
+  peer?: string
+  cursor?: string
+  limit?: number
+  statistic?: string
+  afi?: string
+  safi?: string
+  expectedMin?: string
+  expectedMax?: string
+}
+
+export type GetBmpSessionHistoryResponse = BMPSessionHistory
+
 export interface ListBgpVisibilityMonitorsRequest {
 }
 
@@ -7331,6 +7438,26 @@ export class ProbectlSDKClient {
     if (request.asn !== undefined) query.set("asn", String(request.asn))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListBgpEventsResponse>("GET", path, query, undefined)
+  }
+
+  async getBmpSessionHistory(request: GetBmpSessionHistoryRequest): Promise<GetBmpSessionHistoryResponse> {
+    let path = "/v1/bgp/sessions/{router_id}"
+    path = path.replace("{router_id}", encodeURIComponent(String(request.routerId)))
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.collectorAgentId !== undefined) query.set("collector_agent_id", String(request.collectorAgentId))
+    if (request.sourceRef !== undefined) query.set("source_ref", String(request.sourceRef))
+    if (request.from !== undefined) query.set("from", String(request.from))
+    if (request.to !== undefined) query.set("to", String(request.to))
+    if (request.peer !== undefined) query.set("peer", String(request.peer))
+    if (request.cursor !== undefined) query.set("cursor", String(request.cursor))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.statistic !== undefined) query.set("statistic", String(request.statistic))
+    if (request.afi !== undefined) query.set("afi", String(request.afi))
+    if (request.safi !== undefined) query.set("safi", String(request.safi))
+    if (request.expectedMin !== undefined) query.set("expected_min", String(request.expectedMin))
+    if (request.expectedMax !== undefined) query.set("expected_max", String(request.expectedMax))
+    return this.requestJSON<GetBmpSessionHistoryResponse>("GET", path, query, undefined)
   }
 
   async listBgpVisibilityMonitors(): Promise<ListBgpVisibilityMonitorsResponse> {

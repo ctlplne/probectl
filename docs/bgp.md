@@ -442,3 +442,5 @@ preserves reported segments; it does not remove an ASN or guess whether a
 prepend was legitimate. The real-source fixture uses digest-pinned FRR 10.7.1
 and independently checks the configured router table and the original expected
 paths. This fixture update alone does not qualify the unfinished flow join.
+
+Read [BMP session history](bgp-session-history.md) for authenticated peer transitions, reported RIB gauges and observe-only loss and flap findings.

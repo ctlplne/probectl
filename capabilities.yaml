@@ -117,14 +117,14 @@ capabilities:
     owner: incident/API
     engine: {refs: ["file:internal/bgp", "file:internal/bgp/bmp_entity_evidence.go", "file:analyzer/probectl_analyzer"]}
     binary: {refs: ["file:cmd/probectl-bmp-listener/main.go#func run", "file:cmd/probectl-control/bgp_analyzer.go#func runBGPAnalyzer"]}
-    api: {refs: ["api:GET /v1/bgp/events", "api:GET /v1/bgp/visibility/{id}/paths"]}
-    cli: {refs: ["cli:probectl bgp events", "cli:probectl bgp setup", "cli:probectl bgp path-history"]}
+    api: {refs: ["api:GET /v1/bgp/events", "api:GET /v1/bgp/visibility/{id}/paths", "api:GET /v1/bgp/sessions/{router_id}"]}
+    cli: {refs: ["cli:probectl bgp events", "cli:probectl bgp setup", "cli:probectl bgp path-history", "cli:probectl bgp session-history"]}
     ui: {refs: ["ui:F6@/planes/bgp"]}
-    docs: {refs: ["file:docs/bgp.md#BGP & routing monitoring", "file:docs/bgp-as-path-history.md#AS-path history for monitored prefixes"]}
-    config_keys: {refs: ["config:PROBECTL_BGP_ANALYZER_CONFIG", "config:PROBECTL_BMP_LISTEN_ADDR"]}
+    docs: {refs: ["file:docs/bgp.md#BGP & routing monitoring", "file:docs/bgp-as-path-history.md#AS-path history for monitored prefixes", "file:docs/bgp-session-history.md#BMP session history"]}
+    config_keys: {refs: ["config:PROBECTL_BGP_ANALYZER_CONFIG", "config:PROBECTL_BMP_LISTEN_ADDR", "config:PROBECTL_BMP_SESSION_SIGNALS_ENABLED"]}
     telemetry: {refs: ["file:internal/bgp"]}
-    real_stack_proof: {refs: ["test:internal/bgp/realstack_integration_test.go#TestBGPMonitoringRealStack", "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors", "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBJoinsShippedProtocolGoldenFields", "test:internal/bgp/peering_estimate_realstack_integration_test.go#TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95", "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRMonitoredASPathHistoryKeepsOriginalTenantSources"]}
-    migration: {refs: ["file:migrations/0136_entity_registry.sql", "file:migrations/0244_bgp_as_path_history.sql"]}
+    real_stack_proof: {refs: ["test:internal/bgp/realstack_integration_test.go#TestBGPMonitoringRealStack", "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors", "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBJoinsShippedProtocolGoldenFields", "test:internal/bgp/peering_estimate_realstack_integration_test.go#TestFRRPeeringEstimateJoinsCurrentSourcesAndCombinedHandP95", "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRMonitoredASPathHistoryKeepsOriginalTenantSources", "test:internal/bgp/bmp_session_realstack_integration_test.go#TestFRRBMPSessionHistoryKeepsTransitionsAndTenantSignals"]}
+    migration: {refs: ["file:migrations/0136_entity_registry.sql", "file:migrations/0244_bgp_as_path_history.sql", "file:migrations/0245_bmp_session_evidence.sql"]}
 
   - id: F7
     name: Open-data enrichment

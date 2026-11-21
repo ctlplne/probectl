@@ -21,14 +21,14 @@ import (
 type mcpBGPVisibilityBackend struct{ server *Server }
 
 func bgpVisibilityToolOption(server *Server) (mcp.Option, error) {
-	schema, err := bgpHistoryToolSchema("/v1/bgp/visibility/{id}", 4)
+	schema, err := bgpHistoryToolSchema("/v1/bgp/visibility/{id}", 4, "id")
 	if err != nil {
 		return nil, err
 	}
 	return mcp.WithBGPVisibilityBackend(mcpBGPVisibilityBackend{server}, schema), nil
 }
 
-func bgpHistoryToolSchema(path string, count int) (json.RawMessage, error) {
+func bgpHistoryToolSchema(path string, count int, required ...string) (json.RawMessage, error) {
 	var doc struct {
 		Paths map[string]struct {
 			Get struct {
@@ -56,7 +56,7 @@ func bgpHistoryToolSchema(path string, count int) (json.RawMessage, error) {
 		Properties           map[string]json.RawMessage `json:"properties"`
 		Required             []string                   `json:"required"`
 		AdditionalProperties bool                       `json:"additionalProperties"`
-	}{Type: "object", Properties: properties, Required: []string{"id"}})
+	}{Type: "object", Properties: properties, Required: required})
 }
 
 func (b mcpBGPVisibilityBackend) BGPVisibility(ctx context.Context, actor *auth.Principal, command mcp.BGPVisibilityCommand) (json.RawMessage, error) {

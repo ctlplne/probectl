@@ -825,6 +825,94 @@ type BGPVisibilityOrigin struct {
 	Peers int `json:"peers"`
 }
 
+type BMPConnectionLifecycle struct {
+	Reason      int  `json:"reason"`
+	ReasonKnown bool `json:"reason_known"`
+	Terminated  bool `json:"terminated"`
+}
+
+type BMPNeighborTransition struct {
+	DownReason          int            `json:"down_reason,omitempty"`
+	FrameDigest         string         `json:"frame_digest"`
+	FsmEvent            int            `json:"fsm_event,omitempty"`
+	NotificationCode    int            `json:"notification_code,omitempty"`
+	NotificationSubcode int            `json:"notification_subcode,omitempty"`
+	Peer                BMPSessionPeer `json:"peer"`
+	State               string         `json:"state"`
+}
+
+type BMPSessionHistory struct {
+	Coverage       string            `json:"coverage"`
+	EffectiveLimit int               `json:"effective_limit"`
+	ExpectedRange  BMPStatisticRange `json:"expected_range,omitzero"`
+	Items          []BMPSessionPoint `json:"items"`
+	NextCursor     string            `json:"next_cursor,omitempty"`
+	Source         BMPSessionSource  `json:"source"`
+}
+
+type BMPSessionPeer struct {
+	BgpIdentifier string `json:"bgp_identifier"`
+	Distinguisher string `json:"distinguisher,omitempty"`
+	Filtered      bool   `json:"filtered"`
+	Flags         int    `json:"flags"`
+	OriginalClock string `json:"original_clock,omitempty"`
+	PeerAddress   string `json:"peer_address,omitempty"`
+	PeerAsn       int    `json:"peer_asn"`
+	PeerType      int    `json:"peer_type"`
+	View          string `json:"view"`
+}
+
+type BMPSessionPoint struct {
+	ConnectionId      string                 `json:"connection_id"`
+	CoverageGap       bool                   `json:"coverage_gap"`
+	EvidenceDigest    string                 `json:"evidence_digest"`
+	Kind              string                 `json:"kind"`
+	Lifecycle         BMPConnectionLifecycle `json:"lifecycle,omitzero"`
+	Neighbor          BMPNeighborTransition  `json:"neighbor,omitzero"`
+	ObservedAt        string                 `json:"observed_at"`
+	ObservedUnixNanos string                 `json:"observed_unix_nanos"`
+	RangeStatus       string                 `json:"range_status,omitempty"`
+	Sequence          string                 `json:"sequence"`
+	Statistics        BMPSessionStatistics   `json:"statistics,omitzero"`
+	UpdateChurn       BMPUpdateChurn         `json:"update_churn,omitzero"`
+}
+
+type BMPSessionSource struct {
+	CollectorAgentId string `json:"collector_agent_id"`
+	ContextId        string `json:"context_id"`
+	RouterId         string `json:"router_id"`
+	SourceRef        string `json:"source_ref"`
+}
+
+type BMPSessionStatistic struct {
+	Afi     int    `json:"afi,omitempty"`
+	Counter bool   `json:"counter"`
+	Safi    int    `json:"safi,omitempty"`
+	Type    int    `json:"type"`
+	Value   string `json:"value"`
+	View    string `json:"view,omitempty"`
+}
+
+type BMPSessionStatistics struct {
+	Peer    BMPSessionPeer        `json:"peer"`
+	Samples []BMPSessionStatistic `json:"samples"`
+}
+
+type BMPStatisticRange struct {
+	Afi     int    `json:"afi,omitempty"`
+	Maximum string `json:"maximum"`
+	Minimum string `json:"minimum"`
+	Safi    int    `json:"safi,omitempty"`
+	Type    int    `json:"type"`
+}
+
+type BMPUpdateChurn struct {
+	FirstObservedAt string         `json:"first_observed_at"`
+	LastObservedAt  string         `json:"last_observed_at"`
+	Peer            BMPSessionPeer `json:"peer"`
+	Updates         string         `json:"updates"`
+}
+
 type Branding struct {
 	ProductName    string            `json:"product_name"`
 	TokenOverrides map[string]string `json:"token_overrides,omitempty"`
@@ -6091,6 +6179,77 @@ func (c *Client) ListBgpEvents(ctx context.Context, req ListBgpEventsRequest) (*
 		query.Set("limit", formatQueryValue(*req.Limit))
 	}
 	var out BGPEventList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read authenticated BMP session history for one router source
+type GetBmpSessionHistoryRequest struct {
+	RouterId         string  `json:"-"`
+	ContextId        *string `json:"-"`
+	CollectorAgentId *string `json:"-"`
+	SourceRef        *string `json:"-"`
+	From             *string `json:"-"`
+	To               *string `json:"-"`
+	Peer             *string `json:"-"`
+	Cursor           *string `json:"-"`
+	Limit            *int    `json:"-"`
+	Statistic        *string `json:"-"`
+	Afi              *string `json:"-"`
+	Safi             *string `json:"-"`
+	ExpectedMin      *string `json:"-"`
+	ExpectedMax      *string `json:"-"`
+}
+
+func (c *Client) GetBmpSessionHistory(ctx context.Context, req GetBmpSessionHistoryRequest) (*BMPSessionHistory, error) {
+	path := "/v1/bgp/sessions/{router_id}"
+	if req.RouterId == "" {
+		return nil, fmt.Errorf("router_id is required")
+	}
+	path = strings.ReplaceAll(path, "{router_id}", url.PathEscape(req.RouterId))
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.CollectorAgentId != nil {
+		query.Set("collector_agent_id", formatQueryValue(*req.CollectorAgentId))
+	}
+	if req.SourceRef != nil {
+		query.Set("source_ref", formatQueryValue(*req.SourceRef))
+	}
+	if req.From != nil {
+		query.Set("from", formatQueryValue(*req.From))
+	}
+	if req.To != nil {
+		query.Set("to", formatQueryValue(*req.To))
+	}
+	if req.Peer != nil {
+		query.Set("peer", formatQueryValue(*req.Peer))
+	}
+	if req.Cursor != nil {
+		query.Set("cursor", formatQueryValue(*req.Cursor))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.Statistic != nil {
+		query.Set("statistic", formatQueryValue(*req.Statistic))
+	}
+	if req.Afi != nil {
+		query.Set("afi", formatQueryValue(*req.Afi))
+	}
+	if req.Safi != nil {
+		query.Set("safi", formatQueryValue(*req.Safi))
+	}
+	if req.ExpectedMin != nil {
+		query.Set("expected_min", formatQueryValue(*req.ExpectedMin))
+	}
+	if req.ExpectedMax != nil {
+		query.Set("expected_max", formatQueryValue(*req.ExpectedMax))
+	}
+	var out BMPSessionHistory
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
