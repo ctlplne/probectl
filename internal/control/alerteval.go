@@ -668,21 +668,83 @@ func (s *AlertEvaluatorSupervisor) Run(ctx context.Context) {
 func (s *AlertEvaluatorSupervisor) runFastDDoS(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+	s.pollFastDDoS(ctx, ticker.C, s.tickFastDDoS)
+}
+
+// pollFastDDoS keeps the tenant concurrency bound across polling rounds. A
+// tenant whose read is still in flight holds one slot and may be polled again
+// once it finishes. Idle tenants keep progressing on the other slots.
+func (s *AlertEvaluatorSupervisor) pollFastDDoS(ctx context.Context, ticks <-chan time.Time, evaluate func(context.Context, *tenantEvaluator)) {
+	ctx, cancel := context.WithCancel(ctx)
+	limit := max(1, s.maxConcurrent)
+	completed := make(chan string, limit)
+	active := make(map[string]bool, limit)
+	var workers sync.WaitGroup
+	defer workers.Wait()
+	defer cancel()
+	var pending []*tenantEvaluator
 	for {
+		for len(pending) > 0 && len(active) < limit && ctx.Err() == nil {
+			te := pending[0]
+			pending = pending[1:]
+			if !s.currentTenantEvaluator(te) {
+				continue
+			}
+			id := te.tenant.String()
+			te.lastFastPoll = time.Now()
+			active[id] = true
+			workers.Go(func() {
+				evaluate(ctx, te)
+				completed <- id
+			})
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			s.tick(ctx, s.tickFastDDoS)
+		case id := <-completed:
+			delete(active, id)
+		case _, ok := <-ticks:
+			if !ok {
+				return
+			}
+			pending = s.fastDDoSQueue(active)
 		}
 	}
 }
 
+func (s *AlertEvaluatorSupervisor) fastDDoSQueue(active map[string]bool) []*tenantEvaluator {
+	s.mu.Lock()
+	pending := make([]*tenantEvaluator, 0, len(s.evaluators))
+	for id, te := range s.evaluators {
+		if !active[id] {
+			pending = append(pending, te)
+		}
+	}
+	s.mu.Unlock()
+	// A tenant that has waited the longest gets the next free slot. A stable
+	// tie break also makes newly registered tenants independent of map order.
+	sort.Slice(pending, func(i, j int) bool {
+		a, b := pending[i], pending[j]
+		if a.lastFastPoll.Equal(b.lastFastPoll) {
+			return a.tenant < b.tenant
+		}
+		return a.lastFastPoll.Before(b.lastFastPoll)
+	})
+	return pending
+}
+
+func (s *AlertEvaluatorSupervisor) currentTenantEvaluator(te *tenantEvaluator) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.evaluators[te.tenant.String()] == te
+}
+
 // tenantEvaluator is one tenant's evaluator on the singleton leader.
 type tenantEvaluator struct {
-	ev       *alert.Evaluator
-	tenant   tenancy.ID
-	sharedMu sync.Mutex
+	ev           *alert.Evaluator
+	tenant       tenancy.ID
+	sharedMu     sync.Mutex
+	lastFastPoll time.Time // owned by the fast polling loop
 }
 
 // reloadShared pulls the persisted operator state and maintenance windows into

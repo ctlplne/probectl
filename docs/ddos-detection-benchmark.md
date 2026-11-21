@@ -174,6 +174,16 @@ eight-second wait. The bounded two-worker pass produced a visible receipt in
 started scheduler pass. A tenant configured for one concurrent query keeps
 serial evaluation. [Paired scheduler fixture](../internal/control/alert_ddos_fast_integration_test.go)
 
+A separate fixture holds one tenant's fast read open while a second tenant
+completes an empty evaluation. After synthetic flow observations are stored
+for the second tenant, its next poll publishes one scoped receipt. The
+earlier scheduler stalled beyond eight seconds. The independent scheduler
+published the receipt 2.27 seconds after storage while the first tenant still
+held its query slot. The two-second polling cadence is subject to an eight-tenant
+concurrency bound. A ten-tenant scheduling test verifies that waiting tenants
+take free slots without waiting for another polling interval.
+[Stalled tenant and slot-limit fixtures](../internal/control/alert_ddos_fast_integration_test.go) · [Ten-tenant check](../internal/control/alerteval_test.go)
+
 ## Shipped collector timing
 
 Two two-tenant runs on macOS arm64 seeded synthetic prior-week references in

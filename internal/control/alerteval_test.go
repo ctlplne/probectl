@@ -9,12 +9,74 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+func TestFastDDoSPollingBoundsWorkersAndDrainsPendingTenants(t *testing.T) {
+	const limit = 8
+	sup := AlertEvaluatorSupervisor{maxConcurrent: limit, evaluators: make(map[string]*tenantEvaluator)}
+	release := make(map[string]chan struct{})
+	for i := range limit + 2 {
+		id := fmt.Sprintf("tenant-%02d", i)
+		sup.evaluators[id] = &tenantEvaluator{tenant: tenancy.ID(id)}
+		release[id] = make(chan struct{})
+	}
+	started := make(chan string, limit+2)
+	ticks := make(chan time.Time, 1)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sup.pollFastDDoS(ctx, ticks, func(ctx context.Context, te *tenantEvaluator) {
+			id := te.tenant.String()
+			started <- id
+			select {
+			case <-ctx.Done():
+			case <-release[id]:
+			}
+		})
+	}()
+	t.Cleanup(func() { cancel(); <-done })
+	ticks <- time.Now()
+	waitForStart := func() string {
+		t.Helper()
+		select {
+		case id := <-started:
+			return id
+		case <-time.After(3 * time.Second):
+			t.Fatal("no tenant took the available fast scheduler slot")
+			return ""
+		}
+	}
+	firstRound := make(map[string]bool, limit)
+	for range limit {
+		id := waitForStart()
+		if id > "tenant-07" || firstRound[id] {
+			t.Fatal("the first round skipped or repeated a waiting tenant", id)
+		}
+		firstRound[id] = true
+	}
+	select {
+	case id := <-started:
+		t.Fatal("the fast scheduler exceeded its tenant slot limit", id)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release["tenant-00"])
+	if got := waitForStart(); got != "tenant-08" {
+		t.Fatal("the oldest pending tenant did not take the free slot", got)
+	}
+	close(release["tenant-01"])
+	if got := waitForStart(); got != "tenant-09" {
+		t.Fatal("the final pending tenant did not take the free slot", got)
+	}
+}
 
 type fakeQuerier struct{ rows []tsdb.Series }
 

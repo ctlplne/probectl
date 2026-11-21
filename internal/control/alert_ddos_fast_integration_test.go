@@ -308,7 +308,10 @@ type waitingFastDDoSRuleSource struct {
 func (s *waitingFastDDoSRuleSource) CurrentRule(ctx context.Context, rule alert.Rule) (alert.RuleMetricRead, error) {
 	if rule.ID != s.id {
 		read, err := s.alertTagMetricSource.CurrentRule(ctx, rule)
-		s.finished <- err
+		select {
+		case s.finished <- err:
+		default:
+		}
 		return read, err
 	}
 	release, err := s.deps.Gate.BeginQuery(ctx, s.tenant)
@@ -319,6 +322,109 @@ func (s *waitingFastDDoSRuleSource) CurrentRule(ctx context.Context, rule alert.
 	close(s.ready)
 	<-ctx.Done()
 	return alert.RuleMetricRead{}, ctx.Err()
+}
+
+func TestFastDDoSContinuesPollingOtherTenantDuringStalledRead(t *testing.T) {
+	f := newRoleExplanationAPIFixture(t)
+	rows := seasonalFlowFixtureStore(t, f, true)
+	views := flow.NewPostgresQueryViewStore(f.pool, 0, audit.TenantRecord)
+	metrics := tsdb.NewMemory()
+	gate := fairness.NewGate(fairness.DefaultPolicy(), nil)
+	f.server.WithTSDB(metrics).WithFlowStore(rows).WithFlowQueryViews(views).WithFairness(gate)
+	socket := httptest.NewTLSServer(f.server.Handler())
+	t.Cleanup(socket.Close)
+	deps := AlertTagDependencies{Gate: gate, Queries: f.server, IncidentWindow: time.Minute}
+	sup, ok := BuildAlertEvaluatorSupervisor(f.pool, metrics, alert.ChannelDeps{}, time.Minute, nil, f.server.log, nil, nil, deps)
+	if !ok {
+		t.Fatal("fast evaluator is unavailable")
+	}
+	blockedTenant, readyTenant := f.tenants[0], f.tenants[1]
+	sup.listTenants = func(context.Context) ([]store.Tenant, error) {
+		return []store.Tenant{{ID: blockedTenant, Status: "active"}, {ID: readyTenant, Status: "active"}}, nil
+	}
+	var rules [2]string
+	for lane, tenant := range f.tenants {
+		grantSeasonalFlowFixture(f, tenant)
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		definition := fieldComparisonViewDefinition("Fast tenant scheduling fixture")
+		definition.Time.LookbackSeconds = 60
+		view, err := views.SaveQueryView(ctx, tenant, f.users[tenant], flow.SaveQueryView{Definition: definition})
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings := flow.DDoSAssessmentInput{Version: view.Version, Prefix: "192.0.2.1/32", Direction: "ingress", PeriodSeconds: 5,
+			BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000, VectorShareBasisPoints: 6000,
+			MinObservedRecords: 1, MinObservedAddresses: 2}
+		source := alert.QuerySourceInput{ViewID: view.ID, ViewVersion: view.Version,
+			Condition: alert.QueryCondition{Mode: alert.DDoSCondition, DDoS: &settings}}
+		body := callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodPost, "/v1/alerts",
+			map[string]any{"name": "Fast tenant scheduling fixture", "query_source": source}, http.StatusCreated)
+		var rule alert.Rule
+		if err := json.Unmarshal(body, &rule); err != nil || rule.ID == "" {
+			t.Fatal("could not create a tenant-scoped rule", err)
+		}
+		rules[lane] = rule.ID
+	}
+	if err := sup.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	blocked := &waitingFastDDoSRuleSource{alertTagMetricSource: alertTagMetricSource{tenant: blockedTenant, pool: f.pool, deps: deps},
+		id: rules[0], ready: make(chan struct{})}
+	probe := &waitingFastDDoSRuleSource{alertTagMetricSource: alertTagMetricSource{tenant: readyTenant, pool: f.pool, deps: deps},
+		finished: make(chan error, 1)}
+	sup.evaluators[blockedTenant].ev = alert.NewEvaluator(alert.NewEngine(blocked, nil, f.server.log), nil, time.Second, f.server.log)
+	sup.evaluators[readyTenant].ev = alert.NewEvaluator(alert.NewEngine(probe, nil, f.server.log), nil, time.Second, f.server.log)
+
+	run, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sup.runFastDDoS(run)
+	}()
+	t.Cleanup(func() { cancel(); <-done })
+	select {
+	case <-blocked.ready:
+	case <-time.After(6 * time.Second):
+		t.Fatal("the first tenant did not reach its blocked read")
+	}
+	select {
+	case <-probe.finished:
+	case <-time.After(6 * time.Second):
+		t.Fatal("the second tenant did not evaluate its initially empty flow population")
+	}
+	var seeded []flowstore.Row
+	center := time.Now().UTC().Truncate(5 * time.Second)
+	for offset := -4; offset <= 3; offset++ {
+		at := center.Add(time.Duration(offset)*5*time.Second - 2*time.Second)
+		seeded = append(seeded, delayFixtureFlow(readyTenant, at.AddDate(0, 0, -7), false), delayFixtureFlow(readyTenant, at, true))
+	}
+	if err := rows.Insert(t.Context(), seeded); err != nil {
+		t.Fatal(err)
+	}
+	var fingerprint string
+	started := time.Now()
+	shipped.Await(t, "the second tenant polls again while the first tenant still waits", 8*time.Second, func() bool {
+		for _, item := range getSeasonalFlowReceipts(t, socket, f.tokens[readyTenant], rules[1]).Items {
+			if item.Reason == "Sustained flow traffic pressure" {
+				if fingerprint != "" {
+					t.Fatal("the second polling round opened duplicate episodes")
+				}
+				fingerprint = item.Fingerprint
+			}
+		}
+		return fingerprint != ""
+	})
+	if !alert.ValidFieldDigest(fingerprint) || gate.SnapshotTenant(t.Context(), blockedTenant).Queries.InFlight != 1 {
+		t.Fatal("the second tenant's original receipt or the first tenant's held slot was lost")
+	}
+	path := "/v1/alerts/rules/" + rules[1] + "/ddos-receipt?fingerprint=" + fingerprint
+	var proof alert.DDoSEvaluationEvidence
+	body := callSeasonalAPI(t, socket, f.tokens[readyTenant], http.MethodGet, path, nil, http.StatusOK)
+	if err := json.Unmarshal(body, &proof); err != nil || proof.Current.After.To.Sub(proof.Previous.After.From) != 10*time.Second {
+		t.Fatal("the second tenant's receipt lost its original completed windows", err)
+	}
+	callSeasonalAPI(t, socket, f.tokens[blockedTenant], http.MethodGet, path, nil, http.StatusNotFound)
+	t.Logf("real-integration: second tenant's episode available %s after telemetry storage with the first tenant still blocked", time.Since(started))
 }
 
 func fastDDoSApplicationFixtureStore(t *testing.T, tenants []string) otelstore.Store {
