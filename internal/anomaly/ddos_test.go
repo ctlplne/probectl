@@ -101,9 +101,11 @@ func TestDDoSApplicationQualifiesDegradationWithAHealthyReference(t *testing.T) 
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(owner))
 	start := time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC)
 	earlier := DDoSObservation{TenantID: owner, Scope: "owned service", Target: netip.MustParsePrefix("192.0.2.1/32"), Direction: "ingress",
-		From: start, To: start.Add(5 * time.Second), Citation: "owned reference", Complete: true}
+		From: start, To: start.Add(5 * time.Second), Citation: "owned reference", Complete: true,
+		Bytes: "90000", Packets: "900", ApplicationBytes: "90000", ApplicationPackets: "900"}
 	current := earlier
 	current.From, current.To, current.Citation = earlier.From.AddDate(0, 0, 7), earlier.To.AddDate(0, 0, 7), "current observation"
+	current.Bytes, current.Packets, current.ApplicationBytes, current.ApplicationPackets = "360000", "3600", "360000", "3600"
 	previousApp := DDoSApplicationWindow{TenantID: owner, Target: earlier.Target, From: earlier.From, To: earlier.To,
 		Requests: 30, Successes: 20, P95: 100 * time.Millisecond, Digest: strings.Repeat("a", 64)}
 	currentApp := previousApp
@@ -111,15 +113,56 @@ func TestDDoSApplicationQualifiesDegradationWithAHealthyReference(t *testing.T) 
 	currentApp.Requests, currentApp.Successes, currentApp.P95 = 120, 120, 50*time.Millisecond
 
 	finding := &DDoSDetection{Class: DDoSVolumetric}
-	got, app, err := QualifyDDoSApplication(ctx, earlier, current, previousApp, currentApp, finding, DDoSThresholds{}, 1<<20)
+	limits := DDoSThresholds{BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000}
+	got, app, err := QualifyDDoSApplication(ctx, earlier, current, previousApp, currentApp, finding, limits, 1<<20)
 	if err != nil || got != finding || app == nil || app.State != DDoSApplicationAmbiguous {
 		t.Fatalf("recovery from an unhealthy reference must leave flow pressure inconclusive, got %+v, %v", app, err)
 	}
 
 	previousApp.Successes = previousApp.Requests
 	currentApp.Requests, currentApp.Successes, currentApp.P95 = 30, 30, 6*time.Second
-	got, app, err = QualifyDDoSApplication(ctx, earlier, current, previousApp, currentApp, finding, DDoSThresholds{}, 1<<20)
+	got, app, err = QualifyDDoSApplication(ctx, earlier, current, previousApp, currentApp, finding, limits, 1<<20)
 	if err != nil || got != finding || app == nil || app.State != DDoSApplicationDegraded || app.Current.P95 != 6*time.Second {
 		t.Fatalf("completed slow requests must corroborate their original window, got %+v, %v", app, err)
+	}
+}
+
+func TestDDoSApplicationRequiresPressureOnTheDegradedListener(t *testing.T) {
+	const owner = "25ebf92b-c387-451d-9e67-0b323c402a58"
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(owner))
+	start := time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC)
+	before := DDoSObservation{TenantID: owner, Scope: "owned service", Target: netip.MustParsePrefix("192.0.2.1/32"),
+		Direction: "ingress", From: start, To: start.Add(5 * time.Second), Citation: "reference", Complete: true,
+		Bytes: "220000", Packets: "2500", ApplicationBytes: "140000", ApplicationPackets: "1700",
+		SYNOnlyPackets: "0", UDPPackets: "0", ObservedRecords: 80, ObservedAddresses: 1}
+	previousApp := DDoSApplicationWindow{TenantID: owner, Target: before.Target, From: before.From, To: before.To,
+		Requests: 30, Successes: 30, P95: 25 * time.Millisecond, Digest: strings.Repeat("a", 64)}
+	limits := DDoSThresholds{BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
+		VectorShareBasisPoints: 6000, MinObservedRecords: 50, MinObservedAddresses: 2}
+	for _, scenario := range []struct {
+		name, bytes, packets, listenerBytes, listenerPackets, state string
+	}{
+		{"unrelated load below both floors", "290000", "3500", "140000", "1700", DDoSApplicationAmbiguous},
+		{"unrelated load above both floors", "400000", "4500", "140000", "1700", DDoSApplicationResidual},
+		{"listener byte pressure", "440000", "2500", "360000", "1700", DDoSApplicationDegraded},
+		{"listener packet pressure", "220000", "4400", "140000", "3600", DDoSApplicationDegraded},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			after := before
+			after.From, after.To, after.Citation = before.From.AddDate(0, 0, 7), before.To.AddDate(0, 0, 7), "current"
+			after.Bytes, after.Packets = scenario.bytes, scenario.packets
+			after.ApplicationBytes, after.ApplicationPackets = scenario.listenerBytes, scenario.listenerPackets
+			latestApp := previousApp
+			latestApp.From, latestApp.To, latestApp.Successes = after.From, after.To, 20
+			latestApp.P95, latestApp.Digest = 80*time.Millisecond, strings.Repeat("b", 64)
+			finding, err := EvaluateDDoS(ctx, before, after, limits, 1<<20)
+			if err != nil || finding == nil || finding.Class != DDoSVolumetric {
+				t.Fatalf("fixture must reach volume qualification, got %+v, %v", finding, err)
+			}
+			got, app, err := QualifyDDoSApplication(ctx, before, after, previousApp, latestApp, finding, limits, 1<<20)
+			if err != nil || got != finding || app == nil || app.State != scenario.state {
+				t.Fatalf("qualifier state want %q, got %+v, %v", scenario.state, app, err)
+			}
+		})
 	}
 }

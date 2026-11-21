@@ -88,6 +88,17 @@ Version one used 13 trials and two completed 60-second windows. A benign
 flash crowd opened a tentative volume episode on identical aggregates. Its
 source and results remain reproducible at the original commit. [Version-one benchmark and results](https://github.com/ctlplne/probectl/blob/d79fc7993d09b3ce1d4e8242b7b5c869100d2537/docs/ddos-detection-benchmark.md)
 
+## Shared host and unrelated application outage holdout
+
+The paired fixture stores identical host-wide totals of 290,000 bytes and
+3,500 packets and identical HTTP failures for two tenants. In the first
+tenant, the failed listener itself carries 210,000 bytes and 2,700 packets,
+which meets the configured floors and growth threshold. It receives one
+episode with the original listener counters. In the second, traffic on
+the failed listener stays flat. Traffic on a different port increases while
+remaining below both floors. That combination leaves aggregate pressure
+ambiguous. [Paired scheduler fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
+
 ## Representative reference holdout
 
 The scheduled detector's separate holdout compares the same synthetic input

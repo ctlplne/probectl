@@ -71,17 +71,8 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 	if finding == nil || finding.Class != DDoSVolumetric {
 		return finding, proof, ctx.Err()
 	}
-	// Evidence of independent application degradation supports a pressure
-	// signal. It does not identify a malicious client or the cause of failure.
 	if !withinDDoSApplicationErrorBudget(earlier) {
 		proof.State = DDoSApplicationAmbiguous
-		return finding, proof, ctx.Err()
-	}
-	if !withinDDoSApplicationErrorBudget(latest) || latest.P95-earlier.P95 > earlier.P95/2 {
-		proof.State = DDoSApplicationDegraded
-		return finding, proof, ctx.Err()
-	}
-	if latest.Successes <= earlier.Successes {
 		return finding, proof, ctx.Err()
 	}
 	parser := decimalSeasonalTraining{work: work}
@@ -96,9 +87,19 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 	if err != nil {
 		return nil, nil, err
 	}
+	listenerPressure := bytes.listenerPressure || packets.listenerPressure
+	degraded := !withinDDoSApplicationErrorBudget(latest) || latest.P95-earlier.P95 > earlier.P95/2
 	switch {
 	case bytes.residualPressure || packets.residualPressure:
 		proof.State = DDoSApplicationResidual
+	case degraded && listenerPressure:
+		proof.State = DDoSApplicationDegraded
+	case degraded:
+		// Application failure without independently qualifying listener
+		// traffic cannot corroborate aggregate traffic on the protected host.
+		proof.State = DDoSApplicationAmbiguous
+	case latest.Successes <= earlier.Successes && listenerPressure:
+		proof.State = DDoSApplicationObserved
 	case bytes.explained && packets.explained:
 		proof.State = DDoSApplicationDemand
 		finding = nil
@@ -109,7 +110,7 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 }
 
 type applicationTrafficComparison struct {
-	explained, residualPressure bool
+	explained, listenerPressure, residualPressure bool
 }
 
 func compareApplicationTraffic(parser *decimalSeasonalTraining, requests [2]int,
@@ -131,6 +132,7 @@ func compareApplicationTraffic(parser *decimalSeasonalTraining, requests [2]int,
 	return applicationTrafficComparison{
 		explained: comparableDDoSDemand(appBefore, appAfter, requests[0], requests[1]) &&
 			comparableDDoSDemand(before, after, requests[0], requests[1]),
+		listenerPressure: exceedsDDoSVolume(appAfter, appBefore, floor, growth),
 		residualPressure: exceedsDDoSVolume(residualAfter, residualBefore, floor, growth),
 	}, nil
 }

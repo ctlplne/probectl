@@ -34,10 +34,14 @@ needs at least 20 completed requests per window. The current successful-request
 growth must explain both byte and packet growth within 25% on the selected TCP port
 and across the protected host. Suppression also requires at most 1%
 unsuccessful requests and a p95 duration no more than 1.5 times the
-reference. Traffic outside the application can still qualify independently
-against the configured traffic floors. Missing, full-page or ambiguous
-application observations leave the bound generic pressure unevaluated for
-episode admission. Explicit network pressure continues through its own flow
+reference. Degraded HTTP responses corroborate pressure only when traffic
+on the selected listener independently meets the configured volume and
+growth thresholds. Traffic outside the listener can qualify on its own
+volume and growth. When neither component reaches those thresholds,
+degraded responses leave the host-wide increase ambiguous. Missing,
+full-page or ambiguous application observations leave the bound generic
+pressure unevaluated for episode admission. Explicit network pressure
+continues through its own flow
 evidence. HTTP requests are assigned by their start time and can count after
 completion even when they cross a window boundary. [OpenTelemetry HTTP span conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/#http-server-span) · [Synthetic benchmark](ddos-detection-benchmark.md)
 
