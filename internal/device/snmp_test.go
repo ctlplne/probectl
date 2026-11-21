@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -98,12 +99,15 @@ func healthyConn() *fakeConn {
 				1: pdu(oidHrStorageTypeRAM),     // RAM row
 				2: pdu(".1.3.6.1.2.1.25.2.1.4"), // disk row, ignored
 			},
-			oidHrStorageAllocUnits: {1: pdu(1024), 2: pdu(4096)},
-			oidHrStorageSize:       {1: pdu(1000), 2: pdu(9999)},
-			oidHrStorageUsed:       {1: pdu(400), 2: pdu(1234)},
-			oidEntPhySensorType:    {1001: pdu(entPhySensorTypeCelsius), 1002: pdu(5)},
-			oidEntPhySensorValue:   {1001: pdu(42), 1002: pdu(7)},
-			oidEntPhysicalName:     {1001: pdu([]byte("CPU Temp"))},
+			oidHrStorageAllocUnits:   {1: pdu(1024), 2: pdu(4096)},
+			oidHrStorageSize:         {1: pdu(1000), 2: pdu(9999)},
+			oidHrStorageUsed:         {1: pdu(400), 2: pdu(1234)},
+			oidEntPhySensorType:      {1001: {Type: gosnmp.Integer, Value: entPhySensorTypeCelsius}, 1002: {Type: gosnmp.Integer, Value: 5}},
+			oidEntPhySensorScale:     {1001: {Type: gosnmp.Integer, Value: 9}, 1002: {Type: gosnmp.Integer, Value: 9}},
+			oidEntPhySensorPrecision: {1001: {Type: gosnmp.Integer, Value: 0}, 1002: {Type: gosnmp.Integer, Value: 0}},
+			oidEntPhySensorStatus:    {1001: {Type: gosnmp.Integer, Value: 1}, 1002: {Type: gosnmp.Integer, Value: 1}},
+			oidEntPhySensorValue:     {1001: {Type: gosnmp.Integer, Value: 42}, 1002: {Type: gosnmp.Integer, Value: 7}},
+			oidEntPhysicalName:       {1001: pdu([]byte("CPU Temp"))},
 		},
 	}
 	// ipAddrTable is indexed by the IP itself, not a row integer.
@@ -232,6 +236,44 @@ func TestPollSNMPGracefulDegradation(t *testing.T) {
 	for _, m := range ms {
 		if m.Name == MetricCPUUtilization || m.Name == MetricMemoryUsed {
 			t.Fatalf("phantom metric from missing MIB: %+v", m)
+		}
+	}
+}
+
+func TestPollSNMPTemperatureUsesOriginalScalePrecisionAndStatus(t *testing.T) {
+	conn := healthyConn()
+	integer := func(n int) gosnmp.SnmpPDU { return gosnmp.SnmpPDU{Type: gosnmp.Integer, Value: n} }
+	for _, example := range []struct {
+		index                           uint32
+		value, scale, precision, status int
+	}{
+		{1001, 381, 9, 1, 1},
+		{1003, 42375, 8, 0, 1},
+		{1004, -12, 9, -1, 1},
+		{1005, 800, 9, 1, 2},
+		{1006, 1000000000, 9, 0, 1},
+		{1007, 410, 9, 1, 1},
+		{1008, 410, 0, 1, 1},
+	} {
+		conn.tables[oidEntPhySensorType][example.index] = integer(entPhySensorTypeCelsius)
+		conn.tables[oidEntPhySensorValue][example.index] = integer(example.value)
+		conn.tables[oidEntPhySensorScale][example.index] = integer(example.scale)
+		conn.tables[oidEntPhySensorPrecision][example.index] = integer(example.precision)
+		conn.tables[oidEntPhySensorStatus][example.index] = integer(example.status)
+	}
+	delete(conn.tables[oidEntPhySensorPrecision], 1007)
+	for _, tenant := range []string{"fixture-tenant-a", "fixture-tenant-b"} {
+		metrics := readEntityTemperatures(conn, Metric{TenantID: tenant, Device: "192.0.2.8"})
+		want := map[uint32]float64{1001: 38.1, 1003: 42.375, 1004: -12}
+		if len(metrics) != len(want) {
+			t.Fatal("temperature collection omitted a qualified reading or retained unavailable evidence", metrics)
+		}
+		for _, metric := range metrics {
+			value, exists := want[metric.IfIndex]
+			if !exists || math.Abs(metric.Value-value) > 1e-9 || metric.TenantID != tenant || metric.Unit != "celsius" {
+				t.Fatal("temperature lost its original physical index, unit, value or tenant", metric)
+			}
+			delete(want, metric.IfIndex)
 		}
 	}
 }

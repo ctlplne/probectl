@@ -97,6 +97,12 @@ fed it. (Source of truth: `internal/device/model.go`.)
 | `probectl.device.optical.laser.bias.milliamperes` | — | transceiver physical-channel `state/laser-bias-current/instant` | mA |
 | `probectl.device.optical.supply.voltage.volts` | — | transceiver `state/supply-voltage/instant` | V |
 
+SNMP temperature uses the original sensor's type, scale and precision.
+A sensor that reports 381 with one fractional digit in the base unit reads
+38.1 °C. The original physical index stays attached. Missing metadata,
+nonoperational status or a numeric overflow leaves that sample unavailable.
+[RFC 3433](https://www.rfc-editor.org/rfc/rfc3433.html)
+
 Optical collection is opt-in through the target's existing `gnmi.paths`.
 For a device that exposes the OpenConfig platform/transceiver model, subscribe
 to `/components/component/transceiver/state/input-power/instant`, its

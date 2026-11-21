@@ -9,6 +9,7 @@ package device
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -52,16 +53,19 @@ const (
 	oidIPAdEntIfIndex = ".1.3.6.1.2.1.4.20.1.2"
 
 	// HOST-RESOURCES: CPU + storage.
-	oidHrProcessorLoad      = ".1.3.6.1.2.1.25.3.3.1.2"
-	oidHrStorageType        = ".1.3.6.1.2.1.25.2.3.1.2"
-	oidHrStorageAllocUnits  = ".1.3.6.1.2.1.25.2.3.1.4"
-	oidHrStorageSize        = ".1.3.6.1.2.1.25.2.3.1.5"
-	oidHrStorageUsed        = ".1.3.6.1.2.1.25.2.3.1.6"
-	oidHrStorageTypeRAM     = ".1.3.6.1.2.1.25.2.1.2" // hrStorageRam
-	oidEntPhySensorType     = ".1.3.6.1.2.1.99.1.1.1.1"
-	oidEntPhySensorValue    = ".1.3.6.1.2.1.99.1.1.1.4"
-	oidEntPhysicalName      = ".1.3.6.1.2.1.47.1.1.1.1.7"
-	entPhySensorTypeCelsius = 8
+	oidHrProcessorLoad       = ".1.3.6.1.2.1.25.3.3.1.2"
+	oidHrStorageType         = ".1.3.6.1.2.1.25.2.3.1.2"
+	oidHrStorageAllocUnits   = ".1.3.6.1.2.1.25.2.3.1.4"
+	oidHrStorageSize         = ".1.3.6.1.2.1.25.2.3.1.5"
+	oidHrStorageUsed         = ".1.3.6.1.2.1.25.2.3.1.6"
+	oidHrStorageTypeRAM      = ".1.3.6.1.2.1.25.2.1.2" // hrStorageRam
+	oidEntPhySensorType      = ".1.3.6.1.2.1.99.1.1.1.1"
+	oidEntPhySensorScale     = ".1.3.6.1.2.1.99.1.1.1.2"
+	oidEntPhySensorPrecision = ".1.3.6.1.2.1.99.1.1.1.3"
+	oidEntPhySensorValue     = ".1.3.6.1.2.1.99.1.1.1.4"
+	oidEntPhySensorStatus    = ".1.3.6.1.2.1.99.1.1.1.5"
+	oidEntPhysicalName       = ".1.3.6.1.2.1.47.1.1.1.1.7"
+	entPhySensorTypeCelsius  = 8
 )
 
 // snmpConn is the transport seam: the real gosnmp client in production, a
@@ -470,27 +474,78 @@ func pollSNMPHostResources(conn snmpConn, dev Target, deviceName string, base Me
 
 	// Optional entity sensors (temperature only — the broadly comparable one).
 	if dev.Sensors {
-		sensorNames := map[uint32]string{}
-		walkColumn(conn, oidEntPhysicalName, func(idx uint32, p gosnmp.SnmpPDU) {
-			sensorNames[idx] = pduString(p)
-		})
-		celsius := map[uint32]bool{}
-		walkColumn(conn, oidEntPhySensorType, func(idx uint32, p gosnmp.SnmpPDU) {
-			if int(pduFloat(p)) == entPhySensorTypeCelsius {
-				celsius[idx] = true
-			}
-		})
-		walkColumn(conn, oidEntPhySensorValue, func(idx uint32, p gosnmp.SnmpPDU) {
-			if !celsius[idx] {
-				return
-			}
-			m := base
-			m.DeviceName = deviceName
-			m.IfIndex, m.IfName = idx, sensorNames[idx]
-			m.Name, m.Value, m.Unit = MetricSensorCelsius, pduFloat(p), "celsius"
-			out = append(out, m)
-		})
+		base.DeviceName = deviceName
+		out = append(out, readEntityTemperatures(conn, base)...)
 	}
 
 	return out
+}
+
+// readEntityTemperatures joins the original ENTITY-SENSOR-MIB columns by
+// physical entity index. RFC 3433 defines the unit, scaling and precision.
+func readEntityTemperatures(conn snmpConn, base Metric) []Metric {
+	kinds := readMIBIntegerColumn(conn, oidEntPhySensorType)
+	scales := readMIBIntegerColumn(conn, oidEntPhySensorScale)
+	precisions := readMIBIntegerColumn(conn, oidEntPhySensorPrecision)
+	statuses := readMIBIntegerColumn(conn, oidEntPhySensorStatus)
+	names := map[uint32]string{}
+	walkColumn(conn, oidEntPhysicalName, func(idx uint32, row gosnmp.SnmpPDU) {
+		names[idx] = pduString(row)
+	})
+	var out []Metric
+	walkColumn(conn, oidEntPhySensorValue, func(idx uint32, row gosnmp.SnmpPDU) {
+		scale, hasScale := scales[idx]
+		precision, hasPrecision := precisions[idx]
+		if kinds[idx] != entPhySensorTypeCelsius || statuses[idx] != 1 || !hasScale || !hasPrecision {
+			return
+		}
+		value, ok := entitySensorTemperature(row, scale, precision)
+		if !ok {
+			return
+		}
+		metric := base
+		metric.IfIndex, metric.IfName = idx, names[idx]
+		metric.Name, metric.Value, metric.Unit = MetricSensorCelsius, value, "celsius"
+		out = append(out, metric)
+	})
+	return out
+}
+
+func readMIBIntegerColumn(conn snmpConn, oid string) map[uint32]int64 {
+	values := map[uint32]int64{}
+	walkColumn(conn, oid, func(idx uint32, row gosnmp.SnmpPDU) {
+		if value, ok := mibSignedInteger(row); ok {
+			values[idx] = value
+		}
+	})
+	return values
+}
+
+func entitySensorTemperature(row gosnmp.SnmpPDU, scale, precision int64) (float64, bool) {
+	value, ok := mibSignedInteger(row)
+	if !ok || value <= -1_000_000_000 || value >= 1_000_000_000 || scale < 1 || scale > 17 || precision < -8 || precision > 9 {
+		return 0, false
+	}
+	// Only positive precision encodes fractional digits. Negative values
+	// describe accuracy. Scale 9 represents the base unit.
+	exponent := 3*(int(scale)-9) - max(int(precision), 0)
+	return float64(value) * math.Pow10(exponent), true
+}
+
+func mibSignedInteger(row gosnmp.SnmpPDU) (int64, bool) {
+	if row.Type != gosnmp.Integer {
+		return 0, false
+	}
+	var signed int64
+	switch value := row.Value.(type) {
+	case int:
+		signed = int64(value)
+	case int32:
+		signed = int64(value)
+	case int64:
+		signed = value
+	default:
+		return 0, false
+	}
+	return signed, signed >= math.MinInt32 && signed <= math.MaxInt32
 }
