@@ -154,15 +154,16 @@ func TestDDoSDetectsMeasuredVectorWhenPopulationVolumeFalls(t *testing.T) {
 				name, baseline, previouslyUnknown, packets, total string
 				records                                           int
 				positive                                          bool
+				wantErr                                           error
 			}{
-				{"falling total", "1900", "0", "2800", "4000", 50, true},
-				{"flat total at vector floor", "1900", "0", "2500", "4200", 50, true},
-				{"below packet floor", "1900", "0", "2499", "4000", 50, false},
-				{"below vector share", "1900", "0", "2500", "4300", 50, false},
-				{"insufficient vector growth", "2400", "0", "2800", "4000", 50, false},
-				{"steady vector", "2800", "0", "2800", "4000", 50, false},
-				{"historical classification missing", "0", "2400", "2800", "4000", 50, false},
-				{"below observation floor", "1900", "0", "2800", "4000", 49, false},
+				{"falling total", "1900", "0", "2800", "4000", 50, true, nil},
+				{"flat total at vector floor", "1900", "0", "2500", "4200", 50, true, nil},
+				{"below packet floor", "1900", "0", "2499", "4000", 50, false, nil},
+				{"below vector share", "1900", "0", "2500", "4300", 50, false, nil},
+				{"insufficient vector growth", "2400", "0", "2800", "4000", 50, false, nil},
+				{"steady vector", "2800", "0", "2800", "4000", 50, false, nil},
+				{"historical classification missing", "0", "2400", "2800", "4000", 50, false, nil},
+				{"below observation floor", "1900", "0", "2800", "4000", 49, false, ErrDDoSRecordSupport},
 			} {
 				t.Run(scenario.name, func(t *testing.T) {
 					before := DDoSObservation{TenantID: owner, Scope: "owned host", Target: netip.MustParsePrefix("192.0.2.1/32"), Direction: "ingress",
@@ -189,8 +190,8 @@ func TestDDoSDetectsMeasuredVectorWhenPopulationVolumeFalls(t *testing.T) {
 					limits := DDoSThresholds{BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
 						VectorShareBasisPoints: 5900, MinObservedRecords: 50, MinObservedAddresses: 2}
 					got, err := EvaluateDDoS(ctx, before, after, limits, 1<<20)
-					if err != nil || (got != nil) != scenario.positive {
-						t.Fatalf("expected finding=%t, got %+v, %v", scenario.positive, got, err)
+					if !errors.Is(err, scenario.wantErr) || (got != nil) != scenario.positive {
+						t.Fatalf("expected finding=%t and err=%v, got %+v, %v", scenario.positive, scenario.wantErr, got, err)
 					}
 					if got != nil && (got.Class != vector || got.Service != service || got.ContributingPackets != scenario.packets ||
 						got.ReferencePackets != before.Packets || got.CurrentPackets != after.Packets) {

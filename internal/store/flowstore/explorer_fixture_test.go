@@ -36,6 +36,8 @@ func TestExplorerRegistryCoversEveryStoredFlowColumn(t *testing.T) {
 		"routing_captured_unix_nanos": false,
 		"service_classified_at":       false,
 		"service_evidence":            false,
+		"start_ts":                    false,
+		"clock_basis":                 false,
 	}
 	columns := map[string]bool{}
 	for _, field := range flow.QueryFields() {
@@ -50,10 +52,16 @@ func TestExplorerRegistryCoversEveryStoredFlowColumn(t *testing.T) {
 			continue
 		}
 		if name == "-" {
-			if typ.Field(i).Name == "TS" {
+			switch typ.Field(i).Name {
+			case "TS":
 				name = "ts"
-			} else {
+			case "StartTS":
 				name = "start_ts"
+			case "ClockBasis":
+				name = "clock_basis"
+			default:
+				t.Errorf("unclassified stored flow field %s", typ.Field(i).Name)
+				continue
 			}
 		}
 		if _, internal := private[name]; internal {

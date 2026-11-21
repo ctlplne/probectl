@@ -372,6 +372,7 @@ func TestVerifyListsStragglers(t *testing.T) {
 	}
 	fleet[0].Version = "v0.2.0"
 	fleet[0].Digest = goodArtifact().Digest
+	fleet[0].LastSeen = now.Add(time.Minute)
 	complete, err := p.Verify(fleet, now.Add(time.Minute))
 	if err != nil || complete {
 		t.Fatalf("one straggler must keep the wave applying: complete=%v err=%v", complete, err)
@@ -381,6 +382,7 @@ func TestVerifyListsStragglers(t *testing.T) {
 	}
 	fleet[1].Version = "v0.2.0"
 	fleet[1].Digest = goodArtifact().Digest
+	fleet[1].LastSeen = now.Add(2 * time.Minute)
 	if complete, err := p.Verify(fleet, now.Add(2*time.Minute)); err != nil || !complete {
 		t.Fatalf("converged wave must complete: complete=%v err=%v", complete, err)
 	}

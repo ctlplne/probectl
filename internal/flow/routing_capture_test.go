@@ -65,6 +65,17 @@ func TestRoutingCaptureWitnessBindsEveryOriginalFieldAndUnknownWireData(t *testi
 				value = protoreflect.ValueOfUint64(current.Uint() ^ 1)
 			case protoreflect.Int64Kind:
 				value = protoreflect.ValueOfInt64(current.Int() ^ 1)
+			case protoreflect.EnumKind:
+				values := field.Enum().Values()
+				for j := 0; j < values.Len(); j++ {
+					if alternative := values.Get(j).Number(); alternative != current.Enum() {
+						value = protoreflect.ValueOfEnum(alternative)
+						break
+					}
+				}
+				if !value.IsValid() {
+					t.Fatal("enum has no alternative value to verify", field.FullName())
+				}
 			default:
 				t.Fatalf("new flow field needs identity mutation coverage: %s", field.Kind())
 			}

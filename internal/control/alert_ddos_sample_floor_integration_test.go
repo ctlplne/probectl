@@ -22,7 +22,6 @@ import (
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
 	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
-	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
