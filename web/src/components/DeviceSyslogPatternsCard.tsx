@@ -13,6 +13,7 @@ import {
 import { formatInteger } from '../i18n/number'
 import { type MessageKey } from '../i18n/messages'
 import { useI18n } from '../i18n/useI18n'
+import type { DeviceSyslogPatternFrequency } from '../api/sdk.gen'
 import { DateTime } from '../time/DateTime'
 import { Button } from './Button'
 import { Card, CardBody, CardHeader } from './Card'
@@ -26,6 +27,14 @@ const patternNames: Record<DeviceSyslogPatternKind, MessageKey> = {
   power_supply_fault: 'device.syslog.pattern.supply',
 }
 
+const frequencyStates: Record<DeviceSyslogPatternFrequency['state'], MessageKey> = {
+  unavailable: 'device.syslog.frequency.unavailable',
+  warming: 'device.syslog.frequency.warming',
+  within_band: 'device.syslog.frequency.normal',
+  up: 'device.syslog.frequency.up',
+  down: 'device.syslog.frequency.down',
+}
+
 function recentSyslogInterval() {
   const now = Date.now()
   return { from: new Date(now - 60 * 60 * 1000).toISOString(), to: new Date(now).toISOString() }
@@ -34,7 +43,14 @@ function recentSyslogInterval() {
 export function DeviceSyslogPatternsCard() {
   const { t, locale } = useI18n()
   const [interval, setInterval] = useState(recentSyslogInterval)
+  const [selectedPattern, setSelectedPattern] = useState<string | null>(null)
   const query = useDeviceSyslogPatterns(interval.from, interval.to)
+  const hour = 60 * 60 * 1000
+  const completed = Math.floor(Date.parse(interval.to) / hour) * hour
+  const frequencyFrom = new Date(completed - hour).toISOString()
+  const frequencyTo = new Date(completed).toISOString()
+  const frequencyQuery = useDeviceSyslogPatterns(frequencyFrom, frequencyTo, selectedPattern)
+  const frequency = frequencyQuery.data?.frequency
   const page = query.data
   const columns: Column<DeviceSyslogPattern>[] = [
     {
@@ -66,6 +82,19 @@ export function DeviceSyslogPatternsCard() {
       key: 'last',
       header: t('device.syslog.pattern.last'),
       render: (row) => <DateTime value={row.last_at} />,
+    },
+    {
+      key: 'frequency',
+      header: t('device.syslog.frequency.column'),
+      render: (row) => (
+        <Button
+          size="sm"
+          aria-pressed={selectedPattern === row.id}
+          onClick={() => setSelectedPattern(selectedPattern === row.id ? null : row.id)}
+        >
+          {t('device.syslog.frequency.compare')}
+        </Button>
+      ),
     },
   ]
   return (
@@ -100,6 +129,41 @@ export function DeviceSyslogPatternsCard() {
               rowKey={(row) => row.id}
               empty={t('device.syslog.pattern.empty')}
             />
+            {selectedPattern ? (
+              <section
+                aria-label={t('device.syslog.frequency.column')}
+                className="mt-4 space-y-2 text-body"
+              >
+                <p className="text-muted-foreground">
+                  {t('device.syslog.frequency.interval')}{' '}
+                  <DateTime value={frequencyFrom} /> – <DateTime value={frequencyTo} />
+                </p>
+                {frequencyQuery.isPending ? (
+                  <LoadingState label={t('device.syslog.pattern.loading')} />
+                ) : frequencyQuery.isError || !frequency ? (
+                  <ErrorState description={t('device.syslog.pattern.unavailable')} />
+                ) : (
+                  <div role="status">
+                    <p>{t(frequencyStates[frequency.state])}</p>
+                    <p>
+                      {t('device.syslog.frequency.weeks', {
+                        count: formatInteger(frequency.comparable_weeks, locale),
+                        required: formatInteger(frequency.required_weeks, locale),
+                      })}
+                    </p>
+                    {frequency.band ? (
+                      <p>
+                        {t('device.syslog.frequency.band', {
+                          count: frequency.band.current,
+                          lower: frequency.band.lower,
+                          upper: frequency.band.upper,
+                        })}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              </section>
+            ) : null}
           </>
         ) : null}
       </CardBody>

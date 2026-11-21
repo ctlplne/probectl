@@ -8,7 +8,7 @@ import { useContext } from 'react'
 import { AuthContext } from '../auth/AuthProvider'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from './client'
-import type { DeviceConfigArchiveBinding } from './sdk.gen'
+import type { DeviceConfigArchiveBinding, DeviceSyslogPatternFrequency } from './sdk.gen'
 
 export type FlowGroupBy =
   | 'src'
@@ -362,11 +362,16 @@ interface DeviceSyslogPatternsResponse {
   indexed_rows: number
   unindexed_rows: number
   total_patterns: number
+  frequency?: DeviceSyslogPatternFrequency
 }
 
-export function useDeviceSyslogPatterns(from: string, to: string) {
+export function useDeviceSyslogPatterns(from: string, to: string, frequencyFor?: string | null) {
   const auth = useContext(AuthContext)
   const params = new URLSearchParams({ from, to })
+  if (frequencyFor) {
+    params.set('pattern_id', frequencyFor)
+    params.set('frequency', 'weekly')
+  }
   return useQuery({
     queryKey: [
       'device',
@@ -376,7 +381,9 @@ export function useDeviceSyslogPatterns(from: string, to: string) {
       auth?.permissions,
       from,
       to,
+      frequencyFor,
     ],
+    enabled: frequencyFor !== null,
     queryFn: ({ signal }) =>
       apiFetch<DeviceSyslogPatternsResponse>(`/device/syslog/patterns?${params}`, { signal }),
   })

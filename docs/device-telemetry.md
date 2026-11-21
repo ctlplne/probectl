@@ -648,6 +648,14 @@ half-open `from` to `to` observation interval and an optional exact device
 filter. Use UTC timestamps. The output limit controls the number of groups,
 and the coverage fields count the complete admitted source interval.
 
+Select **Compare** for a pattern to compare its last completed UTC hour
+with the same clock hour in the preceding six weeks. Use `pattern_id` and
+`frequency=weekly` with an explicit completed hour on the endpoint or
+tool. The comparison needs three usable weeks. It returns the exact count
+band with links to the current, earliest and latest observations used.
+Intervals without a matching indexed observation, with unindexed rows, or
+that exceed input admission contribute no training point.
+
 The device operations surface covers two NMS/NCM table-stakes workflows without
 turning probectl into a vendor-managed collector:
 

@@ -2190,13 +2190,22 @@ type DeviceSyslogPattern struct {
 	Version int    `json:"version"`
 }
 
+type DeviceSyslogPatternFrequency struct {
+	Band            AlertSeasonalDecimalBand `json:"band,omitzero"`
+	Citations       []AnomalyCitation        `json:"citations,omitempty"`
+	ComparableWeeks int                      `json:"comparable_weeks"`
+	RequiredWeeks   int                      `json:"required_weeks"`
+	State           string                   `json:"state"`
+}
+
 type DeviceSyslogPatternPage struct {
-	From          string                `json:"from"`
-	IndexedRows   int                   `json:"indexed_rows"`
-	Patterns      []DeviceSyslogPattern `json:"patterns"`
-	To            string                `json:"to"`
-	TotalPatterns int                   `json:"total_patterns"`
-	UnindexedRows int                   `json:"unindexed_rows"`
+	Frequency     DeviceSyslogPatternFrequency `json:"frequency,omitzero"`
+	From          string                       `json:"from"`
+	IndexedRows   int                          `json:"indexed_rows"`
+	Patterns      []DeviceSyslogPattern        `json:"patterns"`
+	To            string                       `json:"to"`
+	TotalPatterns int                          `json:"total_patterns"`
+	UnindexedRows int                          `json:"unindexed_rows"`
 }
 
 type DeviceSyslogRequest struct {
@@ -7216,10 +7225,12 @@ func (c *Client) IngestDeviceSyslog(ctx context.Context, req IngestDeviceSyslogR
 
 // List tenant device syslog pattern counts
 type ListDeviceSyslogPatternsRequest struct {
-	From   *string `json:"-"`
-	To     *string `json:"-"`
-	Device *string `json:"-"`
-	Limit  *int    `json:"-"`
+	From      *string `json:"-"`
+	To        *string `json:"-"`
+	Device    *string `json:"-"`
+	PatternId *string `json:"-"`
+	Frequency *string `json:"-"`
+	Limit     *int    `json:"-"`
 }
 
 func (c *Client) ListDeviceSyslogPatterns(ctx context.Context, req ListDeviceSyslogPatternsRequest) (*DeviceSyslogPatternPage, error) {
@@ -7233,6 +7244,12 @@ func (c *Client) ListDeviceSyslogPatterns(ctx context.Context, req ListDeviceSys
 	}
 	if req.Device != nil {
 		query.Set("device", formatQueryValue(*req.Device))
+	}
+	if req.PatternId != nil {
+		query.Set("pattern_id", formatQueryValue(*req.PatternId))
+	}
+	if req.Frequency != nil {
+		query.Set("frequency", formatQueryValue(*req.Frequency))
 	}
 	if req.Limit != nil {
 		query.Set("limit", formatQueryValue(*req.Limit))

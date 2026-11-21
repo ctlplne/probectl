@@ -22,6 +22,7 @@ var ErrSyslogPatternBudget = errors.New("device syslog pattern input budget is e
 
 type SyslogPatternSelection struct {
 	Device       string
+	PatternID    string
 	From         time.Time
 	To           time.Time
 	Limit        int
@@ -95,12 +96,14 @@ func (m *MemoryOpsStore) ListSyslogPatterns(ctx context.Context, tenant string, 
 	}
 	result.Patterns = make([]SyslogPatternCount, 0, len(counts))
 	for _, count := range counts {
-		result.Patterns = append(result.Patterns, count)
+		if selection.PatternID == "" || count.ID == selection.PatternID {
+			result.Patterns = append(result.Patterns, count)
+		}
 	}
 	slices.SortFunc(result.Patterns, func(a, b SyslogPatternCount) int {
 		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.ID, b.ID), cmp.Compare(a.Version, b.Version))
 	})
-	result.TotalPatterns = int64(len(result.Patterns))
+	result.TotalPatterns = int64(len(counts))
 	result.Patterns = result.Patterns[:min(len(result.Patterns), selection.Limit)]
 	return result, nil
 }
@@ -141,12 +144,12 @@ SELECT coverage.indexed_rows, coverage.unindexed_rows, coverage.total_patterns,
   LEFT JOIN LATERAL (
     SELECT pattern_id, pattern_version, pattern_kind, occurrences, first_at, last_at
       FROM grouped
-     WHERE pattern_id IS NOT NULL
+     WHERE pattern_id IS NOT NULL AND ($7 = '' OR pattern_id=$7)
      ORDER BY occurrences DESC, pattern_id, pattern_version
      LIMIT $5
   ) AS chosen ON TRUE
  ORDER BY chosen.occurrences DESC NULLS LAST, chosen.pattern_id, chosen.pattern_version
-`, tenant, selection.From.UTC(), selection.To.UTC(), selection.Device, selection.Limit, selection.MaxInputRows+1)
+`, tenant, selection.From.UTC(), selection.To.UTC(), selection.Device, selection.Limit, selection.MaxInputRows+1, selection.PatternID)
 		if err != nil {
 			return err
 		}

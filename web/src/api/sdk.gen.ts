@@ -2075,7 +2075,16 @@ export interface DeviceSyslogPattern {
   version: number
 }
 
+export interface DeviceSyslogPatternFrequency {
+  band?: AlertSeasonalDecimalBand
+  citations?: AnomalyCitation[]
+  comparable_weeks: number
+  required_weeks: number
+  state: "unavailable" | "warming" | "within_band" | "up" | "down"
+}
+
 export interface DeviceSyslogPatternPage {
+  frequency?: DeviceSyslogPatternFrequency
   from: string
   indexed_rows: number
   patterns: DeviceSyslogPattern[]
@@ -5690,6 +5699,8 @@ export interface ListDeviceSyslogPatternsRequest {
   from: string
   to: string
   device?: string
+  patternId?: string
+  frequency?: "weekly"
   limit?: number
 }
 
@@ -7960,6 +7971,8 @@ export class ProbectlSDKClient {
     if (request.from !== undefined) query.set("from", String(request.from))
     if (request.to !== undefined) query.set("to", String(request.to))
     if (request.device !== undefined) query.set("device", String(request.device))
+    if (request.patternId !== undefined) query.set("pattern_id", String(request.patternId))
+    if (request.frequency !== undefined) query.set("frequency", String(request.frequency))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListDeviceSyslogPatternsResponse>("GET", path, query, undefined)
   }

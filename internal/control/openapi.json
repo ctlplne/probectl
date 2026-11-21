@@ -8746,6 +8746,18 @@
             }
           },
           {
+            "name": "pattern_id",
+            "in": "query",
+            "description": "Optional exact tenant-scoped syslog pattern identifier.",
+            "schema": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+          },
+          {
+            "name": "frequency",
+            "in": "query",
+            "description": "Compare one selected pattern in a completed UTC hour against the corresponding hours in previous weeks. Requires pattern_id.",
+            "schema": {"type": "string", "enum": ["weekly"]}
+          },
+          {
             "name": "limit",
             "in": "query",
             "description": "Maximum distinct patterns in this response. Coverage counts include the complete admitted interval.",
@@ -8767,6 +8779,10 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid observation interval, pattern ID or limit.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
           "413": {
             "description": "Complete selected observations or pattern output exceed configured query admission.",
             "content": {
@@ -8786,6 +8802,10 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "The frequency comparison requires a pattern ID and a completed, aligned UTC hour.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "503": {
             "description": "Device syslog pattern storage or configured query admission is unavailable.",
@@ -34173,7 +34193,21 @@
           "total_patterns": {
             "type": "integer",
             "minimum": 0
+          },
+          "frequency": {
+            "$ref": "#/components/schemas/DeviceSyslogPatternFrequency"
           }
+        }
+      },
+      "DeviceSyslogPatternFrequency": {
+        "type": "object",
+        "required": ["state", "comparable_weeks", "required_weeks"],
+        "properties": {
+          "state": {"type": "string", "enum": ["unavailable", "warming", "within_band", "up", "down"]},
+          "comparable_weeks": {"type": "integer", "minimum": 0},
+          "required_weeks": {"type": "integer", "minimum": 1},
+          "band": {"$ref": "#/components/schemas/AlertSeasonalDecimalBand"},
+          "citations": {"type": "array", "items": {"$ref": "#/components/schemas/AnomalyCitation"}}
         }
       },
       "DeviceSyslogList": {

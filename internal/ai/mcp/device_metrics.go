@@ -47,10 +47,12 @@ func WithDeviceMetricsBackend(backend DeviceMetricsBackend, schema json.RawMessa
 }
 
 type DeviceSyslogPatternsCommand struct {
-	From   string `json:"from"`
-	To     string `json:"to"`
-	Device string `json:"device,omitempty"`
-	Limit  *int   `json:"limit,omitempty"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Device    string `json:"device,omitempty"`
+	Limit     *int   `json:"limit,omitempty"`
+	PatternID string `json:"pattern_id,omitempty"`
+	Frequency string `json:"frequency,omitempty"`
 }
 
 type DeviceSyslogPatternsBackend interface {

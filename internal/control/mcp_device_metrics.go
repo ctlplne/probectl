@@ -36,7 +36,7 @@ func deviceMetricsToolOption(server *Server) (mcp.Option, error) {
 }
 
 func deviceSyslogPatternsToolOption(server *Server) (mcp.Option, error) {
-	schema, err := deviceQueryToolSchema("/v1/device/syslog/patterns", 4)
+	schema, err := deviceQueryToolSchema("/v1/device/syslog/patterns", 6)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +137,12 @@ func (b mcpDeviceMetricsBackend) DeviceSyslogPatterns(ctx context.Context, actor
 	}
 	if command.Limit != nil {
 		query.Set("limit", strconv.Itoa(*command.Limit))
+	}
+	if command.PatternID != "" {
+		query.Set("pattern_id", command.PatternID)
+	}
+	if command.Frequency != "" {
+		query.Set("frequency", command.Frequency)
 	}
 	current := mcpReportBackend(b)
 	result, err := invokeReportHandler[deviceSyslogPatternPage](ctx, current, actor, false,
