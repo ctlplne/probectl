@@ -110,6 +110,8 @@ func TestCostConsumerAttributesAndAlerts(t *testing.T) {
 	if err != nil || !on {
 		t.Fatalf("BuildCost: %v", err)
 	}
+	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	eng.WithClock(func() time.Time { return at })
 	correlator := incident.NewCorrelator(incident.NewMemoryStore(), time.Hour, intelTestLog())
 	cc := NewCostConsumer(nil, eng, correlator, intelTestLog())
 
@@ -121,7 +123,7 @@ func TestCostConsumerAttributesAndAlerts(t *testing.T) {
 		SourceAddress:      "10.0.1.5",
 		DestinationAddress: "10.0.2.7",
 		Bytes:              10 << 30,
-		EndUnixNano:        time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC).UnixNano(),
+		EndUnixNano:        at.UnixNano(),
 	}}}
 	raw, err := proto.Marshal(batch)
 	if err != nil {
@@ -145,13 +147,17 @@ func TestCostSummaryEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Spend for the DEFAULT tenant and for another tenant (isolation probe).
-	eng.Observe(tenancy.DefaultTenantID.String(), cost.FlowSample{
-		Src: "10.0.1.5", Dst: "10.0.2.7", Bytes: 10 << 30, At: time.Now()})
+	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	eng.WithClock(func() time.Time { return at })
 	eng.Observe("other-tenant", cost.FlowSample{
-		Src: "10.0.1.9", Dst: "10.0.2.9", Bytes: 99 << 30, At: time.Now()})
+		Src: "10.0.1.9", Dst: "10.0.2.9", Bytes: 99 << 30, At: at})
 
 	srv := testServer(fakePinger{}).WithCost(eng)
+	if cold := do(srv, http.MethodGet, "/v1/cost/summary"); cold.Code != http.StatusOK || strings.Contains(cold.Body.String(), "data_since") {
+		t.Fatalf("an empty tenant reports a coverage clock: status=%d body=%s", cold.Code, cold.Body.String())
+	}
+	eng.Observe(tenancy.DefaultTenantID.String(), cost.FlowSample{
+		Src: "10.0.1.5", Dst: "10.0.2.7", Bytes: 10 << 30, At: at})
 	rec := do(srv, http.MethodGet, "/v1/cost/summary")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
@@ -169,6 +175,9 @@ func TestCostSummaryEndpoint(t *testing.T) {
 	// Only the caller's tenant's bytes (10 GiB, not 109 GiB).
 	if resp.Summary.TotalBytes != 10<<30 {
 		t.Fatalf("cross-tenant volume leaked: %d bytes", resp.Summary.TotalBytes)
+	}
+	if !resp.Summary.DataSince.Equal(at) {
+		t.Fatalf("the response omitted the first owned observation clock: %v", resp.Summary.DataSince)
 	}
 	if !strings.Contains(rec.Body.String(), "pricing_source") {
 		t.Fatal("pricing provenance missing")
@@ -194,11 +203,11 @@ func (g *fakeCostGate) Claim(_ context.Context, tenant, budgetKey, month string)
 	return g.won, g.err
 }
 
-func costBreachBatch(t *testing.T) bus.Message {
+func costBreachBatch(t *testing.T, at time.Time) bus.Message {
 	t.Helper()
 	raw, err := proto.Marshal(&flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{{
 		TenantId: "t1", SourceAddress: "10.0.1.5", DestinationAddress: "10.0.2.7", Bytes: 10 << 30,
-		EndUnixNano: time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC).UnixNano(),
+		EndUnixNano: at.UnixNano(),
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -211,14 +220,17 @@ func costBreachBatch(t *testing.T) bus.Message {
 // replica files the incident, the others keep the budget status and stay
 // quiet; a gate outage fails open.
 func TestCostBudgetBreachIsExportedOnceAcrossReplicas(t *testing.T) {
+	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	batch := costBreachBatch(t, at)
 	run := func(gate *fakeCostGate) (incidents int, exceeded bool, claims []string) {
 		eng, on, err := BuildCost(costTestConfig(), intelTestLog())
 		if err != nil || !on {
 			t.Fatalf("BuildCost: %v", err)
 		}
+		eng.WithClock(func() time.Time { return at })
 		store := incident.NewMemoryStore()
 		cc := NewCostConsumer(nil, eng, incident.NewCorrelator(store, time.Hour, intelTestLog()), intelTestLog()).WithBudgetGate(gate)
-		if err := cc.handle(context.Background(), costBreachBatch(t)); err != nil {
+		if err := cc.handle(context.Background(), batch); err != nil {
 			t.Fatal(err)
 		}
 		open, err := store.OpenIncidents(context.Background(), "t1")
@@ -228,7 +240,7 @@ func TestCostBudgetBreachIsExportedOnceAcrossReplicas(t *testing.T) {
 		s := eng.Summary("t1")
 		return len(open), len(s.Budgets) == 1 && s.Budgets[0].Exceeded, gate.claims
 	}
-	if n, exceeded, claims := run(&fakeCostGate{won: true}); n != 1 || !exceeded || len(claims) != 1 || !strings.HasSuffix(claims[0], "|2026-06") {
+	if n, exceeded, claims := run(&fakeCostGate{won: true}); n != 1 || !exceeded || len(claims) != 1 || !strings.HasSuffix(claims[0], "|"+at.Format("2006-01")) {
 		t.Fatalf("winning replica: incidents=%d exceeded=%v claims=%v", n, exceeded, claims)
 	}
 	if n, exceeded, claims := run(&fakeCostGate{won: false}); n != 0 || !exceeded || len(claims) != 1 {

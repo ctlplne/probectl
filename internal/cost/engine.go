@@ -8,6 +8,7 @@ package cost
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +41,7 @@ func (b Budget) Key() string { return b.Kind + ":" + b.Name }
 // ParseBudgets parses "team:payments=500,service:checkout=120".
 func ParseBudgets(raw string) ([]Budget, error) {
 	var out []Budget
+	seen := make(map[string]bool)
 	for _, part := range splitList(raw) {
 		kv := strings.SplitN(part, "=", 2)
 		if len(kv) != 2 {
@@ -50,10 +52,16 @@ func ParseBudgets(raw string) ([]Budget, error) {
 			return nil, fmt.Errorf("cost: budget %q must target team:<name> or service:<name>", part)
 		}
 		usd, err := strconv.ParseFloat(strings.TrimSpace(kv[1]), 64)
-		if err != nil || usd <= 0 {
+		if err != nil || usd <= 0 || math.IsNaN(usd) || math.IsInf(usd, 0) {
 			return nil, fmt.Errorf("cost: budget %q has an invalid amount", part)
 		}
-		out = append(out, Budget{Kind: kind, Name: name, MonthlyUSD: usd})
+		budget := Budget{Kind: kind, Name: name, MonthlyUSD: usd}
+		key := budget.Key()
+		if seen[key] {
+			return nil, fmt.Errorf("cost: duplicate budget for %q", key)
+		}
+		seen[key] = true
+		out = append(out, budget)
 	}
 	return out, nil
 }
@@ -116,7 +124,7 @@ type Summary struct {
 	// The cost engine rebuilds from the live stream, so a control-plane restart
 	// resets it; exposing it stops the UI from presenting a partial post-restart
 	// window as a complete month. Zero when the tenant has no data yet.
-	DataSince time.Time `json:"data_since,omitempty"`
+	DataSince time.Time `json:"data_since,omitzero"`
 }
 
 // DefaultChattyThresholdBytes flags a zone-pair conversation as "chatty"
@@ -167,6 +175,14 @@ func NewEngine(mapper *Mapper, prices *PriceTable, budgets []Budget) *Engine {
 	}
 }
 
+// WithClock sets the observation clock used for deterministic evaluation.
+func (e *Engine) WithClock(now func() time.Time) *Engine {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.clock = now
+	return e
+}
+
 func (e *Engine) tenant(id string) *tenantCost {
 	tc, ok := e.tenants[id]
 	if !ok {
@@ -178,7 +194,6 @@ func (e *Engine) tenant(id string) *tenantCost {
 			trend:     map[time.Time]*TrendPoint{},
 			monthUSD:  map[string]float64{},
 			alerted:   map[string]bool{},
-			dataSince: e.clock(), // CORRECT-008: when this tenant's window opened
 		}
 		e.tenants[id] = tc
 	}
@@ -194,13 +209,9 @@ func (e *Engine) Observe(tenant string, f FlowSample) []incident.Signal {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	tc := e.tenant(tenant)
-
-	// Month rollover resets the budget accumulators (trend/aggregates keep
-	// their own windows).
-	if month := f.At.Format("2006-01"); tc.month != month {
-		tc.month = month
-		tc.monthUSD = map[string]float64{}
-		tc.alerted = map[string]bool{}
+	now := e.clock().UTC()
+	if tc.dataSince.IsZero() {
+		tc.dataSince = now
 	}
 
 	class := e.mapper.Classify(f.Src, f.Dst)
@@ -258,7 +269,17 @@ func (e *Engine) Observe(tenant string, f FlowSample) []incident.Signal {
 	tp.USD += usd
 
 	// Budgets: month-to-date burn per target; breach raises ONE signal per
-	// month per budget (alert fatigue is a cost problem too).
+	// month per budget. Observations from outside the current UTC month
+	// contribute to volume and trend without changing current budget state.
+	if len(e.budgets) == 0 || !sameBudgetMonth(f.At, now) {
+		return nil
+	}
+	month := now.Format("2006-01")
+	if tc.month != month {
+		tc.month = month
+		clear(tc.monthUSD)
+		clear(tc.alerted)
+	}
 	var sigs []incident.Signal
 	for _, b := range e.budgets {
 		var hit bool
@@ -297,6 +318,11 @@ func (e *Engine) Observe(tenant string, f FlowSample) []incident.Signal {
 	return sigs
 }
 
+func sameBudgetMonth(event, now time.Time) bool {
+	year, month, _ := event.UTC().Date()
+	return year == now.Year() && month == now.Month()
+}
+
 func bump(m map[string]*Agg, key string, bytes uint64, usd float64) {
 	a, ok := m[key]
 	if !ok {
@@ -327,7 +353,10 @@ func bumpClass(m map[TrafficClass]*Agg, key TrafficClass, bytes uint64, usd floa
 func (e *Engine) Summary(tenant string) Summary {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	tc := e.tenant(tenant)
+	tc := e.tenants[tenant]
+	if tc == nil {
+		tc = &tenantCost{}
+	}
 
 	s := Summary{
 		Priced:      e.prices != nil,
@@ -364,10 +393,15 @@ func (e *Engine) Summary(tenant string) Summary {
 		s.Trend = append(s.Trend, *tp)
 	}
 	sort.Slice(s.Trend, func(i, j int) bool { return s.Trend[i].Hour.Before(s.Trend[j].Hour) })
+	activeBudget := len(e.budgets) != 0 && tc.month == e.clock().UTC().Format("2006-01")
 	for _, b := range e.budgets {
+		var spent float64
+		if activeBudget {
+			spent = tc.monthUSD[b.Key()]
+		}
 		s.Budgets = append(s.Budgets, BudgetStatus{
 			Kind: b.Kind, Name: b.Name, MonthlyUSD: b.MonthlyUSD,
-			SpentUSD: tc.monthUSD[b.Key()], Exceeded: tc.monthUSD[b.Key()] >= b.MonthlyUSD,
+			SpentUSD: spent, Exceeded: spent >= b.MonthlyUSD,
 		})
 	}
 	sort.Slice(s.Budgets, func(i, j int) bool {

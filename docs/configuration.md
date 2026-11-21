@@ -2866,7 +2866,7 @@ posture holds and the numbers are explicitly estimates with stated provenance.
 | `PROBECTL_COST_ENABLED`     | `true` | cost engine over the local flow stream (volume × public pricing; no billing-API calls) |
 | `PROBECTL_COST_ZONES`       | (none) | CIDR→zone rules, e.g. `10.0.1.0/24=us-east-1a,…` (locality classification) |
 | `PROBECTL_COST_SERVICES`    | (none) | CIDR→`service:team` attribution rules (showback) |
-| `PROBECTL_COST_BUDGETS`     | (none) | monthly USD budgets, e.g. `team:payments=500` (breach = one cost-plane signal per month) |
+| `PROBECTL_COST_BUDGETS`     | (none) | one positive finite USD budget per team or service, e.g. `team:payments=500`. A breach produces one cost-plane signal per UTC calendar month. |
 | `PROBECTL_COST_PRICES_FILE` | (none) | JSON price-table override (maximum 1 MiB; oversized files fail startup closed); embedded public list rates otherwise (provenance + as-of surfaced) |
 | `PROBECTL_COST_PRICED`      | `true` | `false` = volume-only mode (bytes attributed, dollars never invented) |
 

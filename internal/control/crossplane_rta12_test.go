@@ -48,6 +48,7 @@ func TestCrossPlaneFlowBatchPopulatesAllThreeEngines(t *testing.T) {
 	if err != nil || !on {
 		t.Fatalf("BuildCost: on=%v err=%v", on, err)
 	}
+	costEng.WithClock(func() time.Time { return at })
 	carbEng, on, err := BuildCarbon(&config.Config{CarbonEnabled: true, CarbonGridGCO2E: 400}, intelTestLog())
 	if err != nil || !on {
 		t.Fatalf("BuildCarbon: on=%v err=%v", on, err)

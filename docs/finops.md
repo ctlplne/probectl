@@ -103,10 +103,10 @@ data is worse than none. (To run with no pricing at all, set
   chatty, since the point is to surface money quietly leaking across internal
   boundaries).
 - **Budget alerts** — crossing a monthly budget raises a `cost.budget_exceeded`
-  signal (plane `cost`) into the incident pipeline. It fires **once per budget
-  per month** (alert-fatigue control) and re-arms on month rollover. Signals
-  only: probectl never throttles traffic or touches your bill — a detection is
-  a signal, never an enforcement point.
+  signal (plane `cost`) into the incident pipeline for operator review. The
+  active budget uses the current UTC calendar month and starts a new total at
+  rollover. Flow records timestamped outside that month still contribute to
+  volume and trend. Each budget fires **once per month**.
 - **Cost page** (`/cost`) — the native operating surface: totals with pricing
   provenance, team showback, chatty cross-AZ conversations, budget status, and
   explicit volume-only / zones-unmapped notices. The first-party
@@ -134,10 +134,11 @@ All state is tenant-partitioned — tenant isolation is the platform's outermost
 boundary (see the [Non-negotiables](../CONTRIBUTING.md#non-negotiables)).
 Attribution maps are bounded: once a per-tenant map hits 1024 keys, further
 entries collapse into `(other)` so memory can't grow without limit. A flow
-record arriving without a tenant is dropped at the boundary. The in-memory
-engine is rebuilt from the stream on restart — the durable, queryable series
-live in the TSDB (time-series database) and are read by probectl's native
-surfaces through tenant-scoped APIs, not from this process.
+record arriving without a tenant is dropped at the boundary. The first
+accepted flow for each tenant starts the in-memory accumulation clock. The
+summary omits `data_since` until that flow arrives. The engine rebuilds its
+state from the live stream after a restart. The durable time series live in
+the TSDB and the native surfaces read them through tenant-scoped APIs.
 
 ## Configuration
 
@@ -146,6 +147,6 @@ surfaces through tenant-scoped APIs, not from this process.
 | `PROBECTL_COST_ENABLED` | `true` | the engine + flow consumer (local-only processing) |
 | `PROBECTL_COST_ZONES` | (none) | CIDR→zone rules (`cidr=zone[/region],…`) |
 | `PROBECTL_COST_SERVICES` | (none) | CIDR→`service:team` attribution rules |
-| `PROBECTL_COST_BUDGETS` | (none) | monthly USD budgets (`team:payments=500,…`) |
+| `PROBECTL_COST_BUDGETS` | (none) | one positive finite monthly USD budget per team or service (`team:payments=500,…`) |
 | `PROBECTL_COST_PRICES_FILE` | (none) | JSON price-table override (built-in public list rates otherwise) |
 | `PROBECTL_COST_PRICED` | `true` | `false` switches to volume-only mode (no pricing at all) |

@@ -11619,6 +11619,11 @@
                         "pricing_as_of": {
                           "type": "string"
                         },
+                        "data_since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "When this process received the tenant's first flow for cost evaluation. Omitted while the tenant has no observations."
+                        },
                         "total_bytes": {
                           "type": "integer"
                         },
@@ -11648,6 +11653,7 @@
                         },
                         "budgets": {
                           "type": "array",
+                          "description": "Spend and breach status for the current UTC calendar month.",
                           "items": {
                             "type": "object"
                           }

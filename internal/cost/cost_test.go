@@ -8,6 +8,7 @@ package cost
 
 import (
 	"bytes"
+	"encoding/json"
 	"math"
 	"os"
 	"path/filepath"
@@ -134,6 +135,8 @@ func TestBudgetAlertFiresOncePerMonth(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := fixtureEngine(t, DefaultPriceTable(), budgets)
+	now := costT
+	e.WithClock(func() time.Time { return now })
 
 	// 10 GiB inter-AZ = $0.10: under budget, no signal.
 	if sigs := e.Observe("t1", FlowSample{Src: "10.0.1.5", Dst: "10.0.2.7", Bytes: 10 << 30, At: costT}); len(sigs) != 0 {
@@ -169,8 +172,83 @@ func TestBudgetAlertFiresOncePerMonth(t *testing.T) {
 	}
 	// A NEW month resets the accumulator and may alert again.
 	nextMonth := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	now = nextMonth
 	if sigs := e.Observe("t1", FlowSample{Src: "10.0.1.5", Dst: "10.0.2.7", Bytes: 30 << 30, At: nextMonth}); len(sigs) != 1 {
 		t.Fatalf("new month did not re-arm the budget: %+v", sigs)
+	}
+}
+
+func TestCostCoverageStartsOnObservation(t *testing.T) {
+	engine := fixtureEngine(t, DefaultPriceTable(), nil)
+	now := costT
+	engine.WithClock(func() time.Time { return now })
+	cold := engine.Summary("owner")
+	body, err := json.Marshal(cold)
+	if err != nil || !cold.DataSince.IsZero() || bytes.Contains(body, []byte("data_since")) || len(engine.tenants) != 0 {
+		t.Fatalf("reading an empty tenant started its coverage: %s, %v", body, err)
+	}
+
+	now = now.Add(10 * time.Minute)
+	firstObserved := now
+	sample := FlowSample{Src: "10.0.1.5", Dst: "10.0.2.7", Bytes: 2 << 30, At: costT}
+	engine.Observe("owner", sample)
+	now = now.Add(time.Minute)
+	engine.Observe("owner", sample)
+	active := engine.Summary("owner")
+	if !active.DataSince.Equal(firstObserved) || active.TotalBytes != 4<<30 {
+		t.Fatalf("first observation did not establish durable-in-process coverage: %+v", active)
+	}
+	if sibling := engine.Summary("sibling"); !sibling.DataSince.IsZero() || sibling.TotalBytes != 0 {
+		t.Fatalf("sibling inherited coverage: %+v", sibling)
+	}
+}
+
+func TestBudgetUsesCurrentUTCMonthDespiteLateObservations(t *testing.T) {
+	engine := fixtureEngine(t, DefaultPriceTable(), []Budget{{Kind: "team", Name: "payments", MonthlyUSD: 0.15}})
+	now := time.Date(2026, 7, 1, 0, 1, 0, 0, time.UTC)
+	engine.WithClock(func() time.Time { return now })
+	observe := func(tenant string, bytes uint64, at time.Time) int {
+		t.Helper()
+		signals := engine.Observe(tenant, FlowSample{Src: "10.0.1.5", Dst: "10.0.2.7", Bytes: bytes, At: at})
+		for _, sig := range signals {
+			if sig.TenantID != tenant || sig.Attributes["cost.month"] != now.Format("2006-01") {
+				t.Fatalf("signal is bound to the wrong tenant or month: %+v", sig)
+			}
+		}
+		return len(signals)
+	}
+	if n := observe("owner", 10<<30, now.In(time.FixedZone("UTC-07", -7*60*60))); n != 0 {
+		t.Fatal("first current-month observation is below the threshold")
+	}
+	if n := observe("owner", 30<<30, now.Add(-2*time.Minute)); n != 0 {
+		t.Fatal("late June traffic raised a July budget signal")
+	}
+	if n := observe("owner", 10<<30, now.AddDate(0, 1, 0)); n != 0 {
+		t.Fatal("an August timestamp changed the active July budget")
+	}
+	partial := engine.Summary("owner")
+	if partial.TotalBytes != 50<<30 || math.Abs(partial.Budgets[0].SpentUSD-0.10) > 1e-9 || partial.Budgets[0].Exceeded {
+		t.Fatalf("late flow reset or contaminated the current budget: %+v", partial)
+	}
+	if n := observe("owner", 10<<30, now); n != 1 {
+		t.Fatal("both July observations should cross the July threshold")
+	}
+	if n := observe("owner", 10<<30, now.Add(-2*time.Minute)); n != 0 {
+		t.Fatal("late June traffic rearmed a budget")
+	}
+	if n := observe("owner", 30<<30, now); n != 0 {
+		t.Fatal("July breach repeated after late telemetry")
+	}
+	if sibling := engine.Summary("sibling"); sibling.TotalBytes != 0 || sibling.Budgets[0].SpentUSD != 0 {
+		t.Fatalf("the sibling's budget changed: %+v", sibling)
+	}
+	now = now.AddDate(0, 1, 0)
+	rolled := engine.Summary("owner")
+	if rolled.TotalBytes != 100<<30 || rolled.Budgets[0].SpentUSD != 0 || rolled.Budgets[0].Exceeded {
+		t.Fatalf("the quiet August rollover retained July's budget state: %+v", rolled)
+	}
+	if n := observe("owner", 30<<30, now); n != 1 {
+		t.Fatal("August's independent budget did not rearm")
 	}
 }
 
@@ -189,6 +267,14 @@ func TestParsersFailClosed(t *testing.T) {
 	}
 	if _, err := ParseBudgets("team:payments=-5"); err == nil {
 		t.Error("negative budget accepted")
+	}
+	for _, value := range []string{"NaN", "+Inf"} {
+		if _, err := ParseBudgets("team:payments=" + value); err == nil {
+			t.Errorf("non-finite budget %q accepted", value)
+		}
+	}
+	if _, err := ParseBudgets("team:payments=5,team:payments=10"); err == nil {
+		t.Error("duplicate team budget accepted")
 	}
 	if _, err := LoadPriceTable("/does/not/exist.json"); err == nil {
 		t.Error("missing price file accepted")
