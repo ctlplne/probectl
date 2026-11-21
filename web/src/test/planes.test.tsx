@@ -14,6 +14,115 @@ import { renderApp } from './renderApp'
 import { pivotHref } from '../routes/pivotContext'
 
 describe('plane workspaces', () => {
+  test('compares one observed syslog pattern over the latest completed UTC hour', async () => {
+    const pattern = 'a'.repeat(64)
+    const requestPath = '/v1/device/syslog/patterns'
+    const initialFrom = '2026-06-04T11:34:56.000Z'
+    const initialTo = '2026-06-04T12:34:56.000Z'
+    const refreshFrom = '2026-06-04T12:06:00.000Z'
+    const refreshTo = '2026-06-04T13:06:00.000Z'
+    const completedFrom = '2026-06-04T11:00:00.000Z'
+    const completedTo = '2026-06-04T12:00:00.000Z'
+    const fallback = defaultFetch()
+    const requests: Record<string, string>[] = []
+    let now = Date.parse(initialTo)
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
+    try {
+      vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) !== requestPath) return fallback(input, init)
+        const raw = input instanceof Request ? input.url : String(input)
+        const params = new URL(raw, 'https://probectl.test').searchParams
+        requests.push(Object.fromEntries(params))
+        const from = params.get('from')
+        const to = params.get('to')
+        const compared = params.has('frequency')
+        const refreshed = from === refreshFrom
+        return Promise.resolve(
+          jsonResponse({
+            from,
+            to,
+            indexed_rows: refreshed ? 9 : 7,
+            unindexed_rows: 2,
+            total_patterns: 1,
+            patterns: [
+              {
+                id: pattern,
+                version: 1,
+                kind: 'link_down',
+                count: refreshed ? 9 : 7,
+                first_at: from,
+                last_at: new Date(Date.parse(to ?? initialTo) - 1).toISOString(),
+              },
+            ],
+            ...(compared && from === completedFrom
+              ? {
+                  frequency: {
+                    state: 'up',
+                    comparable_weeks: 3,
+                    required_weeks: 3,
+                    band: { current: '7', lower: '2', upper: '5', median: '3', robust_spread: '1' },
+                  },
+                }
+              : {}),
+          }),
+        )
+      })
+
+      renderApp('/planes/device')
+      const table = await screen.findByRole('table', { name: 'Syslog patterns' })
+      expect(requests).toContainEqual({ from: initialFrom, to: initialTo })
+      expect(requests.every(({ frequency }) => frequency === undefined)).toBe(true)
+      expect(within(table).getByText('Interface down')).toBeInTheDocument()
+      expect(within(table).getByTitle(pattern)).toHaveTextContent(pattern.slice(0, 12))
+      expect(within(table).getByRole('cell', { name: '7' })).toBeInTheDocument()
+      expect(screen.getByText('2 retained events have no indexed pattern.')).toBeInTheDocument()
+
+      const user = userEvent.setup()
+      const compare = within(table).getByRole('button', { name: 'Compare' })
+      expect(compare).toHaveAttribute('aria-pressed', 'false')
+      await user.click(compare)
+      const weekly = await screen.findByRole('region', { name: 'Weekly frequency' })
+      expect(
+        await within(weekly).findByText('Frequency is above the expected range.'),
+      ).toBeInTheDocument()
+      expect(within(weekly).getByText('3 comparable weeks, 3 required')).toBeInTheDocument()
+      expect(within(weekly).getByText('7 observations, expected range 2 to 5')).toBeInTheDocument()
+      expect(requests).toContainEqual({
+        from: completedFrom,
+        to: completedTo,
+        pattern_id: pattern,
+        frequency: 'weekly',
+      })
+      expect(compare).toHaveAttribute('aria-pressed', 'true')
+
+      await user.click(compare)
+      expect(screen.queryByRole('region', { name: 'Weekly frequency' })).not.toBeInTheDocument()
+      expect(compare).toHaveAttribute('aria-pressed', 'false')
+
+      now = Date.parse(refreshTo)
+      const card = screen.getByRole('heading', { name: 'Syslog patterns' }).closest('section')
+      if (!card) throw new Error('missing syslog pattern card')
+      await user.click(within(card).getByRole('button', { name: 'Refresh' }))
+      const refreshed = await screen.findByRole('table', { name: 'Syslog patterns' })
+      expect(await within(refreshed).findByRole('cell', { name: '9' })).toBeInTheDocument()
+      expect(requests).toContainEqual({ from: refreshFrom, to: refreshTo })
+
+      await user.click(within(refreshed).getByRole('button', { name: 'Compare' }))
+      const unavailable = await screen.findByRole('region', { name: 'Weekly frequency' })
+      expect(
+        await within(unavailable).findByText('Syslog patterns are unavailable'),
+      ).toBeInTheDocument()
+      expect(requests).toContainEqual({
+        from: completedTo,
+        to: '2026-06-04T13:00:00.000Z',
+        pattern_id: pattern,
+        frequency: 'weekly',
+      })
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
   test('prioritizes the active workspace over redundant overview cards on mobile', async () => {
     renderApp('/planes/flow')
 
