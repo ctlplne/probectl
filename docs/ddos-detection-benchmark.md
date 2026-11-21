@@ -41,10 +41,11 @@ strong network vector can still qualify using its own flow evidence.
 Scheduled and preview assessments use a bounded projection of stored HTTP
 server observations. The read applies the tenant, service, local TCP socket
 and half-open start clock before its limit. A request can count once its span
-has completed, including after its start window closes. Each window needs 20
-to 16,383 matching original observations. The projection keeps exact request counts, successful
-responses, p95 duration and an observation digest. Overflow and a known partial
-window in the in-memory store leave application evidence unavailable.
+has completed, including when its duration exceeds the start window's width.
+Each window needs 20 to 16,383 matching original observations. The projection
+keeps exact request counts, successful responses, p95 duration and an
+observation digest. Overflow and a known partial window in the in-memory store
+leave application evidence unavailable.
 
 | Output field | Meaning |
 | --- | --- |

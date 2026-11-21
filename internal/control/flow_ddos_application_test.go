@@ -29,7 +29,13 @@ func TestDDoSApplicationKeepsCompletedRequestsThatCrossTheWindowEnd(t *testing.T
 		t.Fatal("future evidence qualified the current observation", err)
 	}
 	spans[0].Duration = 6 * time.Second
-	if _, usable, err := projectDDoSApplicationWindow(t.Context(), window, "synthetic-public-site", 443, to.Add(time.Minute), spans); err != nil || usable {
-		t.Fatal("an overlong request made incomplete evidence appear qualified", err)
+	spans[1].Duration = 6 * time.Second
+	completion = spans[0].Start.Add(spans[0].Duration)
+	if _, usable, err := projectDDoSApplicationWindow(t.Context(), window, "synthetic-public-site", 443, completion.Add(-time.Nanosecond), spans); err != nil || usable {
+		t.Fatal("an ongoing slow request qualified the current observation", err)
+	}
+	observed, usable, err = projectDDoSApplicationWindow(t.Context(), window, "synthetic-public-site", 443, completion, spans)
+	if err != nil || !usable || observed.Requests != 20 || observed.P95 != 6*time.Second {
+		t.Fatal("completed slow requests did not contribute their measured latency", observed, usable, err)
 	}
 }

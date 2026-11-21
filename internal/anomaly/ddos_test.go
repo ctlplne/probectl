@@ -96,7 +96,7 @@ func TestDDoSCannotBorrowForeignOrIncompleteEvidence(t *testing.T) {
 	}
 }
 
-func TestDDoSApplicationDoesNotInferCurrentDegradationFromAnUnhealthyReference(t *testing.T) {
+func TestDDoSApplicationQualifiesDegradationWithAHealthyReference(t *testing.T) {
 	const owner = "25ebf92b-c387-451d-9e67-0b323c402a58"
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(owner))
 	start := time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC)
@@ -114,5 +114,12 @@ func TestDDoSApplicationDoesNotInferCurrentDegradationFromAnUnhealthyReference(t
 	got, app, err := QualifyDDoSApplication(ctx, earlier, current, previousApp, currentApp, finding, DDoSThresholds{}, 1<<20)
 	if err != nil || got != finding || app == nil || app.State != DDoSApplicationAmbiguous {
 		t.Fatalf("recovery from an unhealthy reference must leave flow pressure inconclusive, got %+v, %v", app, err)
+	}
+
+	previousApp.Successes = previousApp.Requests
+	currentApp.Requests, currentApp.Successes, currentApp.P95 = 30, 30, 6*time.Second
+	got, app, err = QualifyDDoSApplication(ctx, earlier, current, previousApp, currentApp, finding, DDoSThresholds{}, 1<<20)
+	if err != nil || got != finding || app == nil || app.State != DDoSApplicationDegraded || app.Current.P95 != 6*time.Second {
+		t.Fatalf("completed slow requests must corroborate their original window, got %+v, %v", app, err)
 	}
 }

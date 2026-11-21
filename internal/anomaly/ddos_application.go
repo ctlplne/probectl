@@ -77,7 +77,7 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 		proof.State = DDoSApplicationAmbiguous
 		return finding, proof, ctx.Err()
 	}
-	if !withinDDoSApplicationErrorBudget(latest) || latest.P95 > earlier.P95+earlier.P95/2 {
+	if !withinDDoSApplicationErrorBudget(latest) || latest.P95-earlier.P95 > earlier.P95/2 {
 		proof.State = DDoSApplicationDegraded
 		return finding, proof, ctx.Err()
 	}
@@ -139,7 +139,7 @@ func validDDoSAppWindow(app DDoSApplicationWindow, flow DDoSObservation) bool {
 	return flow.Direction == "ingress" && flow.Target == app.Target && app.Target.IsSingleIP() &&
 		app.From.Equal(flow.From) && app.To.Equal(flow.To) &&
 		app.Requests >= 20 && app.Requests <= math.MaxInt/125 && app.Successes >= 0 && app.Successes <= app.Requests &&
-		app.P95 > 0 && app.P95 <= app.To.Sub(app.From) && len(app.Digest) == 64
+		app.P95 > 0 && len(app.Digest) == 64
 }
 
 func withinDDoSApplicationErrorBudget(app DDoSApplicationWindow) bool {

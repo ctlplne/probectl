@@ -96,8 +96,7 @@ type ddosApplicationRequest struct {
 func projectDDoSApplicationWindow(ctx context.Context, source anomaly.DDoSObservation, service string, port uint16,
 	knownAt time.Time, spans []otelstore.Span) (anomaly.DDoSApplicationWindow, bool, error) {
 	var empty anomaly.DDoSApplicationWindow
-	width := source.To.Sub(source.From)
-	if width <= 0 || knownAt.Before(source.To) {
+	if !source.From.Before(source.To) || knownAt.Before(source.To) {
 		return empty, false, nil
 	}
 	address, portText := source.Target.Addr().String(), strconv.FormatUint(uint64(port), 10)
@@ -121,7 +120,7 @@ func projectDDoSApplicationWindow(ctx context.Context, source anomaly.DDoSObserv
 		key := [2]string{span.TraceID, span.SpanID}
 		code, err := strconv.Atoi(span.Attrs["http.response.status_code"])
 		if err != nil || code < 100 || code > 599 || len(key[0]) != 32 || len(key[1]) != 16 || seen[key] ||
-			span.Duration <= 0 || span.Duration > width || span.Start.Add(span.Duration).After(knownAt) {
+			span.Duration <= 0 || span.Start.Add(span.Duration).After(knownAt) {
 			// Requests are assigned by their start clock. A request that
 			// finished after the boundary can count once its completed span
 			// is available. Future or malformed evidence leaves it unknown.

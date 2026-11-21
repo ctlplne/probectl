@@ -219,9 +219,10 @@ func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otel
 			rows = append(rows, row)
 			for n, span := range benchmarkDDoSAppSpans(sample, window.Start) {
 				if i == 0 && n == 0 {
-					// An original request began in this historical window and
-					// finished immediately after it closed.
+					// A completed slow request belongs to its start window,
+					// including when its duration exceeds the window width.
 					span.Start = window.End.Add(-5 * time.Millisecond)
+					span.Duration = 6 * time.Second
 				}
 				span.TenantID = tenant
 				span.TraceID = fmt.Sprintf("%016x%016x", window.Start.UnixNano(), n+1)
