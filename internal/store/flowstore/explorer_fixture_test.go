@@ -36,7 +36,6 @@ func TestExplorerRegistryCoversEveryStoredFlowColumn(t *testing.T) {
 		"routing_captured_unix_nanos": false,
 		"service_classified_at":       false,
 		"service_evidence":            false,
-		"start_ts":                    false,
 		"clock_basis":                 false,
 	}
 	columns := map[string]bool{}

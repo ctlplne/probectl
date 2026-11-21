@@ -214,7 +214,7 @@ func replayWeeklyDDoSHoldout(ctx context.Context, scenario weeklyDDoSHoldout, se
 			}
 		}
 		from := windowEnd.Add(-period)
-		if input.Application != nil && !(week == 0 && half == 1 && scenario.Application == "missing") {
+		if input.Application != nil && (week != 0 || half != 1 || scenario.Application != "missing") {
 			app := benchmarkDDoSApplication{Requests: percent * (2 + variant%3), LatencyMS: 18 + variant%4}
 			if week == 0 && scenario.Application == "degraded" {
 				app.Failures = app.Requests / 5

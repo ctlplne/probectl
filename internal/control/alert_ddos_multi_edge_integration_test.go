@@ -212,13 +212,14 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 					packets = [2]uint64{400, 6800}
 				}
 			}
+			sparse := sampling == ddosEdgeSparseSampling && !growth && i == 1
 			for edge, exporter := range exporters {
 				if missingReferenceEdge && i == 0 && edge == 1 {
 					continue
 				}
 				rate := rates[edge]
 				records := uint64(1)
-				if rate > 1 && !(sampling == ddosEdgeSparseSampling && !growth && i == 1) {
+				if rate > 1 && !sparse {
 					records = 2
 				}
 				raw := packets[edge] / rate

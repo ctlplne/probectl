@@ -81,7 +81,7 @@ func EvaluateDDoSEpisode(ctx context.Context, binding QueryGroupBinding, prior Q
 	twoSpecificVectors := shortWindow && before.Class != anomaly.DDoSVolumetric && after.Class != anomaly.DDoSVolumetric
 	sameVector := before.Class == after.Class && before.Service == after.Service
 	alreadyOpen := active[group]
-	if !sameVector && !twoSpecificVectors && !(shortWindow && alreadyOpen) {
+	if !sameVector && !twoSpecificVectors && (!shortWindow || !alreadyOpen) {
 		return nil, next, ctx.Err()
 	}
 	next.Keys = append(next.Keys, group)
