@@ -2429,6 +2429,12 @@ fails config validation — the listener is never anonymous plaintext.
 | `PROBECTL_SYSLOG_MAX_LINE_BYTES`   | `65536` | maximum accepted syslog line length (1 B–1 MiB; `0` uses the 64 KiB default) |
 | `PROBECTL_SYSLOG_SOURCES`          | (none)  | JSON array of authenticated senders: `[{"name":"edge-fw","tenant_id":"tenant-a","tls_client_subject":"CN=edge-fw,O=probectl","address":"192.0.2.10","hmac_secret":"","rate_limit":120}]`. Each source needs a `name`, a credential (`tls_client_subject` **or** `hmac_secret`), and a tenant (`tenant_id` or the default); `address` optionally pins the source host and `rate_limit` bounds lines per minute |
 
+For a known syslog source, set its optional `pattern_family` to
+`cisco_ios`, `cisco_nxos` or `frr`. The receiver binds the selected family
+to the same authenticated sender as the original line. Sources with an
+omitted family collect structural patterns. Syslog counts use the existing
+query memory, response and execution admission settings.
+
 ### OTLP export
 
 probectl can *export* OTLP to an upstream collector. All three signals are

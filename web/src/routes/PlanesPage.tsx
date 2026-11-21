@@ -65,6 +65,7 @@ import { BGPVisibilityPanel } from './BGPVisibilityPanel'
 import { BMPSessionHistory } from './BMPSessionHistory'
 import { IdentityConflictsCard } from './IdentityConflictsCard'
 import { DeviceMetricsCard } from '../components/DeviceMetricsCard'
+import { DeviceSyslogPatternsCard } from '../components/DeviceSyslogPatternsCard'
 import { ConfigDiffDialog, type ConfigComparison } from './ConfigDiffDialog'
 import { DeviceConfigPolicyAction } from './DeviceConfigPolicyDialog'
 import { ConfigArchiveBinding } from '../components/ConfigArchiveBinding'
@@ -1276,6 +1277,7 @@ function DevicePanel({
           </CardBody>
         </Card>
         <DeviceMetricsCard />
+        <DeviceSyslogPatternsCard />
         <Card>
           <CardHeader title={t('planes.device.endpoints.title')} />
           <CardBody>

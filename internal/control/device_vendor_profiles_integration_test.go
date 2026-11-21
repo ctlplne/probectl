@@ -74,7 +74,7 @@ func TestVendorProfileMetricsUseOriginalTenantReadings(t *testing.T) {
 				t.Error(err)
 			}
 		})
-		cookies[lane] = issueVendorProfileSession(t, f, tenant)
+		cookies[lane] = issueDeviceOperatorSession(t, f, tenant)
 	}
 	seedInterfaceRoleMCPConsent(f)
 	check := func(lane int, result nativeDeviceMetrics, exactNumericOIDs bool) {
@@ -141,7 +141,7 @@ func TestVendorProfileMetricsUseOriginalTenantReadings(t *testing.T) {
 	}
 }
 
-func issueVendorProfileSession(t *testing.T, f *roleExplanationAPIFixture, tenant string) string {
+func issueDeviceOperatorSession(t *testing.T, f *roleExplanationAPIFixture, tenant string) string {
 	t.Helper()
 	var grants []auth.PermissionGrant
 	f.in(tenant, func(ctx context.Context, scope tenancy.Scope) error {

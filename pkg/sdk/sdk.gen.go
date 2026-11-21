@@ -2156,26 +2156,47 @@ type DeviceNeighborResponse struct {
 }
 
 type DeviceSyslogEvent struct {
-	AppName       string            `json:"app_name,omitempty"`
-	Device        string            `json:"device,omitempty"`
-	Facility      int               `json:"facility,omitempty"`
-	Hostname      string            `json:"hostname,omitempty"`
-	Id            string            `json:"id,omitempty"`
-	Labels        map[string]string `json:"labels,omitempty"`
-	Message       string            `json:"message,omitempty"`
-	ObservedAt    string            `json:"observed_at,omitempty"`
-	Raw           string            `json:"raw,omitempty"`
-	Severity      int               `json:"severity,omitempty"`
-	SeverityText  string            `json:"severity_text,omitempty"`
-	SourceAddress string            `json:"source_address,omitempty"`
-	TenantId      string            `json:"tenant_id,omitempty"`
-	Version       int               `json:"version,omitempty"`
+	AppName        string            `json:"app_name,omitempty"`
+	Device         string            `json:"device,omitempty"`
+	Facility       int               `json:"facility,omitempty"`
+	Hostname       string            `json:"hostname,omitempty"`
+	Id             string            `json:"id,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Message        string            `json:"message,omitempty"`
+	ObservedAt     string            `json:"observed_at,omitempty"`
+	PatternId      string            `json:"pattern_id,omitempty"`
+	PatternKind    string            `json:"pattern_kind,omitempty"`
+	PatternVersion int               `json:"pattern_version,omitempty"`
+	Raw            string            `json:"raw,omitempty"`
+	Severity       int               `json:"severity,omitempty"`
+	SeverityText   string            `json:"severity_text,omitempty"`
+	SourceAddress  string            `json:"source_address,omitempty"`
+	TenantId       string            `json:"tenant_id,omitempty"`
+	Version        int               `json:"version,omitempty"`
 }
 
 type DeviceSyslogList struct {
 	EffectiveLimit int                 `json:"effective_limit,omitempty"`
 	Items          []DeviceSyslogEvent `json:"items,omitempty"`
 	SyslogRunning  *bool               `json:"syslog_running,omitempty"`
+}
+
+type DeviceSyslogPattern struct {
+	Count   int    `json:"count"`
+	FirstAt string `json:"first_at"`
+	Id      string `json:"id"`
+	Kind    string `json:"kind"`
+	LastAt  string `json:"last_at"`
+	Version int    `json:"version"`
+}
+
+type DeviceSyslogPatternPage struct {
+	From          string                `json:"from"`
+	IndexedRows   int                   `json:"indexed_rows"`
+	Patterns      []DeviceSyslogPattern `json:"patterns"`
+	To            string                `json:"to"`
+	TotalPatterns int                   `json:"total_patterns"`
+	UnindexedRows int                   `json:"unindexed_rows"`
 }
 
 type DeviceSyslogRequest struct {
@@ -7188,6 +7209,36 @@ func (c *Client) IngestDeviceSyslog(ctx context.Context, req IngestDeviceSyslogR
 	query := url.Values{}
 	var out DeviceSyslogEvent
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List tenant device syslog pattern counts
+type ListDeviceSyslogPatternsRequest struct {
+	From   *string `json:"-"`
+	To     *string `json:"-"`
+	Device *string `json:"-"`
+	Limit  *int    `json:"-"`
+}
+
+func (c *Client) ListDeviceSyslogPatterns(ctx context.Context, req ListDeviceSyslogPatternsRequest) (*DeviceSyslogPatternPage, error) {
+	path := "/v1/device/syslog/patterns"
+	query := url.Values{}
+	if req.From != nil {
+		query.Set("from", formatQueryValue(*req.From))
+	}
+	if req.To != nil {
+		query.Set("to", formatQueryValue(*req.To))
+	}
+	if req.Device != nil {
+		query.Set("device", formatQueryValue(*req.Device))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out DeviceSyslogPatternPage
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

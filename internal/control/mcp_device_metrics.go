@@ -28,12 +28,29 @@ type nativeDeviceMetrics struct {
 }
 
 func deviceMetricsToolOption(server *Server) (mcp.Option, error) {
+	schema, err := deviceQueryToolSchema("/v1/device/metrics", 3)
+	if err != nil {
+		return nil, err
+	}
+	return mcp.WithDeviceMetricsBackend(mcpDeviceMetricsBackend{server}, schema), nil
+}
+
+func deviceSyslogPatternsToolOption(server *Server) (mcp.Option, error) {
+	schema, err := deviceQueryToolSchema("/v1/device/syslog/patterns", 4)
+	if err != nil {
+		return nil, err
+	}
+	return mcp.WithDeviceSyslogPatternsBackend(mcpDeviceMetricsBackend{server}, schema), nil
+}
+
+func deviceQueryToolSchema(path string, expected int) (json.RawMessage, error) {
 	var doc struct {
 		Paths map[string]struct {
 			Get struct {
 				Parameters []struct {
-					Name   string          `json:"name"`
-					Schema json.RawMessage `json:"schema"`
+					Name     string          `json:"name"`
+					Required bool            `json:"required"`
+					Schema   json.RawMessage `json:"schema"`
 				} `json:"parameters"`
 			} `json:"get"`
 		} `json:"paths"`
@@ -42,23 +59,24 @@ func deviceMetricsToolOption(server *Server) (mcp.Option, error) {
 		return nil, err
 	}
 	properties := map[string]json.RawMessage{}
-	for _, parameter := range doc.Paths["/v1/device/metrics"].Get.Parameters {
+	var required []string
+	for _, parameter := range doc.Paths[path].Get.Parameters {
 		if parameter.Name != "" && json.Valid(parameter.Schema) {
 			properties[parameter.Name] = parameter.Schema
+			if parameter.Required {
+				required = append(required, parameter.Name)
+			}
 		}
 	}
-	if len(properties) != 3 {
-		return nil, apierror.Internal("device metric parameter contract is unavailable")
+	if len(properties) != expected {
+		return nil, apierror.Internal("device query parameter contract is unavailable")
 	}
-	schema, err := json.Marshal(struct {
+	return json.Marshal(struct {
 		Type                 string                     `json:"type"`
 		Properties           map[string]json.RawMessage `json:"properties"`
+		Required             []string                   `json:"required,omitempty"`
 		AdditionalProperties bool                       `json:"additionalProperties"`
-	}{Type: "object", Properties: properties})
-	if err != nil {
-		return nil, err
-	}
-	return mcp.WithDeviceMetricsBackend(mcpDeviceMetricsBackend{server}, schema), nil
+	}{Type: "object", Properties: properties, Required: required})
 }
 
 func (b mcpDeviceMetricsBackend) DeviceMetrics(ctx context.Context, actor *auth.Principal, command mcp.DeviceMetricsCommand) (json.RawMessage, error) {
@@ -103,4 +121,37 @@ func (b mcpDeviceMetricsBackend) DeviceMetrics(ctx context.Context, actor *auth.
 	// Numeric gauges stay numeric; every sender-supplied string goes through
 	// ordinary native full redaction. No canonical source identity is asserted.
 	return body, ctx.Err()
+}
+
+func (b mcpDeviceMetricsBackend) DeviceSyslogPatterns(ctx context.Context, actor *auth.Principal,
+	command mcp.DeviceSyslogPatternsCommand) (json.RawMessage, error) {
+	if b.server == nil {
+		return nil, apierror.Unavailable("device syslog pattern service is unavailable")
+	}
+	if err := mcp.CheckOriginatingCredential(ctx); err != nil {
+		return nil, err
+	}
+	query := url.Values{"from": {command.From}, "to": {command.To}}
+	if command.Device != "" {
+		query.Set("device", command.Device)
+	}
+	if command.Limit != nil {
+		query.Set("limit", strconv.Itoa(*command.Limit))
+	}
+	current := mcpReportBackend(b)
+	result, err := invokeReportHandler[deviceSyslogPatternPage](ctx, current, actor, false,
+		http.MethodGet, "/v1/device/syslog/patterns?"+query.Encode(), "", nil, b.server.handleListDeviceSyslogPatterns)
+	if err != nil {
+		return nil, err
+	}
+	if err := mcp.RetainNativePublication(ctx, func(ctx context.Context) error {
+		if err := mcp.CheckOriginatingCredential(ctx); err != nil {
+			return err
+		}
+		_, _, err := current.current(ctx, actor, false)
+		return err
+	}, func() {}); err != nil {
+		return nil, err
+	}
+	return json.Marshal(result)
 }

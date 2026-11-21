@@ -634,6 +634,20 @@ varbinds (the sysUpTime/snmpTrapOID header is skipped) and the SNMP version.
 
 ## Syslog and config archive
 
+The Device page's **Syslog patterns** table groups an hour of original
+observations. Each pattern retains its count and first and last receiver
+clocks. The pattern ID identifies a versioned structure within the tenant.
+The page reports older retained rows without indexed patterns. TLS syslog
+sources with a configured family can recognize original interface,
+adjacency and power-supply messages. The normal syslog view retains the
+original lines.
+
+`GET /v1/device/syslog/patterns`, the generated SDKs, `probectl device
+syslog-patterns` and the `device_syslog_patterns` MCP tool take an explicit
+half-open `from` to `to` observation interval and an optional exact device
+filter. Use UTC timestamps. The output limit controls the number of groups,
+and the coverage fields count the complete admitted source interval.
+
 The device operations surface covers two NMS/NCM table-stakes workflows without
 turning probectl into a vendor-managed collector:
 

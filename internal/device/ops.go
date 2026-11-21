@@ -27,20 +27,23 @@ const defaultOpsLimit = 100
 
 // SyslogEvent is one authenticated, tenant-scoped device syslog line.
 type SyslogEvent struct {
-	ID            string            `json:"id"`
-	TenantID      string            `json:"tenant_id"`
-	Device        string            `json:"device"`
-	SourceAddress string            `json:"source_address,omitempty"`
-	Facility      int               `json:"facility,omitempty"`
-	Severity      int               `json:"severity"`
-	SeverityText  string            `json:"severity_text"`
-	Version       int               `json:"version,omitempty"`
-	Hostname      string            `json:"hostname,omitempty"`
-	AppName       string            `json:"app_name,omitempty"`
-	Message       string            `json:"message"`
-	Raw           string            `json:"raw,omitempty"`
-	Labels        map[string]string `json:"labels,omitempty"`
-	ObservedAt    time.Time         `json:"observed_at"`
+	ID             string            `json:"id"`
+	TenantID       string            `json:"tenant_id"`
+	Device         string            `json:"device"`
+	SourceAddress  string            `json:"source_address,omitempty"`
+	Facility       int               `json:"facility,omitempty"`
+	Severity       int               `json:"severity"`
+	SeverityText   string            `json:"severity_text"`
+	Version        int               `json:"version,omitempty"`
+	Hostname       string            `json:"hostname,omitempty"`
+	AppName        string            `json:"app_name,omitempty"`
+	Message        string            `json:"message"`
+	Raw            string            `json:"raw,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	ObservedAt     time.Time         `json:"observed_at"`
+	PatternID      string            `json:"pattern_id,omitempty"`
+	PatternVersion int               `json:"pattern_version,omitempty"`
+	PatternKind    SyslogPatternKind `json:"pattern_kind,omitempty"`
 }
 
 // ConfigVersion is a redacted, tenant-scoped network-device config snapshot.
@@ -91,7 +94,13 @@ func NewMemoryOpsStore() *MemoryOpsStore {
 	}
 }
 
-func (m *MemoryOpsStore) RecordSyslog(_ context.Context, ev SyslogEvent) (SyslogEvent, error) {
+func (m *MemoryOpsStore) RecordSyslog(ctx context.Context, ev SyslogEvent) (SyslogEvent, error) {
+	return m.RecordSyslogForPatternSource(ctx, ev, "")
+}
+
+// RecordSyslogForPatternSource adds the authenticated receiver's configured
+// source family to pattern derivation. Raw event content supplies no family.
+func (m *MemoryOpsStore) RecordSyslogForPatternSource(_ context.Context, ev SyslogEvent, trustedFamily string) (SyslogEvent, error) {
 	if ev.TenantID == "" {
 		return SyslogEvent{}, errors.New("device ops: tenant_id is required")
 	}
@@ -108,6 +117,7 @@ func (m *MemoryOpsStore) RecordSyslog(_ context.Context, ev SyslogEvent) (Syslog
 	if ev.SeverityText == "" {
 		ev.SeverityText = SyslogSeverityText(ev.Severity)
 	}
+	ev.stampSyslogPattern(trustedFamily)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.next++

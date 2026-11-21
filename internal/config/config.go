@@ -1095,6 +1095,7 @@ type SyslogSourceConfig struct {
 	TLSClientSubject string `json:"tls_client_subject,omitempty"`
 	HMACSecret       string `json:"hmac_secret,omitempty"`
 	RateLimit        int    `json:"rate_limit,omitempty"`
+	PatternFamily    string `json:"pattern_family,omitempty"`
 }
 
 // Load resolves configuration using the supplied getenv function (use

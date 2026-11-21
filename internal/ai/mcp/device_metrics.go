@@ -45,3 +45,37 @@ func WithDeviceMetricsBackend(backend DeviceMetricsBackend, schema json.RawMessa
 		s.order = append(s.order, tool.Name)
 	}
 }
+
+type DeviceSyslogPatternsCommand struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Device string `json:"device,omitempty"`
+	Limit  *int   `json:"limit,omitempty"`
+}
+
+type DeviceSyslogPatternsBackend interface {
+	DeviceSyslogPatterns(context.Context, *auth.Principal, DeviceSyslogPatternsCommand) (json.RawMessage, error)
+}
+
+func WithDeviceSyslogPatternsBackend(backend DeviceSyslogPatternsBackend, schema json.RawMessage) Option {
+	return func(s *Server) {
+		if backend == nil || !json.Valid(schema) {
+			return
+		}
+		tool := Tool{Name: "device_syslog_patterns", Description: "Read stored device syslog pattern counts for the current tenant in an explicit observation window. The response reports retained rows without indexed patterns.",
+			InputSchema: append(json.RawMessage(nil), schema...), Permission: "metrics.read", ExtraPermissions: []string{"ai.query"}, Native: true, RequiresUser: true, Query: true,
+			Invoke: func(ctx context.Context, actor *auth.Principal, raw json.RawMessage) (any, error) {
+				var command DeviceSyslogPatternsCommand
+				if err := decodeBoundedNativeArgs(raw, &command, s.nativeRequestBytes()); err != nil {
+					return nil, err
+				}
+				if command.From == "" || command.To == "" || command.Limit != nil && *command.Limit < 1 {
+					return nil, argErr("from and to are required and limit must be positive when supplied")
+				}
+				return backend.DeviceSyslogPatterns(ctx, actor, command)
+			}}
+		s.nativeEnabled = true
+		s.tools[tool.Name] = tool
+		s.order = append(s.order, tool.Name)
+	}
+}

@@ -2049,6 +2049,9 @@ export interface DeviceSyslogEvent {
   labels?: { [key: string]: string }
   message?: string
   observed_at?: string
+  pattern_id?: string
+  pattern_kind?: "other" | "link_down" | "bgp_neighbor_down" | "power_supply_fault"
+  pattern_version?: number
   raw?: string
   severity?: number
   severity_text?: string
@@ -2061,6 +2064,24 @@ export interface DeviceSyslogList {
   effective_limit?: number
   items?: DeviceSyslogEvent[]
   syslog_running?: boolean
+}
+
+export interface DeviceSyslogPattern {
+  count: number
+  first_at: string
+  id: string
+  kind: "other" | "link_down" | "bgp_neighbor_down" | "power_supply_fault"
+  last_at: string
+  version: number
+}
+
+export interface DeviceSyslogPatternPage {
+  from: string
+  indexed_rows: number
+  patterns: DeviceSyslogPattern[]
+  to: string
+  total_patterns: number
+  unindexed_rows: number
 }
 
 export interface DeviceSyslogRequest {
@@ -5665,6 +5686,15 @@ export interface IngestDeviceSyslogRequest {
 
 export type IngestDeviceSyslogResponse = DeviceSyslogEvent
 
+export interface ListDeviceSyslogPatternsRequest {
+  from: string
+  to: string
+  device?: string
+  limit?: number
+}
+
+export type ListDeviceSyslogPatternsResponse = DeviceSyslogPatternPage
+
 export interface ListDeviceTrapsRequest {
   device?: string
   since?: string
@@ -7922,6 +7952,16 @@ export class ProbectlSDKClient {
     let path = "/v1/device/syslog"
     const query = new URLSearchParams()
     return this.requestJSON<IngestDeviceSyslogResponse>("POST", path, query, request.body)
+  }
+
+  async listDeviceSyslogPatterns(request: ListDeviceSyslogPatternsRequest): Promise<ListDeviceSyslogPatternsResponse> {
+    let path = "/v1/device/syslog/patterns"
+    const query = new URLSearchParams()
+    if (request.from !== undefined) query.set("from", String(request.from))
+    if (request.to !== undefined) query.set("to", String(request.to))
+    if (request.device !== undefined) query.set("device", String(request.device))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListDeviceSyslogPatternsResponse>("GET", path, query, undefined)
   }
 
   async listDeviceTraps(request: ListDeviceTrapsRequest = {}): Promise<ListDeviceTrapsResponse> {

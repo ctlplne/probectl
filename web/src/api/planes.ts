@@ -340,6 +340,48 @@ export function useBgpEvents(limit = 50) {
   })
 }
 
+export type DeviceSyslogPatternKind =
+  | 'other'
+  | 'link_down'
+  | 'bgp_neighbor_down'
+  | 'power_supply_fault'
+
+export interface DeviceSyslogPattern {
+  id: string
+  version: number
+  kind: DeviceSyslogPatternKind
+  count: number
+  first_at: string
+  last_at: string
+}
+
+interface DeviceSyslogPatternsResponse {
+  from: string
+  to: string
+  patterns: DeviceSyslogPattern[]
+  indexed_rows: number
+  unindexed_rows: number
+  total_patterns: number
+}
+
+export function useDeviceSyslogPatterns(from: string, to: string) {
+  const auth = useContext(AuthContext)
+  const params = new URLSearchParams({ from, to })
+  return useQuery({
+    queryKey: [
+      'device',
+      'syslog-patterns',
+      auth?.tenant.id,
+      auth?.user.id,
+      auth?.permissions,
+      from,
+      to,
+    ],
+    queryFn: ({ signal }) =>
+      apiFetch<DeviceSyslogPatternsResponse>(`/device/syslog/patterns?${params}`, { signal }),
+  })
+}
+
 export function useDeviceSyslog(limit = 5) {
   return useQuery({
     queryKey: ['device', 'syslog', limit],

@@ -55,6 +55,7 @@ type SyslogSource struct {
 	TLSClientSubject string
 	RateLimit        int
 	RateLimitWindow  time.Duration
+	PatternFamily    string
 }
 
 // SyslogReceiverConfig configures one tenant-bound inbound syslog receiver.
@@ -100,6 +101,7 @@ type SyslogEvent struct {
 	Provenance      map[string]string `json:"provenance,omitempty"`
 	OriginalLength  int               `json:"original_length"`
 	ParserHardening []string          `json:"parser_hardening,omitempty"`
+	PatternFamily   string            `json:"-"`
 }
 
 // SyslogStore persists normalized syslog events.
@@ -146,6 +148,11 @@ func NewSyslogReceiver(cfg SyslogReceiverConfig, store SyslogStore) (*SyslogRece
 		}
 		if cfg.TenantID == "" && sources[i].TenantID == "" {
 			return nil, fmt.Errorf("siem syslog ingest: source %q needs a tenant_id (no default receiver tenant is set)", sources[i].Name)
+		}
+		switch sources[i].PatternFamily {
+		case "", "cisco_ios", "cisco_nxos", "frr":
+		default:
+			return nil, fmt.Errorf("siem syslog ingest: source %q has an unsupported pattern_family", sources[i].Name)
 		}
 	}
 	return &SyslogReceiver{
@@ -212,6 +219,7 @@ func (r *SyslogReceiver) Record(ctx context.Context, env SyslogEnvelope) (Syslog
 		Message:         parsed.message,
 		OriginalLength:  len(env.Line),
 		ParserHardening: []string{"max_line_bytes", "pri_bounds", "nul_reject"},
+		PatternFamily:   source.PatternFamily,
 		Provenance: map[string]string{
 			"source.name":    source.Name,
 			"source.address": hostOnly(env.SourceAddress),

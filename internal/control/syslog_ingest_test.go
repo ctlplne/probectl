@@ -67,6 +67,7 @@ func TestSyslogTLSClientCertDeliversToDeviceReadPath(t *testing.T) {
 			Name:             "edge-fw",
 			TenantID:         tenant,
 			TLSClientSubject: "CN=edge-fw,O=probectl",
+			PatternFamily:    "cisco_ios",
 		}},
 	}, sink)
 	if err != nil {
@@ -115,6 +116,9 @@ func TestSyslogTLSClientCertDeliversToDeviceReadPath(t *testing.T) {
 	if got[0].Labels["auth_method"] != "tls-client-cert" {
 		t.Fatalf("auth method provenance = %q, want tls-client-cert", got[0].Labels["auth_method"])
 	}
+	if got[0].PatternKind != device.SyslogPatternOther || got[0].PatternVersion != 1 {
+		t.Fatalf("the arbitrary message must retain its structural pattern without fault classification: %+v", got[0])
+	}
 
 	// Unauthenticated sender: a CA-valid certificate with an UNKNOWN subject is
 	// rejected at the per-source credential check and never persisted.
@@ -144,6 +148,14 @@ func TestSyslogTLSClientCertDeliversToDeviceReadPath(t *testing.T) {
 	time.Sleep(250 * time.Millisecond)
 	if after := currentSyslog(t, srv); len(after) != 1 {
 		t.Fatalf("a sender with no client certificate delivered a record: read path has %d rows", len(after))
+	}
+
+	known := "%LINK-3-UPDOWN: Interface Ethernet7/2, changed state to down"
+	sendSyslogLine(t, addr, clientTLS, "<34>1 2026-06-30T13:00:07Z edge-1 firewall 731 link_down - "+known)
+	events := awaitSyslog(t, srv, 2)
+	if events[0].TenantID != tenant || events[0].Message != known || events[0].PatternKind != device.SyslogPatternLinkDown ||
+		events[0].PatternID == "" || events[0].PatternID == events[1].PatternID {
+		t.Fatalf("the configured family or original TLS message did not survive pattern indexing: %+v", events)
 	}
 
 	cancel()

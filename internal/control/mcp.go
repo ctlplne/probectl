@@ -178,6 +178,11 @@ func newMCPServer(
 			} else {
 				options = append(options, option)
 			}
+			if option, err := deviceSyslogPatternsToolOption(src.NativeFlow); err != nil {
+				log.Error("MCP device syslog pattern schema is unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, option)
+			}
 			if option, err := pathHealthToolOption(src.NativeFlow); err != nil {
 				log.Error("MCP path health schema is unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

@@ -61,6 +61,7 @@ func startSyslogSubsystem(
 			HMACSecret:       s.HMACSecret,
 			TLSClientSubject: s.TLSClientSubject,
 			RateLimit:        s.RateLimit,
+			PatternFamily:    s.PatternFamily,
 		})
 	}
 	receiver, err := siem.NewSyslogReceiver(siem.SyslogReceiverConfig{

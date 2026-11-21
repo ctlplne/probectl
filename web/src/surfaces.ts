@@ -1014,6 +1014,7 @@ export const SURFACES: SurfaceDecl[] = [
       'openapi:/v1/device/collection-outcomes',
       'openapi:/v1/device/identity-conflicts',
       'openapi:/v1/device/syslog',
+      'openapi:/v1/device/syslog/patterns',
       'openapi:/v1/device/traps',
       'openapi:/v1/device/configs',
       'cli:probectl device list',

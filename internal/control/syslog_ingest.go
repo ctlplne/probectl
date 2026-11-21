@@ -26,6 +26,10 @@ type deviceSyslogSink struct {
 	ops device.OpsStore
 }
 
+type authenticatedSyslogPatternStore interface {
+	RecordSyslogForPatternSource(context.Context, device.SyslogEvent, string) (device.SyslogEvent, error)
+}
+
 // NewDeviceSyslogSink wires the authenticated TLS syslog receiver's store onto
 // the control plane's device syslog read path (RTP-09). ops is the same
 // tenant-scoped store GET /v1/device/syslog reads (Server.DeviceOps()).
@@ -51,7 +55,7 @@ func (s *deviceSyslogSink) RecordSyslog(ctx context.Context, ev siem.SyslogEvent
 	if ev.Format == "rfc5424" {
 		version = 1
 	}
-	stored, err := s.ops.RecordSyslog(ctx, device.SyslogEvent{
+	row := device.SyslogEvent{
 		TenantID:      ev.TenantID,
 		Device:        deviceName,
 		SourceAddress: ev.SourceAddress,
@@ -64,7 +68,14 @@ func (s *deviceSyslogSink) RecordSyslog(ctx context.Context, ev siem.SyslogEvent
 		Message:       message,
 		Labels:        deviceSyslogLabels(ev),
 		ObservedAt:    ev.ReceivedAt,
-	})
+	}
+	var stored device.SyslogEvent
+	var err error
+	if writer, ok := s.ops.(authenticatedSyslogPatternStore); ok {
+		stored, err = writer.RecordSyslogForPatternSource(ctx, row, ev.PatternFamily)
+	} else {
+		stored, err = s.ops.RecordSyslog(ctx, row)
+	}
 	if err != nil {
 		return siem.SyslogEvent{}, err
 	}

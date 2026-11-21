@@ -42,6 +42,12 @@ func (s *PostgresOpsStore) inTenant(ctx context.Context, tenant string, fn func(
 }
 
 func (s *PostgresOpsStore) RecordSyslog(ctx context.Context, ev SyslogEvent) (SyslogEvent, error) {
+	return s.RecordSyslogForPatternSource(ctx, ev, "")
+}
+
+// RecordSyslogForPatternSource derives a pattern using the authenticated
+// receiver's configured source family in the original write transaction.
+func (s *PostgresOpsStore) RecordSyslogForPatternSource(ctx context.Context, ev SyslogEvent, trustedFamily string) (SyslogEvent, error) {
 	if ev.TenantID == "" {
 		return SyslogEvent{}, errors.New("device ops: tenant_id is required")
 	}
@@ -58,6 +64,7 @@ func (s *PostgresOpsStore) RecordSyslog(ctx context.Context, ev SyslogEvent) (Sy
 	if ev.SeverityText == "" {
 		ev.SeverityText = SyslogSeverityText(ev.Severity)
 	}
+	ev.stampSyslogPattern(trustedFamily)
 	labels, err := json.Marshal(ev.Labels)
 	if err != nil {
 		return SyslogEvent{}, fmt.Errorf("device ops: encode labels: %w", err)
@@ -65,11 +72,12 @@ func (s *PostgresOpsStore) RecordSyslog(ctx context.Context, ev SyslogEvent) (Sy
 	err = s.inTenant(ctx, ev.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
 		return sc.Q.QueryRow(ctx, `
 INSERT INTO device_syslog
-    (tenant_id, device, source_address, facility, severity, severity_text, hostname, app_name, message, raw, labels, observed_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
+    (tenant_id, device, source_address, facility, severity, severity_text, hostname, app_name, message, raw, labels, observed_at,
+     pattern_version, pattern_id, pattern_kind)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, NULLIF($13, 0), NULLIF($14, ''), NULLIF($15, ''))
 RETURNING id::text`,
 			ev.TenantID, ev.Device, ev.SourceAddress, ev.Facility, ev.Severity, ev.SeverityText,
-			ev.Hostname, ev.AppName, ev.Message, ev.Raw, string(labels), ev.ObservedAt).Scan(&ev.ID)
+			ev.Hostname, ev.AppName, ev.Message, ev.Raw, string(labels), ev.ObservedAt, ev.PatternVersion, ev.PatternID, string(ev.PatternKind)).Scan(&ev.ID)
 	})
 	if err != nil {
 		return SyslogEvent{}, fmt.Errorf("device ops: record syslog: %w", err)
@@ -87,7 +95,8 @@ func (s *PostgresOpsStore) ListSyslog(ctx context.Context, tenant string, f OpsF
 		// RLS scopes the read to the caller tenant; the device filter is optional.
 		rows, err := sc.Q.Query(ctx, `
 SELECT id::text, tenant_id::text, device, source_address, facility, severity, severity_text,
-       hostname, app_name, message, raw, labels, observed_at
+       hostname, app_name, message, raw, labels, observed_at,
+       coalesce(pattern_version,0), coalesce(pattern_id,''), coalesce(pattern_kind,'')
   FROM device_syslog
  WHERE ($1 = '' OR device = $1)
  ORDER BY observed_at DESC
@@ -101,7 +110,7 @@ SELECT id::text, tenant_id::text, device, source_address, facility, severity, se
 			var labels []byte
 			if err := rows.Scan(&ev.ID, &ev.TenantID, &ev.Device, &ev.SourceAddress, &ev.Facility,
 				&ev.Severity, &ev.SeverityText, &ev.Hostname, &ev.AppName, &ev.Message, &ev.Raw,
-				&labels, &ev.ObservedAt); err != nil {
+				&labels, &ev.ObservedAt, &ev.PatternVersion, &ev.PatternID, &ev.PatternKind); err != nil {
 				return err
 			}
 			if len(labels) > 0 {

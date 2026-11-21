@@ -130,6 +130,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/device/identity-conflicts", s.handleIdentityConflicts, ai.PermTopologyRead},
 		{http.MethodGet, "/v1/device/traps", s.handleDeviceTraps, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/device/syslog", s.handleListDeviceSyslog, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/device/syslog/patterns", s.handleListDeviceSyslogPatterns, ai.PermMetricsRead},
 		{http.MethodPost, "/v1/device/syslog", s.handleIngestDeviceSyslog, permMetricsWrite},
 		{http.MethodGet, "/v1/device/configs", s.handleListDeviceConfigs, ai.PermMetricsRead},
 		{http.MethodPost, "/v1/device/configs", s.handleArchiveDeviceConfig, permMetricsWrite},

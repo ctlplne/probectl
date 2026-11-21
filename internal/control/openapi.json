@@ -8704,6 +8704,108 @@
         }
       }
     },
+    "/v1/device/syslog/patterns": {
+      "get": {
+        "x-required-permission": "metrics.read",
+        "operationId": "listDeviceSyslogPatterns",
+        "summary": "List tenant device syslog pattern counts",
+        "description": "Compares stored observations from an explicit half-open interval. Unindexed historical rows remain visible as coverage gaps.",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "description": "Inclusive observation interval start.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "description": "Exclusive observation interval end.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "device",
+            "in": "query",
+            "description": "Optional exact device selection.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum distinct patterns in this response. Coverage counts include the complete admitted interval.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Original interval and admitted pattern counts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceSyslogPatternPage"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Complete selected observations or pattern output exceed configured query admission.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Tenant query fairness admission refused the operation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Device syslog pattern storage or configured query admission is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "limit_param": "limit",
+          "resource_admitted": true,
+          "reason": "Pattern output follows caller and configured query admission while coverage counts summarize the admitted interval."
+        }
+      }
+    },
     "/v1/device/syslog": {
       "get": {
         "x-required-permission": "metrics.read",
@@ -33928,6 +34030,23 @@
       "DeviceSyslogEvent": {
         "type": "object",
         "properties": {
+          "pattern_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "pattern_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "pattern_kind": {
+            "type": "string",
+            "enum": [
+              "other",
+              "link_down",
+              "bgp_neighbor_down",
+              "power_supply_fault"
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -33973,6 +34092,87 @@
           "observed_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "DeviceSyslogPattern": {
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "kind",
+          "count",
+          "first_at",
+          "last_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "other",
+              "link_down",
+              "bgp_neighbor_down",
+              "power_supply_fault"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "first_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DeviceSyslogPatternPage": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "patterns",
+          "indexed_rows",
+          "unindexed_rows",
+          "total_patterns"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "patterns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceSyslogPattern"
+            }
+          },
+          "indexed_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unindexed_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total_patterns": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
