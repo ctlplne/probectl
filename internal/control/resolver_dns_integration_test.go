@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,6 +103,13 @@ func TestResolverDNSKeepsCapturedPressureAndIncidentsInTheAssignedTenant(t *test
 	if conflict != nil || status.Code(err) != codes.AlreadyExists {
 		t.Fatalf("changed evidence horizontally reused the same capture clocks: %+v, %v", conflict, err)
 	}
+	late := resolverDNSFixture(start.Add(-time.Minute), 130, 70)
+	late.Intervals = late.Intervals[:1]
+	late.Frames, late.Selected = 130, 130
+	lateReceipt, err := clients[0].SubmitResolverDNS(t.Context(), sameName, late)
+	if lateReceipt != nil || status.Code(err) != codes.AlreadyExists || !strings.Contains(status.Convert(err).Message(), "oldest first") {
+		t.Fatalf("earlier unsubmitted capture did not explain the source ordering requirement: %+v, %v", lateReceipt, err)
+	}
 	quiet, err := clients[1].SubmitResolverDNS(t.Context(), "sibling-resolver", resolverDNSFixture(start, 1000, 2))
 	if err != nil || quiet == nil || quiet.PressureSignals != 0 {
 		t.Fatalf("ordinary sibling burst raised a pressure incident: %+v, %v", quiet, err)
@@ -116,7 +124,7 @@ func TestResolverDNSKeepsCapturedPressureAndIncidentsInTheAssignedTenant(t *test
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			var windows, responses int
 			if err := sc.Q.QueryRow(ctx, `SELECT count(*),sum(client_responses)
-				FROM resolver_dns_intervals WHERE minute_start >= $1`, start).Scan(&windows, &responses); err != nil {
+				FROM resolver_dns_intervals WHERE minute_start >= $1`, late.Intervals[0].From).Scan(&windows, &responses); err != nil {
 				return err
 			}
 			expected := []int{390, 3000}[lane]

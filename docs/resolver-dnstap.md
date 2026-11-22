@@ -21,8 +21,11 @@ mTLS connection.
    bounds, and the mTLS address and identity options. Supply up to two hours
    of consecutive, completed minutes, ending within the last 24 hours.
    Choose the complete minutes inside the rotated file. The client counts
-   and excludes responses in adjacent partial minutes. Exact uploads can be
-   retried. A changed upload for an admitted minute returns a conflict.
+   and excludes responses in adjacent partial minutes. Submit new files
+   oldest first for each assigned source. Once a later minute is admitted,
+   earlier unsubmitted minutes remain gaps in the coverage view. To retry an
+   admitted capture, submit the same file with the same UTC minute bounds.
+   A changed upload for an admitted minute returns a conflict.
 4. Run `probectl entities resolver-dns-coverage <device UUID>` with the
    `context_id`, `agent_id` and `source_ref` query parameters. The
    default is ten completed minutes. Select up to 120 with `minutes`.

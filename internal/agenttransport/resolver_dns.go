@@ -132,7 +132,9 @@ func resolverDNSWriteError(err error) error {
 		return status.Error(codes.Unauthenticated, "resolver evidence identity is inactive")
 	case errors.Is(err, store.ErrResolverDNSUnavailable), errors.Is(err, incident.ErrFaultSourceInactive):
 		return status.Error(codes.FailedPrecondition, "current resolver source assignment is unavailable")
-	case errors.Is(err, store.ErrResolverDNSConflict), errors.Is(err, incident.ErrFaultObservationConflict):
+	case errors.Is(err, store.ErrResolverDNSConflict):
+		return status.Error(codes.AlreadyExists, "submit new resolver captures oldest first and retry admitted captures with the same file and minute bounds")
+	case errors.Is(err, incident.ErrFaultObservationConflict):
 		return status.Error(codes.AlreadyExists, "resolver evidence has a conflicting interval")
 	case errors.Is(err, store.ErrResolverDNSBudget):
 		return status.Error(codes.ResourceExhausted, "tenant resolver evidence state admission exhausted")
