@@ -644,6 +644,27 @@
       ]
     },
     {
+      "ref": "test:internal/flow/ndr_shipped_integration_test.go#TestShippedNDREgressKeepsOwnBaselineSuppressionAndIncidents",
+      "profile": "integration",
+      "capabilities": [
+        "F37"
+      ]
+    },
+    {
+      "ref": "test:internal/canary/shipped_slo_integration_test.go#TestSLOFromShippedHTTPRuns",
+      "profile": "integration",
+      "capabilities": [
+        "F42"
+      ]
+    },
+    {
+      "ref": "test:internal/flow/authoring_realstack_integration_test.go#TestAuthoringDiscoveryRealStack",
+      "profile": "integration",
+      "capabilities": [
+        "F45"
+      ]
+    },
+    {
       "ref": "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors",
       "profile": "integration",
       "capabilities": [

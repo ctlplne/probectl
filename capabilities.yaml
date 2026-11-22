@@ -620,7 +620,6 @@ capabilities:
   - id: F37
     name: NDR-lite detection engine
     status: delivered
-    evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/threat/ndr.go"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildNDR("]}
@@ -630,7 +629,7 @@ capabilities:
     docs: {refs: ["file:docs/ndr.md#NDR-lite detection engine"]}
     config_keys: {refs: ["config:PROBECTL_NDR_ENABLED", "config:PROBECTL_NDR_RULES_DIR"]}
     telemetry: {refs: ["file:internal/threat"]}
-    real_stack_proof: {gap: "No dedicated real-service NDR execution proof exists yet; CL-022 owns the missing delivery-depth work."}
+    real_stack_proof: {refs: ["test:internal/flow/ndr_shipped_integration_test.go#TestShippedNDREgressKeepsOwnBaselineSuppressionAndIncidents"]}
     migration: {refs: ["file:migrations/0049_incident_threat_detections_idx.sql"]}
 
   - id: F38
@@ -709,7 +708,6 @@ capabilities:
   - id: F42
     name: SLO and business impact
     status: delivered
-    evidence_status: partial
     owner: incident/quality
     engine: {refs: ["file:internal/slo"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildSLO("]}
@@ -719,7 +717,7 @@ capabilities:
     docs: {refs: ["file:docs/slo.md#SLO + business-impact engine"]}
     config_keys: {refs: ["config:PROBECTL_SLO_ENABLED", "config:PROBECTL_SLO_DIR"]}
     telemetry: {refs: ["file:internal/slo"]}
-    real_stack_proof: {gap: "The SLO engine has unit and handler coverage but no dedicated real-service execution proof yet."}
+    real_stack_proof: {refs: ["test:internal/canary/shipped_slo_integration_test.go#TestSLOFromShippedHTTPRuns"]}
     migration: *no_migration
 
   - id: F43
@@ -758,7 +756,6 @@ capabilities:
   - id: F45
     name: AI authoring and discovery
     status: delivered
-    evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/ai/author"]}
     binary: {refs: ["file:internal/control/server.go#s.authorEngine = buildAuthor"]}
@@ -768,7 +765,7 @@ capabilities:
     docs: {refs: ["file:docs/ai-authoring.md#AI test authoring"]}
     config_keys: {refs: ["config:PROBECTL_AI_MODEL_PROVIDER"]}
     telemetry: {refs: ["file:internal/ai/author"]}
-    real_stack_proof: {gap: "The PostgreSQL/public-handler test seeds incidents directly and uses only one tenant; no bidirectional tenant-isolation or complete CLI and rendered-UI authoring workflow is proven."}
+    real_stack_proof: {refs: ["test:internal/flow/authoring_realstack_integration_test.go#TestAuthoringDiscoveryRealStack"]}
     migration: *no_migration
 
   - id: F46
