@@ -109,6 +109,44 @@ func TestDDoSTimingCannotEstablishQuietFromCrossingReportsAlone(t *testing.T) {
 	}
 }
 
+func TestDDoSTimingRequiresQuietInContainedReports(t *testing.T) {
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
+	for _, period := range []int{5, 10, 60} {
+		settings, err := normalizeDDoSAssessment(benchmarkDDoSView, flow.DDoSAssessmentInput{
+			Version: "7", Prefix: "192.0.2.1/32", Direction: "ingress", PeriodSeconds: period,
+			BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
+			VectorShareBasisPoints: 6000, MinObservedRecords: 4, MinObservedAddresses: 2,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		clocks, err := anomaly.DDoSCompletedWindows(benchmarkDDoSEpoch, period)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reference := benchmarkDDoSWindow{Bytes: 640000, Packets: 6400, Records: 8, Addresses: 1, Sampling: 1}
+		for _, profile := range []string{"syn", "dns"} {
+			current := benchmarkDDoSWindow{Bytes: 320000, Packets: 3200, Records: 4, Addresses: 1, Sampling: 1,
+				Profile: profile, OtherBytes: 320000, OtherPackets: 3200}
+			capture := &reportFlowCapture{TenantID: benchmarkDDoSTenant, SourceGeneration: 1,
+				Results: []capturedReportFlow{fixtureDDoSTimingWindow(settings, clocks.Before, reference), fixtureDDoSTimingWindow(settings, clocks.After, current)}}
+			got, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
+			if err != nil || got.Detection != nil {
+				t.Fatal("a contained vector below the share threshold should be quiet", period, profile, got, err)
+			}
+			capture.Results[1].Result.Rows[1].CrossesWindowStart = true
+			got, err = assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
+			if anomaly.DDoSFastPeriod(period) {
+				if !errors.Is(err, errDDoSTimingCoverage) || got.Detection != nil {
+					t.Fatal("a vector supported by contained reports was interpreted as quiet", period, profile, got, err)
+				}
+			} else if err != nil || got.Detection != nil {
+				t.Fatal("the longer cadence lost its quiet observation", period, profile, got, err)
+			}
+		}
+	}
+}
+
 func TestDDoSTimingRequiresComparableSamplingAfterRemovingCrossingReports(t *testing.T) {
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
 	const exporter = "203.0.113.15"

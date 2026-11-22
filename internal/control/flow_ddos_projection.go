@@ -131,9 +131,6 @@ func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, s
 		!maps.Equal(reference.samplingRates, current.samplingRates) {
 		return errDDoSTimingCoverage
 	}
-	if finding == nil {
-		return ctx.Err()
-	}
 	limits := settings.Input.Thresholds()
 	confirmed, err := anomaly.EvaluateDDoS(ctx, reference.observation, current.observation, limits, work)
 	if errors.Is(err, anomaly.ErrDDoSRecordSupport) {
@@ -142,17 +139,23 @@ func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, s
 	if err != nil {
 		return err
 	}
-	if confirmed == nil || confirmed.Class != finding.Class || confirmed.Service != finding.Service {
-		return errDDoSTimingCoverage
-	}
-	if application != nil {
-		confirmed, timedApplication, err := anomaly.QualifyDDoSApplication(ctx, reference.observation, current.observation, application.Reference, application.Current, confirmed, limits, work)
+	if confirmed != nil && application != nil {
+		var timedApplication *anomaly.DDoSApplicationEvidence
+		confirmed, timedApplication, err = anomaly.QualifyDDoSApplication(ctx, reference.observation, current.observation, application.Reference, application.Current, confirmed, limits, work)
 		if err != nil {
 			return err
 		}
-		if confirmed == nil || timedApplication == nil || timedApplication.State != application.State {
+		if timedApplication == nil || timedApplication.State != application.State {
 			return errDDoSTimingCoverage
 		}
+	}
+	// Removing reports can expose a vector that crossing traffic diluted
+	// below its share threshold. A disagreement cannot establish recovery.
+	if finding == nil && confirmed == nil {
+		return ctx.Err()
+	}
+	if finding == nil || confirmed == nil || confirmed.Class != finding.Class || confirmed.Service != finding.Service {
+		return errDDoSTimingCoverage
 	}
 	return ctx.Err()
 }

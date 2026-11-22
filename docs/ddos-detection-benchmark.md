@@ -405,6 +405,14 @@ The detector also checks that those reports cover the comparable sampling
 groups. An incomplete window leaves the previous decision and its clock in
 place.
 
+The contained reports must also agree with the full window's decision.
+One synthetic recovery window has 6,400 packets, matching its reference.
+The four contained reports carry 3,200 SYN packets. Four crossing reports
+add 3,200 ACK packets, reducing the SYN share to 50% against a 60% threshold.
+The disagreement leaves recovery unavailable and preserves the original
+episode and clock. The unit holdout also exercises a UDP service
+association and both short cadences.
+
 The paired recovery fixture lowers traffic to its historical total for one
 window of an active episode. Three of four reports cross the start, leaving
 one contained report against a minimum of four. The sampled and unsampled
@@ -415,7 +423,7 @@ from the 416-trial corpus.
 
 ```sh
 PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
-  -run '^TestFastDDoSKeepsEpisodeThroughQuietTotalsFromCrossingIntervals$' ./internal/control
+  -run '^TestFastDDoSKeepsEpisodeThrough(QuietTotalsFromCrossingIntervals|ContainedSYNPressure)$' ./internal/control
 ```
 
 [Unit fixture](../internal/control/flow_ddos_timing_test.go) · [Paired fixture](../internal/control/alert_ddos_sample_floor_integration_test.go)

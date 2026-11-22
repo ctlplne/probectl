@@ -28,31 +28,41 @@ import (
 )
 
 func TestFastDDoSKeepsEpisodeThroughAnUndersampledWindow(t *testing.T) {
-	testFastDDoSContinuesEpisode(t, errDDoSSampleCoverage, 8)
+	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: errDDoSSampleCoverage, rate: 8})
 }
 
 func TestFastDDoSKeepsEpisodeThroughInvalidSamplingWindow(t *testing.T) {
-	testFastDDoSContinuesEpisode(t, errDDoSCounterIntegrity, 8)
+	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: errDDoSCounterIntegrity, rate: 8})
 }
 
 func TestFastDDoSKeepsEpisodeThroughSparseUnsampledPressure(t *testing.T) {
-	testFastDDoSContinuesEpisode(t, anomaly.ErrDDoSRecordSupport, 1)
+	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: anomaly.ErrDDoSRecordSupport, rate: 1})
 }
 
 func TestFastDDoSDoesNotReopenOnChangingPressureClass(t *testing.T) {
-	testFastDDoSContinuesEpisode(t, nil, 8)
+	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{rate: 8})
 }
 
 func TestFastDDoSKeepsEpisodeThroughQuietTotalsFromCrossingIntervals(t *testing.T) {
 	t.Run("sampled", func(t *testing.T) {
-		testFastDDoSContinuesEpisode(t, errDDoSTimingCoverage, 8)
+		testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: errDDoSTimingCoverage, rate: 8})
 	})
 	t.Run("unsampled", func(t *testing.T) {
-		testFastDDoSContinuesEpisode(t, errDDoSTimingCoverage, 1)
+		testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: errDDoSTimingCoverage, rate: 1})
 	})
 }
 
-func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error, rate uint64) {
+func TestFastDDoSKeepsEpisodeThroughContainedSYNPressure(t *testing.T) {
+	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: errDDoSTimingCoverage, rate: 1, containedSYN: true})
+}
+
+type ddosContinuityScenario struct {
+	gap          error
+	rate         uint64
+	containedSYN bool
+}
+
+func testFastDDoSContinuesEpisode(t *testing.T, scenario ddosContinuityScenario) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	rows := seasonalFlowFixtureStore(t, f, true)
@@ -88,7 +98,7 @@ func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error, rate uint64) 
 		if err := json.Unmarshal(body, &rule); err != nil || rule.ID == "" {
 			t.Fatal("could not bind the sampled rule", err)
 		}
-		seedDDoSContinuityWindows(t, rows, tenant, end, width, lane == 0, coverageGap, rate)
+		seedDDoSContinuityWindows(t, rows, tenant, end, width, lane == 0, scenario)
 		wantSamples := 0
 		if lane == 0 {
 			wantSamples = 1
@@ -101,7 +111,7 @@ func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error, rate uint64) 
 			}
 			if lane == 0 && offset > 0 {
 				wantPrevious := end
-				if coverageGap == nil {
+				if scenario.gap == nil {
 					wantPrevious = end.Add(time.Duration(offset-1) * width)
 				}
 				if !state.State.At.Equal(wantPrevious) || len(state.State.Keys) != 1 {
@@ -120,8 +130,8 @@ func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error, rate uint64) 
 			got, err := f.server.readAlertDDoSRule(ctx, rule, *state, actor, flowstore.ExplorerQueryBudget(rows),
 				AlertTagDependencies{IncidentWindow: time.Minute}, windowEnd.Add(time.Second))
 			release()
-			if lane == 0 && coverageGap != nil && (offset == 1 || offset == 2) {
-				if !errors.Is(err, coverageGap) || got.QuerySelection != nil {
+			if lane == 0 && scenario.gap != nil && (offset == 1 || offset == 2) {
+				if !errors.Is(err, scenario.gap) || got.QuerySelection != nil {
 					t.Fatal("incomplete observations were interpreted as quiet coverage", offset, err)
 				}
 				continue
@@ -139,7 +149,7 @@ func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error, rate uint64) 
 			body = callSeasonalAPI(t, server, f.tokens[tenant], http.MethodGet, path, nil, http.StatusOK)
 			var proof alert.DDoSEvaluationEvidence
 			if err := json.Unmarshal(body, &proof); err != nil || !proof.Current.After.To.Equal(end) ||
-				proof.Current.After.Sampled != (rate > 1) || proof.Current.After.ObservedRecords != 4 || proof.Current.After.Packets != "6400" {
+				proof.Current.After.Sampled != (scenario.rate > 1) || proof.Current.After.ObservedRecords != 4 || proof.Current.After.Packets != "6400" {
 				t.Fatal("the original episode receipt lost its sampling or original record evidence", err)
 			}
 		}
@@ -147,7 +157,7 @@ func testFastDDoSContinuesEpisode(t *testing.T, coverageGap error, rate uint64) 
 	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, path, nil, http.StatusNotFound)
 }
 
-func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant string, end time.Time, width time.Duration, pressure bool, coverageGap error, rate uint64) {
+func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant string, end time.Time, width time.Duration, pressure bool, scenario ddosContinuityScenario) {
 	t.Helper()
 	var rows []flowstore.Row
 	for offset := -1; offset <= 3; offset++ {
@@ -160,27 +170,42 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 			}
 			if high {
 				packets = 6400
-				if (coverageGap == errDDoSSampleCoverage || coverageGap == anomaly.ErrDDoSRecordSupport) && offset == 1 {
+				if (scenario.gap == errDDoSSampleCoverage || scenario.gap == anomaly.ErrDDoSRecordSupport) && offset == 1 {
 					count = 1
 				}
 			}
-			crossingQuiet := high && offset == 1 && coverageGap == errDDoSTimingCoverage
-			if crossingQuiet {
+			crossingQuiet := high && offset == 1 && scenario.gap == errDDoSTimingCoverage
+			containedSYN := pressure && offset == 1 && scenario.containedSYN
+			containedCount := 1
+			switch {
+			case containedSYN:
+				// Current and reference totals match. Only the current window's
+				// four contained reports carry SYN pressure. Four crossing
+				// reports dilute its share when counted in the same window.
+				packets = 6400
+				containedCount = 4
+				if high {
+					count = 2 * containedCount
+				}
+			case crossingQuiet:
 				packets = 3200
 			}
 			for index := range count {
-				vector := high && !crossingQuiet && (coverageGap != nil || offset != 1)
+				vector := high && (scenario.gap != nil || offset != 1)
+				if crossingQuiet {
+					vector = containedSYN && index < containedCount
+				}
 				row := delayFixtureFlow(tenant, clock, vector)
 				row.SrcPort += uint16(index)
-				if crossingQuiet && index > 0 {
+				if crossingQuiet && index >= containedCount {
 					row.StartTS = clock.Add(-4 * width)
 					row.ClockBasis = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL
 				}
-				row.Sampling = rate
+				row.Sampling = scenario.rate
 				row.PacketsScaled = packets / uint64(count)
-				row.Packets = row.PacketsScaled / rate
+				row.Packets = row.PacketsScaled / scenario.rate
 				row.Bytes, row.BytesScaled = 100*row.Packets, 100*row.PacketsScaled
-				if high && offset == 1 && index == 0 && coverageGap == errDDoSCounterIntegrity {
+				if high && offset == 1 && index == 0 && scenario.gap == errDDoSCounterIntegrity {
 					row.PacketsScaled++
 				}
 				rows = append(rows, row)
