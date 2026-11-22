@@ -94,9 +94,14 @@ func TestBuildEnrichmentRegistersConfiguredSources(t *testing.T) {
 }
 
 func TestBuildEnrichmentAbsentDataDegradesHonestly(t *testing.T) {
+	rirDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(rirDir, "delegated-test-extended-latest"),
+		[]byte("apnic|NZ|asn|64496|1|20260101|assigned|opaque\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cfg := &config.Config{
 		FlowEnrichGeoDB:    filepath.Join(t.TempDir(), "missing.mmdb"),
-		FlowEnrichRIRDir:   t.TempDir(), // exists but holds no stats files
+		FlowEnrichRIRDir:   rirDir,
 		FlowEnrichCacheMax: 16,
 	}
 	en, ok := BuildEnrichment(cfg, statusQuietLog())

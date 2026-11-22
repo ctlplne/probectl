@@ -61,8 +61,8 @@ func NewRIRAllocations() *RIRAllocations { return &RIRAllocations{} }
 // LoadRIRDir builds an allocation index from every regular file in dir (the
 // operator drops the RIRs' delegated-extended stats files there; loading all
 // five registries builds the global view). Dotfiles and subdirectories are
-// skipped. It returns the number of files loaded; zero loadable files is an
-// error so a misconfigured directory cannot register a silently empty index.
+// skipped. It counts files that contributed address ranges. A directory with
+// no usable IPv4 or IPv6 rows cannot register a silently empty index.
 func LoadRIRDir(dir string) (*RIRAllocations, int, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -79,15 +79,19 @@ func LoadRIRDir(dir string) (*RIRAllocations, int, error) {
 		if err != nil {
 			return nil, 0, fmt.Errorf("opendata: open rir stats file %q: %w", path, err)
 		}
+		beforeV4, beforeV6 := idx.Size()
 		err = idx.Load(f)
 		_ = f.Close()
 		if err != nil {
 			return nil, 0, fmt.Errorf("opendata: load rir stats file %q: %w", path, err)
 		}
-		loaded++
+		afterV4, afterV6 := idx.Size()
+		if afterV4 > beforeV4 || afterV6 > beforeV6 {
+			loaded++
+		}
 	}
 	if loaded == 0 {
-		return nil, 0, fmt.Errorf("opendata: rir stats dir %q contains no stats files", dir)
+		return nil, 0, fmt.Errorf("opendata: rir stats dir %q contains no usable IPv4 or IPv6 records", dir)
 	}
 	return idx, loaded, nil
 }
@@ -148,7 +152,7 @@ func (s *RIRAllocations) loadV4(start, value string, meta allocMeta) {
 
 func (s *RIRAllocations) loadV6(start, value string, meta allocMeta) {
 	prefix, err := netip.ParsePrefix(start + "/" + value)
-	if err != nil {
+	if err != nil || !prefix.Addr().Is6() {
 		return
 	}
 	s.v6 = append(s.v6, v6Entry{prefix: prefix.Masked(), allocMeta: meta})

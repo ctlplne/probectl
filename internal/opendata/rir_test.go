@@ -84,6 +84,9 @@ func TestLoadRIRDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, ".hidden"), []byte("junk"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "README.TXT"), []byte("RIR statistics format"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +96,7 @@ func TestLoadRIRDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	if files != 1 {
-		t.Fatalf("files loaded = %d, want 1 (dotfiles and subdirs skipped)", files)
+		t.Fatalf("files with usable records = %d, want 1", files)
 	}
 	if v4, v6 := idx.Size(); v4 != 1 || v6 != 1 {
 		t.Fatalf("Size() = (%d, %d), want (1, 1)", v4, v6)
@@ -111,7 +114,15 @@ func TestLoadRIRDirFailsClosed(t *testing.T) {
 	if _, _, err := LoadRIRDir(filepath.Join(t.TempDir(), "missing")); err == nil {
 		t.Fatal("missing directory must error")
 	}
-	if _, _, err := LoadRIRDir(t.TempDir()); err == nil {
+	dir := t.TempDir()
+	if _, _, err := LoadRIRDir(dir); err == nil {
 		t.Fatal("empty directory must error — a silently empty index would look healthy")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "delegated-malformed"),
+		[]byte("apnic|NZ|ipv6|192.0.2.0|24|20260101|assigned|opaque\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadRIRDir(dir); err == nil {
+		t.Fatal("a wrong address family cannot register a usable index")
 	}
 }

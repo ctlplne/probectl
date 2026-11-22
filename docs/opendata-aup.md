@@ -103,6 +103,10 @@ Notes:
 - **Team Cymru and RIR statistics stay `unknown`.** “Free” or “public” describes
   access, not necessarily resale rights. Counsel or the operator must map the
   exact intended use to written permission for each publisher.
+- APNIC permits downloading and using its extended delegation reports subject
+  to its liability condition. Country codes describe the original
+  allocation or assignment. Check the intended customer-facing use and
+  redistribution separately for each registry. [APNIC report terms](https://ftp.apnic.net/stats/apnic/README-EXTENDED.TXT)
 - Attribution text still travels with every contributing record, but
   attribution never upgrades `restricted` or `unknown` into permission.
 
