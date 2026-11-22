@@ -150,23 +150,7 @@ func (p *releaseFlowReport) renderReport(t *testing.T, root, cert, cookie, theme
 		"trustCertFiles": []string{cert}, "timeoutMs": 60000, "expect": []string{"Saved views and report delivery", p.tenant},
 		"absent": absent, "steps": steps,
 		"controls": []map[string]string{{"role": "button", "name": "Switch theme (current: " + theme + ")"}}}
-	raw, err := json.Marshal(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, "node", filepath.Join(root, "scripts", "realstack_render.mjs"))
-	command.Dir = root
-	command.Stdin = bytes.NewReader(raw)
-	output, err := command.Output()
-	if err != nil {
-		t.Fatal("release-source Chromium process failed; no fixture/browser skip is allowed")
-	}
-	var rendered struct{ Missing, Present []string }
-	if json.Unmarshal(output, &rendered) != nil || len(rendered.Missing) != 0 || len(rendered.Present) != 0 {
-		t.Fatal("actual release-source Chromium did not satisfy required owned/foreign controls", rendered.Missing, rendered.Present)
-	}
+	renderReleaseBrowser(t, root, spec)
 	var views struct {
 		Items []struct {
 			ID, Name   string
@@ -223,5 +207,26 @@ func (p *releaseFlowReport) renderReport(t *testing.T, root, cert, cookie, theme
 	}
 	if !found {
 		t.Fatal("release browser did not publish complete selected source output")
+	}
+}
+
+func renderReleaseBrowser(t *testing.T, root string, spec map[string]any) {
+	t.Helper()
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "node", filepath.Join(root, "scripts", "realstack_render.mjs"))
+	command.Dir = root
+	command.Stdin = bytes.NewReader(raw)
+	output, err := command.Output()
+	if err != nil {
+		t.Fatal("release Chromium process failed", err)
+	}
+	var rendered struct{ Missing, Present []string }
+	if json.Unmarshal(output, &rendered) != nil || len(rendered.Missing) != 0 || len(rendered.Present) != 0 {
+		t.Fatal("release Chromium did not satisfy required controls", rendered.Missing, rendered.Present)
 	}
 }
