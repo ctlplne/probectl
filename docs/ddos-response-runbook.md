@@ -8,9 +8,10 @@ between reads. You can select ten seconds or the saved view's supported longer
 window. Set volume and observed-record floors for the window you choose. Each
 episode requires two adjacent completed windows. The fast scheduler checks for
 due short-window rules every two seconds on the existing alert leader,
-independently of the ordinary alert pass. Configure
-export and collection frequently enough to populate both windows. After an
-evaluation has established a clock, a missed short-window pair stays eligible
+independently of the ordinary alert pass. In the pooled control database,
+the tenant-scoped due index covers enabled five- and ten-second DDoS rules.
+Configure export and collection frequently enough to populate both windows.
+After an evaluation has established a clock, a missed short-window pair stays eligible
 through the following completed window. If its observations arrive in time,
 the episode cites their original clocks. Longer export delays and incomplete
 evidence can still delay or prevent an alert.

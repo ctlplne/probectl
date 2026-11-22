@@ -23,6 +23,103 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
+func TestFastDDoSDueIndexSelectsOwnEnabledDueRules(t *testing.T) {
+	pool := setup(t.Context(), t)
+	t.Cleanup(pool.Close)
+	var tenantIDs []string
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if _, err := pool.Exec(ctx, `DELETE FROM tenants WHERE id=ANY($1::uuid[])`, tenantIDs); err != nil {
+			t.Error("own fast DDoS schedule fixtures did not erase", err)
+		}
+	})
+	var validIndex bool
+	if err := pool.QueryRow(t.Context(), `SELECT EXISTS (
+		SELECT 1 FROM pg_index
+		WHERE indrelid='public.alert_rules'::regclass
+		  AND indexrelid=to_regclass('public.alert_rules_fast_ddos_due_idx')
+		  AND indisvalid AND indpred IS NOT NULL
+	)`).Scan(&validIndex); err != nil || !validIndex {
+		t.Fatalf("fast DDoS due index is unavailable: valid=%t, err=%v", validIndex, err)
+	}
+
+	at := time.Now().UTC().Truncate(time.Second)
+	past, future := at.Add(-time.Second), at.Add(time.Second)
+	cases := []struct {
+		name    string
+		period  int
+		next    *time.Time
+		enabled bool
+		due     bool
+	}{
+		{"new short rule", 5, nil, true, true},
+		{"due at the boundary", 10, &at, true, true},
+		{"overdue short rule", 5, &past, true, true},
+		{"future short rule", 5, &future, true, false},
+		{"disabled short rule", 10, nil, false, false},
+		{"long DDoS rule", 60, &past, true, false},
+		{"ordinary rule", 0, nil, true, false},
+	}
+	want := make(map[string]map[string]bool)
+	rules := AlertRules{}
+	for i := range 2 {
+		tenant, err := NewTenants(pool).Create(t.Context(), fmt.Sprintf("fast-ddos-schedule-%d-%d", i, time.Now().UnixNano()), "Fast DDoS schedule")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tenantIDs = append(tenantIDs, tenant.ID)
+		want[tenant.ID] = make(map[string]bool)
+		inTenant(t.Context(), t, pool, tenant.ID, func(ctx context.Context, sc tenancy.Scope) error {
+			for _, fixture := range cases {
+				rule, err := rules.Create(ctx, sc, alert.Rule{Name: fixture.name, Enabled: fixture.enabled,
+					Type: alert.Threshold, Metric: alert.QueryMetric, Comparison: alert.GTE,
+					Threshold: 1, Severity: alert.SeverityWarning})
+				if err != nil {
+					return err
+				}
+				if fixture.period != 0 {
+					source := fmt.Sprintf(`{"condition":{"mode":"ddos_assessment","ddos":{"period_seconds":%d}}}`, fixture.period)
+					if _, err := sc.Q.Exec(ctx, `UPDATE alert_rules SET query_source=$2::jsonb, query_next_eval_at=$3
+						WHERE id=$1 AND tenant_id=$4`, rule.ID, source, fixture.next, tenant.ID); err != nil {
+						return err
+					}
+				}
+				if fixture.due {
+					want[tenant.ID][rule.ID] = true
+				}
+			}
+			return nil
+		})
+	}
+	for i, tenant := range tenantIDs {
+		tenantCtx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		err := tenancy.InTenantReadSnapshot(tenantCtx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+			due, err := rules.ListDueFastDDoS(ctx, sc, at)
+			if err != nil {
+				return err
+			}
+			if len(due) != len(want[tenant]) {
+				return fmt.Errorf("tenant %s returned %d due rules, want %d", tenant, len(due), len(want[tenant]))
+			}
+			for _, rule := range due {
+				if rule.TenantID != tenant || !want[tenant][rule.ID] {
+					return fmt.Errorf("tenant %s returned unexpected rule %s owned by %s", tenant, rule.ID, rule.TenantID)
+				}
+				delete(want[tenant], rule.ID)
+			}
+			foreign := tenancy.WithTenant(ctx, tenancy.ID(tenantIDs[1-i]))
+			if _, err := rules.ListDueFastDDoS(foreign, sc, at); !errors.Is(err, tenancy.ErrNoTenant) {
+				return fmt.Errorf("mismatched tenant schedule scope: %v", err)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestAlertSavedQueryStateKeepsTenantParentsVersionsAndCompleteGroups(t *testing.T) {
 	pool := setup(t.Context(), t)
 	t.Cleanup(pool.Close)

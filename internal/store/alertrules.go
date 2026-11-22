@@ -210,8 +210,10 @@ func (AlertRules) ListDueFastDDoS(ctx context.Context, s tenancy.Scope, at time.
 	if !ok || tenant != s.Tenant || s.Q == nil {
 		return nil, tenancy.ErrNoTenant
 	}
+	// Keep the predicate and due-clock expression aligned with the partial
+	// index in migration 0253. An unevaluated rule is immediately due.
 	return listEnabledAlertRules(ctx, s, `WHERE tenant_id=$1 AND enabled AND `+fastDDoSRule+`
- AND (query_next_eval_at IS NULL OR query_next_eval_at<=$2) ORDER BY created_at`, tenant.String(), at)
+ AND COALESCE(query_next_eval_at, '-infinity'::timestamptz)<=$2 ORDER BY created_at`, tenant.String(), at)
 }
 
 func listEnabledAlertRules(ctx context.Context, s tenancy.Scope, selection string, args ...any) ([]alert.Rule, error) {
