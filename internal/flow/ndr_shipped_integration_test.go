@@ -40,6 +40,12 @@ type ndrDetections struct {
 	Items   []threat.Detection `json:"items"`
 }
 
+type ndrReceiptObservation struct {
+	source byte
+	at     time.Time
+	bytes  uint64
+}
+
 // Each loopback datagram is a synthetic telemetry report. It represents an
 // observed byte counter and sends no corresponding traffic to the embedded
 // documentation address. The shipped agents, bus, control plane, incident
@@ -48,7 +54,7 @@ func TestShippedNDREgressKeepsOwnBaselineSuppressionAndIncidents(t *testing.T) {
 	stack := shipped.Start(t, shipped.Options{Name: "ndr-volume-receipts", TenantBand: 4})
 	operator := stack.OnboardOperator(t, "root@msp-ndr.example")
 	run := "ndr-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-	lanes := []*nativeLane{{name: "red", octet: 183}, {name: "blue", octet: 183}}
+	lanes := []*nativeLane{{name: "red", octet: 183, useDefaultFlush: true}, {name: "blue", octet: 183, useDefaultFlush: true}}
 	var senders [2]net.Conn
 	for lane, scope := range lanes {
 		scope.provision(t, stack, operator, run)
@@ -67,26 +73,27 @@ func TestShippedNDREgressKeepsOwnBaselineSuppressionAndIncidents(t *testing.T) {
 
 	first := time.Now().UTC().Truncate(time.Millisecond).Add(-time.Minute)
 	sharedAt, controlAt := first.Add(12*time.Second), first.Add(26*time.Second)
-	report := func(lane int, source byte, sequence uint32, at time.Time, amount uint64) {
-		t.Helper()
-		frame := ndrFlowReceipt(t, source, sequence, at, amount)
-		if n, err := senders[lane].Write(frame); err != nil || n != len(frame) {
-			t.Fatal("write owned synthetic observation to the shipped collector", lane, n, err)
-		}
-	}
 	baselines := [2]uint64{ndrMiB, 24 * ndrMiB}
 	for lane, baseline := range baselines {
-		for sample := range uint32(12) {
-			report(lane, 1, sample, first.Add(time.Duration(sample)*time.Second), baseline)
+		observations := make([]ndrReceiptObservation, 0, 27)
+		for sample := range 12 {
+			observations = append(observations, ndrReceiptObservation{1, first.Add(time.Duration(sample) * time.Second), baseline})
 		}
-		report(lane, 1, 12, sharedAt, 24*ndrMiB)
-		report(lane, 1, 13, sharedAt.Add(time.Second), 96*ndrMiB)
+		observations = append(observations, ndrReceiptObservation{1, sharedAt, 24 * ndrMiB},
+			ndrReceiptObservation{1, sharedAt.Add(time.Second), 96 * ndrMiB})
 		// This independent positive uses the same partition and arrives after
 		// the shared-source input. It proves the quiet sibling was processed.
-		for sample := range uint32(12) {
-			report(lane, 2, 14+sample, first.Add(time.Duration(14+sample)*time.Second), 2*ndrMiB)
+		for sample := range 12 {
+			observations = append(observations, ndrReceiptObservation{2, first.Add(time.Duration(14+sample) * time.Second), 2 * ndrMiB})
 		}
-		report(lane, 2, 26, controlAt, 48*ndrMiB)
+		observations = append(observations, ndrReceiptObservation{2, controlAt, 48 * ndrMiB})
+		// Keep each tenant's training, candidate and suppression observations
+		// in one ordered data set. Separate UDP reports can reach processing
+		// before the last baseline record and change the first eligible sample.
+		frame := ndrFlowReceipt(t, observations)
+		if n, err := senders[lane].Write(frame); err != nil || n != len(frame) {
+			t.Fatal("write the tenant's ordered synthetic observations", lane, n, err)
+		}
 	}
 
 	var captured [2]ndrDetections
@@ -157,26 +164,32 @@ func TestShippedNDREgressKeepsOwnBaselineSuppressionAndIncidents(t *testing.T) {
 	}
 }
 
-func ndrFlowReceipt(t *testing.T, source byte, sequence uint32, at time.Time, amount uint64) []byte {
+func ndrFlowReceipt(t *testing.T, observations []ndrReceiptObservation) []byte {
 	t.Helper()
 	const templateID = uint16(347)
 	fields := [...]uint16{8, 4, 12, 4, 7, 2, 11, 2, 4, 1, 6, 1, 1, 8, 2, 8, 34, 4, 152, 8, 153, 8}
 	exported := time.Now().Unix()
-	begin, end := at.Add(-500*time.Millisecond).UnixMilli(), at.UnixMilli()
-	if exported < 0 || exported > math.MaxUint32 || begin < 0 || end < 0 {
+	if exported < 0 || exported > math.MaxUint32 {
 		t.Fatal("fixture clocks are outside the export fields")
 	}
 	template := nativeWire(t, templateID, uint16(len(fields)/2), fields)
-	from, to := [4]byte{10, 183, 30, source}, [4]byte{198, 51, 100, 50}
-	record := nativeWire(t, from, to, uint16(42001), uint16(443), uint8(6), uint8(16),
-		amount, uint64(1), uint32(1), uint64(begin), uint64(end))
-	packetSize := 24 + len(template) + len(record)
-	if packetSize > math.MaxUint16 || len(template) > math.MaxUint16-4 || len(record) > math.MaxUint16-4 {
+	var records []byte
+	for _, observation := range observations {
+		start, end := observation.at.Add(-500*time.Millisecond).UnixMilli(), observation.at.UnixMilli()
+		if start < 0 || end < 0 {
+			t.Fatal("fixture clocks are outside the export fields")
+		}
+		from, to := [4]byte{10, 183, 30, observation.source}, [4]byte{198, 51, 100, 50}
+		records = append(records, nativeWire(t, from, to, uint16(42001), uint16(443), uint8(6), uint8(16),
+			observation.bytes, uint64(1), uint32(1), uint64(start), uint64(end))...)
+	}
+	packetSize := 24 + len(template) + len(records)
+	if packetSize > math.MaxUint16 || len(template) > math.MaxUint16-4 || len(records) > math.MaxUint16-4 {
 		t.Fatal("fixture report exceeds an IPFIX envelope")
 	}
-	body := nativeWire(t, uint16(10), uint16(packetSize), uint32(exported), sequence, uint32(43),
+	body := nativeWire(t, uint16(10), uint16(packetSize), uint32(exported), uint32(0), uint32(43),
 		uint16(2), uint16(4+len(template)), template)
-	return append(body, nativeWire(t, templateID, uint16(4+len(record)), record)...)
+	return append(body, nativeWire(t, templateID, uint16(4+len(records)), records)...)
 }
 
 func readNDRDetections(t *testing.T, stack *shipped.Stack, scope *nativeLane) ndrDetections {
