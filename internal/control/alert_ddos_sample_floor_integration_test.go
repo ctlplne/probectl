@@ -39,6 +39,10 @@ func TestFastDDoSKeepsEpisodeThroughSparseUnsampledPressure(t *testing.T) {
 	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: anomaly.ErrDDoSRecordSupport, rate: 1})
 }
 
+func TestFastDDoSKeepsEpisodeThroughSparseUnsampledQuiet(t *testing.T) {
+	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: anomaly.ErrDDoSRecordSupport, rate: 1, sparseQuiet: true})
+}
+
 func TestFastDDoSDoesNotReopenOnChangingPressureClass(t *testing.T) {
 	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{rate: 8})
 }
@@ -60,6 +64,7 @@ type ddosContinuityScenario struct {
 	gap          error
 	rate         uint64
 	containedSYN bool
+	sparseQuiet  bool
 }
 
 func testFastDDoSContinuesEpisode(t *testing.T, scenario ddosContinuityScenario) {
@@ -172,6 +177,9 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 				packets = 6400
 				if (scenario.gap == errDDoSSampleCoverage || scenario.gap == anomaly.ErrDDoSRecordSupport) && offset == 1 {
 					count = 1
+					if scenario.sparseQuiet {
+						packets = 3200
+					}
 				}
 			}
 			crossingQuiet := high && offset == 1 && scenario.gap == errDDoSTimingCoverage

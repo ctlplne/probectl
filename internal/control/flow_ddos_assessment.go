@@ -236,7 +236,7 @@ func mapDDoSCoverage(err error) error {
 		return apierror.Conflict("a sampling group has fewer original flow records than the configured minimum").Wrap(err)
 	}
 	if errors.Is(err, anomaly.ErrDDoSRecordSupport) {
-		return apierror.Conflict("measured flow pressure has fewer original flow records than the configured minimum").Wrap(err)
+		return apierror.Conflict("a compared flow window has fewer original flow records than the configured minimum").Wrap(err)
 	}
 	if errors.Is(err, errDDoSTimingCoverage) {
 		return apierror.Conflict("flow reports spanning the window boundary leave its traffic state unconfirmed").Wrap(err)

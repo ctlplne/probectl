@@ -449,6 +449,13 @@ PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
 
 ### Incomplete timing during episode recovery
 
+Five- and ten-second comparisons require the configured minimum number of
+original flow records in each current and reference window, including at a
+sampling rate of one. One wholly contained report with historical-equivalent
+totals leaves an active episode's clock and receipt in place. A thin reference
+also leaves pressure unavailable. Representative selection can use three
+other eligible historical pairs.
+
 If any original exporter report crosses the start of a five- or ten-second
 window, reports wholly inside that window must meet the rule's existing
 minimum original record count before the detector accepts a quiet result.
@@ -474,7 +481,7 @@ from the 416-trial corpus.
 
 ```sh
 PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
-  -run '^TestFastDDoSKeepsEpisodeThrough(QuietTotalsFromCrossingIntervals|ContainedSYNPressure)$' ./internal/control
+  -run '^TestFastDDoSKeepsEpisodeThrough(QuietTotalsFromCrossingIntervals|ContainedSYNPressure|SparseUnsampledQuiet)$' ./internal/control
 ```
 
 [Unit fixture](../internal/control/flow_ddos_timing_test.go) · [Paired fixture](../internal/control/alert_ddos_sample_floor_integration_test.go)

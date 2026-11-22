@@ -103,8 +103,8 @@ func pickCapturedDDoSReference(ctx context.Context, capture *reportFlowCapture, 
 			return ddosWeeklyReferenceChoice{}, anomaly.ErrDDoSCoverage
 		}
 		projected, err := projectDDoSWindow(ctx, result, settings, scope, work/2/int64(len(observations)))
-		if i < historyEnd &&
-			(len(result.Result.Rows) == 0 || errors.Is(err, errDDoSExporterCoverage) || errors.Is(err, errDDoSSampleCoverage) || errors.Is(err, errDDoSCounterIntegrity)) {
+		if i < historyEnd && (len(result.Result.Rows) == 0 || errors.Is(err, errDDoSExporterCoverage) ||
+			errors.Is(err, errDDoSSampleCoverage) || errors.Is(err, errDDoSCounterIntegrity) || errors.Is(err, anomaly.ErrDDoSRecordSupport)) {
 			observations[i] = anomaly.DDoSObservation{TenantID: capture.TenantID, Scope: scope, Target: settings.Target,
 				Direction: settings.Input.Direction, From: result.Result.Query.From, To: result.Result.Query.To}
 			continue

@@ -109,6 +109,52 @@ func TestDDoSTimingCannotEstablishQuietFromCrossingReportsAlone(t *testing.T) {
 	}
 }
 
+func TestFastDDoSRequiresOriginalRecordsInBothWindows(t *testing.T) {
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
+	for _, seconds := range []int{5, 10, 60} {
+		settings, err := normalizeDDoSAssessment(benchmarkDDoSView, flow.DDoSAssessmentInput{
+			Version: "7", Prefix: "192.0.2.0/24", Direction: "ingress", PeriodSeconds: seconds,
+			BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
+			VectorShareBasisPoints: 6000, MinObservedRecords: 4, MinObservedAddresses: 2,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		clocks, err := anomaly.DDoSCompletedWindows(benchmarkDDoSEpoch, seconds)
+		if err != nil {
+			t.Fatal(err)
+		}
+		quiet := benchmarkDDoSWindow{Bytes: 320000, Packets: 3200, Records: 4, Addresses: 1, Sampling: 1}
+		thin, pressure := quiet, quiet
+		thin.Records = 1
+		pressure.Bytes, pressure.Packets = 640000, 6400
+		for _, pair := range []struct {
+			name               string
+			reference, current benchmarkDDoSWindow
+			wouldDetect        bool
+		}{
+			{name: "thin current looks quiet", reference: quiet, current: thin},
+			{name: "thin reference exaggerates growth", reference: thin, current: pressure, wouldDetect: true},
+		} {
+			capture := &reportFlowCapture{TenantID: benchmarkDDoSTenant, SourceGeneration: 1, Results: []capturedReportFlow{
+				fixtureDDoSTimingWindow(settings, clocks.Before, pair.reference), fixtureDDoSTimingWindow(settings, clocks.After, pair.current),
+			}}
+			settings.Cited = false
+			got, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
+			if anomaly.DDoSFastPeriod(seconds) {
+				if !errors.Is(err, anomaly.ErrDDoSRecordSupport) || got.Detection != nil {
+					t.Fatal("thin short window was accepted", seconds, pair.name, got, err)
+				}
+				settings.Cited = true
+				got, err = assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
+			}
+			if err != nil || (got.Detection != nil) != pair.wouldDetect {
+				t.Fatal("existing comparison behavior changed", seconds, pair.name, got, err)
+			}
+		}
+	}
+}
+
 func TestDDoSTimingRequiresQuietInContainedReports(t *testing.T) {
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
 	for _, period := range []int{5, 10, 60} {

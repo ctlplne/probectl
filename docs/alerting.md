@@ -665,8 +665,10 @@ HTTP telemetry service name and listener port to corroborate healthy demand.
 A persistent qualifying vector opens one incident and
 writes its original measurements and next scheduled clock in the same tenant
 transaction. A single qualifying window does not open an incident. A complete
-normal read ends a sustained episode. Unavailable source coverage preserves
-its existing state. Export timing, ingestion and evaluation add to the two
+normal read ends a sustained episode. For fast evaluation, every current and
+reference window needs the configured minimum number of original flow records.
+Unavailable source coverage preserves the episode and its evaluation clock.
+Export timing, ingestion and evaluation add to the two
 observation windows. Notification delivery follows the configured alert rule.
 [Synthetic benchmark and timing method](ddos-detection-benchmark.md)
 

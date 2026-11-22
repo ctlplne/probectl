@@ -130,6 +130,19 @@ func TestDDoSWeeklyReferenceRequiresExporterCoverage(t *testing.T) {
 	if _, err := ddosMatchedWindows(ctx, capture, settings, benchmarkDDoSWork, clocks.Previous, clocks.Current); !errors.Is(err, errDDoSSampleCoverage) {
 		t.Fatal("the sparse current observation became usable coverage", err)
 	}
+
+	// Both exporters are present with rate one, but the closest week's
+	// second window has only two original records against a minimum of four.
+	for _, result := range capture.Results {
+		for _, row := range result.Result.Rows {
+			row.Group["sampling"] = "1"
+		}
+	}
+	capture.Results[latest-2].Result.Rows[1].Metrics["flows:total"] = "1"
+	selected, err = ddosMatchedWindows(ctx, capture, settings, benchmarkDDoSWork, clocks.Previous, clocks.Current)
+	if err != nil || len(selected) != 2 || !selected[1].clocks.Before.End.Equal(end.AddDate(0, 0, -14)) {
+		t.Fatal("a sparse unsampled window entered the representative week", selected, err)
+	}
 }
 
 func TestDDoSWeeklyTrendRequiresFourComparableOriginalWeeks(t *testing.T) {

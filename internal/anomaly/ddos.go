@@ -23,8 +23,8 @@ import (
 
 var ErrDDoSCoverage = errors.New("anomaly: complete comparable flow observations are required")
 
-// ErrDDoSRecordSupport reports measurable pressure with too few original records to classify it.
-var ErrDDoSRecordSupport = fmt.Errorf("%w: pressure has fewer original records than required", ErrDDoSCoverage)
+// ErrDDoSRecordSupport reports too few original flow records to support a decision.
+var ErrDDoSRecordSupport = fmt.Errorf("%w: window has fewer original flow records than required", ErrDDoSCoverage)
 
 // DDoSFastPeriod identifies the short observation windows used by the
 // dedicated saved-rule evaluator. Legacy pressure windows retain their cadence.

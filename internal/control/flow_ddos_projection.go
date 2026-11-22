@@ -179,7 +179,16 @@ func ddosCaptureScope(capture *reportFlowCapture, settings ddosAssessmentSetting
 }
 
 func projectDDoSWindow(ctx context.Context, captured capturedReportFlow, settings ddosAssessmentSettings, scope string, memory int64) (ddosProjectedWindow, error) {
-	return projectDDoSWindowRows(ctx, captured, settings, scope, memory, false)
+	projected, err := projectDDoSWindowRows(ctx, captured, settings, scope, memory, false)
+	if err != nil {
+		return ddosProjectedWindow{}, err
+	}
+	// Fast comparisons need evidence for both pressure and recovery. A thin
+	// reference can exaggerate growth, and a thin current window can look quiet.
+	if !settings.Cited && anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds) && projected.observation.ObservedRecords < settings.Input.MinObservedRecords {
+		return ddosProjectedWindow{}, anomaly.ErrDDoSRecordSupport
+	}
+	return projected, nil
 }
 
 func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, settings ddosAssessmentSettings, scope string, memory int64,
