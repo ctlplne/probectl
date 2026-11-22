@@ -94,8 +94,10 @@ type DDoSObservation struct {
 	// ports. Their packets cannot establish a vector's historical absence.
 	UnclassifiedTCPPackets string
 	UnclassifiedUDPPackets string
-	ApplicationBytes       string
-	ApplicationPackets     string
+	// Unknown transport contributes to the reference bound for either vector.
+	UnclassifiedTransportPackets string
+	ApplicationBytes             string
+	ApplicationPackets           string
 	// Traffic with missing port or transport evidence may belong to the bound listener.
 	UnknownApplicationBytes   string
 	UnknownApplicationPackets string
@@ -245,7 +247,7 @@ func checkDDoSWindows(ctx context.Context, reference, current DDoSObservation) e
 type ddosCounts struct {
 	bytes, packets, syn *big.Rat
 	possibleSYN         *big.Rat
-	unclassifiedUDP     *big.Rat
+	possibleReflection  *big.Rat
 	reflected           map[string]*big.Rat
 }
 
@@ -268,12 +270,22 @@ func parseDDoSCounts(parser *decimalSeasonalTraining, data DDoSObservation) (ddo
 	if err != nil {
 		return ddosCounts{}, err
 	}
+	unknownTransport, err := ddosCounter(parser, cmp.Or(data.UnclassifiedTransportPackets, "0"))
+	if err != nil {
+		return ddosCounts{}, err
+	}
 	result.possibleSYN = unclassifiedTCP.Add(unclassifiedTCP, result.syn)
 	udp, err := ddosCounter(parser, data.UDPPackets)
-	if err != nil || new(big.Rat).Add(result.possibleSYN, udp).Cmp(result.packets) > 0 || len(data.Reflection) > len(ddosReflectionServices) {
+	if err != nil || len(data.Reflection) > len(ddosReflectionServices) {
 		return ddosCounts{}, ErrDDoSCoverage
 	}
-	result.unclassifiedUDP, err = ddosCounter(parser, cmp.Or(data.UnclassifiedUDPPackets, "0"))
+	// Missing transport can hide either vector, but the buckets must still
+	// be disjoint when checking the observed packet total.
+	result.possibleSYN.Add(result.possibleSYN, unknownTransport)
+	if new(big.Rat).Add(result.possibleSYN, udp).Cmp(result.packets) > 0 {
+		return ddosCounts{}, ErrDDoSCoverage
+	}
+	unclassifiedUDP, err := ddosCounter(parser, cmp.Or(data.UnclassifiedUDPPackets, "0"))
 	if err != nil {
 		return ddosCounts{}, ErrDDoSCoverage
 	}
@@ -295,9 +307,10 @@ func parseDDoSCounts(parser *decimalSeasonalTraining, data DDoSObservation) (ddo
 		total.Add(total, value)
 		result.reflected[observation.Service] = value
 	}
-	if total.Add(total, result.unclassifiedUDP).Cmp(udp) > 0 {
+	if total.Add(total, unclassifiedUDP).Cmp(udp) > 0 {
 		return ddosCounts{}, ErrDDoSCoverage
 	}
+	result.possibleReflection = unclassifiedUDP.Add(unclassifiedUDP, unknownTransport)
 	return result, nil
 }
 
@@ -310,7 +323,7 @@ func growingDDoSReflection(earlier, latest ddosCounts, limits DDoSThresholds, in
 		if !qualifyingDDoSVectorSize(packets, latest.packets, independentFloor, limits.VectorShareBasisPoints) {
 			continue
 		}
-		before := earlier.unclassifiedUDP
+		before := earlier.possibleReflection
 		if measured := earlier.reflected[name]; measured != nil {
 			before = new(big.Rat).Add(before, measured)
 		}

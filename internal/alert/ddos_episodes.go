@@ -25,6 +25,8 @@ type DDoSEvaluationEvidence struct {
 	Current    flow.DDoSAssessment `json:"current"`
 	EpisodeID  string              `json:"episode_id"`
 	IncidentID string              `json:"incident_id"`
+	// TransportCoverage is derived from the stored receipt version on read.
+	TransportCoverage bool `json:"-"`
 }
 
 // EvaluateDDoSEpisode requires two adjacent qualifying windows. The scheduler

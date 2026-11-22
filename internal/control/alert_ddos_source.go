@@ -38,6 +38,8 @@ func (clocks ddosEpisodeClocks) ends() []time.Time {
 	return []time.Time{clocks.Previous.Before.End, clocks.Current.Before.End, clocks.Previous.After.End, clocks.Current.After.End}
 }
 
+const ddosReceiptTransportCoverageVersion = 2
+
 type storedDDoSReceipt struct {
 	Version  int                          `json:"version"`
 	Scope    json.RawMessage              `json:"scope"`
@@ -95,7 +97,7 @@ func (s *Server) readAlertDDoSRule(ctx context.Context, rule alert.Rule, source 
 	if err != nil {
 		return empty, err
 	}
-	proof := storedDDoSReceipt{Version: 1, Evidence: alert.DDoSEvaluationEvidence{Previous: previous, Current: current}}
+	proof := storedDDoSReceipt{Version: ddosReceiptTransportCoverageVersion, Evidence: alert.DDoSEvaluationEvidence{Previous: previous, Current: current}}
 	if started != nil {
 		proof.Evidence.EpisodeID = started.SignalID
 		proof.Scope, err = encodeSeasonalFlowScope(ctx, capture, budget.MemoryBytes/8)

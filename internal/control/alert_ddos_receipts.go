@@ -119,7 +119,8 @@ func decodeDDoSReceipt(ctx context.Context, record store.AlertFlowReceipt, bindi
 	}
 	decoder := json.NewDecoder(bytes.NewReader(record.Body))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&proof); err != nil || decoder.Decode(new(any)) != io.EOF || proof.Version != 1 ||
+	if err := decoder.Decode(&proof); err != nil || decoder.Decode(new(any)) != io.EOF ||
+		(proof.Version != 1 && proof.Version != ddosReceiptTransportCoverageVersion) ||
 		!reportRequirementUUID(proof.Evidence.IncidentID) || !alert.ValidFieldDigest(proof.Evidence.EpisodeID) || !proof.Evidence.Current.After.To.Equal(record.ObservedAt) {
 		return empty, nil, alert.ErrQueryGroups
 	}
@@ -150,5 +151,6 @@ func decodeDDoSReceipt(ctx context.Context, record store.AlertFlowReceipt, bindi
 	if err := checkStoredFlowReceiptInputs(ctx, capture, memory/2); err != nil {
 		return empty, nil, err
 	}
+	proof.Evidence.TransportCoverage = proof.Version == ddosReceiptTransportCoverageVersion
 	return proof, capture, ctx.Err()
 }

@@ -83,6 +83,14 @@ func TestFastDDoSSeparatesClassificationFieldCoverageFromGrowingVector(t *testin
 	}
 }
 
+func TestFastDDoSSeparatesTransportFieldCoverageFromGrowingVector(t *testing.T) {
+	for _, vector := range []anomaly.DDoSClass{anomaly.DDoSSYN, anomaly.DDoSReflection} {
+		t.Run(string(vector), func(t *testing.T) {
+			verifyDDoSNetworkBackground(t, vector, missingReferenceTransport)
+		})
+	}
+}
+
 func TestFastDDoSSeparatesFallingVolumeFromGrowingVector(t *testing.T) {
 	for _, vector := range []anomaly.DDoSClass{anomaly.DDoSSYN, anomaly.DDoSReflection} {
 		t.Run(string(vector), func(t *testing.T) {
@@ -96,6 +104,7 @@ type ddosNetworkScenario int
 const (
 	growingProtectedTraffic ddosNetworkScenario = iota
 	missingReferenceClassification
+	missingReferenceTransport
 	fallingProtectedTraffic
 )
 
@@ -115,7 +124,7 @@ func verifyDDoSNetworkBackground(t *testing.T, vector anomaly.DDoSClass, scenari
 	if err != nil {
 		t.Fatal(err)
 	}
-	var positiveReceipt string
+	var positiveReceipt, positiveRuleID, positiveFingerprint string
 	for lane, tenant := range f.tenants {
 		grantSeasonalFlowFixture(f, tenant)
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
@@ -166,7 +175,8 @@ func verifyDDoSNetworkBackground(t *testing.T, vector anomaly.DDoSClass, scenari
 			if lane != 0 || positiveReceipt != "" {
 				t.Fatalf("opened an episode on steady vector background or duplicated the growing vector: lane %d", lane)
 			}
-			positiveReceipt = "/v1/alerts/rules/" + rule.ID + "/ddos-receipt?fingerprint=" + item.Fingerprint
+			positiveRuleID, positiveFingerprint = rule.ID, item.Fingerprint
+			positiveReceipt = "/v1/alerts/rules/" + positiveRuleID + "/ddos-receipt?fingerprint=" + positiveFingerprint
 		}
 		if lane == 0 && (len(got.Samples) != 1 || positiveReceipt == "") {
 			t.Fatal("the growing vector lost its episode")
@@ -191,6 +201,11 @@ func verifyDDoSNetworkBackground(t *testing.T, vector anomaly.DDoSClass, scenari
 		}
 	}
 	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, positiveReceipt, nil, http.StatusNotFound)
+	if scenario == missingReferenceTransport {
+		report := fmt.Sprintf("/v1/incidents/%s/ddos-report?rule_id=%s&fingerprint=%s", proof.IncidentID, positiveRuleID, positiveFingerprint)
+		callSeasonalAPI(t, server, f.tokens[f.tenants[0]], http.MethodGet, report, nil, http.StatusOK)
+		callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, report, nil, http.StatusNotFound)
+	}
 }
 
 func seedDDoSNetworkBackground(t *testing.T, rows flowstore.Store, traces otelstore.Store, tenant string,
@@ -198,7 +213,7 @@ func seedDDoSNetworkBackground(t *testing.T, rows flowstore.Store, traces otelst
 	t.Helper()
 	var flows []flowstore.Row
 	var spans []otelstore.Span
-	for _, pair := range []anomaly.FlowFieldComparisonClocks{clocks.Previous, clocks.Current} {
+	for pairIndex, pair := range []anomaly.FlowFieldComparisonClocks{clocks.Previous, clocks.Current} {
 		for index, window := range []anomaly.TrainingWindow{pair.Before, pair.After} {
 			listener := delayFixtureFlow(tenant, window.Start.Add(2*time.Second), false)
 			background := listener
@@ -208,6 +223,9 @@ func seedDDoSNetworkBackground(t *testing.T, rows flowstore.Store, traces otelst
 			}
 			if index == 0 && scenario == missingReferenceClassification {
 				background.SrcPort, background.TCPFlags = 0, 0
+			}
+			if index == 0 && scenario == missingReferenceTransport {
+				background.Transport = [...]string{"", "0"}[pairIndex]
 			}
 			listenerBytes, listenerPackets := uint64(70000), uint64(600)
 			backgroundBytes, backgroundPackets := uint64(120000), uint64(1900)

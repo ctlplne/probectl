@@ -25,14 +25,15 @@ import (
 )
 
 type ddosAssessmentSettings struct {
-	View            reportFlowSourceRef
-	Input           flow.DDoSAssessmentInput
-	Target          netip.Prefix
-	SideField       string
-	Origins         []store.PrefixImpactFlowBinding
-	IncludeSources  bool
-	Cited           bool
-	readApplication ddosApplicationReader
+	View              reportFlowSourceRef
+	Input             flow.DDoSAssessmentInput
+	Target            netip.Prefix
+	SideField         string
+	Origins           []store.PrefixImpactFlowBinding
+	IncludeSources    bool
+	Cited             bool
+	TransportCoverage bool
+	readApplication   ddosApplicationReader
 }
 
 func (s *Server) handleFlowDDoSAssessment(w http.ResponseWriter, r *http.Request) error {

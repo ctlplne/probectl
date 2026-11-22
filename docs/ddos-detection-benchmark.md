@@ -239,6 +239,15 @@ healthy controls. The corrected detector lets all 1,900 unclassified
 historical packets count toward the possible previous vector. Both healthy
 lanes stay quiet and both growing vectors still qualify. [Field-coverage fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
 
+Missing transport raises the possible historical count for both SYN and UDP
+service comparisons. Only positively identified packets contribute to a
+current vector. The transport holdout omits the protocol on both reference
+windows while keeping the same host totals. Its quiet lane restores the
+field with a steady vector. The positive lane grows the vector from 1,900 to
+2,300 packets, clears the conservative bound, and checks the scoped receipt
+and incident report. Receipts retain the comparison policy in use when the
+episode opened. [Transport-coverage fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
+
 ## Shared host and unrelated application outage holdout
 
 The paired fixture stores identical host-wide totals of 290,000 bytes and

@@ -94,6 +94,7 @@ func (s *Server) citedDDoSSettings(ctx context.Context, ruleID string, evidence 
 			return apierror.Conflict("the detector revision changed during routing review")
 		}
 		out, err = normalizeDDoSAssessment(source.Source.ViewID, *source.Source.Condition.DDoS)
+		out.TransportCoverage = evidence.TransportCoverage
 		return err
 	})
 	return out, err

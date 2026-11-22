@@ -63,6 +63,48 @@ func TestDDoSTimingRechecksCrossPlaneDemand(t *testing.T) {
 	}
 }
 
+func TestDDoSReceiptReplaysItsTransportCoveragePolicy(t *testing.T) {
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
+	input := flow.DDoSAssessmentInput{Version: "7", Prefix: "192.0.2.1/32", Direction: "ingress", PeriodSeconds: 5,
+		BytesFloor: "200000", PacketsFloor: "900", GrowthBasisPoints: 2000, VectorShareBasisPoints: 2500,
+		MinObservedRecords: 8, MinObservedAddresses: 2}
+	settings, err := normalizeDDoSAssessment(benchmarkDDoSView, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clocks, err := anomaly.DDoSCompletedWindows(benchmarkDDoSEpoch, input.PeriodSeconds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	syn := benchmarkDDoSWindow{Profile: "syn", Bytes: 100000, Packets: 1000, Records: 8, Addresses: 1, Sampling: 1}
+	before := fixtureDDoSTimingWindow(settings, clocks.Before, syn)
+	after := fixtureDDoSTimingWindow(settings, clocks.After, syn)
+	before.Result.Rows[0].Group["transport"] = "0"
+	for i, window := range []*capturedReportFlow{&before, &after} {
+		dns := [...]int{200, 1600}[i]
+		other := 3000 - dns
+		window.Result.Rows = append(window.Result.Rows, benchmarkDDoSRows(benchmarkDDoSWindow{
+			Profile: "dns", Bytes: dns * 100, Packets: dns, OtherBytes: other * 100, OtherPackets: other,
+			Records: 8, Addresses: 1, Sampling: 1,
+		})...)
+	}
+	capture := &reportFlowCapture{TenantID: benchmarkDDoSTenant, SourceGeneration: 1, Results: []capturedReportFlow{before, after}}
+	live, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
+	if err != nil || live.Detection == nil || live.Detection.Class != anomaly.DDoSReflection || live.Detection.Service != "dns" {
+		t.Fatal("missing historical transport hid genuinely growing UDP or corroborated steady SYN", live, err)
+	}
+	settings.Cited = true
+	legacy, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
+	if err != nil || legacy.Detection == nil || legacy.Detection.Class != anomaly.DDoSSYN {
+		t.Fatal("a receipt recorded under the original policy changed classification on read", legacy, err)
+	}
+	settings.TransportCoverage = true
+	measured, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
+	if err != nil || !sameDDoSRoutingEvidence(live, measured) {
+		t.Fatal("a new receipt must reconstruct the measured classification", measured, err)
+	}
+}
+
 func TestDDoSTimingCannotEstablishQuietFromCrossingReportsAlone(t *testing.T) {
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
 	for _, seconds := range []int{5, 10, 60} {

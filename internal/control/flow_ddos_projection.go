@@ -252,6 +252,9 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 		Bytes: totals.bytes.String(), Packets: totals.packets.String(), SYNOnlyPackets: totals.syn.String(), UDPPackets: totals.udp.String(),
 		UnclassifiedTCPPackets: totals.unclassifiedTCP.String(), UnclassifiedUDPPackets: totals.unclassifiedUDP.String(),
 		ObservedRecords: totals.records, ObservedAddresses: len(totals.addresses)}
+	if !settings.Cited || settings.TransportCoverage {
+		observed.UnclassifiedTransportPackets = totals.unclassifiedTransport.String()
+	}
 	if settings.Input.Application != nil {
 		observed.ApplicationBytes, observed.ApplicationPackets = totals.applicationBytes.String(), totals.applicationPackets.String()
 		// Prospective admission needs socket coverage. Cited reads reconstruct
@@ -271,15 +274,15 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 }
 
 type ddosWindowTotals struct {
-	bytes, packets, syn, udp                           big.Int
-	unclassifiedTCP, unclassifiedUDP                   big.Int
-	applicationBytes, applicationPackets               big.Int
-	unknownApplicationBytes, unknownApplicationPackets big.Int
-	records                                            int
-	sampled                                            bool
-	sampledRecords                                     map[ddosExporterRate]int
-	addresses                                          map[netip.Addr]bool
-	services                                           map[string]*big.Int
+	bytes, packets, syn, udp                                big.Int
+	unclassifiedTCP, unclassifiedUDP, unclassifiedTransport big.Int
+	applicationBytes, applicationPackets                    big.Int
+	unknownApplicationBytes, unknownApplicationPackets      big.Int
+	records                                                 int
+	sampled                                                 bool
+	sampledRecords                                          map[ddosExporterRate]int
+	addresses                                               map[netip.Addr]bool
+	services                                                map[string]*big.Int
 }
 
 func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstore.PlanRow, exporter string) error {
@@ -325,6 +328,7 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 			return err
 		}
 	case "", "0":
+		total.unclassifiedTransport.Add(&total.unclassifiedTransport, packets)
 		if !settings.Cited {
 			return total.addApplicationFlow(settings.Input.Application, row.Group["dst_port"], false, bytes, packets)
 		}
