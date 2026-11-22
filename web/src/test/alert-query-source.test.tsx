@@ -11,7 +11,7 @@ import { expect, test, vi } from 'vitest'
 import { AuthContext, type AuthContextValue } from '../auth/AuthProvider'
 import { I18nProvider } from '../i18n/I18nProvider'
 import { TimeProvider } from '../time/TimeProvider'
-import { savedQueryAlertMetric, type AlertRule } from '../api/alerts'
+import { savedQueryAlertMetric, type AlertQuerySourceInput, type AlertRule } from '../api/alerts'
 import { AlertQueryGroupPanel } from '../routes/AlertQueryGroupPanel'
 import { AlertQuerySourceDialog } from '../routes/AlertQuerySourceDialog'
 import { IncidentFieldReceipt } from '../routes/IncidentFieldReceipt'
@@ -82,7 +82,7 @@ function fixture(creating = false, inspect = false) {
   const rendered = render(view(identity()))
   return { close, rerender: (auth: AuthContextValue) => rendered.rerender(view(auth)) }
 }
-function backend() {
+function backend(storedSource?: AlertQuerySourceInput) {
   const calls: Array<{ path: string; method: string; tenant: string | null; body: unknown }> = []
   vi.stubGlobal(
     'fetch',
@@ -146,9 +146,9 @@ function backend() {
       return jsonResponse({
         rule_id: ruleID,
         configured: true,
-        stale_revision: false,
+        stale_revision: storedSource ? storedSource.view_version !== revision : false,
         rule_updated_at: '2026-11-12T00:00:00Z',
-        source: {
+        source: storedSource ?? {
           view_id: viewID,
           view_version: revision,
           every_seconds: 60,
@@ -260,6 +260,46 @@ test('a new DDoS alert defaults to five seconds on a 300-second saved view', asy
       },
     },
   })
+})
+
+test('rebinding an existing DDoS alert keeps its explicit window and cadence', async () => {
+  const oldRevision = '9007199254740992'
+  const ddos = {
+    version: oldRevision,
+    prefix: '192.0.2.0/24',
+    direction: 'ingress' as const,
+    period_seconds: 300,
+    bytes_floor: '1000000',
+    packets_floor: '2500',
+    growth_basis_points: 2000,
+    vector_share_basis_points: 6000,
+    min_observed_records: 2,
+    min_observed_addresses: 2,
+  }
+  const calls = backend({
+    view_id: viewID,
+    view_version: oldRevision,
+    every_seconds: 900,
+    condition: { mode: 'ddos_assessment', ddos },
+  })
+  const user = userEvent.setup()
+  fixture()
+  await user.click(screen.getByRole('button', { name: 'Load current source' }))
+  await user.click(await screen.findByRole('button', { name: `Bind current revision ${revision}` }))
+  expect(screen.getByLabelText('Observation window')).toHaveValue('300')
+  expect(screen.getByLabelText('Minimum seconds between reads')).toHaveValue(900)
+  await user.click(screen.getByRole('button', { name: 'Save current source' }))
+  await waitFor(() =>
+    expect(calls.find((call) => call.method === 'PUT')).toMatchObject({
+      tenant: 'tenant-a',
+      body: {
+        view_id: viewID,
+        view_version: revision,
+        every_seconds: 900,
+        condition: { mode: 'ddos_assessment', ddos: { ...ddos, version: revision } },
+      },
+    }),
+  )
 })
 
 test('a field receipt reuses the original incident link and hides exact values when source access changes', async () => {
