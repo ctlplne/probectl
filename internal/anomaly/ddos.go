@@ -96,9 +96,12 @@ type DDoSObservation struct {
 	UnclassifiedUDPPackets string
 	ApplicationBytes       string
 	ApplicationPackets     string
-	ObservedRecords        int
-	ObservedAddresses      int
-	Reflection             []ReflectionObservation
+	// TCP traffic with no destination port may belong to the bound listener.
+	UnknownApplicationBytes   string
+	UnknownApplicationPackets string
+	ObservedRecords           int
+	ObservedAddresses         int
+	Reflection                []ReflectionObservation
 }
 
 type DDoSThresholds struct {

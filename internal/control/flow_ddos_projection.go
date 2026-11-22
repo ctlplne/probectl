@@ -254,6 +254,12 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 		ObservedRecords: totals.records, ObservedAddresses: len(totals.addresses)}
 	if settings.Input.Application != nil {
 		observed.ApplicationBytes, observed.ApplicationPackets = totals.applicationBytes.String(), totals.applicationPackets.String()
+		// Prospective admission needs port coverage. Cited reads reconstruct
+		// the original receipt from its stored detector counters.
+		if !settings.Cited {
+			observed.UnknownApplicationBytes = totals.unknownApplicationBytes.String()
+			observed.UnknownApplicationPackets = totals.unknownApplicationPackets.String()
+		}
 	}
 	for service, packets := range totals.services {
 		observed.Reflection = append(observed.Reflection, anomaly.ReflectionObservation{Service: service, Packets: packets.String()})
@@ -265,14 +271,15 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 }
 
 type ddosWindowTotals struct {
-	bytes, packets, syn, udp             big.Int
-	unclassifiedTCP, unclassifiedUDP     big.Int
-	applicationBytes, applicationPackets big.Int
-	records                              int
-	sampled                              bool
-	sampledRecords                       map[ddosExporterRate]int
-	addresses                            map[netip.Addr]bool
-	services                             map[string]*big.Int
+	bytes, packets, syn, udp                           big.Int
+	unclassifiedTCP, unclassifiedUDP                   big.Int
+	applicationBytes, applicationPackets               big.Int
+	unknownApplicationBytes, unknownApplicationPackets big.Int
+	records                                            int
+	sampled                                            bool
+	sampledRecords                                     map[ddosExporterRate]int
+	addresses                                          map[netip.Addr]bool
+	services                                           map[string]*big.Int
 }
 
 func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstore.PlanRow, exporter string) error {
@@ -344,7 +351,11 @@ func (total *ddosWindowTotals) addApplicationFlow(binding *flow.DDoSApplicationB
 	if err != nil {
 		return anomaly.ErrDDoSCoverage
 	}
-	if port == uint64(binding.Port) {
+	switch port {
+	case 0:
+		total.unknownApplicationBytes.Add(&total.unknownApplicationBytes, bytes)
+		total.unknownApplicationPackets.Add(&total.unknownApplicationPackets, packets)
+	case uint64(binding.Port):
 		total.applicationBytes.Add(&total.applicationBytes, bytes)
 		total.applicationPackets.Add(&total.applicationPackets, packets)
 	}

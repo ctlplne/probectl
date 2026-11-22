@@ -44,6 +44,10 @@ func TestFastDDoSFindsOutsideApplicationPressureWithFlatHostTotals(t *testing.T)
 	verifyDDoSApplicationAttribution(t, ddosSplitListenerFlatHost)
 }
 
+func TestFastDDoSRequiresAReportedPortToProveOutsideApplicationPressure(t *testing.T) {
+	verifyDDoSApplicationAttribution(t, ddosSplitListenerMissingPort)
+}
+
 type ddosSplitListenerHoldout uint8
 
 const (
@@ -51,6 +55,7 @@ const (
 	ddosSplitListenerTraceSampling
 	ddosSplitListenerDegradedReference
 	ddosSplitListenerFlatHost
+	ddosSplitListenerMissingPort
 )
 
 func TestFastDDoSSeparatesStableNetworkBackgroundFromGrowingVector(t *testing.T) {
@@ -303,7 +308,7 @@ func verifyDDoSApplicationAttribution(t *testing.T, scenario ddosSplitListenerHo
 					t.Fatal("stable traffic did not establish quiet coverage", err)
 				}
 			} else if !errors.Is(err, anomaly.ErrDDoSCoverage) || got.QuerySelection != nil {
-				t.Fatal("incomparable application demand qualified a sibling episode", scenario, err)
+				t.Fatal("incomplete application attribution qualified a sibling episode", scenario, err)
 			}
 		}
 		for _, item := range getSeasonalFlowReceipts(t, server, f.tokens[tenant], rule.ID).Items {
@@ -330,7 +335,7 @@ func verifyDDoSApplicationAttribution(t *testing.T, scenario ddosSplitListenerHo
 	case ddosSplitListenerDegradedReference:
 		listenerBytes, listenerPackets, hostBytes, hostPackets = "140000", "1700", "400000", "4500"
 		wantState, wantReferenceSuccesses = anomaly.DDoSApplicationResidual, 22
-	case ddosSplitListenerFlatHost:
+	case ddosSplitListenerFlatHost, ddosSplitListenerMissingPort:
 		listenerBytes, listenerPackets, hostBytes, hostPackets = "120000", "1200", "400000", "4000"
 		wantState, wantReferenceSuccesses, wantCurrentSuccesses = anomaly.DDoSApplicationResidual, 80, 30
 	}
@@ -340,7 +345,7 @@ func verifyDDoSApplicationAttribution(t *testing.T, scenario ddosSplitListenerHo
 		proof.Current.Application.Current.Successes != wantCurrentSuccesses || proof.Current.After.Bytes != hostBytes || proof.Current.After.Packets != hostPackets {
 		t.Fatal("receipt lost the original listener-specific and host-wide evidence", err)
 	}
-	if scenario == ddosSplitListenerFlatHost {
+	if scenario == ddosSplitListenerFlatHost || scenario == ddosSplitListenerMissingPort {
 		if proof.Current.Before.Bytes != hostBytes || proof.Current.Before.Packets != hostPackets || proof.Current.Detection == nil ||
 			proof.Current.Detection.Class != anomaly.DDoSVolumetric {
 			t.Fatal("receipt lost the flat aggregate and separately qualifying evidence", proof.Current)
@@ -377,14 +382,17 @@ func seedDDoSSplitListenerPressure(t *testing.T, rows flowstore.Store, traces ot
 				threshold = "0"
 			}
 			switch {
-			case scenario == ddosSplitListenerFlatHost:
+			case scenario == ddosSplitListenerFlatHost || scenario == ddosSplitListenerMissingPort:
 				listenerBytes, listenerPackets = 320000, 3200
 				otherBytes, otherPackets = 80000, 800
 				http = benchmarkDDoSApplication{Requests: 80, LatencyMS: 25}
-				if positive && index == 1 {
+				if index == 1 && (positive || scenario == ddosSplitListenerMissingPort) {
 					listenerBytes, listenerPackets = 120000, 1200
 					otherBytes, otherPackets = 280000, 2800
 					http.Requests = 30
+					if !positive {
+						other.DstPort = 0
+					}
 				}
 			case index == 1:
 				http.Failures, http.LatencyMS = 10, 80

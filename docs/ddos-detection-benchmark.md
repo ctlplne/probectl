@@ -258,6 +258,14 @@ the pinned listener and its application evidence. A stable sibling stays
 quiet. A separate replay leaves the result unavailable when the bound
 application observations are absent. [Paired scheduler fixture](../internal/control/alert_ddos_application_pressure_integration_test.go) · [Synthetic holdout](../internal/control/flow_ddos_application_test.go)
 
+The paired field-coverage case uses those same totals in both tenants. Only
+one tenant's exporter supplies the other listener's TCP destination port.
+The detector compares known outside traffic against the maximum possible
+outside reference. If an unreported port alone could account for the
+apparent growth, the evaluation remains unavailable and keeps its original
+clock. The fully observed tenant can open an owned episode.
+[Field-coverage fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
+
 ## Trace sampling holdout
 
 The holdout starts with 24 recorded successful requests that represent 24

@@ -279,3 +279,28 @@ func TestDDoSApplicationRequiresPressureOnTheDegradedListener(t *testing.T) {
 		})
 	}
 }
+
+func TestDDoSApplicationRequiresMeasuredOutsideTraffic(t *testing.T) {
+	const floor = "2500"
+	reference := applicationTrafficWindow{total: "4000", listener: "3200"}
+	current := applicationTrafficWindow{total: "4000", listener: "1200"}
+	for _, scenario := range []struct {
+		name               string
+		reference, current applicationTrafficWindow
+		definite, possible bool
+	}{
+		{"known outside growth", reference, current, true, true},
+		{"unreported current port", reference, applicationTrafficWindow{"4000", "1200", "2800"}, false, true},
+		{"unreported reference port", applicationTrafficWindow{"4000", "800", "2400"}, current, false, true},
+		{"enough known despite missing ports", reference, applicationTrafficWindow{"4300", "1300", "200"}, true, true},
+		{"known quiet", reference, reference, false, false},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			parser := decimalSeasonalTraining{work: 1 << 20}
+			got, err := compareApplicationTraffic(&parser, [2]int{80, 30}, scenario.reference, scenario.current, floor, 2000)
+			if err != nil || got.residualPressure != scenario.definite || got.possibleResidualPressure != scenario.possible {
+				t.Fatal("unexpected outside-traffic bounds", got, err)
+			}
+		})
+	}
+}

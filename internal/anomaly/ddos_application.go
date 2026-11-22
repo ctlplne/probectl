@@ -7,6 +7,7 @@
 package anomaly
 
 import (
+	"cmp"
 	"context"
 	"math"
 	"math/big"
@@ -76,13 +77,7 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 	}
 	parser := decimalSeasonalTraining{work: work}
 	requests := [2]int{earlier.Successes, latest.Successes}
-	bytes, err := compareApplicationTraffic(&parser, requests, reference.Bytes, current.Bytes,
-		reference.ApplicationBytes, current.ApplicationBytes, limits.BytesFloor, limits.GrowthBasisPoints)
-	if err != nil {
-		return nil, nil, err
-	}
-	packets, err := compareApplicationTraffic(&parser, requests, reference.Packets, current.Packets,
-		reference.ApplicationPackets, current.ApplicationPackets, limits.PacketsFloor, limits.GrowthBasisPoints)
+	bytes, packets, err := compareDDoSApplicationTraffic(&parser, requests, reference, current, limits)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -103,6 +98,8 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 		proof.State = DDoSApplicationAmbiguous
 	case latest.Successes <= earlier.Successes && listenerPressure:
 		proof.State = DDoSApplicationObserved
+	case bytes.possibleResidualPressure || packets.possibleResidualPressure:
+		proof.State = DDoSApplicationAmbiguous
 	case bytes.explained && packets.explained:
 		proof.State = DDoSApplicationDemand
 		finding = nil
@@ -113,7 +110,7 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 }
 
 type applicationTrafficComparison struct {
-	explained, listenerPressure, residualPressure bool
+	explained, listenerPressure, residualPressure, possibleResidualPressure bool
 }
 
 // A falling listener can hide independent pressure from the host-wide totals.
@@ -125,37 +122,64 @@ func outsideDDoSApplicationPressure(parser *decimalSeasonalTraining, reference, 
 		reference.ApplicationBytes == "" || current.ApplicationBytes == "" || reference.ApplicationPackets == "" || current.ApplicationPackets == "" {
 		return false, nil
 	}
-	bytes, err := compareApplicationTraffic(parser, [2]int{}, reference.Bytes, current.Bytes,
-		reference.ApplicationBytes, current.ApplicationBytes, limits.BytesFloor, limits.GrowthBasisPoints)
+	bytes, packets, err := compareDDoSApplicationTraffic(parser, [2]int{}, reference, current, limits)
 	if err != nil {
 		return false, err
 	}
-	packets, err := compareApplicationTraffic(parser, [2]int{}, reference.Packets, current.Packets,
-		reference.ApplicationPackets, current.ApplicationPackets, limits.PacketsFloor, limits.GrowthBasisPoints)
-	return bytes.residualPressure || packets.residualPressure, err
+	if bytes.residualPressure || packets.residualPressure {
+		return true, nil
+	}
+	if bytes.possibleResidualPressure || packets.possibleResidualPressure {
+		return false, ErrDDoSCoverage
+	}
+	return false, nil
+}
+
+type applicationTrafficWindow struct {
+	total, listener, unknown string
+}
+
+func compareDDoSApplicationTraffic(parser *decimalSeasonalTraining, requests [2]int,
+	reference, current DDoSObservation, limits DDoSThresholds) (bytes, packets applicationTrafficComparison, err error) {
+	bytes, err = compareApplicationTraffic(parser, requests,
+		applicationTrafficWindow{reference.Bytes, reference.ApplicationBytes, reference.UnknownApplicationBytes},
+		applicationTrafficWindow{current.Bytes, current.ApplicationBytes, current.UnknownApplicationBytes}, limits.BytesFloor, limits.GrowthBasisPoints)
+	if err != nil {
+		return bytes, packets, err
+	}
+	packets, err = compareApplicationTraffic(parser, requests,
+		applicationTrafficWindow{reference.Packets, reference.ApplicationPackets, reference.UnknownApplicationPackets},
+		applicationTrafficWindow{current.Packets, current.ApplicationPackets, current.UnknownApplicationPackets}, limits.PacketsFloor, limits.GrowthBasisPoints)
+	return bytes, packets, err
 }
 
 func compareApplicationTraffic(parser *decimalSeasonalTraining, requests [2]int,
-	reference, current, referenceApplication, currentApplication, configuredFloor string, growth int) (applicationTrafficComparison, error) {
-	var values [5]*big.Rat
-	for i, counter := range []string{reference, current, referenceApplication, currentApplication, configuredFloor} {
+	reference, current applicationTrafficWindow, configuredFloor string, growth int) (applicationTrafficComparison, error) {
+	var values [7]*big.Rat
+	for i, counter := range []string{reference.total, current.total, reference.listener, current.listener,
+		cmp.Or(reference.unknown, "0"), cmp.Or(current.unknown, "0"), configuredFloor} {
 		value, err := ddosCounter(parser, counter)
 		if err != nil {
 			return applicationTrafficComparison{}, err
 		}
 		values[i] = value
 	}
-	before, after, appBefore, appAfter, floor := values[0], values[1], values[2], values[3], values[4]
-	if appBefore.Cmp(before) > 0 || appAfter.Cmp(after) > 0 {
-		return applicationTrafficComparison{}, ErrDDoSCoverage
-	}
+	before, after, appBefore, appAfter, unknownBefore, unknownAfter, floor := values[0], values[1], values[2], values[3], values[4], values[5], values[6]
 	residualBefore := new(big.Rat).Sub(before, appBefore)
 	residualAfter := new(big.Rat).Sub(after, appAfter)
+	knownBefore := new(big.Rat).Sub(residualBefore, unknownBefore)
+	knownAfter := new(big.Rat).Sub(residualAfter, unknownAfter)
+	if knownBefore.Sign() < 0 || knownAfter.Sign() < 0 {
+		return applicationTrafficComparison{}, ErrDDoSCoverage
+	}
+	// Compare known current outside traffic with the largest possible outside
+	// reference. Unknown ports alone can leave the result inconclusive.
 	return applicationTrafficComparison{
 		explained: comparableDDoSDemand(appBefore, appAfter, requests[0], requests[1]) &&
 			(residualAfter.Cmp(residualBefore) <= 0 || comparableDDoSDemand(before, after, requests[0], requests[1])),
-		listenerPressure: exceedsDDoSVolume(appAfter, appBefore, floor, growth),
-		residualPressure: exceedsDDoSVolume(residualAfter, residualBefore, floor, growth),
+		listenerPressure:         exceedsDDoSVolume(appAfter, appBefore, floor, growth),
+		residualPressure:         exceedsDDoSVolume(knownAfter, residualBefore, floor, growth),
+		possibleResidualPressure: exceedsDDoSVolume(residualAfter, knownBefore, floor, growth),
 	}, nil
 }
 
