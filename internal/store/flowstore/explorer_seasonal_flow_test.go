@@ -29,6 +29,7 @@ func TestSeasonalDDoSPreservesPinnedPortFilterUnderGroupBudget(t *testing.T) {
 func checkSeasonalDDoSSourcePortProjection(t *testing.T, store Store, red, blue string) {
 	t.Helper()
 	const sourcePorts = 2048
+	distinctUDPPorts := []uint16{0, 53, 123, 389, 1900, 11211}
 	end := time.Now().UTC().Add(-time.Minute).Truncate(5 * time.Second)
 	budget := ExplorerQueryBudget(store)
 	budget.IntermediateGroups = 64
@@ -39,16 +40,25 @@ func checkSeasonalDDoSSourcePortProjection(t *testing.T, store Store, red, blue 
 		amount := [...]uint64{5, 7}[lane]
 		row := explorerFixtureRow(tenant)
 		row.TS, row.StartTS = end.Add(-time.Second), end.Add(-2*time.Second)
+		row.Sampling = 1
 		row.Bytes, row.BytesScaled = amount, amount
 		row.Packets, row.PacketsScaled = 2, 2
-		rows := make([]Row, 0, sourcePorts+1)
-		for port := uint16(20_000); port < 20_000+sourcePorts; port++ {
+		rows := make([]Row, 0, 2*sourcePorts+len(distinctUDPPorts))
+		for _, transport := range []string{"tcp", "udp"} {
+			row.Transport = transport
+			if transport == "udp" {
+				row.TCPFlags = 0
+			}
+			for port := uint16(20_000); port < 20_000+sourcePorts; port++ {
+				row.SrcPort = port
+				rows = append(rows, row)
+			}
+		}
+		for _, port := range distinctUDPPorts {
 			row.SrcPort = port
+			row.Bytes, row.BytesScaled = amount*3, amount*3
 			rows = append(rows, row)
 		}
-		row.Transport, row.SrcPort = "udp", 53
-		row.Bytes, row.BytesScaled = amount*3, amount*3
-		rows = append(rows, row)
 		if err := store.Insert(t.Context(), rows); err != nil {
 			t.Fatal(err)
 		}
@@ -67,19 +77,29 @@ func checkSeasonalDDoSSourcePortProjection(t *testing.T, store Store, red, blue 
 		t.Cleanup(batch.Close)
 		query := PlanQuery{TenantID: tenant, Plan: plan, DDoSProjection: true}
 		result, err := batch.ExploreSeasonalWindows(query, []time.Time{end}, 0)
-		if err != nil || len(result) != 1 || len(result[0].Rows) != 2 {
+		if err != nil || len(result) != 1 || len(result[0].Rows) != 2+len(distinctUDPPorts) {
 			t.Fatal("the detector could not read the exact short-window population within the group budget", result, err)
 		}
-		totals := make(map[string]PlanRow)
-		for _, row := range result[0].Rows {
-			totals[row.Group["transport"]] = row
-		}
 		amount := [...]uint64{5, 7}[lane]
-		if tcp, udp := totals["tcp"], totals["udp"]; tcp.Group["src_port"] != "0" || udp.Group["src_port"] != "53" ||
-			tcp.Metrics["bytes:total"] != strconv.FormatUint(amount*(sourcePorts-1), 10) || tcp.Metrics["packets:total"] != strconv.Itoa(2*(sourcePorts-1)) ||
-			tcp.Metrics["flows:total"] != strconv.Itoa(sourcePorts-1) || udp.Metrics["bytes:total"] != strconv.FormatUint(amount*3, 10) ||
-			udp.Metrics["packets:total"] != "2" || udp.Metrics["flows:total"] != "1" {
-			t.Fatal("projection changed filter membership, scoped totals or the original UDP association", totals)
+		type portTotals struct {
+			bytes   uint64
+			records int
+		}
+		want := map[[2]string]portTotals{
+			{"tcp", "0"}:                    {amount * (sourcePorts - 1), sourcePorts - 1},
+			{"udp", ddosOtherUDPSourcePort}: {amount * (sourcePorts - 1), sourcePorts - 1},
+		}
+		for _, port := range distinctUDPPorts {
+			want[[2]string{"udp", strconv.FormatUint(uint64(port), 10)}] = portTotals{amount * 3, 1}
+		}
+		for _, row := range result[0].Rows {
+			key := [2]string{row.Group["transport"], row.Group["src_port"]}
+			total, expected := want[key]
+			if !expected || row.Metrics["bytes:total"] != strconv.FormatUint(total.bytes, 10) ||
+				row.Metrics["packets:total"] != strconv.Itoa(2*total.records) || row.Metrics["flows:total"] != strconv.Itoa(total.records) {
+				t.Fatal("projection changed filter membership, scoped totals or the original UDP association", lane, key, row)
+			}
+			delete(want, key)
 		}
 		query.DDoSProjection = false
 		if result, err := batch.ExploreSeasonalWindows(query, []time.Time{end}, 0); !errors.Is(err, ErrExplorerBudget) || result != nil {

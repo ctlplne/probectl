@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/flow"
 	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 )
@@ -105,8 +106,14 @@ func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, en
 		if query.DDoSProjection {
 			groupValue = func(field string) string {
 				switch {
-				case field == "src_port" && value("transport") != "udp":
-					return "0"
+				case field == "src_port":
+					if value("transport") != "udp" {
+						return "0"
+					}
+					port := uint64(entry.row.SrcPort)
+					if port != 0 && anomaly.DDoSReflectionService(port) == "" {
+						return ddosOtherUDPSourcePort
+					}
 				case field == "exporter" && query.DDoSGroupSampledExporters && entry.row.Sampling == 1:
 					return ""
 				}

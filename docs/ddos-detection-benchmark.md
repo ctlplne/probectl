@@ -264,6 +264,27 @@ PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
   -run '^TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth$' ./internal/control
 ```
 
+## High-cardinality source-port holdout
+
+The detector groups records by the source-port detail it uses. It keeps
+each recognized UDP service association and missing UDP port separate,
+and groups other known UDP ports together. The saved view filters original
+ports before grouping. Counts still include every matching original record.
+
+Two tenants each have 2,048 distinct source ports per transport, all five
+recognized UDP service ports and one record with a missing UDP port. The
+saved filter excludes one original port in both transports. The detector
+must return eight groups within a 64-group budget, with exact byte, packet
+and record totals for each tenant. The ordinary per-port query exceeds the
+same group budget.
+[Memory and shared fixture](../internal/store/flowstore/explorer_seasonal_flow_test.go) · [ClickHouse fixture](../internal/store/flowstore/explorer_seasonal_flow_integration_test.go)
+
+```sh
+go test -count=1 -v -run '^TestSeasonalDDoSPreservesPinnedPortFilterUnderGroupBudget$' ./internal/store/flowstore
+PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
+  -run '^TestSeasonalDDoSPreservesPinnedPortFilterOnClickHouse$' ./internal/store/flowstore
+```
+
 ## Shipped collector timing
 
 Two two-tenant runs on macOS arm64 seeded synthetic prior-week references in

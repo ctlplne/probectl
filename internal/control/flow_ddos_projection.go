@@ -318,7 +318,7 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 		if port == 0 {
 			total.unclassifiedUDP.Add(&total.unclassifiedUDP, packets)
 		}
-		if service := reflectionService(port); service != "" {
+		if service := anomaly.DDoSReflectionService(port); service != "" {
 			if total.services[service] == nil {
 				total.services[service] = new(big.Int)
 			}
@@ -349,21 +349,4 @@ func ddosWindowCounter(text string) (*big.Int, bool) {
 	}
 	value, ok := new(big.Int).SetString(text, 10)
 	return value, ok
-}
-
-func reflectionService(port uint64) string {
-	switch port {
-	case 53:
-		return "dns"
-	case 123:
-		return "ntp"
-	case 11211:
-		return "memcached"
-	case 389:
-		return "cldap"
-	case 1900:
-		return "ssdp"
-	default:
-		return ""
-	}
 }

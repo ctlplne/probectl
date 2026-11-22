@@ -20,12 +20,16 @@ type seasonalPlanStore interface {
 	exploreSeasonalWindows(context.Context, PlanQuery, []time.Time, int) ([]PlanResult, error)
 }
 
+// The detector's group key uses 0 for a missing UDP source port. A known
+// port without a service association has the same meaning as port 1.
+const ddosOtherUDPSourcePort = "1"
+
 // ExploreSeasonalWindows evaluates one pinned plan on every completed clock
 // under one query, memory and cumulative-read envelope. The seasonal reader
 // selects original groups; Explorer's visualization limits are presentation.
 // For ranked input, the complete population is counted before returning the
 // requested top keys and the first excluded original from each clock.
-// DDoS reads combine equivalent non-UDP source ports after filtering the
+// DDoS reads combine equivalent source ports after filtering the
 // original source fields and preserve known intervals across short windows.
 func (b *PlanBatch) ExploreSeasonalWindows(query PlanQuery, ends []time.Time, topKeys int) ([]PlanResult, error) {
 	b.queryMu.Lock()

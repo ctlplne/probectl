@@ -11,8 +11,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,6 +57,22 @@ const (
 type ReflectionObservation struct {
 	Service string `json:"service"`
 	Packets string `json:"packets"`
+}
+
+var ddosReflectionServices = map[uint64]string{
+	53: "dns", 123: "ntp", 389: "cldap", 1900: "ssdp", 11211: "memcached",
+}
+
+var ddosReflectionServiceNames = slices.Collect(maps.Values(ddosReflectionServices))
+
+// DDoSReflectionService is the supported service associated with a UDP source port.
+func DDoSReflectionService(port uint64) string {
+	return ddosReflectionServices[port]
+}
+
+// DDoSReflectionPorts lists the original UDP ports the detector distinguishes.
+func DDoSReflectionPorts() []uint64 {
+	return slices.Sorted(maps.Keys(ddosReflectionServices))
 }
 
 // DDoSObservation contains aggregate features derived from one completely
@@ -243,7 +261,7 @@ func parseDDoSCounts(parser *decimalSeasonalTraining, data DDoSObservation) (ddo
 	}
 	result.possibleSYN = unclassifiedTCP.Add(unclassifiedTCP, result.syn)
 	udp, err := ddosCounter(parser, data.UDPPackets)
-	if err != nil || new(big.Rat).Add(result.possibleSYN, udp).Cmp(result.packets) > 0 || len(data.Reflection) > 5 {
+	if err != nil || new(big.Rat).Add(result.possibleSYN, udp).Cmp(result.packets) > 0 || len(data.Reflection) > len(ddosReflectionServices) {
 		return ddosCounts{}, ErrDDoSCoverage
 	}
 	result.unclassifiedUDP, err = ddosCounter(parser, cmp.Or(data.UnclassifiedUDPPackets, "0"))
@@ -255,9 +273,7 @@ func parseDDoSCounts(parser *decimalSeasonalTraining, data DDoSObservation) (ddo
 	}
 	total := new(big.Rat)
 	for _, observation := range data.Reflection {
-		switch observation.Service {
-		case "dns", "ntp", "memcached", "cldap", "ssdp":
-		default:
+		if !slices.Contains(ddosReflectionServiceNames, observation.Service) {
 			return ddosCounts{}, ErrDDoSCoverage
 		}
 		if result.reflected[observation.Service] != nil {

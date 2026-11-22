@@ -41,8 +41,9 @@ type PlanQuery struct {
 	// Chart and matrix axes are independent of the detail/page row count.
 	SelectedChartGroups [][]string
 	SelectedMatrixRows  [][]string
-	// DDoSProjection retains UDP service ports and separates reports with a
-	// known original start before the short observation window.
+	// DDoSProjection retains recognized and missing UDP source ports in
+	// the grouped totals. It separates reports with a known original start
+	// before the short observation window.
 	DDoSProjection bool
 	// DDoSVerifySampling checks original counters for prospective assessments.
 	DDoSVerifySampling bool

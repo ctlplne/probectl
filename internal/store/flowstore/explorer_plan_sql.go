@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/flow"
 )
 
@@ -325,6 +326,14 @@ func planSampleSQL(measure, value, duration string) string {
 }
 
 // The bounded typed input also supports window-partitioned seasonal statistics.
+func ddosSourcePortGroupSQL() string {
+	ports := []string{"0"}
+	for _, port := range anomaly.DDoSReflectionPorts() {
+		ports = append(ports, strconv.FormatUint(port, 10))
+	}
+	return "multiIf(transport!='udp','0',src_port IN (" + strings.Join(ports, ",") + "),toString(src_port),'" + ddosOtherUDPSourcePort + "')"
+}
+
 func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabulary flow.QueryVocabulary, useTags bool, readWindows []seasonalReadWindow, ddosProjection, groupSampledExporters bool) (string, error) {
 	filter, err := explorerFilterSQLWithVocabulary(plan.Filter, params, vocabulary)
 	if err != nil {
@@ -334,7 +343,7 @@ func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabul
 		parts := []string{}
 		for _, name := range fields {
 			if ddosProjection && name == "src_port" {
-				parts = append(parts, "if(transport='udp',toString(src_port),'0')")
+				parts = append(parts, ddosSourcePortGroupSQL())
 				continue
 			}
 			field, _ := vocabulary.Lookup(name)
