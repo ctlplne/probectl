@@ -157,7 +157,7 @@ func run(cmd string) error {
 		return err
 	}
 
-	log.Info("starting probectl-control", "version", version.Get().Version, "config", cfg)
+	log.Info("starting probectl-control", "version", version.Get().Version, "config", cfg.LogValue())
 
 	// Bus + per-plane stores (result bus, TSDB, ingest-batching writer, path,
 	// otel, flow, ebpf) with their DB-level tenant reader scoping. Extracted to

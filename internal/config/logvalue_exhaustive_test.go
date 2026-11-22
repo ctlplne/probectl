@@ -16,26 +16,10 @@ import (
 	"testing"
 )
 
-// TestLogValueEmitsOnlyAllowlistedFields (DPR-244) is the CodeQL
-// go/clear-text-logging finding turned into a property.
-//
-// cmd/probectl-control logs the whole config at startup —
-// `log.Info("starting probectl-control", …, "config", cfg)` — and CodeQL reports
-// BusSASLPassword, ObjectStoreS3SecretKey and AlertSMTPPassword reaching a
-// logging call, because it does not model slog.LogValuer. Config DOES implement
-// it, as a 13-field allowlist, so the finding is a false positive.
-//
-// What was NOT true is that anything tested it. The only existing test covered the
-// database URL, and the allowlist's stated safety property — "a new secret field
-// added later cannot leak because it is simply not on the list" — rested on a
-// hand-maintained list with nothing checking it. §7.6 says secrets are never
-// logged, so that property deserves a test rather than a comment.
-//
-// This sets EVERY string, []byte and []string field in Config to a sentinel
-// naming itself, logs the config, and requires that any sentinel which surfaces
-// belongs to a field explicitly declared loggable here. A new secret field is
-// therefore safe by default and a new field added to LogValue has to be declared
-// — which is the direction the failure should point.
+// TestLogValueEmitsOnlyAllowlistedFields verifies the value passed to the
+// control-plane startup logger (DPR-244). Every string, []byte and []string
+// field gets a sentinel. Only fields declared loggable may surface, including
+// when a string field is added to Config later.
 func TestLogValueEmitsOnlyAllowlistedFields(t *testing.T) {
 	// The fields LogValue is allowed to surface verbatim. Anything else that
 	// appears is a leak; anything here that stops appearing is a behavior change
@@ -76,7 +60,7 @@ func TestLogValueEmitsOnlyAllowlistedFields(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	slog.New(slog.NewJSONHandler(&buf, nil)).Info("startup", "config", cfg)
+	slog.New(slog.NewJSONHandler(&buf, nil)).Info("startup", "config", cfg.LogValue())
 	out := buf.String()
 
 	var leaked []string
