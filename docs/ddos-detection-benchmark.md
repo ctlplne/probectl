@@ -39,6 +39,9 @@ added. It contains all 416 inputs and their labels. Its `inputs.json` has SHA-25
 The answer key binds that hash to 272 positive and 144 negative labels.
 [Retained replay archive](https://github.com/ctlplne/probectl/actions/runs/44981761693/artifacts/14741299639)
 
+The `3201b89` archive includes the same inputs, the separate answer key,
+probectl's decisions and the resulting score. [Complete replay archive](https://github.com/ctlplne/probectl/actions/runs/45016497015/artifacts/14753261182)
+
 Run the benchmark with a new output directory to compare detectors against
 the same observations.
 
@@ -97,7 +100,9 @@ python3 scripts/score_ddos_replay.py \
 
 Use the same command with the other product's decisions to compare results.
 The scorer rejects mismatched digests and missing, duplicate or unknown IDs.
-It reports classification coverage, recall across all positive labels,
+Each score records SHA-256 hashes of the exact inputs, ground truth and
+decisions. Compare scores built from the same input and ground-truth hashes.
+The report includes classification coverage, recall across all positive labels,
 false-alarm rate across all negative labels, counts by scenario family, and
 nearest-rank onset percentiles for true positives. The 416-case archive remains
 synthetic throughout. [Offline scorer](../scripts/score_ddos_replay.py)

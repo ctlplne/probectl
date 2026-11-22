@@ -56,11 +56,13 @@ def onset(delays):
     }
 
 
-def score(input_bytes, truth, decisions):
+def score(input_bytes, truth_bytes, decision_bytes):
     inputs = json.loads(input_bytes)
     cases = case_rows(inputs, "inputs")
     if inputs.get("schema") != "probectl-ddos-synthetic-replay-v1":
         raise ValueError("unsupported input schema")
+    truth = json.loads(truth_bytes)
+    decisions = json.loads(decision_bytes)
     labels = case_rows(truth, "ground truth")
     guesses = case_rows(decisions, "decisions")
     if decisions.get("schema") != "probectl-ddos-synthetic-decisions-v1":
@@ -117,6 +119,8 @@ def score(input_bytes, truth, decisions):
     )
     return {
         "inputs_sha256": digest,
+        "ground_truth_sha256": hashlib.sha256(truth_bytes).hexdigest(),
+        "decisions_sha256": hashlib.sha256(decision_bytes).hexdigest(),
         "cases": len(cases),
         "counts": full_counts(counts),
         "classification_coverage": ratio(classified, len(cases)),
@@ -140,8 +144,8 @@ def main():
     try:
         report = score(
             args.inputs.read_bytes(),
-            json.loads(args.ground_truth.read_bytes()),
-            json.loads(args.decisions.read_bytes()),
+            args.ground_truth.read_bytes(),
+            args.decisions.read_bytes(),
         )
     except (OSError, ValueError) as ex:
         parser.error(str(ex))
