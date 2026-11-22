@@ -11,6 +11,7 @@ import {
   planePivotHref,
   serializePivotContext,
   type PivotContext,
+  type PivotReference,
 } from '../routes/pivotContext'
 
 const NOW = new Date('2026-07-14T12:00:00Z')
@@ -74,6 +75,21 @@ describe('cross-plane URL context contract', () => {
     expect(decoded.context.filters).toEqual({ severity: 'critical', site: 'edge' })
     expect(decoded.context.from).toBeDefined()
     expect(decoded.context.to).toBeDefined()
+  })
+
+  test('a denied selection clears the incident even when the current tenant can read it', () => {
+    const original = completeContext()
+    const authorize = vi.fn((reference: PivotReference) => reference.kind === 'incident')
+    const decoded = parsePivotContext(serializePivotContext(original, NOW), { now: NOW, authorize })
+
+    expect(authorize.mock.calls).toEqual([
+      [{ kind: 'incident', id: original.incidentId }],
+      [original.selection],
+    ])
+    expect(decoded.referencesValid).toBe(false)
+    expect(decoded.context.incidentId).toBeUndefined()
+    expect(decoded.context.selection).toBeUndefined()
+    expect(decoded.context.filters).toEqual(original.filters)
   })
 
   test('saved-view filters replay through the URL and never touch browser storage', () => {

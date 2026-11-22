@@ -172,7 +172,7 @@ export function parsePivotContext(
 
   const now = options.now ?? new Date()
   const expired = Boolean(expiresAt && Date.parse(expiresAt) <= now.getTime())
-  let incidentId = safeReference(params.get('ctx_incident'))
+  const incidentId = safeReference(params.get('ctx_incident'))
   const selectionKind = params.get('ctx_selected_kind')
   const selectionID = safeReference(params.get('ctx_selected_id'))
   let selection: PivotSelection | undefined
@@ -184,21 +184,13 @@ export function parsePivotContext(
   }
   if (params.has('ctx_incident') && !incidentId) malformed = true
 
-  let referencesValid = !malformed && !expired
-  if (
-    referencesValid &&
-    incidentId &&
-    options.authorize?.({ kind: 'incident', id: incidentId }) === false
-  ) {
-    referencesValid = false
-  }
-  if (referencesValid && selection && options.authorize?.(selection) === false) {
-    referencesValid = false
-  }
-  if (!referencesValid) {
-    incidentId = undefined
-    selection = undefined
-  }
+  const references: PivotReference[] = []
+  if (incidentId) references.push({ kind: 'incident', id: incidentId })
+  if (selection) references.push(selection)
+  const referencesValid =
+    !malformed &&
+    !expired &&
+    references.every((reference) => options.authorize?.(reference) !== false)
 
   const safeFrom = from && to && Date.parse(from) > Date.parse(to) ? undefined : from
   const safeTo = from && to && Date.parse(from) > Date.parse(to) ? undefined : to
@@ -211,8 +203,8 @@ export function parsePivotContext(
       ...(safeTo ? { to: safeTo } : {}),
       ...(expiresAt ? { expiresAt } : {}),
       ...(returnTo ? { returnTo } : {}),
-      ...(incidentId ? { incidentId } : {}),
-      ...(selection ? { selection } : {}),
+      ...(referencesValid && incidentId ? { incidentId } : {}),
+      ...(referencesValid && selection ? { selection } : {}),
     },
   }
 }
