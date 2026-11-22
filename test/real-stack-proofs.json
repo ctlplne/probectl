@@ -644,6 +644,13 @@
       ]
     },
     {
+      "ref": "test:internal/flow/ndr_shipped_integration_test.go#TestShippedNDREgressKeepsOwnBaselineSuppressionAndIncidents",
+      "profile": "integration",
+      "capabilities": [
+        "F37"
+      ]
+    },
+    {
       "ref": "test:internal/canary/shipped_slo_integration_test.go#TestSLOFromShippedHTTPRuns",
       "profile": "integration",
       "capabilities": [

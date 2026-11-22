@@ -289,7 +289,7 @@
       ],
       "name": "NDR-lite detection engine",
       "status": "partial",
-      "evidence": "`internal/threat` (confidence-scored, suppression, SIEM). Resolver DNS pressure is a preview from a locally reduced, closed dnstap file. Only completed-minute response counts enter the tenant and source scoped mTLS evidence path. The deployment can suppress the detector or tune the two-minute floors. HTTPS, SDK and CLI expose captured counts and missing intervals, while the incident surface carries original resolver scope and clocks. An isolated stock BIND 9.20.31 file verifies decoding. The paired mTLS and TLS PostgreSQL proof checks synthetic pressure, exact replay and sibling isolation."
+      "evidence": "`internal/threat` (confidence-scored, suppression, SIEM). The shipped egress detector has a two-tenant receipt for baseline learning, repeat suppression, and durable incident evidence read through the API, CLI and both browser themes. Resolver DNS pressure is a preview from a locally reduced, closed dnstap file. Only completed-minute response counts enter the tenant and source scoped mTLS evidence path. The deployment can suppress the detector or tune the two-minute floors. HTTPS, SDK and CLI expose captured counts and missing intervals, while the incident surface carries original resolver scope and clocks. An isolated stock BIND 9.20.31 file verifies decoding. The paired mTLS and TLS PostgreSQL proof checks synthetic pressure, exact replay and sibling isolation."
     },
     {
       "ids": [

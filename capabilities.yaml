@@ -619,7 +619,6 @@ capabilities:
   - id: F37
     name: NDR-lite detection engine
     status: delivered
-    evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/threat/ndr.go"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildNDR("]}
@@ -629,7 +628,7 @@ capabilities:
     docs: {refs: ["file:docs/ndr.md#NDR-lite detection engine"]}
     config_keys: {refs: ["config:PROBECTL_NDR_ENABLED", "config:PROBECTL_NDR_RULES_DIR"]}
     telemetry: {refs: ["file:internal/threat"]}
-    real_stack_proof: {gap: "The shipped two-tenant test needs a passing retest with the baseline, first qualifying observation and suppression witness in one ordered data set."}
+    real_stack_proof: {refs: ["test:internal/flow/ndr_shipped_integration_test.go#TestShippedNDREgressKeepsOwnBaselineSuppressionAndIncidents"]}
     migration: {refs: ["file:migrations/0049_incident_threat_detections_idx.sql"]}
 
   - id: F38
