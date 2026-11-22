@@ -8,11 +8,15 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -72,36 +76,83 @@ func TestDDoSReceiptReplaysItsTransportCoveragePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clocks, err := anomaly.DDoSCompletedWindows(benchmarkDDoSEpoch, input.PeriodSeconds)
+	clocks, err := ddosClocks(benchmarkDDoSEpoch, input.PeriodSeconds)
 	if err != nil {
 		t.Fatal(err)
 	}
 	syn := benchmarkDDoSWindow{Profile: "syn", Bytes: 100000, Packets: 1000, Records: 8, Addresses: 1, Sampling: 1}
-	before := fixtureDDoSTimingWindow(settings, clocks.Before, syn)
-	after := fixtureDDoSTimingWindow(settings, clocks.After, syn)
-	before.Result.Rows[0].Group["transport"] = "0"
-	for i, window := range []*capturedReportFlow{&before, &after} {
-		dns := [...]int{200, 1600}[i]
+	capture := &reportFlowCapture{TenantID: benchmarkDDoSTenant, SourceGeneration: 1, Permissions: []string{permAIQuery, permFlowRead}}
+	for i, end := range clocks.ends() {
+		start := end.Add(-5 * time.Second)
+		window := fixtureDDoSTimingWindow(settings, anomaly.TrainingWindow{Start: start, End: end}, syn)
+		dns := 1600
+		if i < 2 {
+			window.Result.Rows[0].Group["transport"] = "0"
+			dns = 200
+		}
 		other := 3000 - dns
 		window.Result.Rows = append(window.Result.Rows, benchmarkDDoSRows(benchmarkDDoSWindow{
 			Profile: "dns", Bytes: dns * 100, Packets: dns, OtherBytes: other * 100, OtherPackets: other,
 			Records: 8, Addresses: 1, Sampling: 1,
 		})...)
+		capture.Results = append(capture.Results, window)
+		capture.Inputs = append(capture.Inputs, reportFlowInput{
+			ID: settings.View.ID, Version: settings.View.Version, Period: "current", From: start, To: end,
+		})
 	}
-	capture := &reportFlowCapture{TenantID: benchmarkDDoSTenant, SourceGeneration: 1, Results: []capturedReportFlow{before, after}}
-	live, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
-	if err != nil || live.Detection == nil || live.Detection.Class != anomaly.DDoSReflection || live.Detection.Service != "dns" {
-		t.Fatal("missing historical transport hid genuinely growing UDP or corroborated steady SYN", live, err)
+	scope, err := encodeSeasonalFlowScope(ctx, capture, benchmarkDDoSWork)
+	if err != nil {
+		t.Fatal(err)
 	}
-	settings.Cited = true
-	legacy, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
-	if err != nil || legacy.Detection == nil || legacy.Detection.Class != anomaly.DDoSSYN {
-		t.Fatal("a receipt recorded under the original policy changed classification on read", legacy, err)
+	observedAt := clocks.Current.After.End
+	revision := observedAt.Add(-time.Hour)
+	fingerprint, err := flowEpisodeReceiptFingerprint(benchmarkDDoSTenant, benchmarkDDoSRule, revision, observedAt)
+	if err != nil {
+		t.Fatal(err)
 	}
-	settings.TransportCoverage = true
-	measured, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
-	if err != nil || !sameDDoSRoutingEvidence(live, measured) {
-		t.Fatal("a new receipt must reconstruct the measured classification", measured, err)
+	binding := alert.QueryGroupBinding{TenantID: benchmarkDDoSTenant, RuleID: benchmarkDDoSRule, ViewID: settings.View.ID,
+		ViewVersion: input.Version, Condition: alert.QueryCondition{Mode: alert.DDoSCondition, DDoS: &input}}
+	for _, scenario := range []struct {
+		name, service string
+		version       int
+		class         anomaly.DDoSClass
+	}{
+		{name: "legacy SYN", version: 1, class: anomaly.DDoSSYN},
+		{name: "measured DNS", service: "dns", version: ddosReceiptTransportCoverageVersion, class: anomaly.DDoSReflection},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			writer := settings
+			writer.Cited = scenario.version == 1
+			previous, err := assessCapturedDDoS(ctx, capture, writer, clocks.Previous, 0, 2, benchmarkDDoSWork)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := assessCapturedDDoS(ctx, capture, writer, clocks.Current, 1, 3, benchmarkDDoSWork)
+			if err != nil || current.Detection == nil || current.Detection.Class != scenario.class || current.Detection.Service != scenario.service {
+				t.Fatal("unexpected recorded classification", current, err)
+			}
+			episode, _, err := alert.EvaluateDDoSEpisode(ctx, binding, alert.QueryGroupState{}, previous, current,
+				alert.QueryGroupBudget{MemoryBytes: benchmarkDDoSWork, WorkUnits: benchmarkDDoSWork})
+			if err != nil || episode == nil {
+				t.Fatal("recorded assessments did not open an episode", err)
+			}
+			body, err := json.Marshal(storedDDoSReceipt{Version: scenario.version, Scope: scope, Evidence: alert.DDoSEvaluationEvidence{
+				Previous: previous, Current: current, EpisodeID: episode.SignalID, IncidentID: "77bd86d9-39e0-4a10-82eb-8f9aa9f30600",
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, _, err := decodeDDoSReceipt(ctx, store.AlertFlowReceipt{ObservedAt: observedAt, Body: body}, binding, revision, fingerprint, benchmarkDDoSWork)
+			if err != nil {
+				t.Fatal("could not load the retained receipt", err)
+			}
+			reader := settings
+			reader.Cited, reader.TransportCoverage = true, decoded.Evidence.TransportCoverage
+			measured, err := assessCapturedDDoS(ctx, capture, reader, clocks.Current, 1, 3, benchmarkDDoSWork)
+			if err != nil || !sameDDoSRoutingEvidence(decoded.Evidence.Current, measured) {
+				t.Fatal("stored transport policy changed classification during replay", measured, err)
+			}
+		})
 	}
 }
 
