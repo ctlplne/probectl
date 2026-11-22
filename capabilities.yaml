@@ -574,7 +574,6 @@ capabilities:
   - id: F34
     name: Advanced governance
     status: delivered
-    evidence_status: partial
     owner: data/governance
     engine: {refs: ["file:internal/govern", "file:ee/governance"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#govern.SetSource(gstore)"]}
@@ -584,7 +583,7 @@ capabilities:
     docs: {refs: ["file:docs/governance.md#Advanced data governance"]}
     config_keys: *api_config
     telemetry: {refs: ["file:internal/control/lifecycleapi.go"]}
-    real_stack_proof: {gap: "The PostgreSQL store/RLS test calls internal governance paths directly; no public API, CLI, UI, or real redacted-export outcome is exercised across two tenants."}
+    real_stack_proof: {refs: ["test:internal/tenantlife/governance_realstack_integration_test.go#TestShippedGovernanceAppliesScopedExportPolicy"]}
     migration: {refs: ["file:migrations/0033_governance.sql", "file:migrations/0037_governance_ai_egress.sql"]}
 
   - id: F35
@@ -693,7 +692,6 @@ capabilities:
   - id: F41
     name: FinOps/egress cost
     status: delivered
-    evidence_status: partial
     owner: performance/product
     engine: {refs: ["file:internal/cost"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildCost("]}
@@ -703,7 +701,7 @@ capabilities:
     docs: {refs: ["file:docs/finops.md#FinOps / egress cost observability"]}
     config_keys: {refs: ["config:PROBECTL_COST_ENABLED", "config:PROBECTL_COST_PRICES_FILE"]}
     telemetry: {refs: ["file:internal/control/costapi.go"]}
-    real_stack_proof: {gap: "No dedicated real-service cost-engine proof exists yet; CL-065 owns the missing capacity and FinOps delivery-depth work."}
+    real_stack_proof: {refs: ["test:internal/flow/cost_realstack_integration_test.go#TestShippedCostEngineFromCollectedFlows"]}
     migration: *no_migration
 
   - id: F42

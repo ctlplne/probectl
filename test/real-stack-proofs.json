@@ -658,6 +658,20 @@
       ]
     },
     {
+      "ref": "test:internal/tenantlife/governance_realstack_integration_test.go#TestShippedGovernanceAppliesScopedExportPolicy",
+      "profile": "integration",
+      "capabilities": [
+        "F34"
+      ]
+    },
+    {
+      "ref": "test:internal/flow/cost_realstack_integration_test.go#TestShippedCostEngineFromCollectedFlows",
+      "profile": "integration",
+      "capabilities": [
+        "F41"
+      ]
+    },
+    {
       "ref": "test:internal/bgp/bgp_routing_realstack_integration_test.go#TestFRRSelectedRIBReachesCurrentTenantStoreThroughAuthenticatedCollectors",
       "profile": "integration",
       "capabilities": [
