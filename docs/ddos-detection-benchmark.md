@@ -103,9 +103,11 @@ The scorer rejects mismatched digests and missing, duplicate or unknown IDs.
 Each score records SHA-256 hashes of the exact inputs, ground truth and
 decisions. Compare scores built from the same input and ground-truth hashes.
 The report includes classification coverage, recall across all positive labels,
-false-alarm rate across all negative labels, counts by scenario family, and
-nearest-rank onset percentiles for true positives. The 416-case archive remains
-synthetic throughout. [Offline scorer](../scripts/score_ddos_replay.py)
+false-alarm rate across all negative labels, and nearest-rank onset percentiles
+for true positives. Use `by_family` for outcome counts and `by_family_metrics`
+for the same rates and onset percentiles within each scenario family. A rate
+with no applicable labels is `null`. Onset is `null` when no true positive
+episode opened in that family. [Offline scorer](../scripts/score_ddos_replay.py)
 
 ## How the detector uses the inputs
 

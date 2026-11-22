@@ -56,6 +56,20 @@ def onset(delays):
     }
 
 
+def metrics(counts, true_positive_delays):
+    positives = sum(counts[positive] for positive, _ in RESULTS.values())
+    negatives = sum(counts[negative] for _, negative in RESULTS.values())
+    classified = sum(
+        counts[key] for status in ("episode", "quiet") for key in RESULTS[status]
+    )
+    return {
+        "classification_coverage": ratio(classified, positives + negatives),
+        "recall_all_positives": ratio(counts["true_positive"], positives),
+        "false_alarm_rate_all_negatives": ratio(counts["false_positive"], negatives),
+        "true_positive_onset_ms": onset(true_positive_delays),
+    }
+
+
 def score(input_bytes, truth_bytes, decision_bytes):
     inputs = json.loads(input_bytes)
     cases = case_rows(inputs, "inputs")
@@ -84,7 +98,7 @@ def score(input_bytes, truth_bytes, decision_bytes):
     counts = Counter()
     families = defaultdict(Counter)
     true_positive_delays = []
-    positives = 0
+    family_delays = defaultdict(list)
     for case_id, label in labels.items():
         scenario, positive = label.get("scenario"), label.get("positive")
         if (
@@ -106,31 +120,27 @@ def score(input_bytes, truth_bytes, decision_bytes):
                 )
             if positive:
                 true_positive_delays.append(delay)
+                family_delays[family].append(delay)
         elif "episode_delay_ms" in guess:
             raise ValueError(f"only an episode can carry a delay ({case_id!r})")
         positive_key, negative_key = RESULTS[status]
         outcome = positive_key if positive else negative_key
         counts[outcome] += 1
         families[family][outcome] += 1
-        positives += positive
 
-    classified = sum(
-        counts[key] for status in ("episode", "quiet") for key in RESULTS[status]
-    )
     return {
         "inputs_sha256": digest,
         "ground_truth_sha256": hashlib.sha256(truth_bytes).hexdigest(),
         "decisions_sha256": hashlib.sha256(decision_bytes).hexdigest(),
         "cases": len(cases),
         "counts": full_counts(counts),
-        "classification_coverage": ratio(classified, len(cases)),
-        "recall_all_positives": ratio(counts["true_positive"], positives),
-        "false_alarm_rate_all_negatives": ratio(
-            counts["false_positive"], len(cases) - positives
-        ),
-        "true_positive_onset_ms": onset(true_positive_delays),
+        **metrics(counts, true_positive_delays),
         "by_family": {
             family: full_counts(families[family]) for family in sorted(families)
+        },
+        "by_family_metrics": {
+            family: metrics(families[family], family_delays[family])
+            for family in sorted(families)
         },
     }
 
