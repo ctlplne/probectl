@@ -87,12 +87,20 @@ current packets.
 
 Scheduled and preview assessments use a bounded projection of stored HTTP
 server observations. The read applies the tenant, service, local TCP socket
-and half-open start clock before its limit. A request can count once its span
-has completed, including when its duration exceeds the start window's width.
+and half-open start clock before its limit. Expanded, compressed and
+mixed-case IPv6 spellings match the same numeric local address. A request
+can count once its span has completed, including when its duration exceeds
+the start window's width.
 Each window needs 20 to 16,383 matching original observations. The projection
 keeps exact request counts, successful responses, p95 duration and an
 observation digest. Overflow and a known partial window in the in-memory store
 leave application evidence unavailable.
+
+The paired IPv6 scheduler fixture supplies the same flow counts to two tenants
+and records their HTTP socket addresses in expanded uppercase form. Only the
+degraded service should receive an episode. The healthy crowd stays quiet,
+and same-service spans from the wrong port or address contribute no requests.
+[Paired scheduler fixture](../internal/control/alert_ddos_fast_integration_test.go)
 
 | Output field | Meaning |
 | --- | --- |

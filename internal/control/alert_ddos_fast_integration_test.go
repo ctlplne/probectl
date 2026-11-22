@@ -15,7 +15,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -35,6 +37,15 @@ import (
 )
 
 func TestFastDDoSSchedulerSeparatesIdenticalFlowCrowdsByTenantApplication(t *testing.T) {
+	testFastDDoSApplicationCrowds(t, netip.MustParseAddr("192.0.2.1"))
+}
+
+func TestFastDDoSSchedulerMatchesEquivalentIPv6SocketEvidence(t *testing.T) {
+	testFastDDoSApplicationCrowds(t, netip.MustParseAddr("2001:db8::a"))
+}
+
+func testFastDDoSApplicationCrowds(t *testing.T, protected netip.Addr) {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t, slog.New(slog.NewTextHandler(t.Output(), &slog.HandlerOptions{Level: slog.LevelWarn})))
 	rows := seasonalFlowFixtureStore(t, f, true)
 	views := flow.NewPostgresQueryViewStore(f.pool, 0, audit.TenantRecord)
@@ -59,7 +70,7 @@ func TestFastDDoSSchedulerSeparatesIdenticalFlowCrowdsByTenantApplication(t *tes
 			t.Fatal(err)
 		}
 		viewIDs[lane] = view.ID
-		inputs[lane] = flow.DDoSAssessmentInput{Version: view.Version, Prefix: "192.0.2.1/32", Direction: "ingress",
+		inputs[lane] = flow.DDoSAssessmentInput{Version: view.Version, Prefix: netip.PrefixFrom(protected, protected.BitLen()).String(), Direction: "ingress",
 			PeriodSeconds: 5, BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
 			VectorShareBasisPoints: 6000, MinObservedRecords: 1, MinObservedAddresses: 2,
 			Application: &flow.DDoSApplicationBinding{Service: "synthetic-public-site", Port: 443}}
@@ -67,7 +78,7 @@ func TestFastDDoSSchedulerSeparatesIdenticalFlowCrowdsByTenantApplication(t *tes
 
 	center := time.Now().UTC().Truncate(5 * time.Second)
 	for lane, tenant := range f.tenants {
-		seedFastDDoSPairedEvidence(t, rows, traces, tenant, center, lane == 0, false)
+		seedFastDDoSPairedEvidence(t, rows, traces, tenant, center, protected, lane == 0, false)
 		source := alert.QuerySourceInput{ViewID: viewIDs[lane], ViewVersion: inputs[lane].Version,
 			Condition: alert.QueryCondition{Mode: alert.DDoSCondition, DDoS: &inputs[lane]}}
 		raw := callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodPost, "/v1/alerts",
@@ -453,8 +464,14 @@ func fastDDoSApplicationFixtureStore(t *testing.T, tenants []string) otelstore.S
 }
 
 func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otelstore.Store, tenant string, center time.Time,
-	degraded, changedSampling bool) {
+	protected netip.Addr, degraded, changedSampling bool) {
 	t.Helper()
+	destination := protected.String()
+	localAddress, sourceAddress := destination, "198.51.100.42"
+	if protected.Is6() {
+		localAddress = strings.ToUpper(protected.StringExpanded())
+		sourceAddress = "2001:db8:1::42"
+	}
 	var rows []flowstore.Row
 	var spans []otelstore.Span
 	for offset := -8; offset <= 10; offset++ {
@@ -466,7 +483,7 @@ func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otel
 		for i, window := range []anomaly.TrainingWindow{windows.Before, windows.After} {
 			at := window.Start.Add(2 * time.Second)
 			row := flowstore.Row{TenantID: tenant, AgentID: "passive-assessment-source", Exporter: "203.0.113.15", Protocol: "ipfix",
-				TS: at, StartTS: at.Add(-time.Second), SrcAddr: "198.51.100.42", DstAddr: "192.0.2.1", SrcPort: 42001, DstPort: 443,
+				TS: at, StartTS: at.Add(-time.Second), SrcAddr: sourceAddress, DstAddr: destination, SrcPort: 42001, DstPort: 443,
 				Transport: "tcp", TCPFlags: 16, Sampling: 1, Bytes: 90000, BytesScaled: 90000, Packets: 900, PacketsScaled: 900}
 			sample := benchmarkDDoSApplication{Requests: 360, LatencyMS: 18}
 			if i == 1 {
@@ -494,16 +511,21 @@ func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otel
 					span.Duration = 6 * time.Second
 				}
 				span.TenantID = tenant
+				span.Attrs["network.local.address"] = localAddress
 				span.TraceID = fmt.Sprintf("%016x%016x", window.Start.UnixNano(), n+1)
 				spans = append(spans, span)
 			}
 			if i == 1 && offset >= -4 {
 				for n := range 1001 {
+					otherAddress, otherPort := localAddress, "8443"
+					if protected.Is6() && n%2 == 0 {
+						otherAddress, otherPort = "2001:db8::b", "443"
+					}
 					spans = append(spans, otelstore.Span{TenantID: tenant, TraceID: fmt.Sprintf("%016x%016x", window.Start.UnixNano(), n+10000),
 						SpanID: "0000000000000001", Kind: "server", Service: "synthetic-public-site",
 						Start: window.Start.Add(time.Second + time.Duration(n)*time.Millisecond), Duration: 20 * time.Millisecond,
-						Attrs: map[string]string{"server.address": "192.0.2.1", "server.port": "443", "http.response.status_code": "200",
-							"network.local.address": "192.0.2.1", "network.local.port": "8443", "network.transport": "tcp"}})
+						Attrs: map[string]string{"server.address": destination, "server.port": "443", "http.response.status_code": "200",
+							"network.local.address": otherAddress, "network.local.port": otherPort, "network.transport": "tcp"}})
 				}
 			}
 		}

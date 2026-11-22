@@ -11,6 +11,7 @@ package control
 import (
 	"encoding/pem"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -134,7 +135,7 @@ func verifyFastDDoSAssessmentApplicationEvidence(t *testing.T, changedSampling b
 				rows, traces := flowstore.NewMemory(), otelstore.NewMemory()
 				center := time.Now().UTC().Truncate(5 * time.Second)
 				for index, owner := range f.tenants {
-					seedFastDDoSPairedEvidence(t, rows, traces, owner, center, index == 0, index == 1 && changedSampling)
+					seedFastDDoSPairedEvidence(t, rows, traces, owner, center, netip.MustParseAddr("192.0.2.1"), index == 0, index == 1 && changedSampling)
 				}
 				f.server.WithFlowStore(rows).WithOTelStore(traces)
 				socket, ca := serveDDoSBrowserFixture(t, f)

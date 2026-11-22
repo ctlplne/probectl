@@ -102,6 +102,36 @@ func TestHTTPObservationReadRequiresTheProtectedLocalTCPSocket(t *testing.T) {
 	}
 }
 
+func TestHTTPObservationReadMatchesEquivalentIPv6AddressInTenant(t *testing.T) {
+	store := NewMemory()
+	const owner, sibling = "health-owner", "health-sibling"
+	start := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	target := netip.MustParseAddr("2001:db8::a")
+	q := SpanQuery{Service: "site", Since: start, Until: start.Add(5 * time.Second),
+		HTTPServer: &HTTPServerTarget{Address: target, Port: 443}}
+	var rows []Span
+	for _, sample := range []struct{ tenant, id, address string }{
+		{owner, "expanded", "2001:0DB8:0000:0000:0000:0000:0000:000A"},
+		{owner, "different", "2001:db8::b"},
+		{owner, "zone", "2001:db8::a%eth0"},
+		{owner, "name", "site.example"},
+		{sibling, "sibling", "2001:DB8::A"},
+	} {
+		rows = append(rows, Span{TenantID: sample.tenant, SpanID: sample.id, Kind: "server", Service: q.Service,
+			Start: start, Attrs: httpObservationAttributes(sample.address, "443", "200")})
+	}
+	if err := store.WriteSpans(t.Context(), rows); err != nil {
+		t.Fatal(err)
+	}
+	for tenant, id := range map[string]string{owner: "expanded", sibling: "sibling"} {
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		got, err := ReadHTTPObservations(ctx, store, tenant, q)
+		if err != nil || len(got) != 1 || got[0].SpanID != id || got[0].Attrs["network.local.address"] != target.String() {
+			t.Fatal("IPv6 resolution lost the exact local address or tenant scope", got, err)
+		}
+	}
+}
+
 func TestHTTPObservationReadAbstainsAfterTenantRingEviction(t *testing.T) {
 	store := NewMemory()
 	const tenant = "health-owner"

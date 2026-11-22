@@ -9,6 +9,7 @@ package otelstore
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"strconv"
 	"time"
 
@@ -58,13 +59,21 @@ func (c *ClickHouse) readHTTPObservations(ctx context.Context, tenant string, q 
 	if err != nil {
 		return nil, err
 	}
-	sql := `SELECT tenant_id, service, trace_id, span_id,
+	addressFilter := "http_local_address = {http_addr:String}"
+	if q.HTTPServer.Address.Is6() {
+		// The validated target is a native unzoned IPv6 host. The nullable
+		// conversion lets equivalent socket spellings match before LIMIT.
+		addressFilter = `position(http_local_address, '%') = 0 AND isIPv6String(http_local_address)
+    AND toIPv6OrNull(http_local_address) = toIPv6({http_addr:String})`
+	}
+	sql := `WITH JSONExtractString(attrs, 'network.local.address') AS http_local_address
+SELECT tenant_id, service, trace_id, span_id,
   toString(toUnixTimestamp64Micro(start)) AS start_us, toString(duration_ns) AS duration_ns, status_code,
   JSONExtractString(attrs, 'http.response.status_code') AS http_status, trace_sampling_threshold
 FROM ` + table + ` FINAL
 WHERE tenant_id = {tenant:String} AND service = {svc:String} AND kind = 'server'
   AND start >= fromUnixTimestamp64Micro({since:Int64}) AND start < fromUnixTimestamp64Micro({until:Int64})
-  AND JSONExtractString(attrs, 'network.local.address') = {http_addr:String}
+  AND ` + addressFilter + `
   AND JSONExtractString(attrs, 'network.local.port') = {http_port:String}
   AND JSONExtractString(attrs, 'network.transport') = 'tcp'
 LIMIT {lim:UInt32}
@@ -123,7 +132,10 @@ func (m *Memory) readHTTPObservations(ctx context.Context, tenant string, q Span
 			return nil, err
 		}
 		if span.Service != q.Service || span.Kind != "server" || span.Start.Before(q.Since) || !span.Start.Before(q.Until) ||
-			span.Attrs["network.local.address"] != address || span.Attrs["network.local.port"] != port || span.Attrs["network.transport"] != "tcp" {
+			span.Attrs["network.local.port"] != port || span.Attrs["network.transport"] != "tcp" {
+			continue
+		}
+		if !matchesHTTPObservationAddress(span.Attrs["network.local.address"], address, q.HTTPServer.Address) {
 			continue
 		}
 		out = append(out, Span{TenantID: span.TenantID, Service: span.Service, Kind: span.Kind, TraceID: span.TraceID,
@@ -134,6 +146,17 @@ func (m *Memory) readHTTPObservations(ctx context.Context, tenant string, q Span
 		}
 	}
 	return out, nil
+}
+
+func matchesHTTPObservationAddress(reported, canonical string, target netip.Addr) bool {
+	if reported == canonical {
+		return true
+	}
+	if !target.Is6() {
+		return false
+	}
+	address, err := netip.ParseAddr(reported)
+	return err == nil && address == target
 }
 
 func httpObservationAttributes(address, port, status string) map[string]string {
