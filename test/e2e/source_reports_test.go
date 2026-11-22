@@ -58,6 +58,7 @@ func proveReleaseSourceReportsForSender(t *testing.T, root, work, ca, cert, key,
 	}
 	if packet {
 		buildReleasePacketExporter(t, root)
+		t.Run("stock-exporter-clock", measureReleasePacketExporterClock)
 		for i := range proofs {
 			proofs[i].packet = true
 			proofs[i].address = "127.0.0." + strconv.Itoa(i+2)

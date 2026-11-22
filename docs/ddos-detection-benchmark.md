@@ -398,6 +398,14 @@ only in the owning tenant.
 The measurement includes collection, the broker, storage, the scheduler and
 the authorized API. Its start clock is the synthetic export record sent to the
 local collector. Exporter cache and flush delays are a separate measurement.
+The release-image test records the delay from launching four one-per-second
+loopback health probes to the first matching IPFIX record from pinned
+softflowd 1.1.0, or records that no matching export arrived within 45 seconds.
+The exporter uses a two-second ICMP idle timeout and checks for expiration
+every second. These ordinary probes are separate from the synthetic
+detection score. [Stock exporter timing fixture](../test/e2e/source_packet_capture_test.go)
+· [softflowd timeout implementation](https://github.com/irino/softflowd/blob/softflowd-v1.1.0/softflowd.c#L1715-L1741)
+
 The current fixture runs the same checks at five- and ten-second cadences,
 with a fresh tenant pair for each. The table records the five-second runs.
 Use the disposable development stack with Dex for this test.

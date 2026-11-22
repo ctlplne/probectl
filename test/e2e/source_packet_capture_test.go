@@ -9,12 +9,101 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"net"
+	"net/netip"
 	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/flow"
 )
+
+func measureReleasePacketExporterClock(t *testing.T) {
+	t.Helper()
+	const deadline = 45 * time.Second
+	loopback := netip.MustParseAddr("127.0.0.1")
+	probeSource := netip.MustParseAddr("127.0.0.8")
+	listener, err := net.ListenUDP("udp4", net.UDPAddrFromAddrPort(netip.AddrPortFrom(loopback, 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	name := "probectl-qa-beta-e2e-softflowd-clock-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	runCmd(t, "", nil, "docker", "create", "--name", name, "--network", "host", "--cap-add", "NET_RAW",
+		"--read-only", "--tmpfs", "/tmp:rw,nosuid,noexec", releasePacketImage,
+		"softflowd", "-d", "-N", "-i", "lo", "-v", "10", "-t", "icmp=2", "-t", "expint=1",
+		"-n", listener.LocalAddr().String(), "-c", "/tmp/softflowd.ctl",
+		"icmp and src host "+probeSource.String()+" and dst host "+loopback.String()+" and icmp[0] = 8")
+	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
+	runCmd(t, "", nil, "docker", "start", name)
+	waitFor(t, "owned quiet-interface exporter", 20*time.Second, func() bool {
+		_, err := releasePacketControl(t, name, "statistics")
+		return err == nil
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	probe := exec.CommandContext(ctx, "docker", "exec", name, "ping", "-q", "-c", "4", "-i", "1",
+		"-s", "32", "-I", probeSource.String(), "-W", "1", loopback.String())
+	var probeOutput bytes.Buffer
+	probe.Stdout, probe.Stderr = &probeOutput, &probeOutput
+	launch := time.Now()
+	if err := listener.SetReadDeadline(launch.Add(deadline)); err != nil {
+		t.Fatal(err)
+	}
+	if err := probe.Start(); err != nil {
+		t.Fatal(err)
+	}
+	probeDone := make(chan error, 1)
+	go func() { probeDone <- probe.Wait() }()
+	observed, readErr := firstReleaseProbeExport(listener, probeSource, loopback)
+	if err := <-probeDone; err != nil || !bytes.Contains(probeOutput.Bytes(), []byte("4 packets transmitted, 4 packets received")) {
+		t.Fatalf("four ordinary loopback probes: %v: %.1024s", err, probeOutput.Bytes())
+	}
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	logReleasePacketStatistics(t, name)
+	if observed.IsZero() {
+		if _, err := releasePacketControl(t, name, "statistics"); err != nil {
+			t.Fatalf("exporter unavailable at the observation deadline: %v", err)
+		}
+		t.Logf("stock softflowd 1.1.0: no selected IPFIX record within %s of launching four one-per-second loopback probes", deadline)
+		return
+	}
+	t.Logf("stock softflowd 1.1.0: first selected IPFIX record %s after probe launch", observed.Sub(launch))
+}
+
+func firstReleaseProbeExport(listener *net.UDPConn, source, destination netip.Addr) (time.Time, error) {
+	decoder := flow.NewDecoder(time.Minute, 32)
+	var packet [65535]byte
+	for {
+		n, exporter, err := listener.ReadFromUDPAddrPort(packet[:])
+		observed := time.Now()
+		if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+			return time.Time{}, nil
+		}
+		if err != nil {
+			return time.Time{}, err
+		}
+		if exporter.Addr() != destination {
+			continue
+		}
+		records, _, err := decoder.Decode(packet[:n], exporter.Addr().String(), observed)
+		if err != nil {
+			return time.Time{}, err
+		}
+		for _, record := range records {
+			if record.Protocol == "ipfix" && record.SrcAddr == source && record.DstAddr == destination &&
+				record.Transport == 1 && record.Packets > 0 {
+				return observed, nil
+			}
+		}
+	}
+}
 
 // Pinned softflowd 1.1.0 reports canonical endpoint order and directional
 // counters. Presence alone does not prove the capture drained before expiry.
