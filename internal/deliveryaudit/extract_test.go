@@ -39,8 +39,7 @@ func tarStream(t *testing.T, entries []tarEntry) []byte {
 			t.Fatalf("write body %q: %v", hdr.Name, err)
 		}
 	}
-	// Close fails only for the size-cap entry, which declares a body it never
-	// writes; its stream then ends after that header, which is all it needs.
+	// The size-cap cases stop the stream after a header declares a large body.
 	_ = tw.Close()
 	return buf.Bytes()
 }
@@ -65,6 +64,10 @@ func TestExtractTarRefusesEscapesAndLinks(t *testing.T) {
 		{name: "hard link", entries: []tarEntry{tarFile("victim", "kept"), {hdr: tar.Header{Typeflag: tar.TypeLink, Name: "hard", Linkname: "../x"}}}, wantErr: "unsupported Git archive entry type"},
 		{name: "repeated name", entries: []tarEntry{tarFile("dup", "first"), tarFile("dup", "second")}, wantErr: "file exists"},
 		{name: "over the size cap", entries: []tarEntry{{hdr: tar.Header{Typeflag: tar.TypeReg, Name: "huge", Mode: 0o644, Size: 2<<30 + 1}}}, wantErr: "exceeds bounded size"},
+		{name: "over the remaining size cap", entries: []tarEntry{
+			tarFile("first.txt", "payload"),
+			{hdr: tar.Header{Typeflag: tar.TypeReg, Name: "large.txt", Mode: 0o644, Size: 2 << 30}},
+		}, wantErr: "exceeds bounded size"},
 		{name: "directory and file", entries: []tarEntry{
 			{hdr: tar.Header{Typeflag: tar.TypeXGlobalHeader, Name: "pax_global_header", PAXRecords: map[string]string{"comment": "f6e3bff"}}},
 			{hdr: tar.Header{Typeflag: tar.TypeDir, Name: "dir/", Mode: 0o755}},

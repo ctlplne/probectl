@@ -556,13 +556,17 @@ func materializeRepositoryTree(repo, gitSHA string) (string, func(), error) {
 	return root, cleanup, nil
 }
 
-// extractTar materializes a `git archive` tar stream under root. Every entry
-// name is cleaned and must stay inside root: "." / "..", absolute names and
-// ".." escapes are refused, and so is every entry that is neither a regular
-// file nor a directory (symlinks and hard links included), so nothing is
-// written or linked outside root. Files are created O_EXCL, so no entry
-// overwrites one already on disk, and the extracted total is capped.
+// extractTar materializes regular files and directories from a `git archive`
+// stream through a rooted directory handle. Entry names must be local and
+// file creation is exclusive. The total extracted file size is bounded.
 func extractTar(r io.Reader, root string) error {
+	destination, err := os.OpenRoot(root)
+	if err != nil {
+		return fmt.Errorf("delivery audit: open source archive directory: %w", err)
+	}
+	defer destination.Close()
+
+	const maxSourceArchiveSize = 2 << 30
 	reader := tar.NewReader(r)
 	var total int64
 	for {
@@ -574,10 +578,9 @@ func extractTar(r io.Reader, root string) error {
 			return fmt.Errorf("delivery audit: read source archive: %w", nextErr)
 		}
 		clean := filepath.Clean(header.Name)
-		if clean == "." || clean == ".." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		if clean == "." || !filepath.IsLocal(clean) {
 			return errors.New("delivery audit: Git archive contains unsafe path")
 		}
-		target := filepath.Join(root, clean)
 		switch header.Typeflag {
 		case tar.TypeXHeader, tar.TypeXGlobalHeader:
 			// archive/tar applies PAX metadata to the following entry. Git emits
@@ -585,18 +588,18 @@ func extractTar(r io.Reader, root string) error {
 			// filesystem object, so there is nothing to materialize here.
 			continue
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := destination.MkdirAll(clean, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeReg, 0: // NUL is the legacy regular-file type emitted by old tar writers.
-			total += header.Size
-			if header.Size < 0 || total > 2<<30 {
+			if header.Size < 0 || header.Size > maxSourceArchiveSize-total {
 				return errors.New("delivery audit: Git archive exceeds bounded size")
 			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			total += header.Size
+			if err := destination.MkdirAll(filepath.Dir(clean), 0o755); err != nil {
 				return err
 			}
-			file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+			file, err := destination.OpenFile(clean, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 			if err != nil {
 				return err
 			}
