@@ -6,7 +6,7 @@ Run from a clean probectl checkout with the Go toolchain in `go.mod`.
 git rev-parse HEAD
 go version
 go env GOOS GOARCH
-go test -count=1 -v -run '^TestSyntheticDDoS(DetectionBenchmark|ProtectedServiceSensitivity)$' ./internal/control
+go test -count=1 -v -run '^TestSyntheticDDoS(DetectionBenchmark|ProtectedServiceSensitivity|ReplayExport)$' ./internal/control
 GOMAXPROCS=2 go test -run '^$' -bench '^BenchmarkSyntheticDDoSDetection$' -benchmem -count=5 ./internal/control
 ```
 
@@ -25,6 +25,39 @@ the second qualifying close, including up to four seconds before the first
 full window. The benchmark command measures in-process allocation and runtime
 for a complete corpus. Exporter flush, ingestion, storage reads, scheduler
 queueing and delivery add their own time in deployment.
+
+## Export the synthetic inputs
+
+Run the benchmark with a new output directory to compare detectors against
+the same observations.
+
+```sh
+replay_parent="$(mktemp -d)"
+PROBECTL_TEST_DDOS_CORPUS_DIR="$replay_parent/replay" \
+  go test -count=1 -v -run '^TestSyntheticDDoSDetectionBenchmark$' ./internal/control
+shasum -a 256 "$replay_parent/replay/inputs.json"
+```
+
+`inputs.json` contains all 416 cases under numeric IDs. Each case includes
+its protected scope, modeled start, and two ordered pairs of reference and
+current windows. Windows have UTC bounds, a flow completeness flag, grouped
+flow metrics and any bound application's HTTP observations. Bytes and packets
+are corrected flow totals and `flows:total` counts original records. HTTP span
+durations are in nanoseconds. Both data types are synthetic.
+
+Give the same input file to each evaluator. Keep `ground-truth.json` with the
+scorer. It maps the IDs to scenario names and positive or negative labels and
+binds them to the SHA-256 of the input file. Record each product's configuration,
+unsupported input, abstentions and decision clock before scoring. The export
+contains flow aggregates and spans for offline comparison. Measuring an
+exporter or product end to end requires its separate lab replay.
+
+The `fixture_rows_sha256` field uses the existing benchmark digest. Flatten
+each pair's reference and current flow arrays in order into `Flows`. For cases
+with a bound application, flatten their HTTP arrays in the same order into
+`Application`. The Go test computes the digest from that JSON object.
+
+## How the detector uses the inputs
 
 The corpus exercises sustained volume, sampled observations, TCP flag
 pressure, five UDP service associations, changing network signals, destination

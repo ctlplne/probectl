@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"os"
 	"slices"
 	"strconv"
 	"testing"
@@ -337,37 +338,28 @@ func TestSyntheticDDoSDetectionBenchmark(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("fixture_manifest_sha256=%s", hex.EncodeToString(crypto.Hash(manifest)))
-	var rows [][]flowstore.PlanRow
-	observations := make([][]otelstore.Span, 0, len(trials)*3)
-	for _, trial := range trials {
-		end := benchmarkDDoSEpoch.Add(2 * time.Duration(trial.Settings.PeriodSeconds) * time.Second)
-		clocks, err := ddosClocks(end, trial.Settings.PeriodSeconds)
+	replayCases := make([]syntheticDDoSReplayTrial, 0, len(trials))
+	for i, trial := range trials {
+		replay, err := materializeSyntheticDDoSReplay(i+1, trial)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for index, pair := range []anomaly.FlowFieldComparisonClocks{clocks.Previous, clocks.Current} {
-			rows = append(rows, benchmarkDDoSRows(trial.Reference), benchmarkDDoSRows(trial.Windows[index]))
-			if trial.Settings.Application != nil {
-				observations = append(observations, benchmarkDDoSAppSpans(trial.Reference.Application, pair.Before.Start),
-					benchmarkDDoSAppSpans(trial.Windows[index].Application, pair.After.Start))
-			}
-		}
+		replayCases = append(replayCases, replay)
 	}
-	evidence, err := json.Marshal(struct {
-		Flows       [][]flowstore.PlanRow
-		Application [][]otelstore.Span
-	}{rows, observations})
+	rowsDigest, err := syntheticDDoSRowsDigest(replayCases)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("fixture_rows_sha256=%s", hex.EncodeToString(crypto.Hash(evidence)))
+	t.Logf("fixture_rows_sha256=%s", rowsDigest)
 	var counts benchmarkDDoSCounts
 	delays := []int{}
-	for _, trial := range trials {
+	truth := make([]syntheticDDoSTruth, 0, len(trials))
+	for i, trial := range trials {
 		label, ok := labels[trial.Family]
 		if !ok {
 			t.Fatalf("missing oracle label for %q", trial.Family)
 		}
+		truth = append(truth, syntheticDDoSTruth{ID: replayCases[i].ID, Scenario: trial.Name, Positive: label.Positive})
 		outcome, err := benchmarkDDoSEvaluate(ctx, trial)
 		if err != nil && !outcome.Abstained {
 			t.Fatalf("assessment %q: %v", trial.Name, err)
@@ -391,6 +383,11 @@ func TestSyntheticDDoSDetectionBenchmark(t *testing.T) {
 	slices.Sort(delays)
 	if len(delays) != 0 {
 		t.Logf("onset_min=%d onset_p50=%d onset_p95=%d onset_max=%d", delays[0], delays[(len(delays)-1)/2], delays[(len(delays)*95+99)/100-1], delays[len(delays)-1])
+	}
+	if dir := os.Getenv("PROBECTL_TEST_DDOS_CORPUS_DIR"); dir != "" && !t.Failed() {
+		if err := writeSyntheticDDoSReplay(dir, replayCases, truth, rowsDigest); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
