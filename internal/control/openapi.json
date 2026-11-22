@@ -37486,7 +37486,7 @@
           "min_observed_records": {
             "type": "integer",
             "minimum": 1,
-            "description": "Minimum original flow records for a finding in the current window. Qualifying pressure below this count is unavailable. In both windows, each reported sampling rate above one needs this many original records. When required exporters are configured, apply the minimum per exporter and rate."
+            "description": "Minimum original flow records for a finding in the current window. Qualifying pressure below this count is unavailable. In both windows, each reported sampling rate above one needs this many original records. Five- and ten-second comparisons and comparisons with required exporters apply the sampling minimum per exporter and rate."
           },
           "min_observed_addresses": {
             "type": "integer",

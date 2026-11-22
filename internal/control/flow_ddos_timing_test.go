@@ -230,6 +230,14 @@ func TestDDoSSampledEvidenceRequiresOwnOriginalRecords(t *testing.T) {
 	if got, err := projectDDoSWindow(ctx, window, settings, "scope", benchmarkDDoSWork); err != nil || got.evidence.ObservedRecords != 5 {
 		t.Fatal("originals within the same rate failed to support the observation", got.evidence, err)
 	}
+	rows[0].Group["exporter"], rows[1].Group["exporter"] = "203.0.113.15", "203.0.113.16"
+	if _, err := projectDDoSWindow(ctx, window, settings, "scope", benchmarkDDoSWork); !errors.Is(err, errDDoSSampleCoverage) {
+		t.Fatal("another exporter at the same rate supplied the missing originals", err)
+	}
+	settings.Cited = true
+	if got, err := projectDDoSWindow(ctx, window, settings, "scope", benchmarkDDoSWork); err != nil || got.evidence.ObservedRecords != 5 {
+		t.Fatal("new sampling admission changed a cited read", got.evidence, err)
+	}
 }
 
 func fixtureDDoSTimingWindow(settings ddosAssessmentSettings, clock anomaly.TrainingWindow, window benchmarkDDoSWindow) capturedReportFlow {

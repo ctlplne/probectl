@@ -153,10 +153,9 @@ Different reported sampling rates caused abstentions in 16 positive trials.
 Too few original flow records caused abstentions in 16 negative trials.
 Recall counts every positive abstention in its denominator.
 
-For sampled windows, each reported rate needs the configured minimum number
-of original records. A rule with required exporters checks the minimum for
-each selected exporter and rate. Well-observed traffic at one rate cannot
-supply missing records for a different estimate.
+For sampled windows, each reported rate above one needs the configured
+minimum number of original records. Five- and ten-second comparisons and
+rules with required exporters apply that minimum per exporter and rate.
 
 Version one used 13 trials and two completed 60-second windows. A benign
 flash crowd opened a tentative volume episode on identical aggregates. Its
@@ -426,6 +425,19 @@ PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
 ```
 
 [Paired synthetic fixture](../internal/control/alert_ddos_sample_floor_integration_test.go)
+
+The paired exporter fixture uses two exporters reporting one in eight. Both
+tenants have the same corrected packet totals, rising from 3,600 to 7,200 in
+both comparisons. One tenant has at least two original records from each
+exporter and qualifies. The other has only one original record at the second
+edge. Its comparison is unavailable, and it cannot read the other tenant's
+receipt. The saved views include both exporters without an explicit required
+exporter list. [Two-exporter fixture](../internal/control/alert_ddos_multi_edge_integration_test.go)
+
+```sh
+PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
+  -run '^TestFastDDoSRequiresOriginalRecordsFromTheSampledExporter$' ./internal/control
+```
 
 ### Incomplete timing during episode recovery
 

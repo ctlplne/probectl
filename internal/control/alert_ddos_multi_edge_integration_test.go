@@ -33,6 +33,7 @@ const (
 	ddosEdgeRateChange
 	ddosEdgeRateSetChange
 	ddosEdgeSparseSampling
+	ddosEdgeUnevenSampling
 )
 
 func TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth(t *testing.T) {
@@ -57,7 +58,8 @@ func TestFastDDoSRequiresComparableAggregateSampling(t *testing.T) {
 }
 
 func TestFastDDoSRequiresOriginalRecordsFromTheSampledExporter(t *testing.T) {
-	testDDoSEdgeScope(t, false, true, ddosEdgeSparseSampling)
+	t.Run("required_exporters", func(t *testing.T) { testDDoSEdgeScope(t, false, true, ddosEdgeSparseSampling) })
+	t.Run("default_exporters_at_the_same_rate", func(t *testing.T) { testDDoSEdgeScope(t, false, false, ddosEdgeUnevenSampling) })
 }
 
 func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling ddosEdgeSampling) {
@@ -134,9 +136,9 @@ func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling d
 			}
 			continue
 		}
-		if lane == 1 && sampling == ddosEdgeSparseSampling {
+		if lane == 1 && (sampling == ddosEdgeSparseSampling || sampling == ddosEdgeUnevenSampling) {
 			if !errors.Is(err, errDDoSSampleCoverage) || evaluated.QuerySelection != nil || len(items) != 0 {
-				t.Fatal("an unsampled edge supplied missing record support for the sampled estimate", err)
+				t.Fatal("another edge supplied missing record support for the sampled estimate", err)
 			}
 			continue
 		}
@@ -218,20 +220,23 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 					}
 					packets = [2]uint64{raw[0] * rates[0], raw[1] * rates[1]}
 				}
-			case ddosEdgeSparseSampling:
+			case ddosEdgeSparseSampling, ddosEdgeUnevenSampling:
 				rates = [2]uint64{1, 8}
+				if sampling == ddosEdgeUnevenSampling {
+					rates[0] = 8
+				}
 				if !growth && i == 1 {
 					packets = [2]uint64{400, 6800}
 				}
 			}
-			sparse := sampling == ddosEdgeSparseSampling && !growth && i == 1
+			sparse := (sampling == ddosEdgeSparseSampling || sampling == ddosEdgeUnevenSampling) && !growth && i == 1
 			for edge, exporter := range exporters {
 				if missingReferenceEdge && i == 0 && edge == 1 {
 					continue
 				}
 				rate := rates[edge]
 				records := uint64(1)
-				if rate > 1 && !sparse {
+				if rate > 1 && !(sparse && edge == 1) {
 					records = 2
 				}
 				raw := packets[edge] / rate

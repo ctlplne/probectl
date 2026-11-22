@@ -210,9 +210,6 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 		if excludeCrossing && row.CrossesWindowStart {
 			continue
 		}
-		if err := totals.add(settings, row); err != nil {
-			return empty, err
-		}
 		var exporter string
 		if len(required) != 0 {
 			exporter = row.Group["exporter"]
@@ -223,6 +220,9 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 		} else if groupSampledExporters && row.Group["sampling"] != "1" {
 			exporter = row.Group["exporter"]
 		}
+		if err := totals.add(settings, row, exporter); err != nil {
+			return empty, err
+		}
 		if samplingRates != nil {
 			samplingRates[ddosExporterRate{exporter: exporter, rate: row.Group["sampling"]}] = struct{}{}
 		}
@@ -230,8 +230,8 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 	if len(observedExporters) != len(required) {
 		return empty, errDDoSExporterCoverage
 	}
-	// Records from other sampling rates cannot support this estimate. When
-	// exporters are required, each named exporter supplies its own evidence.
+	// The minimum follows the same exporter and rate boundaries used to
+	// compare observations. An adequately sampled edge cannot support another.
 	for _, records := range totals.sampledRecords {
 		if records < settings.Input.MinObservedRecords {
 			return empty, errDDoSSampleCoverage
@@ -264,7 +264,7 @@ type ddosWindowTotals struct {
 	services                             map[string]*big.Int
 }
 
-func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstore.PlanRow) error {
+func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstore.PlanRow, exporter string) error {
 	protected, addrErr := netip.ParseAddr(row.Group[settings.SideField])
 	sampling, sampleErr := strconv.ParseUint(row.Group["sampling"], 10, 64)
 	records, countErr := strconv.Atoi(row.Metrics["flows:total"])
@@ -285,10 +285,7 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 	if sampling > 1 {
 		total.sampled = true
 		if !settings.Cited {
-			key := ddosExporterRate{rate: row.Group["sampling"]}
-			if len(settings.Input.RequiredExporters) != 0 {
-				key.exporter = row.Group["exporter"]
-			}
+			key := ddosExporterRate{exporter: exporter, rate: row.Group["sampling"]}
 			if total.sampledRecords == nil {
 				total.sampledRecords = make(map[ddosExporterRate]int)
 			}
