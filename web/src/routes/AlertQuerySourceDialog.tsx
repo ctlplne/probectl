@@ -510,7 +510,7 @@ function QuerySourceEditor({
             }
           />
         ) : (
-          <p>Choose a saved flow view with a 60, 120 or 300 second lookback.</p>
+          <p>Choose a saved flow view with a moving lookback of at least 60 seconds.</p>
         ))}
       <Field
         label="Minimum seconds between reads"

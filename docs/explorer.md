@@ -238,11 +238,14 @@ put a tenant selector in the body or URL.
 
 ### Passive DDoS assessment
 
-Open a saved flow query with a moving lookback of 60, 120 or 300 seconds.
-Choose the protected prefix and observed direction in **DDoS assessment**.
-The prefix narrows the saved filters on the selected side of each flow.
-The assessment compares the latest completed UTC window with the same time
-last week. Both windows require original flow coverage.
+Open a saved flow query with a moving lookback of at least 60 seconds.
+In **DDoS assessment**, choose the protected prefix, observed direction, and
+**Observation window**. Select five or ten seconds for a short raw window.
+A 60-, 120- or 300-second lookback also offers its full window. The prefix
+narrows the saved filters on the selected side of each flow. The assessment
+compares the latest completed UTC window with the same clock in the previous
+week or a representative week selected from the preceding four. Both windows
+require original flow coverage.
 
 Set the byte and packet floors for one window, a minimum traffic increase
 and the minimum share for a qualifying vector. One positive traffic measure

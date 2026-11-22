@@ -650,18 +650,25 @@ the generated SDK and native MCP `alert_field_receipt_get`.
 
 ### Scheduled DDoS pressure
 
-Choose **Sustained DDoS pressure** in the saved-query alert editor. Use a
-60, 120 or 300 second moving lookback and set the protected prefix, direction,
-traffic floors and measured coverage. The saved query's predicates and the
-protected prefix both define the observed population. Set the interval to a
-whole multiple of the lookback. The default is one window.
+In the saved-query alert editor, pick a flow view with a moving lookback of
+at least 60 seconds and choose **Sustained DDoS pressure**. Set **Observation
+window** to **5 seconds** or **10 seconds** for fast evaluation. Views with
+60-, 120- or 300-second lookbacks also offer their full window. The saved
+filters and the protected prefix define the observed traffic. Enter the
+byte and packet floors for one observation window. Set **Minimum seconds
+between reads** to the window width for the fastest cadence, or use a whole
+multiple of it.
 
 The evaluator reads two adjacent completed windows and the same two UTC windows
-from the prior week. A persistent qualifying vector opens one incident and
+from the selected reference week. For a single ingress host, you can supply the
+HTTP telemetry service name and listener port to corroborate healthy demand.
+A persistent qualifying vector opens one incident and
 writes its original measurements and next scheduled clock in the same tenant
 transaction. A single qualifying window does not open an incident. A complete
 normal read ends a sustained episode. Unavailable source coverage preserves
-its existing state. Notification delivery follows the configured alert rule.
+its existing state. Export timing, ingestion and evaluation add to the two
+observation windows. Notification delivery follows the configured alert rule.
+[Synthetic benchmark and timing method](ddos-detection-benchmark.md)
 
 Select the traffic pressure signal in its incident and choose **Show original
 traffic evidence**. The receipt shows exact corrected bytes and packets,
