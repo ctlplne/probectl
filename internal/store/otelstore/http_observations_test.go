@@ -117,8 +117,10 @@ func TestHTTPObservationReadMatchesEquivalentIPv6AddressInTenant(t *testing.T) {
 		{owner, "name", "site.example"},
 		{sibling, "sibling", "2001:DB8::A"},
 	} {
+		// Give each observation its own identity even at the same timestamp.
 		rows = append(rows, Span{TenantID: sample.tenant, SpanID: sample.id, Kind: "server", Service: q.Service,
-			Start: start, Attrs: httpObservationAttributes(sample.address, "443", "200")})
+			TraceID: "00000000000000000000000000000001", Start: start, Duration: time.Millisecond,
+			Attrs: httpObservationAttributes(sample.address, "443", "200")})
 	}
 	if err := store.WriteSpans(t.Context(), rows); err != nil {
 		t.Fatal(err)

@@ -353,8 +353,8 @@ func verifyDDoSApplicationAttribution(t *testing.T, scenario ddosSplitListenerHo
 		// Reports re-measure raw flows using the original receipt. This must
 		// agree even though the report path does not re-read the spans.
 		report := fmt.Sprintf("/v1/incidents/%s/ddos-report?rule_id=%s&fingerprint=%s", proof.IncidentID, positiveRuleID, positiveFingerprint)
-		callSeasonalAPI(t, server, f.tokens[f.tenants[0]], http.MethodGet, report, http.StatusOK)
-		callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, report, http.StatusNotFound)
+		callSeasonalAPI(t, server, f.tokens[f.tenants[0]], http.MethodGet, report, nil, http.StatusOK)
+		callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, report, nil, http.StatusNotFound)
 	}
 	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, positiveReceipt, nil, http.StatusNotFound)
 }
