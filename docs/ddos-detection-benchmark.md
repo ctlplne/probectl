@@ -122,13 +122,26 @@ cover incomplete flow, unavailable application context and a mixed packet
 profile outside the observed application demand. The two
 separate-port pressure families still produced episodes.
 
-The current replay uses the same scoped assessment as scheduled rules.
-Its oracle expects an abstention for the 16 negative trials whose pressure
-has fewer original records than the rule requires, and for the 16 positive
-trials whose two flow windows report different sampling rates. The expected
-totals are 192 true positives, 0 false positives, 64 true negatives, 16 false
-negatives, 64 positive abstentions and 80 negative abstentions. The replay
-prints the current manifest digest and measured totals.
+### Saved-rule assessment with sampling comparability
+
+The Linux unit suite on `2576e14` ran the 416-trial replay under
+`go test -race -count=1`. The test checked each trial's outcome and modeled
+onset. The counts below follow from those checked outcomes. The verbose
+reproduction command prints the individual results and manifest digest.
+[Hosted unit job](https://github.com/ctlplne/probectl/actions/runs/44956566050/job/137022287816) · [Retained test log](https://github.com/ctlplne/probectl/actions/runs/44956566050/artifacts/14731076039)
+
+| Measure | Result |
+| --- | --- |
+| True positives / false positives | 192 / 0 |
+| True negatives / false negatives | 64 / 16 |
+| Abstained positives / abstained negatives | 64 / 80 |
+| Recall across all 272 positive trials | 70.6% |
+| Modeled onset min / median / p95 / max | 10 s / 12 s / 14 s / 14 s |
+
+All 16 matched flash crowds had independently corroborated healthy demand.
+Different reported sampling rates caused abstentions in 16 positive trials.
+Too few original flow records caused abstentions in 16 negative trials.
+Recall counts every positive abstention in its denominator.
 
 For sampled windows, each reported rate needs the configured minimum number
 of original records. A rule with required exporters checks the minimum for
