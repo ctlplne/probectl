@@ -354,6 +354,7 @@ func TestSyntheticDDoSDetectionBenchmark(t *testing.T) {
 	var counts benchmarkDDoSCounts
 	delays := []int{}
 	truth := make([]syntheticDDoSTruth, 0, len(trials))
+	decisions := make([]syntheticDDoSDecision, 0, len(trials))
 	for i, trial := range trials {
 		label, ok := labels[trial.Family]
 		if !ok {
@@ -375,6 +376,7 @@ func TestSyntheticDDoSDetectionBenchmark(t *testing.T) {
 			delays = append(delays, outcome.DelaySeconds)
 		}
 		counts.record(label.Positive, outcome)
+		decisions = append(decisions, syntheticDDoSDecisionFor(replayCases[i].ID, outcome))
 		t.Logf("case=%s label_positive=%t class=%q service=%q abstained=%t demand_explained=%t unrelated_pressure=%t episode_delay_seconds=%d",
 			trial.Name, label.Positive, outcome.Class, outcome.Service, outcome.Abstained, outcome.DemandProven, outcome.Residual, outcome.DelaySeconds)
 	}
@@ -385,7 +387,7 @@ func TestSyntheticDDoSDetectionBenchmark(t *testing.T) {
 		t.Logf("onset_min=%d onset_p50=%d onset_p95=%d onset_max=%d", delays[0], delays[(len(delays)-1)/2], delays[(len(delays)*95+99)/100-1], delays[len(delays)-1])
 	}
 	if dir := os.Getenv("PROBECTL_TEST_DDOS_CORPUS_DIR"); dir != "" && !t.Failed() {
-		if err := writeSyntheticDDoSReplay(dir, replayCases, truth, rowsDigest); err != nil {
+		if err := writeSyntheticDDoSReplay(dir, replayCases, truth, decisions, rowsDigest); err != nil {
 			t.Fatal(err)
 		}
 	}

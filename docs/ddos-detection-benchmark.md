@@ -28,12 +28,13 @@ queueing and delivery add their own time in deployment.
 
 ## Export the synthetic inputs
 
-The Go unit job on main produces both files and retains them for 90 days
+The Go unit job on main produces the inputs, answer key, probectl decisions
+and score, and retains them for 90 days
 in the `synthetic-ddos-replay-<attempt>` artifact. Choose the CI run for
 the commit you want to evaluate. [CI runs on main](https://github.com/ctlplne/probectl/actions/workflows/ci.yml?query=branch%3Amain)
 
-The first retained archive came from `076204b` and contains all 416
-cases. Its `inputs.json` has SHA-256
+The first retained archive came from `076204b`, before decision export was
+added. It contains all 416 inputs and their labels. Its `inputs.json` has SHA-256
 `0b7d4869ae986f5b082afa9d56d95b3d1d1cfacadd7be3375e3dd149f7159686`.
 The answer key binds that hash to 272 positive and 144 negative labels.
 [Retained replay archive](https://github.com/ctlplne/probectl/actions/runs/44981761693/artifacts/14741299639)
@@ -56,16 +57,50 @@ are corrected flow totals and `flows:total` counts original records. HTTP span
 durations are in nanoseconds. Both data types are synthetic.
 
 Give the same input file to each evaluator. Keep `ground-truth.json` with the
-scorer. It maps the IDs to scenario names and positive or negative labels and
-binds them to the SHA-256 of the input file. Record each product's configuration,
-unsupported input, abstentions and decision clock before scoring. The export
-contains flow aggregates and spans for offline comparison. Measuring an
-exporter or product end to end requires its separate lab replay.
+scorer. It maps IDs to scenario names and labels and binds them to the SHA-256
+of the input file. The export contains flow aggregates and spans for offline
+comparison. Measuring exporter-to-incident time requires a separate lab replay.
 
 The `fixture_rows_sha256` field uses the existing benchmark digest. Flatten
 each pair's reference and current flow arrays in order into `Flows`. For cases
 with a bound application, flatten their HTTP arrays in the same order into
 `Application`. The Go test computes the digest from that JSON object.
+
+### Score the same inputs across detectors
+
+Record each evaluator's product version and configuration. Normalize its
+observed results into a JSON file with the following shape. Include one case
+for every input ID and use the SHA-256 of the exact shared `inputs.json` bytes.
+
+```json
+{
+  "schema": "probectl-ddos-synthetic-decisions-v1",
+  "inputs_sha256": "<SHA-256 of inputs.json>",
+  "cases": [
+    {"id": "trial-0001", "decision": "episode", "episode_delay_ms": 10000},
+    {"id": "trial-0002", "decision": "quiet"}
+  ]
+}
+```
+
+Use `episode` for an opened episode and `quiet` for an evaluated case with no
+episode. Use `abstained` for an inconclusive evaluation and `unsupported` when
+the product cannot evaluate the supplied input. These last two outcomes count
+against coverage and stay distinct. An episode needs the elapsed modeled
+milliseconds from the case's `modeled_start` to its first episode. Use the
+replay clock for this measurement. Omit the delay for the other outcomes.
+
+```sh
+python3 scripts/score_ddos_replay.py \
+  inputs.json ground-truth.json probectl-decisions.json
+```
+
+Use the same command with the other product's decisions to compare results.
+The scorer rejects mismatched digests and missing, duplicate or unknown IDs.
+It reports classification coverage, recall across all positive labels,
+false-alarm rate across all negative labels, counts by scenario family, and
+nearest-rank onset percentiles for true positives. The 416-case archive remains
+synthetic throughout. [Offline scorer](../scripts/score_ddos_replay.py)
 
 ## How the detector uses the inputs
 

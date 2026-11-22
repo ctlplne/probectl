@@ -298,6 +298,11 @@ jobs:
           make test 2>&1 | tee test-go.log
           test -s "$PROBECTL_TEST_DDOS_CORPUS_DIR/inputs.json"
           test -s "$PROBECTL_TEST_DDOS_CORPUS_DIR/ground-truth.json"
+          python3 scripts/score_ddos_replay.py \
+            "$PROBECTL_TEST_DDOS_CORPUS_DIR/inputs.json" \
+            "$PROBECTL_TEST_DDOS_CORPUS_DIR/ground-truth.json" \
+            "$PROBECTL_TEST_DDOS_CORPUS_DIR/probectl-decisions.json" \
+            > "$PROBECTL_TEST_DDOS_CORPUS_DIR/probectl-score.json"
       - name: Retain the complete synthetic DDoS replay
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -305,6 +310,8 @@ jobs:
           path: |
             ${{ runner.temp }}/probectl-ddos-synthetic-replay/inputs.json
             ${{ runner.temp }}/probectl-ddos-synthetic-replay/ground-truth.json
+            ${{ runner.temp }}/probectl-ddos-synthetic-replay/probectl-decisions.json
+            ${{ runner.temp }}/probectl-ddos-synthetic-replay/probectl-score.json
           if-no-files-found: error
           retention-days: 90
       - name: Opaque continuation redaction and legacy-reader proof

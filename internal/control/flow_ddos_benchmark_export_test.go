@@ -61,6 +61,30 @@ type syntheticDDoSReplayTruth struct {
 	Cases        []syntheticDDoSTruth `json:"cases"`
 }
 
+type syntheticDDoSDecision struct {
+	ID             string `json:"id"`
+	Decision       string `json:"decision"`
+	EpisodeDelayMS *int   `json:"episode_delay_ms,omitempty"`
+}
+
+type syntheticDDoSReplayDecisions struct {
+	Schema       string                  `json:"schema"`
+	InputsSHA256 string                  `json:"inputs_sha256"`
+	Cases        []syntheticDDoSDecision `json:"cases"`
+}
+
+func syntheticDDoSDecisionFor(id string, outcome benchmarkDDoSOutcome) syntheticDDoSDecision {
+	decision := syntheticDDoSDecision{ID: id, Decision: "quiet"}
+	switch {
+	case outcome.Abstained:
+		decision.Decision = "abstained"
+	case outcome.Class != "":
+		delayMS := outcome.DelaySeconds * 1000
+		decision.Decision, decision.EpisodeDelayMS = "episode", &delayMS
+	}
+	return decision
+}
+
 func syntheticDDoSRowsDigest(cases []syntheticDDoSReplayTrial) (string, error) {
 	flows := make([][]flowstore.PlanRow, 0, len(cases)*4)
 	application := make([][]otelstore.Span, 0, len(cases)*3)
@@ -82,15 +106,20 @@ func syntheticDDoSRowsDigest(cases []syntheticDDoSReplayTrial) (string, error) {
 	return hex.EncodeToString(crypto.Hash(evidence)), nil
 }
 
-func writeSyntheticDDoSReplay(dir string, cases []syntheticDDoSReplayTrial, truth []syntheticDDoSTruth, rowsDigest string) error {
+func writeSyntheticDDoSReplay(dir string, cases []syntheticDDoSReplayTrial, truth []syntheticDDoSTruth, decisions []syntheticDDoSDecision, rowsDigest string) error {
 	inputs, err := json.Marshal(syntheticDDoSReplayInputs{
 		Schema: "probectl-ddos-synthetic-replay-v1", RowsSHA256: rowsDigest, Cases: cases,
 	})
 	if err != nil {
 		return err
 	}
-	answers, err := json.Marshal(syntheticDDoSReplayTruth{
-		InputsSHA256: hex.EncodeToString(crypto.Hash(inputs)), Cases: truth,
+	inputHash := hex.EncodeToString(crypto.Hash(inputs))
+	answers, err := json.Marshal(syntheticDDoSReplayTruth{InputsSHA256: inputHash, Cases: truth})
+	if err != nil {
+		return err
+	}
+	results, err := json.Marshal(syntheticDDoSReplayDecisions{
+		Schema: "probectl-ddos-synthetic-decisions-v1", InputsSHA256: inputHash, Cases: decisions,
 	})
 	if err != nil {
 		return err
@@ -101,7 +130,10 @@ func writeSyntheticDDoSReplay(dir string, cases []syntheticDDoSReplayTrial, trut
 	if err := os.WriteFile(filepath.Join(dir, "inputs.json"), inputs, 0600); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "ground-truth.json"), answers, 0600)
+	if err := os.WriteFile(filepath.Join(dir, "ground-truth.json"), answers, 0600); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "probectl-decisions.json"), results, 0600)
 }
 
 func materializeSyntheticDDoSReplay(index int, trial benchmarkDDoSTrial) (syntheticDDoSReplayTrial, error) {
@@ -134,6 +166,7 @@ func syntheticDDoSWindow(clocks anomaly.TrainingWindow, window benchmarkDDoSWind
 func TestSyntheticDDoSReplayExport(t *testing.T) {
 	var cases []syntheticDDoSReplayTrial
 	var truth []syntheticDDoSTruth
+	var decisions []syntheticDDoSDecision
 	for _, trial := range benchmarkDDoSFixture() {
 		if trial.Name != "volume_health_drop/00" && trial.Name != "matched_flash_crowd/00" {
 			continue
@@ -143,7 +176,13 @@ func TestSyntheticDDoSReplayExport(t *testing.T) {
 			t.Fatal(err)
 		}
 		cases = append(cases, replay)
-		truth = append(truth, syntheticDDoSTruth{ID: replay.ID, Scenario: trial.Name, Positive: trial.Family == "volume_health_drop"})
+		positive := trial.Family == "volume_health_drop"
+		truth = append(truth, syntheticDDoSTruth{ID: replay.ID, Scenario: trial.Name, Positive: positive})
+		outcome := benchmarkDDoSOutcome{}
+		if positive {
+			outcome.Class, outcome.DelaySeconds = anomaly.DDoSVolumetric, 10
+		}
+		decisions = append(decisions, syntheticDDoSDecisionFor(replay.ID, outcome))
 	}
 	if len(cases) != 2 {
 		t.Fatal("expected both matched synthetic cases")
@@ -153,7 +192,7 @@ func TestSyntheticDDoSReplayExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(t.TempDir(), "replay")
-	if err := writeSyntheticDDoSReplay(dir, cases, truth, digest); err != nil {
+	if err := writeSyntheticDDoSReplay(dir, cases, truth, decisions, digest); err != nil {
 		t.Fatal(err)
 	}
 	inputs, err := os.ReadFile(filepath.Join(dir, "inputs.json"))
@@ -179,7 +218,21 @@ func TestSyntheticDDoSReplayExport(t *testing.T) {
 		labels.Cases[0].ID != replay.Cases[0].ID || labels.Cases[1].ID != replay.Cases[1].ID {
 		t.Fatal("ground truth must identify its input and each trial", err)
 	}
-	if err := writeSyntheticDDoSReplay(dir, cases, truth, digest); !errors.Is(err, os.ErrExist) {
+	resultBody, err := os.ReadFile(filepath.Join(dir, "probectl-decisions.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result syntheticDDoSReplayDecisions
+	if err := json.Unmarshal(resultBody, &result); err != nil || result.Schema != "probectl-ddos-synthetic-decisions-v1" ||
+		result.InputsSHA256 != labels.InputsSHA256 || len(result.Cases) != 2 {
+		t.Fatal("decisions must bind to the original input", err)
+	}
+	episode, quiet := result.Cases[0], result.Cases[1]
+	if episode.ID != replay.Cases[0].ID || episode.Decision != "episode" || episode.EpisodeDelayMS == nil || *episode.EpisodeDelayMS != 10000 ||
+		quiet.ID != replay.Cases[1].ID || quiet.Decision != "quiet" || quiet.EpisodeDelayMS != nil {
+		t.Fatal("decisions lost the episode clock or quiet control", result)
+	}
+	if err := writeSyntheticDDoSReplay(dir, cases, truth, decisions, digest); !errors.Is(err, os.ErrExist) {
 		t.Fatal("export accepted an existing destination", err)
 	}
 }
