@@ -55,6 +55,7 @@ func TestShippedCostEngineFromCollectedFlows(t *testing.T) {
 		var sent [2]time.Time
 		for i := range lanes {
 			sent[i] = writeShippedCostObservation(t, &lanes[i], i, amounts[i])
+			waitForStoredShippedCostObservation(t, stack, &lanes[i], sent[i], amounts[i]*10)
 			waitForShippedCost(t, stack, &lanes[i], amounts[i]*10)
 			if i == 0 {
 				if other := readShippedCost(t, stack, &lanes[1]); other.TotalBytes != 0 || !other.DataSince.IsZero() {
@@ -149,10 +150,24 @@ func readShippedCost(t *testing.T, stack *shipped.Stack, lane *nativeLane) cost.
 	return response.Summary
 }
 
+func waitForStoredShippedCostObservation(t *testing.T, stack *shipped.Stack, lane *nativeLane, at time.Time, want uint64) {
+	t.Helper()
+	plan := nativeGoldenPlan(lane.octet, at, []string{"src_addr"})
+	plan.DataSeries, plan.From, plan.To = "raw", at.Add(-time.Second), at.Add(time.Second)
+	// A newly provisioned tenant can wait for a 30-second lane refresh.
+	// Start the derived-view deadline after observing the original on its lane.
+	shipped.Await(t, lane.name+" exact sampled IPFIX record stored in its tenant", 45*time.Second, func() bool {
+		result := lane.query(t, stack, plan)
+		return result.Totals["flows:total"] == "1" && result.Totals["bytes:total"] == strconv.FormatUint(want, 10)
+	})
+}
+
 func waitForShippedCost(t *testing.T, stack *shipped.Stack, lane *nativeLane, want uint64) cost.Summary {
 	t.Helper()
+	var last uint64
 	for deadline := time.Now().Add(25 * time.Second); time.Now().Before(deadline); time.Sleep(150 * time.Millisecond) {
 		summary := readShippedCost(t, stack, lane)
+		last = summary.TotalBytes
 		if summary.TotalBytes == want {
 			return summary
 		}
@@ -160,7 +175,7 @@ func waitForShippedCost(t *testing.T, stack *shipped.Stack, lane *nativeLane, wa
 			t.Fatalf("%s cost double-counted the observation: got %d bytes, want %d", lane.name, summary.TotalBytes, want)
 		}
 	}
-	t.Fatalf("%s cost consumer did not receive %d sampled bytes", lane.name, want)
+	t.Fatalf("%s cost consumer recorded %d sampled bytes, want %d", lane.name, last, want)
 	return cost.Summary{}
 }
 

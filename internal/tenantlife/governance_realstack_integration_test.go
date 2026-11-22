@@ -129,9 +129,13 @@ func TestShippedGovernanceAppliesScopedExportPolicy(t *testing.T) {
 		var retention struct {
 			Days int `json:"flow_retention_days"`
 		}
-		stack.MustCLI(t, lane.token, &retention, "lifecycle", "retention")
-		if retention.Days != lane.retention {
-			t.Fatalf("tenant CLI saw the wrong retention period: %d", retention.Days)
+		body := lane.request(t, stack, http.MethodGet, "/v1/lifecycle/retention", nil, http.StatusOK)
+		if err := json.Unmarshal(body, &retention); err != nil || retention.Days != lane.retention {
+			t.Fatalf("tenant session saw the wrong retention period: %d, %v", retention.Days, err)
+		}
+		stdout, stderr, exit := stack.CLI(lane.token, "lifecycle", "retention")
+		if exit != 1 || stdout != "" || !strings.Contains(stderr, "missing permission: lifecycle.erase") {
+			t.Fatal("scoped export credential must be refused by the retention route")
 		}
 		assertGovernanceBundle(t, lane, peer, lane.request(t, stack, http.MethodGet, "/v1/lifecycle/export", nil, http.StatusOK), true, wants[i])
 		stack.MustCLI(t, lane.token, nil, "audit", "verify")
