@@ -266,6 +266,11 @@ apparent growth, the evaluation remains unavailable and keeps its original
 clock. The fully observed tenant can open an owned episode.
 [Field-coverage fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
 
+The same rule applies when the TCP listener's destination port is reported
+but the transport is unknown. A reported different port can still establish
+outside traffic. This distinction keeps records with missing transport
+from supporting an alarm on traffic that might belong to the bound listener.
+
 ## Trace sampling holdout
 
 The holdout starts with 24 recorded successful requests that represent 24

@@ -53,6 +53,46 @@ func TestSyntheticFastDDoSFindsOutsideApplicationPressureWithFlatHostTotals(t *t
 	}
 }
 
+func TestFastDDoSOutsideTrafficRequiresSocketAttribution(t *testing.T) {
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
+	settings, err := normalizeDDoSAssessment(benchmarkDDoSView, flow.DDoSAssessmentInput{
+		Version: "7", Prefix: "192.0.2.1/32", Direction: "ingress", PeriodSeconds: 5,
+		BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000, VectorShareBasisPoints: 6000,
+		MinObservedRecords: 50, MinObservedAddresses: 2, Application: &flow.DDoSApplicationBinding{Service: "synthetic-public-site", Port: 443}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clocks, err := anomaly.DDoSCompletedWindows(benchmarkDDoSEpoch, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference := benchmarkDDoSWindow{Bytes: 320000, Packets: 3200, OtherBytes: 80000, OtherPackets: 800,
+		Records: 64, Addresses: 1, Sampling: 1, Complete: true}
+	current := reference
+	current.Bytes, current.Packets, current.OtherBytes, current.OtherPackets = 120000, 1200, 280000, 2800
+	for _, sample := range []struct {
+		transport, port string
+		outside         bool
+	}{
+		{"", "443", false}, {"0", "443", false}, {"0", "8443", true}, {"udp", "443", true},
+	} {
+		later := benchmarkDDoSCapturedWindow(settings, current, clocks.After.Start, clocks.After.End)
+		group := later.Result.Rows[1].Group
+		group["transport"], group["dst_port"], group["src_port"] = sample.transport, sample.port, "40000"
+		capture := &reportFlowCapture{TenantID: benchmarkDDoSTenant, SourceGeneration: 1, Results: []capturedReportFlow{
+			benchmarkDDoSCapturedWindow(settings, reference, clocks.Before.Start, clocks.Before.End), later,
+		}}
+		got, err := assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
+		if sample.outside {
+			if err != nil || got.Detection == nil || got.Detection.Class != anomaly.DDoSVolumetric {
+				t.Fatal("independently attributed outside traffic did not qualify", sample, got, err)
+			}
+		} else if !errors.Is(err, anomaly.ErrDDoSCoverage) || got.Detection != nil {
+			t.Fatal("a missing transport field counted as known socket evidence", sample, got, err)
+		}
+	}
+}
+
 func TestDDoSApplicationKeepsCompletedRequestsThatCrossTheWindowEnd(t *testing.T) {
 	from := time.Date(2026, time.November, 20, 11, 30, 0, 0, time.UTC)
 	to := from.Add(5 * time.Second)

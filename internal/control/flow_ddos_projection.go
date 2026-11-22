@@ -254,7 +254,7 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 		ObservedRecords: totals.records, ObservedAddresses: len(totals.addresses)}
 	if settings.Input.Application != nil {
 		observed.ApplicationBytes, observed.ApplicationPackets = totals.applicationBytes.String(), totals.applicationPackets.String()
-		// Prospective admission needs port coverage. Cited reads reconstruct
+		// Prospective admission needs socket coverage. Cited reads reconstruct
 		// the original receipt from its stored detector counters.
 		if !settings.Cited {
 			observed.UnknownApplicationBytes = totals.unknownApplicationBytes.String()
@@ -321,8 +321,12 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 		}
 		if flags&2 != 0 && flags&0x15 == 0 {
 			total.syn.Add(&total.syn, packets)
-		} else if err := total.addApplicationFlow(settings.Input.Application, row.Group["dst_port"], bytes, packets); err != nil {
+		} else if err := total.addApplicationFlow(settings.Input.Application, row.Group["dst_port"], true, bytes, packets); err != nil {
 			return err
+		}
+	case "", "0":
+		if !settings.Cited {
+			return total.addApplicationFlow(settings.Input.Application, row.Group["dst_port"], false, bytes, packets)
 		}
 	case "udp":
 		port, err := strconv.ParseUint(row.Group["src_port"], 10, 16)
@@ -343,7 +347,7 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 	return nil
 }
 
-func (total *ddosWindowTotals) addApplicationFlow(binding *flow.DDoSApplicationBinding, destination string, bytes, packets *big.Int) error {
+func (total *ddosWindowTotals) addApplicationFlow(binding *flow.DDoSApplicationBinding, destination string, tcpKnown bool, bytes, packets *big.Int) error {
 	if binding == nil {
 		return nil
 	}
@@ -351,11 +355,12 @@ func (total *ddosWindowTotals) addApplicationFlow(binding *flow.DDoSApplicationB
 	if err != nil {
 		return anomaly.ErrDDoSCoverage
 	}
-	switch port {
-	case 0:
+	onBoundPort := port == uint64(binding.Port)
+	switch {
+	case port == 0 || onBoundPort && !tcpKnown:
 		total.unknownApplicationBytes.Add(&total.unknownApplicationBytes, bytes)
 		total.unknownApplicationPackets.Add(&total.unknownApplicationPackets, packets)
-	case uint64(binding.Port):
+	case onBoundPort:
 		total.applicationBytes.Add(&total.applicationBytes, bytes)
 		total.applicationPackets.Add(&total.applicationPackets, packets)
 	}

@@ -173,7 +173,7 @@ func compareApplicationTraffic(parser *decimalSeasonalTraining, requests [2]int,
 		return applicationTrafficComparison{}, ErrDDoSCoverage
 	}
 	// Compare known current outside traffic with the largest possible outside
-	// reference. Unknown ports alone can leave the result inconclusive.
+	// reference. Missing socket fields can leave the result inconclusive.
 	return applicationTrafficComparison{
 		explained: comparableDDoSDemand(appBefore, appAfter, requests[0], requests[1]) &&
 			(residualAfter.Cmp(residualBefore) <= 0 || comparableDDoSDemand(before, after, requests[0], requests[1])),
