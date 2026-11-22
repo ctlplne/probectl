@@ -236,7 +236,7 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 				}
 				rate := rates[edge]
 				records := uint64(1)
-				if rate > 1 && !(sparse && edge == 1) {
+				if rate > 1 && (!sparse || edge != 1) {
 					records = 2
 				}
 				raw := packets[edge] / rate

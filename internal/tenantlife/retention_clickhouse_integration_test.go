@@ -109,8 +109,8 @@ func TestRetentionSweepPrunesBackdatedClickHouseRowsAndAuditsPG(t *testing.T) {
 		if err := endpoints.Insert(tenantCtx, endpointRows); err != nil {
 			t.Fatal(err)
 		}
-		assertRetentionExport(t, tenantCtx, tenant, "flows", flows.ExportTenant, expired, boundary, fresh)
-		assertRetentionExport(t, tenantCtx, tenant, "endpoint_events", endpoints.ExportTenant, expired, boundary, fresh)
+		assertRetentionExport(tenantCtx, t, tenant, "flows", flows.ExportTenant, expired, boundary, fresh)
+		assertRetentionExport(tenantCtx, t, tenant, "endpoint_events", endpoints.ExportTenant, expired, boundary, fresh)
 	}
 
 	// Use the production sweep's per-policy entry point so the shared CI
@@ -124,8 +124,8 @@ func TestRetentionSweepPrunesBackdatedClickHouseRowsAndAuditsPG(t *testing.T) {
 		if policy.days["flows"] == 1 {
 			want = want[1:]
 		}
-		assertRetentionExport(t, tenantCtx, policy.tenant, "flows", flows.ExportTenant, want...)
-		assertRetentionExport(t, tenantCtx, policy.tenant, "endpoint_events", endpoints.ExportTenant, want...)
+		assertRetentionExport(tenantCtx, t, policy.tenant, "flows", flows.ExportTenant, want...)
+		assertRetentionExport(tenantCtx, t, policy.tenant, "endpoint_events", endpoints.ExportTenant, want...)
 		cutoff := now.Add(-time.Duration(policy.days["flows"]) * 24 * time.Hour)
 		if err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
 			// Flow receipts record completion. Endpoint receipts also carry the
@@ -144,7 +144,7 @@ func TestRetentionSweepPrunesBackdatedClickHouseRowsAndAuditsPG(t *testing.T) {
 	}
 }
 
-func assertRetentionExport(t *testing.T, ctx context.Context, tenant, store string, export func(context.Context, string, io.Writer) (int64, error), addresses ...string) {
+func assertRetentionExport(ctx context.Context, t *testing.T, tenant, store string, export func(context.Context, string, io.Writer) (int64, error), addresses ...string) {
 	t.Helper()
 	var data bytes.Buffer
 	if count, err := export(ctx, tenant, &data); err != nil || count != int64(len(addresses)) {
