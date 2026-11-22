@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
 
 RESULTS = {
@@ -70,6 +71,22 @@ def metrics(counts, true_positive_delays):
     }
 
 
+def replay_horizon_ms(case_id, case):
+    try:
+        start = datetime.fromisoformat(case["modeled_start"])
+        ends = [datetime.fromisoformat(pair["current"]["to"]) for pair in case["pairs"]]
+        if (
+            start.tzinfo is None
+            or len(ends) != 2
+            or any(end.tzinfo is None for end in ends)
+            or not start < ends[0] < ends[1]
+        ):
+            raise ValueError
+    except (KeyError, TypeError, ValueError) as ex:
+        raise ValueError(f"inputs have invalid replay clocks for {case_id!r}") from ex
+    return (ends[1] - start) // timedelta(milliseconds=1)
+
+
 def score(input_bytes, truth_bytes, decision_bytes):
     inputs = json.loads(input_bytes)
     cases = case_rows(inputs, "inputs")
@@ -100,6 +117,7 @@ def score(input_bytes, truth_bytes, decision_bytes):
     true_positive_delays = []
     family_delays = defaultdict(list)
     for case_id, label in labels.items():
+        horizon = replay_horizon_ms(case_id, cases[case_id])
         scenario, positive = label.get("scenario"), label.get("positive")
         if (
             not isinstance(scenario, str)
@@ -117,6 +135,10 @@ def score(input_bytes, truth_bytes, decision_bytes):
             if type(delay) is not int or delay < 0:
                 raise ValueError(
                     f"episode for {case_id!r} needs a nonnegative integer delay"
+                )
+            if delay > horizon:
+                raise ValueError(
+                    f"episode for {case_id!r} exceeds its {horizon} ms replay"
                 )
             if positive:
                 true_positive_delays.append(delay)

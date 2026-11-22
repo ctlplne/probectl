@@ -298,6 +298,7 @@ jobs:
           make test 2>&1 | tee test-go.log
           test -s "$PROBECTL_TEST_DDOS_CORPUS_DIR/inputs.json"
           test -s "$PROBECTL_TEST_DDOS_CORPUS_DIR/ground-truth.json"
+          python3 -B -m unittest discover -s scripts -p test_score_ddos_replay.py
           python3 scripts/score_ddos_replay.py \
             "$PROBECTL_TEST_DDOS_CORPUS_DIR/inputs.json" \
             "$PROBECTL_TEST_DDOS_CORPUS_DIR/ground-truth.json" \

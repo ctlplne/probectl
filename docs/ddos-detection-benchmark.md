@@ -91,7 +91,12 @@ episode. Use `abstained` for an inconclusive evaluation and `unsupported` when
 the product cannot evaluate the supplied input. These last two outcomes count
 against coverage and stay distinct. An episode needs the elapsed modeled
 milliseconds from the case's `modeled_start` to its first episode. Use the
-replay clock for this measurement. Omit the delay for the other outcomes.
+replay clock for this measurement. Each case ends at the closing clock of
+its second current window, 10–14 modeled seconds after onset in this corpus.
+Record an episode only if it opened by that clock. A detector that can
+evaluate the inputs but has yet to open an episode by then is quiet for
+that case. Compare longer alert delays in a separate replay with a longer
+shared observation period. Omit the delay for the other outcomes.
 
 ```sh
 python3 scripts/score_ddos_replay.py \
@@ -99,7 +104,8 @@ python3 scripts/score_ddos_replay.py \
 ```
 
 Use the same command with the other product's decisions to compare results.
-The scorer rejects mismatched digests and missing, duplicate or unknown IDs.
+The scorer rejects mismatched digests, missing, duplicate or unknown IDs,
+and episode delays beyond the replay clocks.
 Each score records SHA-256 hashes of the exact inputs, ground truth and
 decisions. Compare scores built from the same input and ground-truth hashes.
 The report includes classification coverage, recall across all positive labels,
