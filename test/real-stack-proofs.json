@@ -632,7 +632,15 @@
       "profile": "integration",
       "capabilities": [
         "F14",
-        "F18"
+        "F18",
+        "F43"
+      ]
+    },
+    {
+      "ref": "test:internal/control/compliance_control_report_integration_test.go#TestComplianceControlReportSchedulesRetainPinnedTwoTenantEvidence",
+      "profile": "integration",
+      "capabilities": [
+        "F43"
       ]
     },
     {

@@ -725,7 +725,6 @@ capabilities:
   - id: F43
     name: Segmentation validation and audit evidence
     status: delivered
-    evidence_status: partial
     owner: product/release
     engine: {refs: ["file:internal/compliance"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#control.BuildCompliance("]}
@@ -735,7 +734,10 @@ capabilities:
     docs: {refs: ["file:docs/compliance.md#Compliance / segmentation validation", "file:docs/compliance.md#Scheduled CMMC audit evidence"]}
     config_keys: {refs: ["config:PROBECTL_COMPLIANCE_ENABLED", "config:PROBECTL_COMPLIANCE_POLICY_DIR"]}
     telemetry: {refs: ["file:internal/compliance"]}
-    real_stack_proof: {gap: "The scheduled CMMC audit evidence preview covers the retained audit stream. End-to-end boundary and monitoring collection from real senders and scheduled packs remain to be verified."}
+    real_stack_proof:
+      refs:
+        - "test:internal/bgp/interface_role_realstack_integration_test.go#TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride"
+        - "test:internal/control/compliance_control_report_integration_test.go#TestComplianceControlReportSchedulesRetainPinnedTwoTenantEvidence"
     migration: {refs: ["file:migrations/0221_compliance_control_report_requirements.sql"]}
 
   - id: F44
