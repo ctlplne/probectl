@@ -155,6 +155,14 @@ func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling d
 			if len(evaluated.Samples) != 1 || len(items) != 1 {
 				t.Fatal("legacy comparison did not reproduce the apparent aggregate growth")
 			}
+			var proof alert.DDoSEvaluationEvidence
+			path := "/v1/alerts/rules/" + id + "/ddos-receipt?fingerprint=" + items[0].Fingerprint
+			body := callSeasonalAPI(t, server, f.tokens[tenant], http.MethodGet, path, nil, http.StatusOK)
+			if err := json.Unmarshal(body, &proof); err != nil ||
+				proof.Current.Before.ObservedRecords != 2 || proof.Current.After.ObservedRecords != 3 ||
+				proof.Current.Before.Packets != "400" || proof.Current.After.Packets != "3600" {
+				t.Fatal("the legacy receipt did not retain the intended original records and counters", err)
+			}
 			continue
 		}
 		for _, item := range items {
@@ -236,7 +244,9 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 				}
 				rate := rates[edge]
 				records := uint64(1)
-				if rate > 1 && (!sparse || edge != 1) {
+				// Keep the first edge at the aggregate record floor so
+				// only the explicit exporter requirement rejects this reference.
+				if (missingReferenceEdge && edge == 0) || (rate > 1 && (!sparse || edge != 1)) {
 					records = 2
 				}
 				raw := packets[edge] / rate
