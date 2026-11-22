@@ -32,6 +32,12 @@ The Go unit job on main produces both files and retains them for 90 days
 in the `synthetic-ddos-replay-<attempt>` artifact. Choose the CI run for
 the commit you want to evaluate. [CI runs on main](https://github.com/ctlplne/probectl/actions/workflows/ci.yml?query=branch%3Amain)
 
+The first retained archive came from `076204b` and contains all 416
+cases. Its `inputs.json` has SHA-256
+`0b7d4869ae986f5b082afa9d56d95b3d1d1cfacadd7be3375e3dd149f7159686`.
+The answer key binds that hash to 272 positive and 144 negative labels.
+[Retained replay archive](https://github.com/ctlplne/probectl/actions/runs/44981761693/artifacts/14741299639)
+
 Run the benchmark with a new output directory to compare detectors against
 the same observations.
 
