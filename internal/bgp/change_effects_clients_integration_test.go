@@ -9,11 +9,14 @@
 package bgp_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -43,12 +46,22 @@ func proveRouterChangeClients(t *testing.T, st *shipped.Stack, reg edgeFlowRegis
 			if wire == "2026-07-28" {
 				t.Run("sdk", func(t *testing.T) {
 					client := sdk.NewClient(st.BaseURL, sdk.WithHTTPClient(st.Client()), sdk.WithToken(token))
-					from, to := expected.Before.From, expected.After.To
-					got, err := client.GetChangeEffects(t.Context(), sdk.GetChangeEffectsRequest{Id: original, From: &from, To: &to})
-					if err != nil || got == nil {
-						t.Fatal("original-change generated SDK", err)
-					}
-					verifyRouterChangeClient(t, st, reg, probe, *got, expected, false)
+					ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+					defer cancel()
+					request := sdk.GetChangeEffectsRequest{Id: original, From: &expected.Before.From, To: &expected.After.To}
+					shipped.Await(t, "original change SDK publication at the exact window", 10*time.Second, func() bool {
+						got, err := client.GetChangeEffects(ctx, request)
+						var fault *sdk.SDKError
+						if errors.As(err, &fault) && fault.StatusCode == http.StatusServiceUnavailable &&
+							fault.Message == "change or original source authority changed before publication; retry" {
+							return false
+						}
+						if err != nil || got == nil {
+							t.Fatal("original-change generated SDK", err)
+						}
+						verifyRouterChangeClient(t, st, reg, probe, *got, expected, false)
+						return true
+					})
 				})
 				t.Run("cli", func(t *testing.T) {
 					var got sdk.ChangeEffectsResponse
