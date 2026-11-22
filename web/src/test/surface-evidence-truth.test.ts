@@ -11,6 +11,7 @@ import { SURFACES } from '../surfaces'
 
 const REPO_ROOT = resolve(__dirname, '../../..')
 const capabilityRegistry = readFileSync(resolve(REPO_ROOT, 'capabilities.yaml'), 'utf8')
+const capabilityIds = [...capabilityRegistry.matchAll(/^ {2}- id: (\S+)$/gm)].map(([, id]) => id)
 
 function nativeRoutes(featureID: string): string[] {
   return SURFACES.filter(
@@ -35,6 +36,7 @@ describe('truthful native UI evidence', () => {
     ['F24', ['/admin']],
     ['F26', ['/admin']],
     ['F34', ['/admin', '/provider']],
+    ['F37', ['/security']],
     ['F39', ['/explore', '/incidents', '/path']],
     ['F44', ['/admin']],
     ['F50', ['/admin']],
@@ -55,9 +57,7 @@ describe('truthful native UI evidence', () => {
   )
 
   test('the device telemetry cell binds its served UI and retained source proofs', () => {
-    const gapped = [...capabilityRegistry.matchAll(/^ {2}- id: (\S+)$/gm)]
-      .map((match) => match[1])
-      .filter((id) => capabilityBlock(id).includes('ui: {gap:'))
+    const gapped = capabilityIds.filter((id) => capabilityBlock(id).includes('ui: {gap:'))
     expect(gapped).toEqual([])
     const f18 = capabilityBlock('F18')
     for (const route of new Set(nativeRoutes('F18'))) expect(f18).toContain(`"ui:F18@${route}"`)
@@ -85,10 +85,12 @@ describe('truthful native UI evidence', () => {
     expect(f26).toContain('#TestShippedSIEMAuditReachesOpenSearchWithExactTenantIdentity')
     expect(f26).not.toContain('evidence_status: partial')
 
-    const f37 = capabilityBlock('F37')
-    expect(f37).toContain('ui: {refs: ["ui:F37@/security"]}')
-    expect(f37).toContain('evidence_status: partial')
-    expect(f37).toContain('real_stack_proof: {gap:')
+    for (const id of capabilityIds) {
+      const block = capabilityBlock(id)
+      if (!block.includes('real_stack_proof: {gap:') || nativeRoutes(id).length === 0) continue
+      expect(block, id).toContain('ui: {refs: [')
+      expect(block, id).toContain('evidence_status: partial')
+    }
   })
 
   test('the human-gated invariant reuses the guarded-remediation screen with a reason', () => {
