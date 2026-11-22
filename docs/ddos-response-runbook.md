@@ -2,11 +2,13 @@
 
 ## Configure short-window detection
 
-Select a pinned saved flow view and choose a five- or ten-second observation
-window in the DDoS query alert. Set volume and observed-record floors for
-that window length. Each episode requires two adjacent completed windows. The
-fast scheduler checks for due short-window rules every two seconds on the
-existing alert leader, independently of the ordinary alert pass. Configure
+Select a pinned saved flow view in the DDoS query alert. The console defaults
+new rules to five-second observation windows with a five-second minimum
+between reads. You can select ten seconds or the saved view's supported longer
+window. Set volume and observed-record floors for the window you choose. Each
+episode requires two adjacent completed windows. The fast scheduler checks for
+due short-window rules every two seconds on the existing alert leader,
+independently of the ordinary alert pass. Configure
 export and collection frequently enough to populate both windows. After an
 evaluation has established a clock, a missed short-window pair stays eligible
 through the following completed window. If its observations arrive in time,
@@ -64,9 +66,10 @@ pressure unevaluated for episode admission. A SYN or UDP service vector must
 meet the configured share of current packets and the growth threshold against
 its own historical packet count. If aggregate traffic fails the volume
 comparison, the measured vector must also reach the packet floor by itself.
-A historical TCP record with zero flags or a UDP record without a source
-port may belong to the vector. The current observed vector must exceed that
-historical upper bound by the configured growth threshold. HTTP requests
+A historical TCP record with zero flags or a UDP record without a source port
+may belong to the vector. A record with missing transport may belong to either
+vector. The current observed vector must exceed that historical upper bound
+by the configured growth threshold. HTTP requests
 are assigned by their start time and can count after completion even when
 they cross a window boundary.
 [OpenTelemetry HTTP span conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/#http-server-span)

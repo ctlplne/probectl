@@ -230,6 +230,38 @@ test('a scheduled field rule uses the pinned comparison and whole source cadence
   })
 })
 
+test('a new DDoS alert defaults to five seconds on a 300-second saved view', async () => {
+  const calls = backend()
+  const user = userEvent.setup()
+  const dialog = fixture(true)
+  await user.type(screen.getByLabelText('Rule name'), 'Fast traffic alert')
+  await screen.findByRole('option', { name: `Source AS query · revision ${revision}` })
+  await user.selectOptions(screen.getByLabelText('Saved query'), viewID)
+  await user.selectOptions(screen.getByLabelText('Condition'), 'ddos_assessment')
+  expect(screen.getByLabelText('Observation window')).toHaveValue('5')
+  expect(screen.getByLabelText('Minimum seconds between reads')).toHaveValue(5)
+  await user.type(screen.getByLabelText('Protected prefix'), '192.0.2.0/24')
+  await user.type(screen.getByLabelText('Minimum bytes per window'), '1000000')
+  await user.type(screen.getByLabelText('Minimum packets per window'), '2500')
+  await user.click(screen.getByRole('button', { name: 'Create query alert' }))
+  await waitFor(() => expect(dialog.close).toHaveBeenCalledOnce())
+  expect(calls.find((call) => call.method === 'POST')).toMatchObject({
+    tenant: 'tenant-a',
+    body: {
+      name: 'Fast traffic alert',
+      query_source: {
+        view_id: viewID,
+        view_version: revision,
+        every_seconds: 5,
+        condition: {
+          mode: 'ddos_assessment',
+          ddos: { version: revision, period_seconds: 5, prefix: '192.0.2.0/24' },
+        },
+      },
+    },
+  })
+})
+
 test('a field receipt reuses the original incident link and hides exact values when source access changes', async () => {
   const fingerprint = 'f'.repeat(64)
   const episode = 'a'.repeat(64)

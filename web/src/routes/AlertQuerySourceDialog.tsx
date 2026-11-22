@@ -36,6 +36,7 @@ import styles from './alerts.module.css'
 type State =
   | { kind: 'idle' | 'loading' | 'error' | 'cleared' }
   | { kind: 'ready'; value: AlertQuerySourceState }
+const defaultDDoSAlertPeriod = 5
 const emptySource: AlertQuerySourceInput = {
   view_id: '',
   view_version: '',
@@ -313,15 +314,13 @@ function QuerySourceEditor({
         prior &&
         item.id === value.view_id &&
         (prior.period_seconds === period || [5, 10].includes(prior.period_seconds))
-      next.condition = {
-        mode: 'ddos_assessment',
-        ddos: compatible
-          ? { ...prior, version: item.version }
-          : period
-            ? initialDDoSAssessment(item.version, period)
-            : undefined,
-      }
-      next.every_seconds = compatible ? next.every_seconds : period
+      const ddos = compatible
+        ? { ...prior, version: item.version }
+        : period
+          ? initialDDoSAssessment(item.version, defaultDDoSAlertPeriod)
+          : undefined
+      next.condition = { mode: 'ddos_assessment', ddos }
+      next.every_seconds = compatible ? next.every_seconds : ddos?.period_seconds
     }
     onChange(next)
   }
@@ -417,13 +416,11 @@ function QuerySourceEditor({
               condition: { mode: 'field_change', field },
             })
           } else if (e.target.value === 'ddos_assessment' && ddosPeriod) {
+            const ddos = initialDDoSAssessment(value.view_version, defaultDDoSAlertPeriod)
             onChange({
               ...value,
-              every_seconds: ddosPeriod,
-              condition: {
-                mode: 'ddos_assessment',
-                ddos: initialDDoSAssessment(value.view_version, ddosPeriod),
-              },
+              every_seconds: ddos.period_seconds,
+              condition: { mode: 'ddos_assessment', ddos },
             })
           } else if (e.target.value === 'new_group') {
             onChange({ ...value, condition: { mode: 'new_group' } })

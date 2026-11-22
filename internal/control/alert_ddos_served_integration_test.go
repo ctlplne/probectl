@@ -133,6 +133,7 @@ func renderScheduledDDoSEditor(t *testing.T, origin, ca, cookie, theme, name, si
 			{Fill: field("Rule name", "input"), Value: name},
 			{Select: field("Saved query", "select"), Value: view},
 			{Select: field("Condition", "select"), Value: "ddos_assessment"},
+			{Select: field("Observation window", "select"), Value: "300"},
 			{Fill: field("Protected prefix", "input"), Value: "192.0.2.0/24"},
 			{Fill: field("Minimum bytes per window", "input"), Value: "10000000000000000"},
 			{Fill: field("Minimum packets per window", "input"), Value: "2500"},
@@ -162,7 +163,8 @@ func verifyScheduledDDoSBrowserRules(ctx context.Context, t *testing.T, sc tenan
 				return err
 			}
 			if rule.TenantID != tenant || source == nil || source.Source.ViewID != view.ID || source.Source.ViewVersion != view.Version ||
-				source.Source.Condition.DDoS == nil || source.Source.Condition.DDoS.Prefix != "192.0.2.0/24" || source.Source.EverySeconds != 300 {
+				source.Source.Condition.DDoS == nil || source.Source.Condition.DDoS.Prefix != "192.0.2.0/24" ||
+				source.Source.Condition.DDoS.PeriodSeconds != 300 || source.Source.EverySeconds != 300 {
 				t.Fatal("the browser did not commit the owned scheduled traffic source", rule.Name)
 			}
 			if !source.State.Initialized {
