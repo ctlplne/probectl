@@ -291,9 +291,22 @@ jobs:
           python3 scripts/ci_interface_prefix_transport.py --selftest
           python3 scripts/ci_interface_prefix_transport.py
       - name: Unit tests (all workspace modules)
+        env:
+          PROBECTL_TEST_DDOS_CORPUS_DIR: ${{ runner.temp }}/probectl-ddos-synthetic-replay
         run: |
           set -o pipefail
           make test 2>&1 | tee test-go.log
+          test -s "$PROBECTL_TEST_DDOS_CORPUS_DIR/inputs.json"
+          test -s "$PROBECTL_TEST_DDOS_CORPUS_DIR/ground-truth.json"
+      - name: Retain the complete synthetic DDoS replay
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: synthetic-ddos-replay-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/probectl-ddos-synthetic-replay/inputs.json
+            ${{ runner.temp }}/probectl-ddos-synthetic-replay/ground-truth.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Opaque continuation redaction and legacy-reader proof
         run: |
           python3 scripts/ci_flow_cursor_encoding.py --selftest

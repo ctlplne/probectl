@@ -28,6 +28,10 @@ queueing and delivery add their own time in deployment.
 
 ## Export the synthetic inputs
 
+The Go unit job on main produces both files and retains them for 90 days
+in the `synthetic-ddos-replay-<attempt>` artifact. Choose the CI run for
+the commit you want to evaluate. [CI runs on main](https://github.com/ctlplne/probectl/actions/workflows/ci.yml?query=branch%3Amain)
+
 Run the benchmark with a new output directory to compare detectors against
 the same observations.
 
