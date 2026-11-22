@@ -215,6 +215,14 @@ the failed listener stays flat. Traffic on a different port increases while
 remaining below both floors. That combination leaves aggregate pressure
 ambiguous. [Paired scheduler fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
 
+In a flat-total holdout, both host windows contain 400,000 bytes and 4,000
+packets. On one lane, healthy demand shrinks on the bound listener while
+traffic outside it grows from 800 to 2,800 packets and independently meets
+the rule's floors. The short-window comparison qualifies that growth using
+the pinned listener and its application evidence. A stable sibling stays
+quiet. A separate replay leaves the result unavailable when the bound
+application observations are absent. [Paired scheduler fixture](../internal/control/alert_ddos_application_pressure_integration_test.go) · [Synthetic holdout](../internal/control/flow_ddos_application_test.go)
+
 ## Trace sampling holdout
 
 The holdout starts with 24 recorded successful requests that represent 24

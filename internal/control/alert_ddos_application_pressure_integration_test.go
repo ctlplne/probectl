@@ -40,12 +40,17 @@ func TestFastDDoSKeepsIndependentPressureWithAnUnhealthyApplicationReference(t *
 	verifyDDoSApplicationAttribution(t, ddosSplitListenerDegradedReference)
 }
 
+func TestFastDDoSFindsOutsideApplicationPressureWithFlatHostTotals(t *testing.T) {
+	verifyDDoSApplicationAttribution(t, ddosSplitListenerFlatHost)
+}
+
 type ddosSplitListenerHoldout uint8
 
 const (
 	ddosSplitListenerAttribution ddosSplitListenerHoldout = iota
 	ddosSplitListenerTraceSampling
 	ddosSplitListenerDegradedReference
+	ddosSplitListenerFlatHost
 )
 
 func TestFastDDoSSeparatesStableNetworkBackgroundFromGrowingVector(t *testing.T) {
@@ -248,7 +253,7 @@ func verifyDDoSApplicationAttribution(t *testing.T, scenario ddosSplitListenerHo
 	if err != nil {
 		t.Fatal(err)
 	}
-	var positiveReceipt string
+	var positiveReceipt, positiveRuleID, positiveFingerprint string
 	for lane, tenant := range f.tenants {
 		grantSeasonalFlowFixture(f, tenant)
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
@@ -292,8 +297,14 @@ func verifyDDoSApplicationAttribution(t *testing.T, scenario ddosSplitListenerHo
 		if lane == 0 && (err != nil || got.QuerySelection == nil || len(got.Samples) != 1) {
 			t.Fatal("independent pressure did not open an episode", err)
 		}
-		if lane == 1 && (!errors.Is(err, anomaly.ErrDDoSCoverage) || got.QuerySelection != nil) {
-			t.Fatal("incomparable application demand qualified a sibling episode", scenario, err)
+		if lane == 1 {
+			if scenario == ddosSplitListenerFlatHost {
+				if err != nil || got.QuerySelection == nil || len(got.Samples) != 0 {
+					t.Fatal("stable traffic did not establish quiet coverage", err)
+				}
+			} else if !errors.Is(err, anomaly.ErrDDoSCoverage) || got.QuerySelection != nil {
+				t.Fatal("incomparable application demand qualified a sibling episode", scenario, err)
+			}
 		}
 		for _, item := range getSeasonalFlowReceipts(t, server, f.tokens[tenant], rule.ID).Items {
 			if item.Reason != "Sustained flow traffic pressure" {
@@ -302,7 +313,8 @@ func verifyDDoSApplicationAttribution(t *testing.T, scenario ddosSplitListenerHo
 			if lane != 0 || positiveReceipt != "" {
 				t.Fatal("the detector emitted an unrelated or duplicate episode", tenant)
 			}
-			positiveReceipt = "/v1/alerts/rules/" + rule.ID + "/ddos-receipt?fingerprint=" + item.Fingerprint
+			positiveRuleID, positiveFingerprint = rule.ID, item.Fingerprint
+			positiveReceipt = "/v1/alerts/rules/" + positiveRuleID + "/ddos-receipt?fingerprint=" + positiveFingerprint
 		}
 		if positiveReceipt == "" {
 			t.Fatal("the owning tenant has no pressure episode receipt")
@@ -311,19 +323,33 @@ func verifyDDoSApplicationAttribution(t *testing.T, scenario ddosSplitListenerHo
 	var proof alert.DDoSEvaluationEvidence
 	body := callSeasonalAPI(t, server, f.tokens[f.tenants[0]], http.MethodGet, positiveReceipt, nil, http.StatusOK)
 	listenerBytes, listenerPackets, hostBytes, hostPackets := "210000", "2700", "290000", "3500"
-	wantState, wantReferenceSuccesses := anomaly.DDoSApplicationDegraded, 30
+	wantState, wantReferenceSuccesses, wantCurrentSuccesses := anomaly.DDoSApplicationDegraded, 30, 20
 	switch scenario {
 	case ddosSplitListenerTraceSampling:
 		listenerBytes, listenerPackets, hostBytes, hostPackets = "560000", "6800", "560000", "6800"
 	case ddosSplitListenerDegradedReference:
 		listenerBytes, listenerPackets, hostBytes, hostPackets = "140000", "1700", "400000", "4500"
 		wantState, wantReferenceSuccesses = anomaly.DDoSApplicationResidual, 22
+	case ddosSplitListenerFlatHost:
+		listenerBytes, listenerPackets, hostBytes, hostPackets = "120000", "1200", "400000", "4000"
+		wantState, wantReferenceSuccesses, wantCurrentSuccesses = anomaly.DDoSApplicationResidual, 80, 30
 	}
 	if err := json.Unmarshal(body, &proof); err != nil || proof.Current.Application == nil ||
 		proof.Current.Application.State != wantState || proof.Current.Application.Reference.Successes != wantReferenceSuccesses ||
 		proof.Current.Application.Current.FlowBytes != listenerBytes || proof.Current.Application.Current.FlowPackets != listenerPackets ||
-		proof.Current.Application.Current.Successes != 20 || proof.Current.After.Bytes != hostBytes || proof.Current.After.Packets != hostPackets {
+		proof.Current.Application.Current.Successes != wantCurrentSuccesses || proof.Current.After.Bytes != hostBytes || proof.Current.After.Packets != hostPackets {
 		t.Fatal("receipt lost the original listener-specific and host-wide evidence", err)
+	}
+	if scenario == ddosSplitListenerFlatHost {
+		if proof.Current.Before.Bytes != hostBytes || proof.Current.Before.Packets != hostPackets || proof.Current.Detection == nil ||
+			proof.Current.Detection.Class != anomaly.DDoSVolumetric {
+			t.Fatal("receipt lost the flat aggregate and separately qualifying evidence", proof.Current)
+		}
+		// Reports re-measure raw flows using the original receipt. This must
+		// agree even though the report path does not re-read the spans.
+		report := fmt.Sprintf("/v1/incidents/%s/ddos-report?rule_id=%s&fingerprint=%s", proof.IncidentID, positiveRuleID, positiveFingerprint)
+		callSeasonalAPI(t, server, f.tokens[f.tenants[0]], http.MethodGet, report, http.StatusOK)
+		callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, report, http.StatusNotFound)
 	}
 	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, positiveReceipt, nil, http.StatusNotFound)
 }
@@ -350,7 +376,17 @@ func seedDDoSSplitListenerPressure(t *testing.T, rows flowstore.Store, traces ot
 			if samplingKnown {
 				threshold = "0"
 			}
-			if index == 1 {
+			switch {
+			case scenario == ddosSplitListenerFlatHost:
+				listenerBytes, listenerPackets = 320000, 3200
+				otherBytes, otherPackets = 80000, 800
+				http = benchmarkDDoSApplication{Requests: 80, LatencyMS: 25}
+				if positive && index == 1 {
+					listenerBytes, listenerPackets = 120000, 1200
+					otherBytes, otherPackets = 280000, 2800
+					http.Requests = 30
+				}
+			case index == 1:
 				http.Failures, http.LatencyMS = 10, 80
 				if samplingChanged {
 					threshold = "c"
@@ -374,7 +410,10 @@ func seedDDoSSplitListenerPressure(t *testing.T, rows flowstore.Store, traces ot
 				flows = append(flows, other)
 			}
 			spans := benchmarkDDoSAppSpans(http, window.Start)
-			for i, span := range spans[:30] {
+			if samplingChanged {
+				spans = spans[:30]
+			}
+			for i, span := range spans {
 				span.TenantID = tenant
 				span.TraceID = fmt.Sprintf("%016x%016x", window.Start.UnixNano(), i+1)
 				span.SamplingThreshold = threshold

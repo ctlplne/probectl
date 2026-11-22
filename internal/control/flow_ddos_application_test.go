@@ -19,6 +19,40 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
+func TestSyntheticFastDDoSFindsOutsideApplicationPressureWithFlatHostTotals(t *testing.T) {
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
+	reference := benchmarkDDoSWindow{Bytes: 320000, Packets: 3200, OtherBytes: 80000, OtherPackets: 800, Records: 64,
+		Addresses: 1, Sampling: 1, Complete: true, Application: benchmarkDDoSApplication{Requests: 80, LatencyMS: 25}}
+	outside := reference
+	outside.Bytes, outside.Packets, outside.OtherBytes, outside.OtherPackets = 120000, 1200, 280000, 2800
+	outside.Application.Requests = 30
+	missingApp := outside
+	missingApp.Application.Requests = 0
+	for _, period := range []int{5, 10, 60} {
+		settings := flow.DDoSAssessmentInput{Version: "7", Prefix: "192.0.2.1/32", Direction: "ingress", PeriodSeconds: period,
+			BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000, VectorShareBasisPoints: 6000,
+			MinObservedRecords: 50, MinObservedAddresses: 2, Application: &flow.DDoSApplicationBinding{Service: "synthetic-public-site", Port: 443}}
+		for _, sample := range []struct {
+			name    string
+			current benchmarkDDoSWindow
+			want    benchmarkDDoSOutcome
+		}{
+			{"unchanged split", reference, benchmarkDDoSOutcome{}},
+			{"independent outside pressure", outside, benchmarkDDoSOutcome{Class: anomaly.DDoSVolumetric, Residual: true, DelaySeconds: period * 2}},
+			{"outside pressure without application evidence", missingApp, benchmarkDDoSOutcome{Abstained: true}},
+		} {
+			if !anomaly.DDoSFastPeriod(period) {
+				sample.want = benchmarkDDoSOutcome{}
+			}
+			got, err := benchmarkDDoSEvaluate(ctx, benchmarkDDoSTrial{Settings: settings, Reference: reference,
+				Windows: [2]benchmarkDDoSWindow{sample.current, sample.current}})
+			if got != sample.want || (err != nil && !sample.want.Abstained) || (sample.want.Abstained && !errors.Is(err, anomaly.ErrDDoSCoverage)) {
+				t.Fatal("unexpected flat-host result", period, sample.name, got, sample.want, err)
+			}
+		}
+	}
+}
+
 func TestDDoSApplicationKeepsCompletedRequestsThatCrossTheWindowEnd(t *testing.T) {
 	from := time.Date(2026, time.November, 20, 11, 30, 0, 0, time.UTC)
 	to := from.Add(5 * time.Second)

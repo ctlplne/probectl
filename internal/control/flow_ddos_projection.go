@@ -251,8 +251,10 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 		From: result.Query.From, To: result.Query.To, Citation: citation, Complete: true,
 		Bytes: totals.bytes.String(), Packets: totals.packets.String(), SYNOnlyPackets: totals.syn.String(), UDPPackets: totals.udp.String(),
 		UnclassifiedTCPPackets: totals.unclassifiedTCP.String(), UnclassifiedUDPPackets: totals.unclassifiedUDP.String(),
-		ApplicationBytes: totals.applicationBytes.String(), ApplicationPackets: totals.applicationPackets.String(),
 		ObservedRecords: totals.records, ObservedAddresses: len(totals.addresses)}
+	if settings.Input.Application != nil {
+		observed.ApplicationBytes, observed.ApplicationPackets = totals.applicationBytes.String(), totals.applicationPackets.String()
+	}
 	for service, packets := range totals.services {
 		observed.Reflection = append(observed.Reflection, anomaly.ReflectionObservation{Service: service, Packets: packets.String()})
 	}

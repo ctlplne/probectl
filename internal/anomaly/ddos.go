@@ -201,7 +201,13 @@ func EvaluateDDoS(ctx context.Context, reference, current DDoSObservation, limit
 		class, service, basis = DDoSReflection, reflectionService, "observed_udp_service_port_share"
 		contributingPackets = reflectionPackets.Num().String()
 	case !volumePressure:
-		return nil, ctx.Err()
+		outsidePressure, err := outsideDDoSApplicationPressure(&parser, reference, current, limits)
+		if err != nil {
+			return nil, err
+		}
+		if !outsidePressure {
+			return nil, ctx.Err()
+		}
 	case current.Direction == "ingress" && current.Target.Bits() < current.Target.Addr().BitLen() &&
 		current.ObservedAddresses >= limits.MinObservedAddresses && current.ObservedAddresses > reference.ObservedAddresses:
 		class, basis, confidence = DDoSPrefixSpread, "observed_destination_spread", "corroborated"

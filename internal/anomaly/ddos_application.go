@@ -116,6 +116,25 @@ type applicationTrafficComparison struct {
 	explained, listenerPressure, residualPressure bool
 }
 
+// A falling listener can hide independent pressure from the host-wide totals.
+// This precheck uses only L4 counters. The caller still qualifies the finding
+// against the independently observed application windows before an episode.
+func outsideDDoSApplicationPressure(parser *decimalSeasonalTraining, reference, current DDoSObservation, limits DDoSThresholds) (bool, error) {
+	width := current.To.Sub(current.From)
+	if (width != 5*time.Second && width != 10*time.Second) || current.Direction != "ingress" || !current.Target.IsSingleIP() ||
+		reference.ApplicationBytes == "" || current.ApplicationBytes == "" || reference.ApplicationPackets == "" || current.ApplicationPackets == "" {
+		return false, nil
+	}
+	bytes, err := compareApplicationTraffic(parser, [2]int{}, reference.Bytes, current.Bytes,
+		reference.ApplicationBytes, current.ApplicationBytes, limits.BytesFloor, limits.GrowthBasisPoints)
+	if err != nil {
+		return false, err
+	}
+	packets, err := compareApplicationTraffic(parser, [2]int{}, reference.Packets, current.Packets,
+		reference.ApplicationPackets, current.ApplicationPackets, limits.PacketsFloor, limits.GrowthBasisPoints)
+	return bytes.residualPressure || packets.residualPressure, err
+}
+
 func compareApplicationTraffic(parser *decimalSeasonalTraining, requests [2]int,
 	reference, current, referenceApplication, currentApplication, configuredFloor string, growth int) (applicationTrafficComparison, error) {
 	var values [5]*big.Rat
