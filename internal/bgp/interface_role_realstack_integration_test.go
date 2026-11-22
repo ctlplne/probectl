@@ -161,10 +161,9 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 	observed := time.Now()
 	for _, link := range links {
 		exporter := startRoleRouterExporter(t, lab, image, destination, link)
-		emitRoleRouterTraffic(t, lab, exporter, link)
-		emitRoleRouterCapturedTraffic(t, lab, exporter, link, link.routerIP6, link.peerIP6, "58", true)
+		emitRoleRouterDualStackTraffic(t, lab, exporter, link)
 	}
-	awaitRoleRouterFlow(t, st, reg, links, observed)
+	awaitRoleRouterFlow(t, st, reg, links, observed.Add(-time.Minute))
 
 	t.Run("routed-path-health", func(t *testing.T) {
 		replay := func(t *testing.T, from time.Time) {
@@ -182,9 +181,9 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 				}
 			}
 			for _, link := range links {
-				emitRoleRouterTraffic(t, lab, lab.name+"-"+link.name+"-flow", link)
+				emitRoleRouterDualStackTraffic(t, lab, lab.name+"-"+link.name+"-flow", link)
 			}
-			awaitRoleRouterFlow(t, st, reg, links, from)
+			awaitRoleRouterFlow(t, st, reg, links, boundary)
 		}
 		proveRouterPathHealth(t, st, lab, reg, other, []string{deviceAgent, otherAgent}, links[2].peerIP, primary, community, replay)
 	})
@@ -240,13 +239,12 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 			"source_ref": primary, "context_id": paired.contextID, "anchor_entity_id": paired.deviceID})
 		siblingDestination := startShippedRouterFlow(t, st, lab, paired, primary)
 		link := links[1]
-		emitRoleRouterTraffic(t, lab, lab.name+"-"+link.name+"-flow", link)
+		emitRoleRouterCapturedTraffic(t, lab, lab.name+"-"+link.name+"-flow", link, link.routerIP, link.peerIP, "1", false)
 		link.name = "paired-" + link.name
 		exporter := startRoleRouterExporter(t, lab, image, siblingDestination, link)
 		pairedAt := time.Now()
-		emitRoleRouterTraffic(t, lab, exporter, link)
-		emitRoleRouterCapturedTraffic(t, lab, exporter, link, link.routerIP6, link.peerIP6, "58", true)
-		awaitRoleRouterFlow(t, st, paired, []roleRouterLink{link}, pairedAt)
+		emitRoleRouterDualStackTraffic(t, lab, exporter, link)
+		awaitRoleRouterFlow(t, st, paired, []roleRouterLink{link}, pairedAt.Add(-time.Minute))
 		proveRealFlowComplianceReports(t, st, reg, paired, link, [2]string{ids[link.index], otherIDs[link.index]}, pin)
 	})
 	// Revoke only the primary tenant's actual issued source credential. The
@@ -500,9 +498,10 @@ func startRoleRouterExporter(t *testing.T, lab *routingLab, image, destination s
 	return name
 }
 
-func emitRoleRouterTraffic(t *testing.T, lab *routingLab, exporter string, link roleRouterLink) {
+func emitRoleRouterDualStackTraffic(t *testing.T, lab *routingLab, exporter string, link roleRouterLink) {
 	t.Helper()
 	emitRoleRouterCapturedTraffic(t, lab, exporter, link, link.routerIP, link.peerIP, "1", false)
+	emitRoleRouterCapturedTraffic(t, lab, exporter, link, link.routerIP6, link.peerIP6, "58", true)
 }
 
 func emitRoleRouterCapturedTraffic(t *testing.T, lab *routingLab, exporter string, link roleRouterLink, source, destination, protocol string, ipv6 bool) {
@@ -525,14 +524,14 @@ func emitRoleRouterCapturedTraffic(t *testing.T, lab *routingLab, exporter strin
 	lab.docker(t, "exec", exporter, "softflowctl", "-c", "/tmp/softflowd.ctl", "expire-all")
 }
 
-func awaitRoleRouterFlow(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, links []roleRouterLink, observed time.Time) {
+func awaitRoleRouterFlow(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, links []roleRouterLink, from time.Time) {
 	t.Helper()
 	want := map[uint32]entity.InterfaceRole{}
 	for _, link := range links {
 		want[link.index] = link.role
 	}
 	shipped.Await(t, "real same-router IPFIX role groups", 60*time.Second, func() bool {
-		plan := flow.QueryPlan{From: observed.Add(-time.Minute), To: time.Now().Add(time.Minute), View: "table", GroupBy: []string{"in_if_role", "out_if_role", "net_type"}, Metrics: []flow.QueryMetric{{Measure: "flows", Calculation: "total", Role: "primary"}}}
+		plan := flow.QueryPlan{From: from, To: time.Now().Add(time.Minute), View: "table", GroupBy: []string{"in_if_role", "out_if_role", "net_type"}, Metrics: []flow.QueryMetric{{Measure: "flows", Calculation: "total", Role: "primary"}}}
 		code, body := st.Do(t, reg.cookie, http.MethodPost, "/v1/explorer/query", map[string]any{"source": "flow", "flow": plan})
 		var got struct {
 			Flow *flowstore.PlanResult `json:"flow"`
