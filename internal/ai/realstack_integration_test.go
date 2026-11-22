@@ -33,6 +33,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/tags"
 	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
@@ -194,6 +195,17 @@ func TestAIRootCauseRealStack(t *testing.T) {
 			return ok && v == 1
 		})
 	}
+	// Before introducing routing incidents, a metric citation independently
+	// qualifies the same-address test in each tenant for a current tag read.
+	t.Run("paired-cited-test-tags", func(t *testing.T) {
+		for _, tn := range tenants {
+			tn.tagCitedTest(t, st)
+		}
+		for _, tn := range tenants {
+			other := tn.other(A, B)
+			tn.renderCitedTestTags(t, st, other, tn.checkCitedTestTagScope(t, st, other))
+		}
+	})
 	A.setupBGPAPI(t, st)
 	B.setupBGPCLI(t, st)
 	A.tracePath(t, st)
@@ -1210,6 +1222,69 @@ func (tn *rcaTenant) checkRBAC(t *testing.T, st *shipped.Stack, other *rcaTenant
 
 // --- the rendered pages ---
 
+func (tn *rcaTenant) tagCitedTest(t *testing.T, st *shipped.Stack) {
+	t.Helper()
+	var entityContext struct {
+		ID string `json:"context_id"`
+	}
+	tn.do(t, st, http.MethodPost, "/v1/entity-contexts", map[string]string{
+		"site_label": "RCA service site", "vrf_label": "RCA service VRF",
+	}, &entityContext, http.StatusCreated)
+	tn.do(t, st, http.MethodPut, "/v1/tests/"+tn.testID+"/entity-context", map[string]string{
+		"context_id": entityContext.ID,
+	}, nil, http.StatusOK)
+	var tag struct{ ID string }
+	tn.do(t, st, http.MethodPost, "/v1/tags", map[string]string{"key": "rca_customer"}, &tag, http.StatusCreated)
+	tn.do(t, st, http.MethodPost, "/v1/entity-contexts/"+entityContext.ID+"/tag-assignments", map[string]string{
+		"tag_id": tag.ID, "target_kind": "test", "target_id": tn.testID, "value": "customer-" + tn.mark,
+	}, nil, http.StatusCreated)
+}
+
+func (tn *rcaTenant) checkCitedTestTagScope(t *testing.T, st *shipped.Stack, other *rcaTenant) string {
+	t.Helper()
+	var resolution tags.TestContextResolution
+	raw := tn.do(t, st, http.MethodPost, "/v1/tags/tests/resolve",
+		tags.TestContextInput{TestIDs: []string{tn.testID, other.testID}}, &resolution, http.StatusOK)
+	tn.keep(raw)
+	if resolution.TagRevision == "" || len(resolution.Items) != 1 {
+		t.Fatal("cited-test metadata did not resolve exactly one owned test and tag")
+	}
+	item := resolution.Items[0]
+	if item.TargetKind != "test" || item.TargetID != tn.testID || item.TagRevision != resolution.TagRevision || len(item.Items) != 1 {
+		t.Fatal("cited-test metadata changed the owned test identity or revision")
+	}
+	value := item.Items[0]
+	if value.Key != "rca_customer" || value.Value != "customer-"+tn.mark || value.Source != "manual" {
+		t.Fatal("cited-test metadata lost the current owned tag and its provenance")
+	}
+	return resolution.TagRevision
+}
+
+func (tn *rcaTenant) renderCitedTestTags(t *testing.T, st *shipped.Stack, other *rcaTenant, revision string) {
+	t.Helper()
+	question := "What is the latency of the service at " + serviceHost + "?"
+	page := testsupport.RenderSpec{
+		URL:            st.BaseURL + "/ui/ask?question=" + url.QueryEscape(question),
+		Cookies:        []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: tn.cookie}},
+		TrustCertFiles: st.TrustCerts(), CAFile: st.CAFile,
+		Expect: []string{"Ask probectl"},
+		Absent: other.identifiers(),
+		Steps: []testsupport.RenderStep{
+			{Click: "Ask", Expect: []string{"Built-in · local/air-gapped", "Show current test tags"}, Absent: []string{"customer-" + tn.mark}},
+			{Click: "Show current test tags", ExpectWithin: `section[aria-label="Current test tags"]`,
+				Expect: []string{"Preview: current tags for cited test metrics", "Tag revision", revision,
+					"Test " + tn.testID, "rca_customer", "customer-" + tn.mark}},
+		},
+		Controls:      []testsupport.RenderControl{{Role: "cell", Name: "customer-" + tn.mark, Within: `section[aria-label="Current test tags"]`}},
+		Accessibility: true,
+	}
+	for _, theme := range []string{"light", "dark"} {
+		page.Theme = theme
+		res := testsupport.RenderUI(t, page)
+		tn.keep([]byte(res.Text))
+	}
+}
+
 func (tn *rcaTenant) renderAsk(t *testing.T, st *shipped.Stack, other *rcaTenant) {
 	t.Helper()
 	expect := []string{"Ask probectl", "Built-in · local/air-gapped", "root cause grounded", "Root cause cited:", "Evidence", "bgp"}
@@ -1225,6 +1300,11 @@ func (tn *rcaTenant) renderAsk(t *testing.T, st *shipped.Stack, other *rcaTenant
 		Expect: []string{"Ask probectl"},
 		Steps:  []testsupport.RenderStep{{Click: "Ask", Expect: expect}},
 		Absent: other.identifiers(),
+	}
+	if tn.prefix == prefixB {
+		// The routing-only answer has no probe citation even though its test
+		// has a current tag. It must not present that tag or a lookup control.
+		page.Absent = append(page.Absent, "Show current test tags", "customer-"+tn.mark)
 	}
 	res := testsupport.RenderUI(t, page)
 	tn.keep([]byte(res.Text))
