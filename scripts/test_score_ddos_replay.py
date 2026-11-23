@@ -55,6 +55,61 @@ class ReplayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid replay clocks"):
             score(*self.episode_documents(True, 12000, end="2026-01-12T12:00:10"))
 
+    def test_episode_vector_accuracy_counts_misses_and_missing_labels(self):
+        documents = self.episode_documents(True, 10000)
+        inputs, truth, decisions = (json.loads(document) for document in documents)
+        self.assertNotIn("vector_accuracy", score(*documents))
+        case = inputs["cases"].pop()
+        label = truth["cases"].pop()
+        episode = decisions["cases"].pop()
+        vectors = (
+            "udp_reflection_suspected/dns",
+            "udp_reflection_suspected/ntp",
+            None,
+            None,
+        )
+        for index, observed in enumerate(vectors, 1):
+            case_id = f"trial-{index:04d}"
+            decision = {"id": case_id, "decision": "abstained"}
+            if index < 4:
+                decision = dict(episode, id=case_id)
+            if observed is not None:
+                decision["vector"] = observed
+            inputs["cases"].append(dict(case, id=case_id))
+            truth["cases"].append(dict(label, id=case_id, expected_vector=vectors[0]))
+            decisions["cases"].append(decision)
+        input_bytes = json.dumps(inputs).encode()
+        digest = hashlib.sha256(input_bytes).hexdigest()
+        truth["inputs_sha256"] = decisions["inputs_sha256"] = digest
+        report = score(
+            input_bytes, json.dumps(truth).encode(), json.dumps(decisions).encode()
+        )
+        expected = {
+            "labeled_positives": 4,
+            "exact_match": 1,
+            "different_vector": 1,
+            "episode_without_vector": 1,
+            "no_episode": 1,
+            "exact_match_rate_all_labeled_positives": 0.25,
+        }
+        self.assertEqual(report["counts"]["true_positive"], 3)
+        self.assertEqual(report["vector_accuracy"], expected)
+        self.assertEqual(report["by_expected_vector"], {vectors[0]: expected})
+
+    def test_only_labeled_positives_and_opened_episodes_have_vectors(self):
+        inputs, truth, decisions = self.episode_documents(False, 10000)
+        truth_document = json.loads(truth)
+        truth_document["cases"][0]["expected_vector"] = "tcp_syn_pressure"
+        with self.assertRaisesRegex(ValueError, "invalid expected vector"):
+            score(inputs, json.dumps(truth_document).encode(), decisions)
+        decision_document = json.loads(decisions)
+        decision = decision_document["cases"][0]
+        decision["vector"] = "tcp_syn_pressure"
+        decision["decision"] = "quiet"
+        del decision["episode_delay_ms"]
+        with self.assertRaisesRegex(ValueError, "invalid episode vector"):
+            score(inputs, truth, json.dumps(decision_document).encode())
+
     def test_reject_duplicate_json_keys_in_all_documents(self):
         for index, name, key, first_value in (
             (0, "inputs", b'"to"', b'"2026-01-12T12:00:04Z"'),

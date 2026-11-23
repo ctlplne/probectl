@@ -20,6 +20,18 @@ RESULTS = {
     "abstained": ("abstained_positive", "abstained_negative"),
     "unsupported": ("unsupported_positive", "unsupported_negative"),
 }
+REFLECTION = "udp_reflection_suspected"
+EXPECTED_VECTORS = {
+    "distributed_destination_pressure",
+    "tcp_syn_pressure",
+    "volumetric_pressure",
+    *(
+        f"{REFLECTION}/{service}"
+        for service in ("cldap", "dns", "memcached", "ntp", "ssdp")
+    ),
+}
+OBSERVED_VECTORS = EXPECTED_VECTORS | {REFLECTION, "other"}
+VECTOR_OUTCOMES = ("exact_match", "different_vector", "episode_without_vector", "no_episode")
 
 
 def unique_json_object(pairs):
@@ -111,6 +123,39 @@ def replay_horizon_ms(case_id, case):
     return (ends[1] - start) // timedelta(milliseconds=1)
 
 
+def vector_outcome(case_id, label, guess, status):
+    expected = label.get("expected_vector")
+    observed = guess.get("vector")
+    if "expected_vector" in label and (
+        not label["positive"]
+        or not isinstance(expected, str)
+        or expected not in EXPECTED_VECTORS
+    ):
+        raise ValueError(f"ground truth has an invalid expected vector for {case_id!r}")
+    if "vector" in guess and (
+        status != "episode"
+        or not isinstance(observed, str)
+        or observed not in OBSERVED_VECTORS
+    ):
+        raise ValueError(f"decision has an invalid episode vector for {case_id!r}")
+    if expected is None:
+        return None
+    if status != "episode":
+        return "no_episode"
+    if observed is None:
+        return "episode_without_vector"
+    return "exact_match" if observed == expected else "different_vector"
+
+
+def vector_metrics(counts):
+    total = sum(counts.values())
+    return {
+        "labeled_positives": total,
+        **{key: counts[key] for key in VECTOR_OUTCOMES},
+        "exact_match_rate_all_labeled_positives": ratio(counts["exact_match"], total),
+    }
+
+
 def score(input_bytes, truth_bytes, decision_bytes):
     inputs = replay_document(input_bytes, "inputs")
     cases = case_rows(inputs, "inputs")
@@ -138,6 +183,8 @@ def score(input_bytes, truth_bytes, decision_bytes):
 
     counts = Counter()
     families = defaultdict(Counter)
+    vector_counts = Counter()
+    by_vector = defaultdict(Counter)
     true_positive_delays = []
     family_delays = defaultdict(list)
     for case_id, label in labels.items():
@@ -173,8 +220,12 @@ def score(input_bytes, truth_bytes, decision_bytes):
         outcome = positive_key if positive else negative_key
         counts[outcome] += 1
         families[family][outcome] += 1
+        result = vector_outcome(case_id, label, guess, status)
+        if result is not None:
+            vector_counts[result] += 1
+            by_vector[label["expected_vector"]][result] += 1
 
-    return {
+    report = {
         "inputs_sha256": digest,
         "ground_truth_sha256": hashlib.sha256(truth_bytes).hexdigest(),
         "decisions_sha256": hashlib.sha256(decision_bytes).hexdigest(),
@@ -189,6 +240,12 @@ def score(input_bytes, truth_bytes, decision_bytes):
             for family in sorted(families)
         },
     }
+    if vector_counts:
+        report["vector_accuracy"] = vector_metrics(vector_counts)
+        report["by_expected_vector"] = {
+            vector: vector_metrics(by_vector[vector]) for vector in sorted(by_vector)
+        }
+    return report
 
 
 def main():

@@ -98,6 +98,26 @@ evaluate the inputs but has yet to open an episode by then is quiet for
 that case. Compare longer alert delays in a separate replay with a longer
 shared observation period. Omit the delay for the other outcomes.
 
+For vector accuracy, include the first episode's `vector` when the detector
+reported one. Normalize the reported evidence using the following values.
+
+| Reported evidence | `vector` |
+| --- | --- |
+| TCP SYN pressure | `tcp_syn_pressure` |
+| Pressure spread across a protected prefix | `distributed_destination_pressure` |
+| Generic volume pressure | `volumetric_pressure` |
+| UDP reflection associated with a service | `udp_reflection_suspected/<service>`, with `cldap`, `dns`, `memcached`, `ntp` or `ssdp` |
+| UDP reflection without a service attribution | `udp_reflection_suspected` |
+| A different reported vector | `other` |
+
+Use the classification present when the first episode opens. Leave `vector`
+absent when it has no classification. The scorer compares it with the
+`expected_vector` in the separate answer key. It reports exact matches,
+different vectors, episodes without a classification and missed episodes.
+The exact match rate uses every positive case with an expected vector,
+including missed episodes and coverage abstentions. Prior archives with
+only episode labels reproduce their existing score.
+
 ```sh
 python3 scripts/score_ddos_replay.py \
   inputs.json ground-truth.json probectl-decisions.json
@@ -213,6 +233,12 @@ All 16 matched flash crowds had independently corroborated healthy demand.
 Different reported sampling rates caused abstentions in 16 positive trials.
 Too few original flow records caused abstentions in 16 negative trials.
 Recall counts every positive abstention in its denominator.
+
+The vector-aware replay labels 256 attack trials with a specific expected
+vector. All 192 opened episodes matched their expected vector and service.
+The 64 labeled attacks without an episode leave exact vector recall at 75%.
+The 16 ambiguous packet-mix attacks retain their positive episode label
+and have no expected vector. All 416 replay inputs retain the original hash.
 
 For sampled windows, each reported rate above one needs the configured
 minimum number of original records. Five- and ten-second comparisons and

@@ -373,7 +373,7 @@ func TestSyntheticDDoSDetectionBenchmark(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing oracle label for %q", trial.Family)
 		}
-		truth = append(truth, syntheticDDoSTruth{ID: replayCases[i].ID, Scenario: trial.Name, Positive: label.Positive})
+		truth = append(truth, syntheticDDoSTruthFor(replayCases[i].ID, trial, label))
 		outcome, err := evaluateSyntheticDDoSReplay(ctx, replayCases[i])
 		if err != nil && !outcome.Abstained {
 			t.Fatalf("assessment %q: %v", trial.Name, err)

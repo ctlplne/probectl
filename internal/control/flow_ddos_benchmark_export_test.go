@@ -46,9 +46,10 @@ type syntheticDDoSReplayTrial struct {
 }
 
 type syntheticDDoSTruth struct {
-	ID       string `json:"id"`
-	Scenario string `json:"scenario"`
-	Positive bool   `json:"positive"`
+	ID             string `json:"id"`
+	Scenario       string `json:"scenario"`
+	Positive       bool   `json:"positive"`
+	ExpectedVector string `json:"expected_vector,omitempty"`
 }
 
 type syntheticDDoSReplayInputs struct {
@@ -66,6 +67,7 @@ type syntheticDDoSDecision struct {
 	ID             string `json:"id"`
 	Decision       string `json:"decision"`
 	EpisodeDelayMS *int   `json:"episode_delay_ms,omitempty"`
+	Vector         string `json:"vector,omitempty"`
 }
 
 type syntheticDDoSReplayDecisions struct {
@@ -82,8 +84,28 @@ func syntheticDDoSDecisionFor(id string, outcome benchmarkDDoSOutcome) synthetic
 	case outcome.Class != "":
 		delayMS := outcome.DelaySeconds * 1000
 		decision.Decision, decision.EpisodeDelayMS = "episode", &delayMS
+		decision.Vector = syntheticDDoSVector(outcome.Class, outcome.Service)
 	}
 	return decision
+}
+
+func syntheticDDoSTruthFor(id string, trial benchmarkDDoSTrial, label benchmarkDDoSLabel) syntheticDDoSTruth {
+	class := label.Class
+	switch trial.Family {
+	case "sampled_volume_health_drop", "low_intensity", "partial_flow_attack", "unavailable_app_attack":
+		// These cases plant volume growth even though the current detector
+		// is expected to stay quiet or abstain on its observations.
+		class = anomaly.DDoSVolumetric
+	}
+	return syntheticDDoSTruth{ID: id, Scenario: trial.Name, Positive: label.Positive,
+		ExpectedVector: syntheticDDoSVector(class, label.Service)}
+}
+
+func syntheticDDoSVector(class anomaly.DDoSClass, service string) string {
+	if service != "" {
+		return string(class) + "/" + service
+	}
+	return string(class)
 }
 
 func syntheticDDoSRowsDigest(cases []syntheticDDoSReplayTrial) (string, error) {
@@ -187,6 +209,7 @@ func TestSyntheticDDoSReplayExport(t *testing.T) {
 	var cases []syntheticDDoSReplayTrial
 	var truth []syntheticDDoSTruth
 	var decisions []syntheticDDoSDecision
+	labelsByFamily := benchmarkDDoSLabels()
 	for _, trial := range benchmarkDDoSFixture() {
 		if trial.Name != "volume_health_drop/00" && trial.Name != "matched_flash_crowd/00" {
 			continue
@@ -196,10 +219,10 @@ func TestSyntheticDDoSReplayExport(t *testing.T) {
 			t.Fatal(err)
 		}
 		cases = append(cases, replay)
-		positive := trial.Family == "volume_health_drop"
-		truth = append(truth, syntheticDDoSTruth{ID: replay.ID, Scenario: trial.Name, Positive: positive})
+		label := labelsByFamily[trial.Family]
+		truth = append(truth, syntheticDDoSTruthFor(replay.ID, trial, label))
 		outcome := benchmarkDDoSOutcome{}
-		if positive {
+		if label.Positive {
 			outcome.Class, outcome.DelaySeconds = anomaly.DDoSVolumetric, 10
 		}
 		decisions = append(decisions, syntheticDDoSDecisionFor(replay.ID, outcome))
@@ -242,6 +265,9 @@ func TestSyntheticDDoSReplayExport(t *testing.T) {
 		labels.Cases[0].ID != replay.Cases[0].ID || labels.Cases[1].ID != replay.Cases[1].ID {
 		t.Fatal("ground truth must identify its input and each trial", err)
 	}
+	if labels.Cases[0].ExpectedVector != string(anomaly.DDoSVolumetric) || labels.Cases[1].ExpectedVector != "" {
+		t.Fatal("ground truth lost the pressure vector or labeled the flash crowd", labels.Cases)
+	}
 	resultBody, err := os.ReadFile(filepath.Join(dir, "probectl-decisions.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +279,7 @@ func TestSyntheticDDoSReplayExport(t *testing.T) {
 	}
 	episode, quiet := result.Cases[0], result.Cases[1]
 	if episode.ID != replay.Cases[0].ID || episode.Decision != "episode" || episode.EpisodeDelayMS == nil || *episode.EpisodeDelayMS != 10000 ||
-		quiet.ID != replay.Cases[1].ID || quiet.Decision != "quiet" || quiet.EpisodeDelayMS != nil {
+		episode.Vector != string(anomaly.DDoSVolumetric) || quiet.ID != replay.Cases[1].ID || quiet.Decision != "quiet" || quiet.EpisodeDelayMS != nil || quiet.Vector != "" {
 		t.Fatal("decisions lost the episode clock or quiet control", result)
 	}
 	if err := writeSyntheticDDoSReplay(dir, body, truth, decisions); !errors.Is(err, os.ErrExist) {
