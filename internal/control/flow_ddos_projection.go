@@ -41,9 +41,25 @@ type ddosExporterRate struct {
 }
 
 type ddosProjectedWindow struct {
-	observation   anomaly.DDoSObservation
-	evidence      flow.DDoSWindowEvidence
-	samplingRates map[ddosExporterRate]struct{}
+	observation       anomaly.DDoSObservation
+	evidence          flow.DDoSWindowEvidence
+	samplingRates     map[ddosExporterRate]struct{}
+	thinVectorPackets map[ddosTrafficVector]*big.Int
+}
+
+type ddosTrafficVector struct {
+	class   anomaly.DDoSClass
+	service string
+}
+
+type ddosSampledVector struct {
+	sampling ddosExporterRate
+	vector   ddosTrafficVector
+}
+
+type ddosVectorSupport struct {
+	records int
+	packets big.Int
 }
 
 func assessMatchedDDoS(ctx context.Context, capture *reportFlowCapture, settings ddosAssessmentSettings, match ddosMatchedWindow, work int64) (flow.DDoSAssessment, error) {
@@ -95,7 +111,7 @@ func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, setting
 		return empty, errDDoSExporterSampling
 	}
 	reference, current := before.observation, after.observation
-	finding, err := anomaly.EvaluateDDoS(ctx, reference, current, settings.Input.Thresholds(), work/2)
+	finding, err := evaluateProjectedDDoS(ctx, before, after, settings.Input.Thresholds(), work/2)
 	if err != nil {
 		return empty, err
 	}
@@ -108,6 +124,44 @@ func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, setting
 	}
 	return flow.DDoSAssessment{ViewID: settings.View.ID, Version: settings.View.Version, Prefix: settings.Target.String(),
 		Direction: settings.Input.Direction, ReferenceMode: settings.Input.ReferenceMode, Before: before.evidence, After: after.evidence, Detection: finding, Application: application}, ctx.Err()
+}
+
+func evaluateProjectedDDoS(ctx context.Context, reference, current ddosProjectedWindow, limits anomaly.DDoSThresholds, work int64) (*anomaly.DDoSDetection, error) {
+	finding, err := anomaly.EvaluateDDoS(ctx, reference.observation, current.observation, limits, work)
+	if err != nil || finding == nil {
+		return finding, err
+	}
+	withoutSupport := current.thinVectorPackets[ddosTrafficVector{finding.Class, finding.Service}]
+	if withoutSupport == nil {
+		return finding, nil
+	}
+	// Keep the full packet population and historical upper bound. Check that
+	// the claimed vector still qualifies without thin current sampling groups.
+	supported := current.observation
+	measured, ok := ddosWindowCounter(finding.ContributingPackets)
+	if !ok || measured.Cmp(withoutSupport) < 0 {
+		return nil, anomaly.ErrDDoSCoverage
+	}
+	packets := measured.Sub(measured, withoutSupport).String()
+	if finding.Class == anomaly.DDoSSYN {
+		supported.SYNOnlyPackets = packets
+	} else {
+		supported.Reflection = slices.Clone(supported.Reflection)
+		for i := range supported.Reflection {
+			if supported.Reflection[i].Service == finding.Service {
+				supported.Reflection[i].Packets = packets
+				break
+			}
+		}
+	}
+	confirmed, err := anomaly.EvaluateDDoS(ctx, reference.observation, supported, limits, work)
+	if err != nil {
+		return nil, err
+	}
+	if confirmed == nil || confirmed.Class != finding.Class || confirmed.Service != finding.Service {
+		return nil, errDDoSSampleCoverage
+	}
+	return finding, nil
 }
 
 func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, settings ddosAssessmentSettings, scope string,
@@ -132,8 +186,8 @@ func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, s
 		return errDDoSTimingCoverage
 	}
 	limits := settings.Input.Thresholds()
-	confirmed, err := anomaly.EvaluateDDoS(ctx, reference.observation, current.observation, limits, work)
-	if errors.Is(err, anomaly.ErrDDoSRecordSupport) {
+	confirmed, err := evaluateProjectedDDoS(ctx, reference, current, limits, work)
+	if errors.Is(err, anomaly.ErrDDoSRecordSupport) || errors.Is(err, errDDoSSampleCoverage) {
 		return errDDoSTimingCoverage
 	}
 	if err != nil {
@@ -202,6 +256,9 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 		return empty, anomaly.ErrDDoSCoverage
 	}
 	totals := ddosWindowTotals{addresses: make(map[netip.Addr]bool), services: make(map[string]*big.Int)}
+	if !settings.Cited && anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds) {
+		totals.sampledVectors = make(map[ddosSampledVector]*ddosVectorSupport)
+	}
 	required := settings.Input.RequiredExporters
 	observedExporters := make(map[string]bool, len(required))
 	groupSampledExporters := settings.groupSampledExporters()
@@ -270,7 +327,8 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 	evidence := flow.DDoSWindowEvidence{From: observed.From, To: observed.To, Source: result.Source, ResolutionSeconds: result.ResolutionSeconds,
 		Bytes: observed.Bytes, Packets: observed.Packets, ObservedRecords: observed.ObservedRecords, ObservedAddresses: observed.ObservedAddresses,
 		ObservedExporters: len(observedExporters), Sampled: totals.sampled, Citation: observed.Citation}
-	return ddosProjectedWindow{observation: observed, evidence: evidence, samplingRates: samplingRates}, ctx.Err()
+	return ddosProjectedWindow{observation: observed, evidence: evidence, samplingRates: samplingRates,
+		thinVectorPackets: totals.insufficientVectorPackets(settings.Input.MinObservedRecords)}, ctx.Err()
 }
 
 type ddosWindowTotals struct {
@@ -281,6 +339,7 @@ type ddosWindowTotals struct {
 	records                                                 int
 	sampled                                                 bool
 	sampledRecords                                          map[ddosExporterRate]int
+	sampledVectors                                          map[ddosSampledVector]*ddosVectorSupport
 	addresses                                               map[netip.Addr]bool
 	services                                                map[string]*big.Int
 }
@@ -303,16 +362,17 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 	total.packets.Add(&total.packets, packets)
 	total.records += records
 	total.addresses[protected] = true
+	source := ddosExporterRate{exporter: exporter, rate: row.Group["sampling"]}
 	if sampling > 1 {
 		total.sampled = true
 		if !settings.Cited {
-			key := ddosExporterRate{exporter: exporter, rate: row.Group["sampling"]}
 			if total.sampledRecords == nil {
 				total.sampledRecords = make(map[ddosExporterRate]int)
 			}
-			total.sampledRecords[key] += records
+			total.sampledRecords[source] += records
 		}
 	}
+	var vector ddosTrafficVector
 	switch protocol {
 	case "tcp":
 		flags, err := strconv.ParseUint(row.Group["tcp_flags"], 10, 8)
@@ -324,6 +384,7 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 		}
 		if flags&2 != 0 && flags&0x15 == 0 {
 			total.syn.Add(&total.syn, packets)
+			vector.class = anomaly.DDoSSYN
 		} else if err := total.addApplicationFlow(settings.Input.Application, row.Group["dst_port"], true, bytes, packets); err != nil {
 			return err
 		}
@@ -346,9 +407,37 @@ func (total *ddosWindowTotals) add(settings ddosAssessmentSettings, row flowstor
 				total.services[service] = new(big.Int)
 			}
 			total.services[service].Add(total.services[service], packets)
+			vector = ddosTrafficVector{anomaly.DDoSReflection, service}
 		}
 	}
+	if sampling > 1 && total.sampledVectors != nil && vector.class != "" && packets.Sign() > 0 {
+		key := ddosSampledVector{source, vector}
+		support := total.sampledVectors[key]
+		if support == nil {
+			support = new(ddosVectorSupport)
+			total.sampledVectors[key] = support
+		}
+		support.records += records
+		support.packets.Add(&support.packets, packets)
+	}
 	return nil
+}
+
+func (total *ddosWindowTotals) insufficientVectorPackets(minimum int) map[ddosTrafficVector]*big.Int {
+	var thin map[ddosTrafficVector]*big.Int
+	for key, support := range total.sampledVectors {
+		if support.records >= minimum {
+			continue
+		}
+		if thin == nil {
+			thin = make(map[ddosTrafficVector]*big.Int)
+		}
+		if thin[key.vector] == nil {
+			thin[key.vector] = new(big.Int)
+		}
+		thin[key.vector].Add(thin[key.vector], &support.packets)
+	}
+	return thin
 }
 
 func (total *ddosWindowTotals) addApplicationFlow(binding *flow.DDoSApplicationBinding, destination string, tcpKnown bool, bytes, packets *big.Int) error {

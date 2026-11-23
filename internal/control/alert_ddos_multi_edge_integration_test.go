@@ -34,6 +34,7 @@ const (
 	ddosEdgeRateSetChange
 	ddosEdgeSparseSampling
 	ddosEdgeUnevenSampling
+	ddosEdgeSparseVector
 )
 
 func TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth(t *testing.T) {
@@ -60,6 +61,10 @@ func TestFastDDoSRequiresComparableAggregateSampling(t *testing.T) {
 func TestFastDDoSRequiresOriginalRecordsFromTheSampledExporter(t *testing.T) {
 	t.Run("required_exporters", func(t *testing.T) { testDDoSEdgeScope(t, false, true, ddosEdgeSparseSampling) })
 	t.Run("default_exporters_at_the_same_rate", func(t *testing.T) { testDDoSEdgeScope(t, false, false, ddosEdgeUnevenSampling) })
+}
+
+func TestFastDDoSRequiresOriginalRecordsForTheSampledVector(t *testing.T) {
+	testDDoSEdgeScope(t, false, true, ddosEdgeSparseVector)
 }
 
 func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling ddosEdgeSampling) {
@@ -136,9 +141,9 @@ func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling d
 			}
 			continue
 		}
-		if lane == 1 && (sampling == ddosEdgeSparseSampling || sampling == ddosEdgeUnevenSampling) {
+		if lane == 1 && (sampling == ddosEdgeSparseSampling || sampling == ddosEdgeUnevenSampling || sampling == ddosEdgeSparseVector) {
 			if !errors.Is(err, errDDoSSampleCoverage) || evaluated.QuerySelection != nil || len(items) != 0 {
-				t.Fatal("another edge supplied missing record support for the sampled estimate", err)
+				t.Fatal("unrelated originals supplied missing record support for the sampled estimate", err)
 			}
 			continue
 		}
@@ -228,7 +233,7 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 					}
 					packets = [2]uint64{raw[0] * rates[0], raw[1] * rates[1]}
 				}
-			case ddosEdgeSparseSampling, ddosEdgeUnevenSampling:
+			case ddosEdgeSparseSampling, ddosEdgeUnevenSampling, ddosEdgeSparseVector:
 				rates = [2]uint64{1, 8}
 				if sampling == ddosEdgeUnevenSampling {
 					rates[0] = 8
@@ -257,6 +262,15 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 					row.Sampling, row.Packets = rate, raw/records
 					if index < raw%records {
 						row.Packets++
+					}
+					if sampling == ddosEdgeSparseVector && !growth && i == 1 && edge == 1 {
+						// The two originals at this rate meet the exporter floor.
+						// Only one is associated with the measured UDP vector.
+						if index == 0 {
+							row.Packets = raw - 10
+						} else {
+							row.SrcPort, row.Packets = 43002, 10
+						}
 					}
 					row.PacketsScaled = row.Packets * rate
 					row.Bytes, row.BytesScaled = 100*row.Packets, 100*row.PacketsScaled

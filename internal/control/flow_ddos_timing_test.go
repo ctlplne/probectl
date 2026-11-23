@@ -379,6 +379,61 @@ func TestDDoSSampledEvidenceRequiresOwnOriginalRecords(t *testing.T) {
 	}
 }
 
+func TestDDoSSampledVectorNeedsIndependentRecordSupport(t *testing.T) {
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
+	settings, err := normalizeDDoSAssessment(benchmarkDDoSView, flow.DDoSAssessmentInput{
+		Version: "7", Prefix: "192.0.2.1/32", Direction: "ingress", PeriodSeconds: 5,
+		BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
+		VectorShareBasisPoints: 6000, MinObservedRecords: 4, MinObservedAddresses: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clocks, err := anomaly.DDoSCompletedWindows(benchmarkDDoSEpoch, settings.Input.PeriodSeconds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, profile := range []string{"syn", "dns"} {
+		t.Run(profile, func(t *testing.T) {
+			reference := benchmarkDDoSWindow{Bytes: 160000, Packets: 1600, Records: 8, Addresses: 1, Sampling: 8}
+			vector := benchmarkDDoSWindow{Profile: profile, Bytes: 480000, Packets: 4800, Records: 1, Addresses: 1, Sampling: 8}
+			recent := fixtureDDoSTimingWindow(settings, clocks.After, vector)
+			recent.Result.Rows = append(recent.Result.Rows, benchmarkDDoSRows(reference)...)
+			capture := &reportFlowCapture{TenantID: benchmarkDDoSTenant, SourceGeneration: 1,
+				Results: []capturedReportFlow{fixtureDDoSTimingWindow(settings, clocks.Before, reference), recent}}
+			assess := func(policy ddosAssessmentSettings) (flow.DDoSAssessment, error) {
+				return assessCapturedDDoS(ctx, capture, policy, clocks, 0, 1, benchmarkDDoSWork)
+			}
+			if got, err := assess(settings); !errors.Is(err, errDDoSSampleCoverage) || got.Detection != nil {
+				t.Fatal("ordinary records at the same rate supported a thin attack vector", got, err)
+			}
+			cited := settings
+			cited.Cited, cited.TransportCoverage = true, true
+			if got, err := assess(cited); err != nil || got.Detection == nil || got.Detection.ContributingPackets != "4800" {
+				t.Fatal("an earlier receipt lost its original vector measurements", got, err)
+			}
+			recent.Result.Rows[0].Metrics["flows:total"] = "4"
+			if got, err := assess(settings); err != nil || got.Detection == nil || got.Detection.ContributingPackets != "4800" {
+				t.Fatal("the exact minimum of vector originals should support the observation", got, err)
+			}
+			// The thin sampled vector also occurs beside enough unsampled
+			// support. Keep its counts in the cited observation.
+			recent.Result.Rows[0].Metrics["flows:total"] = "1"
+			recent.Result.Rows[0].Metrics["packets:total"] = "800"
+			recent.Result.Rows[0].Metrics["bytes:total"] = "80000"
+			baseline := &capture.Results[0]
+			baseline.Result.Rows = append(baseline.Result.Rows, benchmarkDDoSRows(benchmarkDDoSWindow{
+				Bytes: 40000, Packets: 400, Records: 4, Addresses: 1, Sampling: 1,
+			})...)
+			vector.Bytes, vector.Packets, vector.Records, vector.Sampling = 400000, 4000, 4, 1
+			capture.Results[1].Result.Rows = append(recent.Result.Rows, benchmarkDDoSRows(vector)...)
+			if got, err := assess(settings); err != nil || got.Detection == nil || got.Detection.ContributingPackets != "4800" {
+				t.Fatal("a thin additive observation hid independent vector support", got, err)
+			}
+		})
+	}
+}
+
 func fixtureDDoSTimingWindow(settings ddosAssessmentSettings, clock anomaly.TrainingWindow, window benchmarkDDoSWindow) capturedReportFlow {
 	return capturedReportFlow{ID: settings.View.ID, Version: settings.View.Version, TenantID: benchmarkDDoSTenant,
 		Result: flowstore.PlanResult{OldestInput: clock.Start, Source: "raw", ResolutionSeconds: 1,

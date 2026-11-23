@@ -75,6 +75,11 @@ pressure unevaluated for episode admission. A SYN or UDP service vector must
 meet the configured share of current packets and the growth threshold against
 its own historical packet count. If aggregate traffic fails the volume
 comparison, the measured vector must also reach the packet floor by itself.
+A sampled SYN or UDP service vector in a short window must still qualify
+after excluding its current packet estimates from exporter and rate groups
+with fewer original vector records than the configured minimum. The share
+uses the complete packet total. If the remaining observations cannot support
+the vector, the window is unavailable and the saved rule retains its state.
 A historical TCP record with zero flags or a UDP record without a source port
 may belong to the vector. A record with missing transport may belong to either
 vector. The current observed vector must exceed that historical upper bound
