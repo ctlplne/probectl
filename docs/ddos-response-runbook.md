@@ -71,7 +71,13 @@ explain the increase. Traffic outside the listener can qualify on its own
 volume and growth. When neither component reaches those thresholds,
 degraded responses leave the host-wide increase ambiguous. Missing,
 full-page or ambiguous application observations leave the bound generic
-pressure unevaluated for episode admission. A SYN or UDP service vector must
+pressure unevaluated for episode admission. The preview calls out unavailable
+application evidence while showing the measured flow pressure. Ordinary OTLP
+ingest masks IP addresses before storing spans. A masked local address cannot
+establish this exact socket comparison. Confirm the preview has comparable
+application counts before relying on application corroboration.
+
+A SYN or UDP service vector must
 meet the configured share of current packets and the growth threshold against
 its own historical packet count. If aggregate traffic fails the volume
 comparison, the measured vector must also reach the packet floor by itself.

@@ -108,6 +108,10 @@ func TestFastDDoSAssessmentServedExplainsInconclusiveServiceOverload(t *testing.
 	verifyFastDDoSAssessmentApplicationEvidence(t, anomaly.DDoSApplicationOverload)
 }
 
+func TestFastDDoSAssessmentServedExplainsMissingApplicationEvidence(t *testing.T) {
+	verifyFastDDoSAssessmentApplicationEvidence(t, "")
+}
+
 func verifyFastDDoSAssessmentApplicationEvidence(t *testing.T, controlState string) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
@@ -123,6 +127,8 @@ func verifyFastDDoSAssessmentApplicationEvidence(t *testing.T, controlState stri
 	case anomaly.DDoSApplicationOverload:
 		outcomes[1] = "Completed requests rose with traffic during degraded service. Attack evidence is inconclusive."
 		successCounts[1] = "Successful requests 360 → 960"
+	case "":
+		outcomes[1] = "Application evidence is unavailable for the configured TCP listener."
 	}
 	applicationStates := [2]string{anomaly.DDoSApplicationDegraded, controlState}
 	for lane, tenant := range f.tenants {
@@ -144,7 +150,12 @@ func verifyFastDDoSAssessmentApplicationEvidence(t *testing.T, controlState stri
 				rows, traces := flowstore.NewMemory(), otelstore.NewMemory()
 				center := time.Now().UTC().Truncate(5 * time.Second)
 				for index, owner := range f.tenants {
-					seedFastDDoSPairedEvidence(t, rows, traces, owner, center, netip.MustParseAddr("192.0.2.1"), applicationStates[index])
+					source := traces
+					if applicationStates[index] == "" {
+						// Keep the same flow population while withholding this tenant's traces.
+						source = otelstore.NewMemory()
+					}
+					seedFastDDoSPairedEvidence(t, rows, source, owner, center, netip.MustParseAddr("192.0.2.1"), applicationStates[index])
 				}
 				f.server.WithFlowStore(rows).WithOTelStore(traces)
 				socket, ca := serveDDoSBrowserFixture(t, f)
@@ -152,24 +163,35 @@ func verifyFastDDoSAssessmentApplicationEvidence(t *testing.T, controlState stri
 				if applicationStates[lane] == anomaly.DDoSApplicationOverload {
 					expected = append(expected, "Completed requests 360 → 1440")
 				}
+				if applicationStates[lane] == "" {
+					expected = []string{outcomes[lane], "Volumetric pressure", "Tentative evidence", "Latest completed window"}
+				}
+				const service = "label:text-is('HTTP service for demand comparison') + div input"
+				steps := []testsupport.RenderStep{
+					{Select: "label:text-is('Observation window') + div select", Value: "5"},
+					{Fill: "label:text-is('Protected prefix') + div input", Value: "192.0.2.1/32"},
+					{Fill: "label:text-is('Minimum bytes per window') + div input", Value: "200000"},
+					{Fill: "label:text-is('Minimum packets per window') + div input", Value: "2500"},
+					{Fill: "label:text-is('Minimum observed flow records') + div input", Value: "1"},
+					{Fill: service, Value: "synthetic-public-site"},
+					{Click: "Assess traffic", Expect: expected, Absent: []string{outcomes[1-lane]}},
+				}
+				controls := []testsupport.RenderControl{
+					{Role: "combobox", Name: "Observation window"},
+					{Role: "spinbutton", Name: "HTTP server port"},
+				}
+				if applicationStates[lane] == "" {
+					steps = append(steps, testsupport.RenderStep{Fill: service, Value: "", Expect: []string{outcomes[lane]}},
+						testsupport.RenderStep{Fill: "label:text-is('Protected prefix') + div input", Value: "192.0.2.0/24", Expect: []string{outcomes[lane]}},
+						testsupport.RenderStep{Click: "Assess traffic", Expect: []string{"192.0.2.0/24 · ingress · Volumetric pressure", "Latest completed window"}, Absent: []string{outcomes[lane]}})
+					controls = controls[:1]
+				}
 				testsupport.RenderUI(t, testsupport.RenderSpec{
 					URL:            socket.URL + "/ui/explore?native_flow=1&flow_view=" + url.QueryEscape(view.ID),
 					Cookies:        []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: cookie}},
 					TrustCertFiles: []string{ca}, CAFile: ca, Theme: theme, Accessibility: true, TimeoutMs: 60000,
 					Expect: []string{names[lane], "DDoS assessment"}, Absent: []string{names[1-lane]},
-					Steps: []testsupport.RenderStep{
-						{Select: "label:text-is('Observation window') + div select", Value: "5"},
-						{Fill: "label:text-is('Protected prefix') + div input", Value: "192.0.2.1/32"},
-						{Fill: "label:text-is('Minimum bytes per window') + div input", Value: "200000"},
-						{Fill: "label:text-is('Minimum packets per window') + div input", Value: "2500"},
-						{Fill: "label:text-is('Minimum observed flow records') + div input", Value: "1"},
-						{Fill: "label:text-is('HTTP service for demand comparison') + div input", Value: "synthetic-public-site"},
-						{Click: "Assess traffic", Expect: expected, Absent: []string{outcomes[1-lane]}},
-					},
-					Controls: []testsupport.RenderControl{
-						{Role: "combobox", Name: "Observation window"},
-						{Role: "spinbutton", Name: "HTTP server port"},
-					},
+					Steps: steps, Controls: controls,
 				})
 			})
 		}

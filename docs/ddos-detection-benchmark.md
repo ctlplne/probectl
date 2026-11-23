@@ -153,6 +153,10 @@ in completed requests leaves the generic pressure inconclusive. The
 degraded-service comparison uses the increases in requests, bytes and
 packets, with each measured against its own reference. Missing or ambiguous
 bound evidence leaves generic pressure unevaluated for alarm admission.
+The benchmark supplies prepared application observations at the store
+boundary. Ordinary OTLP ingest masks IP addresses, which leaves an exact
+socket comparison unavailable when the stored address is a subnet. The
+preview reports that coverage separately from measured flow pressure.
 A SYN or UDP
 service association can qualify on its own flow evidence when its packet count
 grows against the same historical vector and meets the configured share of

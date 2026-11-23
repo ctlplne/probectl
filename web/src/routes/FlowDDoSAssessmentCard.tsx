@@ -136,7 +136,12 @@ function DDoSAssessmentForm({
             description={assessment.error.message}
           />
         )}
-        {result && <DDoSAssessmentEvidence result={result} />}
+        {result && (
+          <DDoSAssessmentEvidence
+            result={result}
+            applicationConfigured={Boolean(assessment.variables?.input.application)}
+          />
+        )}
       </CardBody>
     </Card>
   )
@@ -275,9 +280,17 @@ export function DDoSAssessmentFields({
   )
 }
 
-export function DDoSAssessmentEvidence({ result }: { result: FlowDDoSAssessment }) {
+export function DDoSAssessmentEvidence({
+  result,
+  applicationConfigured = false,
+}: {
+  result: FlowDDoSAssessment
+  applicationConfigured?: boolean
+}) {
   const detection = result.detection
   const application = result.application
+  const missingBindingEvidence =
+    applicationConfigured && detection?.class === 'volumetric_pressure' && !application
   return (
     <>
       <p role="status">
@@ -297,6 +310,9 @@ export function DDoSAssessmentEvidence({ result }: { result: FlowDDoSAssessment 
           {detection.contributing_packets &&
             ` · ${detection.contributing_packets} contributing packets`}
         </p>
+      )}
+      {missingBindingEvidence && (
+        <p>Application evidence is unavailable for the configured TCP listener.</p>
       )}
       {application && (
         <div>
