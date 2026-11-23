@@ -128,6 +128,7 @@ export interface ChangeEvent {
   actor?: string
   ref?: string
   url?: string
+  attributes?: Record<string, string>
   routing?: RoutingChangeReference
   config?: {
     current_id: string

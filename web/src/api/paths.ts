@@ -24,6 +24,7 @@ export interface HopNode {
   rtt_avg_ms: number
   rtt_max_ms: number
   mpls?: MPLSLabel[]
+  quoted_ttl?: number
   /** Present only when the server enriched the hop from an operator-supplied
    * GeoIP source; private/unresolved responders carry no location. */
   geo?: { lat: number; lon: number; city?: string; country?: string; source?: string }
@@ -38,6 +39,12 @@ export interface Link {
   ttl: number
   from: string
   to: string
+}
+
+export interface MPLSInference extends Link {
+  from_quoted_ttl: number
+  to_quoted_ttl: number
+  method: 'quoted_ttl'
 }
 
 export interface PathMeasurementFidelity {
@@ -67,6 +74,7 @@ export interface Path {
   vantage: 'control_plane'
   hops: Hop[]
   links: Link[]
+  inferred_mpls?: MPLSInference[]
 }
 
 export interface PathSnapshot {

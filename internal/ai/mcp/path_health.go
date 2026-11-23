@@ -39,6 +39,38 @@ type PathHealthExplanationBackend interface {
 	ExplainPathInterfaceHealth(context.Context, *auth.Principal, PathHealthExplanationCommand) (json.RawMessage, error)
 }
 
+type PathHistoryCommand struct {
+	TestID   string   `json:"test_id"`
+	From     string   `json:"from,omitempty"`
+	To       string   `json:"to,omitempty"`
+	Limit    *int     `json:"limit,omitempty"`
+	RoundIDs []string `json:"round_id,omitempty"`
+}
+
+func WithPathHistoryBackend(read func(context.Context, *auth.Principal, PathHistoryCommand) (json.RawMessage, error)) Option {
+	return func(s *Server) {
+		const name = "path_history"
+		tool := Tool{Name: name, Description: "Read original path rounds for one owned test, including any MPLS hypotheses from retained quotes.",
+			Permission: "test.read", ExtraPermissions: []string{"ai.query"}, Native: true, RequiresUser: true, Query: true,
+			InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["test_id"],"properties":{
+				"test_id":{"type":"string","format":"uuid"},"from":{"type":"string","format":"date-time"},"to":{"type":"string","format":"date-time"},
+				"limit":{"type":"integer","minimum":1,"maximum":100},"round_id":{"type":"array","maxItems":2,"items":{"type":"string","maxLength":64}}}}`),
+			Invoke: func(ctx context.Context, actor *auth.Principal, raw json.RawMessage) (any, error) {
+				var command PathHistoryCommand
+				if err := decodeBoundedNativeArgs(raw, &command, s.nativeRequestBytes()); err != nil {
+					return nil, err
+				}
+				if !validTagWriteID(command.TestID) {
+					return nil, argErr("an owned test UUID is required")
+				}
+				return read(ctx, actor, command)
+			}}
+		s.nativeEnabled = true
+		s.tools[name] = tool
+		s.order = append(s.order, name)
+	}
+}
+
 // The shared backend owns complete query admission. The normal native
 // publication boundary retains consent, full redaction and exact live
 // credential/policy refresh for HTTPS and authenticated persistent stdio.

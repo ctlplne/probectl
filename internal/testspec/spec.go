@@ -15,6 +15,7 @@ package testspec
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -37,13 +38,16 @@ var ValidTypes = map[string]bool{
 
 // Defaults applied by Normalize.
 const (
-	DefaultIntervalSeconds = 60
-	DefaultTimeoutSeconds  = 3
-	maxNameLen             = 200
-	minInterval            = 1
-	maxInterval            = 86400
-	minTimeout             = 1
-	maxTimeout             = 300
+	PathChangeAlertsParam      = "path_change_alerts"
+	PathChangeLatencyParam     = "path_change_min_latency_ms"
+	DefaultPathChangeLatencyMS = 10
+	DefaultIntervalSeconds     = 60
+	DefaultTimeoutSeconds      = 3
+	maxNameLen                 = 200
+	minInterval                = 1
+	maxInterval                = 86400
+	minTimeout                 = 1
+	maxTimeout                 = 300
 )
 
 // Types returns the valid test types, sorted (for docs / schemas / messages).
@@ -90,7 +94,29 @@ func Validate(s Spec) error {
 	if s.TimeoutSeconds < minTimeout || s.TimeoutSeconds > maxTimeout {
 		return fmt.Errorf("timeout_seconds must be between %d and %d", minTimeout, maxTimeout)
 	}
+	if value, present := s.Params[PathChangeAlertsParam]; present && value != "true" && value != "false" {
+		return fmt.Errorf("%s must be true or false", PathChangeAlertsParam)
+	}
+	if value, present := s.Params[PathChangeLatencyParam]; present {
+		if _, ok := parsePathChangeLatency(value); !ok {
+			return fmt.Errorf("%s must be an integer between 1 and 60000", PathChangeLatencyParam)
+		}
+	}
 	return nil
+}
+
+// PathChangeOptions keeps rules for new, imported, and older test rows aligned.
+func PathChangeOptions(params map[string]string) (notify bool, minLatencyMS float64) {
+	value, ok := parsePathChangeLatency(params[PathChangeLatencyParam])
+	if !ok {
+		value = DefaultPathChangeLatencyMS
+	}
+	return params[PathChangeAlertsParam] != "false", float64(value)
+}
+
+func parsePathChangeLatency(raw string) (int, bool) {
+	value, err := strconv.Atoi(raw)
+	return value, err == nil && value >= 1 && value <= 60000
 }
 
 // Clean normalizes then validates, returning the cleaned spec or a validation

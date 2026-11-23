@@ -340,6 +340,23 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: FULL_STACK_TOPOLOGY_RECEIPT,
   },
   {
+    capability: 'Confirmed path changes and labeled MPLS inference',
+    featureIds: ['F3'],
+    sprint: 'FX-30',
+    kind: 'native',
+    route: '/path',
+    offNav: true,
+    evidence: [
+      'openapi:/v1/tests/{id}/path/history',
+      'openapi:/v1/changes',
+      'cli:probectl test path-history <id>',
+      'file:web/src/routes/ChangeTimelinePage.tsx',
+      'file:web/src/routes/PathPage.tsx',
+      'file:docs/mcp.md',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
     capability: 'Incidents list + cross-plane timeline',
     featureIds: ['F9'],
     sprint: 'S17',

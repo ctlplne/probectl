@@ -81,17 +81,25 @@ func (s *Server) handleGetPathHistory(w http.ResponseWriter, r *http.Request) er
 	if err != nil {
 		return err
 	}
-	rounds, err := s.pathStore.History(r.Context(), tid, target, query)
+	rounds, err := s.readPathHistory(r.Context(), tid, target, query)
 	if err != nil {
-		return apierror.Internal("path history lookup failed").Wrap(err)
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": rounds})
+	return nil
+}
+
+func (s *Server) readPathHistory(ctx context.Context, tenant, target string, query pathstore.HistoryQuery) ([]pathstore.Snapshot, error) {
+	rounds, err := s.pathStore.History(ctx, tenant, target, query)
+	if err != nil {
+		return nil, apierror.Internal("path history lookup failed").Wrap(err)
 	}
 	for i := range rounds {
 		normalizePathCollections(&rounds[i].Path)
 		stampPathVantage(&rounds[i].Path)
 		s.hopGeo.Enrich(&rounds[i].Path)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": rounds})
-	return nil
+	return rounds, nil
 }
 
 func parsePathHistoryQuery(r *http.Request) (pathstore.HistoryQuery, error) {
@@ -142,10 +150,11 @@ func parsePathHistoryQuery(r *http.Request) (pathstore.HistoryQuery, error) {
 func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) error {
 	// WEB-04: lift the global WriteTimeout for this long-running response.
 	extendWriteDeadline(w, pathDiscoveryWriteBudget)
-	target, params, err := s.testTargetParams(r)
+	test, err := s.pathDiscoveryTest(r)
 	if err != nil {
 		return err
 	}
+	target := pathHost(test.Target)
 	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err
@@ -159,7 +168,7 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 	// (guardAllowPrivate), so GuardFromParams reflects an authorized override.
 	// Resolve once and trace the CHECKED IP so DNS rebinding cannot slip a
 	// private address past the check at trace time.
-	guard := canary.GuardFromParams(params)
+	guard := canary.GuardFromParams(test.Params)
 	traceTarget, err := resolveGuardedPathTarget(r.Context(), target, guard)
 	if err != nil {
 		return err
@@ -171,29 +180,33 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 	// earlier trace a later context.
 	var discoveryStartedAt time.Time
 	var lockedTarget string
+	var lockedRevision time.Time
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		if err := sc.Q.QueryRow(ctx, `SELECT target FROM tests
-			WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tid, r.PathValue("id")).Scan(&lockedTarget); err != nil {
+		if err := sc.Q.QueryRow(ctx, `SELECT target,updated_at FROM tests
+			WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, tid, test.ID).Scan(&lockedTarget, &lockedRevision); err != nil {
 			return err
 		}
 		return sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&discoveryStartedAt)
 	}); err != nil {
 		return apierror.Internal("path discovery clock unavailable").Wrap(err)
 	}
-	if path.TargetHost(lockedTarget) != target {
-		return apierror.Conflict("test target changed during path discovery setup")
+	if lockedTarget != test.Target || !lockedRevision.Equal(test.UpdatedAt) {
+		return apierror.Conflict("test configuration changed during path discovery setup")
 	}
 	if discoveryStartedAt.IsZero() {
 		return apierror.Internal("path discovery clock unavailable")
 	}
 
 	cfg := pathDiscoveryConfig(traceTarget)
-	dctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	dctx, cancel := context.WithTimeout(tenancy.WithTenant(r.Context(), tenancy.ID(tid)), 120*time.Second)
 	defer cancel()
 	p, err := s.discover(dctx, cfg)
 	if err != nil {
 		return pathDiscoveryError(target, err)
 	}
+	// The trace receives the checked IP. History keeps the configured host
+	// as its target key, including when the test used a DNS name.
+	p.Target = target
 	normalizePathCollections(p)
 	stampPathVantage(p)
 	var discoveryCompletedAt time.Time
@@ -203,8 +216,15 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 		return apierror.Unavailable("path discovery completion clock unavailable")
 	}
 	saveCtx := pathstore.WithDiscoveryCompletedAt(pathstore.WithDiscoveryStartedAt(r.Context(), discoveryStartedAt), discoveryCompletedAt)
+	saveCtx, roundID, err := pathstore.NewDiscoveryRound(saveCtx)
+	if err != nil {
+		return apierror.Internal("path round identity unavailable").Wrap(err)
+	}
 	if err := s.pathStore.Save(saveCtx, tid, p); err != nil {
 		return apierror.Internal("path save failed").Wrap(err)
+	}
+	if eligible, ok := path.NewChangeRound(p, nil); ok {
+		s.observePathChange(r, test, roundID, eligible.Vantage, discoveryStartedAt, discoveryCompletedAt)
 	}
 	// Fold the discovery into the dependency graph (S43): the path plane
 	// feeds topology at save time — no second discovery pass.
@@ -224,6 +244,7 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 // an empty collection as nil. Empty telemetry is still empty; it is never
 // synthesized into evidence.
 func normalizePathCollections(p *path.Path) {
+	p.InferredMPLS = path.InferMPLS(p)
 	if p.Hops == nil {
 		p.Hops = []path.Hop{}
 	}
@@ -248,28 +269,21 @@ func stampPathVantage(p *path.Path) {
 
 // testTarget resolves the path target (the host) of the test named in the route.
 func (s *Server) testTarget(r *http.Request) (string, error) {
-	target, _, err := s.testTargetParams(r)
-	return target, err
+	test, err := s.pathDiscoveryTest(r)
+	if err != nil {
+		return "", err
+	}
+	return pathHost(test.Target), nil
 }
 
-// testTargetParams resolves the path target host AND the test's params (for the
-// SSRF allow_private_targets override, PLAT-05) of the test named in the route.
-func (s *Server) testTargetParams(r *http.Request) (string, map[string]string, error) {
-	id := r.PathValue("id")
-	var target string
-	var params map[string]string
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		t, e := store.Tests{}.Get(ctx, sc, id)
-		if e != nil {
-			return e
-		}
-		target = pathHost(t.Target)
-		params = t.Params
-		return nil
-	}); err != nil {
-		return "", nil, err
-	}
-	return target, params, nil
+func (s *Server) pathDiscoveryTest(r *http.Request) (*store.Test, error) {
+	var test *store.Test
+	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		test, err = (store.Tests{}).Get(ctx, sc, r.PathValue("id"))
+		return err
+	})
+	return test, err
 }
 
 // resolveGuardedPathTarget applies the SSRF guard to a path-discovery target and

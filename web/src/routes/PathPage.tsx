@@ -522,6 +522,16 @@ export function PathPage() {
                     ? t('path.vantage.controlPlane')
                     : t('path.vantage.unknown')}
                 </span>
+                {displayedPath.inferred_mpls?.map((segment) => (
+                  <span key={`${segment.ttl}-${segment.from}-${segment.to}`}>
+                    {t('path.mpls.inferred', {
+                      from: segment.ttl,
+                      to: segment.ttl + 1,
+                      fromTTL: segment.from_quoted_ttl,
+                      toTTL: segment.to_quoted_ttl,
+                    })}
+                  </span>
+                ))}
                 <span>
                   {selectedRound ? (
                     <>

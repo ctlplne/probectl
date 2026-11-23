@@ -3368,6 +3368,7 @@ type HopNode struct {
 	Ip        string      `json:"ip"`
 	LossRatio float64     `json:"loss_ratio,omitempty"`
 	Mpls      []MPLSLabel `json:"mpls,omitempty"`
+	QuotedTtl int         `json:"quoted_ttl,omitempty"`
 	Received  int         `json:"received,omitempty"`
 	RttAvgMs  float64     `json:"rtt_avg_ms,omitempty"`
 	RttMaxMs  float64     `json:"rtt_max_ms,omitempty"`
@@ -3997,6 +3998,16 @@ type Link struct {
 	Ttl  int    `json:"ttl,omitempty"`
 }
 
+// A possible unlabeled MPLS adjacency supported by increasing quoted IPv4 TTLs.
+type MPLSInference struct {
+	From          string `json:"from"`
+	FromQuotedTtl int    `json:"from_quoted_ttl"`
+	Method        string `json:"method"`
+	To            string `json:"to"`
+	ToQuotedTtl   int    `json:"to_quoted_ttl"`
+	Ttl           int    `json:"ttl"`
+}
+
 type MPLSLabel struct {
 	Label int   `json:"label,omitempty"`
 	S     *bool `json:"s,omitempty"`
@@ -4278,6 +4289,7 @@ type OncallTestResponse struct {
 type Path struct {
 	DestinationReached  *bool                    `json:"destination_reached,omitempty"`
 	Hops                []Hop                    `json:"hops"`
+	InferredMpls        []MPLSInference          `json:"inferred_mpls,omitempty"`
 	Links               []Link                   `json:"links"`
 	MaxHops             int                      `json:"max_hops,omitempty"`
 	MeasurementFidelity *PathMeasurementFidelity `json:"measurement_fidelity,omitempty"`

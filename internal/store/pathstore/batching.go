@@ -56,6 +56,7 @@ type BatchingSaver struct {
 
 type pendingPath struct {
 	tenantID             string
+	roundID              string
 	p                    *path.Path
 	observedAt           time.Time
 	completedAt          time.Time
@@ -81,6 +82,7 @@ type partitionedBatchSaver interface {
 // PathItem is one queued discovery.
 type PathItem struct {
 	TenantID             string
+	roundID              string
 	P                    *path.Path
 	ObservedAt           time.Time // discovery start, never the later batch flush time
 	CompletedAt          time.Time // database clock after tracing; zero is unavailable
@@ -114,7 +116,7 @@ func (b *BatchingSaver) Save(ctx context.Context, tenantID string, p *path.Path)
 	}
 	observedAt, trusted := discoveryStartedAt(ctx)
 	b.pending = append(b.pending, pendingPath{
-		tenantID: tenantID, p: p, observedAt: observedAt,
+		tenantID: tenantID, roundID: discoveryRoundID(ctx), p: p, observedAt: observedAt,
 		trustedDiscoveryTime: trusted,
 		completedAt:          discoveryCompletedAt(ctx),
 	})
@@ -188,7 +190,7 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 	if pbs, ok := b.inner.(partitionedBatchSaver); ok {
 		items := make([]PathItem, len(batch))
 		for i, q := range batch {
-			items[i] = PathItem{TenantID: q.tenantID, P: q.p, ObservedAt: q.observedAt,
+			items[i] = PathItem{TenantID: q.tenantID, roundID: q.roundID, P: q.p, ObservedAt: q.observedAt,
 				TrustedDiscoveryTime: q.trustedDiscoveryTime, CompletedAt: q.completedAt}
 		}
 		fenced, err := pbs.SaveBatchPartitioned(ctx, items)
@@ -238,7 +240,7 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 	if bs, ok := b.inner.(batchSaver); ok {
 		items := make([]PathItem, len(batch))
 		for i, q := range batch {
-			items[i] = PathItem{TenantID: q.tenantID, P: q.p, ObservedAt: q.observedAt,
+			items[i] = PathItem{TenantID: q.tenantID, roundID: q.roundID, P: q.p, ObservedAt: q.observedAt,
 				TrustedDiscoveryTime: q.trustedDiscoveryTime, CompletedAt: q.completedAt}
 		}
 		if err := bs.SaveBatch(ctx, items); err != nil {
@@ -260,18 +262,30 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 		return
 	}
 	for _, q := range batch {
-		itemCtx := ctx
-		if q.trustedDiscoveryTime {
-			itemCtx = WithDiscoveryStartedAt(itemCtx, q.observedAt)
-		}
-		itemCtx = WithDiscoveryCompletedAt(itemCtx, q.completedAt)
-		if err := b.inner.Save(itemCtx, q.tenantID, q.p); err != nil {
+		item := PathItem{TenantID: q.tenantID, roundID: q.roundID, P: q.p, ObservedAt: q.observedAt,
+			TrustedDiscoveryTime: q.trustedDiscoveryTime, CompletedAt: q.completedAt}
+		if err := b.inner.Save(item.context(ctx), q.tenantID, q.p); err != nil {
 			b.lost.Add(1)
 			b.log.Error("PATH SAVE LOST", "tenant", q.tenantID, "error", err.Error())
 			continue
 		}
 		b.saved.Add(1)
 	}
+}
+
+func (item PathItem) context(ctx context.Context) context.Context {
+	if item.TrustedDiscoveryTime {
+		ctx = WithDiscoveryStartedAt(ctx, item.ObservedAt)
+	}
+	ctx = WithDiscoveryCompletedAt(ctx, item.CompletedAt)
+	return context.WithValue(ctx, discoveryRoundIDKey{}, item.roundID)
+}
+
+func (item PathItem) id() (string, error) {
+	if item.roundID != "" {
+		return item.roundID, nil
+	}
+	return randomID()
 }
 
 // Latest flushes pending saves first (read-your-write), then delegates. The

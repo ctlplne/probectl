@@ -1173,6 +1173,12 @@ never select a tenant: the authenticated session's `tenant_id` and the selected
 test's target are mandatory storage predicates, so a copied cross-tenant or
 cross-target ID returns an empty history.
 
+Set the test parameter `path_change_alerts` to `false` to keep confirmed
+changes in the timeline without opening incidents. The test parameter
+`path_change_min_latency_ms` sets the absolute RTT-difference floor to an
+integer from 1 to 60,000. It defaults to 10 ms. A signal also requires at
+least 50% separation from the reference envelope and two confirming rounds.
+
 Each new round stores a closed `measurement_fidelity` receipt with the actual
 socket acquisition mode and hop-visibility capability. Today its
 `timing_source` is `application_monotonic`, with kernel and hardware

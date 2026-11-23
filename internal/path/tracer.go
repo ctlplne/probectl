@@ -140,15 +140,20 @@ func (t *icmpTracer) traceFlow(ctx context.Context, cfg Config, targetIP string,
 			if _, err := conn.WriteTo(pkt, dst); err != nil {
 				continue
 			}
-			ipStr, rtt, mpls, final, ok := awaitICMP(conn, raw, id, seq, flowID, sentAt, cfg.PerHopTimeout)
+			ipStr, rtt, reply, ok := awaitICMP(conn, raw, id, seq, flowID, sentAt, cfg.PerHopTimeout)
 			if ok {
+				if obs.received == 0 {
+					obs.quotedTTL = reply.quotedTTL
+				} else if obs.ip != ipStr || obs.quotedTTL != reply.quotedTTL {
+					obs.quotedTTL = 0
+				}
 				obs.received++
 				obs.ip = ipStr
 				obs.rtts = append(obs.rtts, rtt)
-				if len(mpls) > 0 {
-					obs.mpls = mpls
+				if len(reply.mpls) > 0 {
+					obs.mpls = reply.mpls
 				}
-				if final {
+				if reply.kind == respEchoReply || reply.kind == respDstUnreach {
 					obs.final = true
 				}
 			}
@@ -165,16 +170,16 @@ func (t *icmpTracer) traceFlow(ctx context.Context, cfg Config, targetIP string,
 // timeout elapses. For raw sockets responses are matched on the forced flow
 // checksum (Paris); on datagram sockets the kernel rewrites id/checksum, so only
 // the destination Echo Reply (matched by sequence) is seen.
-func awaitICMP(conn *icmp.PacketConn, raw bool, id, seq, flow uint16, sentAt time.Time, timeout time.Duration) (ip string, rtt time.Duration, mpls []MPLSLabel, final, ok bool) {
+func awaitICMP(conn *icmp.PacketConn, raw bool, id, seq, flow uint16, sentAt time.Time, timeout time.Duration) (string, time.Duration, icmpResponse, bool) {
 	deadline := sentAt.Add(timeout)
 	buf := make([]byte, 1500)
 	for {
 		if err := conn.SetReadDeadline(deadline); err != nil {
-			return "", 0, nil, false, false
+			return "", 0, icmpResponse{}, false
 		}
 		n, addr, err := conn.ReadFrom(buf)
 		if err != nil {
-			return "", 0, nil, false, false // timeout / closed
+			return "", 0, icmpResponse{}, false // timeout / closed
 		}
 		recv := time.Now()
 		resp, parsed := parseICMPv4(buf[:n])
@@ -184,11 +189,11 @@ func awaitICMP(conn *icmp.PacketConn, raw bool, id, seq, flow uint16, sentAt tim
 		switch resp.kind {
 		case respEchoReply:
 			if resp.echoSeq == seq && (!raw || resp.echoID == id) {
-				return ipOf(addr), recv.Sub(sentAt), nil, true, true
+				return ipOf(addr), recv.Sub(sentAt), resp, true
 			}
 		case respTimeExceeded, respDstUnreach:
-			if resp.origSeq == seq && (!raw || resp.origFlow == flow) {
-				return ipOf(addr), recv.Sub(sentAt), resp.mpls, resp.kind == respDstUnreach, true
+			if raw && resp.matchedQuote && resp.origID == id && resp.origSeq == seq && resp.origFlow == flow {
+				return ipOf(addr), recv.Sub(sentAt), resp, true
 			}
 		}
 	}

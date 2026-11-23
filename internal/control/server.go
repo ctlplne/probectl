@@ -38,6 +38,7 @@ import (
 	"github.com/ctlplne/probectl/internal/endpoint"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/inventory"
 	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/metrics"
@@ -78,6 +79,7 @@ type Server struct {
 	pinger                   store.Pinger
 	pool                     *pgxpool.Pool
 	pathStore                pathstore.Store
+	pathChangeObserver       incident.Observer
 	discover                 Discoverer
 	hopGeo                   *path.GeoTable // nil = no operator geo table; hops stay unlocated
 	http                     *http.Server

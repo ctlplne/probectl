@@ -26621,6 +26621,12 @@
               "$ref": "#/components/schemas/MPLSLabel"
             }
           },
+          "quoted_ttl": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 255,
+            "description": "Original IPv4 TTL from agreeing, matched ICMP time-exceeded quotes, when available."
+          },
           "geo": {
             "$ref": "#/components/schemas/HopGeo"
           }
@@ -26720,6 +26726,19 @@
           "hardware_timestamping"
         ]
       },
+      "MPLSInference": {
+        "type": "object",
+        "description": "A possible unlabeled MPLS adjacency supported by increasing quoted IPv4 TTLs.",
+        "required": ["ttl", "from", "to", "from_quoted_ttl", "to_quoted_ttl", "method"],
+        "properties": {
+          "ttl": {"type": "integer"},
+          "from": {"type": "string"},
+          "to": {"type": "string"},
+          "from_quoted_ttl": {"type": "integer", "minimum": 2, "maximum": 255},
+          "to_quoted_ttl": {"type": "integer", "minimum": 3, "maximum": 255},
+          "method": {"type": "string", "enum": ["quoted_ttl"]}
+        }
+      },
       "Path": {
         "type": "object",
         "description": "A merged, multi-path traceroute result.",
@@ -26769,6 +26788,10 @@
             "items": {
               "$ref": "#/components/schemas/Link"
             }
+          },
+          "inferred_mpls": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/MPLSInference"}
           }
         },
         "required": [

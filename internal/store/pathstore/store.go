@@ -46,6 +46,22 @@ type HistoryQuery struct {
 
 type discoveryStartedAtKey struct{}
 type discoveryCompletedAtKey struct{}
+type discoveryRoundIDKey struct{}
+
+// NewDiscoveryRound assigns a server-owned ID before persistence so a change
+// event can cite the exact retained round, even when Save is batched.
+func NewDiscoveryRound(ctx context.Context) (context.Context, string, error) {
+	id, err := randomID()
+	if err != nil {
+		return ctx, "", err
+	}
+	return context.WithValue(ctx, discoveryRoundIDKey{}, id), id, nil
+}
+
+func discoveryRoundID(ctx context.Context) string {
+	id, _ := ctx.Value(discoveryRoundIDKey{}).(string)
+	return id
+}
 
 // WithDiscoveryCompletedAt carries the server's database-clock reading after
 // tracing. Absence stays unknown; neither a flush clock nor start implies it.

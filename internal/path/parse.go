@@ -30,6 +30,8 @@ type icmpResponse struct {
 	// For Time Exceeded / Dest Unreachable: the embedded original probe, which
 	// identifies which TTL (seq) and flow (checksum) this response answers.
 	origID, origSeq, origFlow uint16
+	quotedTTL                 uint8
+	matchedQuote              bool
 	// For Echo Reply (the destination).
 	echoID, echoSeq uint16
 	mpls            []MPLSLabel
@@ -44,11 +46,14 @@ func parseICMPv4(b []byte) (icmpResponse, bool) {
 	switch body := m.Body.(type) {
 	case *icmp.TimeExceeded:
 		r := icmpResponse{kind: respTimeExceeded, mpls: mplsFromExtensions(body.Extensions)}
-		r.origID, r.origSeq, r.origFlow, _ = embeddedEcho(body.Data)
+		r.origID, r.origSeq, r.origFlow, r.matchedQuote = embeddedEcho(body.Data)
+		if r.matchedQuote && m.Code == 0 && body.Data[9] == ianaProtoICMP && body.Data[int(body.Data[0]&0x0f)*4] == byte(ipv4.ICMPTypeEcho) {
+			r.quotedTTL = body.Data[8]
+		}
 		return r, true
 	case *icmp.DstUnreach:
 		r := icmpResponse{kind: respDstUnreach, mpls: mplsFromExtensions(body.Extensions)}
-		r.origID, r.origSeq, r.origFlow, _ = embeddedEcho(body.Data)
+		r.origID, r.origSeq, r.origFlow, r.matchedQuote = embeddedEcho(body.Data)
 		return r, true
 	case *icmp.Echo:
 		if m.Type == ipv4.ICMPTypeEchoReply {

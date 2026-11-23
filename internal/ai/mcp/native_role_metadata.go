@@ -32,13 +32,24 @@ type NativeRoleRevision string
 type NativeRoleDigest string
 
 func (digest NativeRoleDigest) MarshalJSON() ([]byte, error) {
-	decoded, err := hex.DecodeString(string(digest))
-	if err != nil || len(decoded) != 32 || hex.EncodeToString(decoded) != string(digest) {
+	return encodeNativeHex(string(digest), 32)
+}
+
+// NativePathRoundID preserves a server-generated pathstore row identity.
+type NativePathRoundID string
+
+func (id NativePathRoundID) MarshalJSON() ([]byte, error) {
+	return encodeNativeHex(string(id), 16)
+}
+
+func encodeNativeHex(value string, size int) ([]byte, error) {
+	decoded, err := hex.DecodeString(value)
+	if err != nil || len(decoded) != size || hex.EncodeToString(decoded) != value {
 		return nil, errors.New("invalid server role metadata digest")
 	}
 	var out strings.Builder
 	out.WriteByte('"')
-	for _, character := range string(digest) {
+	for _, character := range value {
 		if character >= '0' && character <= '9' {
 			out.WriteString(`\u003`)
 		}

@@ -57,7 +57,7 @@ func (s *writeFencedStore) SaveBatch(
 			}
 			for i := range items {
 				if err := s.next.Save(
-					ctx,
+					items[i].context(ctx),
 					items[i].TenantID,
 					items[i].P,
 				); err != nil {
@@ -95,7 +95,7 @@ func (s *writeFencedStore) SaveBatchPartitioned(
 			}
 			for i := range eligible {
 				if err := s.next.Save(
-					ctx,
+					eligible[i].context(ctx),
 					eligible[i].TenantID,
 					eligible[i].P,
 				); err != nil {

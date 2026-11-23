@@ -353,6 +353,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithEndpointViews(rt.endpointViews).
 		WithLatestResults(rt.latestResults).
 		WithHopGeo(rt.hopGeo).
+		WithPathChangeObserver(control.NotifyObserver(rt.dispatcher, rt.log)).
 		WithSecrets(rt.secretsResolver).
 		WithTopology(rt.topoStore).
 		WithDeviceNeighbors(rt.neighborStore).

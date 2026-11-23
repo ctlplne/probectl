@@ -63,16 +63,16 @@ capabilities:
     # Original per-hop health/RCA is preview; physical FRR/SNMP, config and
     # full served/lifecycle qualification are still owed for that extension.
     owner: web/quality
-    engine: {refs: ["file:internal/path", "file:internal/entity", "file:internal/control/path_health_read.go", "file:internal/control/path_health_rca.go", "file:internal/control/mcp_path_health.go"]}
+    engine: {refs: ["file:internal/path", "file:internal/entity", "file:internal/control/path_health_read.go", "file:internal/control/path_health_rca.go", "file:internal/control/mcp_path_health.go", "file:internal/path/changes.go", "file:internal/path/mpls_inference.go", "file:internal/control/path_changes.go"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#pathstore.WithTenantWriteFence("]}
     api: {refs: ["api:GET /v1/tests/{id}/path", "api:GET /v1/tests/{id}/path/history", "api:GET /v1/tests/{id}/path/entities"]}
     cli: {refs: ["cli:probectl test path <id>", "cli:probectl test path-history <id>", "cli:probectl entities path-resolve"]}
     ui: {refs: ["ui:F3@/path"]}
-    docs: {refs: ["file:docs/topology.md#Topology graph", "file:docs/entity-registry.md#Original polled hop health (preview)", "file:docs/mcp.md#Original polled path-interface health (preview)"]}
-    config_keys: {refs: ["config:PROBECTL_HOP_GEO_FILE"]}
+    docs: {refs: ["file:docs/topology.md#Topology graph", "file:docs/entity-registry.md#Original polled hop health (preview)", "file:docs/mcp.md#Original polled path-interface health (preview)", "file:docs/architecture.md#Path changes and inferred MPLS"]}
+    config_keys: {refs: ["config:PROBECTL_HOP_GEO_FILE", "config:PROBECTL_FLOW_ENRICH_ASN_FILE"]}
     telemetry: {refs: ["file:internal/store/pathstore/batching.go"]}
     real_stack_proof: {refs: ["test:internal/path/realstack_integration_test.go#TestPathVisualizationRealStack"]}
-    migration: {refs: ["file:migrations/0136_entity_registry.sql"]}
+    migration: {refs: ["file:migrations/0136_entity_registry.sql", "file:migrations/0255_path_change_state.sql"]}
 
   - id: F4
     name: HTTP tests

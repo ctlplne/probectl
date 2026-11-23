@@ -341,6 +341,9 @@ func chMigrationsFor(hopsV1, linksV1, hopsV2, linksV2 string) []chmigrate.Migrat
 			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS discovery_started_at Nullable(DateTime64(9, 'UTC')) DEFAULT NULL",
 			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS discovery_completed_at Nullable(DateTime64(9, 'UTC')) DEFAULT NULL",
 		}},
+		{Version: 8, Name: "path_quoted_ipv4_ttl", Statements: []string{
+			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS quoted_ttl UInt8 DEFAULT 0",
+		}},
 	}
 }
 
@@ -444,6 +447,7 @@ type hopRow struct {
 	RTTAvg                 float64  `json:"rtt_avg_ms"`
 	RTTMax                 float64  `json:"rtt_max_ms"`
 	MPLS                   []uint32 `json:"mpls_labels"`
+	QuotedTTL              uint8    `json:"quoted_ttl"`
 }
 
 type linkRow struct {
@@ -491,7 +495,7 @@ func hopRows(tenantID, pathID, ts string, trustedDiscoveryTime bool, p *path.Pat
 				DiscoveryCompletedAt:   completion,
 				DiscoveryStartedAt:     started,
 				TS:                     ts, TTL: h.TTL, Responder: n.IP, Sent: n.Sent, Received: n.Received, LossRatio: n.LossRatio,
-				RTTMin: n.RTTMinMs, RTTAvg: n.RTTAvgMs, RTTMax: n.RTTMaxMs, MPLS: labels,
+				RTTMin: n.RTTMinMs, RTTAvg: n.RTTAvgMs, RTTMax: n.RTTMaxMs, MPLS: labels, QuotedTTL: n.QuotedTTL,
 			})
 		}
 	}
@@ -554,7 +558,7 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 	}
 	observedAt, trusted := discoveryStartedAt(ctx)
 	return c.SaveBatch(ctx, []PathItem{{
-		TenantID: tenantID, P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
+		TenantID: tenantID, roundID: discoveryRoundID(ctx), P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
 		CompletedAt: discoveryCompletedAt(ctx),
 	}})
 }
@@ -585,7 +589,7 @@ func (c *ClickHouse) SaveBatch(ctx context.Context, items []PathItem) error {
 			b = &buf{}
 			bufs[t] = b
 		}
-		pathID, err := randomID()
+		pathID, err := it.id()
 		if err != nil {
 			return err
 		}
@@ -810,7 +814,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	}
 
 	hopRows, err := c.queryScoped(ctx, t, tenantID,
-		"SELECT ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels FROM "+hopsT+" WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, responder",
+		"SELECT ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels, quoted_ttl FROM "+hopsT+" WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, responder",
 		chParams{"tenant": tenantID, "path": pathID})
 	if err != nil {
 		return nil, false, err
@@ -834,6 +838,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 		for _, l := range chToUintSlice(r["mpls_labels"]) {
 			node.MPLS = append(node.MPLS, path.MPLSLabel{Label: l})
 		}
+		node.QuotedTTL = storedQuotedTTL(r["quoted_ttl"])
 		if node.IP == p.TargetIP {
 			p.DestinationReached = true
 		}
@@ -991,7 +996,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 	selectedWhere := "tenant_id={tenant:String} AND target={target:String} AND (" +
 		strings.Join(predicates, " OR ") + ")"
 	hopRows, err := c.queryScoped(ctx, t, tenantID,
-		"SELECT path_id, ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels FROM "+hopsT+
+		"SELECT path_id, ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels, quoted_ttl FROM "+hopsT+
 			" WHERE "+selectedWhere+" ORDER BY path_id, ttl, responder", selectedParams)
 	if err != nil {
 		return nil, err
@@ -1025,6 +1030,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		for _, label := range chToUintSlice(row["mpls_labels"]) {
 			node.MPLS = append(node.MPLS, path.MPLSLabel{Label: label})
 		}
+		node.QuotedTTL = storedQuotedTTL(row["quoted_ttl"])
 		if node.IP == snapshot.Path.TargetIP {
 			snapshot.Path.DestinationReached = true
 		}
@@ -1208,7 +1214,15 @@ func chCount(rows []map[string]any) int { return chclient.Count(rows) }
 func chToString(v any) string           { return chclient.String(v) }
 func chToFloat(v any) float64           { return chclient.Float(v) }
 func chToInt(v any) int                 { return chclient.Int(v) }
-func chToUintSlice(v any) []uint32      { return chclient.UintSlice(v) }
+
+func storedQuotedTTL(value any) uint8 {
+	ttl := chToInt(value)
+	if ttl < 1 || ttl > 255 {
+		return 0
+	}
+	return uint8(ttl)
+}
+func chToUintSlice(v any) []uint32 { return chclient.UintSlice(v) }
 
 // exec runs against the deployment-default endpoint (DDL/migrations/policies).
 func (c *ClickHouse) exec(ctx context.Context, query string, p chParams, body io.Reader) error {

@@ -88,6 +88,7 @@ END $fx3_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
 	// revisions inside the physical silo; shared functions use TG_TABLE_SCHEMA.
 	path := q + `."tests"`
 	plan = append(plan,
+		"SELECT public.probectl_install_path_change_state("+quoteLiteral(schema)+")",
 		"DROP TRIGGER IF EXISTS entity_test_retarget ON "+path,
 		"CREATE TRIGGER entity_test_retarget AFTER UPDATE OF target ON "+path+
 			" FOR EACH ROW EXECUTE FUNCTION public.entity_clear_test_context_on_retarget()",

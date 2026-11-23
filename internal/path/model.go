@@ -31,6 +31,9 @@ type HopNode struct {
 	RTTAvgMs  float64     `json:"rtt_avg_ms"`
 	RTTMaxMs  float64     `json:"rtt_max_ms"`
 	MPLS      []MPLSLabel `json:"mpls,omitempty"`
+	// QuotedTTL is the original IPv4 TTL returned by a matched hop-limit
+	// response. Zero means absent, zero on the wire, or conflicting replies.
+	QuotedTTL uint8 `json:"quoted_ttl,omitempty"`
 	// Geo is present only when the deployment enriched the responder from an
 	// operator-supplied location table (see geo.go). Never fetched externally.
 	Geo *HopGeo `json:"geo,omitempty"`
@@ -97,6 +100,9 @@ type Path struct {
 	Vantage string `json:"vantage,omitempty"`
 	Hops    []Hop  `json:"hops"`
 	Links   []Link `json:"links"`
+	// InferredMPLS contains hypotheses supported by quoted TTLs. Observed
+	// labels remain on the hop nodes independently of these hypotheses.
+	InferredMPLS []MPLSInference `json:"inferred_mpls,omitempty"`
 }
 
 // Config is a path-test definition.
@@ -154,13 +160,14 @@ func (c *Config) normalize() error {
 // stable path, all of that flow's probes at a TTL reach the same responder, so
 // loss is attributable to that responder.
 type hopObservation struct {
-	ttl      int
-	ip       string // responder; "" when no probe got a response
-	sent     int
-	received int
-	rtts     []time.Duration
-	mpls     []MPLSLabel
-	final    bool // the destination responded (echo reply / TCP SYN-ACK or RST)
+	ttl       int
+	ip        string // responder; "" when no probe got a response
+	sent      int
+	received  int
+	rtts      []time.Duration
+	mpls      []MPLSLabel
+	quotedTTL uint8
+	final     bool // the destination responded (echo reply / TCP SYN-ACK or RST)
 }
 
 // flowTrace is one single-flow traceroute: observations by ascending TTL, ending

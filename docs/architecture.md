@@ -539,6 +539,34 @@ implementation actually obtains and tests those timestamps. Older stored rounds
 omit the receipt and the UI says **unknown — legacy snapshot**; it never guesses
 precision from `mode`.
 
+### Path changes and inferred MPLS
+
+Completed discoveries that reached the destination with full hop visibility
+can establish a baseline for their test and control-plane vantage. Two later
+rounds using the same destination IP and measurement method must confirm a
+replacement. A responding branch already in the reference round is ordinary
+ECMP variation. Missing responders leave that hop inconclusive. When the
+existing `PROBECTL_FLOW_ENRICH_ASN_FILE` is available, the comparison also
+uses its local prefix origins for wholly attributable hop positions.
+
+On the same observed single-branch adjacency, both later RTT-difference
+envelopes must move in one direction by at least 10 ms and 50% of the reference
+envelope magnitude. These are differences between two round-trip measurements
+from the vantage. The references can include different return paths.
+
+One confirmation updates the baseline and writes the change, enabled incident
+and audit event in one tenant transaction. The change timeline records the three
+original discovery IDs. Each ID can be used with `round_id` on the authorized
+test path history, including the native MCP `path_history` tool. Notification
+connectors receive the incident after commit. The configured SIEM audit export
+can forward the same durable path-change record.
+
+If two adjacent raw-ICMP hops on one observed link return a rising sequence of
+quoted IPv4 TTLs greater than one, the path can label their link **Inferred
+MPLS**. The hypothesis reports the two measured values and leaves observed
+RFC 4950 labels separate. Coverage is limited to this quoted-TTL signature.
+[TNT research](https://orbi.uliege.be/handle/2268/246054)
+
 Path data is high-cardinality time-series, so it lives in **ClickHouse**
 (`internal/store/pathstore`): a `memory` store for the lightweight mode and tests,
 and a `clickhouse` adapter that reads/writes hop and link rows over ClickHouse's

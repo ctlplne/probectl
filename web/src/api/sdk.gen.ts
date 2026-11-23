@@ -3212,6 +3212,7 @@ export interface HopNode {
   ip: string
   loss_ratio?: number
   mpls?: MPLSLabel[]
+  quoted_ttl?: number
   received?: number
   rtt_avg_ms?: number
   rtt_max_ms?: number
@@ -3834,6 +3835,15 @@ export interface Link {
   ttl?: number
 }
 
+export interface MPLSInference {
+  from: string
+  from_quoted_ttl: number
+  method: "quoted_ttl"
+  to: string
+  to_quoted_ttl: number
+  ttl: number
+}
+
 export interface MPLSLabel {
   label?: number
   s?: boolean
@@ -4112,6 +4122,7 @@ export interface OncallTestResponse {
 export interface Path {
   destination_reached?: boolean
   hops: Hop[]
+  inferred_mpls?: MPLSInference[]
   links: Link[]
   max_hops?: number
   measurement_fidelity?: PathMeasurementFidelity | null

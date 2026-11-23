@@ -213,6 +213,8 @@ func marshalNativeChangeTimeline(body json.RawMessage) (json.RawMessage, error) 
 		TenantID mcp.NativeRoleUUID `json:"tenant_id"`
 		Routing  json.RawMessage    `json:"routing,omitempty"`
 		Config   json.RawMessage    `json:"config,omitempty"`
+		Ref      any                `json:"ref,omitempty"`
+		Attrs    map[string]any     `json:"attributes,omitempty"`
 	}
 	output := struct {
 		Items                  []event         `json:"items"`
@@ -229,6 +231,22 @@ func marshalNativeChangeTimeline(body json.RawMessage) (json.RawMessage, error) 
 	}
 	for _, item := range result.Items {
 		value := event{Event: item, TenantID: mcp.NativeRoleUUID(item.TenantID)}
+		if item.Ref != "" {
+			value.Ref = item.Ref
+		}
+		if len(item.Attributes) > 0 {
+			value.Attrs = make(map[string]any, len(item.Attributes))
+			for key, attribute := range item.Attributes {
+				value.Attrs[key] = attribute
+			}
+		}
+		if item.Source == pathChangeSource && item.Kind == change.KindRoute && item.Ref != "" && item.Attributes["test_id"] == item.Ref {
+			value.Ref = mcp.NativeRoleUUID(item.Ref)
+			value.Attrs["test_id"] = value.Ref
+			for _, key := range []string{"baseline_round_id", "candidate_round_id", "confirmed_round_id"} {
+				value.Attrs[key] = mcp.NativePathRoundID(item.Attributes[key])
+			}
+		}
 		id := item.ID
 		prefix := ""
 		if strings.HasPrefix(id, "device-config:") {

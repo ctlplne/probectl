@@ -81,6 +81,28 @@ func LoadASNFile(path string) (*ASNFile, error) {
 // Size reports the number of indexed prefixes (v4 ranges + v6 prefixes).
 func (a *ASNFile) Size() int { return len(a.v4) + len(a.v6) }
 
+// Origin returns the most-specific offline prefix origin, or zero if unknown.
+func (a *ASNFile) Origin(addr netip.Addr) uint32 {
+	meta, _ := a.lookup(addr.Unmap())
+	return meta.asn
+}
+
+// LocalASNIndex snapshots the registered offline source. Callers performing
+// comparisons never invoke the online enrichment providers for a hop address.
+func (en *Enricher) LocalASNIndex() *ASNFile {
+	if en == nil {
+		return nil
+	}
+	en.mu.Lock()
+	defer en.mu.Unlock()
+	for _, source := range en.sources {
+		if index, ok := source.src.(*ASNFile); ok && source.health.Enabled {
+			return index
+		}
+	}
+	return nil
+}
+
 // Load streams a GeoLite2-ASN-style CSV into the index. Blank lines, comments,
 // the header row, and malformed rows are skipped (untrusted input).
 func (a *ASNFile) Load(r io.Reader) error {

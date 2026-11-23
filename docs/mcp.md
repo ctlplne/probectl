@@ -774,6 +774,15 @@ returns exact flow values only when the caller still has access to the original
 view revision and its source contexts. HTTPS and stdio recheck configuration
 and source authority before returning those fields.
 
+## Path change evidence
+
+`changes_list` lists confirmed path changes with their test and original
+round IDs. Use `path_history` with the owned `test_id` and up to two `round_id`
+values to read the cited rounds. The tool also accepts `from`, `to` and `limit`
+for ordinary history reads. It requires `ai.query` and `test.read`. Returned
+`inferred_mpls` entries include the two quoted TTLs from the recorded link.
+Addresses follow the tenant's MCP redaction policy.
+
 ## Original polled path-interface health (preview)
 
 The native alert configuration tools `alert_path_health_create`,

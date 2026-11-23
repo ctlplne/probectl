@@ -60,6 +60,7 @@ const en = {
   'changes.timeline.page': 'Page {page}: {count} changes',
   'changes.timeline.next': 'Next page',
   'changes.timeline.diff': 'Open exact redacted configuration diff',
+  'changes.timeline.pathRounds': 'Compare the original path rounds',
   'changes.routing.title': 'Owned routing observation',
   'changes.routing.selected': 'Observed BGP-selected route; forwarding-table state is unverified.',
   'changes.routing.advertised':
@@ -147,6 +148,7 @@ const en = {
   'path.graph.scrollRegion': 'Scrollable network path graph',
   'path.vantage.controlPlane': 'Traced from the control plane, not from an agent',
   'path.vantage.unknown': 'Trace vantage not recorded',
+  'path.mpls.inferred': 'Inferred MPLS between hops {from} and {to} (quoted TTLs {fromTTL} and {toTTL})',
   'path.fidelity.title': 'Measurement fidelity',
   'path.fidelity.visibility.full': 'Full-hop acquisition',
   'path.fidelity.visibility.destinationOnly': 'Destination-only fallback',

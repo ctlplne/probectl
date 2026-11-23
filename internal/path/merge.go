@@ -27,6 +27,7 @@ func mergeTraces(cfg Config, targetIP string, traces []flowTrace) *Path {
 		sent, received int
 		rtts           []time.Duration
 		mpls           []MPLSLabel
+		quotedTTL      uint8
 	}
 	byTTL := map[int]map[string]*agg{}
 	linkSet := map[Link]bool{}
@@ -47,8 +48,10 @@ func mergeTraces(cfg Config, targetIP string, traces []flowTrace) *Path {
 			}
 			a := ips[ob.ip]
 			if a == nil {
-				a = &agg{}
+				a = &agg{quotedTTL: ob.quotedTTL}
 				ips[ob.ip] = a
+			} else if a.quotedTTL != ob.quotedTTL {
+				a.quotedTTL = 0
 			}
 			a.sent += ob.sent
 			a.received += ob.received
@@ -77,7 +80,7 @@ func mergeTraces(cfg Config, targetIP string, traces []flowTrace) *Path {
 		hop := Hop{TTL: ttl}
 		for _, ip := range sortedKeys(ips) {
 			a := ips[ip]
-			n := HopNode{IP: ip, Sent: a.sent, Received: a.received, MPLS: a.mpls}
+			n := HopNode{IP: ip, Sent: a.sent, Received: a.received, MPLS: a.mpls, QuotedTTL: a.quotedTTL}
 			if a.sent > 0 {
 				n.LossRatio = round(float64(a.sent-a.received)/float64(a.sent), 4)
 			}

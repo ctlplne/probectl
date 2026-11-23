@@ -191,6 +191,23 @@ function CurrentChangeTimeline({ identity }: { identity: string }) {
                   <p>{selected.target || selected.prefix}</p>
                   {selected.routing ? <RoutingChangeMetadata reference={selected.routing} /> : null}
                   <ChangeEffects id={selected.id} from={from} to={to} />
+                  {selected.source === 'probectl-path' &&
+                  selected.attributes?.test_id &&
+                  selected.attributes?.confirmed_round_id &&
+                  selected.attributes?.baseline_round_id &&
+                  permissions.includes('test.read') ? (
+                    <Link
+                      to={pivotHref('/path', {
+                        filters: {
+                          path_test: selected.attributes.test_id,
+                          path_round: selected.attributes.confirmed_round_id,
+                          compare_round: selected.attributes.baseline_round_id,
+                        },
+                      })}
+                    >
+                      {t('changes.timeline.pathRounds')}
+                    </Link>
+                  ) : null}
                   {selected.config ? (
                     <Link
                       to={pivotHref(

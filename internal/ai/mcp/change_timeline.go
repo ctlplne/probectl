@@ -29,7 +29,7 @@ func WithChangeTimelineBackend(backend ChangeTimelineBackend, schema json.RawMes
 		if backend == nil || !json.Valid(schema) {
 			return
 		}
-		tool := Tool{Name: "changes_list", Description: "Page original authenticated owned-router, signed webhook and content-free configuration changes. Follow next_cursor until empty; current tenant/user/source grants are checked on every page and before publication. BGP-selected routes do not prove forwarding state. Config contents need their separate archive read.", InputSchema: append(json.RawMessage(nil), schema...), Permission: "change.read", ExtraPermissions: []string{"ai.query"}, Native: true, RequiresUser: true, Query: true,
+		tool := Tool{Name: "changes_list", Description: "Page original authenticated owned-router, signed webhook and content-free configuration changes. Follow next_cursor until empty; current tenant/user/source grants are checked on every page and before publication. BGP-selected routes do not prove forwarding state. Config contents need their separate archive read. Use path_history to read the rounds cited by confirmed path changes.", InputSchema: append(json.RawMessage(nil), schema...), Permission: "change.read", ExtraPermissions: []string{"ai.query"}, Native: true, RequiresUser: true, Query: true,
 			Invoke: func(ctx context.Context, actor *auth.Principal, raw json.RawMessage) (any, error) {
 				var command ChangeTimelineCommand
 				if err := decodeBoundedNativeArgs(raw, &command, s.nativeRequestBytes()); err != nil {

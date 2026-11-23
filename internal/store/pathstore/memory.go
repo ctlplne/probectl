@@ -30,7 +30,7 @@ func NewMemory() *Memory { return &Memory{saved: map[string][]Snapshot{}} }
 func (m *Memory) Save(ctx context.Context, tenantID string, p *path.Path) error {
 	observedAt, trusted := discoveryStartedAt(ctx)
 	return m.SaveBatch(ctx, []PathItem{{
-		TenantID: tenantID, P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
+		TenantID: tenantID, roundID: discoveryRoundID(ctx), P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
 		CompletedAt: discoveryCompletedAt(ctx),
 	}})
 }
@@ -46,7 +46,7 @@ func (m *Memory) SaveBatch(_ context.Context, items []PathItem) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, item := range items {
-		id, err := randomID()
+		id, err := item.id()
 		if err != nil {
 			return err
 		}
@@ -230,6 +230,7 @@ func clonePath(in *path.Path) path.Path {
 		}
 	}
 	out.Links = append([]path.Link(nil), in.Links...)
+	out.InferredMPLS = append([]path.MPLSInference(nil), in.InferredMPLS...)
 	return out
 }
 
