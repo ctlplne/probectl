@@ -236,6 +236,27 @@ func TestDDoSApplicationQualifiesDegradationWithAHealthyReference(t *testing.T) 
 	if err != nil || got != finding || app == nil || app.State != DDoSApplicationDegraded || app.Current.P95 != 6*time.Second {
 		t.Fatalf("completed slow requests must corroborate their original window, got %+v, %v", app, err)
 	}
+
+	currentApp.Requests, currentApp.Successes = 120, 120
+	got, app, err = QualifyDDoSApplication(ctx, earlier, current, previousApp, currentApp, finding, limits, 1<<20)
+	if err != nil || got != finding || app == nil || app.State != DDoSApplicationOverload {
+		t.Fatalf("proportionate slow requests must leave pressure inconclusive, got %+v, %v", app, err)
+	}
+
+	earlier.Bytes, earlier.Packets, earlier.ApplicationBytes, earlier.ApplicationPackets = "300000", "3000", "300000", "3000"
+	for _, scenario := range []struct {
+		requests int
+		state    string
+	}{
+		{31, DDoSApplicationDegraded},
+		{36, DDoSApplicationOverload},
+	} {
+		currentApp.Requests, currentApp.Successes = scenario.requests, scenario.requests
+		got, app, err := QualifyDDoSApplication(ctx, earlier, current, previousApp, currentApp, finding, limits, 1<<20)
+		if err != nil || got != finding || app == nil || app.State != scenario.state {
+			t.Fatalf("20%% traffic growth with %d completed requests must yield %q, got %+v, %v", scenario.requests, scenario.state, app, err)
+		}
+	}
 }
 
 func TestDDoSApplicationRequiresPressureOnTheDegradedListener(t *testing.T) {
@@ -301,7 +322,7 @@ func TestDDoSApplicationRequiresMeasuredOutsideTraffic(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			parser := decimalSeasonalTraining{work: 1 << 20}
-			got, err := compareApplicationTraffic(&parser, [2]int{80, 30}, scenario.reference, scenario.current, floor, 2000)
+			got, err := compareApplicationTraffic(&parser, applicationDemand{previous: 80, current: 30}, scenario.reference, scenario.current, floor, 2000)
 			if err != nil || got.residualPressure != scenario.definite || got.possibleResidualPressure != scenario.possible {
 				t.Fatal("unexpected outside-traffic bounds", got, err)
 			}

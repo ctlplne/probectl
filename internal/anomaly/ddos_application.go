@@ -45,14 +45,15 @@ const (
 	DDoSApplicationDegraded  = "application_health_degraded"
 	DDoSApplicationDemand    = "traffic_growth_explained_by_healthy_application_demand"
 	DDoSApplicationAmbiguous = "application_demand_does_not_explain_all_traffic"
+	DDoSApplicationOverload  = "application_overload_inconclusive"
 	DDoSApplicationResidual  = "traffic_outside_bound_application_exceeds_threshold"
 	DDoSApplicationSampling  = "application_trace_sampling_incomparable"
 	DDoSSamplingMixed        = "mixed"
 )
 
-// QualifyDDoSApplication compares independently observed successful requests
-// to both byte and packet growth. Healthy service alone cannot suppress flow
-// pressure, and explicit network vectors retain their original evidence.
+// QualifyDDoSApplication compares independently observed demand to both byte
+// and packet growth. Healthy service alone cannot suppress flow pressure.
+// Degraded service can be consistent with an overloaded flash crowd.
 func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservation, earlier, latest DDoSApplicationWindow,
 	finding *DDoSDetection, limits DDoSThresholds, work int64) (*DDoSDetection, *DDoSApplicationEvidence, error) {
 	tenant, ok := tenancy.FromContext(ctx)
@@ -76,13 +77,17 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 		return finding, proof, ctx.Err()
 	}
 	parser := decimalSeasonalTraining{work: work}
-	requests := [2]int{earlier.Successes, latest.Successes}
-	bytes, packets, err := compareDDoSApplicationTraffic(&parser, requests, reference, current, limits)
+	degraded := !withinDDoSApplicationErrorBudget(latest) || latest.P95-earlier.P95 > earlier.P95/2
+	demand := applicationDemand{previous: earlier.Successes, current: latest.Successes}
+	if degraded {
+		demand = applicationDemand{previous: earlier.Requests, current: latest.Requests, growthOnly: true}
+	}
+	bytes, packets, err := compareDDoSApplicationTraffic(&parser, demand, reference, current, limits)
 	if err != nil {
 		return nil, nil, err
 	}
 	listenerPressure := bytes.listenerPressure || packets.listenerPressure
-	degraded := !withinDDoSApplicationErrorBudget(latest) || latest.P95-earlier.P95 > earlier.P95/2
+	demandExplainsTraffic := bytes.explained && packets.explained
 	switch {
 	case bytes.residualPressure || packets.residualPressure:
 		proof.State = DDoSApplicationResidual
@@ -90,6 +95,10 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 		proof.State = DDoSApplicationAmbiguous
 	case earlier.SamplingThreshold != latest.SamplingThreshold || earlier.SamplingThreshold == DDoSSamplingMixed:
 		proof.State = DDoSApplicationSampling
+	case degraded && demandExplainsTraffic:
+		// Both an overloaded crowd and HTTP pressure can raise completed
+		// request counts and errors in proportion to the observed traffic.
+		proof.State = DDoSApplicationOverload
 	case degraded && listenerPressure:
 		proof.State = DDoSApplicationDegraded
 	case degraded:
@@ -100,7 +109,7 @@ func QualifyDDoSApplication(ctx context.Context, reference, current DDoSObservat
 		proof.State = DDoSApplicationObserved
 	case bytes.possibleResidualPressure || packets.possibleResidualPressure:
 		proof.State = DDoSApplicationAmbiguous
-	case bytes.explained && packets.explained:
+	case demandExplainsTraffic:
 		proof.State = DDoSApplicationDemand
 		finding = nil
 	default:
@@ -122,7 +131,7 @@ func outsideDDoSApplicationPressure(parser *decimalSeasonalTraining, reference, 
 		reference.ApplicationBytes == "" || current.ApplicationBytes == "" || reference.ApplicationPackets == "" || current.ApplicationPackets == "" {
 		return false, nil
 	}
-	bytes, packets, err := compareDDoSApplicationTraffic(parser, [2]int{}, reference, current, limits)
+	bytes, packets, err := compareDDoSApplicationTraffic(parser, applicationDemand{}, reference, current, limits)
 	if err != nil {
 		return false, err
 	}
@@ -139,21 +148,21 @@ type applicationTrafficWindow struct {
 	total, listener, unknown string
 }
 
-func compareDDoSApplicationTraffic(parser *decimalSeasonalTraining, requests [2]int,
+func compareDDoSApplicationTraffic(parser *decimalSeasonalTraining, demand applicationDemand,
 	reference, current DDoSObservation, limits DDoSThresholds) (bytes, packets applicationTrafficComparison, err error) {
-	bytes, err = compareApplicationTraffic(parser, requests,
+	bytes, err = compareApplicationTraffic(parser, demand,
 		applicationTrafficWindow{reference.Bytes, reference.ApplicationBytes, reference.UnknownApplicationBytes},
 		applicationTrafficWindow{current.Bytes, current.ApplicationBytes, current.UnknownApplicationBytes}, limits.BytesFloor, limits.GrowthBasisPoints)
 	if err != nil {
 		return bytes, packets, err
 	}
-	packets, err = compareApplicationTraffic(parser, requests,
+	packets, err = compareApplicationTraffic(parser, demand,
 		applicationTrafficWindow{reference.Packets, reference.ApplicationPackets, reference.UnknownApplicationPackets},
 		applicationTrafficWindow{current.Packets, current.ApplicationPackets, current.UnknownApplicationPackets}, limits.PacketsFloor, limits.GrowthBasisPoints)
 	return bytes, packets, err
 }
 
-func compareApplicationTraffic(parser *decimalSeasonalTraining, requests [2]int,
+func compareApplicationTraffic(parser *decimalSeasonalTraining, demand applicationDemand,
 	reference, current applicationTrafficWindow, configuredFloor string, growth int) (applicationTrafficComparison, error) {
 	var values [7]*big.Rat
 	for i, counter := range []string{reference.total, current.total, reference.listener, current.listener,
@@ -175,8 +184,8 @@ func compareApplicationTraffic(parser *decimalSeasonalTraining, requests [2]int,
 	// Compare known current outside traffic with the largest possible outside
 	// reference. Missing socket fields can leave the result inconclusive.
 	return applicationTrafficComparison{
-		explained: comparableDDoSDemand(appBefore, appAfter, requests[0], requests[1]) &&
-			(residualAfter.Cmp(residualBefore) <= 0 || comparableDDoSDemand(before, after, requests[0], requests[1])),
+		explained: demand.explains(appBefore, appAfter) &&
+			(residualAfter.Cmp(residualBefore) <= 0 || demand.explains(before, after)),
 		listenerPressure:         exceedsDDoSVolume(appAfter, appBefore, floor, growth),
 		residualPressure:         exceedsDDoSVolume(knownAfter, residualBefore, floor, growth),
 		possibleResidualPressure: exceedsDDoSVolume(residualAfter, knownBefore, floor, growth),
@@ -195,14 +204,26 @@ func withinDDoSApplicationErrorBudget(app DDoSApplicationWindow) bool {
 	return (app.Requests-app.Successes)*100 <= app.Requests*errorBudgetPercent
 }
 
-// Compare growth ratios without rounding or converting window counters to
-// floating point. The successful-request growth must explain both counters.
-func comparableDDoSDemand(before, after *big.Rat, previous, current int) bool {
-	if before.Sign() <= 0 || after.Cmp(before) <= 0 || previous <= 0 {
+type applicationDemand struct {
+	previous, current int
+	growthOnly        bool
+}
+
+// Use the same tolerance for both comparisons. In a degraded window, apply
+// it to the increase, where a high baseline cannot hide a demand mismatch.
+func (d applicationDemand) explains(before, after *big.Rat) bool {
+	if before.Sign() <= 0 || after.Cmp(before) <= 0 || d.previous <= 0 {
 		return false
 	}
-	actual := new(big.Rat).Mul(after, big.NewRat(100*int64(previous), 1))
-	low := new(big.Rat).Mul(before, big.NewRat(75*int64(current), 1))
-	high := new(big.Rat).Mul(before, big.NewRat(125*int64(current), 1))
+	if d.growthOnly {
+		after = new(big.Rat).Sub(after, before)
+		d.current -= d.previous
+	}
+	if d.current <= 0 {
+		return false
+	}
+	actual := new(big.Rat).Mul(after, big.NewRat(100*int64(d.previous), 1))
+	low := new(big.Rat).Mul(before, big.NewRat(75*int64(d.current), 1))
+	high := new(big.Rat).Mul(before, big.NewRat(125*int64(d.current), 1))
 	return actual.Cmp(low) >= 0 && actual.Cmp(high) <= 0
 }

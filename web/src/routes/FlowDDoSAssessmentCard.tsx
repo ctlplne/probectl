@@ -30,6 +30,8 @@ const applicationEvidenceLabels = {
     'Healthy application demand explains the spike',
   application_demand_does_not_explain_all_traffic:
     'Application demand leaves some flow growth unexplained',
+  application_overload_inconclusive:
+    'Completed requests rose with traffic during degraded service. Attack evidence is inconclusive.',
   traffic_outside_bound_application_exceeds_threshold:
     'Traffic outside the selected TCP service exceeded the configured floors',
   application_trace_sampling_incomparable:
@@ -299,6 +301,12 @@ export function DDoSAssessmentEvidence({ result }: { result: FlowDDoSAssessment 
       {application && (
         <div>
           {detection && <p>{applicationEvidenceLabels[application.state]}</p>}
+          {application.state === 'application_overload_inconclusive' && (
+            <p>
+              Completed requests {application.reference.observed_requests} →{' '}
+              {application.current.observed_requests}.
+            </p>
+          )}
           <p>
             Successful requests {application.reference.successful_requests} →{' '}
             {application.current.successful_requests}. Matching flow{' '}

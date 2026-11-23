@@ -2640,7 +2640,7 @@ export interface FlowDDoSApplicationBinding {
 export interface FlowDDoSApplicationEvidence {
   current: FlowDDoSApplicationWindow
   reference: FlowDDoSApplicationWindow
-  state: "observed_application_demand" | "application_health_degraded" | "traffic_growth_explained_by_healthy_application_demand" | "application_demand_does_not_explain_all_traffic" | "traffic_outside_bound_application_exceeds_threshold" | "application_trace_sampling_incomparable"
+  state: "observed_application_demand" | "application_health_degraded" | "traffic_growth_explained_by_healthy_application_demand" | "application_demand_does_not_explain_all_traffic" | "application_overload_inconclusive" | "traffic_outside_bound_application_exceeds_threshold" | "application_trace_sampling_incomparable"
 }
 
 export interface FlowDDoSApplicationWindow {

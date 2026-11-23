@@ -57,9 +57,17 @@ growth must explain both byte and packet growth within 25% on the selected TCP
 port. If traffic elsewhere on the host increased, the same comparison applies
 to that host-wide counter. Suppression also requires at most 1%
 unsuccessful requests and a p95 duration no more than 1.5 times the
-reference. Degraded HTTP responses corroborate pressure only when traffic
-on the selected listener independently meets the configured volume and
-growth thresholds. Traffic outside the listener can qualify on its own
+reference. During degraded service, compare the increase in all completed
+requests, including errors, with the increases in listener bytes and
+packets. Apply the 25% tolerance to the increases relative to the
+reference window. When demand grew in proportion to both counters, an
+overloaded flash crowd and HTTP attack pressure remain possible. The
+application assessment reports
+inconclusive overload. The generic rule defers evaluation and keeps its
+previous state.
+Degradation can corroborate pressure when the listener independently
+meets the volume and growth thresholds and completed demand fails to
+explain the increase. Traffic outside the listener can qualify on its own
 volume and growth. When neither component reaches those thresholds,
 degraded responses leave the host-wide increase ambiguous. Missing,
 full-page or ambiguous application observations leave the bound generic

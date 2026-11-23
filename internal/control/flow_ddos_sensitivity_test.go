@@ -43,9 +43,17 @@ func TestSyntheticDDoSProtectedServiceSensitivity(t *testing.T) {
 			// historical population and the smallest held-out surge.
 			trial.Settings.BytesFloor, trial.Settings.PacketsFloor = "140000", "1400"
 			outcome, err = benchmarkDDoSEvaluate(ctx, trial)
+			if !errors.Is(err, anomaly.ErrDDoSCoverage) || outcome.Class != "" || !outcome.Abstained || outcome.DemandProven {
+				t.Fatalf("proportionate demand during degraded service must leave pressure ambiguous, got %+v, %v", outcome, err)
+			}
+
+			pressure := degraded
+			pressure.Application.Requests = trial.Reference.Application.Requests
+			trial.Windows = [2]benchmarkDDoSWindow{pressure, pressure}
+			outcome, err = benchmarkDDoSEvaluate(ctx, trial)
 			if err != nil || outcome.Class != anomaly.DDoSVolumetric || outcome.Abstained ||
 				outcome.DelaySeconds != 2*trial.Settings.PeriodSeconds+trial.OnsetBeforeAligned {
-				t.Fatalf("lower service floors lost corroborated degradation, got %+v, %v", outcome, err)
+				t.Fatalf("lower service floors lost pressure that completed demand could not explain, got %+v, %v", outcome, err)
 			}
 
 			trial.Windows = [2]benchmarkDDoSWindow{healthy, healthy}
@@ -67,6 +75,6 @@ func TestSyntheticDDoSProtectedServiceSensitivity(t *testing.T) {
 	if trials != benchmarkDDoSVars {
 		t.Fatalf("service sensitivity holdout evaluated %d original variations", trials)
 	}
-	t.Logf("variations=%d broad_floor_misses=%d service_floor_detections=%d healthy_demand_controls=%d unavailable_application_controls=%d",
-		trials, trials, trials, trials, trials)
+	t.Logf("variations=%d broad_floor_misses=%d service_floor_detections=%d healthy_demand_controls=%d degraded_demand_abstentions=%d unavailable_application_controls=%d",
+		trials, trials, trials, trials, trials, trials)
 }

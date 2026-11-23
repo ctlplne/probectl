@@ -128,8 +128,12 @@ configured TCP port and across the protected host. Pressure on other ports
 can open an episode even during healthy growth on the bound service. If the
 traffic outside that TCP listener stays flat or falls, the listener comparison
 can explain growth across the host. Healthy response outcomes and comparable
-latency are required for suppression. Missing or ambiguous bound evidence
-leaves generic pressure unevaluated for alarm admission. A SYN or UDP
+latency are required for suppression. Degradation with proportionate growth
+in completed requests leaves the generic pressure inconclusive. The
+degraded-service comparison uses the increases in requests, bytes and
+packets, with each measured against its own reference. Missing or ambiguous
+bound evidence leaves generic pressure unevaluated for alarm admission.
+A SYN or UDP
 service association can qualify on its own flow evidence when its packet count
 grows against the same historical vector and meets the configured share of
 current packets.
@@ -229,11 +233,19 @@ service thresholds of 140,000 bytes and 1,400 packets per five seconds.
 | Scenario | Result across 16 variants |
 | --- | --- |
 | Degraded service with the original benchmark thresholds | 16 below both floors |
-| Degraded service with the tested service thresholds | 16 episodes in 10–14 modeled seconds |
+| Degraded service with steady completed demand and the tested service thresholds | 16 episodes in 10–14 modeled seconds |
 | Same traffic with proportionate successful demand and healthy responses | 16 suppressed as explained demand |
+| Same traffic with proportionate completed demand and degraded responses | 16 inconclusive overloads |
 | Same traffic with missing application observations | 16 abstentions |
 
-These 64 comparisons are separate from the 416-trial corpus. [Sensitivity fixture](../internal/control/flow_ddos_sensitivity_test.go)
+These 80 comparisons are separate from the 416-trial corpus. Proportionate
+completed demand during degradation is consistent with a flash crowd that
+overloads the service or with HTTP attack pressure. The assessment retains
+the original flow and application counters and the saved rule abstains.
+The paired scheduler fixture uses identical fourfold flow growth, HTTP
+latency, and failure fractions. The tenant with steady completed requests
+issues one scoped receipt. The tenant with fourfold completed demand leaves
+generic pressure inconclusive. [Sensitivity fixture](../internal/control/flow_ddos_sensitivity_test.go) · [Paired scheduler fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
 
 ## Stable network background holdout
 
@@ -607,13 +619,27 @@ observations at both ends of every compared increase. Sampled traffic
 requires named exporters with comparable reported sampling rates in
 all five windows before this trend check can apply.
 
-A separate holdout uses 240 independently labeled synthetic scenarios
+A separate holdout uses 256 independently labeled synthetic scenarios
 and evaluates each in both reference modes. It includes matching flow
 volumes and destination spread for benign traffic and concurrent pressure,
 a new acceleration, and independently qualifying SYN pressure while
-aggregate volume follows the trend. Missing or indistinguishable evidence remains an
-explicit abstention. The original 416-trial corpus is independently
-reproducible.
+aggregate volume follows the trend. Identical volume growth and degraded
+responses are compared with both proportionate completed demand and
+completed request counts below baseline. Missing or indistinguishable
+evidence remains an explicit abstention. The original 416-trial corpus
+is independently reproducible.
+
+| Weekly reference | True positives | False alarms | True negatives | False negatives | Abstained positives | Abstained negatives |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Same time last week | 80 | 16 | 64 | 80 | 16 | 0 |
+| Representative week | 96 | 0 | 32 | 0 | 80 | 48 |
+
+All 16 false alarms came from ordinary traffic following a low previous
+week. The representative comparison kept those cases quiet. Both
+references left the 16 overloaded crowd cases without an episode. The
+previous-week comparison was below its growth threshold for those cases,
+while the representative comparison reported inconclusive overload.
+The representative mode abstained on 80 of 176 positive trials.
 
 ```sh
 go test -count=1 -v -run '^TestSyntheticDDoSChangingWeeklyBaselineHoldout$' ./internal/control

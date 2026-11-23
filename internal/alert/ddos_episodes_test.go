@@ -91,6 +91,11 @@ func TestFastDDoSEpisodeRemainsOpenAcrossQualifyingClassChanges(t *testing.T) {
 	if got, _, err := EvaluateDDoSEpisode(ctx, binding, active, syn(3), uncorroborated, budget); got != nil || !errors.Is(err, anomaly.ErrDDoSCoverage) {
 		t.Fatal("the evaluation cannot advance when required application evidence is missing", err)
 	}
+	overload := volume(4)
+	overload.Application.State = anomaly.DDoSApplicationOverload
+	if got, _, err := EvaluateDDoSEpisode(ctx, binding, active, syn(3), overload, budget); got != nil || !errors.Is(err, anomaly.ErrDDoSCoverage) {
+		t.Fatal("inconclusive overload cannot change the active episode", err)
+	}
 	for _, pair := range [][2]flow.DDoSAssessment{{syn(3), volume(4)}, {volume(4), syn(5)}, {syn(5), syn(6)}} {
 		duplicate, next, err := EvaluateDDoSEpisode(ctx, binding, active, pair[0], pair[1], budget)
 		if err != nil || duplicate != nil || len(next.Keys) != 1 || next.Keys[0] != first.GroupKey || !next.At.Equal(pair[1].After.To) {

@@ -36,6 +36,10 @@ func TestFastDDoSKeepsChangedTraceSamplingSeparateFromListenerPressure(t *testin
 	verifyDDoSApplicationAttribution(t, ddosSplitListenerTraceSampling)
 }
 
+func TestFastDDoSAbstainsOnProportionateDemandDuringServiceOverload(t *testing.T) {
+	verifyDDoSApplicationAttribution(t, ddosSplitListenerDegradedCrowd)
+}
+
 func TestFastDDoSKeepsIndependentPressureWithAnUnhealthyApplicationReference(t *testing.T) {
 	verifyDDoSApplicationAttribution(t, ddosSplitListenerDegradedReference)
 }
@@ -61,6 +65,7 @@ const (
 	ddosSplitListenerFlatHost
 	ddosSplitListenerMissingPort
 	ddosSplitListenerMissingTransport
+	ddosSplitListenerDegradedCrowd
 )
 
 func (s ddosSplitListenerHoldout) flatHost() bool {
@@ -357,7 +362,7 @@ func verifyDDoSApplicationAttribution(t *testing.T, scenario ddosSplitListenerHo
 	listenerBytes, listenerPackets, hostBytes, hostPackets := "210000", "2700", "290000", "3500"
 	wantState, wantReferenceSuccesses, wantCurrentSuccesses := anomaly.DDoSApplicationDegraded, 30, 20
 	switch scenario {
-	case ddosSplitListenerTraceSampling:
+	case ddosSplitListenerTraceSampling, ddosSplitListenerDegradedCrowd:
 		listenerBytes, listenerPackets, hostBytes, hostPackets = "560000", "6800", "560000", "6800"
 	case ddosSplitListenerDegradedReference:
 		listenerBytes, listenerPackets, hostBytes, hostPackets = "140000", "1700", "400000", "4500"
@@ -371,6 +376,9 @@ func verifyDDoSApplicationAttribution(t *testing.T, scenario ddosSplitListenerHo
 		proof.Current.Application.Current.FlowBytes != listenerBytes || proof.Current.Application.Current.FlowPackets != listenerPackets ||
 		proof.Current.Application.Current.Successes != wantCurrentSuccesses || proof.Current.After.Bytes != hostBytes || proof.Current.After.Packets != hostPackets {
 		t.Fatal("receipt lost the original listener-specific and host-wide evidence", err)
+	}
+	if scenario == ddosSplitListenerDegradedCrowd && (proof.Current.Application.Reference.Requests != 30 || proof.Current.Application.Current.Requests != 30) {
+		t.Fatal("receipt lost the original completed request counts", proof.Current.Application)
 	}
 	if scenario.flatHost() {
 		if proof.Current.Before.Bytes != hostBytes || proof.Current.Before.Packets != hostPackets || proof.Current.Detection == nil ||
@@ -391,6 +399,7 @@ func seedDDoSSplitListenerPressure(t *testing.T, rows flowstore.Store, traces ot
 	t.Helper()
 	samplingKnown := scenario == ddosSplitListenerTraceSampling
 	samplingChanged := samplingKnown && !positive
+	listenerOnly := samplingKnown || scenario == ddosSplitListenerDegradedCrowd
 	var flows []flowstore.Row
 	var observations []otelstore.Span
 	for _, pair := range []anomaly.FlowFieldComparisonClocks{clocks.Previous, clocks.Current} {
@@ -431,8 +440,11 @@ func seedDDoSSplitListenerPressure(t *testing.T, rows flowstore.Store, traces ot
 					http = benchmarkDDoSApplication{Requests: 120, LatencyMS: 25}
 				}
 				switch {
-				case samplingKnown:
+				case listenerOnly:
 					listenerBytes, listenerPackets = listenerBytes*4, listenerPackets*4
+					if scenario == ddosSplitListenerDegradedCrowd && !positive {
+						http.Requests, http.Failures = 120, 40
+					}
 				case scenario == ddosSplitListenerDegradedReference && positive:
 					otherBytes, otherPackets = 260000, 2800
 				case scenario == ddosSplitListenerAttribution && positive:
@@ -443,7 +455,7 @@ func seedDDoSSplitListenerPressure(t *testing.T, rows flowstore.Store, traces ot
 			}
 			listener.Bytes, listener.BytesScaled, listener.Packets, listener.PacketsScaled = listenerBytes, listenerBytes, listenerPackets, listenerPackets
 			flows = append(flows, listener)
-			if !samplingKnown {
+			if !listenerOnly {
 				other.Bytes, other.BytesScaled, other.Packets, other.PacketsScaled = otherBytes, otherBytes, otherPackets, otherPackets
 				flows = append(flows, other)
 			}

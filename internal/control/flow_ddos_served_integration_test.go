@@ -97,25 +97,34 @@ func TestDDoSAssessmentServedKeepsBothTenantsAndThemes(t *testing.T) {
 }
 
 func TestFastDDoSAssessmentServedKeepsApplicationEvidenceScoped(t *testing.T) {
-	verifyFastDDoSAssessmentApplicationEvidence(t, false)
+	verifyFastDDoSAssessmentApplicationEvidence(t, anomaly.DDoSApplicationDemand)
 }
 
 func TestFastDDoSAssessmentServedExplainsIncomparableTraceSampling(t *testing.T) {
-	verifyFastDDoSAssessmentApplicationEvidence(t, true)
+	verifyFastDDoSAssessmentApplicationEvidence(t, anomaly.DDoSApplicationSampling)
 }
 
-func verifyFastDDoSAssessmentApplicationEvidence(t *testing.T, changedSampling bool) {
+func TestFastDDoSAssessmentServedExplainsInconclusiveServiceOverload(t *testing.T) {
+	verifyFastDDoSAssessmentApplicationEvidence(t, anomaly.DDoSApplicationOverload)
+}
+
+func verifyFastDDoSAssessmentApplicationEvidence(t *testing.T, controlState string) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	queries := flow.NewPostgresQueryViewStore(f.pool, 0, audit.TenantRecord)
 	f.server.WithFlowQueryViews(queries).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	names := [2]string{"First protected service", "Second protected service"}
 	outcomes := [2]string{"HTTP response health degraded during flow pressure", "Healthy application demand explains the spike"}
-	successCounts := [2]string{"Successful requests 360 → 960", "Successful requests 360 → 1440"}
-	if changedSampling {
+	successCounts := [2]string{"Successful requests 360 → 240", "Successful requests 360 → 1440"}
+	switch controlState {
+	case anomaly.DDoSApplicationSampling:
 		outcomes[1] = "Trace sampling differed or was incomplete across the observation windows"
 		successCounts[1] = "Successful requests 360 → 360"
+	case anomaly.DDoSApplicationOverload:
+		outcomes[1] = "Completed requests rose with traffic during degraded service. Attack evidence is inconclusive."
+		successCounts[1] = "Successful requests 360 → 960"
 	}
+	applicationStates := [2]string{anomaly.DDoSApplicationDegraded, controlState}
 	for lane, tenant := range f.tenants {
 		grantSeasonalFlowFixture(f, tenant)
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
@@ -135,10 +144,14 @@ func verifyFastDDoSAssessmentApplicationEvidence(t *testing.T, changedSampling b
 				rows, traces := flowstore.NewMemory(), otelstore.NewMemory()
 				center := time.Now().UTC().Truncate(5 * time.Second)
 				for index, owner := range f.tenants {
-					seedFastDDoSPairedEvidence(t, rows, traces, owner, center, netip.MustParseAddr("192.0.2.1"), index == 0, index == 1 && changedSampling)
+					seedFastDDoSPairedEvidence(t, rows, traces, owner, center, netip.MustParseAddr("192.0.2.1"), applicationStates[index])
 				}
 				f.server.WithFlowStore(rows).WithOTelStore(traces)
 				socket, ca := serveDDoSBrowserFixture(t, f)
+				expected := []string{outcomes[lane], successCounts[lane], "Latest completed window", "Matching flow"}
+				if applicationStates[lane] == anomaly.DDoSApplicationOverload {
+					expected = append(expected, "Completed requests 360 → 1440")
+				}
 				testsupport.RenderUI(t, testsupport.RenderSpec{
 					URL:            socket.URL + "/ui/explore?native_flow=1&flow_view=" + url.QueryEscape(view.ID),
 					Cookies:        []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: cookie}},
@@ -151,7 +164,7 @@ func verifyFastDDoSAssessmentApplicationEvidence(t *testing.T, changedSampling b
 						{Fill: "label:text-is('Minimum packets per window') + div input", Value: "2500"},
 						{Fill: "label:text-is('Minimum observed flow records') + div input", Value: "1"},
 						{Fill: "label:text-is('HTTP service for demand comparison') + div input", Value: "synthetic-public-site"},
-						{Click: "Assess traffic", Expect: []string{outcomes[lane], successCounts[lane], "Latest completed window", "Matching flow"}, Absent: []string{outcomes[1-lane]}},
+						{Click: "Assess traffic", Expect: expected, Absent: []string{outcomes[1-lane]}},
 					},
 					Controls: []testsupport.RenderControl{
 						{Role: "combobox", Name: "Observation window"},

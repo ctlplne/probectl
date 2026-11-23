@@ -53,6 +53,7 @@ func weeklyDDoSHoldoutCases() []weeklyDDoSHoldout {
 		{Name: "spread_above_the_weekly_growth_band", Positive: true, Spread: true, History: growingHistory, Current: [2]int{155, 162}},
 		{Name: "normal_growth_across_weeks_with_healthy_app", Application: "healthy", History: growingHistory, Current: growingCurrent},
 		{Name: "pressure_across_weeks_with_degraded_app", Positive: true, Application: "degraded", History: growingHistory, Current: growingCurrent},
+		{Name: "demand_across_weeks_with_overloaded_app", Application: "overloaded", History: growingHistory, Current: growingCurrent},
 		{Name: "pressure_across_weeks_with_missing_app", Positive: true, Application: "missing", History: growingHistory, Current: growingCurrent},
 		{Name: "pressure_with_one_old_window_missing", Positive: true, History: [4][2]int{{100, 105}, {102, 0}, {101, 103}, {98, 100}}, Current: [2]int{176, 192}},
 		{Name: "pressure_with_two_incomplete_weeks", Positive: true, History: [4][2]int{{100, 105}, {102, 0}, {0, 103}, {98, 100}}, Current: [2]int{176, 192}},
@@ -131,7 +132,11 @@ func checkWeeklyDDoSHoldoutControls(t *testing.T, name, mode string, outcome ben
 		}
 	case "pressure_across_weeks_with_degraded_app":
 		if weekly && (outcome.Abstained || outcome.Class == "" || outcome.DemandProven) {
-			t.Error("the identical flow increase was dismissed despite independently observed application degradation")
+			t.Error("the detector lost pressure that completed requests could not explain")
+		}
+	case "demand_across_weeks_with_overloaded_app":
+		if weekly && (!outcome.Abstained || outcome.Class != "" || outcome.DemandProven) {
+			t.Error("proportionate degraded demand must leave pressure inconclusive")
 		}
 	case "pressure_across_weeks_with_missing_app":
 		if weekly && (!outcome.Abstained || outcome.Class != "" || outcome.DemandProven) {
@@ -216,7 +221,10 @@ func replayWeeklyDDoSHoldout(ctx context.Context, scenario weeklyDDoSHoldout, se
 		from := windowEnd.Add(-period)
 		if input.Application != nil && (week != 0 || half != 1 || scenario.Application != "missing") {
 			app := benchmarkDDoSApplication{Requests: percent * (2 + variant%3), LatencyMS: 18 + variant%4}
-			if week == 0 && scenario.Application == "degraded" {
+			if week == 0 && (scenario.Application == "degraded" || scenario.Application == "overloaded") {
+				if scenario.Application == "degraded" {
+					app.Requests /= 2
+				}
 				app.Failures = app.Requests / 5
 				app.LatencyMS *= 4
 			}

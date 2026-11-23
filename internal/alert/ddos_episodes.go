@@ -51,7 +51,7 @@ func EvaluateDDoSEpisode(ctx context.Context, binding QueryGroupBinding, prior Q
 		for _, window := range []flow.DDoSAssessment{previous, current} {
 			if window.Detection != nil && window.Detection.Class == anomaly.DDoSVolumetric &&
 				(window.Application == nil || window.Application.State == anomaly.DDoSApplicationAmbiguous ||
-					window.Application.State == anomaly.DDoSApplicationSampling) {
+					window.Application.State == anomaly.DDoSApplicationOverload || window.Application.State == anomaly.DDoSApplicationSampling) {
 				return nil, QueryGroupState{}, anomaly.ErrDDoSCoverage
 			}
 		}
@@ -138,7 +138,8 @@ func matchesDDoSApplicationResult(state string, detection *anomaly.DDoSDetection
 	switch state {
 	case anomaly.DDoSApplicationDemand:
 		return detection == nil
-	case anomaly.DDoSApplicationObserved, anomaly.DDoSApplicationDegraded, anomaly.DDoSApplicationAmbiguous, anomaly.DDoSApplicationResidual, anomaly.DDoSApplicationSampling:
+	case anomaly.DDoSApplicationObserved, anomaly.DDoSApplicationDegraded, anomaly.DDoSApplicationAmbiguous, anomaly.DDoSApplicationOverload,
+		anomaly.DDoSApplicationResidual, anomaly.DDoSApplicationSampling:
 		return detection != nil && detection.Class == anomaly.DDoSVolumetric
 	default:
 		return false

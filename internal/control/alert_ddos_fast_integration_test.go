@@ -77,8 +77,9 @@ func testFastDDoSApplicationCrowds(t *testing.T, protected netip.Addr) {
 	}
 
 	center := time.Now().UTC().Truncate(5 * time.Second)
+	applicationStates := [2]string{anomaly.DDoSApplicationDegraded, anomaly.DDoSApplicationDemand}
 	for lane, tenant := range f.tenants {
-		seedFastDDoSPairedEvidence(t, rows, traces, tenant, center, protected, lane == 0, false)
+		seedFastDDoSPairedEvidence(t, rows, traces, tenant, center, protected, applicationStates[lane])
 		source := alert.QuerySourceInput{ViewID: viewIDs[lane], ViewVersion: inputs[lane].Version,
 			Condition: alert.QueryCondition{Mode: alert.DDoSCondition, DDoS: &inputs[lane]}}
 		raw := callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodPost, "/v1/alerts",
@@ -151,7 +152,7 @@ func testFastDDoSApplicationCrowds(t *testing.T, protected netip.Addr) {
 	var proof alert.DDoSEvaluationEvidence
 	if err := json.Unmarshal(body, &proof); err != nil || proof.Previous.Application == nil || proof.Current.Application == nil ||
 		proof.Current.Application.State != anomaly.DDoSApplicationDegraded ||
-		proof.Current.Application.Current.Requests != 1440 || proof.Current.Application.Current.Successes != 960 ||
+		proof.Current.Application.Current.Requests != 360 || proof.Current.Application.Current.Successes != 240 ||
 		proof.Current.Application.Current.FlowBytes != "360000" || proof.Current.Application.Current.FlowPackets != "3600" ||
 		proof.Current.After.To.Sub(proof.Previous.After.From) != 10*time.Second {
 		t.Fatal("round-tripped receipt lost exact observed evidence or duration", err)
@@ -464,7 +465,7 @@ func fastDDoSApplicationFixtureStore(t *testing.T, tenants []string) otelstore.S
 }
 
 func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otelstore.Store, tenant string, center time.Time,
-	protected netip.Addr, degraded, changedSampling bool) {
+	protected netip.Addr, applicationState string) {
 	t.Helper()
 	destination := protected.String()
 	localAddress, sourceAddress := destination, "198.51.100.42"
@@ -489,13 +490,16 @@ func seedFastDDoSPairedEvidence(t *testing.T, flows flowstore.Store, traces otel
 			if i == 1 {
 				row.Bytes, row.BytesScaled, row.Packets, row.PacketsScaled = 360000, 360000, 3600, 3600
 				sample.Requests = 1440
-				if degraded {
+				switch applicationState {
+				case anomaly.DDoSApplicationDegraded:
+					sample.Requests, sample.Failures, sample.LatencyMS = 360, 120, 80
+				case anomaly.DDoSApplicationOverload:
 					sample.Failures, sample.LatencyMS = 480, 80
 				}
 			}
 			rows = append(rows, row)
 			for n, span := range benchmarkDDoSAppSpans(sample, window.Start) {
-				if changedSampling {
+				if applicationState == anomaly.DDoSApplicationSampling {
 					span.SamplingThreshold = "0"
 					if i == 1 {
 						if n >= 360 {
