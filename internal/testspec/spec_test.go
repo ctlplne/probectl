@@ -6,7 +6,10 @@
 
 package testspec
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCleanDefaultsAndNormalization(t *testing.T) {
 	s, err := Clean(Spec{Name: "edge http", Type: "HTTP", Target: " https://api.example.com "})
@@ -64,5 +67,37 @@ func TestTypesSorted(t *testing.T) {
 		if got[i-1] > got[i] {
 			t.Errorf("Types() not sorted: %v", got)
 		}
+	}
+}
+
+func TestPathChangeOptionsValidationAndRetainedDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		params     map[string]string
+		wantReject string
+		wantNotify bool
+		wantMS     float64
+	}{
+		{"omitted", nil, "", true, DefaultPathChangeLatencyMS},
+		{"disabled and minimum", map[string]string{PathChangeAlertsParam: "false", PathChangeLatencyParam: "1"}, "", false, 1},
+		{"enabled and maximum", map[string]string{PathChangeAlertsParam: "true", PathChangeLatencyParam: "60000"}, "", true, 60000},
+		{"invalid toggle", map[string]string{PathChangeAlertsParam: "yes"}, PathChangeAlertsParam, true, DefaultPathChangeLatencyMS},
+		{"empty latency", map[string]string{PathChangeLatencyParam: ""}, PathChangeLatencyParam, true, DefaultPathChangeLatencyMS},
+		{"fractional latency", map[string]string{PathChangeLatencyParam: "1.5"}, PathChangeLatencyParam, true, DefaultPathChangeLatencyMS},
+		{"below minimum", map[string]string{PathChangeLatencyParam: "0"}, PathChangeLatencyParam, true, DefaultPathChangeLatencyMS},
+		{"above maximum", map[string]string{PathChangeAlertsParam: "false", PathChangeLatencyParam: "60001"}, PathChangeLatencyParam, false, DefaultPathChangeLatencyMS},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Clean(Spec{Name: "edge path", Type: "icmp", Target: "192.0.2.1", Params: tc.params})
+			if tc.wantReject == "" && err != nil || tc.wantReject != "" && (err == nil || !strings.Contains(err.Error(), tc.wantReject)) {
+				t.Fatalf("Clean returned %v, expected rejection for %q", err, tc.wantReject)
+			}
+			// Callers also read retained and imported definitions directly.
+			// Older malformed settings use the existing safe defaults.
+			notify, latency := PathChangeOptions(tc.params)
+			if notify != tc.wantNotify || latency != tc.wantMS {
+				t.Fatalf("PathChangeOptions = (%t, %g), want (%t, %g)", notify, latency, tc.wantNotify, tc.wantMS)
+			}
+		})
 	}
 }
