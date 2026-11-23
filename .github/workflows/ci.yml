@@ -1504,6 +1504,36 @@ jobs:
         run: |
           go test -tags integration -count=1 -timeout=5m -v -run '^TestNetBoxLiveTenantMappingAndFreshPreview$' ./internal/cmdb
           test -s /tmp/probectl-qa-beta-netbox/source-query-proof.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "26.12.1"
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            browser-worker/package-lock.json
+      - name: Prepare the shipped Admin console and pinned browser
+        env:
+          PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
+        run: |
+          set -euo pipefail
+          npm --prefix web ci
+          npm --prefix web run build
+          cp -R web/dist/. internal/webui/dist/
+          test -d internal/webui/dist/assets
+          npm --prefix browser-worker ci --no-audit --no-fund
+          bash scripts/ci_apt_transport.sh
+          (cd browser-worker && npx --no-install playwright install-deps chromium)
+          export PLAYWRIGHT_BROWSERS_PATH="$(mktemp -d "$RUNNER_TEMP/probectl-browsers.XXXXXX")"
+          browser_container="$(docker create "$PLAYWRIGHT_IMAGE")"
+          trap 'docker rm "$browser_container" >/dev/null' EXIT
+          docker cp "$browser_container:/ms-playwright/." "$PLAYWRIGHT_BROWSERS_PATH/"
+          (cd browser-worker && node --input-type=module -e 'import fs from "node:fs"; import { chromium } from "playwright"; fs.accessSync(chromium.executablePath(), fs.constants.X_OK)')
+          echo "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" >> "$GITHUB_ENV"
+      - name: Verify fresh stock NetBox ownership through Admin in both tenants
+        env:
+          PROBECTL_TEST_NETBOX_SERVE_REQUIRED: "1"
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
+        run: go test -tags integration -count=1 -timeout=5m -v -run '^TestStockNetBoxPreviewStaysTenantScopedInServedAdmin$' ./internal/control
       - name: Upload nonsecret NetBox provider receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

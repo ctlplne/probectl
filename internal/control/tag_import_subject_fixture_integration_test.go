@@ -40,6 +40,15 @@ type tagImportSubjectFixture struct {
 
 func newTagImportSubjectFixture(t *testing.T) *tagImportSubjectFixture {
 	t.Helper()
+	f := seedTagImportSubjects(t)
+	server := httptest.NewServer(http.HandlerFunc(f.serveSource))
+	t.Cleanup(server.Close)
+	f.srv.WithCMDB(cmdb.NewResolver(cmdb.NewNetBox(server.URL, "test-token", map[string]string{f.a: "7", f.b: "8"}), time.Hour))
+	return f
+}
+
+func seedTagImportSubjects(t *testing.T) *tagImportSubjectFixture {
+	t.Helper()
 	srv, db := setupAPIServerWithLatest(t, nil)
 	testsupport.LockPostgresPublicCatalog(t, db.Pool())
 	f := &tagImportSubjectFixture{srv: srv, db: db, a: freshTenant(t, db, "tag-subject-import-a"), b: freshTenant(t, db, "tag-subject-import-b"),
@@ -106,9 +115,6 @@ func newTagImportSubjectFixture(t *testing.T) *tagImportSubjectFixture {
 		}
 		f.interfaces[tenant] = interfaceID
 	}
-	server := httptest.NewServer(http.HandlerFunc(f.serveSource))
-	t.Cleanup(server.Close)
-	srv.WithCMDB(cmdb.NewResolver(cmdb.NewNetBox(server.URL, "test-token", map[string]string{f.a: "7", f.b: "8"}), time.Hour))
 	return f
 }
 
