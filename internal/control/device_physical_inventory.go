@@ -42,7 +42,7 @@ type devicePhysicalInventorySelection struct {
 
 type devicePhysicalInventoryItem struct {
 	entity.SNMPPhysicalComponent
-	References device.DeviceInventoryReferenceFlags `json:"references"`
+	References device.InventoryReferenceFlags `json:"references"`
 }
 
 type devicePhysicalInventoryPage struct {

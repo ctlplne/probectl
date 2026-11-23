@@ -17,10 +17,10 @@ import (
 	"github.com/ctlplne/probectl/internal/device"
 )
 
-func buildDeviceInventoryReferences(ctx context.Context, cfg *config.Config, log *slog.Logger) *device.DeviceInventoryReferences {
+func buildDeviceInventoryReferences(ctx context.Context, cfg *config.Config, log *slog.Logger) *device.InventoryReferences {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	references, issues := device.LoadDeviceInventoryReferences(ctx, device.DeviceInventoryReferenceFiles{
+	references, issues := device.LoadDeviceInventoryReferences(ctx, device.InventoryReferenceFiles{
 		Lifecycle: cfg.DeviceInventoryLifecycleFile, KEV: cfg.DeviceInventoryKEVFile,
 		NVD: cfg.DeviceInventoryNVDFile, NVDMetadata: cfg.DeviceInventoryNVDMetadataFile,
 		CPEBindings: cfg.DeviceInventoryCPEBindingsFile,

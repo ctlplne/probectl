@@ -113,7 +113,7 @@ func TestSNMPPhysicalInventoryReadsPairedOwnedSimulators(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	references := &DeviceInventoryReferences{bindings: bindings, lifecycle: lifecycle, nvd: nvd, kev: kev}
+	references := &InventoryReferences{bindings: bindings, lifecycle: lifecycle, nvd: nvd, kev: kev}
 	at := time.Date(2026, time.November, 21, 10, 0, 0, 0, time.UTC)
 	integer := func(value int) gosnmp.SnmpPDU { return gosnmp.SnmpPDU{Type: gosnmp.Integer, Value: value} }
 	text := func(value string) gosnmp.SnmpPDU {
@@ -158,7 +158,7 @@ func TestSNMPPhysicalInventoryReadsPairedOwnedSimulators(t *testing.T) {
 			if module.Lifecycle != nil || module.VulnerabilityCoverage != "unavailable" || len(module.Vulnerabilities) != 0 {
 				t.Fatal("a module inherited its chassis reference findings", module)
 			}
-			withoutFeeds := (*DeviceInventoryReferences)(nil).Lookup(rows[0], at, 24*time.Hour)
+			withoutFeeds := (*InventoryReferences)(nil).Lookup(rows[0], at, 24*time.Hour)
 			if withoutFeeds.VulnerabilityCoverage != "unavailable" || len(withoutFeeds.Vulnerabilities) != 0 || withoutFeeds.Lifecycle != nil {
 				t.Fatal("a deployment without local feeds reported covered inventory", withoutFeeds)
 			}

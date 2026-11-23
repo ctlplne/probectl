@@ -19,9 +19,9 @@ import (
 	"github.com/ctlplne/probectl/internal/entity"
 )
 
-// DeviceInventoryReferenceFiles names optional operator-mounted snapshots.
+// InventoryReferenceFiles names optional operator-mounted snapshots.
 // NVD requires both the publisher's sidecar and reviewed local CPE bindings.
-type DeviceInventoryReferenceFiles struct {
+type InventoryReferenceFiles struct {
 	Lifecycle   string
 	KEV         string
 	NVD         string
@@ -29,9 +29,9 @@ type DeviceInventoryReferenceFiles struct {
 	CPEBindings string
 }
 
-// DeviceInventoryReferences holds read-only reference indexes shared by all
+// InventoryReferences holds read-only reference indexes shared by all
 // tenants. Lookup takes an already authorized row and performs no I/O.
-type DeviceInventoryReferences struct {
+type InventoryReferences struct {
 	bindings  deviceCPEBindings
 	lifecycle *deviceLifecycleCatalog
 	kev       *deviceKEVCatalog
@@ -41,8 +41,8 @@ type DeviceInventoryReferences struct {
 // LoadDeviceInventoryReferences reads once at startup. A bad source is
 // unavailable while other valid sources remain usable. The issue keys
 // identify the affected sources without using local paths as labels.
-func LoadDeviceInventoryReferences(ctx context.Context, files DeviceInventoryReferenceFiles) (*DeviceInventoryReferences, map[string]error) {
-	references := new(DeviceInventoryReferences)
+func LoadDeviceInventoryReferences(ctx context.Context, files InventoryReferenceFiles) (*InventoryReferences, map[string]error) {
+	references := new(InventoryReferences)
 	issues := make(map[string]error)
 	var err error
 	references.lifecycle, err = readDeviceInventoryFile(files.Lifecycle, maxDeviceLifecycleBytes, readDeviceLifecycleCatalog)
@@ -66,14 +66,14 @@ func LoadDeviceInventoryReferences(ctx context.Context, files DeviceInventoryRef
 	return references, issues
 }
 
-func (references *DeviceInventoryReferences) Lookup(row entity.SNMPPhysicalComponent, now time.Time, maxAge time.Duration) DeviceInventoryReferenceFlags {
+func (references *InventoryReferences) Lookup(row entity.SNMPPhysicalComponent, now time.Time, maxAge time.Duration) InventoryReferenceFlags {
 	if references == nil {
-		return DeviceInventoryReferenceFlags{VulnerabilityCoverage: "unavailable"}
+		return InventoryReferenceFlags{VulnerabilityCoverage: "unavailable"}
 	}
 	return inventoryReferenceFlags(row, references.bindings, references.lifecycle, references.nvd, references.kev, now, maxAge)
 }
 
-func loadDeviceInventoryNVD(ctx context.Context, files DeviceInventoryReferenceFiles, bindings deviceCPEBindings) (*deviceNVDCatalog, error) {
+func loadDeviceInventoryNVD(ctx context.Context, files InventoryReferenceFiles, bindings deviceCPEBindings) (*deviceNVDCatalog, error) {
 	if files.NVD == "" || files.NVDMetadata == "" || len(bindings) == 0 {
 		return nil, errDeviceNVDCatalog
 	}

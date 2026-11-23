@@ -43,7 +43,7 @@ func TestDeviceInventoryReferencesKeepIndependentSources(t *testing.T) {
 	metadata := func(content string) []byte {
 		return fmt.Appendf(nil, "lastModifiedDate:2026-10-21T18:45:00Z\nsize:%d\nsha256:%x\n", len(content), crypto.Hash([]byte(content)))
 	}
-	files := DeviceInventoryReferenceFiles{
+	files := InventoryReferenceFiles{
 		Lifecycle: save("lifecycle.json", []byte(lifecycle)), KEV: filepath.Join(dir, "missing-kev.json"),
 		NVD: save("nvd.json.gz", compressed.Bytes()), NVDMetadata: save("nvd.meta", metadata(feed)),
 		CPEBindings: save("bindings.json", []byte(bindings)),
@@ -70,7 +70,7 @@ func TestDeviceInventoryReferencesKeepIndependentSources(t *testing.T) {
 		t.Fatal("a damaged gzip footer entered lookup", flags, issues)
 	}
 
-	references, issues = LoadDeviceInventoryReferences(t.Context(), DeviceInventoryReferenceFiles{})
+	references, issues = LoadDeviceInventoryReferences(t.Context(), InventoryReferenceFiles{})
 	if flags = references.Lookup(component, now, 24*time.Hour); len(issues) != 0 || flags.Lifecycle != nil || flags.VulnerabilityCoverage != "unavailable" {
 		t.Fatal("the default deployment assumed reference-data coverage", flags, issues)
 	}

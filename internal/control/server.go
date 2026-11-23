@@ -154,7 +154,7 @@ type Server struct {
 	deviceNeighbors           device.NeighborStore
 	deviceOutcomes            device.CollectionOutcomeStore
 	deviceTraps               device.TrapEventStore
-	deviceInventoryReferences *device.DeviceInventoryReferences
+	deviceInventoryReferences *device.InventoryReferences
 
 	// Prometheus-compatible surfaces (S40): the metrics writer, queried locally
 	// when it can snapshot (memory mode) or proxied upstream (prometheus mode).
@@ -516,7 +516,7 @@ func (s *Server) WithDeviceTraps(st device.TrapEventStore) *Server {
 
 // WithDeviceInventoryReferences attaches the deployment's read-only local
 // reference snapshots for already authorized physical inventory.
-func (s *Server) WithDeviceInventoryReferences(references *device.DeviceInventoryReferences) *Server {
+func (s *Server) WithDeviceInventoryReferences(references *device.InventoryReferences) *Server {
 	s.deviceInventoryReferences = references
 	return s
 }

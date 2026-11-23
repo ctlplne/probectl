@@ -77,12 +77,12 @@ func readDeviceCPEBindings(input io.Reader) (deviceCPEBindings, error) {
 	return bindings, nil
 }
 
-type DeviceInventoryLifecycleEvidence struct {
+type InventoryLifecycleEvidence struct {
 	ObservedAt string                `json:"source_date"`
 	Notice     deviceLifecycleRecord `json:"notice"`
 }
 
-type DeviceInventoryVulnerabilityEvidence struct {
+type InventoryVulnerabilityEvidence struct {
 	ID            string    `json:"id"`
 	VersionField  string    `json:"version_field"`
 	ObservedValue string    `json:"observed_version"`
@@ -96,22 +96,22 @@ type DeviceInventoryVulnerabilityEvidence struct {
 	KEVObservedAt time.Time `json:"kev_source_date,omitzero"`
 }
 
-type DeviceInventoryReferenceFlags struct {
-	Lifecycle                *DeviceInventoryLifecycleEvidence      `json:"lifecycle,omitempty"`
-	VulnerabilityCoverage    string                                 `json:"vulnerability_coverage"`
-	NVDSourceDate            time.Time                              `json:"nvd_source_date,omitzero"`
-	NVDArchiveModifiedAt     time.Time                              `json:"nvd_archive_modified_at,omitzero"`
-	VulnerabilitiesTruncated bool                                   `json:"vulnerabilities_truncated,omitempty"`
-	Vulnerabilities          []DeviceInventoryVulnerabilityEvidence `json:"vulnerabilities,omitempty"`
+type InventoryReferenceFlags struct {
+	Lifecycle                *InventoryLifecycleEvidence      `json:"lifecycle,omitempty"`
+	VulnerabilityCoverage    string                           `json:"vulnerability_coverage"`
+	NVDSourceDate            time.Time                        `json:"nvd_source_date,omitzero"`
+	NVDArchiveModifiedAt     time.Time                        `json:"nvd_archive_modified_at,omitzero"`
+	VulnerabilitiesTruncated bool                             `json:"vulnerabilities_truncated,omitempty"`
+	Vulnerabilities          []InventoryVulnerabilityEvidence `json:"vulnerabilities,omitempty"`
 }
 
 // inventoryReferenceFlags enriches an already authorized component using only
 // locally loaded reference snapshots and exact reviewed product bindings.
 func inventoryReferenceFlags(row entity.SNMPPhysicalComponent, bindings deviceCPEBindings, lifecycle *deviceLifecycleCatalog,
-	vulnerabilities *deviceNVDCatalog, exploited *deviceKEVCatalog, now time.Time, maxAge time.Duration) DeviceInventoryReferenceFlags {
-	flags := DeviceInventoryReferenceFlags{VulnerabilityCoverage: "unavailable"}
+	vulnerabilities *deviceNVDCatalog, exploited *deviceKEVCatalog, now time.Time, maxAge time.Duration) InventoryReferenceFlags {
+	flags := InventoryReferenceFlags{VulnerabilityCoverage: "unavailable"}
 	if notice, ok := lifecycle.lookup(row.Manufacturer, row.Model, now, maxAge); ok {
-		flags.Lifecycle = &DeviceInventoryLifecycleEvidence{ObservedAt: lifecycle.observedAt.Format(time.DateOnly), Notice: notice}
+		flags.Lifecycle = &InventoryLifecycleEvidence{ObservedAt: lifecycle.observedAt.Format(time.DateOnly), Notice: notice}
 	}
 	product := deviceLifecycleKey{strings.TrimSpace(row.Manufacturer), strings.TrimSpace(row.Model)}
 	selected := bindings[product]
@@ -134,7 +134,7 @@ func inventoryReferenceFlags(row entity.SNMPPhysicalComponent, bindings deviceCP
 			flags.VulnerabilityCoverage = "partial"
 		}
 		for _, match := range matches {
-			finding := DeviceInventoryVulnerabilityEvidence{
+			finding := InventoryVulnerabilityEvidence{
 				ID: match.ID, VersionField: candidate.field, ObservedValue: candidate.version,
 				NVDSource: "https://nvd.nist.gov/vuln/detail/" + match.ID, NVDObservedAt: vulnerabilities.observedAt,
 				NVDModifiedAt: vulnerabilities.sourceModifiedAt,
@@ -148,7 +148,7 @@ func inventoryReferenceFlags(row entity.SNMPPhysicalComponent, bindings deviceCP
 		}
 	}
 	if len(flags.Vulnerabilities) > maxInventoryVulnerabilityFindings {
-		slices.SortStableFunc(flags.Vulnerabilities, func(left, right DeviceInventoryVulnerabilityEvidence) int {
+		slices.SortStableFunc(flags.Vulnerabilities, func(left, right InventoryVulnerabilityEvidence) int {
 			switch {
 			case left.KEVAdded == "" && right.KEVAdded != "":
 				return 1
