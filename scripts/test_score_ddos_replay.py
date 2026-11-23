@@ -11,8 +11,8 @@ import unittest
 from score_ddos_replay import score
 
 
-class ReplayClockTests(unittest.TestCase):
-    def score_episode(self, positive, delay_ms, end="2026-01-12T12:00:10Z"):
+class ReplayTests(unittest.TestCase):
+    def episode_documents(self, positive, delay_ms, end="2026-01-12T12:00:10Z"):
         replay_case = {
             "id": "trial-0001",
             "modeled_start": "2026-01-12T11:59:58Z",
@@ -40,17 +40,45 @@ class ReplayClockTests(unittest.TestCase):
                 }
             ],
         }
-        return score(inputs, json.dumps(truth).encode(), json.dumps(decisions).encode())
+        return inputs, json.dumps(truth).encode(), json.dumps(decisions).encode()
 
     def test_final_replay_clock_is_inclusive(self):
         for positive, outcome in ((True, "true_positive"), (False, "false_positive")):
             with self.subTest(positive=positive):
                 self.assertEqual(
-                    self.score_episode(positive, 12000)["counts"][outcome], 1
+                    score(*self.episode_documents(positive, 12000))["counts"][outcome], 1
                 )
                 with self.assertRaisesRegex(ValueError, "exceeds its 12000 ms replay"):
-                    self.score_episode(positive, 12001)
+                    score(*self.episode_documents(positive, 12001))
 
     def test_replay_clocks_need_timezone(self):
         with self.assertRaisesRegex(ValueError, "invalid replay clocks"):
-            self.score_episode(True, 12000, end="2026-01-12T12:00:10")
+            score(*self.episode_documents(True, 12000, end="2026-01-12T12:00:10"))
+
+    def test_reject_duplicate_json_keys_in_all_documents(self):
+        for index, name, key, first_value in (
+            (0, "inputs", b'"to"', b'"2026-01-12T12:00:04Z"'),
+            (1, "ground truth", b'"positive"', b"false"),
+            (2, "decisions", b'"decision"', b'"quiet"'),
+        ):
+            with self.subTest(document=name):
+                documents = list(self.episode_documents(True, 10000))
+                documents[index] = documents[index].replace(
+                    key + b":", key + b": " + first_value + b", " + key + b":", 1
+                )
+                if index == 0:
+                    digest = hashlib.sha256(documents[0]).hexdigest()
+                    for bound in (1, 2):
+                        document = json.loads(documents[bound])
+                        document["inputs_sha256"] = digest
+                        documents[bound] = json.dumps(document).encode()
+                with self.assertRaisesRegex(ValueError, f"{name}: duplicate JSON key"):
+                    score(*documents)
+
+    def test_reject_non_json_numbers(self):
+        inputs, truth, decisions = self.episode_documents(True, 10000)
+        for value in (b"NaN", b"Infinity", b"-Infinity"):
+            with self.subTest(value=value):
+                invalid = b'{"extra": ' + value + b", " + decisions[1:]
+                with self.assertRaisesRegex(ValueError, "decisions: invalid JSON number"):
+                    score(inputs, truth, invalid)

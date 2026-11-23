@@ -22,6 +22,30 @@ RESULTS = {
 }
 
 
+def unique_json_object(pairs):
+    result = {}
+    for name, value in pairs:
+        if name in result:
+            raise ValueError(f"duplicate JSON key {name!r}")
+        result[name] = value
+    return result
+
+
+def reject_json_constant(value):
+    raise ValueError(f"invalid JSON number {value}")
+
+
+def replay_document(data, name):
+    try:
+        return json.loads(
+            data,
+            object_pairs_hook=unique_json_object,
+            parse_constant=reject_json_constant,
+        )
+    except ValueError as ex:
+        raise ValueError(f"{name}: {ex}") from ex
+
+
 def case_rows(document, name):
     rows = document.get("cases") if isinstance(document, dict) else None
     if not isinstance(rows, list) or not rows:
@@ -88,12 +112,12 @@ def replay_horizon_ms(case_id, case):
 
 
 def score(input_bytes, truth_bytes, decision_bytes):
-    inputs = json.loads(input_bytes)
+    inputs = replay_document(input_bytes, "inputs")
     cases = case_rows(inputs, "inputs")
     if inputs.get("schema") != "probectl-ddos-synthetic-replay-v1":
         raise ValueError("unsupported input schema")
-    truth = json.loads(truth_bytes)
-    decisions = json.loads(decision_bytes)
+    truth = replay_document(truth_bytes, "ground truth")
+    decisions = replay_document(decision_bytes, "decisions")
     labels = case_rows(truth, "ground truth")
     guesses = case_rows(decisions, "decisions")
     if decisions.get("schema") != "probectl-ddos-synthetic-decisions-v1":

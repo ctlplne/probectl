@@ -104,8 +104,9 @@ python3 scripts/score_ddos_replay.py \
 ```
 
 Use the same command with the other product's decisions to compare results.
-The scorer rejects mismatched digests, missing, duplicate or unknown IDs,
-and episode delays beyond the replay clocks.
+The scorer rejects duplicate object keys and non-JSON numbers in all three
+files. It also rejects mismatched digests, missing, duplicate or unknown case
+IDs, and episode delays beyond the replay clocks. [JSON interoperability](https://www.rfc-editor.org/rfc/rfc8259.html#section-4)
 Each score records SHA-256 hashes of the exact inputs, ground truth and
 decisions. Compare scores built from the same input and ground-truth hashes.
 The report includes classification coverage, recall across all positive labels,
