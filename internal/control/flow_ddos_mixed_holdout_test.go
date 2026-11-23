@@ -8,6 +8,7 @@ package control
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -34,7 +35,7 @@ func TestSyntheticDDoSMixedVectorHoldout(t *testing.T) {
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
 	var inputs []syntheticDDoSReplayTrial
 	var truth []syntheticDDoSTruth
-	var expected []anomaly.DDoSClass
+	var expected []benchmarkDDoSOutcome
 	for variation := range benchmarkDDoSVars {
 		period := 5 + 5*(variation%2)
 		end := benchmarkDDoSEpoch.Add(time.Duration(2*period) * time.Second)
@@ -58,11 +59,11 @@ func TestSyntheticDDoSMixedVectorHoldout(t *testing.T) {
 			inputs = append(inputs, replay)
 			truth = append(truth, syntheticDDoSTruth{ID: id, Scenario: fmt.Sprintf("%s/%02d", scenario.name, variation),
 				Positive: scenario.plantedVector != "", ExpectedVector: syntheticDDoSVector(scenario.plantedVector, "")})
-			wantVector := scenario.plantedVector
+			want := benchmarkDDoSOutcome{Class: scenario.plantedVector}
 			if scenario.referenceTransportUnknown {
-				wantVector = ""
+				want = benchmarkDDoSOutcome{Abstained: true}
 			}
-			expected = append(expected, wantVector)
+			expected = append(expected, want)
 		}
 	}
 	digest, err := syntheticDDoSRowsDigest(inputs)
@@ -80,8 +81,10 @@ func TestSyntheticDDoSMixedVectorHoldout(t *testing.T) {
 	decisions := make([]syntheticDDoSDecision, 0, len(replay))
 	for index, trial := range replay {
 		outcome, err := evaluateSyntheticDDoSReplay(ctx, trial)
-		if err != nil || outcome.Class != expected[index] || outcome.Abstained {
-			t.Fatalf("%s: expected class %q, got %+v, %v", truth[index].Scenario, expected[index], outcome, err)
+		want := expected[index]
+		if outcome.Class != want.Class || outcome.Abstained != want.Abstained ||
+			want.Abstained && !errors.Is(err, anomaly.ErrDDoSMixedHistory) || !want.Abstained && err != nil {
+			t.Fatalf("%s: expected %+v, got %+v, %v", truth[index].Scenario, want, outcome, err)
 		}
 		if outcome.Class != "" {
 			end := trial.Pairs[1].Current.To
@@ -92,7 +95,7 @@ func TestSyntheticDDoSMixedVectorHoldout(t *testing.T) {
 		outcomes.record(truth[index].Positive, outcome)
 		decisions = append(decisions, syntheticDDoSDecisionFor(trial.ID, outcome))
 	}
-	if outcomes.TruePositive != 64 || outcomes.FalseNegative != 16 || outcomes.TrueNegative != 48 || outcomes.FalsePositive != 0 {
+	if outcomes != (benchmarkDDoSCounts{TruePositive: 64, TrueNegative: 48, AbstainedPositive: 16}) {
 		t.Fatalf("unexpected holdout outcome counts: %+v", outcomes)
 	}
 	if output := os.Getenv("PROBECTL_TEST_DDOS_MIXED_CORPUS_DIR"); output != "" {
@@ -100,8 +103,8 @@ func TestSyntheticDDoSMixedVectorHoldout(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Logf("mixed vector holdout: cases=%d true_positive=%d false_negative=%d true_negative=%d false_positive=%d rows_sha256=%s",
-		len(inputs), outcomes.TruePositive, outcomes.FalseNegative, outcomes.TrueNegative, outcomes.FalsePositive, digest)
+	t.Logf("mixed vector holdout: cases=%d true_positive=%d abstained_positive=%d true_negative=%d false_positive=%d rows_sha256=%s",
+		len(inputs), outcomes.TruePositive, outcomes.AbstainedPositive, outcomes.TrueNegative, outcomes.FalsePositive, digest)
 }
 
 func mixedDDoSHoldoutCases(variation int) []mixedDDoSReplayCase {

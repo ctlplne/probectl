@@ -26,6 +26,9 @@ var ErrDDoSCoverage = errors.New("anomaly: complete comparable flow observations
 // ErrDDoSRecordSupport reports too few original flow records to support a decision.
 var ErrDDoSRecordSupport = fmt.Errorf("%w: window has fewer original flow records than required", ErrDDoSCoverage)
 
+// ErrDDoSMixedHistory reports that missing historical fields can account for a current mixed-vector candidate.
+var ErrDDoSMixedHistory = fmt.Errorf("%w: historical classification cannot resolve mixed-vector growth", ErrDDoSCoverage)
+
 // DDoSFastPeriod identifies the short observation windows used by the
 // dedicated saved-rule evaluator. Legacy pressure windows retain their cadence.
 func DDoSFastPeriod(seconds int) bool {
@@ -221,6 +224,9 @@ func EvaluateDDoS(ctx context.Context, reference, current DDoSObservation, limit
 			return nil, err
 		}
 		if !outsidePressure {
+			if limits.MixedVectors && hasIndeterminateDDoSMixedHistory(earlier, latest, packetsFloor, limits) {
+				return nil, ErrDDoSMixedHistory
+			}
 			return nil, ctx.Err()
 		}
 	case current.Direction == "ingress" && current.Target.Bits() < current.Target.Addr().BitLen() &&
@@ -389,6 +395,19 @@ func growingDDoSMixedVectors(earlier, latest ddosCounts, floor *big.Rat, limits 
 		}
 	}
 	return observed
+}
+
+func hasIndeterminateDDoSMixedHistory(earlier, latest ddosCounts, floor *big.Rat, limits DDoSThresholds) bool {
+	if earlier.possibleSYN.Cmp(earlier.syn) == 0 && earlier.possibleReflection.Sign() == 0 {
+		return false
+	}
+	// The upper bound has already ruled out confirmed growth. If the
+	// measured history alone would qualify, omitted fields can change the
+	// decision. Keep the result incomplete rather than clearing an episode.
+	earlier.possibleSYN = earlier.syn
+	earlier.possibleReflection = new(big.Rat)
+	earlier.unknownTransport = earlier.possibleReflection
+	return growingDDoSMixedVectors(earlier, latest, floor, limits) != nil
 }
 
 func qualifyingDDoSVectorSize(packets, total, independentFloor *big.Rat, share int) bool {
