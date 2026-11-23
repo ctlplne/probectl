@@ -190,7 +190,7 @@ func Start(t *testing.T, o Options) *Stack {
 		t.Fatal(err)
 	}
 	s.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	ensureCHReader(t, chURL)
+	EnsureCHReader(t, chURL)
 	readerFile := s.write(t, "clickhouse-reader-basic-auth.json",
 		[]byte(`{"username":"`+ReaderUser+`","password":"`+readerPassword+`"}`), 0o600)
 
@@ -956,10 +956,10 @@ func base32Decode(secret string) ([]byte, error) {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
 }
 
-// ensureCHReader provisions the least-privilege reader login the way the
+// EnsureCHReader provisions the least-privilege reader login the way the
 // shipped deployments do (deploy/compose/prod/clickhouse-init.sh): SELECT on
 // the control login's default database and nothing else.
-func ensureCHReader(t *testing.T, chURL string) {
+func EnsureCHReader(t *testing.T, chURL string) {
 	t.Helper()
 	db, err := CHQuery(chURL, "SELECT currentDatabase()")
 	if err != nil {
