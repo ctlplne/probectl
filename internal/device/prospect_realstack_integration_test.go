@@ -494,6 +494,16 @@ func proveShippedProspectCutoffAndErasure(t *testing.T, st *shipped.Stack, erase
 	if code, _ := st.Do(t, erased.cookie, http.MethodGet, "/v1/lifecycle/prospect", nil); code != http.StatusUnauthorized {
 		t.Fatal("the original interactive session retained authority after logout", code)
 	}
+	var activeAtCutoff, noErasureAudit bool
+	if err := db.QueryRow(ctx, `SELECT
+		(SELECT count(*)=2 FROM public.tenants
+		 WHERE id IN ($1::uuid,$2::uuid) AND status='active' AND audit_write_fenced_at IS NULL
+		 AND prospect_collection_ends_at=$3),
+		NOT EXISTS (SELECT 1 FROM public.provider_audit_events
+		 WHERE target IN ($1::uuid::text,$2::uuid::text) AND action IN ('lifecycle.erase_fence','lifecycle.erase'))`,
+		erased.id, kept.id, endsAt).Scan(&activeAtCutoff, &noErasureAudit); err != nil || !activeAtCutoff || !noErasureAudit {
+		t.Fatalf("prospect state before archive acceptance was invalid (active at cutoff %t, no erasure audit %t): %v", activeAtCutoff, noErasureAudit, err)
+	}
 	if err := os.Mkdir(archive, 0o700); err != nil {
 		t.Fatal(err)
 	}
