@@ -91,7 +91,9 @@ function DeviceInventorySelection({ identity }: { identity: string }) {
   const contexts = useEntityContexts(identity)
   const devices = useCanonicalEntities(identity, context)
   const evidence = useCanonicalEvidence(identity, context, device)
-  const sources = observedSources(evidence.data?.pages.flatMap((page) => page.items) ?? [])
+  const sources = observedSources(
+    evidence.isError ? [] : (evidence.data?.pages.flatMap((page) => page.items) ?? []),
+  )
   if (contexts.isLoading) return <LoadingState label={t('device.inventory.loadingContexts')} />
   if (contexts.isError) return <ErrorState description={t('device.inventory.contextError')} />
 
@@ -188,6 +190,16 @@ function DeviceInventorySelection({ identity }: { identity: string }) {
           {t('device.inventory.moreDevices')}
         </Button>
       )}
+      {device && evidence.isError && (
+        <ErrorState
+          description={t('device.inventory.sourceError')}
+          action={
+            <Button size="sm" variant="secondary" onClick={() => void evidence.refetch()}>
+              {t('device.inventory.retrySources')}
+            </Button>
+          }
+        />
+      )}
       {device && (
         <Select
           label={t('device.inventory.source')}
@@ -214,7 +226,7 @@ function DeviceInventorySelection({ identity }: { identity: string }) {
           ]}
         />
       )}
-      {evidence.hasNextPage && (
+      {evidence.hasNextPage && !evidence.isError && (
         <Button
           size="sm"
           variant="secondary"

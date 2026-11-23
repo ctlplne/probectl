@@ -60,6 +60,7 @@ test('continues the original observation and clears the old snapshot when a poll
   const fallback = defaultFetch()
   const reads: Record<string, string>[] = []
   let replacement = false
+  let sourceUnavailable = true
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new URL(String(input), 'https://probectl.test')
     switch (request.pathname) {
@@ -71,6 +72,7 @@ test('continues the original observation and clears the old snapshot when a poll
         expect(request.searchParams.get('context_id')).toEqual(context)
         return jsonResponse({ items: [{ id: device, label: 'Edge chassis', kind: 'device' }] })
       case `/v1/entities/${device}/evidence`:
+        if (sourceUnavailable) return jsonResponse({ error: { message: 'Unavailable' } }, 503)
         return jsonResponse({
           items: [
             {
@@ -128,6 +130,9 @@ test('continues the original observation and clears the old snapshot when a poll
   fireEvent.change(screen.getByRole('combobox', { name: 'Device' }), {
     target: { value: device },
   })
+  expect(await screen.findByText('Inventory sources could not be loaded.')).toBeInTheDocument()
+  sourceUnavailable = false
+  fireEvent.click(screen.getByRole('button', { name: 'Retry inventory sources' }))
   const option = await screen.findByRole('option', { name: '192.0.2.1 · inventory-collector' })
   fireEvent.change(screen.getByRole('combobox', { name: 'Inventory source' }), {
     target: { value: (option as HTMLOptionElement).value },
