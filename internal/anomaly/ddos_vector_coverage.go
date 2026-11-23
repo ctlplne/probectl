@@ -12,6 +12,22 @@ type ddosVectorCoverage struct {
 	before, after, deficit *big.Rat
 }
 
+// The confirmed comparison already uses the largest possible historical
+// count. Test the measured lower bound only to decide whether quiet is supported.
+func hasIndeterminateDDoSSingleHistory(earlier, latest ddosCounts, floor *big.Rat, limits DDoSThresholds) bool {
+	if earlier.possibleSYN.Cmp(earlier.syn) > 0 &&
+		qualifyingDDoSVectorSize(latest.syn, latest.packets, floor, limits.VectorShareBasisPoints) &&
+		growsDDoSVolume(latest.syn, earlier.syn, limits.GrowthBasisPoints) {
+		return true
+	}
+	if earlier.possibleReflection.Sign() == 0 {
+		return false
+	}
+	earlier.possibleReflection = new(big.Rat)
+	service, _ := growingDDoSReflection(earlier, latest, limits, floor)
+	return service != ""
+}
+
 // currentDDoSFieldsCouldHidePressure only tests whether a quiet conclusion
 // is supported. Hypothetical packets never contribute to a detection.
 func currentDDoSFieldsCouldHidePressure(earlier, latest ddosCounts, floor *big.Rat, limits DDoSThresholds) bool {

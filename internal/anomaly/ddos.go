@@ -29,6 +29,9 @@ var ErrDDoSRecordSupport = fmt.Errorf("%w: window has fewer original flow record
 // ErrDDoSMixedHistory reports that missing historical fields can account for a current mixed-vector candidate.
 var ErrDDoSMixedHistory = fmt.Errorf("%w: historical classification cannot resolve mixed-vector growth", ErrDDoSCoverage)
 
+// ErrDDoSHistoricalClassification reports that omitted historical fields can account for a measured vector.
+var ErrDDoSHistoricalClassification = fmt.Errorf("%w: historical classification cannot resolve network vector growth", ErrDDoSCoverage)
+
 // ErrDDoSCurrentClassification reports that incomplete current fields can hide otherwise qualifying network pressure.
 var ErrDDoSCurrentClassification = fmt.Errorf("%w: current classification cannot rule out network pressure", ErrDDoSCoverage)
 
@@ -229,6 +232,9 @@ func EvaluateDDoS(ctx context.Context, reference, current DDoSObservation, limit
 		if !outsidePressure {
 			if limits.MixedVectors && hasIndeterminateDDoSMixedHistory(earlier, latest, packetsFloor, limits) {
 				return nil, ErrDDoSMixedHistory
+			}
+			if limits.MixedVectors && hasIndeterminateDDoSSingleHistory(earlier, latest, packetsFloor, limits) {
+				return nil, ErrDDoSHistoricalClassification
 			}
 			if limits.MixedVectors && currentDDoSFieldsCouldHidePressure(earlier, latest, packetsFloor, limits) {
 				return nil, ErrDDoSCurrentClassification

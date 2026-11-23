@@ -160,15 +160,18 @@ func TestDDoSDetectsMeasuredVectorWhenPopulationVolumeFalls(t *testing.T) {
 				records                                           int
 				positive                                          bool
 				wantErr                                           error
+				historicalInconclusive                            bool
 			}{
-				{"falling total", "1900", "0", "2800", "4000", 50, true, nil},
-				{"flat total at vector floor", "1900", "0", "2500", "4200", 50, true, nil},
-				{"below packet floor", "1900", "0", "2499", "4000", 50, false, nil},
-				{"below vector share", "1900", "0", "2500", "4300", 50, false, nil},
-				{"insufficient vector growth", "2400", "0", "2800", "4000", 50, false, nil},
-				{"steady vector", "2800", "0", "2800", "4000", 50, false, nil},
-				{"historical classification missing", "0", "2400", "2800", "4000", 50, false, nil},
-				{"below observation floor", "1900", "0", "2800", "4000", 49, false, ErrDDoSRecordSupport},
+				{"falling total", "1900", "0", "2800", "4000", 50, true, nil, false},
+				{"flat total at vector floor", "1900", "0", "2500", "4200", 50, true, nil, false},
+				{"below packet floor", "1900", "0", "2499", "4000", 50, false, nil, false},
+				{"below vector share", "1900", "0", "2500", "4300", 50, false, nil, false},
+				{"insufficient vector growth", "2400", "0", "2800", "4000", 50, false, nil, false},
+				{"steady vector", "2800", "0", "2800", "4000", 50, false, nil, false},
+				{"historical classification missing", "0", "2400", "2800", "4000", 50, false, nil, true},
+				{"measured growth above the historical upper bound", "0", "100", "2800", "4000", 50, true, nil, false},
+				{"missing history below the current vector floor", "0", "2400", "2499", "4000", 50, false, nil, false},
+				{"below observation floor", "1900", "0", "2800", "4000", 49, false, ErrDDoSRecordSupport, false},
 			} {
 				t.Run(scenario.name, func(t *testing.T) {
 					before := DDoSObservation{TenantID: owner, Scope: "owned host", Target: netip.MustParsePrefix("192.0.2.1/32"), Direction: "ingress",
@@ -201,6 +204,16 @@ func TestDDoSDetectsMeasuredVectorWhenPopulationVolumeFalls(t *testing.T) {
 					if got != nil && (got.Class != vector || got.Service != service || got.ContributingPackets != scenario.packets ||
 						got.ReferencePackets != before.Packets || got.CurrentPackets != after.Packets) {
 						t.Fatalf("finding must cite the measured vector and original population, got %+v", got)
+					}
+
+					limits.MixedVectors = true
+					finding, err := EvaluateDDoS(ctx, before, after, limits, 1<<20)
+					want := scenario.wantErr
+					if scenario.historicalInconclusive {
+						want = ErrDDoSHistoricalClassification
+					}
+					if !errors.Is(err, want) || (finding != nil) != scenario.positive {
+						t.Fatalf("short-window comparison: expected finding=%t and err=%v, got %+v, %v", scenario.positive, want, finding, err)
 					}
 				})
 			}

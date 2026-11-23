@@ -243,6 +243,9 @@ func mapDDoSCoverage(err error) error {
 	if errors.Is(err, anomaly.ErrDDoSMixedHistory) {
 		return apierror.Conflict("missing historical transport, TCP flags or UDP ports leave mixed-vector growth inconclusive").Wrap(err)
 	}
+	if errors.Is(err, anomaly.ErrDDoSHistoricalClassification) {
+		return apierror.Conflict("missing historical transport, TCP flags or UDP ports leave network vector growth inconclusive").Wrap(err)
+	}
 	if errors.Is(err, anomaly.ErrDDoSCurrentClassification) {
 		return apierror.Conflict("missing current transport, TCP flags or UDP ports leave network pressure inconclusive").Wrap(err)
 	}

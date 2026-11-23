@@ -72,11 +72,24 @@ func TestFastDDoSKeepsEpisodeThroughAMissingUnsampledExporter(t *testing.T) {
 	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: errDDoSExporterSampling, rate: 1})
 }
 
+func TestFastDDoSKeepsEpisodeThroughUnclassifiedSingleVectorHistory(t *testing.T) {
+	for _, udp := range []bool{false, true} {
+		name := "tcp_flags"
+		if udp {
+			name = "udp_source_ports"
+		}
+		t.Run(name, func(t *testing.T) {
+			testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: anomaly.ErrDDoSHistoricalClassification, rate: 1, udpHistory: udp})
+		})
+	}
+}
+
 type ddosContinuityScenario struct {
 	gap          error
 	rate         uint64
 	containedSYN bool
 	sparseQuiet  bool
+	udpHistory   bool
 }
 
 func testFastDDoSContinuesEpisode(t *testing.T, scenario ddosContinuityScenario) {
@@ -179,6 +192,16 @@ func testFastDDoSContinuesEpisode(t *testing.T, scenario ddosContinuityScenario)
 			if scenario.mixed() && !hasMixedDDoSDetection(proof.Current) {
 				t.Fatal("the initial receipt did not establish mixed pressure", proof.Current)
 			}
+			if scenario.gap == anomaly.ErrDDoSHistoricalClassification {
+				class, service := anomaly.DDoSSYN, ""
+				if scenario.udpHistory {
+					class, service = anomaly.DDoSReflection, "dns"
+				}
+				detection := proof.Current.Detection
+				if detection == nil || detection.Class != class || detection.Service != service {
+					t.Fatal("initial receipt lost the measured network vector", proof.Current)
+				}
+			}
 		}
 	}
 	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, path, nil, http.StatusNotFound)
@@ -223,7 +246,7 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 				if high {
 					count = 2 * containedCount
 				}
-			case crossingQuiet || missingEdge:
+			case crossingQuiet || missingEdge || offset == 1 && high && scenario.gap == anomaly.ErrDDoSHistoricalClassification:
 				packets = 3200
 			case mixed:
 				// Both tenants keep the same totals. Only one has sustained
@@ -249,6 +272,18 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 				}
 				missingHistory := scenario.gap == anomaly.ErrDDoSMixedHistory && pressure && historical
 				missingCurrent := scenario.gap == anomaly.ErrDDoSCurrentClassification && !historical && (pressure || index == 0)
+				unknownHistory := offset == 1 && scenario.gap == anomaly.ErrDDoSHistoricalClassification && pressure && historical
+				switch {
+				case scenario.udpHistory && (high || unknownHistory):
+					row.Transport, row.TCPFlags, row.SrcPort = "udp", 0, 53
+					// Preserve independent originals when the source port is missing.
+					row.DstPort += uint16(index)
+					if unknownHistory {
+						row.SrcPort = 0
+					}
+				case unknownHistory:
+					row.TCPFlags = 0
+				}
 				if offset == 1 && (missingHistory || missingCurrent) {
 					row.Transport, row.TCPFlags = "", 0
 				}

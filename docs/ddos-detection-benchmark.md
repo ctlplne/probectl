@@ -91,12 +91,13 @@ episode. Use `abstained` for an inconclusive evaluation and `unsupported` when
 the product cannot evaluate the supplied input. These last two outcomes count
 against coverage and stay distinct. An episode needs the elapsed modeled
 milliseconds from the case's `modeled_start` to its first episode. Use the
-replay clock for this measurement. Each case ends at the closing clock of
-its second current window, 10–14 modeled seconds after onset in this corpus.
-Record an episode only if it opened by that clock. A detector that can
-evaluate the inputs but has yet to open an episode by then is quiet for
-that case. Compare longer alert delays in a separate replay with a longer
-shared observation period. Omit the delay for the other outcomes.
+replay clock for this measurement. Use the case's second current-window
+close as its deadline. The 416-case corpus has deadlines 10–14 modeled
+seconds after onset. The mixed-vector holdout has deadlines 10–29 seconds
+after onset. The scorer uses the exact clock in each case. Record an
+episode only if it opened by that deadline. An evaluated case with no
+episode by then is quiet. Compare longer alert delays in a separate replay
+with a longer shared observation period. Omit the delay for other outcomes.
 
 For vector accuracy, include the first episode's `vector` when the detector
 reported one. Normalize the reported evidence using the following values.
@@ -332,6 +333,29 @@ field with a steady vector. The positive lane grows the vector from 1,900 to
 2,300 packets, clears the conservative bound, and checks the scoped receipt
 and incident report. Receipts retain the comparison policy in use when the
 episode opened. [Transport-coverage fixture](../internal/control/alert_ddos_application_pressure_integration_test.go)
+
+### Incomplete history for a single network vector
+
+A five- or ten-second comparison can have enough current SYN or UDP service
+packets to qualify against the measured historical count. Missing historical
+transport, flags or ports can raise the possible count beyond the growth
+threshold. That comparison is inconclusive and keeps the saved episode clock.
+
+The paired synthetic test opens an episode with 6,400 packets in both
+the SYN and UDP service replays. It then compares 3,200 observed vector
+packets with 3,200 historical packets whose flags or source ports are
+missing. The rule keeps the original receipt and resumes the episode
+after two covered windows. The quiet sibling keeps evaluating and
+receives 404 on the owned receipt. The focused model exercises packet,
+share and growth boundaries.
+
+```sh
+go test -count=1 -run '^TestDDoSDetectsMeasuredVectorWhenPopulationVolumeFalls$' ./internal/anomaly
+PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
+  -run '^TestFastDDoSKeepsEpisodeThroughUnclassifiedSingleVectorHistory$' ./internal/control
+```
+
+[Model](../internal/anomaly/ddos_test.go) · [Paired test](../internal/control/alert_ddos_sample_floor_integration_test.go)
 
 ## Shared host and unrelated application outage holdout
 
