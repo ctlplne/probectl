@@ -62,8 +62,8 @@ import (
 // pooled bystander that shares every pooled table with P.
 //
 //  1. Every store holds each tenant's data, written the way production writes
-//     it: control state through the API (a test, a token), OTLP traces and
-//     logs through the shipped OTLP/HTTP listener, a path discovery through
+//     it: control state through the API (a test, its tag metadata, a token),
+//     OTLP traces and logs through the shipped OTLP/HTTP listener, a path discovery through
 //     the API (paths and the topology graph), probe results and failure
 //     artifacts from a shipped agent (Prometheus series, object store), and,
 //     for H and S, whose lanes are namespaced, NetFlow from a stand-in
@@ -169,7 +169,8 @@ func TestTenantExportAndErasureRealStack(t *testing.T) {
 		t.Fatalf("the console's export download: %v", err)
 	}
 	S.checkBundle(t, "the console export", consoleBundle, all)
-	_, keepBefore := K.export(t, st)
+	keptFiles, keepBefore := K.export(t, st)
+	K.checkExportedTags(t, keptFiles)
 
 	// 3. Erase, one surface per tenant. As the runbook says, a tenant's agents
 	// stop first: a browser agent writes its artifacts straight to the object
@@ -252,7 +253,8 @@ func TestTenantExportAndErasureRealStack(t *testing.T) {
 	if !after.covers(before[K]) {
 		t.Errorf("the bystander lost data to the erasures: before %+v, after %+v", before[K], after)
 	}
-	_, keepAfter := K.export(t, st)
+	keptFiles, keepAfter := K.export(t, st)
+	K.checkExportedTags(t, keptFiles)
 	for _, plane := range []string{"otel_spans", "otel_logs", "path_hops", "path_links", "topology"} {
 		if keepAfter[plane] != keepBefore[plane] || (plane != "path_links" && keepAfter[plane] == 0) {
 			t.Errorf("the bystander's export %s: %v rows before the erasures, %v after", plane, keepBefore[plane], keepAfter[plane])
@@ -273,10 +275,11 @@ var retainedByDesign = map[string]bool{
 
 // f55Tenant is one tenant of the receipt and what it seeded.
 type f55Tenant struct {
-	slug, name, model, admin, surface string
-	id, mark, cookie, token, ns, chdb string
-	testID, agent, net                string // net: the tenant's own workload addresses
-	sha                               string
+	slug, name, model, admin, surface       string
+	id, mark, cookie, token, ns, chdb       string
+	testID, agent, net                      string // net: the tenant's own workload addresses
+	tagContext, tag, tagRule, tagAssignment string
+	sha                                     string
 }
 
 func (tn *f55Tenant) env() map[string]string {
@@ -306,6 +309,7 @@ func (tn *f55Tenant) seed(t *testing.T, st *shipped.Stack, pageURL string) {
 		t.Fatalf("create a test as %s = %d: %s", tn.slug, code, raw)
 	}
 	tn.testID = test.ID
+	tn.seedTags(t, st)
 	// Paths and the topology graph: a discovery through the API.
 	if code, raw := st.Do(t, tn.cookie, http.MethodPost, "/v1/tests/"+tn.testID+"/path", nil); code != http.StatusOK {
 		t.Fatalf("discover the test's path as %s = %d: %s", tn.slug, code, raw)
@@ -392,6 +396,47 @@ max_hops: 2
 probes: 1
 session_timeout: 5s
 `, tn.id, tn.agent, bus, pageURL+"/?for="+tn.mark))
+}
+
+const f55TagKey = "checkout_customer"
+
+func (tn *f55Tenant) seedTags(t *testing.T, st *shipped.Stack) {
+	t.Helper()
+	var routing struct {
+		ContextID string `json:"context_id"`
+		TenantID  string `json:"tenant_id"`
+	}
+	code, raw := st.Do(t, tn.cookie, http.MethodPost, "/v1/entity-contexts", map[string]string{
+		"site_label": "checkout site", "vrf_label": "checkout VRF",
+	})
+	if code != http.StatusCreated || json.Unmarshal(raw, &routing) != nil || routing.ContextID == "" || routing.TenantID != tn.id {
+		t.Fatal("create checkout routing context in its tenant", code)
+	}
+	tn.tagContext = routing.ContextID
+	code, _ = st.Do(t, tn.cookie, http.MethodPut, "/v1/tests/"+tn.testID+"/entity-context", map[string]string{
+		"context_id": tn.tagContext,
+	})
+	if code != http.StatusOK {
+		t.Fatal("bind the configured checkout test to its routing context", code)
+	}
+	create := func(path string, body map[string]string) string {
+		t.Helper()
+		code, raw := st.Do(t, tn.cookie, http.MethodPost, path, body)
+		var record struct{ ID string }
+		if code != http.StatusCreated || json.Unmarshal(raw, &record) != nil || record.ID == "" {
+			t.Fatal("create owned checkout tag metadata", path, code)
+		}
+		return record.ID
+	}
+	tn.tag = create("/v1/tags", map[string]string{"key": f55TagKey})
+	base := "/v1/entity-contexts/" + tn.tagContext
+	tn.tagRule = create(base+"/tag-rules", map[string]string{
+		"tag_id": tn.tag, "target_kind": "test", "match_kind": "name_pattern",
+		"name_pattern": "^checkout " + tn.mark + "$", "value": "rule-" + tn.mark,
+	})
+	tn.tagAssignment = create(base+"/tag-assignments", map[string]string{
+		"tag_id": tn.tag, "target_kind": "test", "target_id": tn.testID, "value": "manual-" + tn.mark,
+	})
 }
 
 // awaitStores waits until every store the tenant writes holds its data.
@@ -490,6 +535,7 @@ func (tn *f55Tenant) checkBundle(t *testing.T, how string, raw []byte, all []*f5
 	if man["tenant_id"] != tn.id {
 		t.Errorf("%s for %s is the manifest of tenant %v", how, tn.slug, man["tenant_id"])
 	}
+	tn.checkExportedTags(t, files)
 	want := map[string]string{ // bundle file -> text it must hold
 		"postgres/tests.jsonl": tn.testID, "otel_spans.jsonl": tn.mark, "otel_logs.jsonl": tn.mark,
 		"path_hops.jsonl": "127.0.0.1", "topology.jsonl": "127.0.0.1",
@@ -522,6 +568,42 @@ func (tn *f55Tenant) checkBundle(t *testing.T, how string, raw []byte, all []*f5
 				if strings.Contains(body, leak) {
 					t.Errorf("%s for %s: %s holds tenant %s's %q", how, tn.slug, file, other.slug, leak)
 				}
+			}
+		}
+	}
+}
+
+func (tn *f55Tenant) checkExportedTags(t *testing.T, files map[string]string) {
+	t.Helper()
+	var manifest tenantlife.Manifest
+	if err := json.Unmarshal([]byte(files["manifest.json"]), &manifest); err != nil || manifest.TenantID != tn.id {
+		t.Fatal("tag export requires the owner's manifest", err)
+	}
+	want := map[string]map[string]string{
+		"entity_test_contexts":   {"test_id": tn.testID, "context_id": tn.tagContext},
+		"tenant_tag_revisions":   {},
+		"tenant_tag_definitions": {"id": tn.tag, "key": f55TagKey},
+		"tenant_tag_rules": {"id": tn.tagRule, "tag_id": tn.tag, "context_id": tn.tagContext, "target_kind": "test",
+			"match_kind": "name_pattern", "name_pattern": "^checkout " + tn.mark + "$", "value": "rule-" + tn.mark},
+		"tenant_tag_assignments": {"id": tn.tagAssignment, "tag_id": tn.tag, "context_id": tn.tagContext,
+			"target_kind": "test", "test_id": tn.testID, "source": "manual", "value": "manual-" + tn.mark},
+	}
+	for table, fields := range want {
+		body := files["postgres/"+table+".jsonl"]
+		var row map[string]any
+		if manifest.Tables[table] != 1 || strings.Count(body, "\n") != 1 ||
+			json.Unmarshal([]byte(body), &row) != nil || row["tenant_id"] != tn.id {
+			t.Fatal("tag export lost its one owned metadata row", table)
+		}
+		if table == "tenant_tag_revisions" {
+			revision, _ := row["revision"].(float64)
+			if revision <= 1 {
+				t.Fatal("tag export lost the recorded revision")
+			}
+		}
+		for field, value := range fields {
+			if row[field] != value {
+				t.Fatal("tag export changed the original metadata", table, field)
 			}
 		}
 	}
