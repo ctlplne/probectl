@@ -20,6 +20,7 @@ const labels: Record<FlowDDoSDetection['class'], string> = {
   tcp_syn_pressure: 'TCP SYN pressure',
   udp_reflection_suspected: 'Suspected UDP reflection',
   distributed_destination_pressure: 'Distributed destination pressure',
+  mixed_network_vector_pressure: 'Mixed network vector pressure',
   volumetric_pressure: 'Volumetric pressure',
 }
 

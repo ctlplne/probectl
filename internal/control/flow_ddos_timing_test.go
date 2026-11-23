@@ -119,10 +119,12 @@ func TestDDoSReceiptReplaysItsTransportCoveragePolicy(t *testing.T) {
 	}{
 		{name: "legacy SYN", version: 1, class: anomaly.DDoSSYN},
 		{name: "measured DNS", service: "dns", version: ddosReceiptTransportCoverageVersion, class: anomaly.DDoSReflection},
+		{name: "current DNS", service: "dns", version: ddosReceiptMixedVectorVersion, class: anomaly.DDoSReflection},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			writer := settings
-			writer.Cited = scenario.version == 1
+			writer.Cited = scenario.version != ddosReceiptMixedVectorVersion
+			writer.TransportCoverage = scenario.version >= ddosReceiptTransportCoverageVersion
 			previous, err := assessCapturedDDoS(ctx, capture, writer, clocks.Previous, 0, 2, benchmarkDDoSWork)
 			if err != nil {
 				t.Fatal(err)
@@ -146,11 +148,26 @@ func TestDDoSReceiptReplaysItsTransportCoveragePolicy(t *testing.T) {
 			if err != nil {
 				t.Fatal("could not load the retained receipt", err)
 			}
+			if decoded.Evidence.MixedVectors != (scenario.version == ddosReceiptMixedVectorVersion) {
+				t.Fatal("recorded mixed-vector policy changed after decoding the receipt")
+			}
 			reader := settings
 			reader.Cited, reader.TransportCoverage = true, decoded.Evidence.TransportCoverage
+			reader.MixedVectors = decoded.Evidence.MixedVectors
 			measured, err := assessCapturedDDoS(ctx, capture, reader, clocks.Current, 1, 3, benchmarkDDoSWork)
 			if err != nil || !sameDDoSRoutingEvidence(decoded.Evidence.Current, measured) {
 				t.Fatal("stored transport policy changed classification during replay", measured, err)
+			}
+			if scenario.version < ddosReceiptMixedVectorVersion {
+				decoded.Evidence.Current.Detection.Class = anomaly.DDoSMixedVectors
+				malformed, err := json.Marshal(decoded)
+				if err != nil {
+					t.Fatal(err)
+				}
+				record := store.AlertFlowReceipt{ObservedAt: observedAt, Body: malformed}
+				if _, _, err := decodeDDoSReceipt(ctx, record, binding, revision, fingerprint, benchmarkDDoSWork); !errors.Is(err, alert.ErrQueryGroups) {
+					t.Fatal("a legacy receipt claimed a classification its version cannot reproduce", err)
+				}
 			}
 		})
 	}

@@ -2683,13 +2683,13 @@ export interface FlowDDoSAssessmentInput {
 }
 
 export interface FlowDDoSDetection {
-  class: "tcp_syn_pressure" | "udp_reflection_suspected" | "distributed_destination_pressure" | "volumetric_pressure"
+  class: "tcp_syn_pressure" | "udp_reflection_suspected" | "distributed_destination_pressure" | "mixed_network_vector_pressure" | "volumetric_pressure"
   confidence: "tentative" | "corroborated"
   contributing_packets?: string
   current_bytes: string
   current_citation: string
   current_packets: string
-  evidence_basis: "volume_growth" | "observed_tcp_flag_share" | "observed_udp_service_port_share" | "observed_destination_spread"
+  evidence_basis: "volume_growth" | "observed_tcp_flag_share" | "observed_udp_service_port_share" | "observed_combined_network_vector_share" | "observed_destination_spread"
   observed_addresses: number
   observed_records: number
   reference_bytes: string

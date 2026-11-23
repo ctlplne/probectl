@@ -105,6 +105,7 @@ reported one. Normalize the reported evidence using the following values.
 | --- | --- |
 | TCP SYN pressure | `tcp_syn_pressure` |
 | Pressure spread across a protected prefix | `distributed_destination_pressure` |
+| Independently growing vectors that jointly qualify | `mixed_network_vector_pressure` |
 | Generic volume pressure | `volumetric_pressure` |
 | UDP reflection associated with a service | `udp_reflection_suspected/<service>`, with `cldap`, `dns`, `memcached`, `ntp` or `ssdp` |
 | UDP reflection without a service attribution | `udp_reflection_suspected` |
@@ -135,6 +136,27 @@ for true positives. Use `by_family` for outcome counts and `by_family_metrics`
 for the same rates and onset percentiles within each scenario family. A rate
 with no applicable labels is `null`. Onset is `null` when no true positive
 episode opened in that family. [Offline scorer](../scripts/score_ddos_replay.py)
+
+The separate mixed-vector holdout tests 128 synthetic cases across five- and
+ten-second windows. It includes simultaneous SYN and UDP service pressure,
+flat and falling totals, steady mixed background, a single qualifying vector
+and unclassified reference transport. Export this holdout to its own
+directory with the same three-file replay format.
+
+| Saved-rule decision policy | Opened positives | False alarms |
+| --- | ---: | ---: |
+| Original single-vector policy | 16 of 80 | 0 of 48 |
+| Mixed-vector policy | 64 of 80 | 0 of 48 |
+
+Both runs used identical inputs and labels. The input SHA-256 is
+`649395891eceb950063e5a88615acd4811b6c13d0aa0092cbf16dc698bfa9c68`.
+The remaining 16 positives lack transport coverage in the historical reference.
+
+```sh
+mixed_parent="$(mktemp -d)"
+PROBECTL_TEST_DDOS_MIXED_CORPUS_DIR="$mixed_parent/replay" \
+  go test -count=1 -v -run '^TestSyntheticDDoSMixedVectorHoldout$' ./internal/control
+```
 
 ## How the detector uses the inputs
 

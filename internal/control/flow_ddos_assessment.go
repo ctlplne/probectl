@@ -33,6 +33,7 @@ type ddosAssessmentSettings struct {
 	IncludeSources    bool
 	Cited             bool
 	TransportCoverage bool
+	MixedVectors      bool
 	readApplication   ddosApplicationReader
 }
 
@@ -98,6 +99,12 @@ func normalizeDDoSAssessment(viewID string, input flow.DDoSAssessmentInput) (ddo
 
 func (settings ddosAssessmentSettings) groupSampledExporters() bool {
 	return !settings.Cited && len(settings.Input.RequiredExporters) == 0 && anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds)
+}
+
+func (settings ddosAssessmentSettings) thresholds() anomaly.DDoSThresholds {
+	limits := settings.Input.Thresholds()
+	limits.MixedVectors = anomaly.DDoSFastPeriod(settings.Input.PeriodSeconds) && (!settings.Cited || settings.MixedVectors)
+	return limits
 }
 
 func (settings ddosAssessmentSettings) preparePlan(plan *flow.QueryPlan) error {

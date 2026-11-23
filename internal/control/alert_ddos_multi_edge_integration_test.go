@@ -35,6 +35,7 @@ const (
 	ddosEdgeSparseSampling
 	ddosEdgeUnevenSampling
 	ddosEdgeSparseVector
+	ddosEdgeMixedNetwork
 )
 
 func TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth(t *testing.T) {
@@ -67,6 +68,10 @@ func TestFastDDoSRequiresOriginalRecordsForTheSampledVector(t *testing.T) {
 	testDDoSEdgeScope(t, false, true, ddosEdgeSparseVector)
 }
 
+func TestFastDDoSSeparatesMixedPressureFromSteadyTrafficAtEqualVolume(t *testing.T) {
+	testDDoSEdgeScope(t, false, true, ddosEdgeMixedNetwork)
+}
+
 func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling ddosEdgeSampling) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
@@ -83,7 +88,7 @@ func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling d
 		t.Fatal(err)
 	}
 	exporters := [2]string{"203.0.113.15", "203.0.113.16"}
-	var receipt string
+	var receipt, receiptRule, receiptFingerprint string
 	for lane, tenant := range f.tenants {
 		grantSeasonalFlowFixture(f, tenant)
 		seedDDoSEdgeRedistribution(t, rows, tenant, exporters, clocks, lane == 0, lane == 1 && partialReference, sampling)
@@ -178,12 +183,13 @@ func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling d
 				t.Fatal("redistributed traffic fired the aggregate detector or duplicated an original receipt")
 			}
 			receipt = "/v1/alerts/rules/" + id + "/ddos-receipt?fingerprint=" + item.Fingerprint
+			receiptRule, receiptFingerprint = id, item.Fingerprint
 		}
 		if lane == 0 && (len(evaluated.Samples) != 1 || receipt == "") ||
 			lane == 1 && len(evaluated.Samples) != 0 {
 			t.Fatal("the aggregate detector did not separate the planted traffic populations")
 		}
-		if lane == 1 {
+		if lane == 1 && sampling != ddosEdgeMixedNetwork {
 			single, _, _, err := run(exporters[:1])
 			if err != nil || len(single.Samples) != 1 {
 				t.Fatal("the single-edge control did not observe the local surge")
@@ -192,14 +198,28 @@ func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling d
 	}
 	var proof alert.DDoSEvaluationEvidence
 	body := callSeasonalAPI(t, server, f.tokens[f.tenants[0]], http.MethodGet, receipt, nil, http.StatusOK)
+	wantClass, wantService, wantBefore := anomaly.DDoSReflection, "dns", "3600"
+	if sampling == ddosEdgeMixedNetwork {
+		wantClass, wantService, wantBefore = anomaly.DDoSMixedVectors, "", "7200"
+	}
+	wantSampled := sampling != ddosEdgeUnsampled && sampling != ddosEdgeMixedNetwork
 	if err := json.Unmarshal(body, &proof); err != nil || proof.Current.Detection == nil ||
-		proof.Current.Detection.Class != anomaly.DDoSReflection || proof.Current.Detection.Service != "dns" ||
-		proof.Current.Before.Packets != "3600" || proof.Current.After.Packets != "7200" ||
+		proof.Current.Detection.Class != wantClass || proof.Current.Detection.Service != wantService ||
+		proof.Current.Before.Packets != wantBefore || proof.Current.After.Packets != "7200" ||
 		required && (proof.Current.Before.ObservedExporters != 2 || proof.Current.After.ObservedExporters != 2) ||
-		sampling != ddosEdgeUnsampled && (!proof.Current.Before.Sampled || !proof.Current.After.Sampled) {
+		proof.Current.Before.Sampled != wantSampled || proof.Current.After.Sampled != wantSampled {
 		t.Fatal("the assessed population lost the original aggregate clocks, vector or counters", err)
 	}
 	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, receipt, nil, http.StatusNotFound)
+	if sampling == ddosEdgeMixedNetwork {
+		if proof.Current.Detection.ContributingPackets != "7200" || proof.Previous.Detection == nil ||
+			proof.Previous.Detection.Class != anomaly.DDoSMixedVectors {
+			t.Fatal("the mixed receipt lost the two independently qualifying windows", proof)
+		}
+		report := "/v1/incidents/" + proof.IncidentID + "/ddos-report?rule_id=" + receiptRule + "&fingerprint=" + receiptFingerprint
+		callSeasonalAPI(t, server, f.tokens[f.tenants[0]], http.MethodGet, report, nil, http.StatusOK)
+		callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, report, nil, http.StatusNotFound)
+	}
 }
 
 func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant string, exporters [2]string, clocks ddosEpisodeClocks, growth, missingReferenceEdge bool, sampling ddosEdgeSampling) {
@@ -219,6 +239,8 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 			}
 			rates := [2]uint64{1, 1}
 			switch sampling {
+			case ddosEdgeMixedNetwork:
+				packets = [2]uint64{3600, 3600}
 			case ddosEdgeRateChange, ddosEdgeRateSetChange:
 				rates = [2]uint64{1, 8}
 				if !growth {
@@ -259,6 +281,14 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 					row := delayFixtureFlow(tenant, window.Start.Add(2*time.Second), false)
 					row.Exporter, row.Transport, row.SrcPort, row.DstPort, row.TCPFlags = exporter, "udp", 53, 43001, 0
 					row.SrcAddr = [...]string{"198.51.100.42", "198.51.100.43"}[index]
+					if sampling == ddosEdgeMixedNetwork {
+						switch {
+						case growth && i == 0:
+							row.SrcPort = 43002
+						case edge == 0:
+							row.Transport, row.TCPFlags, row.SrcPort = "tcp", 2, 43002
+						}
+					}
 					row.Sampling, row.Packets = rate, raw/records
 					if index < raw%records {
 						row.Packets++

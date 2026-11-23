@@ -86,6 +86,12 @@ after excluding its current packet estimates from exporter and rate groups
 with fewer original vector records than the configured minimum. The share
 uses the complete packet total. If the remaining observations cannot support
 the vector, the window is unavailable and the saved rule retains its state.
+For short windows, mixed network evidence can qualify when two or more
+independent vectors each clear the packet floor and grow from their own
+historical counts. Together they must clear the share threshold and account
+for more of the packet population than the historical upper bound. A
+single qualifying vector takes precedence. Mixed pressure is tentative
+because flow data identifies observed packet characteristics.
 A historical TCP record with zero flags or a UDP record without a source port
 may belong to the vector. A record with missing transport may belong to either
 vector. The current observed vector must exceed that historical upper bound

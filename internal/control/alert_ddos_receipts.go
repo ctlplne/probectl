@@ -120,8 +120,11 @@ func decodeDDoSReceipt(ctx context.Context, record store.AlertFlowReceipt, bindi
 	decoder := json.NewDecoder(bytes.NewReader(record.Body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&proof); err != nil || decoder.Decode(new(any)) != io.EOF ||
-		(proof.Version != 1 && proof.Version != ddosReceiptTransportCoverageVersion) ||
+		proof.Version < 1 || proof.Version > ddosReceiptMixedVectorVersion ||
 		!reportRequirementUUID(proof.Evidence.IncidentID) || !alert.ValidFieldDigest(proof.Evidence.EpisodeID) || !proof.Evidence.Current.After.To.Equal(record.ObservedAt) {
+		return empty, nil, alert.ErrQueryGroups
+	}
+	if proof.Version < ddosReceiptMixedVectorVersion && (hasMixedDDoSDetection(proof.Evidence.Previous) || hasMixedDDoSDetection(proof.Evidence.Current)) {
 		return empty, nil, alert.ErrQueryGroups
 	}
 	want, err := flowEpisodeReceiptFingerprint(binding.TenantID, binding.RuleID, revision, record.ObservedAt)
@@ -151,6 +154,7 @@ func decodeDDoSReceipt(ctx context.Context, record store.AlertFlowReceipt, bindi
 	if err := checkStoredFlowReceiptInputs(ctx, capture, memory/2); err != nil {
 		return empty, nil, err
 	}
-	proof.Evidence.TransportCoverage = proof.Version == ddosReceiptTransportCoverageVersion
+	proof.Evidence.TransportCoverage = proof.Version >= ddosReceiptTransportCoverageVersion
+	proof.Evidence.MixedVectors = proof.Version >= ddosReceiptMixedVectorVersion
 	return proof, capture, ctx.Err()
 }

@@ -23,6 +23,7 @@ RESULTS = {
 REFLECTION = "udp_reflection_suspected"
 EXPECTED_VECTORS = {
     "distributed_destination_pressure",
+    "mixed_network_vector_pressure",
     "tcp_syn_pressure",
     "volumetric_pressure",
     *(

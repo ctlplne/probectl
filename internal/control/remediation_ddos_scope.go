@@ -95,6 +95,7 @@ func (s *Server) citedDDoSSettings(ctx context.Context, ruleID string, evidence 
 		}
 		out, err = normalizeDDoSAssessment(source.Source.ViewID, *source.Source.Condition.DDoS)
 		out.TransportCoverage = evidence.TransportCoverage
+		out.MixedVectors = evidence.MixedVectors
 		return err
 	})
 	return out, err

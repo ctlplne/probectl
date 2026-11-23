@@ -37865,6 +37865,7 @@
               "tcp_syn_pressure",
               "udp_reflection_suspected",
               "distributed_destination_pressure",
+              "mixed_network_vector_pressure",
               "volumetric_pressure"
             ]
           },
@@ -37884,6 +37885,7 @@
               "volume_growth",
               "observed_tcp_flag_share",
               "observed_udp_service_port_share",
+              "observed_combined_network_vector_share",
               "observed_destination_spread"
             ]
           },

@@ -15,6 +15,7 @@ import (
 	"github.com/ctlplne/probectl/internal/anomaly"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
@@ -39,6 +40,7 @@ func (clocks ddosEpisodeClocks) ends() []time.Time {
 }
 
 const ddosReceiptTransportCoverageVersion = 2
+const ddosReceiptMixedVectorVersion = 3
 
 type storedDDoSReceipt struct {
 	Version  int                          `json:"version"`
@@ -98,6 +100,9 @@ func (s *Server) readAlertDDoSRule(ctx context.Context, rule alert.Rule, source 
 		return empty, err
 	}
 	proof := storedDDoSReceipt{Version: ddosReceiptTransportCoverageVersion, Evidence: alert.DDoSEvaluationEvidence{Previous: previous, Current: current}}
+	if hasMixedDDoSDetection(previous) || hasMixedDDoSDetection(current) {
+		proof.Version = ddosReceiptMixedVectorVersion
+	}
 	if started != nil {
 		proof.Evidence.EpisodeID = started.SignalID
 		proof.Scope, err = encodeSeasonalFlowScope(ctx, capture, budget.MemoryBytes/8)
@@ -119,6 +124,10 @@ func (s *Server) readAlertDDoSRule(ctx context.Context, rule alert.Rule, source 
 	}
 	return alert.RuleMetricRead{Samples: samples, SourceIncidents: true,
 		QuerySelection: &alert.QuerySelection{TenantID: rule.TenantID, RuleID: rule.ID, Binding: next.Binding, At: next.At, Complete: true}}, nil
+}
+
+func hasMixedDDoSDetection(assessment flow.DDoSAssessment) bool {
+	return assessment.Detection != nil && assessment.Detection.Class == anomaly.DDoSMixedVectors
 }
 
 func (s *Server) commitAlertDDoSRead(ctx context.Context, rule alert.Rule, source store.AlertQuerySource, actor *auth.Principal, settings ddosAssessmentSettings, capture *reportFlowCapture,

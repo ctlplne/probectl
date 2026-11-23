@@ -50,6 +50,7 @@ const (
 	DDoSReflection   DDoSClass = "udp_reflection_suspected"
 	DDoSPrefixSpread DDoSClass = "distributed_destination_pressure"
 	DDoSVolumetric   DDoSClass = "volumetric_pressure"
+	DDoSMixedVectors DDoSClass = "mixed_network_vector_pressure"
 )
 
 // Reflection is an observed service-port association. Flow records alone
@@ -113,6 +114,7 @@ type DDoSThresholds struct {
 	VectorShareBasisPoints int
 	MinObservedRecords     int
 	MinObservedAddresses   int
+	MixedVectors           bool
 }
 
 // Validate checks that configuration supplies bounded input and coverage floors.
@@ -197,14 +199,22 @@ func EvaluateDDoS(ctx context.Context, reference, current DDoSObservation, limit
 	class, basis, confidence := DDoSVolumetric, "volume_growth", "tentative"
 	var service, contributingPackets string
 	reflectionService, reflectionPackets := growingDDoSReflection(earlier, latest, limits, independentFloor)
+	synPressure := qualifyingDDoSVectorSize(latest.syn, latest.packets, independentFloor, limits.VectorShareBasisPoints) &&
+		growsDDoSVolume(latest.syn, earlier.possibleSYN, limits.GrowthBasisPoints)
+	var mixedPackets *big.Rat
+	if limits.MixedVectors && !synPressure && reflectionService == "" {
+		mixedPackets = growingDDoSMixedVectors(earlier, latest, packetsFloor, limits)
+	}
 	switch {
-	case qualifyingDDoSVectorSize(latest.syn, latest.packets, independentFloor, limits.VectorShareBasisPoints) &&
-		growsDDoSVolume(latest.syn, earlier.possibleSYN, limits.GrowthBasisPoints):
+	case synPressure:
 		class, basis, confidence = DDoSSYN, "observed_tcp_flag_share", "corroborated"
 		contributingPackets = latest.syn.Num().String()
 	case reflectionService != "":
 		class, service, basis = DDoSReflection, reflectionService, "observed_udp_service_port_share"
 		contributingPackets = reflectionPackets.Num().String()
+	case mixedPackets != nil:
+		class, basis = DDoSMixedVectors, "observed_combined_network_vector_share"
+		contributingPackets = mixedPackets.Num().String()
 	case !volumePressure:
 		outsidePressure, err := outsideDDoSApplicationPressure(&parser, reference, current, limits)
 		if err != nil {
@@ -248,6 +258,7 @@ type ddosCounts struct {
 	bytes, packets, syn *big.Rat
 	possibleSYN         *big.Rat
 	possibleReflection  *big.Rat
+	unknownTransport    *big.Rat
 	reflected           map[string]*big.Rat
 }
 
@@ -274,6 +285,7 @@ func parseDDoSCounts(parser *decimalSeasonalTraining, data DDoSObservation) (ddo
 	if err != nil {
 		return ddosCounts{}, err
 	}
+	result.unknownTransport = unknownTransport
 	result.possibleSYN = unclassifiedTCP.Add(unclassifiedTCP, result.syn)
 	udp, err := ddosCounter(parser, data.UDPPackets)
 	if err != nil || len(data.Reflection) > len(ddosReflectionServices) {
@@ -335,6 +347,48 @@ func growingDDoSReflection(earlier, latest ddosCounts, limits DDoSThresholds, in
 		}
 	}
 	return service, strongest
+}
+
+func growingDDoSMixedVectors(earlier, latest ddosCounts, floor *big.Rat, limits DDoSThresholds) *big.Rat {
+	observed, historical := new(big.Rat), new(big.Rat)
+	syn := exceedsDDoSVolume(latest.syn, earlier.possibleSYN, floor, limits.GrowthBasisPoints)
+	if syn {
+		observed.Set(latest.syn)
+		historical.Set(earlier.possibleSYN)
+	}
+	udpVectors := 0
+	for service, packets := range latest.reflected {
+		known := earlier.reflected[service]
+		possible := new(big.Rat).Set(earlier.possibleReflection)
+		if known != nil {
+			possible.Add(possible, known)
+		}
+		if !exceedsDDoSVolume(packets, possible, floor, limits.GrowthBasisPoints) {
+			continue
+		}
+		udpVectors++
+		observed.Add(observed, packets)
+		if known != nil {
+			historical.Add(historical, known)
+		}
+	}
+	if udpVectors == 0 || udpVectors == 1 && !syn || !hasDDoSShare(observed, latest.packets, limits.VectorShareBasisPoints) {
+		return nil
+	}
+	// UDP services may share omitted source-port evidence. Unknown transport
+	// belongs to either family and contributes only once to the upper bound.
+	historical.Add(historical, earlier.possibleReflection)
+	if syn {
+		historical.Sub(historical, earlier.unknownTransport)
+	}
+	if earlier.packets.Sign() > 0 {
+		currentShare := new(big.Rat).Mul(observed, earlier.packets)
+		previousShare := new(big.Rat).Mul(historical, latest.packets)
+		if currentShare.Cmp(previousShare) <= 0 {
+			return nil
+		}
+	}
+	return observed
 }
 
 func qualifyingDDoSVectorSize(packets, total, independentFloor *big.Rat, share int) bool {

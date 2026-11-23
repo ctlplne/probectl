@@ -111,11 +111,12 @@ func assessCapturedDDoS(ctx context.Context, capture *reportFlowCapture, setting
 		return empty, errDDoSExporterSampling
 	}
 	reference, current := before.observation, after.observation
-	finding, err := evaluateProjectedDDoS(ctx, before, after, settings.Input.Thresholds(), work/2)
+	limits := settings.thresholds()
+	finding, err := evaluateProjectedDDoS(ctx, before, after, limits, work/2)
 	if err != nil {
 		return empty, err
 	}
-	finding, application, err := qualifyProjectedDDoS(ctx, reference, current, finding, settings.readApplication, settings.Input.Thresholds(), work/4)
+	finding, application, err := qualifyProjectedDDoS(ctx, reference, current, finding, settings.readApplication, limits, work/4)
 	if err != nil {
 		return empty, err
 	}
@@ -131,28 +132,46 @@ func evaluateProjectedDDoS(ctx context.Context, reference, current ddosProjected
 	if err != nil || finding == nil {
 		return finding, err
 	}
-	withoutSupport := current.thinVectorPackets[ddosTrafficVector{finding.Class, finding.Service}]
-	if withoutSupport == nil {
+	if len(current.thinVectorPackets) == 0 {
 		return finding, nil
 	}
 	// Keep the full packet population and historical upper bound. Check that
 	// the claimed vector still qualifies without thin current sampling groups.
 	supported := current.observation
-	measured, ok := ddosWindowCounter(finding.ContributingPackets)
-	if !ok || measured.Cmp(withoutSupport) < 0 {
-		return nil, anomaly.ErrDDoSCoverage
-	}
-	packets := measured.Sub(measured, withoutSupport).String()
-	if finding.Class == anomaly.DDoSSYN {
-		supported.SYNOnlyPackets = packets
-	} else {
+	var changed bool
+	selected := ddosTrafficVector{finding.Class, finding.Service}
+	if finding.Class == anomaly.DDoSReflection || finding.Class == anomaly.DDoSMixedVectors {
 		supported.Reflection = slices.Clone(supported.Reflection)
-		for i := range supported.Reflection {
-			if supported.Reflection[i].Service == finding.Service {
-				supported.Reflection[i].Packets = packets
-				break
-			}
+	}
+	for vector, thin := range current.thinVectorPackets {
+		if selected != vector && finding.Class != anomaly.DDoSMixedVectors {
+			continue
 		}
+		if vector.class == anomaly.DDoSSYN {
+			var ok bool
+			supported.SYNOnlyPackets, ok = ddosPacketsWithoutThinEvidence(supported.SYNOnlyPackets, thin)
+			if !ok {
+				return nil, anomaly.ErrDDoSCoverage
+			}
+			changed = true
+			continue
+		}
+		for i := range supported.Reflection {
+			entry := supported.Reflection[i]
+			if entry.Service != vector.service {
+				continue
+			}
+			packets, ok := ddosPacketsWithoutThinEvidence(entry.Packets, thin)
+			if !ok {
+				return nil, anomaly.ErrDDoSCoverage
+			}
+			supported.Reflection[i].Packets = packets
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return finding, nil
 	}
 	confirmed, err := anomaly.EvaluateDDoS(ctx, reference.observation, supported, limits, work)
 	if err != nil {
@@ -162,6 +181,14 @@ func evaluateProjectedDDoS(ctx context.Context, reference, current ddosProjected
 		return nil, errDDoSSampleCoverage
 	}
 	return finding, nil
+}
+
+func ddosPacketsWithoutThinEvidence(original string, thin *big.Int) (string, bool) {
+	measured, ok := ddosWindowCounter(original)
+	if !ok || measured.Cmp(thin) < 0 {
+		return "", false
+	}
+	return measured.Sub(measured, thin).String(), true
 }
 
 func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, settings ddosAssessmentSettings, scope string,
@@ -185,7 +212,7 @@ func checkDDoSTimingEvidence(ctx context.Context, captured capturedReportFlow, s
 		!maps.Equal(reference.samplingRates, current.samplingRates) {
 		return errDDoSTimingCoverage
 	}
-	limits := settings.Input.Thresholds()
+	limits := settings.thresholds()
 	confirmed, err := evaluateProjectedDDoS(ctx, reference, current, limits, work)
 	if errors.Is(err, anomaly.ErrDDoSRecordSupport) || errors.Is(err, errDDoSSampleCoverage) {
 		return errDDoSTimingCoverage
