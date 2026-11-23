@@ -11,6 +11,7 @@ package bgp_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -53,8 +54,27 @@ func TestFRRBMPSessionHistoryKeepsTransitionsAndTenantSignals(t *testing.T) {
 	peer := lab.ip["edge"]
 	var connections [2]string
 	var retained [2]frrBMPSessionPage
+	var status [2]int
+	var wanted []string
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		for lane, page := range retained {
+			t.Logf("BMP lane %d: HTTP %d, selected connection %s, %d points, more=%t, wanted %v",
+				lane, status[lane], connections[lane], len(page.Items), page.Next != "", wanted)
+			for _, item := range page.Items {
+				if item.Neighbor == nil || item.Neighbor.Peer.PeerAddress.String() != peer {
+					continue
+				}
+				t.Logf("BMP lane %d: connection %s sequence %d view %s state %s gap=%t",
+					lane, item.Connection, item.Sequence, item.Neighbor.Peer.View, item.Neighbor.State, item.CoverageGap)
+			}
+		}
+	})
 	read := func(lane int) bool {
 		code, body := st.Do(t, regs[lane].cookie, http.MethodGet, frrBMPSessionPath(regs[lane], listeners[lane], peer), nil)
+		status[lane] = code
 		if code != http.StatusOK {
 			return false
 		}
@@ -74,8 +94,9 @@ func TestFRRBMPSessionHistoryKeepsTransitionsAndTenantSignals(t *testing.T) {
 	}
 	awaitNeighbors := func(expected []string) {
 		t.Helper()
+		wanted = expected
 		for lane := range regs {
-			shipped.Await(t, "observed BMP transition sequence on its issued router connection", 25*time.Second, func() bool {
+			shipped.Await(t, fmt.Sprintf("BMP lane %d to retain transitions %v on the issued router connection", lane, expected), 25*time.Second, func() bool {
 				if !read(lane) {
 					return false
 				}

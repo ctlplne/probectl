@@ -81,6 +81,17 @@ func RecordBMPSessionEvidenceInScope(ctx context.Context, sc tenancy.Scope, inpu
 	if err := tenancy.AcquireTenantWriteLease(ctx, sc); err != nil {
 		return BMPSessionWriteResult{}, err
 	}
+	// A Peer Down can emit an audited incident. Lock incident correlation,
+	// then audit, before taking credential or assignment row locks. Entity
+	// evidence writers already hold the audit lock while locking those rows.
+	if len(input.Frame) >= 6 && input.Frame[5] == 2 && (policy.LossEnabled || policy.flapEnabled()) {
+		if _, err := sc.Q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('incident:'||$1::text,0))`, sc.Tenant.String()); err != nil {
+			return BMPSessionWriteResult{}, err
+		}
+		if err := tenancy.LockTenantAuditStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
+			return BMPSessionWriteResult{}, err
+		}
+	}
 	authority, err := routingBaseAuthority(ctx, sc, source)
 	if err != nil {
 		return BMPSessionWriteResult{}, err

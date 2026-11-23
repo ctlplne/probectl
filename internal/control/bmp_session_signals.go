@@ -22,18 +22,15 @@ type bmpSessionIncidentPublication struct {
 	opened   bool
 }
 
-// BMPSessionSignalWriter correlates only server-derived findings inside the
-// original fenced storage transaction. The post-commit observer uses the
-// existing notification and SIEM routes.
+// BMPSessionSignalWriter correlates server-derived findings inside the original
+// fenced storage transaction. RecordBMPSessionEvidenceInScope holds the tenant
+// incident and audit locks. The observer uses the existing post-commit routes.
 func BMPSessionSignalWriter(window time.Duration, log *slog.Logger, observer incident.Observer) func(context.Context, tenancy.Scope, []incident.Signal) (func(), error) {
 	return func(ctx context.Context, sc tenancy.Scope, signals []incident.Signal) (func(), error) {
 		if len(signals) == 0 {
 			return nil, nil
 		}
 		tenant := sc.Tenant.String()
-		if _, err := sc.Q.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('incident:'||$1::text,0))`, tenant); err != nil {
-			return nil, err
-		}
 		publications := make([]bmpSessionIncidentPublication, 0, len(signals))
 		var opened bool
 		correlator := incident.NewCorrelator(pgIncidentTxStore{scope: sc}, window, log,

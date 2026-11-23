@@ -26,6 +26,10 @@ type BMPSessionSignalPolicy struct {
 	FlapWindow    time.Duration
 }
 
+func (p BMPSessionSignalPolicy) flapEnabled() bool {
+	return p.FlapThreshold >= 2 && p.FlapThreshold <= 100 && p.FlapWindow > 0 && p.FlapWindow <= 24*time.Hour
+}
+
 type bmpSessionLossEvidence struct {
 	confirmed bool
 	flapping  bool
@@ -63,7 +67,7 @@ func verifyBMPSessionLoss(ctx context.Context, sc tenancy.Scope, source BGPRouti
 		return none, err
 	}
 	out := bmpSessionLossEvidence{confirmed: true}
-	if policy.FlapThreshold < 2 || policy.FlapThreshold > 100 || policy.FlapWindow <= 0 || policy.FlapWindow > 24*time.Hour {
+	if !policy.flapEnabled() {
 		return out, nil
 	}
 	var preceding int

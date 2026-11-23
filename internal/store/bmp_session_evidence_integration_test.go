@@ -111,6 +111,68 @@ func TestBMPSessionEvidenceKeepsOrderedScopedOriginals(t *testing.T) {
 	}
 }
 
+func TestBMPSessionPeerDownWaitsForAuditBeforeLockingSource(t *testing.T) {
+	f := newRoleInputsFixture(t, 8)
+	source := routingFixtureSource(f, 0)
+	const connection = "8b5641a6-6706-4c1e-b189-2932fb9276de"
+	frame := bmpIntegrationStatistics(1)[:49]
+	frame[5], frame[48] = 2, 4 // Peer Down and no notification payload.
+	binary.BigEndian.PutUint32(frame[1:5], uint32(len(frame)))
+	binary.BigEndian.PutUint32(frame[32:36], 64500)
+	copy(frame[36:40], []byte{192, 0, 2, 1})
+	input := BMPSessionEvidenceInput{CollectorAgentID: source.CollectorAgentID, SenderSerial: source.SenderSerial,
+		SourceRef: source.SourceRef, OriginSerial: source.OriginSerial, ConnectionID: connection,
+		Sequence: 1, ObservedAt: source.ObservedAt, Frame: frame}
+	copy(input.Digest[:], crypto.Hash(frame))
+	ctx, cancel := context.WithTimeout(tenancy.WithTenant(t.Context(), tenancy.ID(source.TenantID)), 15*time.Second)
+	defer cancel()
+	pid, finished := make(chan int, 1), make(chan error, 1)
+	err := tenancy.InTenant(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := tenancy.AcquireTenantWriteLease(ctx, sc); err != nil {
+			return err
+		}
+		if err := tenancy.LockTenantAuditStream(ctx, sc.Q, source.TenantID); err != nil {
+			return err
+		}
+		go func() {
+			finished <- tenancy.InTenant(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+				var backend int
+				if err := sc.Q.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&backend); err != nil {
+					return err
+				}
+				pid <- backend
+				budget := bgp.PeerMessageBudget{MemoryBytes: 1 << 20, WorkUnits: 1 << 20}
+				_, err := RecordBMPSessionEvidenceInScope(ctx, sc, input, budget, BMPSessionSignalPolicy{LossEnabled: true})
+				return err
+			})
+		}()
+		select {
+		case backend := <-pid:
+			if err := waitBGPRoutingSourceLock(ctx, f, backend, finished); err != nil {
+				return err
+			}
+		case err := <-finished:
+			if err != nil {
+				return err
+			}
+			return errors.New("Peer Down finished before waiting for audit")
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		// A canonical evidence writer holding audit must still be able to
+		// lock the assignment while the Peer Down writer waits for audit.
+		var locked int
+		return sc.Q.QueryRow(ctx, `SELECT 1 FROM entity_source_contexts WHERE tenant_id=$1 AND agent_id=$2
+ AND source_kind='bmp_peer' AND source_ref=$3 FOR UPDATE NOWAIT`, source.TenantID, source.CollectorAgentID, source.SourceRef).Scan(&locked)
+	})
+	if err != nil {
+		t.Fatal("Peer Down did not wait for audit before locking its source", err)
+	}
+	if err := <-finished; err != nil {
+		t.Fatal("Peer Down was lost after the canonical audit writer committed", err)
+	}
+}
+
 func bmpIntegrationStatistics(value uint64) []byte {
 	const prefix = 6 + 42 + 4
 	frame := make([]byte, prefix+4+8)
