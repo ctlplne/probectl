@@ -176,9 +176,11 @@ references and duplicate resolutions also return `202` with `resolved:false`.
 
 
 Outbound delivery uses the hardened, certificate-validating HTTP client (TLS is
-never disabled). Remote provider endpoints must be `https://`; plain `http://`
-is accepted only for loopback local dev/test doubles. The provider credential is
-sent only as an auth header and is never logged.
+never disabled). Remote provider endpoints must be `https://`. Plain `http://`
+is accepted only for loopback local dev/test doubles. Treat Slack and Teams
+webhook URLs as credentials when configuring the connector. Delivery failures
+report a request or transport error, or the HTTP method and status for a provider
+rejection. The endpoint and response body stay out of the failure logs.
 
 ## Configuration
 

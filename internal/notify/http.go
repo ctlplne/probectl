@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,10 +40,12 @@ func doJSON(ctx context.Context, client Doer, method, url string, headers map[st
 
 // doJSONBytes sends already-canonical JSON bytes. Signed connectors use this so
 // the receiver verifies exactly the bytes covered by the HMAC.
-func doJSONBytes(ctx context.Context, client Doer, method, url string, headers map[string]string, body []byte) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+func doJSONBytes(ctx context.Context, client Doer, method, endpoint string, headers map[string]string, body []byte) ([]byte, error) {
+	// Endpoint paths and query values can themselves authorize delivery. Both
+	// request parsing and HTTP transport errors can include the entire URL.
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, errors.New("notify: invalid delivery request")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
@@ -51,13 +54,17 @@ func doJSONBytes(ctx context.Context, client Doer, method, url string, headers m
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, errors.New("notify: delivery transport failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
-	out, _ := io.ReadAll(io.LimitReader(resp.Body, maxRespBody))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("notify: %s %s status %d", method, url, resp.StatusCode)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxRespBody))
+		return nil, fmt.Errorf("notify: %s returned HTTP %d", method, resp.StatusCode)
 	}
+	out, _ := io.ReadAll(io.LimitReader(resp.Body, maxRespBody))
 	return out, nil
 }
 
