@@ -7,24 +7,28 @@
 package control
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/anomaly"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 type mixedDDoSReplayCase struct {
-	name       string
-	reference  []flowstore.PlanRow
-	current    [2][]flowstore.PlanRow
-	positive   bool
-	wantVector anomaly.DDoSClass
+	name                      string
+	reference                 []flowstore.PlanRow
+	current                   [2][]flowstore.PlanRow
+	plantedVector             anomaly.DDoSClass
+	referenceTransportUnknown bool
 }
+
+const mixedDDoSInputsSHA256 = "649395891eceb950063e5a88615acd4811b6c13d0aa0092cbf16dc698bfa9c68"
 
 func TestSyntheticDDoSMixedVectorHoldout(t *testing.T) {
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(benchmarkDDoSTenant))
@@ -52,8 +56,13 @@ func TestSyntheticDDoSMixedVectorHoldout(t *testing.T) {
 				}
 			}
 			inputs = append(inputs, replay)
-			truth = append(truth, syntheticDDoSTruth{ID: id, Scenario: fmt.Sprintf("%s/%02d", scenario.name, variation), Positive: scenario.positive})
-			expected = append(expected, scenario.wantVector)
+			truth = append(truth, syntheticDDoSTruth{ID: id, Scenario: fmt.Sprintf("%s/%02d", scenario.name, variation),
+				Positive: scenario.plantedVector != "", ExpectedVector: syntheticDDoSVector(scenario.plantedVector, "")})
+			wantVector := scenario.plantedVector
+			if scenario.referenceTransportUnknown {
+				wantVector = ""
+			}
+			expected = append(expected, wantVector)
 		}
 	}
 	digest, err := syntheticDDoSRowsDigest(inputs)
@@ -63,6 +72,9 @@ func TestSyntheticDDoSMixedVectorHoldout(t *testing.T) {
 	payload, replay, err := prepareSyntheticDDoSReplayInputs(inputs, digest)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got := hex.EncodeToString(crypto.Hash(payload)); got != mixedDDoSInputsSHA256 {
+		t.Fatalf("mixed holdout input SHA-256 changed to %s", got)
 	}
 	var outcomes benchmarkDDoSCounts
 	decisions := make([]syntheticDDoSDecision, 0, len(replay))
@@ -109,14 +121,15 @@ func mixedDDoSHoldoutCases(variation int) []mixedDDoSReplayCase {
 	unknownTransport[0].Group["transport"] = "0"
 	singleSYN := append(mixedHoldoutFlow("syn", total*3/4), mixedHoldoutFlow("ordinary", total/4)...)
 	return []mixedDDoSReplayCase{
-		{name: "syn_and_dns_flat", reference: ordinary, current: [2][]flowstore.PlanRow{synAndDNS, synAndDNS}, positive: true, wantVector: anomaly.DDoSMixedVectors},
-		{name: "dns_and_ntp_flat", reference: ordinary, current: [2][]flowstore.PlanRow{dnsAndNTP, dnsAndNTP}, positive: true, wantVector: anomaly.DDoSMixedVectors},
-		{name: "syn_and_dns_falling", reference: mixedHoldoutFlow("ordinary", total*3/2), current: [2][]flowstore.PlanRow{synAndDNS, synAndDNS}, positive: true, wantVector: anomaly.DDoSMixedVectors},
+		{name: "syn_and_dns_flat", reference: ordinary, current: [2][]flowstore.PlanRow{synAndDNS, synAndDNS}, plantedVector: anomaly.DDoSMixedVectors},
+		{name: "dns_and_ntp_flat", reference: ordinary, current: [2][]flowstore.PlanRow{dnsAndNTP, dnsAndNTP}, plantedVector: anomaly.DDoSMixedVectors},
+		{name: "syn_and_dns_falling", reference: mixedHoldoutFlow("ordinary", total*3/2), current: [2][]flowstore.PlanRow{synAndDNS, synAndDNS}, plantedVector: anomaly.DDoSMixedVectors},
 		{name: "mixed_one_window", reference: ordinary, current: [2][]flowstore.PlanRow{synAndDNS, ordinary}},
 		{name: "mixed_background_steady", reference: synAndDNS, current: [2][]flowstore.PlanRow{synAndDNS, synAndDNS}},
 		{name: "one_growing_vector", reference: steadyDNS, current: [2][]flowstore.PlanRow{synAndDNS, synAndDNS}},
-		{name: "unknown_historical_transport", reference: unknownTransport, current: [2][]flowstore.PlanRow{synAndDNS, synAndDNS}, positive: true},
-		{name: "single_large_vector", reference: ordinary, current: [2][]flowstore.PlanRow{singleSYN, singleSYN}, positive: true, wantVector: anomaly.DDoSSYN},
+		{name: "unknown_historical_transport", reference: unknownTransport, current: [2][]flowstore.PlanRow{synAndDNS, synAndDNS},
+			plantedVector: anomaly.DDoSMixedVectors, referenceTransportUnknown: true},
+		{name: "single_large_vector", reference: ordinary, current: [2][]flowstore.PlanRow{singleSYN, singleSYN}, plantedVector: anomaly.DDoSSYN},
 	}
 }
 

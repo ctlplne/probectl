@@ -151,6 +151,10 @@ directory with the same three-file replay format.
 Both runs used identical inputs and labels. The input SHA-256 is
 `649395891eceb950063e5a88615acd4811b6c13d0aa0092cbf16dc698bfa9c68`.
 The remaining 16 positives lack transport coverage in the historical reference.
+The CI artifact `synthetic-ddos-mixed-replay-<attempt>` carries these inputs,
+the separate scenario and vector labels, the current detector decisions and
+the score. Use the same offline scorer and keep the labels with the scorer
+when running a blinded comparison.
 
 ```sh
 mixed_parent="$(mktemp -d)"
