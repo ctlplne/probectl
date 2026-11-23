@@ -43,7 +43,8 @@ func TestPhysicalInventoryReadKeepsObservationAndCurrentTenantAuthority(t *testi
 	for lane, tenant := range f.tenants {
 		payload := callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodGet, route+"?"+selection.Encode(), nil, http.StatusOK)
 		var page devicePhysicalInventoryPage
-		if err := json.Unmarshal(payload, &page); err != nil || !page.Available || page.ObservationID != originalIDs[lane] ||
+		if err := json.Unmarshal(payload, &page); err != nil || !page.Available || page.Methodology != entity.SNMPPhysicalInventorySource ||
+			page.ObservationID != originalIDs[lane] ||
 			len(page.Items) != physicalInventoryPageSize || page.Items[0].Serial != serials[lane] ||
 			page.NextIndex != physicalInventoryPageSize || page.Items[0].Parent == nil || *page.Items[0].Parent != 0 ||
 			page.Items[1].Parent != nil || page.Items[0].References.VulnerabilityCoverage != "unavailable" ||
@@ -70,6 +71,17 @@ func TestPhysicalInventoryReadKeepsObservationAndCurrentTenantAuthority(t *testi
 		callSeasonalAPI(t, socket, f.tokens[tenant], http.MethodGet, route+"?"+selection.Encode(), nil, http.StatusConflict)
 		selection.Del("observation_id")
 		selection.Del("after_index")
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			var own, other int
+			err := sc.Q.QueryRow(ctx, `SELECT count(*) FILTER (WHERE tenant_id=$1 AND data->>'facet'='sensitive_read'
+ AND actor=(SELECT email FROM users WHERE tenant_id=$1 AND id=$2)), count(*) FILTER (WHERE tenant_id<>$1)
+ FROM audit_events
+ WHERE action='access.read.device.physical_inventory' AND target=$3`, tenant, f.users[tenant], route).Scan(&own, &other)
+			if err == nil && (own != 4 || other != 0) {
+				t.Fatalf("inventory access audit rows: got %d for the actor and %d for other tenants", own, other)
+			}
+			return err
+		})
 	}
 	verifyPhysicalInventoryAlternateClients(t, f, socket, selection, serials, originalIDs)
 	tenant := f.tenants[0]

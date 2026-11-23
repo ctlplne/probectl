@@ -96,6 +96,7 @@ test('continues the original observation and clears the old snapshot when a poll
             observation_id: newPoll,
             observed_at: observed,
             available: true,
+            methodology: 'snmp:physical-inventory',
             items: [
               {
                 ...item,
@@ -108,6 +109,7 @@ test('continues the original observation and clears the old snapshot when a poll
           observation_id: oldPoll,
           observed_at: observed,
           available: true,
+          methodology: 'snmp:physical-inventory',
           items: [item],
           next_index: 1,
         })
@@ -123,7 +125,7 @@ test('continues the original observation and clears the old snapshot when a poll
     target: { value: context },
   })
   await screen.findByRole('option', { name: 'Edge chassis' })
-  fireEvent.change(screen.getByRole('combobox', { name: 'Device', exact: true }), {
+  fireEvent.change(screen.getByRole('combobox', { name: 'Device' }), {
     target: { value: device },
   })
   const option = await screen.findByRole('option', { name: '192.0.2.1 · inventory-collector' })

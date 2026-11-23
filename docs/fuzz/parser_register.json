@@ -4,6 +4,12 @@
     "device.ParseCounterBatch": {
       "target": "FuzzDeviceCounterBatch"
     },
+    "device.boundedNVDReader.Read": {
+      "target": "FuzzDeviceNVDCatalog"
+    },
+    "device.parseDeviceNVDTime": {
+      "target": "FuzzDeviceNVDCatalog"
+    },
     "bgp.ParseASPathSegments": {
       "target": "FuzzBGPASPath"
     },

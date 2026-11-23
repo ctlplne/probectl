@@ -68,6 +68,7 @@ var verdictSurfaceKinds = map[string]string{
 	"GET /v1/device/identity-conflicts":  verdictSurface,
 	"GET /v1/device/metrics":             verdictSurface,
 	"GET /v1/device/neighbors":           verdictSurface,
+	"GET /v1/device/physical-inventory":  verdictSurface,
 	"GET /v1/device/syslog":              verdictSurface,
 	"GET /v1/device/traps":               verdictSurface,
 	"GET /v1/devices":                    verdictSurface,
@@ -130,9 +131,9 @@ var (
 	provenanceField = regexp.MustCompile(
 		`_running$|_configured$|^coverage$|^measurement_fidelity$|^methodology$|^silent_planes$|^configured$|^degraded$|^freshness$|^partial_reasons$|^state$|^visibility$`)
 	completenessField = regexp.MustCompile(
-		`^truncated$|^response_truncated$|^effective_limit$|^next$|^next_cursor$|^limit$|^candidates_truncated$|^entities_truncated$`)
+		`^truncated$|^response_truncated$|^effective_limit$|^next$|^next_cursor$|^next_index$|^limit$|^candidates_truncated$|^entities_truncated$`)
 	// A bound the server applies is visible in the spec as one of these.
-	boundField = regexp.MustCompile(`^effective_limit$|^limit$|^next$|^next_cursor$|^truncated$`)
+	boundField = regexp.MustCompile(`^effective_limit$|^limit$|^next$|^next_cursor$|^next_index$|^truncated$`)
 )
 
 type openapiSpec struct {

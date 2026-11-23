@@ -365,7 +365,9 @@ hardware and firmware revisions where the device supplies them. Select the
 device and collector in **Planes → Device → Physical inventory** or read
 the same observation through `GET /v1/device/physical-inventory` and
 `probectl device physical-inventory`. Page continuations use the original
-observation ID and require a fresh first page when inventory changes.
+observation ID and require a fresh first page when inventory changes. The
+response gives the measurement method and reports whether that poll
+completed. Inventory access is recorded in the tenant audit stream.
 
 Optional [local reference files](configuration.md#local-device-inventory-reference-files)
 add cited end-of-life notices and applicable CVEs, including CISA KEV status.

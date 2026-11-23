@@ -13,6 +13,30 @@ import (
 	"time"
 )
 
+func FuzzDeviceNVDCatalog(f *testing.F) {
+	const prefix = `{"resultsPerPage":0,"startIndex":0,"totalResults":0,"format":"NVD_CVE","version":"2.0","vulnerabilities":[],"timestamp":`
+	f.Add(prefix + `"2026-10-06T10:30:00.123Z"}`)
+	f.Add(prefix + `"2026-10-06T10:30:00.123"}`)
+	f.Add(prefix + `"unknown"}`)
+	f.Add(`{"vulnerabilities":[`)
+	key := nvdProductKey{"o", "example", "device"}
+	f.Fuzz(func(t *testing.T, body string) {
+		catalog, err := readDeviceNVDCatalog(t.Context(), strings.NewReader(body), []nvdProductKey{key})
+		if err != nil {
+			if catalog != nil {
+				t.Fatal("invalid feed published a partial catalog")
+			}
+			return
+		}
+		if catalog == nil || len(catalog.byProduct) != 1 {
+			t.Fatal("accepted feed changed the configured product scope")
+		}
+		if _, ok := catalog.byProduct[key]; !ok {
+			t.Fatal("accepted feed omitted the configured product")
+		}
+	})
+}
+
 func TestDeviceNVDFeedRetainsScopedApplicabilityAndProvenance(t *testing.T) {
 	row := func(id, product, state, node string) string {
 		return fmt.Sprintf(`{"cve":{"id":"%s","vulnStatus":"%s","published":"2026-09-10T00:00:00.000","lastModified":"2026-10-01T00:00:00.000","descriptions":[{"lang":"en","value":"synthetic"}],"configurations":[{"operator":"%s","nodes":[{"operator":"OR","cpeMatch":[{"vulnerable":true,"criteria":"cpe:2.3:o:reviewed:%s:*:*:*:*:*:*:*:*","versionStartIncluding":"1.2.0","versionEndExcluding":"1.3.0","matchCriteriaId":"11111111-1111-4111-8111-111111111111"}]}]}]}}`, id, state, node, product)

@@ -110,14 +110,17 @@ function DeviceInventorySelection({ identity }: { identity: string }) {
   function submitSource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    const agent = String(form.get('agent_id') ?? '').trim()
-    const target = String(form.get('source_ref') ?? '').trim()
-    if (agent && target)
+    const agent = form.get('agent_id')
+    const target = form.get('source_ref')
+    if (typeof agent !== 'string' || typeof target !== 'string') return
+    const agentID = agent.trim()
+    const sourceRef = target.trim()
+    if (agentID && sourceRef)
       setSelection({
         context_id: context,
         device_entity_id: device,
-        agent_id: agent,
-        source_ref: target,
+        agent_id: agentID,
+        source_ref: sourceRef,
       })
   }
 

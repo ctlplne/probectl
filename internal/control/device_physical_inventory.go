@@ -49,6 +49,7 @@ type devicePhysicalInventoryPage struct {
 	ObservationID string                        `json:"observation_id"`
 	ObservedAt    time.Time                     `json:"observed_at"`
 	Available     bool                          `json:"available"`
+	Methodology   string                        `json:"methodology"`
 	Items         []devicePhysicalInventoryItem `json:"items"`
 	NextIndex     uint32                        `json:"next_index,omitempty"`
 }
@@ -136,7 +137,8 @@ func (s *Server) readDevicePhysicalInventory(ctx context.Context, actor *auth.Pr
 		return page, apierror.Conflict("physical inventory changed, reload its first page")
 	}
 	page = devicePhysicalInventoryPage{ObservationID: evidence.EvidenceID, ObservedAt: evidence.ObservedAt,
-		Available: evidence.Snapshot.Available, Items: make([]devicePhysicalInventoryItem, 0, physicalInventoryPageSize)}
+		Available: evidence.Snapshot.Available, Methodology: entity.SNMPPhysicalInventorySource,
+		Items: make([]devicePhysicalInventoryItem, 0, physicalInventoryPageSize)}
 	now := time.Now().UTC()
 	for _, row := range evidence.Snapshot.Components {
 		if row.Index <= selected.afterIndex {

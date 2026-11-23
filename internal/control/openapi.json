@@ -8485,7 +8485,7 @@
         "x-required-permission": "metrics.read",
         "operationId": "getDevicePhysicalInventory",
         "summary": "Read current physical components and local advisory flags",
-        "description": "Requires current metrics.read and entities.read for the exact tenant, routing context, device and collector source. Original ENTITY-MIB leaves and local public-reference results retain separate provenance. Follow next_index with the same observation_id.",
+        "description": "Requires current metrics.read and entities.read for the exact tenant, routing context, device and collector source. Access is audited in that tenant. Original ENTITY-MIB leaves and local public-reference results retain separate provenance. Follow next_index with the same observation_id.",
         "tags": [
           "devices"
         ],
@@ -8608,6 +8608,16 @@
           },
           "422": {
             "description": "The source or page selector is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service could not record the required access audit.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25371,6 +25381,10 @@
           "available": {
             "type": "boolean"
           },
+          "methodology": {
+            "type": "string",
+            "description": "Collector method for this snapshot. The available flag indicates whether the collector completed the inventory."
+          },
           "items": {
             "type": "array",
             "items": {
@@ -25388,6 +25402,7 @@
           "observation_id",
           "observed_at",
           "available",
+          "methodology",
           "items"
         ]
       },

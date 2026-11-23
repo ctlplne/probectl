@@ -123,21 +123,6 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/bgp/sessions/{router_id}", s.handleBMPSessionHistory, ai.PermEventsRead},
 		{http.MethodGet, "/v1/bgp/visibility/{id}/rpki-posture", s.handleBGPRPKIPosture, ai.PermEventsRead},
 		{http.MethodDelete, "/v1/bgp/visibility/{id}", s.handleDeleteBGPVisibility, permAlertWrite},
-		{http.MethodGet, "/v1/devices", s.handleListDevices, ai.PermMetricsRead},
-		{http.MethodGet, "/v1/device/metrics", s.handleDeviceMetrics, ai.PermMetricsRead},
-		{http.MethodGet, "/v1/device/physical-inventory", s.handleDevicePhysicalInventory, ai.PermMetricsRead},
-		{http.MethodGet, "/v1/device/neighbors", s.handleDeviceNeighbors, ai.PermTopologyRead},
-		{http.MethodGet, "/v1/device/collection-outcomes", s.handleDeviceCollectionOutcomes, ai.PermTopologyRead},
-		{http.MethodGet, "/v1/device/identity-conflicts", s.handleIdentityConflicts, ai.PermTopologyRead},
-		{http.MethodGet, "/v1/device/traps", s.handleDeviceTraps, ai.PermMetricsRead},
-		{http.MethodGet, "/v1/device/syslog", s.handleListDeviceSyslog, ai.PermMetricsRead},
-		{http.MethodGet, "/v1/device/syslog/patterns", s.handleListDeviceSyslogPatterns, ai.PermMetricsRead},
-		{http.MethodPost, "/v1/device/syslog", s.handleIngestDeviceSyslog, permMetricsWrite},
-		{http.MethodGet, "/v1/device/configs", s.handleListDeviceConfigs, ai.PermMetricsRead},
-		{http.MethodPost, "/v1/device/configs", s.handleArchiveDeviceConfig, permMetricsWrite},
-		{http.MethodGet, "/v1/device/config-policy", s.handleGetDeviceConfigPolicy, ai.PermMetricsRead},
-		{http.MethodPut, "/v1/device/config-policy", s.handlePutDeviceConfigPolicy, permMetricsWrite},
-		{http.MethodGet, "/v1/device/configs/{id}/policy-evaluation", s.handleGetDeviceConfigPolicyEvaluation, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/ebpf/service-map", s.handleEBPFServiceMap, ai.PermTopologyRead},
 		// D-43/D-64: the tenant's L7 capture redaction floor — a core setting.
 		{http.MethodGet, "/v1/ebpf/l7-capture-policy", s.handleL7CapturePolicyGet, permGovernanceRead},
@@ -284,11 +269,32 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/dashboard-report-artifacts/{id}", s.handleDownloadDashboardReportArtifact, permMetricsRead},
 		{http.MethodGet, "/v1/me", s.handleMe, ""},
 	}
+	routes = append(routes, s.deviceRoutes()...)
 	routes = append(routes, s.alertRoutes()...)
 	routes = append(routes, s.remediationRoutes()...)
 	routes = append(routes, s.flowRoutes()...)
 	routes = append(routes, s.tagRoutes()...)
 	return append(routes, s.interfaceRoleRoutes()...)
+}
+
+func (s *Server) deviceRoutes() []apiRoute {
+	return []apiRoute{
+		{http.MethodGet, "/v1/devices", s.handleListDevices, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/device/metrics", s.handleDeviceMetrics, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/device/physical-inventory", s.handleDevicePhysicalInventory, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/device/neighbors", s.handleDeviceNeighbors, ai.PermTopologyRead},
+		{http.MethodGet, "/v1/device/collection-outcomes", s.handleDeviceCollectionOutcomes, ai.PermTopologyRead},
+		{http.MethodGet, "/v1/device/identity-conflicts", s.handleIdentityConflicts, ai.PermTopologyRead},
+		{http.MethodGet, "/v1/device/traps", s.handleDeviceTraps, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/device/syslog", s.handleListDeviceSyslog, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/device/syslog/patterns", s.handleListDeviceSyslogPatterns, ai.PermMetricsRead},
+		{http.MethodPost, "/v1/device/syslog", s.handleIngestDeviceSyslog, permMetricsWrite},
+		{http.MethodGet, "/v1/device/configs", s.handleListDeviceConfigs, ai.PermMetricsRead},
+		{http.MethodPost, "/v1/device/configs", s.handleArchiveDeviceConfig, permMetricsWrite},
+		{http.MethodGet, "/v1/device/config-policy", s.handleGetDeviceConfigPolicy, ai.PermMetricsRead},
+		{http.MethodPut, "/v1/device/config-policy", s.handlePutDeviceConfigPolicy, permMetricsWrite},
+		{http.MethodGet, "/v1/device/configs/{id}/policy-evaluation", s.handleGetDeviceConfigPolicyEvaluation, ai.PermMetricsRead},
+	}
 }
 
 func (s *Server) alertRoutes() []apiRoute {

@@ -120,3 +120,29 @@ func TestBGPASPathHistoryRefusesUnauditedAccess(t *testing.T) {
 		})
 	}
 }
+
+func TestPhysicalInventoryRefusesUnauditedAccess(t *testing.T) {
+	const route = "/v1/device/physical-inventory"
+	for _, tenant := range []string{"11111111-1111-4111-8111-111111111111", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"} {
+		t.Run(tenant, func(t *testing.T) {
+			s := testServer(nil)
+			calls := 0
+			s.routeAudit = func(r *http.Request, action, target string, data map[string]any) error {
+				calls++
+				actor := auth.PrincipalFrom(r.Context())
+				if actor == nil || actor.TenantID != tenant || action != "access.read.device.physical_inventory" ||
+					target != route || data["facet"] != "sensitive_read" {
+					t.Fatal("inventory access audit lost its tenant or sensitive-read classification")
+				}
+				return errors.New("audit store unavailable")
+			}
+			request := httptest.NewRequest(http.MethodGet, route, nil)
+			request.Header.Set("X-Probectl-Tenant", tenant)
+			response := httptest.NewRecorder()
+			s.Handler().ServeHTTP(response, request)
+			if calls != 1 || response.Code != http.StatusInternalServerError || s.deferredAudit.pending() != 0 {
+				t.Fatal("inventory read proceeded without a durable access audit", calls, response.Code)
+			}
+		})
+	}
+}

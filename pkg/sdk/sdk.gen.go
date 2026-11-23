@@ -2209,6 +2209,7 @@ type DevicePhysicalInventoryItem struct {
 type DevicePhysicalInventoryPage struct {
 	Available     bool                          `json:"available"`
 	Items         []DevicePhysicalInventoryItem `json:"items"`
+	Methodology   string                        `json:"methodology"`
 	NextIndex     int                           `json:"next_index,omitempty"`
 	ObservationId string                        `json:"observation_id"`
 	ObservedAt    string                        `json:"observed_at"`

@@ -2094,6 +2094,7 @@ export interface DevicePhysicalInventoryItem {
 export interface DevicePhysicalInventoryPage {
   available: boolean
   items: DevicePhysicalInventoryItem[]
+  methodology: string
   next_index?: number
   observation_id: string
   observed_at: string
