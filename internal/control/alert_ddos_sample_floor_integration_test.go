@@ -64,6 +64,10 @@ func TestFastDDoSKeepsEpisodeThroughUnclassifiedMixedHistory(t *testing.T) {
 	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: anomaly.ErrDDoSMixedHistory, rate: 1})
 }
 
+func TestFastDDoSKeepsEpisodeThroughUnclassifiedCurrentFlow(t *testing.T) {
+	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: anomaly.ErrDDoSCurrentClassification, rate: 1})
+}
+
 type ddosContinuityScenario struct {
 	gap          error
 	rate         uint64
@@ -161,12 +165,16 @@ func testFastDDoSContinuesEpisode(t *testing.T, scenario ddosContinuityScenario)
 				proof.Current.After.Sampled != (scenario.rate > 1) || proof.Current.After.ObservedRecords != 4 || proof.Current.After.Packets != "6400" {
 				t.Fatal("the original episode receipt lost its sampling or original record evidence", err)
 			}
-			if scenario.gap == anomaly.ErrDDoSMixedHistory && !hasMixedDDoSDetection(proof.Current) {
+			if scenario.mixed() && !hasMixedDDoSDetection(proof.Current) {
 				t.Fatal("the initial receipt did not establish mixed pressure", proof.Current)
 			}
 		}
 	}
 	callSeasonalAPI(t, server, f.tokens[f.tenants[1]], http.MethodGet, path, nil, http.StatusNotFound)
+}
+
+func (scenario ddosContinuityScenario) mixed() bool {
+	return scenario.gap == anomaly.ErrDDoSMixedHistory || scenario.gap == anomaly.ErrDDoSCurrentClassification
 }
 
 func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant string, end time.Time, width time.Duration, pressure bool, scenario ddosContinuityScenario) {
@@ -191,7 +199,7 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 			}
 			crossingQuiet := high && offset == 1 && scenario.gap == errDDoSTimingCoverage
 			containedSYN := pressure && offset == 1 && scenario.containedSYN
-			mixed := scenario.gap == anomaly.ErrDDoSMixedHistory
+			mixed := scenario.mixed()
 			containedCount := 1
 			switch {
 			case containedSYN:
@@ -207,7 +215,7 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 				packets = 3200
 			case mixed:
 				// Both tenants keep the same totals. Only one has sustained
-				// mixed pressure and one reference with omitted transport.
+				// mixed pressure. The fixture varies the coverage at one clock.
 				packets = 6400
 			}
 			for index := range count {
@@ -222,7 +230,9 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 					// Preserve two distinct originals with the same UDP service.
 					row.DstPort += uint16(index)
 				}
-				if mixed && pressure && historical && offset == 1 {
+				missingHistory := scenario.gap == anomaly.ErrDDoSMixedHistory && pressure && historical
+				missingCurrent := scenario.gap == anomaly.ErrDDoSCurrentClassification && !historical && (pressure || index == 0)
+				if offset == 1 && (missingHistory || missingCurrent) {
 					row.Transport, row.TCPFlags = "", 0
 				}
 				if crossingQuiet && index >= containedCount {

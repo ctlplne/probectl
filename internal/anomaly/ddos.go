@@ -29,6 +29,9 @@ var ErrDDoSRecordSupport = fmt.Errorf("%w: window has fewer original flow record
 // ErrDDoSMixedHistory reports that missing historical fields can account for a current mixed-vector candidate.
 var ErrDDoSMixedHistory = fmt.Errorf("%w: historical classification cannot resolve mixed-vector growth", ErrDDoSCoverage)
 
+// ErrDDoSCurrentClassification reports that incomplete current fields can hide otherwise qualifying network pressure.
+var ErrDDoSCurrentClassification = fmt.Errorf("%w: current classification cannot rule out network pressure", ErrDDoSCoverage)
+
 // DDoSFastPeriod identifies the short observation windows used by the
 // dedicated saved-rule evaluator. Legacy pressure windows retain their cadence.
 func DDoSFastPeriod(seconds int) bool {
@@ -226,6 +229,9 @@ func EvaluateDDoS(ctx context.Context, reference, current DDoSObservation, limit
 		if !outsidePressure {
 			if limits.MixedVectors && hasIndeterminateDDoSMixedHistory(earlier, latest, packetsFloor, limits) {
 				return nil, ErrDDoSMixedHistory
+			}
+			if limits.MixedVectors && currentDDoSFieldsCouldHidePressure(earlier, latest, packetsFloor, limits) {
+				return nil, ErrDDoSCurrentClassification
 			}
 			return nil, ctx.Err()
 		}

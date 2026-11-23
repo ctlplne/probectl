@@ -7,6 +7,7 @@
 package anomaly
 
 import (
+	"cmp"
 	"errors"
 	"net/netip"
 	"strings"
@@ -202,6 +203,50 @@ func TestDDoSDetectsMeasuredVectorWhenPopulationVolumeFalls(t *testing.T) {
 						t.Fatalf("finding must cite the measured vector and original population, got %+v", got)
 					}
 				})
+			}
+		})
+	}
+}
+
+func TestDDoSCurrentClassificationRequiresDisjointPacketEvidence(t *testing.T) {
+	const owner = "25ebf92b-c387-451d-9e67-0b323c402a58"
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(owner))
+	start := time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC)
+	reference := DDoSObservation{TenantID: owner, Scope: "owned host", Target: netip.MustParsePrefix("192.0.2.1/32"), Direction: "ingress",
+		From: start, To: start.Add(5 * time.Second), Citation: "reference", Complete: true,
+		Bytes: "800000", Packets: "8000", SYNOnlyPackets: "0", UDPPackets: "0", ObservedRecords: 50, ObservedAddresses: 1}
+	for _, test := range []struct {
+		name, previousSYN, syn, dns, noFlags, noPorts, noTransport string
+		udp                                                        string
+		share                                                      int
+		wantError                                                  error
+		wantClass                                                  DDoSClass
+	}{
+		{name: "entire current population lacks transport", noTransport: "8000", wantError: ErrDDoSCurrentClassification},
+		{name: "small unclassified residue cannot meet any floor", noFlags: "500", noPorts: "500", noTransport: "500", udp: "500"},
+		{name: "current missing flags cannot hide growth over higher history", previousSYN: "6500", noFlags: "5000"},
+		{name: "missing TCP flags can hide a single growing vector", syn: "1000", noFlags: "4000", wantError: ErrDDoSCurrentClassification},
+		{name: "missing UDP ports can complete a mix", syn: "2500", dns: "1900", noPorts: "600", udp: "2500",
+			wantError: ErrDDoSCurrentClassification},
+		{name: "shared transport cannot fill two deficits twice", syn: "2300", dns: "2300", noTransport: "300", udp: "2300", share: 4500},
+		{name: "shared transport fills both deficits at the exact floor", syn: "2300", dns: "2300", noTransport: "400", udp: "2300",
+			share: 4500, wantError: ErrDDoSCurrentClassification},
+		{name: "measured pressure survives unrelated omitted classification", syn: "6000", noTransport: "500", wantClass: DDoSSYN},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			before, current := reference, reference
+			before.SYNOnlyPackets = cmp.Or(test.previousSYN, "0")
+			current.From, current.To, current.Citation = before.From.AddDate(0, 0, 7), before.To.AddDate(0, 0, 7), "current"
+			current.SYNOnlyPackets, current.UDPPackets = cmp.Or(test.syn, "0"), cmp.Or(test.udp, "0")
+			current.UnclassifiedTCPPackets, current.UnclassifiedUDPPackets, current.UnclassifiedTransportPackets = test.noFlags, test.noPorts, test.noTransport
+			if test.dns != "" {
+				current.Reflection = []ReflectionObservation{{Service: "dns", Packets: test.dns}}
+			}
+			limits := DDoSThresholds{BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
+				VectorShareBasisPoints: cmp.Or(test.share, 6000), MinObservedRecords: 50, MinObservedAddresses: 2, MixedVectors: true}
+			got, err := EvaluateDDoS(ctx, before, current, limits, 1<<20)
+			if !errors.Is(err, test.wantError) || (got != nil) != (test.wantClass != "") || got != nil && got.Class != test.wantClass {
+				t.Fatalf("want class %q and error %v, got %+v and %v", test.wantClass, test.wantError, got, err)
 			}
 		})
 	}

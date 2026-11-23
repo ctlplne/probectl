@@ -95,7 +95,11 @@ because flow data identifies observed packet characteristics.
 A historical TCP record with zero flags or a UDP record without a source port
 may belong to the vector. A record with missing transport may belong to either
 vector. The current observed vector must exceed that historical upper bound
-by the configured growth threshold. HTTP requests
+by the configured growth threshold. Current classification gaps can also
+leave a short window inconclusive. This happens when unclassified packets
+could account for network pressure at the configured growth, packet and
+share thresholds. The existing episode retains its clock until the
+detector can evaluate comparable coverage again. HTTP requests
 are assigned by their start time and can count after completion even when
 they cross a window boundary.
 [OpenTelemetry HTTP span conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/#http-server-span)
