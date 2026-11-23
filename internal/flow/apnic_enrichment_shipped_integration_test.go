@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -40,19 +41,28 @@ func TestShippedAPNICAllocationEnrichment(t *testing.T) {
 	operator := st.OnboardOperator(t, "root@msp-apnic.example")
 	run := "apnic-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	lanes := [...]*nativeLane{{name: "red"}, {name: "blue"}}
-	addresses := [...]string{"1.0.0.1", "1.0.1.1"}
-	countries := [...]string{"AU", "CN"}
-	statuses := [...]string{"assigned", "allocated"}
-	dates := [...]string{"20110811", "20110414"}
-	counters := [...]uint32{1000, 3000}
+	observations := [2][2]apnicObservation{
+		{
+			{address: "1.0.0.1", country: "AU", status: "assigned", date: "20110811", bytes: 1000},
+			{address: "2001:200::1", country: "JP", status: "allocated", date: "19990813", bytes: 2000},
+		},
+		{
+			{address: "1.0.1.1", country: "CN", status: "allocated", date: "20110414", bytes: 3000},
+			{address: "2001:360::1", country: "AU", status: "allocated", date: "20011211", bytes: 4000},
+		},
+	}
+	var addresses [2][2]string
 	for i, lane := range lanes {
 		lane.provision(t, st, operator, run)
-		var enrichment opendata.Enrichment
-		lane.do(t, st, http.MethodGet, "/v1/opendata/enrichment?ip="+addresses[i], nil, &enrichment, http.StatusOK)
-		if enrichment.IP != addresses[i] || enrichment.RIR != "apnic" || enrichment.CountryCode != countries[i] ||
-			enrichment.AllocationStatus != statuses[i] || enrichment.AllocationDate != dates[i] ||
-			len(enrichment.Sources) != 1 || enrichment.Sources[0].Source != "rir-stats" {
-			t.Fatalf("%s lost the source's allocation values and provenance: %+v", lane.name, enrichment)
+		for j, item := range observations[i] {
+			addresses[i][j] = item.address
+			var enrichment opendata.Enrichment
+			lane.do(t, st, http.MethodGet, "/v1/opendata/enrichment?ip="+item.address, nil, &enrichment, http.StatusOK)
+			if enrichment.IP != item.address || enrichment.RIR != "apnic" || enrichment.CountryCode != item.country ||
+				enrichment.AllocationStatus != item.status || enrichment.AllocationDate != item.date ||
+				len(enrichment.Sources) != 1 || enrichment.Sources[0].Source != "rir-stats" {
+				t.Fatalf("%s lost %s original allocation values: %+v", lane.name, item.address, enrichment)
+			}
 		}
 	}
 
@@ -66,31 +76,38 @@ func TestShippedAPNICAllocationEnrichment(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = socket.Close() })
-		source := netip.MustParseAddr(addresses[i]).As4()
-		var selectedPort string
+		var selectedPorts [2]string
 		port := uint16(41000)
-		// The flow cache warms asynchronously. Use separate original keys
-		// so a cache miss can persist and a later receipt can be enriched.
-		shipped.Await(t, "an original IPFIX report reached the warmed allocation cache", 30*time.Second, func() bool {
+		// Use separate original keys while the flow cache warms. Once a
+		// family has an enriched row, keep its original observation.
+		shipped.Await(t, "both original IPFIX address families reached the allocation cache", 30*time.Second, func() bool {
 			result := lane.query(t, st, plan)
 			for _, row := range result.Rows {
-				if row.Group["src_addr"] != addresses[i] {
+				index := slices.Index(addresses[i][:], row.Group["src_addr"])
+				if index < 0 {
 					t.Fatalf("%s raw rows include a foreign address: %v", lane.name, row.Group)
 				}
-				if row.Group["src_country"] == countries[i] {
-					selectedPort = row.Group["src_port"]
-					return selectedPort != ""
+				if selectedPorts[index] == "" && row.Group["src_country"] == observations[i][index].country {
+					selectedPorts[index] = row.Group["src_port"]
 				}
 			}
-			frame := apnicIPFIX(t, source, port, at, counters[i])
-			if n, err := socket.Write(frame); err != nil || n != len(frame) {
-				t.Fatal("write the loopback IPFIX observation", n, err)
+			if selectedPorts[0] != "" && selectedPorts[1] != "" {
+				return true
 			}
-			port++
+			for index, item := range observations[i] {
+				if selectedPorts[index] != "" {
+					continue
+				}
+				frame := apnicIPFIX(t, netip.MustParseAddr(item.address), port, at, item.bytes)
+				if n, err := socket.Write(frame); err != nil || n != len(frame) {
+					t.Fatal("write the loopback IPFIX observation", n, err)
+				}
+				port++
+			}
 			return false
 		})
 		plan.Filter = &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{
-			{Field: "src_port", Op: flow.QueryIn, Values: []string{selectedPort}},
+			{Field: "src_port", Op: flow.QueryIn, Values: selectedPorts[:]},
 		}}
 		plans[i] = plan
 	}
@@ -100,12 +117,24 @@ func TestShippedAPNICAllocationEnrichment(t *testing.T) {
 		for _, series := range []string{"raw", "rollup"} {
 			plan := plans[i]
 			plan.DataSeries = series
-			wantBytes := strconv.FormatUint(uint64(counters[i]), 10)
 			result := apnicFlowQuery(t, st, lane, plan)
-			if len(result.Rows) != 1 || result.Rows[0].Group["src_addr"] != addresses[i] ||
-				result.Rows[0].Group["src_country"] != countries[i] || result.Totals["bytes:total"] != wantBytes ||
-				result.Totals["packets:total"] != "7" || result.Totals["flows:total"] != "1" {
-				t.Fatalf("%s %s lost an original enriched row: %v", lane.name, series, result)
+			wantBytes := uint64(observations[i][0].bytes) + uint64(observations[i][1].bytes)
+			if len(result.Rows) != 2 || result.Totals["bytes:total"] != strconv.FormatUint(wantBytes, 10) ||
+				result.Totals["packets:total"] != "14" || result.Totals["flows:total"] != "2" {
+				t.Fatalf("%s %s lost a packet or original allocation record: %v", lane.name, series, result)
+			}
+			var seen [2]bool
+			for _, row := range result.Rows {
+				index := slices.Index(addresses[i][:], row.Group["src_addr"])
+				if index < 0 || seen[index] {
+					t.Fatalf("%s %s returned a foreign or duplicate row: %v", lane.name, series, row.Group)
+				}
+				seen[index] = true
+				item := observations[i][index]
+				if row.Group["src_country"] != item.country || row.Metrics["bytes:total"] != strconv.FormatUint(uint64(item.bytes), 10) ||
+					row.Metrics["packets:total"] != "7" || row.Metrics["flows:total"] != "1" {
+					t.Fatalf("%s %s lost the source fields or counters for %s: %v", lane.name, series, item.address, row)
+				}
 			}
 			var cli struct {
 				Flow flowstore.PlanResult `json:"flow"`
@@ -117,7 +146,7 @@ func TestShippedAPNICAllocationEnrichment(t *testing.T) {
 			}
 			foreign := plan
 			foreign.Filter = &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{
-				{Field: "src_addr", Op: flow.QueryIn, Values: []string{addresses[1-i]}},
+				{Field: "src_addr", Op: flow.QueryIn, Values: addresses[1-i][:]},
 			}}
 			if selection := apnicFlowQuery(t, st, lane, foreign); len(selection.Rows) != 0 {
 				t.Fatalf("%s %s read the sibling's original address", lane.name, series)
@@ -127,14 +156,18 @@ func TestShippedAPNICAllocationEnrichment(t *testing.T) {
 				Name: "APNIC allocation " + series, Visibility: "private", Time: flow.QueryViewTime{Mode: "absolute"}, Plan: plan,
 			}}, &saved, http.StatusCreated)
 			lanes[1-i].do(t, st, http.MethodGet, "/v1/explorer/flow-views/"+saved.ID, nil, nil, http.StatusNotFound)
+			expected := make([]string, 0, 4)
+			for _, item := range observations[i] {
+				expected = append(expected, "src_addr: "+item.address, "src_country: "+item.country)
+			}
 			for _, theme := range []string{"light", "dark"} {
 				testsupport.RenderUI(t, testsupport.RenderSpec{
 					URL: st.BaseURL + "/ui/explore?flow_view=" + saved.ID, Theme: theme, Accessibility: true,
 					Cookies:        []testsupport.RenderCookie{{Name: auth.SessionCookie, Value: lane.cookie}},
 					TrustCertFiles: st.TrustCerts(), CAFile: st.CAFile, Expect: []string{"Native flow query"},
 					Steps: []testsupport.RenderStep{{
-						Click: "Run flow query", Expect: []string{"Exact flow details", addresses[i]},
-						Absent: []string{addresses[1-i]},
+						Click: "Run flow query", Expect: expected, ExpectWithin: `table:has(caption:text-is("Exact flow details"))`,
+						Absent: addresses[1-i][:],
 					}},
 				})
 			}
@@ -179,12 +212,25 @@ func apnicFlowQuery(t *testing.T, st *shipped.Stack, lane *nativeLane, plan flow
 	return result.Flow
 }
 
-func apnicIPFIX(t *testing.T, source [4]byte, port uint16, at time.Time, amount uint32) []byte {
+type apnicObservation struct {
+	address, country, status, date string
+	bytes                          uint32
+}
+
+func apnicIPFIX(t *testing.T, source netip.Addr, port uint16, at time.Time, amount uint32) []byte {
 	t.Helper()
-	const templateID = uint16(256)
+	templateID := uint16(256)
 	fields := [...]uint16{8, 4, 12, 4, 7, 2, 11, 2, 4, 1, 1, 4, 2, 4}
+	var endpoints []byte
+	if source.Is4() {
+		endpoints = nativeWire(t, source.As4(), [4]byte{192, 0, 2, 1})
+	} else {
+		templateID++
+		fields[0], fields[1], fields[2], fields[3] = 27, 16, 28, 16
+		endpoints = nativeWire(t, source.As16(), netip.MustParseAddr("2001:db8::1").As16())
+	}
 	template := nativeWire(t, templateID, uint16(len(fields)/2), fields)
-	record := nativeWire(t, source, [4]byte{192, 0, 2, 1}, port, uint16(443), uint8(6), amount, uint32(7))
+	record := append(endpoints, nativeWire(t, port, uint16(443), uint8(6), amount, uint32(7))...)
 	size, seconds := 24+len(template)+len(record), at.Unix()
 	if size > math.MaxUint16 || len(template) > math.MaxUint16-4 || len(record) > math.MaxUint16-4 ||
 		seconds < 0 || seconds > math.MaxUint32 {
