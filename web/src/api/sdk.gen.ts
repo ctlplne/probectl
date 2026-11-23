@@ -1335,6 +1335,7 @@ export interface ChangeEffectsResponse {
 
 export interface ChangeEvent {
   actor?: string
+  attributes?: { [key: string]: string }
   config?: ConfigChangeReference
   id?: string
   kind?: string

@@ -1439,6 +1439,7 @@ type ChangeEffectsResponse struct {
 // A normalized tenant-scoped change event from a signed webhook, an authenticated owned-router update or a content-free archive projection.
 type ChangeEvent struct {
 	Actor      string                 `json:"actor,omitempty"`
+	Attributes map[string]string      `json:"attributes,omitempty"`
 	Config     ConfigChangeReference  `json:"config,omitzero"`
 	Id         string                 `json:"id,omitempty"`
 	Kind       string                 `json:"kind,omitempty"`

@@ -148,7 +148,8 @@ const en = {
   'path.graph.scrollRegion': 'Scrollable network path graph',
   'path.vantage.controlPlane': 'Traced from the control plane, not from an agent',
   'path.vantage.unknown': 'Trace vantage not recorded',
-  'path.mpls.inferred': 'Inferred MPLS between hops {from} and {to} (quoted TTLs {fromTTL} and {toTTL})',
+  'path.mpls.inferred':
+    'Inferred MPLS between hops {from} and {to} (quoted TTLs {fromTTL} and {toTTL})',
   'path.fidelity.title': 'Measurement fidelity',
   'path.fidelity.visibility.full': 'Full-hop acquisition',
   'path.fidelity.visibility.destinationOnly': 'Destination-only fallback',
@@ -1734,6 +1735,7 @@ const es: Record<MessageKey, string> = {
   'changes.timeline.page': 'Página {page}: {count} cambios',
   'changes.timeline.next': 'Página siguiente',
   'changes.timeline.diff': 'Abrir comparación exacta de configuración redactada',
+  'changes.timeline.pathRounds': 'Comparar las rondas originales de la ruta',
   'changes.routing.title': 'Observación de ruta propia',
   'changes.routing.selected':
     'Ruta seleccionada por BGP observada; el estado de reenvío no está verificado.',
@@ -1825,6 +1827,8 @@ const es: Record<MessageKey, string> = {
   'path.graph.scrollRegion': 'Gráfico desplazable de la ruta de red',
   'path.vantage.controlPlane': 'Trazada desde el plano de control, no desde un agente',
   'path.vantage.unknown': 'Punto de trazado no registrado',
+  'path.mpls.inferred':
+    'MPLS inferido entre los saltos {from} y {to} (TTL citados: {fromTTL} y {toTTL})',
   'path.fidelity.title': 'Fidelidad de la medición',
   'path.fidelity.visibility.full': 'Adquisición de todos los saltos',
   'path.fidelity.visibility.destinationOnly': 'Alternativa con solo el destino',
@@ -3442,6 +3446,7 @@ const ar: Record<MessageKey, string> = {
   'changes.timeline.page': 'الصفحة {page}: {count} تغييرات',
   'changes.timeline.next': 'الصفحة التالية',
   'changes.timeline.diff': 'فتح مقارنة الإعدادات الأصلية المحجوبة',
+  'changes.timeline.pathRounds': 'مقارنة جولات قياس المسار الأصلية',
   'changes.routing.title': 'رصد توجيه مملوك',
   'changes.routing.selected': 'مسار مختار عبر BGP مرصود؛ حالة جدول التمرير غير متحققة.',
   'changes.routing.advertised': 'إعلان مرصود؛ اختيار المسار وحالة التمرير غير متحققين.',
@@ -3525,6 +3530,8 @@ const ar: Record<MessageKey, string> = {
   'path.graph.scrollRegion': 'رسم مسار الشبكة القابل للتمرير',
   'path.vantage.controlPlane': 'تم التتبع من مستوى التحكم، وليس من وكيل',
   'path.vantage.unknown': 'نقطة التتبع غير مسجلة',
+  'path.mpls.inferred':
+    'استُدل على MPLS بين القفزتين {from} و{to} (قيم TTL المقتبسة: {fromTTL} و{toTTL})',
   'path.fidelity.title': 'دقة القياس',
   'path.fidelity.visibility.full': 'التقاط كامل للقفزات',
   'path.fidelity.visibility.destinationOnly': 'وضع احتياطي للوجهة فقط',

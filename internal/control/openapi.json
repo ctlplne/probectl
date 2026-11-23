@@ -31443,6 +31443,13 @@
           "url": {
             "type": "string"
           },
+          "attributes": {
+            "type": "object",
+            "description": "Source attributes retained in the authorized change record.",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "config": {
             "$ref": "#/components/schemas/ConfigChangeReference"
           },
