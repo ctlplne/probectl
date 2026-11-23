@@ -169,6 +169,7 @@ func buildMCPFlowSources(cfg *config.Config, log *slog.Logger, db *store.DB, pat
 	core := control.New(cfg, log, db, db.Pool(), paths, nil).WithFlowStore(flows).WithTSDB(metrics).
 		WithDeviceOps(deviceOps).WithInventoryViews(inventory.NewPostgresViewStore(db.Pool())).
 		WithFlowQueryFilters(flow.NewPostgresQueryFilterStore(db.Pool(), cfg.FlowQueryLibraryBytes, audit.TenantRecord)).WithFlowQueryViews(flow.NewPostgresQueryViewStore(db.Pool(), cfg.FlowQueryLibraryBytes, audit.TenantRecord)).
+		WithDeviceInventoryReferences(buildDeviceInventoryReferences(context.Background(), cfg, log)).
 		WithTenantStatus(control.NewTenantStatusCache(db.Pool(), 0))
 	// Reuse the serving source constructor. The complete local IX generation
 	// is public input, matched only after current tenant source authorization.

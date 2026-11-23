@@ -2153,6 +2153,76 @@ can install the database row policy, and that reader's credential
 as it (DPR-285). The default `single` profile may still use
 memory modes for a lightweight sovereign/lab install.
 
+### Local device inventory reference files
+
+The control process optionally loads these operator-mounted regular files at
+startup. Mount them read-only and replace them using your approved reference
+data process. The shared indexes perform no external lookups. Load failures
+affect only their source. A snapshot older than 30 days is unavailable for
+a new lookup.
+
+| Environment key | Default | Optional local input |
+|---|---|---|
+| `PROBECTL_DEVICE_INVENTORY_LIFECYCLE_FILE` | unset | Version 1 JSON with exact manufacturer/model rows, source date and published vendor notices |
+| `PROBECTL_DEVICE_INVENTORY_KEV_FILE` | unset | CISA KEV JSON |
+| `PROBECTL_DEVICE_INVENTORY_NVD_FILE` | unset | One complete NVD JSON 2.0 snapshot, optionally gzipped |
+| `PROBECTL_DEVICE_INVENTORY_NVD_METADATA_FILE` | unset | Publisher sidecar for the same NVD snapshot, required with NVD |
+| `PROBECTL_DEVICE_INVENTORY_CPE_BINDINGS_FILE` | unset | Version 1 JSON with reviewed exact manufacturer/model and firmware or software CPE bindings, required with NVD |
+
+CVE coverage applies to the supplied snapshot and reviewed product bindings.
+KEV status is supplied for a CVE already independently matched to the exact
+observed component. An absent flag can reflect unavailable references or
+incomplete applicability. The original authorized inventory remains available
+while reference data is missing.
+
+The lifecycle file preserves separate dates. Include original vendor notices
+whose model and scope apply to the devices in the deployment. Omit regional
+milestones whose applicability cannot be established.
+
+```json
+{
+  "version": 1,
+  "observed_at": "2026-11-21",
+  "records": [{
+    "manufacturer": "Example Networks",
+    "model": "EX-100",
+    "notice_url": "https://equipment.example.invalid/notices/ex-100",
+    "notice_published_at": "2026-04-01",
+    "end_of_sale": "2026-10-31",
+    "end_of_security_fixes": "2027-10-31",
+    "end_of_support": "2028-10-31"
+  }]
+}
+```
+
+Record the exact observed manufacturer and model in the CPE binding. Choose
+`firmware` or `software` according to the field the published advisory covers.
+Use `exact_only` for strings without a reviewed ordering rule.
+`numeric_dot_equal_width` admits a range only when both values have the same
+number of numeric dot-separated components.
+
+```json
+{
+  "version": 1,
+  "bindings": [{
+    "manufacturer": "Example Networks",
+    "model": "EX-100",
+    "version_field": "firmware",
+    "cpe_part": "o",
+    "cpe_vendor": "example_networks",
+    "cpe_product": "ex_100_firmware",
+    "version_order": "numeric_dot_equal_width"
+  }]
+}
+```
+
+In **Planes → Device → Physical inventory**, choose the routing context,
+canonical device and inventory source. Enter the exact collector and target
+reference when the evidence page does not list the source. First-page and
+continuation responses retain the original observation ID. A newer poll may
+require opening the latest snapshot again. The current user needs both
+`metrics.read` and `entities.read` for the selected source.
+
 ### Device telemetry agent (`probectl-device-agent`)
 
 This agent reads metrics straight off network gear (routers, switches). It polls
@@ -2261,6 +2331,13 @@ Keep `cert.pem`, `key.pem` and `server-ca.pem` in one dedicated writable
 directory. The HTTPS rotation endpoint renews the 24-hour SVID at two thirds
 of its life; the independent server trust file remains stable across atomic
 certificate/key swaps.
+
+Set `physical_inventory: true` on an existing authorized SNMP target to
+collect physical components from its ENTITY-MIB. This bounded walk runs
+every 12 hours after a successful snapshot. It retries a failed or
+unresolved snapshot after one hour. Its latest collection and its publicly
+cited advisory flags remain separate, and both require the exact tenant
+device context, collector and configured source.
 
 | Variable                       | Default     | Meaning                                                          |
 | ------------------------------- | ----------- | ----------------------------------------------------------------- |

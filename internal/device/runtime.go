@@ -20,27 +20,29 @@ import (
 
 // Stats are the collector's monotonic counters (probectl observes probectl).
 type Stats struct {
-	Polls                       atomic.Uint64
-	PollErrors                  atomic.Uint64
-	Metrics                     atomic.Uint64
-	EmitErrors                  atomic.Uint64
-	ExactCounterBatches         atomic.Uint64
-	ExactCounterSamples         atomic.Uint64
-	ExactCounterEmitErrors      atomic.Uint64
-	ExactCounterUnavailable     atomic.Uint64
-	GNMIStreams                 atomic.Uint64
-	CounterResets               atomic.Uint64 // CORRECT-001: counter resets detected and dropped
-	NeighborSnapshots           atomic.Uint64
-	Neighbors                   atomic.Uint64
-	NeighborPollErrors          atomic.Uint64
-	NeighborEmitErrors          atomic.Uint64
-	CollectionOutcomes          atomic.Uint64
-	CollectionOutcomeEmitErrors atomic.Uint64
-	EvidenceAccepted            atomic.Uint64
-	EvidenceUnresolved          atomic.Uint64
-	EvidenceErrors              atomic.Uint64
-	InterfacePrefixSnapshots    atomic.Uint64
-	InterfacePrefixUnavailable  atomic.Uint64
+	Polls                        atomic.Uint64
+	PollErrors                   atomic.Uint64
+	Metrics                      atomic.Uint64
+	EmitErrors                   atomic.Uint64
+	ExactCounterBatches          atomic.Uint64
+	ExactCounterSamples          atomic.Uint64
+	ExactCounterEmitErrors       atomic.Uint64
+	ExactCounterUnavailable      atomic.Uint64
+	GNMIStreams                  atomic.Uint64
+	CounterResets                atomic.Uint64 // CORRECT-001: counter resets detected and dropped
+	NeighborSnapshots            atomic.Uint64
+	Neighbors                    atomic.Uint64
+	NeighborPollErrors           atomic.Uint64
+	NeighborEmitErrors           atomic.Uint64
+	CollectionOutcomes           atomic.Uint64
+	CollectionOutcomeEmitErrors  atomic.Uint64
+	EvidenceAccepted             atomic.Uint64
+	EvidenceUnresolved           atomic.Uint64
+	EvidenceErrors               atomic.Uint64
+	InterfacePrefixSnapshots     atomic.Uint64
+	InterfacePrefixUnavailable   atomic.Uint64
+	PhysicalInventorySnapshots   atomic.Uint64
+	PhysicalInventoryUnavailable atomic.Uint64
 	// CredErrors counts per-cycle credential re-resolutions that failed (S41:
 	// the cycle is SKIPPED — fail closed, never poll with stale material).
 	CredErrors atomic.Uint64
@@ -62,15 +64,16 @@ type Runtime struct {
 	emit  Emitter
 	log   *slog.Logger
 
-	correlator    *Correlator
-	traps         TrapStore
-	evidence      EvidenceEmitter
-	stats         Stats
-	evidenceMu    sync.Mutex
-	evidenceLast  map[string]entityEvidenceSnapshot
-	evidenceEpoch uint64 // a rotation cannot be overwritten by an in-flight old-SVID RPC
-	faultLast     map[string]time.Time
-	faultPending  map[string]entity.FaultObservation
+	correlator            *Correlator
+	traps                 TrapStore
+	evidence              EvidenceEmitter
+	stats                 Stats
+	evidenceMu            sync.Mutex
+	evidenceLast          map[string]entityEvidenceSnapshot
+	physicalInventoryNext map[string]time.Time
+	evidenceEpoch         uint64 // a rotation cannot be overwritten by an in-flight old-SVID RPC
+	faultLast             map[string]time.Time
+	faultPending          map[string]entity.FaultObservation
 
 	// counterCache tracks the last emitted value of each cumulative counter
 	// (CORRECT-001). When a device reboots, counters wrap to zero, producing a
@@ -144,6 +147,8 @@ func (r *Runtime) StatsSnapshot() map[string]uint64 {
 		"entity_evidence_errors":         r.stats.EvidenceErrors.Load(),
 		"interface_prefix_snapshots":     r.stats.InterfacePrefixSnapshots.Load(),
 		"interface_prefix_unavailable":   r.stats.InterfacePrefixUnavailable.Load(),
+		"physical_inventory_snapshots":   r.stats.PhysicalInventorySnapshots.Load(),
+		"physical_inventory_unavailable": r.stats.PhysicalInventoryUnavailable.Load(),
 	}
 }
 
@@ -353,6 +358,7 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 	}
 	r.stats.Metrics.Add(uint64(len(metrics)))
 	r.emitSNMPEntityEvidence(ctx, dev, inv, observedNeighbors, observedAt)
+	r.emitSNMPPhysicalInventory(ctx, conn, dev, inv.peerAddress)
 }
 
 type collectionOutcomeKey struct {

@@ -357,6 +357,21 @@ fixtures. Individual model and firmware support follows the actual wire
 observations. The native MCP reader applies its existing full redaction
 policy to sender-supplied metadata. [Configure local extensions](configuration.md#local-vendor-snmp-profiles)
 
+## Physical hardware inventory
+
+Set `physical_inventory: true` on an authorized SNMP target to collect its
+ENTITY-MIB component tree, including manufacturer, model, serial number,
+hardware and firmware revisions where the device supplies them. Select the
+device and collector in **Planes → Device → Physical inventory** or read
+the same observation through `GET /v1/device/physical-inventory` and
+`probectl device physical-inventory`. Page continuations use the original
+observation ID and require a fresh first page when inventory changes.
+
+Optional [local reference files](configuration.md#local-device-inventory-reference-files)
+add cited end-of-life notices and applicable CVEs, including CISA KEV status.
+Missing or stale references leave the affected coverage unknown. The
+control plane keeps model and firmware matching local.
+
 ## Physical adjacency — direct LLDP/CDP evidence
 
 Metrics say how a port feels; LLDP/CDP says which port is plugged into which

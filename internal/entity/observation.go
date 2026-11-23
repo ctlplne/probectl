@@ -49,6 +49,7 @@ type Observation struct {
 	ICMP                  *ICMPMeasurement
 	Outcome               *ProbeOutcome
 	SNMPInterfacePrefixes []SNMPInterfacePrefix
+	SNMPPhysicalInventory *SNMPPhysicalInventory
 	NeighborProtocol      string
 	NeighborLocalIfIndex  uint32
 	NeighborLocalPortID   string
@@ -124,6 +125,10 @@ func (o Observation) Normalize(now time.Time) (Observation, error) {
 		if err != nil {
 			return Observation{}, ErrInvalidClaim
 		}
+	}
+	o.SNMPPhysicalInventory, err = normalizePhysicalInventoryObservation(o)
+	if err != nil {
+		return Observation{}, err
 	}
 	o, err = normalizeNeighborObservation(o)
 	if err != nil {

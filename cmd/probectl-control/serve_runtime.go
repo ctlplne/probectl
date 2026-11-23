@@ -358,6 +358,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithDeviceNeighbors(rt.neighborStore).
 		WithDeviceCollectionOutcomes(rt.outcomeStore).
 		WithDeviceTraps(rt.trapStore).
+		WithDeviceInventoryReferences(buildDeviceInventoryReferences(rt.gctx, rt.cfg, rt.log)).
 		WithEBPFStore(rt.ebpfStore).
 		// PLAT-06/RTP-08/WEB-26: durable device syslog + config archive + inventory
 		// saved views (survive restart, shared across replicas) instead of the

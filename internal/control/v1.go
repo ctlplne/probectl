@@ -125,6 +125,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodDelete, "/v1/bgp/visibility/{id}", s.handleDeleteBGPVisibility, permAlertWrite},
 		{http.MethodGet, "/v1/devices", s.handleListDevices, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/device/metrics", s.handleDeviceMetrics, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/device/physical-inventory", s.handleDevicePhysicalInventory, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/device/neighbors", s.handleDeviceNeighbors, ai.PermTopologyRead},
 		{http.MethodGet, "/v1/device/collection-outcomes", s.handleDeviceCollectionOutcomes, ai.PermTopologyRead},
 		{http.MethodGet, "/v1/device/identity-conflicts", s.handleIdentityConflicts, ai.PermTopologyRead},

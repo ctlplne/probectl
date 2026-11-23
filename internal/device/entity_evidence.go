@@ -108,6 +108,7 @@ func (r *Runtime) RefreshEvidenceAfterRotation() {
 	r.evidenceMu.Lock()
 	r.evidenceEpoch++
 	r.evidenceLast = make(map[string]entityEvidenceSnapshot)
+	r.physicalInventoryNext = nil
 	r.faultPending = make(map[string]entity.FaultObservation)
 	r.evidenceMu.Unlock()
 }
@@ -119,6 +120,7 @@ func (r *Runtime) clearSNMPFault(address string) {
 		// even when the complete fingerprint is unchanged. A failed evidence
 		// RPC leaves the cache absent so the next successful poll retries.
 		delete(r.evidenceLast, address)
+		delete(r.physicalInventoryNext, address)
 	}
 	delete(r.faultLast, address)
 	delete(r.faultPending, address)

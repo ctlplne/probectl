@@ -68,6 +68,7 @@ import { DeviceMetricsCard } from '../components/DeviceMetricsCard'
 import { DeviceSyslogPatternsCard } from '../components/DeviceSyslogPatternsCard'
 import { ConfigDiffDialog, type ConfigComparison } from './ConfigDiffDialog'
 import { DeviceConfigPolicyAction } from './DeviceConfigPolicyDialog'
+import { DevicePhysicalInventoryCard } from './DevicePhysicalInventoryCard'
 import { ConfigArchiveBinding } from '../components/ConfigArchiveBinding'
 import { findPreviousConfig } from './configDiff'
 
@@ -1277,6 +1278,7 @@ function DevicePanel({
           </CardBody>
         </Card>
         <DeviceMetricsCard />
+        <DevicePhysicalInventoryCard />
         <DeviceSyslogPatternsCard />
         <Card>
           <CardHeader title={t('planes.device.endpoints.title')} />

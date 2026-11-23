@@ -19,7 +19,7 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-type nativeDeviceConfigPolicyBackend struct{ server *Server }
+type nativeCanonicalDeviceBackend struct{ server *Server }
 
 func deviceConfigPolicyToolOption(server *Server) (mcp.Option, error) {
 	var document struct {
@@ -54,10 +54,10 @@ func deviceConfigPolicyToolOption(server *Server) (mcp.Option, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mcp.WithDeviceConfigPolicyBackend(nativeDeviceConfigPolicyBackend{server}, schemas), nil
+	return mcp.WithDeviceConfigPolicyBackend(nativeCanonicalDeviceBackend{server}, schemas), nil
 }
 
-func (b nativeDeviceConfigPolicyBackend) DeviceConfigPolicy(ctx context.Context, actor *auth.Principal,
+func (b nativeCanonicalDeviceBackend) DeviceConfigPolicy(ctx context.Context, actor *auth.Principal,
 	input mcp.DeviceConfigPolicySource) (json.RawMessage, error) {
 	binding := configPolicyBindingInput(input).archiveBinding()
 	return b.publishRead(ctx, actor, func(ctx context.Context) (json.RawMessage, error) {
@@ -69,7 +69,7 @@ func (b nativeDeviceConfigPolicyBackend) DeviceConfigPolicy(ctx context.Context,
 	})
 }
 
-func (b nativeDeviceConfigPolicyBackend) PublishDeviceConfigPolicy(ctx context.Context, actor *auth.Principal,
+func (b nativeCanonicalDeviceBackend) PublishDeviceConfigPolicy(ctx context.Context, actor *auth.Principal,
 	input mcp.DeviceConfigPolicyUpdate) (json.RawMessage, error) {
 	if err := b.check(ctx, actor); err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func (b nativeDeviceConfigPolicyBackend) PublishDeviceConfigPolicy(ctx context.C
 	return json.Marshal(policy)
 }
 
-func (b nativeDeviceConfigPolicyBackend) DeviceConfigPolicyEvaluation(ctx context.Context, actor *auth.Principal,
+func (b nativeCanonicalDeviceBackend) DeviceConfigPolicyEvaluation(ctx context.Context, actor *auth.Principal,
 	input mcp.DeviceConfigPolicyRead) (json.RawMessage, error) {
 	return b.publishRead(ctx, actor, func(ctx context.Context) (json.RawMessage, error) {
 		archive, result, err := b.server.loadDeviceConfigPolicyEvaluation(ctx, actor, input.ID)
@@ -119,7 +119,7 @@ func (b nativeDeviceConfigPolicyBackend) DeviceConfigPolicyEvaluation(ctx contex
 	})
 }
 
-func (b nativeDeviceConfigPolicyBackend) check(ctx context.Context, actor *auth.Principal) error {
+func (b nativeCanonicalDeviceBackend) check(ctx context.Context, actor *auth.Principal) error {
 	if b.server == nil || b.server.pool == nil || actor == nil || actor.UserID == "" {
 		return apierror.Forbidden("a current authorized tenant user is required")
 	}
@@ -131,12 +131,12 @@ func (b nativeDeviceConfigPolicyBackend) check(ctx context.Context, actor *auth.
 		return err
 	}
 	if status != "active" {
-		return apierror.Forbidden("configuration policy tenant is inactive")
+		return apierror.Forbidden("canonical device tenant is inactive")
 	}
 	return nil
 }
 
-func (b nativeDeviceConfigPolicyBackend) publishRead(ctx context.Context, actor *auth.Principal,
+func (b nativeCanonicalDeviceBackend) publishRead(ctx context.Context, actor *auth.Principal,
 	read func(context.Context) (json.RawMessage, error)) (json.RawMessage, error) {
 	if err := b.check(ctx, actor); err != nil {
 		return nil, err
@@ -154,7 +154,7 @@ func (b nativeDeviceConfigPolicyBackend) publishRead(ctx context.Context, actor 
 			return err
 		}
 		if !bytes.Equal(body, current) {
-			return apierror.Conflict("configuration policy changed before publication")
+			return apierror.Conflict("canonical device evidence changed before publication")
 		}
 		return active.Err()
 	}, func() {}); err != nil {

@@ -79,6 +79,7 @@ type Target struct {
 	// legacy collection knobs above. Mixing the two is rejected as ambiguous.
 	CollectionOverrides CollectionOverrides `yaml:"collection_overrides,omitempty"`
 
+	PhysicalInventory bool   `yaml:"physical_inventory,omitempty"`
 	SNMPVendorProfile string `yaml:"snmp_vendor_profile,omitempty"`
 	vendorProfiles    []SNMPVendorProfile
 }
@@ -444,6 +445,9 @@ func (c *Config) Validate() error {
 				d.Interval = 60 * time.Second
 			}
 		case TransportGNMI:
+			if d.PhysicalInventory {
+				return fmt.Errorf("device: devices[%d] (%s): physical_inventory requires an SNMP transport", i, d.Address)
+			}
 			if d.Neighbors {
 				return fmt.Errorf("device: devices[%d] (%s): neighbors requires an SNMP transport", i, d.Address)
 			}

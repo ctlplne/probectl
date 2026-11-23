@@ -142,16 +142,17 @@ type Server struct {
 
 	// Flow analytics store (S38). Defaults to in-memory; main attaches the
 	// configured store (ClickHouse in production) via WithFlowStore.
-	flowStore          flowstore.Store
-	flowRenderBudget   mcp.NativeFlowRenderBudget
-	flowSnapshots      *flowsnapshot.Service
-	flowSnapshotSource *flowSnapshotSource
-	flowQuality        flow.QualityStore
-	otelStore          otelstore.Store
-	deviceOps          device.OpsStore
-	deviceNeighbors    device.NeighborStore
-	deviceOutcomes     device.CollectionOutcomeStore
-	deviceTraps        device.TrapEventStore
+	flowStore                 flowstore.Store
+	flowRenderBudget          mcp.NativeFlowRenderBudget
+	flowSnapshots             *flowsnapshot.Service
+	flowSnapshotSource        *flowSnapshotSource
+	flowQuality               flow.QualityStore
+	otelStore                 otelstore.Store
+	deviceOps                 device.OpsStore
+	deviceNeighbors           device.NeighborStore
+	deviceOutcomes            device.CollectionOutcomeStore
+	deviceTraps               device.TrapEventStore
+	deviceInventoryReferences *device.DeviceInventoryReferences
 
 	// Prometheus-compatible surfaces (S40): the metrics writer, queried locally
 	// when it can snapshot (memory mode) or proxied upstream (prometheus mode).
@@ -508,6 +509,13 @@ func (s *Server) WithDeviceTraps(st device.TrapEventStore) *Server {
 	if st != nil {
 		s.deviceTraps = st
 	}
+	return s
+}
+
+// WithDeviceInventoryReferences attaches the deployment's read-only local
+// reference snapshots for already authorized physical inventory.
+func (s *Server) WithDeviceInventoryReferences(references *device.DeviceInventoryReferences) *Server {
+	s.deviceInventoryReferences = references
 	return s
 }
 

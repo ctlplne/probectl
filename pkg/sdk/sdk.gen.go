@@ -2086,11 +2086,49 @@ type DeviceInventory struct {
 	Name      string            `json:"name,omitempty"`
 }
 
+type DeviceInventoryLifecycleEvidence struct {
+	Notice     DeviceInventoryLifecycleNotice `json:"notice"`
+	SourceDate string                         `json:"source_date"`
+}
+
+type DeviceInventoryLifecycleNotice struct {
+	EndOfSale          string `json:"end_of_sale,omitempty"`
+	EndOfSecurityFixes string `json:"end_of_security_fixes,omitempty"`
+	EndOfSupport       string `json:"end_of_support,omitempty"`
+	Manufacturer       string `json:"manufacturer"`
+	Model              string `json:"model"`
+	NoticePublishedAt  string `json:"notice_published_at"`
+	NoticeUrl          string `json:"notice_url"`
+}
+
 type DeviceInventoryList struct {
 	At              string            `json:"at,omitempty"`
 	EffectiveLimit  int               `json:"effective_limit,omitempty"`
 	Items           []DeviceInventory `json:"items,omitempty"`
 	TopologyRunning *bool             `json:"topology_running,omitempty"`
+}
+
+type DeviceInventoryReferenceFlags struct {
+	Lifecycle                *DeviceInventoryLifecycleEvidence      `json:"lifecycle,omitempty"`
+	NvdArchiveModifiedAt     string                                 `json:"nvd_archive_modified_at,omitempty"`
+	NvdSourceDate            string                                 `json:"nvd_source_date,omitempty"`
+	Vulnerabilities          []DeviceInventoryVulnerabilityEvidence `json:"vulnerabilities,omitempty"`
+	VulnerabilitiesTruncated *bool                                  `json:"vulnerabilities_truncated,omitempty"`
+	VulnerabilityCoverage    string                                 `json:"vulnerability_coverage"`
+}
+
+type DeviceInventoryVulnerabilityEvidence struct {
+	Id                   string `json:"id"`
+	KevAddedAt           string `json:"kev_added_at,omitempty"`
+	KevSource            string `json:"kev_source,omitempty"`
+	KevSourceDate        string `json:"kev_source_date,omitempty"`
+	LastModifiedAt       string `json:"last_modified_at"`
+	NvdArchiveModifiedAt string `json:"nvd_archive_modified_at,omitempty"`
+	NvdSource            string `json:"nvd_source"`
+	NvdSourceDate        string `json:"nvd_source_date"`
+	ObservedVersion      string `json:"observed_version"`
+	PublishedAt          string `json:"published_at"`
+	VersionField         string `json:"version_field"`
 }
 
 // Latest retained legacy numeric sample for one device/metric/interface series, including separate probectl_device_if_in_fcs_errors and probectl_device_if_in_alignment_errors. Optional unsupported metrics are absent, never fabricated zero. Use original path-health counter documents for full-width integer words and qualified rates.
@@ -2153,6 +2191,27 @@ type DeviceNeighborResponse struct {
 	LatestAt          string                   `json:"latest_at,omitempty"`
 	Retention         map[string]any           `json:"retention"`
 	Truncated         bool                     `json:"truncated"`
+}
+
+type DevicePhysicalInventoryItem struct {
+	Class        int                           `json:"class"`
+	Firmware     string                        `json:"firmware,omitempty"`
+	Hardware     string                        `json:"hardware,omitempty"`
+	Index        int                           `json:"index"`
+	Manufacturer string                        `json:"manufacturer,omitempty"`
+	Model        string                        `json:"model,omitempty"`
+	Parent       *int                          `json:"parent,omitempty"`
+	References   DeviceInventoryReferenceFlags `json:"references"`
+	Serial       string                        `json:"serial,omitempty"`
+	Software     string                        `json:"software,omitempty"`
+}
+
+type DevicePhysicalInventoryPage struct {
+	Available     bool                          `json:"available"`
+	Items         []DevicePhysicalInventoryItem `json:"items"`
+	NextIndex     int                           `json:"next_index,omitempty"`
+	ObservationId string                        `json:"observation_id"`
+	ObservedAt    string                        `json:"observed_at"`
 }
 
 type DeviceSyslogEvent struct {
@@ -7183,6 +7242,44 @@ func (c *Client) ListDeviceNeighbors(ctx context.Context, req ListDeviceNeighbor
 		query.Set("limit", formatQueryValue(*req.Limit))
 	}
 	var out DeviceNeighborResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read current physical components and local advisory flags
+type GetDevicePhysicalInventoryRequest struct {
+	ContextId      *string `json:"-"`
+	DeviceEntityId *string `json:"-"`
+	AgentId        *string `json:"-"`
+	SourceRef      *string `json:"-"`
+	ObservationId  *string `json:"-"`
+	AfterIndex     *int    `json:"-"`
+}
+
+func (c *Client) GetDevicePhysicalInventory(ctx context.Context, req GetDevicePhysicalInventoryRequest) (*DevicePhysicalInventoryPage, error) {
+	path := "/v1/device/physical-inventory"
+	query := url.Values{}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.DeviceEntityId != nil {
+		query.Set("device_entity_id", formatQueryValue(*req.DeviceEntityId))
+	}
+	if req.AgentId != nil {
+		query.Set("agent_id", formatQueryValue(*req.AgentId))
+	}
+	if req.SourceRef != nil {
+		query.Set("source_ref", formatQueryValue(*req.SourceRef))
+	}
+	if req.ObservationId != nil {
+		query.Set("observation_id", formatQueryValue(*req.ObservationId))
+	}
+	if req.AfterIndex != nil {
+		query.Set("after_index", formatQueryValue(*req.AfterIndex))
+	}
+	var out DevicePhysicalInventoryPage
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}

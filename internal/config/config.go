@@ -79,6 +79,13 @@ type Config struct {
 	AllowSuperuserDB bool
 	DatabaseReadURL  string // optional read-replica endpoint (S-EE2); empty = reads use the writer
 	HopGeoFile       string // optional operator-supplied CIDR→location table for path hop geo; empty = no enrichment
+
+	// Optional read-only local reference files for authenticated device inventory.
+	DeviceInventoryLifecycleFile   string
+	DeviceInventoryKEVFile         string
+	DeviceInventoryNVDFile         string
+	DeviceInventoryNVDMetadataFile string
+	DeviceInventoryCPEBindingsFile string
 	// Live NMS import is off unless the deployment supplies both explicit
 	// destination CIDRs and a tenant-namespaced secret-reference prefix. A
 	// tenant's source configuration can narrow this policy, never widen it.
@@ -1454,6 +1461,11 @@ func loadFeaturePlaneConfig(l *loader, cfg *Config) {
 	cfg.ThreatIntelMirror = l.str("PROBECTL_THREATINTEL_MIRROR", "")
 	cfg.NDREnabled = l.boolean("PROBECTL_NDR_ENABLED", true)
 	cfg.NDRRulesDir = l.str("PROBECTL_NDR_RULES_DIR", "")
+	cfg.DeviceInventoryLifecycleFile = l.str("PROBECTL_DEVICE_INVENTORY_LIFECYCLE_FILE", "")
+	cfg.DeviceInventoryKEVFile = l.str("PROBECTL_DEVICE_INVENTORY_KEV_FILE", "")
+	cfg.DeviceInventoryNVDFile = l.str("PROBECTL_DEVICE_INVENTORY_NVD_FILE", "")
+	cfg.DeviceInventoryNVDMetadataFile = l.str("PROBECTL_DEVICE_INVENTORY_NVD_METADATA_FILE", "")
+	cfg.DeviceInventoryCPEBindingsFile = l.str("PROBECTL_DEVICE_INVENTORY_CPE_BINDINGS_FILE", "")
 	cfg.DNSTapPressureEnabled = l.boolean("PROBECTL_DNSTAP_PRESSURE_ENABLED", true)
 	cfg.DNSTapMinimumResponses = l.uint32Range("PROBECTL_DNSTAP_MIN_RESPONSES", 100, 1, 1<<20)
 	cfg.DNSTapMinimumErrors = l.uint32Range("PROBECTL_DNSTAP_MIN_ERRORS", 50, 1, 1<<20)

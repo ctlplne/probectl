@@ -53,7 +53,7 @@ func (s *Server) handleGetDeviceConfigPolicy(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) loadDeviceConfigPolicy(ctx context.Context, actor *auth.Principal, binding device.ConfigArchiveBinding) (device.ConfigPolicyRevision, error) {
-	ctx, err := bindDeviceConfigPolicyTenant(ctx, actor)
+	ctx, err := bindCanonicalDeviceTenant(ctx, actor)
 	if err != nil {
 		return device.ConfigPolicyRevision{}, err
 	}
@@ -102,7 +102,7 @@ func (s *Server) handlePutDeviceConfigPolicy(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) saveDeviceConfigPolicy(ctx context.Context, actor *auth.Principal, binding device.ConfigArchiveBinding,
 	expected string, rules []device.ConfigPolicyRule, record func(context.Context, tenancy.Scope, device.ConfigPolicyRevision) error) (device.ConfigPolicyRevision, error) {
-	ctx, err := bindDeviceConfigPolicyTenant(ctx, actor)
+	ctx, err := bindCanonicalDeviceTenant(ctx, actor)
 	if err != nil {
 		return device.ConfigPolicyRevision{}, err
 	}
@@ -144,7 +144,7 @@ func (s *Server) loadDeviceConfigPolicyEvaluation(ctx context.Context, actor *au
 	if err != nil || id == guuid.Nil || id.String() != original {
 		return device.ConfigVersion{}, nil, apierror.BadRequest("invalid configuration archive ID")
 	}
-	ctx, err = bindDeviceConfigPolicyTenant(ctx, actor)
+	ctx, err = bindCanonicalDeviceTenant(ctx, actor)
 	if err != nil {
 		return device.ConfigVersion{}, nil, err
 	}
@@ -164,7 +164,7 @@ func (s *Server) loadDeviceConfigPolicyEvaluation(ctx context.Context, actor *au
 	return archive, evaluation, err
 }
 
-func bindDeviceConfigPolicyTenant(ctx context.Context, actor *auth.Principal) (context.Context, error) {
+func bindCanonicalDeviceTenant(ctx context.Context, actor *auth.Principal) (context.Context, error) {
 	if actor == nil || actor.TenantID == "" || actor.UserID == "" {
 		return nil, tenancy.ErrNoTenant
 	}
@@ -177,16 +177,22 @@ func bindDeviceConfigPolicyTenant(ctx context.Context, actor *auth.Principal) (c
 
 func (s *Server) authorizeDeviceConfigPolicyInScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal,
 	binding device.ConfigArchiveBinding, permission string) error {
+	source := entity.SourceKey{AgentID: binding.AgentID, Kind: entity.DeviceTarget, SourceRef: binding.SourceRef}
+	return s.authorizeCanonicalDeviceSourceInScope(ctx, sc, actor, binding.ContextID, binding.DeviceEntityID, source, permission)
+}
+
+func (s *Server) authorizeCanonicalDeviceSourceInScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal,
+	contextID, deviceID string, source entity.SourceKey, permission string) error {
 	if actor == nil || actor.TenantID != sc.Tenant.String() {
 		return tenancy.ErrNoTenant
 	}
-	scope, err := store.NewEntityRegistry(s.pool).GetEntityContextInScope(ctx, sc, binding.ContextID)
+	scope, err := store.NewEntityRegistry(s.pool).GetEntityContextInScope(ctx, sc, contextID)
 	if err != nil {
 		return entityAPIError(err)
 	}
 	resource := entityContextResource(scope)
 	resource["entity_id"], resource["agent_id"], resource["source_kind"], resource["source_ref"] =
-		binding.DeviceEntityID, binding.AgentID, string(entity.DeviceTarget), binding.SourceRef
+		deviceID, source.AgentID, string(source.Kind), source.SourceRef
 	authority, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
 	if err != nil {
 		return err

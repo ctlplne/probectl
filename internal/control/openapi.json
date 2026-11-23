@@ -8480,6 +8480,160 @@
         }
       }
     },
+    "/v1/device/physical-inventory": {
+      "get": {
+        "x-required-permission": "metrics.read",
+        "operationId": "getDevicePhysicalInventory",
+        "summary": "Read current physical components and local advisory flags",
+        "description": "Requires current metrics.read and entities.read for the exact tenant, routing context, device and collector source. Original ENTITY-MIB leaves and local public-reference results retain separate provenance. Follow next_index with the same observation_id.",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "context_id",
+            "in": "query",
+            "required": true,
+            "description": "Canonical routing context UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "device_entity_id",
+            "in": "query",
+            "required": true,
+            "description": "Canonical device UUID.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": true,
+            "description": "Agent bound to the configured device target.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "source_ref",
+            "in": "query",
+            "required": true,
+            "description": "Exact configured device target reference.",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            }
+          },
+          {
+            "name": "observation_id",
+            "in": "query",
+            "required": false,
+            "description": "Observation UUID from the first page, required with after_index.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after_index",
+            "in": "query",
+            "required": false,
+            "description": "The previous page next_index, required with observation_id.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page from the current authenticated source snapshot. An unavailable poll returns available=false and an empty items array.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevicePhysicalInventoryPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The caller credential is no longer valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks current authority for this device source.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Current physical inventory is unavailable in this routing context.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The original observation changed between page reads.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The source or page selector is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The inventory service is temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 16,
+          "reason": "At most 16 original components per page from one authenticated snapshot of at most 512 rows, with at most 32 applicable CVE findings per component."
+        }
+      }
+    },
     "/v1/device/neighbors": {
       "get": {
         "x-required-permission": "topology.read",
@@ -25200,6 +25354,263 @@
         "required": [
           "code",
           "message"
+        ]
+      },
+      "DevicePhysicalInventoryPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "observation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DevicePhysicalInventoryItem"
+            },
+            "maxItems": 16
+          },
+          "next_index": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "observation_id",
+          "observed_at",
+          "available",
+          "items"
+        ]
+      },
+      "DevicePhysicalInventoryItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "class": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 14
+          },
+          "parent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "manufacturer": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "serial": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "hardware": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "firmware": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "software": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "references": {
+            "$ref": "#/components/schemas/DeviceInventoryReferenceFlags"
+          }
+        },
+        "required": [
+          "index",
+          "class",
+          "references"
+        ]
+      },
+      "DeviceInventoryReferenceFlags": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lifecycle": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DeviceInventoryLifecycleEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "vulnerability_coverage": {
+            "type": "string",
+            "enum": [
+              "available",
+              "partial",
+              "unavailable"
+            ],
+            "description": "Applicability coverage of the configured archive and reviewed binding for this component."
+          },
+          "nvd_source_date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nvd_archive_modified_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "vulnerabilities_truncated": {
+            "type": "boolean"
+          },
+          "vulnerabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceInventoryVulnerabilityEvidence"
+            },
+            "maxItems": 32
+          }
+        },
+        "required": [
+          "vulnerability_coverage"
+        ]
+      },
+      "DeviceInventoryLifecycleEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "notice": {
+            "$ref": "#/components/schemas/DeviceInventoryLifecycleNotice"
+          }
+        },
+        "required": [
+          "source_date",
+          "notice"
+        ]
+      },
+      "DeviceInventoryLifecycleNotice": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "manufacturer": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "notice_url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 1024
+          },
+          "notice_published_at": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_of_sale": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_of_security_fixes": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_of_support": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "required": [
+          "manufacturer",
+          "model",
+          "notice_url",
+          "notice_published_at"
+        ]
+      },
+      "DeviceInventoryVulnerabilityEvidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 28
+          },
+          "version_field": {
+            "type": "string",
+            "enum": [
+              "firmware",
+              "software"
+            ]
+          },
+          "observed_version": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "nvd_source": {
+            "type": "string",
+            "format": "uri"
+          },
+          "nvd_source_date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nvd_archive_modified_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "published_at": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "last_modified_at": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "kev_added_at": {
+            "type": "string",
+            "format": "date"
+          },
+          "kev_source": {
+            "type": "string",
+            "format": "uri"
+          },
+          "kev_source_date": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "version_field",
+          "observed_version",
+          "nvd_source",
+          "nvd_source_date",
+          "published_at",
+          "last_modified_at"
         ]
       },
       "Error": {

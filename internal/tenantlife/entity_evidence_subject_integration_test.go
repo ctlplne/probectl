@@ -64,6 +64,9 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 		{uuid.NewString(), "icmp_error", "192.0.2.70"},
 		{uuid.NewString(), "icmp_error", "2001:db8::7"},
 		{uuid.NewString(), "icmp_error", "2001:db8::70"},
+		{uuid.NewString(), "physical_inventory_serial", person},
+		{uuid.NewString(), "physical_inventory_model", "chassis administered by " + person},
+		{uuid.NewString(), "physical_inventory_model", "neutral chassis"},
 	}
 	contextID, entityID := uuid.NewString(), uuid.NewString()
 	generations := make(map[string]int64)
@@ -76,7 +79,7 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 				return err
 			}
 			for _, row := range samples {
-				var name, description, addresses, prefixes, icmp, observed any
+				var name, description, addresses, prefixes, icmp, observed, physical any
 				aliasValue := "neutral-alias"
 				kind, alias, sourceRef, configured := "device_target", "address", "snmp:configured-target", "neutral-target"
 				switch row.field {
@@ -89,6 +92,20 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 					kind, alias, sourceRef, configured = "agent_site", "agent_site_id", "agent:label:site", "neutral-agent"
 				case "snmp_interface_prefixes":
 					prefixes = fmt.Sprintf(`[{"if_index":1,"prefix":%q,"on_link":true}]`, row.value)
+				case "physical_inventory_serial", "physical_inventory_model":
+					sourceRef = entity.SNMPPhysicalInventorySource
+					component := entity.SNMPPhysicalComponent{Index: 7, Class: 3}
+					if row.field == "physical_inventory_serial" {
+						component.Serial = row.value
+					} else {
+						component.Model = row.value
+					}
+					body, err := json.Marshal(entity.SNMPPhysicalInventory{Version: 1, Available: true,
+						Components: []entity.SNMPPhysicalComponent{component}})
+					if err != nil {
+						return err
+					}
+					physical = body
 				case "icmp", "icmp_error":
 					kind, alias, sourceRef, configured = "path_agent", "address", "icmp:configured-test", contextID
 					aliasValue = "192.0.2.200"
@@ -113,8 +130,8 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 					icmp = body
 				}
 				_, err := sc.Q.Exec(ctx, `INSERT INTO entity_evidence
- (tenant_id,context_id,id,observation_id,entity_id,alias_kind,alias_value,source,source_ref,agent_id,source_kind,configured_ref,sender_serial,observed_at,snmp_system_name,snmp_system_description,agent_addresses,snmp_interface_prefixes,icmp_measurement)
- VALUES($1,$2,$3,$3,$4,$5,$15,'lifecycle-component',$6,'neutral-agent',$7,$8,'abc',COALESCE($14::timestamptz,statement_timestamp()),$9,$10,$11::inet[],$12::jsonb,$13::jsonb)`, tenant, contextID, row.id, entityID, alias, sourceRef, kind, configured, name, description, addresses, prefixes, icmp, observed, aliasValue)
+ (tenant_id,context_id,id,observation_id,entity_id,alias_kind,alias_value,source,source_ref,agent_id,source_kind,configured_ref,sender_serial,observed_at,snmp_system_name,snmp_system_description,agent_addresses,snmp_interface_prefixes,icmp_measurement,snmp_physical_inventory)
+ VALUES($1,$2,$3,$3,$4,$5,$15,'lifecycle-component',$6,'neutral-agent',$7,$8,'abc',COALESCE($14::timestamptz,statement_timestamp()),$9,$10,$11::inet[],$12::jsonb,$13::jsonb,$16::jsonb)`, tenant, contextID, row.id, entityID, alias, sourceRef, kind, configured, name, description, addresses, prefixes, icmp, observed, aliasValue, physical)
 				if err != nil {
 					return err
 				}
@@ -137,7 +154,7 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 		subject string
 		indexes []int
 	}{
-		{person, []int{0, 1}},
+		{person, []int{0, 1, 20, 21}},
 		{"192.0.2.7", []int{2, 7, 12, 16}},
 		{"2001:0db8:0:0:0:0:0:7", []int{4, 9, 14, 18}},
 	} {
@@ -156,9 +173,10 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 				continue
 			}
 			var row struct {
-				ICMP     *entity.ICMPMeasurement `json:"icmp_measurement"`
-				ID       string                  `json:"id"`
-				Tenant   string                  `json:"tenant_id"`
+				ICMP     *entity.ICMPMeasurement       `json:"icmp_measurement"`
+				Physical *entity.SNMPPhysicalInventory `json:"snmp_physical_inventory"`
+				ID       string                        `json:"id"`
+				Tenant   string                        `json:"tenant_id"`
 				Prefixes []struct {
 					IfIndex uint32 `json:"if_index"`
 					Prefix  string `json:"prefix"`
@@ -177,6 +195,17 @@ func TestEntityEvidenceSubjectMetadataExportErasureAndIsolation(t *testing.T) {
 				}
 				if expected.id == row.ID && expected.field == "icmp_error" && (row.ICMP == nil || row.ICMP.Version != 2 || len(row.ICMP.NetworkErrors) != 1 || row.ICMP.NetworkErrors[0].Responder != expected.value || row.ICMP.NetworkErrors[0].Sequence != 1 || row.ICMP.NetworkErrors[0].PacketDigest != strings.Repeat("a", 64)) {
 					t.Fatal("network-error portability lost original metadata")
+				}
+				if expected.id == row.ID && strings.HasPrefix(expected.field, "physical_inventory_") {
+					if row.Physical == nil || !row.Physical.Available || len(row.Physical.Components) != 1 {
+						t.Fatal("physical inventory export lost original component evidence")
+					}
+					component := row.Physical.Components[0]
+					if component.Index != 7 || component.Class != 3 ||
+						(expected.field == "physical_inventory_serial" && component.Serial != expected.value) ||
+						(expected.field == "physical_inventory_model" && component.Model != expected.value) {
+						t.Fatal("physical inventory export changed original matched metadata")
+					}
 				}
 				if expected.id == row.ID && expected.field == "snmp_interface_prefixes" {
 					if len(row.Prefixes) != 1 || row.Prefixes[0].IfIndex != 1 || row.Prefixes[0].Prefix != expected.value || !row.Prefixes[0].OnLink {

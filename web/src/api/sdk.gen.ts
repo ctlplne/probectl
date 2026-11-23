@@ -1972,11 +1972,49 @@ export interface DeviceInventory {
   name?: string
 }
 
+export interface DeviceInventoryLifecycleEvidence {
+  notice: DeviceInventoryLifecycleNotice
+  source_date: string
+}
+
+export interface DeviceInventoryLifecycleNotice {
+  end_of_sale?: string
+  end_of_security_fixes?: string
+  end_of_support?: string
+  manufacturer: string
+  model: string
+  notice_published_at: string
+  notice_url: string
+}
+
 export interface DeviceInventoryList {
   at?: string
   effective_limit?: number
   items?: DeviceInventory[]
   topology_running?: boolean
+}
+
+export interface DeviceInventoryReferenceFlags {
+  lifecycle?: DeviceInventoryLifecycleEvidence | null
+  nvd_archive_modified_at?: string
+  nvd_source_date?: string
+  vulnerabilities?: DeviceInventoryVulnerabilityEvidence[]
+  vulnerabilities_truncated?: boolean
+  vulnerability_coverage: "available" | "partial" | "unavailable"
+}
+
+export interface DeviceInventoryVulnerabilityEvidence {
+  id: string
+  kev_added_at?: string
+  kev_source?: string
+  kev_source_date?: string
+  last_modified_at: string
+  nvd_archive_modified_at?: string
+  nvd_source: string
+  nvd_source_date: string
+  observed_version: string
+  published_at: string
+  version_field: "firmware" | "software"
 }
 
 export interface DeviceMetricSummary {
@@ -2038,6 +2076,27 @@ export interface DeviceNeighborResponse {
   latest_at?: string
   retention: JsonObject
   truncated: boolean
+}
+
+export interface DevicePhysicalInventoryItem {
+  class: number
+  firmware?: string
+  hardware?: string
+  index: number
+  manufacturer?: string
+  model?: string
+  parent?: number | null
+  references: DeviceInventoryReferenceFlags
+  serial?: string
+  software?: string
+}
+
+export interface DevicePhysicalInventoryPage {
+  available: boolean
+  items: DevicePhysicalInventoryItem[]
+  next_index?: number
+  observation_id: string
+  observed_at: string
 }
 
 export interface DeviceSyslogEvent {
@@ -5684,6 +5743,17 @@ export interface ListDeviceNeighborsRequest {
 
 export type ListDeviceNeighborsResponse = DeviceNeighborResponse
 
+export interface GetDevicePhysicalInventoryRequest {
+  contextId: string
+  deviceEntityId: string
+  agentId: string
+  sourceRef: string
+  observationId?: string
+  afterIndex?: number
+}
+
+export type GetDevicePhysicalInventoryResponse = DevicePhysicalInventoryPage
+
 export interface ListDeviceSyslogRequest {
   device?: string
   limit?: number
@@ -7951,6 +8021,18 @@ export class ProbectlSDKClient {
     if (request.protocol !== undefined) query.set("protocol", String(request.protocol))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
     return this.requestJSON<ListDeviceNeighborsResponse>("GET", path, query, undefined)
+  }
+
+  async getDevicePhysicalInventory(request: GetDevicePhysicalInventoryRequest): Promise<GetDevicePhysicalInventoryResponse> {
+    let path = "/v1/device/physical-inventory"
+    const query = new URLSearchParams()
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.deviceEntityId !== undefined) query.set("device_entity_id", String(request.deviceEntityId))
+    if (request.agentId !== undefined) query.set("agent_id", String(request.agentId))
+    if (request.sourceRef !== undefined) query.set("source_ref", String(request.sourceRef))
+    if (request.observationId !== undefined) query.set("observation_id", String(request.observationId))
+    if (request.afterIndex !== undefined) query.set("after_index", String(request.afterIndex))
+    return this.requestJSON<GetDevicePhysicalInventoryResponse>("GET", path, query, undefined)
   }
 
   async listDeviceSyslog(request: ListDeviceSyslogRequest = {}): Promise<ListDeviceSyslogResponse> {

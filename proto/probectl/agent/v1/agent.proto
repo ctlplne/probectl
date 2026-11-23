@@ -246,6 +246,24 @@ message SnmpInterfacePrefixSnapshot {
   repeated SnmpInterfacePrefix prefixes = 1;
 }
 
+// Original bounded ENTITY-MIB evidence from the configured SNMP target.
+message SnmpPhysicalInventory {
+  uint32 version = 1;
+  bool available = 2; // a complete supported walk returned original rows
+  repeated SnmpPhysicalComponent components = 3;
+}
+message SnmpPhysicalComponent {
+  uint32 index = 1;
+  uint32 class = 2;
+  optional uint32 parent = 3; // zero is an explicitly observed top-level row
+  string manufacturer = 4;
+  string model = 5;
+  string serial = 6;
+  string hardware = 7;
+  string firmware = 8;
+  string software = 9;
+}
+
 message EntityEvidenceObservation {
   string observation_id = 1;
   string source_kind = 2;       // device_target | flow_exporter | path_agent | bmp_peer | agent_site
@@ -272,6 +290,7 @@ message EntityEvidenceObservation {
   ProbeOutcome probe_outcome = 23; // exact non-ICMP configured test; existing evidence mTLS only
   SnmpInterfaceState snmp_interface_state = 24; // observed interface alias only; absence is unknown
   BmpPeerSession bmp_peer_session = 25; // complete global physical Up/Down; server derives all fields
+  SnmpPhysicalInventory snmp_physical_inventory = 26; // configured device address claim only
 }
 
 // Complete original BMP frame. Tenant, router and source come from verified

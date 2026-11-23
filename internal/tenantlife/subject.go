@@ -144,6 +144,7 @@ type subjectTablePolicy struct {
 	contains                 []string
 	derivedReports           bool // erase opaque source-aware copies; export stays owner-scoped
 	agentAddressMembers      bool // exact typed members, never an array text substring
+	physicalInventoryMembers bool // original component text leaves may carry personal data
 	configuredTestReferences bool // structural test UUIDs are not personal text
 }
 
@@ -310,7 +311,8 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		contains: []string{"label", "configured_ref"},
 	},
 	"entity_evidence": {
-		plane: "postgres:entity_evidence", disposition: subjectTableDeleteMatches, agentAddressMembers: true, configuredTestReferences: true,
+		plane: "postgres:entity_evidence", disposition: subjectTableDeleteMatches,
+		agentAddressMembers: true, physicalInventoryMembers: true, configuredTestReferences: true,
 		exact: []string{"agent_id", "origin_serial"},
 		contains: []string{"alias_value", "source_ref", "configured_ref", "interface_name", "interface_description",
 			"neighbor_local_port_id", "neighbor_remote_port_id", "neighbor_chassis_id",
@@ -1472,6 +1474,15 @@ func subjectTableMatchPredicate(policy subjectTablePolicy) string {
  WHERE subject_responder.value::inet = ANY($5::inet[]))`, `EXISTS (
  SELECT 1 FROM jsonb_array_elements(COALESCE(subject_row.icmp_measurement->'network_errors','[]'::jsonb)) AS subject_error(value)
  WHERE (subject_error.value->>'responder')::inet = ANY($5::inet[]))`)
+	}
+	if policy.physicalInventoryMembers {
+		parts = append(parts, `EXISTS (
+ SELECT 1 FROM jsonb_array_elements(COALESCE(subject_row.snmp_physical_inventory->'components','[]'::jsonb)) AS component(value)
+ CROSS JOIN LATERAL (VALUES (component.value->>'manufacturer'), (component.value->>'model'),
+  (component.value->>'serial'), (component.value->>'hardware'), (component.value->>'firmware'),
+  (component.value->>'software')) AS component_field(value)
+ WHERE EXISTS (SELECT 1 FROM unnest($3::text[]) AS subject_pattern(value)
+  WHERE component_field.value ~ subject_pattern.value))`)
 	}
 	return "(" + strings.Join(parts, " OR ") + ")"
 }

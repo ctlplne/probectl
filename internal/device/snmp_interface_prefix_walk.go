@@ -19,7 +19,7 @@ import (
 // library BulkWalk maps several packet errors to nil and is unsuitable for
 // evidence that must distinguish complete from partial snapshots.
 func (c gosnmpConn) walkInterfacePrefixes(ctx context.Context, fn gosnmp.WalkFunc) error {
-	err := c.walkInterfaceColumn(ctx, oidIPAddressPrefixOnLink, fn)
+	err := c.walkEvidenceColumn(ctx, oidIPAddressPrefixOnLink, fn)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return errSNMPInterfacePrefixIncomplete
 	}
@@ -27,14 +27,14 @@ func (c gosnmpConn) walkInterfacePrefixes(ctx context.Context, fn gosnmp.WalkFun
 }
 
 func (c gosnmpConn) walkInterfaceAddresses(ctx context.Context, fn gosnmp.WalkFunc) error {
-	return c.walkInterfaceColumn(ctx, oidIPAddressIfIndex, fn)
+	return c.walkEvidenceColumn(ctx, oidIPAddressIfIndex, fn)
 }
 
 func (c gosnmpConn) walkInterfaceAddressTypes(ctx context.Context, fn gosnmp.WalkFunc) error {
-	return c.walkInterfaceColumn(ctx, oidIPAddressType, fn)
+	return c.walkEvidenceColumn(ctx, oidIPAddressType, fn)
 }
 
-func (c gosnmpConn) walkInterfaceColumn(ctx context.Context, root string, fn gosnmp.WalkFunc) error {
+func (c gosnmpConn) walkEvidenceColumn(ctx context.Context, root string, fn gosnmp.WalkFunc) error {
 	if c.g == nil {
 		return errSNMPInterfacePrefixIncomplete
 	}

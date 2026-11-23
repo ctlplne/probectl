@@ -106,6 +106,9 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	}
 	requestBytes := proto.Size(req)
 	for _, item := range items {
+		if item.GetSnmpPhysicalInventory() != nil && (total != 1 || requestBytes > 1<<20) {
+			return nil, status.Error(codes.ResourceExhausted, "physical inventory requires one bounded observation")
+		}
 		if item != nil && item.SnmpInterfacePrefixes != nil && requestBytes > entity.MaxSNMPInterfacePrefixWireBytes {
 			return nil, status.Error(codes.ResourceExhausted, "complete prefix evidence exceeds request byte admission")
 		}
@@ -232,6 +235,26 @@ func parseSNMPPrefixEvidence(snapshot *agentv1.SnmpInterfacePrefixSnapshot) ([]e
 	return entity.NormalizeSNMPInterfacePrefixes(rows)
 }
 
+func parseSNMPPhysicalInventory(snapshot *agentv1.SnmpPhysicalInventory) (*entity.SNMPPhysicalInventory, error) {
+	if snapshot == nil {
+		return nil, nil
+	}
+	if len(snapshot.ProtoReflect().GetUnknown()) != 0 || len(snapshot.Components) > entity.MaxSNMPPhysicalComponents {
+		return nil, entity.ErrInvalidClaim
+	}
+	decoded := &entity.SNMPPhysicalInventory{Version: snapshot.Version, Available: snapshot.Available}
+	for _, row := range snapshot.Components {
+		if row == nil || len(row.ProtoReflect().GetUnknown()) != 0 {
+			return nil, entity.ErrInvalidClaim
+		}
+		decoded.Components = append(decoded.Components, entity.SNMPPhysicalComponent{
+			Index: row.Index, Class: row.Class, Parent: row.Parent, Manufacturer: row.Manufacturer,
+			Model: row.Model, Serial: row.Serial, Hardware: row.Hardware, Firmware: row.Firmware, Software: row.Software,
+		})
+	}
+	return entity.NormalizeSNMPPhysicalInventory(decoded)
+}
+
 // entityEvidenceWriteError preserves the public classification of a rejected
 // atomic evidence write. The transport never publishes internal store details.
 func entityEvidenceWriteError(err error) error {
@@ -256,8 +279,8 @@ func parseEntityEvidenceObservations(ctx context.Context, items []*agentv1.Entit
 		if item == nil {
 			return nil, status.Error(codes.InvalidArgument, "evidence observation is missing")
 		}
-		if (item.GetIcmp() != nil || item.GetProbeOutcome() != nil || item.GetSnmpInterfaceState() != nil || item.GetBmpPeerSession() != nil) && len(item.ProtoReflect().GetUnknown()) != 0 {
-			return nil, status.Error(codes.InvalidArgument, "unsupported typed probe observation fields")
+		if (item.GetIcmp() != nil || item.GetProbeOutcome() != nil || item.GetSnmpInterfaceState() != nil || item.GetBmpPeerSession() != nil || item.GetSnmpPhysicalInventory() != nil) && len(item.ProtoReflect().GetUnknown()) != 0 {
+			return nil, status.Error(codes.InvalidArgument, "unsupported typed observation fields")
 		}
 		var addresses []netip.Addr
 		if item.AgentAddresses != nil {
@@ -286,6 +309,10 @@ func parseEntityEvidenceObservations(ctx context.Context, items []*agentv1.Entit
 		if err != nil {
 			return nil, err
 		}
+		inventory, err := parseSNMPPhysicalInventory(item.GetSnmpPhysicalInventory())
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid SNMP physical inventory snapshot")
+		}
 		observations = append(observations, entity.Observation{
 			ID: item.GetObservationId(),
 			Source: entity.SourceKey{
@@ -304,6 +331,7 @@ func parseEntityEvidenceObservations(ctx context.Context, items []*agentv1.Entit
 			SystemName:            item.SystemName,
 			AgentAddresses:        addresses,
 			SNMPInterfacePrefixes: prefixes,
+			SNMPPhysicalInventory: inventory,
 			ICMP:                  icmp,
 			Outcome:               probeOutcome,
 			NeighborProtocol:      item.GetNeighborProtocol(),

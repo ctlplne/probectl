@@ -168,6 +168,7 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 				SystemName:                item.SystemName,
 				AgentAddresses:            addresses,
 				SnmpInterfacePrefixes:     prefixes,
+				SnmpPhysicalInventory:     encodeSNMPPhysicalInventory(item.SNMPPhysicalInventory),
 				Icmp:                      encodeICMPMeasurement(item.ICMP),
 				ProbeOutcome:              encodeProbeOutcome(item.Outcome),
 				NeighborProtocol:          item.NeighborProtocol,
@@ -193,6 +194,20 @@ func (c *EvidenceClient) encodeEvidence(now time.Time, observations []entity.Obs
 		}
 	}
 	return request, nil
+}
+
+func encodeSNMPPhysicalInventory(snapshot *entity.SNMPPhysicalInventory) *agentv1.SnmpPhysicalInventory {
+	if snapshot == nil {
+		return nil
+	}
+	wire := &agentv1.SnmpPhysicalInventory{Version: snapshot.Version, Available: snapshot.Available}
+	for _, row := range snapshot.Components {
+		wire.Components = append(wire.Components, &agentv1.SnmpPhysicalComponent{
+			Index: row.Index, Class: row.Class, Parent: row.Parent, Manufacturer: row.Manufacturer,
+			Model: row.Model, Serial: row.Serial, Hardware: row.Hardware, Firmware: row.Firmware, Software: row.Software,
+		})
+	}
+	return wire
 }
 
 // Ordinary identity evidence keeps its current admission. Complete configured
