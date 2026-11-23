@@ -67,11 +67,15 @@ func TestPhysicalInventoryKeepsPairedOriginalsAfterSiloCatchUp(t *testing.T) {
 	tenancy.SetRouter(NewRouter(pool, nil, time.Second))
 	t.Cleanup(func() { tenancy.SetRouter(nil) })
 	contextID, deviceID, observationID := uuid.NewString(), uuid.NewString(), uuid.NewString()
-	source := entity.SourceKey{AgentID: "owned-physical-collector", Kind: entity.DeviceTarget, SourceRef: "192.0.2.31"}
+	sources := [2]entity.SourceKey{
+		{AgentID: uuid.NewString(), Kind: entity.DeviceTarget, SourceRef: "192.0.2.31"},
+		{AgentID: uuid.NewString(), Kind: entity.DeviceTarget, SourceRef: "192.0.2.31"},
+	}
 	registry := store.NewEntityRegistry(pool)
 	serials := [2]string{"alpha-device-inventory", "beta-device-inventory"}
 	for lane, id := range ids {
 		bound := tenancy.WithTenant(ctx, tenancy.ID(id))
+		source := sources[lane]
 		serial := fmt.Sprintf("%x", lane+10)
 		at := bindPhysicalInventorySiloSource(t, pool, registry, id, contextID, deviceID, serial, source)
 		claim := entity.Observation{ID: observationID, Source: source, SourceRef: entity.SNMPPhysicalInventorySource,
@@ -92,7 +96,7 @@ func TestPhysicalInventoryKeepsPairedOriginalsAfterSiloCatchUp(t *testing.T) {
 				id, observationID).Scan(&evidenceID); err != nil {
 				return err
 			}
-			page, err := registry.CurrentDevicePhysicalInventoryInScope(ctx, sc, want, deviceID, source)
+			page, err := registry.CurrentDevicePhysicalInventoryInScope(ctx, sc, want, deviceID, sources[lane])
 			if err != nil || page.EvidenceID != evidenceID || len(page.Snapshot.Components) != 1 ||
 				page.Snapshot.Components[0].Serial != serials[lane] {
 				t.Fatal("inventory proof changed original identity or crossed a physical silo", lane, err)
