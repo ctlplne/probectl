@@ -221,16 +221,16 @@ func apnicIPFIX(t *testing.T, source netip.Addr, port uint16, at time.Time, amou
 	t.Helper()
 	templateID := uint16(256)
 	fields := [...]uint16{8, 4, 12, 4, 7, 2, 11, 2, 4, 1, 1, 4, 2, 4}
-	var endpoints []byte
+	var record []byte
 	if source.Is4() {
-		endpoints = nativeWire(t, source.As4(), [4]byte{192, 0, 2, 1})
+		record = nativeWire(t, source.As4(), [4]byte{192, 0, 2, 1})
 	} else {
 		templateID++
 		fields[0], fields[1], fields[2], fields[3] = 27, 16, 28, 16
-		endpoints = nativeWire(t, source.As16(), netip.MustParseAddr("2001:db8::1").As16())
+		record = nativeWire(t, source.As16(), netip.MustParseAddr("2001:db8::1").As16())
 	}
 	template := nativeWire(t, templateID, uint16(len(fields)/2), fields)
-	record := append(endpoints, nativeWire(t, port, uint16(443), uint8(6), amount, uint32(7))...)
+	record = append(record, nativeWire(t, port, uint16(443), uint8(6), amount, uint32(7))...)
 	size, seconds := 24+len(template)+len(record), at.Unix()
 	if size > math.MaxUint16 || len(template) > math.MaxUint16-4 || len(record) > math.MaxUint16-4 ||
 		seconds < 0 || seconds > math.MaxUint32 {

@@ -443,7 +443,8 @@ func TestDDoSSampledVectorNeedsIndependentRecordSupport(t *testing.T) {
 				Bytes: 40000, Packets: 400, Records: 4, Addresses: 1, Sampling: 1,
 			})...)
 			vector.Bytes, vector.Packets, vector.Records, vector.Sampling = 400000, 4000, 4, 1
-			capture.Results[1].Result.Rows = append(recent.Result.Rows, benchmarkDDoSRows(vector)...)
+			after := &capture.Results[1]
+			after.Result.Rows = append(after.Result.Rows, benchmarkDDoSRows(vector)...)
 			if got, err := assess(settings); err != nil || got.Detection == nil || got.Detection.ContributingPackets != "4800" {
 				t.Fatal("a thin additive observation hid independent vector support", got, err)
 			}
