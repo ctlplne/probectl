@@ -43,8 +43,23 @@ func (c *chat) Resolve(ctx context.Context, inc incident.Incident, _ string) err
 }
 
 func (c *chat) post(ctx context.Context, text string) error {
-	// Both Slack and Teams incoming webhooks accept a {"text": ...} card.
-	_, err := doJSON(ctx, c.client, "POST", c.endpoint, nil, map[string]any{"text": text})
+	var payload any = map[string]string{"text": text}
+	if c.name == "teams" {
+		payload = map[string]any{
+			"type": "message",
+			"attachments": []map[string]any{{
+				"contentType": "application/vnd.microsoft.card.adaptive",
+				"contentUrl":  nil,
+				"content": map[string]any{
+					"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+					"type":    "AdaptiveCard",
+					"version": "1.2",
+					"body":    []map[string]any{{"type": "TextBlock", "text": text, "wrap": true}},
+				},
+			}},
+		}
+	}
+	_, err := doJSON(ctx, c.client, "POST", c.endpoint, nil, payload)
 	return err
 }
 

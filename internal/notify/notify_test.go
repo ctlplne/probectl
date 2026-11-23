@@ -205,6 +205,59 @@ func TestChatOpenResolve(t *testing.T) {
 	}
 }
 
+func TestTeamsWorkflowsPostsAdaptiveCards(t *testing.T) {
+	const endpoint = "https://teams.example.test/workflow?sig=fixture-signature"
+	fd := &fakeDoer{respond: func(string, string, []byte) (int, string) { return http.StatusAccepted, "" }}
+	connector, ok := NewConnector("teams", endpoint, "", fd)
+	if !ok {
+		t.Fatal("Teams connector is unavailable")
+	}
+	inc := sampleIncident()
+	delivery, err := connector.Open(t.Context(), inc)
+	if err != nil || delivery.ExternalRef != inc.ID {
+		t.Fatal("Teams open failed to return the existing incident reference")
+	}
+	if err := connector.Resolve(t.Context(), inc, delivery.ExternalRef); err != nil {
+		t.Fatal("Teams resolution failed")
+	}
+	calls := fd.calls()
+	if len(calls) != 2 {
+		t.Fatalf("Teams delivered %d requests, want two", len(calls))
+	}
+	for i, expected := range []string{"incident opened", "incident resolved"} {
+		req := calls[i]
+		if req.method != http.MethodPost || req.url != endpoint || req.header.Get("Content-Type") != "application/json" || req.header.Get("Authorization") != "" {
+			t.Fatal("Teams must post JSON using the signed Workflows URL")
+		}
+		var message struct {
+			Type        string
+			Attachments []struct {
+				ContentType string
+				ContentURL  json.RawMessage
+				Content     struct {
+					Type, Version string
+					Body          []struct {
+						Type, Text string
+						Wrap       bool
+					}
+				}
+			}
+		}
+		if err := json.Unmarshal(req.body, &message); err != nil || message.Type != "message" || len(message.Attachments) != 1 {
+			t.Fatal("Teams requires a message with one card attachment")
+		}
+		card := message.Attachments[0]
+		if card.ContentType != "application/vnd.microsoft.card.adaptive" || string(card.ContentURL) != "null" ||
+			card.Content.Type != "AdaptiveCard" || card.Content.Version != "1.2" || len(card.Content.Body) != 1 {
+			t.Fatal("Teams requires an inline Adaptive Card")
+		}
+		body := card.Content.Body[0]
+		if body.Type != "TextBlock" || !body.Wrap || !strings.Contains(body.Text, expected) || !strings.Contains(body.Text, inc.Title) {
+			t.Fatal("Teams card is missing its incident text")
+		}
+	}
+}
+
 func TestServiceNowOpenResolve(t *testing.T) {
 	fd := &fakeDoer{respond: func(method, _ string, _ []byte) (int, string) {
 		if method == "POST" {

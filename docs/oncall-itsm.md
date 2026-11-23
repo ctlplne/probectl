@@ -193,6 +193,11 @@ PROBECTL_NOTIFY_CONNECTORS=00000000-0000-0000-0000-000000000001|pagerduty|https:
 PROBECTL_NOTIFY_INBOUND=jira1:00000000-0000-0000-0000-000000000001:jira:<webhook-secret>
 ```
 
+For Teams, configure `teams` with the URL of a Teams Workflows webhook using
+the Anyone trigger option. The signed URL authorizes delivery of Adaptive
+Cards when incidents open or resolve. Leave the separate connector secret
+empty. [Microsoft Teams Workflows trigger](https://learn.microsoft.com/en-us/connectors/teams/#when-a-teams-webhook-request-is-received)
+
 Vendor-neutral PSA example (still off unless explicitly configured):
 
 ```text

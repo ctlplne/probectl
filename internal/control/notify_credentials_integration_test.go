@@ -27,7 +27,8 @@ func TestFailedWebhookLogsKeepTwoTenantCredentialsPrivate(t *testing.T) {
 	var alphaCalls, betaCalls, incorrectCalls atomic.Int32
 	receiver := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(io.LimitReader(r.Body, 8192))
-		if err != nil || r.Method != http.MethodPost {
+		if err != nil || r.Method != http.MethodPost || r.Header.Get("Authorization") != "" ||
+			!bytes.Contains(body, []byte(`"contentType":"application/vnd.microsoft.card.adaptive"`)) {
 			incorrectCalls.Add(1)
 			w.WriteHeader(http.StatusBadRequest)
 			return
