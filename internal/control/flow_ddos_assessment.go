@@ -256,7 +256,7 @@ func mapDDoSCoverage(err error) error {
 		return apierror.Conflict("flow reports spanning the window boundary leave its traffic state unconfirmed").Wrap(err)
 	}
 	if errors.Is(err, errDDoSExporterSampling) {
-		return apierror.Conflict("the reported sampling rates or their exporters differ between comparison windows").Wrap(err)
+		return apierror.Conflict("the observed exporters or their reported sampling rates differ between comparison windows").Wrap(err)
 	}
 	if errors.Is(err, errDDoSExporterCoverage) {
 		return apierror.Conflict("a configured exporter has no stored observation in a required window").Wrap(err)

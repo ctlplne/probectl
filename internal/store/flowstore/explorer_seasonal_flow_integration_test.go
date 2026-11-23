@@ -174,7 +174,7 @@ func TestSeasonalFlowDistantWindowsAvoidGapRowsOnTenantReader(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		members, err := decodeSeasonalFlowRows(ctx, results, rows, budget.ReadRows, 0, false, false)
+		members, err := decodeSeasonalFlowRows(ctx, results, rows, budget.ReadRows, 0, false, false, false)
 		if err != nil || members != 2 {
 			t.Fatal("the membership join saw a row outside the selected clocks", members, err)
 		}

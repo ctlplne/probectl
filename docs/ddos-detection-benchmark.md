@@ -516,20 +516,26 @@ and physical identity depend on the measurement point. A truncated or unauthorit
 capture remains unavailable. A successful assessment reports the count of
 required exporters present in each cited window.
 
-The paired holdout removes one exporter's 3,200 packets from the reference
-and restores that exporter's ordinary contribution in the current window.
-Without the explicit requirement, the saved rule sees apparent growth
-from 400 to 3,600 and opens an episode. With the requirement, the comparison
-is unavailable. The fully observed sibling still opens one episode for
-3,600 to 7,200 packets and retains both exporter counts in its receipt.
-The incomplete tenant cannot read the sibling's receipt.
+The paired holdout removes one exporter's 3,200 unsampled packets from the
+reference and restores its ordinary contribution in the current window.
+The apparent growth from 400 to 3,600 is unavailable for detection with or
+without an explicit exporter requirement. The fully observed sibling opens
+one episode for 3,600 to 7,200 packets. With explicit requirements, the
+receipt retains both exporter counts. The incomplete tenant cannot read
+the sibling's receipt.
+
+The recovery holdout opens one episode at 6,400 packets from two exporters.
+When one exporter disappears, the remaining edge still provides four
+original records and the total looks quiet at 3,200 packets. The saved
+rule keeps the original episode and clock. Two complete windows resume
+evaluation with one receipt. The sibling stays quiet and cannot read it.
 
 ```sh
 PROBECTL_TEST_REQUIRE_SERVICES=1 go test -tags=integration -count=1 -v \
-  -run '^TestFastDDoSRequiresOriginalExporterCoverage$' ./internal/control
+  -run '^TestFastDDoS(RequiresOriginalExporterCoverage|KeepsEpisodeThroughAMissingUnsampledExporter)$' ./internal/control
 ```
 
-[Paired synthetic fixture](../internal/control/alert_ddos_multi_edge_integration_test.go)
+[Paired reference fixture](../internal/control/alert_ddos_multi_edge_integration_test.go) · [Paired recovery fixture](../internal/control/alert_ddos_sample_floor_integration_test.go)
 
 
 ### Exporter sampling comparability holdout
@@ -543,10 +549,11 @@ incomparable rates and still requires three comparable weeks. The check
 uses the rates in the stored records. Changes to the underlying sampling
 method or to a population sharing an exporter address may be invisible
 when those records report the same rates. Five- and ten-second rules
-without a required exporter list compare the reported rates and keep the
-stored exporter identity for sampled groups. Their rate-one rows share an
-exporter group after the original view filters are applied. Records with
-no stored exporter identity share a sampled group for their reported rate.
+without a required exporter list compare the reported rates and stored
+identities for all observed exporters, including rate-one groups. Rate-one
+traffic retains its combined totals and carries separate exporter presence
+from the same scoped query. Records without a stored exporter identity
+share one group per reported rate.
 A longer rule can require exporters to enable a per-exporter comparison.
 
 The synthetic holdout keeps raw counts at 400 and 100 for two exporters.

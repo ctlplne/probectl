@@ -9,6 +9,7 @@ package flowstore
 import (
 	"context"
 	"errors"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -20,8 +21,9 @@ import (
 )
 
 type seasonalMemoryGroup struct {
-	aggregate *planAggregate
-	column    map[string]string
+	aggregate          *planAggregate
+	column             map[string]string
+	unsampledExporters map[string]struct{}
 }
 
 type seasonalMemoryKey struct {
@@ -103,6 +105,7 @@ func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, en
 			return nil, err
 		}
 		groupValue := value
+		foldUnsampled := query.DDoSGroupSampledExporters && entry.row.Sampling == 1
 		if query.DDoSProjection {
 			groupValue = func(field string) string {
 				switch {
@@ -114,7 +117,7 @@ func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, en
 					if port != 0 && anomaly.DDoSReflectionService(port) == "" {
 						return ddosOtherUDPSourcePort
 					}
-				case field == "exporter" && query.DDoSGroupSampledExporters && entry.row.Sampling == 1:
+				case field == "exporter" && foldUnsampled:
 					return ""
 				}
 				return value(field)
@@ -139,7 +142,19 @@ func (m *Memory) exploreSeasonalWindows(ctx context.Context, query PlanQuery, en
 					periods[i] = make(seasonalMemoryPeriod)
 				}
 				group = seasonalMemoryGroup{aggregate: newPlanAggregate(row, distinct), column: column}
+				if foldUnsampled {
+					group.unsampledExporters = make(map[string]struct{})
+				}
 				periods[i][key] = group
+			}
+			if foldUnsampled {
+				exporter := value("exporter")
+				if _, seen := group.unsampledExporters[exporter]; !seen {
+					if err := cost.charge(0, 64+len(exporter)); err != nil {
+						return nil, err
+					}
+					group.unsampledExporters[exporter] = struct{}{}
+				}
 			}
 			if err := group.aggregate.add(entry.row, results[i].Query, distinct, cost); err != nil {
 				return nil, err
@@ -226,6 +241,10 @@ func renderSeasonalMemoryPeriod(ctx context.Context, result *PlanResult, groups 
 		row.CrossesWindowStart = key.crossesWindowStart
 		row.InvalidSamplingCounters = key.invalidSamplingCounters
 		bytes := int64(128 + len(key.row) + len(key.column))
+		row.DDoSUnsampledExporters = slices.Sorted(maps.Keys(group.unsampledExporters))
+		for _, exporter := range row.DDoSUnsampledExporters {
+			bytes += int64(16 + len(exporter))
+		}
 		for name, value := range row.Metrics {
 			bytes += int64(16 + len(name) + len(value))
 		}

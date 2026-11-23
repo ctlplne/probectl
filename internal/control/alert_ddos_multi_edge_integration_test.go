@@ -43,7 +43,7 @@ func TestFastDDoSSeparatesSyntheticEdgeRedistributionFromAggregateGrowth(t *test
 }
 
 func TestFastDDoSRequiresOriginalExporterCoverage(t *testing.T) {
-	t.Run("legacy_partial_reference", func(t *testing.T) { testDDoSEdgeScope(t, true, false, ddosEdgeUnsampled) })
+	t.Run("observed_partial_reference", func(t *testing.T) { testDDoSEdgeScope(t, true, false, ddosEdgeUnsampled) })
 	t.Run("required_original_exporters", func(t *testing.T) { testDDoSEdgeScope(t, true, true, ddosEdgeUnsampled) })
 }
 
@@ -152,28 +152,18 @@ func testDDoSEdgeScope(t *testing.T, partialReference, required bool, sampling d
 			}
 			continue
 		}
-		if lane == 1 && partialReference && required {
-			if !errors.Is(err, errDDoSExporterCoverage) || evaluated.QuerySelection != nil || len(items) != 0 {
+		if lane == 1 && partialReference {
+			want := errDDoSExporterSampling
+			if required {
+				want = errDDoSExporterCoverage
+			}
+			if !errors.Is(err, want) || evaluated.QuerySelection != nil || len(items) != 0 {
 				t.Fatal("a missing original exporter became a complete baseline or produced a receipt", err)
 			}
 			continue
 		}
 		if err != nil || evaluated.QuerySelection == nil || !evaluated.QuerySelection.Complete {
 			t.Fatal("the exact selected observations must be complete", err)
-		}
-		if lane == 1 && partialReference {
-			if len(evaluated.Samples) != 1 || len(items) != 1 {
-				t.Fatal("legacy comparison did not reproduce the apparent aggregate growth")
-			}
-			var proof alert.DDoSEvaluationEvidence
-			path := "/v1/alerts/rules/" + id + "/ddos-receipt?fingerprint=" + items[0].Fingerprint
-			body := callSeasonalAPI(t, server, f.tokens[tenant], http.MethodGet, path, nil, http.StatusOK)
-			if err := json.Unmarshal(body, &proof); err != nil ||
-				proof.Current.Before.ObservedRecords != 2 || proof.Current.After.ObservedRecords != 3 ||
-				proof.Current.Before.Packets != "400" || proof.Current.After.Packets != "3600" {
-				t.Fatal("the legacy receipt did not retain the intended original records and counters", err)
-			}
-			continue
 		}
 		for _, item := range items {
 			if item.Reason != "Sustained flow traffic pressure" {
@@ -271,8 +261,7 @@ func seedDDoSEdgeRedistribution(t *testing.T, store flowstore.Store, tenant stri
 				}
 				rate := rates[edge]
 				records := uint64(1)
-				// Keep the first edge at the aggregate record floor so
-				// only the explicit exporter requirement rejects this reference.
+				// The first edge meets the aggregate record floor by itself.
 				if (missingReferenceEdge && edge == 0) || (rate > 1 && (!sparse || edge != 1)) {
 					records = 2
 				}

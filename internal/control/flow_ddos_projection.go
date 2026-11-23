@@ -30,7 +30,7 @@ import (
 var (
 	errDDoSTimingCoverage   = fmt.Errorf("%w: original reports do not independently support the short-window decision", anomaly.ErrDDoSCoverage)
 	errDDoSExporterCoverage = fmt.Errorf("%w: a required exporter was unobserved", anomaly.ErrDDoSCoverage)
-	errDDoSExporterSampling = fmt.Errorf("%w: the reported sampling rate sets differ", anomaly.ErrDDoSCoverage)
+	errDDoSExporterSampling = fmt.Errorf("%w: the observed exporter and sampling rate sets differ", anomaly.ErrDDoSCoverage)
 	errDDoSSampleCoverage   = fmt.Errorf("%w: a sampling group contains too few original flow records", anomaly.ErrDDoSCoverage)
 	errDDoSTrendCoverage    = fmt.Errorf("%w: volume follows a weekly trend without independent corroboration", anomaly.ErrDDoSCoverage)
 	errDDoSCounterIntegrity = fmt.Errorf("%w: corrected flow counters disagree with their original evidence", anomaly.ErrDDoSCoverage)
@@ -310,14 +310,14 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 				return empty, errDDoSExporterCoverage
 			}
 			observedExporters[exporter] = true
-		} else if groupSampledExporters && row.Group["sampling"] != "1" {
+		} else if groupSampledExporters {
 			exporter = row.Group["exporter"]
 		}
 		if err := totals.add(settings, row, exporter); err != nil {
 			return empty, err
 		}
 		if samplingRates != nil {
-			samplingRates[ddosExporterRate{exporter: exporter, rate: row.Group["sampling"]}] = struct{}{}
+			addDDoSExporterRates(samplingRates, exporter, row)
 		}
 	}
 	if len(observedExporters) != len(required) {
@@ -356,6 +356,17 @@ func projectDDoSWindowRows(ctx context.Context, captured capturedReportFlow, set
 		ObservedExporters: len(observedExporters), Sampled: totals.sampled, Citation: observed.Citation}
 	return ddosProjectedWindow{observation: observed, evidence: evidence, samplingRates: samplingRates,
 		thinVectorPackets: totals.insufficientVectorPackets(settings.Input.MinObservedRecords)}, ctx.Err()
+}
+
+func addDDoSExporterRates(rates map[ddosExporterRate]struct{}, exporter string, row flowstore.PlanRow) {
+	rate := row.Group["sampling"]
+	if rate == "1" && len(row.DDoSUnsampledExporters) != 0 {
+		for _, observed := range row.DDoSUnsampledExporters {
+			rates[ddosExporterRate{exporter: observed, rate: rate}] = struct{}{}
+		}
+		return
+	}
+	rates[ddosExporterRate{exporter: exporter, rate: rate}] = struct{}{}
 }
 
 type ddosWindowTotals struct {

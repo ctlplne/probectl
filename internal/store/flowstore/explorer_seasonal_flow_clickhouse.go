@@ -72,7 +72,8 @@ func (c *ClickHouse) exploreSeasonalWindows(ctx context.Context, query PlanQuery
 		if err != nil {
 			return nil, err
 		}
-		memberships, err := decodeSeasonalFlowRows(ctx, result, raw, membershipLimit, topKeys, usesDDoSWindowClock(query, clocks.lookback), query.DDoSVerifySampling)
+		memberships, err := decodeSeasonalFlowRows(ctx, result, raw, membershipLimit, topKeys,
+			usesDDoSWindowClock(query, clocks.lookback), query.DDoSVerifySampling, query.DDoSGroupSampledExporters)
 		if err != nil {
 			return nil, err
 		}
@@ -104,7 +105,7 @@ func seasonalMembershipAllowance(ctx context.Context, tenant string) (int, error
 	return b.readRows, ctx.Err()
 }
 
-func decodeSeasonalFlowRows(ctx context.Context, results []PlanResult, input []map[string]any, limit, topKeys int, clockEvidence, verifySampling bool) (int, error) {
+func decodeSeasonalFlowRows(ctx context.Context, results []PlanResult, input []map[string]any, limit, topKeys int, clockEvidence, verifySampling, observeExporters bool) (int, error) {
 	const invalid = "invalid seasonal flow response"
 	memberships := 0
 	previousPeriod := -1
@@ -171,6 +172,12 @@ func decodeSeasonalFlowRows(ctx context.Context, results []PlanResult, input []m
 					return 0, errors.New(invalid)
 				}
 			}
+			if observeExporters {
+				data.DDoSUnsampledExporters, err = decodeDDoSUnsampledExporters(raw["ddos_unsampled_exporters"], row["sampling"] == "1")
+				if err != nil {
+					return 0, err
+				}
+			}
 			result.Rows = append(result.Rows, data)
 		}
 	}
@@ -185,4 +192,23 @@ func decodeSeasonalFlowRows(ctx context.Context, results []PlanResult, input []m
 		}
 	}
 	return memberships, ctx.Err()
+}
+
+func decodeDDoSUnsampledExporters(raw any, hasUnsampled bool) ([]string, error) {
+	values, ok := raw.([]any)
+	if !ok || (len(values) != 0) != hasUnsampled {
+		return nil, errors.New("invalid seasonal flow exporter observations")
+	}
+	if len(values) == 0 {
+		return nil, nil
+	}
+	exporters := make([]string, len(values))
+	for i, value := range values {
+		exporter, ok := value.(string)
+		if !ok {
+			return nil, errors.New("invalid seasonal flow exporter observations")
+		}
+		exporters[i] = exporter
+	}
+	return exporters, nil
 }

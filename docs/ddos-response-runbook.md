@@ -27,13 +27,14 @@ state until observations can establish recovery. Reports with only fallback
 timestamps and older records still contribute to their end-time windows.
 The receipt retains the end-time totals from the pinned view.
 
-Short-window comparisons need the same reported flow sampling rates in the
-current and reference windows, using the stored exporter for each sampled
-group. Unsampled reports share one exporter group after the original view
-filters. Requiring exporters also checks coverage and rates for each selected
-exporter. A rate change leaves coverage unknown and keeps the prior episode
-and evaluation clock. Check the exporter's configuration before interpreting
-corrected totals as growth.
+Short-window comparisons need the same observed exporters and their reported
+sampling rates in the current and reference windows. This includes exporters
+with a sampling rate of one. A change leaves coverage unknown and keeps the
+prior episode and evaluation clock. Check for late exports or a change in
+collection before interpreting the totals. An empty contribution can also
+mean an edge carried no traffic for this view. List required exporters when
+the rule should also refuse comparisons that omit the same edge in both
+windows.
 
 Select **Representative week from the last four** when one unusual week could
 distort the comparison. The view must retain raw flow coverage across the

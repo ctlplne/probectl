@@ -68,6 +68,10 @@ func TestFastDDoSKeepsEpisodeThroughUnclassifiedCurrentFlow(t *testing.T) {
 	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: anomaly.ErrDDoSCurrentClassification, rate: 1})
 }
 
+func TestFastDDoSKeepsEpisodeThroughAMissingUnsampledExporter(t *testing.T) {
+	testFastDDoSContinuesEpisode(t, ddosContinuityScenario{gap: errDDoSExporterSampling, rate: 1})
+}
+
 type ddosContinuityScenario struct {
 	gap          error
 	rate         uint64
@@ -94,8 +98,12 @@ func testFastDDoSContinuesEpisode(t *testing.T, scenario ddosContinuityScenario)
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		definition := fieldComparisonViewDefinition("Sampled protected host")
 		definition.Time.LookbackSeconds = 60
+		exporters := []string{"203.0.113.15"}
+		if scenario.gap == errDDoSExporterSampling {
+			exporters = append(exporters, "203.0.113.16")
+		}
 		definition.Plan.Filter = &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{
-			{Field: "exporter", Op: flow.QueryEqual, Values: []string{"203.0.113.15"}},
+			{Field: "exporter", Op: flow.QueryIn, Values: exporters},
 		}}
 		view, err := views.SaveQueryView(ctx, tenant, f.users[tenant], flow.SaveQueryView{Definition: definition})
 		if err != nil {
@@ -103,7 +111,10 @@ func testFastDDoSContinuesEpisode(t *testing.T, scenario ddosContinuityScenario)
 		}
 		input := flow.DDoSAssessmentInput{Version: view.Version, Prefix: "192.0.2.1/32", Direction: "ingress",
 			PeriodSeconds: period, BytesFloor: "200000", PacketsFloor: "2500", GrowthBasisPoints: 2000,
-			VectorShareBasisPoints: 6000, MinObservedRecords: 4, MinObservedAddresses: 2, RequiredExporters: []string{"203.0.113.15"}}
+			VectorShareBasisPoints: 6000, MinObservedRecords: 4, MinObservedAddresses: 2}
+		if scenario.gap != errDDoSExporterSampling {
+			input.RequiredExporters = exporters
+		}
 		source := alert.QuerySourceInput{ViewID: view.ID, ViewVersion: view.Version, Condition: alert.QueryCondition{Mode: alert.DDoSCondition, DDoS: &input}}
 		body := callSeasonalAPI(t, server, f.tokens[tenant], http.MethodPost, "/v1/alerts",
 			map[string]any{"name": "Sampled protected host", "query_source": source}, http.StatusCreated)
@@ -198,6 +209,7 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 				}
 			}
 			crossingQuiet := high && offset == 1 && scenario.gap == errDDoSTimingCoverage
+			missingEdge := high && offset == 1 && scenario.gap == errDDoSExporterSampling
 			containedSYN := pressure && offset == 1 && scenario.containedSYN
 			mixed := scenario.mixed()
 			containedCount := 1
@@ -211,7 +223,7 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 				if high {
 					count = 2 * containedCount
 				}
-			case crossingQuiet:
+			case crossingQuiet || missingEdge:
 				packets = 3200
 			case mixed:
 				// Both tenants keep the same totals. Only one has sustained
@@ -219,12 +231,17 @@ func seedDDoSContinuityWindows(t *testing.T, store flowstore.Store, tenant strin
 				packets = 6400
 			}
 			for index := range count {
-				vector := high && (scenario.gap != nil || offset != 1)
+				vector := high && !missingEdge && (scenario.gap != nil || offset != 1)
 				if crossingQuiet {
 					vector = containedSYN && index < containedCount
 				}
 				row := delayFixtureFlow(tenant, clock, vector)
 				row.SrcPort += uint16(index)
+				// The remaining edge meets the original record floor while
+				// the observed packets drop to the quiet reference volume.
+				if scenario.gap == errDDoSExporterSampling && !missingEdge && index >= count/2 {
+					row.Exporter = "203.0.113.16"
+				}
 				if mixed && high && index >= count/2 {
 					row.Transport, row.TCPFlags, row.SrcPort = "udp", 0, 53
 					// Preserve two distinct originals with the same UDP service.

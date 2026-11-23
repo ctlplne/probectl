@@ -48,7 +48,7 @@ type PlanQuery struct {
 	// DDoSVerifySampling checks original counters for prospective assessments.
 	DDoSVerifySampling bool
 	// DDoSGroupSampledExporters keeps sampled exporter identities and combines
-	// rate-one exporters after filtering.
+	// rate-one exporters after filtering, with their identities kept separately.
 	DDoSGroupSampledExporters bool
 }
 
@@ -62,6 +62,8 @@ type PlanRow struct {
 	CrossesWindowStart bool `json:"-"`
 	// InvalidSamplingCounters marks a corrected counter inconsistent with its original evidence.
 	InvalidSamplingCounters bool `json:"-"`
+	// DDoSUnsampledExporters records the sources inside a folded rate-one group.
+	DDoSUnsampledExporters []string `json:"-"`
 }
 
 type PlanPoint struct {

@@ -377,6 +377,10 @@ func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabul
 	if ddosProjection {
 		originalEvidence = ",start_ts,clock_basis,bytes,packets,sampling"
 	}
+	if groupSampledExporters {
+		field, _ := vocabulary.Lookup("exporter")
+		originalEvidence += "," + explorerGroupExprWithParams(field, params) + " AS ddos_original_exporter"
+	}
 
 	// Original keys have names distinct from the transformed g/c aliases below.
 	// In particular column_input remaps the original column into g and clears c;
@@ -401,9 +405,10 @@ func planSeasonalReadSQL(eventTime string, windows []seasonalReadWindow, params 
 }
 
 type planStatsPartition struct {
-	groups   string
-	start    string
-	observed bool
+	groups                 string
+	start                  string
+	observed               bool
+	ddosUnsampledExporters bool
 }
 
 func singlePlanStatsPartition() planStatsPartition {
@@ -422,6 +427,9 @@ func partitionedPlanBucketSQL(prefix, input string, plan flow.QueryPlan, part pl
 	}
 	if part.observed {
 		values = append(values, "min(event_time) AS __probectl_bucket_oldest", "any(member_total) AS __probectl_bucket_memberships")
+	}
+	if part.ddosUnsampledExporters {
+		values = append(values, "groupUniqArrayIf(ddos_original_exporter,sampling=1) AS bucket_unsampled_exporters")
 	}
 	return prefix + "_buckets AS (SELECT " + part.groups + ",intDiv(toUnixTimestamp64Nano(event_time)-" + part.start + ",{width_ns:Int64}) AS bucket_index,least({width_ns:Int64},{window_ns:Int64}-bucket_index*{width_ns:Int64}) AS duration_ns," + strings.Join(values, ",") + " FROM " + input + " GROUP BY " + part.groups + ",bucket_index)"
 }
@@ -481,6 +489,9 @@ func partitionedPlanStatsSQL(prefix, input string, plan flow.QueryPlan, part pla
 	}
 	if part.observed {
 		calculations = append(calculations, "min(__probectl_bucket_oldest) AS oldest_input", "any(__probectl_bucket_memberships) AS total_memberships")
+	}
+	if part.ddosUnsampledExporters {
+		calculations = append(calculations, "groupUniqArrayArray(bucket_unsampled_exporters) AS ddos_unsampled_exporters")
 	}
 	ctes = append(ctes, prefix+"_stats AS (SELECT "+part.groups+","+strings.Join(calculations, ",")+" FROM "+source+" GROUP BY "+part.groups+")")
 	return ctes

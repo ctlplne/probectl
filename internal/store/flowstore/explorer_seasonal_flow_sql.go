@@ -88,6 +88,13 @@ func buildSeasonalFlowSQL(ctx context.Context, budget ExplorerBudget, query Plan
 			" OR toUInt128(expanded.packets)*toUInt128(expanded.sampling)!=toUInt128(expanded.packets_scaled)) AS invalid_sampling_counters"
 		admissionSelect += ",toString(invalid_sampling_counters) AS invalid_sampling_counters"
 	}
+	if query.DDoSGroupSampledExporters {
+		columns += ",ddos_original_exporter"
+		if !query.DDoSVerifySampling {
+			columns += ",sampling"
+		}
+		admissionSelect += ",ddos_unsampled_exporters"
+	}
 	joined := "clock_inputs AS (SELECT flow_input.tenant_id AS window_owner,__probectl_source_row AS g,__probectl_source_column AS c,toUInt8(0) AS o,toUInt8(0) AS p," + columns +
 		",ifNull(periods.clock_first,toUInt64(0)) AS member_first,ifNull(periods.clock_after,toUInt64(0)) AS member_after FROM " +
 		"(SELECT *,toUnixTimestamp64Nano(event_time) AS event_clock FROM filtered) AS flow_input ASOF LEFT JOIN seasonal_clock_lookup AS periods" +
@@ -102,7 +109,7 @@ func buildSeasonalFlowSQL(ctx context.Context, budget ExplorerBudget, query Plan
 		" ALL INNER JOIN seasonal_window_lookup AS windows ON expanded.window_owner=windows.window_tenant AND expanded.period_index=windows.window_index)"
 	ctes := []string{filtered, joined, admitted, expanded, input}
 	ctes = append(ctes, partitionedPlanStatsSQL("seasonal", "period_inputs", plan, planStatsPartition{
-		groups: groups, start: "period_start", observed: true,
+		groups: groups, start: "period_start", observed: true, ddosUnsampledExporters: query.DDoSGroupSampledExporters,
 	})...)
 	metrics := make([]string, 0, len(plan.Metrics))
 	for i := range plan.Metrics {

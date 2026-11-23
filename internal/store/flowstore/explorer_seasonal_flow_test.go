@@ -9,6 +9,7 @@ package flowstore
 import (
 	"errors"
 	"math"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -137,6 +138,9 @@ func checkSeasonalDDoSSampledExporterGroups(t *testing.T, store Store, red, blue
 			row := explorerFixtureRow(tenant)
 			row.Exporter, row.Sampling, row.SrcPort = fixture.exporter, fixture.sampling, fixture.port
 			row.TS, row.StartTS = end.Add(-time.Second), end.Add(-2*time.Second)
+			if fixture.exporter == east && fixture.sampling == 1 {
+				row.TS, row.StartTS = row.TS.Add(-time.Second), row.StartTS.Add(-time.Second)
+			}
 			row.Bytes = fixture.amount * factors[lane]
 			row.Packets = 1
 			row.BytesScaled, row.PacketsScaled = row.Bytes*row.Sampling, row.Packets*row.Sampling
@@ -169,6 +173,13 @@ func checkSeasonalDDoSSampledExporterGroups(t *testing.T, store Store, red, blue
 			if !ok || row.Metrics["bytes:total"] != strconv.FormatUint(expected.bytes, 10) ||
 				row.Metrics["packets:total"] != expected.packets || row.Metrics["flows:total"] != expected.rows {
 				t.Fatalf("exporter grouping changed the authorized scoped observations: %+v", row)
+			}
+			var exporters []string
+			if key == "1:" {
+				exporters = []string{west, east}
+			}
+			if observed := slices.Sorted(slices.Values(row.DDoSUnsampledExporters)); !slices.Equal(observed, exporters) {
+				t.Fatal("the folded rate-one group did not retain the exact authorized exporters", observed)
 			}
 			delete(want, key)
 		}
