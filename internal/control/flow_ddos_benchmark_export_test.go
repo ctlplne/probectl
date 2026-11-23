@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -106,13 +107,32 @@ func syntheticDDoSRowsDigest(cases []syntheticDDoSReplayTrial) (string, error) {
 	return hex.EncodeToString(crypto.Hash(evidence)), nil
 }
 
-func writeSyntheticDDoSReplay(dir string, cases []syntheticDDoSReplayTrial, truth []syntheticDDoSTruth, decisions []syntheticDDoSDecision, rowsDigest string) error {
+// Prepare the same bytes for the published artifact and the detector replay.
+// Some store fields intentionally stay private in JSON. Reject a fixture that
+// relies on a field the shared input cannot represent.
+func prepareSyntheticDDoSReplayInputs(cases []syntheticDDoSReplayTrial, rowsDigest string) ([]byte, []syntheticDDoSReplayTrial, error) {
 	inputs, err := json.Marshal(syntheticDDoSReplayInputs{
 		Schema: "probectl-ddos-synthetic-replay-v1", RowsSHA256: rowsDigest, Cases: cases,
 	})
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
+	var replay syntheticDDoSReplayInputs
+	if err := json.Unmarshal(inputs, &replay); err != nil {
+		return nil, nil, err
+	}
+	if len(replay.Cases) != len(cases) {
+		return nil, nil, errors.New("synthetic replay lost cases during serialization")
+	}
+	for index, original := range cases {
+		if !reflect.DeepEqual(original, replay.Cases[index]) {
+			return nil, nil, fmt.Errorf("synthetic replay lost input fields for %s", original.ID)
+		}
+	}
+	return inputs, replay.Cases, nil
+}
+
+func writeSyntheticDDoSReplay(dir string, inputs []byte, truth []syntheticDDoSTruth, decisions []syntheticDDoSDecision) error {
 	inputHash := hex.EncodeToString(crypto.Hash(inputs))
 	answers, err := json.Marshal(syntheticDDoSReplayTruth{InputsSHA256: inputHash, Cases: truth})
 	if err != nil {
@@ -191,8 +211,12 @@ func TestSyntheticDDoSReplayExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	body, _, err := prepareSyntheticDDoSReplayInputs(cases, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	dir := filepath.Join(t.TempDir(), "replay")
-	if err := writeSyntheticDDoSReplay(dir, cases, truth, decisions, digest); err != nil {
+	if err := writeSyntheticDDoSReplay(dir, body, truth, decisions); err != nil {
 		t.Fatal(err)
 	}
 	inputs, err := os.ReadFile(filepath.Join(dir, "inputs.json"))
@@ -232,7 +256,11 @@ func TestSyntheticDDoSReplayExport(t *testing.T) {
 		quiet.ID != replay.Cases[1].ID || quiet.Decision != "quiet" || quiet.EpisodeDelayMS != nil {
 		t.Fatal("decisions lost the episode clock or quiet control", result)
 	}
-	if err := writeSyntheticDDoSReplay(dir, cases, truth, decisions, digest); !errors.Is(err, os.ErrExist) {
+	if err := writeSyntheticDDoSReplay(dir, body, truth, decisions); !errors.Is(err, os.ErrExist) {
 		t.Fatal("export accepted an existing destination", err)
+	}
+	cases[0].Pairs[0].Current.Flows[0].CrossesWindowStart = true
+	if _, _, err := prepareSyntheticDDoSReplayInputs(cases, digest); err == nil {
+		t.Fatal("export lost the crossing-window admission field without reporting an error")
 	}
 }

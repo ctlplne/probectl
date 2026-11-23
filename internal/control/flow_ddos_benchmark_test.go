@@ -229,9 +229,13 @@ func benchmarkDDoSAppSpans(window benchmarkDDoSApplication, from time.Time) []ot
 }
 
 func benchmarkDDoSCapturedWindow(settings ddosAssessmentSettings, window benchmarkDDoSWindow, from, to time.Time) capturedReportFlow {
+	return captureSyntheticDDoSWindow(settings, syntheticDDoSWindow(anomaly.TrainingWindow{Start: from, End: to}, window, false))
+}
+
+func captureSyntheticDDoSWindow(settings ddosAssessmentSettings, window syntheticDDoSReplayWindow) capturedReportFlow {
 	return capturedReportFlow{ID: settings.View.ID, Version: settings.View.Version, TenantID: benchmarkDDoSTenant,
-		Result: flowstore.PlanResult{OldestInput: from, Coverage: &flowstore.PlanSourceCoverage{CompleteInputs: window.Complete},
-			Query: flow.QueryPlan{View: "table", From: from, To: to}, Source: "raw", ResolutionSeconds: 1, Rows: benchmarkDDoSRows(window)},
+		Result: flowstore.PlanResult{OldestInput: window.From, Coverage: &flowstore.PlanSourceCoverage{CompleteInputs: window.Complete},
+			Query: flow.QueryPlan{View: "table", From: window.From, To: window.To}, Source: "raw", ResolutionSeconds: 1, Rows: window.Flows},
 	}
 }
 
@@ -240,19 +244,18 @@ func benchmarkDDoSProjection(ctx context.Context, settings ddosAssessmentSetting
 	return projected.observation, projected.evidence, err
 }
 
-func benchmarkDDoSAssess(ctx context.Context, settings ddosAssessmentSettings, reference, current benchmarkDDoSWindow, clocks anomaly.FlowFieldComparisonClocks) (flow.DDoSAssessment, error) {
+func assessSyntheticDDoSReplayPair(ctx context.Context, settings ddosAssessmentSettings, pair syntheticDDoSReplayPair, clocks anomaly.FlowFieldComparisonClocks) (flow.DDoSAssessment, error) {
 	if binding := settings.Input.Application; binding != nil {
 		settings.readApplication = func(ctx context.Context, observation anomaly.DDoSObservation) (anomaly.DDoSApplicationWindow, bool, error) {
-			window := current.Application
-			if observation.From.Equal(clocks.Before.Start) {
-				window = reference.Application
+			window := pair.Current
+			if observation.From.Equal(pair.Reference.From) {
+				window = pair.Reference
 			}
-			return projectDDoSApplicationWindow(ctx, observation, binding.Service, binding.Port, observation.To, benchmarkDDoSAppSpans(window, observation.From))
+			return projectDDoSApplicationWindow(ctx, observation, binding.Service, binding.Port, observation.To, window.HTTP)
 		}
 	}
 	capture := &reportFlowCapture{TenantID: benchmarkDDoSTenant, SourceGeneration: 1, Results: []capturedReportFlow{
-		benchmarkDDoSCapturedWindow(settings, reference, clocks.Before.Start, clocks.Before.End),
-		benchmarkDDoSCapturedWindow(settings, current, clocks.After.Start, clocks.After.End),
+		captureSyntheticDDoSWindow(settings, pair.Reference), captureSyntheticDDoSWindow(settings, pair.Current),
 	}}
 	return assessCapturedDDoS(ctx, capture, settings, clocks, 0, 1, benchmarkDDoSWork)
 }
@@ -267,21 +270,28 @@ type benchmarkDDoSOutcome struct {
 }
 
 func benchmarkDDoSEvaluate(ctx context.Context, trial benchmarkDDoSTrial) (benchmarkDDoSOutcome, error) {
-	input := trial.Settings
+	replay, err := materializeSyntheticDDoSReplay(1, trial)
+	if err != nil {
+		return benchmarkDDoSOutcome{}, err
+	}
+	return evaluateSyntheticDDoSReplay(ctx, replay)
+}
+
+func evaluateSyntheticDDoSReplay(ctx context.Context, replay syntheticDDoSReplayTrial) (benchmarkDDoSOutcome, error) {
+	input := replay.Scope
 	settings, err := normalizeDDoSAssessment(benchmarkDDoSView, input)
 	if err != nil {
 		return benchmarkDDoSOutcome{}, err
 	}
-	end := benchmarkDDoSEpoch.Add(2 * time.Duration(input.PeriodSeconds) * time.Second)
-	clocks, err := ddosClocks(end, input.PeriodSeconds)
+	clocks, err := ddosClocks(replay.Pairs[1].Current.To, input.PeriodSeconds)
 	if err != nil {
 		return benchmarkDDoSOutcome{}, err
 	}
-	previous, err := benchmarkDDoSAssess(ctx, settings, trial.Reference, trial.Windows[0], clocks.Previous)
+	previous, err := assessSyntheticDDoSReplayPair(ctx, settings, replay.Pairs[0], clocks.Previous)
 	if err != nil {
 		return benchmarkDDoSOutcome{Abstained: errors.Is(err, anomaly.ErrDDoSCoverage)}, err
 	}
-	current, err := benchmarkDDoSAssess(ctx, settings, trial.Reference, trial.Windows[1], clocks.Current)
+	current, err := assessSyntheticDDoSReplayPair(ctx, settings, replay.Pairs[1], clocks.Current)
 	if err != nil {
 		return benchmarkDDoSOutcome{Abstained: errors.Is(err, anomaly.ErrDDoSCoverage)}, err
 	}
@@ -295,9 +305,8 @@ func benchmarkDDoSEvaluate(ctx context.Context, trial benchmarkDDoSTrial) (bench
 	if err != nil || episode == nil {
 		return outcome, err
 	}
-	onset := benchmarkDDoSEpoch.Add(-time.Duration(trial.OnsetBeforeAligned) * time.Second)
 	outcome.Class, outcome.Service = current.Detection.Class, current.Detection.Service
-	outcome.DelaySeconds = int(current.After.To.Sub(onset).Seconds())
+	outcome.DelaySeconds = int(current.After.To.Sub(replay.ModeledStart).Seconds())
 	return outcome, nil
 }
 
@@ -351,6 +360,10 @@ func TestSyntheticDDoSDetectionBenchmark(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("fixture_rows_sha256=%s", rowsDigest)
+	inputs, replayCases, err := prepareSyntheticDDoSReplayInputs(replayCases, rowsDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var counts benchmarkDDoSCounts
 	delays := []int{}
 	truth := make([]syntheticDDoSTruth, 0, len(trials))
@@ -361,7 +374,7 @@ func TestSyntheticDDoSDetectionBenchmark(t *testing.T) {
 			t.Fatalf("missing oracle label for %q", trial.Family)
 		}
 		truth = append(truth, syntheticDDoSTruth{ID: replayCases[i].ID, Scenario: trial.Name, Positive: label.Positive})
-		outcome, err := benchmarkDDoSEvaluate(ctx, trial)
+		outcome, err := evaluateSyntheticDDoSReplay(ctx, replayCases[i])
 		if err != nil && !outcome.Abstained {
 			t.Fatalf("assessment %q: %v", trial.Name, err)
 		}
@@ -387,7 +400,7 @@ func TestSyntheticDDoSDetectionBenchmark(t *testing.T) {
 		t.Logf("onset_min=%d onset_p50=%d onset_p95=%d onset_max=%d", delays[0], delays[(len(delays)-1)/2], delays[(len(delays)*95+99)/100-1], delays[len(delays)-1])
 	}
 	if dir := os.Getenv("PROBECTL_TEST_DDOS_CORPUS_DIR"); dir != "" && !t.Failed() {
-		if err := writeSyntheticDDoSReplay(dir, replayCases, truth, decisions, rowsDigest); err != nil {
+		if err := writeSyntheticDDoSReplay(dir, inputs, truth, decisions); err != nil {
 			t.Fatal(err)
 		}
 	}
