@@ -135,6 +135,7 @@ const (
 	subjectTableRetainEncryptedEvidence
 	subjectTableDerivedFlowCache
 	subjectTableReportChunks
+	subjectTableDiscardStaging
 )
 
 type subjectTablePolicy struct {
@@ -429,6 +430,26 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 	"device_syslog": {plane: "postgres:device_syslog", disposition: subjectTableNoSubject},
 	// Fault queue rows retain typed device observations and expire with the raw row.
 	"device_syslog_fault_queue": {plane: "postgres:device_syslog_fault_queue", disposition: subjectTableNoSubject},
+	"kubernetes_inventory_sources": {
+		plane: "postgres:kubernetes_inventory_sources", disposition: subjectTableDeleteMatches,
+		exact: []string{"agent_id", "namespace"},
+	},
+	"kubernetes_inventory_objects": {
+		plane: "postgres:kubernetes_inventory_objects", disposition: subjectTableDeleteMatches,
+		exact: []string{"object_uid"}, contains: []string{"object_name"},
+	},
+	"kubernetes_inventory_addresses": {
+		plane: "postgres:kubernetes_inventory_addresses", disposition: subjectTableDeleteMatches,
+		exact: []string{"object_uid", "address_text"},
+	},
+	"kubernetes_inventory_relationships": {
+		plane: "postgres:kubernetes_inventory_relationships", disposition: subjectTableDeleteMatches,
+		exact: []string{"witness_uid", "from_uid", "to_uid"},
+	},
+	"kubernetes_inventory_staging":     {plane: "postgres:kubernetes_inventory_staging", disposition: subjectTableDiscardStaging},
+	"kubernetes_inventory_stage_parts": {plane: "postgres:kubernetes_inventory_stage_parts", disposition: subjectTableDiscardStaging},
+	"kubernetes_inventory_generations": {plane: "postgres:kubernetes_inventory_generations", disposition: subjectTableNoSubject},
+	"kubernetes_inventory_windows":     {plane: "postgres:kubernetes_inventory_windows", disposition: subjectTableNoSubject},
 	// Saved expressions can contain addresses or operator-entered identities.
 	// Known saved-filter/tag UUID references are structural; the decoded
 	// selector preserves criteria, personal keys and unknown/invalid values.
@@ -687,6 +708,11 @@ func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
 
 		if policy.disposition == subjectTableDerivedFlowCache {
 			x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: policy.plane, Status: SubjectStatusCoveredByPlane, Notes: ordinaryPortabilityFlowCacheNote})
+			continue
+		}
+		if policy.disposition == subjectTableDiscardStaging {
+			x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: policy.plane, Status: SubjectStatusCoveredByPlane,
+				Notes: "unpublished protocol staging is excluded from subject export and purged on subject erasure"})
 			continue
 		}
 		if policy.disposition == subjectTableRetainEncryptedEvidence {
@@ -1246,6 +1272,13 @@ func (e *Engine) eraseSubjectPostgres(
 				// The cache lease and physical object purge run after directory
 				// validation; never delete the generation row here.
 				continue
+			case subjectTableDiscardStaging:
+				result, err := eraseSubjectProtocolStaging(ctx, sc, table, tenantID)
+				if err != nil {
+					return err
+				}
+				out = append(out, result)
+				continue
 			case subjectTableReportChunks:
 				// Every source-aware parent is invalidated first. Clear and
 				// verify residual sidecars. Surviving unrelated static documents
@@ -1363,6 +1396,23 @@ type classifiedSubjectTable struct {
 	policy subjectTablePolicy
 }
 
+func eraseSubjectProtocolStaging(ctx context.Context, sc tenancy.Scope, table classifiedSubjectTable, tenantID string) (SubjectPlaneResult, error) {
+	ident := pgIdent(table.name)
+	deleted, err := sc.Q.Exec(ctx, "DELETE FROM "+ident+" WHERE tenant_id=$1", tenantID)
+	if err != nil {
+		return SubjectPlaneResult{}, fmt.Errorf("erase unpublished inventory staging: %w", err)
+	}
+	var remaining int64
+	if err := sc.Q.QueryRow(ctx, "SELECT count(*) FROM "+ident+" WHERE tenant_id=$1", tenantID).Scan(&remaining); err != nil {
+		return SubjectPlaneResult{}, fmt.Errorf("verify unpublished inventory erasure: %w", err)
+	}
+	if remaining != 0 {
+		return SubjectPlaneResult{}, fmt.Errorf("verify unpublished inventory erasure: %d rows remain", remaining)
+	}
+	return SubjectPlaneResult{Plane: table.policy.plane, Status: SubjectStatusDeleted, Deleted: deleted.RowsAffected(),
+		Notes: "unpublished inventory staging purged under the source erasure fence"}, nil
+}
+
 func classifySubjectPostgresTables(tables []string) ([]classifiedSubjectTable, error) {
 	classified := make([]classifiedSubjectTable, 0, len(tables))
 	var unknown []string
@@ -1380,6 +1430,7 @@ func classifySubjectPostgresTables(tables []string) ([]classifiedSubjectTable, e
 			subjectTableNoSubject,
 			subjectTableRetainEncryptedEvidence,
 			subjectTableDerivedFlowCache,
+			subjectTableDiscardStaging,
 			subjectTableReportChunks:
 			valid = len(policy.exact) == 0 && len(policy.contains) == 0
 		default:

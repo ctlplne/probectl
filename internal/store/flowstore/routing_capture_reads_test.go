@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -58,11 +59,11 @@ func TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission(t *te
 			t.Fatal(err)
 		}
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
-		got, err := st.routingCaptureReferences(ctx, tenant, rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), "raw")
+		got, err := st.routingCaptureReferences(ctx, tenant, rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), "raw", false)
 		if err != nil || len(got) != count {
 			t.Fatal("routing reference read truncated the complete original population", len(got), err)
 		}
-		decoded, err := decodeRoutingReads(ctx, tenant, wire, 16<<20)
+		decoded, err := decodeRoutingReads(ctx, tenant, wire, 16<<20, false)
 		if err != nil || len(decoded) != count {
 			t.Fatal("routing reference wire lost full original values", len(decoded), err)
 		}
@@ -71,11 +72,11 @@ func TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission(t *te
 				t.Fatal("routing reference read changed order, exact clock or full source domain", i)
 			}
 		}
-		if partial, err := st.routingCaptureReferences(ctx, tenants[1], rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), "raw"); tenant == tenants[0] && (!errors.Is(err, ErrNoTenant) || partial != nil) {
+		if partial, err := st.routingCaptureReferences(ctx, tenants[1], rows[0].TS.Add(-time.Second), rows[0].TS.Add(time.Second), "raw", false); tenant == tenants[0] && (!errors.Is(err, ErrNoTenant) || partial != nil) {
 			t.Fatal("routing reference reader accepted a foreign tenant context", err)
 		}
 		wire[len(wire)-1]["tenant_id"] = tenants[1]
-		if partial, err := decodeRoutingReads(ctx, tenants[0], wire, 16<<20); partial != nil || err == nil {
+		if partial, err := decodeRoutingReads(ctx, tenants[0], wire, 16<<20, false); partial != nil || err == nil {
 			t.Fatal("foreign late routing reference exposed a partial population")
 		}
 	}
@@ -86,11 +87,56 @@ func TestRoutingCaptureReferenceReadsKeepCompleteOriginalScopeAndAdmission(t *te
 	}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenants[0]))
 	at := time.Unix(1700000000, 123000000).UTC()
-	if partial, err := st.routingCaptureReferences(ctx, tenants[0], at.Add(-time.Second), at.Add(time.Second), "raw"); !errors.Is(err, ErrExplorerBudget) || partial != nil {
+	if partial, err := st.routingCaptureReferences(ctx, tenants[0], at.Add(-time.Second), at.Add(time.Second), "raw", false); !errors.Is(err, ErrExplorerBudget) || partial != nil {
 		t.Fatal("routing reference admission returned a truncated prefix", err)
 	}
 	if _, err := routingReadFromRow(Row{}); err == nil {
 		t.Fatal("legacy empty metadata invented an original routing reference")
+	}
+}
+
+func TestTimedFlowCaptureReadsBoundBothTenantClocksAndRejectFallback(t *testing.T) {
+	tenants := []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"}
+	st := NewMemory()
+	for lane, tenant := range tenants {
+		rows, wire := routingReferencePopulation(t, tenant, 1)
+		row := &rows[0]
+		row.ClockBasis = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL
+		row.StartTS = row.TS.Add(-time.Duration(lane+1) * time.Second)
+		row.TS = row.TS.Add(830 * time.Microsecond)
+		wire[0]["clock_basis"] = strconv.FormatInt(int64(row.ClockBasis), 10)
+		wire[0]["start_ms"] = strconv.FormatInt(row.StartTS.UnixMilli(), 10)
+		wire[0]["end_ms"] = strconv.FormatInt(row.TS.UnixMilli(), 10)
+		if err := st.Insert(t.Context(), rows); err != nil {
+			t.Fatal(err)
+		}
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		from, until := row.TS.Add(-time.Second), row.TS.Add(time.Second)
+		owned, err := ReadTimedFlowCaptureReferences(ctx, st, tenant, from, until, "auto")
+		if err != nil || len(owned) != 1 || !owned[0].Timing.Start.Equal(row.StartTS) {
+			t.Fatalf("missing original tenant %d clock: %+v %v", lane, owned, err)
+		}
+		retained, err := decodeRoutingReads(ctx, tenant, wire, 1<<20, true)
+		if err != nil || len(retained) != 1 {
+			t.Fatal("raw timing wire could not be decoded", err)
+		}
+		const tolerance = 2 * time.Millisecond
+		start, end, ok := owned[0].Timing.ObservationRange(row.Protocol, tolerance)
+		dbStart, dbEnd, dbOK := retained[0].Timing.ObservationRange(row.Protocol, tolerance)
+		if !ok || !dbOK || !start.Equal(dbStart) || !end.Equal(dbEnd) ||
+			!start.Equal(row.StartTS.Truncate(time.Millisecond).Add(-tolerance)) ||
+			!end.Equal(row.TS.Truncate(time.Millisecond).Add(3*time.Millisecond)) {
+			t.Fatalf("tenant %d timing bounds lost raw precision or tolerance: %v to %v", lane, start, end)
+		}
+		if _, _, ok := (FlowCaptureTiming{Start: row.StartTS, End: row.TS}).ObservationRange(row.Protocol, tolerance); ok {
+			t.Fatal("fallback clock acquired authority")
+		}
+		if foreign, err := ReadTimedFlowCaptureReferences(ctx, st, tenants[1-lane], from, until, "raw"); foreign != nil || !errors.Is(err, ErrNoTenant) {
+			t.Fatal("timed flow reference read crossed the tenant boundary", err)
+		}
+		if partial, err := ReadTimedFlowCaptureReferences(ctx, st, tenant, from, until, "rollup"); partial != nil || err == nil {
+			t.Fatal("rollup acquired original clock authority", err)
+		}
 	}
 }
 

@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+syntax = "proto3";
+
+package probectl.agent.v1;
+
+option go_package = "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1;agentv1";
+
+// Exclusive operation on SubmitEntityEvidence. The caller's evidence SVID
+// supplies tenant and agent identity. binding_id selects an operator-owned
+// source epoch only within that authenticated agent's scoped assignments.
+message KubernetesInventoryUpload {
+  string binding_id = 1;
+  string generation_id = 2;
+  oneof operation {
+    KubernetesInventoryBegin begin = 3;
+    KubernetesInventoryPart append = 4;
+    KubernetesInventoryPublish publish = 5;
+  }
+}
+
+message KubernetesInventoryBegin {
+  KubernetesInventoryManifest manifest = 1;
+  // SHA-256 over the protocol domain, length-prefixed manifest and ordered,
+  // length-prefixed deterministic part messages.
+  bytes payload_digest = 2;
+}
+
+message KubernetesInventoryManifest {
+  uint32 parts = 1;
+  uint64 rows = 2;
+  uint64 payload_bytes = 3;
+  repeated KubernetesInventoryWindow windows = 4;
+}
+
+message KubernetesInventoryPart {
+  uint32 index = 1;
+  repeated KubernetesInventoryRow rows = 2;
+}
+
+message KubernetesInventoryPublish {}
+
+message KubernetesInventoryReceipt {
+  string generation_id = 1;
+  uint32 next_part = 2;
+  uint64 retained_rows = 3;
+  bytes payload_digest = 4;
+  bool published = 5;
+}
+
+enum KubernetesInventoryKind {
+  KUBERNETES_INVENTORY_KIND_UNSPECIFIED = 0;
+  KUBERNETES_INVENTORY_KIND_POD = 1;
+  KUBERNETES_INVENTORY_KIND_SERVICE = 2;
+  KUBERNETES_INVENTORY_KIND_ENDPOINT_SLICE = 3;
+  KUBERNETES_INVENTORY_KIND_DEPLOYMENT = 4;
+  KUBERNETES_INVENTORY_KIND_REPLICA_SET = 5;
+  KUBERNETES_INVENTORY_KIND_DAEMON_SET = 6;
+  KUBERNETES_INVENTORY_KIND_STATEFUL_SET = 7;
+  KUBERNETES_INVENTORY_KIND_JOB = 8;
+  KUBERNETES_INVENTORY_KIND_CRON_JOB = 9;
+  KUBERNETES_INVENTORY_KIND_REPLICATION_CONTROLLER = 10;
+}
+
+// A closed interval between two complete consistent inventory reads. Clock
+// bounds come from the local collector. Resource versions remain API tokens.
+message KubernetesInventoryWindow {
+  KubernetesInventoryKind kind = 1;
+  string first_list_version = 2;
+  string last_list_version = 3;
+  string watch_progress_version = 4;
+  int64 first_read_complete_unix_nano = 5;
+  int64 last_read_start_unix_nano = 6;
+}
+
+message KubernetesInventoryRow {
+  uint32 window_index = 1;
+  oneof record {
+    KubernetesInventoryObject object = 2;
+    KubernetesInventoryAddress address = 3;
+    KubernetesInventoryRelationship relationship = 4;
+  }
+}
+
+message KubernetesInventoryObject {
+  KubernetesInventoryKind kind = 1;
+  string uid = 2;
+  string name = 3;
+  // Set only when the complete workload observation has no controller owner.
+  bool controller_unowned = 4;
+}
+
+message KubernetesInventoryAddress {
+  KubernetesInventoryKind kind = 1; // Pod or Service, never an inferred owner.
+  string uid = 2;
+  string address = 3;
+}
+
+enum KubernetesInventoryRelationshipKind {
+  KUBERNETES_INVENTORY_RELATIONSHIP_KIND_UNSPECIFIED = 0;
+  KUBERNETES_INVENTORY_RELATIONSHIP_KIND_CONTROLLER_OWNER = 1;
+  KUBERNETES_INVENTORY_RELATIONSHIP_KIND_SERVICE_BACKEND = 2;
+}
+
+message KubernetesInventoryRelationship {
+  KubernetesInventoryRelationshipKind relation = 1;
+  KubernetesInventoryKind from_kind = 2;
+  string from_uid = 3;
+  KubernetesInventoryKind to_kind = 4;
+  string to_uid = 5;
+  // Support for a Service-to-Pod relation is the original EndpointSlice UID.
+  string endpoint_slice_uid = 6;
+}

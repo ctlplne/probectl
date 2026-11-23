@@ -181,6 +181,10 @@ const en = {
   'entity.topology.truncated':
     'The first 640 distinct address nodes were checked; the remaining nodes have no canonical annotation.',
   'entity.topology.currentIdentity': 'Current canonical identity',
+  'entity.topology.kubernetes': 'Show Kubernetes inventory',
+  'entity.topology.kubernetesNamespace': 'Namespace',
+  'entity.topology.kubernetesCluster': 'Cluster ID',
+  'entity.topology.kubernetesObservedAt': 'Inventory observed at',
   'entity.topology.status.resolved': 'resolved',
   'entity.topology.status.conflict': 'conflict',
   'entity.topology.status.unresolved': 'unresolved',
@@ -1862,6 +1866,10 @@ const es: Record<MessageKey, string> = {
   'entity.topology.truncated':
     'Se comprobaron los primeros 640 nodos de dirección distintos; los demás no tienen anotación canónica.',
   'entity.topology.currentIdentity': 'Identidad canónica actual',
+  'entity.topology.kubernetes': 'Mostrar inventario de Kubernetes',
+  'entity.topology.kubernetesNamespace': 'Espacio de nombres',
+  'entity.topology.kubernetesCluster': 'ID del clúster',
+  'entity.topology.kubernetesObservedAt': 'Inventario observado a las',
   'entity.topology.status.resolved': 'resuelto',
   'entity.topology.status.conflict': 'conflicto',
   'entity.topology.status.unresolved': 'sin resolver',
@@ -3566,6 +3574,10 @@ const ar: Record<MessageKey, string> = {
   'entity.topology.truncated':
     'فُحصت أول 640 عقدة عنوان مميزة؛ ولا تحمل العقد الباقية تعليقًا موحّدًا.',
   'entity.topology.currentIdentity': 'الهوية الموحّدة الحالية',
+  'entity.topology.kubernetes': 'عرض مخزون Kubernetes',
+  'entity.topology.kubernetesNamespace': 'مساحة الأسماء',
+  'entity.topology.kubernetesCluster': 'معرّف المجموعة',
+  'entity.topology.kubernetesObservedAt': 'وقت رصد المخزون',
   'entity.topology.status.resolved': 'محسوم',
   'entity.topology.status.conflict': 'تعارض',
   'entity.topology.status.unresolved': 'غير محسوم',

@@ -52,6 +52,13 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	if !validEntityEvidenceEnvelope(req) {
 		return nil, status.Error(codes.InvalidArgument, "evidence request must contain one complete operation")
 	}
+	if req.GetKubernetesInventory() != nil {
+		response, err := svc.submitKubernetesInventory(ctx, id, serial, req)
+		if err == nil {
+			outcome = "accepted"
+		}
+		return response, err
+	}
 	if req.PublicRoutingPeerTable != nil || req.PublicRoutingMessage != nil {
 		response, accepted, err := svc.submitPublicRoutingEvidence(ctx, id, serial, req)
 		if accepted {

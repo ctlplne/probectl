@@ -199,6 +199,7 @@ type Engine struct {
 	paths                PathDeleter // optional (WithPaths)
 	topo                 TopologyDeleter
 	topoRetention        TopologyRetentionPruner
+	kubernetesRetention  func(context.Context, string, time.Time) (int64, error)
 	endpointRetention    EndpointRetentionPruner
 	endpointEvents       endpointstore.Store
 	otel                 OtelDeleter // optional (WithOtel) — OTLP trace/log store
@@ -318,6 +319,13 @@ func (e *Engine) WithTopology(t TopologyDeleter) *Engine {
 	if p, ok := t.(TopologyRetentionPruner); ok {
 		e.topoRetention = p
 	}
+	return e
+}
+
+// WithKubernetesInventoryRetention ages out retained Kubernetes witnesses
+// under the same tenant policy as derived topology labels.
+func (e *Engine) WithKubernetesInventoryRetention(prune func(context.Context, string, time.Time) (int64, error)) *Engine {
+	e.kubernetesRetention = prune
 	return e
 }
 
@@ -1845,6 +1853,12 @@ func (e *Engine) pruneDerivedIdentityCaches(ctx context.Context, p retentionSwee
 			func() (int64, error) {
 				return int64(e.topoRetention.PruneTenantBefore(p.tenant, cutoff)), nil
 			},
+		))
+	}
+	if e.kubernetesRetention != nil {
+		pruneErrors = append(pruneErrors, e.runRetentionPrune(
+			ctx, p.tenant, "kubernetes_inventory", cutoff, days, "derived_identity_cache", nil,
+			func() (int64, error) { return e.kubernetesRetention(ctx, p.tenant, cutoff) },
 		))
 	}
 	if e.endpointRetention != nil {

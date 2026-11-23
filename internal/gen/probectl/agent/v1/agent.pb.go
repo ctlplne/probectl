@@ -4064,6 +4064,7 @@ type SubmitEntityEvidenceRequest struct {
 	BmpPeerSessions        *BmpPeerSessionBatch         `protobuf:"bytes,9,opt,name=bmp_peer_sessions,json=bmpPeerSessions,proto3" json:"bmp_peer_sessions,omitempty"`                        // exclusive; legacy receivers must refuse without writing generic identities
 	ResolverDns            *ResolverDNSCapture          `protobuf:"bytes,10,opt,name=resolver_dns,json=resolverDns,proto3" json:"resolver_dns,omitempty"`                                     // exclusive; bound resolver only
 	BmpSessionEvidence     *BmpSessionEvidence          `protobuf:"bytes,11,opt,name=bmp_session_evidence,json=bmpSessionEvidence,proto3" json:"bmp_session_evidence,omitempty"`              // exclusive; bound BMP router only
+	KubernetesInventory    *KubernetesInventoryUpload   `protobuf:"bytes,12,opt,name=kubernetes_inventory,json=kubernetesInventory,proto3" json:"kubernetes_inventory,omitempty"`             // exclusive; bound Kubernetes inventory source only
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -4175,6 +4176,13 @@ func (x *SubmitEntityEvidenceRequest) GetBmpSessionEvidence() *BmpSessionEvidenc
 	return nil
 }
 
+func (x *SubmitEntityEvidenceRequest) GetKubernetesInventory() *KubernetesInventoryUpload {
+	if x != nil {
+		return x.KubernetesInventory
+	}
+	return nil
+}
+
 // Exclusive wrapper prevents an older receiver from accepting lifecycle facts
 // as generic identity observations after silently dropping an unknown field.
 type BmpPeerSessionBatch struct {
@@ -4238,6 +4246,7 @@ type SubmitEntityEvidenceResponse struct {
 	BmpPeerSessionsPersisted  uint32                       `protobuf:"varint,13,opt,name=bmp_peer_sessions_persisted,json=bmpPeerSessionsPersisted,proto3" json:"bmp_peer_sessions_persisted,omitempty"`  // typed original lifecycle retained, not an identity ack
 	ResolverDns               *ResolverDNSCaptureReceipt   `protobuf:"bytes,14,opt,name=resolver_dns,json=resolverDns,proto3" json:"resolver_dns,omitempty"`
 	BmpSessionEvidence        *BmpSessionEvidenceReceipt   `protobuf:"bytes,15,opt,name=bmp_session_evidence,json=bmpSessionEvidence,proto3" json:"bmp_session_evidence,omitempty"`
+	KubernetesInventory       *KubernetesInventoryReceipt  `protobuf:"bytes,16,opt,name=kubernetes_inventory,json=kubernetesInventory,proto3" json:"kubernetes_inventory,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -4377,11 +4386,18 @@ func (x *SubmitEntityEvidenceResponse) GetBmpSessionEvidence() *BmpSessionEviden
 	return nil
 }
 
+func (x *SubmitEntityEvidenceResponse) GetKubernetesInventory() *KubernetesInventoryReceipt {
+	if x != nil {
+		return x.KubernetesInventory
+	}
+	return nil
+}
+
 var File_probectl_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x1dprobectl/agent/v1/agent.proto\x12\x11probectl.agent.v1\"\xf9\x01\n" +
+	"\x1dprobectl/agent/v1/agent.proto\x12\x11probectl.agent.v1\x1a,probectl/agent/v1/kubernetes_inventory.proto\"\xf9\x01\n" +
 	"\x0fRegisterRequest\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x12#\n" +
 	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\x12\"\n" +
@@ -4712,7 +4728,7 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\rconnection_id\x18\x01 \x01(\tR\fconnectionId\x12\x1a\n" +
 	"\bsequence\x18\x02 \x01(\x03R\bsequence\x12'\n" +
 	"\x0fevidence_digest\x18\x03 \x01(\fR\x0eevidenceDigest\x12!\n" +
-	"\fcoverage_gap\x18\x04 \x01(\bR\vcoverageGap\"\xa9\a\n" +
+	"\fcoverage_gap\x18\x04 \x01(\bR\vcoverageGap\"\x8a\b\n" +
 	"\x1bSubmitEntityEvidenceRequest\x12P\n" +
 	"\fobservations\x18\x01 \x03(\v2,.probectl.agent.v1.EntityEvidenceObservationR\fobservations\x12A\n" +
 	"\x06faults\x18\x02 \x03(\v2).probectl.agent.v1.EntityFaultObservationR\x06faults\x12K\n" +
@@ -4725,9 +4741,10 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x11bmp_peer_sessions\x18\t \x01(\v2&.probectl.agent.v1.BmpPeerSessionBatchR\x0fbmpPeerSessions\x12H\n" +
 	"\fresolver_dns\x18\n" +
 	" \x01(\v2%.probectl.agent.v1.ResolverDNSCaptureR\vresolverDns\x12W\n" +
-	"\x14bmp_session_evidence\x18\v \x01(\v2%.probectl.agent.v1.BmpSessionEvidenceR\x12bmpSessionEvidence\"g\n" +
+	"\x14bmp_session_evidence\x18\v \x01(\v2%.probectl.agent.v1.BmpSessionEvidenceR\x12bmpSessionEvidence\x12_\n" +
+	"\x14kubernetes_inventory\x18\f \x01(\v2,.probectl.agent.v1.KubernetesInventoryUploadR\x13kubernetesInventory\"g\n" +
 	"\x13BmpPeerSessionBatch\x12P\n" +
-	"\fobservations\x18\x01 \x03(\v2,.probectl.agent.v1.EntityEvidenceObservationR\fobservations\"\xa6\b\n" +
+	"\fobservations\x18\x01 \x03(\v2,.probectl.agent.v1.EntityEvidenceObservationR\fobservations\"\x88\t\n" +
 	"\x1cSubmitEntityEvidenceResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\rR\baccepted\x12\x1e\n" +
 	"\n" +
@@ -4746,7 +4763,8 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x1ainterface_states_persisted\x18\f \x01(\rR\x18interfaceStatesPersisted\x12=\n" +
 	"\x1bbmp_peer_sessions_persisted\x18\r \x01(\rR\x18bmpPeerSessionsPersisted\x12O\n" +
 	"\fresolver_dns\x18\x0e \x01(\v2,.probectl.agent.v1.ResolverDNSCaptureReceiptR\vresolverDns\x12^\n" +
-	"\x14bmp_session_evidence\x18\x0f \x01(\v2,.probectl.agent.v1.BmpSessionEvidenceReceiptR\x12bmpSessionEvidence*S\n" +
+	"\x14bmp_session_evidence\x18\x0f \x01(\v2,.probectl.agent.v1.BmpSessionEvidenceReceiptR\x12bmpSessionEvidence\x12`\n" +
+	"\x14kubernetes_inventory\x18\x10 \x01(\v2-.probectl.agent.v1.KubernetesInventoryReceiptR\x13kubernetesInventory*S\n" +
 	"\aA2ARole\x12\x18\n" +
 	"\x14A2A_ROLE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12A2A_ROLE_RESPONDER\x10\x01\x12\x16\n" +
@@ -4842,6 +4860,8 @@ var file_probectl_agent_v1_agent_proto_goTypes = []any{
 	(*SubmitEntityEvidenceResponse)(nil), // 60: probectl.agent.v1.SubmitEntityEvidenceResponse
 	nil,                                  // 61: probectl.agent.v1.RegisterRequest.LabelsEntry
 	nil,                                  // 62: probectl.agent.v1.AttestRequest.PlatformEntry
+	(*KubernetesInventoryUpload)(nil),    // 63: probectl.agent.v1.KubernetesInventoryUpload
+	(*KubernetesInventoryReceipt)(nil),   // 64: probectl.agent.v1.KubernetesInventoryReceipt
 }
 var file_probectl_agent_v1_agent_proto_depIdxs = []int32{
 	61, // 0: probectl.agent.v1.RegisterRequest.labels:type_name -> probectl.agent.v1.RegisterRequest.LabelsEntry
@@ -4877,42 +4897,44 @@ var file_probectl_agent_v1_agent_proto_depIdxs = []int32{
 	59, // 30: probectl.agent.v1.SubmitEntityEvidenceRequest.bmp_peer_sessions:type_name -> probectl.agent.v1.BmpPeerSessionBatch
 	53, // 31: probectl.agent.v1.SubmitEntityEvidenceRequest.resolver_dns:type_name -> probectl.agent.v1.ResolverDNSCapture
 	55, // 32: probectl.agent.v1.SubmitEntityEvidenceRequest.bmp_session_evidence:type_name -> probectl.agent.v1.BmpSessionEvidence
-	28, // 33: probectl.agent.v1.BmpPeerSessionBatch.observations:type_name -> probectl.agent.v1.EntityEvidenceObservation
-	40, // 34: probectl.agent.v1.SubmitEntityEvidenceResponse.routing:type_name -> probectl.agent.v1.BmpRoutingStagingReceipt
-	39, // 35: probectl.agent.v1.SubmitEntityEvidenceResponse.routing_message:type_name -> probectl.agent.v1.BmpRoutingMessageReceipt
-	49, // 36: probectl.agent.v1.SubmitEntityEvidenceResponse.flow_routing:type_name -> probectl.agent.v1.FlowRoutingCaptureBatch
-	44, // 37: probectl.agent.v1.SubmitEntityEvidenceResponse.public_routing:type_name -> probectl.agent.v1.PublicRoutingStagingReceipt
-	45, // 38: probectl.agent.v1.SubmitEntityEvidenceResponse.public_routing_message:type_name -> probectl.agent.v1.PublicRoutingMessageReceipt
-	51, // 39: probectl.agent.v1.SubmitEntityEvidenceResponse.device_counter:type_name -> probectl.agent.v1.DeviceCounterCapture
-	54, // 40: probectl.agent.v1.SubmitEntityEvidenceResponse.resolver_dns:type_name -> probectl.agent.v1.ResolverDNSCaptureReceipt
-	57, // 41: probectl.agent.v1.SubmitEntityEvidenceResponse.bmp_session_evidence:type_name -> probectl.agent.v1.BmpSessionEvidenceReceipt
-	1,  // 42: probectl.agent.v1.AgentService.Register:input_type -> probectl.agent.v1.RegisterRequest
-	3,  // 43: probectl.agent.v1.AgentService.Attest:input_type -> probectl.agent.v1.AttestRequest
-	5,  // 44: probectl.agent.v1.AgentService.Heartbeat:input_type -> probectl.agent.v1.HeartbeatRequest
-	7,  // 45: probectl.agent.v1.AgentService.StreamConfig:input_type -> probectl.agent.v1.StreamConfigRequest
-	9,  // 46: probectl.agent.v1.AgentService.StreamResults:input_type -> probectl.agent.v1.StreamResultsRequest
-	11, // 47: probectl.agent.v1.AgentService.PollCoordination:input_type -> probectl.agent.v1.PollCoordinationRequest
-	14, // 48: probectl.agent.v1.AgentService.ReportEndpoint:input_type -> probectl.agent.v1.ReportEndpointRequest
-	16, // 49: probectl.agent.v1.AgentService.FetchTestBundle:input_type -> probectl.agent.v1.FetchTestBundleRequest
-	18, // 50: probectl.agent.v1.AgentService.FetchL7Policy:input_type -> probectl.agent.v1.FetchL7PolicyRequest
-	21, // 51: probectl.agent.v1.AgentService.ReportL7Posture:input_type -> probectl.agent.v1.ReportL7PostureRequest
-	58, // 52: probectl.agent.v1.AgentService.SubmitEntityEvidence:input_type -> probectl.agent.v1.SubmitEntityEvidenceRequest
-	2,  // 53: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
-	4,  // 54: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
-	6,  // 55: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
-	8,  // 56: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
-	10, // 57: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
-	12, // 58: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
-	15, // 59: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
-	17, // 60: probectl.agent.v1.AgentService.FetchTestBundle:output_type -> probectl.agent.v1.FetchTestBundleResponse
-	19, // 61: probectl.agent.v1.AgentService.FetchL7Policy:output_type -> probectl.agent.v1.FetchL7PolicyResponse
-	22, // 62: probectl.agent.v1.AgentService.ReportL7Posture:output_type -> probectl.agent.v1.ReportL7PostureResponse
-	60, // 63: probectl.agent.v1.AgentService.SubmitEntityEvidence:output_type -> probectl.agent.v1.SubmitEntityEvidenceResponse
-	53, // [53:64] is the sub-list for method output_type
-	42, // [42:53] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	63, // 33: probectl.agent.v1.SubmitEntityEvidenceRequest.kubernetes_inventory:type_name -> probectl.agent.v1.KubernetesInventoryUpload
+	28, // 34: probectl.agent.v1.BmpPeerSessionBatch.observations:type_name -> probectl.agent.v1.EntityEvidenceObservation
+	40, // 35: probectl.agent.v1.SubmitEntityEvidenceResponse.routing:type_name -> probectl.agent.v1.BmpRoutingStagingReceipt
+	39, // 36: probectl.agent.v1.SubmitEntityEvidenceResponse.routing_message:type_name -> probectl.agent.v1.BmpRoutingMessageReceipt
+	49, // 37: probectl.agent.v1.SubmitEntityEvidenceResponse.flow_routing:type_name -> probectl.agent.v1.FlowRoutingCaptureBatch
+	44, // 38: probectl.agent.v1.SubmitEntityEvidenceResponse.public_routing:type_name -> probectl.agent.v1.PublicRoutingStagingReceipt
+	45, // 39: probectl.agent.v1.SubmitEntityEvidenceResponse.public_routing_message:type_name -> probectl.agent.v1.PublicRoutingMessageReceipt
+	51, // 40: probectl.agent.v1.SubmitEntityEvidenceResponse.device_counter:type_name -> probectl.agent.v1.DeviceCounterCapture
+	54, // 41: probectl.agent.v1.SubmitEntityEvidenceResponse.resolver_dns:type_name -> probectl.agent.v1.ResolverDNSCaptureReceipt
+	57, // 42: probectl.agent.v1.SubmitEntityEvidenceResponse.bmp_session_evidence:type_name -> probectl.agent.v1.BmpSessionEvidenceReceipt
+	64, // 43: probectl.agent.v1.SubmitEntityEvidenceResponse.kubernetes_inventory:type_name -> probectl.agent.v1.KubernetesInventoryReceipt
+	1,  // 44: probectl.agent.v1.AgentService.Register:input_type -> probectl.agent.v1.RegisterRequest
+	3,  // 45: probectl.agent.v1.AgentService.Attest:input_type -> probectl.agent.v1.AttestRequest
+	5,  // 46: probectl.agent.v1.AgentService.Heartbeat:input_type -> probectl.agent.v1.HeartbeatRequest
+	7,  // 47: probectl.agent.v1.AgentService.StreamConfig:input_type -> probectl.agent.v1.StreamConfigRequest
+	9,  // 48: probectl.agent.v1.AgentService.StreamResults:input_type -> probectl.agent.v1.StreamResultsRequest
+	11, // 49: probectl.agent.v1.AgentService.PollCoordination:input_type -> probectl.agent.v1.PollCoordinationRequest
+	14, // 50: probectl.agent.v1.AgentService.ReportEndpoint:input_type -> probectl.agent.v1.ReportEndpointRequest
+	16, // 51: probectl.agent.v1.AgentService.FetchTestBundle:input_type -> probectl.agent.v1.FetchTestBundleRequest
+	18, // 52: probectl.agent.v1.AgentService.FetchL7Policy:input_type -> probectl.agent.v1.FetchL7PolicyRequest
+	21, // 53: probectl.agent.v1.AgentService.ReportL7Posture:input_type -> probectl.agent.v1.ReportL7PostureRequest
+	58, // 54: probectl.agent.v1.AgentService.SubmitEntityEvidence:input_type -> probectl.agent.v1.SubmitEntityEvidenceRequest
+	2,  // 55: probectl.agent.v1.AgentService.Register:output_type -> probectl.agent.v1.RegisterResponse
+	4,  // 56: probectl.agent.v1.AgentService.Attest:output_type -> probectl.agent.v1.AttestResponse
+	6,  // 57: probectl.agent.v1.AgentService.Heartbeat:output_type -> probectl.agent.v1.HeartbeatResponse
+	8,  // 58: probectl.agent.v1.AgentService.StreamConfig:output_type -> probectl.agent.v1.StreamConfigResponse
+	10, // 59: probectl.agent.v1.AgentService.StreamResults:output_type -> probectl.agent.v1.StreamResultsResponse
+	12, // 60: probectl.agent.v1.AgentService.PollCoordination:output_type -> probectl.agent.v1.PollCoordinationResponse
+	15, // 61: probectl.agent.v1.AgentService.ReportEndpoint:output_type -> probectl.agent.v1.ReportEndpointResponse
+	17, // 62: probectl.agent.v1.AgentService.FetchTestBundle:output_type -> probectl.agent.v1.FetchTestBundleResponse
+	19, // 63: probectl.agent.v1.AgentService.FetchL7Policy:output_type -> probectl.agent.v1.FetchL7PolicyResponse
+	22, // 64: probectl.agent.v1.AgentService.ReportL7Posture:output_type -> probectl.agent.v1.ReportL7PostureResponse
+	60, // 65: probectl.agent.v1.AgentService.SubmitEntityEvidence:output_type -> probectl.agent.v1.SubmitEntityEvidenceResponse
+	55, // [55:66] is the sub-list for method output_type
+	44, // [44:55] is the sub-list for method input_type
+	44, // [44:44] is the sub-list for extension type_name
+	44, // [44:44] is the sub-list for extension extendee
+	0,  // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_probectl_agent_v1_agent_proto_init() }
@@ -4920,6 +4942,7 @@ func file_probectl_agent_v1_agent_proto_init() {
 	if File_probectl_agent_v1_agent_proto != nil {
 		return
 	}
+	file_probectl_agent_v1_kubernetes_inventory_proto_init()
 	file_probectl_agent_v1_agent_proto_msgTypes[26].OneofWrappers = []any{}
 	file_probectl_agent_v1_agent_proto_msgTypes[27].OneofWrappers = []any{}
 	file_probectl_agent_v1_agent_proto_msgTypes[29].OneofWrappers = []any{}

@@ -26,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/agent"
 	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -56,16 +57,17 @@ func main() {
 			return
 		}
 	}
-	if err := run(); err != nil {
+	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "probectl-ebpf-agent:", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(args []string) error {
 	fs := flag.NewFlagSet("probectl-ebpf-agent", flag.ContinueOnError)
 	configPath := fs.String("config", os.Getenv("PROBECTL_EBPF_CONFIG"), "path to the eBPF agent YAML config")
-	if err := fs.Parse(os.Args[1:]); err != nil {
+	inventoryOnly := fs.Bool("inventory-only", false, "run a namespace-scoped Kubernetes inventory collector")
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
@@ -79,6 +81,20 @@ func run() error {
 
 	if err := crypto.RunPowerOnSelfTest(log); err != nil {
 		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if *inventoryOnly {
+		if cfg.KubernetesInventory == nil {
+			return fmt.Errorf("--inventory-only requires kubernetes_inventory configuration")
+		}
+		stopInventory, err := startKubernetesInventory(ctx, cfg, log)
+		if err != nil {
+			return err
+		}
+		defer stopInventory()
+		<-ctx.Done()
+		return nil
 	}
 	build := version.Get()
 	metricsRuntime, err := agentmetrics.New("probectl-ebpf-agent", build.Version, build.Commit,
@@ -166,8 +182,11 @@ func run() error {
 		"TLS-uprobe attach failures (U-015): an encrypted-traffic visibility gap, never a silent no-op.",
 		func() float64 { return float64(agent.L7AttachFailures()) })
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	stopInventory, err := startKubernetesInventory(ctx, cfg, log)
+	if err != nil {
+		return err
+	}
+	defer stopInventory()
 
 	// OPS-001: serve liveness/readiness probes for the DaemonSet when
 	// configured. Runs alongside the agent; a probe failure surfaces a stuck
@@ -192,6 +211,51 @@ func run() error {
 		}
 	}
 	return runErr
+}
+
+func startKubernetesInventory(ctx context.Context, cfg *ebpf.Config, log *slog.Logger) (func(), error) {
+	if cfg.KubernetesInventory == nil {
+		return func() {}, nil
+	}
+	settings := *cfg.KubernetesInventory
+	if settings.APIServer == "" {
+		var err error
+		settings.APIServer, err = ebpf.InClusterAPIServer(os.Getenv)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if settings.TokenFile == "" {
+		settings.TokenFile = ebpf.DefaultServiceAccountTokenFile
+	}
+	if settings.CAFile == "" {
+		settings.CAFile = ebpf.DefaultServiceAccountCAFile
+	}
+	id, err := crypto.EntitySPIFFEIDFromCertFile(settings.EvidenceCertFile)
+	if err != nil || id.TenantID != cfg.TenantID || id.AgentID != cfg.AgentID {
+		return nil, fmt.Errorf("Kubernetes inventory evidence identity must name this tenant and collector")
+	}
+	client, err := agent.DialEntityEvidence(settings.EvidenceGRPCAddr, settings.EvidenceCertFile, settings.EvidenceKeyFile,
+		settings.EvidenceCAFile, settings.EvidenceServerName)
+	if err != nil {
+		return nil, err
+	}
+	collector, err := ebpf.NewKubernetesInventoryCollector(settings, client.SubmitKubernetesInventory, log)
+	if err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		collector.Run(ctx)
+	}()
+	return func() {
+		cancel()
+		<-done
+		_ = client.Close()
+	}, nil
 }
 
 func runHealthcheck(args []string) error {

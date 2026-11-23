@@ -93,6 +93,8 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/entities/{id}", s.handleGetEntity, ai.PermEntitiesRead},
 		{http.MethodPost, "/v1/entity-contexts", s.handleCreateEntityContext, permAgentWrite},
 		{http.MethodGet, "/v1/entity-contexts", s.handleListEntityContexts, ai.PermEntitiesRead},
+		{http.MethodPost, kubernetesSourcePath, s.handleCreateKubernetesInventorySource, permAgentWrite},
+		{http.MethodDelete, kubernetesSourceIDPath, s.handleRevokeKubernetesInventorySource, permAgentWrite},
 		{http.MethodPost, "/v1/nms-imports/sources", s.handleConfigureNMSImportSource, permNMSImportWrite},
 		{http.MethodPost, "/v1/nms-imports/sources/{instance}/disable", s.handleDisableNMSImportSource, permNMSImportWrite},
 		{http.MethodPost, "/v1/nms-imports/live-plans", s.handleStartNMSImportLivePlan, permNMSImportWrite},

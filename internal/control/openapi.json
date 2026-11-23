@@ -8110,6 +8110,47 @@
         }
       }
     },
+    "/v1/entity-contexts/{context_id}/kubernetes-inventory-sources": {
+      "post": {
+        "operationId": "createKubernetesInventorySource",
+        "summary": "Assign one Kubernetes cluster namespace to a registered collector",
+        "description": "A current user with agent.write assigns an owned collector already bound to this routing context. The tenant comes from authentication. The server creates an immutable source ID for the configured cluster and namespace. The assignment and audit event commit together.",
+        "tags": ["entities"],
+        "x-required-permission": "agent.write",
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KubernetesInventorySourceInput"}}}},
+        "responses": {
+          "201": {"description": "Immutable source assigned.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KubernetesInventorySource"}}}},
+          "400": {"description": "Invalid collector, cluster or namespace input."},
+          "403": {"description": "Current user, tenant, agent.write permission or contextual policy denied."},
+          "404": {"description": "Current routing context or collector assignment is unavailable."},
+          "409": {"description": "This cluster namespace already has an active inventory source in the selected context."}
+        }
+      }
+    },
+    "/v1/entity-contexts/{context_id}/kubernetes-inventory-sources/{id}": {
+      "delete": {
+        "operationId": "revokeKubernetesInventorySource",
+        "summary": "Revoke a Kubernetes inventory source assignment",
+        "description": "Closes the selected tenant-owned source epoch and clears its staged uploads. A repeated revoke preserves its original close time. A later assignment receives a new source ID. The revocation and audit event commit together.",
+        "tags": ["entities"],
+        "x-required-permission": "agent.write",
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "context_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {"description": "Source assignment closed.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KubernetesInventorySource"}}}},
+          "400": {"description": "Invalid source or routing context ID."},
+          "403": {"description": "Current user, tenant, agent.write permission or contextual policy denied."},
+          "404": {"description": "The source does not exist in this tenant and context."}
+        }
+      }
+    },
     "/v1/entity-contexts/{context_id}/bgp-routing-bindings": {
       "get": {
         "operationId": "getBGPRoutingBindings",
@@ -11320,7 +11361,7 @@
         "tags": [
           "topology"
         ],
-        "description": "The caller's tenant's dependency graph (agents, hops, hosts, services, prefixes, ASes, devices) in a layout-agnostic node/edge shape, live or AS IT WAS at ?at= (the versioned-graph contract). An explicit context_id adds a bounded CURRENT canonical entity projection beside stable graph IDs; a historical graph remains historical while that annotation is labelled with its current lookup time. Conflicts stay explicit and a graph beyond 640 distinct address nodes marks projection truncation. The projection also requires entities.read and every returned source-plane read permission. Includes the per-plane coverage block (path/flow/routing/device edge counts + honesty notes). topology_running=false distinguishes an unwired store.",
+        "description": "Returns the tenant's live or historical dependency graph. An explicit context_id adds a current canonical entity projection beside stable graph IDs. The canonical lookup time and truncation remain explicit. Use include_kubernetes with a routing context to include authorized Kubernetes objects and separately labelled owner or backend relationships. With an explicit at, each Kubernetes object and relationship has evidence covering that instant. On the live graph each Kubernetes object carries the time of its source's last completed observation. Ownership and membership edges represent inventory evidence. The per-plane coverage block describes the observed traffic and infrastructure graph. topology_running=false distinguishes an unwired store.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -11341,6 +11382,13 @@
             "required": false,
             "description": "Explicit operator-owned routing context UUID for current canonical annotations; omitted returns the raw topology only.",
             "schema": {"type": "string", "format": "uuid"}
+          },
+          {
+            "name": "include_kubernetes",
+            "in": "query",
+            "required": false,
+            "description": "Include verified Kubernetes objects and topology links. Requires context_id and current context and collector read authority.",
+            "schema": {"type": "boolean", "default": false}
           }
         ],
         "responses": {
@@ -11377,6 +11425,16 @@
                           },
                           "canonical_status": {
                             "type": "string", "enum": ["resolved", "conflict", "unresolved"]
+                          },
+                          "kubernetes": {
+                            "type": "object",
+                            "required": ["cluster_id", "namespace", "uid", "observed_at"],
+                            "properties": {
+                              "cluster_id": {"type": "string", "format": "uuid"},
+                              "namespace": {"type": "string"},
+                              "uid": {"type": "string"},
+                              "observed_at": {"type": "string", "format": "date-time"}
+                            }
                           }
                         }
                       }
@@ -11397,6 +11455,11 @@
                           },
                           "label": {
                             "type": "string"
+                          },
+                          "observed_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "Original inventory witness time for a Kubernetes ownership or backend edge."
                           }
                         }
                       }
@@ -33094,6 +33157,33 @@
           "next_cursor": {"type": "string", "format": "uuid"}
         }
       },
+      "KubernetesInventorySourceInput": {
+        "type": "object",
+        "required": ["cluster_id", "namespace", "agent_id"],
+        "properties": {
+          "cluster_id": {"type": "string", "format": "uuid"},
+          "namespace": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"},
+          "agent_id": {"type": "string", "format": "uuid"},
+          "flow_clock_error_ms": {
+            "type": "integer", "format": "int64", "minimum": 0, "maximum": 9223372036853,
+            "description": "Verified maximum absolute clock difference over the observation period between this inventory collector and the authorized flow exporters in this routing context, in milliseconds. Omit when unknown."
+          }
+        }
+      },
+      "KubernetesInventorySource": {
+        "type": "object",
+        "required": ["id", "context_id", "cluster_id", "namespace", "agent_id", "assigned_at"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "context_id": {"type": "string", "format": "uuid"},
+          "cluster_id": {"type": "string", "format": "uuid"},
+          "namespace": {"type": "string"},
+          "agent_id": {"type": "string", "format": "uuid"},
+          "flow_clock_error_ms": {"type": "integer", "format": "int64", "minimum": 0, "maximum": 9223372036853},
+          "assigned_at": {"type": "string", "format": "date-time"},
+          "closed_at": {"type": "string", "format": "date-time"}
+        }
+      },
       "EntityContext": {
         "type": "object",
         "required": ["tenant_id", "context_id", "site_id", "vrf_id", "site_label", "vrf_label"],
@@ -37475,7 +37565,7 @@
       },
       "FlowQueryField": {
         "type": "object",
-        "description": "Native fields plus tenant-defined tag.<key>, tag.device.<key>, tag.agent.<key>, tag.in_interface.<key>, tag.out_interface.<key>, tag.src_prefix.<key> and tag.dst_prefix.<key> text fields when the authenticated caller has tags.read. Qualified fields use the exporter's owned device anchor, registered collecting agent, current attested interface index or closest explicit canonical prefix in the owned routing context. They additionally require metrics.read (device/interface), agent.read (agent) or entities.read (prefix). Equal closest prefix networks are ambiguous and return an empty value, without ancestor fallback. Source and destination prefix fields are independent. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client. Fourteen src_bgp_* and dst_bgp_* fields expose immutable ingestion-time routing captures: provenance, prefix, complete AS paths, next-hop AS, origin AS, first-transit AS and RPKI. RPKI uses independently captured complete validator evidence and its original generation clock; ambiguous origins or conflicting path verdicts remain unknown, and later validator exports never refill historical captures. They require current entities.read and events.read globally and for every canonical context. Missing routing evidence retains traffic as unavailable/unknown; it never queries a newer RIB to refill an original receipt. Eight src_service*, dst_service* text dimensions expose server-derived published-range service, region, provider and known/ambiguous/unknown status captured at ingestion. Original traffic is counted once; unresolved labels and older unclassified inputs remain unknown. Regions absent from the publisher remain empty. New flows use current local source validity independently of asynchronous ASN cache warming. Retained classifications are historical facts; a later catalogue never reclassifies them.",
+        "description": "Native fields plus tenant-defined tag.<key>, tag.device.<key>, tag.agent.<key>, tag.in_interface.<key>, tag.out_interface.<key>, tag.src_prefix.<key> and tag.dst_prefix.<key> text fields when the authenticated caller has tags.read. Qualified fields use the exporter's owned device anchor, registered collecting agent, current attested interface index or closest explicit canonical prefix in the owned routing context. They additionally require metrics.read (device/interface), agent.read (agent) or entities.read (prefix). Equal closest prefix networks are ambiguous and return an empty value, without ancestor fallback. Source and destination prefix fields are independent. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client. Fourteen src_bgp_* and dst_bgp_* fields expose immutable ingestion-time routing captures: provenance, prefix, complete AS paths, next-hop AS, origin AS, first-transit AS and RPKI. RPKI uses independently captured complete validator evidence and its original generation clock; ambiguous origins or conflicting path verdicts remain unknown, and later validator exports never refill historical captures. They require current entities.read and events.read globally and for every canonical context. Missing routing evidence retains traffic as unavailable/unknown; it never queries a newer RIB to refill an original receipt. Eight src_service*, dst_service* text dimensions expose server-derived published-range service, region, provider and known/ambiguous/unknown status captured at ingestion. Original traffic is counted once; unresolved labels and older unclassified inputs remain unknown. Regions absent from the publisher remain empty. New flows use current local source validity independently of asynchronous ASN cache warming. Retained classifications are historical facts; a later catalogue never reclassifies them. Sixteen src_k8s_* and dst_k8s_* text dimensions expose cluster, namespace, Pod and UID, workload and UID, and Service and UID for complete raw flow intervals. They require current entities.read and flow.read for each contributing source. Missing clock or ownership evidence leaves the field blank. Negative predicates preserve this uncertainty unless the predicate explicitly tests for a blank value.",
         "properties": {
           "name": {
             "type": "string"

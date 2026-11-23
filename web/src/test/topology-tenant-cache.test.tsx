@@ -7,7 +7,7 @@
 import type { PropsWithChildren } from 'react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, renderHook, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { test, expect, vi } from 'vitest'
 import { AuthContext, type AuthContextValue } from '../auth/AuthProvider'
 import { useTopology } from '../api/topology'
@@ -86,7 +86,26 @@ test('a live tenant switch drops the previous topology routing context before an
       return jsonResponse({ items: [], scope: { tenant_id: tenants[selected] } })
     }
     if (pathOf(input) === '/v1/topology') {
-      return jsonResponse({ topology_running: true, nodes: [], edges: [] })
+      const include = new URL(path, 'https://probectl.test').searchParams.get('include_kubernetes')
+      return jsonResponse({
+        topology_running: true,
+        nodes: include
+          ? [
+              {
+                id: 'kubernetes:cluster/blue/pod-uid',
+                kind: 'kubernetes_pod',
+                label: 'owned-blue-pod',
+                kubernetes: {
+                  cluster_id: contextID,
+                  namespace: 'only-blue-namespace',
+                  uid: 'pod-uid',
+                  observed_at: '2026-11-23T15:14:00Z',
+                },
+              },
+            ]
+          : [],
+        edges: [],
+      })
     }
     return fallback(input, init)
   })
@@ -106,7 +125,9 @@ test('a live tenant switch drops the previous topology routing context before an
     }
     return (
       <Providers>
-        <MemoryRouter initialEntries={[`/topology?entity_context=${contextID}`]}>
+        <MemoryRouter
+          initialEntries={[`/topology?entity_context=${contextID}&include_kubernetes=true`]}
+        >
           <AuthContext.Provider value={auth}>
             <TimeProvider>
               <TopologyPage />
@@ -121,15 +142,22 @@ test('a live tenant switch drops the previous topology routing context before an
   await waitFor(() =>
     expect(
       requests.some(
-        (item) => item.tenant === tenants[0] && item.path.includes(`context_id=${contextID}`),
+        (item) =>
+          item.tenant === tenants[0] &&
+          item.path.includes(`context_id=${contextID}`) &&
+          item.path.includes('include_kubernetes=true'),
       ),
     ).toBe(true),
   )
+  fireEvent.click(await screen.findByRole('button', { name: 'kubernetes pod owned-blue-pod' }))
+  expect(await screen.findByText('only-blue-namespace')).toBeInTheDocument()
   selected = 1
   rerender(view())
   await waitFor(() =>
     expect(screen.getByTestId('location')).not.toHaveTextContent('entity_context'),
   )
+  expect(screen.getByTestId('location')).not.toHaveTextContent('include_kubernetes')
+  expect(screen.queryByText('only-blue-namespace')).not.toBeInTheDocument()
   await waitFor(() =>
     expect(
       requests.some((item) => item.tenant === tenants[1] && pathOf(item.path) === '/v1/topology'),
@@ -138,7 +166,9 @@ test('a live tenant switch drops the previous topology routing context before an
   expect(
     requests
       .filter((item) => item.tenant === tenants[1] && pathOf(item.path) === '/v1/topology')
-      .every((item) => !item.path.includes('context_id=')),
+      .every(
+        (item) => !item.path.includes('context_id=') && !item.path.includes('include_kubernetes='),
+      ),
   ).toBe(true)
   expect(
     requests.some(

@@ -675,6 +675,21 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: TOPOLOGY_LIVE_RECEIPT,
   },
   {
+    capability: 'Historical Kubernetes workload, Pod, and Service inventory',
+    featureIds: ['F40'],
+    sprint: 'FX-44',
+    kind: 'native',
+    route: '/topology',
+    offNav: true,
+    evidence: [
+      'file:web/src/routes/TopologyPage.tsx',
+      'file:web/src/test/topology-tenant-cache.test.tsx',
+      'openapi:/v1/topology',
+      'cli:probectl topology show',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
     capability: 'Current tenant and routing-context entity identity with cited source evidence',
     featureIds: ['F3', 'F6', 'F9', 'F17', 'F18', 'F40'],
     sprint: 'FX-2',

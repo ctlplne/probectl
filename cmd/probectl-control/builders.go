@@ -1359,6 +1359,7 @@ func startHAAndTenantLifecycle(
 		lifeEngine.WithTopology(td)
 	}
 	lifeEngine.WithDerivedIdentityRetentionDays(cfg.DerivedIdentityRetentionDays)
+	lifeEngine.WithKubernetesInventoryRetention(store.NewKubernetesInventoryPruner(db.Pool()))
 	if history, ok := flowstore.CounterHistoryOf(flowStore); ok {
 		lifeEngine.WithCounterHistory(history, cfg.FlowRetentionDays)
 	}

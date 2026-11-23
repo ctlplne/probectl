@@ -92,6 +92,7 @@ type flowSnapshotValidity struct {
 	TagAuthorization string                         `json:"tag_authorization,omitempty"`
 	RoleDigest       string                         `json:"role_digest,omitempty"`
 	Routing          []*flowRoutingSnapshotValidity `json:"routing,omitempty"`
+	Kubernetes       []json.RawMessage              `json:"kubernetes,omitempty"`
 }
 
 func (source *flowSnapshotSource) receipt(ctx context.Context, scope flowsnapshot.Scope, results ...flowstore.PlanResult) (json.RawMessage, time.Time, error) {
@@ -142,6 +143,17 @@ func (source *flowSnapshotSource) receipt(ctx context.Context, scope flowsnapsho
 		} else if proof.Routing != nil {
 			proof.Routing = append(proof.Routing, nil)
 		}
+		if flowSnapshotInputUsesKubernetes(clock) {
+			if len(result.KubernetesProof) == 0 || !canonicalFlowRoutingDigest(result.KubernetesDigest) {
+				return nil, time.Time{}, flowExplorerStoreError(flowstore.ErrSnapshotInputs)
+			}
+			if proof.Kubernetes == nil {
+				proof.Kubernetes = make([]json.RawMessage, len(proof.Inputs))
+			}
+			proof.Kubernetes = append(proof.Kubernetes, result.KubernetesProof)
+		} else if proof.Kubernetes != nil {
+			proof.Kubernetes = append(proof.Kubernetes, nil)
+		}
 		expiry, err := source.expiry(ctx, scope, clock)
 		if err != nil {
 			return nil, time.Time{}, err
@@ -189,6 +201,9 @@ func (source *flowSnapshotSource) validate(ctx context.Context, scope flowsnapsh
 		return err
 	}
 	if err := source.validateRoutingAuthorization(ctx, scope, receipt); err != nil {
+		return err
+	}
+	if err := source.validateKubernetesAuthorization(ctx, scope, receipt); err != nil {
 		return err
 	}
 	verifier, ok := flowstore.SnapshotInputVerifierOf(source.server.flowStore)

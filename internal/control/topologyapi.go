@@ -88,7 +88,15 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) error {
 	}
 	viz := topology.ToViz(snap)
 	projection := map[string]any{}
-	if contextID := r.URL.Query().Get("context_id"); contextID != "" {
+	contextID := r.URL.Query().Get("context_id")
+	kubernetes := r.URL.Query().Get("include_kubernetes")
+	if kubernetes != "" && kubernetes != "false" && kubernetes != "true" {
+		return apierror.BadRequest("include_kubernetes must be true or false")
+	}
+	if kubernetes == "true" && contextID == "" {
+		return apierror.BadRequest("Kubernetes topology requires context_id")
+	}
+	if contextID != "" {
 		if s.pool == nil {
 			return apierror.Unavailable("entity registry is not configured")
 		}
@@ -103,6 +111,11 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) error {
 		projection["canonical_context_id"] = contextID
 		projection["canonical_projection_current_at"] = checkedAt
 		projection["canonical_projection_truncated"] = truncated
+	}
+	if kubernetes == "true" {
+		if err := s.projectKubernetesTopology(r.Context(), entity.Scope{TenantID: tid, ContextID: contextID}, at, &viz, false); err != nil {
+			return err
+		}
 	}
 	response := map[string]any{
 		"topology_running": true,

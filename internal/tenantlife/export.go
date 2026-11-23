@@ -127,6 +127,7 @@ func (e *Engine) exportBundle(ctx context.Context, tenantID string, w io.Writer,
 			"Immutable audit rows keep their tenant, sequence, timestamp, and chain fields; erased identities are emitted only through the canonical audit privacy projection.",
 			ordinaryPortabilityIRPolicyNote,
 			ordinaryPortabilityFlowCacheNote,
+			"Kubernetes inventory exports contain committed observations. Unpublished upload staging expires independently.",
 		},
 		Redacted: redact,
 	}
@@ -382,6 +383,9 @@ func ordinaryPortabilityExportTables(tables []string) []string {
 	exportable := make([]string, 0, len(tables))
 	for _, table := range tables {
 		if retainedCryptoShreddedEvidenceTables[table] || ephemeralFlowSnapshotTable(table) || strings.HasPrefix(table, "flow_conversation_") {
+			continue
+		}
+		if table == "kubernetes_inventory_staging" || table == "kubernetes_inventory_stage_parts" {
 			continue
 		}
 		exportable = append(exportable, table)

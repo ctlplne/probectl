@@ -65,7 +65,7 @@ export function TopologyPage() {
   const contextFromPreviousTenant = contextTenant.current !== tenant.id
   useEffect(() => {
     if (!contextFromPreviousTenant) return
-    if (!params.has('entity_context')) {
+    if (!params.has('entity_context') && !params.has('include_kubernetes')) {
       // Keep the guard active until the router has committed the clean URL.
       contextTenant.current = tenant.id
       return
@@ -74,6 +74,7 @@ export function TopologyPage() {
       (previous) => {
         const next = new URLSearchParams(previous)
         next.delete('entity_context')
+        next.delete('include_kubernetes')
         return next
       },
       { replace: true },
@@ -88,6 +89,7 @@ export function TopologyPage() {
     !contextFromPreviousTenant && permissions.includes('entities.read')
       ? (params.get('entity_context') ?? '')
       : ''
+  const includeKubernetes = Boolean(contextID) && params.get('include_kubernetes') === 'true'
   const contexts = useEntityContexts(tenant.id, permissions.includes('entities.read'))
   const contextOptions = useMemo(() => {
     const known = (contexts.data?.pages ?? []).flatMap((page) =>
@@ -104,10 +106,20 @@ export function TopologyPage() {
     }
     return known
   }, [contexts.data, contextID, t])
-  const { data, isPending, isError } = useTopology(at || undefined, true, contextID)
+  const { data, isPending, isError } = useTopology(
+    at || undefined,
+    true,
+    contextID,
+    includeKubernetes,
+  )
   const comparisonAt =
     at && pivotContext.from && pivotContext.from !== at ? pivotContext.from : undefined
-  const comparison = useTopology(comparisonAt, Boolean(at))
+  const comparison = useTopology(
+    comparisonAt,
+    Boolean(at),
+    includeKubernetes ? contextID : '',
+    includeKubernetes,
+  )
   const linkedIncident = useIncident(pivotContext.incidentId)
   const whatIf = useWhatIf()
   const autoPreviewed = useRef('')
@@ -219,14 +231,23 @@ export function TopologyPage() {
   }
 
   useEffect(() => {
-    const target = params.get('preview') === 'blast' ? selected?.id : undefined
+    const target =
+      params.get('preview') === 'blast' && !selected?.kubernetes ? selected?.id : undefined
     const incidentReady = !pivotContext.incidentId || linkedIncident.data?.id
     if (!target || !incidentReady) return
     const key = `${target}|${at || 'live'}|${linkedIncident.data?.id ?? ''}`
     if (autoPreviewed.current === key) return
     autoPreviewed.current = key
     whatIf.mutate({ target, at: at || undefined })
-  }, [at, linkedIncident.data?.id, params, pivotContext.incidentId, selected?.id, whatIf])
+  }, [
+    at,
+    linkedIncident.data?.id,
+    params,
+    pivotContext.incidentId,
+    selected?.id,
+    selected?.kubernetes,
+    whatIf,
+  ])
 
   const updateTime = (value: string) => {
     setTimeInput(value)
@@ -280,11 +301,29 @@ export function TopologyPage() {
                 onChange={(event) => {
                   const next = new URLSearchParams(params)
                   if (event.target.value) next.set('entity_context', event.target.value)
-                  else next.delete('entity_context')
+                  else {
+                    next.delete('entity_context')
+                    next.delete('include_kubernetes')
+                  }
                   setParams(next, { replace: true })
                 }}
                 options={[{ value: '', label: t('entity.topology.rawOnly') }, ...contextOptions]}
               />
+              {contextID ? (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={includeKubernetes}
+                    onChange={(event) => {
+                      const next = new URLSearchParams(params)
+                      if (event.target.checked) next.set('include_kubernetes', 'true')
+                      else next.delete('include_kubernetes')
+                      setParams(next, { replace: true })
+                    }}
+                  />{' '}
+                  {t('entity.topology.kubernetes')}
+                </label>
+              ) : null}
               {contexts.hasNextPage ? (
                 <Button
                   onClick={() => void contexts.fetchNextPage()}
@@ -672,7 +711,14 @@ function nodeMatches(
   if (filters.tag !== 'all' && !tags.includes(filters.tag)) return false
   const q = filters.query.trim().toLowerCase()
   if (!q) return true
-  return [node.id, node.kind, node.label, node.site ?? '', ...tags]
+  return [
+    node.id,
+    node.kind,
+    node.label,
+    node.site ?? '',
+    node.kubernetes?.namespace ?? '',
+    ...tags,
+  ]
     .join(' ')
     .toLowerCase()
     .includes(q)
@@ -882,7 +928,7 @@ function TopologyGraphCard({
                         rx={10}
                       />
                       <text className={styles.colHeader} x={column.x} y={T_HEADER - 12}>
-                        {column.kind}
+                        {topologyKindLabel(column.kind)}
                       </text>
                     </g>
                   ))}
@@ -894,7 +940,7 @@ function TopologyGraphCard({
                       styles.edge,
                       e.kind === 'flow' ? styles.edgeFlow : '',
                       e.kind === 'routing' ? styles.edgeRouting : '',
-                      e.kind === 'device' ? styles.edgeDevice : '',
+                      e.kind === 'device' || e.observed_at ? styles.edgeDevice : '',
                       impacted.edges.has(e.id) ? styles.edgeImpacted : '',
                     ]
                       .filter(Boolean)
@@ -1039,10 +1085,18 @@ const KIND_CLASS: Record<string, string | undefined> = {
   host: styles.kindHost,
   hop: styles.kindHop,
   agent: styles.kindAgent,
+  kubernetes_pod: styles.kindHost,
+  kubernetes_service: styles.kindService,
+  kubernetes_workload: styles.kindDevice,
 }
 
 function kindClass(kind: string): string {
+  if (kind.startsWith('kubernetes_')) return KIND_CLASS[kind] ?? styles.kindDevice
   return KIND_CLASS[kind] ?? styles.kindOther
+}
+
+function topologyKindLabel(kind: string): string {
+  return kind.startsWith('kubernetes_') ? kind.replaceAll('_', ' ') : kind
 }
 
 const T_BAND_PAD = 14
@@ -1066,7 +1120,7 @@ function TopologyLegend({ layout }: { layout: TopoLayout }) {
       {layout.columns.map((column) => (
         <span key={column.kind} className={`${styles.legendItem} ${kindClass(column.kind)}`}>
           <span className={styles.legendNodeSwatch} aria-hidden="true" />
-          {column.kind}
+          {topologyKindLabel(column.kind)}
         </span>
       ))}
       {edgeKinds.map((kind) => (
@@ -1077,7 +1131,7 @@ function TopologyLegend({ layout }: { layout: TopoLayout }) {
                 styles.edge,
                 kind === 'flow' ? styles.edgeFlow : '',
                 kind === 'routing' ? styles.edgeRouting : '',
-                kind === 'device' ? styles.edgeDevice : '',
+                kind === 'device' || kind.startsWith('kubernetes_') ? styles.edgeDevice : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -1087,7 +1141,7 @@ function TopologyLegend({ layout }: { layout: TopoLayout }) {
               y2="4"
             />
           </svg>
-          {kind}
+          {topologyKindLabel(kind)}
         </span>
       ))}
     </div>
@@ -1112,7 +1166,7 @@ function TopologyNode({
     <g
       role="button"
       tabIndex={0}
-      aria-label={`${node.kind} ${node.label}`}
+      aria-label={`${topologyKindLabel(node.kind)} ${node.label}`}
       className={[
         styles.node,
         kindClass(node.kind),
@@ -1134,7 +1188,7 @@ function TopologyNode({
       <rect className={styles.nodeBox} width={T_NODE_W} height={T_NODE_H} rx={8} />
       <rect className={styles.nodeAccent} width={4} height={T_NODE_H} rx={2} />
       <text className={styles.nodeKind} x={10} y={15}>
-        {node.kind}
+        {topologyKindLabel(node.kind)}
       </text>
       <text className={styles.nodeLabel} x={10} y={30}>
         {node.label.length > 20 ? `${node.label.slice(0, 19)}…` : node.label}
@@ -1181,7 +1235,7 @@ function TopologySidePanel({
                 </dd>
                 <dt>Kind</dt>
                 <dd>
-                  <Badge tone="info">{selected.kind}</Badge>
+                  <Badge tone="info">{topologyKindLabel(selected.kind)}</Badge>
                 </dd>
                 <dt>Label</dt>
                 <dd>{selected.label}</dd>
@@ -1199,19 +1253,42 @@ function TopologySidePanel({
                     </dd>
                   </>
                 ) : null}
-                <dt>Site</dt>
-                <dd>{selected.site || 'none'}</dd>
-                <dt>Tags</dt>
-                <dd>{selected.tags?.join(', ') || 'none'}</dd>
+                {selected.kubernetes ? (
+                  <>
+                    <dt>{t('entity.topology.kubernetesNamespace')}</dt>
+                    <dd>{selected.kubernetes.namespace}</dd>
+                    <dt>{t('entity.topology.kubernetesCluster')}</dt>
+                    <dd>
+                      <code>{selected.kubernetes.cluster_id}</code>
+                    </dd>
+                    <dt>{t('entity.topology.kubernetesObservedAt')}</dt>
+                    <dd>
+                      <time dateTime={selected.kubernetes.observed_at}>
+                        {new Date(selected.kubernetes.observed_at).toLocaleString()}
+                      </time>
+                    </dd>
+                  </>
+                ) : (
+                  <>
+                    <dt>Site</dt>
+                    <dd>{selected.site || 'none'}</dd>
+                    <dt>Tags</dt>
+                    <dd>{selected.tags?.join(', ') || 'none'}</dd>
+                  </>
+                )}
               </dl>
-              <p className={styles.simulationAction}>
-                <Button onClick={() => onSimulate(selected.id)} disabled={isSimulating}>
-                  {isSimulating ? 'Simulating…' : 'Simulate failure (dry-run)'}
-                </Button>
-              </p>
-              <p className={styles.safetyCopy}>
-                Observe only. This tenant/RBAC-scoped preview executes and prevents nothing.
-              </p>
+              {!selected.kubernetes ? (
+                <>
+                  <p className={styles.simulationAction}>
+                    <Button onClick={() => onSimulate(selected.id)} disabled={isSimulating}>
+                      {isSimulating ? 'Simulating…' : 'Simulate failure (dry-run)'}
+                    </Button>
+                  </p>
+                  <p className={styles.safetyCopy}>
+                    Observe only. This tenant/RBAC-scoped preview executes and prevents nothing.
+                  </p>
+                </>
+              ) : null}
             </>
           )}
         </CardBody>

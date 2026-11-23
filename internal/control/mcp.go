@@ -194,6 +194,7 @@ func newMCPServer(
 				options = append(options, option)
 			}
 			options = append(options, mcp.WithPathHistoryBackend(src.NativeFlow.nativePathHistory))
+			options = append(options, mcp.WithKubernetesTopologyBackend(src.NativeFlow.nativeKubernetesTopology))
 			if option, err := incidentCarrierToolOption(src.NativeFlow); err != nil {
 				log.Error("MCP carrier schema is unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

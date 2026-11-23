@@ -180,6 +180,13 @@ func explorerFieldExprWithParams(field flow.QueryField, params chParams) string 
 	switch field.Derived {
 	case "flow_routing":
 		return routingQueryFieldSQL(field, params)
+	case "flow_kubernetes":
+		if _, _, ok := flow.KubernetesQueryField(field.Name); ok && params != nil {
+			parameter := "kube_field_" + field.Name
+			params[parameter] = field.Name
+			return "nullIf(kube.kube_values[{" + parameter + ":String}],'')"
+		}
+		return "CAST(NULL,'Nullable(String)')"
 	case "in_if_role":
 		return "ifNull(nullIf(in_roles.role_value,''),'other')"
 	case "out_if_role":
@@ -230,6 +237,9 @@ func explorerPredicateSQLWithVocabulary(predicate flow.QueryPredicate, index int
 
 func explorerPredicateExpressionSQL(predicate flow.QueryPredicate, index int, params chParams, field flow.QueryField, expression string) (string, error) {
 	typ := "String"
+	if field.Derived == "flow_kubernetes" && flow.KubernetesMatchesUnknown(predicate) {
+		expression = "ifNull(" + expression + ",'')"
+	}
 	if field.Type == flow.QueryUnsigned {
 		typ = "UInt64"
 		if field.Derived == "flow_routing" && (predicate.Op == flow.QueryEqual || predicate.Op == flow.QueryNotEqual || predicate.Op == flow.QueryIn || predicate.Op == flow.QueryNotIn) {

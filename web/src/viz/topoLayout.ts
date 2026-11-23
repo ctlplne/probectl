@@ -29,7 +29,18 @@ export const T_HEADER = 30
 /** Render cap for dense graphs, aligned with the path graph's interactive-node bound. */
 export const MAX_NODES = 120
 
-const KIND_ORDER = ['agent', 'hop', 'device', 'host', 'service', 'as', 'prefix']
+const KIND_ORDER = [
+  'agent',
+  'hop',
+  'device',
+  'host',
+  'service',
+  'kubernetes_service',
+  'kubernetes_pod',
+  'kubernetes_workload',
+  'as',
+  'prefix',
+]
 
 export interface PlacedNode extends TopoNode {
   x: number
@@ -77,28 +88,32 @@ export function layoutTopology(nodes: TopoNode[], edges: TopoEdge[]): TopoLayout
   }
   const keep = new Set(capped.map((n) => n.id))
 
-  const columns: PlacedNode[][] = KIND_ORDER.map(() => [])
+  const columns = KIND_ORDER.map((kind) => ({ kind, nodes: [] as PlacedNode[] }))
   const overflow: PlacedNode[] = []
   for (const n of capped) {
-    const col = KIND_ORDER.indexOf(n.kind)
+    const kind =
+      n.kubernetes && n.kind !== 'kubernetes_pod' && n.kind !== 'kubernetes_service'
+        ? 'kubernetes_workload'
+        : n.kind
+    const col = KIND_ORDER.indexOf(kind)
     const placed: PlacedNode = { ...n, x: 0, y: 0 }
-    if (col >= 0) columns[col].push(placed)
+    if (col >= 0) columns[col].nodes.push(placed)
     else overflow.push(placed)
   }
-  if (overflow.length) columns.push(overflow)
+  if (overflow.length) columns.push({ kind: 'other', nodes: overflow })
 
-  const populated = columns.filter((c) => c.length > 0)
-  const maxRows = Math.max(1, ...populated.map((c) => c.length))
+  const populated = columns.filter((c) => c.nodes.length > 0)
+  const maxRows = Math.max(1, ...populated.map((c) => c.nodes.length))
   const height = T_HEADER + T_MARGIN * 2 + maxRows * T_NODE_H + (maxRows - 1) * T_ROW_GAP
   const width = T_MARGIN * 2 + populated.length * T_NODE_W + (populated.length - 1) * T_COL_GAP
 
   const byID = new Map<string, PlacedNode>()
   const placedColumns: TopoColumn[] = []
-  populated.forEach((col, ci) => {
+  populated.forEach(({ kind, nodes: col }, ci) => {
     const colHeight = col.length * T_NODE_H + (col.length - 1) * T_ROW_GAP
     const top = T_HEADER + (height - T_HEADER - colHeight) / 2
     const x = T_MARGIN + ci * (T_NODE_W + T_COL_GAP)
-    placedColumns.push({ kind: col === overflow ? 'other' : col[0].kind, x })
+    placedColumns.push({ kind, x })
     col.forEach((n, ri) => {
       n.x = x
       n.y = top + ri * (T_NODE_H + T_ROW_GAP)

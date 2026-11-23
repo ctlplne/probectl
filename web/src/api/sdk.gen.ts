@@ -3795,6 +3795,24 @@ export interface KeyRotateRequest {
   mode?: "managed" | "byok"
 }
 
+export interface KubernetesInventorySource {
+  agent_id: string
+  assigned_at: string
+  closed_at?: string
+  cluster_id: string
+  context_id: string
+  flow_clock_error_ms?: number
+  id: string
+  namespace: string
+}
+
+export interface KubernetesInventorySourceInput {
+  agent_id: string
+  cluster_id: string
+  flow_clock_error_ms?: number
+  namespace: string
+}
+
 export interface L7CapturePolicy {
   deployment_profile: string
   effective_floor: "length" | "metadata" | "headers" | "full"
@@ -6030,6 +6048,20 @@ export interface ResetInterfaceRoleOverrideRequest {
 
 export type ResetInterfaceRoleOverrideResponse = void
 
+export interface CreateKubernetesInventorySourceRequest {
+  contextId: string
+  body: KubernetesInventorySourceInput
+}
+
+export type CreateKubernetesInventorySourceResponse = KubernetesInventorySource
+
+export interface RevokeKubernetesInventorySourceRequest {
+  contextId: string
+  id: string
+}
+
+export type RevokeKubernetesInventorySourceResponse = KubernetesInventorySource
+
 export interface ResolveSubjectTagsRequest {
   contextId: string
   targetKind: "device" | "interface" | "prefix" | "agent" | "test" | "exporter"
@@ -7235,6 +7267,7 @@ export type ListTlsPostureResponse = JsonObject
 export interface GetTopologyRequest {
   at?: string
   contextId?: string
+  includeKubernetes?: boolean
 }
 
 export type GetTopologyResponse = JsonObject
@@ -8335,6 +8368,21 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, request.body)
+  }
+
+  async createKubernetesInventorySource(request: CreateKubernetesInventorySourceRequest): Promise<CreateKubernetesInventorySourceResponse> {
+    let path = "/v1/entity-contexts/{context_id}/kubernetes-inventory-sources"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateKubernetesInventorySourceResponse>("POST", path, query, request.body)
+  }
+
+  async revokeKubernetesInventorySource(request: RevokeKubernetesInventorySourceRequest): Promise<RevokeKubernetesInventorySourceResponse> {
+    let path = "/v1/entity-contexts/{context_id}/kubernetes-inventory-sources/{id}"
+    path = path.replace("{context_id}", encodeURIComponent(String(request.contextId)))
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<RevokeKubernetesInventorySourceResponse>("DELETE", path, query, undefined)
   }
 
   async resolveSubjectTags(request: ResolveSubjectTagsRequest): Promise<ResolveSubjectTagsResponse> {
@@ -9643,6 +9691,7 @@ export class ProbectlSDKClient {
     const query = new URLSearchParams()
     if (request.at !== undefined) query.set("at", String(request.at))
     if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.includeKubernetes !== undefined) query.set("include_kubernetes", String(request.includeKubernetes))
     return this.requestJSON<GetTopologyResponse>("GET", path, query, undefined)
   }
 

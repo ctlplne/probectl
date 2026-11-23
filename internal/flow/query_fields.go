@@ -148,6 +148,7 @@ func init() {
 		queryFieldRegistry = append(queryFieldRegistry, field)
 	}
 	registerRoutingQueryFields()
+	registerKubernetesQueryFields()
 }
 
 // QueryFields returns independent metadata copies; a caller cannot mutate the

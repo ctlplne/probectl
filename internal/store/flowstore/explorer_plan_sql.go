@@ -61,12 +61,12 @@ func planSQLWithTags(budget ExplorerBudget, plan flow.QueryPlan, table string,
 func planSQLWithRoleMetadata(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	names map[string]map[uint32]string, tenantID string, tagData *TagQueryData, roleData *InterfaceRoleQueryData,
 	membership ...[][]string) (string, chParams, error) {
-	return planSQLWithRoutingMetadata(budget, plan, table, names, tenantID, tagData, roleData, nil, membership...)
+	return planSQLWithCurrentMetadata(budget, plan, table, names, tenantID, tagData, roleData, nil, nil, membership...)
 }
 
-func planSQLWithRoutingMetadata(budget ExplorerBudget, plan flow.QueryPlan, table string,
+func planSQLWithCurrentMetadata(budget ExplorerBudget, plan flow.QueryPlan, table string,
 	names map[string]map[uint32]string, tenantID string, tagData *TagQueryData, roleData *InterfaceRoleQueryData,
-	routing *routingQueryData, membership ...[][]string) (string, chParams, error) {
+	routing *routingQueryData, kubernetes *KubernetesQueryData, membership ...[][]string) (string, chParams, error) {
 	settings, err := budget.settings()
 	if err != nil {
 		return "", nil, err
@@ -87,6 +87,9 @@ func planSQLWithRoutingMetadata(budget ExplorerBudget, plan flow.QueryPlan, tabl
 	}
 	if planUsesRouting(plan) && (routing == nil || routing.tenant != tenantID) {
 		return "", nil, ErrRoutingQueryScope
+	}
+	if flow.PlanUsesKubernetes(plan) && (kubernetes == nil || kubernetes.tenant != tenantID) {
+		return "", nil, ErrKubernetesQueryScope
 	}
 	if !explorerTablePattern.MatchString(table) {
 		return "", nil, errors.New("invalid flow query table")
@@ -373,6 +376,7 @@ func planFilteredCTE(plan flow.QueryPlan, table string, params chParams, vocabul
 	}
 	from = planInterfaceRoleJoinsSQL(from, plan)
 	from = planRoutingJoinsSQL(from, plan)
+	from = planKubernetesJoinSQL(from, plan)
 	originalEvidence := ""
 	if ddosProjection {
 		originalEvidence = ",start_ts,clock_basis,bytes,packets,sampling"

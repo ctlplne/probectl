@@ -70,14 +70,29 @@ func validatePlanCurrentProjections(ctx context.Context, query PlanQuery, plan f
 	if err := validatePlanInterfaceRoles(ctx, query, plan); err != nil {
 		return err
 	}
-	return validatePlanRouting(ctx, query, plan)
+	if err := validatePlanRouting(ctx, query, plan); err != nil {
+		return err
+	}
+	if flow.PlanUsesKubernetes(plan) {
+		_, err := query.Kubernetes.Digest(ctx, query.TenantID)
+		return err
+	}
+	return nil
 }
 
 func captureResultCurrentProjections(ctx context.Context, result *PlanResult, query PlanQuery) error {
 	if err := captureResultRoleIdentity(ctx, result, query); err != nil {
 		return err
 	}
-	return captureResultRoutingIdentity(ctx, result, query)
+	if err := captureResultRoutingIdentity(ctx, result, query); err != nil {
+		return err
+	}
+	if flow.PlanUsesKubernetes(result.Query) {
+		var err error
+		result.KubernetesDigest, err = query.Kubernetes.Digest(ctx, query.TenantID)
+		return err
+	}
+	return nil
 }
 
 type routingQueryKey struct {

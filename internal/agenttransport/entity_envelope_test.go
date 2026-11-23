@@ -31,6 +31,11 @@ func TestEntityEvidenceEnvelopeKeepsOnePlaneAndRefusesUnknownPublicFields(t *tes
 			r.PublicRoutingPeerTable = &agentv1.PublicRoutingPeerTable{}
 		},
 		func(r *agentv1.SubmitEntityEvidenceRequest) { r.PublicRoutingMessage = &agentv1.PublicRoutingMessage{} },
+		func(r *agentv1.SubmitEntityEvidenceRequest) {
+			r.KubernetesInventory = &agentv1.KubernetesInventoryUpload{
+				Operation: &agentv1.KubernetesInventoryUpload_Publish{Publish: &agentv1.KubernetesInventoryPublish{}},
+			}
+		},
 	}
 	if validEntityEvidenceEnvelope(nil) || validEntityEvidenceEnvelope(&agentv1.SubmitEntityEvidenceRequest{}) {
 		t.Fatal("empty evidence envelope was accepted")

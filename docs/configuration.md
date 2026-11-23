@@ -1900,6 +1900,82 @@ metadata modern kernels embed, which lets one compiled eBPF program adapt itself
 to many kernel versions instead of being rebuilt per machine) and
 `CAP_BPF`/`CAP_PERFMON`; see [`ebpf-agent.md`](ebpf-agent.md).
 
+#### Kubernetes inventory collector
+
+The optional `kubernetes_inventory` YAML block enables one authorized namespace
+per collector. Bind the collector to its routing context, then create the
+cluster and namespace assignment with
+`POST /v1/entity-contexts/{context_id}/kubernetes-inventory-sources`.
+Use the returned source ID as `binding_id`. The evidence certificate must name
+the same `tenant_id` and registered `agent_id` as the eBPF configuration.
+The collector submits stable ownership intervals through the agent evidence
+listener. To revoke the assignment, send
+`DELETE /v1/entity-contexts/{context_id}/kubernetes-inventory-sources/{id}`.
+
+Use one collector process per source binding. Run
+`probectl-ebpf-agent --inventory-only --config /etc/probectl/ebpf-agent.yaml`
+in an unprivileged, single-replica Deployment with the `Recreate` strategy.
+Use a namespace service account and mount the evidence client certificate,
+private key and listener CA from a read-only Secret. The [entity evidence enrollment](entity-registry.md)
+instructions describe issuing the separate `plane=entity` identity.
+
+The same source operations are available as
+`probectl entities kubernetes-source-assign <context-id> --body-file source.json`
+and `probectl entities kubernetes-source-revoke <context-id> <source-id>`.
+Use the same stable `cluster_id` for every source in a cluster. OpenTelemetry
+uses the UID of the `kube-system` namespace for `k8s.cluster.uid`. An operator
+can supply that value while granting collectors access only to their own
+namespaces. [OpenTelemetry Kubernetes attributes](https://opentelemetry.io/docs/specs/semconv/registry/attributes/k8s/)
+
+Grant the Kubernetes service account `list` and `watch` within that namespace
+for Pods, Services, EndpointSlices, Deployments, ReplicaSets, DaemonSets,
+StatefulSets, Jobs, CronJobs and ReplicationControllers.
+
+| YAML key | Default | Description |
+| --- | --- | --- |
+| `namespace` | Required | Kubernetes namespace authorized by the inventory binding. |
+| `binding_id` | Required | ID of the operator's Kubernetes inventory source assignment. |
+| `api_server` | In-cluster API | HTTPS API origin. Uses `KUBERNETES_SERVICE_HOST` and `KUBERNETES_SERVICE_PORT` when empty. |
+| `token_file` | Service-account volume | Path to the projected bearer token, read again for each request. |
+| `ca_file` | Service-account volume | CA bundle for verifying the Kubernetes API. |
+| `interval` | `15s` | Minimum delay between inventory snapshots. Explicit values must be at least `1s`. Kubernetes watch progress can delay publication on quiet resources. |
+| `evidence_grpc_addr` | Required | Address of the control plane's agent evidence listener. |
+| `evidence_cert_file` | Required | Evidence-only client certificate for this collector. |
+| `evidence_key_file` | Required | Private key for that certificate. |
+| `evidence_ca_file` | Required | CA bundle for verifying the evidence listener. |
+| `evidence_server_name` | Host in `evidence_grpc_addr` | TLS hostname override when needed. |
+
+An incomplete watch or a disputed Pod address leaves a coverage gap. Ordinary
+flow collection continues independently of the inventory capture.
+
+For Flow Explorer, set `flow_clock_error_ms` in the source assignment to
+the measured upper bound on the difference between the flow exporter's event
+clock and the inventory collector's clock. Leave it unset if the bound is
+unknown. Use a new assignment if the bound changes. Explorer uses the
+largest configured bound among the current inventory sources in the routing
+context and requires the exporter to have an authenticated capture for the
+original flow. The entire flow event interval, including clock uncertainty,
+must fit inside a proven ownership interval.
+[Flow exporter capture configuration](flow.md#original-routing-capture-references--implementation-preview)
+
+The `src_k8s_*` and `dst_k8s_*` fields expose cluster, namespace, Pod,
+workload and Service identity in Flow Explorer. They require current
+`entities.read` and `flow.read` access to the contributing sources. A Service
+VIP can identify the Service. A Pod IP can identify the Pod and its proven
+controller chain. Missing original timing, conflicting assignments and
+uncovered intervals produce blank dimensions. Rollups cannot recover these
+raw event-time dimensions.
+Kubernetes evidence ages out with the derived identity retention policy.
+
+In Topology, select the collector's routing context and enable **Show Kubernetes
+inventory**. Nodes carry the observed cluster, namespace and time. Controller
+ownership and Service backend edges describe Kubernetes inventory at that time.
+The CLI accepts the same options with
+`probectl topology show --query context_id=<uuid> --query include_kubernetes=true`.
+Use `--query at=<RFC3339>` for a historical instant. The native MCP
+`topology_kubernetes` tool takes `context_id` and an optional `at` under the
+same current tenant, collector and source authorization.
+
 #### Agent→bus TLS/SASL (eBPF, endpoint, flow, and device agents)
 
 When a telemetry agent publishes straight to Kafka, its broker connection takes

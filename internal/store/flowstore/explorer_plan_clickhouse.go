@@ -74,8 +74,8 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 	if err != nil {
 		return PlanResult{}, err
 	}
-	sql, params, err := planSQLWithRoutingMetadata(budget, plan, source.table, names, query.TenantID,
-		query.Tags, query.Roles, query.Routing, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
+	sql, params, err := planSQLWithCurrentMetadata(budget, plan, source.table, names, query.TenantID,
+		query.Tags, query.Roles, query.Routing, query.Kubernetes, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
 	if err != nil {
 		return PlanResult{}, err
 	}
@@ -97,8 +97,8 @@ func (c *ClickHouse) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResu
 			return PlanResult{}, err
 		}
 		if current.kind != source.kind {
-			sql, params, err := planSQLWithRoutingMetadata(budget, plan, current.table, names, query.TenantID,
-				query.Tags, query.Roles, query.Routing, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
+			sql, params, err := planSQLWithCurrentMetadata(budget, plan, current.table, names, query.TenantID,
+				query.Tags, query.Roles, query.Routing, query.Kubernetes, query.SelectedGroups, query.SelectedColumns, query.SelectedChartGroups, query.SelectedMatrixRows)
 			if err != nil {
 				return PlanResult{}, err
 			}
@@ -237,6 +237,19 @@ func planExternalProjections(ctx context.Context, query PlanQuery, plan flow.Que
 			return nil, err
 		}
 		external = append(external, data...)
+	}
+	if flow.PlanUsesKubernetes(plan) {
+		if _, err := query.Kubernetes.Digest(ctx, query.TenantID); err != nil {
+			return nil, err
+		}
+		remaining := available
+		for _, table := range external {
+			remaining -= int64(len(table.rows))
+		}
+		if int64(len(query.Kubernetes.wire)) > remaining {
+			return nil, ErrExplorerBudget
+		}
+		external = append(external, explorerExternalData{kind: externalKubernetesCaptures, rows: query.Kubernetes.wire})
 	}
 
 	return external, ctx.Err()

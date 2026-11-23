@@ -12,18 +12,27 @@ import "time"
 // (and the UI) render. It is layout-agnostic — node positions are computed
 // client-side from the node/edge set.
 type VizNode struct {
-	ID                string `json:"id"`
-	Kind              string `json:"kind"`
-	Label             string `json:"label"`
-	CanonicalEntityID string `json:"canonical_entity_id,omitempty"`
-	CanonicalStatus   string `json:"canonical_status,omitempty"`
+	ID                string               `json:"id"`
+	Kind              string               `json:"kind"`
+	Label             string               `json:"label"`
+	CanonicalEntityID string               `json:"canonical_entity_id,omitempty"`
+	CanonicalStatus   string               `json:"canonical_status,omitempty"`
+	Kubernetes        *VizKubernetesObject `json:"kubernetes,omitempty"`
+}
+
+type VizKubernetesObject struct {
+	ClusterID  string    `json:"cluster_id"`
+	Namespace  string    `json:"namespace"`
+	UID        string    `json:"uid"`
+	ObservedAt time.Time `json:"observed_at"`
 }
 
 type VizEdge struct {
-	From  string `json:"from"`
-	To    string `json:"to"`
-	Kind  string `json:"kind"`
-	Label string `json:"label,omitempty"`
+	From       string    `json:"from"`
+	To         string    `json:"to"`
+	Kind       string    `json:"kind"`
+	Label      string    `json:"label,omitempty"`
+	ObservedAt time.Time `json:"observed_at,omitzero"`
 }
 
 type Viz struct {

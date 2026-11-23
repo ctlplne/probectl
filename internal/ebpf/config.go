@@ -59,6 +59,9 @@ type Config struct {
 	// still go to the bus. Consented live L7 capture requires it (D-43 S1):
 	// with an empty grpc_addr the agent refuses consented live capture.
 	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
+	// KubernetesInventory enables a separate read-only, namespaced inventory
+	// source on the evidence mTLS channel. Nil leaves collection disabled.
+	KubernetesInventory *KubernetesInventoryConfig `yaml:"kubernetes_inventory,omitempty"`
 
 	// FixturePath, when set, replays recorded flows instead of loading eBPF —
 	// the no-kernel path used by CI, macOS, and unprivileged containers.
@@ -469,6 +472,9 @@ func (c *Config) validate() error {
 		return err
 	}
 	if err := c.validateControlPlane(); err != nil {
+		return err
+	}
+	if err := c.validateKubernetesInventory(); err != nil {
 		return err
 	}
 	if r := c.L7CaptureHostRoot; r != "" && !strings.HasPrefix(r, "/") {

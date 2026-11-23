@@ -147,6 +147,12 @@ func (c *ClickHouse) planSourceFor(ctx context.Context, target Target, lane chcl
 	legacy := chToUint64(rows[0]["legacy"])
 	beforeRaw := chToUint64(rows[0]["before_raw"])
 	choice := plan.DataSeries
+	if flow.PlanUsesKubernetes(plan) {
+		if choice == "rollup" || beforeRaw > 0 {
+			return planSource{}, timedFlowCoverageError()
+		}
+		choice = "raw"
+	}
 	if choice == "auto" {
 		choice = "raw"
 		if beforeRaw > 0 || plan.BucketSeconds >= 3600 {
@@ -159,7 +165,12 @@ func (c *ClickHouse) planSourceFor(ctx context.Context, target Target, lane chcl
 		}
 		return planSource{table: raw, kind: "raw", coverage: &PlanSourceCoverage{Fields: allPlanFields(), ResolutionSeconds: flow.MinPlanBucketSeconds, CompleteInputs: true}}, nil
 	}
-	coverage := &PlanSourceCoverage{Fields: allPlanFields(), ResolutionSeconds: 60, CompleteInputs: true}
+	coverage := &PlanSourceCoverage{ResolutionSeconds: 60, CompleteInputs: true}
+	for _, field := range flow.QueryFields() {
+		if field.Rollup {
+			coverage.Fields = append(coverage.Fields, field.Name)
+		}
+	}
 	if legacy > 0 {
 		coverage.CompleteInputs = false
 		coverage.ResolutionSeconds = 3600

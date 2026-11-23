@@ -3116,7 +3116,7 @@ type FlowQueryDisplay struct {
 	TotalOverlay      *bool    `json:"total_overlay,omitempty"`
 }
 
-// Native fields plus tenant-defined tag.<key>, tag.device.<key>, tag.agent.<key>, tag.in_interface.<key>, tag.out_interface.<key>, tag.src_prefix.<key> and tag.dst_prefix.<key> text fields when the authenticated caller has tags.read. Qualified fields use the exporter's owned device anchor, registered collecting agent, current attested interface index or closest explicit canonical prefix in the owned routing context. They additionally require metrics.read (device/interface), agent.read (agent) or entities.read (prefix). Equal closest prefix networks are ambiguous and return an empty value, without ancestor fallback. Source and destination prefix fields are independent. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client. Fourteen src_bgp_* and dst_bgp_* fields expose immutable ingestion-time routing captures: provenance, prefix, complete AS paths, next-hop AS, origin AS, first-transit AS and RPKI. RPKI uses independently captured complete validator evidence and its original generation clock; ambiguous origins or conflicting path verdicts remain unknown, and later validator exports never refill historical captures. They require current entities.read and events.read globally and for every canonical context. Missing routing evidence retains traffic as unavailable/unknown; it never queries a newer RIB to refill an original receipt. Eight src_service*, dst_service* text dimensions expose server-derived published-range service, region, provider and known/ambiguous/unknown status captured at ingestion. Original traffic is counted once; unresolved labels and older unclassified inputs remain unknown. Regions absent from the publisher remain empty. New flows use current local source validity independently of asynchronous ASN cache warming. Retained classifications are historical facts; a later catalogue never reclassifies them.
+// Native fields plus tenant-defined tag.<key>, tag.device.<key>, tag.agent.<key>, tag.in_interface.<key>, tag.out_interface.<key>, tag.src_prefix.<key> and tag.dst_prefix.<key> text fields when the authenticated caller has tags.read. Qualified fields use the exporter's owned device anchor, registered collecting agent, current attested interface index or closest explicit canonical prefix in the owned routing context. They additionally require metrics.read (device/interface), agent.read (agent) or entities.read (prefix). Equal closest prefix networks are ambiguous and return an empty value, without ancestor fallback. Source and destination prefix fields are independent. Tag keys are resolved from the current tenant revision; no tenant or SQL identifier is supplied by the client. Fourteen src_bgp_* and dst_bgp_* fields expose immutable ingestion-time routing captures: provenance, prefix, complete AS paths, next-hop AS, origin AS, first-transit AS and RPKI. RPKI uses independently captured complete validator evidence and its original generation clock; ambiguous origins or conflicting path verdicts remain unknown, and later validator exports never refill historical captures. They require current entities.read and events.read globally and for every canonical context. Missing routing evidence retains traffic as unavailable/unknown; it never queries a newer RIB to refill an original receipt. Eight src_service*, dst_service* text dimensions expose server-derived published-range service, region, provider and known/ambiguous/unknown status captured at ingestion. Original traffic is counted once; unresolved labels and older unclassified inputs remain unknown. Regions absent from the publisher remain empty. New flows use current local source validity independently of asynchronous ASN cache warming. Retained classifications are historical facts; a later catalogue never reclassifies them. Sixteen src_k8s_* and dst_k8s_* text dimensions expose cluster, namespace, Pod and UID, workload and UID, and Service and UID for complete raw flow intervals. They require current entities.read and flow.read for each contributing source. Missing clock or ownership evidence leaves the field blank. Negative predicates preserve this uncertainty unless the predicate explicitly tests for a blank value.
 type FlowQueryField struct {
 	LegacyHourlyAvailable bool     `json:"legacy_hourly_available"`
 	Name                  string   `json:"name"`
@@ -3955,6 +3955,24 @@ type IsolationStatus struct {
 type KeyRotateRequest struct {
 	ByokRef string `json:"byok_ref,omitempty"`
 	Mode    string `json:"mode,omitempty"`
+}
+
+type KubernetesInventorySource struct {
+	AgentId          string `json:"agent_id"`
+	AssignedAt       string `json:"assigned_at"`
+	ClosedAt         string `json:"closed_at,omitempty"`
+	ClusterId        string `json:"cluster_id"`
+	ContextId        string `json:"context_id"`
+	FlowClockErrorMs int    `json:"flow_clock_error_ms,omitempty"`
+	Id               string `json:"id"`
+	Namespace        string `json:"namespace"`
+}
+
+type KubernetesInventorySourceInput struct {
+	AgentId          string `json:"agent_id"`
+	ClusterId        string `json:"cluster_id"`
+	FlowClockErrorMs int    `json:"flow_clock_error_ms,omitempty"`
+	Namespace        string `json:"namespace"`
 }
 
 // A tenant's L7 capture redaction floor (D-43).
@@ -8093,6 +8111,50 @@ func (c *Client) ResetInterfaceRoleOverride(ctx context.Context, req ResetInterf
 	return c.doJSON(ctx, http.MethodDelete, path, query, req.Body, nil)
 }
 
+// Assign one Kubernetes cluster namespace to a registered collector
+type CreateKubernetesInventorySourceRequest struct {
+	ContextId string                          `json:"-"`
+	Body      *KubernetesInventorySourceInput `json:"-"`
+}
+
+func (c *Client) CreateKubernetesInventorySource(ctx context.Context, req CreateKubernetesInventorySourceRequest) (*KubernetesInventorySource, error) {
+	path := "/v1/entity-contexts/{context_id}/kubernetes-inventory-sources"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	query := url.Values{}
+	var out KubernetesInventorySource
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Revoke a Kubernetes inventory source assignment
+type RevokeKubernetesInventorySourceRequest struct {
+	ContextId string `json:"-"`
+	Id        string `json:"-"`
+}
+
+func (c *Client) RevokeKubernetesInventorySource(ctx context.Context, req RevokeKubernetesInventorySourceRequest) (*KubernetesInventorySource, error) {
+	path := "/v1/entity-contexts/{context_id}/kubernetes-inventory-sources/{id}"
+	if req.ContextId == "" {
+		return nil, fmt.Errorf("context_id is required")
+	}
+	path = strings.ReplaceAll(path, "{context_id}", url.PathEscape(req.ContextId))
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out KubernetesInventorySource
+	if err := c.doJSON(ctx, http.MethodDelete, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Resolve effective tags for one owned current subject
 type ResolveSubjectTagsRequest struct {
 	ContextId         string  `json:"-"`
@@ -11542,8 +11604,9 @@ func (c *Client) ListTlsPosture(ctx context.Context, req ListTlsPostureRequest) 
 
 // Topology dependency graph (S43)
 type GetTopologyRequest struct {
-	At        *string `json:"-"`
-	ContextId *string `json:"-"`
+	At                *string `json:"-"`
+	ContextId         *string `json:"-"`
+	IncludeKubernetes *bool   `json:"-"`
 }
 
 func (c *Client) GetTopology(ctx context.Context, req GetTopologyRequest) (map[string]any, error) {
@@ -11554,6 +11617,9 @@ func (c *Client) GetTopology(ctx context.Context, req GetTopologyRequest) (map[s
 	}
 	if req.ContextId != nil {
 		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.IncludeKubernetes != nil {
+		query.Set("include_kubernetes", formatQueryValue(*req.IncludeKubernetes))
 	}
 	var out map[string]any
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {

@@ -101,6 +101,13 @@ store enforces it below the API/AI/RBAC layer.
 Invalid or empty tenant scopes fail closed. Reading a never-seen tenant returns
 an empty snapshot without creating a graph.
 
+For Kubernetes context, select **Show Kubernetes inventory** in Topology
+or add `include_kubernetes=true&context_id=<uuid>` to `GET /v1/topology`.
+Use `at` for a historical instant or omit it to see the latest completed
+observation for each authorized source. Node details report the namespace,
+original object UID and observation time. Controller and Service backend edges
+show relationships observed in Kubernetes inventory.
+
 `MemoryStore` is the simple in-memory implementation. The `From{Path,
 ServiceEdge,BGPEvent}` adapters (`internal/topology/adapters.go`) map the real
 signal types into the builder inputs, so a bus consumer can feed the graph

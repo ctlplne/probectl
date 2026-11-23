@@ -186,8 +186,9 @@ func (s *Server) recordFlowSpec(ctx context.Context, tenant string, plan flow.Qu
 }
 
 type flowPlanAuthority struct {
-	role    flowRoleSnapshot
-	routing flowRoutingSnapshot
+	role       flowRoleSnapshot
+	routing    flowRoutingSnapshot
+	kubernetes flowKubernetesSnapshot
 }
 
 func (s *Server) bindFlowPlanProjections(ctx context.Context, query *flowstore.PlanQuery, plan flow.QueryPlan) (flowPlanAuthority, error) {
@@ -206,6 +207,13 @@ func (s *Server) bindFlowPlanProjections(ctx context.Context, query *flowstore.P
 			return flowPlanAuthority{}, err
 		}
 		query.Roles = authority.role.data
+	}
+	if flow.PlanUsesKubernetes(plan) {
+		authority.kubernetes, err = s.loadFlowKubernetesSnapshot(ctx, auth.PrincipalFrom(ctx), plan, flowstore.ExplorerOperationBudget(ctx, s.flowStore))
+		if err != nil {
+			return flowPlanAuthority{}, err
+		}
+		query.Kubernetes = authority.kubernetes.data
 	}
 	return authority, ctx.Err()
 }
@@ -230,6 +238,20 @@ func (s *Server) checkFlowPlanProjections(ctx context.Context, tenant string, pl
 			return apierror.Unavailable("routing source authority changed; run a fresh query")
 		}
 		result.RoutingProof.InputDigest, result.RoutingProof.Captures = authority.routing.inputDigest, authority.routing.reads
+	}
+	if flow.PlanUsesKubernetes(plan) {
+		budget := flowstore.ExplorerOperationBudget(ctx, s.flowStore)
+		digest, err := authority.kubernetes.data.Digest(ctx, tenant)
+		if err != nil || digest != result.KubernetesDigest {
+			return apierror.Unavailable("Kubernetes flow projection changed; run a fresh query")
+		}
+		if err := s.recheckFlowKubernetesSnapshot(ctx, auth.PrincipalFrom(ctx), authority.kubernetes, budget); err != nil {
+			return err
+		}
+		result.KubernetesProof, err = encodeFlowKubernetesValidity(ctx, authority.kubernetes, digest, budget.MemoryBytes/4)
+		if err != nil {
+			return flowExplorerStoreError(err)
+		}
 	}
 	return nil
 }
@@ -270,7 +292,7 @@ func (s *Server) recordFlowQuery(ctx context.Context, principal *auth.Principal,
 	if err := s.authorizeFlowMetadata(ctx, principal, plan); err != nil {
 		return explorerResult{}, err
 	}
-	if flowstore.PlanUsesInterfaceRoles(plan) || flowPlanUsesCapturedRouting(plan) {
+	if flowstore.PlanUsesInterfaceRoles(plan) || flowPlanUsesCapturedRouting(plan) || flow.PlanUsesKubernetes(plan) {
 		ctx, err = bindFlowRoleContext(ctx, principal)
 		if err != nil {
 			return explorerResult{}, err

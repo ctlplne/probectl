@@ -46,11 +46,17 @@ func prepareQueryFilter(input *QueryFilterGroup, lookup func(string) (QueryField
 	if err != nil {
 		return PreparedQueryFilter{}, err
 	}
-	type check func(func(string) string) bool
+	type truth uint8
+	const (
+		unknown truth = iota
+		matched
+		unmatched
+	)
+	type check func(func(string) string) truth
 	var compile func(*QueryFilterGroup) (check, error)
 	compile = func(group *QueryFilterGroup) (check, error) {
 		if group == nil {
-			return func(func(string) string) bool { return true }, nil
+			return func(func(string) string) truth { return matched }, nil
 		}
 		if len(group.Saved) > 0 {
 			return nil, errors.New("saved flow filters must be resolved before evaluation")
@@ -62,7 +68,18 @@ func prepareQueryFilter(input *QueryFilterGroup, lookup func(string) (QueryField
 				return nil, err
 			}
 			field := predicate.Field
-			checks = append(checks, func(value func(string) string) bool { return match(value(field)) })
+			_, _, temporal := KubernetesQueryField(field)
+			explicitUnknown := KubernetesMatchesUnknown(predicate)
+			checks = append(checks, func(value func(string) string) truth {
+				current := value(field)
+				if temporal && current == "" && !explicitUnknown {
+					return unknown
+				}
+				if match(current) {
+					return matched
+				}
+				return unmatched
+			})
 		}
 		for i := range group.Groups {
 			child, err := compile(&group.Groups[i])
@@ -73,20 +90,28 @@ func prepareQueryFilter(input *QueryFilterGroup, lookup func(string) (QueryField
 		}
 		matchAny := group.Match == "any"
 		exclude := group.Mode == "exclude"
-		return func(value func(string) string) bool {
-			result := !matchAny
+		return func(value func(string) string) truth {
+			result, decisive := matched, unmatched
+			if matchAny {
+				result, decisive = unmatched, matched
+			}
 			for _, match := range checks {
-				if matchAny && match(value) {
-					result = true
+				state := match(value)
+				if state == decisive {
+					result = decisive
 					break
 				}
-				if !matchAny && !match(value) {
-					result = false
-					break
+				if state == unknown {
+					result = unknown
 				}
 			}
 			if exclude {
-				return !result
+				switch result {
+				case matched:
+					return unmatched
+				case unmatched:
+					return matched
+				}
 			}
 			return result
 		}, nil
@@ -95,7 +120,18 @@ func prepareQueryFilter(input *QueryFilterGroup, lookup func(string) (QueryField
 	if err != nil {
 		return PreparedQueryFilter{}, err
 	}
-	return PreparedQueryFilter{matches: match}, nil
+	return PreparedQueryFilter{matches: func(value func(string) string) bool { return match(value) == matched }}, nil
+}
+
+// KubernetesMatchesUnknown handles an explicit blank selector in an exact
+// predicate. Ordinary comparisons preserve uncertainty under exclusion.
+func KubernetesMatchesUnknown(predicate QueryPredicate) bool {
+	switch predicate.Op {
+	case QueryEqual, QueryNotEqual, QueryIn, QueryNotIn:
+		return slices.Contains(predicate.Values, "")
+	default:
+		return false
+	}
 }
 
 func prepareQueryPredicate(predicate QueryPredicate) (func(string) bool, error) {

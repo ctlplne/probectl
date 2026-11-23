@@ -33,6 +33,8 @@ type PlanQuery struct {
 	// Routing is an operation-local, current-authorized capture projection.
 	// Raw keys and query JSON cannot provide this authority.
 	Routing *routingQueryData
+	// Kubernetes is derived from scoped inventory and the original raw capture.
+	Kubernetes *KubernetesQueryData
 	// SelectedGroups is server-selected comparison membership, never grammar.
 	// Nil ranks automatically; an explicit empty selection puts every row in Other.
 	SelectedGroups [][]string
@@ -100,6 +102,8 @@ type PlanResult struct {
 	RoleTenantID        string                    `json:"role_tenant_id,omitempty"`
 	RoleSources         []InterfaceRoleProjection `json:"role_sources,omitempty"`
 	RoutingProof        *RoutingQueryProof        `json:"-"`
+	KubernetesDigest    string                    `json:"-"`
+	KubernetesProof     json.RawMessage           `json:"-"`
 	// TagIDs preserves the immutable field identities in Query and Coverage.
 	// It describes this result, never client-supplied query authority.
 	TagIDs            map[string]string `json:"tag_ids,omitempty"`
@@ -503,6 +507,9 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 			result := explorerFieldValue(entry, field, plan, names, vocabulary, query.Tags, query.Roles)
 			if _, routing := flow.RoutingQueryField(field); routing {
 				result = query.Routing.valueForRow(entry.row, field)
+			}
+			if _, _, kubernetes := flow.KubernetesQueryField(field); kubernetes {
+				result = query.Kubernetes.valueForRow(entry.row, field)
 			}
 			values[field] = result
 			return result

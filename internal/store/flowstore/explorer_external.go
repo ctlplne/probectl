@@ -29,6 +29,7 @@ const (
 	externalIncidentSources
 	externalSeasonalClocks
 	externalSeasonalWindows
+	externalKubernetesCaptures
 )
 
 type explorerExternalData struct {
@@ -60,6 +61,8 @@ func (data explorerExternalData) specification() (string, string, error) {
 		return "seasonal_clock_lookup", "clock_tenant String, clock_at Int64, clock_first UInt64, clock_after UInt64", nil
 	case externalSeasonalWindows:
 		return "seasonal_window_lookup", "window_tenant String, window_index UInt64, window_start Int64", nil
+	case externalKubernetesCaptures:
+		return "kubernetes_capture_lookup", "kube_tenant String, kube_context String, kube_key String, kube_capture_ns Int64, kube_start_ms Int64, kube_end_ms Int64, kube_basis UInt8, kube_values Map(String, String)", nil
 	default:
 		return "", "", ErrTagQueryScope
 	}

@@ -22,6 +22,7 @@ export interface TopoNode {
   label: string
   canonical_entity_id?: string
   canonical_status?: 'resolved' | 'conflict' | 'unresolved'
+  kubernetes?: { cluster_id: string; namespace: string; uid: string; observed_at: string }
   site?: string
   tags?: string[]
 }
@@ -31,6 +32,7 @@ export interface TopoEdge {
   to: string
   kind: string
   label?: string
+  observed_at?: string
 }
 
 export interface TopoCoverage {
@@ -88,16 +90,23 @@ export interface WhatIfImpact {
   confidence: SimulationConfidence
 }
 
-export function useTopology(at?: string, enabled = true, contextID = '') {
+export function useTopology(
+  at?: string,
+  enabled = true,
+  contextID = '',
+  includeKubernetes = false,
+) {
   const { tenant } = useAuth()
   const query = new URLSearchParams()
   if (at) query.set('at', at)
   if (contextID) query.set('context_id', contextID)
+  const kubernetes = Boolean(contextID) && includeKubernetes
+  if (kubernetes) query.set('include_kubernetes', 'true')
   const qs = query.size ? `?${query.toString()}` : ''
   return useQuery({
     // The same routing-context UUID may exist in different tenants. Keep
     // canonical projections and raw graphs in separate tenant cache lanes.
-    queryKey: ['topology', tenant.id, at ?? 'live', contextID],
+    queryKey: ['topology', tenant.id, at ?? 'live', contextID, kubernetes],
     enabled,
     queryFn: () => apiFetch<TopologyResponse>(`/topology${qs}`),
   })

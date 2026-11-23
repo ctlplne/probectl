@@ -78,6 +78,24 @@ Supported sources are `flow`, `changes`, `path`, `topology`, `endpoints`, `tls`,
 availability follows the documented [deployment limitations](limitations.md); Explorer returns
 an honest empty result and never silently substitutes another source.
 
+### Kubernetes flow dimensions
+
+Group, filter or build a matrix using `src_k8s_*` and `dst_k8s_*`
+dimensions. A blank value means the source lacks a complete clock or
+ownership witness for that endpoint. In particular, excluding a named
+workload keeps unknown endpoints out of the resulting set. An explicit
+`eq` with a blank value selects unknown endpoints. Pages and CSV exports
+check that the original inventory and exporter authority still hold.
+
+The endpoint dimensions use Kubernetes object identity. `namespace` maps to
+`k8s.namespace.name`. Pod and Service names and UIDs map to
+`k8s.pod.name`, `k8s.pod.uid`, `k8s.service.name` and `k8s.service.uid`.
+Workload name and UID correspond to the verified controller's attributes,
+such as `k8s.deployment.name` and `k8s.deployment.uid`.
+[OpenTelemetry Kubernetes attributes](https://opentelemetry.io/docs/specs/semconv/registry/attributes/k8s/)
+
+See [Kubernetes inventory configuration](configuration.md#kubernetes-inventory-collector).
+
 ### Period comparison
 
 `POST /v1/explorer/compare` accepts the normal query as the current absolute window plus

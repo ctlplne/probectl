@@ -7,6 +7,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -55,7 +56,7 @@ func (s *Server) recordFlowComparison(ctx context.Context, principal *auth.Princ
 	if err := s.authorizeFlowMetadata(ctx, principal, plan); err != nil {
 		return explorerComparisonResult{}, err
 	}
-	if flowstore.PlanUsesInterfaceRoles(plan) || flowPlanUsesCapturedRouting(plan) {
+	if flowstore.PlanUsesInterfaceRoles(plan) || flowPlanUsesCapturedRouting(plan) || flow.PlanUsesKubernetes(plan) {
 		ctx, err = bindFlowRoleContext(ctx, principal)
 		if err != nil {
 			return explorerComparisonResult{}, err
@@ -115,6 +116,7 @@ func (s *Server) collectFlowComparison(ctx context.Context, principal *auth.Prin
 	defer cancel()
 	currentSpec, previousSpec := *current.Flow, *previous.Flow
 	var currentDuration, previousDuration time.Duration
+	var currentKubernetes, previousKubernetes json.RawMessage
 	roleDigest := ""
 	queryWindow := func(plan flow.QueryPlan, groups, columns, chart, matrixRows [][]string, elapsed *time.Duration) (flowstore.PlanResult, error) {
 		began := time.Now()
@@ -126,6 +128,16 @@ func (s *Server) collectFlowComparison(ctx context.Context, principal *auth.Prin
 				return flowstore.PlanResult{}, apierror.Unavailable("interface role inputs changed between source passes; run a fresh comparison")
 			}
 			roleDigest = data.RoleDigest
+		}
+		if err == nil && flow.PlanUsesKubernetes(plan) {
+			proof := &currentKubernetes
+			if elapsed == &previousDuration {
+				proof = &previousKubernetes
+			}
+			if len(data.KubernetesProof) == 0 || len(*proof) != 0 && !bytes.Equal(*proof, data.KubernetesProof) {
+				return flowstore.PlanResult{}, apierror.Unavailable("Kubernetes inputs changed between source passes; run a fresh comparison")
+			}
+			*proof = data.KubernetesProof
 		}
 		return data, err
 	}

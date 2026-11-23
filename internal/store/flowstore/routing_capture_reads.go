@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"math"
 	"net/netip"
 	"sort"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/store/chclient"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -27,11 +29,55 @@ type RoutingCaptureRead struct {
 	Sender  string
 	Witness entity.FlowCaptureWitness
 	Ref     entity.FlowCaptureReference
+	Timing  FlowCaptureTiming
+}
+
+// FlowCaptureTiming retains the private raw clock used by temporal metadata
+// reads. It cannot turn a fallback timestamp into an original observation.
+type FlowCaptureTiming struct {
+	Start, End time.Time
+	Basis      flowv1.FlowClockBasis
+}
+
+// ObservationRange returns the conservative half-open event interval on the
+// inventory clock. The start is rounded down to raw storage precision, and
+// the interval includes the final stored millisecond and both error bounds.
+func (clock FlowCaptureTiming) ObservationRange(protocol string, clockError time.Duration) (time.Time, time.Time, bool) {
+	if clock.Start.UnixMilli() <= 0 || clock.End.Before(clock.Start) ||
+		clockError < 0 || clockError > time.Duration(math.MaxInt64)-time.Millisecond {
+		return time.Time{}, time.Time{}, false
+	}
+	switch clock.Basis {
+	case flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL:
+		if protocol != flow.ProtoIPFIX && protocol != flow.ProtoNetFlow9 && protocol != flow.ProtoNetFlow5 {
+			return time.Time{}, time.Time{}, false
+		}
+	case flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE:
+		if protocol != flow.ProtoSFlow5 || !clock.Start.Equal(clock.End) {
+			return time.Time{}, time.Time{}, false
+		}
+	default:
+		return time.Time{}, time.Time{}, false
+	}
+	start := time.UnixMilli(clock.Start.UnixMilli()).UTC().Add(-clockError)
+	end := time.UnixMilli(clock.End.UnixMilli()).UTC().Add(time.Millisecond + clockError)
+	return start, end, true
 }
 
 // ReadRoutingCaptureReferences enumerates the full tenant window through the
 // configured backend's existing admission. Selectors are never source grants.
 func ReadRoutingCaptureReferences(ctx context.Context, store Store, tenant string, from, to time.Time, series string) ([]RoutingCaptureRead, error) {
+	return readFlowCaptureReferences(ctx, store, tenant, from, to, series, false)
+}
+
+// ReadTimedFlowCaptureReferences requests raw clock evidence alongside the
+// original source selectors. The rollup may retain a start timestamp without
+// retaining its provenance, so temporal attribution cannot use that lane.
+func ReadTimedFlowCaptureReferences(ctx context.Context, store Store, tenant string, from, to time.Time, series string) ([]RoutingCaptureRead, error) {
+	return readFlowCaptureReferences(ctx, store, tenant, from, to, series, true)
+}
+
+func readFlowCaptureReferences(ctx context.Context, store Store, tenant string, from, to time.Time, series string, withTiming bool) ([]RoutingCaptureRead, error) {
 	backend, ok := PlanStoreOf(store)
 	if !ok {
 		return nil, ErrExplorerBudget
@@ -39,11 +85,11 @@ func ReadRoutingCaptureReferences(ctx context.Context, store Store, tenant strin
 	switch reader := backend.(type) {
 	case *Memory:
 		if reader != nil {
-			return reader.routingCaptureReferences(ctx, tenant, from, to, series)
+			return reader.routingCaptureReferences(ctx, tenant, from, to, series, withTiming)
 		}
 	case *ClickHouse:
 		if reader != nil {
-			return reader.routingCaptureReferences(ctx, tenant, from, to, series)
+			return reader.routingCaptureReferences(ctx, tenant, from, to, series, withTiming)
 		}
 	}
 	return nil, ErrExplorerBudget
@@ -52,6 +98,14 @@ func ReadRoutingCaptureReferences(ctx context.Context, store Store, tenant strin
 // RoutingCaptureReferences shares the operation deadline, tenant and cumulative
 // read envelope with the plans. Metadata does not consume another plan slot.
 func (b *PlanBatch) RoutingCaptureReferences(from, to time.Time, series string) ([]RoutingCaptureRead, error) {
+	return b.flowCaptureReferences(from, to, series, false)
+}
+
+func (b *PlanBatch) TimedFlowCaptureReferences(from, to time.Time, series string) ([]RoutingCaptureRead, error) {
+	return b.flowCaptureReferences(from, to, series, true)
+}
+
+func (b *PlanBatch) flowCaptureReferences(from, to time.Time, series string, withTiming bool) ([]RoutingCaptureRead, error) {
 	b.queryMu.Lock()
 	defer b.queryMu.Unlock()
 	if err := b.ctx.Err(); err != nil {
@@ -64,9 +118,9 @@ func (b *PlanBatch) RoutingCaptureReferences(from, to time.Time, series string) 
 	var err error
 	switch backend := b.backend.(type) {
 	case *Memory:
-		out, err = backend.routingCaptureReferences(b.queryContext(), b.tenant, from, to, series)
+		out, err = backend.routingCaptureReferences(b.queryContext(), b.tenant, from, to, series, withTiming)
 	case *ClickHouse:
-		out, err = backend.routingCaptureReferences(b.queryContext(), b.tenant, from, to, series)
+		out, err = backend.routingCaptureReferences(b.queryContext(), b.tenant, from, to, series, withTiming)
 	default:
 		err = ErrExplorerBudget
 	}
@@ -116,10 +170,13 @@ func sortedRoutingReads(rows map[[32]byte]RoutingCaptureRead) []RoutingCaptureRe
 
 // Enumerate the complete window before derived routing filters/grouping. No
 // display/page limit truncates metadata; resource refusal returns no prefix.
-func (m *Memory) routingCaptureReferences(ctx context.Context, tenant string, from, to time.Time, series string) ([]RoutingCaptureRead, error) {
+func (m *Memory) routingCaptureReferences(ctx context.Context, tenant string, from, to time.Time, series string, withTiming bool) ([]RoutingCaptureRead, error) {
 	plan, err := routingReferencePlan(ctx, tenant, from, to, series)
 	if err != nil {
 		return nil, err
+	}
+	if withTiming && plan.DataSeries == "rollup" {
+		return nil, timedFlowCoverageError()
 	}
 	budget, err := explorerPlanBudget(ctx, m, tenant, m)
 	if err != nil {
@@ -152,6 +209,9 @@ func (m *Memory) routingCaptureReferences(ctx context.Context, tenant string, fr
 		if err != nil {
 			return nil, err
 		}
+		if withTiming {
+			read.Timing = FlowCaptureTiming{Start: entry.row.StartTS.UTC(), End: entry.row.TS.UTC(), Basis: entry.row.ClockBasis}
+		}
 		if previous, exists := reads[read.Ref.Key]; exists && previous != read {
 			return nil, errRoutingCaptureRow
 		}
@@ -160,7 +220,7 @@ func (m *Memory) routingCaptureReferences(ctx context.Context, tenant string, fr
 	return sortedRoutingReads(reads), nil
 }
 
-func (c *ClickHouse) routingCaptureReferences(ctx context.Context, tenant string, from, to time.Time, series string) ([]RoutingCaptureRead, error) {
+func (c *ClickHouse) routingCaptureReferences(ctx context.Context, tenant string, from, to time.Time, series string, withTiming bool) ([]RoutingCaptureRead, error) {
 	plan, err := routingReferencePlan(ctx, tenant, from, to, series)
 	if err != nil {
 		return nil, err
@@ -187,8 +247,15 @@ func (c *ClickHouse) routingCaptureReferences(ctx context.Context, tenant string
 	if err != nil {
 		return nil, err
 	}
+	if withTiming && source.kind != "raw" {
+		return nil, timedFlowCoverageError()
+	}
 	params := chParams{"tenant": tenant, "from": plan.From.UTC().Format("2006-01-02 15:04:05.999999999"), "to": plan.To.UTC().Format("2006-01-02 15:04:05.999999999")}
-	sql := `SELECT DISTINCT tenant_id,agent_id,exporter,protocol,toString(obs_domain) AS obs_domain,src_addr,dst_addr,raw_flow_digest,routing_capture_key,toString(routing_captured_unix_nanos) AS routing_captured_unix_nanos FROM ` + source.table + ` FINAL
+	columns := ""
+	if withTiming {
+		columns = ",toString(toUnixTimestamp64Milli(start_ts)) AS start_ms,toString(toUnixTimestamp64Milli(ts)) AS end_ms,toString(clock_basis) AS clock_basis"
+	}
+	sql := `SELECT DISTINCT tenant_id,agent_id,exporter,protocol,toString(obs_domain) AS obs_domain,src_addr,dst_addr,raw_flow_digest,routing_capture_key,toString(routing_captured_unix_nanos) AS routing_captured_unix_nanos` + columns + ` FROM ` + source.table + ` FINAL
  WHERE tenant_id={tenant:String} AND ts>={from:DateTime64(9,'UTC')} AND ts<{to:DateTime64(9,'UTC')} AND routing_capture_key!=''`
 	settings, err := budget.settings()
 	if err != nil {
@@ -199,10 +266,10 @@ func (c *ClickHouse) routingCaptureReferences(ctx context.Context, tenant string
 	if err != nil {
 		return nil, err
 	}
-	return decodeRoutingReads(ctx, tenant, rows, budget.MemoryBytes)
+	return decodeRoutingReads(ctx, tenant, rows, budget.MemoryBytes, withTiming)
 }
 
-func decodeRoutingReads(ctx context.Context, tenant string, rows []map[string]any, memory int64) ([]RoutingCaptureRead, error) {
+func decodeRoutingReads(ctx context.Context, tenant string, rows []map[string]any, memory int64, withTiming bool) ([]RoutingCaptureRead, error) {
 	if memory <= 0 || int64(len(rows)) > memory/4096 {
 		return nil, ErrExplorerBudget
 	}
@@ -221,10 +288,37 @@ func decodeRoutingReads(ctx context.Context, tenant string, rows []map[string]an
 		if err != nil {
 			return nil, err
 		}
+		if withTiming {
+			read.Timing, err = flowCaptureTimingFromStore(source)
+			if err != nil {
+				return nil, err
+			}
+		}
 		if previous, exists := reads[read.Ref.Key]; exists && previous != read {
 			return nil, errRoutingCaptureRow
 		}
 		reads[read.Ref.Key] = read
 	}
 	return sortedRoutingReads(reads), nil
+}
+
+func flowCaptureTimingFromStore(source map[string]any) (FlowCaptureTiming, error) {
+	start, startErr := strconv.ParseInt(chToString(source["start_ms"]), 10, 64)
+	end, endErr := strconv.ParseInt(chToString(source["end_ms"]), 10, 64)
+	basis, basisErr := strconv.ParseUint(chToString(source["clock_basis"]), 10, 8)
+	if startErr != nil || endErr != nil || basisErr != nil {
+		return FlowCaptureTiming{}, errRoutingCaptureRow
+	}
+	clock := FlowCaptureTiming{Start: time.UnixMilli(start).UTC(), End: time.UnixMilli(end).UTC()}
+	switch basis {
+	case uint64(flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL):
+		clock.Basis = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL
+	case uint64(flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE):
+		clock.Basis = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_COLLECTOR_SAMPLE
+	}
+	return clock, nil
+}
+
+func timedFlowCoverageError() error {
+	return &PlanCoverageError{Reason: "time-based Kubernetes attribution requires retained raw clock provenance", ResolutionSeconds: 1}
 }

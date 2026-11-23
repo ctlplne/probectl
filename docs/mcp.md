@@ -356,6 +356,12 @@ Three absences, each deliberate:
 
 ## Native flow preview
 
+`flow_explorer_schema` lists the Kubernetes dimensions for
+`flow_explorer_query`, including the grouping, filter and matrix fields.
+`topology_kubernetes` returns the Kubernetes graph for a supplied
+`context_id` and optional RFC 3339 `at` time. It requires `topology.read`,
+`entities.read` and the native AI query grant in the current tenant.
+
 The colocated HTTP server binds native flow tools to its existing control-server
 services. These use the same registry, tenant-scoped readers, source permissions,
 private frozen snapshots and configuration stores as REST, CLI and the native UI.

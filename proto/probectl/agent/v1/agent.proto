@@ -11,6 +11,8 @@ syntax = "proto3";
 // field tag; a CI `buf breaking` check enforces this.
 package probectl.agent.v1;
 
+import "probectl/agent/v1/kubernetes_inventory.proto";
+
 option go_package = "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1;agentv1";
 
 service AgentService {
@@ -568,6 +570,7 @@ message SubmitEntityEvidenceRequest {
   BmpPeerSessionBatch bmp_peer_sessions = 9; // exclusive; legacy receivers must refuse without writing generic identities
   ResolverDNSCapture resolver_dns = 10; // exclusive; bound resolver only
   BmpSessionEvidence bmp_session_evidence = 11; // exclusive; bound BMP router only
+  KubernetesInventoryUpload kubernetes_inventory = 12; // exclusive; bound Kubernetes inventory source only
 }
 
 // Exclusive wrapper prevents an older receiver from accepting lifecycle facts
@@ -592,4 +595,5 @@ message SubmitEntityEvidenceResponse {
   uint32 bmp_peer_sessions_persisted = 13; // typed original lifecycle retained, not an identity ack
   ResolverDNSCaptureReceipt resolver_dns = 14;
   BmpSessionEvidenceReceipt bmp_session_evidence = 15;
+  KubernetesInventoryReceipt kubernetes_inventory = 16;
 }

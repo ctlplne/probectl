@@ -274,6 +274,8 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/nms-imports/{id}/review-choices":                            auditExplicit(auditFacetMutation, "nms_import.review_choices_set"),
 	"POST /v1/nms-imports/{id}/finalize-review":                           auditExplicit(auditFacetMutation, "nms_import.review_finalized"),
 	"POST /v1/entity-contexts":                                            auditExplicit(auditFacetMutation, "entity.context.created"),
+	http.MethodPost + " " + kubernetesSourcePath:                          auditExplicit(auditFacetMutation, "kubernetes.inventory_source.assigned"),
+	http.MethodDelete + " " + kubernetesSourceIDPath:                      auditExplicit(auditFacetMutation, "kubernetes.inventory_source.revoked"),
 	"PUT /v1/entity-source-contexts":                                      auditExplicit(auditFacetMutation, "entity.source.assigned"),
 	"GET /v1/entity-contexts/{context_id}/bgp-routing-bindings":           auditWrapped(auditFacetSensitiveRead),
 	"PUT /v1/entity-contexts/{context_id}/bgp-routing-bindings":           auditExplicit(auditFacetMutation, "bgp.routing_bindings.replaced"),

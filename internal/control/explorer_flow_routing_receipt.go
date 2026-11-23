@@ -48,10 +48,14 @@ func encodeFlowRoutingValidity(proof *flowstore.RoutingQueryProof) (*flowRouting
 	}
 	out := &flowRoutingSnapshotValidity{Digest: proof.Digest, InputDigest: proof.InputDigest, Captures: make([]flowRoutingCaptureSelector, len(proof.Captures))}
 	for i, read := range proof.Captures {
-		input := read.Witness.Input
-		out.Captures[i] = flowRoutingCaptureSelector{Sender: read.Sender, Raw: hex.EncodeToString(read.Witness.RawDigest[:]), Key: hex.EncodeToString(read.Ref.Key[:]), Clock: read.Ref.CapturedAt.UnixNano(), Exporter: input.Exporter.String(), Source: input.Source.String(), Destination: input.Destination.String(), Protocol: input.Protocol, Domain: input.Domain}
+		out.Captures[i] = encodeFlowCaptureSelector(read)
 	}
 	return out, nil
+}
+
+func encodeFlowCaptureSelector(read flowstore.RoutingCaptureRead) flowRoutingCaptureSelector {
+	input := read.Witness.Input
+	return flowRoutingCaptureSelector{Sender: read.Sender, Raw: hex.EncodeToString(read.Witness.RawDigest[:]), Key: hex.EncodeToString(read.Ref.Key[:]), Clock: read.Ref.CapturedAt.UnixNano(), Exporter: input.Exporter.String(), Source: input.Source.String(), Destination: input.Destination.String(), Protocol: input.Protocol, Domain: input.Domain}
 }
 
 func decodeFlowRoutingValidity(ctx context.Context, tenant string, proof *flowRoutingSnapshotValidity, memory int64) ([]flowstore.RoutingCaptureRead, error) {
@@ -66,25 +70,33 @@ func decodeFlowRoutingValidity(ctx context.Context, tenant string, proof *flowRo
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if !canonicalFlowRoutingDigest(value.Raw) || !canonicalFlowRoutingDigest(value.Key) || value.Clock <= 0 {
-			return nil, flowstore.ErrSnapshotInputs
-		}
-		raw, _ := hex.DecodeString(value.Raw)
-		key, _ := hex.DecodeString(value.Key)
-		input, err := flowRoutingSelectorInput(value)
+		read, err := decodeFlowCaptureSelector(tenant, value)
 		if err != nil {
 			return nil, err
-		}
-		read := flowstore.RoutingCaptureRead{Sender: value.Sender, Witness: entity.FlowCaptureWitness{Input: input}, Ref: entity.FlowCaptureReference{CapturedAt: time.Unix(0, value.Clock).UTC()}}
-		copy(read.Witness.RawDigest[:], raw)
-		copy(read.Ref.Key[:], key)
-		original, err := entity.FlowCaptureKey(tenant, read.Sender, read.Witness.RawDigest, input)
-		if err != nil || original != read.Ref.Key {
-			return nil, flowstore.ErrSnapshotInputs
 		}
 		out[i] = read
 	}
 	return out, nil
+}
+
+func decodeFlowCaptureSelector(tenant string, value flowRoutingCaptureSelector) (flowstore.RoutingCaptureRead, error) {
+	if !canonicalFlowRoutingDigest(value.Raw) || !canonicalFlowRoutingDigest(value.Key) || value.Clock <= 0 {
+		return flowstore.RoutingCaptureRead{}, flowstore.ErrSnapshotInputs
+	}
+	raw, _ := hex.DecodeString(value.Raw)
+	key, _ := hex.DecodeString(value.Key)
+	input, err := flowRoutingSelectorInput(value)
+	if err != nil {
+		return flowstore.RoutingCaptureRead{}, err
+	}
+	read := flowstore.RoutingCaptureRead{Sender: value.Sender, Witness: entity.FlowCaptureWitness{Input: input}, Ref: entity.FlowCaptureReference{CapturedAt: time.Unix(0, value.Clock).UTC()}}
+	copy(read.Witness.RawDigest[:], raw)
+	copy(read.Ref.Key[:], key)
+	original, err := entity.FlowCaptureKey(tenant, read.Sender, read.Witness.RawDigest, input)
+	if err != nil || original != read.Ref.Key {
+		return flowstore.RoutingCaptureRead{}, flowstore.ErrSnapshotInputs
+	}
+	return read, nil
 }
 
 func canonicalFlowRoutingDigest(value string) bool {

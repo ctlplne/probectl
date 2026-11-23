@@ -112,6 +112,7 @@ func ProvisionPlan(schema string, tenantTables []string) []string {
 	plan = append(plan, reportArtifactStoragePlan(schema, tenantTables)...)
 	plan = append(plan, rtbhReviewStoragePlan(schema, tenantTables)...)
 	plan = append(plan, deviceConfigStoragePlan(schema, tenantTables)...)
+	plan = append(plan, kubernetesInventoryStoragePlan(schema, tenantTables)...)
 	return plan
 }
 
@@ -448,6 +449,10 @@ func provisionTablePlan(schema, table string) []string {
 
 func tableRolePlan(quotedTable, table string) []string {
 	switch table {
+	case "kubernetes_inventory_sources", "kubernetes_inventory_staging", "kubernetes_inventory_stage_parts",
+		"kubernetes_inventory_generations", "kubernetes_inventory_windows", "kubernetes_inventory_objects",
+		"kubernetes_inventory_addresses", "kubernetes_inventory_relationships":
+		return kubernetesInventoryRolePlan(quotedTable, table)
 	case "audit_events":
 		// AUD-04: the app role stays append-only (SELECT/INSERT). The provider
 		// role gets NO direct grant — retention/erase run through the public
@@ -662,6 +667,7 @@ func CatchUpPlan(schema string, cat Catalog) []string {
 	plan = append(plan, reportArtifactStoragePlan(schema, cat.TenantTables)...)
 	plan = append(plan, rtbhReviewStoragePlan(schema, cat.TenantTables)...)
 	plan = append(plan, deviceConfigStoragePlan(schema, cat.TenantTables)...)
+	plan = append(plan, kubernetesInventoryStoragePlan(schema, cat.TenantTables)...)
 	return plan
 }
 
