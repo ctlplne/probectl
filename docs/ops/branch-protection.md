@@ -52,10 +52,9 @@ GitHub → repository → **Settings → Branches → Add branch protection rule
   the rule, and they stop history from being rewritten out from under the
   gates).
 
-Then **Settings → Tags → New rule** (tag protection): pattern `v*`, so only
-maintainers can create release tags. (Even without this, `require-green-ci`
-refuses to release an untested commit — but tag protection stops an accidental
-tag in the first place.)
+For release tags, open **Settings → Rules → Rulesets → New ruleset → New tag
+ruleset**. Set enforcement to **Active**, include the pattern `v*`, and restrict
+creation, updates, and deletion to the designated release maintainers. [GitHub tag rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository)
 
 ## Which checks to require
 
@@ -149,17 +148,25 @@ just "wait for its own CI". The `require-green-ci` job instead **looks up** the
 `ci` run for the tagged commit via the GitHub Actions API
 (`ci.yml/runs?head_sha=<the tag's commit>`):
 
-- **completed + success** → the tag workflow runs the strict
-  `completeness-release-gate`; only a 100%-covered ledger unlocks the `images`
-  and `binaries` jobs.
-- **completed + failure/canceled** → the release fails; nothing is built.
+- **completed + success** → the tag workflow checks the capability ledger.
+  Tags at `v1.0.0` or later require 100% coverage, including when they carry
+  a prerelease suffix. A `v0.x` tag with acknowledged gaps can publish as a
+  prerelease, with the gap count in the release notes. With full coverage, a
+  prerelease suffix still marks the release as a prerelease. Prereleases leave
+  `latest` on the stable release. A ledger failure other than acknowledged
+  gaps stops publication for every tag. [Release verdict and its tests](../../scripts/release_completeness_verdict.sh)
+- **completed + failure or cancellation** → the release gate fails before it
+  builds release artifacts.
 - **still running** → it polls for up to ~30 minutes (60 tries, 30 s apart),
   then proceeds or fails based on the outcome.
 - **no run at all** (the commit was never pushed to `main` or a PR, so `ci`
   never ran on it) → the release fails with instructions.
 
-So the only path to a release is: push to `main` → `ci` goes green on that
-commit → the strict capability ledger has zero gaps →
-`git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`. A tag on an untested,
-red, or incomplete commit produces no artifacts, with or without branch
-protection.
+Select the exact green commit on `main` and set `release_sha` to its full SHA.
+Create and verify a signed annotated tag before pushing it.
+
+```sh
+git tag -s -m "vX.Y.Z" vX.Y.Z "$release_sha"
+git tag -v vX.Y.Z
+git push origin refs/tags/vX.Y.Z
+```
