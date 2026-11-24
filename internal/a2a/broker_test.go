@@ -6,7 +6,10 @@
 
 package a2a
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestBrokerFlow(t *testing.T) {
 	b := NewBroker()
@@ -72,4 +75,26 @@ func TestBrokerValidation(t *testing.T) {
 	if err := b.ReportEndpoint("t1", "A", "no-such-session", "h", 1); err == nil {
 		t.Error("unknown session should error")
 	}
+}
+
+// PendingCount returns the number of queued-but-unpolled tasks for a tenant,
+// after reclaiming any that have aged out.
+func (b *Broker) PendingCount(tenantID string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.gcLocked()
+	return b.pendingByTenant[tenantID]
+}
+
+// PollFor returns and removes the next pending task for an agent (at-most-once).
+func (b *Broker) PollFor(tenantID, agentID string) (Task, bool) {
+	task, present, _ := b.PollForWithMeshAdmission(tenantID, agentID, nil)
+	return task, present
+}
+
+// ReportEndpoint records where the responder is listening and queues the
+// initiator's task. Only the session's responder, in the session's tenant, may
+// report — preventing cross-tenant or cross-agent endpoint injection.
+func (b *Broker) ReportEndpoint(tenantID, agentID, sessionID, host string, port uint32) error {
+	return b.ReportEndpointWithRegistration(tenantID, agentID, sessionID, host, port, time.Time{})
 }

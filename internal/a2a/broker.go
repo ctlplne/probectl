@@ -195,22 +195,6 @@ func (b *Broker) SweepNow() {
 	b.mu.Unlock()
 }
 
-// PendingCount returns the number of queued-but-unpolled tasks for a tenant,
-// after reclaiming any that have aged out. Callers use it to reject work that
-// would exceed the per-tenant cap before doing O(n^2) scheduling.
-func (b *Broker) PendingCount(tenantID string) int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.gcLocked()
-	return b.pendingByTenant[tenantID]
-}
-
-// PollFor returns and removes the next pending task for an agent (at-most-once).
-func (b *Broker) PollFor(tenantID, agentID string) (Task, bool) {
-	task, present, _ := b.PollForWithMeshAdmission(tenantID, agentID, nil)
-	return task, present
-}
-
 // PollForWithMeshAdmission checks the transport credential before removing a
 // signed task or exposing its key. Admission reads the current registration
 // outside the broker lock. A replacement registration skips obsolete tasks.
@@ -264,13 +248,6 @@ func (b *Broker) IsMeshResponder(tenantID, agentID, sessionID string) bool {
 	defer b.mu.Unlock()
 	s := b.sessions[sessionKey{tenantID, sessionID}]
 	return s != nil && s.mesh != nil && s.responder == agentID && b.now().Before(s.createdAt.Add(b.ttl))
-}
-
-// ReportEndpoint records where the responder is listening and queues the
-// initiator's task. Only the session's responder, in the session's tenant, may
-// report — preventing cross-tenant or cross-agent endpoint injection.
-func (b *Broker) ReportEndpoint(tenantID, agentID, sessionID, host string, port uint32) error {
-	return b.ReportEndpointWithRegistration(tenantID, agentID, sessionID, host, port, time.Time{})
 }
 
 // ReportEndpointWithRegistration also binds a mesh endpoint to the responder's

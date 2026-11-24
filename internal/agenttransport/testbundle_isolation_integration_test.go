@@ -216,8 +216,8 @@ func TestFetchTestBundleTenantIsolationOverMTLS(t *testing.T) {
 	if response, err := clientB.PollCoordination(rpcCtx, &agentv1.PollCoordinationRequest{}); err != nil || !response.GetHasTask() || response.GetTask().GetSessionId() != sessionB {
 		t.Fatal("completed tenant changed the sibling's coordination assignment", err)
 	}
-	if task, queued := broker.PollFor(ta.ID, agentA); !queued || task.SessionID != sessionA {
-		t.Fatal("denied dispatch consumed the completed tenant's queued assignment")
+	if task, queued, err := broker.PollForWithMeshAdmission(ta.ID, agentA, nil); err != nil || !queued || task.SessionID != sessionA {
+		t.Fatal("denied dispatch consumed the completed tenant's queued assignment", err)
 	}
 }
 

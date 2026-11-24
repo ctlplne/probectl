@@ -120,13 +120,6 @@ func NewMeshScheduler(broker *Broker) *MeshScheduler {
 	}
 }
 
-// StartMesh schedules one directed session for every ordered pair of distinct
-// sites. When a site has multiple agents, the lexicographically first agent is
-// chosen so retries generate a stable matrix.
-func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode string, count uint32) ([]MeshSession, error) {
-	return m.StartMeshAfterAudit(tenantID, agents, mode, count, nil)
-}
-
 // StartMeshAfterAudit prepares the whole mesh before invoking commitAudit.
 // Dispatch begins only after the callback commits and returns the exact
 // registration times it validated in the audited tenant transaction.
@@ -359,11 +352,6 @@ func (m *MeshScheduler) rememberResult(report MeshResult) bool {
 	report.Metrics = copyMetrics(report.Metrics)
 	m.results[key] = append(m.results[key], report)
 	return true
-}
-
-// TopologyOverlay returns one directed edge per tenant-owned mesh session.
-func (m *MeshScheduler) TopologyOverlay(tenantID string) []TopologyEdge {
-	return m.topologyOverlay(tenantID, nil, 0)
 }
 
 // TopologyForSessions returns only the edges allocated by a mesh start.

@@ -234,3 +234,15 @@ func (w testWriter) Write(p []byte) (int, error) {
 	w.t.Log(string(p))
 	return len(p), nil
 }
+
+// StartMesh schedules one directed session for every ordered pair of distinct
+// sites. When a site has multiple agents, the lexicographically first agent is
+// chosen so retries generate a stable matrix.
+func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode string, count uint32) ([]MeshSession, error) {
+	return m.StartMeshAfterAudit(tenantID, agents, mode, count, nil)
+}
+
+// TopologyOverlay returns one directed edge per tenant-owned mesh session.
+func (m *MeshScheduler) TopologyOverlay(tenantID string) []TopologyEdge {
+	return m.topologyOverlay(tenantID, nil, 0)
+}

@@ -131,3 +131,11 @@ func TestFailureTrafficUsesConcurrentDirectionalLoad(t *testing.T) {
 		t.Fatalf("projection accepted sibling traffic: %v", err)
 	}
 }
+
+// ProjectFailureTrafficSample computes offered load. It retains exact rates
+// above physical capacity so an overloaded survivor remains visible. Receipts,
+// routing precedence and actor permissions belong to the upstream readers.
+func ProjectFailureTrafficSample(ctx context.Context, sample FailureTrafficSample, memoryBytes, workUnits int64) (FailureTrafficProjection, error) {
+	budget := capacityGridAdmission{memory: memoryBytes, work: workUnits}
+	return projectFailureTrafficSample(ctx, sample, &budget)
+}
