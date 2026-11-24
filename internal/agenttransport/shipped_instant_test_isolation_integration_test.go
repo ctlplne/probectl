@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/crypto"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
@@ -106,6 +107,8 @@ func TestShippedInstantRunsAndTenantIsolation(t *testing.T) {
 	readShippedInstantJSON(t, stack, right, http.MethodPost, "/v1/tests/"+siblingTestID+"/runs", http.StatusAccepted,
 		launch{uuid.NewString(), testspec.InstantSelection{AgentIDs: siblingAgents}}, &sibling)
 	assertShippedInstantResults(t, stack, right, "/v1/test-runs/"+sibling.ID, siblingAgents, budget, siblingStart)
+	assertShippedInstantNativeStatus(t, stack, leftTenant, left, run.ID, sibling.ID, ownerAgents)
+	assertShippedInstantNativeStatus(t, stack, rightTenant, right, sibling.ID, run.ID, siblingAgents)
 
 	// An unfinished enrollment in the same site must prevent a partial run.
 	offline := uuid.NewString()
@@ -289,16 +292,7 @@ func assertShippedInstantResults(t *testing.T, stack *shipped.Stack, cookie, pat
 	if status != http.StatusOK || time.Since(started) > budget {
 		t.Fatalf("instant results missed %s: time=%s status=%d body=%s", budget, time.Since(started), status, body)
 	}
-	var final struct {
-		Agents []struct {
-			AgentID string `json:"agent_id"`
-			State   string `json:"state"`
-			Result  struct {
-				Success bool   `json:"success"`
-				Outcome string `json:"outcome"`
-			} `json:"result"`
-		} `json:"agents"`
-	}
+	var final shippedInstantStatus
 	for _, line := range strings.Split(string(body), "\n") {
 		if payload, ok := strings.CutPrefix(line, "data: "); ok {
 			if err := json.Unmarshal([]byte(payload), &final); err != nil {
@@ -306,14 +300,82 @@ func assertShippedInstantResults(t *testing.T, stack *shipped.Stack, cookie, pat
 			}
 		}
 	}
-	if len(final.Agents) != len(agents) {
-		t.Fatalf("wanted only %v, got %v", agents, final.Agents)
+	assertShippedInstantAgents(t, final, agents)
+}
+
+type shippedInstantStatus struct {
+	ID     string `json:"id"`
+	Agents []struct {
+		AgentID string `json:"agent_id"`
+		State   string `json:"state"`
+		Result  struct {
+			Success bool   `json:"success"`
+			Outcome string `json:"outcome"`
+		} `json:"result"`
+	} `json:"agents"`
+}
+
+func assertShippedInstantNativeStatus(t *testing.T, stack *shipped.Stack, tenant, cookie, ownRun, siblingRun string, agents []string) {
+	t.Helper()
+	readShippedInstantJSON(t, stack, cookie, http.MethodPut, "/v1/governance/policy", http.StatusOK,
+		map[string]any{"ai_remote_egress": true, "redact_export": true}, nil)
+	var identity struct {
+		UserID   string `json:"user_id"`
+		TenantID string `json:"tenant_id"`
+	}
+	readShippedInstantJSON(t, stack, cookie, http.MethodGet, "/v1/me", http.StatusOK, nil, &identity)
+	if identity.UserID == "" || identity.TenantID != tenant {
+		t.Fatal("the native status reader needs a user in the current tenant")
+	}
+	issued := strings.Split(strings.TrimSpace(stack.Subcommand(t, "mcp-token", "--tenant", tenant, "--user", identity.UserID,
+		"--name", "instant-status", "--scope", "read,ai.query", "--expires-days", "1")), "\n")
+	input, output := stack.MCPStdio(t, "instant-status-"+tenant, issued[len(issued)-1])
+	defer func() { _ = input.Close() }()
+	encoder, decoder := json.NewEncoder(input), json.NewDecoder(output)
+	for i, runID := range []string{ownRun, siblingRun} {
+		params := map[string]any{
+			"name": mcp.InstantTestStatusToolName, "arguments": map[string]string{"run_id": runID},
+			"_meta": map[string]any{"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+				"io.modelcontextprotocol/clientCapabilities": map[string]any{}},
+		}
+		if err := encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": i + 1, "method": "tools/call", "params": params}); err != nil {
+			t.Fatal("send native instant status request", err)
+		}
+		var reply struct {
+			Error  json.RawMessage `json:"error"`
+			Result struct {
+				IsError    bool                  `json:"isError"`
+				ResultType string                `json:"resultType"`
+				Status     *shippedInstantStatus `json:"structuredContent"`
+			} `json:"result"`
+		}
+		if err := decoder.Decode(&reply); err != nil {
+			t.Fatal("read native instant status response", err)
+		}
+		if runID == siblingRun {
+			if reply.Result.Status != nil || len(reply.Error) == 0 && !reply.Result.IsError {
+				t.Fatal("native instant status disclosed a sibling tenant's result")
+			}
+			continue
+		}
+		if len(reply.Error) != 0 || reply.Result.IsError || reply.Result.ResultType != "complete" ||
+			reply.Result.Status == nil || reply.Result.Status.ID != ownRun {
+			t.Fatal("native instant status did not return the current tenant's owned run")
+		}
+		assertShippedInstantAgents(t, *reply.Result.Status, agents)
+	}
+}
+
+func assertShippedInstantAgents(t *testing.T, status shippedInstantStatus, agents []string) {
+	t.Helper()
+	if len(status.Agents) != len(agents) {
+		t.Fatalf("wanted only %v, got %v", agents, status.Agents)
 	}
 	expected := make(map[string]bool, len(agents))
 	for _, id := range agents {
 		expected[id] = true
 	}
-	for _, row := range final.Agents {
+	for _, row := range status.Agents {
 		if !expected[row.AgentID] || row.State != "completed" || row.Result.Outcome != "measured" || !row.Result.Success {
 			t.Fatalf("unexpected final result: %+v", row)
 		}
