@@ -54,7 +54,33 @@ func TestAgentFactoryRunsRealPlaywrightWorker(t *testing.T) {
 			_, _ = w.Write([]byte(`<form method="post"><input name="username"><button type="submit">Sign in</button></form>`))
 			return
 		}
-		_, _ = w.Write([]byte(`<h1>Welcome rendered agent</h1>`))
+		_, _ = w.Write([]byte(`<style>
+  #moving { position: absolute; top: 35vh; left: 0; width: 50vw; height: 25vh; background: #ccc; }
+  h1 { font-size: 4rem; }
+</style><button id="slow" type="button">Confirm</button><div id="moving"></div>
+<script>
+  setTimeout(() => {
+    const heading = document.createElement('h1');
+    heading.textContent = 'Welcome rendered agent';
+    document.body.append(heading);
+  }, 100);
+  const moving = document.querySelector('#moving');
+  setTimeout(() => { moving.style.left = '10vw'; }, 600);
+  setTimeout(() => { moving.style.left = '20vw'; }, 780);
+  setTimeout(() => {
+    moving.style.left = '30vw';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const ready = document.createElement('span');
+      ready.textContent = 'Layout observations ready';
+      document.body.append(ready);
+    }));
+  }, 1950);
+  document.querySelector('#slow').addEventListener('click', () => {
+    const start = performance.now();
+    while (performance.now() - start < 225) {}
+    document.querySelector('#slow').textContent = 'Confirmed';
+  });
+</script>`))
 	}))
 	defer app.Close()
 
@@ -66,6 +92,9 @@ func TestAgentFactoryRunsRealPlaywrightWorker(t *testing.T) {
 			{Name: "username", Action: browser.Fill, Selector: `[name="username"]`, Value: "alice"},
 			{Name: "submit", Action: browser.Click, Selector: `button[type="submit"]`},
 			{Name: "welcome", Action: browser.AssertText, Value: "Welcome rendered agent"},
+			{Name: "layout complete", Action: browser.WaitText, Value: "Layout observations ready"},
+			{Name: "scripted click", Action: browser.Click, Selector: "#slow"},
+			{Name: "click rendered", Action: browser.AssertText, Value: "Confirmed"},
 		},
 	})
 	if err != nil {
@@ -97,6 +126,19 @@ func TestAgentFactoryRunsRealPlaywrightWorker(t *testing.T) {
 	}
 	if _, ok := result.Metrics["dom.load_ms"]; !ok {
 		t.Fatalf("real worker emitted no DOM timings: %+v", result.Metrics)
+	}
+	for _, expected := range []struct {
+		key              string
+		minimum, maximum float64
+	}{
+		{"lcp_ms", 90, 1600},
+		{"cls", 0.026, 0.037},
+		{"inp_ms", 200, 900},
+	} {
+		key := "browser.web_vitals." + expected.key
+		if value, got := result.Metrics[key]; !got || value < expected.minimum || value > expected.maximum || result.Attributes[key+".band"] == "" {
+			t.Errorf("%s missing or outside [%g, %g]: %g", key, expected.minimum, expected.maximum, value)
+		}
 	}
 }
 

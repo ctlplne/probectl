@@ -21,6 +21,7 @@ import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
 import { formatCount, formatDecimal, formatPercentValue, formatUnit } from '../i18n/number'
 import { TestResultTagContext } from './TestResultTagContext'
+import { BrowserVitals } from './BrowserVitals'
 
 /** Per-type synthetic result views (S-FE5). One consistent pattern across
  *  types — header kv + a type-specific breakdown — extending the S9 screens
@@ -403,6 +404,11 @@ export function ResultDetail({ test, onClose }: { test: Test; onClose: () => voi
               ) : null}
             </dl>
             <TypedBreakdown r={r} />
+            {r.type === 'browser' &&
+              a(r, 'browser.driver') === 'browser' &&
+              a(r, 'probectl.test.id') === test.id && (
+                <BrowserVitals latest={r} testID={test.id} />
+              )}
           </div>
         ))
       )}

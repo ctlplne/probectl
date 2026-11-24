@@ -176,6 +176,37 @@ failure artifact is stored. The run is then mapped onto the canonical
 `transaction.step.<n>.duration_ms` become metrics; step name/action/success and
 the screenshot key become attributes.
 
+## Synthetic Core Web Vitals
+
+Open **Targets & Tests → Results** for a rendered browser test to see the
+last observed value and the p75 trend for each reporting agent. The trend uses
+the held results for that exact test and agent in the previous hour and shows
+its sample count. It resets with the result cache. Use the retained time-series
+metrics for longer views.
+
+The worker observes the final top-level document in the transaction. LCP reports
+when the largest eligible element was painted. CLS reports the highest burst
+of unexpected layout shifts, with scores grouped into five-second windows that
+end at a one-second gap. INP uses Event Timing for the test's scripted actions.
+A run without an observable interaction leaves INP absent. Older workers and
+HTTP-only tests leave these metrics absent. An observed CLS of zero remains a
+sample.
+
+| Metric | Good through | Needs improvement through | Prometheus metric |
+| --- | --- | --- | --- |
+| Largest Contentful Paint | 2,500 ms | 4,000 ms | `probectl_probe_browser_web_vitals_lcp_ms` |
+| Cumulative Layout Shift | 0.10 | 0.25 | `probectl_probe_browser_web_vitals_cls` |
+| Interaction to Next Paint | 200 ms | 500 ms | `probectl_probe_browser_web_vitals_inp_ms` |
+
+Values above the upper band are poor. Use a threshold rule in [Alerts](alerting.md)
+for one of these metric names. Set `match.test_id` to the test's ID and
+`match.canary_type` to `browser`. Add `match.agent_id` to alert on a single
+vantage. For example, `comparison: gt` and `threshold: 500` alert on poor INP
+from the latest available measured sample. The rule and its samples are scoped
+by the reporting tenant.
+
+[Google Core Web Vitals thresholds](https://web.dev/articles/defining-core-web-vitals-thresholds) · [Interaction to Next Paint](https://web.dev/articles/inp)
+
 ## Fleet: isolation, concurrency, recycling
 
 Because browser workers are CPU- and memory-heavy, the `Fleet`

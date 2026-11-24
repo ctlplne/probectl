@@ -7,6 +7,7 @@
 package browser
 
 import (
+	"math"
 	"strconv"
 	"time"
 
@@ -37,6 +38,29 @@ func (r Result) ToCanaryResult() canary.Result {
 	attrs := map[string]string{
 		"browser.script":     r.Script,
 		"browser.step_count": strconv.Itoa(len(r.Steps)),
+	}
+	for _, metric := range []struct {
+		name                            string
+		value                           *float64
+		goodThrough, improvementThrough float64
+	}{
+		{"lcp_ms", r.DOM.LargestContentfulPaintMs, 2500, 4000},
+		{"cls", r.DOM.CumulativeLayoutShift, 0.10, 0.25},
+		{"inp_ms", r.DOM.InteractionToNextPaintMs, 200, 500},
+	} {
+		if metric.value == nil || *metric.value < 0 || math.IsNaN(*metric.value) || math.IsInf(*metric.value, 0) {
+			continue
+		}
+		name := "browser.web_vitals." + metric.name
+		metrics[name] = *metric.value
+		band := "good"
+		switch {
+		case *metric.value > metric.improvementThrough:
+			band = "poor"
+		case *metric.value > metric.goodThrough:
+			band = "needs_improvement"
+		}
+		attrs[name+".band"] = band
 	}
 	for i, step := range r.Steps {
 		prefix := "browser.step." + strconv.Itoa(i)

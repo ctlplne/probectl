@@ -276,7 +276,7 @@ capabilities:
     api: {refs: ["api:POST /v1/tests"]}
     cli: {refs: ["cli:probectl test create"]}
     ui: {refs: ["ui:F15@/targets"]}
-    docs: {refs: ["file:docs/browser-synthetic.md#Browser / transaction synthetic", "file:docs/browser-synthetic.md#API transaction preview"]}
+    docs: {refs: ["file:docs/browser-synthetic.md#Browser / transaction synthetic", "file:docs/browser-synthetic.md#API transaction preview", "file:docs/browser-synthetic.md#Synthetic Core Web Vitals"]}
     config_keys: {refs: ["config:PROBECTL_AGENT_BROWSER_DRIVER", "config:PROBECTL_AGENT_BROWSER_WORKER_PATH"]}
     telemetry: {refs: ["file:internal/browser"]}
     real_stack_proof: {refs: ["test:internal/browsercanary/shipped_browser_integration_test.go#TestRenderedBrowserCanariesReachOnlyTheirShippedTenant"]}

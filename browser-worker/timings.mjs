@@ -26,5 +26,10 @@ export function domTimings(raw = {}) {
   if (out.first_paint_ms === undefined && out.first_contentful_paint_ms === undefined) {
     out.paint_timing_unavailable = true
   }
+  const vitals = raw.vitals || {}
+  for (const key of ['largest_contentful_paint_ms', 'cumulative_layout_shift', 'interaction_to_next_paint_ms']) {
+    const value = vitals[key]
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) out[key] = value
+  }
   return out
 }

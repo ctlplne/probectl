@@ -113,7 +113,7 @@
       ],
       "name": "Browser synthetic",
       "status": "delivered",
-      "evidence": "`TestRenderedBrowserCanariesReachOnlyTheirShippedTenant` runs signed definitions on shipped agents with the pinned Playwright worker. Separate tenant sessions read rendered results and Prometheus samples. The expected failed step produces a PNG under the owning tenant's object prefix. HTTP API transaction preview adds request chaining, private captures and assertions through the same signed test definitions. Paired shipped credential and result verification remains pending."
+      "evidence": "`TestRenderedBrowserCanariesReachOnlyTheirShippedTenant` runs signed definitions on shipped agents with the pinned Playwright worker. Separate tenant sessions read rendered results and Prometheus samples. The expected failed step produces a PNG under the owning tenant's object prefix. HTTP API transaction preview adds request chaining, private captures and assertions through the same signed test definitions. Paired shipped credential and result verification remains pending. Rendered browser Core Web Vitals preview records LCP, CLS and INP in the existing tenant-scoped result and metric paths. The result UI shows bands and cached p75 trends, and metric rules can evaluate the thresholds. Exact runtime qualification remains pending."
     },
     {
       "ids": [

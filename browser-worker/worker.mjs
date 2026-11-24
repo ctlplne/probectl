@@ -14,6 +14,7 @@ import https from "node:https";
 import { BlockList, createServer, isIP } from "node:net";
 import { unlinkSync } from "node:fs";
 import { domTimings } from "./timings.mjs";
+import { installWebVitals } from "./web-vitals.mjs";
 
 const STEP_TIMEOUT_MS = Number(process.env.PROBECTL_BROWSER_STEP_TIMEOUT_MS || 15000);
 const ALLOW_PRIVATE_TARGETS = process.env.PROBECTL_BROWSER_ALLOW_PRIVATE_TARGETS === "true";
@@ -178,6 +179,7 @@ async function run(script, opts = {}) {
   // residual (sidecar isolation — design-partner-readiness decisions-needed D-36).
   const browser = await chromium.launch({ headless: true, chromiumSandbox: false });
   const context = await browser.newContext({ ignoreHTTPSErrors: false, serviceWorkers: "block" });
+  await context.addInitScript(installWebVitals);
   const page = await context.newPage();
   await page.route("**/*", async (route) => {
     try {
@@ -316,7 +318,18 @@ async function readDOMTimings(page) {
   // Read the RAW navigation + paint entries in the page; compute the reported
   // metrics in Node via domTimings so an absent paint entry is omitted with a
   // reason rather than reported as a false 0 ms (RTP-22).
-  const raw = await page.evaluate(() => {
+  const raw = await page.evaluate(async () => {
+    const vitals = window.probectlSyntheticWebVitals;
+    if (typeof vitals === "function" && document.visibilityState === "visible") {
+      // Event timing entries arrive after the frame that presents the input.
+      await new Promise((resolve) => {
+        const stop = setTimeout(resolve, 100);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          clearTimeout(stop);
+          resolve();
+        }));
+      });
+    }
     const nav = performance.getEntriesByType("navigation")[0] || {};
     const paints = {};
     for (const p of performance.getEntriesByType("paint")) paints[p.name] = p.startTime;
@@ -324,6 +337,7 @@ async function readDOMTimings(page) {
       domContentLoadedEventEnd: nav.domContentLoadedEventEnd || 0,
       loadEventEnd: nav.loadEventEnd || 0,
       paints,
+      vitals: typeof vitals === "function" ? vitals() : undefined,
     };
   });
   return domTimings(raw);

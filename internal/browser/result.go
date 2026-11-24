@@ -34,14 +34,20 @@ type ResourceTiming struct {
 // DOMTimings are the navigation/paint timings the browser driver captures (zero
 // for the HTTP driver, which does not render).
 type DOMTimings struct {
-	DOMContentLoadedMs     int64 `json:"dom_content_loaded_ms,omitempty"`
-	LoadMs                 int64 `json:"load_ms,omitempty"`
-	FirstPaintMs           int64 `json:"first_paint_ms,omitempty"`
-	FirstContentfulPaintMs int64 `json:"first_contentful_paint_ms,omitempty"`
+	DOMContentLoadedMs       int64    `json:"dom_content_loaded_ms,omitempty"`
+	LoadMs                   int64    `json:"load_ms,omitempty"`
+	FirstPaintMs             int64    `json:"first_paint_ms,omitempty"`
+	FirstContentfulPaintMs   int64    `json:"first_contentful_paint_ms,omitempty"`
+	LargestContentfulPaintMs *float64 `json:"largest_contentful_paint_ms,omitempty"`
+	CumulativeLayoutShift    *float64 `json:"cumulative_layout_shift,omitempty"`
+	InteractionToNextPaintMs *float64 `json:"interaction_to_next_paint_ms,omitempty"`
 }
 
-// empty reports whether no DOM timings were captured.
-func (d DOMTimings) empty() bool { return d == DOMTimings{} }
+// empty reports whether the original navigation and paint timings are absent.
+// The optional Web Vitals have their own presence bits.
+func (d DOMTimings) empty() bool {
+	return d.DOMContentLoadedMs == 0 && d.LoadMs == 0 && d.FirstPaintMs == 0 && d.FirstContentfulPaintMs == 0
+}
 
 // ScreenshotRef points at the failure artifact in the object store.
 type ScreenshotRef struct {
