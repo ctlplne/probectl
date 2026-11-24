@@ -177,7 +177,13 @@ async function run(script, opts = {}) {
   // in-process sandbox here would only make Chromium fail to launch. The agent
   // SVID living in the same container as this renderer is a separate, tracked
   // residual (sidecar isolation — design-partner-readiness decisions-needed D-36).
-  const browser = await chromium.launch({ headless: true, chromiumSandbox: false });
+  // The pinned Chromium 140 exposes the native interaction count when this
+  // Blink feature is enabled. Chromium 144 and later enable it by default.
+  const browser = await chromium.launch({
+    headless: true,
+    chromiumSandbox: false,
+    args: ["--enable-blink-features=EventTimingInteractionCount"],
+  });
   const context = await browser.newContext({ ignoreHTTPSErrors: false, serviceWorkers: "block" });
   await context.addInitScript(installWebVitals);
   const page = await context.newPage();
