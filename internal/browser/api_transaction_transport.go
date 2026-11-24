@@ -266,7 +266,10 @@ func (d *HTTPDriver) requestAPI(ctx context.Context, clients map[string]*http.Cl
 	client := clients[origin]
 	if client == nil {
 		jar, _ := cookiejar.New(nil)
-		client = &http.Client{Transport: d.transport, Jar: jar, CheckRedirect: apiRedirectGuard(d.guard)}
+		client = crypto.HardenedHTTPClient(0)
+		client.Transport = d.transport
+		client.Jar = jar
+		client.CheckRedirect = apiRedirectGuard(d.guard)
 		clients[origin] = client
 	}
 	timing, response, err := d.exchange(client, req, ResourceTiming{Method: req.Method, URL: origin}, start, remaining64, true)
