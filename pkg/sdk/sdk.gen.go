@@ -83,6 +83,23 @@ func Int(v int) *int             { return &v }
 func Bool(v bool) *bool          { return &v }
 func Float64(v float64) *float64 { return &v }
 
+type A2AMeshEdge struct {
+	CreatedAt      string             `json:"created_at"`
+	FromSite       string             `json:"from_site"`
+	InitiatorAgent string             `json:"initiator_agent"`
+	Metrics        map[string]float64 `json:"metrics,omitempty"`
+	ObservedAt     string             `json:"observed_at,omitempty"`
+	ResponderAgent string             `json:"responder_agent"`
+	SessionId      string             `json:"session_id"`
+	Status         string             `json:"status"`
+	TenantId       string             `json:"tenant_id"`
+	ToSite         string             `json:"to_site"`
+}
+
+type A2AMeshTopology struct {
+	Topology []A2AMeshEdge `json:"topology"`
+}
+
 // An ABAC policy evaluated after RBAC (deny-override).
 type ABACPolicy struct {
 	Effect     string            `json:"effect"`
@@ -5446,6 +5463,28 @@ func (c *Client) GetReadyz(ctx context.Context, req GetReadyzRequest) (*Health, 
 	path := "/readyz"
 	query := url.Values{}
 	var out Health
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read current agent-to-agent site measurements
+type GetA2aMeshRequest struct {
+	SessionId *string `json:"-"`
+	Limit     *int    `json:"-"`
+}
+
+func (c *Client) GetA2aMesh(ctx context.Context, req GetA2aMeshRequest) (*A2AMeshTopology, error) {
+	path := "/v1/a2a/mesh"
+	query := url.Values{}
+	if req.SessionId != nil {
+		query.Set("session_id", formatQueryValue(*req.SessionId))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out A2AMeshTopology
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}

@@ -224,6 +224,9 @@ func (s *Server) WithMetrics(reg *metrics.Registry) *Server {
 			"probectl_entity_evidence_observations_total",
 			"Entity observations accepted or left unresolved by the registry.",
 			"outcome", []string{"accepted", "unresolved"})
+		s.svc.a2aMeshReports = reg.LabeledCounter(
+			"probectl_a2a_mesh_reports_total", "Signed A2A mesh report frames by outcome.",
+			"outcome", []string{"accepted", "replay", "rejected", "retry"})
 	}
 	return s
 }

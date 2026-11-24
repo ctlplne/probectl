@@ -388,26 +388,25 @@ func (Agents) Get(ctx context.Context, s tenancy.Scope, id string) (*Agent, erro
 	return &a, nil
 }
 
-// ExistingIDs returns the subset of ids that are enrolled agents of the scoped
-// tenant, as a set, in one query (RLS fences the result to the tenant). Callers
-// must pass well-formed UUIDs — agents.id is uuid-typed, and a malformed value
-// would raise a 22P02 that aborts the tenant transaction.
-func (Agents) ExistingIDs(ctx context.Context, s tenancy.Scope, ids []string) (map[string]struct{}, error) {
-	present := make(map[string]struct{}, len(ids))
+// RegistrationTimes looks up the current registrations for enrolled agent UUIDs
+// in the scoped tenant. The database timestamp identifies the registration.
+func (Agents) RegistrationTimes(ctx context.Context, s tenancy.Scope, ids []string) (map[string]time.Time, error) {
+	present := make(map[string]time.Time, len(ids))
 	if len(ids) == 0 {
 		return present, nil
 	}
-	rows, err := s.Q.Query(ctx, `SELECT id FROM agents WHERE id = ANY($1::uuid[])`, ids)
+	rows, err := s.Q.Query(ctx, `SELECT id::text, registered_at FROM agents WHERE tenant_id=$1 AND id=ANY($2::uuid[])`, s.Tenant.String(), ids)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
+		var registered time.Time
+		if err := rows.Scan(&id, &registered); err != nil {
 			return nil, err
 		}
-		present[id] = struct{}{}
+		present[id] = registered
 	}
 	return present, rows.Err()
 }

@@ -39,6 +39,7 @@ const providerOpenAPI = JSON.parse(
 
 const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/branding' },
+  { method: 'GET', path: '/v1/a2a/mesh' },
   { method: 'GET', path: '/v1/abac/policies' },
   { method: 'GET', path: '/v1/agents' },
   {

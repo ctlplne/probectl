@@ -7,12 +7,16 @@
 package a2a
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/ctlplne/probectl/internal/canary"
+	"google.golang.org/protobuf/proto"
+
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 	"github.com/ctlplne/probectl/internal/incident"
 )
 
@@ -21,13 +25,35 @@ func TestMeshSchedulerThreeSiteFixtureTenantPartitionAndIncidents(t *testing.T) 
 	s := NewMeshScheduler(b)
 	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return now }
+	b.now = s.now
 
 	agents := []SiteAgent{
 		{AgentID: "agent-nyc", Site: "nyc"},
 		{AgentID: "agent-sfo", Site: "sfo"},
 		{AgentID: "agent-lon", Site: "lon"},
 	}
-	sessions, err := s.StartMesh("tenant-a", agents, "udp", 4)
+	auditUnavailable := errors.New("audit unavailable")
+	if _, err := s.StartMeshAfterAudit("tenant-a", agents, "udp", 4, func(int, string) (map[string]time.Time, error) {
+		if _, ok := b.PollFor("tenant-a", "agent-nyc"); ok {
+			t.Fatal("a task was dispatched before audit committed")
+		}
+		return nil, auditUnavailable
+	}); !errors.Is(err, auditUnavailable) || b.PendingCount("tenant-a") != 0 || len(s.TopologyOverlay("tenant-a")) != 0 {
+		t.Fatal("failed audit left mesh state", err)
+	}
+	// The PostgreSQL registry and broker have independent clocks. Deliberately
+	// put the registration ahead of the broker clock to test exact matching.
+	registrations := map[string]time.Time{"agent-nyc": now.Add(time.Second), "agent-sfo": now.Add(-time.Hour), "agent-lon": now.Add(-time.Minute)}
+	commit := func(int, string) (map[string]time.Time, error) { return registrations, nil }
+	if _, err := s.StartMeshAfterAudit("tenant-replaced", agents, "udp", 4, commit); err != nil {
+		t.Fatal(err)
+	}
+	if task, ok, err := b.PollForWithMeshAdmission("tenant-replaced", "agent-nyc", func() (time.Time, error) {
+		return registrations["agent-nyc"].Add(time.Second), nil
+	}); err != nil || ok || len(task.MeshResultKey) != 0 {
+		t.Fatal("replacement registration received an old assignment", err)
+	}
+	sessions, err := s.StartMeshAfterAudit("tenant-a", agents, "udp", 4, commit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,103 +64,123 @@ func TestMeshSchedulerThreeSiteFixtureTenantPartitionAndIncidents(t *testing.T) 
 		"lon->nyc", "lon->sfo", "nyc->lon", "nyc->sfo", "sfo->lon", "sfo->nyc",
 	})
 
-	for _, sess := range sessions {
-		task, ok := b.PollFor("tenant-a", sess.ResponderAgent)
-		if !ok {
-			t.Fatalf("responder %s had no broker task for %s", sess.ResponderAgent, sess.SessionID)
+	responders := make(map[string]Task)
+	initiators := make(map[string]Task)
+	poll := func(agent string) (Task, bool) {
+		t.Helper()
+		task, ok, err := b.PollForWithMeshAdmission("tenant-a", agent, func() (time.Time, error) {
+			return registrations[agent], nil
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
-		if task.SessionID != sess.SessionID || task.Role != RoleResponder || task.PeerAgentID != sess.InitiatorAgent {
-			t.Fatalf("task = %+v, session = %+v", task, sess)
+		return task, ok
+	}
+	for _, sess := range sessions {
+		task, ok := poll(sess.ResponderAgent)
+		if !ok || task.SessionID == sess.SessionID || MeshSessionHandle(task.SessionID) != sess.SessionID || task.Role != RoleResponder || task.PeerAgentID != sess.InitiatorAgent {
+			t.Fatalf("wrong responder task for %s", sess.SessionID)
 		}
 		if _, ok := b.PollFor("tenant-b", sess.ResponderAgent); ok {
-			t.Fatalf("tenant-b saw tenant-a responder task for %s", sess.ResponderAgent)
+			t.Fatal("tenant-b saw tenant-a responder task")
 		}
+		responders[sess.SessionID] = task
 	}
-
-	var degraded MeshSession
 	for _, sess := range sessions {
-		success := true
-		loss := 0.0
-		if sess.FromSite == "nyc" && sess.ToSite == "sfo" {
-			degraded = sess
-			success = false
-			loss = 1
+		registration := registrations[sess.ResponderAgent]
+		probeSession := responders[sess.SessionID].SessionID
+		if err := b.ReportEndpointWithRegistration("tenant-a", sess.ResponderAgent, sess.SessionID, "127.0.0.1", 1234, registration); err == nil {
+			t.Fatal("public mesh handle authorized an endpoint report")
 		}
-		if _, err := s.recordResult("tenant-a", sess.SessionID, sess.InitiatorAgent, meshCanaryResult("initiator", success, loss, now)); err != nil {
-			t.Fatalf("record initiator result: %v", err)
+		if err := b.ReportEndpointWithRegistration("tenant-a", sess.ResponderAgent, probeSession, "127.0.0.1", 1234, registration.Add(time.Second)); err == nil {
+			t.Fatal("replacement responder could announce the prior assignment's endpoint")
 		}
-	}
-	if degraded.SessionID == "" {
-		t.Fatal("test fixture did not find nyc->sfo session")
-	}
-	if _, err := s.recordResult("tenant-a", degraded.SessionID, degraded.ResponderAgent, meshCanaryResult("responder", false, 1, now.Add(time.Second))); err != nil {
-		t.Fatalf("record responder degraded result: %v", err)
-	}
-	if _, err := s.recordResult("tenant-b", degraded.SessionID, degraded.InitiatorAgent, meshCanaryResult("initiator", true, 0, now)); err == nil {
-		t.Fatal("cross-tenant result write must fail closed")
-	}
-
-	if got := len(s.Results("tenant-a")); got != 7 {
-		t.Fatalf("tenant-a results = %d, want 7", got)
-	}
-	if got := len(s.Results("tenant-b")); got != 0 {
-		t.Fatalf("tenant-b results = %d, want 0", got)
-	}
-
-	edges := s.TopologyOverlay("tenant-a")
-	if len(edges) != 6 {
-		t.Fatalf("topology edges = %d, want 6", len(edges))
-	}
-	statuses := map[string]string{}
-	for _, e := range edges {
-		statuses[e.FromSite+"->"+e.ToSite] = e.Status
-	}
-	if statuses["nyc->sfo"] != meshStatusDegraded {
-		t.Fatalf("nyc->sfo status = %q, want degraded", statuses["nyc->sfo"])
-	}
-	if statuses["sfo->nyc"] != meshStatusHealthy {
-		t.Fatalf("sfo->nyc status = %q, want healthy", statuses["sfo->nyc"])
+		if err := b.ReportEndpointWithRegistration("tenant-a", sess.ResponderAgent, probeSession, "127.0.0.1", 1234, registration); err != nil {
+			t.Fatal(err)
+		}
+		task, ok := poll(sess.InitiatorAgent)
+		if !ok || task.SessionID != probeSession || task.Role != RoleInitiator ||
+			bytes.Equal(task.MeshResultKey, responders[sess.SessionID].MeshResultKey) {
+			t.Fatal("wrong initiator task or reused responder key")
+		}
+		initiators[sess.SessionID] = task
 	}
 
 	store := incident.NewMemoryStore()
 	c := incident.NewCorrelator(store, time.Minute, slog.New(slog.NewTextHandler(testWriter{t}, nil)))
-	for _, sig := range s.incidentSignals("tenant-a") {
-		if _, err := c.Ingest(context.Background(), sig); err != nil {
-			t.Fatal(err)
+	var verifyAfterExpiry func() error
+	for _, sess := range sessions {
+		lost := sess.FromSite == "nyc" && sess.ToSite == "sfo"
+		for _, task := range []Task{initiators[sess.SessionID], responders[sess.SessionID]} {
+			agent, peer, role, target := sess.InitiatorAgent, sess.ResponderAgent, "initiator", "127.0.0.1:1234"
+			if task.Role == RoleResponder {
+				agent, peer, role, target = sess.ResponderAgent, sess.InitiatorAgent, "responder", sess.InitiatorAgent
+			}
+			wire := meshFixtureResult(sess.TenantID, agent, peer, role, target, now, lost)
+			payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mac := SignMeshResult(task.MeshResultKey, sess.SessionID, payload)
+			tampered := bytes.Clone(payload)
+			tampered[len(tampered)-1] ^= 1
+			claims := []struct {
+				tenant, agent string
+				body, proof   []byte
+			}{
+				{"tenant-b", agent, payload, mac}, {sess.TenantID, peer, payload, mac},
+				{sess.TenantID, agent, payload, nil}, {sess.TenantID, agent, tampered, mac},
+			}
+			for _, claim := range claims {
+				if _, err := s.VerifyReport(claim.tenant, claim.agent, sess.SessionID, claim.body, claim.proof); !errors.Is(err, ErrInvalidMeshReport) {
+					t.Fatal("invalid report was admitted", err)
+				}
+			}
+			wire.Attributes["a2a.role"] = "unassigned"
+			spoofed, err := proto.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.VerifyReport(sess.TenantID, agent, sess.SessionID, spoofed,
+				SignMeshResult(task.MeshResultKey, sess.SessionID, spoofed)); !errors.Is(err, ErrInvalidMeshReport) {
+				t.Fatal("a signed claim of a different role was admitted", err)
+			}
+			report, err := s.VerifyReport(sess.TenantID, agent, sess.SessionID, payload, mac)
+			if err != nil || !report.RegisteredAt.Equal(registrations[agent]) || !s.rememberResult(report.MeshResult) || s.rememberResult(report.MeshResult) {
+				t.Fatal("valid report was rejected or duplicated", err)
+			}
+			if sig, degraded := report.DegradedSignal(); degraded {
+				if _, err := c.Ingest(context.Background(), sig); err != nil {
+					t.Fatal(err)
+				}
+			}
+			verifyAfterExpiry = func() error {
+				_, err := s.VerifyReport(sess.TenantID, agent, sess.SessionID, payload, mac)
+				return err
+			}
+			want := meshStatusHealthy
+			if lost {
+				want = meshStatusDegraded
+			} else if task.Role == RoleInitiator {
+				want = meshStatusPending
+			}
+			if edges := s.RecentTopology(sess.TenantID, sess.SessionID, 1); len(edges) != 1 || edges[0].Status != want {
+				t.Fatalf("status = %+v, want %s", edges, want)
+			}
 		}
 	}
-	if store.Len() != 1 {
-		t.Fatalf("tenant-a incidents = %d, want 1 correlated incident", store.Len())
+	if open, err := store.OpenIncidents(context.Background(), "tenant-a"); err != nil || len(open) != 1 || open[0].SignalCount != 2 {
+		t.Fatal("degraded reports did not join one incident", open, err)
 	}
-	open, err := store.OpenIncidents(context.Background(), "tenant-a")
-	if err != nil {
-		t.Fatal(err)
+	if edges := s.TopologyOverlay("tenant-b"); len(edges) != 0 {
+		t.Fatal("sibling tenant saw assigned topology", edges)
 	}
-	if len(open) != 1 || open[0].SignalCount != 2 {
-		t.Fatalf("tenant-a open incidents = %+v, want one incident with two signals", open)
+	now = now.Add(meshSessionTTL)
+	if err := verifyAfterExpiry(); !errors.Is(err, ErrInvalidMeshReport) {
+		t.Fatal("an expired assignment admitted a valid old MAC", err)
 	}
-
-	tenantB, err := s.StartMesh("tenant-b", agents, "udp", 4)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var tenantBDegraded MeshSession
-	for _, sess := range tenantB {
-		if sess.FromSite == "nyc" && sess.ToSite == "sfo" {
-			tenantBDegraded = sess
-			break
-		}
-	}
-	if _, err := s.recordResult("tenant-b", tenantBDegraded.SessionID, tenantBDegraded.InitiatorAgent, meshCanaryResult("initiator", false, 1, now)); err != nil {
-		t.Fatal(err)
-	}
-	for _, sig := range s.incidentSignals("tenant-b") {
-		if _, err := c.Ingest(context.Background(), sig); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if store.Len() != 2 {
-		t.Fatalf("incidents across tenants = %d, want 2 tenant-partitioned incidents", store.Len())
+	if edges := s.TopologyOverlay("tenant-a"); len(edges) != 0 {
+		t.Fatal("expired topology is visible", edges)
 	}
 }
 
@@ -164,18 +210,21 @@ func requirePairs(t *testing.T, sessions []MeshSession, want []string) {
 	}
 }
 
-func meshCanaryResult(role string, success bool, loss float64, at time.Time) canary.Result {
-	return canary.Result{
-		Type:      "a2a",
-		Target:    "peer",
-		Success:   success,
-		StartedAt: at,
+func meshFixtureResult(tenant, agent, peer, role, target string, at time.Time, lost bool) *resultv1.Result {
+	loss, received := 0.0, 4.0
+	if lost {
+		loss, received = 1, 0
+	}
+	return &resultv1.Result{
+		TenantId: tenant, AgentId: agent, CanaryType: "a2a", ServerAddress: target,
+		StartTimeUnixNano: at.UnixNano(), DurationNano: int64(time.Millisecond), Success: !lost,
+		ResultId: "2da5464a-6102-4e69-be15-b41a640a0296",
 		Metrics: map[string]float64{
 			"loss.ratio":       loss,
 			"packets.sent":     4,
-			"packets.received": 4 * (1 - loss),
+			"packets.received": received,
 		},
-		Attributes: map[string]string{"a2a.role": role},
+		Attributes: map[string]string{"a2a.role": role, "a2a.mode": "udp", "network.transport": "udp", "a2a.peer_agent_id": peer},
 	}
 }
 

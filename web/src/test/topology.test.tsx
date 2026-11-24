@@ -98,6 +98,50 @@ function stub() {
 }
 
 describe('topology + what-if (S43)', () => {
+  test('refreshes an empty site mesh and clears cached rows after access is refused', async () => {
+    const tenant = '00000000-0000-4000-8000-000000000101'
+    const fallback = defaultFetch()
+    let response: 'empty' | 'measured' | 'denied' = 'empty'
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (pathOf(input) !== '/v1/a2a/mesh') return fallback(input, init)
+      if (response === 'denied') return jsonResponse({ error: { message: 'Forbidden' } }, 403)
+      return jsonResponse({
+        topology:
+          response === 'empty'
+            ? []
+            : [
+                {
+                  tenant_id: tenant,
+                  session_id: '000102030405060708090a0b0c0d0e0f',
+                  from_site: 'Own east site',
+                  to_site: 'Own west site',
+                  initiator_agent: 'agent-east',
+                  responder_agent: 'agent-west',
+                  status: 'degraded',
+                  created_at: '2026-11-23T15:14:00Z',
+                  observed_at: '2026-11-23T15:14:01Z',
+                  metrics: { 'loss.ratio': 0.25 },
+                },
+              ],
+      })
+    })
+    renderApp('/topology', {
+      me: { tenant_id: tenant, permissions: ['topology.read', 'agent.read'] },
+    })
+    expect(await screen.findByText('No live site mesh measurements')).toBeInTheDocument()
+
+    response = 'measured'
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh site mesh' }))
+    const mesh = await screen.findByRole('table', { name: 'Current directed site mesh edges' })
+    expect(within(mesh).getByText('Own east site')).toBeInTheDocument()
+    expect(within(mesh).getByText('Degraded')).toBeInTheDocument()
+
+    response = 'denied'
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh site mesh' }))
+    expect(await screen.findByText('Site mesh measurements unavailable')).toBeInTheDocument()
+    expect(screen.queryByText('Own east site')).not.toBeInTheDocument()
+  })
+
   test('canonical context projection keeps paired tenants and conflicts explicit', async () => {
     const cases = [
       {

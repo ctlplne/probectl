@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
 
+	"github.com/ctlplne/probectl/internal/a2a"
 	"github.com/ctlplne/probectl/internal/canary"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
@@ -111,16 +113,17 @@ func (co *Coordinator) handle(ctx context.Context, client *Client, task *agentv1
 	case agentv1.A2ARole_A2A_ROLE_INITIATOR:
 		co.runInitiator(ctx, task)
 	default:
-		co.log.Warn("unknown coordination role", "session", task.GetSessionId())
+		co.log.Warn("unknown coordination role", "session", coordinationSessionHandle(task))
 	}
 }
 
 func (co *Coordinator) runResponder(ctx context.Context, client *Client, task *agentv1.A2ATask) {
 	resp, err := canary.StartA2AResponder(task.GetMode(), co.advertise, task.GetSessionId())
 	if err != nil {
-		co.log.Error("a2a responder listen failed", "session", task.GetSessionId(), "error", err.Error())
+		co.log.Error("a2a responder listen failed", "session", coordinationSessionHandle(task), "error", err.Error())
 		return
 	}
+	defer resp.Close()
 	// DPR-246: both errors were discarded, so a listener address this code could
 	// not parse was reported to the peer as port 0 — a measurement endpoint nobody
 	// can reach, indistinguishable from a healthy one. ParseUint with an explicit
@@ -142,13 +145,13 @@ func (co *Coordinator) runResponder(ctx context.Context, client *Client, task *a
 	err = client.ReportEndpoint(rctx, task.GetSessionId(), co.advertise, port)
 	cancel()
 	if err != nil {
-		co.log.Error("a2a report endpoint failed", "session", task.GetSessionId(), "error", err.Error())
+		co.log.Error("a2a report endpoint failed", "session", coordinationSessionHandle(task), "error", err.Error())
 		return
 	}
 
 	serveCtx, stop := context.WithTimeout(ctx, co.cfg.A2A.ResponderTTL.Std())
 	defer stop()
-	co.enqueue(resp.Serve(serveCtx, int(task.GetCount()), task.GetPeerAgentId()))
+	co.enqueue(ctx, task, resp.Serve(serveCtx, int(task.GetCount()), task.GetPeerAgentId()))
 }
 
 func (co *Coordinator) runInitiator(ctx context.Context, task *agentv1.A2ATask) {
@@ -162,20 +165,39 @@ func (co *Coordinator) runInitiator(ctx context.Context, task *agentv1.A2ATask) 
 	guard := canary.NewTargetGuard(co.cfg.A2A.AllowPrivateTargets)
 	res, err := canary.RunA2AInitiator(ictx, task.GetMode(), addr, int(task.GetCount()), 3*time.Second, task.GetPeerAgentId(), task.GetSessionId(), guard)
 	if err != nil {
-		co.log.Error("a2a initiator failed", "session", task.GetSessionId(), "error", err.Error())
+		co.log.Error("a2a initiator failed", "session", coordinationSessionHandle(task), "error", err.Error())
 		return
 	}
-	co.enqueue(res)
+	co.enqueue(ictx, task, res)
 }
 
-func (co *Coordinator) enqueue(res canary.Result) {
-	payload, err := json.Marshal(resultEnvelope{
+func (co *Coordinator) enqueue(ctx context.Context, task *agentv1.A2ATask, res canary.Result) {
+	key := task.GetMeshResultKey()
+	if len(key) != 0 && ctx.Err() != nil {
+		return // an interrupted measurement leaves its assigned report pending
+	}
+	envelope := resultEnvelope{
 		SchemaVersion: resultEnvelopeSchemaVersion,
 		TenantID:      co.tenantID,
 		AgentID:       co.agentID,
 		ResultID:      newResultID(),
 		Result:        res,
-	})
+	}
+	if len(key) != 0 {
+		handle := coordinationSessionHandle(task)
+		payload, err := proto.MarshalOptions{Deterministic: true}.Marshal(envToResult(&envelope))
+		if err != nil || envelope.ResultID == "" {
+			co.log.Warn("cannot encode A2A mesh report", "session", handle)
+			return
+		}
+		mac := a2a.SignMeshResult(key, handle, payload)
+		if mac == nil {
+			co.log.Warn("cannot sign A2A mesh report", "session", handle)
+			return
+		}
+		envelope.MeshReport = &bufferedA2AReport{SessionID: handle, Payload: payload, MAC: mac}
+	}
+	payload, err := json.Marshal(envelope)
 	if err != nil {
 		co.log.Error("a2a marshal result", "error", err.Error())
 		return
@@ -183,6 +205,13 @@ func (co *Coordinator) enqueue(res canary.Result) {
 	if err := co.buffer.Enqueue(payload); err != nil {
 		co.log.Warn("dropping a2a result (buffer full)", "error", err.Error())
 	}
+}
+
+func coordinationSessionHandle(task *agentv1.A2ATask) string {
+	if len(task.GetMeshResultKey()) != 0 {
+		return a2a.MeshSessionHandle(task.GetSessionId())
+	}
+	return task.GetSessionId()
 }
 
 // detectAdvertiseHost returns a non-loopback IPv4 to advertise to peers, falling

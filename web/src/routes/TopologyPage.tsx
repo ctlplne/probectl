@@ -25,6 +25,7 @@ import {
 } from '../components'
 import {
   topologyWhatIfExportHref,
+  useA2AMeshTopology,
   useTopology,
   useWhatIf,
   type TopoEdge,
@@ -32,6 +33,7 @@ import {
   type TopologyResponse,
   type WhatIfImpact,
 } from '../api/topology'
+import type { A2AMeshEdge } from '../api/sdk.gen'
 import { useIncident } from '../api/incidents'
 import { layoutTopology, T_HEADER, T_NODE_H, T_NODE_W, type TopoLayout } from '../viz/topoLayout'
 import { FilterBar, SavedViews } from './listControls'
@@ -433,6 +435,7 @@ export function TopologyPage() {
       )}
 
       <IdentityConflictsCard surface="topology" />
+      {!at && permissions.includes('agent.read') ? <A2AMeshTopologyCard /> : null}
 
       <ExplainView
         surface="topology"
@@ -471,6 +474,79 @@ function toUTCDateTimeInput(value: string): string {
   const timestamp = Date.parse(value)
   if (!value || !Number.isFinite(timestamp)) return ''
   return new Date(timestamp).toISOString().slice(0, 16)
+}
+
+function A2AMeshTopologyCard() {
+  const mesh = useA2AMeshTopology()
+  const edges = mesh.data?.topology ?? []
+
+  const percent = new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 2 })
+  const columns: Column<A2AMeshEdge>[] = [
+    { key: 'from', header: 'From site', render: (edge) => edge.from_site },
+    { key: 'to', header: 'To site', render: (edge) => edge.to_site },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (edge) => {
+        if (edge.status === 'healthy') return <Badge tone="success">Healthy</Badge>
+        if (edge.status === 'degraded') return <Badge tone="warning">Degraded</Badge>
+        return <Badge tone="info">Pending</Badge>
+      },
+    },
+    {
+      key: 'loss',
+      header: 'Packet loss',
+      numeric: true,
+      render: (edge) => {
+        const loss = edge.metrics?.['loss.ratio']
+        return loss === undefined ? '—' : percent.format(loss)
+      },
+    },
+    {
+      key: 'observed',
+      header: 'Observed',
+      render: (edge) =>
+        edge.observed_at ? (
+          <time dateTime={edge.observed_at}>{new Date(edge.observed_at).toLocaleString()}</time>
+        ) : (
+          '—'
+        ),
+    },
+  ]
+  let content = (
+    <Table
+      caption="Current directed site mesh edges"
+      columns={columns}
+      rows={edges}
+      rowKey={(edge) => edge.session_id}
+    />
+  )
+  if (mesh.isError) {
+    content = <ErrorState title="Site mesh measurements unavailable" />
+  } else if (mesh.isPending) {
+    content = <LoadingState label="Loading site mesh measurements…" />
+  } else if (edges.length === 0) {
+    content = <EmptyState title="No live site mesh measurements" />
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Site mesh measurements"
+        actions={
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={mesh.isFetching}
+            onClick={() => void mesh.refetch()}
+          >
+            Refresh site mesh
+          </Button>
+        }
+      />
+      <CardBody>{content}</CardBody>
+    </Card>
+  )
 }
 
 function TopologyToolbar({

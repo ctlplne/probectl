@@ -165,6 +165,10 @@ type subjectTablePolicy struct {
 var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 
 	"abac_policies": {plane: "postgres:abac_policies", disposition: subjectTableNoSubject},
+	"a2a_mesh_results": {
+		plane: "postgres:a2a_mesh_results", disposition: subjectTableDeleteMatches,
+		exact: []string{"agent_id", "peer_agent_id"},
+	},
 	"agent_enroll_tokens": {
 		plane: "postgres:agent_enroll_tokens", disposition: subjectTableDeleteMatches,
 		exact: []string{"id", "agent_id", "created_by", "used_by_agent"},

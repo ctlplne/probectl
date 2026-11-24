@@ -46,8 +46,15 @@ type resultEnvelope struct {
 	// buffered, a retried/redelivered frame carries the SAME id — the dedup key
 	// the row stores collapse on. Minted here, not at send time, precisely so a
 	// resend does not get a fresh id.
-	ResultID string        `json:"result_id"`
-	Result   canary.Result `json:"result"`
+	ResultID   string             `json:"result_id"`
+	Result     canary.Result      `json:"result"`
+	MeshReport *bufferedA2AReport `json:"a2a_mesh_report,omitempty"`
+}
+
+type bufferedA2AReport struct {
+	SessionID string `json:"session_id"`
+	Payload   []byte `json:"payload"`
+	MAC       []byte `json:"mac"`
 }
 
 // newResultID mints the per-result dedup UUID (CORRECT-002); on the vanishingly

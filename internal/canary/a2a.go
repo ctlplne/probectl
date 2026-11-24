@@ -155,6 +155,16 @@ func StartA2AResponder(mode, host, sessionID string) (*A2AResponder, error) {
 // Addr is the responder's bound listen address (host:port).
 func (r *A2AResponder) Addr() string { return r.addr }
 
+// Close releases the listener when coordination ends before Serve starts.
+func (r *A2AResponder) Close() {
+	if r.udp != nil {
+		_ = r.udp.Close()
+	}
+	if r.tcp != nil {
+		_ = r.tcp.Close()
+	}
+}
+
 // Serve echoes probes until ctx is canceled, returning a responder-side Result.
 // count is the expected probe count (from the broker) so the responder can report
 // forward-direction loss.

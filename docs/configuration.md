@@ -1117,7 +1117,21 @@ Pair sessions and full site meshes are brokered in-memory and started through
 the tenant/RBAC-scoped A2A APIs (`POST /v1/a2a/sessions` and
 `POST /v1/a2a/mesh`). The mesh API accepts site-labeled agents, binds tenant
 identity from the authenticated caller, schedules every directed site pair, and
-contributes a site-to-site topology overlay.
+contributes a site-to-site topology overlay. Mesh agents receive separate
+report-signing keys for their assigned roles over mTLS. Both roles must return
+a verified zero-loss measurement for an edge to become healthy. One verified
+loss measurement marks the edge degraded and contributes a synthetic incident
+signal. An edge without verified loss stays pending while it awaits either
+report. An interrupted measurement can leave a report outstanding.
+
+Read live edges on Topology or with `probectl a2a mesh-status`. Pass
+`--query session_id=<id>` for one session. The read requires `agent.read` and
+shows only the caller tenant's edges for agents with current issued identities.
+The live window is 15 minutes from assignment. Brokers, agent coordination and
+live readback for a mesh use the same control-plane replica for that window.
+Restarting that replica can end outstanding sessions. An accepted loss signal
+survives in the incidents store. Older agents continue to emit ordinary metrics
+and leave their part of the live overlay pending.
 
 ### Path discovery
 

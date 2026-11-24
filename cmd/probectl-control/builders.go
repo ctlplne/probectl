@@ -1022,6 +1022,9 @@ func startAgentTransport(
 	grpcSrv.WithWriterFence(writerFence)
 	grpcSrv.WithFairness(fairGate)
 	grpcSrv.WithFaultCorrelator(correlator)
+	if srv != nil && srv.A2AMeshScheduler() != nil {
+		grpcSrv.WithA2AMeshResults(srv.A2AMeshScheduler(), control.A2AMeshSignalWriter(cfg.IncidentWindow, log, incidentObserver))
+	}
 	if cfg.BMPSessionSignalsEnabled {
 		grpcSrv.WithBMPSessionSignals(store.BMPSessionSignalPolicy{LossEnabled: true, FlapThreshold: cfg.BMPSessionFlapThreshold,
 			FlapWindow: time.Duration(cfg.BMPSessionFlapWindowMinutes) * time.Minute},

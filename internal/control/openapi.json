@@ -17188,6 +17188,62 @@
       }
     },
     "/v1/a2a/mesh": {
+      "get": {
+        "x-required-permission": "agent.read",
+        "operationId": "getA2AMesh",
+        "summary": "Read current agent-to-agent site measurements",
+        "description": "Returns recent live edges from the authenticated tenant. Both roles must report zero loss for healthy. A verified report with loss marks an edge degraded. Unknown, expired and out-of-scope sessions produce an empty topology.",
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4032,
+              "default": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current topology",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/A2AMeshTopology"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
       "post": {
         "x-required-permission": "agent.write",
         "operationId": "startA2AMesh",
@@ -17293,41 +17349,7 @@
                     "topology": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "tenant_id": {
-                            "type": "string"
-                          },
-                          "from_site": {
-                            "type": "string"
-                          },
-                          "to_site": {
-                            "type": "string"
-                          },
-                          "initiator_agent": {
-                            "type": "string"
-                          },
-                          "responder_agent": {
-                            "type": "string"
-                          },
-                          "session_id": {
-                            "type": "string"
-                          },
-                          "status": {
-                            "type": "string",
-                            "enum": [
-                              "pending",
-                              "healthy",
-                              "degraded"
-                            ]
-                          },
-                          "metrics": {
-                            "type": "object",
-                            "additionalProperties": {
-                              "type": "number"
-                            }
-                          }
-                        }
+                        "$ref": "#/components/schemas/A2AMeshEdge"
                       }
                     }
                   }
@@ -19463,6 +19485,75 @@
       }
     },
     "schemas": {
+      "A2AMeshEdge": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
+          "from_site": {
+            "type": "string"
+          },
+          "to_site": {
+            "type": "string"
+          },
+          "initiator_agent": {
+            "type": "string"
+          },
+          "responder_agent": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "healthy",
+              "degraded"
+            ]
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "session_id",
+          "from_site",
+          "to_site",
+          "initiator_agent",
+          "responder_agent",
+          "status",
+          "created_at"
+        ]
+      },
+      "A2AMeshTopology": {
+        "type": "object",
+        "required": [
+          "topology"
+        ],
+        "properties": {
+          "topology": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/A2AMeshEdge"
+            }
+          }
+        }
+      },
       "ReportEmailDelivery": {
         "type": "object",
         "additionalProperties": false,

@@ -532,6 +532,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/directory/users/{id}/roles":                                 auditExplicit(auditFacetMutation, "directory.role_bind"),
 	"DELETE /v1/directory/users/{id}/roles/{role}":                        auditExplicit(auditFacetMutation, "directory.role_unbind"),
 	"POST /v1/a2a/sessions":                                               auditExplicit(auditFacetOperational, "a2a.session.start"),
+	"GET /v1/a2a/mesh":                                                    auditWrapped(auditFacetOperational),
 	"POST /v1/a2a/mesh":                                                   auditExplicit(auditFacetOperational, "a2a.mesh.start"),
 	"GET /v1/rollouts":                                                    auditWrapped(auditFacetOperational),
 	"POST /v1/rollouts":                                                   auditExplicit(auditFacetOperational, "rollout.create"),

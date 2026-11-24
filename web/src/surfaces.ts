@@ -915,7 +915,7 @@ export const SURFACES: SurfaceDecl[] = [
 
   // --- federated surfaces (by design) ---
   {
-    capability: 'Broker-coordinated agent-to-agent session and mesh scheduling',
+    capability: 'Broker-coordinated agent-to-agent scheduling and live mesh measurements',
     featureIds: ['F2'],
     sprint: 'S8/W7',
     kind: 'federated',
@@ -924,6 +924,8 @@ export const SURFACES: SurfaceDecl[] = [
       'openapi:/v1/a2a/mesh',
       'cli:probectl a2a create-session',
       'cli:probectl a2a start-mesh',
+      'cli:probectl a2a mesh-status',
+      'file:web/src/routes/TopologyPage.tsx',
       'file:docs/adr/a2a-broker-coordination.md',
     ],
     liveReceipt: FEDERATED_NON_LIVE_RECEIPT,

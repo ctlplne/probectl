@@ -7,10 +7,21 @@
 package agent
 
 import (
+	"bytes"
+	"context"
+	"encoding/base64"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"testing"
+	"time"
 
+	"google.golang.org/protobuf/proto"
+
+	"github.com/ctlplne/probectl/internal/a2a"
 	"github.com/ctlplne/probectl/internal/canary"
+	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 // CORRECT-002: the per-result id is minted before buffering and carried through
@@ -44,5 +55,55 @@ func TestResultIDSurvivesBufferRoundTrip(t *testing.T) {
 	a, b := newResultID(), newResultID()
 	if a == b {
 		t.Fatal("newResultID must be unique per call")
+	}
+}
+
+func TestA2AMeshReportKeepsExactBufferReplay(t *testing.T) {
+	buffer, err := openBuffer(t.TempDir(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	co := &Coordinator{buffer: buffer, tenantID: "t-blue", agentID: "agent-blue", log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	key := bytes.Repeat([]byte{0x42}, a2a.MeshResultKeyBytes)
+	siblingKey := bytes.Repeat([]byte{0x43}, a2a.MeshResultKeyBytes)
+	const session = "b0cc0a7ba6c543938485d60085b37201"
+	task := &agentv1.A2ATask{SessionId: session, MeshResultKey: key}
+	interrupted, cancel := context.WithCancel(t.Context())
+	cancel()
+	co.enqueue(interrupted, task, canary.Result{Type: "a2a", Metrics: map[string]float64{"loss.ratio": 1}})
+	co.enqueue(t.Context(), task, canary.Result{
+		Type: "a2a", Target: "agent-peer", Success: true, StartedAt: time.Now().UTC(),
+		Metrics:    map[string]float64{"packets.received": 4, "loss.ratio": 0},
+		Attributes: map[string]string{"a2a.role": "initiator", "a2a.mode": "udp"},
+	})
+	frames, err := buffer.peekAll()
+	if err != nil || len(frames) != 1 {
+		t.Fatalf("expected one stored signed report: %d, %v", len(frames), err)
+	}
+	if bytes.Contains(frames[0], []byte(base64.StdEncoding.EncodeToString(key))) {
+		t.Fatal("task signing key leaked into the buffered result")
+	}
+	if bytes.Contains(frames[0], []byte(session)) {
+		t.Fatal("probe credential leaked into the buffered result")
+	}
+	first, err := frameToRequest(frames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry, err := frameToRequest(frames[0])
+	if err != nil || !proto.Equal(first, retry) {
+		t.Fatal("retry changed the signed request", err)
+	}
+	proof := first.GetA2AMeshProof()
+	handle := a2a.MeshSessionHandle(session)
+	if proof.GetSessionId() != handle || !a2a.VerifyMeshResult(key, handle, first.GetPayload(), proof.GetMac()) ||
+		a2a.VerifyMeshResult(siblingKey, handle, first.GetPayload(), proof.GetMac()) ||
+		a2a.VerifyMeshResult(key, handle, append(bytes.Clone(first.GetPayload()), 0), proof.GetMac()) {
+		t.Fatal("the signature did not bind the original result and assigned reporter")
+	}
+	var result resultv1.Result
+	if err := proto.Unmarshal(first.GetPayload(), &result); err != nil || result.GetTenantId() != co.tenantID ||
+		result.GetAgentId() != co.agentID || result.GetResultId() == "" || result.GetAttributes()["a2a.role"] != "initiator" {
+		t.Fatal("the signed buffer lost the reporter or original result identity", err)
 	}
 }

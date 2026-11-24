@@ -131,10 +131,19 @@ message StreamResultsRequest {
   string type = 1;
   bytes payload = 2;
   int64 observed_unix_nanos = 3;
+  A2AMeshResultProof a2a_mesh_proof = 4;
 }
 
 message StreamResultsResponse {
   uint64 accepted = 1;
+}
+
+// A2AMeshResultProof authenticates the exact result payload for one brokered
+// assignment. It carries the public mesh handle. The sender and tenant come
+// from the mTLS stream.
+message A2AMeshResultProof {
+  string session_id = 1;
+  bytes mac = 2;
 }
 
 // A2ARole is an agent's role in one agent-to-agent measurement session.
@@ -152,6 +161,7 @@ message PollCoordinationResponse {
 }
 
 // A2ATask is one brokered agent-to-agent assignment for the calling agent.
+// In a mesh task, session_id carries the private probe credential.
 message A2ATask {
   string session_id = 1;
   A2ARole role = 2;
@@ -161,6 +171,9 @@ message A2ATask {
   string responder_host = 5;
   uint32 responder_port = 6;
   string peer_agent_id = 7; // the other agent in the session (for labeling)
+  // Mesh only. This key signs the assigned sender's result; each role has its
+  // own key. It is delivered only to that role's authenticated agent.
+  bytes mesh_result_key = 8;
 }
 
 message ReportEndpointRequest {

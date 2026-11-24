@@ -8,6 +8,23 @@ import { readResponseJSON, ResponseBodyTooLargeError, responseBodyLimit } from '
 export type JsonValue = string | number | boolean | null | JsonObject | JsonValue[]
 export interface JsonObject { [key: string]: JsonValue }
 
+export interface A2AMeshEdge {
+  created_at: string
+  from_site: string
+  initiator_agent: string
+  metrics?: { [key: string]: number }
+  observed_at?: string
+  responder_agent: string
+  session_id: string
+  status: "pending" | "healthy" | "degraded"
+  tenant_id: string
+  to_site: string
+}
+
+export interface A2AMeshTopology {
+  topology: A2AMeshEdge[]
+}
+
 export interface ABACPolicy {
   effect: "allow" | "deny"
   enabled?: boolean
@@ -5154,6 +5171,13 @@ export interface GetReadyzRequest {
 
 export type GetReadyzResponse = Health
 
+export interface GetA2aMeshRequest {
+  sessionId?: string
+  limit?: number
+}
+
+export type GetA2aMeshResponse = A2AMeshTopology
+
 export interface StartA2aMeshRequest {
   body: JsonObject
 }
@@ -7384,6 +7408,14 @@ export class ProbectlSDKClient {
     let path = "/readyz"
     const query = new URLSearchParams()
     return this.requestJSON<GetReadyzResponse>("GET", path, query, undefined)
+  }
+
+  async getA2aMesh(request: GetA2aMeshRequest = {}): Promise<GetA2aMeshResponse> {
+    let path = "/v1/a2a/mesh"
+    const query = new URLSearchParams()
+    if (request.sessionId !== undefined) query.set("session_id", String(request.sessionId))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<GetA2aMeshResponse>("GET", path, query, undefined)
   }
 
   async startA2aMesh(request: StartA2aMeshRequest): Promise<StartA2aMeshResponse> {

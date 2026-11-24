@@ -1718,6 +1718,13 @@ export const API_CALL_CONTRACTS = [
   },
   {
     file: 'api/topology.ts',
+    method: 'GET',
+    path: '/a2a/mesh',
+    response: 'A2AMeshTopology',
+    generated: 'GetA2aMeshResponse',
+  },
+  {
+    file: 'api/topology.ts',
     method: 'POST',
     path: '/topology/whatif',
     response: 'WhatIfImpact',

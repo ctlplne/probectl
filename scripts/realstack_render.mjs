@@ -90,7 +90,12 @@ async function main() {
   });
   const result = { missing: [], present: [], title: "", url: "", errors: [], text: "", cookies: [] };
   try {
-    const context = await browser.newContext();
+    // Audit the settled colors in each theme using the browser's supported
+    // reduced-motion preference. Async updates can start another transition
+    // after the animation wait and before axe reads the computed colors.
+    const context = await browser.newContext({
+      reducedMotion: spec.accessibility ? "reduce" : undefined,
+    });
     if (spec.accessibility) {
       // Existing hash-locked web dev dependency, injected by the browser
       // driver before navigation. Product CSP and listeners stay unchanged.

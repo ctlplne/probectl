@@ -173,6 +173,9 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 			foreignKey{"entity_fault_receipts", "fx2_fault_receipt_incident_fk", "tenant_id, incident_id", "incidents", "tenant_id, id"},
 		)
 	}
+	if owned["a2a_mesh_results"] {
+		keys = append(keys, foreignKey{"a2a_mesh_results", "a2a_mesh_result_tenant_fk", "tenant_id", "public.tenants", "id"})
+	}
 	// CREATE TABLE LIKE omits every import FK. Keep source plans, row targets
 	// and provenance inside the same physical tenant and routing context on
 	// both first provision and catch-up. Older schemas have no import tables.

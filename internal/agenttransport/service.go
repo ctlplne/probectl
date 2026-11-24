@@ -159,6 +159,9 @@ type service struct {
 	resolverDNSPressure   *dnstap.PressurePolicy
 	bmpSessionPolicy      store.BMPSessionSignalPolicy
 	bmpSessionSignals     func(context.Context, tenancy.Scope, []incident.Signal) (func(), error)
+	a2aMesh               *a2a.MeshScheduler
+	a2aMeshSignal         func(context.Context, tenancy.Scope, incident.Signal) (func(), error)
+	a2aMeshReports        map[string]*metrics.Counter
 
 	// revocations is the SAME registry-driven mTLS deny-list the handshake
 	// consults (U-038). mTLS checks it once, at connect; CRY-01 re-checks it on
@@ -405,6 +408,9 @@ func (svc *service) StreamResults(stream grpc.ClientStreamingServer[agentv1.Stre
 // ingest decodes one result, stamps the authoritative tenant + agent identity
 // from the certificate, and publishes it to the result bus keyed by tenant.
 func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1.StreamResultsRequest) error {
+	if req.GetA2AMeshProof() != nil {
+		return svc.ingestA2AMeshReport(ctx, id, req)
+	}
 	var r resultv1.Result
 	if err := proto.Unmarshal(req.GetPayload(), &r); err != nil {
 		// A malformed payload is a poison message: drop it (counted as accepted
@@ -507,7 +513,12 @@ func (svc *service) PollCoordination(ctx context.Context, _ *agentv1.PollCoordin
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "tenant collection admission unavailable")
 	}
-	task, ok := svc.broker.PollFor(id.TenantID, id.AgentID)
+	task, ok, err := svc.broker.PollForWithMeshAdmission(id.TenantID, id.AgentID, func() (time.Time, error) {
+		return svc.admitA2AMeshCredential(ctx, id)
+	})
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return &agentv1.PollCoordinationResponse{HasTask: false}, nil
 	}
@@ -531,7 +542,14 @@ func (svc *service) ReportEndpoint(ctx context.Context, req *agentv1.ReportEndpo
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "tenant collection admission unavailable")
 	}
-	if err := svc.broker.ReportEndpoint(id.TenantID, id.AgentID, req.GetSessionId(), req.GetHost(), req.GetPort()); err != nil {
+	var registeredAt time.Time
+	if svc.broker.IsMeshResponder(id.TenantID, id.AgentID, req.GetSessionId()) {
+		registeredAt, err = svc.admitA2AMeshCredential(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := svc.broker.ReportEndpointWithRegistration(id.TenantID, id.AgentID, req.GetSessionId(), req.GetHost(), req.GetPort(), registeredAt); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	return &agentv1.ReportEndpointResponse{Accepted: true}, nil
@@ -553,5 +571,6 @@ func toProtoTask(t a2a.Task) *agentv1.A2ATask {
 		ResponderHost: t.ResponderHost,
 		ResponderPort: t.ResponderPort,
 		PeerAgentId:   t.PeerAgentID,
+		MeshResultKey: t.MeshResultKey,
 	}
 }

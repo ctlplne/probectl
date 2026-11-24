@@ -1190,6 +1190,7 @@ export function fixtureFetch(
     assertNoDoublePrefix(input)
     const path = pathOf(input)
     const method = String(init?.method ?? 'GET').toUpperCase()
+    if (path === '/v1/a2a/mesh' && method === 'GET') return jsonResponse({ topology: [] })
     if (profile === 'cold') {
       const cold = coldFixture(path)
       if (cold) return cold

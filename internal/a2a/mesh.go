@@ -9,11 +9,11 @@ package a2a
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"sync"
 	"time"
 
-	"github.com/ctlplne/probectl/internal/canary"
 	"github.com/ctlplne/probectl/internal/incident"
 )
 
@@ -77,14 +77,18 @@ type MeshResult struct {
 
 // TopologyEdge is the site-to-site overlay the mesh contributes to topology.
 type TopologyEdge struct {
-	TenantID       string             `json:"tenant_id"`
-	FromSite       string             `json:"from_site"`
-	ToSite         string             `json:"to_site"`
-	InitiatorAgent string             `json:"initiator_agent"`
-	ResponderAgent string             `json:"responder_agent"`
-	SessionID      string             `json:"session_id"`
-	Status         string             `json:"status"`
-	Metrics        map[string]float64 `json:"metrics,omitempty"`
+	TenantID              string             `json:"tenant_id"`
+	FromSite              string             `json:"from_site"`
+	ToSite                string             `json:"to_site"`
+	InitiatorAgent        string             `json:"initiator_agent"`
+	ResponderAgent        string             `json:"responder_agent"`
+	SessionID             string             `json:"session_id"`
+	CreatedAt             time.Time          `json:"created_at"`
+	ObservedAt            *time.Time         `json:"observed_at,omitempty"`
+	Status                string             `json:"status"`
+	Metrics               map[string]float64 `json:"metrics,omitempty"`
+	InitiatorRegisteredAt time.Time          `json:"-"`
+	ResponderRegisteredAt time.Time          `json:"-"`
 }
 
 // MeshScheduler turns a list of site-labeled agents into a directed full mesh.
@@ -94,10 +98,11 @@ type MeshScheduler struct {
 	broker *Broker
 	now    func() time.Time
 
-	mu       sync.Mutex
-	sessions map[string]MeshSession
-	byTenant map[string][]string
-	results  map[string][]MeshResult
+	mu          sync.Mutex
+	sessions    map[sessionKey]MeshSession
+	assignments map[sessionKey]*meshAssignment
+	byTenant    map[string][]string
+	results     map[sessionKey][]MeshResult
 }
 
 // NewMeshScheduler returns a tenant-scoped mesh scheduler over broker.
@@ -106,11 +111,12 @@ func NewMeshScheduler(broker *Broker) *MeshScheduler {
 		broker = NewBroker()
 	}
 	return &MeshScheduler{
-		broker:   broker,
-		now:      time.Now,
-		sessions: map[string]MeshSession{},
-		byTenant: map[string][]string{},
-		results:  map[string][]MeshResult{},
+		broker:      broker,
+		now:         time.Now,
+		sessions:    map[sessionKey]MeshSession{},
+		assignments: map[sessionKey]*meshAssignment{},
+		byTenant:    map[string][]string{},
+		results:     map[sessionKey][]MeshResult{},
 	}
 }
 
@@ -118,6 +124,13 @@ func NewMeshScheduler(broker *Broker) *MeshScheduler {
 // sites. When a site has multiple agents, the lexicographically first agent is
 // chosen so retries generate a stable matrix.
 func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode string, count uint32) ([]MeshSession, error) {
+	return m.StartMeshAfterAudit(tenantID, agents, mode, count, nil)
+}
+
+// StartMeshAfterAudit prepares the whole mesh before invoking commitAudit.
+// Dispatch begins only after the callback commits and returns the exact
+// registration times it validated in the audited tenant transaction.
+func (m *MeshScheduler) StartMeshAfterAudit(tenantID string, agents []SiteAgent, mode string, count uint32, commitAudit func(int, string) (map[string]time.Time, error)) ([]MeshSession, error) {
 	if tenantID == "" {
 		return nil, errors.New("a2a mesh: tenant is required")
 	}
@@ -127,10 +140,16 @@ func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode stri
 	if mode != "udp" && mode != "tcp" {
 		return nil, fmt.Errorf("a2a mesh: unknown mode %q (want udp|tcp)", mode)
 	}
+	if count == 0 {
+		count = 5
+	}
+	if count > MaxSessionCount {
+		return nil, ErrSessionCountTooLarge
+	}
 
 	bySite := map[string][]string{}
 	for _, a := range agents {
-		if a.AgentID == "" || a.Site == "" {
+		if a.AgentID == "" || a.Site == "" || !boundedMeshText(a.Site, 128) {
 			return nil, errors.New("a2a mesh: agent_id and site are required")
 		}
 		bySite[a.Site] = append(bySite[a.Site], a.AgentID)
@@ -148,20 +167,32 @@ func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode stri
 	// memory in the broker until the TTL ages it out. Agents that poll keep the
 	// count near zero; this only bites a flood of work no agent is draining.
 	wantSessions := len(bySite) * (len(bySite) - 1)
-	if have := m.broker.PendingCount(tenantID); have+wantSessions > maxPendingPerTenant {
-		return nil, fmt.Errorf("a2a mesh: %w (tenant has %d unpolled tasks, this mesh needs %d, cap %d)", ErrPendingFull, have, wantSessions, maxPendingPerTenant)
+	release, err := m.broker.reserveMeshCapacity(tenantID, wantSessions)
+	if err != nil {
+		return nil, err
 	}
+	defer release()
 
 	sites := make([]string, 0, len(bySite))
 	agentForSite := make(map[string]string, len(bySite))
+	selected := make(map[string]bool, len(bySite))
 	for site, siteAgents := range bySite {
 		sort.Strings(siteAgents)
+		if selected[siteAgents[0]] {
+			return nil, errors.New("a2a mesh: one agent cannot represent multiple sites")
+		}
+		selected[siteAgents[0]] = true
 		sites = append(sites, site)
 		agentForSite[site] = siteAgents[0]
 	}
 	sort.Strings(sites)
 
-	created := make([]MeshSession, 0, len(sites)*(len(sites)-1))
+	created := make([]MeshSession, 0, wantSessions)
+	type preparedAssignment struct {
+		reporters    *meshAssignment
+		probeSession string
+	}
+	assignments := make(map[sessionKey]preparedAssignment, wantSessions)
 	for _, from := range sites {
 		for _, to := range sites {
 			if from == to {
@@ -169,10 +200,23 @@ func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode stri
 			}
 			initiator := agentForSite[from]
 			responder := agentForSite[to]
-			sessionID, err := m.broker.StartSession(tenantID, responder, initiator, mode, count)
+			probeSession, err := m.broker.newID()
 			if err != nil {
 				return nil, err
 			}
+			sessionID := MeshSessionHandle(probeSession)
+			if sessionID == "" {
+				return nil, errors.New("a2a mesh: invalid probe credential")
+			}
+			key := sessionKey{tenantID, sessionID}
+			if _, exists := assignments[key]; exists {
+				return nil, errors.New("a2a mesh: repeated session id")
+			}
+			assignment, err := newMeshAssignment()
+			if err != nil {
+				return nil, err
+			}
+			assignments[key] = preparedAssignment{assignment, probeSession}
 			created = append(created, MeshSession{
 				TenantID:       tenantID,
 				SessionID:      sessionID,
@@ -182,18 +226,41 @@ func (m *MeshScheduler) StartMesh(tenantID string, agents []SiteAgent, mode stri
 				ResponderAgent: responder,
 				Mode:           mode,
 				Count:          count,
-				CreatedAt:      m.now(),
 			})
+		}
+	}
+	if commitAudit != nil {
+		registrations, err := commitAudit(len(created), mode)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range created {
+			assignment := assignments[sessionKey{tenantID, s.SessionID}].reporters
+			assignment.initiator.registeredAt = registrations[s.InitiatorAgent]
+			assignment.responder.registeredAt = registrations[s.ResponderAgent]
+			if assignment.initiator.registeredAt.IsZero() || assignment.responder.registeredAt.IsZero() {
+				return nil, errors.New("a2a mesh: missing audited agent registration")
+			}
 		}
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.broker.mu.Lock()
+	defer m.broker.mu.Unlock()
 	// Sweep this tenant's expired sessions before adding new ones (AI-01).
-	m.evictExpiredLocked(tenantID, m.now())
-	for _, s := range created {
-		m.sessions[s.SessionID] = s
+	createdAt := m.now()
+	m.evictExpiredLocked(tenantID, createdAt)
+	for index := range created {
+		created[index].CreatedAt = createdAt
+		s := created[index]
+		key := sessionKey{tenantID, s.SessionID}
+		assignment := assignments[key]
+		m.sessions[key] = s
+		m.assignments[key] = assignment.reporters
 		m.byTenant[tenantID] = append(m.byTenant[tenantID], s.SessionID)
+		m.broker.activateLocked(sessionKey{tenantID, assignment.probeSession}, &session{responder: s.ResponderAgent, initiator: s.InitiatorAgent,
+			mode: s.Mode, count: s.Count, createdAt: m.broker.now(), mesh: assignment.reporters})
 	}
 	m.evictOldestLocked(tenantID)
 	return append([]MeshSession(nil), created...), nil
@@ -225,7 +292,7 @@ func (m *MeshScheduler) evictExpiredLocked(tenantID string, now time.Time) {
 	kept := make([]string, 0, len(ids))
 	var drop []string
 	for _, id := range ids {
-		s, ok := m.sessions[id]
+		s, ok := m.sessions[sessionKey{tenantID, id}]
 		if !ok {
 			continue
 		}
@@ -252,31 +319,16 @@ func (m *MeshScheduler) evictOldestLocked(tenantID string) {
 	m.forgetSessionsLocked(tenantID, kept, drop)
 }
 
-// forgetSessionsLocked removes the dropped sessions from m.sessions and prunes
-// their results from the tenant's result slice (results are keyed by tenant, not
-// by session id — the earlier per-id delete was a silent no-op), then sets the
-// tenant's retained id list to kept.
+// forgetSessionsLocked removes dropped sessions and their attached data.
 func (m *MeshScheduler) forgetSessionsLocked(tenantID string, kept, drop []string) {
 	if len(drop) == 0 {
 		return
 	}
-	dropped := make(map[string]struct{}, len(drop))
 	for _, id := range drop {
-		delete(m.sessions, id)
-		dropped[id] = struct{}{}
-	}
-	if results := m.results[tenantID]; len(results) > 0 {
-		pruned := results[:0]
-		for _, r := range results {
-			if _, gone := dropped[r.SessionID]; !gone {
-				pruned = append(pruned, r)
-			}
-		}
-		if len(pruned) == 0 {
-			delete(m.results, tenantID)
-		} else {
-			m.results[tenantID] = pruned
-		}
+		key := sessionKey{tenantID, id}
+		delete(m.sessions, key)
+		delete(m.assignments, key)
+		delete(m.results, key)
 	}
 	if len(kept) == 0 {
 		delete(m.byTenant, tenantID)
@@ -285,158 +337,144 @@ func (m *MeshScheduler) forgetSessionsLocked(tenantID string, kept, drop []strin
 	}
 }
 
-// recordResult attaches one canary result to a tenant-owned mesh session.
-func (m *MeshScheduler) recordResult(tenantID, sessionID, agentID string, res canary.Result) (MeshResult, error) {
-	if tenantID == "" || sessionID == "" || agentID == "" {
-		return MeshResult{}, errors.New("a2a mesh: tenant, session, and agent are required")
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	s, ok := m.sessions[sessionID]
-	if !ok || s.TenantID != tenantID {
-		return MeshResult{}, errors.New("a2a mesh: unknown session for tenant")
-	}
-	role := roleForResult(s, agentID, res)
-	if role == "" {
-		return MeshResult{}, errors.New("a2a mesh: reporting agent is not part of the session")
-	}
-	recordedAt := res.StartedAt
-	if recordedAt.IsZero() {
-		recordedAt = m.now()
-	}
-	mr := MeshResult{
-		TenantID:       tenantID,
-		SessionID:      sessionID,
-		FromSite:       s.FromSite,
-		ToSite:         s.ToSite,
-		InitiatorAgent: s.InitiatorAgent,
-		ResponderAgent: s.ResponderAgent,
-		AgentID:        agentID,
-		Role:           role,
-		Success:        res.Success,
-		LossRatio:      res.Metrics["loss.ratio"],
-		Metrics:        copyMetrics(res.Metrics),
-		RecordedAt:     recordedAt,
-	}
-	m.results[tenantID] = append(m.results[tenantID], mr)
-	return mr, nil
+// RememberReport updates the live overlay after durable acceptance or an exact
+// replay. The stored receipt and its incident are committed before this call.
+func (m *MeshScheduler) RememberReport(report VerifiedMeshReport) {
+	m.rememberResult(report.MeshResult)
 }
 
-// Results returns only the requested tenant's mesh results.
-func (m *MeshScheduler) Results(tenantID string) []MeshResult {
+func (m *MeshScheduler) rememberResult(report MeshResult) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := append([]MeshResult(nil), m.results[tenantID]...)
-	for i := range out {
-		out[i].Metrics = copyMetrics(out[i].Metrics)
+	key := sessionKey{report.TenantID, report.SessionID}
+	session, present := m.sessions[key]
+	if !present || !m.now().Before(session.CreatedAt.Add(meshSessionTTL)) {
+		return false
 	}
-	return out
+	for _, current := range m.results[key] {
+		if current.Role == report.Role {
+			return false
+		}
+	}
+	report.Metrics = copyMetrics(report.Metrics)
+	m.results[key] = append(m.results[key], report)
+	return true
 }
 
 // TopologyOverlay returns one directed edge per tenant-owned mesh session.
 func (m *MeshScheduler) TopologyOverlay(tenantID string) []TopologyEdge {
+	return m.topologyOverlay(tenantID, nil, 0)
+}
+
+// TopologyForSessions returns only the edges allocated by a mesh start.
+func (m *MeshScheduler) TopologyForSessions(tenantID string, sessions []MeshSession) []TopologyEdge {
+	ids := make([]string, 0, len(sessions))
+	for _, session := range sessions {
+		ids = append(ids, session.SessionID)
+	}
+	return m.topologyOverlay(tenantID, ids, 0)
+}
+
+// RecentTopology returns at most limit current edges, or the exact session
+// when a session was requested. Scope is applied before every lookup.
+func (m *MeshScheduler) RecentTopology(tenantID, sessionID string, limit int) []TopologyEdge {
+	var ids []string
+	if sessionID != "" {
+		ids = []string{sessionID}
+	}
+	return m.topologyOverlay(tenantID, ids, limit)
+}
+
+func (m *MeshScheduler) topologyOverlay(tenantID string, ids []string, limit int) []TopologyEdge {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	resultsBySession := map[string][]MeshResult{}
-	for _, r := range m.results[tenantID] {
-		resultsBySession[r.SessionID] = append(resultsBySession[r.SessionID], r)
+	if ids == nil {
+		ids = m.byTenant[tenantID]
 	}
-	edges := make([]TopologyEdge, 0, len(m.byTenant[tenantID]))
-	for _, id := range m.byTenant[tenantID] {
-		s, ok := m.sessions[id]
-		if !ok || s.TenantID != tenantID {
+	if limit > 0 && len(ids) > limit {
+		ids = ids[len(ids)-limit:]
+	}
+	edges := make([]TopologyEdge, 0, len(ids))
+	now := m.now()
+	for _, id := range ids {
+		key := sessionKey{tenantID, id}
+		s, ok := m.sessions[key]
+		if !ok || !now.Before(s.CreatedAt.Add(meshSessionTTL)) {
 			continue
 		}
-		edges = append(edges, TopologyEdge{
+		metrics, observedAt := topologyMetrics(m.results[key])
+		edge := TopologyEdge{
 			TenantID:       tenantID,
 			FromSite:       s.FromSite,
 			ToSite:         s.ToSite,
 			InitiatorAgent: s.InitiatorAgent,
 			ResponderAgent: s.ResponderAgent,
 			SessionID:      s.SessionID,
-			Status:         statusForResults(resultsBySession[id]),
-			Metrics:        latestMetrics(resultsBySession[id]),
-		})
+			CreatedAt:      s.CreatedAt,
+			ObservedAt:     observedAt,
+			Status:         statusForResults(m.results[key]),
+			Metrics:        metrics,
+		}
+		if assignment := m.assignments[key]; assignment != nil {
+			edge.InitiatorRegisteredAt = assignment.initiator.registeredAt
+			edge.ResponderRegisteredAt = assignment.responder.registeredAt
+		}
+		edges = append(edges, edge)
 	}
 	return edges
 }
 
-// incidentSignals maps degraded mesh results to cross-plane incident signals.
-func (m *MeshScheduler) incidentSignals(tenantID string) []incident.Signal {
-	results := m.Results(tenantID)
-	signals := make([]incident.Signal, 0, len(results))
-	for _, r := range results {
-		if r.Success && r.LossRatio <= 0 {
-			continue
-		}
-		signals = append(signals, incident.Signal{
-			TenantID:   tenantID,
-			Plane:      "synthetic",
-			Kind:       "a2a.mesh.degraded",
-			Severity:   incident.SeverityWarning,
-			Title:      "A2A site-to-site mesh degraded",
-			Summary:    fmt.Sprintf("%s to %s reported loss %.4f", r.FromSite, r.ToSite, r.LossRatio),
-			Target:     meshTarget(r.FromSite, r.ToSite),
-			OccurredAt: r.RecordedAt,
-			Attributes: map[string]string{
-				"session_id":      r.SessionID,
-				"from_site":       r.FromSite,
-				"to_site":         r.ToSite,
-				"initiator_agent": r.InitiatorAgent,
-				"responder_agent": r.ResponderAgent,
-				"agent_id":        r.AgentID,
-				"a2a.role":        r.Role,
-			},
-		})
+// DegradedSignal turns an admitted measurement reporting loss into evidence.
+func (r MeshResult) DegradedSignal() (incident.Signal, bool) {
+	if r.Success && r.LossRatio <= 0 {
+		return incident.Signal{}, false
 	}
-	return signals
-}
-
-func roleForResult(s MeshSession, agentID string, res canary.Result) string {
-	role := ""
-	if res.Attributes != nil {
-		role = res.Attributes["a2a.role"]
-	}
-	switch agentID {
-	case s.InitiatorAgent:
-		if role == "" {
-			return "initiator"
-		}
-		return role
-	case s.ResponderAgent:
-		if role == "" {
-			return "responder"
-		}
-		return role
-	default:
-		return ""
-	}
+	return incident.Signal{
+		TenantID:   r.TenantID,
+		Plane:      "synthetic",
+		Kind:       "a2a.mesh.degraded",
+		Severity:   incident.SeverityWarning,
+		Title:      "A2A site-to-site mesh degraded",
+		Summary:    fmt.Sprintf("%s to %s reported loss %.4f", r.FromSite, r.ToSite, r.LossRatio),
+		Target:     meshTarget(r.FromSite, r.ToSite),
+		OccurredAt: r.RecordedAt,
+		Attributes: map[string]string{
+			"session_id":      r.SessionID,
+			"from_site":       r.FromSite,
+			"to_site":         r.ToSite,
+			"initiator_agent": r.InitiatorAgent,
+			"responder_agent": r.ResponderAgent,
+			"agent_id":        r.AgentID,
+			"a2a.role":        r.Role,
+		},
+	}, true
 }
 
 func statusForResults(results []MeshResult) string {
-	if len(results) == 0 {
-		return meshStatusPending
-	}
 	for _, r := range results {
 		if !r.Success || r.LossRatio > 0 {
 			return meshStatusDegraded
 		}
 	}
+	if len(results) < 2 {
+		return meshStatusPending
+	}
 	return meshStatusHealthy
 }
 
-func latestMetrics(results []MeshResult) map[string]float64 {
+// Prefer the worse outcome when the two roles disagree. For equal loss, the
+// initiator's measurements include round-trip latency as well as loss.
+func topologyMetrics(results []MeshResult) (map[string]float64, *time.Time) {
 	if len(results) == 0 {
-		return nil
+		return nil, nil
 	}
-	latest := results[0]
+	selected := results[0]
 	for _, r := range results[1:] {
-		if r.RecordedAt.After(latest.RecordedAt) {
-			latest = r
+		if r.LossRatio > selected.LossRatio || r.LossRatio == selected.LossRatio && r.Role == "initiator" {
+			selected = r
 		}
 	}
-	return copyMetrics(latest.Metrics)
+	return copyMetrics(selected.Metrics), &selected.RecordedAt
 }
 
 func copyMetrics(in map[string]float64) map[string]float64 {
@@ -451,5 +489,5 @@ func copyMetrics(in map[string]float64) map[string]float64 {
 }
 
 func meshTarget(from, to string) string {
-	return "site:" + from + "->site:" + to
+	return "site:" + url.PathEscape(from) + "->site:" + url.PathEscape(to)
 }

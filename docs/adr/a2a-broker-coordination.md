@@ -64,18 +64,28 @@ keeps one authority for each session.
   applying RBAC; the request body cannot choose a tenant.
 - Agents receive tasks for only their `(tenant, agent)` key, derived from their
   verified mTLS identity. Only the assigned responder can report an endpoint.
-- The random session id is delivered over mTLS and derives the HMAC key used to
-  authenticate A2A request/reply frames through `internal/crypto`.
+- The random session credential is delivered over mTLS and authenticates A2A
+  request and reply frames through `internal/crypto`. Mesh APIs, result
+  buffers, and incident signals use a separate handle derived with a one-way
+  hash. Older agents can continue to use the same probe protocol.
+- The initiator and responder each receive a separate mesh reporting key after
+  the control plane confirms their current issued certificate and exact agent
+  registration. Each key signs the buffered protobuf bytes in the context of
+  its session. Report intake rechecks the mTLS serial, registration, assignment,
+  counts and observation time. A recreated agent registration requires a new
+  mesh start. A first verified loss and its incident signal commit in the same
+  tenant transaction. An exact replay acknowledges the original write.
 - A2A is off by default, so an agent opens no responder listener until the
   operator enables participation and the broker assigns a responder task.
 - Lost probes become explicit unsuccessful results, invalid frames are ignored,
   and setup/dial failures are logged; none of those paths can become invented
   success data.
 
-The current broker and mesh-session state are in process and short-lived. A
-control-plane restart can expire an outstanding session, which the operator
-may submit again. This ADR fixes scheduling ownership; it does not claim that
-ephemeral coordination state is a durable system of record.
+The broker and live overlay are replica-local. A control-plane restart can
+expire an outstanding session, which the operator may submit again. Accepted
+reports have one receipt per session and role in tenant-scoped PostgreSQL. Their
+expiry is tied to the live session window and the retention worker deletes
+expired rows. Incident signals follow the incident store's lifecycle.
 
 ## Alternatives rejected
 

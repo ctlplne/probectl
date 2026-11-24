@@ -6,6 +6,7 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { apiFetch, apiURL } from './client'
+import type { A2AMeshTopology } from './sdk.gen'
 import { useAuth } from '../auth/useAuth'
 
 /**
@@ -120,6 +121,28 @@ export function useWhatIf() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
       }),
+  })
+}
+
+export function useA2AMeshTopology() {
+  const { tenant, user } = useAuth()
+  return useQuery({
+    queryKey: ['a2a-mesh-topology', tenant.id, user.id],
+    queryFn: async ({ signal }) => {
+      const result = await apiFetch<A2AMeshTopology>('/a2a/mesh', {
+        signal,
+        headers: { 'X-Probectl-Tenant': tenant.id },
+      })
+      if (result.topology.some((edge) => edge.tenant_id !== tenant.id)) {
+        throw new Error('Mesh response did not match the current tenant.')
+      }
+      return result
+    },
+    refetchInterval: (query) => {
+      const edges = query.state.data?.topology
+      if (!edges?.length) return false
+      return edges.some((edge) => edge.status === 'pending') ? 10_000 : 30_000
+    },
   })
 }
 

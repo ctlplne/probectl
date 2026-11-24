@@ -28,26 +28,28 @@ const (
 
 // Task is one brokered assignment handed to an agent when it polls.
 type Task struct {
-	SessionID     string
+	SessionID     string // mesh tasks carry the private probe credential
 	Role          Role
 	Mode          string // "udp" | "tcp"
 	Count         uint32
 	ResponderHost string // set for the initiator
 	ResponderPort uint32 // set for the initiator
 	PeerAgentID   string
+	MeshResultKey []byte `json:"-"`
 }
 
 type session struct {
-	tenantID         string
 	responder        string
 	initiator        string
 	mode             string
 	count            uint32
 	createdAt        time.Time
 	endpointReported bool
+	mesh             *meshAssignment
 }
 
 type agentKey struct{ tenant, agent string }
+type sessionKey struct{ tenant, id string }
 
 // pendingTask is a queued task plus the time it was enqueued, so the broker can
 // reclaim tasks that were never polled (INJ-06): an initiator or responder that
@@ -86,11 +88,12 @@ type Broker struct {
 	now      func() time.Time
 	ttl      time.Duration
 	newID    func() (string, error)
-	sessions map[string]*session
+	sessions map[sessionKey]*session
 	pending  map[agentKey][]pendingTask
 	// pendingByTenant counts queued tasks per tenant so the per-tenant cap is
 	// O(1) to check without scanning every agent key.
-	pendingByTenant map[string]int
+	pendingByTenant  map[string]int
+	reservedByTenant map[string]int
 	// lastGC is when the sweep last ran, so gcLocked can throttle to at most once
 	// per gcMinInterval (AI-01/RTA-02). Zero means never, so the first call runs.
 	lastGC time.Time
@@ -99,12 +102,13 @@ type Broker struct {
 // NewBroker returns a broker with a 60s session TTL.
 func NewBroker() *Broker {
 	return &Broker{
-		now:             time.Now,
-		ttl:             60 * time.Second,
-		newID:           randomID,
-		sessions:        map[string]*session{},
-		pending:         map[agentKey][]pendingTask{},
-		pendingByTenant: map[string]int{},
+		now:              time.Now,
+		ttl:              60 * time.Second,
+		newID:            randomID,
+		sessions:         map[sessionKey]*session{},
+		pending:          map[agentKey][]pendingTask{},
+		pendingByTenant:  map[string]int{},
+		reservedByTenant: map[string]int{},
 	}
 }
 
@@ -162,17 +166,22 @@ func (b *Broker) StartSession(tenantID, responderAgent, initiatorAgent, mode str
 	b.gcLocked()
 	// Fail closed before allocating a session id's worth of state if the tenant
 	// is already at its unpolled-task cap (INJ-06).
-	if b.pendingByTenant[tenantID] >= maxPendingPerTenant {
+	if !b.hasPendingCapacityLocked(tenantID, 1) {
 		return "", ErrPendingFull
 	}
-	b.sessions[id] = &session{
-		tenantID: tenantID, responder: responderAgent, initiator: initiatorAgent,
-		mode: mode, count: count, createdAt: b.now(),
-	}
-	b.enqueueLocked(tenantID, responderAgent, Task{
-		SessionID: id, Role: RoleResponder, Mode: mode, Count: count, PeerAgentID: initiatorAgent,
-	})
+	b.activateLocked(sessionKey{tenantID, id}, &session{responder: responderAgent, initiator: initiatorAgent, mode: mode, count: count, createdAt: b.now()})
 	return id, nil
+}
+
+func (b *Broker) hasPendingCapacityLocked(tenant string, count int) bool {
+	return count <= maxPendingPerTenant-b.pendingByTenant[tenant]-b.reservedByTenant[tenant]
+}
+
+func (b *Broker) activateLocked(key sessionKey, s *session) {
+	b.sessions[key] = s
+	b.enqueueLocked(key.tenant, s.responder, Task{
+		SessionID: key.id, Role: RoleResponder, Mode: s.mode, Count: s.count, PeerAgentID: s.initiator,
+	})
 }
 
 // SweepNow forces the pending/session reclaim immediately, bypassing the gc
@@ -198,43 +207,96 @@ func (b *Broker) PendingCount(tenantID string) int {
 
 // PollFor returns and removes the next pending task for an agent (at-most-once).
 func (b *Broker) PollFor(tenantID, agentID string) (Task, bool) {
+	task, present, _ := b.PollForWithMeshAdmission(tenantID, agentID, nil)
+	return task, present
+}
+
+// PollForWithMeshAdmission checks the transport credential before removing a
+// signed task or exposing its key. Admission reads the current registration
+// outside the broker lock. A replacement registration skips obsolete tasks.
+func (b *Broker) PollForWithMeshAdmission(tenantID, agentID string, admit func() (time.Time, error)) (Task, bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.gcLocked()
 	k := agentKey{tenantID, agentID}
-	q := b.pending[k]
-	if len(q) == 0 {
-		return Task{}, false
+	var registeredAt time.Time
+	for len(b.pending[k]) != 0 {
+		q := b.pending[k]
+		task := q[0].task
+		s := b.sessions[sessionKey{tenantID, task.SessionID}]
+		issued := b.now()
+		active := s != nil && issued.Before(s.createdAt.Add(b.ttl))
+		if active && s.mesh != nil && admit != nil {
+			b.mu.Unlock()
+			observed, err := admit()
+			b.mu.Lock()
+			if err != nil {
+				return Task{}, false, err
+			}
+			registeredAt = observed
+			admit = nil
+			continue // re-read the queue and expiry after admission
+		}
+		q[0] = pendingTask{}
+		if len(q) == 1 {
+			delete(b.pending, k)
+		} else {
+			b.pending[k] = q[1:]
+		}
+		b.decPendingLocked(tenantID, 1)
+		if !active {
+			continue
+		}
+		if s.mesh != nil {
+			if !s.mesh.reporter(task.Role).registeredAt.Equal(registeredAt) {
+				continue
+			}
+			task.MeshResultKey = s.mesh.issue(task, issued)
+		}
+		return task, true, nil
 	}
-	t := q[0]
-	if len(q) == 1 {
-		delete(b.pending, k)
-	} else {
-		b.pending[k] = q[1:]
-	}
-	b.decPendingLocked(tenantID, 1)
-	return t.task, true
+	return Task{}, false, nil
+}
+
+// IsMeshResponder identifies when endpoint reporting requires mesh admission.
+func (b *Broker) IsMeshResponder(tenantID, agentID, sessionID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := b.sessions[sessionKey{tenantID, sessionID}]
+	return s != nil && s.mesh != nil && s.responder == agentID && b.now().Before(s.createdAt.Add(b.ttl))
 }
 
 // ReportEndpoint records where the responder is listening and queues the
 // initiator's task. Only the session's responder, in the session's tenant, may
 // report — preventing cross-tenant or cross-agent endpoint injection.
 func (b *Broker) ReportEndpoint(tenantID, agentID, sessionID, host string, port uint32) error {
+	return b.ReportEndpointWithRegistration(tenantID, agentID, sessionID, host, port, time.Time{})
+}
+
+// ReportEndpointWithRegistration also binds a mesh endpoint to the responder's
+// audited registration. Pair tasks have no mesh registration.
+func (b *Broker) ReportEndpointWithRegistration(tenantID, agentID, sessionID, host string, port uint32, registeredAt time.Time) error {
 	if host == "" || port == 0 {
 		return errors.New("a2a: endpoint host and port are required")
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.gcLocked()
-	s, ok := b.sessions[sessionID]
-	if !ok {
+	s, ok := b.sessions[sessionKey{tenantID, sessionID}]
+	if !ok || !b.now().Before(s.createdAt.Add(b.ttl)) {
 		return errors.New("a2a: unknown or expired session")
 	}
-	if s.tenantID != tenantID || s.responder != agentID {
+	if s.responder != agentID {
 		return errors.New("a2a: caller is not the responder for this session")
+	}
+	if s.mesh != nil && (!s.mesh.responder.registeredAt.Equal(registeredAt) || s.mesh.responder.issued.Load() == nil) {
+		return errors.New("a2a: responder task was not issued to this registration")
 	}
 	if s.endpointReported {
 		return nil // idempotent
+	}
+	if !b.hasPendingCapacityLocked(tenantID, 1) {
+		return ErrPendingFull
 	}
 	s.endpointReported = true
 	b.enqueueLocked(tenantID, s.initiator, Task{

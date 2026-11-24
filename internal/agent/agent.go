@@ -468,6 +468,14 @@ func frameToRequest(frame []byte) (*agentv1.StreamResultsRequest, error) {
 	if err := validateResultEnvelopeVersion(env.SchemaVersion); err != nil {
 		return nil, err
 	}
+	if report := env.MeshReport; report != nil {
+		return &agentv1.StreamResultsRequest{
+			Type:              env.Result.Type,
+			Payload:           report.Payload,
+			ObservedUnixNanos: unixNano(env.Result.StartedAt),
+			A2AMeshProof:      &agentv1.A2AMeshResultProof{SessionId: report.SessionID, Mac: report.MAC},
+		}, nil
+	}
 	payload, err := proto.Marshal(envToResult(&env))
 	if err != nil {
 		return nil, err

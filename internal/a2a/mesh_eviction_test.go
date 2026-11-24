@@ -22,33 +22,31 @@ func TestMeshEvictsOldestBeyondPerTenantCap(t *testing.T) {
 	m.mu.Lock()
 	for i := 0; i < over; i++ {
 		id := fmt.Sprintf("sess-%06d", i)
-		m.sessions[id] = MeshSession{SessionID: id, TenantID: "tenant-a"}
-		// Results are keyed BY TENANT in production (recordResult appends to
-		// m.results[tenantID]); the earlier per-session-id fixture mis-modeled
-		// this and masked that eviction's result pruning was a no-op.
-		m.results["tenant-a"] = append(m.results["tenant-a"], MeshResult{SessionID: id, TenantID: "tenant-a"})
+		key := sessionKey{"tenant-a", id}
+		m.sessions[key] = MeshSession{SessionID: id, TenantID: "tenant-a"}
+		m.results[key] = []MeshResult{{SessionID: id, TenantID: "tenant-a"}}
 		m.byTenant["tenant-a"] = append(m.byTenant["tenant-a"], id)
 	}
 	m.evictOldestLocked("tenant-a")
 	retained := len(m.byTenant["tenant-a"])
 	sessions := len(m.sessions)
-	results := len(m.results["tenant-a"])
+	results := len(m.results)
 	// The surviving ids must be the NEWEST (FIFO eviction drops the front).
 	newestKept := m.byTenant["tenant-a"][0]
-	oldestResultKept := m.results["tenant-a"][0].SessionID
+	retainedResult := len(m.results[sessionKey{"tenant-a", newestKept}]) == 1
 	m.mu.Unlock()
 
 	if retained != maxMeshSessionsPerTenant {
 		t.Fatalf("retained %d sessions, want exactly %d", retained, maxMeshSessionsPerTenant)
 	}
 	if sessions != maxMeshSessionsPerTenant || results != maxMeshSessionsPerTenant {
-		t.Fatalf("maps not trimmed: sessions=%d results=%d, want %d each (result pruning is keyed by tenant)", sessions, results, maxMeshSessionsPerTenant)
+		t.Fatalf("maps not trimmed: sessions=%d results=%d, want %d each", sessions, results, maxMeshSessionsPerTenant)
 	}
 	want := fmt.Sprintf("sess-%06d", over-maxMeshSessionsPerTenant)
 	if newestKept != want {
 		t.Fatalf("oldest surviving id = %q, want %q (FIFO eviction drops the oldest)", newestKept, want)
 	}
-	if oldestResultKept != want {
-		t.Fatalf("oldest surviving result = %q, want %q (results for evicted sessions must be pruned)", oldestResultKept, want)
+	if !retainedResult {
+		t.Fatalf("result for surviving session %q is missing", want)
 	}
 }
