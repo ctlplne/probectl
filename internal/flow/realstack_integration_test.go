@@ -190,11 +190,10 @@ func (lane *nativeLane) enrollCollector(t *testing.T, st *shipped.Stack) {
 	env["PROBECTL_FLOW_METRICS_ADDR"] = shipped.FreeAddr(t)
 	env["PROBECTL_FLOW_METRICS_TLS_CERT_FILE"] = st.ServerCert
 	env["PROBECTL_FLOW_METRICS_TLS_KEY_FILE"] = st.ServerKey
-	lane.listeners = map[string]string{}
 	for _, protocol := range []string{"NETFLOW", "IPFIX", "SFLOW"} {
-		addr := shipped.FreeUDPAddr(t)
-		lane.listeners[protocol] = addr
-		env["PROBECTL_FLOW_"+protocol+"_LISTEN"] = addr
+		// The child binds its own port. A free-port probe that closes its
+		// socket can return the same port for two consecutive listeners.
+		env["PROBECTL_FLOW_"+protocol+"_LISTEN"] = "127.0.0.1:0"
 		env["PROBECTL_FLOW_"+protocol+"_ALLOWED_SOURCES"] = "127.0.0.1/32"
 		env["PROBECTL_FLOW_"+protocol+"_ENABLED"] = "true"
 	}
@@ -203,15 +202,38 @@ func (lane *nativeLane) enrollCollector(t *testing.T, st *shipped.Stack) {
 		values = append(values, key+"="+value)
 	}
 	log := st.StartProcess(t, "native-collector-"+lane.name, st.Binary(t, "probectl-flow-agent"), nil, values)
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
+	shipped.Await(t, "shipped native collector opened all three tenant listeners", 20*time.Second, func() bool {
 		raw, err := os.ReadFile(log)
-		if err == nil && strings.Count(string(raw), "flow: listening") == 3 {
-			return
+		if err != nil {
+			return false
 		}
-		time.Sleep(100 * time.Millisecond)
+		lane.listeners = nativeCollectorListeners(raw, lane.id)
+		return len(lane.listeners) == 3
+	})
+}
+
+func nativeCollectorListeners(raw []byte, tenant string) map[string]string {
+	listeners := make(map[string]string, 3)
+	for _, line := range bytes.Split(raw, []byte("\n")) {
+		var event struct {
+			Message  string `json:"msg"`
+			Protocol string `json:"protocol"`
+			Addr     string `json:"addr"`
+			Tenant   string `json:"tenant"`
+		}
+		if json.Unmarshal(line, &event) != nil || event.Message != "flow: listening" || event.Tenant != tenant {
+			continue
+		}
+		switch event.Protocol {
+		case "netflow", "ipfix", "sflow":
+			host, port, err := net.SplitHostPort(event.Addr)
+			number, parseErr := strconv.ParseUint(port, 10, 16)
+			if err == nil && parseErr == nil && host == "127.0.0.1" && number != 0 {
+				listeners[strings.ToUpper(event.Protocol)] = event.Addr
+			}
+		}
 	}
-	t.Fatal("shipped native collector failed to open all three protocol listeners")
+	return listeners
 }
 func nativeGoldenPlan(octet int, at time.Time, fields []string) flow.QueryPlan {
 	return flow.QueryPlan{From: at.Add(-time.Minute), To: at.Add(5 * time.Minute), GroupBy: fields, View: "table", RowLimit: 350, PageSize: 350, BucketSeconds: 60, Metrics: []flow.QueryMetric{{Measure: "bytes", Calculation: "total", Role: "primary"}, {Measure: "packets", Calculation: "total", Role: "additional"}, {Measure: "flows", Calculation: "total", Role: "additional"}}, Filter: &flow.QueryFilterGroup{Conditions: []flow.QueryPredicate{{Field: "src_addr", Op: flow.QueryCIDR, Values: []string{fmt.Sprintf("10.%d.0.0/16", octet)}}}}}
