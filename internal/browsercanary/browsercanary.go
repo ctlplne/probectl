@@ -321,6 +321,9 @@ func (b *Browser) Run(ctx context.Context) (canary.Result, error) {
 	}
 	out := res.ToCanaryResult()
 	out.Attributes["browser.driver"] = b.driver
+	if b.script.IsAPITransaction() {
+		out.Attributes["browser.transaction_kind"] = "api"
+	}
 	if out.Target == "" {
 		out.Target = b.target
 	}

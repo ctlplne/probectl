@@ -355,16 +355,16 @@ function TypedBreakdown({ r }: { r: LatestResult }) {
 /** ResultDetail shows a test's latest result per reporting agent. */
 export function ResultDetail({ test, onClose }: { test: Test; onClose: () => void }) {
   const latest = useLatestResults()
-  const matches = (latest.data?.items ?? []).filter(
-    (r) =>
-      r.type === test.type &&
-      r.target === test.target &&
-      // Current agents stamp an exact test identity. Respect it so two tests
-      // aimed at the same target never borrow each other's evidence. Legacy
-      // results without the attribute retain their historical type/target
-      // fallback until every producer has upgraded.
-      (a(r, 'probectl.test.id') === undefined || a(r, 'probectl.test.id') === test.id),
-  )
+  const matches = (latest.data?.items ?? []).filter((r) => {
+    if (r.type !== test.type) return false
+    const testID = a(r, 'probectl.test.id')
+    if (r.type === 'browser' && a(r, 'browser.transaction_kind') === 'api') {
+      // The agent publishes the origin only, keeping paths and query values private.
+      return testID === test.id
+    }
+    // Keep the existing target match for browser and non-browser results.
+    return r.target === test.target && (testID === undefined || testID === test.id)
+  })
 
   return (
     <Modal open onClose={onClose} title={`${test.name} — latest results`}>

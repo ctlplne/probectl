@@ -137,7 +137,12 @@ test_sync:
 				if result.AgentID != lane.agent || result.Type != "browser" {
 					continue
 				}
-				switch result.Attributes["probectl.test.id"] {
+				testID := result.Attributes["probectl.test.id"]
+				if (testID == lane.good || testID == lane.rejected) &&
+					(result.Target != fixture.URL || result.Attributes["browser.transaction_kind"] != "api") {
+					t.Fatal("the result did not retain its transaction kind and origin-only target")
+				}
+				switch testID {
 				case lane.good:
 					success = success || (result.Success && result.Attributes["browser.step.3.success"] == "true")
 				case lane.rejected:

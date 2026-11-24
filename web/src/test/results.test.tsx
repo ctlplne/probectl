@@ -399,6 +399,29 @@ describe('synthetic result views (S-FE5)', () => {
     expect(await axe(dialog)).toHaveNoViolations()
   })
 
+  test('API results match their own test ID when the agent publishes only an origin', async () => {
+    const owned = resultFixtures().find((result) => result.type === 'browser')!
+    owned.target = 'https://shop.acme.example:443'
+    owned.attributes = {
+      ...owned.attributes,
+      'probectl.test.id': 't2',
+      'browser.transaction_kind': 'api',
+    }
+    const sibling: LatestResult = {
+      ...owned,
+      agent_id: 'other-agent',
+      target: 'https://shop.acme.example/login',
+      attributes: { ...owned.attributes, 'probectl.test.id': 'same-origin-other-test' },
+    }
+    const { fetcher } = resultsBackend([owned, sibling])
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/targets')
+    const dialog = await openResults('checkout browser')
+
+    expect(within(dialog).getByText(/checkout · 735 ms/)).toBeDefined()
+    expect(within(dialog).queryByText(/other-agent/)).not.toBeInTheDocument()
+  })
+
   test('ICMP/TCP/UDP render latency families + loss consistently', async () => {
     const { fetcher } = resultsBackend(resultFixtures())
     vi.stubGlobal('fetch', fetcher)
