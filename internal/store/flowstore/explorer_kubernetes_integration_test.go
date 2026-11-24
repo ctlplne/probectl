@@ -28,6 +28,9 @@ func TestKubernetesExplorerRealClockJoinsKeepUnknownsAndTwoTenants(t *testing.T)
 	memory := NewMemory()
 	tenants := []string{uuid.NewString(), uuid.NewString()}
 	const contextID = "33333333-3333-4333-8333-333333333333"
+	// Choose a closed recent window so raw retention and TTL merges cannot
+	// move the fixture to the rollup lane while the query is running.
+	capturedAt := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Minute)
 	var projections [2]*KubernetesQueryData
 	var plans [2]flow.QueryPlan
 	for lane, tenant := range tenants {
@@ -37,6 +40,8 @@ func TestKubernetesExplorerRealClockJoinsKeepUnknownsAndTwoTenants(t *testing.T)
 		facts := make([]KubernetesFlowProjection, 0, 2)
 		for i := range rows {
 			row := &rows[i]
+			row.TS = capturedAt
+			row.RoutingCapturedUnixNanos = capturedAt.UnixNano()
 			row.ClockBasis = flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL
 			row.StartTS = row.TS.Add(-time.Second)
 			row.BytesScaled = uint64(i + 1)

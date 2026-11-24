@@ -25,7 +25,7 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
-var ErrKubernetesQueryScope = errors.New("Kubernetes attribution requires current tenant, raw collector and inventory authority")
+var ErrKubernetesQueryScope = errors.New("current tenant, raw collector and inventory authority are required for Kubernetes attribution")
 
 type KubernetesFlowEndpoint struct {
 	Cluster, Namespace    string
@@ -102,7 +102,7 @@ func NewKubernetesQueryData(ctx context.Context, tenant string, rows []Kubernete
 }
 
 func validatedKubernetesFlowFields(row KubernetesFlowProjection, tenant string) (routingQueryKey, kubernetesFlowFields, error) {
-	scope, err := row.Scope.Normalize()
+	scope, err := row.Normalize()
 	if err != nil || scope != row.Scope || scope.TenantID != tenant {
 		return routingQueryKey{}, kubernetesFlowFields{}, ErrKubernetesQueryScope
 	}

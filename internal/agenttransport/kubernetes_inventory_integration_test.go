@@ -41,8 +41,8 @@ func TestKubernetesInventoryMTLSPublishesCompleteOwnedGenerations(t *testing.T) 
 	testsupport.LockPostgresPublicCatalog(t, pool)
 	server := startTestServer(ctx, t, pool)
 	contextID, clusterID, generation := newUUID(t), newUUID(t), newUUID(t)
-	red := seedKubernetesWireLane(t, ctx, pool, server, contextID, clusterID, "red")
-	blue := seedKubernetesWireLane(t, ctx, pool, server, contextID, clusterID, "blue")
+	red := seedKubernetesWireLane(ctx, t, pool, server, contextID, clusterID, "red")
+	blue := seedKubernetesWireLane(ctx, t, pool, server, contextID, clusterID, "blue")
 	var from, until time.Time
 	if err := pool.QueryRow(ctx, `SELECT clock_timestamp(),clock_timestamp()+interval '2 milliseconds'`).Scan(&from, &until); err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestKubernetesInventoryMTLSPublishesCompleteOwnedGenerations(t *testing.T) 
 		}
 		upload.Operation = &agentv1.KubernetesInventoryUpload_Publish{Publish: &agentv1.KubernetesInventoryPublish{}}
 		send(codes.FailedPrecondition)
-		assertKubernetesWireRows(t, ctx, pool, lane, 0)
+		assertKubernetesWireRows(ctx, t, pool, lane, 0)
 		upload.Operation = &agentv1.KubernetesInventoryUpload_Append{Append: parts[1]}
 		send(codes.FailedPrecondition)
 		upload.Operation = &agentv1.KubernetesInventoryUpload_Append{Append: parts[0]}
@@ -89,16 +89,16 @@ func TestKubernetesInventoryMTLSPublishesCompleteOwnedGenerations(t *testing.T) 
 		send(codes.AlreadyExists)
 		upload.Operation = &agentv1.KubernetesInventoryUpload_Append{Append: parts[1]}
 		send(codes.OK)
-		assertKubernetesWireRows(t, ctx, pool, lane, 0)
+		assertKubernetesWireRows(ctx, t, pool, lane, 0)
 		upload.Operation = &agentv1.KubernetesInventoryUpload_Publish{Publish: &agentv1.KubernetesInventoryPublish{}}
 		for range 2 {
 			if ack := send(codes.OK); !ack.Published || ack.RetainedRows != 2 || !bytes.Equal(ack.PayloadDigest, begin.PayloadDigest) {
 				t.Fatal("receipt lost the complete retained generation", ack)
 			}
 		}
-		assertKubernetesWireRows(t, ctx, pool, lane, 1)
+		assertKubernetesWireRows(ctx, t, pool, lane, 1)
 	}
-	assertKubernetesWireRows(t, ctx, pool, red, 1)
+	assertKubernetesWireRows(ctx, t, pool, red, 1)
 	closeSource := func(tenant, source string) error {
 		return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 			_, err := store.RevokeKubernetesInventorySourceInScope(ctx, sc, contextID, source)
@@ -124,8 +124,8 @@ func TestKubernetesInventoryMTLSPublishesCompleteOwnedGenerations(t *testing.T) 
 			t.Fatal("revoking one tenant changed its sibling's authority", err)
 		}
 	}
-	assertKubernetesWireRead(t, ctx, pool, contextID, red, from, until, false)
-	assertKubernetesWireRead(t, ctx, pool, contextID, blue, from, until, true)
+	assertKubernetesWireRead(ctx, t, pool, contextID, red, from, until, false)
+	assertKubernetesWireRead(ctx, t, pool, contextID, blue, from, until, true)
 }
 
 type kubernetesWireLane struct {
@@ -133,7 +133,7 @@ type kubernetesWireLane struct {
 	client                *agent.EvidenceClient
 }
 
-func seedKubernetesWireLane(t *testing.T, ctx context.Context, pool *pgxpool.Pool, server testServer,
+func seedKubernetesWireLane(ctx context.Context, t *testing.T, pool *pgxpool.Pool, server testServer,
 	contextID, clusterID, name string) kubernetesWireLane {
 	t.Helper()
 	tenant, err := store.NewTenants(pool).Create(ctx, fmt.Sprintf("k8s-evidence-%s-%d", name, time.Now().UnixNano()), name)
@@ -224,7 +224,7 @@ func kubernetesWireInventory(t *testing.T, name string, from, until time.Time) (
 	return &agentv1.KubernetesInventoryBegin{Manifest: manifest, PayloadDigest: digest}, parts
 }
 
-func assertKubernetesWireRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, lane kubernetesWireLane, expected int) {
+func assertKubernetesWireRows(ctx context.Context, t *testing.T, pool *pgxpool.Pool, lane kubernetesWireLane, expected int) {
 	t.Helper()
 	if err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(ctx, tenancy.ID(lane.tenant)), pool, func(ctx context.Context, scope tenancy.Scope) error {
 		var own, all int
@@ -244,7 +244,7 @@ JOIN kubernetes_inventory_addresses a ON (a.tenant_id,a.context_id,a.source_id,a
 	}
 }
 
-func assertKubernetesWireRead(t *testing.T, ctx context.Context, pool *pgxpool.Pool, contextID string,
+func assertKubernetesWireRead(ctx context.Context, t *testing.T, pool *pgxpool.Pool, contextID string,
 	lane kubernetesWireLane, from, until time.Time, allowed bool) {
 	t.Helper()
 	scope := entity.Scope{TenantID: lane.tenant, ContextID: contextID}

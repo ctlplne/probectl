@@ -684,7 +684,7 @@ capabilities:
     ui: {refs: ["ui:F40@/topology"]}
     docs: {refs: ["file:docs/topology.md#Topology graph", "file:docs/topology.md#Traffic-aware failure preview", "file:docs/entity-registry.md#Canonical entity registry (FX-2)", "file:docs/configuration.md#Kubernetes inventory collector", "file:docs/explorer.md#Kubernetes flow dimensions"]}
     config_keys: {refs: ["config:PROBECTL_TOPOLOGY_ENGINE", "config:PROBECTL_TOPOLOGY_WHATIF_TIMEOUT"]}
-    telemetry: {refs: ["file:internal/control/topologyapi.go", "file:internal/control/topology_failure_service.go"]}
+    telemetry: {refs: ["file:internal/control/topologyapi.go", "file:internal/control/explorer_flow_metrics.go"]}
     real_stack_proof: {refs: ["test:internal/topology/realstack_integration_test.go#TestTopologyGraphRealStack"]}
     migration: {refs: ["file:migrations/0136_entity_registry.sql", "file:migrations/0137_incident_entity_identity.sql", "file:migrations/0256_kubernetes_inventory.sql", "file:migrations/0258_bgp_routing_global_neighbors.sql"]}
 

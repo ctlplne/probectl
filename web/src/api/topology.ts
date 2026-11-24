@@ -167,7 +167,7 @@ export function topologyWhatIfExportHref(
   const query = new URLSearchParams({ target })
   if (at) query.set('at', at)
   for (const [name, value] of Object.entries(traffic ?? {})) {
-    if (value) query.set(name, value)
+    if (typeof value === 'string' && value) query.set(name, value)
   }
   return apiURL(`/topology/whatif/export?${query.toString()}`)
 }

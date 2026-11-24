@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"time"
 
+	guuid "github.com/google/uuid"
+
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
@@ -19,7 +21,6 @@ import (
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/topology"
-	guuid "github.com/google/uuid"
 )
 
 type topologyFailureWindow struct {

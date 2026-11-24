@@ -233,7 +233,7 @@ func startKubernetesInventory(ctx context.Context, cfg *ebpf.Config, log *slog.L
 	}
 	id, err := crypto.EntitySPIFFEIDFromCertFile(settings.EvidenceCertFile)
 	if err != nil || id.TenantID != cfg.TenantID || id.AgentID != cfg.AgentID {
-		return nil, fmt.Errorf("Kubernetes inventory evidence identity must name this tenant and collector")
+		return nil, fmt.Errorf("inventory evidence identity must name this Kubernetes tenant and collector")
 	}
 	client, err := agent.DialEntityEvidence(settings.EvidenceGRPCAddr, settings.EvidenceCertFile, settings.EvidenceKeyFile,
 		settings.EvidenceCAFile, settings.EvidenceServerName)
