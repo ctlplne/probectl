@@ -44,6 +44,15 @@ type BMPRouteViewHeader struct {
 
 var ErrBMPRouteViewHeader = errors.New("bgp: invalid or unsupported route-view peer header")
 
+// IsGlobalInboundNeighbor reports protocol eligibility only. The receiver
+// still resolves the canonical router and context from the current signed
+// source assignment. Other peer types need explicit routing-context mapping.
+func (header BMPRouteViewHeader) IsGlobalInboundNeighbor() bool {
+	return header.PeerType == 0 && header.Distinguisher == [8]byte{} && header.PeerASN != 0 &&
+		header.PeerAddress.IsValid() && !header.PeerAddress.Is4In6() && !header.PeerAddress.IsUnspecified() && !header.PeerAddress.IsMulticast() &&
+		(header.View == BMPAdjRIBInPrePolicy || header.View == BMPAdjRIBInPostPolicy)
+}
+
 // ParseBMPRouteViewHeader reads the fixed42-byte RFC7854 peer header. RFC8671
 // defines Adj-RIB-Out; RFC9069 defines a separate Loc-RIB flag namespace and
 // four-octet ASN encoding. It does not activate ingestion or infer ownership.

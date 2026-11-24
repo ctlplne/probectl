@@ -31,7 +31,7 @@ func (b mcpIncidentImpactBackend) IncidentImpact(ctx context.Context, actor *aut
 	return marshalNativeIncidentImpact(result)
 }
 
-type nativeIncidentChange string
+type nativeSignedDecimal string
 
 // Only the server's exact contract constant receives structural encoding.
 // Arbitrary labels, hostnames and other source prose retain normal redaction.
@@ -65,7 +65,7 @@ func (source nativeIncidentEvidenceSource) MarshalJSON() ([]byte, error) {
 	return append(append([]byte(`"evidence/`), encoded[1:len(encoded)-1]...), '"'), nil
 }
 
-func (value nativeIncidentChange) MarshalJSON() ([]byte, error) {
+func (value nativeSignedDecimal) MarshalJSON() ([]byte, error) {
 	text := string(value)
 	encoded, err := mcp.NativePeeringCounter(strings.TrimPrefix(text, "-")).MarshalJSON()
 	if err != nil {
@@ -145,11 +145,11 @@ func marshalNativeIncidentImpact(value incident.ImpactResponse) (json.RawMessage
 		Members         []member                     `json:"members"`
 		Unresolved      []mcp.NativeRoleUUID         `json:"unresolved_signal_ids"`
 		Customers       []customer                   `json:"customers"`
-		Change          nativeIncidentChange         `json:"observed_scaled_byte_change,omitempty"`
+		Change          nativeSignedDecimal          `json:"observed_scaled_byte_change,omitempty"`
 		Tests           []nativeIncidentImpactTest   `json:"tests,omitempty"`
 		SLOs            []nativeIncidentSLO          `json:"slos,omitempty"`
 	}{
-		ImpactResponse: value, ContractVersion: nativeIncidentImpactContract(value.ContractVersion), IncidentID: mcp.NativeRoleUUID(value.IncidentID), Current: projectPeriod(value.Current), Previous: projectPeriod(value.Previous), Members: []member{}, Unresolved: ids(value.UnresolvedSignalIDs), Customers: []customer{}, Change: nativeIncidentChange(value.ObservedByteChange)}
+		ImpactResponse: value, ContractVersion: nativeIncidentImpactContract(value.ContractVersion), IncidentID: mcp.NativeRoleUUID(value.IncidentID), Current: projectPeriod(value.Current), Previous: projectPeriod(value.Previous), Members: []member{}, Unresolved: ids(value.UnresolvedSignalIDs), Customers: []customer{}, Change: nativeSignedDecimal(value.ObservedByteChange)}
 	for _, item := range value.Members {
 		sources := make([]nativeIncidentEvidenceSource, len(item.SourceIDs))
 		for i, id := range item.SourceIDs {

@@ -69,10 +69,12 @@ func (store BGPRouting) StagePeerInScope(ctx context.Context, sc tenancy.Scope, 
 	}
 	var latest *time.Time
 	epoch, bindingID := routingSourceSlot(source)
+	neighbor := routingStageNeighbor(input)
 	if err := sc.Q.QueryRow(ctx, `SELECT max(observed_at) FROM bgp_routing_views
  WHERE tenant_id=$1 AND context_id=$2 AND router_id=$3 AND collector_agent_id=$4 AND source_ref=$5 AND source_kind='router_bmp'
+ AND (($8='' AND view_kind IN ('loc_rib','operator_loc_rib')) OR ($8<>'' AND view_kind='adj_rib_in_post_policy' AND peer_identity->>'Address'=$8))
  AND ((routing_selection IS NULL AND $6::text IS NULL)
-      OR (routing_selection->>'epoch'=$6 AND routing_selection->>'binding_id'=$7))`, source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef, epoch, bindingID).Scan(&latest); err != nil {
+      OR (routing_selection->>'epoch'=$6 AND routing_selection->>'binding_id'=$7))`, source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef, epoch, bindingID, neighbor).Scan(&latest); err != nil {
 		return none, err
 	}
 	// An old message cannot retire a newer incarnation, even with still-issued
@@ -85,7 +87,7 @@ func (store BGPRouting) StagePeerInScope(ctx context.Context, sc tenancy.Scope, 
 		return none, err
 	}
 	if err != nil {
-		return invalidateRoutingStageSource(ctx, sc, source)
+		return invalidateRoutingStageSource(ctx, sc, source, neighbor)
 	}
 	replay, exists, err := routingStageReplay(ctx, sc, source, input, refs, profile)
 	if err != nil {
@@ -101,7 +103,7 @@ func (store BGPRouting) StagePeerInScope(ctx context.Context, sc tenancy.Scope, 
 		if _, rollbackErr := sc.Q.Exec(ctx, "ROLLBACK TO SAVEPOINT routing_peer_up_stage"); rollbackErr != nil {
 			return none, rollbackErr
 		}
-		return invalidateRoutingStageSource(ctx, sc, source)
+		return invalidateRoutingStageSource(ctx, sc, source, neighbor)
 	}
 	if _, err := sc.Q.Exec(ctx, "RELEASE SAVEPOINT routing_peer_up_stage"); err != nil {
 		return none, err
@@ -176,6 +178,19 @@ func resolveOwnedRouterEvidenceSource(ctx context.Context, sc tenancy.Scope, sou
 	return source, validateBGPRoutingSource(ctx, sc, source)
 }
 
+func routingStageNeighbor(input BGPRoutingPeerUpInput) string {
+	if input.RefusedPeer != nil {
+		if isGlobalRoutingNeighbor(*input.RefusedPeer) {
+			return input.RefusedPeer.Address.String()
+		}
+		return ""
+	}
+	if len(input.Definitions) > 0 && input.Definitions[0].Kind == "adj_rib_in_post_policy" && isGlobalRoutingNeighbor(input.Definitions[0].Peer) {
+		return input.Definitions[0].Peer.Address.String()
+	}
+	return ""
+}
+
 func routingStagePlan(ctx context.Context, source BGPRoutingSource, input BGPRoutingPeerUpInput, profile BGPRoutingBudget) ([]BGPRoutingStagedView, error) {
 	if _, err := validRegistryUUID(input.ObservationID); err != nil {
 		return nil, ErrBGPRoutingView
@@ -185,9 +200,18 @@ func routingStagePlan(ctx context.Context, source BGPRoutingSource, input BGPRou
 	}
 	var seen [3]bool
 	var completePeer []byte
+	neighbor := routingStageNeighbor(input)
+	kind := "loc_rib"
+	if neighbor != "" {
+		kind = "adj_rib_in_post_policy"
+	}
 	refs := make([]BGPRoutingStagedView, 0, len(input.Definitions))
 	for _, definition := range input.Definitions {
-		if definition.Kind != "loc_rib" || definition.AFI < 1 || definition.AFI > 2 || definition.SAFI != 1 || seen[definition.AFI] {
+		if definition.Kind != kind || definition.AFI < 1 || definition.AFI > 2 || definition.SAFI != 1 || seen[definition.AFI] {
+			return nil, ErrBGPRoutingView
+		}
+		if neighbor != "" && (!isGlobalRoutingNeighbor(definition.Peer) || definition.Peer.Address.String() != neighbor ||
+			!definition.Peer.LocalAddress.IsValid() || definition.Filtered) {
 			return nil, ErrBGPRoutingView
 		}
 		if definition.Peer.Distinguisher != ([8]byte{}) {
@@ -211,6 +235,9 @@ func routingStagePlan(ctx context.Context, source BGPRoutingSource, input BGPRou
 		completePeer = metadata
 		epoch, bindingID := routingSourceSlot(source)
 		identity := []any{"bmp-peer-up-v1", source.Scope, source.RouterID, source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, input.ObservationID, definition.AFI, definition.SAFI}
+		if neighbor != "" {
+			identity = append(identity, kind, neighbor)
+		}
 		if source.routingSelection != nil {
 			identity = append(identity, epoch, bindingID)
 		}
@@ -229,7 +256,7 @@ func routingStagePlan(ctx context.Context, source BGPRoutingSource, input BGPRou
 }
 
 func routingStageReplay(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, input BGPRoutingPeerUpInput, refs []BGPRoutingStagedView, profile BGPRoutingBudget) (BGPRoutingStageResult, bool, error) {
-	if conflict, err := routingStageNonceConflicts(ctx, sc, source, input.ObservationID); err != nil || conflict {
+	if conflict, err := routingStageNonceConflicts(ctx, sc, source, input.ObservationID, routingStageNeighbor(input)); err != nil || conflict {
 		return BGPRoutingStageResult{Status: "invalidated"}, conflict, err
 	}
 	matched, found := 0, 0
@@ -273,13 +300,14 @@ func routingStageReplay(ctx context.Context, sc tenancy.Scope, source BGPRouting
 	return BGPRoutingStageResult{Status: "invalidated"}, true, nil
 }
 
-func invalidateRoutingStageSource(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource) (BGPRoutingStageResult, error) {
+func invalidateRoutingStageSource(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, neighbor string) (BGPRoutingStageResult, error) {
 	epoch, bindingID := routingSourceSlot(source)
 	_, err := sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET state='invalid',updated_at=clock_timestamp()
  WHERE tenant_id=$1 AND context_id=$2 AND router_id=$3 AND collector_agent_id=$4 AND source_ref=$5
  AND source_kind='router_bmp' AND state IN ('staging','current')
+ AND (($8='' AND view_kind IN ('loc_rib','operator_loc_rib')) OR ($8<>'' AND view_kind='adj_rib_in_post_policy' AND peer_identity->>'Address'=$8))
  AND ((routing_selection IS NULL AND $6::text IS NULL)
-      OR (routing_selection->>'epoch'=$6 AND routing_selection->>'binding_id'=$7))`, source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef, epoch, bindingID)
+      OR (routing_selection->>'epoch'=$6 AND routing_selection->>'binding_id'=$7))`, source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef, epoch, bindingID, neighbor)
 	if err != nil {
 		return BGPRoutingStageResult{}, err
 	}

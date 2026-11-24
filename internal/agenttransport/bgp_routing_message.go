@@ -82,8 +82,12 @@ func decodeRoutingMessage(ctx context.Context, raw *agentv1.BmpRoutingMessage, p
 	for i, view := range views {
 		batches[i] = store.BGPRoutingBatch{AFI: view.AFI, SAFI: view.SAFI, Heartbeat: true, WireDigest: crypto.Hash(raw.Message)}
 	}
+	view := bgp.BMPLocRIB
+	if peer.Type == 0 {
+		view = bgp.BMPAdjRIBInPostPolicy
+	}
 	bound := bgp.PeerUp{Header: bgp.BMPRouteViewHeader{PeerType: peer.Type, Flags: peer.Flags, Distinguisher: peer.Distinguisher,
-		PeerAddress: peer.Address, PeerASN: peer.ASN, BGPIdentifier: peer.BGPIdentifier, View: bgp.BMPLocRIB, ASNWidth: 4, Filtered: peer.Flags&0x80 != 0},
+		PeerAddress: peer.Address, PeerASN: peer.ASN, BGPIdentifier: peer.BGPIdentifier, View: view, ASNWidth: 4, Filtered: peer.Type == 3 && peer.Flags&0x80 != 0},
 		LocalAddress: peer.LocalAddress, LocalPort: peer.LocalPort, RemotePort: peer.RemotePort, SentOpen: peer.SentOpen, ReceivedOpen: peer.ReceivedOpen}
 	if peer.SourceFormat != "" {
 		families := make([]uint16, 0, len(views))
@@ -109,6 +113,9 @@ func decodeRoutingMessage(ctx context.Context, raw *agentv1.BmpRoutingMessage, p
 	decoded, err := bgp.DecodeRoutingChanges(ctx, raw.Message, bound, bgp.UpdateFrameBudget{MemoryBytes: profile.MemoryBytes / 4, WorkUnits: profile.WorkUnits / 4})
 	if err != nil {
 		return nil, err
+	}
+	if decoded.Header.View != view {
+		return nil, store.ErrBGPRoutingBatch
 	}
 	for _, group := range decoded.Groups {
 		index := -1

@@ -203,6 +203,7 @@ func newRoleFlowQueryFixture(t *testing.T) (*roleExplanationAPIFixture, *rolePub
 		if err := store.NewAgentIdentities(f.pool).Record(t.Context(), tenant, agent, crypto.EntitySPIFFEID(tenant, agent), serial, time.Now().Add(time.Hour), ""); err != nil {
 			t.Fatal(err)
 		}
+		f.serials[tenant+agent] = serial
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts(tenant_id,agent_id,context_id) VALUES($1,$2,$3)`, tenant, agent, f.contextID); err != nil {
 				return err

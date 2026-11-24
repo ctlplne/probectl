@@ -77,6 +77,18 @@ type Coverage struct {
 	Notes         []string `json:"notes,omitempty"`
 }
 
+// FailureSimulationRequest selects a graph element and its optional traffic window.
+type FailureSimulationRequest struct {
+	Target             string `json:"target"`
+	At                 string `json:"at,omitempty"`
+	ContextID          string `json:"context_id,omitempty"`
+	FailureInterfaceID string `json:"failure_interface_id,omitempty"`
+	TrafficFrom        string `json:"traffic_from,omitempty"`
+	TrafficTo          string `json:"traffic_to,omitempty"`
+	RunoutUntil        string `json:"runout_until,omitempty"`
+	MaximumPollGap     string `json:"maximum_poll_gap,omitempty"`
+}
+
 // Impact is the simulation result for one failed element.
 type Impact struct {
 	Target           string       `json:"target"`

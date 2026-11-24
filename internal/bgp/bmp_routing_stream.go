@@ -31,7 +31,7 @@ type bmpRoutingStreamState struct {
 }
 
 func (l *BMPListener) queueRoutingMessage(id bmpIdentity, session uint64, kind byte, payload []byte) error {
-	if _, ok := l.evidence.(bmpRoutingMessageWriter); !ok || len(payload) == 0 || payload[0] != 3 {
+	if _, ok := l.evidence.(bmpRoutingMessageWriter); !ok || len(payload) == 0 || payload[0] != 3 && payload[0] != 0 {
 		return nil
 	}
 	loss := l.routingSessionLoss(session)
@@ -47,6 +47,9 @@ func (l *BMPListener) queueRoutingMessage(id bmpIdentity, session uint64, kind b
 	header, err := ParseBMPRouteViewHeader(payload[:bmpPeerHeaderLen])
 	if err != nil {
 		return err
+	}
+	if header.View != BMPLocRIB && (!header.IsGlobalInboundNeighbor() || kind == bmpRouteMonitoring && header.View != BMPAdjRIBInPostPolicy) {
+		return nil
 	}
 	message := &agentv1.BmpRoutingMessage{Heartbeat: kind == 1, SourceReset: kind == 2}
 	message.Message = make([]byte, bmpCommonHeaderLen+len(payload))

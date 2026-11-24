@@ -75,6 +75,10 @@ func routingDecodeProfile(ctx context.Context, sc tenancy.Scope, base BGPRouting
 		config.Manifest.Epoch != metadata.Epoch || !config.Manifest.AssignedAt.Equal(metadata.AssignedAt) {
 		return BGPRoutingDecodeProfile{}, errBGPRoutingContextBinding
 	}
+	if isGlobalRoutingNeighbor(*peer) {
+		_, err := selectGlobalRoutingNeighbor(ctx, sc, config)
+		return BGPRoutingDecodeProfile{}, err
+	}
 	selected, err := selectRoutingSourceByPeer(ctx, sc, config, *peer)
 	if err != nil {
 		return BGPRoutingDecodeProfile{}, err

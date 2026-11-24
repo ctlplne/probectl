@@ -19,9 +19,9 @@ import (
 // These values are typed original metrics, not arbitrary source strings.
 // Keep exact mathematical values through ordinary text redaction without
 // exempting an agent ID, display label or unknown source field.
-type nativeChangeEffectRatio string
+type nativeMeasurementRatio string
 
-func (ratio nativeChangeEffectRatio) MarshalJSON() ([]byte, error) {
+func (ratio nativeMeasurementRatio) MarshalJSON() ([]byte, error) {
 	parts := strings.Split(string(ratio), "/")
 	if len(parts) > 2 {
 		return nil, errors.New("invalid original measurement ratio")
@@ -80,7 +80,7 @@ func nativeChangeEffectPeriod(value change.EffectTestPeriod) (json.RawMessage, e
 		SumNanos     mcp.NativePeeringCounter `json:"sum_nanos"`
 		MinimumNanos mcp.NativePeeringCounter `json:"minimum_nanos"`
 		MaximumNanos mcp.NativePeeringCounter `json:"maximum_nanos"`
-		MeanNanos    nativeChangeEffectRatio  `json:"mean_nanos"`
+		MeanNanos    nativeMeasurementRatio   `json:"mean_nanos"`
 	}
 	packets, err := nativeChangeEffectPacketCounts(value.Packets)
 	if err != nil {
@@ -89,16 +89,16 @@ func nativeChangeEffectPeriod(value change.EffectTestPeriod) (json.RawMessage, e
 	out := struct {
 		change.EffectTestPeriod
 		Packets      *nativeChangeEffectPackets `json:"packets,omitempty"`
-		LossRatio    *nativeChangeEffectRatio   `json:"loss_ratio,omitempty"`
+		LossRatio    *nativeMeasurementRatio    `json:"loss_ratio,omitempty"`
 		Latency      *latency                   `json:"latency,omitempty"`
 		Observations []observation              `json:"observations"`
 	}{EffectTestPeriod: value, Packets: packets, Observations: []observation{}}
 	if value.LossRatio != nil {
-		ratio := nativeChangeEffectRatio(*value.LossRatio)
+		ratio := nativeMeasurementRatio(*value.LossRatio)
 		out.LossRatio = &ratio
 	}
 	if v := value.Latency; v != nil {
-		out.Latency = &latency{*v, mcp.NativePeeringCounter(v.Samples), mcp.NativePeeringCounter(v.SumNanos), mcp.NativePeeringCounter(v.MinimumNanos), mcp.NativePeeringCounter(v.MaximumNanos), nativeChangeEffectRatio(v.MeanNanos)}
+		out.Latency = &latency{*v, mcp.NativePeeringCounter(v.Samples), mcp.NativePeeringCounter(v.SumNanos), mcp.NativePeeringCounter(v.MinimumNanos), mcp.NativePeeringCounter(v.MaximumNanos), nativeMeasurementRatio(v.MeanNanos)}
 	}
 	for _, item := range value.Observations {
 		packets, err := nativeChangeEffectPacketCounts(item.Packets)

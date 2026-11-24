@@ -9,6 +9,7 @@ package agenttransport
 import (
 	"net/netip"
 
+	"github.com/ctlplne/probectl/internal/bgp"
 	"github.com/ctlplne/probectl/internal/store"
 )
 
@@ -18,7 +19,15 @@ import (
 // resolved only through the current tenant-owned operator manifest.
 func routingRefusalPeer(message []byte) (*store.BGPRoutingPeer, bool) {
 	if len(message) >= 7 && message[6] != 3 {
-		return nil, true
+		if message[6] != 0 || len(message) < 48 {
+			return nil, true
+		}
+		header, err := bgp.ParseBMPRouteViewHeader(message[6:48])
+		if err != nil || !header.IsGlobalInboundNeighbor() {
+			return nil, true
+		}
+		return &store.BGPRoutingPeer{Type: header.PeerType, Flags: header.Flags, Distinguisher: header.Distinguisher,
+			BGPIdentifier: header.BGPIdentifier, Address: header.PeerAddress, ASN: header.PeerASN}, false
 	}
 	if len(message) < 16 {
 		return nil, false

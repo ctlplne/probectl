@@ -313,7 +313,7 @@
       ],
       "name": "Live topology graph",
       "status": "delivered",
-      "evidence": "`internal/topology` (versioned, what-if; ADR U-047); FX-2 current tenant/context entity pivots use `internal/entity`, `migrations/0136_entity_registry.sql` and `docs/entity-registry.md`. FX-2b reviewed NMS devices and groups enter the same tenant/context identity registry through `internal/nmsimport/apply.go`; Orion/PRTG inputs remain preview until live trials. FX-44 attaches tenant-owned Kubernetes objects and their original observation times to Topology and uses the same retained inventory for temporal Flow Explorer dimensions."
+      "evidence": "`internal/topology` (versioned, what-if; ADR U-047); FX-2 current tenant/context entity pivots use `internal/entity`, `migrations/0136_entity_registry.sql` and `docs/entity-registry.md`. FX-2b reviewed NMS devices and groups enter the same tenant/context identity registry through `internal/nmsimport/apply.go`; Orion/PRTG inputs remain preview until live trials. FX-44 attaches tenant-owned Kubernetes objects and their original observation times to Topology and uses the same retained inventory for temporal Flow Explorer dimensions. FX-11 previews traffic changes from retained flows, eligible routing and directional counters. See `docs/topology.md`."
     },
     {
       "ids": [

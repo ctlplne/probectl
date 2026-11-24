@@ -6,6 +6,8 @@
 
 package bgp
 
+import "net/netip"
+
 // DefaultBMPRoutingStateBytes admits retained stream metadata, not route
 // counts. Wire bodies remain in the separate bounded transport queue. This
 // budget can be raised for deployments with larger complete source manifests.
@@ -17,10 +19,16 @@ type bmpRoutingSelector struct {
 	cohort        uint8 // exact supported family mask from the authenticated staging receipt
 	distinguisher [8]byte
 	identifier    [4]byte
+	neighbor      netip.Addr
+	neighborASN   uint32
 }
 
 func bmpSelector(header BMPRouteViewHeader) bmpRoutingSelector {
-	return bmpRoutingSelector{distinguisher: header.Distinguisher, identifier: header.BGPIdentifier.As4()}
+	selector := bmpRoutingSelector{distinguisher: header.Distinguisher, identifier: header.BGPIdentifier.As4()}
+	if header.IsGlobalInboundNeighbor() {
+		selector.neighbor, selector.neighborASN = header.PeerAddress, header.PeerASN
+	}
+	return selector
 }
 
 // Worker-owned accounting covers the key, map buckets, retained state, identity

@@ -675,6 +675,21 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: TOPOLOGY_LIVE_RECEIPT,
   },
   {
+    capability: 'Directional traffic and capacity preview for a link or node failure',
+    featureIds: ['F40'],
+    sprint: 'FX-11',
+    kind: 'native',
+    route: '/topology',
+    offNav: true,
+    evidence: [
+      'file:web/src/routes/TopologyTrafficWhatIf.tsx',
+      'openapi:/v1/topology/whatif',
+      'openapi:/v1/topology/whatif/export',
+      'cli:probectl topology whatif',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
     capability: 'Historical Kubernetes workload, Pod, and Service inventory',
     featureIds: ['F40'],
     sprint: 'FX-44',

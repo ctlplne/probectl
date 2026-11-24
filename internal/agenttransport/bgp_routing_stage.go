@@ -87,7 +87,10 @@ func decodeRoutingPeerMetadata(ctx context.Context, message []byte, source store
 	if err != nil {
 		return nil, err
 	}
-	if peer.Header.View != bgp.BMPLocRIB {
+	view := peer.Header.View
+	if peer.Header.IsGlobalInboundNeighbor() && profile.Format == "" {
+		view = bgp.BMPAdjRIBInPostPolicy
+	} else if view != bgp.BMPLocRIB {
 		return nil, store.ErrBGPRoutingView
 	}
 	metadata := store.BGPRoutingPeer{SourceFormat: profile.Format, Type: peer.Header.PeerType, Flags: peer.Header.Flags, Distinguisher: peer.Header.Distinguisher, Address: peer.Header.PeerAddress, ASN: peer.Header.PeerASN, BGPIdentifier: peer.Header.BGPIdentifier, LocalAddress: peer.LocalAddress, LocalPort: peer.LocalPort, RemotePort: peer.RemotePort, SentOpen: peer.SentOpen, ReceivedOpen: peer.ReceivedOpen}
@@ -96,7 +99,7 @@ func decodeRoutingPeerMetadata(ctx context.Context, message []byte, source store
 	}
 	definitions := make([]store.BGPRoutingViewDefinition, 0, len(families))
 	for _, family := range families {
-		definitions = append(definitions, store.BGPRoutingViewDefinition{Kind: string(peer.Header.View), AFI: family.AFI, SAFI: family.SAFI, Filtered: peer.Header.Filtered, Peer: metadata})
+		definitions = append(definitions, store.BGPRoutingViewDefinition{Kind: string(view), AFI: family.AFI, SAFI: family.SAFI, Filtered: peer.Header.Filtered, Peer: metadata})
 	}
 	return definitions, nil
 }

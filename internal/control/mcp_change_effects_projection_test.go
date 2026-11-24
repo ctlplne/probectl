@@ -46,7 +46,7 @@ func TestChangeEffectsNativeKeepsExactOriginalMetricsAndRedactsFreeText(t *testi
 	if _, err := marshalNativeChangeEffects(value); err == nil {
 		t.Fatal("arbitrary sample text obtained mathematical redaction protection")
 	}
-	if _, err := nativeChangeEffectRatio("1/0").MarshalJSON(); err == nil {
+	if _, err := nativeMeasurementRatio("1/0").MarshalJSON(); err == nil {
 		t.Fatal("invalid rational obtained structural redaction protection")
 	}
 }

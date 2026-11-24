@@ -54,7 +54,7 @@ func resolveRoutingStreamSource(ctx context.Context, sc tenancy.Scope, base BGPR
 func loadBoundRoutingStreamSource(ctx context.Context, sc tenancy.Scope, base BGPRoutingSource, generation, epoch string, profile BGPRoutingBudget) (BGPRoutingSource, error) {
 	const selected = ` FROM bgp_routing_views WHERE tenant_id=$1 AND collector_agent_id=$2 AND source_ref=$3
  AND sender_serial=$4 AND origin_serial=$5 AND generation=$6 AND source_kind='router_bmp'
- AND view_kind='operator_loc_rib' AND routing_selection->>'epoch'=$7 AND state IN ('staging','current')`
+ AND view_kind IN ('operator_loc_rib','adj_rib_in_post_policy') AND routing_selection->>'epoch'=$7 AND state IN ('staging','current')`
 	args := []any{base.TenantID, base.CollectorAgentID, base.SourceRef, base.SenderSerial, base.OriginSerial, generation, epoch}
 	var count, encoded int64
 	if err := sc.Q.QueryRow(ctx, `SELECT count(*),COALESCE(sum(octet_length(routing_selection::text)),0)::bigint`+selected, args...).Scan(&count, &encoded); err != nil {
@@ -68,7 +68,7 @@ func loadBoundRoutingStreamSource(ctx context.Context, sc tenancy.Scope, base BG
 	}
 	// A third row is a duplicate or unsupported family, never permission to
 	// choose two convenient members of a corrupted source incarnation.
-	rows, err := sc.Q.Query(ctx, `SELECT context_id::text,router_id::text,observed_at,afi,safi,
+	rows, err := sc.Q.Query(ctx, `SELECT context_id::text,router_id::text,observed_at,afi,safi,view_kind,
  CASE WHEN octet_length(routing_selection::text)<=$8 THEN routing_selection ELSE NULL END`+selected+` ORDER BY afi,safi LIMIT 3 FOR UPDATE`, append(args, profile.MemoryBytes/128)...)
 	if err != nil {
 		return base, err
@@ -76,13 +76,15 @@ func loadBoundRoutingStreamSource(ctx context.Context, sc tenancy.Scope, base BG
 	defer rows.Close()
 	var source BGPRoutingSource
 	var born time.Time
+	var storedKind string
 	var seen [3]bool
 	for rows.Next() {
 		candidate := base
 		var raw []byte
 		var afi uint16
 		var safi uint8
-		if err := rows.Scan(&candidate.ContextID, &candidate.RouterID, &candidate.ObservedAt, &afi, &safi, &raw); err != nil {
+		var candidateKind string
+		if err := rows.Scan(&candidate.ContextID, &candidate.RouterID, &candidate.ObservedAt, &afi, &safi, &candidateKind, &raw); err != nil {
 			return base, err
 		}
 		if afi < 1 || afi > 2 || safi != 1 || seen[afi] {
@@ -97,15 +99,15 @@ func loadBoundRoutingStreamSource(ctx context.Context, sc tenancy.Scope, base BG
 			candidate.routingSelection.Epoch != epoch || !routingSelectionSupportsAFI(candidate, afi) {
 			return base, ErrBGPRoutingView
 		}
-		if source.routingSelection != nil && (!sameRoutingSelection(*source.routingSelection, *candidate.routingSelection) || !born.Equal(candidate.ObservedAt)) {
+		if source.routingSelection != nil && (!sameRoutingSelection(*source.routingSelection, *candidate.routingSelection) || !born.Equal(candidate.ObservedAt) || candidateKind != storedKind) {
 			return base, ErrBGPRoutingView
 		}
-		source, born = candidate, candidate.ObservedAt
+		source, born, storedKind = candidate, candidate.ObservedAt, candidateKind
 	}
 	if err := rows.Err(); err != nil {
 		return base, err
 	}
-	if !routingStreamFamiliesComplete(source, seen) {
+	if storedKind != "adj_rib_in_post_policy" && !routingStreamFamiliesComplete(source, seen) {
 		return base, ErrBGPRoutingSourceUnavailable
 	}
 	source.ObservedAt = base.ObservedAt

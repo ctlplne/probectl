@@ -66,6 +66,14 @@ func (store BGPRouting) lookupExactPrefixInScope(ctx context.Context, sc tenancy
 
 func (store BGPRouting) lookupCurrentRoutingInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource,
 	ref BGPRoutingViewRef, address netip.Addr, exact netip.Prefix, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
+	return store.lookupCurrentRoutingViewInScope(ctx, sc, source, ref, address, exact, false, budget)
+}
+
+// The failure model can read a complete neighbor view. Other consumers keep
+// using a selected router view, so eligible paths cannot enter flow attribution
+// as though they had already been selected.
+func (store BGPRouting) lookupCurrentRoutingViewInScope(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource,
+	ref BGPRoutingViewRef, address netip.Addr, exact netip.Prefix, postPolicyNeighbor bool, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
 	if err := validateBGPRoutingSource(ctx, sc, source); err != nil {
 		return BGPRoutingLookup{}, err
 	}
@@ -95,7 +103,7 @@ func (store BGPRouting) lookupCurrentRoutingInScope(ctx context.Context, sc tena
 	if address.Is4() {
 		afi = 1
 	}
-	view, err := loadRoutingReadView(ctx, sc, source, ref, afi)
+	view, err := loadRoutingReadViewKind(ctx, sc, source, ref, afi, postPolicyNeighbor)
 	if err != nil {
 		return BGPRoutingLookup{}, err
 	}
@@ -132,6 +140,10 @@ func (store BGPRouting) lookupCurrentRoutingInScope(ctx context.Context, sc tena
 		return BGPRoutingLookup{}, ErrBGPRoutingSourceUnavailable
 	}
 	if err != nil {
+		if postPolicyNeighbor && errors.Is(err, ErrBGPRoutingRouteMissing) {
+			return BGPRoutingLookup{Source: birth, View: ref, AsOf: authority.AsOf, ValidUntil: deadline,
+				LastSequence: view.lastSequence, LastObservedAt: *view.lastObservedAt}, nil
+		}
 		return BGPRoutingLookup{}, err
 	}
 	result.AsOf, result.ValidUntil = authority.AsOf, deadline
@@ -146,6 +158,10 @@ func minRoutingTime(a, b time.Time) time.Time {
 }
 
 func loadRoutingReadView(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef, afi uint16) (routingReadView, error) {
+	return loadRoutingReadViewKind(ctx, sc, source, ref, afi, false)
+}
+
+func loadRoutingReadViewKind(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, ref BGPRoutingViewRef, afi uint16, postPolicyNeighbor bool) (routingReadView, error) {
 	var view routingReadView
 	if !routingSelectionSupportsAFI(source, afi) {
 		return view, ErrBGPRoutingView
@@ -159,6 +175,10 @@ func loadRoutingReadView(ctx context.Context, sc tenancy.Scope, source BGPRoutin
 	if source.routingSelection != nil {
 		kind = "operator_loc_rib"
 		format = source.routingSelection.Binding.SourceFormat
+	}
+	if postPolicyNeighbor {
+		kind = "adj_rib_in_post_policy"
+		format = ""
 	}
 	err = sc.Q.QueryRow(ctx, `SELECT observed_at,valid_until,last_message_observed_at,last_sequence,message_clock_sequence
  FROM bgp_routing_views WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND generation=$4

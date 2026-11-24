@@ -5090,6 +5090,67 @@ export interface ThreatRuleList {
   rules_running?: boolean
 }
 
+export interface TopologyFailurePeak {
+  bps: string
+  from: string
+  to: string
+}
+
+export interface TopologyFailurePort {
+  direction: "in" | "out"
+  interface_id: string
+}
+
+export interface TopologyFailurePortLoad {
+  added_bps: string
+  capacity_bps?: string
+  direction: "in" | "out"
+  interface_id: string
+  measured_bps?: string
+  projected_bps?: string
+  removed_bps: string
+  status: "failed" | "projected" | "traffic_unresolved" | "baseline_unavailable" | "baseline_below_displaced" | "capacity_unavailable"
+  utilization_ratio?: string
+}
+
+export interface TopologyFailurePortSeries {
+  at_capacity?: boolean
+  current: TopologyFailurePortLoad
+  direction: "in" | "out"
+  interface_id: string
+  measured_peak?: TopologyFailurePeak
+  observed_samples: number
+  projected_peak?: TopologyFailurePeak
+  projected_samples: number
+  runout?: CapacityForecastResult
+  runout_status: string
+}
+
+export interface TopologyFailureProjection {
+  affected_bytes: string
+  complete: boolean
+  from: string
+  ports: TopologyFailurePortSeries[]
+  rerouted_bytes: string
+  samples: number
+  to: string
+  unresolved_bytes: string
+  unrouted_bytes: string
+}
+
+export interface TopologyFailureTraffic {
+  context_id: string
+  failed_ports: TopologyFailurePort[]
+  flow_records: number
+  from: string
+  model: string
+  projection?: TopologyFailureProjection
+  reason?: string
+  status: "projected" | "partial" | "unavailable"
+  to: string
+  unattributed_rows: number
+}
+
 export interface Version {
   arch: string
   commit: string
@@ -7305,6 +7366,12 @@ export type SimulateWhatIfResponse = JsonObject
 export interface ExportWhatIfRequest {
   target: string
   at?: string
+  contextId?: string
+  failureInterfaceId?: string
+  trafficFrom?: string
+  trafficTo?: string
+  runoutUntil?: string
+  maximumPollGap?: string
 }
 
 export type ExportWhatIfResponse = JsonObject
@@ -9738,6 +9805,12 @@ export class ProbectlSDKClient {
     const query = new URLSearchParams()
     if (request.target !== undefined) query.set("target", String(request.target))
     if (request.at !== undefined) query.set("at", String(request.at))
+    if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
+    if (request.failureInterfaceId !== undefined) query.set("failure_interface_id", String(request.failureInterfaceId))
+    if (request.trafficFrom !== undefined) query.set("traffic_from", String(request.trafficFrom))
+    if (request.trafficTo !== undefined) query.set("traffic_to", String(request.trafficTo))
+    if (request.runoutUntil !== undefined) query.set("runout_until", String(request.runoutUntil))
+    if (request.maximumPollGap !== undefined) query.set("maximum_poll_gap", String(request.maximumPollGap))
     return this.requestJSON<ExportWhatIfResponse>("GET", path, query, undefined)
   }
 

@@ -40,6 +40,15 @@ func (BGPRouting) FlowCaptureQueryProjectionsInScope(ctx context.Context, sc ten
 // key and clock is checked separately; immutable shared content does not grant
 // another flow, tenant, context or subsequent request any authority.
 func readRoutingCaptureQueryBatchInScope(ctx context.Context, sc tenancy.Scope, reads []flowstore.RoutingCaptureRead, budget BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error, peering ...BGPPeeringCaptureTarget) ([]flowstore.RoutingProjection, error) {
+	return readRoutingCaptureBatch(ctx, sc, reads, budget, authorize, nil, peering...)
+}
+
+type routingCaptureVisitor struct {
+	scope entity.Scope
+	visit func(context.Context, flowstore.RoutingCaptureRead, BGPRoutingFlowLookup, *BGPRoutingBudget) error
+}
+
+func readRoutingCaptureBatch(ctx context.Context, sc tenancy.Scope, reads []flowstore.RoutingCaptureRead, budget BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error, visitor *routingCaptureVisitor, peering ...BGPPeeringCaptureTarget) ([]flowstore.RoutingProjection, error) {
 	if err := routingCaptureScope(ctx, sc); err != nil {
 		return nil, err
 	}
@@ -53,11 +62,20 @@ func readRoutingCaptureQueryBatchInScope(ctx context.Context, sc tenancy.Scope, 
 		return nil, entity.ErrScopeMismatch
 	}
 	preauthorized := ""
-	if len(peering) == 1 {
+	if visitor != nil {
+		normalized, err := visitor.scope.Normalize()
+		if err != nil || normalized != visitor.scope || visitor.scope.TenantID != sc.Tenant.String() || visitor.visit == nil || len(peering) != 0 {
+			return nil, entity.ErrScopeMismatch
+		}
+		preauthorized = visitor.scope.ContextID
+	} else if len(peering) == 1 {
 		if err := validatePeeringCaptureTarget(ctx, sc, peering[0]); err != nil {
 			return nil, err
 		}
-		record, err := NewEntityRegistry(nil).GetEntityContextInScope(ctx, sc, peering[0].ContextID)
+		preauthorized = peering[0].ContextID
+	}
+	if preauthorized != "" {
+		record, err := NewEntityRegistry(nil).GetEntityContextInScope(ctx, sc, preauthorized)
 		if err != nil {
 			return nil, err
 		}
@@ -65,13 +83,16 @@ func readRoutingCaptureQueryBatchInScope(ctx context.Context, sc tenancy.Scope, 
 		if err := authorize(ctx, record); err != nil {
 			return nil, err
 		}
-		preauthorized = record.ContextID
 	}
 	keys, err := routingQueryCaptureKeys(ctx, sc, reads, &budget)
 	if err != nil {
 		return nil, err
 	}
-	headers, err := loadRoutingQueryCaptureHeaders(ctx, sc, keys, peering...)
+	contextID := ""
+	if visitor != nil {
+		contextID = visitor.scope.ContextID
+	}
+	headers, err := loadScopedRoutingQueryCaptureHeaders(ctx, sc, keys, contextID, peering...)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +129,10 @@ func readRoutingCaptureQueryBatchInScope(ctx context.Context, sc tenancy.Scope, 
 		}
 	}
 	cache := map[[64]byte]routingQueryCaptureCache{}
-	out := make([]flowstore.RoutingProjection, 0, len(reads))
+	var out []flowstore.RoutingProjection
+	if visitor == nil {
+		out = make([]flowstore.RoutingProjection, 0, len(reads))
+	}
 	for _, read := range reads {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -119,7 +143,7 @@ func readRoutingCaptureQueryBatchInScope(ctx context.Context, sc tenancy.Scope, 
 		}
 		entry, cached := cache[header.objects]
 		if !cached {
-			entry, err = loadRoutingQueryCaptureCache(ctx, sc, read, header, &budget, authorizeOnce, peering...)
+			entry, err = loadRoutingQueryCaptureCache(ctx, sc, read, header, &budget, authorizeOnce, visitor == nil, peering...)
 			if err != nil {
 				return nil, err
 			}
@@ -130,6 +154,12 @@ func readRoutingCaptureQueryBatchInScope(ctx context.Context, sc tenancy.Scope, 
 		}
 		if !routingQueryCaptureMatches(entry.lookup, read, header) {
 			return nil, errRoutingCaptureFormat
+		}
+		if visitor != nil {
+			if err := visitor.visit(ctx, read, entry.lookup, &budget); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		projection := entry.projection
 		projection.Key, projection.Clock = read.Ref.Key, read.Ref.CapturedAt.UnixNano()
@@ -169,6 +199,10 @@ func routingQueryCaptureKeys(ctx context.Context, sc tenancy.Scope, reads []flow
 }
 
 func loadRoutingQueryCaptureHeaders(ctx context.Context, sc tenancy.Scope, keys [][]byte, peering ...BGPPeeringCaptureTarget) (map[[32]byte]routingQueryCaptureHeader, error) {
+	return loadScopedRoutingQueryCaptureHeaders(ctx, sc, keys, "", peering...)
+}
+
+func loadScopedRoutingQueryCaptureHeaders(ctx context.Context, sc tenancy.Scope, keys [][]byte, contextID string, peering ...BGPPeeringCaptureTarget) (map[[32]byte]routingQueryCaptureHeader, error) {
 	query := `SELECT receipt.flow_key,receipt.captured_at_unix_nanos,
  links.facts_digest,links.clocks_digest,COALESCE(left(facts.searchable_body#>>'{data,Owner,context_id}',37),'')
  FROM bgp_flow_capture_receipts receipt
@@ -181,6 +215,9 @@ func loadRoutingQueryCaptureHeaders(ctx context.Context, sc tenancy.Scope, keys 
 		query += ` AND facts.searchable_body#>>'{data,Owner,context_id}'=$3
  AND facts.searchable_body#>>'{data,Owner,RouterID}'=$4`
 		args = append(args, peering[0].ContextID, peering[0].RouterID)
+	} else if contextID != "" {
+		query += ` AND facts.searchable_body#>>'{data,Owner,context_id}'=$3`
+		args = append(args, contextID)
 	}
 	rows, err := sc.Q.Query(ctx, query, args...)
 	if err != nil {
@@ -209,7 +246,7 @@ func loadRoutingQueryCaptureHeaders(ctx context.Context, sc tenancy.Scope, keys 
 	return out, rows.Err()
 }
 
-func loadRoutingQueryCaptureCache(ctx context.Context, sc tenancy.Scope, read flowstore.RoutingCaptureRead, header routingQueryCaptureHeader, budget *BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error, peering ...BGPPeeringCaptureTarget) (routingQueryCaptureCache, error) {
+func loadRoutingQueryCaptureCache(ctx context.Context, sc tenancy.Scope, read flowstore.RoutingCaptureRead, header routingQueryCaptureHeader, budget *BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error, project bool, peering ...BGPPeeringCaptureTarget) (routingQueryCaptureCache, error) {
 	entry := routingQueryCaptureCache{}
 	lookup, err := (BGPRouting{}).readFlowCaptureInScope(ctx, sc, read.Sender, read.Witness, read.Ref, *budget, authorize)
 	if errors.Is(err, ErrBGPRoutingSourceUnavailable) {
@@ -223,6 +260,9 @@ func loadRoutingQueryCaptureCache(ctx context.Context, sc tenancy.Scope, read fl
 	}
 	if err := chargeRoutingCapture(ctx, lookup, budget); err != nil {
 		return entry, err
+	}
+	if !project {
+		return routingQueryCaptureCache{lookup: lookup, current: true}, nil
 	}
 	projection, err := routingCaptureQueryProjection(ctx, lookup, read.Ref, *budget)
 	if err != nil {

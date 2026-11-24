@@ -90,7 +90,7 @@ func resolveRoutingStageSource(ctx context.Context, sc tenancy.Scope, base BGPRo
 		}
 		return base, false, err
 	}
-	if input.RefusedPeer != nil && (input.RefusedPeer.Type != 3 || !input.RefusedPeer.BGPIdentifier.Is4()) {
+	if input.RefusedPeer != nil && !isGlobalRoutingNeighbor(*input.RefusedPeer) && (input.RefusedPeer.Type != 3 || !input.RefusedPeer.BGPIdentifier.Is4()) {
 		return base, false, ErrBGPRoutingView
 	}
 	if config.Manifest == nil {
@@ -104,6 +104,14 @@ func resolveRoutingStageSource(ctx context.Context, sc tenancy.Scope, base BGPRo
 	}
 	if config.BaseContextID != base.ContextID || config.BaseRouterID != base.RouterID || config.Manifest.Epoch != metadata.Epoch || !config.Manifest.AssignedAt.Equal(metadata.AssignedAt) {
 		return base, false, ErrBGPRoutingSourceUnavailable
+	}
+	if routingStageNeighbor(input) != "" {
+		selected, err := selectGlobalRoutingNeighbor(ctx, sc, config)
+		if err != nil {
+			return base, false, err
+		}
+		base.routingSelection = &selected
+		return base, false, nil
 	}
 	if len(input.Definitions) == 0 || len(input.Definitions) > 2 {
 		if input.RefusedPeer != nil {
@@ -160,7 +168,7 @@ func routingSourceSlot(source BGPRoutingSource) (any, string) {
 	return source.routingSelection.Epoch, source.routingSelection.BindingID
 }
 
-func routingStageNonceConflicts(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, generation string) (bool, error) {
+func routingStageNonceConflicts(ctx context.Context, sc tenancy.Scope, source BGPRoutingSource, generation, neighbor string) (bool, error) {
 	selection, err := routingSelectionJSON(source)
 	if err != nil {
 		return false, err
@@ -169,8 +177,10 @@ func routingStageNonceConflicts(ctx context.Context, sc tenancy.Scope, source BG
 	err = sc.Q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM bgp_routing_views
  WHERE tenant_id=$1 AND collector_agent_id=$2 AND source_ref=$3 AND generation=$4 AND source_kind='router_bmp'
  AND NOT (context_id=$5 AND router_id=$6 AND sender_serial=$7 AND origin_serial=$8
+          AND (($10='' AND view_kind IN ('loc_rib','operator_loc_rib')) OR
+               ($10<>'' AND view_kind='adj_rib_in_post_policy' AND peer_identity->>'Address'=$10))
           AND routing_selection IS NOT DISTINCT FROM $9::jsonb))`,
 		source.TenantID, source.CollectorAgentID, source.SourceRef, generation, source.ContextID, source.RouterID,
-		source.SenderSerial, source.OriginSerial, selection).Scan(&conflict)
+		source.SenderSerial, source.OriginSerial, selection, neighbor).Scan(&conflict)
 	return conflict, err
 }

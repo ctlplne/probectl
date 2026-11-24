@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	flowv1 "github.com/ctlplne/probectl/internal/gen/probectl/flow/v1"
 	"github.com/ctlplne/probectl/internal/store/chclient"
 )
 
@@ -46,6 +47,18 @@ func (c *ClickHouse) incidentTrafficRows(ctx context.Context, query IncidentTraf
 	if err != nil {
 		return nil, err
 	}
+	routeFields := ""
+	endOfWindow := "ts<{to:DateTime64(9,'UTC')}"
+	ingress := `OR (tenant_id,agent_id,exporter,protocol,obs_domain,in_if) GLOBAL IN
+ (SELECT impact_tenant,impact_agent,impact_exporter,impact_protocol,impact_domain,impact_index FROM incident_source_lookup WHERE impact_index>0)`
+	if query.FailureSimulation {
+		if source.kind != "raw" {
+			return nil, incidentTrafficRawClockError()
+		}
+		routeFields = ",toString(clock_basis) AS clock_basis,next_hop"
+		endOfWindow = "ts<={to:DateTime64(9,'UTC')} AND (ts<{to:DateTime64(9,'UTC')} OR start_ts<ts)"
+		ingress = ""
+	}
 	params := chParams{"tenant": query.TenantID, "from": plan.From.UTC().Format("2006-01-02 15:04:05.999999999"), "to": plan.To.UTC().Format("2006-01-02 15:04:05.999999999")}
 	// The external set contains only server-selected source identities. IN,
 	// rather than a multiplying JOIN, counts each original record once even
@@ -54,14 +67,13 @@ func (c *ClickHouse) incidentTrafficRows(ctx context.Context, query IncidentTraf
 	 src_addr,dst_addr,toString(dst_port) AS dst_port,toString(in_if) AS in_if,toString(out_if) AS out_if,
 	 toString(bytes) AS raw_bytes,toString(packets) AS raw_packets,toString(sampling) AS sampling,
 	 toString(toUnixTimestamp64Nano(ts)) AS time_nanos,toString(toUnixTimestamp64Nano(start_ts)) AS start_nanos,
-	 raw_flow_digest,routing_capture_key,toString(routing_captured_unix_nanos) AS routing_captured_unix_nanos
+	 raw_flow_digest,routing_capture_key,toString(routing_captured_unix_nanos) AS routing_captured_unix_nanos` + routeFields + `
 	 FROM ` + source.table + ` FINAL
-	 WHERE tenant_id={tenant:String} AND ts>={from:DateTime64(9,'UTC')} AND ts<{to:DateTime64(9,'UTC')}
+	 WHERE tenant_id={tenant:String} AND ts>={from:DateTime64(9,'UTC')} AND ` + endOfWindow + `
 	 AND (
 	 (tenant_id,agent_id,exporter,protocol,obs_domain) GLOBAL IN
 	 (SELECT impact_tenant,impact_agent,impact_exporter,impact_protocol,impact_domain FROM incident_source_lookup WHERE impact_index=0)
-	 OR (tenant_id,agent_id,exporter,protocol,obs_domain,in_if) GLOBAL IN
-	 (SELECT impact_tenant,impact_agent,impact_exporter,impact_protocol,impact_domain,impact_index FROM incident_source_lookup WHERE impact_index>0)
+	 ` + ingress + `
 	 OR (tenant_id,agent_id,exporter,protocol,obs_domain,out_if) GLOBAL IN
 	 (SELECT impact_tenant,impact_agent,impact_exporter,impact_protocol,impact_domain,impact_index FROM incident_source_lookup WHERE impact_index>0))`
 	settings, err := budget.settings()
@@ -78,6 +90,10 @@ func (c *ClickHouse) incidentTrafficRows(ctx context.Context, query IncidentTraf
 
 var errIncidentTrafficRow = errors.New("flowstore: incomplete incident traffic row")
 
+func incidentTrafficRawClockError() error {
+	return &PlanCoverageError{Reason: "traffic failure simulation requires original flow clocks and next hops", ResolutionSeconds: 1}
+}
+
 func decodeIncidentTrafficRows(ctx context.Context, tenant string, values []map[string]any, maxBytes int64) ([]Row, error) {
 	if maxBytes <= 0 || int64(len(values)) > maxBytes/1024 {
 		return nil, ErrExplorerBudget
@@ -92,7 +108,7 @@ func decodeIncidentTrafficRows(ctx context.Context, tenant string, values []map[
 		if err != nil {
 			return nil, err
 		}
-		cost := int64(1024 + len(row.AgentID) + len(row.Exporter) + len(row.Protocol) + len(row.SrcAddr) + len(row.DstAddr))
+		cost := int64(1024 + len(row.AgentID) + len(row.Exporter) + len(row.Protocol) + len(row.SrcAddr) + len(row.DstAddr) + len(row.NextHop))
 		if cost > remaining {
 			return nil, ErrExplorerBudget
 		}
@@ -141,6 +157,14 @@ func decodeIncidentTrafficRow(tenant string, value map[string]any) (Row, error) 
 			return Row{}, errIncidentTrafficRow
 		}
 		column.set(number)
+	}
+	if basis, selected := value["clock_basis"]; selected {
+		number, err := strconv.ParseUint(chToString(basis), 10, 8)
+		if err != nil {
+			return Row{}, errIncidentTrafficRow
+		}
+		row.ClockBasis = flowv1.FlowClockBasis(number)
+		row.NextHop = chToString(value["next_hop"])
 	}
 	if row.Sampling == 0 || row.StartTS.After(row.TS) || validateRoutingCaptureRow(row) != nil {
 		return Row{}, errIncidentTrafficRow

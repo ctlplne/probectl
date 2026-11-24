@@ -362,6 +362,15 @@ Three absences, each deliberate:
 `context_id` and optional RFC 3339 `at` time. It requires `topology.read`,
 `entities.read` and the native AI query grant in the current tenant.
 
+`topology_whatif_traffic` previews a link or node failure with the same retained
+traffic and directional load model as Topology. It takes `target`, `context_id`,
+`traffic_from`, `traffic_to`, and `maximum_poll_gap`. It also accepts
+`failure_interface_id` for parallel links and `runout_until` for a forecast
+horizon. The current user needs `ai.query`, `topology.read`, `flow.read`,
+`entities.read`, `metrics.read`, and `events.read`. Context, scope, permissions,
+and source authority are checked before publication. It is a read-only preview.
+[Traffic-aware failure preview](topology.md#traffic-aware-failure-preview).
+
 The colocated HTTP server binds native flow tools to its existing control-server
 services. These use the same registry, tenant-scoped readers, source permissions,
 private frozen snapshots and configuration stores as REST, CLI and the native UI.

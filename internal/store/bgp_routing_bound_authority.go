@@ -172,6 +172,14 @@ func routingStoredViewKind(source BGPRoutingSource, definition BGPRoutingViewDef
 		return definition.Kind, nil
 	}
 	selected := source.routingSelection
+	if definition.Kind == "adj_rib_in_post_policy" {
+		if !validRoutingSelection(source, selected) || !isGlobalRoutingNeighbor(definition.Peer) || definition.Filtered || definition.SAFI != 1 ||
+			selected.Binding.Distinguisher != "0000000000000000" || selected.BaseContextID != source.ContextID || selected.BaseRouterID != source.RouterID ||
+			!routingSelectionSupportsAFI(source, definition.AFI) {
+			return "", ErrBGPRoutingView
+		}
+		return definition.Kind, nil
+	}
 	if !validRoutingSelection(source, selected) || definition.Kind != "loc_rib" || definition.Peer.Type != 3 || definition.SAFI != 1 ||
 		definition.Peer.BGPIdentifier.String() != selected.Binding.BGPIdentifier || hex.EncodeToString(definition.Peer.Distinguisher[:]) != selected.Binding.Distinguisher ||
 		definition.Peer.SourceFormat != selected.Binding.SourceFormat {

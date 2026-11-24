@@ -103,6 +103,21 @@ const reportPhysicalRemoteGuard = `remote.tenant_id=e.tenant_id AND remote.conte
 // canonical remote resolution across the full current support population.
 // A deterministic supporting receipt is a citation, not a cap on graph edges.
 func (*EntityRegistry) ClientReportPhysicalLinksInScope(ctx context.Context, sc tenancy.Scope, memory int64, authorize func(context.Context, entity.ContextRecord, string, string) error) ([]ClientReportPhysicalLink, error) {
+	return currentPhysicalLinksInScope(ctx, sc, "", memory, authorize)
+}
+
+// CurrentPhysicalLinksInContext reads the original physical links in one
+// routing context. It uses the same current source and independent neighbor
+// support checks as client reports. The context is part of the storage query.
+func (*EntityRegistry) CurrentPhysicalLinksInContext(ctx context.Context, sc tenancy.Scope, scope entity.Scope, memory int64, authorize func(context.Context, entity.ContextRecord, string, string) error) ([]ClientReportPhysicalLink, error) {
+	normalized, err := scope.Normalize()
+	if err != nil || normalized != scope || scope.TenantID != sc.Tenant.String() {
+		return nil, entity.ErrScopeMismatch
+	}
+	return currentPhysicalLinksInScope(ctx, sc, scope.ContextID, memory, authorize)
+}
+
+func currentPhysicalLinksInScope(ctx context.Context, sc tenancy.Scope, contextID string, memory int64, authorize func(context.Context, entity.ContextRecord, string, string) error) ([]ClientReportPhysicalLink, error) {
 	if err := reportPhysicalReadScope(ctx, sc, memory); err != nil {
 		return nil, err
 	}
@@ -120,8 +135,14 @@ func (*EntityRegistry) ClientReportPhysicalLinksInScope(ctx context.Context, sc 
  JOIN LATERAL (SELECT remote.* FROM entity_evidence remote
  JOIN entities n ON (n.tenant_id,n.context_id,n.id)=(remote.tenant_id,remote.context_id,remote.entity_id)
  WHERE ` + reportPhysicalRemoteGuard + remote + ` ORDER BY remote.id LIMIT 1) remote ON TRUE
- WHERE ` + reportPhysicalLocalGuard + predicate + ` ORDER BY l.context_id,l.id LIMIT $3`
-	rows, err := sc.Q.Query(ctx, query, pgx.QueryExecModeDescribeExec, sc.Tenant.String(), captured, memory/4096+1, memory/16)
+ WHERE ` + reportPhysicalLocalGuard + predicate
+	args := []any{pgx.QueryExecModeDescribeExec, sc.Tenant.String(), captured, memory/4096 + 1, memory / 16}
+	if contextID != "" {
+		query += ` AND l.context_id=$5::uuid`
+		args = append(args, contextID)
+	}
+	query += ` ORDER BY l.context_id,l.id LIMIT $3`
+	rows, err := sc.Q.Query(ctx, query, args...)
 	items, err := scanReportPhysicalLinks(ctx, rows, err, memory)
 	if err != nil {
 		return nil, err

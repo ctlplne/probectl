@@ -5279,6 +5279,67 @@ type ThreatRuleList struct {
 	RulesRunning *bool        `json:"rules_running,omitempty"`
 }
 
+type TopologyFailurePeak struct {
+	Bps  string `json:"bps"`
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+type TopologyFailurePort struct {
+	Direction   string `json:"direction"`
+	InterfaceId string `json:"interface_id"`
+}
+
+type TopologyFailurePortLoad struct {
+	AddedBps         string `json:"added_bps"`
+	CapacityBps      string `json:"capacity_bps,omitempty"`
+	Direction        string `json:"direction"`
+	InterfaceId      string `json:"interface_id"`
+	MeasuredBps      string `json:"measured_bps,omitempty"`
+	ProjectedBps     string `json:"projected_bps,omitempty"`
+	RemovedBps       string `json:"removed_bps"`
+	Status           string `json:"status"`
+	UtilizationRatio string `json:"utilization_ratio,omitempty"`
+}
+
+type TopologyFailurePortSeries struct {
+	AtCapacity       *bool                   `json:"at_capacity,omitempty"`
+	Current          TopologyFailurePortLoad `json:"current"`
+	Direction        string                  `json:"direction"`
+	InterfaceId      string                  `json:"interface_id"`
+	MeasuredPeak     TopologyFailurePeak     `json:"measured_peak,omitzero"`
+	ObservedSamples  int                     `json:"observed_samples"`
+	ProjectedPeak    TopologyFailurePeak     `json:"projected_peak,omitzero"`
+	ProjectedSamples int                     `json:"projected_samples"`
+	Runout           CapacityForecastResult  `json:"runout,omitzero"`
+	RunoutStatus     string                  `json:"runout_status"`
+}
+
+type TopologyFailureProjection struct {
+	AffectedBytes   string                      `json:"affected_bytes"`
+	Complete        bool                        `json:"complete"`
+	From            string                      `json:"from"`
+	Ports           []TopologyFailurePortSeries `json:"ports"`
+	ReroutedBytes   string                      `json:"rerouted_bytes"`
+	Samples         int                         `json:"samples"`
+	To              string                      `json:"to"`
+	UnresolvedBytes string                      `json:"unresolved_bytes"`
+	UnroutedBytes   string                      `json:"unrouted_bytes"`
+}
+
+type TopologyFailureTraffic struct {
+	ContextId        string                    `json:"context_id"`
+	FailedPorts      []TopologyFailurePort     `json:"failed_ports"`
+	FlowRecords      int                       `json:"flow_records"`
+	From             string                    `json:"from"`
+	Model            string                    `json:"model"`
+	Projection       TopologyFailureProjection `json:"projection,omitzero"`
+	Reason           string                    `json:"reason,omitempty"`
+	Status           string                    `json:"status"`
+	To               string                    `json:"to"`
+	UnattributedRows int                       `json:"unattributed_rows"`
+}
+
 type Version struct {
 	Arch      string `json:"arch"`
 	Commit    string `json:"commit"`
@@ -11684,8 +11745,14 @@ func (c *Client) SimulateWhatIf(ctx context.Context, req SimulateWhatIfRequest) 
 
 // Download an audited topology what-if receipt
 type ExportWhatIfRequest struct {
-	Target *string `json:"-"`
-	At     *string `json:"-"`
+	Target             *string `json:"-"`
+	At                 *string `json:"-"`
+	ContextId          *string `json:"-"`
+	FailureInterfaceId *string `json:"-"`
+	TrafficFrom        *string `json:"-"`
+	TrafficTo          *string `json:"-"`
+	RunoutUntil        *string `json:"-"`
+	MaximumPollGap     *string `json:"-"`
 }
 
 func (c *Client) ExportWhatIf(ctx context.Context, req ExportWhatIfRequest) (map[string]any, error) {
@@ -11696,6 +11763,24 @@ func (c *Client) ExportWhatIf(ctx context.Context, req ExportWhatIfRequest) (map
 	}
 	if req.At != nil {
 		query.Set("at", formatQueryValue(*req.At))
+	}
+	if req.ContextId != nil {
+		query.Set("context_id", formatQueryValue(*req.ContextId))
+	}
+	if req.FailureInterfaceId != nil {
+		query.Set("failure_interface_id", formatQueryValue(*req.FailureInterfaceId))
+	}
+	if req.TrafficFrom != nil {
+		query.Set("traffic_from", formatQueryValue(*req.TrafficFrom))
+	}
+	if req.TrafficTo != nil {
+		query.Set("traffic_to", formatQueryValue(*req.TrafficTo))
+	}
+	if req.RunoutUntil != nil {
+		query.Set("runout_until", formatQueryValue(*req.RunoutUntil))
+	}
+	if req.MaximumPollGap != nil {
+		query.Set("maximum_poll_gap", formatQueryValue(*req.MaximumPollGap))
 	}
 	var out map[string]any
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {

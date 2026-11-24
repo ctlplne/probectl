@@ -34,6 +34,9 @@ type IncidentTrafficQuery struct {
 	From, To time.Time
 	Series   string
 	Sources  []IncidentTrafficSource
+	// FailureSimulation reads original clocks and next hops on the selected
+	// egress. A nonzero span may end exactly at the observation boundary.
+	FailureSimulation bool
 }
 
 // IncidentTrafficCaptureReferences derives lookup selectors from complete
@@ -55,6 +58,9 @@ func IncidentTrafficCaptureReferences(ctx context.Context, tenant string, rows [
 		read, err := routingReadFromRow(row)
 		if err != nil {
 			return nil, err
+		}
+		if row.ClockBasis != 0 {
+			read.Timing = FlowCaptureTiming{Start: row.StartTS.UTC(), End: row.TS.UTC(), Basis: row.ClockBasis}
 		}
 		if old, found := seen[read.Ref.Key]; found {
 			if old != read {
@@ -189,22 +195,26 @@ func incidentTrafficMembership(selectors []incidentTrafficSelector) map[incident
 	return out
 }
 
-func incidentTrafficMatches(row Row, membership map[incidentTrafficSourceKey]map[uint32]bool) bool {
+func incidentTrafficMatches(row Row, membership map[incidentTrafficSourceKey]map[uint32]bool, egressOnly bool) bool {
 	indices := membership[incidentTrafficSourceKey{row.TenantID, row.AgentID, row.Exporter, row.Protocol, row.ObsDomain}]
-	return indices[0] || indices[row.InIf] || indices[row.OutIf]
+	return indices[0] || indices[row.OutIf] || !egressOnly && indices[row.InIf]
 }
 
 func projectIncidentTrafficRow(row Row) Row {
 	return Row{TenantID: row.TenantID, AgentID: row.AgentID, Exporter: row.Exporter, Protocol: row.Protocol, ObsDomain: row.ObsDomain,
 		TS: row.TS, StartTS: row.StartTS, SrcAddr: row.SrcAddr, DstAddr: row.DstAddr, DstPort: row.DstPort, InIf: row.InIf, OutIf: row.OutIf,
 		Bytes: row.Bytes, Packets: row.Packets, Sampling: row.Sampling, RawFlowDigest: row.RawFlowDigest,
-		RoutingCaptureKey: row.RoutingCaptureKey, RoutingCapturedUnixNanos: row.RoutingCapturedUnixNanos}
+		RoutingCaptureKey: row.RoutingCaptureKey, RoutingCapturedUnixNanos: row.RoutingCapturedUnixNanos,
+		ClockBasis: row.ClockBasis, NextHop: row.NextHop}
 }
 
 func (m *Memory) incidentTrafficRows(ctx context.Context, query IncidentTrafficQuery) ([]Row, error) {
 	plan, err := routingReferencePlan(ctx, query.TenantID, query.From, query.To, query.Series)
 	if err != nil {
 		return nil, err
+	}
+	if query.FailureSimulation && plan.DataSeries == "rollup" {
+		return nil, incidentTrafficRawClockError()
 	}
 	budget, err := explorerPlanBudget(ctx, m, query.TenantID, m)
 	if err != nil {
@@ -224,13 +234,17 @@ func (m *Memory) incidentTrafficRows(ctx context.Context, query IncidentTrafficQ
 			return nil, err
 		}
 		row := entry.row
-		if row.TenantID != query.TenantID || row.TS.Before(plan.From) || !row.TS.Before(plan.To) || !incidentTrafficMatches(row, membership) {
+		endsWithin := row.TS.Before(plan.To) || query.FailureSimulation && row.TS.Equal(plan.To) && row.StartTS.Before(row.TS)
+		if row.TenantID != query.TenantID || row.TS.Before(plan.From) || !endsWithin || !incidentTrafficMatches(row, membership, query.FailureSimulation) {
 			continue
 		}
 		if row.Sampling == 0 || row.StartTS.After(row.TS) || validateRoutingCaptureRow(row) != nil {
 			return nil, errIncidentTrafficRow
 		}
-		cost := int64(1024 + len(row.AgentID) + len(row.Exporter) + len(row.SrcAddr) + len(row.DstAddr) + len(row.Protocol))
+		if !query.FailureSimulation {
+			row.ClockBasis, row.NextHop = 0, ""
+		}
+		cost := int64(1024 + len(row.AgentID) + len(row.Exporter) + len(row.SrcAddr) + len(row.DstAddr) + len(row.Protocol) + len(row.NextHop))
 		if len(out) >= budget.ReadRows || cost > min(budget.MemoryBytes, budget.ReadBytes)-used {
 			return nil, ErrExplorerBudget
 		}

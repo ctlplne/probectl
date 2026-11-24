@@ -6,7 +6,7 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { apiFetch, apiURL } from './client'
-import type { A2AMeshTopology } from './sdk.gen'
+import type { A2AMeshTopology, TopologyFailureTraffic } from './sdk.gen'
 import { useAuth } from '../auth/useAuth'
 
 /**
@@ -89,7 +89,19 @@ export interface WhatIfImpact {
   impacted_slos: string[]
   coverage: TopoCoverage
   confidence: SimulationConfidence
+  traffic?: TopologyFailureTraffic
 }
+
+export interface TopologyTrafficRequest {
+  context_id: string
+  failure_interface_id?: string
+  traffic_from: string
+  traffic_to: string
+  maximum_poll_gap: string
+  runout_until?: string
+}
+
+type WhatIfRequest = { target: string; at?: string } & Partial<TopologyTrafficRequest>
 
 export function useTopology(
   at?: string,
@@ -114,11 +126,12 @@ export function useTopology(
 }
 
 export function useWhatIf() {
+  const { tenant } = useAuth()
   return useMutation({
-    mutationFn: (req: { target: string; at?: string }) =>
+    mutationFn: (req: WhatIfRequest) =>
       apiFetch<WhatIfImpact>('/topology/whatif', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Probectl-Tenant': tenant.id },
         body: JSON.stringify(req),
       }),
   })
@@ -146,8 +159,15 @@ export function useA2AMeshTopology() {
   })
 }
 
-export function topologyWhatIfExportHref(target: string, at?: string): string {
+export function topologyWhatIfExportHref(
+  target: string,
+  at?: string,
+  traffic?: TopologyTrafficRequest,
+): string {
   const query = new URLSearchParams({ target })
   if (at) query.set('at', at)
+  for (const [name, value] of Object.entries(traffic ?? {})) {
+    if (value) query.set(name, value)
+  }
   return apiURL(`/topology/whatif/export?${query.toString()}`)
 }

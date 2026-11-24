@@ -26,6 +26,10 @@ func retireRoutingStageCohorts(ctx context.Context, sc tenancy.Scope, source BGP
 		families = append(families, int16(definition.AFI))
 	}
 	peer := definitions[0].Peer
+	neighbor := ""
+	if definitions[0].Kind == "adj_rib_in_post_policy" {
+		neighbor = peer.Address.String()
+	}
 	identity, err := json.Marshal(map[string]any{"Type": peer.Type, "Flags": peer.Flags, "Distinguisher": peer.Distinguisher, "ASN": peer.ASN, "BGPIdentifier": peer.BGPIdentifier})
 	if err != nil {
 		return err
@@ -35,6 +39,7 @@ func retireRoutingStageCohorts(ctx context.Context, sc tenancy.Scope, source BGP
  SELECT id,generation,afi,peer_identity FROM bgp_routing_views
  WHERE tenant_id=$1 AND context_id=$2 AND router_id=$3 AND collector_agent_id=$4 AND source_ref=$5
  AND source_kind='router_bmp' AND state IN ('staging','current')
+ AND (($10='' AND view_kind IN ('loc_rib','operator_loc_rib')) OR ($10<>'' AND view_kind='adj_rib_in_post_policy' AND peer_identity->>'Address'=$10))
  AND ((routing_selection IS NULL AND $6::text IS NULL)
       OR (routing_selection->>'epoch'=$6 AND routing_selection->>'binding_id'=$7)) FOR UPDATE
  ), retiring AS (
@@ -42,6 +47,6 @@ func retireRoutingStageCohorts(ctx context.Context, sc tenancy.Scope, source BGP
  )
  UPDATE bgp_routing_views v SET state='invalid',updated_at=clock_timestamp()
  FROM candidates c WHERE v.tenant_id=$1 AND v.context_id=$2 AND v.router_id=$3 AND v.id=c.id
- AND c.generation IN (SELECT generation FROM retiring)`, source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef, epoch, bindingID, families, string(identity))
+ AND c.generation IN (SELECT generation FROM retiring)`, source.TenantID, source.ContextID, source.RouterID, source.CollectorAgentID, source.SourceRef, epoch, bindingID, families, string(identity), neighbor)
 	return err
 }

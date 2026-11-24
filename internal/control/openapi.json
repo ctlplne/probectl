@@ -11491,7 +11491,7 @@
         "tags": [
           "topology"
         ],
-        "description": "Simulates the failure of one node (e.g. hop:10.0.0.1, service:api, as:64500) or edge (from|kind|to) at a point in time and returns the predicted impact: broken vs rerouted agent→target paths (with the surviving route), affected path tests identified by agent+target, transitively impacted services, impacted prefixes, newly disconnected nodes, and SLO impact when the S45 engine is wired. READ-ONLY: the simulation runs on a copy; probectl never acts on or prevents failures from predictions (S-EE5 is human-gated). Confidence is a coverage score, not a probability. The coverage block reports completeness honestly. Unknown targets are a 404, never an empty 'no impact'.",
+        "description": "Simulates the failure of one node (e.g. hop:10.0.0.1, service:api, as:64500) or edge (from|kind|to) at a point in time and returns the predicted impact: broken vs rerouted agent→target paths (with the surviving route), affected path tests identified by agent+target, transitively impacted services, impacted prefixes, newly disconnected nodes, and SLO impact when the S45 engine is wired. READ-ONLY: the simulation runs on a copy; probectl never acts on or prevents failures from predictions (S-EE5 is human-gated). Confidence is a coverage score, not a probability. The coverage block reports completeness honestly. Unknown targets are a 404, never an empty 'no impact'. Add context_id, traffic_from, traffic_to and maximum_poll_gap for a live traffic projection. This uses original flow and counter observations and current post-policy routing evidence. The actor and originating credential need topology.read, flow.read, entities.read, metrics.read and events.read for the scoped sources. Unmapped routes and incomplete counter coverage remain explicit. A historical graph request retains the graph result and reports unavailable traffic eligibility.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -11515,6 +11515,35 @@
                     "type": "string",
                     "format": "date-time",
                     "description": "RFC3339; empty = now."
+                  },
+                  "context_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Canonical tenant routing context for the optional traffic projection."
+                  },
+                  "failure_interface_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Canonical interface on the failed directed graph edge. Select it when the graph edge represents parallel links."
+                  },
+                  "traffic_from": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "First instant of the closed original observation window."
+                  },
+                  "traffic_to": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Exclusive end of the closed original observation window."
+                  },
+                  "runout_until": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Optional end of the runout horizon. The weekly forecast requires two complete weeks of projected inputs."
+                  },
+                  "maximum_poll_gap": {
+                    "type": "string",
+                    "description": "Maximum accepted gap between original counter polls, such as 2m. Required with a traffic window."
                   }
                 }
               }
@@ -11629,6 +11658,9 @@
                           "type": "string"
                         }
                       }
+                    },
+                    "traffic": {
+                      "$ref": "#/components/schemas/TopologyFailureTraffic"
                     }
                   }
                 }
@@ -11669,6 +11701,65 @@
               "format": "date-time"
             },
             "description": "RFC3339 simulation time; omitted means the live graph."
+          },
+          {
+            "name": "context_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Canonical tenant routing context for the optional traffic projection."
+          },
+          {
+            "name": "failure_interface_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Canonical interface on the failed directed graph edge. Select it when the graph edge represents parallel links."
+          },
+          {
+            "name": "traffic_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "First instant of the closed original observation window."
+          },
+          {
+            "name": "traffic_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Exclusive end of the closed original observation window."
+          },
+          {
+            "name": "runout_until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Optional end of the runout horizon. The weekly forecast requires two complete weeks of projected inputs."
+          },
+          {
+            "name": "maximum_poll_gap",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Maximum accepted gap between original counter polls, such as 2m. Required with a traffic window."
           }
         ],
         "responses": {
@@ -11685,7 +11776,113 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "type": "string"
+                    },
+                    "target_kind": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "broken_paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "rerouted_paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "impacted_tests": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "agent_id",
+                          "target",
+                          "status"
+                        ],
+                        "properties": {
+                          "agent_id": {
+                            "type": "string"
+                          },
+                          "target": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "broken",
+                              "rerouted"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "impacted_services": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "impacted_prefixes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "disconnected": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "impacted_slos": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "coverage": {
+                      "type": "object"
+                    },
+                    "confidence": {
+                      "type": "object",
+                      "required": [
+                        "level",
+                        "score",
+                        "basis"
+                      ],
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "medium",
+                            "high"
+                          ]
+                        },
+                        "score": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
+                        },
+                        "basis": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "traffic": {
+                      "$ref": "#/components/schemas/TopologyFailureTraffic"
+                    }
+                  }
                 }
               }
             }
@@ -19485,6 +19682,267 @@
       }
     },
     "schemas": {
+      "TopologyFailurePort": {
+        "type": "object",
+        "required": [
+          "interface_id",
+          "direction"
+        ],
+        "properties": {
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out"
+            ]
+          }
+        }
+      },
+      "TopologyFailurePortLoad": {
+        "type": "object",
+        "required": [
+          "interface_id",
+          "direction",
+          "status",
+          "added_bps",
+          "removed_bps"
+        ],
+        "properties": {
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "failed",
+              "projected",
+              "traffic_unresolved",
+              "baseline_unavailable",
+              "baseline_below_displaced",
+              "capacity_unavailable"
+            ]
+          },
+          "capacity_bps": {
+            "type": "string",
+            "description": "Exact nonnegative fraction in decimal numerator/denominator form. Whole values use one decimal string."
+          },
+          "measured_bps": {
+            "type": "string",
+            "description": "Exact nonnegative fraction in decimal numerator/denominator form. Whole values use one decimal string."
+          },
+          "added_bps": {
+            "type": "string",
+            "description": "Exact nonnegative fraction in decimal numerator/denominator form. Whole values use one decimal string."
+          },
+          "removed_bps": {
+            "type": "string",
+            "description": "Exact nonnegative fraction in decimal numerator/denominator form. Whole values use one decimal string."
+          },
+          "projected_bps": {
+            "type": "string",
+            "description": "Exact nonnegative fraction in decimal numerator/denominator form. Whole values use one decimal string."
+          },
+          "utilization_ratio": {
+            "type": "string",
+            "description": "Exact nonnegative fraction in decimal numerator/denominator form. Whole values use one decimal string."
+          }
+        }
+      },
+      "TopologyFailurePeak": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "bps"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "bps": {
+            "type": "string",
+            "description": "Exact nonnegative fraction in decimal numerator/denominator form. Whole values use one decimal string."
+          }
+        }
+      },
+      "TopologyFailurePortSeries": {
+        "type": "object",
+        "required": [
+          "interface_id",
+          "direction",
+          "current",
+          "observed_samples",
+          "projected_samples",
+          "runout_status"
+        ],
+        "properties": {
+          "interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "in",
+              "out"
+            ]
+          },
+          "current": {
+            "$ref": "#/components/schemas/TopologyFailurePortLoad"
+          },
+          "measured_peak": {
+            "$ref": "#/components/schemas/TopologyFailurePeak"
+          },
+          "projected_peak": {
+            "$ref": "#/components/schemas/TopologyFailurePeak"
+          },
+          "observed_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "projected_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "at_capacity": {
+            "type": "boolean"
+          },
+          "runout": {
+            "$ref": "#/components/schemas/CapacityForecastResult"
+          },
+          "runout_status": {
+            "type": "string"
+          }
+        }
+      },
+      "TopologyFailureProjection": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "samples",
+          "complete",
+          "affected_bytes",
+          "rerouted_bytes",
+          "unrouted_bytes",
+          "unresolved_bytes",
+          "ports"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "affected_bytes": {
+            "type": "string",
+            "description": "Exact nonnegative fraction in decimal numerator/denominator form. Whole values use one decimal string."
+          },
+          "rerouted_bytes": {
+            "type": "string",
+            "description": "Exact nonnegative fraction in decimal numerator/denominator form. Whole values use one decimal string."
+          },
+          "unrouted_bytes": {
+            "type": "string",
+            "description": "Exact nonnegative fraction in decimal numerator/denominator form. Whole values use one decimal string."
+          },
+          "unresolved_bytes": {
+            "type": "string",
+            "description": "Exact nonnegative fraction in decimal numerator/denominator form. Whole values use one decimal string."
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopologyFailurePortSeries"
+            }
+          }
+        }
+      },
+      "TopologyFailureTraffic": {
+        "type": "object",
+        "required": [
+          "context_id",
+          "from",
+          "to",
+          "model",
+          "status",
+          "failed_ports",
+          "flow_records",
+          "unattributed_rows"
+        ],
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "model": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "projected",
+              "partial",
+              "unavailable"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "failed_ports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopologyFailurePort"
+            }
+          },
+          "flow_records": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unattributed_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "projection": {
+            "$ref": "#/components/schemas/TopologyFailureProjection"
+          }
+        }
+      },
       "A2AMeshEdge": {
         "type": "object",
         "properties": {

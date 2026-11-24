@@ -19,6 +19,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -197,10 +198,16 @@ func (s *Server) projectTopologyEntities(r *http.Request, tenantID, contextID st
 	return time.Now().UTC(), truncated, nil
 }
 
-// whatIfRequest is the simulation request: the node or edge id to fail.
-type whatIfRequest struct {
-	Target string `json:"target"`
-	At     string `json:"at,omitempty"` // RFC3339; empty = now
+type whatIfRequest topology.FailureSimulationRequest
+
+func (req whatIfRequest) hasTraffic() bool {
+	return req.ContextID != "" || req.FailureInterfaceID != "" || req.TrafficFrom != "" ||
+		req.TrafficTo != "" || req.RunoutUntil != "" || req.MaximumPollGap != ""
+}
+
+type whatIfResponse struct {
+	topology.Impact
+	Traffic *topologyFailureTraffic `json:"traffic,omitempty"`
 }
 
 // handleWhatIf serves POST /v1/topology/whatif — predicted impact of failing
@@ -211,25 +218,69 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeJSONLimit(r, 1<<16, &req); err != nil {
 		return err
 	}
-	imp, err := s.simulateWhatIf(r, req)
-	if err != nil {
-		return err
-	}
-	writeJSON(w, http.StatusOK, imp)
-	return nil
+	return s.serveWhatIf(w, r, req, false)
 }
 
 // handleWhatIfExport returns the same observe-only prediction as an
 // attachment. The audit-route policy classifies this endpoint as an export,
 // so every download gets a tenant-scoped tamper-evident receipt.
 func (s *Server) handleWhatIfExport(w http.ResponseWriter, r *http.Request) error {
-	req := whatIfRequest{Target: r.URL.Query().Get("target"), At: r.URL.Query().Get("at")}
-	imp, err := s.simulateWhatIf(r, req)
+	query := r.URL.Query()
+	req := whatIfRequest{Target: query.Get("target"), At: query.Get("at"), ContextID: query.Get("context_id"),
+		FailureInterfaceID: query.Get("failure_interface_id"), TrafficFrom: query.Get("traffic_from"),
+		TrafficTo: query.Get("traffic_to"), RunoutUntil: query.Get("runout_until"), MaximumPollGap: query.Get("maximum_poll_gap")}
+	return s.serveWhatIf(w, r, req, true)
+}
+
+func (s *Server) serveWhatIf(w http.ResponseWriter, r *http.Request, req whatIfRequest, export bool) error {
+	attachment := func() {
+		if export {
+			w.Header().Set("Content-Disposition", `attachment; filename="probectl-topology-whatif.json"`)
+		}
+	}
+	if !req.hasTraffic() {
+		imp, err := s.simulateWhatIf(r, req)
+		if err != nil {
+			return err
+		}
+		attachment()
+		writeJSON(w, http.StatusOK, imp)
+		return nil
+	}
+	op, err := s.beginCapacityForecast(r)
+	if err != nil {
+		return topologyFailureError(err)
+	}
+	defer op.done()
+	if deadline, ok := op.request.Context().Deadline(); ok {
+		_ = http.NewResponseController(w).SetWriteDeadline(deadline.Add(15 * time.Second))
+	}
+	result, err := s.measureTopologyWhatIf(op, req)
 	if err != nil {
 		return err
 	}
-	w.Header().Set("Content-Disposition", `attachment; filename="probectl-topology-whatif.json"`)
-	writeJSON(w, http.StatusOK, imp)
+	body, err := json.Marshal(result)
+	if err != nil {
+		return apierror.Unavailable("complete traffic simulation output is unavailable")
+	}
+	if int64(len(body)) >= op.budget.ResponseBytes || int64(len(body)) >= op.budget.MemoryBytes/16 {
+		return apierror.TooLarge("complete traffic simulation exceeds response admission")
+	}
+	if err := result.Traffic.checkPublication(); err != nil {
+		return topologyFailureError(err)
+	}
+	current := s.resolvePrincipal(op.request)
+	if current == nil {
+		return unauthenticated(r)
+	}
+	if !auth.SamePrincipalAuthority(op.actor, current) {
+		return apierror.Forbidden("credential authority changed; run a fresh simulation")
+	}
+	if err := op.request.Context().Err(); err != nil {
+		return topologyFailureError(err)
+	}
+	attachment()
+	writeJSON(w, http.StatusOK, json.RawMessage(body))
 	return nil
 }
 

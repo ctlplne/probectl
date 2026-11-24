@@ -267,6 +267,50 @@ a deployment outgrows a single process.
   last-known-good physical edges. The same contract appears in Device, Admin,
   generated SDKs, and `probectl device outcomes`.
 
+## Traffic-aware failure preview
+
+Select a physical link or a device in **Topology → Traffic what-if**. Choose its
+owned routing context and an ended observation window. The simulation compares
+the offered load before and after the hypothetical failure for each direction
+of each observed interface. It uses original flow intervals and sampling,
+verified SNMP counter intervals and link speeds, and currently witnessed BGP
+routes. Parallel physical links require the exact failed interface. The query
+requires `topology.read`, `flow.read`, `entities.read`, `metrics.read`, and
+`events.read` in the selected context.
+
+For a reroute projection, enable the router's BMP post-policy inbound unicast
+view alongside its selected Loc-RIB. The collector needs complete current
+observations for the global peers in that router's owned base context. A router
+whose current binding or neighbor observations do not identify those views
+reports the affected traffic as unresolved.
+
+The POST `/v1/topology/whatif` accepts `target`, `context_id`, `traffic_from`,
+`traffic_to`, and `maximum_poll_gap`. Use RFC 3339 timestamps and a positive
+duration such as `90s` for the gap. The optional `failure_interface_id` selects
+a parallel link. The optional `runout_until` sets a future forecast horizon.
+Use the live graph for a traffic projection. For a historical `at`, the graph
+remains available and the traffic result reports missing historical route
+eligibility. A target-only request keeps the graph simulation.
+
+Save the same JSON request to `simulation.json` for the CLI. The Topology panel
+offers an audited JSON download using the GET `/v1/topology/whatif/export`
+with those fields as query parameters. Both generated SDKs expose the export
+parameters and the traffic response schema.
+
+```sh
+probectl topology whatif --body-file simulation.json
+```
+
+Rerouted, unrouted, and unresolved bytes are exact estimates from the retained
+flow population. The model applies route transfers to concurrent directional
+counter measurements before calculating the peak. Covered flow rates must be
+within five percent of the independent egress counter rate on a failed link
+to support a complete projection. Rates and utilization are
+exact decimal integers or fractions. Offered load can exceed the link speed.
+Missing, conflicting, or unverified observations can leave a load or peak
+unavailable. Runout also needs stable capacity and two complete weeks of
+five-minute projected samples. The calculation is read-only.
+
 ## Real-stack receipt
 
 `TestTopologyGraphRealStack` (`internal/topology/realstack_integration_test.go`,

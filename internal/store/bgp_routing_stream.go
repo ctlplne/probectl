@@ -41,7 +41,7 @@ func (store BGPRouting) ApplyPeerMessageInScope(ctx context.Context, sc tenancy.
 	}
 	// Check the complete protocol key before a rate refusal or malformed-body
 	// decoder can retire a different current binding on this same source.
-	if err := routingStreamSelectorMatches(source, input.PeerSelector); err != nil {
+	if err := authorizeRoutingStreamPeer(ctx, sc, source, input.Generation, input.PeerSelector); err != nil {
 		return BGPRoutingApplyResult{}, err
 	}
 	if input.Reset {
@@ -95,10 +95,10 @@ func loadRoutingStreamMetadata(ctx context.Context, sc tenancy.Scope, source BGP
 	if source.routingSelection != nil {
 		kind = "operator_loc_rib"
 	}
-	rows, err := sc.Q.Query(ctx, `SELECT id::text,afi,safi,CASE WHEN octet_length(peer_identity::text)<=$9 THEN peer_identity ELSE NULL END FROM bgp_routing_views
+	rows, err := sc.Q.Query(ctx, `SELECT id::text,afi,safi,view_kind,CASE WHEN octet_length(peer_identity::text)<=$9 THEN peer_identity ELSE NULL END FROM bgp_routing_views
  WHERE tenant_id=$1 AND context_id=$2 AND router_id=$3 AND collector_agent_id=$4 AND source_ref=$5
  AND sender_serial=$6 AND origin_serial=$7 AND generation=$8 AND source_kind='router_bmp'
- AND view_kind=$10 AND routing_selection IS NOT DISTINCT FROM $11::jsonb ORDER BY afi,safi FOR UPDATE`, source.TenantID, source.ContextID, source.RouterID,
+ AND view_kind IN ($10,'adj_rib_in_post_policy') AND routing_selection IS NOT DISTINCT FROM $11::jsonb ORDER BY afi,safi FOR UPDATE`, source.TenantID, source.ContextID, source.RouterID,
 		source.CollectorAgentID, source.SourceRef, source.SenderSerial, source.OriginSerial, generation, profile.MemoryBytes/32, kind, selection)
 	if err != nil {
 		return BGPRoutingPeer{}, nil, err
@@ -110,8 +110,9 @@ func loadRoutingStreamMetadata(ctx context.Context, sc tenancy.Scope, source BGP
 	var seen [3]bool
 	for rows.Next() {
 		var ref BGPRoutingStagedView
+		var storedKind string
 		var raw []byte
-		if err := rows.Scan(&ref.ID, &ref.AFI, &ref.SAFI, &raw); err != nil {
+		if err := rows.Scan(&ref.ID, &ref.AFI, &ref.SAFI, &storedKind, &raw); err != nil {
 			return BGPRoutingPeer{}, nil, err
 		}
 		if ref.AFI < 1 || ref.AFI > 2 || ref.SAFI != 1 || seen[ref.AFI] || routingBatchPopulationCharge(&profile, len(raw), 16, 8) != nil {
@@ -119,10 +120,10 @@ func loadRoutingStreamMetadata(ctx context.Context, sc tenancy.Scope, source BGP
 		}
 		seen[ref.AFI] = true
 		var current BGPRoutingPeer
-		if json.Unmarshal(raw, &current) != nil || current.Type != 3 || len(current.OpenFrameDigest) != 32 {
+		if json.Unmarshal(raw, &current) != nil || len(current.OpenFrameDigest) != 32 {
 			return BGPRoutingPeer{}, nil, ErrBGPRoutingView
 		}
-		if !routingStreamPeerMatchesSource(source, current, ref.AFI, ref.SAFI) {
+		if !routingStreamPeerMatchesSource(source, current, ref.AFI, ref.SAFI, storedKind) {
 			return BGPRoutingPeer{}, nil, ErrBGPRoutingView
 		}
 		body, err := json.Marshal(current)
@@ -141,12 +142,18 @@ func loadRoutingStreamMetadata(ctx context.Context, sc tenancy.Scope, source BGP
 	return peer, refs, nil
 }
 
-func routingStreamPeerMatchesSource(source BGPRoutingSource, peer BGPRoutingPeer, afi uint16, safi uint8) bool {
-	if source.routingSelection == nil {
-		return peer.Distinguisher == ([8]byte{}) && peer.SourceFormat == ""
+func routingStreamPeerMatchesSource(source BGPRoutingSource, peer BGPRoutingPeer, afi uint16, safi uint8, storedKind string) bool {
+	kind := "loc_rib"
+	if storedKind == "adj_rib_in_post_policy" {
+		if !isGlobalRoutingNeighbor(peer) || !peer.LocalAddress.IsValid() {
+			return false
+		}
+		kind = storedKind
+	} else if peer.Type != 3 || source.routingSelection == nil && peer.Distinguisher != ([8]byte{}) {
+		return false
 	}
-	_, err := routingStoredViewKind(source, BGPRoutingViewDefinition{Kind: "loc_rib", AFI: afi, SAFI: safi, Peer: peer})
-	return err == nil
+	actual, err := routingStoredViewKind(source, BGPRoutingViewDefinition{Kind: kind, AFI: afi, SAFI: safi, Peer: peer})
+	return actual == storedKind && err == nil
 }
 
 func routingStreamPlanMatches(refs []BGPRoutingStagedView, batches []BGPRoutingBatch) bool {

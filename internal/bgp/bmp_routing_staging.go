@@ -24,7 +24,7 @@ type bmpRoutingStager interface {
 // payload. Reproduce those exact validated fields; retain every original body
 // byte. The router identity and serial come only from the admitted mTLS session.
 func (l *BMPListener) queueRoutingPeerUp(id bmpIdentity, session uint64, payload []byte) error {
-	if _, ok := l.evidence.(bmpRoutingStager); !ok || len(payload) == 0 || payload[0] != 3 {
+	if _, ok := l.evidence.(bmpRoutingStager); !ok || len(payload) == 0 || payload[0] != 3 && payload[0] != 0 {
 		return nil
 	}
 	loss := l.routingSessionLoss(session)
@@ -37,6 +37,9 @@ func (l *BMPListener) queueRoutingPeerUp(id bmpIdentity, session uint64, payload
 	header, err := ParseBMPRouteViewHeader(payload[:bmpPeerHeaderLen])
 	if err != nil {
 		return err
+	}
+	if header.View != BMPLocRIB && !header.IsGlobalInboundNeighbor() {
+		return nil
 	}
 	nonce, err := crypto.UUIDv4()
 	if err != nil {

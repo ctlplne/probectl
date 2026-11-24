@@ -41,6 +41,7 @@ import { filterValue } from './urlFilters'
 import { parsePivotContext, replacePivotContext, type PivotContext } from './pivotContext'
 import { ExplainView } from './ExplainView'
 import { IdentityConflictsCard } from './IdentityConflictsCard'
+import { TopologyTrafficWhatIf } from './TopologyTrafficWhatIf'
 import { useAuth } from '../auth/useAuth'
 import { useEntityContexts } from '../api/entities'
 import { useI18n } from '../i18n/useI18n'
@@ -58,7 +59,7 @@ const TOPOLOGY_FILTER_DEFAULTS = {
  * drill-down/change-overlay polish (design-led, multi-PR). */
 export function TopologyPage() {
   const { t } = useI18n()
-  const { permissions, tenant } = useAuth()
+  const { permissions, tenant, user } = useAuth()
   const [params, setParams] = useSearchParams()
   // A routing-context UUID is meaningful only in the tenant where it was
   // selected. Drop the URL selection on a live tenant switch, and suppress
@@ -131,6 +132,7 @@ export function TopologyPage() {
   const tag = filterValue(params, 'topo_tag', pivotContext.filters.topo_tag ?? 'all')
 
   const nodes = useMemo(() => data?.nodes ?? [], [data?.nodes])
+  const nodeLabels = useMemo(() => new Map(nodes.map((node) => [node.id, node.label])), [nodes])
   const edges = useMemo(() => data?.edges ?? [], [data?.edges])
   const comparisonNodes = useMemo(() => comparison.data?.nodes ?? [], [comparison.data?.nodes])
   const kindOptions = useMemo(() => unique(nodes.map((node) => node.kind)), [nodes])
@@ -434,6 +436,19 @@ export function TopologyPage() {
         </div>
       )}
 
+      {!at &&
+      data?.topology_running &&
+      ['flow.read', 'entities.read', 'metrics.read', 'events.read'].every((grant) =>
+        permissions.includes(grant),
+      ) ? (
+        <TopologyTrafficWhatIf
+          key={`${tenant.id}:${user.id}:${contextID}:${selected?.id ?? ''}`}
+          contextID={contextID}
+          node={selected}
+          edges={edges}
+          nodeLabels={nodeLabels}
+        />
+      ) : null}
       <IdentityConflictsCard surface="topology" />
       {!at && permissions.includes('agent.read') ? <A2AMeshTopologyCard /> : null}
 
