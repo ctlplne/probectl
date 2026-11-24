@@ -62,7 +62,8 @@ func validAPIAlias(name string) bool {
 	for i := range len(name) {
 		c := name[i]
 		letter := 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z'
-		if !letter && c != '_' && (i == 0 || !('0' <= c && c <= '9' || c == '-')) {
+		valid := letter || c == '_' || i > 0 && ('0' <= c && c <= '9' || c == '-')
+		if !valid {
 			return false
 		}
 	}
@@ -119,11 +120,11 @@ func (v apiTransactionValues) appendScalar(ctx context.Context, ref apiValueRefe
 		if v.secret == nil || !strings.HasPrefix(v.origin, "https://") {
 			return errAPISecretUnavailable
 		}
-		value, clear, err := v.secret(ctx, ref.name, v.origin)
-		if clear != nil {
-			defer clear()
+		value, release, err := v.secret(ctx, ref.name, v.origin)
+		if release != nil {
+			defer release()
 		}
-		if err != nil || len(value) == 0 || clear == nil {
+		if err != nil || len(value) == 0 || release == nil {
 			return errAPISecretUnavailable
 		}
 		return write(string(value))

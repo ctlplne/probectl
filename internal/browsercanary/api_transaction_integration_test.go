@@ -91,14 +91,14 @@ func TestShippedAPITransactionsKeepTenantCredentialsAndResultsIsolated(t *testin
 	}})
 	operator := stack.OnboardOperator(t, "owner@msp-api-transaction.example")
 	stamp := strconv.FormatInt(time.Now().UnixNano(), 36)
-	for i := range lanes {
+	for i, email := range []string{"ada@acme.example", "bob@globex.example"} {
 		lane := &lanes[i]
 		lane.slug = fmt.Sprintf("api-%s-%d", stamp, i)
 		var created struct{ ID string }
 		stack.MustCLI(t, map[string]string{"PROBECTL_API_TOKEN": operator}, &created, "provider", "create-tenant", "--body",
 			fmt.Sprintf(`{"slug":%q,"name":%q,"isolation_model":"pooled"}`, lane.slug, lane.slug))
 		lane.id = created.ID
-		lane.cookie = stack.SignIn(t, lane.id, fmt.Sprintf("editor-%d@tenant-api.example", i), lane.slug)
+		lane.cookie = stack.SignIn(t, lane.id, email, lane.slug)
 		lane.good = createAPITransactionTest(t, stack, lane, fixture.URL, i, false)
 		lane.rejected = createAPITransactionTest(t, stack, lane, fixture.URL, i, true)
 		lane.agent = uuid.NewString()

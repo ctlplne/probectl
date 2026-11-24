@@ -146,8 +146,9 @@ func apiJSONShorthandLength(path string) int {
 	size := 0
 	for size < len(path) {
 		r, width := utf8.DecodeRuneInString(path[size:])
-		if !(r == '_' || 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' ||
-			r >= utf8.RuneSelf && (r != utf8.RuneError || width > 1) || size > 0 && '0' <= r && r <= '9') {
+		valid := r == '_' || 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' ||
+			r >= utf8.RuneSelf && (r != utf8.RuneError || width > 1) || size > 0 && '0' <= r && r <= '9'
+		if !valid {
 			break
 		}
 		size += width
