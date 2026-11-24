@@ -305,9 +305,7 @@ func (v *Validator) loadSpecialCLIDispatchCases() (map[string]map[string]bool, e
 			if !ok {
 				continue
 			}
-			if !specialCLICaseExecutes(clause.Body, trustedCallees) {
-				continue
-			}
+			executes := specialCLICaseExecutes(clause.Body, trustedCallees)
 			for _, expression := range clause.List {
 				literal, ok := expression.(*ast.BasicLit)
 				if !ok || literal.Kind != token.STRING {
@@ -317,7 +315,17 @@ func (v *Validator) loadSpecialCLIDispatchCases() (map[string]map[string]bool, e
 				if unquoteErr != nil {
 					return nil, fmt.Errorf("parse CLI dispatcher %s case: %w", group, unquoteErr)
 				}
-				out[group][name] = true
+				if group == "test" && name == "run-events" {
+					if !cliBodyMatches(&ast.BlockStmt{List: clause.Body}, instantTestEventsDispatchSpine) {
+						continue
+					}
+					if err := v.validateInstantTestEventsSpine(); err != nil {
+						return nil, err
+					}
+					out[group][name] = true
+				} else if executes {
+					out[group][name] = true
+				}
 			}
 		}
 	}
@@ -332,7 +340,7 @@ func (v *Validator) loadSpecialCLIDispatchCases() (map[string]map[string]bool, e
 var specialCLIPreludeSpines = map[string]string{
 	"test": `{
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "test: expected a subcommand (list|get|create|delete|path|path-history)")
+		fmt.Fprintln(stderr, "test: expected a subcommand (list|get|create|delete|path|path-history|run|run-status|run-events)")
 		return 2
 	}
 	c := newClient(cfg)

@@ -9,6 +9,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,18 +23,22 @@ func TestInvalidRegistryDoesNotRenderMisleadingLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(repoRoot, "capabilities.yaml"))
+	parsed, err := completeness.LoadRegistry(filepath.Join(repoRoot, "capabilities.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	const valid = "cli: {refs: [\"cli:probectl agent list\", \"cli:probectl test list\"]}"
-	const invalid = "cli: {refs: [\"cli:probectl command-that-does-not-exist\"]}"
-	mutated := strings.Replace(string(data), valid, invalid, 1)
-	if mutated == string(data) {
-		t.Fatal("test mutation did not find the expected F1 CLI cell")
+	row := slices.IndexFunc(parsed.Capabilities, func(c completeness.Capability) bool { return c.ID == "F1" })
+	if row < 0 || len(parsed.Capabilities[row].CLI.Refs) == 0 {
+		t.Fatal("the F1 CLI cell is absent")
+	}
+	cli := &parsed.Capabilities[row].CLI
+	cli.Refs = append(cli.Refs, "cli:probectl command-that-does-not-exist")
+	mutated, err := yaml.Marshal(parsed)
+	if err != nil {
+		t.Fatal(err)
 	}
 	registry := filepath.Join(t.TempDir(), "capabilities.yaml")
-	if err := os.WriteFile(registry, []byte(mutated), 0o600); err != nil {
+	if err := os.WriteFile(registry, mutated, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	outDir := t.TempDir()

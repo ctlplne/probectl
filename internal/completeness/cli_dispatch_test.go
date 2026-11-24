@@ -17,6 +17,13 @@ import (
 )
 
 func TestExactCLIHandlerSpinesMatchShippingSources(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Validator{root: root}).validateInstantTestEventsSpine(); err != nil {
+		t.Fatal(err)
+	}
 	for _, relative := range []string{"../cli/ai.go", "../cli/commands.go", "../cli/incident.go"} {
 		file, err := parser.ParseFile(token.NewFileSet(), relative, nil, 0)
 		if err != nil {
