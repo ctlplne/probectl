@@ -31,7 +31,7 @@ func TestInventoryOnlyChecksEvidenceBeforeStartingHostCapture(t *testing.T) {
   evidence_cert_file: missing.pem
   evidence_key_file: missing.key
   evidence_ca_file: missing-ca.pem
-`, "Kubernetes inventory evidence identity must name this tenant and collector"},
+`, "inventory evidence identity must name this Kubernetes tenant and collector"},
 	} {
 		if err := os.WriteFile(path, []byte(tc.config), 0o600); err != nil {
 			t.Fatal(err)
