@@ -20,11 +20,14 @@ import type {
   CapacityForecastInput,
   CapacityForecastMeasurement,
   CapacityAgreementPage,
+  RoutingTransferInput,
+  RoutingTransferResponse,
 } from '../api/sdk.gen'
 import { CapacityAgreementsPage } from '../routes/CapacityAgreementsPage'
 import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
 
 const base = '/v1/flows/capacity/agreements'
+const transferPath = '/v1/flows/routing-transfer-estimate'
 const version = '9007199254740993'
 const unitPrice = '1.250000000000000000000000000001'
 const item = (tenant: string): CapacityAgreement => ({
@@ -64,11 +67,13 @@ function Harness({
   write = true,
   forecastOnly = false,
   reportWrite = false,
+  estimate = false,
 }: {
   switched?: () => void
   write?: boolean
   forecastOnly?: boolean
   reportWrite?: boolean
+  estimate?: boolean
 }) {
   const [tenant, setTenant] = useState('red')
   const [allowed, setAllowed] = useState(true)
@@ -85,6 +90,9 @@ function Harness({
                 'flow.agreements.read',
                 ...(write ? ['flow.agreements.write'] : []),
                 ...(reportWrite ? ['metrics.read', 'metrics.write'] : []),
+                ...(estimate
+                  ? ['topology.read', 'flow.read', 'entities.read', 'metrics.read', 'events.read']
+                  : []),
               ]
           : [],
         switchTenant: () => {},
@@ -118,7 +126,8 @@ function mount(props: Parameters<typeof Harness>[0] = {}) {
 function fixture(answer: (url: URL, init?: RequestInit) => Promise<Response>) {
   const fallback = defaultFetch()
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
-    if (pathOf(input).startsWith('/v1/flows/capacity/'))
+    const path = pathOf(input)
+    if (path.startsWith('/v1/flows/capacity/') || path === transferPath)
       return answer(new URL(String(input), 'https://local.test'), init)
     return fallback(input, init)
   })
@@ -946,4 +955,178 @@ test('signed carrier report saves exact revisions and discards a late tenant res
   expect(sent[1].definition.carrier_claim.selections).toEqual([
     { agreement_id: 'blue-agreement', version },
   ])
+})
+
+const comparisonStart = '2026-11-07T00:00:00Z'
+const comparisonEnd = '2026-11-08T00:00:00Z'
+const comparisonContext = '22222222-2222-4222-8222-222222222222'
+const primaryInterface = '33333333-3333-4333-8333-333333333333'
+const candidateInterface = '44444444-4444-4444-8444-444444444444'
+
+function transferPage(tenant: string): CapacityAgreementPage {
+  const candidate = item(`${tenant}-candidate`)
+  candidate.definition.target.interface_id = candidateInterface
+  return { ...page(tenant), items: [item(tenant), candidate] }
+}
+
+function transferResult(tenant: string, prefix: string): RoutingTransferResponse {
+  const measured = measuredBill(tenant)
+  const before = measured.bill
+  const after = { ...before, charge_numerator: '19', charge_denominator: '1' }
+  const p95 = measured.percentile
+  return {
+    context_id: comparisonContext,
+    destination_prefix: prefix,
+    estimate_basis: 'observed_window_at_recorded_unit_rates',
+    performance_status: 'no_paired_upstream_measurement',
+    source_valid_until: '2099-11-08T00:00:00Z',
+    estimate: {
+      status: 'estimated',
+      from: comparisonStart,
+      to: comparisonEnd,
+      source: {
+        agreement_id: `${tenant}-agreement`,
+        agreement_version: version,
+        before,
+        after,
+        before_p95: p95,
+        after_p95: { ...p95, complete: false },
+      },
+      candidate: {
+        agreement_id: `${tenant}-candidate-agreement`,
+        agreement_version: version,
+        before: after,
+        after: before,
+        before_p95: { ...p95, bps_numerator: '30001', bps_denominator: '2' },
+        after_p95: p95,
+      },
+      candidate_egress_speed_bps: '1000000000',
+      candidate_egress_limit_bps: '980000000',
+      moved_peak_bps: '200000000',
+      candidate_peak_bps: '401000000',
+      net_charge_change: '1.25',
+      currency: 'USD',
+    },
+    policy: {
+      router_id: `${tenant}-router`,
+      exact_prefix: prefix,
+      local_preference: 120,
+      candidate_asn: 64500,
+      candidate_peer: '192.0.2.2',
+      current_peer: '192.0.2.1',
+      operation: 'set_inbound_local_preference_for_exact_prefix',
+    },
+  }
+}
+
+async function submitTransfer(tenant: string, prefix: string) {
+  const form = within(screen.getByRole('form', { name: 'Routing transfer estimate' }))
+  await form.findByRole('option', { name: `${tenant} WAN · revision ${version}` })
+  fireEvent.change(form.getByLabelText('Current handoff agreement'), {
+    target: { value: `${tenant}-agreement:${version}` },
+  })
+  fireEvent.change(form.getByLabelText('Candidate handoff agreement'), {
+    target: { value: `${tenant}-candidate-agreement:${version}` },
+  })
+  const enter = (label: string, value: string) =>
+    fireEvent.change(form.getByLabelText(label), { target: { value } })
+  enter('Current handoff member 1 physical bound (bps)', '900000000')
+  enter('Candidate handoff member 1 physical bound (bps)', '980000000')
+  enter('Routing context ID', comparisonContext)
+  enter('Exact destination prefix', prefix)
+  enter('Proposed local preference', '120')
+  enter('Comparison window', 'observed')
+  enter('Observation start', comparisonStart)
+  enter('Observation end', comparisonEnd)
+  fireEvent.click(form.getByRole('button', { name: 'Estimate transfer' }))
+}
+
+test('estimates exact-prefix transfer costs with the selected immutable revisions', async () => {
+  const prefix = '203.0.113.0/24'
+  const requests: RoutingTransferInput[] = []
+  fixture(async (url, init) => {
+    if (url.pathname !== transferPath) return jsonResponse(transferPage('red'))
+    expect(init?.method).toBe('POST')
+    requests.push(JSON.parse(String(init?.body)) as RoutingTransferInput)
+    return jsonResponse(transferResult('red', prefix))
+  })
+  mount({ estimate: true, write: false })
+  await submitTransfer('red', prefix)
+  const result = within(await screen.findByRole('region', { name: 'Routing transfer result' }))
+  expect(result.getByRole('status')).toHaveTextContent(`Transfer calculated for ${prefix}`)
+  expect(result.getByText(/observation window priced at recorded rates/i)).toBeInTheDocument()
+  expect(result.getByText(/comparative upstream performance is unavailable/i)).toBeInTheDocument()
+  const table = within(result.getByRole('table', { name: 'Estimated handoff charges' }))
+  const current = within(table.getByRole('row', { name: /^Current / }))
+  expect(current.getByText('4750000000000000019/1250000000000000000 USD')).toBeInTheDocument()
+  expect(current.getByText('19 USD')).toBeInTheDocument()
+  expect(current.getByText('Unavailable')).toBeInTheDocument()
+  expect(table.getByText('30001/2 bps')).toBeInTheDocument()
+  expect(result.queryByRole('button')).not.toBeInTheDocument()
+  expect(requests).toEqual([
+    {
+      context_id: comparisonContext,
+      destination_prefix: prefix,
+      local_preference: 120,
+      maximum_poll_gap: '5m',
+      observed_from: comparisonStart,
+      observed_to: comparisonEnd,
+      source: {
+        agreement_id: 'red-agreement',
+        agreement_version: version,
+        egress_interface_id: primaryInterface,
+        physical_bounds: [
+          { context_id: comparisonContext, interface_id: primaryInterface, max_bps: '900000000' },
+        ],
+      },
+      candidate: {
+        agreement_id: 'red-candidate-agreement',
+        agreement_version: version,
+        egress_interface_id: candidateInterface,
+        physical_bounds: [
+          { context_id: comparisonContext, interface_id: candidateInterface, max_bps: '980000000' },
+        ],
+      },
+    },
+  ])
+})
+
+test('a delayed routing transfer estimate cannot repopulate a second tenant workspace', async () => {
+  const firstPrefix = '203.0.113.0/24'
+  const secondPrefix = '198.51.100.0/24'
+  let tenant = 'red'
+  let firstSignal: AbortSignal | null | undefined
+  let finishFirst: ((response: Response) => void) | undefined
+  const submittedAgreements: string[] = []
+  fixture(async (url, init) => {
+    if (url.pathname !== transferPath) return jsonResponse(transferPage(tenant))
+    const request = JSON.parse(String(init?.body)) as RoutingTransferInput
+    submittedAgreements.push(request.source.agreement_id)
+    if (tenant === 'blue') return jsonResponse(transferResult(tenant, secondPrefix))
+    firstSignal = init?.signal
+    return new Promise<Response>((resolve) => {
+      finishFirst = resolve
+    })
+  })
+  mount({
+    estimate: true,
+    write: false,
+    switched: () => {
+      tenant = 'blue'
+    },
+  })
+  await submitTransfer('red', firstPrefix)
+  await waitFor(() => expect(firstSignal?.aborted).toBe(false))
+  fireEvent.click(screen.getByRole('button', { name: 'Switch financial tenant' }))
+  expect(firstSignal?.aborted).toBe(true)
+  await act(async () => {
+    finishFirst?.(jsonResponse(transferResult('red', firstPrefix)))
+  })
+  expect(screen.queryByRole('region', { name: 'Routing transfer result' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('option', { name: /^red WAN/ })).not.toBeInTheDocument()
+  await submitTransfer('blue', secondPrefix)
+  const result = within(await screen.findByRole('region', { name: 'Routing transfer result' }))
+  expect(result.getByRole('status')).toHaveTextContent(secondPrefix)
+  expect(result.queryByText(/red-router/)).not.toBeInTheDocument()
+  expect(submittedAgreements).toEqual(['red-agreement', 'blue-agreement'])
 })
