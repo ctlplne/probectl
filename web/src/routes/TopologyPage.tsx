@@ -1096,7 +1096,7 @@ function kindClass(kind: string): string {
 }
 
 function topologyKindLabel(kind: string): string {
-  return kind.startsWith('kubernetes_') ? kind.replaceAll('_', ' ') : kind
+  return kind.startsWith('kubernetes_') ? kind.replace(/_/g, ' ') : kind
 }
 
 const T_BAND_PAD = 14
