@@ -74,6 +74,14 @@ var reservedKeys = map[string]bool{
 	"src_bgp_origin_as": true, "dst_bgp_origin_as": true,
 	"src_bgp_first_transit_as": true, "dst_bgp_first_transit_as": true,
 	"src_bgp_rpki": true, "dst_bgp_rpki": true,
+	"src_k8s_cluster": true, "dst_k8s_cluster": true,
+	"src_k8s_namespace": true, "dst_k8s_namespace": true,
+	"src_k8s_pod": true, "dst_k8s_pod": true,
+	"src_k8s_pod_uid": true, "dst_k8s_pod_uid": true,
+	"src_k8s_workload": true, "dst_k8s_workload": true,
+	"src_k8s_workload_uid": true, "dst_k8s_workload_uid": true,
+	"src_k8s_service": true, "dst_k8s_service": true,
+	"src_k8s_service_uid": true, "dst_k8s_service_uid": true,
 }
 
 type Scope struct {

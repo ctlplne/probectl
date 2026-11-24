@@ -504,13 +504,7 @@ func (m *Memory) ExplorePlan(ctx context.Context, query PlanQuery) (PlanResult, 
 			if found, ok := values[field]; ok {
 				return found
 			}
-			result := explorerFieldValue(entry, field, plan, names, vocabulary, query.Tags, query.Roles)
-			if _, routing := flow.RoutingQueryField(field); routing {
-				result = query.Routing.valueForRow(entry.row, field)
-			}
-			if _, _, kubernetes := flow.KubernetesQueryField(field); kubernetes {
-				result = query.Kubernetes.valueForRow(entry.row, field)
-			}
+			result := memoryPlanFieldValue(entry, field, plan, names, vocabulary, query)
 			values[field] = result
 			return result
 		}

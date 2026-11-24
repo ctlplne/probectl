@@ -68,6 +68,17 @@ var explorerRowFields = func() map[string]int {
 	return fields
 }()
 
+func memoryPlanFieldValue(entry memoryRow, name string, plan flow.QueryPlan, names map[string]map[uint32]string,
+	vocabulary flow.QueryVocabulary, query PlanQuery) string {
+	if _, _, kubernetes := flow.KubernetesQueryField(name); kubernetes {
+		return query.Kubernetes.valueForRow(entry.row, name)
+	}
+	if _, routing := flow.RoutingQueryField(name); routing {
+		return query.Routing.valueForRow(entry.row, name)
+	}
+	return explorerFieldValue(entry, name, plan, names, vocabulary, query.Tags, query.Roles)
+}
+
 func explorerFieldValue(entry memoryRow, name string, spec flow.QueryPlan, names map[string]map[uint32]string,
 	vocabulary flow.QueryVocabulary, tagData *TagQueryData, roleData ...*InterfaceRoleQueryData) string {
 	field, ok := vocabulary.Lookup(name)
