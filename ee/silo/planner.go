@@ -173,6 +173,13 @@ func entityRegistryForeignKeyPlan(schema string, tables []string) []string {
 			foreignKey{"entity_fault_receipts", "fx2_fault_receipt_incident_fk", "tenant_id, incident_id", "incidents", "tenant_id, id"},
 		)
 	}
+	if owned["instant_test_runs"] && owned["instant_test_assignments"] && owned["tests"] {
+		keys = append(keys,
+			foreignKey{"instant_test_runs", "instant_test_runs_tenant_fk", "tenant_id", "public.tenants", "id"},
+			foreignKey{"instant_test_runs", "instant_test_runs_test_fk", "tenant_id, test_id", "tests", "tenant_id, id"},
+			foreignKey{"instant_test_assignments", "instant_test_assignments_run_fk", "tenant_id, run_id", "instant_test_runs", "tenant_id, id"},
+		)
+	}
 	if owned["a2a_mesh_results"] {
 		keys = append(keys, foreignKey{"a2a_mesh_results", "a2a_mesh_result_tenant_fk", "tenant_id", "public.tenants", "id"})
 	}

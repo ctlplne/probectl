@@ -29,17 +29,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_Register_FullMethodName             = "/probectl.agent.v1.AgentService/Register"
-	AgentService_Attest_FullMethodName               = "/probectl.agent.v1.AgentService/Attest"
-	AgentService_Heartbeat_FullMethodName            = "/probectl.agent.v1.AgentService/Heartbeat"
-	AgentService_StreamConfig_FullMethodName         = "/probectl.agent.v1.AgentService/StreamConfig"
-	AgentService_StreamResults_FullMethodName        = "/probectl.agent.v1.AgentService/StreamResults"
-	AgentService_PollCoordination_FullMethodName     = "/probectl.agent.v1.AgentService/PollCoordination"
-	AgentService_ReportEndpoint_FullMethodName       = "/probectl.agent.v1.AgentService/ReportEndpoint"
-	AgentService_FetchTestBundle_FullMethodName      = "/probectl.agent.v1.AgentService/FetchTestBundle"
-	AgentService_FetchL7Policy_FullMethodName        = "/probectl.agent.v1.AgentService/FetchL7Policy"
-	AgentService_ReportL7Posture_FullMethodName      = "/probectl.agent.v1.AgentService/ReportL7Posture"
-	AgentService_SubmitEntityEvidence_FullMethodName = "/probectl.agent.v1.AgentService/SubmitEntityEvidence"
+	AgentService_Register_FullMethodName                = "/probectl.agent.v1.AgentService/Register"
+	AgentService_Attest_FullMethodName                  = "/probectl.agent.v1.AgentService/Attest"
+	AgentService_Heartbeat_FullMethodName               = "/probectl.agent.v1.AgentService/Heartbeat"
+	AgentService_StreamConfig_FullMethodName            = "/probectl.agent.v1.AgentService/StreamConfig"
+	AgentService_StreamResults_FullMethodName           = "/probectl.agent.v1.AgentService/StreamResults"
+	AgentService_PollCoordination_FullMethodName        = "/probectl.agent.v1.AgentService/PollCoordination"
+	AgentService_ReportEndpoint_FullMethodName          = "/probectl.agent.v1.AgentService/ReportEndpoint"
+	AgentService_FetchTestBundle_FullMethodName         = "/probectl.agent.v1.AgentService/FetchTestBundle"
+	AgentService_ReportInstantTestResult_FullMethodName = "/probectl.agent.v1.AgentService/ReportInstantTestResult"
+	AgentService_FetchL7Policy_FullMethodName           = "/probectl.agent.v1.AgentService/FetchL7Policy"
+	AgentService_ReportL7Posture_FullMethodName         = "/probectl.agent.v1.AgentService/ReportL7Posture"
+	AgentService_SubmitEntityEvidence_FullMethodName    = "/probectl.agent.v1.AgentService/SubmitEntityEvidence"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -78,6 +79,9 @@ type AgentServiceClient interface {
 	// The server answers FailedPrecondition when central test distribution is not
 	// configured. This is not config push: StreamConfig stays an explicit deny.
 	FetchTestBundle(ctx context.Context, in *FetchTestBundleRequest, opts ...grpc.CallOption) (*FetchTestBundleResponse, error)
+	// ReportInstantTestResult commits one result to the exact signed assignment.
+	// An ad-hoc result does not publish to the scheduled-result bus.
+	ReportInstantTestResult(ctx context.Context, in *ReportInstantTestResultRequest, opts ...grpc.CallOption) (*ReportInstantTestResultResponse, error)
 	// FetchL7Policy returns the calling agent's tenant's L7 capture redaction
 	// floor (D-43, refinement 3): the loosest redaction mode the tenant allows.
 	// The tenant comes from the client certificate only; the request carries
@@ -198,6 +202,16 @@ func (c *agentServiceClient) FetchTestBundle(ctx context.Context, in *FetchTestB
 	return out, nil
 }
 
+func (c *agentServiceClient) ReportInstantTestResult(ctx context.Context, in *ReportInstantTestResultRequest, opts ...grpc.CallOption) (*ReportInstantTestResultResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReportInstantTestResultResponse)
+	err := c.cc.Invoke(ctx, AgentService_ReportInstantTestResult_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) FetchL7Policy(ctx context.Context, in *FetchL7PolicyRequest, opts ...grpc.CallOption) (*FetchL7PolicyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(FetchL7PolicyResponse)
@@ -264,6 +278,9 @@ type AgentServiceServer interface {
 	// The server answers FailedPrecondition when central test distribution is not
 	// configured. This is not config push: StreamConfig stays an explicit deny.
 	FetchTestBundle(context.Context, *FetchTestBundleRequest) (*FetchTestBundleResponse, error)
+	// ReportInstantTestResult commits one result to the exact signed assignment.
+	// An ad-hoc result does not publish to the scheduled-result bus.
+	ReportInstantTestResult(context.Context, *ReportInstantTestResultRequest) (*ReportInstantTestResultResponse, error)
 	// FetchL7Policy returns the calling agent's tenant's L7 capture redaction
 	// floor (D-43, refinement 3): the loosest redaction mode the tenant allows.
 	// The tenant comes from the client certificate only; the request carries
@@ -315,6 +332,9 @@ func (UnimplementedAgentServiceServer) ReportEndpoint(context.Context, *ReportEn
 }
 func (UnimplementedAgentServiceServer) FetchTestBundle(context.Context, *FetchTestBundleRequest) (*FetchTestBundleResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FetchTestBundle not implemented")
+}
+func (UnimplementedAgentServiceServer) ReportInstantTestResult(context.Context, *ReportInstantTestResultRequest) (*ReportInstantTestResultResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReportInstantTestResult not implemented")
 }
 func (UnimplementedAgentServiceServer) FetchL7Policy(context.Context, *FetchL7PolicyRequest) (*FetchL7PolicyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method FetchL7Policy not implemented")
@@ -472,6 +492,24 @@ func _AgentService_FetchTestBundle_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_ReportInstantTestResult_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReportInstantTestResultRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ReportInstantTestResult(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ReportInstantTestResult_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ReportInstantTestResult(ctx, req.(*ReportInstantTestResultRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_FetchL7Policy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FetchL7PolicyRequest)
 	if err := dec(in); err != nil {
@@ -556,6 +594,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FetchTestBundle",
 			Handler:    _AgentService_FetchTestBundle_Handler,
+		},
+		{
+			MethodName: "ReportInstantTestResult",
+			Handler:    _AgentService_ReportInstantTestResult_Handler,
 		},
 		{
 			MethodName: "FetchL7Policy",

@@ -21,11 +21,11 @@ capabilities:
     owner: agent/security
     engine: {refs: ["file:internal/canary"]}
     binary: {refs: ["file:cmd/probectl-agent/main.go#reg.Register(\"noop\", canary.NewNoop)"]}
-    api: {refs: ["api:GET /v1/tests", "api:GET /v1/agents"]}
-    cli: {refs: ["cli:probectl agent list", "cli:probectl test list"]}
+    api: {refs: ["api:GET /v1/tests", "api:GET /v1/agents", "api:POST /v1/tests/{id}/runs", "api:GET /v1/test-runs/{id}/events"]}
+    cli: {refs: ["cli:probectl agent list", "cli:probectl test list", "cli:probectl test run", "cli:probectl test run-status", "cli:probectl test run-events"]}
     ui: {refs: ["ui:F1@/targets", "ui:F1@/admin"]}
-    docs: {refs: ["file:docs/features/active-testing.md#Active / synthetic network testing"]}
-    config_keys: {refs: ["config:PROBECTL_AGENT_CONFIG"]}
+    docs: {refs: ["file:docs/features/active-testing.md#Active / synthetic network testing", "file:docs/features/active-testing.md#Run a saved test now"]}
+    config_keys: {refs: ["config:PROBECTL_AGENT_CONFIG", "config:PROBECTL_FAIRNESS_INSTANT_TEST_AGENTS_PER_SEC"]}
     telemetry: {refs: ["file:internal/agent"]}
     real_stack_proof: {refs: ["test:internal/testsync/realstack_integration_test.go#TestCentralTestsReachAgentsRealStack"]}
     migration: {refs: ["file:migrations/0009_agents_registry.sql", "file:migrations/0010_tests_definition.sql"]}

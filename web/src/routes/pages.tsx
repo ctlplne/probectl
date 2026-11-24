@@ -39,6 +39,8 @@ import { testAsCode } from './codeExport'
 import { Page } from './RoutePage'
 import { useI18n } from '../i18n/useI18n'
 import { useAuth } from '../auth/useAuth'
+import { canRunInstantTest } from '../api/instantTests'
+import { InstantTestRunDialog } from './InstantTestRunDialog'
 
 // --- Targets & Tests (live /v1/tests CRUD) ---
 
@@ -272,6 +274,7 @@ export function TargetsPage() {
   const { push } = useToast()
   const [creating, setCreating] = useState(false)
   const [resultsFor, setResultsFor] = useState<Test | null>(null)
+  const [instantFor, setInstantFor] = useState<Test | null>(null)
   const [codeFor, setCodeFor] = useState<Test | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Test | null>(null)
   const [params, setParams] = useSearchParams()
@@ -282,7 +285,8 @@ export function TargetsPage() {
   const requestedTestID = filterValue(params, 'test_id')
   const exactTest = useTest(requestedTestID)
   const { t } = useI18n()
-  const { permissions } = useAuth()
+  const { permissions, tenant } = useAuth()
+  const canRunInstant = canRunInstantTest(permissions)
   const canCreateTest = permissions.includes('test.write')
   const registryPending = requestedTestID ? exactTest.isPending : isPending
   const registryError = requestedTestID ? exactTest.error : error
@@ -332,6 +336,16 @@ export function TargetsPage() {
       >
         Results
       </Button>
+      {canRunInstant ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setInstantFor(test)}
+          aria-label={t('instant.runNamedTest', { name: test.name })}
+        >
+          {t('instant.run')}
+        </Button>
+      ) : null}
       <Button
         variant="ghost"
         size="sm"
@@ -589,6 +603,13 @@ export function TargetsPage() {
         <Modal open onClose={() => setCodeFor(null)} title={`Export as code: ${codeFor.name}`}>
           <CodeExportPanel title="Test YAML" code={testAsCode(codeFor)} />
         </Modal>
+      ) : null}
+      {instantFor && canRunInstant ? (
+        <InstantTestRunDialog
+          key={tenant.id + instantFor.id}
+          test={instantFor}
+          onClose={() => setInstantFor(null)}
+        />
       ) : null}
       {resultsFor ? <ResultDetail test={resultsFor} onClose={() => setResultsFor(null)} /> : null}
       {/* WEB-21: deleting a test requires an explicit confirmation, not a single click. */}

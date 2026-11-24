@@ -1643,6 +1643,7 @@ func (e *Engine) sweepRetentionPolicies(ctx context.Context, policies []retentio
 			e.sweepPathRetention(ctx, p),
 			e.sweepAIAnswerRetention(ctx, p),
 			e.pruneExpiredA2AMeshResults(ctx, p.tenant),
+			e.pruneExpiredInstantTestRuns(ctx, p.tenant),
 			e.receiptDelegatedRetention(ctx, p, "objects", "object_store_lifecycle"),
 			e.pruneDerivedIdentityCaches(ctx, p),
 		)
@@ -1661,6 +1662,15 @@ func (e *Engine) pruneExpiredA2AMeshResults(ctx context.Context, tenant string) 
 	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), e.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := sc.Q.Exec(ctx, `DELETE FROM a2a_mesh_results WHERE tenant_id=$1 AND expires_at<=statement_timestamp()`, tenant)
 		return err
+	})
+}
+
+func (e *Engine) pruneExpiredInstantTestRuns(ctx context.Context, tenant string) error {
+	if e.pool == nil {
+		return nil
+	}
+	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return (store.InstantTestRuns{}).DeleteExpired(ctx, sc)
 	})
 }
 

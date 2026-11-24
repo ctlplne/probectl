@@ -3845,6 +3845,53 @@ type IncidentVerdictRoutingReference struct {
 	ViewId            string `json:"view_id"`
 }
 
+type InstantTestAgent struct {
+	AgentId string            `json:"agent_id"`
+	Result  InstantTestResult `json:"result,omitzero"`
+	State   string            `json:"state"`
+}
+
+type InstantTestAgentTag struct {
+	ContextId string `json:"context_id"`
+	TagId     string `json:"tag_id"`
+	Value     string `json:"value"`
+}
+
+type InstantTestResult struct {
+	DurationNanos int                `json:"duration_nanos"`
+	Metrics       map[string]float64 `json:"metrics,omitempty"`
+	Outcome       string             `json:"outcome"`
+	StartedAt     string             `json:"started_at"`
+	Success       bool               `json:"success"`
+}
+
+type InstantTestRun struct {
+	Agents        []InstantTestAgent `json:"agents"`
+	CreatedAt     string             `json:"created_at"`
+	DispatchUntil string             `json:"dispatch_until"`
+	Id            string             `json:"id"`
+	TestId        string             `json:"test_id"`
+}
+
+type InstantTestRunInput struct {
+	IdempotencyKey string               `json:"idempotency_key"`
+	Selection      InstantTestSelection `json:"selection"`
+}
+
+type InstantTestRunSummary struct {
+	CreatedAt     string `json:"created_at"`
+	DispatchUntil string `json:"dispatch_until"`
+	Id            string `json:"id"`
+	TestId        string `json:"test_id"`
+}
+
+// Select exactly one of agent_ids, site, or tag.
+type InstantTestSelection struct {
+	AgentIds []string            `json:"agent_ids,omitempty"`
+	Site     string              `json:"site,omitempty"`
+	Tag      InstantTestAgentTag `json:"tag,omitzero"`
+}
+
 type InterfaceRole string
 
 type InterfaceRoleDescriptionRule struct {
@@ -11478,6 +11525,40 @@ func (c *Client) DeleteTagDefinition(ctx context.Context, req DeleteTagDefinitio
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
 }
 
+// Read an on-demand test run
+type GetInstantTestRunRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetInstantTestRun(ctx context.Context, req GetInstantTestRunRequest) (*InstantTestRun, error) {
+	path := "/v1/test-runs/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out InstantTestRun
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Stream on-demand test results
+type StreamInstantTestRunRequest struct {
+	LastEventId *string `json:"-"`
+	Id          string  `json:"-"`
+}
+
+func (c *Client) StreamInstantTestRun(ctx context.Context, req StreamInstantTestRunRequest) (io.ReadCloser, error) {
+	path := "/v1/test-runs/{id}/events"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	return c.openEventStream(ctx, path, req.LastEventId)
+}
+
 // List synthetic tests
 type ListTestsRequest struct {
 	After *string `json:"-"`
@@ -11725,6 +11806,26 @@ func (c *Client) ListTestPathHistory(ctx context.Context, req ListTestPathHistor
 	return &out, nil
 }
 
+// Run a saved test on demand
+type CreateInstantTestRunRequest struct {
+	Id   string               `json:"-"`
+	Body *InstantTestRunInput `json:"-"`
+}
+
+func (c *Client) CreateInstantTestRun(ctx context.Context, req CreateInstantTestRunRequest) (*InstantTestRunSummary, error) {
+	path := "/v1/tests/{id}/runs"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out InstantTestRunSummary
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Recent IOC/NDR detections with source attribution + confidence
 type ListThreatDetectionsRequest struct {
 }
@@ -11894,6 +11995,42 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 }
 
 func (c *Client) doRaw(ctx context.Context, method, path string, query url.Values, body any) ([]byte, error) {
+	resp, err := c.doRequest(ctx, method, path, query, body, "application/json", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := readResponseBody(resp)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode/100 != 2 {
+		return nil, decodeError(resp.StatusCode, data)
+	}
+	return data, nil
+}
+
+// The caller closes the returned stream and may resume with Last-Event-ID.
+func (c *Client) openEventStream(ctx context.Context, path string, cursor *string) (io.ReadCloser, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil, nil, "text/event-stream", cursor)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusOK && strings.TrimSpace(strings.SplitN(resp.Header.Get("Content-Type"), ";", 2)[0]) == "text/event-stream" {
+		return resp.Body, nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 == 2 {
+		return nil, fmt.Errorf("probectl SDK: expected an event stream")
+	}
+	data, err := readResponseBody(resp)
+	if err != nil {
+		return nil, err
+	}
+	return nil, decodeError(resp.StatusCode, data)
+}
+
+func (c *Client) doRequest(ctx context.Context, method, path string, query url.Values, body any, accept string, cursor *string) (*http.Response, error) {
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -11913,7 +12050,10 @@ func (c *Client) doRaw(ctx context.Context, method, path string, query url.Value
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", accept)
+	if cursor != nil {
+		req.Header.Set("Last-Event-ID", *cursor)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -11931,19 +12071,12 @@ func (c *Client) doRaw(ctx context.Context, method, path string, query url.Value
 		hc = http.DefaultClient
 	}
 	hc = c.reportHTTPClient(hc, method, path)
-	resp, err := hc.Do(req)
-	if err != nil {
-		return nil, err
+	if accept == "text/event-stream" && hc == c.defaultHTTPClient && hc.Timeout == 15*time.Second {
+		streamClient := *hc
+		streamClient.Timeout = 20 * time.Second
+		hc = &streamClient
 	}
-	defer resp.Body.Close()
-	data, err := readResponseBody(resp)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode/100 != 2 {
-		return nil, decodeError(resp.StatusCode, data)
-	}
-	return data, nil
+	return hc.Do(req)
 }
 
 func readResponseBody(resp *http.Response) ([]byte, error) {

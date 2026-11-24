@@ -82,20 +82,21 @@ type schema struct {
 }
 
 type operation struct {
-	ID       string
-	GoName   string
-	TSName   string
-	Method   string
-	Path     string
-	Summary  string
-	Params   []resolvedParam
-	Body     *schema
-	BodyName string
-	BodyReq  bool
-	Resp     *schema
-	JSONResp bool
-	RawResp  bool
-	NoResp   bool
+	ID          string
+	GoName      string
+	TSName      string
+	Method      string
+	Path        string
+	Summary     string
+	Params      []resolvedParam
+	Body        *schema
+	BodyName    string
+	BodyReq     bool
+	Resp        *schema
+	JSONResp    bool
+	RawResp     bool
+	EventStream bool
+	NoResp      bool
 }
 
 type resolvedParam struct {
@@ -197,21 +198,26 @@ func (g generator) operations() []operation {
 			params := g.resolveParams(g.mergePathParams(rawOp.Parameters, pathParams))
 			body, bodyRequired := jsonBody(rawOp.RequestBody)
 			resp, jsonResp, rawResp := jsonResponse(rawOp.Responses)
+			eventStream := false
+			if ok := rawOp.Responses["200"]; ok != nil {
+				_, eventStream = ok.Content["text/event-stream"]
+			}
 			out = append(out, operation{
-				ID:       id,
-				GoName:   exportedName(id),
-				TSName:   lowerCamel(id),
-				Method:   strings.ToUpper(method),
-				Path:     path,
-				Summary:  rawOp.Summary,
-				Params:   params,
-				Body:     body,
-				BodyName: exportedName(id) + "Body",
-				BodyReq:  bodyRequired,
-				Resp:     resp,
-				JSONResp: jsonResp,
-				RawResp:  rawResp,
-				NoResp:   !jsonResp && !rawResp,
+				ID:          id,
+				GoName:      exportedName(id),
+				TSName:      lowerCamel(id),
+				Method:      strings.ToUpper(method),
+				Path:        path,
+				Summary:     rawOp.Summary,
+				Params:      params,
+				Body:        body,
+				BodyName:    exportedName(id) + "Body",
+				BodyReq:     bodyRequired,
+				Resp:        resp,
+				JSONResp:    jsonResp,
+				RawResp:     rawResp,
+				EventStream: eventStream,
+				NoResp:      !jsonResp && !rawResp,
 			})
 			if exact, ok := signedBytesOperation(out[len(out)-1], rawOp.Responses); ok {
 				seen[exact.ID]++
@@ -279,7 +285,7 @@ func (g generator) resolveParams(params []*parameter) []resolvedParam {
 	used := map[string]int{}
 	for _, p := range params {
 		p = g.resolveParam(p)
-		if p == nil || p.In == "header" {
+		if p == nil || (p.In == "header" && p.Name != "Last-Event-ID") {
 			continue
 		}
 		field := exportedName(p.Name)
@@ -716,6 +722,10 @@ func (g generator) writeGoOperation(b *bytes.Buffer, op operation) {
 		}
 		fmt.Fprintf(b, "\tpath = strings.ReplaceAll(path, %q, url.PathEscape(req.%s))\n", "{"+p.Name+"}", p.GoField)
 	}
+	if op.EventStream {
+		b.WriteString("\treturn c.openEventStream(ctx, path, req.LastEventId)\n}\n\n")
+		return
+	}
 	b.WriteString("\tquery := url.Values{}\n")
 	for _, p := range op.Params {
 		if p.In != "query" {
@@ -753,6 +763,9 @@ func (g generator) writeGoOperation(b *bytes.Buffer, op operation) {
 }
 
 func (g generator) goResponseType(op operation) string {
+	if op.EventStream {
+		return "io.ReadCloser"
+	}
 	if op.RawResp {
 		return "[]byte"
 	}
@@ -763,7 +776,7 @@ func (g generator) goResponseType(op operation) string {
 }
 
 func goReturnType(t string) string {
-	if t == "[]byte" || strings.HasPrefix(t, "map[") || strings.HasPrefix(t, "[]") {
+	if t == "[]byte" || t == "io.ReadCloser" || strings.HasPrefix(t, "map[") || strings.HasPrefix(t, "[]") {
 		return t
 	}
 	return "*" + t
@@ -780,11 +793,20 @@ func (g generator) writeGoRuntime(b *bytes.Buffer) {
 	b.WriteString("func (c *Client) doJSON(ctx context.Context, method, path string, query url.Values, body any, out any) error {\n")
 	b.WriteString("\tdata, err := c.doRaw(ctx, method, path, query, body)\n\tif err != nil { return err }\n\tif out == nil || len(data) == 0 { return nil }\n\treturn json.Unmarshal(data, out)\n}\n\n")
 	b.WriteString("func (c *Client) doRaw(ctx context.Context, method, path string, query url.Values, body any) ([]byte, error) {\n")
+	b.WriteString("\tresp, err := c.doRequest(ctx, method, path, query, body, \"application/json\", nil)\n\tif err != nil { return nil, err }\n\tdefer resp.Body.Close()\n\tdata, err := readResponseBody(resp)\n\tif err != nil { return nil, err }\n\tif resp.StatusCode/100 != 2 { return nil, decodeError(resp.StatusCode, data) }\n\treturn data, nil\n}\n\n")
+
+	b.WriteString("// The caller closes the returned stream and may resume with Last-Event-ID.\n")
+	b.WriteString("func (c *Client) openEventStream(ctx context.Context, path string, cursor *string) (io.ReadCloser, error) {\n")
+	b.WriteString("\tresp, err := c.doRequest(ctx, http.MethodGet, path, nil, nil, \"text/event-stream\", cursor)\n\tif err != nil { return nil, err }\n")
+	b.WriteString("\tif resp.StatusCode == http.StatusOK && strings.TrimSpace(strings.SplitN(resp.Header.Get(\"Content-Type\"), \";\", 2)[0]) == \"text/event-stream\" { return resp.Body, nil }\n\tdefer resp.Body.Close()\n")
+	b.WriteString("\tif resp.StatusCode/100 == 2 { return nil, fmt.Errorf(\"probectl SDK: expected an event stream\") }\n\tdata, err := readResponseBody(resp)\n\tif err != nil { return nil, err }\n\treturn nil, decodeError(resp.StatusCode, data)\n}\n\n")
+
+	b.WriteString("func (c *Client) doRequest(ctx context.Context, method, path string, query url.Values, body any, accept string, cursor *string) (*http.Response, error) {\n")
 	b.WriteString("\tvar r io.Reader\n\tif body != nil {\n\t\tb, err := json.Marshal(body)\n\t\tif err != nil { return nil, err }\n\t\tr = bytes.NewReader(b)\n\t}\n")
 	b.WriteString("\tu, err := url.Parse(c.BaseURL + path)\n\tif err != nil { return nil, err }\n\tif len(query) > 0 { u.RawQuery = query.Encode() }\n")
 	b.WriteString("\treq, err := http.NewRequestWithContext(ctx, method, u.String(), r)\n\tif err != nil { return nil, err }\n")
-	b.WriteString("\treq.Header.Set(\"Accept\", \"application/json\")\n\tif body != nil { req.Header.Set(\"Content-Type\", \"application/json\") }\n\tif c.UserAgent != \"\" { req.Header.Set(\"User-Agent\", c.UserAgent) }\n\tif c.Token != \"\" { req.Header.Set(\"Authorization\", \"Bearer \"+c.Token) }\n\tif c.Tenant != \"\" { req.Header.Set(\"X-Probectl-Tenant\", c.Tenant) }\n")
-	b.WriteString("\thc := c.HTTPClient\n\tif hc == nil { hc = http.DefaultClient }\n\thc = c.reportHTTPClient(hc, method, path)\n\tresp, err := hc.Do(req)\n\tif err != nil { return nil, err }\n\tdefer resp.Body.Close()\n\tdata, err := readResponseBody(resp)\n\tif err != nil { return nil, err }\n\tif resp.StatusCode/100 != 2 { return nil, decodeError(resp.StatusCode, data) }\n\treturn data, nil\n}\n\n")
+	b.WriteString("\treq.Header.Set(\"Accept\", accept)\n\tif cursor != nil { req.Header.Set(\"Last-Event-ID\", *cursor) }\n\tif body != nil { req.Header.Set(\"Content-Type\", \"application/json\") }\n\tif c.UserAgent != \"\" { req.Header.Set(\"User-Agent\", c.UserAgent) }\n\tif c.Token != \"\" { req.Header.Set(\"Authorization\", \"Bearer \"+c.Token) }\n\tif c.Tenant != \"\" { req.Header.Set(\"X-Probectl-Tenant\", c.Tenant) }\n")
+	b.WriteString("\thc := c.HTTPClient\n\tif hc == nil { hc = http.DefaultClient }\n\thc = c.reportHTTPClient(hc, method, path)\n\tif accept == \"text/event-stream\" && hc == c.defaultHTTPClient && hc.Timeout == 15*time.Second {\n\t\tstreamClient := *hc\n\t\tstreamClient.Timeout = 20*time.Second\n\t\thc = &streamClient\n\t}\n\treturn hc.Do(req)\n}\n\n")
 	b.WriteString("func readResponseBody(resp *http.Response) ([]byte, error) {\n\tlimit := MaxResponseBodyBytes\n\tif resp.StatusCode/100 != 2 { limit = MaxErrorResponseBodyBytes }\n\tdata, err := transport.ReadLimited(resp.Body, limit)\n\tif err != nil { return nil, fmt.Errorf(\"probectl SDK: read response body (limit %d bytes): %w\", limit, err) }\n\treturn data, nil\n}\n\n")
 	b.WriteString("func decodeError(status int, body []byte) error {\n\tvar env struct { Error struct { Code string `json:\"code\"`; Message string `json:\"message\"` } `json:\"error\"` }\n\t_ = json.Unmarshal(body, &env)\n\treturn &SDKError{StatusCode: status, Code: env.Error.Code, Message: env.Error.Message, Body: body}\n}\n\n")
 	b.WriteString("func formatQueryValue(v any) string {\n\tswitch x := v.(type) {\n\tcase string:\n\t\treturn x\n\tcase int:\n\t\treturn strconv.Itoa(x)\n\tcase bool:\n\t\treturn strconv.FormatBool(x)\n\tcase float64:\n\t\treturn strconv.FormatFloat(x, 'f', -1, 64)\n\tdefault:\n\t\treturn fmt.Sprint(x)\n\t}\n}\n")
@@ -813,7 +835,7 @@ func (g generator) tsSDK(ops []operation) []byte {
 		g.writeTSMethod(&b, op)
 	}
 	b.WriteString("  private async requestJSON<T>(method: string, path: string, query: URLSearchParams, body: unknown | undefined): Promise<T> {\n    const response = await this.request(method, path, query, body)\n    if (response.status === 204) return undefined as T\n    return readResponseJSON<T>(response, responseBodyLimit(response))\n  }\n\n")
-	b.WriteString("  private async request(method: string, path: string, query: URLSearchParams, body: unknown | undefined): Promise<Response> {\n    const qs = query.toString()\n    const headers: Record<string, string> = { Accept: 'application/json' }\n    if (body !== undefined) headers['Content-Type'] = 'application/json'\n    if (this.options.token) headers.Authorization = `Bearer ${this.options.token}`\n    if (this.options.tenant) headers['X-Probectl-Tenant'] = this.options.tenant\n    if (this.options.userAgent) headers['User-Agent'] = this.options.userAgent\n    const response = await this.fetcher(`${this.baseUrl}${path}${qs ? `?${qs}` : ''}`, {\n      method,\n      headers,\n      body: body === undefined ? undefined : JSON.stringify(body),\n    })\n    if (!response.ok) throw await toSDKError(response)\n    return response\n  }\n")
+	b.WriteString("  private async request(method: string, path: string, query: URLSearchParams, body: unknown | undefined, accept = 'application/json', cursor?: string): Promise<Response> {\n    const qs = query.toString()\n    const headers: Record<string, string> = { Accept: accept }\n    if (cursor !== undefined) headers['Last-Event-ID'] = cursor\n    if (body !== undefined) headers['Content-Type'] = 'application/json'\n    if (this.options.token) headers.Authorization = `Bearer ${this.options.token}`\n    if (this.options.tenant) headers['X-Probectl-Tenant'] = this.options.tenant\n    if (this.options.userAgent) headers['User-Agent'] = this.options.userAgent\n    const response = await this.fetcher(`${this.baseUrl}${path}${qs ? `?${qs}` : ''}`, {\n      method,\n      headers,\n      body: body === undefined ? undefined : JSON.stringify(body),\n    })\n    if (!response.ok) throw await toSDKError(response)\n    return response\n  }\n")
 	b.WriteString("}\n\n")
 	b.WriteString("export class SDKError extends Error {\n  constructor(\n    readonly status: number,\n    readonly code: string | undefined,\n    message: string,\n  ) {\n    super(message)\n    this.name = 'SDKError'\n  }\n}\n\n")
 	b.WriteString("async function toSDKError(response: Response): Promise<SDKError> {\n  let code: string | undefined\n  let message = `${response.status} ${response.statusText}`\n  try {\n    const body = await readResponseJSON<{ error?: { code?: string; message?: string } }>(response, responseBodyLimit(response))\n    code = body.error?.code\n    if (body.error?.message) message = body.error.message\n  } catch (err) {\n    if (err instanceof ResponseBodyTooLargeError) throw err\n    // Non-JSON error bodies keep the status text.\n  }\n  return new SDKError(response.status, code, message)\n}\n")
@@ -968,6 +990,10 @@ func (g generator) writeTSMethod(b *bytes.Buffer, op operation) {
 	body := "undefined"
 	if op.Body != nil {
 		body = "request.body"
+	}
+	if op.EventStream {
+		fmt.Fprintf(b, "    return this.request(%q, path, query, undefined, 'text/event-stream', request.lastEventId)\n  }\n\n", op.Method)
+		return
 	}
 	if op.RawResp {
 		fmt.Fprintf(b, "    return this.request(%q, path, query, %s)\n  }\n\n", op.Method, body)

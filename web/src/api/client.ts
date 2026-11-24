@@ -51,17 +51,24 @@ export function apiURL(path: string): string {
   return `${API_BASE}${path}`
 }
 
-/** Native attachment navigation avoids buffering a complete large CSV in JS.
- * The transport boundary still applies before exposing the download URL. */
-export function apiDownloadURL(path: string): string {
+function liveSameOriginURL(path: string): string {
   if (demoTransportIsolated) {
     throw new ApiError(403, 'Live tenant APIs are disabled while demo mode is active.')
   }
   const url = new URL(apiURL(path), window.location.href)
   if (url.origin !== window.location.origin) {
-    throw new ApiError(403, 'Downloads require the authenticated same-origin API.')
+    throw new ApiError(403, 'This operation requires the authenticated same-origin API.')
   }
   return url.href
+}
+
+/** Native attachment navigation avoids buffering a complete large CSV in JS. */
+export function apiDownloadURL(path: string): string {
+  return liveSameOriginURL(path)
+}
+
+export function openAPIEventStream(path: string): EventSource {
+  return new EventSource(liveSameOriginURL(path))
 }
 
 export function apiDownload(path: string) {

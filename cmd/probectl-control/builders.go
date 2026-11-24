@@ -58,6 +58,7 @@ import (
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/tenantcrypto"
 	"github.com/ctlplne/probectl/internal/tenantlife"
+	"github.com/ctlplne/probectl/internal/testsync"
 	"github.com/ctlplne/probectl/internal/threat/dnstap"
 	"github.com/ctlplne/probectl/internal/topology"
 	"github.com/ctlplne/probectl/internal/version"
@@ -1041,6 +1042,11 @@ func startAgentTransport(
 	// G9 (D-41): agents pull their tenant's signed test set over this mTLS
 	// listener; nil keeps central test distribution off.
 	grpcSrv.WithTestBundles(testBundles)
+	if source, ok := testBundles.(*testsync.Source); ok && source != nil && srv != nil && cfg.FairnessInstantTestAgentsPerSec > 0 {
+		grpcSrv.WithInstantTestPull(func(ctx context.Context, tenant, agent, serial string) ([]byte, error) {
+			return srv.PullInstantTestForAgent(ctx, source, tenant, agent, serial)
+		})
+	}
 	// D-43: eBPF agents fetch their tenant's L7 capture redaction floor and
 	// report their capture posture over this same listener (no new one).
 	grpcSrv.WithL7Policy(agenttransport.NewL7Policy(db.Pool(), cfg.DeploymentProfile == "regulated"))

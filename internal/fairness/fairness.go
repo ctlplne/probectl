@@ -77,10 +77,11 @@ const (
 	// at FlowEventsPerSec, without spending storage ingest credits a second time.
 	// This processing meter is not a billable usage meter.
 	MeterNDRFlowEvents = "ndr_flow_events"
-	MeterBytes         = "ingest_bytes"   // result payload bytes admitted
-	MeterDeviceMetrics = "device_metrics" // device samples admitted (SCALE-005)
-	MeterOTLPSeries    = "otlp_series"    // OTLP metric/trace/log series admitted (SCALE-003)
-	meterQueries       = "queries"        // query-budget bucket (internal)
+	MeterBytes         = "ingest_bytes"        // result payload bytes admitted
+	MeterDeviceMetrics = "device_metrics"      // device samples admitted (SCALE-005)
+	MeterOTLPSeries    = "otlp_series"         // OTLP metric/trace/log series admitted (SCALE-003)
+	MeterInstantTests  = "instant_test_agents" // one unit for each admitted agent assignment
+	meterQueries       = "queries"             // query-budget bucket (internal)
 )
 
 // Policy is the per-tenant fairness contract (the S-T7 "quotas / limits /
@@ -94,12 +95,13 @@ const (
 // env value.
 func DefaultPolicy() Policy {
 	return Policy{
-		ResultsPerSec:       1000,
-		FlowEventsPerSec:    10000,
-		IngestBytesPerSec:   2 << 20, // 2 MiB/s
-		DeviceMetricsPerSec: 2000,
-		OTLPSeriesPerSec:    5000,
-		BurstSeconds:        10,
+		ResultsPerSec:           1000,
+		FlowEventsPerSec:        10000,
+		IngestBytesPerSec:       2 << 20, // 2 MiB/s
+		DeviceMetricsPerSec:     2000,
+		OTLPSeriesPerSec:        5000,
+		InstantTestAgentsPerSec: 30,
+		BurstSeconds:            10,
 	}
 }
 
@@ -113,6 +115,8 @@ type Policy struct {
 	// spans, log records) per tenant (SCALE-003) — the OTLP planes had no
 	// fairness gate, unlike the native planes.
 	OTLPSeriesPerSec float64 `json:"otlp_series_per_sec,omitempty"`
+	// InstantTestAgentsPerSec applies to the complete agent fan-out of a run.
+	InstantTestAgentsPerSec float64 `json:"instant_test_agents_per_sec,omitempty"`
 	// BurstSeconds sizes every bucket: capacity = rate × BurstSeconds
 	// (default 10 — a tenant may burst ten seconds of its rate).
 	BurstSeconds float64 `json:"burst_seconds,omitempty"`
@@ -142,6 +146,9 @@ func (p Policy) merged(def Policy) Policy {
 	}
 	if out.OTLPSeriesPerSec == 0 {
 		out.OTLPSeriesPerSec = def.OTLPSeriesPerSec
+	}
+	if out.InstantTestAgentsPerSec == 0 {
+		out.InstantTestAgentsPerSec = def.InstantTestAgentsPerSec
 	}
 	if out.BurstSeconds == 0 {
 		out.BurstSeconds = def.BurstSeconds
@@ -173,6 +180,8 @@ func (p Policy) rateFor(meter string) float64 {
 		return p.DeviceMetricsPerSec
 	case MeterOTLPSeries:
 		return p.OTLPSeriesPerSec
+	case MeterInstantTests:
+		return p.InstantTestAgentsPerSec
 	case meterQueries:
 		return p.QueriesPerMin / 60
 	}
@@ -501,6 +510,19 @@ func (g *Gate) takeWithDeficit(st *tenantState, meter string, rate, capacity flo
 // charges them. Shed work is counted, never silent. The call is O(1) and
 // lock-cheap — it sits on the hot ingest path.
 func (g *Gate) AdmitN(ctx context.Context, tenantID, meter string, n int64) bool {
+	return g.admitN(ctx, tenantID, meter, n, true)
+}
+
+// AdmitInstantTestAgents admits the entire fan-out or leaves the available
+// credits intact. Instant work is issued only after this call succeeds.
+func (g *Gate) AdmitInstantTestAgents(ctx context.Context, tenantID string, count int64) bool {
+	if g == nil || tenantID == "" || count <= 0 {
+		return false
+	}
+	return g.admitN(ctx, tenantID, MeterInstantTests, count, false)
+}
+
+func (g *Gate) admitN(ctx context.Context, tenantID, meter string, n int64, allowDeficit bool) bool {
 	if tenantID == "" {
 		return true // unattributable messages are the pipeline's problem, not fairness's
 	}
@@ -518,7 +540,7 @@ func (g *Gate) AdmitN(ctx context.Context, tenantID, meter string, n int64) bool
 		c = &Counters{}
 		st.ingest[meter] = c
 	}
-	if g.takeWithDeficit(st, meter, rate, rate*pol.BurstSeconds, n, true) {
+	if (allowDeficit || rate > 0) && g.takeWithDeficit(st, meter, rate, rate*pol.BurstSeconds, n, allowDeficit) {
 		c.AdmittedCalls++
 		c.AdmittedUnits += n
 		return true

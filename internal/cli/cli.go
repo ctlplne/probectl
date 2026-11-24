@@ -350,6 +350,20 @@ func (c *client) requestHTTPClient(initial *url.URL, sensitive bool) *http.Clien
 	return &clone
 }
 
+func (c *client) setRequestIdentity(req *http.Request) {
+	if c.cfg.SessionCookie != "" {
+		req.AddCookie(&http.Cookie{
+			Name:  auth.SessionCookie,
+			Value: c.cfg.SessionCookie,
+		})
+	} else if c.cfg.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+	}
+	if c.cfg.Tenant != "" {
+		req.Header.Set("X-Probectl-Tenant", c.cfg.Tenant)
+	}
+}
+
 // do performs a request and returns the decoded body or a domain error message.
 func (c *client) do(method, path string, body any, out any) error {
 	policy, err := c.cfg.httpPolicy()
@@ -376,17 +390,7 @@ func (c *client) do(method, path string, body any, out any) error {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.cfg.SessionCookie != "" {
-		req.AddCookie(&http.Cookie{
-			Name:  auth.SessionCookie,
-			Value: c.cfg.SessionCookie,
-		})
-	} else if c.cfg.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
-	}
-	if c.cfg.Tenant != "" {
-		req.Header.Set("X-Probectl-Tenant", c.cfg.Tenant)
-	}
+	c.setRequestIdentity(req)
 
 	_, sensitiveTarget := sensitiveProviderOperationURL(method, target)
 	_, sensitivePath := sensitiveProviderOperationPath(method, path)

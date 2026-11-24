@@ -22,13 +22,14 @@ func newFairnessGate(cfg *config.Config, pool *pgxpool.Pool) *fairness.Gate {
 		source = fairness.NewPGStore(pool)
 	}
 	return fairness.NewGate(fairness.Policy{
-		ResultsPerSec:       cfg.FairnessResultsPerSec,
-		FlowEventsPerSec:    cfg.FairnessFlowEventsPerSec,
-		IngestBytesPerSec:   cfg.FairnessIngestBytesPerSec,
-		DeviceMetricsPerSec: cfg.FairnessDeviceMetricsPerSec,
-		OTLPSeriesPerSec:    cfg.FairnessOTLPSeriesPerSec,
-		BurstSeconds:        cfg.FairnessBurstSeconds,
-		QueryConcurrency:    cfg.FairnessQueryConcurrency,
-		QueriesPerMin:       cfg.FairnessQueriesPerMin,
+		ResultsPerSec:           cfg.FairnessResultsPerSec,
+		FlowEventsPerSec:        cfg.FairnessFlowEventsPerSec,
+		IngestBytesPerSec:       cfg.FairnessIngestBytesPerSec,
+		DeviceMetricsPerSec:     cfg.FairnessDeviceMetricsPerSec,
+		OTLPSeriesPerSec:        cfg.FairnessOTLPSeriesPerSec,
+		InstantTestAgentsPerSec: cfg.FairnessInstantTestAgentsPerSec,
+		BurstSeconds:            cfg.FairnessBurstSeconds,
+		QueryConcurrency:        cfg.FairnessQueryConcurrency,
+		QueriesPerMin:           cfg.FairnessQueriesPerMin,
 	}, source).WithIdleTTL(cfg.FairnessTenantIdleTTL)
 }

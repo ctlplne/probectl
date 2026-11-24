@@ -174,7 +174,8 @@ type service struct {
 	// testBundles serves the tenant's signed central test set (G9, D-41).
 	// nil = central test distribution off (FetchTestBundle refuses with
 	// FailedPrecondition; heartbeats never report config_stale).
-	testBundles TestBundles
+	testBundles     TestBundles
+	instantTestPull InstantTestPull
 
 	// l7policy serves the tenant's L7 capture redaction floor and records
 	// each agent's capture posture (D-43). nil = both RPCs FailedPrecondition;
@@ -248,6 +249,9 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 	serverCaps := copyServerCapabilities()
 	if svc.testBundles != nil {
 		serverCaps = append(serverCaps, fetchTestBundleCapability)
+		if svc.instantTestPull != nil {
+			serverCaps = append(serverCaps, fetchInstantTestCapability)
+		}
 	}
 	if svc.l7policy != nil {
 		serverCaps = append(serverCaps, l7PolicyCapability)

@@ -22,7 +22,7 @@ import (
 
 func cmdTest(cfg Config, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "test: expected a subcommand (list|get|create|delete|path|path-history)")
+		fmt.Fprintln(stderr, "test: expected a subcommand (list|get|create|delete|path|path-history|run|run-status|run-events)")
 		return 2
 	}
 	c := newClient(cfg)
@@ -96,6 +96,12 @@ func cmdTest(cfg Config, args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		return runRawOperation(cfg, apiOp{Method: method, Path: "/v1/tests/{id}/path", ArgName: "id"}, args[1:], stdout, stderr)
+	case "run":
+		return runRawOperation(cfg, apiOp{Method: http.MethodPost, Path: "/v1/tests/{id}/runs", ArgName: "id"}, args[1:], stdout, stderr)
+	case "run-status":
+		return runRawOperation(cfg, apiOp{Method: http.MethodGet, Path: "/v1/test-runs/{id}", ArgName: "id"}, args[1:], stdout, stderr)
+	case "run-events":
+		return testRunEvents(c, args[1:], stdout, stderr)
 	case "path-history":
 		if len(args) < 2 {
 			fmt.Fprintln(stderr, "test path-history: missing <id>")

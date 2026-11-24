@@ -66,6 +66,20 @@ func (c *Client) FetchTestBundle(ctx context.Context, knownVersion uint64) (*age
 		grpc.MaxCallRecvMsgSize(maxTestBundleBytes))
 }
 
+func (c *Client) fetchInstantTest(ctx context.Context) ([]byte, error) {
+	response, err := c.svc.FetchTestBundle(ctx, &agentv1.FetchTestBundleRequest{InstantOnly: true},
+		grpc.MaxCallRecvMsgSize(maxTestBundleBytes))
+	if err != nil {
+		return nil, err
+	}
+	return response.GetSignedInstantAssignment(), nil
+}
+
+func (c *Client) reportInstantTest(ctx context.Context, result *agentv1.ReportInstantTestResultRequest) error {
+	_, err := c.svc.ReportInstantTestResult(ctx, result)
+	return err
+}
+
 type resultStream interface {
 	Send(*agentv1.StreamResultsRequest) error
 	CloseAndRecv() (*agentv1.StreamResultsResponse, error)

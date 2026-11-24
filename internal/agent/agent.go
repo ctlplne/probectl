@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"slices"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -192,16 +193,48 @@ func jittered(d time.Duration) time.Duration {
 
 // session registers, then heartbeats and drains until an RPC error or ctx done.
 func (a *Agent) session(ctx context.Context, client *Client) error {
+	capabilities := a.cfg.Agent.Capabilities
+	syncEnabled := a.cfg.TestSync.Enabled == nil || *a.cfg.TestSync.Enabled
+	if syncEnabled && !slices.Contains(capabilities, testspec.InstantTestCapability) {
+		capabilities = append(slices.Clone(capabilities), testspec.InstantTestCapability)
+	}
 	rctx, cancel := context.WithTimeout(ctx, registerTimeout)
 	resp, err := client.Register(rctx, &agentv1.RegisterRequest{
 		Hostname: a.cfg.Agent.Hostname, AgentVersion: version.Get().Version,
-		Capabilities: a.cfg.Agent.Capabilities, Labels: a.cfg.Agent.Labels,
+		Capabilities: capabilities, Labels: a.cfg.Agent.Labels,
 	})
 	cancel()
 	if err != nil {
 		return fmt.Errorf("register: %w", err)
 	}
 	a.log.Info("registered with control plane", "agent", resp.GetAgentId(), "tenant", resp.GetTenantId())
+
+	instantEnabled := slices.Contains(resp.GetServerCapabilities(), instantTestCapability)
+	instantCtx, stopInstant := context.WithCancel(ctx)
+	var instantGroup errgroup.Group
+	defer func() {
+		stopInstant()
+		_ = instantGroup.Wait()
+	}()
+	instantStarted := false
+	syncScheduledTests := func() {
+		now := time.Now()
+		if a.maybeStartSync(now) {
+			a.sync.resetSession()
+		}
+		syncer := a.sync
+		if instantEnabled && !instantStarted && syncer != nil {
+			instantStarted = true
+			agentID := a.agentID
+			instantGroup.Go(func() error {
+				syncer.runInstantTests(instantCtx, client, agentID)
+				return nil
+			})
+		}
+		if syncer.due(now) {
+			syncer.pull(ctx, client)
+		}
+	}
 
 	hbInterval := a.cfg.Agent.HeartbeatInterval.Std()
 	if s := resp.GetHeartbeatIntervalSeconds(); s > 0 {
@@ -211,7 +244,7 @@ func (a *Agent) session(ctx context.Context, client *Client) error {
 	// (the control plane may have changed it while we were away), then on
 	// the interval or when a heartbeat says it is newer.
 	a.sync.resetSession()
-	a.syncTests(ctx, client)
+	syncScheduledTests()
 	ticker := time.NewTicker(drainInterval)
 	defer ticker.Stop()
 	lastHB := time.Now()
@@ -237,23 +270,11 @@ func (a *Agent) session(ctx context.Context, client *Client) error {
 				}
 				lastHB, reported = time.Now(), applied
 			}
-			a.syncTests(ctx, client)
+			syncScheduledTests()
 			if err := a.drainOnce(ctx, client); err != nil {
 				return fmt.Errorf("drain: %w", err)
 			}
 		}
-	}
-}
-
-// syncTests pulls the central test set when one is owed. A pull never ends
-// the session; its failures are counted and the verified set keeps running.
-func (a *Agent) syncTests(ctx context.Context, client testBundleFetcher) {
-	now := time.Now()
-	if a.maybeStartSync(now) {
-		a.sync.resetSession()
-	}
-	if a.sync.due(now) {
-		a.sync.pull(ctx, client)
 	}
 }
 

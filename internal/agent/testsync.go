@@ -78,15 +78,17 @@ type testBundleFetcher interface {
 }
 
 type testSyncer struct {
-	cfg       TestSyncConfig
-	pub       []byte
-	tenantID  string
-	reg       *canary.Registry
-	host      *Host
-	log       *slog.Logger
-	metrics   *agentmetrics.Runtime
-	allowed   map[string]bool
-	statePath string
+	cfg              TestSyncConfig
+	pub              []byte
+	tenantID         string
+	reg              *canary.Registry
+	host             *Host
+	log              *slog.Logger
+	metrics          *agentmetrics.Runtime
+	allowed          map[string]bool
+	statePath        string
+	lastInstantPrune time.Time
+	pendingInstant   *pendingInstantResult
 
 	applied atomic.Uint64 // version verified and applied (0 = none)
 	nudged  atomic.Bool   // the last heartbeat said the tenant's set is newer
@@ -319,7 +321,11 @@ func (s *testSyncer) admitOne(t testsync.Test, seen map[string]bool) (string, ce
 	if interval <= 0 || interval < s.cfg.MinInterval.Std() {
 		return "interval_below_floor", centralDef{}
 	}
-	if !s.cfg.AllowPrivateTargets && (t.Params[canary.AllowPrivateParam] == "true" || privateTarget(t.Target)) {
+	// The noop probe never dials a target and its definition permits no target.
+	targetlessNoop := t.Type == "noop" && t.Target == ""
+	isPrivate := !targetlessNoop && privateTarget(t.Target)
+	allowsPrivate := t.Params[canary.AllowPrivateParam] == "true"
+	if !s.cfg.AllowPrivateTargets && (allowsPrivate || isPrivate) {
 		return "private_target", centralDef{}
 	}
 	// DPR-306: an agent that allows private targets still runs one only when
@@ -327,7 +333,7 @@ func (s *testSyncer) admitOne(t testsync.Test, seen map[string]bool) (string, ce
 	// own SSRF guard refuses the target below. Name that private_target too —
 	// it used to surface as invalid_test, which sent the operator looking for a
 	// malformed test instead of the missing exception.
-	if privateTarget(t.Target) && t.Params[canary.AllowPrivateParam] != "true" {
+	if isPrivate && !allowsPrivate {
 		return "private_target", centralDef{}
 	}
 	c, err := s.reg.New(canary.Config{

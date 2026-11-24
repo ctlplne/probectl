@@ -3683,6 +3683,52 @@ export interface IncidentVerdictRoutingReference {
   view_id: string
 }
 
+export interface InstantTestAgent {
+  agent_id: string
+  result?: InstantTestResult
+  state: "queued" | "leased" | "completed" | "expired"
+}
+
+export interface InstantTestAgentTag {
+  context_id: string
+  tag_id: string
+  value: string
+}
+
+export interface InstantTestResult {
+  duration_nanos: number
+  metrics?: { [key: string]: number }
+  outcome: "measured" | "policy_refused" | "execution_failed" | "timed_out"
+  started_at: string
+  success: boolean
+}
+
+export interface InstantTestRun {
+  agents: InstantTestAgent[]
+  created_at: string
+  dispatch_until: string
+  id: string
+  test_id: string
+}
+
+export interface InstantTestRunInput {
+  idempotency_key: string
+  selection: InstantTestSelection
+}
+
+export interface InstantTestRunSummary {
+  created_at: string
+  dispatch_until: string
+  id: string
+  test_id: string
+}
+
+export interface InstantTestSelection {
+  agent_ids?: string[]
+  site?: string
+  tag?: InstantTestAgentTag
+}
+
 export type InterfaceRole = "transit" | "ix_peering" | "private_peering" | "customer" | "backbone" | "other"
 
 export interface InterfaceRoleDescriptionRule {
@@ -7319,6 +7365,19 @@ export interface DeleteTagDefinitionRequest {
 
 export type DeleteTagDefinitionResponse = void
 
+export interface GetInstantTestRunRequest {
+  id: string
+}
+
+export type GetInstantTestRunResponse = InstantTestRun
+
+export interface StreamInstantTestRunRequest {
+  lastEventId?: string
+  id: string
+}
+
+export type StreamInstantTestRunResponse = Response
+
 export interface ListTestsRequest {
   after?: string
   limit?: number
@@ -7397,6 +7456,13 @@ export interface ListTestPathHistoryRequest {
 }
 
 export type ListTestPathHistoryResponse = PathHistory
+
+export interface CreateInstantTestRunRequest {
+  id: string
+  body: InstantTestRunInput
+}
+
+export type CreateInstantTestRunResponse = InstantTestRunSummary
 
 export interface ListThreatDetectionsRequest {
 }
@@ -9749,6 +9815,20 @@ export class ProbectlSDKClient {
     await this.request("DELETE", path, query, undefined)
   }
 
+  async getInstantTestRun(request: GetInstantTestRunRequest): Promise<GetInstantTestRunResponse> {
+    let path = "/v1/test-runs/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetInstantTestRunResponse>("GET", path, query, undefined)
+  }
+
+  async streamInstantTestRun(request: StreamInstantTestRunRequest): Promise<StreamInstantTestRunResponse> {
+    let path = "/v1/test-runs/{id}/events"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.request("GET", path, query, undefined, 'text/event-stream', request.lastEventId)
+  }
+
   async listTests(request: ListTestsRequest = {}): Promise<ListTestsResponse> {
     let path = "/v1/tests"
     const query = new URLSearchParams()
@@ -9836,6 +9916,13 @@ export class ProbectlSDKClient {
     return this.requestJSON<ListTestPathHistoryResponse>("GET", path, query, undefined)
   }
 
+  async createInstantTestRun(request: CreateInstantTestRunRequest): Promise<CreateInstantTestRunResponse> {
+    let path = "/v1/tests/{id}/runs"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateInstantTestRunResponse>("POST", path, query, request.body)
+  }
+
   async listThreatDetections(): Promise<ListThreatDetectionsResponse> {
     let path = "/v1/threat/detections"
     const query = new URLSearchParams()
@@ -9901,9 +9988,10 @@ export class ProbectlSDKClient {
     return readResponseJSON<T>(response, responseBodyLimit(response))
   }
 
-  private async request(method: string, path: string, query: URLSearchParams, body: unknown | undefined): Promise<Response> {
+  private async request(method: string, path: string, query: URLSearchParams, body: unknown | undefined, accept = 'application/json', cursor?: string): Promise<Response> {
     const qs = query.toString()
-    const headers: Record<string, string> = { Accept: 'application/json' }
+    const headers: Record<string, string> = { Accept: accept }
+    if (cursor !== undefined) headers['Last-Event-ID'] = cursor
     if (body !== undefined) headers['Content-Type'] = 'application/json'
     if (this.options.token) headers.Authorization = `Bearer ${this.options.token}`
     if (this.options.tenant) headers['X-Probectl-Tenant'] = this.options.tenant

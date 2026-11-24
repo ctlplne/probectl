@@ -58,6 +58,8 @@ import type { Answer, Evidence } from '../api/ai'
 import { appPath } from '../lib/links'
 import { isApiStatus } from '../api/client'
 import { useAuth } from '../auth/useAuth'
+import { canRunInstantTest } from '../api/instantTests'
+import { InstantTestRunDialog } from './InstantTestRunDialog'
 import { InvestigationJournal } from './InvestigationJournal'
 import { IncidentImpactCard } from './IncidentImpactCard'
 import { IncidentCarrierCard } from './IncidentCarrierCard'
@@ -158,7 +160,9 @@ export function IncidentRoom({
   sharedExpiresAt?: string
 }) {
   const { t } = useI18n()
-  const { permissions } = useAuth()
+  const { permissions, tenant } = useAuth()
+  const [showInstant, setShowInstant] = useState(false)
+  const canRunInstant = !sharedArtifactID && !incidentSnapshot && canRunInstantTest(permissions)
   const [params, setParams] = useSearchParams()
   const location = useLocation()
   const incident = useIncident(incidentSnapshot ? undefined : incidentId)
@@ -468,11 +472,19 @@ export function IncidentRoom({
 
   return (
     <section className={styles.room} aria-label={t('incidents.room.aria')}>
+      {showInstant && canRunInstant ? (
+        <InstantTestRunDialog key={tenant.id + incidentId} onClose={() => setShowInstant(false)} />
+      ) : null}
       <Card>
         <CardHeader
           title={inc.title || inc.target || t('incidents.fallbackTitle')}
           actions={
             <div className={styles.actions}>
+              {canRunInstant ? (
+                <Button variant="secondary" onClick={() => setShowInstant(true)}>
+                  {t('instant.run')}
+                </Button>
+              ) : null}
               {inc.status === 'open' ? (
                 <Badge tone="warning">{t('incidents.status.open')}</Badge>
               ) : (

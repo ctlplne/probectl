@@ -3390,6 +3390,7 @@ a bound is admission-controlled (shed + counted), never silently corrupted.
 | `PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC` | `2097152` | per-tenant ingest byte rate (2 MiB/s); entity-evidence RPCs use this numeric rate in a separate `entity_evidence_bytes` bucket, preserving raw payload credits. Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC` | `2000` | per-tenant SNMP/gNMI device-sample admission rate. Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_OTLP_SERIES_PER_SEC` | `5000` | per-tenant OTLP metric/trace/log series admission rate (SCALE-003). Explicit `0` = unlimited |
+| `PROBECTL_FAIRNESS_INSTANT_TEST_AGENTS_PER_SEC` | `30` | Per-tenant rate for one-shot agent executions. The complete selection must fit in the available burst. Explicit `0` disables on-demand dispatch. |
 | `PROBECTL_FAIRNESS_BURST_SECONDS` | `10` | burst window: bucket capacity = rate × this. `0` falls back to 10 — an enforced bucket always has a burst |
 | `PROBECTL_FAIRNESS_QUERY_CONCURRENCY` | `4` | per-tenant in-flight query cap (HTTP 429 over it). Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_QUERIES_PER_MIN` | `1200` | per-tenant query-operation budget per minute, including current source metadata reads (HTTP 429 over it). Supports complete Explorer registry/filter/matrix workflows; operator and tenant overrides remain available. Explicit `0` = unlimited |

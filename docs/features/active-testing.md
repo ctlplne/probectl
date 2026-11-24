@@ -307,3 +307,60 @@ probectl test create \
   up an agent end to end.
 
 **Covers:** F1, F2, F4, F5
+
+## Run a saved test now
+
+In an incident room, select **Run a test now**, choose a saved test, and
+select enrolled agents, one exact site, or one tag within an agent's
+entity context. On **Targets & Tests**, the same action starts with the
+selected saved test. The site's name must match the agents' `site` labels.
+For a tag, supply the context ID, tag definition ID, and exact assigned
+value. The run needs every matching agent to have a current enrollment,
+a recent heartbeat, the probe capability, and an agent version that
+supports signed on-demand testing.
+
+The deployment must configure signed central test distribution. To start a
+run, the caller needs `test.read`, `test.write`, and `agent.read` on the
+selected resources. Tag selections also require `tags.read` on the context.
+Reading results requires `metrics.read` along with the current test and
+agent grants. Agents apply their local test-type and target policies as for
+scheduled tests. These executions write to their run's own receipt, keeping
+scheduled metrics, alert inputs, and SLO history separate.
+
+If a poll reply is lost, the same enrolled agent can retrieve its signed
+assignment again while the dispatch window is open. The retry preserves the
+original lease ID and deadline. The agent records that ID before running the
+test so delivery retries do not trigger a second execution.
+The agent polls for on-demand assignments independently of scheduled test
+downloads and buffered result delivery.
+
+Generate a UUID for the request and write it with exactly one selection.
+
+```sh
+python3 - <<'PY' > run.json
+import json
+import uuid
+
+print(json.dumps({"idempotency_key": str(uuid.uuid4()), "selection": {"site": "London"}}))
+PY
+```
+
+```sh
+probectl test run <test-id> --body-file run.json
+probectl test run-status <run-id>
+probectl test run-events <run-id>
+```
+
+Reuse the same key and input to recover the original run if the request was
+interrupted. A new execution uses a fresh key. The tenant's
+`instant_test_agents` budget charges each selected agent once. HTTP returns
+429 if the whole selection cannot fit. The rate is configured with
+`PROBECTL_FAIRNESS_INSTANT_TEST_AGENTS_PER_SEC`.
+
+The API returns an exact run snapshot through `GET /v1/test-runs/{id}`.
+`GET /v1/test-runs/{id}/events` emits updated snapshots with one state per
+agent. Reopen a stream with its last event ID in the `Last-Event-ID` header
+to receive any changed state. The CLI accepts that cursor with `--last-event-id`. The first stream
+event may contain queued agents. Agents can finish independently. If a signed
+assignment expires without a result, its row shows **Expired**. The
+`instant_test_status` MCP tool reads the authorized snapshot by run ID.

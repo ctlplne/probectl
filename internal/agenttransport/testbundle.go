@@ -21,6 +21,15 @@ import (
 // only when central test distribution is configured, so an agent knows whether
 // pulling is worth a call.
 const fetchTestBundleCapability = "agent.fetch_test_bundle.v1"
+const fetchInstantTestCapability = "agent.fetch_instant_tests.v1"
+
+// InstantTestPull delivers one signed lease to the verified agent identity.
+type InstantTestPull func(ctx context.Context, tenant, agent, serial string) ([]byte, error)
+
+func (s *Server) WithInstantTestPull(pull InstantTestPull) *Server {
+	s.svc.instantTestPull = pull
+	return s
+}
 
 // TestBundles is the control plane's source of signed central test bundles
 // (G9, D-41; internal/testsync.Source). Every method takes the tenant from the
@@ -61,6 +70,26 @@ func (svc *service) FetchTestBundle(ctx context.Context, req *agentv1.FetchTestB
 	}
 	if err != nil {
 		return nil, status.Error(codes.Unavailable, "tenant collection admission unavailable")
+	}
+	if req.GetInstantOnly() {
+		if svc.instantTestPull == nil {
+			return nil, status.Error(codes.FailedPrecondition, "instant test distribution is not configured")
+		}
+		leaf, err := peerLeafFromContext(ctx)
+		if err != nil {
+			return nil, status.Error(codes.Unauthenticated, "client certificate is unavailable")
+		}
+		wire, err := svc.instantTestPull(ctx, id.TenantID, id.AgentID, leaf.SerialNumber.Text(16))
+		if err != nil {
+			if tenancy.IsProspectCollectionEnded(err) {
+				return nil, status.Error(codes.FailedPrecondition, "prospect collection ended")
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, status.FromContextError(err).Err()
+			}
+			return nil, status.Error(codes.Unavailable, "instant assignment is unavailable")
+		}
+		return &agentv1.FetchTestBundleResponse{SignedInstantAssignment: wire}, nil
 	}
 	current, err := svc.testBundles.Version(ctx, id.TenantID)
 	if err != nil {

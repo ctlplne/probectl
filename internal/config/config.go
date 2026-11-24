@@ -940,9 +940,11 @@ type Config struct {
 	FairnessDeviceMetricsPerSec float64
 	// FairnessOTLPSeriesPerSec bounds the OTLP metric/trace/log planes (SCALE-003).
 	FairnessOTLPSeriesPerSec float64
-	FairnessBurstSeconds     float64
-	FairnessQueryConcurrency int
-	FairnessQueriesPerMin    float64
+	// FairnessInstantTestAgentsPerSec charges each one-shot execution to the tenant.
+	FairnessInstantTestAgentsPerSec float64
+	FairnessBurstSeconds            float64
+	FairnessQueryConcurrency        int
+	FairnessQueriesPerMin           float64
 	// FairnessTenantIdleTTL bounds the fairness gate's per-tenant state map
 	// (SCALE-002): a tenant idle this long is evicted by the amortized sweep so
 	// tenant churn can't grow the map without bound. Default 24h.
@@ -1525,6 +1527,7 @@ func loadOpsEditionConfig(l *loader, cfg *Config) {
 	cfg.FairnessIngestBytesPerSec = l.float("PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC", 2<<20)
 	cfg.FairnessDeviceMetricsPerSec = l.float("PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC", 2000)
 	cfg.FairnessOTLPSeriesPerSec = l.float("PROBECTL_FAIRNESS_OTLP_SERIES_PER_SEC", 5000)
+	cfg.FairnessInstantTestAgentsPerSec = l.float("PROBECTL_FAIRNESS_INSTANT_TEST_AGENTS_PER_SEC", 30)
 	cfg.FairnessBurstSeconds = l.float("PROBECTL_FAIRNESS_BURST_SECONDS", 10)
 	cfg.FairnessQueryConcurrency = l.intRange("PROBECTL_FAIRNESS_QUERY_CONCURRENCY", 4, 0, 100000)
 	cfg.FairnessQueriesPerMin = l.float("PROBECTL_FAIRNESS_QUERIES_PER_MIN", 1200)

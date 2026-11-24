@@ -48,6 +48,9 @@ service AgentService {
   // The server answers FailedPrecondition when central test distribution is not
   // configured. This is not config push: StreamConfig stays an explicit deny.
   rpc FetchTestBundle(FetchTestBundleRequest) returns (FetchTestBundleResponse);
+  // ReportInstantTestResult commits one result to the exact signed assignment.
+  // An ad-hoc result does not publish to the scheduled-result bus.
+  rpc ReportInstantTestResult(ReportInstantTestResultRequest) returns (ReportInstantTestResultResponse);
   // FetchL7Policy returns the calling agent's tenant's L7 capture redaction
   // floor (D-43, refinement 3): the loosest redaction mode the tenant allows.
   // The tenant comes from the client certificate only; the request carries
@@ -191,6 +194,9 @@ message FetchTestBundleRequest {
   // the tenant's current version equals it, the server answers not_modified
   // without signing or sending a bundle.
   uint64 known_version = 1;
+  // An agent that negotiated the instant-tests capability can pull one
+  // signed job independently of its normal schedule refresh.
+  bool instant_only = 2;
 }
 
 message FetchTestBundleResponse {
@@ -200,7 +206,21 @@ message FetchTestBundleResponse {
   uint64 version = 2;
   // The signed bundle (internal/testsync Signed JSON); empty when not_modified.
   bytes signed_bundle = 3;
+  // An exact one-shot assignment for the certificate's tenant and agent.
+  // Empty if no eligible assignment is queued. Never updates the bundle.
+  bytes signed_instant_assignment = 4;
 }
+
+message ReportInstantTestResultRequest {
+  string run_id = 1;
+  string lease_id = 2;
+  string test_id = 3;
+  // Serialized Result. Tenant and agent are taken from the peer certificate.
+  bytes result_payload = 4;
+  string outcome = 5;
+}
+
+message ReportInstantTestResultResponse {}
 
 message FetchL7PolicyRequest {}
 

@@ -1901,6 +1901,191 @@
         }
       }
     },
+    "/v1/tests/{id}/runs": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "post": {
+        "x-required-permission": "test.write",
+        "operationId": "createInstantTestRun",
+        "summary": "Run a saved test on demand",
+        "tags": [
+          "tests"
+        ],
+        "description": "Requires access to the saved test and every selected agent. The entire agent selection is admitted together.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstantTestRunInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Run queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstantTestRunSummary"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Original run for the same request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstantTestRunSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/test-runs/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "get": {
+        "x-required-permission": "test.read",
+        "operationId": "getInstantTestRun",
+        "summary": "Read an on-demand test run",
+        "tags": [
+          "tests"
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete current state for this run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstantTestRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/test-runs/{id}/events": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "get": {
+        "x-required-permission": "test.read",
+        "operationId": "streamInstantTestRun",
+        "summary": "Stream on-demand test results",
+        "tags": [
+          "tests"
+        ],
+        "parameters": [
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Last run state ID received from this endpoint."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent run events with the current InstantTestRun object as JSON data. The stream may be reopened after it closes.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/tests/{id}/path": {
       "parameters": [
         {
@@ -19750,6 +19935,188 @@
       }
     },
     "schemas": {
+      "InstantTestRunInput": {
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "selection"
+        ],
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/InstantTestSelection"
+          }
+        }
+      },
+      "InstantTestSelection": {
+        "type": "object",
+        "description": "Select exactly one of agent_ids, site, or tag.",
+        "properties": {
+          "agent_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "site": {
+            "type": "string"
+          },
+          "tag": {
+            "$ref": "#/components/schemas/InstantTestAgentTag"
+          }
+        }
+      },
+      "InstantTestAgentTag": {
+        "type": "object",
+        "required": [
+          "context_id",
+          "tag_id",
+          "value"
+        ],
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tag_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "InstantTestRunSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "test_id",
+          "created_at",
+          "dispatch_until"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "test_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dispatch_until": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InstantTestRun": {
+        "type": "object",
+        "required": [
+          "id",
+          "test_id",
+          "created_at",
+          "dispatch_until",
+          "agents"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "test_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dispatch_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstantTestAgent"
+            }
+          }
+        }
+      },
+      "InstantTestAgent": {
+        "type": "object",
+        "required": [
+          "agent_id",
+          "state"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "leased",
+              "completed",
+              "expired"
+            ]
+          },
+          "result": {
+            "$ref": "#/components/schemas/InstantTestResult"
+          }
+        }
+      },
+      "InstantTestResult": {
+        "type": "object",
+        "required": [
+          "started_at",
+          "duration_nanos",
+          "success",
+          "outcome"
+        ],
+        "properties": {
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "duration_nanos": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "measured",
+              "policy_refused",
+              "execution_failed",
+              "timed_out"
+            ]
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        }
+      },
       "TopologyFailurePort": {
         "type": "object",
         "required": [

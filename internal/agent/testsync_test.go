@@ -99,7 +99,9 @@ func refusalReason(err error) string {
 // reaches the host — the agent keeps running exactly its last verified set.
 func TestTestSyncRefusesUnsafeBundles(t *testing.T) {
 	f := newSyncFixture(t)
-	good := f.sign(testsync.Bundle{TenantID: syncTenant, Epoch: 3, Tests: []testsync.Test{noopTest("t-1")}})
+	noop := noopTest("t-1")
+	noop.Target = ""
+	good := f.sign(testsync.Bundle{TenantID: syncTenant, Epoch: 3, Tests: []testsync.Test{noop}})
 	if err := f.sync.accept(good, true); err != nil {
 		t.Fatalf("a valid bundle was refused: %v", err)
 	}
