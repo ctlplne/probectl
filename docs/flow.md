@@ -1233,6 +1233,13 @@ format used by the capacity bill check for every member of that agreement.
 probectl --json routing-transfer estimate --body-file transfer.json
 ```
 
+In **Capacity planning**, open **Routing transfer estimate** and select the two
+recorded agreements. The preview shows each handoff's before and after p95 and
+charges, and clears when the source validity window ends. The native MCP tool
+`flow_routing_transfer_estimate` accepts the same JSON arguments as the API.
+Both surfaces require the current tenant user's `flow.agreements.read`,
+`topology.read`, `flow.read`, `entities.read`, `metrics.read` and `events.read` grants.
+
 Use `billing_at` to select matching completed billing periods, or provide both
 `observed_from` and `observed_to` for a closed RFC3339 window covered by both
 recorded agreement versions. `estimate_basis` identifies the period used.

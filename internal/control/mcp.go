@@ -225,6 +225,11 @@ func newMCPServer(
 			} else {
 				options = append(options, option)
 			}
+			if option, err := routingTransferToolOption(src.NativeFlow); err != nil {
+				log.Error("MCP routing transfer schema is unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, option)
+			}
 			if option, err := bgpRoutingBindingToolOption(src.NativeFlow); err != nil {
 				log.Error("MCP routing binding schemas are unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

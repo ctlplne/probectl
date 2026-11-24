@@ -29,6 +29,7 @@ import { CapacitySLACheck } from './CapacitySLACheck'
 import { CapacitySLAClaim } from './CapacitySLAClaim'
 import { CapacitySLAEditor, CapacitySLATermsView } from './CapacitySLATerms'
 import { CapacityForecastCheck } from './CapacityForecastCheck'
+import { CapacityRoutingTransfer } from './CapacityRoutingTransfer'
 import styles from './flowExplorer.module.css'
 
 const base = '/flows/capacity/agreements'
@@ -67,6 +68,13 @@ export function CapacityAgreementsPage() {
         <AgreementWorkspace
           key={identity}
           canWrite={permissions.includes('flow.agreements.write')}
+          canEstimate={[
+            'topology.read',
+            'flow.read',
+            'entities.read',
+            'metrics.read',
+            'events.read',
+          ].every((permission) => permissions.includes(permission))}
         />
       ) : (
         <Card>
@@ -82,7 +90,13 @@ export function CapacityAgreementsPage() {
 // Terms live only in this identity-keyed component. No shared query cache or
 // browser storage retains prices, and old in-flight responses cannot repopulate
 // a different tenant/user or a withdrawn permission set.
-function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
+function AgreementWorkspace({
+  canWrite,
+  canEstimate,
+}: {
+  canWrite: boolean
+  canEstimate: boolean
+}) {
   const [page, setPage] = useState<CapacityAgreementPage>()
   const [cursor, setCursor] = useState('')
   const [previous, setPrevious] = useState<string[]>([])
@@ -95,6 +109,7 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [transferEpoch, setTransferEpoch] = useState(0)
   const lifetime = useRef({
     active: true,
     epoch: 0,
@@ -132,8 +147,10 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
         if (current.active && current.epoch === epoch) accept(value)
       } catch (cause) {
         if (current.active && current.epoch === epoch) {
-          if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403))
+          if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) {
             clearTerms()
+            setTransferEpoch((old) => old + 1)
+          }
           setError(
             cause instanceof Error ? cause.message : 'Financial configuration is unavailable.',
           )
@@ -196,6 +213,7 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
       },
       () => {
         clearTerms()
+        setTransferEpoch((old) => old + 1)
         setRefresh((old) => old + 1)
       },
     )
@@ -207,6 +225,7 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
       { method: 'DELETE' },
       () => {
         clearTerms()
+        setTransferEpoch((old) => old + 1)
         setRefresh((old) => old + 1)
       },
     )
@@ -226,6 +245,7 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
               disabled={busy}
               onClick={() => {
                 clearTerms()
+                setTransferEpoch((old) => old + 1)
                 setRefresh((old) => old + 1)
               }}
             >
@@ -427,6 +447,14 @@ function AgreementWorkspace({ canWrite }: { canWrite: boolean }) {
         />
       )}
       <CapacitySLAClaim selected={selected} busy={busy} execute={execute} />
+      {canEstimate && (
+        <CapacityRoutingTransfer
+          key={transferEpoch}
+          agreements={page?.items ?? []}
+          busy={busy}
+          execute={execute}
+        />
+      )}
       {canWrite && (
         <Card>
           <CardHeader

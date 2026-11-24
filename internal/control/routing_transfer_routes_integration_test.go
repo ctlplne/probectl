@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/ai/mcp"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -174,6 +175,21 @@ func proveRoutingTransferServedEstimate(t *testing.T, f *roleExplanationAPIFixtu
 		foreign.Candidate.AgreementID = inputs[1-lane].Candidate.AgreementID
 		routingTransferPOST(t, socket, f.tokens[tenant], "/v1/flows/routing-transfer-estimate", foreign, http.StatusNotFound)
 	}
+	t.Run("native", func(t *testing.T) {
+		seedInterfaceRoleMCPConsent(f)
+		call := interfaceRoleNativeTLSCaller(t, f, "2026-07-28")
+		for lane, tenant := range f.tenants {
+			var got routingTransferResponse
+			call(tenant, mcp.RoutingTransferToolName, inputs[lane], &got, true)
+			if got.Estimate.Candidate == nil || got.Estimate.Candidate.AgreementID != inputs[lane].Candidate.AgreementID ||
+				got.Estimate.NetChargeChange != []string{"-26", "-56"}[lane] || got.Policy == nil || got.Policy.CandidateASN != uint32(64496+lane) || got.ValidUntil.IsZero() {
+				t.Fatal("native estimate lost the tenant-owned current handoff or the computed amounts")
+			}
+			foreign := inputs[lane]
+			foreign.Candidate.AgreementID = inputs[1-lane].Candidate.AgreementID
+			call(tenant, mcp.RoutingTransferToolName, foreign, nil, false)
+		}
+	})
 }
 
 func createRoutingTransferAgreement(t *testing.T, socket *httptest.Server, token string, port store.DeviceCounterInterface, from time.Time,
