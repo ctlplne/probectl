@@ -180,6 +180,7 @@ func checkRenderedBrowserDelivery(t *testing.T, stack *shipped.Stack, lane, othe
 type renderedBrowserResult struct {
 	AgentID    string             `json:"agent_id"`
 	Type       string             `json:"type"`
+	Target     string             `json:"target"`
 	Success    bool               `json:"success"`
 	Metrics    map[string]float64 `json:"metrics"`
 	Attributes map[string]string  `json:"attributes"`
