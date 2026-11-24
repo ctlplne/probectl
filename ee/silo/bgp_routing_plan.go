@@ -108,11 +108,15 @@ func routingBindingChecksPlan(child string) []string {
 		fmt.Sprintf(`DO $fx5_route_binding_checks$ DECLARE entry record; BEGIN
 FOR entry IN SELECT conname,pg_get_constraintdef(oid) AS definition FROM pg_constraint
  WHERE conrelid='public.bgp_routing_views'::regclass AND contype='c'
- AND conname IN ('fx5_route_view_kind_check','fx5_route_view_routing_selection_check','fx5_public_view_snapshot_shape') LOOP
+ AND conname IN ('fx5_route_view_kind_check','fx5_route_view_routing_selection_check',
+                 'fx11_route_view_routing_selection_check','fx5_public_view_snapshot_shape') LOOP
  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname=entry.conname) THEN
   EXECUTE 'ALTER TABLE ' || %s || ' ADD CONSTRAINT ' || quote_ident(entry.conname) || ' ' || entry.definition;
  END IF;
 END LOOP;
-END $fx5_route_binding_checks$`, quoteLiteral(child), quoteLiteral(child)),
+IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname='fx11_route_view_routing_selection_check') THEN
+ EXECUTE 'ALTER TABLE ' || %s || ' DROP CONSTRAINT IF EXISTS fx5_route_view_routing_selection_check';
+END IF;
+END $fx5_route_binding_checks$`, quoteLiteral(child), quoteLiteral(child), quoteLiteral(child), quoteLiteral(child)),
 	}
 }

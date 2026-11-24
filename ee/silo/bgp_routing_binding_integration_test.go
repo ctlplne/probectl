@@ -62,7 +62,8 @@ func TestBGPRoutingBindingStorageKeepsManagedHybridAndOldSchemaBoundaries(t *tes
 					"ALTER TABLE " + sourceChild + " DROP CONSTRAINT entity_source_contexts_source_kind_check",
 					"ALTER TABLE " + sourceChild + " ADD CONSTRAINT entity_source_contexts_source_kind_check CHECK (source_kind IN ('device_target','flow_exporter','path_agent','bmp_peer','agent_site'))",
 					"ALTER TABLE " + child + " DROP CONSTRAINT IF EXISTS fx5_route_view_collector_context_fk",
-					"ALTER TABLE " + child + " DROP CONSTRAINT fx5_route_view_routing_selection_check",
+					"ALTER TABLE " + child + " DROP CONSTRAINT IF EXISTS fx5_route_view_routing_selection_check",
+					"ALTER TABLE " + child + " DROP CONSTRAINT fx11_route_view_routing_selection_check",
 					"ALTER TABLE " + child + " DROP CONSTRAINT fx5_route_view_kind_check",
 					"ALTER TABLE " + child + " DROP COLUMN collector_context_id",
 					"ALTER TABLE " + child + " DROP COLUMN routing_selection",
@@ -74,6 +75,17 @@ func TestBGPRoutingBindingStorageKeepsManagedHybridAndOldSchemaBoundaries(t *tes
 					}
 				}
 				if err := prov.CatchUpSchema(ctx, tenants[0]); err != nil {
+					t.Fatal(err)
+				}
+				// The sibling starts from the newer pre-0258 shape. Its
+				// old selection check would still reject global neighbors
+				// if catch-up installed the current check without retiring it.
+				prior := quoteIdent(SchemaName(tenants[1])) + `."bgp_routing_views"`
+				if _, err := pool.Exec(ctx, "ALTER TABLE "+prior+` DROP CONSTRAINT fx11_route_view_routing_selection_check,
+ ADD CONSTRAINT fx5_route_view_routing_selection_check CHECK (routing_selection IS NULL OR view_kind='operator_loc_rib')`); err != nil {
+					t.Fatal("owned pre-0258 routing schema setup failed", err)
+				}
+				if err := prov.CatchUpSchema(ctx, tenants[1]); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -185,6 +197,30 @@ func TestBGPRoutingBindingStorageKeepsManagedHybridAndOldSchemaBoundaries(t *tes
 			})
 			if !errors.As(err, &pg) || pg.Code != "23514" {
 				t.Fatal("managed public source accepted an invented router anchor", err)
+			}
+			for lane, tenant := range tenants {
+				base := []string{baseContext, foreignBase}[lane]
+				if err := run(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+					changed, err := sc.Q.Exec(ctx, `UPDATE bgp_routing_views
+ SET view_kind='adj_rib_in_post_policy', context_id=$2::uuid, router_id=$3::uuid, peer_identity='{"Type":0}',
+     routing_selection=routing_selection || jsonb_build_object('context_id',$2::text,'router_id',$3::text,
+       'binding',jsonb_build_object('distinguisher','0000000000000000'))
+ WHERE tenant_id=$1 AND id=$4 AND context_id=$5`, tenant, base, baseRouter, viewID, targetContext)
+					if err == nil && changed.RowsAffected() != 1 {
+						return errors.New("expected one owned routing view to become a global neighbor")
+					}
+					return err
+				}); err != nil {
+					t.Fatalf("lane %d refused its verified global neighbor view: %v", lane, err)
+				}
+				err := run(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+					_, err := sc.Q.Exec(ctx, `UPDATE bgp_routing_views SET peer_identity='{"Type":1}'
+ WHERE tenant_id=$1 AND id=$2 AND context_id=$3`, tenant, viewID, base)
+					return err
+				})
+				if !errors.As(err, &pg) || pg.Code != "23514" || pg.ConstraintName != "fx11_route_view_routing_selection_check" {
+					t.Fatalf("lane %d stored a non-global neighbor under the global routing selection: %v", lane, err)
+				}
 			}
 		})
 	}

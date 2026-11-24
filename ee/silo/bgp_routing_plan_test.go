@@ -60,7 +60,8 @@ func TestBGPRoutingBindingPlanPreservesStoredCollectorContextOnCatchUp(t *testin
 	if !strings.Contains(plan, want) || strings.Contains(plan, `"collector_context_id" uuid DEFAULT`) {
 		t.Fatal("silo catch-up lost computed base context storage", plan)
 	}
-	for _, check := range []string{"fx5_route_view_kind_check", "fx5_route_view_routing_selection_check", "fx5_route_view_collector_context_fk"} {
+	for _, check := range []string{"fx5_route_view_kind_check", "fx5_route_view_routing_selection_check",
+		"fx11_route_view_routing_selection_check", "fx5_route_view_collector_context_fk"} {
 		if !strings.Contains(plan, check) {
 			t.Fatal("silo catch-up omitted routing binding boundary", check)
 		}
@@ -69,6 +70,11 @@ func TestBGPRoutingBindingPlanPreservesStoredCollectorContextOnCatchUp(t *testin
 	oldFK := strings.Index(plan, `DROP CONSTRAINT IF EXISTS fx5_route_view_agent_context_fk`)
 	if newFK < 0 || oldFK <= newFK {
 		t.Fatal("silo catch-up retired assignment boundary before its replacement")
+	}
+	activeCheck := strings.Index(plan, `AND conname='fx11_route_view_routing_selection_check') THEN`)
+	retiredCheck := strings.Index(plan, `DROP CONSTRAINT IF EXISTS fx5_route_view_routing_selection_check`)
+	if activeCheck < 0 || retiredCheck <= activeCheck {
+		t.Fatal("silo catch-up retired the old routing selection check before its replacement")
 	}
 }
 
