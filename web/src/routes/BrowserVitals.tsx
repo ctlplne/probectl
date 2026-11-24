@@ -37,10 +37,18 @@ function VitalBand({ value, metric }: { value: number; metric: Vital }) {
   return <Badge tone="success">Good</Badge>
 }
 
-export function BrowserVitals({ latest, testID }: { latest: LatestResult; testID: string }) {
+export function BrowserVitals({
+  latest,
+  testID,
+  scope,
+}: {
+  latest: LatestResult
+  testID: string
+  scope: string
+}) {
   const { locale } = useI18n()
-  const history = useResultsHistory('1h')
-  const runs = (history.data?.items ?? []).filter(
+  const history = useResultsHistory('1h', scope)
+  const runs = (history.isError ? [] : (history.data?.items ?? [])).filter(
     (run) =>
       run.type === 'browser' &&
       run.agent_id === latest.agent_id &&
@@ -52,6 +60,7 @@ export function BrowserVitals({ latest, testID }: { latest: LatestResult; testID
   return (
     <section aria-label="Synthetic Core Web Vitals">
       <h3>Synthetic Core Web Vitals</h3>
+      {history.isError && <p role="alert">Could not load Web Vitals history.</p>}
       {metrics.map((metric) => {
         const value = observation(latest, metric)
         const trend = runs.map((run) => observation(run, metric) ?? null)

@@ -15,6 +15,7 @@ import {
   type Column,
 } from '../components'
 import { a, latencyFamily, m, useLatestResults, type LatestResult } from '../api/results'
+import { useAuth } from '../auth/useAuth'
 import { browserStepCount } from '../lib/clientGuards'
 import type { Test } from '../api/tests'
 import { DateTime } from '../time/DateTime'
@@ -355,8 +356,10 @@ function TypedBreakdown({ r }: { r: LatestResult }) {
 
 /** ResultDetail shows a test's latest result per reporting agent. */
 export function ResultDetail({ test, onClose }: { test: Test; onClose: () => void }) {
-  const latest = useLatestResults()
-  const matches = (latest.data?.items ?? []).filter((r) => {
+  const { tenant, user } = useAuth()
+  const scope = `${tenant.id}:${user.id}`
+  const latest = useLatestResults(scope)
+  const matches = (latest.isError ? [] : (latest.data?.items ?? [])).filter((r) => {
     if (r.type !== test.type) return false
     const testID = a(r, 'probectl.test.id')
     if (r.type === 'browser' && a(r, 'browser.transaction_kind') === 'api') {
@@ -406,7 +409,9 @@ export function ResultDetail({ test, onClose }: { test: Test; onClose: () => voi
             <TypedBreakdown r={r} />
             {r.type === 'browser' &&
               a(r, 'browser.driver') === 'browser' &&
-              a(r, 'probectl.test.id') === test.id && <BrowserVitals latest={r} testID={test.id} />}
+              a(r, 'probectl.test.id') === test.id && (
+                <BrowserVitals latest={r} testID={test.id} scope={scope} />
+              )}
           </div>
         ))
       )}

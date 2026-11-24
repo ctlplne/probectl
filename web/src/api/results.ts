@@ -33,10 +33,10 @@ interface LatestResultsResponse {
 }
 
 /** useLatestResults polls the tenant's newest results (15s cadence). */
-export function useLatestResults() {
+export function useLatestResults(scope?: string) {
   return useQuery({
-    queryKey: ['results', 'latest'],
-    queryFn: () => apiFetch<LatestResultsResponse>('/results/latest'),
+    queryKey: scope ? ['results', 'latest', scope] : ['results', 'latest'],
+    queryFn: ({ signal }) => apiFetch<LatestResultsResponse>('/results/latest', { signal }),
     refetchInterval: 15_000,
   })
 }
@@ -51,13 +51,16 @@ export interface ResultsHistoryResponse {
  * first) behind real-time-axis trends. A 404 means an older control plane
  * without the endpoint — callers fall back to the latest snapshot, so the
  * miss is authoritative and never retried. */
-export function useResultsHistory(window = '1h') {
+export function useResultsHistory(window = '1h', scope?: string) {
   return useQuery({
-    queryKey: ['results', 'history', window],
-    queryFn: () =>
-      apiFetch<ResultsHistoryResponse>(`/results/history?window=${encodeURIComponent(window)}`),
+    queryKey: scope ? ['results', 'history', window, scope] : ['results', 'history', window],
+    queryFn: ({ signal }) =>
+      apiFetch<ResultsHistoryResponse>(`/results/history?window=${encodeURIComponent(window)}`, {
+        signal,
+      }),
     refetchInterval: 30_000,
-    retry: (failureCount, error) => !isApiStatus(error, 404) && failureCount < 1,
+    retry: (failureCount, error) =>
+      failureCount < 1 && ![401, 403, 404].some((status) => isApiStatus(error, status)),
   })
 }
 
