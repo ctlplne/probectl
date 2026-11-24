@@ -4,7 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-//go:build integration
+//go:build integration && local_ollama
 
 package control
 
@@ -38,12 +38,10 @@ import (
 // TestLocalOllamaKeepsTenantAndRBACBoundaries uses the deployed AI constructor,
 // persisted user grants, real signed sessions and tenant-scoped PostgreSQL.
 // Both tenants ask about the same target, with different incident evidence.
+// The local_ollama build tag selects the lab profile with a real model fixture.
 func TestLocalOllamaKeepsTenantAndRBACBoundaries(t *testing.T) {
 	endpoint := os.Getenv("PROBECTL_RCA_OLLAMA_ENDPOINT")
 	models := strings.Fields(os.Getenv("PROBECTL_RCA_OLLAMA_MODELS"))
-	if endpoint == "" && len(models) == 0 {
-		t.Skip("start the local Ollama proof with its approved model loaded")
-	}
 	if endpoint == "" || len(models) == 0 {
 		t.Fatal("local Ollama endpoint and model name are required")
 	}
