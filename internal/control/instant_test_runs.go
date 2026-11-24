@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/google/uuid"
+	gouuid "github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -271,8 +271,8 @@ func (s *Server) readInstantRun(ctx context.Context, actor *auth.Principal, id s
 }
 
 func canonicalInstantResource(value string) bool {
-	id, err := uuid.Parse(value)
-	return err == nil && id != uuid.Nil && id.String() == value
+	id, err := gouuid.Parse(value)
+	return err == nil && id != gouuid.Nil && id.String() == value
 }
 
 func instantRunAPIError(err error) error {
