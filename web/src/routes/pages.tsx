@@ -24,6 +24,7 @@ import {
   Select,
   StatusDot,
   Table,
+  TextArea,
   useToast,
 } from '../components'
 import { classifySurfaceTruth } from '../components'
@@ -45,18 +46,30 @@ const TEST_TYPES = ['icmp', 'tcp', 'udp', 'dns', 'http', 'browser', 'voice', 'a2
 const CREATE_TEST_TYPES = [
   ...TEST_TYPES.filter((type) => type !== 'browser').map((type) => ({ value: type, label: type })),
   { value: 'browser-http', label: 'HTTP transaction (no rendering)' },
+  { value: 'browser-api', label: 'API transaction' },
   { value: 'browser-rendered', label: 'Rendered browser (Playwright)' },
 ]
 
 function browserDriver(selection: string): 'http' | 'browser' | null {
-  if (selection === 'browser-http') return 'http'
+  if (selection === 'browser-http' || selection === 'browser-api') return 'http'
   if (selection === 'browser-rendered') return 'browser'
   return null
 }
 
 function testTypeLabel(test: Test): string {
   if (test.type !== 'browser') return test.type
-  return test.params?.browser_driver === 'browser' ? 'Rendered browser' : 'HTTP transaction'
+  if (test.params?.browser_driver === 'browser') return 'Rendered browser'
+  try {
+    const script: unknown = JSON.parse(test.params?.script || '{}')
+    if (script && typeof script === 'object' && 'steps' in script && Array.isArray(script.steps)) {
+      if (script.steps.some((step: unknown) =>
+        Boolean(step && typeof step === 'object' && 'action' in step && step.action === 'request'),
+      )) return 'API transaction'
+    }
+  } catch {
+    return 'HTTP transaction'
+  }
+  return 'HTTP transaction'
 }
 
 function defaultBrowserScript(name: string, target: string): string {
@@ -69,6 +82,15 @@ function defaultBrowserScript(name: string, target: string): string {
     ],
   })
 }
+
+const DEFAULT_API_STEPS = JSON.stringify(
+  [
+    { name: 'Request', action: 'request', request: { method: 'GET' } },
+    { name: 'Check status', action: 'assert_status', status: 200 },
+  ],
+  null,
+  2,
+)
 
 function CreateTestModal({
   open,
@@ -87,6 +109,8 @@ function CreateTestModal({
   const [name, setName] = useState('')
   const [type, setType] = useState('icmp')
   const [target, setTarget] = useState('')
+  const [apiSteps, setAPISteps] = useState(DEFAULT_API_STEPS)
+  const [apiStepError, setAPIStepError] = useState('')
   const [interval, setInterval] = useState(60)
   // The SSRF guard refuses private, loopback and link-local targets unless the
   // test carries the audited allow_private_targets override (test.allow_private).
@@ -97,6 +121,8 @@ function CreateTestModal({
     setName('')
     setType('icmp')
     setTarget('')
+    setAPISteps(DEFAULT_API_STEPS)
+    setAPIStepError('')
     setInterval(60)
     setAllowPrivate(false)
   }
@@ -106,9 +132,21 @@ function CreateTestModal({
     const driver = browserDriver(type)
     const privateParam =
       canAllowPrivate && allowPrivate ? { allow_private_targets: 'true' } : undefined
-    const params = driver
-      ? { script: defaultBrowserScript(name, target), browser_driver: driver, ...privateParam }
-      : privateParam
+    let script = driver ? defaultBrowserScript(name, target) : undefined
+    if (type === 'browser-api') {
+      try {
+        const steps: unknown = JSON.parse(apiSteps)
+        if (!Array.isArray(steps) || steps.length === 0) {
+          setAPIStepError('Enter a JSON array with at least one step.')
+          return
+        }
+        script = `{"name":${JSON.stringify(name)},"start_url":${JSON.stringify(target)},"steps":${apiSteps.trim()}}`
+      } catch {
+        setAPIStepError('Enter a valid JSON array of steps.')
+        return
+      }
+    }
+    const params = driver && script ? { script, browser_driver: driver, ...privateParam } : privateParam
     create.mutate(
       {
         name,
@@ -184,6 +222,19 @@ function CreateTestModal({
                   : undefined
           }
         />
+        {type === 'browser-api' && (
+          <TextArea
+            label="API steps"
+            hint="Edit the JSON array. Use agent-configured aliases for credentials."
+            value={apiSteps}
+            rows={8}
+            error={apiStepError || undefined}
+            onChange={(event) => {
+              setAPISteps(event.target.value)
+              setAPIStepError('')
+            }}
+          />
+        )}
         <Field
           label="Interval (seconds)"
           type="number"

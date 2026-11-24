@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/ctlplne/probectl/internal/browsercanary"
 )
 
 // Spec is a synthetic-test configuration.
@@ -100,6 +102,11 @@ func Validate(s Spec) error {
 	if value, present := s.Params[PathChangeLatencyParam]; present {
 		if _, ok := parsePathChangeLatency(value); !ok {
 			return fmt.Errorf("%s must be an integer between 1 and 60000", PathChangeLatencyParam)
+		}
+	}
+	if s.Type == browsercanary.Type {
+		if err := browsercanary.ValidateDefinition(s.Target, s.Params); err != nil {
+			return err
 		}
 	}
 	return nil

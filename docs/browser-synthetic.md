@@ -84,6 +84,85 @@ The full action vocabulary: `goto`, `fill`, `click`, `submit`, `wait_text`,
 they each need — the browser driver uses `selector` (a DOM element), the HTTP
 driver uses `field` (a form field name) plus `url` (the submit target).
 
+## API transaction preview
+
+Use **Targets & Tests → Create test → API transaction**, or submit the same
+script through `params.script` with `params.browser_driver` set to `http`.
+The CLI accepts it as the `script` parameter on `probectl test create --type
+browser`. Set the test target to the app URL and configure its scheduled agent
+for the HTTP driver. A request can use a literal absolute URL or a path relative
+to `start_url`. The agent applies its normal target checks to every request and
+keeps redirects on the request's original origin.
+
+```json
+{
+  "name": "account API",
+  "start_url": "https://app.example/",
+  "steps": [
+    {
+      "name": "Sign in",
+      "action": "request",
+      "url": "/session",
+      "request": {"method": "POST", "json_body": {"password": "${secret.login}"}}
+    },
+    {"action": "assert_status", "status": 200},
+    {"action": "capture", "capture": {"name": "bearer", "json_path": "$.token"}},
+    {
+      "name": "Read account",
+      "action": "request",
+      "url": "/account",
+      "request": {"method": "GET", "headers": {"Authorization": ["Bearer ${capture.bearer}"]}}
+    },
+    {"action": "assert_json", "assert_json": {"path": "$.status", "operator": "eq", "expected": "active"}},
+    {"action": "assert_latency", "assert_latency": {"maximum_ms": 800}},
+    {
+      "name": "End session",
+      "action": "request",
+      "url": "/session",
+      "request": {"method": "DELETE", "headers": {"Authorization": ["Bearer ${capture.bearer}"]}}
+    },
+    {"action": "assert_status", "status": 204}
+  ]
+}
+```
+
+Use `request.body` for text or `request.json_body` for JSON. Headers take a list
+of values. Credential headers such as `Authorization` and `X-Api-Key` take
+whole secret or capture references. `Authorization` can add a scheme, and
+`Cookie` can assign references to named cookies. The capture selector can be `json_path`, `header`, or `regex` with
+an optional zero-based `group`. A multi-value capture can fill a complete JSON
+value. Header and text substitution require a scalar. JSON assertions support
+`exists`, `missing`, `eq`, and `ne`. Numeric equality preserves exact decimals.
+The preview accepts object members, array indices and slices, wildcards,
+selector lists and descendant selectors. Use
+`assert_status` to check the expected HTTP status for each request.
+
+The agent operator maps an alias to a secret source for one tenant and one HTTPS
+origin. A signed script can name the alias. It cannot supply the backend locator.
+Mount the credentials through the selected secret backend and configure the agent
+with an entry like this one.
+
+```yaml
+browser:
+  driver: http
+  api:
+    max_bytes: 31457280
+    ca_file: /etc/probectl/certs/app-ca.pem
+    secrets:
+      - tenant_id: 11111111-1111-4111-8111-111111111111
+        origin: https://app.example
+        alias: login
+        ref: env:APP_SYNTHETIC_PASSWORD
+```
+
+Omit `ca_file` when the app uses the agent's standard trust roots. A configured
+file is the trusted PEM bundle for API transactions, with hostname verification
+active. The byte budget covers requests, responses and saved captures within one
+run. The agent fails a step when it cannot read and admit a complete response.
+Report consumers receive step status and timing. Captures, headers, response
+bodies and failure artifacts stay out of API transaction results. Cookies and
+captured values are isolated by origin and discarded at the end of the run.
+
 ## Result fields
 
 Each run produces a `Result` (`internal/browser/result.go`): `success`/`error`,

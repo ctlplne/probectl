@@ -19,6 +19,7 @@ package browser
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -50,20 +51,25 @@ const (
 var validActions = map[Action]bool{
 	Goto: true, Fill: true, Click: true, Submit: true,
 	WaitText: true, AssertText: true, AssertStatus: true, Screenshot: true,
+	Request: true, Capture: true, AssertJSON: true, AssertLatency: true,
 }
 
 const maxSteps = 100
 
 // Step is one action in a transaction.
 type Step struct {
-	Name     string `json:"name,omitempty"`
-	Action   Action `json:"action"`
-	URL      string `json:"url,omitempty"`      // goto / submit target
-	Selector string `json:"selector,omitempty"` // browser element selector
-	Field    string `json:"field,omitempty"`    // HTTP form field name (fill)
-	Value    string `json:"value,omitempty"`    // fill value / asserted text
-	Status   int    `json:"status,omitempty"`   // assert_status expected code
-	Optional bool   `json:"optional,omitempty"` // a failure here doesn't fail the run
+	Name       string               `json:"name,omitempty"`
+	Action     Action               `json:"action"`
+	URL        string               `json:"url,omitempty"`      // goto / submit target
+	Selector   string               `json:"selector,omitempty"` // browser element selector
+	Field      string               `json:"field,omitempty"`    // HTTP form field name (fill)
+	Value      string               `json:"value,omitempty"`    // fill value / asserted text
+	Status     int                  `json:"status,omitempty"`   // assert_status expected code
+	Optional   bool                 `json:"optional,omitempty"` // a failure here doesn't fail the run
+	APIRequest *APIRequestStep      `json:"request,omitempty"`
+	APICapture *APICaptureStep      `json:"capture,omitempty"`
+	APIJSON    *APIJSONAssertion    `json:"assert_json,omitempty"`
+	APILatency *APILatencyAssertion `json:"assert_latency,omitempty"`
 }
 
 // Script is a named multi-step transaction.
@@ -80,6 +86,9 @@ func Parse(b []byte) (Script, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&s); err != nil {
 		return Script{}, fmt.Errorf("browser: parse script: %w", err)
+	}
+	if s.IsAPITransaction() && dec.Decode(new(any)) != io.EOF {
+		return Script{}, fmt.Errorf("browser: script must contain one JSON document")
 	}
 	if err := s.Validate(); err != nil {
 		return Script{}, err
@@ -106,6 +115,9 @@ func (s Script) Validate() error {
 		if err := st.validate(s.StartURL != "" || i > 0); err != nil {
 			return fmt.Errorf("browser: step %d (%s): %w", i, st.Action, err)
 		}
+	}
+	if s.IsAPITransaction() {
+		return validateAPITransactionSteps(s)
 	}
 	return nil
 }

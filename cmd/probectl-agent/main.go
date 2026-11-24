@@ -185,6 +185,7 @@ func run() error {
 		WorkerArgs:    cfg.Browser.Worker.Args,
 		WorkerSocket:  cfg.Browser.Worker.Socket,
 		StepTimeout:   cfg.Browser.Worker.StepTimeout.Std(),
+		API:           cfg.Browser.API,
 	}, artifactStore, log)
 	if err != nil {
 		return fmt.Errorf("browser driver: %w", err)

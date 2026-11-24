@@ -542,6 +542,9 @@ mounting a full file is awkward:
 | `PROBECTL_AGENT_OBJECTSTORE_S3_PREFIX` | `artifact_store.prefix` (`probectl`) | bucket prefix; match the control-plane configuration so lifecycle export/erase sees agent artifacts. |
 | `PROBECTL_AGENT_OBJECTSTORE_ISOLATION` | `artifact_store.isolation` (`pooled`) | the agent's tenant isolation model as provisioned: `pooled`, `hybrid` or `siloed`. A hybrid or siloed tenant's agents write artifacts under `silo/<tenant-id>/`, the namespace the tenant's `GET /v1/isolation/status` names; the agent cannot learn the model from the control plane (no config push). Any other value refuses startup. |
 | `PROBECTL_AGENT_BROWSER_DRIVER` | `browser.driver` | `http` for a non-rendering HTTP transaction or `browser` for rendered Playwright; rendered mode fails startup unless its worker is usable |
+| — | `browser.api.max_bytes` (`31457280`) | cumulative request, response and capture admission for one HTTP API transaction |
+| — | `browser.api.ca_file` | PEM trust bundle for private HTTPS APIs. Hostname verification remains active. |
+| — | `browser.api.secrets` | agent-local bindings of `tenant_id`, `origin`, `alias` and an existing secret `ref`. See [API transactions](browser-synthetic.md#api-transaction-preview). |
 | `PROBECTL_AGENT_BROWSER_WORKER_COMMAND` | `browser.worker.command` | executable used for the listener-free rendered worker (the shipped browser-agent image uses `node`) |
 | `PROBECTL_AGENT_BROWSER_WORKER_PATH` | `browser.worker.path` | worker program passed to the command (the shipped browser-agent image uses `/worker/worker.mjs`) |
 | `PROBECTL_AGENT_BROWSER_WORKER_SOCKET` | `browser.worker.socket` | UNIX socket of a browser-worker running in a SEPARATE sidecar container (SUP-02/D-36). When set, the agent drives the renderer over this socket instead of spawning it as a child, so the agent's mTLS identity need not share a container with Chromium; mutually exclusive with `browser.worker.command`/`path` |

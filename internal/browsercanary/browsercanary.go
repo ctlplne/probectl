@@ -53,12 +53,15 @@ const defaultWorkerStepTimeout = 15 * time.Second
 // agent's mTLS identity is never in the renderer's container. WorkerSocket is
 // mutually exclusive with WorkerCommand/WorkerPath.
 type DriverConfig struct {
-	Driver        string
-	WorkerCommand string
-	WorkerPath    string
-	WorkerArgs    []string
-	WorkerSocket  string
-	StepTimeout   time.Duration
+	Driver         string
+	WorkerCommand  string
+	WorkerPath     string
+	WorkerArgs     []string
+	WorkerSocket   string
+	StepTimeout    time.Duration
+	API            APITransactionConfig
+	apiCredentials *apiCredentialBindings
+	apiTrust       browser.HTTPDriverOption
 }
 
 // Browser is the schedulable browser/transaction synthetic canary.
@@ -132,6 +135,21 @@ func NewFactory(driver DriverConfig, store objectstore.Store, log *slog.Logger) 
 	default:
 		return nil, fmt.Errorf("browser: driver must be http or browser (got %q)", driver.Driver)
 	}
+	if driver.Driver != DriverHTTP && (driver.API.MaxBytes != 0 || driver.API.CAFile != "" || len(driver.API.Secrets) != 0) {
+		return nil, errors.New("browser: API transaction settings require the HTTP driver")
+	}
+	bindings, err := buildAPICredentialBindings(driver.API)
+	if err != nil {
+		return nil, err
+	}
+	driver.apiCredentials = bindings
+	if driver.API.CAFile != "" {
+		trust, err := browser.WithAPITransactionCAFile(driver.API.CAFile)
+		if err != nil {
+			return nil, err
+		}
+		driver.apiTrust = trust
+	}
 	return func(cfg canary.Config) (canary.Canary, error) {
 		return newBrowser(cfg, store, log, driver)
 	}, nil
@@ -151,7 +169,16 @@ func newBrowser(cfg canary.Config, store objectstore.Store, log *slog.Logger, dr
 		return nil, err
 	}
 	guard := canary.GuardFromParams(cfg.Params)
-	if err := checkScriptTargets(guard, s); err != nil {
+	isAPI := s.IsAPITransaction()
+	if isAPI {
+		if err := s.ValidateAPIEndpoints(guard); err != nil {
+			return nil, err
+		}
+		target, err = s.APIResultTarget()
+		if err != nil {
+			return nil, err
+		}
+	} else if err := checkScriptTargets(guard, s); err != nil {
 		return nil, err
 	}
 	requiredDriver := strings.TrimSpace(cfg.Params[DriverParam])
@@ -162,6 +189,9 @@ func newBrowser(cfg canary.Config, store objectstore.Store, log *slog.Logger, dr
 	}
 	if requiredDriver != DriverHTTP && requiredDriver != DriverBrowser {
 		return nil, fmt.Errorf("browser: %s must be http or browser (got %q)", DriverParam, requiredDriver)
+	}
+	if isAPI && requiredDriver != DriverHTTP {
+		return nil, errors.New("browser: API transaction actions require the HTTP driver")
 	}
 	if requiredDriver != driver.Driver {
 		return nil, fmt.Errorf("browser: test requires %s driver but this agent is configured for %s", requiredDriver, driver.Driver)
@@ -185,7 +215,14 @@ func newBrowser(cfg canary.Config, store objectstore.Store, log *slog.Logger, dr
 				"PROBECTL_BROWSER_ALLOW_PRIVATE_TARGETS="+strconv.FormatBool(allowPrivate),
 			)
 		}
-		return browser.NewHTTPDriver(browser.WithTargetGuard(guard))
+		options := []browser.HTTPDriverOption{browser.WithTargetGuard(guard), browser.WithAPITransactionResources(driver.API.MaxBytes,
+			func(ctx context.Context, alias, origin string) ([]byte, func(), error) {
+				return driver.apiCredentials.resolve(ctx, tenant, alias, origin)
+			})}
+		if isAPI && driver.apiTrust != nil {
+			options = append(options, driver.apiTrust)
+		}
+		return browser.NewHTTPDriver(options...)
 	}
 	fleet := browser.NewFleet(
 		browser.Config{MaxConcurrency: 1, RunTimeout: runTimeout},
@@ -194,6 +231,25 @@ func newBrowser(cfg canary.Config, store objectstore.Store, log *slog.Logger, dr
 		log,
 	)
 	return &Browser{target: target, tenant: tenant, script: s, fleet: fleet, driver: driver.Driver}, nil
+}
+
+// ValidateDefinition is the common test-authoring preflight. It performs no
+// filesystem access, network I/O or credential resolution.
+func ValidateDefinition(target string, params map[string]string) error {
+	if strings.TrimSpace(params[ScriptParam]) == "" {
+		return nil
+	}
+	script, err := scriptFromConfig(target, params)
+	if err != nil {
+		return errors.New("browser transaction script is invalid")
+	}
+	if !script.IsAPITransaction() {
+		return nil
+	}
+	if driver := strings.TrimSpace(params[DriverParam]); driver != "" && driver != DriverHTTP {
+		return errors.New("API transaction actions require the HTTP driver")
+	}
+	return script.ValidateAPIEndpoints(nil)
 }
 
 func scriptFromConfig(target string, params map[string]string) (browser.Script, error) {

@@ -113,7 +113,7 @@
       ],
       "name": "Browser synthetic",
       "status": "delivered",
-      "evidence": "`TestRenderedBrowserCanariesReachOnlyTheirShippedTenant` runs signed definitions on shipped agents with the pinned Playwright worker. Separate tenant sessions read rendered results and Prometheus samples. The expected failed step produces a PNG under the owning tenant's object prefix."
+      "evidence": "`TestRenderedBrowserCanariesReachOnlyTheirShippedTenant` runs signed definitions on shipped agents with the pinned Playwright worker. Separate tenant sessions read rendered results and Prometheus samples. The expected failed step produces a PNG under the owning tenant's object prefix. HTTP API transaction preview adds request chaining, private captures and assertions through the same signed test definitions. Paired shipped credential and result verification remains pending."
     },
     {
       "ids": [

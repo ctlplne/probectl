@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -34,6 +35,8 @@ const maxArtifact = 1 << 20
 type HTTPDriver struct {
 	transport http.RoundTripper
 	guard     TargetGuard
+	apiBytes  int
+	apiSecret apiSecretResolver
 }
 
 // TargetGuard is the subset of canary.TargetGuard the browser driver needs.
@@ -63,7 +66,7 @@ func WithTargetGuard(g TargetGuard) HTTPDriverOption {
 // validating) transport. The schedulable browser canary passes WithTargetGuard;
 // direct package tests may use the unguarded driver against local httptest apps.
 func NewHTTPDriver(opts ...HTTPDriverOption) *HTTPDriver {
-	d := &HTTPDriver{transport: crypto.HardenedHTTPClient(0).Transport}
+	d := &HTTPDriver{transport: crypto.HardenedHTTPClient(0).Transport, apiBytes: defaultAPITransactionBytes}
 	for _, opt := range opts {
 		opt(d)
 	}
@@ -86,6 +89,9 @@ func guardedTransport(g TargetGuard) *http.Transport {
 func (*HTTPDriver) Name() string { return "http" }
 
 func (d *HTTPDriver) Run(ctx context.Context, s Script) (RunOutput, error) {
+	if s.IsAPITransaction() {
+		return d.runAPITransaction(ctx, s)
+	}
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Transport: d.transport, Jar: jar}
 
@@ -202,6 +208,8 @@ type httpResp struct {
 	status      int
 	contentType string
 	body        []byte
+	header      http.Header
+	elapsed     time.Duration
 }
 
 // do performs one request, capturing a resource-timing entry via httptrace. It
@@ -223,6 +231,10 @@ func (d *HTTPDriver) do(ctx context.Context, client *http.Client, method, rawURL
 	}
 	req.Header.Set("User-Agent", "probectl-browser-synthetic")
 
+	return d.exchange(client, req, rt, txStart, maxArtifact, false)
+}
+
+func (d *HTTPDriver) exchange(client *http.Client, req *http.Request, rt ResourceTiming, txStart time.Time, limit int64, complete bool) (ResourceTiming, httpResp, error) {
 	var dnsStart, connStart, tlsStart time.Time
 	reqStart := time.Now()
 	// Note: TLSHandshakeDone's callback takes a tls.ConnectionState, but importing
@@ -251,11 +263,28 @@ func (d *HTTPDriver) do(ctx context.Context, client *http.Client, method, rawURL
 		return rt, httpResp{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxArtifact))
-	rt.TotalMs = time.Since(reqStart).Milliseconds()
+	readLimit := limit
+	if complete {
+		limit -= apiHeaderSize(resp.Header)
+		if limit < 0 || limit == math.MaxInt64 || resp.ContentLength > limit {
+			return rt, httpResp{}, errAPIResponseTooLarge
+		}
+		readLimit++
+	}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, readLimit))
+	elapsed := time.Since(reqStart)
+	rt.TotalMs = elapsed.Milliseconds()
 	rt.Status = resp.StatusCode
-	rt.SizeBytes = int64(len(b))
-	return rt, httpResp{status: resp.StatusCode, contentType: resp.Header.Get("Content-Type"), body: b}, nil
+	rt.SizeBytes = int64(len(body))
+	if complete {
+		if int64(len(body)) > limit {
+			return rt, httpResp{}, errAPIResponseTooLarge
+		}
+		if readErr != nil {
+			return rt, httpResp{}, errAPIResponseRead
+		}
+	}
+	return rt, httpResp{status: resp.StatusCode, contentType: resp.Header.Get("Content-Type"), body: body, header: resp.Header, elapsed: elapsed}, nil
 }
 
 func sinceMs(t time.Time) int64 {

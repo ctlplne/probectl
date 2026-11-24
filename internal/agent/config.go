@@ -18,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctlplne/probectl/internal/agentlabel"
+	"github.com/ctlplne/probectl/internal/browsercanary"
 	"github.com/ctlplne/probectl/internal/configschema"
 	"github.com/ctlplne/probectl/internal/entity"
 )
@@ -290,8 +291,9 @@ func (a ArtifactStoreConfig) validate() error {
 // the local Playwright worker through stdin/stdout; the worker is validated at
 // startup so a rendered test can never silently fall back to HTTP.
 type BrowserConfig struct {
-	Driver string              `yaml:"driver"`
-	Worker BrowserWorkerConfig `yaml:"worker"`
+	Driver string                             `yaml:"driver"`
+	Worker BrowserWorkerConfig                `yaml:"worker"`
+	API    browsercanary.APITransactionConfig `yaml:"api,omitempty"`
 }
 
 // BrowserWorkerConfig identifies the rendering worker for the browser-capable

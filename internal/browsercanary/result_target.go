@@ -25,5 +25,8 @@ func ConfiguredResultTarget(cfg canary.Config) (string, error) {
 	if err != nil {
 		return "", errors.New("configured browser script identity is invalid")
 	}
+	if script.IsAPITransaction() {
+		return script.APIResultTarget()
+	}
 	return script.StartURL, nil
 }

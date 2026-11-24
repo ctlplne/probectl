@@ -26602,7 +26602,7 @@
           },
           "params": {
             "type": "object",
-            "description": "Per-type string parameters. For browser tests, params.script may carry browser.Script JSON; when omitted, the agent runs a default transaction that opens target and expects HTTP 200.",
+            "description": "Per-type string parameters. For browser tests, params.script may carry browser.Script JSON. API transaction steps use browser_driver=http and support request, capture, assert_json, assert_latency and assert_status. Configure credential aliases on the agent. When the script is omitted, the agent opens the target and expects HTTP 200.",
             "additionalProperties": {
               "type": "string"
             }

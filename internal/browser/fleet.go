@@ -127,6 +127,10 @@ func (f *Fleet) Run(ctx context.Context, tenant string, s Script) (Result, error
 func (f *Fleet) safeRun(ctx context.Context, d Driver, s Script) (out RunOutput, err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			if s.IsAPITransaction() {
+				err = fmt.Errorf("browser API transaction driver failed")
+				return
+			}
 			err = fmt.Errorf("browser driver panic: %v", r)
 		}
 	}()
