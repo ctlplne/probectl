@@ -1021,11 +1021,16 @@ function transferResult(tenant: string, prefix: string): RoutingTransferResponse
 
 async function submitTransfer(tenant: string, prefix: string) {
   const form = within(screen.getByRole('form', { name: 'Routing transfer estimate' }))
-  await form.findByRole('option', { name: `${tenant} WAN · revision ${version}` })
-  fireEvent.change(form.getByLabelText('Current handoff agreement'), {
+  const current = form.getByLabelText('Current handoff agreement')
+  const candidate = form.getByLabelText('Candidate handoff agreement')
+  await within(current).findByRole('option', { name: `${tenant} WAN · revision ${version}` })
+  await within(candidate).findByRole('option', {
+    name: `${tenant}-candidate WAN · revision ${version}`,
+  })
+  fireEvent.change(current, {
     target: { value: `${tenant}-agreement:${version}` },
   })
-  fireEvent.change(form.getByLabelText('Candidate handoff agreement'), {
+  fireEvent.change(candidate, {
     target: { value: `${tenant}-candidate-agreement:${version}` },
   })
   const enter = (label: string, value: string) =>
@@ -1123,7 +1128,7 @@ test('a delayed routing transfer estimate cannot repopulate a second tenant work
     finishFirst?.(jsonResponse(transferResult('red', firstPrefix)))
   })
   expect(screen.queryByRole('region', { name: 'Routing transfer result' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('option', { name: /^red WAN/ })).not.toBeInTheDocument()
+  expect(screen.queryAllByRole('option', { name: /^red WAN/ })).toHaveLength(0)
   await submitTransfer('blue', secondPrefix)
   const result = within(await screen.findByRole('region', { name: 'Routing transfer result' }))
   expect(result.getByRole('status')).toHaveTextContent(secondPrefix)
