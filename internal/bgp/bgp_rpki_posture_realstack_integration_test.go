@@ -41,6 +41,22 @@ type frrRPKITarget struct {
 	path string
 }
 
+type frrRPKIPosture struct {
+	Prefix   string `json:"prefix"`
+	Coverage string `json:"coverage"`
+	Paths    []struct {
+		RouterID string                `json:"router_id"`
+		Vantage  string                `json:"vantage"`
+		Origin   uint32                `json:"origin_asn"`
+		RPKI     opendata.RPKIPosture  `json:"rpki"`
+		IRR      []opendata.IRRPosture `json:"irr"`
+	} `json:"paths"`
+	Trend []struct {
+		Vantage string `json:"vantage"`
+		store.BGPRPKIHistoryObservation
+	} `json:"trend"`
+}
+
 func prepareFRRRPKICases(t *testing.T, lab *routingLab, advertised6, link6 string) ([]frrRPKICase, map[string]string) {
 	t.Helper()
 	lab.docker(t, "exec", lab.container("edge"), "ip", "-6", "addr", "add", "2001:db8:6000::1/48", "dev", "lo")
@@ -118,40 +134,64 @@ func proveFRRRPKI(t *testing.T, st *shipped.Stack, lanes []edgeFlowRegistration,
 	t.Helper()
 	for i, lane := range lanes {
 		for item, target := range targets[i] {
-			var result struct {
-				Prefix string `json:"prefix"`
-				Paths  []struct {
-					Origin uint32                `json:"origin_asn"`
-					RPKI   opendata.RPKIPosture  `json:"rpki"`
-					IRR    []opendata.IRRPosture `json:"irr"`
-				} `json:"paths"`
-				Trend []store.BGPRPKIHistoryObservation `json:"trend"`
-			}
-			shipped.Await(t, "owned current and original validation for "+target.prefix, 25*time.Second, func() bool {
-				code, raw := st.Do(t, lane.cookie, http.MethodGet, target.path, nil)
-				return code == http.StatusOK && json.Unmarshal(raw, &result) == nil && len(result.Paths) == 1 && len(result.Trend) > 0
+			var result frrRPKIPosture
+			ready := false
+			t.Cleanup(func() {
+				if !ready {
+					t.Logf("lane %d prefix %s last RPKI coverage %q with %d paths and %d history points", i, target.prefix,
+						result.Coverage, len(result.Paths), len(result.Trend))
+				}
 			})
-			current, original := result.Paths[0], result.Trend[0]
-			if len(current.IRR) != 2 || current.IRR[0].Source != "LAB" || current.IRR[0].Status != target.registryStatus ||
-				len(current.IRR[0].SHA256) != 64 || current.IRR[0].ObservedAt == nil || current.IRR[1].Status != "unavailable" {
-				t.Fatal("the exact prefix and original registry coverage were lost", target, current.IRR)
-			}
-			if target.prefix == prefixA && (len(current.IRR[0].Objects) != 1 || current.IRR[0].Objects[0].Review != "past_review_age") {
-				t.Fatal("the old matching object lost its review state", current.IRR[0])
-			}
-			if result.Prefix != target.prefix || current.Origin != target.origin || current.RPKI.Status != target.status || current.RPKI.Reason != target.reason ||
-				current.RPKI.ValidatorVersion == "" || original.Posture.ValidatorVersion != current.RPKI.ValidatorVersion ||
-				original.Origin == nil || *original.Origin != target.origin || original.Posture.Status != target.status || original.Posture.Suggestion != nil {
-				t.Fatalf("validated output disagrees with the FRR route and original local validator, target=%+v result=%+v", target, result)
-			}
-			exact := current.RPKI.Suggestion
-			if (exact != nil) != (target.status != "valid") || exact != nil && (exact.Prefix.String() != target.prefix || exact.OriginASN != target.origin) {
-				t.Fatal("ROA suggestion exceeded the exact observed and intended route", target, exact)
-			}
+			shipped.Await(t, "complete owned current and original validation for "+target.prefix, 25*time.Second, func() bool {
+				code, raw := st.Do(t, lane.cookie, http.MethodGet, target.path, nil)
+				result = frrRPKIPosture{}
+				return code == http.StatusOK && json.Unmarshal(raw, &result) == nil && result.Coverage == "observed_source_population" &&
+					len(result.Paths) > 0 && len(result.Trend) > 0
+			})
+			ready = true
+			assertFRRRPKIPosture(t, lane, target, result)
 			if code, _ := st.Do(t, lane.cookie, http.MethodGet, targets[1-i][item].path, nil); code != http.StatusNotFound {
 				t.Fatal("foreign RPKI posture scope returned HTTP", code)
 			}
 		}
 	}
 	t.Log("real-integration: pinned FRR announced all four validation cases through both issued BMP identities and tenant-scoped storage; original validator generations and exact ROA suggestions passed")
+}
+
+func assertFRRRPKIPosture(t *testing.T, lane edgeFlowRegistration, target frrRPKITarget, result frrRPKIPosture) {
+	t.Helper()
+	if result.Prefix != target.prefix {
+		t.Fatalf("returned prefix %s, expected the owned FRR prefix %s", result.Prefix, target.prefix)
+	}
+	history := make(map[string]store.BGPRPKIHistoryObservation)
+	for _, point := range result.Trend {
+		if point.Vantage == "" || point.Origin == nil || *point.Origin != target.origin ||
+			point.Posture.Status != target.status || point.Posture.Suggestion != nil {
+			t.Fatalf("invalid retained RPKI observation for %s: %+v", target.prefix, point)
+		}
+		if _, found := history[point.Vantage]; !found {
+			history[point.Vantage] = point.BGPRPKIHistoryObservation
+		}
+	}
+	seen := make(map[string]bool)
+	for _, current := range result.Paths {
+		original, found := history[current.Vantage]
+		if !found || seen[current.Vantage] || current.RouterID != lane.deviceID || current.Origin != target.origin ||
+			current.RPKI.Status != target.status || current.RPKI.Reason != target.reason ||
+			current.RPKI.ValidatorVersion == "" || original.Posture.ValidatorVersion != current.RPKI.ValidatorVersion {
+			t.Fatalf("current RPKI view lacks its own retained proof for %s: %+v", target.prefix, current)
+		}
+		seen[current.Vantage] = true
+		if len(current.IRR) != 2 || current.IRR[0].Source != "LAB" || current.IRR[0].Status != target.registryStatus ||
+			len(current.IRR[0].SHA256) != 64 || current.IRR[0].ObservedAt == nil || current.IRR[1].Status != "unavailable" {
+			t.Fatal("the exact prefix and original registry coverage were lost", target, current.IRR)
+		}
+		if target.prefix == prefixA && (len(current.IRR[0].Objects) != 1 || current.IRR[0].Objects[0].Review != "past_review_age") {
+			t.Fatal("the old matching object lost its review state", current.IRR[0])
+		}
+		exact := current.RPKI.Suggestion
+		if (exact != nil) != (target.status != "valid") || exact != nil && (exact.Prefix.String() != target.prefix || exact.OriginASN != target.origin) {
+			t.Fatal("ROA suggestion exceeded the exact observed and intended route", target, exact)
+		}
+	}
 }

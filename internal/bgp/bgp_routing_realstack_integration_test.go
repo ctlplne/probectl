@@ -181,10 +181,6 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory, rpki bool) {
 	if pathHistory {
 		monitors = addFRRPathHistoryMonitors(t, st, registrations)
 	}
-	var rpkiTargets [][]frrRPKITarget
-	if rpki {
-		rpkiTargets = addFRRRPKIMonitors(t, st, registrations, rpkiCases)
-	}
 	t.Cleanup(func() {
 		if t.Failed() {
 			logFRRSelectedRouterTables(t, lab)
@@ -197,7 +193,15 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory, rpki bool) {
 	before := make([]store.BGPRoutingLookup, 2)
 	for lane, reg := range registrations {
 		manifests[lane] = putFRRSelectedRIBBinding(t, st, reg, listeners[lane], lab.ip["rtr-a"], "", true)
-		listeners[lane].reconnectBMP()
+	}
+	var rpkiTargets [][]frrRPKITarget
+	if rpki {
+		// Monitor only after installing the intended views. The listener's
+		// pre-binding startup history can make the source population partial.
+		rpkiTargets = addFRRRPKIMonitors(t, st, registrations, rpkiCases)
+	}
+	for _, listener := range listeners {
+		listener.reconnectBMP()
 	}
 	for lane, reg := range registrations {
 		before[lane] = awaitFRRSelectedPath(t, pool, reg, "203.0.113.1", prefixA, []uint32{edgeASN, originA}, netip.MustParseAddr(lab.ip["edge"]))
