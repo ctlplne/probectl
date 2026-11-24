@@ -26,6 +26,11 @@ var errBGPRoutingAmbiguousView = ErrBGPRoutingAmbiguousView
 // conflict, not permission to pick whichever contains a convenient prefix.
 func (store BGPRouting) LookupRouterInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope,
 	routerID string, address netip.Addr, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
+	return store.lookupRouterScoped(ctx, sc, scope, routerID, address, netip.Prefix{}, budget)
+}
+
+func (store BGPRouting) lookupRouterScoped(ctx context.Context, sc tenancy.Scope, scope entity.Scope,
+	routerID string, address netip.Addr, prefix netip.Prefix, budget BGPRoutingBudget) (BGPRoutingLookup, error) {
 	if err := ctx.Err(); err != nil {
 		return BGPRoutingLookup{}, err
 	}
@@ -92,7 +97,7 @@ func (store BGPRouting) LookupRouterInScope(ctx context.Context, sc tenancy.Scop
 	} else if raw != nil {
 		return BGPRoutingLookup{}, ErrBGPRoutingView
 	}
-	return store.lookupViewInScope(ctx, sc, source, ref, address, budget)
+	return store.lookupCurrentRoutingInScope(ctx, sc, source, ref, address, prefix, budget)
 }
 
 func requireRoutingReadSnapshot(ctx context.Context, sc tenancy.Scope) error {

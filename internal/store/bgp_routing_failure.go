@@ -130,13 +130,29 @@ func selectGlobalRoutingNeighbor(ctx context.Context, sc tenancy.Scope, config r
 // making the lookup. The results are inputs to a read-only projection.
 func (store BGPRouting) LookupRouterFailureInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, router string,
 	address netip.Addr, budget BGPRoutingBudget) (BGPRoutingFailureLookup, error) {
+	return store.lookupRouterAlternatesInScope(ctx, sc, scope, router, address, netip.Prefix{}, budget)
+}
+
+// LookupRouterPolicyPrefixInScope reads the selected and eligible routes for
+// one exact NLRI. More-specific routes are independent of this policy selector.
+// The caller authorizes the tenant and canonical router in the same snapshot.
+func (store BGPRouting) LookupRouterPolicyPrefixInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, router string,
+	prefix netip.Prefix, budget BGPRoutingBudget) (BGPRoutingFailureLookup, error) {
+	if !prefix.IsValid() || prefix != prefix.Masked() || prefix.Addr().Is4In6() {
+		return BGPRoutingFailureLookup{}, ErrBGPRoutingView
+	}
+	return store.lookupRouterAlternatesInScope(ctx, sc, scope, router, prefix.Addr(), prefix, budget)
+}
+
+func (store BGPRouting) lookupRouterAlternatesInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, router string,
+	address netip.Addr, exact netip.Prefix, budget BGPRoutingBudget) (BGPRoutingFailureLookup, error) {
 	none := BGPRoutingFailureLookup{}
 	if !address.IsValid() || address.Is4In6() || address.Zone() != "" {
 		return none, ErrBGPRoutingView
 	}
 	portioned := budget
 	portioned.MemoryBytes, portioned.WorkUnits = budget.MemoryBytes/3, budget.WorkUnits/3
-	selected, err := store.LookupRouterInScope(ctx, sc, scope, router, address, portioned)
+	selected, err := store.lookupRouterScoped(ctx, sc, scope, router, address, exact, portioned)
 	if err != nil {
 		return none, err
 	}
@@ -187,7 +203,7 @@ func (store BGPRouting) LookupRouterFailureInScope(ctx context.Context, sc tenan
 		}
 		source := selected.Source
 		source.ObservedAt = view.born
-		route, err := store.lookupCurrentRoutingViewInScope(ctx, sc, source, view.ref, address, netip.Prefix{}, true, perView)
+		route, err := store.lookupCurrentRoutingViewInScope(ctx, sc, source, view.ref, address, exact, true, perView)
 		if errors.Is(err, ErrBGPRoutingSourceUnavailable) {
 			complete = false
 			continue

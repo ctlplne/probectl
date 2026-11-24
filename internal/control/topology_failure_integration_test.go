@@ -422,7 +422,12 @@ VALUES($1,$2,'flow_exporter',$3,$4,$5)`, tenant, exporter, remote, f.contextID, 
 	}
 }
 
-func seedTopologyFailureMeasuredLoad(t *testing.T, f *roleExplanationAPIFixture, ch *flowstore.ClickHouse, tenant, local, remote string,
+type topologyFailureMeasurementWriter interface {
+	Insert(context.Context, []flowstore.Row) error
+	InsertCounterPoll(context.Context, []flowstore.CounterRow, flowstore.CounterBudget) error
+}
+
+func seedTopologyFailureMeasuredLoad(t *testing.T, f *roleExplanationAPIFixture, ch topologyFailureMeasurementWriter, tenant, local, remote string,
 	from, to time.Time, failedBytes uint64) {
 	t.Helper()
 	const snmp, exporter = "role-snmp", "role-flow"

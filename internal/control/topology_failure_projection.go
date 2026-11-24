@@ -222,7 +222,17 @@ func topologyFailureDemand(ctx context.Context, row flowstore.Row, capture store
 // original interval. Instantaneous samples contribute to their observed bin.
 func distributeTopologyFailureFlow(ctx context.Context, samples []flow.FailureTrafficSample, row flowstore.Row,
 	demand flow.FailureTrafficDemand, remaining *int64) error {
-	from, to := samples[0].From, samples[len(samples)-1].To
+	return walkTopologyFlowRates(ctx, samples[0].From, samples[len(samples)-1].To, row, remaining, func(i int, rate *big.Rat) error {
+		item := demand
+		item.BPS = rate
+		samples[i].Demands = append(samples[i].Demands, item)
+		return nil
+	})
+}
+
+// walkTopologyFlowRates keeps the exporter interval's exact mean-overlap
+// distribution shared by failure and routing-move estimates.
+func walkTopologyFlowRates(ctx context.Context, from, to time.Time, row flowstore.Row, remaining *int64, visit func(int, *big.Rat) error) error {
 	instant := row.StartTS.Equal(row.TS)
 	start, end := laterFailureTime(row.StartTS, from), earlierFailureTime(row.TS, to)
 	if !start.Before(to) || instant && row.TS.Before(from) || !instant && !end.After(start) || row.Bytes == 0 {
@@ -234,32 +244,32 @@ func distributeTopologyFailureFlow(ctx context.Context, samples []flow.FailureTr
 	}
 	scaled := new(big.Int).Mul(new(big.Int).SetUint64(row.Bytes), new(big.Int).SetUint64(row.Sampling))
 	first := int(start.Sub(from) / topologyFailureInterval)
-	for i := first; i < len(samples); i++ {
+	for i, left := first, from.Add(time.Duration(first)*topologyFailureInterval); left.Before(to); i, left = i+1, left.Add(topologyFailureInterval) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		sample := &samples[i]
-		if !instant && !sample.From.Before(end) {
+		if !instant && !left.Before(end) {
 			break
 		}
 		if *remaining < 1024 {
 			return flow.ErrFailureTrafficBudget
 		}
 		*remaining -= 1024
+		right := left.Add(min(topologyFailureInterval, to.Sub(left)))
 		rate := new(big.Rat).SetInt(scaled)
 		if !instant {
-			overlap := earlierFailureTime(end, sample.To).Sub(laterFailureTime(start, sample.From))
+			overlap := earlierFailureTime(end, right).Sub(laterFailureTime(start, left))
 			rate.Mul(rate, big.NewRat(int64(overlap), int64(span)))
 		}
-		rate.Mul(rate, big.NewRat(8_000_000_000, int64(sample.To.Sub(sample.From))))
-		item := demand
-		item.BPS = rate
-		sample.Demands = append(sample.Demands, item)
+		rate.Mul(rate, big.NewRat(8_000_000_000, int64(right.Sub(left))))
+		if err := visit(i, rate); err != nil {
+			return err
+		}
 		if instant {
 			break
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
 func laterFailureTime(a, b time.Time) time.Time {

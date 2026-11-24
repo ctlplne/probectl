@@ -1219,6 +1219,39 @@ Native MCP preserves exact numeric IX/LAN identities only after current public
 evidence proves the complete target. Unavailable targets retain untrusted
 caller selections, which remain subject to mandatory text redaction.
 
+### Routing transfer estimates (preview)
+
+`POST /v1/flows/routing-transfer-estimate` estimates the cost and peak load of
+moving one exact destination prefix from its current upstream handoff to another
+eligible handoff on the same router. Supply the owned `context_id`, canonical
+`destination_prefix`, proposed `local_preference`, and `maximum_poll_gap`.
+Under both `source` and `candidate`, supply the `agreement_id`, current
+`agreement_version`, `egress_interface_id`, and the same `physical_bounds`
+format used by the capacity bill check for every member of that agreement.
+
+```sh
+probectl --json routing-transfer estimate --body-file transfer.json
+```
+
+Use `billing_at` to select matching completed billing periods, or provide both
+`observed_from` and `observed_to` for a closed RFC3339 window covered by both
+recorded agreement versions. `estimate_basis` identifies the period used.
+`observed_window_at_recorded_unit_rates` applies the recorded rates to only
+that sample window.
+
+The estimate requires `flow.agreements.read` and current permissions for the
+selected flow, context, routing, inventory and counter sources. Circuit terms
+also require `tags.read`. The service reconciles the original flow evidence with
+interface counters and requires an independently measured speed for the candidate
+handoff. It calculates p95 from the full interval series before and after moving
+the identified traffic. Missing evidence leaves the estimate unavailable, and
+projected peaks over observed capacity withhold the policy preview. Amounts and
+rates use exact integer fractions. The result reports the observed candidate
+line speed and the effective ceiling, which also enforces the supplied physical
+bound. `no_paired_upstream_measurement` means this
+result has no comparative upstream performance evidence. The returned policy
+is a preview for review. The endpoint performs no router writes.
+
 
 ## Recorded capacity agreements (preview)
 

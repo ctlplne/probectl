@@ -379,6 +379,7 @@ func (s *Server) flowRoutes() []apiRoute {
 		{http.MethodPost, "/v1/flows/capacity/agreements/{id}/sla", s.handleCarrierSLA, permFlowAgreementsRead},
 		{http.MethodPost, "/v1/flows/capacity/sla-claims", s.handleCarrierSLAClaim, permFlowAgreementsRead},
 		{http.MethodPost, "/v1/flows/peering-estimate", s.handlePeeringEstimate, permFlowRead},
+		{http.MethodPost, "/v1/flows/routing-transfer-estimate", s.handleRoutingTransferEstimate, permFlowAgreementsRead},
 		{http.MethodGet, "/v1/flows/anomalies", s.handleFlowAnomalies, permFlowRead},
 	}
 }

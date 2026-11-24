@@ -4886,6 +4886,70 @@ type RoutingChangeReference struct {
 	ViewId            string `json:"view_id"`
 }
 
+type RoutingTransferBill struct {
+	After            CapacityBillResult       `json:"after"`
+	AfterP95         CapacityPercentileResult `json:"after_p95"`
+	AgreementId      string                   `json:"agreement_id"`
+	AgreementVersion string                   `json:"agreement_version"`
+	Before           CapacityBillResult       `json:"before"`
+	BeforeP95        CapacityPercentileResult `json:"before_p95"`
+}
+
+type RoutingTransferBillingSelection struct {
+	AgreementId       string                  `json:"agreement_id"`
+	AgreementVersion  string                  `json:"agreement_version"`
+	EgressInterfaceId string                  `json:"egress_interface_id"`
+	PhysicalBounds    []CapacityPhysicalBound `json:"physical_bounds"`
+}
+
+type RoutingTransferEstimate struct {
+	Candidate               RoutingTransferBill `json:"candidate,omitzero"`
+	CandidateEgressLimitBps string              `json:"candidate_egress_limit_bps,omitempty"`
+	CandidateEgressSpeedBps string              `json:"candidate_egress_speed_bps,omitempty"`
+	CandidatePeakBps        string              `json:"candidate_peak_bps,omitempty"`
+	Currency                string              `json:"currency,omitempty"`
+	From                    string              `json:"from"`
+	MovedPeakBps            string              `json:"moved_peak_bps,omitempty"`
+	NetChargeChange         string              `json:"net_charge_change,omitempty"`
+	Reason                  string              `json:"reason,omitempty"`
+	Source                  RoutingTransferBill `json:"source,omitzero"`
+	Status                  string              `json:"status"`
+	To                      string              `json:"to"`
+}
+
+// Choose billing_at for a complete common billing period, or observed_from and observed_to for a closed measurement comparison at the two recorded tariffs.
+type RoutingTransferInput struct {
+	BillingAt         string                          `json:"billing_at,omitempty"`
+	Candidate         RoutingTransferBillingSelection `json:"candidate"`
+	ContextId         string                          `json:"context_id"`
+	DestinationPrefix string                          `json:"destination_prefix"`
+	LocalPreference   int                             `json:"local_preference"`
+	MaximumPollGap    string                          `json:"maximum_poll_gap"`
+	ObservedFrom      string                          `json:"observed_from,omitempty"`
+	ObservedTo        string                          `json:"observed_to,omitempty"`
+	Source            RoutingTransferBillingSelection `json:"source"`
+}
+
+type RoutingTransferPolicy struct {
+	CandidateAsn    int    `json:"candidate_asn"`
+	CandidatePeer   string `json:"candidate_peer"`
+	CurrentPeer     string `json:"current_peer"`
+	ExactPrefix     string `json:"exact_prefix"`
+	LocalPreference int    `json:"local_preference"`
+	Operation       string `json:"operation"`
+	RouterId        string `json:"router_id"`
+}
+
+type RoutingTransferResponse struct {
+	ContextId         string                  `json:"context_id"`
+	DestinationPrefix string                  `json:"destination_prefix"`
+	Estimate          RoutingTransferEstimate `json:"estimate"`
+	EstimateBasis     string                  `json:"estimate_basis"`
+	PerformanceStatus string                  `json:"performance_status"`
+	Policy            RoutingTransferPolicy   `json:"policy,omitzero"`
+	SourceValidUntil  string                  `json:"source_valid_until"`
+}
+
 // A SCIM bearer-token metadata row. The token hash and plaintext token are never returned from list/get responses.
 type SCIMToken struct {
 	CreatedAt  string `json:"created_at"`
@@ -9218,6 +9282,21 @@ func (c *Client) EstimateFlowPeering(ctx context.Context, req EstimateFlowPeerin
 	path := "/v1/flows/peering-estimate"
 	query := url.Values{}
 	var out PeeringEstimateResponse
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Compare a read-only exact-prefix traffic transfer between owned upstream handoffs
+type EstimateRoutingTransferRequest struct {
+	Body *RoutingTransferInput `json:"-"`
+}
+
+func (c *Client) EstimateRoutingTransfer(ctx context.Context, req EstimateRoutingTransferRequest) (*RoutingTransferResponse, error) {
+	path := "/v1/flows/routing-transfer-estimate"
+	query := url.Values{}
+	var out RoutingTransferResponse
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}

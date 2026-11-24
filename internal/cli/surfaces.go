@@ -89,6 +89,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"revisions": {Method: http.MethodGet, Path: "/v1/flows/capacity/agreements/{id}/revisions", ArgName: "id", ExactJSON: true, Description: "page immutable recording order with --query after=... --query limit=..."},
 		"check":     {Method: http.MethodPost, Path: "/v1/flows/capacity/agreements/{id}/check", ArgName: "id", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "read-only complete billing-period check from exact original counters; --body-file records version, at, maximum_poll_gap and complete physical_bounds; requires financial and current source-read permissions"},
 	}},
+	"routing-transfer": {Name: "routing-transfer", Summary: "owned upstream transfer estimates", Ops: map[string]apiOp{
+		"estimate": {Method: http.MethodPost, Path: "/v1/flows/routing-transfer-estimate", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "read-only exact-prefix handoff comparison; --body-file supplies the routing context, destination prefix, proposed local preference, complete billing window selector, current agreement revisions and owned egress interfaces"},
+	}},
 	"peering": {Name: "peering", Summary: "hypothetical observed-route peering estimates", Ops: map[string]apiOp{
 		"estimate": {Method: http.MethodPost, Path: "/v1/flows/peering-estimate", ExactJSON: true, Description: "read-only estimate over an owned IX interface; --body-file supplies context_id, interface_id, peer_asn, exact decimal ix_id/ix_lan_id, inbound/outbound direction and optional range/bucket/dataseries; unknown volumes and observed gaps remain explicit"},
 	}},

@@ -336,6 +336,74 @@
         }
       }
     },
+    "/v1/flows/routing-transfer-estimate": {
+      "post": {
+        "operationId": "estimateRoutingTransfer",
+        "summary": "Compare a read-only exact-prefix traffic transfer between owned upstream handoffs",
+        "tags": [
+          "flow"
+        ],
+        "x-required-permission": "flow.agreements.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "description": "Requires current tenant financial read authority and scoped topology, flow, entity, metric and event reads for both handoffs and their shared router. Reconciles original flow traffic against independently witnessed counters, shifts the measured traffic interval by interval, and recomputes the two recorded charges. The policy describes the exact inbound preference change as a proposal and has no router side effect.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutingTransferInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current tenant comparison of the recorded before and modeled after bills, with exact original coverage. Monetary and traffic rationals use JSON strings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutingTransferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/entity-contexts/{context_id}/interfaces/{id}/role": {
       "get": {
         "x-required-permission": "entities.read",
@@ -40485,6 +40553,258 @@
           "items",
           "has_more",
           "as_of"
+        ]
+      },
+      "RoutingTransferBillingSelection": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "agreement_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agreement_version": {
+            "type": "string"
+          },
+          "egress_interface_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "physical_bounds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapacityPhysicalBound"
+            }
+          }
+        },
+        "required": [
+          "agreement_id",
+          "agreement_version",
+          "egress_interface_id",
+          "physical_bounds"
+        ]
+      },
+      "RoutingTransferInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "destination_prefix": {
+            "type": "string"
+          },
+          "local_preference": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295,
+            "format": "int64"
+          },
+          "billing_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "maximum_poll_gap": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RoutingTransferBillingSelection"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/RoutingTransferBillingSelection"
+          },
+          "observed_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observed_to": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "context_id",
+          "destination_prefix",
+          "local_preference",
+          "maximum_poll_gap",
+          "source",
+          "candidate"
+        ],
+        "description": "Choose billing_at for a complete common billing period, or observed_from and observed_to for a closed measurement comparison at the two recorded tariffs."
+      },
+      "RoutingTransferBill": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "agreement_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agreement_version": {
+            "type": "string"
+          },
+          "before_p95": {
+            "$ref": "#/components/schemas/CapacityPercentileResult"
+          },
+          "after_p95": {
+            "$ref": "#/components/schemas/CapacityPercentileResult"
+          },
+          "before": {
+            "$ref": "#/components/schemas/CapacityBillResult"
+          },
+          "after": {
+            "$ref": "#/components/schemas/CapacityBillResult"
+          }
+        },
+        "required": [
+          "agreement_id",
+          "agreement_version",
+          "before_p95",
+          "after_p95",
+          "before",
+          "after"
+        ]
+      },
+      "RoutingTransferEstimate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unavailable",
+              "estimated"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "moved_peak_bps": {
+            "type": "string"
+          },
+          "candidate_peak_bps": {
+            "type": "string"
+          },
+          "candidate_egress_speed_bps": {
+            "type": "string"
+          },
+          "candidate_egress_limit_bps": {
+            "type": "string",
+            "description": "Effective ceiling from the observed line speed and supplied physical upper bound."
+          },
+          "source": {
+            "$ref": "#/components/schemas/RoutingTransferBill"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/RoutingTransferBill"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "net_charge_change": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "status"
+        ]
+      },
+      "RoutingTransferPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "set_inbound_local_preference_for_exact_prefix"
+            ]
+          },
+          "router_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "exact_prefix": {
+            "type": "string"
+          },
+          "current_peer": {
+            "type": "string"
+          },
+          "candidate_peer": {
+            "type": "string"
+          },
+          "candidate_asn": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295,
+            "format": "int64"
+          },
+          "local_preference": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967295,
+            "format": "int64"
+          }
+        },
+        "required": [
+          "operation",
+          "router_id",
+          "exact_prefix",
+          "current_peer",
+          "candidate_peer",
+          "candidate_asn",
+          "local_preference"
+        ]
+      },
+      "RoutingTransferResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "destination_prefix": {
+            "type": "string"
+          },
+          "estimate": {
+            "$ref": "#/components/schemas/RoutingTransferEstimate"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/RoutingTransferPolicy"
+          },
+          "performance_status": {
+            "type": "string"
+          },
+          "source_valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "estimate_basis": {
+            "type": "string",
+            "enum": [
+              "complete_billing_period",
+              "observed_window_at_recorded_unit_rates"
+            ]
+          }
+        },
+        "required": [
+          "context_id",
+          "destination_prefix",
+          "estimate",
+          "performance_status",
+          "source_valid_until",
+          "estimate_basis"
         ]
       },
       "CapacityPhysicalBound": {

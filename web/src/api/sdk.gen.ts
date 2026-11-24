@@ -4708,6 +4708,69 @@ export interface RoutingChangeReference {
   view_id: string
 }
 
+export interface RoutingTransferBill {
+  after: CapacityBillResult
+  after_p95: CapacityPercentileResult
+  agreement_id: string
+  agreement_version: string
+  before: CapacityBillResult
+  before_p95: CapacityPercentileResult
+}
+
+export interface RoutingTransferBillingSelection {
+  agreement_id: string
+  agreement_version: string
+  egress_interface_id: string
+  physical_bounds: CapacityPhysicalBound[]
+}
+
+export interface RoutingTransferEstimate {
+  candidate?: RoutingTransferBill
+  candidate_egress_limit_bps?: string
+  candidate_egress_speed_bps?: string
+  candidate_peak_bps?: string
+  currency?: string
+  from: string
+  moved_peak_bps?: string
+  net_charge_change?: string
+  reason?: string
+  source?: RoutingTransferBill
+  status: "unavailable" | "estimated"
+  to: string
+}
+
+export interface RoutingTransferInput {
+  billing_at?: string
+  candidate: RoutingTransferBillingSelection
+  context_id: string
+  destination_prefix: string
+  local_preference: number
+  maximum_poll_gap: string
+  observed_from?: string
+  observed_to?: string
+  source: RoutingTransferBillingSelection
+}
+
+export interface RoutingTransferPolicy {
+  candidate_asn: number
+  candidate_peer: string
+  current_peer: string
+  exact_prefix: string
+  local_preference: number
+  operation: "set_inbound_local_preference_for_exact_prefix"
+  router_id: string
+}
+
+export interface RoutingTransferResponse {
+  context_id: string
+  destination_prefix: string
+  estimate: RoutingTransferEstimate
+  estimate_basis: "complete_billing_period" | "observed_window_at_recorded_unit_rates"
+  performance_status: string
+  policy?: RoutingTransferPolicy
+  source_valid_until: string
+}
+
 export interface SCIMToken {
   created_at: string
   id: string
@@ -6475,6 +6538,12 @@ export interface EstimateFlowPeeringRequest {
 }
 
 export type EstimateFlowPeeringResponse = PeeringEstimateResponse
+
+export interface EstimateRoutingTransferRequest {
+  body: RoutingTransferInput
+}
+
+export type EstimateRoutingTransferResponse = RoutingTransferResponse
 
 export interface FlowTopTalkersRequest {
   by?: "src" | "dst" | "pair" | "src_asn" | "dst_asn" | "as_name" | "src_country" | "dst_country" | "port" | "protocol" | "exporter"
@@ -8833,6 +8902,12 @@ export class ProbectlSDKClient {
     let path = "/v1/flows/peering-estimate"
     const query = new URLSearchParams()
     return this.requestJSON<EstimateFlowPeeringResponse>("POST", path, query, request.body)
+  }
+
+  async estimateRoutingTransfer(request: EstimateRoutingTransferRequest): Promise<EstimateRoutingTransferResponse> {
+    let path = "/v1/flows/routing-transfer-estimate"
+    const query = new URLSearchParams()
+    return this.requestJSON<EstimateRoutingTransferResponse>("POST", path, query, request.body)
   }
 
   async flowTopTalkers(request: FlowTopTalkersRequest = {}): Promise<FlowTopTalkersResponse> {
