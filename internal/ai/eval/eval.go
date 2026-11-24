@@ -142,7 +142,7 @@ func run(ctx context.Context, scenarios []Scenario, model ai.ModelAdapter) Repor
 	return rep
 }
 
-func runOne(ctx context.Context, sc Scenario, model ai.ModelAdapter) Result {
+func scenarioAnswer(ctx context.Context, sc Scenario, model ai.ModelAdapter) (ai.Answer, error) {
 	opts := []ai.Option{}
 	if len(sc.Metrics) > 0 {
 		opts = append(opts, ai.WithMetrics(staticSource{rows: sc.Metrics}))
@@ -158,7 +158,11 @@ func runOne(ctx context.Context, sc Scenario, model ai.ModelAdapter) Result {
 	}
 	analyzer := ai.NewAnalyzer(ai.NewEngine(opts...), ai.WithModel(model))
 
-	ans, err := analyzer.Analyze(ctx, evalPrincipal(), ai.Question{Text: sc.Text, Subject: sc.Subject})
+	return analyzer.Analyze(ctx, evalPrincipal(), ai.Question{Text: sc.Text, Subject: sc.Subject})
+}
+
+func runOne(ctx context.Context, sc Scenario, model ai.ModelAdapter) Result {
+	ans, err := scenarioAnswer(ctx, sc, model)
 	res := Result{Name: sc.Name}
 	if err != nil {
 		res.Err = err.Error()
@@ -217,6 +221,26 @@ func citationPrecision(ans ai.Answer, relevant []string) (cited, hit int, precis
 		return 0, 0, 0
 	}
 	return cited, hit, float64(hit) / float64(cited)
+}
+
+func citationResolution(evidence []ai.Evidence, headline []ai.Citation, findings []ai.Finding) (total, resolved int) {
+	set := make(map[string]bool, len(evidence))
+	for _, item := range evidence {
+		set[item.ID] = true
+	}
+	count := func(items []ai.Citation) {
+		total += len(items)
+		for _, item := range items {
+			if set[item.EvidenceID] {
+				resolved++
+			}
+		}
+	}
+	count(headline)
+	for _, item := range findings {
+		count(item.Citations)
+	}
+	return total, resolved
 }
 
 // summary renders the one-line score the CI log greps for.
