@@ -28,7 +28,7 @@ type BGPASPathHistorySelection struct {
 	Monitor     string
 	SourceKind  string
 	ContextID   string `json:"-"`
-	IncludeRPKI bool   `json:"-"`
+	RPKIPosture bool   `json:"-"`
 	Vantage     string
 	From, To    time.Time
 	After       *BGPASPathHistoryPosition
@@ -59,7 +59,7 @@ func validBGPASPathHistorySelection(query BGPASPathHistorySelection) bool {
 	if query.SourceKind != "" && query.SourceKind != "router_bmp" && query.SourceKind != "public_mrt" {
 		return false
 	}
-	if query.IncludeRPKI && query.ContextID == "" || query.ContextID != "" && (query.SourceKind != "router_bmp" || !bgpVisibilityID(query.ContextID)) {
+	if query.RPKIPosture && query.ContextID == "" || query.ContextID != "" && (query.SourceKind != "router_bmp" || !bgpVisibilityID(query.ContextID)) {
 		return false
 	}
 	after := query.After
@@ -104,12 +104,13 @@ func BGPASPathHistoryInScope(ctx context.Context, sc tenancy.Scope, query BGPASP
  WHERE tenant_id=$1 AND monitor_id=$2 AND observed_at>=$3 AND observed_at<$4
  AND ($5::text='' OR source_kind=$5) AND ($6::text='' OR vantage_key=$6)
  AND ($14::text='' OR context_id=NULLIF($14::text,'')::uuid)
+ AND (NOT $15::boolean OR original->>'view' IN ('loc_rib','operator_loc_rib'))
  AND observed_at<=COALESCE($7::timestamptz,$4::timestamptz)
  AND ($7::timestamptz IS NULL OR (observed_at,vantage_key,source_sequence,source_operation,id) <
      ($7::timestamptz,$8::text,$9::bigint,$10::integer,NULLIF($11::text,'')::uuid))
  ORDER BY observed_at DESC,vantage_key DESC,source_sequence DESC,source_operation DESC,id DESC LIMIT $13`,
 		sc.Tenant.String(), query.Monitor, query.From, query.To, query.SourceKind, query.Vantage, at, after.Vantage,
-		after.Sequence, after.Operation, after.ID, profile.MemoryBytes/8, query.Limit+1, query.ContextID, query.IncludeRPKI)
+		after.Sequence, after.Operation, after.ID, profile.MemoryBytes/8, query.Limit+1, query.ContextID, query.RPKIPosture)
 	if err != nil {
 		return nil, false, err
 	}

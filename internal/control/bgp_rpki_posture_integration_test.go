@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -109,6 +110,32 @@ func localPostureIRRManifest(t *testing.T, dir string, stamp time.Time) string {
 
 func TestBGPRPKIPostureUsesEachTenantsCurrentOwnedOrigin(t *testing.T) {
 	f, socket, paths, commands := seedBGPRPKIPosture(t)
+	// Inbound neighbors can offer a different origin for the same prefix.
+	// Their observations must survive in history without suppressing an exact
+	// selected-path suggestion or altering the current posture.
+	peer := netip.MustParseAddr("192.0.2.7")
+	open := internetPhysicalUpForTest(64500, 4294967295)[68:105]
+	neighbor := store.BGPRoutingViewDefinition{Kind: "adj_rib_in_post_policy", AFI: 1, SAFI: 1,
+		Peer: store.BGPRoutingPeer{ASN: 64500, Address: peer, LocalAddress: netip.MustParseAddr("192.0.2.1"),
+			BGPIdentifier: peer, SentOpen: open, ReceivedOpen: open}}
+	for lane, tenant := range f.tenants {
+		ref := seedInternetRoutingViewDefinition(t, f, tenant, uint32(64499+lane), store.BGPRouting{}, neighbor)
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		if err := tenancy.InTenantReadSnapshot(ctx, f.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var count int
+			if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_as_path_history WHERE tenant_id=$1
+ AND context_id=$2 AND monitor_id=$3 AND source_epoch=$4 AND original->>'view'='adj_rib_in_post_policy' AND current_path IS NOT NULL`,
+				tenant, f.contextID, commands[lane]["id"], ref.Generation).Scan(&count); err != nil {
+				return err
+			}
+			if count != 1 {
+				return fmt.Errorf("expected one retained neighbor path, got %d", count)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var hijacks [2]string
 	for lane, tenant := range f.tenants {
 		clock := f.observedAt(tenant)

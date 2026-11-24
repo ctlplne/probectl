@@ -57,8 +57,9 @@ read permissions.
 
 Open **RPKI posture** for the monitored prefix and select the routing context
 that owns the same network in inventory. The view uses complete, current
-owned BMP sources. A complete local validator distinguishes a valid origin,
-an invalid origin or prefix length, and an announcement with no covering
+router-selected routes from owned BMP sources. Per-neighbor observations are
+available in AS path history. A complete local validator distinguishes a valid
+origin, an invalid origin or prefix length, and an announcement with no covering
 authorization. Unavailable validator evidence or an ambiguous path origin
 shows as unknown.
 

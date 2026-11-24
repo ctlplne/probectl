@@ -50,7 +50,8 @@ type bgpRPKICurrentPosture struct {
 }
 
 // readBGPRPKICurrentInScope uses retained history to identify authorized
-// sources. Every displayed path comes from the still-current, complete view.
+// sources. The retained and current populations use the same router-selected
+// view kinds. Neighbor views still belong to the separate AS path history.
 func (s *Server) readBGPRPKICurrentInScope(ctx context.Context, sc tenancy.Scope, actor *auth.Principal,
 	target bgpRPKIPostureTarget, intendedOrigin uint32, from, at time.Time, limit int, budget store.BGPRoutingBudget) (bgpRPKICurrentPosture, error) {
 	var empty bgpRPKICurrentPosture
@@ -58,7 +59,7 @@ func (s *Server) readBGPRPKICurrentInScope(ctx context.Context, sc tenancy.Scope
 		return empty, tenancy.ErrNoTenant
 	}
 	query := store.BGPASPathHistorySelection{Monitor: target.Monitor.ID, ContextID: target.Context.ContextID, SourceKind: "router_bmp",
-		From: from, To: at, Limit: limit, IncludeRPKI: true}
+		From: from, To: at, Limit: limit, RPKIPosture: true}
 	records, partial, err := store.BGPASPathHistoryInScope(ctx, sc, query, budget)
 	if err != nil {
 		return empty, err

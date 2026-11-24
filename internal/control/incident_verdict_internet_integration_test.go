@@ -43,6 +43,11 @@ func seedInternetRoutingViewWithStore(t *testing.T, f *roleExplanationAPIFixture
 	raw := internetPhysicalUpForTest(64500, 4294967295)
 	open := append([]byte(nil), raw[68:105]...)
 	definition := store.BGPRoutingViewDefinition{Kind: "loc_rib", AFI: 1, SAFI: 1, Peer: store.BGPRoutingPeer{Type: 3, ASN: 64500, BGPIdentifier: netip.MustParseAddr("192.0.2.1"), SentOpen: open, ReceivedOpen: append([]byte(nil), open...)}}
+	return seedInternetRoutingViewDefinition(t, f, tenant, origin, routing, definition)
+}
+
+func seedInternetRoutingViewDefinition(t *testing.T, f *roleExplanationAPIFixture, tenant string, origin uint32, routing store.BGPRouting, definition store.BGPRoutingViewDefinition) store.BGPRoutingStagedView {
+	t.Helper()
 	profile := store.BGPRoutingBudget{MemoryBytes: 64 << 20, WorkUnits: 64 << 20, StateBytes: 128 << 20, LeaseDuration: 5 * time.Minute}
 	input := store.BGPRoutingPeerUpInput{CollectorAgentID: "role-listener", SenderSerial: f.serials[tenant+"role-listener"], SourceRef: "role-router", OriginSerial: f.serials[tenant+"role-router"], ObservationID: gouuid.NewString(), ObservedAt: f.observedAt(tenant), FrameDigest: crypto.Hash([]byte("modeled routing view " + tenant)), Definitions: []store.BGPRoutingViewDefinition{definition}}
 	write := func(fn func(context.Context, tenancy.Scope) error) {
