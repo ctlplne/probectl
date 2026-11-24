@@ -141,8 +141,10 @@ func (store BGPRouting) LookupRouterFailureInScope(ctx context.Context, sc tenan
 		return none, err
 	}
 	out := BGPRoutingFailureLookup{Selected: selected}
-	peers, err := (&InterfaceRoleInputsStore{}).RouterPeersInScope(ctx, sc, scope, router,
-		entity.InterfaceRolePolicyBudget{MemoryBytes: portioned.MemoryBytes, WorkUnits: portioned.WorkUnits})
+	// An authenticated session down removes the peer from the expected set.
+	// A monitoring withdrawal can hide a path that is still forwarding.
+	peers, err := (&InterfaceRoleInputsStore{}).routerPeersInScope(ctx, sc, scope, router,
+		entity.InterfaceRolePolicyBudget{MemoryBytes: portioned.MemoryBytes, WorkUnits: portioned.WorkUnits}, true)
 	if err != nil {
 		return none, err
 	}

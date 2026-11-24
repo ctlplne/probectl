@@ -39,6 +39,10 @@ type routingNextHopPeer struct {
 // predicate for an independently resolved canonical router, without pretending
 // that an observed BGP relationship establishes a live session.
 func (s *InterfaceRoleInputsStore) RouterPeersInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, routerID string, budget entity.InterfaceRolePolicyBudget) ([]InterfaceRolePeerInput, error) {
+	return s.routerPeersInScope(ctx, sc, scope, routerID, budget, false)
+}
+
+func (*InterfaceRoleInputsStore) routerPeersInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, routerID string, budget entity.InterfaceRolePolicyBudget, currentSessions bool) ([]InterfaceRolePeerInput, error) {
 	want, err := scope.Normalize()
 	tenant, ok := tenancy.FromContext(ctx)
 	if err != nil || want != scope || !ok || tenant != sc.Tenant || tenant.String() != want.TenantID || sc.Q == nil {
@@ -55,7 +59,7 @@ func (s *InterfaceRoleInputsStore) RouterPeersInScope(ctx context.Context, sc te
 	if err := sc.Q.QueryRow(ctx, `SELECT 1 FROM entities WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND kind='device'`, want.TenantID, want.ContextID, routerID).Scan(&present); err != nil {
 		return nil, err
 	}
-	return loadInterfaceRolePeerInputs(ctx, sc, InterfaceRoleInputs{Scope: want, RouterID: routerID}, &admission)
+	return loadInterfaceRolePeerInputs(ctx, sc, InterfaceRoleInputs{Scope: want, RouterID: routerID}, &admission, currentSessions)
 }
 
 func routingNextHopFields(ctx context.Context, paths []BGPRoutingChange, peers []InterfaceRolePeerInput, budget entity.InterfaceRolePolicyBudget) ([]BGPRoutingNextHopAS, error) {

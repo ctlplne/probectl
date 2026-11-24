@@ -50,6 +50,98 @@ func TestFRROwnedAnnouncementsRetainOriginalRPKIValidation(t *testing.T) {
 	proveFRRSelectedRIB(t, false, false, true)
 }
 
+// The stock FRR source sends its actual Peer Up, route updates and End-of-RIB
+// for both links through independently enrolled listeners. The lab changes
+// the forwarding state only after both tenants have their own complete views.
+func TestFRROwnedNeighborAlternativesKeepBothLinksAndTwoTenants(t *testing.T) {
+	lab := startRoutingLabNamed(t, "probectl-qa-beta-fx11-bmp-"+strconv.FormatInt(time.Now().UnixNano()%1e8, 36))
+	alternate := addRoleRouterLink(t, lab, "alternate", "edge", 234, edgeASN, entity.InterfaceRoleTransit)
+	primaryPeer := netip.MustParseAddr(lab.ip["edge"])
+	alternatePeer := netip.MustParseAddr(alternate.peerIP)
+	router := lab.container("rtr-a")
+	lab.docker(t, "exec", router, "vtysh", "-c", "configure terminal",
+		"-c", "route-map FX11-PRIMARY permit 10", "-c", "set local-preference 200", "-c", "exit",
+		"-c", "router bgp "+strconv.Itoa(rtrAASN), "-c", "no neighbor "+alternate.peerIP6,
+		"-c", "address-family ipv4 unicast", "-c", "neighbor "+primaryPeer.String()+" route-map FX11-PRIMARY in", "-c", "exit-address-family",
+		"-c", "bmp targets probectl", "-c", "bmp monitor ipv4 unicast loc-rib", "-c", "bmp stats interval 1000", "-c", "end")
+	lab.docker(t, "exec", router, "vtysh", "-c", "clear bgp "+primaryPeer.String()+" soft in")
+	st := shipped.Start(t, shipped.Options{Name: "fx11-neighbors", TenantBand: 4})
+	first := registerEdgeFlowEvidence(t, st, lab.ip["rtr-a"])
+	second := registerSecondRouterTenant(t, st, first)
+	lanes := []edgeFlowRegistration{first, second}
+	pool := st.ApplicationReadPool(t)
+	for lane, reg := range lanes {
+		listener := startRouterBMPEvidenceListenerNamed(t, st, lab, reg, reg.deviceID, "fx11-"+strconv.Itoa(lane))
+		putFRRSelectedRIBBinding(t, st, reg, listener, lab.ip["rtr-a"], "", true, 1)
+		listener.reconnectBMP()
+		t.Cleanup(func() {
+			if t.Failed() {
+				logFRRRoutingState(t, pool, reg)
+				logRoleRouterPeerAuthority(t, pool, reg)
+			}
+		})
+	}
+	for _, reg := range lanes {
+		const address = "203.0.113.1"
+		awaitFRRSelectedPath(t, pool, reg, address, prefixA, []uint32{edgeASN, originA}, primaryPeer)
+		awaitFRROwnedAlternates(t, pool, reg, address, map[netip.Addr]netip.Addr{
+			primaryPeer: netip.MustParseAddr(lab.ip["rtr-a"]), alternatePeer: netip.MustParseAddr(alternate.routerIP),
+		})
+	}
+	if err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(first.tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var foreign int
+		if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE tenant_id=$1 AND view_kind='adj_rib_in_post_policy'`, second.tenantID).Scan(&foreign); err != nil {
+			return err
+		}
+		if foreign != 0 {
+			return fmt.Errorf("app-role storage disclosed %d foreign neighbor views", foreign)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The base Docker link still carries the collector connection. Stop just
+	// that owned BGP session and verify the surviving view stays usable.
+	lab.docker(t, "exec", router, "vtysh", "-c", "configure terminal", "-c", "router bgp "+strconv.Itoa(rtrAASN),
+		"-c", "neighbor "+primaryPeer.String()+" shutdown", "-c", "end")
+	for _, reg := range lanes {
+		awaitFRRSelectedPath(t, pool, reg, "203.0.113.1", prefixA, []uint32{edgeASN, originA}, alternatePeer)
+		awaitFRROwnedAlternates(t, pool, reg, "203.0.113.1", map[netip.Addr]netip.Addr{alternatePeer: netip.MustParseAddr(alternate.routerIP)})
+	}
+}
+
+func awaitFRROwnedAlternates(t *testing.T, pool *pgxpool.Pool, reg edgeFlowRegistration, address string, peers map[netip.Addr]netip.Addr) {
+	t.Helper()
+	var last error
+	defer func() {
+		if last != nil {
+			t.Logf("last original FRR alternative lookup: %v", last)
+		}
+	}()
+	destination := netip.MustParseAddr(address)
+	scope := entity.Scope{TenantID: reg.tenantID, ContextID: reg.contextID}
+	shipped.Await(t, "all original complete post-policy FRR paths in the owning tenant", time.Minute, func() bool {
+		last = tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(reg.tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			budget := store.BGPRoutingBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20, StateBytes: 1 << 30}
+			view, err := (store.BGPRouting{}).LookupRouterFailureInScope(ctx, sc, scope, reg.deviceID, destination, budget)
+			if err != nil {
+				return err
+			}
+			if !view.Complete || len(view.Neighbors) != len(peers) {
+				return fmt.Errorf("wanted %d complete owned neighbors, have %d (complete=%v)", len(peers), len(view.Neighbors), view.Complete)
+			}
+			for _, candidate := range view.Neighbors {
+				if peers[candidate.Peer] != candidate.Local || candidate.Route.Source.Scope != scope || candidate.Route.Source.RouterID != reg.deviceID ||
+					candidate.Route.Prefix.String() != prefixA || len(candidate.Route.Paths) != 1 || !slices.Contains(candidate.Route.Paths[0].NextHops, candidate.Peer) {
+					return fmt.Errorf("no original next hop for the expected owned peer %v", candidate.Peer)
+				}
+			}
+			return nil
+		})
+		return last == nil
+	})
+}
+
 func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory, rpki bool) {
 	t.Helper()
 	// The history test reaches the real speakers through the lab's published
@@ -196,11 +288,14 @@ func logFRRSelectedRouterTables(t *testing.T, lab *routingLab) {
 	}
 }
 
-func putFRRSelectedRIBBinding(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, listener *bgpTenant, identifier, epoch string, enabled bool) store.BGPRoutingBindingConfiguration {
+func putFRRSelectedRIBBinding(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, listener *bgpTenant, identifier, epoch string, enabled bool, families ...uint16) store.BGPRoutingBindingConfiguration {
 	t.Helper()
 	bindings := []store.BGPRoutingBinding{}
 	if enabled {
-		bindings = append(bindings, store.BGPRoutingBinding{ContextID: reg.contextID, RouterID: reg.deviceID, Distinguisher: "0000000000000000", BGPIdentifier: identifier, Families: []uint16{1, 2}, SourceFormat: store.BGPRoutingSourceFRRLocRIBV1})
+		if len(families) == 0 {
+			families = []uint16{1, 2}
+		}
+		bindings = append(bindings, store.BGPRoutingBinding{ContextID: reg.contextID, RouterID: reg.deviceID, Distinguisher: "0000000000000000", BGPIdentifier: identifier, Families: families, SourceFormat: store.BGPRoutingSourceFRRLocRIBV1})
 	}
 	code, body := st.Do(t, reg.cookie, http.MethodPut, "/v1/entity-contexts/"+reg.contextID+"/bgp-routing-bindings", map[string]any{"collector_agent_id": listener.collectorID, "source_ref": listener.routerID, "expected_epoch": epoch, "bindings": bindings})
 	var got store.BGPRoutingBindingConfiguration

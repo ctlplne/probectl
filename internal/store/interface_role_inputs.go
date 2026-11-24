@@ -142,7 +142,7 @@ func (s *InterfaceRoleInputsStore) LoadInScope(ctx context.Context, sc tenancy.S
 		if err != nil {
 			return err
 		}
-		out.Peers, err = loadInterfaceRolePeerInputs(ctx, sc, out, &admission)
+		out.Peers, err = loadInterfaceRolePeerInputs(ctx, sc, out, &admission, false)
 		return err
 	}()
 	if err != nil {
