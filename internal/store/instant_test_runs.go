@@ -95,11 +95,14 @@ func (InstantTestRuns) Create(ctx context.Context, sc tenancy.Scope, in InstantR
 		in.IdempotencyKey, in.RequestHash, in.DefinitionHash, in.Test.ID, in.Test.UpdatedAt, in.RequestedWithMFA).
 		Scan(&out.ID, &out.TestID, &out.CreatedAt, &out.DispatchUntil)
 	if errors.Is(err, pgx.ErrNoRows) {
-		retry, found, err := lookupInstantRunRetry(ctx, sc, tenant, in)
-		if err == nil && !found {
-			err = ErrInstantRunUnavailable
+		retry, found, lookupErr := lookupInstantRunRetry(ctx, sc, tenant, in)
+		if lookupErr != nil {
+			return InstantRunSummary{}, false, lookupErr
 		}
-		return retry, false, err
+		if !found {
+			return InstantRunSummary{}, false, ErrInstantRunUnavailable
+		}
+		return retry, false, nil
 	}
 	if err != nil {
 		return InstantRunSummary{}, false, err
