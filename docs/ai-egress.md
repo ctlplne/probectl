@@ -21,6 +21,8 @@ adapter construction; credentials belong in the dedicated secret-backed model
 token setting, never in the URL. Validation errors do not echo the rejected
 endpoint. Endpoint provenance written to logs or the immutable egress audit is
 sanitized again at the sink: userinfo, query strings, and fragments are removed.
+Configure the provider's final endpoint. Model requests stop at HTTP redirects,
+which are reported as provider failures.
 
 This page is the **disclosure** of exactly what leaves, and the three
 independent controls that stand in front of it — two locks (nothing leaves

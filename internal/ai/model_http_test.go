@@ -20,6 +20,30 @@ import (
 	"github.com/ctlplne/probectl/internal/httpbody"
 )
 
+func TestHTTPModelKeepsConfiguredDestination(t *testing.T) {
+	for _, endpoint := range []string{"http://127.0.0.1:11434", "https://model.example"} {
+		t.Run(endpoint, func(t *testing.T) {
+			model, err := NewHTTPModel(HTTPModelConfig{Kind: KindOllama, Endpoint: endpoint})
+			if err != nil {
+				t.Fatal(err)
+			}
+			original, err := http.NewRequest(http.MethodPost, endpoint+"/api/chat", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, destination := range []string{endpoint + "/chat", "https://elsewhere.example/chat"} {
+				next, err := http.NewRequest(http.MethodPost, destination, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := model.client.CheckRedirect(next, []*http.Request{original}); !errors.Is(err, http.ErrUseLastResponse) {
+					t.Errorf("configured destination policy returned %v, want terminal redirect", err)
+				}
+			}
+		})
+	}
+}
+
 // A local Ollama server (loopback, plaintext) — the air-gapped path. Proves the
 // HTTP adapter works with no cloud and no TLS to a co-located model.
 func TestHTTPModelOllamaAirGapped(t *testing.T) {

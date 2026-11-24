@@ -95,6 +95,11 @@ func NewHTTPModel(cfg HTTPModelConfig) (*HTTPModel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ai: model CA file: %w", err)
 	}
+	// The consent and redaction decision applies to the configured provider
+	// endpoint. A provider response cannot choose where synthesis is sent.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 	return &HTTPModel{
 		kind:     cfg.Kind,
 		endpoint: strings.TrimRight(u.String(), "/"),
