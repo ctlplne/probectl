@@ -45,6 +45,13 @@ jobs:
       contents: read
       actions: read
     name: require green ci on the tagged sha
+    outputs:
+      rca_answer_accuracy: ${{ steps.rca.outputs.answer_accuracy_pct }}
+      rca_citation_precision: ${{ steps.rca.outputs.citation_precision_pct }}
+      rca_scenarios: ${{ steps.rca.outputs.scenario_count }}
+      rca_positive: ${{ steps.rca.outputs.positive_count }}
+      rca_abstentions: ${{ steps.rca.outputs.abstention_count }}
+      rca_resolved_citations: ${{ steps.rca.outputs.resolved_citations }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -60,6 +67,7 @@ jobs:
           fi
           echo "releasing tag ${GITHUB_REF_NAME}"
       - name: ci workflow must be green for ${{ github.sha }}
+        id: ci
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -67,11 +75,14 @@ jobs:
           echo "tag ${GITHUB_REF_NAME} -> commit ${GITHUB_SHA}"
           for attempt in $(seq 1 60); do # up to ~30 minutes for an in-flight run
             run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&per_page=1" \
-              --jq '.workflow_runs[0] | if . == null then "none none" else "\(.status) \(.conclusion)" end')"
-            read -r status conclusion <<<"${run}"
+              --jq '.workflow_runs[0] | if . == null then "none none none" else "\(.status) \(.conclusion // "pending") \(.id)" end')"
+            read -r status conclusion run_id <<<"${run}"
             case "${status}/${conclusion}" in
               completed/success)
-                echo "ci is green on ${GITHUB_SHA}"; exit 0 ;;
+                echo "ci is green on ${GITHUB_SHA}"
+                [[ "${run_id}" =~ ^[0-9]+$ ]]
+                echo "run_id=${run_id}" >> "${GITHUB_OUTPUT}"
+                exit 0 ;;
               completed/*)
                 echo "::error::ci concluded '${conclusion}' on ${GITHUB_SHA} — refusing to release an untested/red commit (U-083)."; exit 1 ;;
               none/*)
@@ -82,6 +93,22 @@ jobs:
           done
           echo "::error::timed out waiting for ci to complete on ${GITHUB_SHA}."
           exit 1
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Verify the exact builtin RCA report and publish its scores
+        id: rca
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ steps.ci.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          report_dir="$(mktemp -d "${RUNNER_TEMP}/rca-report.XXXXXXXX")"
+          gh run download "${CI_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name rca-eval-report --dir "${report_dir}"
+          python3 scripts/check_rca_release.py --report "${report_dir}/rca-eval-report.json" \
+            --baseline internal/ai/eval/release-baseline.json --sha "${GITHUB_SHA}" --github-output "${GITHUB_OUTPUT}"
 
   # CL-001: ordinary CI validates and renders an honest inventory even while
   # declared not-done gaps remain. A release is stricter: no image, binary, or
@@ -507,6 +534,12 @@ jobs:
         env:
           GAPS: ${{ needs.completeness-release-gate.outputs.gaps }}
           PRERELEASE: ${{ needs.completeness-release-gate.outputs.prerelease }}
+          RCA_ANSWER_ACCURACY: ${{ needs.require-green-ci.outputs.rca_answer_accuracy }}
+          RCA_CITATION_PRECISION: ${{ needs.require-green-ci.outputs.rca_citation_precision }}
+          RCA_SCENARIOS: ${{ needs.require-green-ci.outputs.rca_scenarios }}
+          RCA_POSITIVE: ${{ needs.require-green-ci.outputs.rca_positive }}
+          RCA_ABSTENTIONS: ${{ needs.require-green-ci.outputs.rca_abstentions }}
+          RCA_RESOLVED: ${{ needs.require-green-ci.outputs.rca_resolved_citations }}
         run: |
           set -euo pipefail
           {
@@ -522,6 +555,13 @@ jobs:
               echo "> capability has concrete proof or an approved none-by-design disposition for all"
               echo "> ten wiring-spine cells."
             fi
+            echo
+            echo "### Builtin root-cause evaluation"
+            echo
+            echo "- Answer accuracy **${RCA_ANSWER_ACCURACY}%** across ${RCA_POSITIVE} positive scenarios."
+            echo "- Citation precision **${RCA_CITATION_PRECISION}%** across the same positive scenarios."
+            echo "- All ${RCA_RESOLVED} published citations resolved. The ${RCA_SCENARIOS} scenarios included ${RCA_ABSTENTIONS} expected abstentions."
+            echo "- [Reproduce the evaluation](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/docs/releasing.md#root-cause-evaluation)."
           } > release-note.md
           cat release-note.md
       - name: Create GitHub release

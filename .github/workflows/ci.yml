@@ -447,7 +447,11 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Run the RCA eval set (U-049)
-        run: PROBECTL_RCA_EVAL_REPORT=$PWD/rca-eval-report.json go test -count=1 -v -run TestRCAEval ./internal/ai/eval/ | tee rca-eval.log
+        env:
+          PROBECTL_RCA_EVAL_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          PROBECTL_RCA_EVAL_REPORT=$PWD/rca-eval-report.json go test -count=1 -v -run TestRCAEval ./internal/ai/eval/ | tee rca-eval.log
       - name: Enforce the quality floor (TEST-003 — answer_accuracy >= 0.85 AND citation_precision >= 0.85)
         run: |
           python3 - <<'EOF'

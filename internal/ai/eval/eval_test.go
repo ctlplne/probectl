@@ -31,13 +31,20 @@ func TestRCAEval(t *testing.T) {
 	}
 
 	rep := run(context.Background(), scenarios, nil)
+	rep.Commit = os.Getenv("PROBECTL_RCA_EVAL_COMMIT")
 
 	if len(rep.Results) != len(scenarios) {
 		t.Fatalf("scored %d of %d scenarios", len(rep.Results), len(scenarios))
 	}
-	for _, r := range rep.Results {
+	for i, r := range rep.Results {
 		if r.Err != "" {
 			t.Errorf("scenario %s errored: %s", r.Name, r.Err)
+		}
+		if r.PublishedResolved != r.PublishedCitations {
+			t.Errorf("scenario %s published %d unresolved citations", r.Name, r.PublishedCitations-r.PublishedResolved)
+		}
+		if r.ExpectInsufficient && len(scenarios[i].RelevantTitles) > 0 && r.Relevant == 0 {
+			t.Errorf("scenario %s abstained without grounding the available context", r.Name)
 		}
 	}
 	// The harness itself must discriminate: a 0.0 across the board means the

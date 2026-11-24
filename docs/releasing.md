@@ -193,3 +193,30 @@ Dependency and image vulnerability scanning run in CI on every PR
 ([`.github/workflows/security-scan.yml`](../.github/workflows/security-scan.yml)),
 so a vulnerable pin surfaces even when no release is in flight. For how to verify
 a downloaded artifact, see [`ops/verify-artifacts.md`](ops/verify-artifacts.md).
+
+
+## Root-cause evaluation
+
+Release notes report the builtin model's answer accuracy and mean citation
+precision on the tagged commit, plus the number of published citations and
+expected abstentions. The evaluated scenarios include controlled network lab
+incidents and records from the shipped test stack. Each case uses a synthetic
+or de-identified fixture. Accuracy is the fraction of positive scenarios whose
+answer names the expected observation. Citation precision measures how many
+cited evidence items are relevant. The gate also checks that all citations
+resolve to evidence in their own answer.
+
+The release checks the exact tagged CI run's report. Both scores must stay
+within five percentage points of the measured builtin baseline on the full
+suite and on the same historical scenarios. Ordinary CI retains the 0.85
+absolute floors. The case list and baseline observation are committed beside
+the evaluator.
+
+To reproduce the scores, check out the release tag and run
+
+```bash
+PROBECTL_RCA_EVAL_COMMIT="$(git rev-parse HEAD)" PROBECTL_RCA_EVAL_REPORT="$PWD/rca-eval-report.json" \
+  go test -count=1 -run '^TestRCAEval$' ./internal/ai/eval
+python3 scripts/check_rca_release.py --report rca-eval-report.json \
+  --baseline internal/ai/eval/release-baseline.json --sha "$(git rev-parse HEAD)"
+```

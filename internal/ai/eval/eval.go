@@ -56,15 +56,18 @@ type Scenario struct {
 
 // Result is one scenario's score.
 type Result struct {
-	Name              string  `json:"name"`
-	AnswerCorrect     bool    `json:"answer_correct"`
-	CitationPrecision float64 `json:"citation_precision"` // NaN-free: 1.0 when nothing cited and nothing expected
-	Cited             int     `json:"cited"`
-	Relevant          int     `json:"relevant_cited"`
-	Insufficient      bool    `json:"insufficient"`
-	Confidence        string  `json:"confidence"`
-	RootCause         string  `json:"root_cause"`
-	Err               string  `json:"error,omitempty"`
+	Name               string  `json:"name"`
+	AnswerCorrect      bool    `json:"answer_correct"`
+	ExpectInsufficient bool    `json:"expect_insufficient"`
+	PublishedCitations int     `json:"published_citations"`
+	PublishedResolved  int     `json:"published_resolved_citations"`
+	CitationPrecision  float64 `json:"citation_precision"` // NaN-free: 1.0 when nothing cited and nothing expected
+	Cited              int     `json:"cited"`
+	Relevant           int     `json:"relevant_cited"`
+	Insufficient       bool    `json:"insufficient"`
+	Confidence         string  `json:"confidence"`
+	RootCause          string  `json:"root_cause"`
+	Err                string  `json:"error,omitempty"`
 }
 
 // Report is the aggregate the CI job tracks as an artifact.
@@ -74,6 +77,7 @@ type Report struct {
 	MeanCitationPrecision float64  `json:"mean_citation_precision"`
 	HonestyPass           bool     `json:"honesty_pass"` // every negative control said "insufficient"
 	Model                 string   `json:"model"`
+	Commit                string   `json:"commit,omitempty"`
 	Results               []Result `json:"results"`
 }
 
@@ -163,7 +167,7 @@ func scenarioAnswer(ctx context.Context, sc Scenario, model ai.ModelAdapter) (ai
 
 func runOne(ctx context.Context, sc Scenario, model ai.ModelAdapter) Result {
 	ans, err := scenarioAnswer(ctx, sc, model)
-	res := Result{Name: sc.Name}
+	res := Result{Name: sc.Name, ExpectInsufficient: sc.ExpectInsufficient}
 	if err != nil {
 		res.Err = err.Error()
 		return res
@@ -171,8 +175,9 @@ func runOne(ctx context.Context, sc Scenario, model ai.ModelAdapter) Result {
 	res.Insufficient = ans.InsufficientEvidence
 	res.Confidence = string(ans.Confidence)
 	res.RootCause = ans.RootCause
-	res.AnswerCorrect = answerMatches(ans.RootCause, sc.ExpectLabels)
+	res.AnswerCorrect = !res.Insufficient && answerMatches(ans.RootCause, sc.ExpectLabels)
 	res.Cited, res.Relevant, res.CitationPrecision = citationPrecision(ans, sc.RelevantTitles)
+	res.PublishedCitations, res.PublishedResolved = citationResolution(ans.Evidence, ans.RootCauseCitations, ans.Findings)
 	return res
 }
 

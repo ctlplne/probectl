@@ -37,10 +37,11 @@ func distractor() ai.Row {
 // (mis-ranking traps marked HARD) so the score discriminates — a perfect 1.0
 // would mean the set is too easy to catch regressions.
 func Scenarios() []Scenario {
-	scenarios := make([]Scenario, 0, 25)
+	scenarios := make([]Scenario, 0, 37)
 	scenarios = append(scenarios, baselineScenarios()...)
 	scenarios = append(scenarios, operationsScenarios()...)
 	scenarios = append(scenarios, adversarialScenarios()...)
+	scenarios = append(scenarios, labScenarios()...)
 	return scenarios
 }
 

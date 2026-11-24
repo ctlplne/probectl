@@ -1,0 +1,160 @@
+{
+  "commit": "7a38e4970183244a6042e50a16332de5d583c102",
+  "ci_run": 45365639449,
+  "model": "builtin",
+  "answer_accuracy": 0.9166666666666666,
+  "mean_citation_precision": 0.9166666666666666,
+  "max_absolute_drop": 0.05,
+  "cases": [
+    {
+      "name": "adversarial-bgp-near-duplicate-event-time",
+      "expect_insufficient": false
+    },
+    {
+      "name": "autoscaler-cost-spike",
+      "expect_insufficient": false
+    },
+    {
+      "name": "bgp-prefix-hijack",
+      "expect_insufficient": false
+    },
+    {
+      "name": "bgp-route-withdrawal",
+      "expect_insufficient": false
+    },
+    {
+      "name": "cdn-origin-unreachable",
+      "expect_insufficient": false
+    },
+    {
+      "name": "config-push-broke-dns",
+      "expect_insufficient": false
+    },
+    {
+      "name": "db-failover-change",
+      "expect_insufficient": false
+    },
+    {
+      "name": "deploy-caused-latency",
+      "expect_insufficient": false
+    },
+    {
+      "name": "device-interface-down",
+      "expect_insufficient": false
+    },
+    {
+      "name": "dns-divergence-threat",
+      "expect_insufficient": false
+    },
+    {
+      "name": "expired-tls-cert",
+      "expect_insufficient": false
+    },
+    {
+      "name": "firewall-rule-block",
+      "expect_insufficient": false
+    },
+    {
+      "name": "hard-bgp-cause-with-change-noise",
+      "expect_insufficient": false
+    },
+    {
+      "name": "hard-two-changes-one-cause",
+      "expect_insufficient": false
+    },
+    {
+      "name": "ix-maintenance-reroute",
+      "expect_insufficient": false
+    },
+    {
+      "name": "kernel-upgrade-flow-gap",
+      "expect_insufficient": false
+    },
+    {
+      "name": "mtls-ca-rotation-breakage",
+      "expect_insufficient": false
+    },
+    {
+      "name": "negative-control-no-signals",
+      "expect_insufficient": true
+    },
+    {
+      "name": "peer-session-flap",
+      "expect_insufficient": false
+    },
+    {
+      "name": "release-slo-burn",
+      "expect_insufficient": false
+    },
+    {
+      "name": "rollout-l7-error-spike",
+      "expect_insufficient": false
+    },
+    {
+      "name": "route-leak-upstream",
+      "expect_insufficient": false
+    },
+    {
+      "name": "symptom-only-latency",
+      "expect_insufficient": false
+    },
+    {
+      "name": "syn-flood-anomaly",
+      "expect_insufficient": false
+    },
+    {
+      "name": "transit-path-loss",
+      "expect_insufficient": false
+    }
+  ],
+  "required_lab_cases": [
+    {
+      "name": "lab-fx09-tagged-prefix-impact",
+      "expect_insufficient": false
+    },
+    {
+      "name": "lab-fx10-routed-hop-error-climb",
+      "expect_insufficient": false
+    },
+    {
+      "name": "lab-fx11-surviving-link-load",
+      "expect_insufficient": false
+    },
+    {
+      "name": "lab-fx12-withdrawal-and-recovery",
+      "expect_insufficient": false
+    },
+    {
+      "name": "lab-fx13-local-network",
+      "expect_insufficient": false
+    },
+    {
+      "name": "lab-fx13-owned-carrier-handoff",
+      "expect_insufficient": false
+    },
+    {
+      "name": "lab-fx13-wider-internet",
+      "expect_insufficient": false
+    },
+    {
+      "name": "lab-fx13-remote-service-error",
+      "expect_insufficient": false
+    },
+    {
+      "name": "lab-fx13-thin-verdict",
+      "expect_insufficient": true
+    },
+    {
+      "name": "lab-fx14-incomplete-vantage-coverage",
+      "expect_insufficient": true
+    },
+    {
+      "name": "qa-g4a-cold-stack-hijack-outage",
+      "expect_insufficient": false
+    },
+    {
+      "name": "qa-f13-route-leak-with-service-up",
+      "expect_insufficient": false
+    }
+  ]
+}
