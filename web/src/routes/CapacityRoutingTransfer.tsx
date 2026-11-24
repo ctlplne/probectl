@@ -239,7 +239,8 @@ function HandoffFields({
 }) {
   const available = agreements.filter((item) => item.target_present)
   const selected = handoff.agreement
-  if (selected && !available.some((item) => agreementKey(item) === agreementKey(selected))) available.unshift(selected)
+  if (selected && !available.some((item) => agreementKey(item) === agreementKey(selected)))
+    available.unshift(selected)
   function changeBound(index: number, key: keyof CapacityPhysicalBound, value: string) {
     onChange({
       ...handoff,
@@ -384,8 +385,16 @@ function TransferResult({ result }: { result: RoutingTransferResponse }) {
             { key: 'name', header: 'Handoff', render: (row) => row.name },
             { key: 'before', header: 'Before', render: (row) => charge(row.bill.before) },
             { key: 'after', header: 'After', render: (row) => charge(row.bill.after) },
-            { key: 'before-p95', header: 'Before p95', render: (row) => percentile(row.bill.before_p95) },
-            { key: 'after-p95', header: 'After p95', render: (row) => percentile(row.bill.after_p95) },
+            {
+              key: 'before-p95',
+              header: 'Before p95',
+              render: (row) => percentile(row.bill.before_p95),
+            },
+            {
+              key: 'after-p95',
+              header: 'After p95',
+              render: (row) => percentile(row.bill.after_p95),
+            },
           ]}
         />
       )}

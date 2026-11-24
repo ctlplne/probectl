@@ -406,9 +406,7 @@ export function ResultDetail({ test, onClose }: { test: Test; onClose: () => voi
             <TypedBreakdown r={r} />
             {r.type === 'browser' &&
               a(r, 'browser.driver') === 'browser' &&
-              a(r, 'probectl.test.id') === test.id && (
-                <BrowserVitals latest={r} testID={test.id} />
-              )}
+              a(r, 'probectl.test.id') === test.id && <BrowserVitals latest={r} testID={test.id} />}
           </div>
         ))
       )}

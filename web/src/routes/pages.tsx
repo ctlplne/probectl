@@ -62,9 +62,14 @@ function testTypeLabel(test: Test): string {
   try {
     const script: unknown = JSON.parse(test.params?.script || '{}')
     if (script && typeof script === 'object' && 'steps' in script && Array.isArray(script.steps)) {
-      if (script.steps.some((step: unknown) =>
-        Boolean(step && typeof step === 'object' && 'action' in step && step.action === 'request'),
-      )) return 'API transaction'
+      if (
+        script.steps.some((step: unknown) =>
+          Boolean(
+            step && typeof step === 'object' && 'action' in step && step.action === 'request',
+          ),
+        )
+      )
+        return 'API transaction'
     }
   } catch {
     return 'HTTP transaction'
@@ -146,7 +151,8 @@ function CreateTestModal({
         return
       }
     }
-    const params = driver && script ? { script, browser_driver: driver, ...privateParam } : privateParam
+    const params =
+      driver && script ? { script, browser_driver: driver, ...privateParam } : privateParam
     create.mutate(
       {
         name,
