@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -148,9 +149,14 @@ func staticDocumentSemanticText(body []byte, doc reporting.Document) (string, er
 		return "", fmt.Errorf("PDF has no complete semantic pages")
 	}
 	header := reporting.Banner + "Tenant: " + doc.TenantName + " (" + doc.TenantScope + ")" + "Absolute time: " + doc.AbsoluteFrom.UTC().Format(time.RFC3339Nano) + " to " + doc.AbsoluteTo.UTC().Format(time.RFC3339Nano)
+	footerPrefix := ""
+	if doc.BrandName != "" {
+		header = doc.BrandName + branding.Attribution + header
+		footerPrefix = branding.Attribution + " · "
+	}
 	var text strings.Builder
 	for i, page := range pages {
-		footer := fmt.Sprintf("Page %d of %d", i+1, len(pages))
+		footer := fmt.Sprintf("%sPage %d of %d", footerPrefix, i+1, len(pages))
 		if !strings.HasPrefix(page, header) || !strings.HasSuffix(page, footer) || len(page) < len(header)+len(footer) {
 			return "", fmt.Errorf("PDF page %d has incomplete or conflicting tenant header/footer", i+1)
 		}
@@ -184,7 +190,7 @@ func TestStaticSemanticReaderRejoinsPagesWithoutDroppingDocumentText(t *testing.
 	header := reporting.Banner + "Tenant: " + doc.TenantName + " (" + doc.TenantScope + ")" + "Absolute time: " + doc.AbsoluteFrom.UTC().Format(time.RFC3339Nano) + " to " + doc.AbsoluteTo.UTC().Format(time.RFC3339Nano)
 	full := "metric-key: metric-value provenance-field coverage-field"
 	parts := []string{full[:20], full[20:45], full[45:]}
-	encode := func(pageHeader string, content []string, badFooter bool) []byte {
+	encode := func(pageHeader, footerPrefix string, content []string, badFooter bool) []byte {
 		var pdf strings.Builder
 		span := func(value string) {
 			pdf.WriteString("/Span << /ActualText <FEFF")
@@ -201,19 +207,35 @@ func TestStaticSemanticReaderRejoinsPagesWithoutDroppingDocumentText(t *testing.
 			if badFooter && i == 1 {
 				page++
 			}
-			span(fmt.Sprintf("Page %d of %d", page, len(content)))
+			span(fmt.Sprintf("%sPage %d of %d", footerPrefix, page, len(content)))
 			pdf.WriteString("endstream\n")
 		}
 		return []byte(pdf.String())
 	}
-	if actual, err := staticDocumentSemanticText(encode(header, parts, false), doc); err != nil || actual != full {
+	if actual, err := staticDocumentSemanticText(encode(header, "", parts, false), doc); err != nil || actual != full {
 		t.Fatal("reader did not preserve exact known content across page furniture", actual, err)
 	}
 	missing := append([]string(nil), parts...)
 	missing[1] = missing[1][1:]
-	for _, bad := range [][]byte{encode(header, missing, false), encode(header+"foreign", parts, false), encode(header, parts, true)} {
+	for _, bad := range [][]byte{encode(header, "", missing, false), encode(header+"foreign", "", parts, false), encode(header, "", parts, true)} {
 		if _, err := staticDocumentSemanticText(bad, doc); err == nil {
 			t.Fatal("reader accepted missing original content or conflicting page furniture")
 		}
 	}
+	t.Run("customer brand on each page", func(t *testing.T) {
+		doc.BrandName = "Northstar"
+		brandedHeader := "NorthstarPowered by probectl" + header
+		brandedFooter := "Powered by probectl · "
+		if actual, err := staticDocumentSemanticText(encode(brandedHeader, brandedFooter, parts, false), doc); err != nil || actual != full {
+			t.Fatal("reader did not preserve the body of the branded report", actual, err)
+		}
+		for _, bad := range [][]byte{
+			encode("SouthwindPowered by probectl"+header, brandedFooter, parts, false),
+			encode(brandedHeader, "", parts, false),
+		} {
+			if _, err := staticDocumentSemanticText(bad, doc); err == nil {
+				t.Fatal("reader accepted another customer's name or a missing attribution footer")
+			}
+		}
+	})
 }

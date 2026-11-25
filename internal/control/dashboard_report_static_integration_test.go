@@ -121,16 +121,15 @@ func TestStaticReportsPublishReadAndScheduleCompleteMultilingualDocuments(t *tes
 		if reply.Code != http.StatusOK || reply.Header().Get("Content-Type") != "application/pdf" || len(reply.Header().Get("X-Report-SHA256")) != 64 {
 			t.Fatal("static download lost complete media/integrity framing")
 		}
-		doc := reporting.Document{Title: input.Name, TenantName: names[index], TenantScope: tenants[index], AbsoluteFrom: definition.AbsoluteFrom, AbsoluteTo: definition.AbsoluteTo, Metrics: definition.Metrics, Provenance: definition.Provenance, CoverageLimitations: definition.CoverageLimitations}
+		doc := reporting.Document{Title: input.Name, TenantName: names[index], TenantScope: tenants[index], BrandName: brands[index], AbsoluteFrom: definition.AbsoluteFrom, AbsoluteTo: definition.AbsoluteTo, Metrics: definition.Metrics, Provenance: definition.Provenance, CoverageLimitations: definition.CoverageLimitations}
 		full, err := staticDocumentSemanticText(reply.Body.Bytes(), doc)
 		if err != nil || !strings.Contains(full, input.Name) {
 			t.Fatal("published static PDF lost complete original fields", err)
 		}
 		footerLinks := bytes.Count(reply.Body.Bytes(), []byte("/Rect [44 40 163 59]"))
 		brandLinks := bytes.Count(reply.Body.Bytes(), []byte("/URI ("+branding.AttributionURL+")"))
-		if !strings.Contains(full, brands[index]) || !strings.Contains(full, branding.Attribution) ||
-			footerLinks == 0 || brandLinks != 2*footerLinks {
-			t.Errorf("%s report for tenant %d is missing its customer brand or linked attribution", delivery, index)
+		if footerLinks == 0 || brandLinks != 2*footerLinks {
+			t.Errorf("%s report for tenant %d is missing linked attribution", delivery, index)
 		}
 		if strings.Contains(full, brands[1-index]) {
 			t.Fatalf("%s report for tenant %d contains the sibling customer brand", delivery, index)
