@@ -10,6 +10,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -121,6 +124,43 @@ func TestFSStore(t *testing.T) {
 		t.Fatalf("new fs: %v", err)
 	}
 	runStoreSuite(t, s)
+}
+
+func TestFSStoreTenantCopiesRejectLinkedDirectories(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFS(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const key = "files/package.txt"
+	for _, tenant := range []string{"left", "right"} {
+		owned, err := ForTenant(store, tenant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := owned.Put(t.Context(), key, "text/plain", []byte(tenant)); err != nil {
+			t.Fatal(err)
+		}
+		var streamed bytes.Buffer
+		n, err := owned.CopyLimited(t.Context(), key, &streamed, 5)
+		if err != nil || n != int64(len(tenant)) || streamed.String() != tenant {
+			t.Fatalf("tenant %s could not copy its own object: %d %v", tenant, n, err)
+		}
+	}
+	if err := os.Symlink(filepath.Join("..", "right", "files"), filepath.Join(root, "tenant", "left", "linked")); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("directory symlink fixture unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	left, err := ForTenant(store, "left")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var streamed bytes.Buffer
+	if n, err := left.CopyLimited(t.Context(), "linked/package.txt", &streamed, 5); err == nil || n != 0 || streamed.Len() != 0 {
+		t.Fatal("a linked directory released bytes from a sibling namespace")
+	}
 }
 
 func TestFSStorePersistsAcrossInstances(t *testing.T) {

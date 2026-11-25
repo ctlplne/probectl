@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -123,11 +124,15 @@ func (s *FSStore) CopyLimited(ctx context.Context, key string, dst io.Writer, ma
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	p, err := s.path(key)
+	parent, name, err := s.openCopyParent(key)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, ErrNotFound
+	}
 	if err != nil {
 		return 0, err
 	}
-	info, err := os.Lstat(p)
+	defer parent.Close()
+	info, err := parent.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, ErrNotFound
 	}
@@ -140,7 +145,7 @@ func (s *FSStore) CopyLimited(ctx context.Context, key string, dst io.Writer, ma
 	if info.Size() > maxBytes {
 		return 0, ErrTooLarge
 	}
-	f, err := os.Open(p)
+	f, err := parent.Open(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, ErrNotFound
 	}
@@ -156,6 +161,55 @@ func (s *FSStore) CopyLimited(ctx context.Context, key string, dst io.Writer, ma
 		return 0, errors.New("objectstore: object changed during open")
 	}
 	return copyObjectLimited(ctx, dst, f, maxBytes)
+}
+
+// Anchor each directory before opening the next component. An object in one
+// tenant's directory cannot follow a link into a sibling namespace.
+func (s *FSStore) openCopyParent(key string) (*os.Root, string, error) {
+	if err := validKey(key); err != nil {
+		return nil, "", err
+	}
+	local, err := filepath.Localize(path.Clean(key))
+	if err != nil {
+		return nil, "", err
+	}
+	root, err := os.OpenRoot(s.root)
+	if err != nil {
+		return nil, "", err
+	}
+	dir, name := filepath.Split(local)
+	for part := range strings.SplitSeq(strings.TrimSuffix(dir, string(filepath.Separator)), string(filepath.Separator)) {
+		if part == "" {
+			continue
+		}
+		next, err := openCopyDirectory(root, part)
+		_ = root.Close()
+		if err != nil {
+			return nil, "", err
+		}
+		root = next
+	}
+	return root, name, nil
+}
+
+func openCopyDirectory(parent *os.Root, part string) (*os.Root, error) {
+	linked, err := parent.Lstat(part)
+	if err != nil {
+		return nil, err
+	}
+	if !linked.IsDir() {
+		return nil, errors.New("objectstore: expected a real object directory")
+	}
+	child, err := parent.OpenRoot(part)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := child.Stat(".")
+	if err != nil || !os.SameFile(linked, opened) {
+		_ = child.Close()
+		return nil, errors.New("objectstore: directory changed during open")
+	}
+	return child, nil
 }
 
 func readContentType(path string) string {
