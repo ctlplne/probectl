@@ -91,3 +91,26 @@ func TestAzureVNetExportImportsDirectionalCounters(t *testing.T) {
 		}
 	}
 }
+
+func TestAzureVNetEpochKeepsExactSignedNanosecondBounds(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want time.Time
+	}{
+		{"9223372036", time.Unix(9223372036, 0).UTC()},
+		{"9223372036854", time.UnixMilli(9223372036854).UTC()},
+		{"9223372037", time.Time{}},
+		{"9223372036855", time.Time{}},
+		{" 782820800", time.Time{}},
+		{"1782820800 ", time.Time{}},
+	} {
+		got, err := azureVNetTime(tc.raw)
+		if tc.want.IsZero() {
+			if err == nil {
+				t.Errorf("invalid epoch %q was admitted", tc.raw)
+			}
+		} else if err != nil || got != tc.want {
+			t.Errorf("epoch %q = %v, %v, want %v", tc.raw, got, err, tc.want)
+		}
+	}
+}

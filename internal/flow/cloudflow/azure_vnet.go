@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -181,9 +182,9 @@ func azureVNetTime(raw string) (time.Time, error) {
 	if len(raw) == 13 {
 		unit = time.Millisecond
 	}
-	v, err := parseUint(raw)
-	if err != nil || raw[0] == '0' || v > uint64(math.MaxInt64/int64(unit)) {
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || raw[0] < '1' || raw[0] > '9' || v > math.MaxInt64/int64(unit) {
 		return time.Time{}, errors.New("azure vnet tuple epoch is out of range")
 	}
-	return time.Unix(0, int64(v)*int64(unit)).UTC(), nil
+	return time.Unix(0, v*int64(unit)).UTC(), nil
 }
