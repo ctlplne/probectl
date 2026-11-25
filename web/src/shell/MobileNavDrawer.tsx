@@ -8,6 +8,7 @@ import { useEffect, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink } from 'react-router-dom'
 import styles from './MobileNavDrawer.module.css'
+import { ProductIdentity } from '../brand/ProductIdentity'
 import { Button } from '../components/Button'
 import { Icon } from '../components/Icon'
 import { NAV, NAV_GROUPS } from '../nav/ia'
@@ -25,7 +26,7 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
     if (!open) return
     const previouslyFocused = document.activeElement as HTMLElement | null
     const drawer = drawerRef.current
-    const firstLink = drawer?.querySelector<HTMLElement>('a[href]')
+    const firstLink = drawer?.querySelector<HTMLElement>('nav a[href]')
     firstLink?.focus()
 
     function onKeyDown(e: KeyboardEvent) {
@@ -70,9 +71,12 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className={styles.header}>
-          <h2 id={titleId} className={styles.title}>
-            Navigation
-          </h2>
+          <div className={styles.heading}>
+            <h2 id={titleId} className={styles.title}>
+              Navigation
+            </h2>
+            <ProductIdentity />
+          </div>
           <Button
             variant="ghost"
             size="sm"

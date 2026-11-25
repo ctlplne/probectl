@@ -76,8 +76,9 @@ rows, and branded notifications
 include the same attribution and URL. This also applies to on-call test
 deliveries and notifications recovered after a restart. The badge uses fixed
 probectl styling independent of the configured logo, palette and deployment
-theme. On desktop, the identity stays visible as the navigation menu scrolls.
-On mobile, it sits above the console controls.
+theme. The identity stays visible as the navigation links scroll on desktop
+and in the mobile navigation drawer. On mobile it also sits above the
+console controls.
 
 Old branding rows start with revision zero and remain inert until a provider
 administrator saves an approved brand. Core and Enterprise show the probectl

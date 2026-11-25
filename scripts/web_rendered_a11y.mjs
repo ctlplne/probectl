@@ -1379,6 +1379,23 @@ async function assertCustomerAttribution(browser, baseURL) {
               actual.font !== "12px" || !actual.fontFamily.startsWith("system-ui")) {
             throw new Error(`customer attribution changed at ${width}px ${theme} signedIn=${signedIn}: ${JSON.stringify(actual)}`);
           }
+          if (signedIn && !desktopConsole) {
+            await page.getByRole("button", { name: "Open navigation" }).click();
+            const drawer = page.getByRole("dialog", { name: "Navigation" });
+            const drawerBadge = drawer.getByRole("link", { name: "Powered by probectl", exact: true });
+            const scrolled = await drawer.getByRole("navigation", { name: "Mobile primary" }).evaluate((nav) => {
+              nav.scrollTop = nav.scrollHeight;
+              return nav.scrollTop > 0;
+            });
+            const visibleAndLinked = await drawerBadge.evaluate((element) => {
+              const bounds = element.getBoundingClientRect();
+              const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+              return element.getAttribute("href") === "https://probectl.com" && element.contains(hit);
+            });
+            if (!scrolled || !visibleAndLinked || !(await drawer.getByText(fixture.customer.name, { exact: true }).isVisible())) {
+              throw new Error(`Customer attribution is missing from the scrolled mobile navigation in ${theme}`);
+            }
+          }
         } finally {
           await context.close();
         }

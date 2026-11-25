@@ -81,6 +81,29 @@ test.each(['/targets', '/incidents', '/dashboards'])(
   },
 )
 
+test('customer attribution stays available inside the mobile navigation dialog', async () => {
+  vi.stubGlobal(
+    'fetch',
+    brandingStub({ product_name: 'probectl', customer: { name: 'Northstar' } }, northTenant),
+  )
+  renderApp('/targets')
+  const banner = within(await screen.findByRole('banner'))
+  await banner.findByText('Northstar')
+  const trigger = banner
+    .getAllByRole('button', { hidden: true })
+    .find((button) => button.getAttribute('aria-label') === 'Open navigation')
+  if (!trigger) throw new Error('mobile navigation trigger not found')
+  fireEvent.click(trigger)
+
+  const drawer = within(screen.getByRole('dialog', { name: 'Navigation' }))
+  expect(drawer.getByText('Northstar')).toBeInTheDocument()
+  expect(drawer.getByRole('link', { name: 'Powered by probectl' })).toHaveAttribute(
+    'href',
+    'https://probectl.com',
+  )
+  expect(within(drawer.getByRole('navigation')).getAllByRole('link')[0]).toHaveFocus()
+})
+
 test('a session change rejects another tenant’s name, logo and palette', async () => {
   const southTenant = '00000000-0000-0000-0000-000000000002'
   const fallback = defaultFetch()
