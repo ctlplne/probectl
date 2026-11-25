@@ -73,6 +73,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/incidents/{id}/journal", s.handleAppendIncidentJournal, permIncidentWrite},
 		{http.MethodPost, "/v1/incidents/{id}/shares", s.handleCreateIncidentShare, permIncidentRead},
 		{http.MethodPost, "/v1/incidents/{id}/exports", s.handleExportIncidentEvidence, permIncidentRead},
+		{http.MethodPost, "/v1/incidents/{id}/drafts", s.handleIncidentDraft, permIncidentRead},
 		{http.MethodPost, "/v1/incidents/{id}/correlation-overrides", s.handleCreateIncidentCorrelationOverride, permIncidentWrite},
 		{http.MethodPost, "/v1/incidents/{id}/correlation-overrides/{override_id}/reverse", s.handleReverseIncidentCorrelationOverride, permIncidentWrite},
 		{http.MethodGet, "/v1/incident-shares/{id}", s.handleGetIncidentShare, permIncidentRead},

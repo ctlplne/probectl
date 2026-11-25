@@ -3535,6 +3535,49 @@ type IncidentDDoSReportWindow struct {
 	Vector     string                 `json:"vector"`
 }
 
+type IncidentDraftCitation struct {
+	EvidenceId string `json:"evidence_id,omitempty"`
+	Pointer    string `json:"pointer"`
+}
+
+type IncidentDraftCommand struct {
+	Carrier    IncidentCarrierInput `json:"carrier,omitzero"`
+	Impact     IncidentImpactInput  `json:"impact,omitzero"`
+	IncidentId string               `json:"incident_id"`
+	Kind       IncidentDraftKind    `json:"kind"`
+	Verdict    IncidentVerdictInput `json:"verdict,omitzero"`
+}
+
+type IncidentDraftKind string
+
+// Carrier tickets require a past carrier window. Other drafts can include scoped impact and fault-domain evidence.
+type IncidentDraftRequest struct {
+	Carrier IncidentCarrierInput `json:"carrier,omitzero"`
+	Impact  IncidentImpactInput  `json:"impact,omitzero"`
+	Kind    IncidentDraftKind    `json:"kind"`
+	Verdict IncidentVerdictInput `json:"verdict,omitzero"`
+}
+
+type IncidentDraftResponse struct {
+	Degraded        bool                   `json:"degraded"`
+	EvidencePackage string                 `json:"evidence_package"`
+	Kind            IncidentDraftKind      `json:"kind"`
+	Model           string                 `json:"model"`
+	PackageId       string                 `json:"package_id"`
+	Sections        []IncidentDraftSection `json:"sections"`
+}
+
+type IncidentDraftSection struct {
+	Name      string                  `json:"name"`
+	Sentences []IncidentDraftSentence `json:"sentences"`
+}
+
+type IncidentDraftSentence struct {
+	Citations []IncidentDraftCitation `json:"citations"`
+	State     string                  `json:"state"`
+	Text      string                  `json:"text"`
+}
+
 // Optional server-recomputed impact/verdict or exclusive carrier selections. Current tenant/user/source/credential grants and original retention are checked again before signed publication. Use the SDK byte-response method for offline verification.
 type IncidentEvidenceExportInput struct {
 	Carrier *IncidentCarrierInput `json:"carrier,omitempty"`
@@ -9901,6 +9944,26 @@ func (c *Client) GetIncidentDDoSReport(ctx context.Context, req GetIncidentDDoSR
 	}
 	var out IncidentDDoSReport
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Draft a carrier ticket, postmortem or executive summary from signed evidence
+type GenerateIncidentDraftRequest struct {
+	Id   string                `json:"-"`
+	Body *IncidentDraftRequest `json:"-"`
+}
+
+func (c *Client) GenerateIncidentDraft(ctx context.Context, req GenerateIncidentDraftRequest) (*IncidentDraftResponse, error) {
+	path := "/v1/incidents/{id}/drafts"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out IncidentDraftResponse
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

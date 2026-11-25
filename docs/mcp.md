@@ -902,3 +902,18 @@ Requires incident.read, ai.query, entities.read, metrics.read, events.read,
 test.read and change.read. Actual trace vantages and missing coverage remain
 explicit; complete physical/served/lifecycle qualification is pending. See
 [carrier ticket pack](incident-evidence.md#carrier-ticket-pack-preview).
+
+### Native incident drafts (preview)
+
+`incident_draft` takes `incident_id` and a draft `kind`. A carrier ticket uses
+the `carrier` window. A postmortem or executive summary can select `impact`
+or `verdict` evidence. The tool needs a current tenant user with `incident.read`
+and `ai.query`, current access to each selected original source, and MCP
+egress consent. Only the builtin or a co-located model prepares the draft.
+
+The result contains cited sentences, a package ID, and the base64 `evidence_package`.
+Decode the package to verify it with the operator's pinned fingerprint. The
+native transport preserves the signed bytes and evidence pointers, applies its
+normal redaction to prose, and rechecks the credential and original sources
+through publication. Operators can use the draft for review and manual sharing.
+[Signed incident drafts](incident-evidence.md#signed-incident-drafts-preview).

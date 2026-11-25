@@ -420,6 +420,10 @@ var surfaceCommands = map[string]surfaceCommand{
 			Method: http.MethodPost, Path: "/v1/incidents/{id}/exports", ArgName: "id",
 			Description: "export an immutable signed probectl-evidence/v1 package; use incident verify for offline verification",
 		},
+		"draft": {
+			Method: http.MethodPost, Path: "/v1/incidents/{id}/drafts", ArgName: "id", ExactJSON: true,
+			Description: "generate a cited carrier ticket, postmortem or executive summary with its signed source package",
+		},
 		"ungroup": {
 			Method: http.MethodPost, Path: "/v1/incidents/{id}/correlation-overrides", ArgName: "id",
 			Description: "detach one falsely grouped signal and persist an audited exclusion until explicit reversal",

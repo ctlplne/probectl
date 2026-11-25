@@ -76,17 +76,21 @@ func (s *Server) revalidateIncidentExport(r *http.Request, original *incident.In
 		if err != nil {
 			return err
 		}
-		before, err := json.Marshal(original)
-		if err != nil {
-			return err
-		}
-		after, err := json.Marshal(retained)
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(before, after) {
-			return apierror.Unavailable("original incident evidence changed before publication; retry")
-		}
-		return ctx.Err()
+		return checkRetainedIncident(ctx, original, retained)
 	})
+}
+
+func checkRetainedIncident(ctx context.Context, original, retained *incident.Incident) error {
+	before, err := json.Marshal(original)
+	if err != nil {
+		return err
+	}
+	after, err := json.Marshal(retained)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(before, after) {
+		return apierror.Unavailable("original incident evidence changed before publication; retry")
+	}
+	return ctx.Err()
 }

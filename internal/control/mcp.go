@@ -206,6 +206,11 @@ func newMCPServer(
 			} else {
 				options = append(options, option)
 			}
+			if option, err := incidentDraftToolOption(src.NativeFlow); err != nil {
+				log.Error("MCP incident draft schema is unavailable", "error_class", mcp.ErrorClass(err))
+			} else {
+				options = append(options, option)
+			}
 			if option, err := incidentVerdictToolOption(src.NativeFlow); err != nil {
 				log.Error("MCP incident verdict schemas are unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

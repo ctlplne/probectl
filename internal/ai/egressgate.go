@@ -9,6 +9,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/ctlplne/probectl/internal/auth"
 )
@@ -91,6 +92,18 @@ func (g *EgressGate) RedactForTenant(s, tenantID string) string {
 		return redactTextForTenant(s, DefaultRedaction, tenantID)
 	}
 	return redactTextForTenant(s, g.redact, tenantID)
+}
+
+// SignedExportRedaction supplies the same policy for structured evidence that
+// must be redacted before signing, while the output can still be inspected.
+func (g *EgressGate) SignedExportRedaction() RedactionPolicy {
+	policy := DefaultRedaction
+	if g != nil {
+		policy = g.redact
+	}
+	policy.CustomPatterns = slices.Clone(policy.CustomPatterns)
+	policy.TokenKey = slices.Clone(policy.TokenKey)
+	return policy
 }
 
 // Policy exposes the consent source so the Analyzer's existing egress seam

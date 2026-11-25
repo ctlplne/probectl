@@ -312,3 +312,34 @@ into multiple independent traceroute vantages. Agent-origin traceroutes,
 physical fault, complete served/both-theme accessibility, lifecycle/restart and
 exact-main CI qualification remain required for full acceptance. This feature
 is a preview until that qualification is complete.
+
+## Signed incident drafts (preview)
+
+In the **Incident Room**, choose **Incident drafts** and select a carrier ticket,
+postmortem or executive summary. Carrier drafts require an explicit past evidence
+window. Postmortems and executive summaries can include scoped impact or fault-domain
+evidence. Expand a sentence's citations to inspect the corresponding signed fields.
+Download the signed source for offline verification or download the draft with its
+source included.
+
+The same operation is available from `POST /v1/incidents/{id}/drafts`, the generated
+SDKs, and `probectl incident draft`. The MCP tool `incident_draft` takes `incident_id`
+and the same selection. Access requires the current tenant credential, `incident.read`,
+`ai.query`, and the permissions for any selected original sources. MCP output also
+requires the tenant's existing MCP egress consent.
+
+```sh
+probectl --json incident draft <incident-id> --body '{"kind":"postmortem"}' > draft.json
+python3 -c 'import base64,json,sys; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)["evidence_package"],validate=True))' \
+  < draft.json > draft-evidence.json
+probectl incident verify draft-evidence.json \
+  --trusted-key-fingerprint 'sha256:<operator-published-fingerprint>'
+```
+
+`package_id` links the draft to the signed manifest. Each sentence has a signed
+manifest JSON Pointer or an evidence ID and pointer into its verified attachment.
+The draft keeps signed limits on interpretation and marks unknown, stale and
+unsupported evidence. A co-located model can select the other supported facts.
+Deployments without a reachable co-located model use
+the builtin model. The draft has no delivery operation. The operator controls any
+later sharing or submission.

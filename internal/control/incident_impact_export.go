@@ -33,6 +33,17 @@ type incidentEvidenceExportInput struct {
 // permission in both current-authority snapshots of the deterministic read.
 type incidentImpactExportKey struct{}
 
+// Only trusted transport setup supplies this policy. Opaque native evidence
+// must use its transport's redaction before the signature fixes its bytes.
+type incidentEvidenceRedactionKey struct{}
+
+func (s *Server) incidentEvidenceRedaction(ctx context.Context) ai.RedactionPolicy {
+	if policy, ok := ctx.Value(incidentEvidenceRedactionKey{}).(ai.RedactionPolicy); ok {
+		return policy
+	}
+	return redactionPolicy(s.cfg)
+}
+
 // Request-local accounting for an export that retains impact publication data
 // while computing a verdict. No allocation profile or grant survives the call.
 type incidentExportMemoryKey struct{}
@@ -123,7 +134,7 @@ func (s *Server) exportIncidentImpact(ctx context.Context, actor *auth.Principal
 	if err := requireImpactIncidentHeader(actor.TenantID, inc, snapshot); err != nil {
 		return nil, err
 	}
-	pol := redactionPolicy(s.cfg)
+	pol := s.incidentEvidenceRedaction(ctx)
 	redacted, err := redactIncidentImpact(result, pol, actor.TenantID)
 	if err != nil {
 		return nil, err

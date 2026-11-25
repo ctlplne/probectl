@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -150,6 +151,31 @@ func HardenedHTTPClientWithCAFile(timeout time.Duration, caFile string) (*http.C
 		return nil, err
 	}
 	return hardenedHTTPClient(timeout, tlsCfg), nil
+}
+
+// HardenedLoopbackHTTPClientWithCAFile restricts every connection to an actual
+// loopback address. Co-located model calls cannot use an egress proxy or leave
+// the host after name resolution.
+func HardenedLoopbackHTTPClientWithCAFile(timeout time.Duration, caFile string) (*http.Client, error) {
+	client, err := HardenedHTTPClientWithCAFile(timeout, caFile)
+	if err != nil {
+		return nil, err
+	}
+	transport := client.Transport.(*http.Transport)
+	transport.Proxy = nil
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			peer, err := netip.ParseAddrPort(address)
+			if err != nil || !peer.Addr().Unmap().IsLoopback() {
+				return errors.New("crypto: a loopback connection is required")
+			}
+			return nil
+		},
+	}
+	transport.DialContext = dialer.DialContext
+	return client, nil
 }
 
 func hardenedHTTPClient(timeout time.Duration, tlsCfg *tls.Config) *http.Client {

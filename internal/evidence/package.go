@@ -312,6 +312,10 @@ func Verify(raw []byte) (*Manifest, error) {
 	if err := json.Unmarshal(raw, &pkg); err != nil {
 		return nil, fmt.Errorf("evidence: malformed package: %w", err)
 	}
+	return pkg.verify()
+}
+
+func (pkg Package) verify() (*Manifest, error) {
 	manifest, err := verifyManifest(pkg.Manifest, pkg.Signing)
 	if err != nil {
 		return nil, err

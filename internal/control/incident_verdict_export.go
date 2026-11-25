@@ -46,7 +46,7 @@ func (s *Server) exportIncidentVerdict(ctx context.Context, actor *auth.Principa
 	if err := requireImpactIncidentHeader(actor.TenantID, inc, snapshot); err != nil {
 		return nil, err
 	}
-	redacted, err := redactIncidentVerdict(result, redactionPolicy(s.cfg), actor.TenantID)
+	redacted, err := redactIncidentVerdict(result, s.incidentEvidenceRedaction(ctx), actor.TenantID)
 	if err != nil {
 		return nil, err
 	}

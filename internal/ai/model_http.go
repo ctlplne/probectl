@@ -36,6 +36,8 @@ const (
 	KindAnthropic ModelKind = "anthropic"
 )
 
+var ErrNonLocalModelEndpoint = errors.New("ai: a co-located model endpoint is required")
+
 // HTTPModel is a ModelAdapter that calls a remote chat model over HTTP(S): the
 // local-Ollama/vLLM path (kept first-class for sovereignty) and the cloud path.
 // It only ever SYNTHESIZES — it sends the question + already-scoped evidence and
@@ -59,6 +61,8 @@ type HTTPModelConfig struct {
 	Model    string        // model name (e.g. "llama3.1", "gpt-4o-mini")
 	Token    string        // bearer / API key (optional for a local Ollama)
 	Timeout  time.Duration // per-request timeout (default 60s)
+	// LocalOnly pins every connection to loopback, including after resolution.
+	LocalOnly bool
 	// Redaction is applied to prompt content before any REMOTE call (C8);
 	// nil = DefaultRedaction. Loopback endpoints are never redacted.
 	Redaction *RedactionPolicy
@@ -83,6 +87,9 @@ func NewHTTPModel(cfg HTTPModelConfig) (*HTTPModel, error) {
 	if u.Scheme != "https" && !isLoopbackHost(u.Hostname()) {
 		return nil, fmt.Errorf("ai: model endpoint must use https for non-loopback hosts")
 	}
+	if cfg.LocalOnly && !isLoopbackHost(u.Hostname()) {
+		return nil, ErrNonLocalModelEndpoint
+	}
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 60 * time.Second
@@ -91,7 +98,11 @@ func NewHTTPModel(cfg HTTPModelConfig) (*HTTPModel, error) {
 	if cfg.Redaction != nil {
 		redaction = *cfg.Redaction
 	}
-	client, err := crypto.HardenedHTTPClientWithCAFile(timeout, cfg.CAFile)
+	newClient := crypto.HardenedHTTPClientWithCAFile
+	if cfg.LocalOnly {
+		newClient = crypto.HardenedLoopbackHTTPClientWithCAFile
+	}
+	client, err := newClient(timeout, cfg.CAFile)
 	if err != nil {
 		return nil, fmt.Errorf("ai: model CA file: %w", err)
 	}
@@ -110,6 +121,9 @@ func NewHTTPModel(cfg HTTPModelConfig) (*HTTPModel, error) {
 		redact:   redaction,
 	}, nil
 }
+
+// CloseIdleConnections releases the transport for short-lived scoped model calls.
+func (m *HTTPModel) CloseIdleConnections() { m.client.CloseIdleConnections() }
 
 // RemoteEgress reports whether calls leave the local host (U-013): true for
 // any non-loopback endpoint, false for a co-located Ollama/vLLM.

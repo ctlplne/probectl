@@ -4507,6 +4507,74 @@
         }
       }
     },
+    "/v1/incidents/{id}/drafts": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "post": {
+        "operationId": "generateIncidentDraft",
+        "summary": "Draft a carrier ticket, postmortem or executive summary from signed evidence",
+        "description": "Uses the current tenant incident, incident.read and ai.query, plus source permissions for requested original evidence. Each sentence has a reference into the exact signed source package. Draft generation is local and does not send a ticket or message.",
+        "tags": [
+          "incidents"
+        ],
+        "x-required-permission": "incident.read",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentDraftRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The cited draft and exact evidence package.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentDraftResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "415": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/incidents/{id}/exports": {
       "post": {
         "x-required-permission": "incident.read",
@@ -20897,6 +20965,167 @@
           "confidence",
           "reason",
           "hypotheses"
+        ]
+      },
+      "IncidentDraftKind": {
+        "type": "string",
+        "enum": [
+          "carrier_ticket",
+          "postmortem",
+          "executive_summary"
+        ]
+      },
+      "IncidentDraftRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/IncidentDraftKind"
+          },
+          "carrier": {
+            "$ref": "#/components/schemas/IncidentCarrierInput"
+          },
+          "impact": {
+            "$ref": "#/components/schemas/IncidentImpactInput"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/IncidentVerdictInput"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "description": "Carrier tickets require a past carrier window. Other drafts can include scoped impact and fault-domain evidence."
+      },
+      "IncidentDraftCommand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/IncidentDraftKind"
+          },
+          "carrier": {
+            "$ref": "#/components/schemas/IncidentCarrierInput"
+          },
+          "impact": {
+            "$ref": "#/components/schemas/IncidentImpactInput"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/IncidentVerdictInput"
+          }
+        },
+        "required": [
+          "incident_id",
+          "kind"
+        ]
+      },
+      "IncidentDraftCitation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "description": "If omitted, the pointer selects the signed manifest. Otherwise it selects the verified attachment for this evidence record."
+          },
+          "pointer": {
+            "type": "string",
+            "description": "JSON Pointer into the signed manifest or the cited content-addressed attachment."
+          }
+        },
+        "required": [
+          "pointer"
+        ]
+      },
+      "IncidentDraftSentence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "inferred",
+              "unknown",
+              "stale",
+              "unsupported"
+            ]
+          },
+          "citations": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/IncidentDraftCitation"
+            }
+          }
+        },
+        "required": [
+          "text",
+          "state",
+          "citations"
+        ]
+      },
+      "IncidentDraftSection": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sentences": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentDraftSentence"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "sentences"
+        ]
+      },
+      "IncidentDraftResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/IncidentDraftKind"
+          },
+          "package_id": {
+            "type": "string"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IncidentDraftSection"
+            }
+          },
+          "model": {
+            "type": "string"
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "evidence_package": {
+            "type": "string",
+            "contentEncoding": "base64",
+            "contentMediaType": "application/vnd.probectl.evidence+json",
+            "description": "The exact signed package used by every draft citation."
+          }
+        },
+        "required": [
+          "kind",
+          "package_id",
+          "sections",
+          "model",
+          "degraded",
+          "evidence_package"
         ]
       },
       "IncidentEvidenceExportInput": {

@@ -11,6 +11,8 @@ import type {
   ChangeEffectsResponse,
   IncidentCarrierInput,
   IncidentDDoSReport,
+  IncidentDraftRequest,
+  IncidentDraftResponse,
   IncidentImpactInput,
   IncidentVerdictInput,
 } from './sdk.gen'
@@ -317,6 +319,19 @@ export function useExportIncidentEvidence(id: string | undefined) {
           : undefined,
         signal: selection?.signal,
       }),
+  })
+}
+
+export function generateIncidentDraft(
+  id: string,
+  selection: IncidentDraftRequest,
+  signal: AbortSignal,
+) {
+  return apiFetch<IncidentDraftResponse>(`/incidents/${encodeURIComponent(id)}/drafts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(selection),
+    signal,
   })
 }
 

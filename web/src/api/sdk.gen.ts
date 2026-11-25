@@ -3377,6 +3377,48 @@ export interface IncidentDDoSReportWindow {
   vector: string
 }
 
+export interface IncidentDraftCitation {
+  evidence_id?: string
+  pointer: string
+}
+
+export interface IncidentDraftCommand {
+  carrier?: IncidentCarrierInput
+  impact?: IncidentImpactInput
+  incident_id: string
+  kind: IncidentDraftKind
+  verdict?: IncidentVerdictInput
+}
+
+export type IncidentDraftKind = "carrier_ticket" | "postmortem" | "executive_summary"
+
+export interface IncidentDraftRequest {
+  carrier?: IncidentCarrierInput
+  impact?: IncidentImpactInput
+  kind: IncidentDraftKind
+  verdict?: IncidentVerdictInput
+}
+
+export interface IncidentDraftResponse {
+  degraded: boolean
+  evidence_package: string
+  kind: IncidentDraftKind
+  model: string
+  package_id: string
+  sections: IncidentDraftSection[]
+}
+
+export interface IncidentDraftSection {
+  name: string
+  sentences: IncidentDraftSentence[]
+}
+
+export interface IncidentDraftSentence {
+  citations: IncidentDraftCitation[]
+  state: "observed" | "inferred" | "unknown" | "stale" | "unsupported"
+  text: string
+}
+
 export interface IncidentEvidenceExportInput {
   carrier?: IncidentCarrierInput | null
   impact?: IncidentImpactInput | null
@@ -6778,6 +6820,13 @@ export interface GetIncidentDDoSReportRequest {
 
 export type GetIncidentDDoSReportResponse = IncidentDDoSReport
 
+export interface GenerateIncidentDraftRequest {
+  id: string
+  body: IncidentDraftRequest
+}
+
+export type GenerateIncidentDraftResponse = IncidentDraftResponse
+
 export interface ExportIncidentEvidenceRequest {
   id: string
   body?: IncidentEvidenceExportInput
@@ -9182,6 +9231,13 @@ export class ProbectlSDKClient {
     if (request.ruleId !== undefined) query.set("rule_id", String(request.ruleId))
     if (request.fingerprint !== undefined) query.set("fingerprint", String(request.fingerprint))
     return this.requestJSON<GetIncidentDDoSReportResponse>("GET", path, query, undefined)
+  }
+
+  async generateIncidentDraft(request: GenerateIncidentDraftRequest): Promise<GenerateIncidentDraftResponse> {
+    let path = "/v1/incidents/{id}/drafts"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GenerateIncidentDraftResponse>("POST", path, query, request.body)
   }
 
   async exportIncidentEvidence(request: ExportIncidentEvidenceRequest): Promise<ExportIncidentEvidenceResponse> {

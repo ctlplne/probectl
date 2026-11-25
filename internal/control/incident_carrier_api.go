@@ -97,7 +97,7 @@ func (s *Server) prepareCarrierPackage(ctx context.Context, actor *auth.Principa
 	if cost > profile.budget.MemoryBytes {
 		return nil, evidence.Manifest{}, nil, apierror.TooLarge("complete carrier evidence exceeds configured report memory; increase the report memory allowance")
 	}
-	manifest, attachments, err := evidence.Build(evidence.BuildInput{TenantID: actor.TenantID, Incident: redactIncidentForShare(*inc, incidentEvidenceTenantPolicy(redactionPolicy(s.cfg), actor.TenantID), actor.TenantID), CreatedAt: time.Now().UTC(), Carrier: carrier})
+	manifest, attachments, err := evidence.Build(evidence.BuildInput{TenantID: actor.TenantID, Incident: redactIncidentForShare(*inc, incidentEvidenceTenantPolicy(s.incidentEvidenceRedaction(ctx), actor.TenantID), actor.TenantID), CreatedAt: time.Now().UTC(), Carrier: carrier})
 	if err != nil {
 		return nil, evidence.Manifest{}, nil, apierror.Internal("carrier evidence manifest failed").Wrap(err)
 	}

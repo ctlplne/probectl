@@ -52,6 +52,7 @@ func cmdIncident(cfg Config, args []string, stdin io.Reader, stdout, stderr io.W
 func printIncidentUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  probectl incident export <incident-id> [--body JSON | --body-file <file|->] [--out package.json]")
+	fmt.Fprintln(w, "  probectl incident draft <incident-id> --body-file <file|->")
 	fmt.Fprintln(w, "  probectl incident verify <package.json> [--trusted-key-fingerprint sha256:...]")
 	fmt.Fprintln(w, "  probectl incident ungroup <incident-id> <signal-id> --reason <text>")
 	fmt.Fprintln(w, "  probectl incident reverse-override <incident-id> <override-id> --reason <text>")

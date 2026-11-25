@@ -74,7 +74,7 @@ func (s *Server) exportIncidentCarrier(ctx context.Context, actor *auth.Principa
 		return nil, err
 	}
 	result.Summary = carrierSummary(result)
-	redacted, err := redactIncidentCarrier(result, redactionPolicy(s.cfg), actor.TenantID)
+	redacted, err := redactIncidentCarrier(result, s.incidentEvidenceRedaction(ctx), actor.TenantID)
 	if err != nil {
 		return nil, err
 	}

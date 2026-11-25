@@ -90,6 +90,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     // attribution, signed impact export and real-flow qualification are owed.
     // Carrier ticket exports remain preview; original multi-vantage traceroute,
     // physical, served/lifecycle and exact-main qualification stay explicit.
+    // Signed-source incident drafts are a preview extension.
     status: 'delivered',
     source: 'contract:features',
   },

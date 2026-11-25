@@ -63,6 +63,7 @@ import { InstantTestRunDialog } from './InstantTestRunDialog'
 import { InvestigationJournal } from './InvestigationJournal'
 import { IncidentImpactCard } from './IncidentImpactCard'
 import { IncidentCarrierCard } from './IncidentCarrierCard'
+import { IncidentDraftCard } from './IncidentDraftCard'
 import { IncidentVerdictCard } from './IncidentVerdictCard'
 import { EntityCurrentPivot } from './EntityCurrentPivot'
 import { observedIPs } from './entityObservedIPs'
@@ -616,6 +617,9 @@ export function IncidentRoom({
       {!sharedArtifactID ? <IncidentVerdictCard incident={roomIncident} /> : null}
       {!sharedArtifactID ? <IncidentImpactCard incident={roomIncident} /> : null}
       {!sharedArtifactID ? <IncidentCarrierCard incident={roomIncident} /> : null}
+      {!sharedArtifactID && !incidentSnapshot ? (
+        <IncidentDraftCard incident={roomIncident} />
+      ) : null}
 
       {!sharedArtifactID ? (
         <InvestigationJournal
