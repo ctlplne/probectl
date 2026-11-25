@@ -93,6 +93,12 @@ func TestNativeFlowMetricsSharedServicesStayTenantFreeAndCountOnce(t *testing.T)
 	if _, err := s.prepareFlowCSVContext(t.Context(), p, "private-snapshot", nil, nil); err == nil {
 		t.Fatal("missing durable CSV audit admitted")
 	}
+	for _, actor := range []*auth.Principal{p, &foreign} {
+		if _, err := s.runRoutingTransferEstimate(t.Context(), capacityAgreementOperation{actor: actor},
+			routingTransferRequest{Destination: "metrics-private-exact-prefix"}); err == nil {
+			t.Fatal("invalid routing transfer estimate admitted")
+		}
+	}
 	if got := s.flowOperationMetrics["query"].outcomes["success"].Value(); got != 2 {
 		t.Fatal("comparison passes or transport wrappers inflated logical query count", got)
 	}
@@ -144,6 +150,9 @@ func TestNativeFlowMetricsSharedServicesStayTenantFreeAndCountOnce(t *testing.T)
 		if !strings.Contains(body, want+"\n") {
 			t.Fatal("missing service instrumentation", want)
 		}
+	}
+	if !strings.Contains(body, `probectl_flow_explorer_routing_transfer_estimate_operations_total{outcome="validation"} 2`+"\n") {
+		t.Fatal("routing transfer validation attempts were not counted once across both tenants")
 	}
 	for _, operation := range otel.FlowExplorerOperations() {
 		if !strings.Contains(body, "probectl_flow_explorer_"+operation+"_active 0\n") {

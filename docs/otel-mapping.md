@@ -232,8 +232,8 @@ context uses `canceled`/`budget` even when the public error was safely generaliz
 Internal comparison passes do not add logical queries. Fairness rejections
 before service invocation retain the separate existing fairness metrics.
 Duration buckets in seconds are0.001,0.005,0.01,0.05,0.1,0.5,1,5,10,30,60,+Inf;
-only counts are retained. Per process, these six operations have132 fixed
-series, independent of tenant/query cardinality.
+only counts are retained. Each operation emits 22 fixed series per process,
+independent of tenant and query cardinality.
 
 No tenant/user identifiers, questions, filter values, cursors, source rows,
 dependency errors or SQL appear in these metric names or labels. `budget`
@@ -251,3 +251,7 @@ and outcomes are code-owned; no tenant IDs, query text, target IDs, prices,
 thresholds or dependency error strings become metric labels. Incomplete
 coverage remains explicit in the successful measurement result, rather than
 being presented as a trained forecast or charge.
+
+Routing transfer estimates use `probectl.flow.explorer.routing_transfer_estimate`
+with the same counter, duration histogram, and active gauge. The shared estimate
+service records outcomes for REST, native MCP, and review preparation.

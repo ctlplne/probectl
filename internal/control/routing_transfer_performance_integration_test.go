@@ -85,6 +85,10 @@ func TestRoutingTransferProbeComparisonKeepsTenantsAndHandoffsSeparate(t *testin
 			t.Fatalf("a measured but inadmissible candidate reached policy preview: %v %s", err, body)
 		}
 	}
+	metrics := f.server.flowOperationMetrics["routing_transfer_estimate"]
+	if metrics == nil || metrics.outcomes["success"].Value() != 4 || metrics.active.Load() != 0 {
+		t.Fatal("routing transfer metrics did not count the complete estimates from both tenants")
+	}
 }
 
 func configureRoutingPerformanceFixture(t *testing.T, f *roleExplanationAPIFixture, tenant string,
