@@ -5,11 +5,17 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { describe, expect, test, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { useIsMutating } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
+import { Providers } from '../App'
 import { renderApp } from './renderApp'
 import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
 import type { Rollout } from '../api/rollouts'
+import { AuthContext, type AuthContextValue } from '../auth/AuthProvider'
+import { AdminPage } from '../routes/admin/AdminPage'
+import { TimeProvider } from '../time/TimeProvider'
 
 const applyingRollout: Rollout = {
   id: 'rollout-7',
@@ -26,9 +32,14 @@ const applyingRollout: Rollout = {
   ],
 }
 
-function rolloutFetch() {
+const macEndpoint = {
+  platform: 'darwin/arm64',
+  executable_identity: `cdhash:${'c'.repeat(40)}`,
+}
+
+function rolloutFetch(initial = applyingRollout) {
   const base = defaultFetch()
-  let state = structuredClone(applyingRollout)
+  let state = structuredClone(initial)
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = pathOf(input)
     if (path === '/v1/rollouts' && (init?.method ?? 'GET') === 'GET') {
@@ -74,9 +85,9 @@ function rolloutFetch() {
 }
 
 describe('Admin staged rollout control', () => {
-  test('shows rollout waves and requires human confirmation before registry verification', async () => {
+  test('shows native installer and process evidence before human verification', async () => {
     const user = userEvent.setup()
-    const fetchMock = rolloutFetch()
+    const fetchMock = rolloutFetch({ ...applyingRollout, endpoint: macEndpoint })
     vi.stubGlobal('fetch', fetchMock)
     renderApp('/admin')
 
@@ -84,11 +95,18 @@ describe('Admin staged rollout control', () => {
     expect(within(table).getByText('canary 2 · Applying externally')).toBeInTheDocument()
     expect(within(table).getByText('early 8 · Pending')).toBeInTheDocument()
     expect(screen.getByText(/every wave member must report v1.4.0/i)).toBeInTheDocument()
-    expect(screen.getByText(/advance does not deploy code/i)).toBeInTheDocument()
+    expect(screen.getByText(/advance releases the signed installer/i)).toBeInTheDocument()
+    expect(screen.getByText('Installer SHA-256')).toBeInTheDocument()
+    expect(screen.getByText(applyingRollout.digest)).toBeInTheDocument()
+    expect(screen.getByText('Expected running executable identity')).toBeInTheDocument()
+    expect(screen.getByText(macEndpoint.executable_identity)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Verify health gate' }))
     const dialog = await screen.findByRole('dialog', { name: 'Confirm: Verify health gate' })
     expect(within(dialog).getByText(/never sends an update command/i)).toBeInTheDocument()
+    expect(within(dialog).getByText(macEndpoint.platform)).toBeInTheDocument()
+    expect(within(dialog).getByText(applyingRollout.digest)).toBeInTheDocument()
+    expect(within(dialog).getByText(macEndpoint.executable_identity)).toBeInTheDocument()
     expect(
       fetchMock.mock.calls.some(
         ([input, init]) =>
@@ -114,6 +132,7 @@ describe('Admin staged rollout control', () => {
     renderApp('/admin')
 
     await screen.findByRole('table', { name: 'Tenant staged rollouts' })
+    expect(screen.getByText(/advance does not deploy code/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Halt rollout' }))
     let dialog = await screen.findByRole('dialog', { name: 'Confirm: Halt rollout' })
     const haltConfirm = within(dialog).getByRole('button', { name: 'Confirm Halt rollout' })
@@ -148,5 +167,113 @@ describe('Admin staged rollout control', () => {
     expect(JSON.parse(String(actionCalls[1][1]?.body))).toEqual({
       reason: 'node replaced and fresh heartbeat checked',
     })
+  })
+
+  test('a late rollout decision stays with its original tenant', async () => {
+    const user = userEvent.setup()
+    const red = '00000000-0000-4000-8000-000000000101'
+    const blue = '00000000-0000-4000-8000-000000000102'
+    const windowsEndpoint = {
+      platform: 'windows/amd64',
+      executable_identity: `sha256:${'d'.repeat(64)}`,
+    }
+    const nativeRollout = { ...applyingRollout, endpoint: macEndpoint }
+    const fallback = defaultFetch()
+    let finishRedVerification!: (response: Response) => void
+    const pending = new Promise<Response>((resolve) => {
+      finishRedVerification = resolve
+    })
+    const requests: { path: string; tenant: string | null }[] = []
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = pathOf(input)
+      const tenant = new Headers(init?.headers).get('X-Probectl-Tenant')
+      if (path === '/v1/agents') {
+        requests.push({ path, tenant })
+        return jsonResponse({
+          items: [
+            {
+              id: 'same-agent',
+              name: tenant === blue ? 'Blue fleet agent' : 'Red fleet agent',
+              hostname: 'endpoint-1',
+              status: 'online',
+              agent_version: 'v1.3.0',
+              capabilities: [],
+            },
+          ],
+          rollouts_available: true,
+        })
+      }
+      if (path === '/v1/rollouts') {
+        requests.push({ path, tenant })
+        return jsonResponse({
+          items: [{ ...nativeRollout, endpoint: tenant === blue ? windowsEndpoint : macEndpoint }],
+        })
+      }
+      if (path === '/v1/rollouts/rollout-7/verify' && init?.method === 'POST') {
+        requests.push({ path, tenant })
+        return pending
+      }
+      return fallback(input, init)
+    })
+
+    function Pending() {
+      const count = useIsMutating({ mutationKey: ['rollouts', red] })
+      return <output aria-label="Pending red rollout decisions">{count}</output>
+    }
+
+    function view(id: string) {
+      const tenant = { id, name: 'Customer', slug: 'customer' }
+      const auth: AuthContextValue = {
+        tenant,
+        tenants: [tenant],
+        user: { id: 'operator', name: 'Operator', email: 'operator@example.test' },
+        permissions: ['agent.read', 'agent.write'],
+        switchTenant: () => {},
+        signOut: () => {},
+      }
+      return (
+        <Providers>
+          <MemoryRouter initialEntries={['/admin']}>
+            <AuthContext.Provider value={auth}>
+              <TimeProvider>
+                <Pending />
+                <AdminPage />
+              </TimeProvider>
+            </AuthContext.Provider>
+          </MemoryRouter>
+        </Providers>
+      )
+    }
+
+    const { rerender } = render(view(red))
+    expect(await screen.findByText(macEndpoint.executable_identity)).toBeInTheDocument()
+    expect(screen.getByText('Red fleet agent')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Verify health gate' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm: Verify health gate' })
+    await user.click(within(dialog).getByRole('button', { name: 'Confirm Verify health gate' }))
+    await waitFor(() =>
+      expect(requests).toContainEqual({ path: '/v1/rollouts/rollout-7/verify', tenant: red }),
+    )
+    expect(screen.getByLabelText('Pending red rollout decisions')).toHaveTextContent('1')
+
+    rerender(view(blue))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByText(macEndpoint.executable_identity)).not.toBeInTheDocument()
+    expect(await screen.findByText(windowsEndpoint.executable_identity)).toBeInTheDocument()
+    expect(screen.getByText('Blue fleet agent')).toBeInTheDocument()
+    expect(screen.queryByText('Red fleet agent')).not.toBeInTheDocument()
+    expect(requests).toContainEqual({ path: '/v1/agents', tenant: blue })
+    expect(requests).toContainEqual({ path: '/v1/rollouts', tenant: blue })
+
+    await act(async () => {
+      finishRedVerification(jsonResponse({ ...nativeRollout, progress: 'red wave verified' }))
+    })
+    await waitFor(() =>
+      expect(screen.getByLabelText('Pending red rollout decisions')).toHaveTextContent('0'),
+    )
+    expect(screen.getByText(windowsEndpoint.executable_identity)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/red wave verified|verify health gate accepted/i),
+    ).not.toBeInTheDocument()
   })
 })

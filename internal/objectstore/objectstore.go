@@ -17,6 +17,7 @@ package objectstore
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 )
 
@@ -49,6 +50,10 @@ type Store interface {
 	// Implementations must enforce the ceiling while reading/copying, not after
 	// a whole untrusted object has already been allocated.
 	GetLimited(ctx context.Context, key string, maxBytes int64) (Object, error)
+	// CopyLimited streams an object to private staging with a byte ceiling.
+	// The destination must be discarded on error, including an unknown-length
+	// object found to exceed the ceiling after copying its bounded prefix.
+	CopyLimited(ctx context.Context, key string, dst io.Writer, maxBytes int64) (int64, error)
 	// Stat returns the size and existence of key without reading the body.
 	Stat(ctx context.Context, key string) (size int64, exists bool, err error)
 	// List returns the keys under a prefix (S-T5 export manifests).
@@ -68,6 +73,7 @@ type TenantStore interface {
 	Put(ctx context.Context, path, contentType string, data []byte) error
 	Get(ctx context.Context, path string) (Object, error)
 	GetLimited(ctx context.Context, path string, maxBytes int64) (Object, error)
+	CopyLimited(ctx context.Context, path string, dst io.Writer, maxBytes int64) (int64, error)
 	Stat(ctx context.Context, path string) (size int64, exists bool, err error)
 	List(ctx context.Context, prefix string) ([]string, error)
 	ListLimited(ctx context.Context, prefix string, maxKeys int) ([]string, error)
@@ -158,6 +164,36 @@ func (t tenantStore) GetLimited(ctx context.Context, path string, maxBytes int64
 		return Object{}, err
 	}
 	return t.store.GetLimited(ctx, key, maxBytes)
+}
+
+func (t tenantStore) CopyLimited(ctx context.Context, path string, dst io.Writer, maxBytes int64) (int64, error) {
+	key, err := t.fullKey(path, false)
+	if err != nil {
+		return 0, err
+	}
+	return t.store.CopyLimited(ctx, key, dst, maxBytes)
+}
+
+func copyObjectLimited(ctx context.Context, dst io.Writer, source io.Reader, limit int64) (int64, error) {
+	if limit < 0 {
+		return 0, ErrTooLarge
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	n, err := io.Copy(dst, io.LimitReader(source, limit))
+	if err != nil {
+		return n, err
+	}
+	if n == limit {
+		var extra [1]byte
+		if _, err := io.ReadFull(source, extra[:]); err == nil {
+			return n, ErrTooLarge
+		} else if !errors.Is(err, io.EOF) {
+			return n, err
+		}
+	}
+	return n, ctx.Err()
 }
 
 func (t tenantStore) Stat(ctx context.Context, path string) (int64, bool, error) {

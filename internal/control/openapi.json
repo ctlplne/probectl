@@ -2350,7 +2350,7 @@
         ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/TenantHeader"
+            "$ref": "#/components/parameters/ExpectedRequestTenant"
           },
           {
             "name": "after",
@@ -2384,6 +2384,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         },
         "x-probectl-pagination": {
@@ -17965,7 +17968,7 @@
         ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/TenantHeader"
+            "$ref": "#/components/parameters/ExpectedRequestTenant"
           }
         ],
         "responses": {
@@ -17982,6 +17985,9 @@
           "400": {
             "$ref": "#/components/responses/ErrorResponse"
           },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "404": {
             "$ref": "#/components/responses/ErrorResponse"
           }
@@ -17996,13 +18002,13 @@
         "x-required-permission": "agent.write",
         "operationId": "createRollout",
         "summary": "Plan a staged rollout over the live fleet",
-        "description": "Record an exact artifact digest and the operator's cosign verify or cosign verify-blob method. The operator verifies the signature before creating the plan.",
+        "description": "Record an exact artifact digest and the operator's cosign verify or cosign verify-blob method. The operator verifies the signature before creating the plan. For a managed endpoint rollout, supply the native platform and executable identity and stage the signed installer in this tenant's package storage. The control plane checks the staged bytes against the supplied digest before saving the plan. Only enrolled devices on the matching platform are eligible.",
         "tags": [
           "rollouts"
         ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/TenantHeader"
+            "$ref": "#/components/parameters/ExpectedRequestTenant"
           }
         ],
         "requestBody": {
@@ -18010,7 +18016,28 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["version", "digest", "verify_method"],
+                "properties": {
+                  "version": {"type": "string"},
+                  "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+                  "verify_method": {"type": "string"},
+                  "canary_percent": {"type": "integer"},
+                  "early_percent": {"type": "integer"},
+                  "endpoint": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["platform", "executable_identity"],
+                    "properties": {
+                      "platform": {"type": "string", "enum": ["darwin/amd64", "darwin/arm64", "windows/amd64", "windows/arm64"]},
+                      "executable_identity": {
+                        "type": "string",
+                        "description": "Expected running executable identity from the signed installer. Use cdhash:<40 lowercase hex> on macOS or sha256:<64 lowercase hex> on Windows. This differs from the installer digest."
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -18029,7 +18056,19 @@
           "400": {
             "$ref": "#/components/responses/ErrorResponse"
           },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
             "$ref": "#/components/responses/ErrorResponse"
           }
         }
@@ -18045,7 +18084,7 @@
         ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/TenantHeader"
+            "$ref": "#/components/parameters/ExpectedRequestTenant"
           },
           {
             "name": "id",
@@ -18069,6 +18108,9 @@
             }
           },
           "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
             "$ref": "#/components/responses/ErrorResponse"
           },
           "404": {
@@ -18087,7 +18129,7 @@
         ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/TenantHeader"
+            "$ref": "#/components/parameters/ExpectedRequestTenant"
           },
           {
             "name": "id",
@@ -18111,6 +18153,9 @@
             }
           },
           "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
             "$ref": "#/components/responses/ErrorResponse"
           },
           "404": {
@@ -18130,7 +18175,7 @@
         ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/TenantHeader"
+            "$ref": "#/components/parameters/ExpectedRequestTenant"
           },
           {
             "name": "id",
@@ -18156,6 +18201,9 @@
           "400": {
             "$ref": "#/components/responses/ErrorResponse"
           },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "404": {
             "$ref": "#/components/responses/ErrorResponse"
           }
@@ -18172,7 +18220,7 @@
         ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/TenantHeader"
+            "$ref": "#/components/parameters/ExpectedRequestTenant"
           },
           {
             "name": "id",
@@ -18214,6 +18262,9 @@
           "400": {
             "$ref": "#/components/responses/ErrorResponse"
           },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
           "404": {
             "$ref": "#/components/responses/ErrorResponse"
           }
@@ -18230,7 +18281,7 @@
         ],
         "parameters": [
           {
-            "$ref": "#/components/parameters/TenantHeader"
+            "$ref": "#/components/parameters/ExpectedRequestTenant"
           },
           {
             "name": "id",
@@ -18270,6 +18321,9 @@
             }
           },
           "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
             "$ref": "#/components/responses/ErrorResponse"
           },
           "404": {
@@ -20005,6 +20059,16 @@
         "required": false,
         "x-probectl-dev-only": true,
         "description": "Local dev-auth/test tenant override. In release/session mode the tenant is resolved from the authenticated principal, and this header is not an identity credential.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "ExpectedRequestTenant": {
+        "name": "X-Probectl-Tenant",
+        "in": "header",
+        "required": false,
+        "description": "Optional expected tenant for this request. Multiple values or a mismatch with the authenticated tenant return 403. Authentication always supplies the production tenant identity.",
         "schema": {
           "type": "string",
           "format": "uuid"

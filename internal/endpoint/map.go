@@ -11,17 +11,18 @@ import (
 	"strings"
 
 	"github.com/ctlplne/probectl/internal/canary"
+	"github.com/ctlplne/probectl/internal/endpoint/wire"
 )
 
 // Canary result types emitted by the endpoint agent. They share the "endpoint."
 // prefix so the pipeline/TSDB can route them as one DEM plane while keeping the
 // signals distinct.
 const (
-	TypeAttribution = "endpoint.attribution"
-	TypeWiFi        = "endpoint.wifi"
-	TypeGateway     = "endpoint.gateway"
-	TypeLastMile    = "endpoint.lastmile"
-	TypeSession     = "endpoint.session"
+	TypeAttribution = wire.TypeAttribution
+	TypeWiFi        = wire.TypeWiFi
+	TypeGateway     = wire.TypeGateway
+	TypeLastMile    = wire.TypeLastMile
+	TypeSession     = wire.TypeSession
 )
 
 // ToResults maps a Sample onto the canonical canary.Result envelope (one Result

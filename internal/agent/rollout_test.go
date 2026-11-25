@@ -50,6 +50,75 @@ func mustPlan(t *testing.T, fleet []FleetAgent) *RolloutPlan {
 	return p
 }
 
+func TestNativeEndpointRolloutRequiresAnApplyingWaveAndExactExecutable(t *testing.T) {
+	target := goodArtifact()
+	target.Method = "cosign verify-blob package.msi"
+	target.Endpoint = &EndpointArtifact{
+		Platform: "windows/amd64", ExecutableIdentity: "sha256:" + strings.Repeat("d", 64),
+	}
+	fleet := testFleet(3, "v0.1.0")
+	fleet[0].EndpointPlatform = "windows/amd64"
+	fleet[1].EndpointPlatform = "darwin/arm64"
+	// The device already on the expected code skips the wave even though its
+	// installation package and executable are different files.
+	fleet[2].Version = target.Version
+	fleet[2].EndpointPlatform = target.Endpoint.Platform
+	fleet[2].ExecutableIdentity = target.Endpoint.ExecutableIdentity
+	fleet[2].ExecutableMeasuredAt = t0
+	invalid := target
+	invalid.Endpoint = &EndpointArtifact{Platform: target.Endpoint.Platform, ExecutableIdentity: target.Digest}
+	if _, err := PlanRolloutAt(fleet, invalid, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), t0); err == nil {
+		t.Fatal("planning accepted the installer hash as the executable identity")
+	}
+	plan, err := PlanRolloutAt(fleet, target, lifecycle.DefaultSplit(), "v0.2.0", lifecycle.DefaultPolicy(), t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Waves) != 1 || len(plan.Waves[0].AgentIDs) != 1 || plan.Waves[0].AgentIDs[0] != fleet[0].ID {
+		t.Fatal("the native package must plan only its target platform and outdated code", plan.Waves)
+	}
+	if _, ok := plan.ReleasedEndpointArtifact(fleet[0].ID, "windows/amd64", t0); ok {
+		t.Fatal("a pending wave offered its package before approval")
+	}
+	if _, err := plan.Advance(t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := plan.ReleasedEndpointArtifact(fleet[1].ID, "windows/amd64", t0); ok {
+		t.Fatal("a device outside the applying wave obtained an offer")
+	}
+	if _, ok := plan.ReleasedEndpointArtifact(fleet[0].ID, "windows/arm64", t0); ok {
+		t.Fatal("the device resolved an offer for the wrong architecture")
+	}
+	offer, ok := plan.ReleasedEndpointArtifact(fleet[0].ID, "windows/amd64", t0)
+	if !ok || offer.Digest != target.Digest || offer.Endpoint.ExecutableIdentity != target.Endpoint.ExecutableIdentity {
+		t.Fatal("the applying wave did not release its exact package and executable")
+	}
+	offer.Endpoint.ExecutableIdentity = "altered"
+	if _, ok := plan.ReleasedEndpointArtifact(fleet[0].ID, "windows/amd64", t0.Add(plan.VerifyWindow)); ok {
+		t.Fatal("an expired rollout offer was resolved")
+	}
+	fleet[0].Version = target.Version
+	fleet[0].Digest = target.Digest
+	fleet[0].ExecutableIdentity = target.Digest
+	fleet[0].ExecutableMeasuredAt = t0.Add(time.Second)
+	fleet[0].LastSeen = t0.Add(time.Second)
+	if complete, err := plan.Verify(fleet, t0.Add(2*time.Second)); err != nil || complete || len(plan.Stragglers) != 1 {
+		t.Fatal("a copied package digest verified the running executable", complete, err)
+	}
+	fleet[0].ExecutableIdentity = target.Endpoint.ExecutableIdentity
+	fleet[0].ExecutableMeasuredAt = t0.Add(-time.Second)
+	if complete, err := plan.Verify(fleet, t0.Add(2*time.Second)); err != nil || complete {
+		t.Fatal("an ordinary post-release heartbeat renewed pre-release executable evidence", complete, err)
+	}
+	fleet[0].ExecutableMeasuredAt = t0.Add(time.Second)
+	if complete, err := plan.Verify(fleet, t0.Add(2*time.Second)); err != nil || !complete {
+		t.Fatal("expected executable identity and fresh heartbeat did not verify the wave", complete, err)
+	}
+	if _, ok := plan.ReleasedEndpointArtifact(fleet[0].ID, "windows/amd64", t0.Add(3*time.Second)); ok {
+		t.Fatal("a completed wave still offered a package")
+	}
+}
+
 // upgraded returns the fleet with the given wave's members on the target
 // version AND reporting the target artifact digest, with fresh heartbeats —
 // i.e. actually running the signed artifact. Verify requires the digest, not

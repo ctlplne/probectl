@@ -10,7 +10,7 @@ package endpoint
 
 import "context"
 
-func newPlatformWiFiCollector() WiFiCollector {
+func newPlatformWiFiCollector(Privacy) WiFiCollector {
 	return cmdWiFiCollector{
 		run:   func(ctx context.Context) (string, error) { return execText(ctx, "netsh", "wlan", "show", "interfaces") },
 		parse: parseNetshWlan,

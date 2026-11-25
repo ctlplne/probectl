@@ -125,6 +125,10 @@ func TestS3StoreTenantIsolationLifecycleAndSigning(t *testing.T) {
 	if _, err := b.GetLimited(ctx, "browser/b.png", 0); err != ErrTooLarge {
 		t.Fatalf("bounded get error = %v, want ErrTooLarge", err)
 	}
+	var body strings.Builder
+	if count, err := b.CopyLimited(ctx, "browser/b.png", &body, 1); err != nil || count != 1 || body.String() != "B" {
+		t.Fatalf("tenant B copy = %q (%d), err=%v", body.String(), count, err)
+	}
 	if n, err := a.DeletePrefix(ctx, "browser/"); err != nil || n != 1 {
 		t.Fatalf("tenant A delete = %d err=%v", n, err)
 	}

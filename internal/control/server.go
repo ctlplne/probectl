@@ -44,6 +44,7 @@ import (
 	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/metrics"
 	"github.com/ctlplne/probectl/internal/notify"
+	"github.com/ctlplne/probectl/internal/objectstore"
 	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/outage"
 	"github.com/ctlplne/probectl/internal/path"
@@ -272,8 +273,10 @@ type Server struct {
 	evidenceSigningKey []byte
 
 	// rollouts holds active staged-rollout plans (OPS-002), lazily created.
-	rollouts     *rolloutManager
-	rolloutsOnce sync.Once
+	rollouts             *rolloutManager
+	rolloutsOnce         sync.Once
+	endpointPackageStore objectstore.Store
+	endpointPackageSlots chan struct{}
 
 	// Compliance validator (S46). Set via WithCompliance; nil reports
 	// compliance_running=false.
@@ -766,6 +769,9 @@ func (s *Server) routes() http.Handler {
 			h = s.requireAnyPermission(rt.Permission, h)
 		default:
 			h = s.requirePermission(rt.Permission, h)
+		}
+		if acceptsExpectedTenant(rt.Pattern) {
+			h = requireMatchingTenantHint(h)
 		}
 		h = requireCustomerHost(h)
 		if lifecycle, ok := apiLifecycleFor(rt.Method, rt.Pattern); ok {

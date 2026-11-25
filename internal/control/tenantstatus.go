@@ -62,14 +62,20 @@ func NewTenantStatusCache(pool *pgxpool.Pool, ttl time.Duration) TenantStatusSou
 	if ttl <= 0 {
 		ttl = 15 * time.Second
 	}
-	read := func(ctx context.Context, tenantID string) (string, error) {
-		var status string
-		err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
-			return q.QueryRow(ctx, `SELECT status FROM tenants WHERE id = $1`, tenantID).Scan(&status)
-		})
-		return status, err
+	return &tenantStatusCache{
+		read: func(ctx context.Context, tenantID string) (string, error) {
+			return readTenantStatus(ctx, pool, tenantID)
+		},
+		ttl: ttl, entries: map[string]statusEntry{},
 	}
-	return &tenantStatusCache{read: read, ttl: ttl, entries: map[string]statusEntry{}}
+}
+
+func readTenantStatus(ctx context.Context, pool *pgxpool.Pool, tenantID string) (string, error) {
+	var status string
+	err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
+		return q.QueryRow(ctx, `SELECT status FROM tenants WHERE id = $1`, tenantID).Scan(&status)
+	})
+	return status, err
 }
 
 // terminalStatus reports a lifecycle state that never reverses (offboarding,

@@ -5,6 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
+import { useAuth } from '../auth/useAuth'
 import { apiFetch } from './client'
 
 export interface Agent {
@@ -174,13 +175,17 @@ export interface OnboardingReadiness {
 export const AGENTS_PAGE_SIZE = 100
 
 export function useAgents() {
+  const { tenant } = useAuth()
   return useInfiniteQuery({
-    queryKey: ['agents'],
+    queryKey: ['agents', tenant.id],
     initialPageParam: '',
-    queryFn: ({ pageParam }) => {
+    queryFn: ({ pageParam, signal }) => {
       const params = new URLSearchParams({ limit: String(AGENTS_PAGE_SIZE) })
       if (pageParam) params.set('after', pageParam)
-      return apiFetch<AgentsPage>(`/agents?${params.toString()}`)
+      return apiFetch<AgentsPage>(`/agents?${params.toString()}`, {
+        signal,
+        headers: { 'X-Probectl-Tenant': tenant.id },
+      })
     },
     // next_cursor is present only when the page was full; absent = end of set.
     getNextPageParam: (last) => last.next_cursor ?? undefined,

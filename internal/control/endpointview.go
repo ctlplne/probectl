@@ -158,8 +158,8 @@ func (cs *EndpointEventConsumer) Run(ctx context.Context) error {
 }
 
 // requireEndpointBinding fails closed when an endpoint consumer has no registry
-// binding (INV-08 / threat model B9). The endpoint/DEM agent asserts its tenant
-// from local YAML with NO certificate or SPIFFE identity, so every endpoint lane
+// binding (INV-08 / threat model B9). A direct-bus endpoint asserts its tenant
+// from local YAML, so every endpoint lane
 // is a VERIFYING lane — and RunLanes always subscribes the shared (pooled) lane,
 // where VerifyBatchTenantStrict with a nil binding returns the payload's CLAIMED
 // tenant verbatim. Without this guard that safety was a wiring convention

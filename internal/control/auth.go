@@ -470,6 +470,24 @@ func bearerTokenFromRequest(r *http.Request) (string, bool) {
 	return strings.TrimSpace(token), true
 }
 
+func acceptsExpectedTenant(pattern string) bool {
+	return pattern == "/v1/agents" || pattern == "/v1/rollouts" || strings.HasPrefix(pattern, "/v1/rollouts/")
+}
+
+// requireMatchingTenantHint lets clients detect a stale browser session.
+// The optional header can only narrow an already authenticated request.
+func requireMatchingTenantHint(next apiHandler) apiHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		p := auth.PrincipalFrom(r.Context())
+		const header = "X-Probectl-Tenant"
+		expected := strings.TrimSpace(r.Header.Get(header))
+		if p != nil && (len(r.Header.Values(header)) > 1 || (expected != "" && expected != p.TenantID)) {
+			return apierror.Forbidden("request tenant no longer matches the session")
+		}
+		return next(w, r)
+	}
+}
+
 func (s *Server) resolveBearerPrincipal(r *http.Request, token string) (*auth.Principal, error) {
 	if s.pool == nil {
 		return nil, store.ErrInvalidToken

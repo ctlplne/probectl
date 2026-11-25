@@ -27,6 +27,35 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
+func TestEnrolledEndpointConfigurationRequiresExclusiveTLSControl(t *testing.T) {
+	control := ControlConfig{
+		Address: "control.example:8444", EnrollmentURL: "https://control.example", IdentityDir: t.TempDir(),
+	}
+	for _, tc := range []struct {
+		name  string
+		alter func(*Config)
+		err   string
+	}{
+		{"complete", func(*Config) {}, ""},
+		{"missing address", func(c *Config) { c.Control.Address = "" }, "control.address"},
+		{"invalid port", func(c *Config) { c.Control.Address = "control.example:70000" }, "control.address"},
+		{"non-TLS rotation", func(c *Config) { c.Control.EnrollmentURL = "http://control.example" }, "HTTPS origin"},
+		{"missing identity", func(c *Config) { c.Control.IdentityDir = "" }, "identity_dir"},
+		{"direct bus also configured", func(c *Config) { c.Bus.Mode = "kafka" }, "no direct bus"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Default()
+			cfg.TenantID = "00000000-0000-0000-0000-000000000001"
+			cfg.Control = control
+			tc.alter(cfg)
+			err := cfg.validate()
+			if tc.err == "" && err != nil || tc.err != "" && (err == nil || !strings.Contains(err.Error(), tc.err)) {
+				t.Fatalf("configuration validation = %v, want %q", err, tc.err)
+			}
+		})
+	}
+}
+
 // TestDefaultShipsNoExternalTargets locks in the endpoint agent's no-phone-home
 // guarantee (docs/guardrails.md G7-2, finding PLAT-20): neither the built-in
 // defaults nor a Load() with no configured targets may contact an external

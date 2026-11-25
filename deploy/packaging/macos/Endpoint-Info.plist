@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- SPDX-License-Identifier: BUSL-1.1
+     Use of this source code is governed by the Business Source License 1.1
+     in the LICENSE file at the root of this repository. On its Change Date,
+     each version converts to the Mozilla Public License 2.0. -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>probectl Endpoint</string>
+    <key>CFBundleExecutable</key>
+    <string>probectl-endpoint</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.probectl.endpoint</string>
+    <key>CFBundleName</key>
+    <string>probectl Endpoint</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>0.0.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSLocationUsageDescription</key>
+    <string>probectl uses the Wi-Fi network name and access point to diagnose connection problems when your organization has enabled those settings. It does not collect location coordinates.</string>
+</dict>
+</plist>

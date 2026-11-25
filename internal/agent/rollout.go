@@ -35,10 +35,12 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	endpointwire "github.com/ctlplne/probectl/internal/endpoint/wire"
 	"github.com/ctlplne/probectl/internal/lifecycle"
 )
 
@@ -57,6 +59,12 @@ type FleetAgent struct {
 	// (fail closed), never as "on the target".
 	Digest   string
 	LastSeen time.Time
+
+	// Native endpoint evidence comes from the enrolled agent. It describes
+	// the executable in use rather than the enclosing installer package.
+	EndpointPlatform     string
+	ExecutableIdentity   string
+	ExecutableMeasuredAt time.Time
 }
 
 // digestRE is the only artifact digest shape a rollout accepts: the exact
@@ -69,10 +77,22 @@ var digestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // docs/ops/verify-artifacts.md). Planning refuses an incomplete record:
 // unsigned or unattested artifacts never enter the fleet.
 type VerifiedArtifact struct {
-	Version    string // e.g. "v0.2.1"
-	Digest     string // the exact image/binary digest the orchestrator deploys
-	Method     string // e.g. "cosign verify ghcr.io/...@sha256:... --certificate-identity-regexp ..."
-	VerifiedBy string // operator identity (audit trail)
+	Version    string            // e.g. "v0.2.1"
+	Digest     string            // the exact image/binary digest the orchestrator deploys
+	Method     string            // e.g. "cosign verify ghcr.io/...@sha256:... --certificate-identity-regexp ..."
+	VerifiedBy string            // operator identity (audit trail)
+	Endpoint   *EndpointArtifact `json:",omitempty"`
+}
+
+// EndpointArtifact binds a native installer to its expected running image.
+// The enclosing VerifiedArtifact.Digest identifies the exact installer bytes.
+type EndpointArtifact struct {
+	Platform           string
+	ExecutableIdentity string
+}
+
+func (e EndpointArtifact) valid() bool {
+	return endpointwire.ValidExecutableIdentity(e.Platform, e.ExecutableIdentity)
 }
 
 // methodVerifies recognizes the signature-verification subcommand in the
@@ -92,7 +112,8 @@ func methodVerifies(method string) bool {
 	return true
 }
 
-func (a VerifiedArtifact) validate() error {
+// Validate checks the artifact identity and operator verification record.
+func (a VerifiedArtifact) Validate() error {
 	switch {
 	case a.Version == "":
 		return fmt.Errorf("agent: rollout artifact needs a version")
@@ -106,8 +127,28 @@ func (a VerifiedArtifact) validate() error {
 		return fmt.Errorf("agent: rollout verify_method must record cosign verify or cosign verify-blob (C6; docs/guardrails.md G7-12)")
 	case a.VerifiedBy == "":
 		return fmt.Errorf("agent: rollout artifact needs the verifier's identity (who ran the verification?)")
+	case a.Endpoint != nil && !a.Endpoint.valid():
+		return fmt.Errorf("agent: native endpoint rollout requires a supported platform and its executable identity")
+	case a.Endpoint != nil && a.Endpoint.ExecutableIdentity == a.Digest:
+		return fmt.Errorf("agent: native endpoint installer and executable require distinct identities")
 	}
 	return nil
+}
+
+func (a VerifiedArtifact) executableMismatch(agent FleetAgent) string {
+	if a.Endpoint == nil {
+		if agent.Digest != a.Digest {
+			return digestStragglerReason(agent.Digest, a.Digest)
+		}
+		return ""
+	}
+	if agent.EndpointPlatform != a.Endpoint.Platform {
+		return "does not report the target endpoint platform"
+	}
+	if agent.ExecutableIdentity != a.Endpoint.ExecutableIdentity {
+		return "does not report the signed endpoint executable identity"
+	}
+	return ""
 }
 
 // WaveStatus is one wave's lifecycle: pending → applying → complete, or
@@ -172,18 +213,28 @@ var ErrRolloutVerificationHalted = errors.New("agent: ROLLOUT HALTED")
 // blocking a wave it can never verify. The zero time plans every agent (the
 // pre-DPR-099 behavior, used by tests that model no clock).
 func PlanRolloutAt(fleet []FleetAgent, target VerifiedArtifact, split lifecycle.Split, controlVersion string, pol lifecycle.Policy, now time.Time) (*RolloutPlan, error) {
-	if err := target.validate(); err != nil {
+	if err := target.Validate(); err != nil {
 		return nil, err
 	}
 	if ok, reason := pol.Check(controlVersion, target.Version); !ok {
 		return nil, fmt.Errorf("agent: rollout target %s would break the version-skew gate: %s", target.Version, reason)
+	}
+	if target.Endpoint != nil {
+		endpoint := *target.Endpoint
+		target.Endpoint = &endpoint
 	}
 
 	byCohort := map[lifecycle.Cohort][]string{}
 	var skipped []string
 	pending := 0
 	for _, a := range fleet {
-		if a.ID == "" || a.Version == target.Version && a.Digest == target.Digest {
+		if a.ID == "" || (target.Endpoint != nil && a.EndpointPlatform != target.Endpoint.Platform) {
+			continue
+		}
+		measured := a.ExecutableMeasuredAt
+		currentObservation := target.Endpoint == nil || (!measured.IsZero() &&
+			(now.IsZero() || (!measured.After(now) && now.Sub(measured) <= defaultHeartbeatSLO)))
+		if a.Version == target.Version && target.executableMismatch(a) == "" && currentObservation {
 			continue
 		}
 		if !now.IsZero() && (a.LastSeen.IsZero() || now.Sub(a.LastSeen) > defaultHeartbeatSLO) {
@@ -226,6 +277,25 @@ func (p *RolloutPlan) CurrentWave() *Wave {
 		}
 	}
 	return nil
+}
+
+// ReleasedEndpointArtifact returns an immutable copy of the package target for
+// a device in the applying wave. The caller must load the plan under the
+// device's certificate-derived tenant before checking membership.
+func (p *RolloutPlan) ReleasedEndpointArtifact(agentID, platform string, now time.Time) (VerifiedArtifact, bool) {
+	if p.Target.Endpoint == nil || p.Target.Endpoint.Platform != platform || p.Target.Validate() != nil {
+		return VerifiedArtifact{}, false
+	}
+	wave := p.CurrentWave()
+	if wave == nil || wave.Status != WaveApplying || wave.AppliedAt.IsZero() ||
+		now.Before(wave.AppliedAt) || !now.Before(wave.AppliedAt.Add(p.VerifyWindow)) ||
+		agentID == "" || !slices.Contains(wave.AgentIDs, agentID) {
+		return VerifiedArtifact{}, false
+	}
+	target := p.Target
+	endpoint := *target.Endpoint
+	target.Endpoint = &endpoint
+	return target, true
 }
 
 // Done reports whether every wave verified complete.
@@ -275,6 +345,11 @@ func (p *RolloutPlan) Verify(fleet []FleetAgent, now time.Time) (complete bool, 
 	if p.Halted {
 		return false, fmt.Errorf("agent: rollout is HALTED (%s)", p.HaltReason)
 	}
+	if p.Target.Endpoint != nil {
+		if err := p.Target.Validate(); err != nil {
+			return false, err
+		}
+	}
 	w := p.CurrentWave()
 	if w == nil || w.Status != WaveApplying {
 		return false, fmt.Errorf("agent: no wave is applying — Advance first")
@@ -287,21 +362,27 @@ func (p *RolloutPlan) Verify(fleet []FleetAgent, now time.Time) (complete bool, 
 	var stragglers []string
 	for _, id := range w.AgentIDs {
 		a, ok := byID[id]
-		switch {
+		observedAt := a.LastSeen
+		if p.Target.Endpoint != nil {
+			observedAt = a.ExecutableMeasuredAt
+		}
+		switch mismatch := p.Target.executableMismatch(a); {
 		case !ok:
 			stragglers = append(stragglers, id+" (missing from the registry)")
 		case a.Version != p.Target.Version:
 			stragglers = append(stragglers, fmt.Sprintf("%s (still on %s)", id, a.Version))
-		case a.Digest != p.Target.Digest:
+		case mismatch != "":
 			// RTO-24: right version label, wrong (or no) deployed artifact — the
 			// agent has NOT taken the signed digest the operator verified. Never
 			// complete on the version string alone (docs/guardrails.md G7-8).
-			stragglers = append(stragglers, fmt.Sprintf("%s (%s)", id, digestStragglerReason(a.Digest, p.Target.Digest)))
-		case now.Sub(a.LastSeen) > p.HeartbeatSLO:
-			stragglers = append(stragglers, fmt.Sprintf("%s (no heartbeat for %s — dark after upgrade?)", id, now.Sub(a.LastSeen).Round(time.Second)))
-		case a.LastSeen.After(now):
+			stragglers = append(stragglers, fmt.Sprintf("%s (%s)", id, mismatch))
+		case p.Target.Endpoint != nil && observedAt.IsZero():
+			stragglers = append(stragglers, id+" (awaiting a verified heartbeat)")
+		case now.Sub(observedAt) > p.HeartbeatSLO:
+			stragglers = append(stragglers, fmt.Sprintf("%s (no heartbeat for %s — dark after upgrade?)", id, now.Sub(observedAt).Round(time.Second)))
+		case observedAt.After(now):
 			stragglers = append(stragglers, id+" (heartbeat is ahead of the verification clock)")
-		case w.AppliedAt.IsZero() || !a.LastSeen.After(w.AppliedAt):
+		case w.AppliedAt.IsZero() || !observedAt.After(w.AppliedAt):
 			stragglers = append(stragglers, id+" (awaiting a heartbeat after wave release)")
 		}
 	}

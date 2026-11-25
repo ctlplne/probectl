@@ -7,10 +7,28 @@
 package objectstore
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
+
+func TestCopyObjectLimitedKeepsUnknownLengthObjectsWithinBudget(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want error
+	}{
+		{"abc", nil},
+		{"abcd", ErrTooLarge},
+	} {
+		var dst bytes.Buffer
+		n, err := copyObjectLimited(t.Context(), &dst, strings.NewReader(tc.body), 3)
+		if n != 3 || dst.String() != "abc" || !errors.Is(err, tc.want) {
+			t.Fatalf("copy of %q produced %q (%d), error %v, want %v", tc.body, dst.String(), n, err, tc.want)
+		}
+	}
+}
 
 func TestTenantKey(t *testing.T) {
 	if got := TenantKey("t1", "browser", "run-9.png"); got != "tenant/t1/browser/run-9.png" {
@@ -67,6 +85,11 @@ func runStoreSuite(t *testing.T, s Store) {
 	}
 	if _, err := s.GetLimited(ctx, key, -1); err == nil {
 		t.Fatal("negative limited get ceiling must be rejected")
+	}
+	var streamed bytes.Buffer
+	if count, err := s.CopyLimited(ctx, key, &streamed, int64(len(data))); err != nil ||
+		count != int64(len(data)) || !bytes.Equal(streamed.Bytes(), data) {
+		t.Fatalf("bounded copy of the complete object: %d bytes (%v)", count, err)
 	}
 	if size, exists, err := s.Stat(ctx, key); err != nil || !exists || size != int64(len(data)) {
 		t.Fatalf("stat: size=%d exists=%v err=%v", size, exists, err)

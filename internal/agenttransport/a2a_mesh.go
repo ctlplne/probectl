@@ -41,7 +41,7 @@ func (svc *service) admitA2AMeshCredential(ctx context.Context, id crypto.SPIFFE
 	var registeredAt time.Time
 	err = tenancy.InTenantReadSnapshot(ctx, svc.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var err error
-		registeredAt, err = store.A2AMeshIdentityRegistration(ctx, sc, id.AgentID, leaf.SerialNumber.Text(16))
+		registeredAt, err = store.ActiveAgentIdentityRegistration(ctx, sc, id.AgentID, leaf.SerialNumber.Text(16))
 		return err
 	})
 	if err != nil {

@@ -30,6 +30,7 @@ import (
 	"github.com/ctlplne/probectl/internal/agentlabel"
 	"github.com/ctlplne/probectl/internal/bus"
 	"github.com/ctlplne/probectl/internal/crypto"
+	"github.com/ctlplne/probectl/internal/endpoint/wire"
 	"github.com/ctlplne/probectl/internal/fairness"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
@@ -46,6 +47,15 @@ const (
 	heartbeatIntervalSeconds = 30
 	agentProtocolVersion     = "probectl.agent.v1"
 )
+
+// EndpointResultsCapability identifies DEM frames on the existing mTLS
+// result stream. The client requires it in Register and on the actual stream.
+const EndpointResultsCapability = "agent.endpoint_results.v1"
+
+// EndpointResultsMetadataKey negotiates endpoint routing before any frame is sent.
+const EndpointResultsMetadataKey = "x-probectl-endpoint-results"
+
+var errInvalidEndpointResult = errors.New("invalid endpoint result frame")
 
 // Descriptor bounds (GAP-07): hostname/version/capability are agent-reported
 // strings that fan out to the operator's CLI, the web console, audit records and
@@ -193,6 +203,10 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
+	process, err := managedProcessFromContext(ctx, true)
+	if err != nil {
+		return nil, err
+	}
 	// Descriptor sanitation (GAP-07): reject control characters / over-length in
 	// the agent-reported hostname, version and capabilities before they enter the
 	// registry and fan out to operator-facing renderers. Fail closed.
@@ -232,8 +246,8 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 					return qerr
 				}
 			}
-			a, e := svc.agents.RegisterWithLabels(ctx, s, id.AgentID, name, req.GetHostname(),
-				req.GetAgentVersion(), id.String(), req.GetCapabilities(), labels)
+			a, e := svc.agents.RegisterEndpointProcess(ctx, s, id.AgentID, name, req.GetHostname(),
+				req.GetAgentVersion(), id.String(), req.GetCapabilities(), labels, process)
 			agent = a
 			return e
 		})
@@ -256,6 +270,12 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 	if svc.l7policy != nil {
 		serverCaps = append(serverCaps, l7PolicyCapability)
 	}
+	if svc.endpointResultsEnabled() {
+		serverCaps = append(serverCaps, EndpointResultsCapability)
+	}
+	if process != nil {
+		serverCaps = append(serverCaps, wire.ManagedProcessCapability)
+	}
 	sort.Strings(serverCaps)
 	return &agentv1.RegisterResponse{
 		AgentId:                  agent.ID,
@@ -267,6 +287,21 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 		AcceptedCapabilities:     acceptedCapabilities(req.GetCapabilities()),
 		ServerCapabilities:       serverCaps,
 	}, nil
+}
+
+func managedProcessFromContext(ctx context.Context, registration bool) (*wire.ManagedProcess, error) {
+	values := metadata.ValueFromIncomingContext(ctx, wire.ManagedProcessMetadata)
+	if len(values) == 0 {
+		return nil, nil
+	}
+	if len(values) != 1 {
+		return nil, status.Error(codes.InvalidArgument, "duplicate endpoint process metadata")
+	}
+	process, err := wire.ParseManagedProcess(values[0])
+	if err != nil || (process.Sequence == 0) != registration {
+		return nil, status.Error(codes.InvalidArgument, "invalid endpoint process metadata for RPC")
+	}
+	return &process, nil
 }
 
 func acceptedCapabilities(requested []string) []string {
@@ -317,8 +352,29 @@ func (svc *service) Heartbeat(ctx context.Context, req *agentv1.HeartbeatRequest
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
+	process, err := managedProcessFromContext(ctx, false)
+	if err != nil {
+		return nil, err
+	}
 	applied := req.GetConfigEpoch()
-	if svc.hb != nil {
+	if process != nil {
+		if req.GetAgentId() != id.AgentID || applied != 0 {
+			return nil, status.Error(codes.InvalidArgument, "invalid managed endpoint heartbeat identity or epoch")
+		}
+		var observed bool
+		err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), svc.pool,
+			func(ctx context.Context, sc tenancy.Scope) error {
+				var err error
+				observed, err = svc.agents.ObserveEndpointProcess(ctx, sc, id.AgentID, id.String(), *process)
+				return err
+			})
+		if err != nil {
+			return nil, status.Error(codes.Internal, "endpoint process heartbeat could not be recorded")
+		}
+		if !observed {
+			return nil, status.Error(codes.FailedPrecondition, "endpoint process registration or heartbeat sequence changed")
+		}
+	} else if svc.hb != nil {
 		// SCALE-012: coalesced — one multi-row UPDATE per tenant per window
 		// instead of one UPDATE per heartbeat RPC.
 		svc.hb.record(id.TenantID, id.AgentID, applied)
@@ -361,14 +417,27 @@ func (svc *service) StreamResults(stream grpc.ClientStreamingServer[agentv1.Stre
 		return status.Error(codes.Unauthenticated, err.Error())
 	}
 	ctx := stream.Context()
+	md, _ := metadata.FromIncomingContext(ctx)
 	// WIRE-006: the stream envelope must be FRESH and UNSEEN — a replayed or
 	// stale open is refused before any result is read (fail closed).
 	if svc.freshness != nil {
-		md, _ := metadata.FromIncomingContext(ctx)
 		if ferr := svc.freshness.check(md, id.TenantID+"/"+id.AgentID); ferr != nil {
 			svc.log.Warn("REFUSED results stream: freshness/replay check failed (WIRE-006)",
 				"tenant", id.TenantID, "agent", id.AgentID, "error", ferr.Error())
 			return status.Error(codes.Unauthenticated, "stream envelope rejected: "+ferr.Error())
+		}
+	}
+	requested := md.Get(EndpointResultsMetadataKey)
+	endpointStream := len(requested) > 0
+	if endpointStream {
+		if len(requested) != 1 || requested[0] != EndpointResultsCapability {
+			return status.Error(codes.InvalidArgument, "invalid endpoint stream capability")
+		}
+		if !svc.endpointResultsEnabled() {
+			return status.Error(codes.Unavailable, "endpoint result routing is unavailable")
+		}
+		if err := stream.SendHeader(metadata.Pairs(EndpointResultsMetadataKey, EndpointResultsCapability)); err != nil {
+			return err
 		}
 	}
 	var accepted uint64
@@ -398,7 +467,13 @@ func (svc *service) StreamResults(stream grpc.ClientStreamingServer[agentv1.Stre
 			svc.accepted.Add(accepted)
 			return err
 		}
+		if endpointStream != (req.GetType() == EndpointResultsCapability) {
+			return status.Error(codes.InvalidArgument, "result frame does not match the stream capability")
+		}
 		if err := svc.ingest(ctx, id, req); err != nil {
+			if errors.Is(err, errInvalidEndpointResult) {
+				return status.Error(codes.InvalidArgument, errInvalidEndpointResult.Error())
+			}
 			// A bus-publish failure surfaces as a stream error so the agent
 			// retries the (still-buffered) batch: at-least-once delivery.
 			svc.accepted.Add(accepted)
@@ -412,15 +487,27 @@ func (svc *service) StreamResults(stream grpc.ClientStreamingServer[agentv1.Stre
 // ingest decodes one result, stamps the authoritative tenant + agent identity
 // from the certificate, and publishes it to the result bus keyed by tenant.
 func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1.StreamResultsRequest) error {
+	endpointFrame := req.GetType() == EndpointResultsCapability
 	if req.GetA2AMeshProof() != nil {
+		if endpointFrame {
+			return errInvalidEndpointResult
+		}
 		return svc.ingestA2AMeshReport(ctx, id, req)
 	}
 	var r resultv1.Result
 	if err := proto.Unmarshal(req.GetPayload(), &r); err != nil {
+		if endpointFrame {
+			return errInvalidEndpointResult
+		}
 		// A malformed payload is a poison message: drop it (counted as accepted
 		// so the agent does not wedge retrying it) rather than fail the stream.
 		svc.log.Error("dropping malformed result payload", "tenant", id.TenantID, "agent", id.AgentID, "error", err.Error())
 		return nil
+	}
+	if endpointFrame {
+		if !wire.IsResultType(r.GetCanaryType()) || r.GetStartTimeUnixNano() <= 0 || hasObjectArtifact(&r) {
+			return errInvalidEndpointResult
+		}
 	}
 	// Authoritative identity comes from the mTLS certificate, not the payload.
 	r.TenantId = id.TenantID
@@ -436,6 +523,9 @@ func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1
 	// genuine results, so distinct results keep distinct ids.
 	if r.GetResultId() == "" {
 		r.ResultId = deterministicResultID(&r)
+	}
+	if endpointFrame {
+		return svc.publishEndpointResult(ctx, id, &r)
 	}
 	publish := func(ctx context.Context) error {
 		return svc.publishResult(ctx, id, &r)
@@ -455,10 +545,6 @@ func (svc *service) publishResult(ctx context.Context, id crypto.SPIFFEID, r *re
 	if svc.bus == nil {
 		return nil // no bus wired (minimal server): accept and count only
 	}
-	value, err := proto.Marshal(r)
-	if err != nil {
-		return err
-	}
 	// Siloed bus lanes (S-T2): a siloed/hybrid tenant's results ride its own
 	// namespaced topic. FAIL CLOSED (RED-006): if the lane cannot be resolved,
 	// the result is DROPPED with a loud error — a siloed tenant's telemetry
@@ -476,8 +562,42 @@ func (svc *service) publishResult(ctx context.Context, id crypto.SPIFFEID, r *re
 			"tenant", id.TenantID, "namespace", t.BusNamespace, "error", terr.Error())
 		return terr
 	}
-	// SCALE-007: tenant|bucket key (agent entropy) — one large tenant spreads
-	// across partitions; each agent's stream keeps its FIFO.
+	return svc.publishTenantResult(ctx, topic, r)
+}
+
+func (svc *service) endpointResultsEnabled() bool {
+	return svc.bus != nil && svc.pool != nil && svc.collectionFence != nil
+}
+
+func (svc *service) publishEndpointResult(ctx context.Context, id crypto.SPIFFEID, r *resultv1.Result) error {
+	if !svc.endpointResultsEnabled() {
+		return errors.New("endpoint result routing is unavailable")
+	}
+	// The durable endpoint consumer verifies its broker lane. Even pooled
+	// tenants have a dedicated lane for endpoint results in strict mode.
+	var slug string
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), svc.pool,
+		func(ctx context.Context, scope tenancy.Scope) error {
+			return scope.Q.QueryRow(ctx, `SELECT slug FROM public.probectl_current_tenant_identity() WHERE id=$1`,
+				scope.Tenant.String()).Scan(&slug)
+		})
+	if err != nil {
+		return fmt.Errorf("resolve endpoint result lane: %w", err)
+	}
+	topic, err := bus.TopicFor(tenancy.BusNamespaceFor(slug), bus.EndpointResultsTopic)
+	if err != nil {
+		return err
+	}
+	return tenancy.FencedTenantWrite(ctx, svc.collectionFence, id.TenantID, tenancy.ErrNoTenant,
+		func(ctx context.Context) error { return svc.publishTenantResult(ctx, topic, r) })
+}
+
+func (svc *service) publishTenantResult(ctx context.Context, topic string, r *resultv1.Result) error {
+	value, err := proto.Marshal(r)
+	if err != nil {
+		return err
+	}
+	// Partition by tenant and agent so each agent's results keep their order.
 	return svc.bus.Publish(ctx, topic, bus.TenantKey(r.GetTenantId(), r.GetAgentId()), value)
 }
 

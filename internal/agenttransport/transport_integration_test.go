@@ -81,6 +81,7 @@ type testServer struct {
 	addr   string
 	caFile string
 	ca     *crypto.CA
+	bus    *bus.Memory
 }
 
 func writeTemp(t *testing.T, dir, name string, data []byte) string {
@@ -108,9 +109,10 @@ func startTestServerWithBroker(ctx context.Context, t *testing.T, pool *pgxpool.
 	if err != nil {
 		t.Fatal(err)
 	}
+	resultBus := bus.NewMemory()
 	srv, err := agenttransport.New(
 		writeTemp(t, dir, "server.crt", sc), writeTemp(t, dir, "server.key", sk), caFile,
-		pool, bus.NewMemory(), broker, logging.New(io.Discard, "error", "json"))
+		pool, resultBus, broker, logging.New(io.Discard, "error", "json"))
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -125,7 +127,7 @@ func startTestServerWithBroker(ctx context.Context, t *testing.T, pool *pgxpool.
 	done := make(chan struct{})
 	go func() { _ = srv.ServeListener(srvCtx, ln); close(done) }()
 	t.Cleanup(func() { stop(); <-done })
-	return testServer{addr: ln.Addr().String(), caFile: caFile, ca: ca}
+	return testServer{addr: ln.Addr().String(), caFile: caFile, ca: ca, bus: resultBus}
 }
 
 // TestAgentRegistersOverMTLS proves the S4 Done-when: a stub client registers,

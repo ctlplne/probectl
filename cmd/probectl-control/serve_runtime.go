@@ -337,6 +337,7 @@ func (rt *serveRuntime) loadEnrollment() error {
 func (rt *serveRuntime) buildAPIServer() error {
 	rt.srv = control.New(rt.cfg, rt.log, rt.db, rt.db.Pool(), rt.pathStore, nil).
 		WithDispatcher(rt.dispatcher).
+		WithEndpointPackageStore(rt.objectStore).
 		WithFlowStore(rt.flowStore).
 		WithFlowQualityReceipts(rt.flowQualityStore).
 		WithOTelStore(rt.otelStore).

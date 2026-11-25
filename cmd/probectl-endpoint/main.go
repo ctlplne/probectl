@@ -9,11 +9,9 @@
 // binary that runs on a user's device and captures last-mile experience — WiFi
 // link health, the local gateway, the ISP/last-mile path, and browser-session
 // timings — then ATTRIBUTES a slowdown to the user's WiFi, their LAN, their ISP,
-// or the wider network. It emits like every other agent (results to the
-// operator's own bus, tenant-tagged); it never phones home. It is, however, a
-// deliberately LOWER-TRUST tier (threat model B9): it has no certificate/SPIFFE
-// identity, so the tenant_id it stamps is a local ASSERTION the control plane
-// re-verifies against the agent registry before storage, never authoritative.
+// or the wider network. Enrolled endpoints send results over the operator's
+// tenant-bound mTLS control connection. Direct-bus deployments keep the
+// registry-verified collector path described in threat model B9.
 //
 //	probectl-endpoint -config /etc/probectl/endpoint.yml
 //	probectl-endpoint version
@@ -24,11 +22,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
@@ -40,29 +40,59 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "version", "-version", "--version":
-			fmt.Println("probectl-endpoint", version.Get())
-			return
-		}
-	}
-	if err := run(); err != nil {
+	if err := dispatch(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "probectl-endpoint:", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func dispatch(args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "version", "-version", "--version":
+			if len(args) == 2 && args[1] == "--executable-identity" {
+				identity, err := crypto.RunningCodeIdentity()
+				if err != nil {
+					return err
+				}
+				_, err = fmt.Fprintln(os.Stdout, identity)
+				return err
+			}
+			fmt.Println("probectl-endpoint", version.Get())
+			return nil
+		case "enroll":
+			return runEndpointEnroll(args[1:], os.Stdin, os.Stdout)
+		case "stage-update":
+			return stageEndpointUpdate(args[1:], os.Stdout)
+		}
+	}
+	return run(args)
+}
+
+func run(args []string) error {
 	fs := flag.NewFlagSet("probectl-endpoint", flag.ContinueOnError)
 	configPath := fs.String("config", os.Getenv("PROBECTL_ENDPOINT_CONFIG"), "path to the endpoint agent YAML config")
-	if err := fs.Parse(os.Args[1:]); err != nil {
+	managed := fs.Bool("managed", false, "read the current user's probectl/endpoint.yaml under the OS configuration directory")
+	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *managed {
+		path, err := managedEndpointConfigPath()
+		if err != nil {
+			return err
+		}
+		*configPath = path
 	}
 
 	cfg, err := endpoint.Load(*configPath)
+	if *managed && errors.Is(err, os.ErrNotExist) {
+		return nil // the management system may deploy configuration after the package
+	}
 	if err != nil {
 		return err
+	}
+	if *managed && cfg.Control.Address == "" {
+		return errors.New("managed endpoint configuration requires enrolled control transport")
 	}
 
 	log := logging.New(os.Stdout, envOr("PROBECTL_ENDPOINT_LOG_LEVEL", "info"), envOr("PROBECTL_ENDPOINT_LOG_FORMAT", "json"))
@@ -71,11 +101,24 @@ func run() error {
 	if err := crypto.RunPowerOnSelfTest(log); err != nil {
 		return err
 	}
-	build := version.Get()
-	metricsRuntime, err := agentmetrics.New("probectl-endpoint", build.Version, build.Commit,
-		agentmetrics.ConfigFromEnv(os.Getenv, "PROBECTL_ENDPOINT", agentmetrics.DefaultEndpointAddr))
+	enrolled := cfg.Control.Address != ""
+	metricsConfig, err := endpointMetricsConfig(enrolled)
 	if err != nil {
 		return err
+	}
+	var metricsRuntime *agentmetrics.Runtime
+	if metricsConfig.Addr != "" {
+		build := version.Get()
+		metricsRuntime, err = agentmetrics.New("probectl-endpoint", build.Version, build.Commit, metricsConfig)
+		if err != nil {
+			return err
+		}
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if enrolled {
+		return runEnrolled(ctx, cfg, metricsRuntime, log)
 	}
 
 	rawBus, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_ENDPOINT_BUS"))
@@ -93,9 +136,34 @@ func run() error {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	return metricsRuntime.RunTogether(ctx, rt.Run)
+}
+
+func managedEndpointConfigPath() (string, error) {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve managed endpoint configuration: %w", err)
+	}
+	return filepath.Join(base, "probectl", "endpoint.yaml"), nil
+}
+
+func endpointMetricsConfig(enrolled bool) (agentmetrics.Config, error) {
+	const prefix = "PROBECTL_ENDPOINT"
+	if !enrolled {
+		return agentmetrics.ConfigFromEnv(os.Getenv, prefix, agentmetrics.DefaultEndpointAddr), nil
+	}
+	cfg := agentmetrics.ConfigFromEnv(os.Getenv, prefix, "")
+	if cfg == (agentmetrics.Config{}) {
+		return cfg, nil
+	}
+	if cfg.TLSCertFile == "" || cfg.TLSKeyFile == "" {
+		return agentmetrics.Config{}, errors.New("enrolled endpoint metrics require both a TLS certificate and key")
+	}
+	if cfg.Addr == "" {
+		// Per-user launchers can run at the same time on one device.
+		cfg.Addr = "127.0.0.1:0"
+	}
+	return cfg, nil
 }
 
 func envOr(key, def string) string {

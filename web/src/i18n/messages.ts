@@ -1575,7 +1575,7 @@ const en = {
   'admin.fleet.dialog.openRunbook': 'Open rollout API and runbook',
   'admin.rollout.title': 'Staged rollout control',
   'admin.rollout.description':
-    'Review tenant-scoped waves, record an explicit operator decision, and verify the live registry health gate. Agent updates still run only in your external orchestrator.',
+    'Review tenant-scoped waves, record an explicit operator decision, and verify the live registry health gate.',
   'admin.rollout.loading': 'Loading staged rollouts...',
   'admin.rollout.error': 'Could not load tenant rollout state.',
   'admin.rollout.empty.title': 'No staged rollouts',
@@ -1598,6 +1598,13 @@ const en = {
   'admin.rollout.detail.id': 'Rollout ID',
   'admin.rollout.detail.target': 'Verified target',
   'admin.rollout.detail.digest': 'Digest pin',
+  'admin.rollout.endpoint.installer': 'Installer SHA-256',
+  'admin.rollout.endpoint.platform': 'Endpoint platform',
+  'admin.rollout.endpoint.executable': 'Expected running executable identity',
+  'admin.rollout.endpoint.gate':
+    'Every wave member must report {target}, the expected platform, and the expected running executable identity in an authenticated heartbeat recorded after wave release and within the last five minutes.',
+  'admin.rollout.endpoint.safety':
+    'Advance releases the signed installer for staging. An operator or device manager must separately run stage-update and install it.',
   'admin.rollout.detail.haltReason': 'Halt evidence',
   'admin.rollout.detail.stragglers':
     'Still converging (not yet on the target with a fresh heartbeat)',
@@ -3354,7 +3361,7 @@ const es: Record<MessageKey, string> = {
   'admin.fleet.dialog.openRunbook': 'Abrir API y runbook de despliegue',
   'admin.rollout.title': 'Control de despliegue escalonado',
   'admin.rollout.description':
-    'Revisa olas del tenant, registra una decision explicita y verifica la compuerta del registro vivo. Las actualizaciones solo se ejecutan en tu orquestador externo.',
+    'Revisa las olas del tenant, registra una decisión explícita y verifica la evidencia en el registro activo.',
   'admin.rollout.loading': 'Cargando despliegues escalonados...',
   'admin.rollout.error': 'No se pudo cargar el estado de despliegue del tenant.',
   'admin.rollout.empty.title': 'No hay despliegues escalonados',
@@ -3377,6 +3384,13 @@ const es: Record<MessageKey, string> = {
   'admin.rollout.detail.id': 'ID del despliegue',
   'admin.rollout.detail.target': 'Objetivo verificado',
   'admin.rollout.detail.digest': 'Digest fijado',
+  'admin.rollout.endpoint.installer': 'SHA-256 del instalador',
+  'admin.rollout.endpoint.platform': 'Plataforma del dispositivo',
+  'admin.rollout.endpoint.executable': 'Identidad esperada del ejecutable en ejecución',
+  'admin.rollout.endpoint.gate':
+    'Cada miembro de la ola debe informar {target}, la plataforma y la identidad esperada del ejecutable en un latido autenticado posterior a la liberación de la ola y registrado en los últimos cinco minutos.',
+  'admin.rollout.endpoint.safety':
+    'Avanzar habilita la descarga del instalador firmado. Un operador o gestor de dispositivos debe ejecutar stage-update e instalarlo por separado.',
   'admin.rollout.detail.haltReason': 'Evidencia de detencion',
   'admin.rollout.detail.stragglers':
     'Aun convergiendo (todavia sin la version objetivo con latido reciente)',
@@ -5064,7 +5078,7 @@ const ar: Record<MessageKey, string> = {
   'admin.fleet.dialog.openRunbook': 'فتح API ودليل الطرح',
   'admin.rollout.title': 'التحكم في الطرح المرحلي',
   'admin.rollout.description':
-    'راجع موجات المستأجر وسجل قرار المشغل الصريح وتحقق من بوابة السجل الحي. تنفذ تحديثات الوكيل فقط عبر المنسق الخارجي.',
+    'راجع موجات المستأجر وسجّل قرار المشغّل الصريح وتحقق من الأدلة في السجل الحي.',
   'admin.rollout.loading': 'جار تحميل الطروحات المرحلية...',
   'admin.rollout.error': 'تعذر تحميل حالة طرح المستأجر.',
   'admin.rollout.empty.title': 'لا توجد طروحات مرحلية',
@@ -5087,6 +5101,13 @@ const ar: Record<MessageKey, string> = {
   'admin.rollout.detail.id': 'معرف الطرح',
   'admin.rollout.detail.target': 'الهدف المتحقق منه',
   'admin.rollout.detail.digest': 'بصمة المحتوى المثبتة',
+  'admin.rollout.endpoint.installer': 'بصمة SHA-256 لبرنامج التثبيت',
+  'admin.rollout.endpoint.platform': 'منصة الجهاز',
+  'admin.rollout.endpoint.executable': 'الهوية المتوقعة للملف التنفيذي قيد التشغيل',
+  'admin.rollout.endpoint.gate':
+    'يجب أن يبلغ كل جهاز في الموجة عن {target} والمنصة والهوية المتوقعة للملف التنفيذي في نبضة موثقة بعد إتاحة الموجة وخلال الدقائق الخمس الأخيرة.',
+  'admin.rollout.endpoint.safety':
+    'يتيح التقدم تنزيل برنامج التثبيت الموقّع. يشغّل المشغّل أو نظام إدارة الأجهزة الأمر stage-update ويثبّت الحزمة بشكل منفصل.',
   'admin.rollout.detail.haltReason': 'دليل الإيقاف',
   'admin.rollout.detail.stragglers':
     'لا تزال قيد المواءمة (لم تصل بعد إلى الإصدار المستهدف بنبضة حديثة)',

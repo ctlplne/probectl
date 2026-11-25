@@ -9,6 +9,8 @@ package endpoint
 import (
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -30,24 +32,16 @@ type Config struct {
 
 	// TenantID binds every emitted DEM result to one tenant (F50).
 	//
-	// This is an ASSERTION, not an identity. Unlike the canary agent — whose
-	// tenant comes from an mTLS/SPIFFE certificate and is re-stamped by the
-	// control plane — the endpoint agent has no certificate: it runs on
-	// employee laptops, where per-device enrollment is the reason most DEM
-	// deployments never reach useful coverage. That distinct trust tier is
-	// DECLARED (docs/security/threat-model.md, boundary B9), not assumed away.
-	//
-	// The claim is contained on the receiving side: the endpoint lane verifies
-	// (tenant, agent) against the agent registry before anything is stored, on
-	// every path including dead-letter replay, and internal/pipeline refuses to
-	// open the lane at all without that binding. Nothing here can make this
-	// value authoritative.
+	// In enrolled mode this is checked against the device certificate. In
+	// direct-bus mode the receiver verifies the assertion against the registry.
 	TenantID string `yaml:"tenant_id"`
 	// AgentID identifies this device in the fleet ("" => the hostname).
 	AgentID string `yaml:"agent_id"`
 
 	// Bus is where DEM results are published (probectl.endpoint.results).
 	Bus BusConfig `yaml:"bus"`
+	// Control selects the certificate-bound agent transport for managed endpoints.
+	Control ControlConfig `yaml:"control"`
 
 	// Interval is how often a sample is collected.
 	Interval time.Duration `yaml:"interval"`
@@ -64,6 +58,12 @@ type Config struct {
 	Privacy Privacy `yaml:"privacy"`
 	// Thresholds tune the slowdown-attribution engine.
 	Thresholds Thresholds `yaml:"thresholds"`
+}
+
+type ControlConfig struct {
+	Address       string `yaml:"address"`        // operator's mTLS agent listener, host:port
+	EnrollmentURL string `yaml:"enrollment_url"` // operator's HTTPS control plane, for SVID rotation
+	IdentityDir   string `yaml:"identity_dir"`   // private device enrollment directory
 }
 
 // BusConfig selects the bus backend for emission.
@@ -166,6 +166,15 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	if v := getenv("PROBECTL_ENDPOINT_BUS_NAMESPACE"); v != "" {
 		c.Bus.Namespace = v
 	}
+	if v := getenv("PROBECTL_ENDPOINT_CONTROL_ADDR"); v != "" {
+		c.Control.Address = v
+	}
+	if v := getenv("PROBECTL_ENDPOINT_ENROLLMENT_URL"); v != "" {
+		c.Control.EnrollmentURL = v
+	}
+	if v := getenv("PROBECTL_ENDPOINT_IDENTITY_DIR"); v != "" {
+		c.Control.IdentityDir = v
+	}
 	if v := getenv("PROBECTL_ENDPOINT_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			c.Interval = d
@@ -189,6 +198,21 @@ func (c *Config) applyEnv(getenv func(string) string) {
 func (c *Config) validate() error {
 	if c.TenantID == "" {
 		return fmt.Errorf("endpoint: tenant_id is required (PROBECTL_ENDPOINT_TENANT_ID or config)")
+	}
+	if c.Control != (ControlConfig{}) {
+		host, port, err := net.SplitHostPort(c.Control.Address)
+		portNumber, portErr := strconv.ParseUint(port, 10, 16)
+		if err != nil || host == "" || portErr != nil || portNumber == 0 || strings.ContainsAny(host, "/\\@?# \t\r\n") {
+			return fmt.Errorf("endpoint: control.address must be a host and port")
+		}
+		server, err := url.Parse(c.Control.EnrollmentURL)
+		if err != nil || server.Scheme != "https" || server.Hostname() == "" || server.User != nil ||
+			(server.Path != "" && server.Path != "/") || server.RawQuery != "" || server.ForceQuery || server.Fragment != "" {
+			return fmt.Errorf("endpoint: control.enrollment_url must be an HTTPS origin")
+		}
+		if strings.TrimSpace(c.Control.IdentityDir) == "" || c.Bus.Mode != "memory" || len(c.Bus.Brokers) != 0 || c.Bus.Namespace != "" {
+			return fmt.Errorf("endpoint: control transport requires identity_dir and no direct bus configuration")
+		}
 	}
 	switch c.Bus.Mode {
 	case "memory", "nats", "kafka":

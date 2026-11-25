@@ -8,13 +8,18 @@ package agent
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/agenttransport"
 	"github.com/ctlplne/probectl/internal/crypto"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
+	resultv1 "github.com/ctlplne/probectl/internal/gen/probectl/result/v1"
 )
 
 // Client is the agent's mTLS gRPC connection to the control plane.
@@ -36,6 +41,10 @@ func Dial(addr, certFile, keyFile, caFile, serverName string) (*Client, error) {
 	if serverName != "" {
 		cfg.ServerName = serverName
 	}
+	return dialWithTLS(addr, cfg)
+}
+
+func dialWithTLS(addr string, cfg *tls.Config) (*Client, error) {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(credentials.NewTLS(cfg)))
 	if err != nil {
 		return nil, err
@@ -98,6 +107,54 @@ func (c *Client) StreamResults(ctx context.Context) (resultStream, error) {
 		return nil, err
 	}
 	return c.svc.StreamResults(ctx)
+}
+
+// SendEndpointResults sends one sampled batch after the caller has negotiated
+// endpoint ingress in Register. The server derives identity from the certificate.
+func (c *Client) SendEndpointResults(ctx context.Context, results []*resultv1.Result) error {
+	ctx, err := agenttransport.FreshnessMetadata(ctx)
+	if err != nil {
+		return err
+	}
+	ctx = metadata.AppendToOutgoingContext(ctx, agenttransport.EndpointResultsMetadataKey, agenttransport.EndpointResultsCapability)
+	stream, err := c.svc.StreamResults(ctx)
+	if err != nil {
+		return err
+	}
+	// Older replicas wait for a normal result frame, so the caller's deadline
+	// expires without sending endpoint data into their general result lane.
+	header, err := stream.Header()
+	if err != nil {
+		return err
+	}
+	accepted := header.Get(agenttransport.EndpointResultsMetadataKey)
+	if len(accepted) != 1 || accepted[0] != agenttransport.EndpointResultsCapability {
+		return fmt.Errorf("control plane did not negotiate endpoint result routing")
+	}
+	for _, result := range results {
+		payload, err := proto.Marshal(result)
+		if err != nil {
+			return err
+		}
+		if err := stream.Send(&agentv1.StreamResultsRequest{
+			Type: agenttransport.EndpointResultsCapability, Payload: payload,
+			ObservedUnixNanos: result.GetStartTimeUnixNano(),
+		}); err != nil {
+			_, receiveErr := stream.CloseAndRecv()
+			if receiveErr != nil {
+				return receiveErr
+			}
+			return err
+		}
+	}
+	ack, err := stream.CloseAndRecv()
+	if err != nil {
+		return err
+	}
+	if ack.GetAccepted() != uint64(len(results)) {
+		return fmt.Errorf("endpoint stream acknowledged %d of %d results", ack.GetAccepted(), len(results))
+	}
+	return nil
 }
 
 // PollCoordination asks the control plane for the next agent-to-agent task.

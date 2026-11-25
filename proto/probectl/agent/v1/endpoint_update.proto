@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package probectl.agent.v1;
+
+option go_package = "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1;agentv1";
+
+// EndpointUpdateService delivers the installer authorized for the mTLS peer.
+service EndpointUpdateService {
+  rpc DownloadEndpointPackage(DownloadEndpointPackageRequest) returns (stream DownloadEndpointPackageResponse);
+}
+
+message DownloadEndpointPackageRequest {
+  string rollout_id = 1;
+  string platform = 2;
+}
+
+message DownloadEndpointPackageResponse {
+  oneof frame {
+    EndpointPackageMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+message EndpointPackageMetadata {
+  string version = 1;
+  string platform = 2;
+  string package_digest = 3;
+  string executable_identity = 4;
+  int64 size_bytes = 5;
+}
+
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.

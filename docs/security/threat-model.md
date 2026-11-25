@@ -47,7 +47,7 @@ B1 tenant↔tenant (inside every shared component) · B2 agent↔control plane �
 B3 ingest surfaces (bus, OTLP, webhooks) · B4 control plane↔stores ·
 B5 operator/provider plane↔tenant data · B6 AI/MCP↔models and callers ·
 B7 build/release↔deployments · B8 agent↔monitored host ·
-**B9 endpoint/DEM agent↔bus (a deliberately distinct, lower trust tier)**.
+**B9 direct-bus endpoint/DEM agent↔bus (a deliberately distinct, lower trust tier)**.
 
 ## 3. Attacker profiles
 
@@ -98,17 +98,16 @@ trying to reach another tenant's data. The full storage-layer mechanism is in
 | Forged or cross-tenant test definitions (central test pull) | the agent pulls its tenant's test set (`FetchTestBundle`; tenant from the client certificate, never the request), verifies the Ed25519 signature against the enrollment-delivered key, refuses a foreign-tenant or non-newer bundle, and admits tests only within its local policy (allowed types, private targets denied by default, interval/count floors); refusals are counted by reason (`internal/agent/testsync.go`, [ADR](../adr/central-test-distribution.md)). Residual: a compromised control plane can make agents probe public targets within those bounds |
 | Rogue agent floods | fairness + cardinality caps as in B1; per-agent registry identity, version-skew-gated handshake (`internal/lifecycle/version.go`) |
 
-### B9 — Endpoint/DEM agent ↔ bus (a distinct, declared trust tier)
+### B9 — Direct-bus endpoint/DEM agent ↔ bus
 
 probectl has **two** agent trust models, and this section exists so the second
 one is a decision rather than an oversight.
 
-The canary agent (B2) holds an mTLS client certificate with a SPIFFE-style
+Canary agents and enrolled endpoints (B2) hold an mTLS client certificate with a SPIFFE-style
 identity; its tenant comes from the certificate, never from the payload, and the
 control plane re-stamps the identity before publishing to the bus. The
-**endpoint/DEM agent is different**: it runs on employee laptops and desktops,
-asserts its `tenant_id` from local YAML with no certificate and no SPIFFE, and
-publishes **directly** to `probectl.endpoint.results`.
+**direct-bus endpoint/DEM agent** asserts its `tenant_id` from local YAML and
+publishes directly to `probectl.endpoint.results`.
 
 That is a real reduction in trust, and it is accepted deliberately: DEM's value
 is coverage of the actual end-user fleet, and requiring per-device certificate
@@ -200,7 +199,7 @@ this revision:
 | Multi-region RTO/RPO at representative scale | the CI failover drill runs continuously; a representative-scale run and sign-off are pending |
 | Reference-host agent overhead (live kernel ring buffer) | the userspace pipeline is measured; the on-host live row is pending |
 | Core `LICENSE` is BUSL-1.1 with MPL-2.0 for `pkg/`, `proto/` and `examples/`; bespoke `ee/`/reseller terms await counsel | commercial motion remains gated on counsel-approved terms, without making the core grant provisional |
-| The endpoint/DEM agent has no certificate identity (B9) | declared as a distinct trust tier, contained by mandatory lane verification and asserted as a property (`TestEndpointLanesAlwaysVerify`). Per-device enrollment remains a possible future upgrade, not a silent assumption |
+| A direct-bus endpoint/DEM agent has no certificate identity (B9) | mandatory lane verification contains this trust tier (`TestEndpointLanesAlwaysVerify`). Enrolled endpoints use the existing B2 mTLS transport and the control plane publishes their results to the certificate tenant's lane |
 
 ## 6. Review log
 

@@ -14,7 +14,6 @@ import "testing"
 // slice fields out of it (Foundation-Loop S-7f81b4c2). None may panic, and a
 // parsed channel/signal must stay inside its declared range.
 func FuzzWiFiParsers(f *testing.F) {
-	f.Add("     agrCtlRSSI: -55\n     SSID: office\n     channel: 44,80\n")
 	f.Add("SSID                   : office\nSignal                 : 87%\nChannel                : 149\n")
 	f.Add("Inter-| sta-|   Quality        |   Discarded packets\n wlan0: 0000   61.  -49.  -256\n")
 	f.Add("GENERAL.CONNECTION:office\nIP4.ADDRESS[1]:10.0.0.5/24\n")
@@ -24,7 +23,6 @@ func FuzzWiFiParsers(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, text string) {
 		for name, parse := range map[string]func(string) WiFi{
-			"airport":     parseAirportI,
 			"netsh":       parseNetshWlan,
 			"procnetwifi": parseProcNetWireless,
 			"nmcli":       parseNmcli,

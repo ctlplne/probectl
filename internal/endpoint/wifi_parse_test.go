@@ -8,40 +8,6 @@ package endpoint
 
 import "testing"
 
-func TestParseAirportI(t *testing.T) {
-	out := `     agrCtlRSSI: -58
-     agrExtRSSI: 0
-    agrCtlNoise: -92
-    agrExtNoise: 0
-          state: running
-        op mode: station
-      lastTxRate: 866
-          maxRate: 1300
-            BSSID: a1:b2:c3:d4:e5:f6
-             SSID: CorpWiFi
-              MCS: 9
-        channel: 36,80`
-	w := parseAirportI(out)
-	if !w.Present || !w.Associated {
-		t.Fatalf("should be present+associated: %+v", w)
-	}
-	if !w.Have.RSSI || w.RSSIDBm != -58 {
-		t.Errorf("RSSI = %v (have=%v), want -58", w.RSSIDBm, w.Have.RSSI)
-	}
-	if !w.Have.Noise || w.NoiseDBm != -92 {
-		t.Errorf("noise = %v, want -92", w.NoiseDBm)
-	}
-	if !w.Have.LinkRate || w.LinkRateMbps != 866 {
-		t.Errorf("link rate = %v, want 866", w.LinkRateMbps)
-	}
-	if w.SSID != "CorpWiFi" || w.BSSID != "a1:b2:c3:d4:e5:f6" {
-		t.Errorf("ssid/bssid = %q/%q", w.SSID, w.BSSID)
-	}
-	if w.Channel != 36 || w.Band != "5GHz" {
-		t.Errorf("channel/band = %d/%q, want 36/5GHz", w.Channel, w.Band)
-	}
-}
-
 func TestParseNetshWlan(t *testing.T) {
 	out := `
     Name                   : Wi-Fi

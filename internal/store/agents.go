@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/crypto"
+	endpointwire "github.com/ctlplne/probectl/internal/endpoint/wire"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -41,7 +42,13 @@ type Agent struct {
 	TestSetVersion uint64 `json:"-"`
 	// L7CapturePosture is the L7 capture posture the agent last reported
 	// over its mTLS channel (D-43); nil for agents that never reported one.
-	L7CapturePosture *L7CapturePosture `json:"l7_capture_posture,omitempty"`
+	L7CapturePosture *L7CapturePosture        `json:"l7_capture_posture,omitempty"`
+	EndpointProcess  *EndpointProcessEvidence `json:"-"`
+}
+
+type EndpointProcessEvidence struct {
+	endpointwire.ManagedProcess
+	MeasuredAt *time.Time `json:"measured_at,omitempty"`
 }
 
 // L7CapturePosture is an eBPF agent's reported L7 capture state (D-43). Every
@@ -165,7 +172,7 @@ type ProducerReadiness struct {
 
 const agentCols = `id::text, tenant_id::text, name, hostname, agent_version, status,
 	capabilities, labels, spiffe_id, registered_at, last_seen_at, created_at,
-	COALESCE(test_set_version, 0), l7_capture_posture`
+	COALESCE(test_set_version, 0), l7_capture_posture, endpoint_process`
 
 // AgentOnlineWindow is how long after its last heartbeat or verified batch an
 // agent still reads "online" (DPR-082). gRPC agents heartbeat every 30 s and a
@@ -196,16 +203,23 @@ func deriveStatus(stored string, lastSeen *time.Time, now time.Time) string {
 }
 
 func scanAgent(row interface{ Scan(...any) error }, a *Agent) error {
-	var caps, labels, posture []byte
+	var caps, labels, posture, endpointProcess []byte
 	var testSet int64
 	if err := row.Scan(&a.ID, &a.TenantID, &a.Name, &a.Hostname, &a.AgentVersion, &a.Status,
-		&caps, &labels, &a.SPIFFEID, &a.RegisteredAt, &a.LastSeenAt, &a.CreatedAt, &testSet, &posture); err != nil {
+		&caps, &labels, &a.SPIFFEID, &a.RegisteredAt, &a.LastSeenAt, &a.CreatedAt, &testSet, &posture, &endpointProcess); err != nil {
 		return err
 	}
 	if len(posture) > 0 {
 		var p L7CapturePosture
 		if json.Unmarshal(posture, &p) == nil {
 			a.L7CapturePosture = &p
+		}
+	}
+	if len(endpointProcess) > 0 {
+		var evidence EndpointProcessEvidence
+		if json.Unmarshal(endpointProcess, &evidence) == nil && evidence.Valid() &&
+			(evidence.MeasuredAt != nil) == (evidence.ExecutableIdentity != "") {
+			a.EndpointProcess = &evidence
 		}
 	}
 	if testSet > 0 {
@@ -286,6 +300,25 @@ func (Agents) Register(ctx context.Context, s tenancy.Scope, id, name, hostname,
 // metadata. The authenticated mTLS identity remains authoritative for tenant
 // and agent id; labels can describe a vantage but can never select a tenant.
 func (Agents) RegisterWithLabels(ctx context.Context, s tenancy.Scope, id, name, hostname, version, spiffeID string, capabilities []string, labels map[string]string) (*Agent, error) {
+	return (Agents{}).RegisterEndpointProcess(ctx, s, id, name, hostname, version, spiffeID, capabilities, labels, nil)
+}
+
+// RegisterEndpointProcess binds the process generation in the same update
+// that records the build version. A repeated registration for the same
+// process keeps its latest observation. An ordinary registration clears it.
+func (Agents) RegisterEndpointProcess(ctx context.Context, s tenancy.Scope, id, name, hostname, version, spiffeID string,
+	capabilities []string, labels map[string]string, endpointProcess *endpointwire.ManagedProcess) (*Agent, error) {
+	var processJSON any
+	if endpointProcess != nil {
+		if !endpointProcess.Valid() || endpointProcess.Sequence != 0 {
+			return nil, apierror.BadRequest("invalid endpoint process registration")
+		}
+		raw, err := json.Marshal(endpointProcess)
+		if err != nil {
+			return nil, err
+		}
+		processJSON = string(raw)
+	}
 	if capabilities == nil {
 		capabilities = []string{}
 	}
@@ -315,15 +348,20 @@ func (Agents) RegisterWithLabels(ctx context.Context, s tenancy.Scope, id, name,
 	}
 	var a Agent
 	err = scanAgent(s.Q.QueryRow(ctx,
-		`INSERT INTO agents (id, tenant_id, name, hostname, agent_version, status, capabilities, labels, spiffe_id, last_seen_at)
-		 VALUES ($1, $2, $3, $4, $5, 'online', $6::jsonb, $7::jsonb, $8, now())
+		`INSERT INTO agents (id, tenant_id, name, hostname, agent_version, status, capabilities, labels, spiffe_id, last_seen_at, endpoint_process)
+		 VALUES ($1, $2, $3, $4, $5, 'online', $6::jsonb, $7::jsonb, $8, now(), $9::jsonb)
 		 ON CONFLICT (id) DO UPDATE SET
 		   name = EXCLUDED.name, hostname = EXCLUDED.hostname, agent_version = EXCLUDED.agent_version,
 		   status = 'online', capabilities = EXCLUDED.capabilities, labels = EXCLUDED.labels,
 		   spiffe_id = EXCLUDED.spiffe_id,
-		   last_seen_at = now()
+		   last_seen_at = now(),
+		   endpoint_process = CASE
+		     WHEN agents.endpoint_process->>'run_id' = EXCLUDED.endpoint_process->>'run_id'
+		      AND agents.endpoint_process->>'platform' = EXCLUDED.endpoint_process->>'platform'
+		      AND agents.agent_version = EXCLUDED.agent_version
+		     THEN agents.endpoint_process ELSE EXCLUDED.endpoint_process END
 		 RETURNING `+agentCols,
-		id, s.Tenant.String(), name, hostname, version, string(caps), string(labelJSON), spiffeID), &a)
+		id, s.Tenant.String(), name, hostname, version, string(caps), string(labelJSON), spiffeID, processJSON), &a)
 	if err != nil {
 		if savepoint {
 			// Undo only the failed insert, leaving the caller's transaction alive.
@@ -342,6 +380,29 @@ func (Agents) RegisterWithLabels(ctx context.Context, s tenancy.Scope, id, name,
 		_, _ = s.Q.Exec(ctx, "RELEASE SAVEPOINT agent_register")
 	}
 	return &a, nil
+}
+
+// ObserveEndpointProcess records a measurement only for the current process
+// registration and a strictly newer heartbeat. An empty measurement clears
+// prior evidence. Legacy heartbeats update liveness through a separate path.
+func (Agents) ObserveEndpointProcess(ctx context.Context, s tenancy.Scope, id, spiffeID string,
+	process endpointwire.ManagedProcess) (bool, error) {
+	if !process.Valid() || process.Sequence == 0 {
+		return false, apierror.BadRequest("invalid endpoint process heartbeat")
+	}
+	raw, err := json.Marshal(process)
+	if err != nil {
+		return false, err
+	}
+	tag, err := s.Q.Exec(ctx, `UPDATE agents
+	    SET last_seen_at = statement_timestamp(), status = 'online',
+	        endpoint_process = $4::jsonb || jsonb_build_object('measured_at',
+	            CASE WHEN $5 THEN statement_timestamp() ELSE NULL END)
+	    WHERE id = $1 AND tenant_id = $2 AND spiffe_id = $3 AND status <> 'revoked'
+	      AND endpoint_process->>'platform' = $6 AND endpoint_process->>'run_id' = $7
+	      AND (endpoint_process->>'sequence')::bigint < $8`,
+		id, s.Tenant.String(), spiffeID, string(raw), process.ExecutableIdentity != "", process.Platform, process.RunID, process.Sequence)
+	return err == nil && tag.RowsAffected() == 1, err
 }
 
 // RecordVersion stores the build version a verified batch reported for an

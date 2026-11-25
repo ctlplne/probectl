@@ -98,11 +98,17 @@ func (m *rolloutManager) list(tenant string) map[string]*agent.RolloutPlan {
 }
 
 type rolloutCreateRequest struct {
-	Version       string `json:"version"`
-	Digest        string `json:"digest"`
-	VerifyMethod  string `json:"verify_method"`
-	CanaryPercent int    `json:"canary_percent,omitempty"`
-	EarlyPercent  int    `json:"early_percent,omitempty"`
+	Version       string                        `json:"version"`
+	Digest        string                        `json:"digest"`
+	VerifyMethod  string                        `json:"verify_method"`
+	CanaryPercent int                           `json:"canary_percent,omitempty"`
+	EarlyPercent  int                           `json:"early_percent,omitempty"`
+	Endpoint      *rolloutEndpointConfiguration `json:"endpoint,omitempty"`
+}
+
+type rolloutEndpointConfiguration struct {
+	Platform           string `json:"platform"`
+	ExecutableIdentity string `json:"executable_identity"`
 }
 
 type rolloutReasonRequest struct {
@@ -141,6 +147,13 @@ func (s *Server) rolloutFleet(ctx context.Context, sc tenancy.Scope) ([]agent.Fl
 			fa := agent.FleetAgent{ID: a.ID, TenantID: a.TenantID, Version: a.AgentVersion}
 			if a.LastSeenAt != nil {
 				fa.LastSeen = *a.LastSeenAt
+			}
+			if a.EndpointProcess != nil && a.Status != "revoked" {
+				fa.EndpointPlatform = a.EndpointProcess.Platform
+				if a.Status == "online" && a.EndpointProcess.MeasuredAt != nil {
+					fa.ExecutableIdentity = a.EndpointProcess.ExecutableIdentity
+					fa.ExecutableMeasuredAt = *a.EndpointProcess.MeasuredAt
+				}
 			}
 			fleet = append(fleet, fa)
 		}
@@ -183,6 +196,23 @@ func (s *Server) handleCreateRollout(w http.ResponseWriter, r *http.Request) err
 	if err != nil {
 		return err
 	}
+	artifact := agent.VerifiedArtifact{
+		Version: req.Version, Digest: req.Digest, Method: req.VerifyMethod,
+		VerifiedBy: auditActor(r),
+	}
+	if req.Endpoint != nil {
+		artifact.Endpoint = &agent.EndpointArtifact{
+			Platform: req.Endpoint.Platform, ExecutableIdentity: req.Endpoint.ExecutableIdentity,
+		}
+		if err := artifact.Validate(); err != nil {
+			return apierror.BadRequest(err.Error())
+		}
+		// Read and verify the approved object before opening the write transaction.
+		ctx := tenancy.WithTenant(r.Context(), tenancy.ID(tid))
+		if err := s.checkStagedEndpointPackage(ctx, tid, artifact); err != nil {
+			return err
+		}
+	}
 	id := s.rolloutMgr().reserveID(time.Now())
 	var plan *agent.RolloutPlan
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
@@ -193,10 +223,6 @@ func (s *Server) handleCreateRollout(w http.ResponseWriter, r *http.Request) err
 		split := lifecycle.DefaultSplit()
 		if req.CanaryPercent > 0 || req.EarlyPercent > 0 {
 			split = lifecycle.Split{CanaryPercent: req.CanaryPercent, EarlyPercent: req.EarlyPercent}
-		}
-		artifact := agent.VerifiedArtifact{
-			Version: req.Version, Digest: req.Digest, Method: req.VerifyMethod,
-			VerifiedBy: auditActor(r),
 		}
 		p, perr := agent.PlanRolloutAt(fleet, artifact, split, version.Get().Version, lifecycle.DefaultPolicy(), time.Now())
 		if perr != nil {
@@ -212,9 +238,13 @@ func (s *Server) handleCreateRollout(w http.ResponseWriter, r *http.Request) err
 		if err := (store.Rollouts{}).AppendEvent(ctx, sc, id, "rollout.create", raw); err != nil {
 			return err
 		}
-		if err := s.recordAudit(ctx, sc, r, "rollout.create", id, map[string]any{
+		auditData := map[string]any{
 			"version": req.Version, "digest": req.Digest, "waves": len(p.Waves),
-		}); err != nil {
+		}
+		if req.Endpoint != nil {
+			auditData["endpoint"] = req.Endpoint
+		}
+		if err := s.recordAudit(ctx, sc, r, "rollout.create", id, auditData); err != nil {
 			return err
 		}
 		plan = p
@@ -443,7 +473,7 @@ func rolloutView(id string, p *agent.RolloutPlan) map[string]any {
 			"cohort": string(wv.Cohort), "agents": len(wv.AgentIDs), "status": string(wv.Status),
 		})
 	}
-	return map[string]any{
+	view := map[string]any{
 		"id":          id,
 		"target":      p.Target.Version,
 		"digest":      p.Target.Digest,
@@ -456,4 +486,10 @@ func rolloutView(id string, p *agent.RolloutPlan) map[string]any {
 		"stragglers":      p.Stragglers,
 		"skipped_offline": p.SkippedOffline,
 	}
+	if p.Target.Endpoint != nil {
+		view["endpoint"] = rolloutEndpointConfiguration{
+			Platform: p.Target.Endpoint.Platform, ExecutableIdentity: p.Target.Endpoint.ExecutableIdentity,
+		}
+	}
+	return view
 }

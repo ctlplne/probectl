@@ -20,8 +20,7 @@ import (
 )
 
 // Emitter publishes a sample's DEM results. The seam lets a test capture results
-// and lets a future transport (the mTLS agent gRPC stream, for roaming devices)
-// drop in without touching the runtime.
+// and lets either direct bus or enrolled mTLS delivery use the same runtime.
 type Emitter interface {
 	Emit(ctx context.Context, s Sample) error
 }
@@ -67,12 +66,28 @@ func (e *BusEmitter) Emit(ctx context.Context, s Sample) error {
 	return nil
 }
 
-// toProto maps a canary.Result onto the canonical result schema, stamping the
-// agent's tenant + id (the same mapping the canary agent uses).
 func (e *BusEmitter) toProto(r canary.Result) *resultv1.Result {
+	result := toWireResult(r)
+	result.TenantId, result.AgentId = e.tenant, e.agent
+	return result
+}
+
+// StreamEmitter leaves authority-bearing fields empty for the mTLS receiver.
+type StreamEmitter struct {
+	Send func(context.Context, []*resultv1.Result) error
+}
+
+func (e StreamEmitter) Emit(ctx context.Context, sample Sample) error {
+	results := sample.ToResults()
+	frames := make([]*resultv1.Result, 0, len(results))
+	for _, result := range results {
+		frames = append(frames, toWireResult(result))
+	}
+	return e.Send(ctx, frames)
+}
+
+func toWireResult(r canary.Result) *resultv1.Result {
 	return &resultv1.Result{
-		TenantId:          e.tenant,
-		AgentId:           e.agent,
 		AgentVersion:      version.Get().Version, // DPR-093
 		CanaryType:        r.Type,
 		ServerAddress:     r.Target,

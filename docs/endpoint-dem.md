@@ -50,7 +50,7 @@ flowchart LR
 
 | Signal | Fields | Source |
 | ------ | ------ | ------ |
-| **WiFi** | RSSI (dBm) / signal % / noise / link rate / band / channel; cellular RSRP/RSRQ/SINR | `nmcli` or `/proc/net/wireless` (Linux), `airport -I` (macOS), `netsh wlan` (Windows) |
+| **WiFi** | RSSI (dBm) / signal % / noise / link rate / band / channel; cellular RSRP/RSRQ/SINR | `nmcli` or `/proc/net/wireless` (Linux), CoreWLAN (macOS), `netsh wlan` (Windows) |
 | **Gateway** | reachable, RTT, loss | derived from the first (private) hop of the trace |
 | **Last-mile** | per-hop RTT/loss; derived local / ISP-edge / beyond segments | `traceroute -n` (Unix), `tracert -d` (Windows) |
 | **Session** | DNS / connect / TLS / TTFB / total to each target | Go `httptrace` over the hardened (cert-validating) client |
@@ -168,7 +168,7 @@ Two properties make this trustworthy:
 
 | Capability | Linux | macOS | Windows | Fallback |
 | ---------- | ----- | ----- | ------- | -------- |
-| WiFi RSSI/SSID/band | `nmcli` → `/proc/net/wireless` | `airport -I` | `netsh wlan` (signal %→dBm) | unavailable (wired) |
+| WiFi RSSI/SSID/band | `nmcli` → `/proc/net/wireless` | CoreWLAN | `netsh wlan` (signal %→dBm) | unavailable (wired) |
 | Last-mile path | `traceroute -n` | `traceroute -n` | `tracert -d` | unavailable |
 | Session timings | httptrace | httptrace | httptrace | (always available) |
 
@@ -177,10 +177,15 @@ switches: each file carries an OS constraint and compiles only on that OS —
 (`wifi_linux.go`, `wifi_darwin.go`, `wifi_windows.go`, `wifi_unsupported.go`,
 `netprobe_unix.go`, `netprobe_windows.go`), each defining
 `newPlatformWiFiCollector` / `newPlatformLastMileCollector` so the package
-**compiles on every OS** (the `endpoint-cross` CI build proves it). The pattern mirrors the eBPF and browser
-layers: a fully-tested portable core with thin, gated platform edges — the
-fragile per-OS bit is small, and the **output parsers are portable and
-fixture-tested** on every platform.
+compiles on all three platforms. The macOS build needs cgo and the macOS SDK
+for CoreWLAN. A macOS build without cgo keeps path and session collection
+available. Linux and Windows text parsers are exercised with portable fixtures.
+
+On macOS, CoreWLAN reads the associated link's signal, noise, transmit rate
+and actual channel band. It queries SSID and BSSID only if the endpoint policy
+allows each identifier. macOS also requires Location Services consent for the
+calling app to see those identifiers. Signal measurements still work when the
+names are unavailable. [Apple CoreWLAN](https://developer.apple.com/documentation/corewlan/cwinterface)
 
 ## Result schema → pipeline
 
@@ -211,6 +216,190 @@ impairment** filter can include these partial observations; inspect coverage
 before treating a device as fully measured.
 
 ## Deploy
+
+Managed endpoints can use the existing agent listener over mTLS. The device
+holds a private enrollment identity, while Kafka or NATS credentials stay on
+the control plane. First provision the tenant's one-time token through your
+device management system. Run enrollment under the account that will run the
+endpoint process, using a separate identity directory on each device and the
+control plane's CA bundle. Supply the token on standard input.
+
+```sh
+probectl-endpoint enroll --config "$ENDPOINT_CONFIG" --ca-file "$CONTROL_CA"
+```
+
+An enrollment retry reuses the device's existing identity for the configured
+tenant. If you supply `--ca-file` on retry, it must contain the trust anchors
+already recorded on the device. A trust or tenant mismatch stops the command
+before it reads the join token.
+
+Set `tenant_id` and the `control.address`, `control.enrollment_url`, and
+`control.identity_dir` YAML fields before enrollment. Enrollment and sampling
+read these same settings. A retry keeps a valid identity for that tenant
+without reading the token. `control.address` names
+the agent gRPC listener, typically `control.example.test:8444`. The agent
+checks enrollment, registers the device, and renews its identity through the
+configured HTTPS origin. Use this mode after all control replicas support
+enrolled endpoint delivery. The control plane selects the result lane and
+stamps both the tenant and device IDs from the client certificate.
+
+To prepare a native rollout, verify the installer publisher and the detached
+signature on the exact delivered artifact. Put the approved installer into
+this control plane's configured object store. For a pooled tenant, use
+`tenant/<tenant-uuid>/endpoint-packages/<os>/<arch>/<digest-hex>` as the
+object key. Siloed and hybrid tenants use `silo/<tenant-uuid>/` as the root.
+Only the deployment's object-store operator needs access to the backing store.
+Submit `POST /v1/rollouts` as a user with `agent.write`. Supply the fleet
+version, installer `digest` (`sha256:<digest-hex>`), the `verify_method`
+record, and an `endpoint` object with `platform` (such as `darwin/arm64`) and
+`executable_identity` from the signed installer. The control plane checks
+the staged bytes against the installer digest before saving the plan.
+Review and advance each wave in the existing rollout controls.
+
+After an operator releases a native installer to the device's rollout wave,
+the management system can run this command under the enrolled account.
+
+```sh
+probectl-endpoint stage-update --config "$ENDPOINT_CONFIG" \
+  --rollout "$ROLLOUT_ID" --output "$LOCAL_INSTALLER"
+```
+
+The control listener checks the current certificate registration, tenant,
+rollout wave and device platform before serving the approved installer. It
+rechecks the release and exact certificate registration before completing the
+transfer. The endpoint waits for that success and verifies the approved
+SHA-256 digest before publishing a new file. Use a new output path in a
+directory controlled by the enrolled account on a local filesystem that
+supports hard links, such as APFS or NTFS. A renamed or replaced output
+directory causes staging to fail and the temporary file to be discarded.
+Run the operating system's signature
+validation and managed installer through MDM or Intune. The rollout verifies the new running code
+identity on a fresh enrolled heartbeat.
+
+### macOS managed package
+
+The macOS package source under `deploy/packaging/macos` wraps an endpoint
+binary linked to CoreWLAN in a Developer ID-signed app and installer. Build
+both Mac architectures on an authorized signing host with `CGO_ENABLED=1`.
+The packaging command takes an existing native binary. Use Apple’s
+notarization service for the final installer, then staple and validate the
+ticket before distribution.
+
+```sh
+bash deploy/packaging/macos/build-endpoint-pkg.sh \
+  --binary "$MACOS_ENDPOINT_BINARY" --version "$NUMERIC_VERSION" \
+  --output "$ENDPOINT_PKG" --application-identity "$DEVELOPER_ID_APPLICATION" \
+  --installer-identity "$DEVELOPER_ID_INSTALLER"
+xcrun notarytool submit "$ENDPOINT_PKG" --keychain-profile "$NOTARY_PROFILE" --wait
+xcrun stapler staple "$ENDPOINT_PKG"
+xcrun stapler validate "$ENDPOINT_PKG"
+/usr/bin/shasum -a 256 "$ENDPOINT_PKG"
+```
+
+Use the SHA-256 of this final, stapled file for the tenant storage key and
+rollout digest. Distribute the same file through device management.
+
+The package installs an Aqua-session LaunchAgent. Deploy the YAML and the
+device's private identity directory for the managed account. The YAML path is
+`~/Library/Application Support/probectl/endpoint.yaml`. Enroll the device as
+that account, then reload its launch agent or let it start at the next login.
+The package contains the app and the launch definition. The app bundles
+the license and third-party notices in `Contents/Resources`. The management
+system supplies the YAML, CA bundle and one-time token separately. macOS
+Location Services decides whether CoreWLAN can return Wi-Fi identifiers.
+Measurements without those identifiers remain available. See [Apple's Mac
+packaging guide](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution)
+and [Location Services guidance](https://developer.apple.com/documentation/CoreLocation/requesting-authorization-to-use-location-services).
+
+Install that verified package on a test Mac matching the rollout architecture
+and measure the installed executable before preparing the wave.
+
+```sh
+"/Applications/probectl Endpoint.app/Contents/MacOS/probectl-endpoint" \
+  version --executable-identity
+```
+
+Use the returned `cdhash:` value as the rollout's `executable_identity`.
+The command measures the active Mach-O slice using the kernel's record of the
+launched image and requires a kernel-reported Apple Team ID. Ad-hoc signatures
+and unavailable kernel measurements produce an error. Run the check on each
+target architecture when distributing a universal package.
+
+### Windows managed MSI
+
+Build the matching Windows `x64` or `Arm64` executable first. Build and
+verify the MSI on the authorized Windows signing host using Windows Installer,
+`makecab.exe` and the Windows SDK SignTool. The builder signs both the
+executable and the MSI with the selected code-signing certificate.
+
+```powershell
+.\deploy\packaging\windows\Build-EndpointMsi.ps1 -Binary $EndpointBinary `
+  -Version $NumericVersion -Architecture $Architecture -OutputMsi $EndpointMsi `
+  -SignTool $SignTool -CertificateThumbprint $SigningCertificateThumbprint `
+  -TimestampServer $TimestampServer
+.\deploy\packaging\windows\Test-EndpointMsi.ps1 -Msi $EndpointMsi `
+  -ExpectedVersion $NumericVersion -Architecture $Architecture `
+  -CertificateThumbprint $PublisherCertificate
+```
+
+Use the signed MSI as a Windows line-of-business app in Intune. Choose the
+package for the managed device's architecture. The MSI installs under Program
+Files and starts the endpoint at user sign-in. The MSI installs `LICENSE.txt`
+and `NOTICE.txt` beside the executable. Setup uses Windows Installer
+actions for files, startup registration and upgrades. The package contains no
+tenant configuration or join token. The device's `--managed` launcher reads
+`%AppData%\probectl\endpoint.yaml` for the signed-in account and exits when
+that file is absent. Enrollment uses the same YAML. Pass the one-time token
+over stdin from your management system in the managed user's session. [Intune
+Windows app deployment](https://learn.microsoft.com/en-us/intune/app-management/deployment/add-lob-windows) ·
+[SignTool reference](https://learn.microsoft.com/dotnet/framework/tools/signtool-exe)
+
+Use `probectl-endpoint version --executable-identity` to print the measured
+SHA-256 of that invocation's executable, including the Authenticode
+signature bytes. Windows must confirm that the open file still backs the
+process's loaded image before probectl hashes it. A replaced file or an
+unavailable image comparison produces an error.
+The signed MSI verifier checks the package publisher, then reads the embedded
+cabinet and verifies the signed executable against the same publisher and
+the digest declared in the MSI. The receipt reports the package digest and
+the measured executable digest as separate fields.
+
+Set `control.identity_dir` to an absolute path on local NTFS, such as a new
+`probectl\identity` directory under the managed account's local app data.
+Run enrollment and the endpoint under that same account. Windows stores the
+private key, certificate and trust roots in one locally protected record.
+Only the running account and SYSTEM have access through its protected ACL.
+Enrollment and rotation take an exclusive lock and replace the complete
+record. An existing identity for another tenant is refused before another
+token can be redeemed. Device management should create the configuration
+directory and let enrollment create the separate identity directory.
+
+Distribute updates in the customer's managed deployment waves using the signed
+package staged for that deployment. Uninstall removes the program and its
+startup registration. The per-user enrollment remains available for a repair
+or reinstall. Revoke the device in the tenant registry before removing its
+local enrollment when retiring a device.
+
+### Executable evidence for managed rollouts
+
+The control plane binds each managed endpoint process to its tenant and
+agent from the enrolled mTLS certificate. Registration starts a fresh
+process generation. The device measures its executable on subsequent
+heartbeats, and the control plane records the time of each accepted
+measurement. A restarted process clears the previous generation, and an
+unavailable measurement clears the previous executable evidence.
+
+Wave verification requires the expected executable identity from a
+heartbeat received after release. An ordinary liveness heartbeat cannot
+renew executable evidence. Package delivery also checks the device's
+registered platform before opening the approved installer.
+
+The current device protocol negotiates executable evidence as
+`agent.endpoint_process.v1` on the existing agent listener. It carries a
+bounded process generation and heartbeat sequence in authenticated RPC
+metadata. Deployment placement labels are independent of this evidence.
+
+### Direct-bus deployment
 
 Ship the single static binary to managed devices via your **MDM** (mobile-device
 management — the fleet tool that pushes software and policy to managed laptops;

@@ -1038,6 +1038,7 @@ func startAgentTransport(
 	})
 	if srv != nil {
 		grpcSrv.WithMetrics(srv.Metrics())
+		grpcSrv.WithEndpointPackages(srv.StreamEndpointRolloutPackage)
 	}
 	// G9 (D-41): agents pull their tenant's signed test set over this mTLS
 	// listener; nil keeps central test distribution off.

@@ -4,7 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-//go:build !linux && !darwin && !windows
+//go:build (!linux && !darwin && !windows) || (darwin && !cgo)
 
 package endpoint
 
@@ -17,4 +17,4 @@ type unsupportedWiFi struct{}
 
 func (unsupportedWiFi) Collect(context.Context) (WiFi, error) { return WiFi{}, nil }
 
-func newPlatformWiFiCollector() WiFiCollector { return unsupportedWiFi{} }
+func newPlatformWiFiCollector(Privacy) WiFiCollector { return unsupportedWiFi{} }

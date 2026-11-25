@@ -30,4 +30,4 @@ func (linuxWiFi) Collect(ctx context.Context) (WiFi, error) {
 	return WiFi{}, nil // no Wi-Fi tooling: degrade (Present=false)
 }
 
-func newPlatformWiFiCollector() WiFiCollector { return linuxWiFi{} }
+func newPlatformWiFiCollector(Privacy) WiFiCollector { return linuxWiFi{} }

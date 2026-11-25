@@ -16,9 +16,7 @@ import (
 )
 
 // Runtime is the endpoint agent: on an interval it collects a DEM sample,
-// attributes any slowdown, and emits the results to the bus. It mirrors the
-// canary/eBPF agents (New + Run), and like them it never phones home — results go
-// only to the operator's own bus, tenant-tagged.
+// attributes any slowdown, and emits the results to the operator's deployment.
 type Runtime struct {
 	cfg             *Config
 	collector       *Collector
@@ -30,21 +28,21 @@ type Runtime struct {
 // New builds the runtime with the real platform collectors (per-OS WiFi reader,
 // system traceroute, hardened HTTP session) and the bus emitter.
 func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Runtime, error) {
-	collector := NewCollector(cfg,
-		newPlatformWiFiCollector(),
-		newPlatformLastMileCollector(cfg.Probes, cfg.MaxHops),
-		NewHTTPSessionCollector(cfg.SessionTimeout),
-	)
 	emitter, eerr := NewNamespacedBusEmitter(b, cfg.TenantID, cfg.AgentID, cfg.Bus.Namespace)
 	if eerr != nil {
 		return nil, eerr // RED-006: malformed silo namespace refuses start
 	}
-	return &Runtime{
-		cfg:       cfg,
-		collector: collector,
-		emitter:   emitter,
-		log:       log,
-	}, nil
+	return NewWithEmitter(cfg, emitter, log), nil
+}
+
+// NewWithEmitter builds the same platform collectors for enrolled endpoints.
+func NewWithEmitter(cfg *Config, emitter Emitter, log *slog.Logger) *Runtime {
+	collector := NewCollector(cfg,
+		newPlatformWiFiCollector(cfg.Privacy),
+		newPlatformLastMileCollector(cfg.Probes, cfg.MaxHops),
+		NewHTTPSessionCollector(cfg.SessionTimeout),
+	)
+	return newWith(cfg, collector, emitter, log)
 }
 
 // newWith builds a runtime from an explicit collector + emitter (the test seam).

@@ -25,10 +25,8 @@
 // (signal/RTT/loss/timings — not PII) are collected by default; identifying
 // fields (the BSSID/AP-MAC, public last-mile hop IPs) are gated OFF, and the
 // agent DISCLOSES exactly what it collects at startup. Nothing phones home
-// (docs/guardrails.md G7-2); results flow only to the operator's own bus,
-// tenant-tagged, like every other agent's results — but from a deliberately
-// LOWER-TRUST tier (threat model B9): this agent has no certificate/SPIFFE
-// identity, so the tenant_id it stamps is a local ASSERTION, re-verified
-// against the agent registry by the control plane before any result is cached
-// or stored (docs/guardrails.md G7-1); it is never authoritative.
+// (docs/guardrails.md G7-2). Enrolled endpoints send results over the operator's
+// tenant-bound mTLS control connection. Direct-bus endpoints assert a tenant
+// and agent that the control plane verifies against its registry before any
+// result is cached or stored (threat model B9, docs/guardrails.md G7-1).
 package endpoint

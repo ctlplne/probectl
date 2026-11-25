@@ -136,17 +136,17 @@ func TestHTTPSessionCollectorBadTarget(t *testing.T) {
 }
 
 func TestCmdWiFiCollectorSeam(t *testing.T) {
-	airport := "     agrCtlRSSI: -61\n        channel: 11\n             SSID: X\n          state: running"
+	netsh := "     State: connected\n     Signal: 78%\n     Channel: 11\n     SSID: X"
 	c := cmdWiFiCollector{
-		run:   func(context.Context) (string, error) { return airport, nil },
-		parse: parseAirportI,
+		run:   func(context.Context) (string, error) { return netsh, nil },
+		parse: parseNetshWlan,
 	}
 	w, err := c.Collect(context.Background())
 	if err != nil || w.RSSIDBm != -61 || w.Channel != 11 {
 		t.Fatalf("seam parse failed: %+v err=%v", w, err)
 	}
 
-	bad := cmdWiFiCollector{run: func(context.Context) (string, error) { return "", errors.New("x") }, parse: parseAirportI}
+	bad := cmdWiFiCollector{run: func(context.Context) (string, error) { return "", errors.New("x") }, parse: parseNetshWlan}
 	if _, err := bad.Collect(context.Background()); err == nil {
 		t.Errorf("a runner error should surface as unavailable")
 	}

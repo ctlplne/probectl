@@ -196,3 +196,14 @@ func CertPoolFromPEM(pemBytes []byte) (*x509.CertPool, error) {
 	}
 	return pool, nil
 }
+
+// SameCertificateTrust reports whether two usable PEM bundles contain the
+// same certificates, independent of PEM formatting or certificate order.
+func SameCertificateTrust(first, second []byte) bool {
+	left, err := CertPoolFromPEM(first)
+	if err != nil {
+		return false
+	}
+	right, err := CertPoolFromPEM(second)
+	return err == nil && left.Equal(right)
+}

@@ -119,6 +119,45 @@ func (s *FSStore) GetLimited(ctx context.Context, key string, maxBytes int64) (O
 	return Object{Data: data, ContentType: readContentType(p), Size: int64(len(data))}, nil
 }
 
+func (s *FSStore) CopyLimited(ctx context.Context, key string, dst io.Writer, maxBytes int64) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	p, err := s.path(key)
+	if err != nil {
+		return 0, err
+	}
+	info, err := os.Lstat(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	if !info.Mode().IsRegular() {
+		return 0, errors.New("objectstore: expected a regular object")
+	}
+	if info.Size() > maxBytes {
+		return 0, ErrTooLarge
+	}
+	f, err := os.Open(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	if !os.SameFile(info, opened) {
+		return 0, errors.New("objectstore: object changed during open")
+	}
+	return copyObjectLimited(ctx, dst, f, maxBytes)
+}
+
 func readContentType(path string) string {
 	const maxContentTypeBytes = 1024
 

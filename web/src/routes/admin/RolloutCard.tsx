@@ -72,6 +72,38 @@ function currentWave(rollout: Rollout): RolloutWave | undefined {
   return rollout.waves.find((wave) => wave.status !== 'complete')
 }
 
+function RolloutArtifactEvidence({ rollout }: { rollout: Rollout }) {
+  const { t } = useI18n()
+  return (
+    <>
+      <div>
+        <dt>
+          {t(rollout.endpoint ? 'admin.rollout.endpoint.installer' : 'admin.rollout.detail.digest')}
+        </dt>
+        <dd className={styles.rolloutDigest}>
+          <code dir="ltr">{rollout.digest}</code>
+        </dd>
+      </div>
+      {rollout.endpoint && (
+        <>
+          <div>
+            <dt>{t('admin.rollout.endpoint.platform')}</dt>
+            <dd>
+              <code dir="ltr">{rollout.endpoint.platform}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>{t('admin.rollout.endpoint.executable')}</dt>
+            <dd className={styles.rolloutDigest}>
+              <code dir="ltr">{rollout.endpoint.executable_identity}</code>
+            </dd>
+          </div>
+        </>
+      )}
+    </>
+  )
+}
+
 function RolloutActionDialog({
   rollout,
   action,
@@ -143,6 +175,7 @@ function RolloutActionDialog({
               <code>{rollout.target}</code>
             </dd>
           </div>
+          {rollout.endpoint && <RolloutArtifactEvidence rollout={rollout} />}
           <div>
             <dt>{t('admin.rollout.dialog.currentWave')}</dt>
             <dd>
@@ -191,8 +224,8 @@ function RolloutActionDialog({
 
 /**
  * Human-gated rollout console. The controls mutate only the audited rollout
- * state machine. Actual digest deployment remains outside probectl, and the
- * health gate verifies live tenant-scoped registry evidence before completion.
+ * state machine. Operators apply the artifacts separately and the health gate
+ * verifies live tenant-scoped registry evidence before completion.
  */
 export function RolloutCard({ available }: { available: boolean | undefined }) {
   const { t } = useI18n()
@@ -303,15 +336,17 @@ export function RolloutCard({ available }: { available: boolean | undefined }) {
                   ))}
                 </ol>
                 <dl className={styles.fleetEvidence}>
-                  <div>
-                    <dt>{t('admin.rollout.detail.digest')}</dt>
-                    <dd className={styles.rolloutDigest}>
-                      <code>{selected.digest}</code>
-                    </dd>
-                  </div>
+                  <RolloutArtifactEvidence rollout={selected} />
                   <div>
                     <dt>{t('admin.rollout.gate.title')}</dt>
-                    <dd>{t('admin.rollout.gate.description', { target: selected.target })}</dd>
+                    <dd>
+                      {t(
+                        selected.endpoint
+                          ? 'admin.rollout.endpoint.gate'
+                          : 'admin.rollout.gate.description',
+                        { target: selected.target },
+                      )}
+                    </dd>
                   </div>
                   {selected.halt_reason ? (
                     <div>
@@ -364,7 +399,9 @@ export function RolloutCard({ available }: { available: boolean | undefined }) {
                     </dd>
                   </div>
                 </dl>
-                <p className={styles.fleetSafety}>{t('admin.rollout.safety')}</p>
+                <p className={styles.fleetSafety}>
+                  {t(selected.endpoint ? 'admin.rollout.endpoint.safety' : 'admin.rollout.safety')}
+                </p>
                 <div className={styles.actions}>
                   <Button
                     variant="primary"

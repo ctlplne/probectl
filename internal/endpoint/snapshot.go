@@ -10,6 +10,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/endpoint/wire"
 )
 
 // The endpoint DEM read model (S-FE4 surface for S37). The agent emits one
@@ -85,13 +87,8 @@ func NewSnapshotStore(maxPerTenant int) *SnapshotStore {
 // non-endpoint results are dropped (fail closed); out-of-order older
 // observations never overwrite newer ones.
 func (s *SnapshotStore) Record(tenant, agent string, rv ResultView) {
-	if tenant == "" || agent == "" {
+	if tenant == "" || agent == "" || !wire.IsResultType(rv.Type) {
 		return
-	}
-	switch rv.Type {
-	case TypeAttribution, TypeWiFi, TypeGateway, TypeLastMile, TypeSession:
-	default:
-		return // not a DEM signal
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

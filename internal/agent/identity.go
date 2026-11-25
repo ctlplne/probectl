@@ -81,6 +81,23 @@ type EnrollOptions struct {
 	CAPin string
 	// CAFile verifies the server against a CA bundle instead (CA-issued certs).
 	CAFile string
+	// Store is an optional platform store that commits a whole identity at once.
+	Store EnrollmentStore
+}
+
+// EnrollmentMaterial is one coherent device identity and its two trust roots.
+type EnrollmentMaterial struct {
+	Certificate []byte `json:"certificate"`
+	PrivateKey  []byte `json:"private_key"`
+	IssuerCA    []byte `json:"issuer_ca"`
+	ServerCA    []byte `json:"server_ca"`
+}
+
+// EnrollmentStore keeps the device's private identity together across rotation.
+type EnrollmentStore interface {
+	Lock() (func(), error)
+	Load() (EnrollmentMaterial, error)
+	Save(EnrollmentMaterial) error
 }
 
 // CheckExistingEnrollment reports whether the directory already has a usable
@@ -156,6 +173,9 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 	if o.ExpectedTenant != "" && !validEnrollmentTenant(o.ExpectedTenant) {
 		return "", time.Time{}, errors.New("enroll: --expected-tenant must be a canonical tenant UUID")
 	}
+	if o.Store != nil && (o.CAFile == "" || o.CAPin != "" || o.ExpectedTenant == "") {
+		return "", time.Time{}, errors.New("enroll: managed identity requires an explicit server CA bundle and expected tenant")
+	}
 	if o.Hostname == "" {
 		o.Hostname, _ = os.Hostname()
 	}
@@ -175,7 +195,33 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 	// Prove the identity directory is writable BEFORE redeeming it, so a
 	// read-only volume or a wrong --dir costs a clear error, not a burned
 	// token plus an identity that was issued and then lost.
-	if err := ensureWritableIdentityDir(o.Dir); err != nil {
+	if o.Store != nil {
+		unlock, err := o.Store.Lock()
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		defer unlock()
+		current, err := o.Store.Load()
+		if err == nil {
+			defer crypto.Zeroize(current.PrivateKey)
+			leaf, err := firstCert(current.Certificate)
+			if err != nil {
+				return "", time.Time{}, err
+			}
+			id, err := crypto.SPIFFEIDFromCert(leaf)
+			now := time.Now()
+			if err != nil || id.TenantID != o.ExpectedTenant || now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) {
+				return "", time.Time{}, errors.New("enroll: existing managed identity cannot be reused for the expected tenant")
+			}
+			if !crypto.SameCertificateTrust(current.ServerCA, serverTrust()) {
+				return "", time.Time{}, errors.New("enroll: supplied CA bundle differs from the enrolled device's control-plane trust")
+			}
+			return id.String(), leaf.NotAfter, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", time.Time{}, err
+		}
+	} else if err := ensureWritableIdentityDir(o.Dir); err != nil {
 		return "", time.Time{}, err
 	}
 	request := map[string]string{
@@ -194,6 +240,18 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 	}
 	if o.ExpectedTenant != "" && !enrollmentTenantMatches(id, o.ExpectedTenant) {
 		return "", time.Time{}, errors.New("enroll: the issued certificate does not match the expected tenant")
+	}
+	if o.Store != nil {
+		if err := checkTestSyncPublicKey(id.TestSyncPublicKey); err != nil {
+			return "", time.Time{}, err
+		}
+		if err := o.Store.Save(EnrollmentMaterial{
+			Certificate: []byte(id.CertPEM), PrivateKey: keyPEM,
+			IssuerCA: []byte(id.CABundle), ServerCA: serverTrust(),
+		}); err != nil {
+			return "", time.Time{}, err
+		}
+		return id.SPIFFEID, id.NotAfter, nil
 	}
 	if err := writeIdentityDir(o.Dir, []byte(id.CertPEM), keyPEM, []byte(id.CABundle)); err != nil {
 		return "", time.Time{}, err
@@ -360,58 +418,106 @@ func Rotate(ctx context.Context, server, certFile, keyFile, caFile string) (time
 	if err != nil {
 		return time.Time{}, err
 	}
-	leaf, err := firstCert(curCert)
-	if err != nil {
-		return time.Time{}, err
-	}
-	oldID, err := crypto.RegisteredSPIFFEIDFromCert(leaf)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("rotate: current identity: %w", err)
-	}
-	csrPEM, newKeyPEM, err := crypto.CreateCSR(leaf.Subject.CommonName)
-	if err != nil {
-		return time.Time{}, err
-	}
-	proof, err := crypto.ECDSASignPEM(curKey, csrPEM)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("rotate: sign possession proof: %w", err)
-	}
-	// The rotation call verifies the server against OUR trust bundle (the CA
-	// bundle issued at enrollment) — first contact is the only pinned hop.
+	// Only the first enrollment may use a server certificate pin.
 	hc, err := enrollHTTPClient("", caFile)
 	if err != nil {
 		return time.Time{}, err
 	}
-	id, err := postIdentity(ctx, hc, endpoint, map[string]string{
-		"cert_pem": string(curCert), "csr_pem": string(csrPEM), "proof": hex.EncodeToString(proof),
-	})
+	id, newKeyPEM, err := requestRotation(ctx, hc, endpoint, curCert, curKey)
 	if err != nil {
-		return time.Time{}, err
-	}
-	newLeaf, err := firstCert([]byte(id.CertPEM))
-	if err != nil {
-		return time.Time{}, fmt.Errorf("rotate: issued identity: %w", err)
-	}
-	newID, err := crypto.RegisteredSPIFFEIDFromCert(newLeaf)
-	if err != nil || newID != oldID || id.SPIFFEID != oldID.String() ||
-		id.TenantID != oldID.TenantID || id.AgentID != oldID.AgentID {
-		return time.Time{}, fmt.Errorf("rotate: issued identity changed tenant, agent or plane")
-	}
-	// G9: validate the test-bundle key BEFORE replacing the identity, so an
-	// unusable key refuses the whole rotation instead of half-applying it.
-	if err := checkTestSyncPublicKey(id.TestSyncPublicKey); err != nil {
 		return time.Time{}, err
 	}
 	dir := filepath.Dir(certFile)
 	if err := writeIdentityDir(dir, []byte(id.CertPEM), newKeyPEM, []byte(id.CABundle)); err != nil {
 		return time.Time{}, err
 	}
-	// The renewal delivers the key to agents enrolled before central test
-	// distribution was on; the running agent picks it up without a restart.
 	if err := writeTestSyncPublicKey(dir, id.TestSyncPublicKey); err != nil {
 		return time.Time{}, err
 	}
 	return id.NotAfter, nil
+}
+
+// RotateStoredIdentity renews an identity using the same proof protocol as
+// disk-backed agents. The pinned server CA stays with the replacement unit.
+func RotateStoredIdentity(ctx context.Context, server string, store EnrollmentStore, expected crypto.SPIFFEID) (time.Time, error) {
+	endpoint, err := enrollmentEndpoint(server, "/enroll/agent/rotate", false)
+	if err != nil {
+		return time.Time{}, err
+	}
+	unlock, err := store.Lock()
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer unlock()
+	material, err := store.Load()
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer crypto.Zeroize(material.PrivateKey)
+	leaf, err := firstCert(material.Certificate)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if id, err := crypto.SPIFFEIDFromCert(leaf); err != nil || id != expected {
+		return time.Time{}, errors.New("rotate: stored device identity changed")
+	}
+	hc, err := enrollmentClientForCA(material.ServerCA)
+	if err != nil {
+		return time.Time{}, err
+	}
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	id, newKeyPEM, err := requestRotation(ctx, hc, endpoint, material.Certificate, material.PrivateKey)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer crypto.Zeroize(newKeyPEM)
+	if err := store.Save(EnrollmentMaterial{
+		Certificate: []byte(id.CertPEM), PrivateKey: newKeyPEM,
+		IssuerCA: []byte(id.CABundle), ServerCA: material.ServerCA,
+	}); err != nil {
+		return time.Time{}, err
+	}
+	return id.NotAfter, nil
+}
+
+func requestRotation(ctx context.Context, hc *http.Client, endpoint string, curCert, curKey []byte) (*issuedIdentity, []byte, error) {
+	leaf, err := firstCert(curCert)
+	if err != nil {
+		return nil, nil, err
+	}
+	oldID, err := crypto.RegisteredSPIFFEIDFromCert(leaf)
+	if err != nil {
+		return nil, nil, fmt.Errorf("rotate: current identity: %w", err)
+	}
+	csrPEM, newKeyPEM, err := crypto.CreateCSR(leaf.Subject.CommonName)
+	if err != nil {
+		return nil, nil, err
+	}
+	proof, err := crypto.ECDSASignPEM(curKey, csrPEM)
+	if err != nil {
+		return nil, nil, fmt.Errorf("rotate: sign possession proof: %w", err)
+	}
+	id, err := postIdentity(ctx, hc, endpoint, map[string]string{
+		"cert_pem": string(curCert), "csr_pem": string(csrPEM), "proof": hex.EncodeToString(proof),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	newLeaf, err := firstCert([]byte(id.CertPEM))
+	if err != nil {
+		return nil, nil, fmt.Errorf("rotate: issued identity: %w", err)
+	}
+	newID, err := crypto.RegisteredSPIFFEIDFromCert(newLeaf)
+	if err != nil || newID != oldID || id.SPIFFEID != oldID.String() ||
+		id.TenantID != oldID.TenantID || id.AgentID != oldID.AgentID {
+		return nil, nil, fmt.Errorf("rotate: issued identity changed tenant, agent or plane")
+	}
+	// G9: validate the test-bundle key BEFORE replacing the identity, so an
+	// unusable key refuses the whole rotation instead of half-applying it.
+	if err := checkTestSyncPublicKey(id.TestSyncPublicKey); err != nil {
+		return nil, nil, err
+	}
+	return id, newKeyPEM, nil
 }
 
 // ValidateEvidenceRotation makes an optional collector's short-lived entity
@@ -522,6 +628,16 @@ func RotationDue(notBefore, notAfter, now time.Time) bool {
 // the pinned handshake (serverTrustAnchor; the leaf itself only when the server
 // presents no chain). Neither: nothing (system roots verify the gRPC server too).
 func enrollHTTPClientCapturing(caPin, caFile string) (*http.Client, func() []byte, error) {
+	if caPin == "" && caFile != "" {
+		// Persist the exact CA that verified the enrollment connection even
+		// if a managed file is replaced during the request.
+		caPEM, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, nil, err
+		}
+		client, err := enrollmentClientForCA(caPEM)
+		return client, func() []byte { return caPEM }, err
+	}
 	var (
 		mu       sync.Mutex
 		captured []byte
@@ -554,6 +670,18 @@ func enrollHTTPClientCapturing(caPin, caFile string) (*http.Client, func() []byt
 		defer mu.Unlock()
 		return captured
 	}, nil
+}
+
+func enrollmentClientForCA(caPEM []byte) (*http.Client, error) {
+	pool, err := crypto.CertPoolFromPEM(caPEM)
+	if err != nil {
+		return nil, err
+	}
+	tlsCfg := crypto.InternalClientTLSConfig()
+	tlsCfg.RootCAs = pool
+	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
+		Proxy: http.ProxyFromEnvironment, TLSClientConfig: tlsCfg,
+	}}, nil
 }
 
 // serverTrustAnchor picks the certificate to PERSIST as the control-plane trust

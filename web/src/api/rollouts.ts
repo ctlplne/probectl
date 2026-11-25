@@ -5,6 +5,7 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useAuth } from '../auth/useAuth'
 import { apiFetch } from './client'
 
 export type RolloutWaveStatus = 'pending' | 'applying' | 'complete' | 'halted'
@@ -19,6 +20,7 @@ export interface Rollout {
   id: string
   target: string
   digest: string
+  endpoint?: { platform: string; executable_identity: string }
   halted: boolean
   halt_reason?: string
   done: boolean
@@ -48,41 +50,53 @@ export interface RolloutActionInput {
  * so the browser never guesses that a missing commercial seam is available.
  */
 export function useRollouts(enabled: boolean) {
+  const { tenant } = useAuth()
   return useQuery({
-    queryKey: ['rollouts'],
-    queryFn: () => apiFetch<RolloutList>('/rollouts'),
+    queryKey: ['rollouts', tenant.id],
+    queryFn: ({ signal }) =>
+      apiFetch<RolloutList>('/rollouts', {
+        signal,
+        headers: { 'X-Probectl-Tenant': tenant.id },
+      }),
     enabled,
   })
 }
 
 /**
- * These mutations move only the persisted rollout state machine. Agents never
- * receive code or an update command from this API; an external orchestrator
- * applies the operator-verified digest after a human advances a wave.
+ * These mutations record human decisions in the rollout state machine.
+ * The initiating tenant owns the acknowledgement and any follow-up refresh.
  */
 export function useRolloutAction() {
+  const { tenant } = useAuth()
   const qc = useQueryClient()
   return useMutation({
+    mutationKey: ['rollouts', tenant.id],
     mutationFn: ({ id, action, reason }: RolloutActionInput) =>
       apiFetch<Rollout>(`/rollouts/${encodeURIComponent(id)}/${action}`, {
         method: 'POST',
+        headers: {
+          'X-Probectl-Tenant': tenant.id,
+          ...(action === 'halt' || action === 'resume'
+            ? { 'Content-Type': 'application/json' }
+            : {}),
+        },
         ...(action === 'halt' || action === 'resume'
-          ? {
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ reason: reason?.trim() }),
-            }
+          ? { body: JSON.stringify({ reason: reason?.trim() }) }
           : {}),
       }),
-    onSuccess: (updated) => {
-      qc.setQueryData<RolloutList>(['rollouts'], (current) => ({
+    onMutate: () => tenant.id,
+    onSuccess: (updated, _input, tenantID) => {
+      if (!tenantID) return
+      qc.setQueryData<RolloutList>(['rollouts', tenantID], (current) => ({
         items: current?.items.map((rollout) => (rollout.id === updated.id ? updated : rollout)) ?? [
           updated,
         ],
       }))
     },
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: ['rollouts'] })
-      void qc.invalidateQueries({ queryKey: ['agents'] })
+    onSettled: (_updated, _error, _input, tenantID) => {
+      if (!tenantID) return
+      void qc.invalidateQueries({ queryKey: ['rollouts', tenantID] })
+      void qc.invalidateQueries({ queryKey: ['agents', tenantID] })
     },
   })
 }

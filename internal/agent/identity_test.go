@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +46,63 @@ func testLeafFor(t *testing.T, csrPEM string) string {
 		return ""
 	}
 	return string(leaf)
+}
+
+type existingManagedEnrollment struct{ material EnrollmentMaterial }
+
+func (s existingManagedEnrollment) Lock() (func(), error) { return func() {}, nil }
+
+func (s existingManagedEnrollment) Load() (EnrollmentMaterial, error) {
+	copyOfMaterial := s.material
+	copyOfMaterial.PrivateKey = bytes.Clone(s.material.PrivateKey)
+	return copyOfMaterial, nil
+}
+
+func (existingManagedEnrollment) Save(EnrollmentMaterial) error {
+	return errors.New("existing identity reached an unexpected save")
+}
+
+func TestManagedEnrollmentRechecksStoredControlPlaneTrust(t *testing.T) {
+	const tenant = "11111111-1111-4111-8111-111111111111"
+	const agentID = "33333333-3333-4333-8333-333333333333"
+	spiffeID := crypto.AgentSPIFFEID(tenant, agentID)
+	cert, key, err := testLeafCA.IssueClientCert(agentID, spiffeID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer crypto.Zeroize(key)
+	foreignCA, err := crypto.GenerateCA("foreign control plane", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := existingManagedEnrollment{EnrollmentMaterial{
+		Certificate: cert, PrivateKey: key, IssuerCA: testLeafCA.CertPEM(), ServerCA: testLeafCA.CertPEM(),
+	}}
+	for _, tt := range []struct {
+		name   string
+		trust  []byte
+		refuse bool
+	}{
+		{name: "recorded trust", trust: testLeafCA.CertPEM()},
+		{name: "other deployment trust", trust: foreignCA.CertPEM(), refuse: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			directory := t.TempDir()
+			bundle := filepath.Join(directory, "control-ca.pem")
+			if err := os.WriteFile(bundle, tt.trust, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, _, err := Enroll(t.Context(), EnrollOptions{Server: "https://127.0.0.1:1", Token: "join-fixture",
+				Dir: directory, CAFile: bundle, ExpectedTenant: tenant, Store: stored})
+			if tt.refuse {
+				if got != "" || err == nil || !strings.Contains(err.Error(), "differs from the enrolled device's control-plane trust") {
+					t.Fatalf("expected a trust refusal before enrollment: %q, %v", got, err)
+				}
+			} else if err != nil || got != spiffeID {
+				t.Fatalf("expected the existing identity: %q, %v", got, err)
+			}
+		})
+	}
 }
 
 func csrOf(r *http.Request) string {

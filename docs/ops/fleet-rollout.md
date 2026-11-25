@@ -25,13 +25,12 @@ stops the entire schedule until a human signs the incident book.
 
 ## The model — and what is deliberately absent
 
-**There is no agent self-update channel.** An agent never fetches or executes new
-code on its own. Update authority stays with the operator's orchestrator (Helm /
-`install.sh` / your config management), exactly like any other workload — a
-self-update channel would be a fleet-wide remote-code-execution primitive (one
-lever that runs attacker-chosen code on every host), which is precisely what
-this design refuses. The control plane's job is to **plan** waves from the
-agent registry and **verify** each wave back out of it — never to push bits.
+Update authority stays with the operator's orchestrator (Helm, `install.sh`, or
+your device manager). The control plane **plans** waves from the agent registry
+and **verifies** the result against that registry. For managed macOS and Windows
+endpoints it can also serve a wave's approved installer to an enrolled device
+that explicitly requests it. The operator or device manager initiates the
+download and runs the installer. See [the endpoint deployment runbook](../endpoint-dem.md#deploy).
 
 The engine is `internal/agent/rollout.go` — a pure, fully-tested state machine
 (plan → advance → verify → resume) that operator tooling drives; the agent
@@ -77,13 +76,13 @@ The tenant **Admin & Settings** page has two deliberately different layers:
 
 Neither layer is a deploy button. The web application has no agent-update
 endpoint, artifact URL, script, executable, or hidden autonomous action.
-**Advance changes only the audited state machine from pending to applying.** A
-human still applies that exact digest to that cohort through Helm, Ansible, or
-their configuration manager. **Verify** then re-reads the live, tenant-scoped
-agent registry and accepts the wave only when every member reports the target
-version with a fresh authenticated heartbeat. If rollout storage is unavailable,
-Admin keeps the registry rows visible and labels rollout evidence unavailable
-instead of guessing or showing dead controls.
+**Advance changes the audited state machine from pending to applying.** For a
+managed endpoint wave that also makes the pinned installer eligible for staging
+from the tenant's control plane. A human still directs the install through Helm,
+Ansible, or a device manager. **Verify** then reads the live, tenant-scoped
+registry for the target version, artifact evidence, and a fresh authenticated
+heartbeat. If rollout storage is unavailable, Admin keeps the registry rows
+visible and labels rollout evidence unavailable.
 
 ### Web-console walkthrough
 
@@ -166,9 +165,14 @@ they are back) instead of blocking a wave they can never verify. A rollout
 artifact digest must be the exact `sha256:<64 hex>` the orchestrator deploys.
 Planning remains deliberately **CLI + API + runbook**: an operator verifies the
 artifact and fixes cohort membership before anything appears in the web console.
-The console controls only an existing plan's audited state machine; ordinary
-tenant navigation never turns this external-orchestration workflow into a
-point-and-click agent self-update channel.
+For native endpoints, the plan records the **installer SHA-256**, **endpoint
+platform**, and **expected running executable identity**. The console shows
+all three in the review panel and when confirming a decision.
+
+Browser fleet and rollout requests include the tenant the operator is viewing
+in `X-Probectl-Tenant`. The server compares it with the authenticated tenant
+and refuses a mismatch or multiple header values. Scripts and API clients can
+send one optional assertion.
 
 ```sh
 probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
@@ -212,12 +216,13 @@ probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
 
 ### 3. Verify from the registry — the agents are the evidence
 
-Every wave member needs the **target version**, the **exact deployed digest**
-and a **fresh heartbeat** from the agent after wave release, seen within the
-last 5 m. All three are required for confirmation. The registry currently lacks the agent's
-reported digest, so a live wave stays unverified even after version and
-liveness converge. A digest mismatch or an unreported digest appears in the
-straggler list. An unverified wave halts when its verification window expires.
+Every wave member needs the **target version** and a **fresh authenticated
+heartbeat** after wave release, seen within the last five minutes. Conventional
+rollouts verify the **exact deployed digest**. Managed endpoint rollouts verify
+the platform and **running executable identity** measured on the enrolled device.
+The staged installer checksum identifies the package and is checked before the
+device accepts the file. Missing or mismatched evidence appears in the straggler
+list. An unverified wave halts when its verification window expires.
 
 The `probectl_agents` Ansible role checks liveness and version after install.
 Its local `systemctl is-active` check verifies service liveness. The role also

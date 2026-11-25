@@ -11,47 +11,8 @@ import (
 	"strings"
 )
 
-// This file holds the PORTABLE Wi-Fi output parsers. The OS-specific collectors
-// (wifi_{linux,darwin,windows}.go) only shell out to the platform tool and hand
-// its text here, so the parsing — the part with real logic — is unit-tested with
-// fixtures on every platform, including the default CI build.
-
-// parseAirportI parses macOS `airport -I` (the system Wi-Fi report). Missing
-// fields stay unset with their Have flag false (graceful degradation).
-func parseAirportI(text string) WiFi {
-	w := WiFi{Present: true}
-	for _, line := range strings.Split(text, "\n") {
-		key, val, ok := splitColon(line)
-		if !ok {
-			continue
-		}
-		switch key {
-		case "agrCtlRSSI":
-			if f, err := strconv.ParseFloat(val, 64); err == nil {
-				w.RSSIDBm, w.Have.RSSI, w.Associated = f, true, true
-			}
-		case "agrCtlNoise":
-			if f, err := strconv.ParseFloat(val, 64); err == nil && f > -256 {
-				w.NoiseDBm, w.Have.Noise = f, true
-			}
-		case "lastTxRate":
-			if f, err := strconv.ParseFloat(val, 64); err == nil {
-				w.LinkRateMbps, w.Have.LinkRate = f, true
-			}
-		case "SSID":
-			w.SSID = val
-		case "BSSID":
-			w.BSSID = val
-		case "channel":
-			w.Channel, w.Band = parseAirportChannel(val)
-		case "state":
-			if val == "running" {
-				w.Associated = true
-			}
-		}
-	}
-	return w
-}
+// Linux and Windows Wi-Fi text parsers are portable so every CI platform can
+// exercise them against fixtures.
 
 // parseChannel reads a WiFi channel number from a single untrusted OS-tool
 // field. The text is whatever an OS command printed, so a malformed or
@@ -65,16 +26,6 @@ func parseChannel(v string) int {
 		return 0
 	}
 	return ch
-}
-
-// parseAirportChannel handles airport's "36,80" (channel,width) form.
-func parseAirportChannel(v string) (int, string) {
-	num := v
-	if i := strings.IndexAny(v, ","); i >= 0 {
-		num = v[:i]
-	}
-	ch := parseChannel(num)
-	return ch, bandFromChannel(ch)
 }
 
 // parseNetshWlan parses Windows `netsh wlan show interfaces`.

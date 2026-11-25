@@ -21,9 +21,9 @@ import (
 
 var ErrA2AMeshReportRefused = errors.New("store: inactive A2A reporter or conflicting result")
 
-// A2AMeshIdentityRegistration reads the current registration for the exact
-// mTLS serial. Report persistence locks these same authority rows again.
-func A2AMeshIdentityRegistration(ctx context.Context, sc tenancy.Scope, agent, serial string) (time.Time, error) {
+// ActiveAgentIdentityRegistration reads the enrolled agent's current
+// registration for the exact active certificate serial in this tenant.
+func ActiveAgentIdentityRegistration(ctx context.Context, sc tenancy.Scope, agent, serial string) (time.Time, error) {
 	var registeredAt time.Time
 	err := sc.Q.QueryRow(ctx, `SELECT a.registered_at FROM agent_identities AS i JOIN agents AS a
     ON a.tenant_id=i.tenant_id AND a.id::text=i.agent_id AND a.spiffe_id=i.spiffe_id

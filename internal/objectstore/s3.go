@@ -125,20 +125,11 @@ func (s *S3Store) GetLimited(ctx context.Context, key string, maxBytes int64) (O
 }
 
 func (s *S3Store) get(ctx context.Context, key string, maxBytes int64) (Object, error) {
-	if err := validKey(key); err != nil {
-		return Object{}, err
-	}
-	resp, err := s.do(ctx, http.MethodGet, key, nil, "", nil)
+	resp, err := s.openObject(ctx, key)
 	if err != nil {
 		return Object{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return Object{}, ErrNotFound
-	}
-	if resp.StatusCode != http.StatusOK {
-		return Object{}, s3StatusError(resp)
-	}
 	if maxBytes >= 0 && resp.ContentLength > maxBytes {
 		return Object{}, ErrTooLarge
 	}
@@ -154,6 +145,39 @@ func (s *S3Store) get(ctx context.Context, key string, maxBytes int64) (Object, 
 		return Object{}, ErrTooLarge
 	}
 	return Object{Data: body, ContentType: resp.Header.Get("Content-Type"), Size: int64(len(body))}, nil
+}
+
+func (s *S3Store) CopyLimited(ctx context.Context, key string, dst io.Writer, maxBytes int64) (int64, error) {
+	if maxBytes < 0 {
+		return 0, ErrTooLarge
+	}
+	resp, err := s.openObject(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.ContentLength > maxBytes {
+		return 0, ErrTooLarge
+	}
+	return copyObjectLimited(ctx, dst, resp.Body, maxBytes)
+}
+
+func (s *S3Store) openObject(ctx context.Context, key string) (*http.Response, error) {
+	if err := validKey(key); err != nil {
+		return nil, err
+	}
+	resp, err := s.do(ctx, http.MethodGet, key, nil, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusOK {
+		return resp, nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrNotFound
+	}
+	return nil, s3StatusError(resp)
 }
 
 func (s *S3Store) Stat(ctx context.Context, key string) (int64, bool, error) {

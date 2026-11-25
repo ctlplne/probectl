@@ -60,6 +60,33 @@ func TestStreamResultsRefusesAckWhenMemoryPublishDropped(t *testing.T) {
 	}
 }
 
+func TestEndpointStreamRejectsInvalidFrames(t *testing.T) {
+	ctx := contextWithAgentIdentity(t, "tenant-a", "agent-a")
+	for _, result := range []*resultv1.Result{
+		{CanaryType: "icmp", StartTimeUnixNano: 1},
+		{CanaryType: "endpoint.unregistered", StartTimeUnixNano: 1},
+		{CanaryType: "endpoint.attribution"},
+		{CanaryType: "endpoint.attribution", StartTimeUnixNano: 1,
+			Attributes: map[string]string{"browser.screenshot.key": "artifact"}},
+	} {
+		payload, err := proto.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		capture := &captureFlushBus{}
+		svc := &service{bus: capture, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+		frame := &agentv1.StreamResultsRequest{Type: EndpointResultsCapability, Payload: payload}
+		if err := svc.ingest(ctx, crypto.SPIFFEID{TenantID: "tenant-a", AgentID: "agent-a"}, frame); !errors.Is(err, errInvalidEndpointResult) {
+			t.Fatalf("endpoint payload validation returned %v", err)
+		}
+		stream := &streamResultsTestStream{ctx: ctx, reqs: []*agentv1.StreamResultsRequest{frame}}
+		if err := svc.StreamResults(stream); status.Code(err) != codes.InvalidArgument ||
+			stream.ack != nil || capture.topic != "" {
+			t.Fatalf("unnegotiated endpoint frame reached the broker or was acknowledged: %v", err)
+		}
+	}
+}
+
 func TestStreamResultsRestampsPayloadIdentityFromMTLS(t *testing.T) {
 	ctx := contextWithAgentIdentity(t, "tenant-a", "agent-a")
 	payload, err := proto.Marshal(&resultv1.Result{

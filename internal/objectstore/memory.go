@@ -7,11 +7,12 @@
 package objectstore
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"io"
 	"sort"
 	"strings"
-
-	"context"
 	"sync"
 )
 
@@ -69,6 +70,24 @@ func (m *MemStore) GetLimited(_ context.Context, key string, maxBytes int64) (Ob
 	cp := make([]byte, len(o.Data))
 	copy(cp, o.Data)
 	return Object{Data: cp, ContentType: o.ContentType, Size: o.Size}, nil
+}
+
+func (m *MemStore) CopyLimited(ctx context.Context, key string, dst io.Writer, maxBytes int64) (int64, error) {
+	if err := validKey(key); err != nil {
+		return 0, err
+	}
+	m.mu.RLock()
+	o, ok := m.objects[key]
+	m.mu.RUnlock()
+	if !ok {
+		return 0, ErrNotFound
+	}
+	if o.Size > maxBytes {
+		return 0, ErrTooLarge
+	}
+	// Put replaces the private immutable slice. A concurrent replacement
+	// cannot change the bytes in this reader or hold the store lock open.
+	return copyObjectLimited(ctx, dst, bytes.NewReader(o.Data), maxBytes)
 }
 
 func (m *MemStore) Stat(_ context.Context, key string) (int64, bool, error) {

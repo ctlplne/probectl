@@ -404,6 +404,12 @@ one host. Replace `<PREFIX>` below with `PROBECTL_AGENT`, `PROBECTL_FLOW`,
 | `<PREFIX>_METRICS_TLS_CERT_FILE` | (none) | HTTPS server certificate. Set together with the key; probectl's TLS 1.3 listener policy is applied through `internal/crypto` |
 | `<PREFIX>_METRICS_TLS_KEY_FILE` | (none) | HTTPS server private key. A one-sided certificate/key configuration fails startup |
 
+An enrolled endpoint leaves its metrics listener off by default. To enable
+HTTPS metrics, set `PROBECTL_ENDPOINT_METRICS_TLS_CERT_FILE` and
+`PROBECTL_ENDPOINT_METRICS_TLS_KEY_FILE`. The OS assigns a loopback port unless
+you set `PROBECTL_ENDPOINT_METRICS_ADDR` to a fixed scrape address. Each
+signed-in user can run the collector on the same device with a separate port.
+
 Core series are `probectl_agent_collections_total` (probe or collector batches),
 `probectl_agent_published_total` (results/batches accepted by the output transport),
 `probectl_agent_errors_total`, `probectl_agent_buffer_depth`, and
@@ -2037,6 +2043,9 @@ YAML decoding; `PROBECTL_ENDPOINT_*` env vars override it. See
 | `PROBECTL_ENDPOINT_BUS_MODE`            | `memory`       | `memory` (volatile, dev only) \| `nats` (durable lightweight) \| `kafka`                                              |
 | `PROBECTL_ENDPOINT_BUS_BROKERS`         | (none)         | comma-separated Kafka brokers (kafka mode)                       |
 | `PROBECTL_ENDPOINT_BUS_NAMESPACE`       | (none)         | publish on this tenant's siloed bus lane instead of the shared topic (siloed deployments) |
+| `PROBECTL_ENDPOINT_CONTROL_ADDR`         | (none)         | `control.address`, the operator's mTLS agent listener as `host:port` |
+| `PROBECTL_ENDPOINT_ENROLLMENT_URL`      | (none)         | `control.enrollment_url`, the operator's HTTPS API origin used for device certificate rotation |
+| `PROBECTL_ENDPOINT_IDENTITY_DIR`         | (none)         | `control.identity_dir`, the device's pre-enrolled certificate, key and server CA directory |
 | `PROBECTL_ENDPOINT_INTERVAL`            | `60s`          | how often a sample is collected                                  |
 | `PROBECTL_ENDPOINT_TARGETS`             | (none)         | comma-separated targets (the first target's host drives the last-mile trace — a URL is reduced to its host (DPR-061); all = session probes). **No external hosts ship by default** (no-phone-home, G7-2) — an agent with no configured targets probes nothing off-device (local Wi-Fi/gateway only) until you set your own |
 | `PROBECTL_ENDPOINT_MAX_HOPS`            | `20`           | last-mile trace hop cap                                          |
@@ -2051,6 +2060,13 @@ Results (WiFi / gateway / last-mile / session signals + the attribution verdict)
 are published to `probectl.endpoint.results` (`resultv1.Result`, tenant-keyed),
 flowing through the same pipeline as every other canary. The agent **discloses
 exactly what it collects at startup** and never phones home.
+
+Set all three `control` settings to use enrolled delivery. The endpoint checks
+`tenant_id` against the certificate before dialing, and the control plane routes
+each result using the verified certificate identity. The endpoint waits for
+the control plane to accept endpoint routing on the stream before sending
+samples. Upgrade every control replica before rolling out this transport.
+Leave the direct-bus settings unset in enrolled mode.
 
 ### Flow collector (`probectl-flow-agent`)
 
