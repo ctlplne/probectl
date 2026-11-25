@@ -137,7 +137,7 @@ func (s *Server) handleStartNMSImportLivePlan(w http.ResponseWriter, r *http.Req
 	switch req.SourceKind {
 	case "", "librenms":
 	case "rmm":
-		return s.startDiscoveryInventorySync(w, r, ctx, contextID, req.InstanceRef)
+		return s.startDiscoveryInventorySync(ctx, w, r, contextID, req.InstanceRef)
 	default:
 		return apierror.BadRequest("invalid import source kind")
 	}
@@ -158,8 +158,8 @@ func (s *Server) handleStartNMSImportLivePlan(w http.ResponseWriter, r *http.Req
 	return nil
 }
 
-func (s *Server) startDiscoveryInventorySync(w http.ResponseWriter, r *http.Request,
-	ctx context.Context, contextID, instanceRef string) error {
+func (s *Server) startDiscoveryInventorySync(ctx context.Context, w http.ResponseWriter,
+	r *http.Request, contextID, instanceRef string) error {
 	plan, err := s.syncDiscoveryInventory(ctx, contextID, instanceRef, s.nmsImportCaptureStore(r))
 	if err != nil {
 		return err

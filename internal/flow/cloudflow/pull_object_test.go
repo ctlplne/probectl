@@ -112,10 +112,10 @@ cloud_import:
 				body = multiline.Bytes()
 			}
 			transfer := newCloudObjectTransfer()
-			transfer.copyS3 = func(_ context.Context, cfg objectstore.S3Config, object objectstore.S3ReadRevision, dst io.Writer, cap int64) (int64, error) {
+			transfer.copyS3 = func(_ context.Context, cfg objectstore.S3Config, object objectstore.S3ReadRevision, dst io.Writer, limit int64) (int64, error) {
 				if tc.provider != ProviderAWSVPC || cfg.Endpoint != "https://s3.eu-west-1.amazonaws.com" || cfg.Bucket != "office-flow" ||
 					cfg.AccessKey != "FIXTUREACCESS0001" || cfg.SessionToken != "fixture-sts" || object.Key != "logs/a.log.gz" ||
-					object.Version != "version+/1" || object.ExpectedOwner != "111122223333" || object.ETag != "" || cap != maxPullBytes {
+					object.Version != "version+/1" || object.ExpectedOwner != "111122223333" || object.ETag != "" || limit != maxPullBytes {
 					t.Fatal("AWS request lost its scoped endpoint, credential, object or bound")
 				}
 				return io.Copy(dst, bytes.NewReader(body))

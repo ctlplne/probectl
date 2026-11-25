@@ -157,8 +157,8 @@ func TestHaloBillingWritersKeepTwoTenantsSeparate(t *testing.T) {
 		switch r.Method {
 		case http.MethodGet:
 			idText, hasPrefix := strings.CutPrefix(r.URL.Path, "/api/SoftwareLicence/")
-			id, err := strconv.Atoi(idText)
-			if !hasPrefix || err != nil || id < 1 || id > math.MaxInt32 {
+			id, err := strconv.ParseInt(idText, 10, 32)
+			if !hasPrefix || err != nil || id < 1 {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}

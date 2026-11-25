@@ -69,7 +69,7 @@ func receiveEndpointPackage(ctx context.Context, recv func() (*agentv1.DownloadE
 	if err != nil {
 		return nil, err
 	}
-	defer root.Remove(stageName)
+	defer func() { _ = root.Remove(stageName) }()
 	defer stage.Close()
 	for remaining > 0 {
 		frame, err := recv()

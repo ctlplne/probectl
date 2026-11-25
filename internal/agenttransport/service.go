@@ -357,7 +357,8 @@ func (svc *service) Heartbeat(ctx context.Context, req *agentv1.HeartbeatRequest
 		return nil, err
 	}
 	applied := req.GetConfigEpoch()
-	if process != nil {
+	switch {
+	case process != nil:
 		if req.GetAgentId() != id.AgentID || applied != 0 {
 			return nil, status.Error(codes.InvalidArgument, "invalid managed endpoint heartbeat identity or epoch")
 		}
@@ -374,11 +375,11 @@ func (svc *service) Heartbeat(ctx context.Context, req *agentv1.HeartbeatRequest
 		if !observed {
 			return nil, status.Error(codes.FailedPrecondition, "endpoint process registration or heartbeat sequence changed")
 		}
-	} else if svc.hb != nil {
+	case svc.hb != nil:
 		// SCALE-012: coalesced — one multi-row UPDATE per tenant per window
 		// instead of one UPDATE per heartbeat RPC.
 		svc.hb.record(id.TenantID, id.AgentID, applied)
-	} else {
+	default:
 		err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), svc.pool,
 			func(ctx context.Context, s tenancy.Scope) error {
 				if _, e := svc.agents.Heartbeat(ctx, s, id.AgentID); e != nil {
