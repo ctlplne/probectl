@@ -99,6 +99,16 @@ probectl-agent enroll \
   --ca-pin <hex sha256>        # for self-signed quickstarts; or --ca-file ca.crt
 ```
 
+For automation, pass the one-time token from the job's secret store through
+standard input with `--token-stdin`. This keeps it out of the agent command
+line. Use `--expected-tenant <tenant-uuid>` with the site's mapped tenant ID.
+The control plane checks that ID against the tenant resolved from the token
+before consuming the token. The agent checks the returned certificate's
+tenant before writing it. Both the control plane and agent must support this
+enrollment mode. Add `--if-needed` to reuse a current SVID for the same tenant
+on a repeat deployment. A partial, expired, or foreign identity requires
+operator review.
+
 Enrollment and every rotation write `cert.pem`, `key.pem` and `ca.pem` as
 **one unit**: a fresh version directory under the identity directory, each
 file fsynced, behind one `current` link swapped atomically; the three names

@@ -31,6 +31,9 @@ func runEnroll(args []string) error {
 	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
 	server := fs.String("server", "", "control-plane base URL (https://host:8443)")
 	token := fs.String("token", "", "one-time enrollment token (pjt_..., shown when minted)")
+	tokenStdin := fs.Bool("token-stdin", false, "read the one-time enrollment token from standard input through EOF")
+	expectedTenant := fs.String("expected-tenant", "", "require the token to belong to this tenant UUID before redeeming it")
+	ifNeeded := fs.Bool("if-needed", false, "keep an existing valid identity for --expected-tenant")
 	dir := fs.String("dir", "/var/lib/probectl-agent/identity", "identity directory (key/cert/bundle)")
 	caPin := fs.String("ca-pin", "", "hex sha256 of the server certificate (printed at token mint; first-contact trust for self-signed deployments)")
 	caFile := fs.String("ca-file", "", "CA bundle to verify the server against (CA-issued certs)")
@@ -38,6 +41,26 @@ func runEnroll(args []string) error {
 	allowPlaintextLoopback := fs.Bool("allow-plaintext-loopback", false, "dev/test only: allow http://localhost or loopback enrollment")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *tokenStdin && *token != "" {
+		return fmt.Errorf("--token and --token-stdin are mutually exclusive")
+	}
+	if *ifNeeded {
+		existing, err := agent.CheckExistingEnrollment(*dir, *expectedTenant)
+		if err != nil {
+			return err
+		}
+		if existing {
+			fmt.Println("existing identity matches the expected tenant")
+			return nil
+		}
+	}
+	if *tokenStdin {
+		secret, err := agent.ReadEnrollmentToken(os.Stdin)
+		if err != nil {
+			return err
+		}
+		*token = secret
 	}
 	if err := crypto.RunPowerOnSelfTest(nil); err != nil {
 		return err
@@ -47,7 +70,7 @@ func runEnroll(args []string) error {
 	defer cancel()
 	spiffeID, notAfter, err := agent.Enroll(ctx, agent.EnrollOptions{
 		Server: *server, Token: *token, Dir: *dir,
-		Hostname: *hostname, Version: version.Get().Version,
+		ExpectedTenant: *expectedTenant, Hostname: *hostname, Version: version.Get().Version,
 		CAPin: *caPin, CAFile: *caFile,
 		AllowPlaintextLoopback: *allowPlaintextLoopback,
 	})

@@ -473,9 +473,10 @@ type Request struct {
 	CSRPEM   string `json:"csr_pem"`
 	Hostname string `json:"hostname"`
 	Version  string `json:"version"`
-	// Attestor reserves the cloud-IID/OIDC extension seam (ADR decision 1).
-	// Only "join-token" (or empty) is implemented.
-	Attestor string `json:"attestor,omitempty"`
+	// Both join-token variants authenticate with the one-time token.
+	// join-token-bound also requires the tenant assertion to match.
+	Attestor       string `json:"attestor,omitempty"`
+	ExpectedTenant string `json:"expected_tenant,omitempty"`
 }
 
 // Identity is an issued SVID + its trust context.
@@ -501,15 +502,24 @@ type Identity struct {
 // assigned here. The agent is registered in the tenant's registry, so the
 // Sprint 4 binding immediately vouches for the pair.
 func (s *Service) Enroll(ctx context.Context, req Request) (*Identity, error) {
-	if req.Attestor != "" && req.Attestor != "join-token" {
-		return nil, fmt.Errorf("enroll: attestor %q not supported (join-token only; see ADR)", req.Attestor)
+	switch req.Attestor {
+	case "", "join-token":
+		if req.ExpectedTenant != "" {
+			return nil, ErrInvalidToken
+		}
+	case "join-token-bound":
+		if req.ExpectedTenant == "" {
+			return nil, ErrInvalidToken
+		}
+	default:
+		return nil, ErrInvalidToken
 	}
 	if !strings.HasPrefix(req.Token, "pjt_") {
 		return nil, ErrInvalidToken
 	}
 	hostname := strings.TrimSpace(req.Hostname)
 
-	tenantID, pinned, err := store.NewEnrollTokens(s.pool).Consume(ctx, crypto.Hash([]byte(req.Token)), hostname)
+	tenantID, pinned, err := store.NewEnrollTokens(s.pool).ConsumeExpected(ctx, crypto.Hash([]byte(req.Token)), hostname, req.ExpectedTenant)
 	if err != nil {
 		if errors.Is(err, store.ErrEnrollTokenInvalid) {
 			return nil, ErrInvalidToken

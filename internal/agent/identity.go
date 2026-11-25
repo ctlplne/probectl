@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/ctlplne/probectl/internal/crypto"
 )
 
@@ -68,6 +70,7 @@ type issuedIdentity struct {
 type EnrollOptions struct {
 	Server                 string // control-plane base URL (https://host:8443)
 	Token                  string // one-time join token (pjt_...)
+	ExpectedTenant         string // optional tenant UUID assertion, never enrollment authority
 	Dir                    string // identity directory (key/cert/bundle land here, 0600)
 	Hostname               string // defaults to os.Hostname()
 	Version                string
@@ -80,12 +83,78 @@ type EnrollOptions struct {
 	CAFile string
 }
 
+// CheckExistingEnrollment reports whether the directory already has a usable
+// identity for the asserted tenant. A partial or mismatched identity fails
+// closed so a retried deployment cannot replace it or consume another token.
+func CheckExistingEnrollment(dir, tenant string) (bool, error) {
+	if !validEnrollmentTenant(tenant) || dir == "" {
+		return false, errors.New("enroll: --if-needed requires an identity directory and a canonical --expected-tenant UUID")
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		if _, linkErr := os.Lstat(dir); errors.Is(linkErr, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, errors.New("enroll: existing identity directory cannot be read")
+	}
+	if err != nil {
+		return false, errors.New("enroll: existing identity directory cannot be read")
+	}
+	if len(entries) == 0 {
+		return false, nil
+	}
+	cfg, err := crypto.ClientMTLSConfig(filepath.Join(dir, IdentityCertFile), filepath.Join(dir, IdentityKeyFile), filepath.Join(dir, IdentityCAFile))
+	if err != nil || len(cfg.Certificates) != 1 || len(cfg.Certificates[0].Certificate) == 0 {
+		return false, errors.New("enroll: existing identity is incomplete or cannot be used")
+	}
+	leaf, err := crypto.ParseCertificate(cfg.Certificates[0].Certificate[0])
+	now := time.Now()
+	if err != nil || now.Before(leaf.NotBefore) || !now.Before(leaf.NotAfter) {
+		return false, errors.New("enroll: existing identity certificate is invalid or expired")
+	}
+	id, err := crypto.SPIFFEIDFromCert(leaf)
+	if err != nil || id.TenantID != tenant {
+		return false, errors.New("enroll: existing identity does not match the expected tenant")
+	}
+	return true, nil
+}
+
+func validEnrollmentTenant(tenant string) bool {
+	id, err := uuid.Parse(tenant)
+	return err == nil && id != uuid.Nil && id.String() == tenant
+}
+
+// ReadEnrollmentToken reads one bounded join token supplied through stdin by
+// the device manager. Errors contain neither input bytes nor the token.
+func ReadEnrollmentToken(input io.Reader) (string, error) {
+	const maxInput = 128
+	raw, err := io.ReadAll(io.LimitReader(input, maxInput+1))
+	defer crypto.Zeroize(raw)
+	if err != nil || len(raw) > maxInput {
+		return "", errors.New("enroll: could not read one enrollment token from standard input")
+	}
+	token := bytes.TrimSpace(raw)
+	value, ok := bytes.CutPrefix(token, []byte("pjt_"))
+	if !ok || len(value) != 64 {
+		return "", errors.New("enroll: standard input did not contain one valid join token")
+	}
+	for _, c := range value {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return "", errors.New("enroll: standard input did not contain one valid join token")
+		}
+	}
+	return string(token), nil
+}
+
 // Enroll redeems the join token for the first SVID and writes the identity
-// directory. The server derives the tenant from the TOKEN — nothing
-// tenant-related is sent or accepted from this side.
+// directory. The token alone selects the tenant. An optional assertion asks
+// the server to refuse a token issued for a different tenant before redemption.
 func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter time.Time, err error) {
 	if o.Server == "" || o.Token == "" || o.Dir == "" {
-		return "", time.Time{}, fmt.Errorf("enroll: --server, --token, and --dir are required")
+		return "", time.Time{}, fmt.Errorf("enroll: --server, an enrollment token, and --dir are required")
+	}
+	if o.ExpectedTenant != "" && !validEnrollmentTenant(o.ExpectedTenant) {
+		return "", time.Time{}, errors.New("enroll: --expected-tenant must be a canonical tenant UUID")
 	}
 	if o.Hostname == "" {
 		o.Hostname, _ = os.Hostname()
@@ -109,11 +178,22 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 	if err := ensureWritableIdentityDir(o.Dir); err != nil {
 		return "", time.Time{}, err
 	}
-	id, err := postIdentity(ctx, hc, endpoint, map[string]string{
+	request := map[string]string{
 		"token": o.Token, "csr_pem": string(csrPEM), "hostname": o.Hostname, "version": o.Version,
-	})
+	}
+	if o.ExpectedTenant != "" {
+		// Older servers refuse this attestor before consuming the token.
+		// A redirect must not replay the one-time token from the POST body.
+		hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		request["attestor"] = "join-token-bound"
+		request["expected_tenant"] = o.ExpectedTenant
+	}
+	id, err := postIdentity(ctx, hc, endpoint, request)
 	if err != nil {
 		return "", time.Time{}, err
+	}
+	if o.ExpectedTenant != "" && !enrollmentTenantMatches(id, o.ExpectedTenant) {
+		return "", time.Time{}, errors.New("enroll: the issued certificate does not match the expected tenant")
 	}
 	if err := writeIdentityDir(o.Dir, []byte(id.CertPEM), keyPEM, []byte(id.CABundle)); err != nil {
 		return "", time.Time{}, err
@@ -133,6 +213,19 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 		return "", time.Time{}, err
 	}
 	return id.SPIFFEID, id.NotAfter, nil
+}
+
+func enrollmentTenantMatches(issued *issuedIdentity, tenant string) bool {
+	leaf, _ := pem.Decode([]byte(issued.CertPEM))
+	if leaf == nil || leaf.Type != "CERTIFICATE" {
+		return false
+	}
+	cert, err := crypto.ParseCertificate(leaf.Bytes)
+	if err != nil {
+		return false
+	}
+	id, err := crypto.SPIFFEIDFromCert(cert)
+	return err == nil && id.TenantID == tenant && id.String() == issued.SPIFFEID
 }
 
 // writeTestSyncPublicKey persists the enrollment-delivered test-bundle public

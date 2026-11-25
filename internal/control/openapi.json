@@ -17240,7 +17240,12 @@
                   },
                   "attestor": {
                     "type": "string",
-                    "description": "join-token (default); cloud/OIDC attestors reserved"
+                    "description": "join-token (default) or join-token-bound, which requires expected_tenant"
+                  },
+                  "expected_tenant": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "For join-token-bound only. Refuses a different token tenant before redemption. The token still determines the tenant."
                   }
                 }
               }

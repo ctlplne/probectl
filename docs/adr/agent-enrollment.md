@@ -104,9 +104,12 @@ plates.
 route is *off* `/v1` on purpose — `/v1` is the RBAC-gated session API, whereas
 this is a bootstrap surface like `/auth`. The agent has no certificate yet, so
 the channel is server-auth TLS only (HTTPS-by-default recipes make that safe);
-the request is authenticated by the join token. The server: consumes the token
-→ derives `tenant` from the TOKEN (never the request) → assigns or verifies the
-agent id → signs a leaf → records the issued identity (serial, SPIFFE id,
+the request is authenticated by the join token. The server resolves the
+token's tenant before consuming it. An automation request using
+`attestor=join-token-bound` must supply `expected_tenant`. A mismatch refuses
+redemption. An accepted token supplies the tenant and any pinned agent ID.
+The server assigns or verifies the agent ID, signs a leaf, records the issued
+identity (serial, SPIFFE ID,
 expiry) in the registry → returns the leaf plus the CA bundle. The registry now
 vouches for the tenant/agent pair, but the row remains `registered` with no
 `last_seen_at`: operational readiness becomes true only after the holder opens

@@ -76,12 +76,22 @@ func (e EnrollTokens) Create(ctx context.Context, tenantID, agentID, name, creat
 // is indistinguishable to the caller. Returns the token's tenant and any
 // pinned agent id.
 func (e EnrollTokens) Consume(ctx context.Context, tokenHash []byte, usedByAgent string) (tenantID, pinnedAgentID string, err error) {
+	return e.ConsumeExpected(ctx, tokenHash, usedByAgent, "")
+}
+
+// ConsumeExpected can refuse an otherwise valid credential before consuming
+// it. The token locator selects the tenant and the expected value can only
+// veto that selection.
+func (e EnrollTokens) ConsumeExpected(ctx context.Context, tokenHash []byte, usedByAgent, expectedTenant string) (tenantID, pinnedAgentID string, err error) {
 	tenantID, err = resolveCredential(ctx, e.pool, credentialAgentEnroll, tokenHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", ErrEnrollTokenInvalid
 	}
 	if err != nil {
 		return "", "", err
+	}
+	if expectedTenant != "" && expectedTenant != tenantID {
+		return "", "", ErrEnrollTokenInvalid
 	}
 	err = tenancy.InTenant(
 		tenancy.WithTenant(ctx, tenancy.ID(tenantID)),

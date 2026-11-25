@@ -15,15 +15,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/agent"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/enroll"
 	"github.com/ctlplne/probectl/internal/pipeline"
@@ -313,43 +319,88 @@ func TestRotationKeepsIdentityAndRecordsNewSerial(t *testing.T) {
 	}
 }
 
-// TestWrongTenantCannotBeRequested: the tenant comes ONLY from the token —
-// there is no request field to even attempt a cross-tenant enrollment, and a
-// token minted for tenant A can never yield tenant B.
+// TestWrongTenantCannotBeRequested proves the configured tenant can only
+// veto the token's authority. Rejected bootstrap leaves the token usable
+// on the correct site and cannot write an agent identity in either tenant.
 func TestWrongTenantCannotBeRequested(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	pool, svc, tenantA := setup(ctx, t)
-
 	tnB, err := store.NewTenants(pool).Create(ctx, fmt.Sprintf("enr-b-%d", time.Now().UnixNano()), "B")
 	if err != nil {
 		t.Fatal(err)
 	}
-	display, _, err := svc.MintToken(ctx, tenantA, "", "", "test", time.Hour)
-	if err != nil {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req enroll.Request
+		if r.Method != http.MethodPost || r.URL.Path != "/enroll/agent" || json.NewDecoder(r.Body).Decode(&req) != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		id, err := svc.Enroll(r.Context(), req)
+		if errors.Is(err, enroll.ErrInvalidToken) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if err != nil {
+			t.Error("test enrollment handler failed", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(id)
+	}))
+	t.Cleanup(server.Close)
+	caFile := filepath.Join(t.TempDir(), "server.pem")
+	if err := os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{
+		Type: "CERTIFICATE", Bytes: server.Certificate().Raw,
+	}), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	csr, _, _ := crypto.CreateCSR("host-w")
-	id, err := svc.Enroll(ctx, enroll.Request{Token: display, CSRPEM: string(csr)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id.TenantID != tenantA || id.TenantID == tnB.ID {
-		t.Fatalf("token for tenant A yielded tenant %s", id.TenantID)
-	}
-	// The issued agent exists ONLY in A's registry partition (RLS-scoped).
-	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tnB.ID)), pool,
-		func(ctx context.Context, sc tenancy.Scope) error {
-			// RLS hides A's agent from B, so Get returns NotFound (the fail-closed
-			// signal) — that IS the pass. Only a non-error + non-nil agent (B can
-			// actually read A's agent) is the cross-tenant leak.
-			a, gerr := (store.Agents{}).Get(ctx, sc, id.AgentID)
-			if gerr == nil && a != nil {
-				t.Fatal("enrolled agent visible in tenant B's registry (CROSS-TENANT LEAK)")
+	for _, tenant := range []struct{ own, sibling string }{{tenantA, tnB.ID}, {tnB.ID, tenantA}} {
+		display, _, err := svc.MintToken(ctx, tenant.own, "", "", "test", time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		options := agent.EnrollOptions{
+			Server: server.URL, Token: display, ExpectedTenant: tenant.sibling,
+			Dir: t.TempDir(), Hostname: "rmm-test", CAFile: caFile,
+		}
+		_, _, err = agent.Enroll(ctx, options)
+		var denied *agent.EnrollStatusError
+		if !errors.As(err, &denied) || denied.StatusCode != http.StatusUnauthorized {
+			t.Fatal("the wrong tenant assertion was not refused before redemption", err)
+		}
+		if _, err := os.Stat(filepath.Join(options.Dir, agent.IdentityCertFile)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("the wrong site received a local certificate")
+		}
+		options.ExpectedTenant = tenant.own
+		uri, _, err := agent.Enroll(ctx, options)
+		if err != nil {
+			t.Fatal("the original token was not usable on the correct site", err)
+		}
+		id, err := crypto.ParseSPIFFEID(uri)
+		if err != nil || id.TenantID != tenant.own {
+			t.Fatal("issued identity does not belong to the token tenant", err)
+		}
+		if present, err := agent.CheckExistingEnrollment(options.Dir, tenant.own); err != nil || !present {
+			t.Fatal("the correct site could not reuse its existing identity", err)
+		}
+		if present, err := agent.CheckExistingEnrollment(options.Dir, tenant.sibling); err == nil || present {
+			t.Fatal("the sibling site accepted the existing foreign identity")
+		}
+		for _, scope := range []string{tenant.own, tenant.sibling} {
+			err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(scope)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+				record, err := (store.Agents{}).Get(ctx, sc, id.AgentID)
+				if scope == tenant.own && (err != nil || record == nil) {
+					return fmt.Errorf("issued agent missing from its own registry")
+				}
+				if scope == tenant.sibling && err == nil && record != nil {
+					return fmt.Errorf("issued agent is visible in the sibling registry")
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
 			}
-			return nil
-		})
-	if err != nil {
-		t.Fatal(err)
+		}
 	}
 }
 
