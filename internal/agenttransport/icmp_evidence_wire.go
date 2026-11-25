@@ -24,6 +24,14 @@ func parseICMPMeasurement(m *agentv1.IcmpMeasurement) (*entity.ICMPMeasurement, 
 	if len(m.ProtoReflect().GetUnknown()) != 0 {
 		return nil, status.Error(codes.InvalidArgument, "unsupported ICMP evidence fields")
 	}
+	if m.Version == 0 || m.Version > entity.ICMPVersionEgress {
+		return nil, status.Error(codes.InvalidArgument, "unsupported ICMP evidence version")
+	}
+	witness := m.GetEgress()
+	if (m.Version == entity.ICMPVersionEgress) != (witness != nil) ||
+		(witness != nil && len(witness.ProtoReflect().GetUnknown()) != 0) {
+		return nil, status.Error(codes.InvalidArgument, "invalid ICMP egress evidence fields")
+	}
 	out := &entity.ICMPMeasurement{Version: int(m.Version), DefinitionHash: m.DefinitionHash,
 		StartedAt: time.Unix(0, m.StartedUnixNanos), CompletedAt: time.Unix(0, m.CompletedUnixNanos),
 		Requested: m.Requested, Attempted: m.Attempted, Transmitted: m.Transmitted,
@@ -34,6 +42,12 @@ func parseICMPMeasurement(m *agentv1.IcmpMeasurement) (*entity.ICMPMeasurement, 
 			return nil, status.Error(codes.InvalidArgument, "unsupported original RTT evidence fields")
 		}
 		out.RoundTrips = &entity.ICMPRoundTrips{Nanos: append([]uint64{}, m.RoundTrips.Nanos...), ExecutionNanos: m.RoundTrips.ExecutionNanos}
+	}
+	if witness != nil {
+		out.Egress = &entity.ICMPEgressWitness{
+			Interface: witness.Interface, Source: witness.Source,
+			PeerMAC: witness.PeerMac, Transmitted: witness.Transmitted,
+		}
 	}
 	for _, item := range m.NetworkErrors {
 		if item == nil || len(item.ProtoReflect().GetUnknown()) != 0 {

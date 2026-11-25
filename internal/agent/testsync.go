@@ -336,11 +336,12 @@ func (s *testSyncer) admitOne(t testsync.Test, seen map[string]bool) (string, ce
 	if isPrivate && !allowsPrivate {
 		return "private_target", centralDef{}
 	}
-	c, err := s.reg.New(canary.Config{
+	cfg := canary.Config{
 		Type: t.Type, Target: t.Target, Interval: interval,
 		Timeout: time.Duration(t.TimeoutSeconds) * time.Second,
 		Params:  copyParams(t.Params), TenantID: s.tenantID,
-	})
+	}
+	c, err := s.newTestCanary(t.ID, cfg)
 	if err != nil {
 		return "invalid_test", centralDef{}
 	}

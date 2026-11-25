@@ -33,6 +33,7 @@ const icmpType = "icmp"
 // param to prefer raw. It supports IPv4 and IPv6.
 type icmpCanary struct {
 	guard      *TargetGuard
+	egress     *ICMPEgress
 	target     string
 	count      int
 	payload    int
@@ -49,6 +50,14 @@ type icmpCanary struct {
 // ("true" forces raw sockets). In continuous mode packets are paced at 1/sec and
 // count defaults to the schedule interval in seconds.
 func NewICMP(cfg Config) (Canary, error) {
+	c, err := newICMP(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func newICMP(cfg Config) (*icmpCanary, error) {
 	if cfg.Target == "" {
 		return nil, errors.New("icmp: target is required")
 	}
@@ -149,6 +158,9 @@ func (c *icmpCanary) listen(v6 bool) (conn *icmp.PacketConn, raw bool, err error
 	if v6 {
 		udpNet, rawNet, addr = "udp6", "ip6:ipv6-icmp", "::"
 	}
+	if c.egress != nil {
+		addr = c.egress.Source.String()
+	}
 	openUDP := func() (*icmp.PacketConn, bool, error) { pc, e := icmp.ListenPacket(udpNet, addr); return pc, false, e }
 	openRaw := func() (*icmp.PacketConn, bool, error) { pc, e := icmp.ListenPacket(rawNet, addr); return pc, true, e }
 
@@ -207,6 +219,20 @@ func (c *icmpCanary) probe(ctx context.Context, conn icmpProbeConn, raw, v6 bool
 		}
 		state.challenges[challenge] = i
 	}
+	writePacket := conn.WriteTo
+	var witness icmpEgressWitness
+	if c.egress != nil {
+		witness, err = openICMPEgressWitness(*c.egress, state.target, tokens)
+		if err != nil {
+			return nil, nil, facts, fmt.Errorf("icmp: open egress witness: %w", err)
+		}
+		defer witness.Close()
+		packetConn, ok := conn.(*icmp.PacketConn)
+		if !ok {
+			return nil, nil, facts, errors.New("icmp: egress witness requires a native socket")
+		}
+		writePacket = icmpInterfaceWriter(packetConn, v6, witness.interfaceIndex(), c.egress.Source)
+	}
 	deadline := start.Add(time.Duration(c.count-1)*c.spacing + c.timeout)
 	ioDeadline := deadline
 	if cancellation, ok := ctx.Deadline(); ok && cancellation.Before(ioDeadline) {
@@ -238,7 +264,7 @@ func (c *icmpCanary) probe(ctx context.Context, conn icmpProbeConn, raw, v6 bool
 		} else {
 			state.mu.Lock()
 			state.sentAt[sequence] = time.Now()
-			n, writeErr := conn.WriteTo(packet, destination)
+			n, writeErr := writePacket(packet, destination)
 			if writeErr == nil && n == len(packet) {
 				state.written[sequence] = true
 				state.offsets[sequence] = state.sentAt[sequence].Sub(start)
@@ -263,6 +289,9 @@ func (c *icmpCanary) probe(ctx context.Context, conn icmpProbeConn, raw, v6 bool
 	}
 	readers.Wait()
 	facts = state.finish(ctx, facts, deadline, start)
+	if witness != nil && facts.Complete() {
+		facts.Egress = witness.verifiedMeasurement(state.challenges, state.written)
+	}
 	return state.rtts, state.offsets, facts, nil
 }
 

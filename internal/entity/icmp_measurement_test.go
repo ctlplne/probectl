@@ -168,3 +168,47 @@ func TestICMPRoundTripsKeepCompleteExactOriginalsAndLegacyUnknown(t *testing.T) 
 		t.Fatal("present empty population became absent unknown metadata", err)
 	}
 }
+
+func TestICMPEgressRequiresCompleteWitnessAndExactRun(t *testing.T) {
+	observation := icmpObservationFixture()
+	observation.ICMP.Version = ICMPVersionEgress
+	observation.ICMP.CompletedAt = observation.ICMP.CompletedAt.Add(789 * time.Nanosecond)
+	observation.ObservedAt = observation.ICMP.CompletedAt
+	observation.ICMP.RoundTrips = &ICMPRoundTrips{Nanos: []uint64{12, 18}, ExecutionNanos: 20}
+	observation.ICMP.Egress = &ICMPEgressWitness{Interface: "enp2s0.20", Source: "2001:db8::7",
+		PeerMAC: "02:01:02:03:04:05", Transmitted: 3}
+	got, err := observation.Normalize(time.Now())
+	if err != nil || got.ICMP == nil || got.ICMP.Egress == nil || got.ICMP.Egress == observation.ICMP.Egress ||
+		*got.ICMP.Egress != *observation.ICMP.Egress ||
+		!got.ICMP.CompletedAt.Equal(observation.ICMP.CompletedAt) {
+		t.Fatalf("original egress and clock not independently retained: %+v, %v", got.ICMP, err)
+	}
+	mutations := map[string]func(*ICMPMeasurement){
+		"legacy version":     func(m *ICMPMeasurement) { m.Version = 3 },
+		"future version":     func(m *ICMPMeasurement) { m.Version++ },
+		"absent witness":     func(m *ICMPMeasurement) { m.Egress = nil },
+		"partial witness":    func(m *ICMPMeasurement) { m.Egress.Transmitted-- },
+		"incomplete sends":   func(m *ICMPMeasurement) { m.Requested++ },
+		"local IO failure":   func(m *ICMPMeasurement) { m.IOFailed = true },
+		"cancellation":       func(m *ICMPMeasurement) { m.Canceled = true },
+		"missing RTTs":       func(m *ICMPMeasurement) { m.RoundTrips = nil },
+		"noncanonical IP":    func(m *ICMPMeasurement) { m.Egress.Source = "2001:0db8::7" },
+		"target as source":   func(m *ICMPMeasurement) { m.Egress.Source = "2001:db8::99" },
+		"IPv4 on IPv6 test":  func(m *ICMPMeasurement) { m.Egress.Source = "192.0.2.7" },
+		"multicast next hop": func(m *ICMPMeasurement) { m.Egress.PeerMAC = "01:01:02:03:04:05" },
+		"zero next hop":      func(m *ICMPMeasurement) { m.Egress.PeerMAC = "00:00:00:00:00:00" },
+		"invalid interface":  func(m *ICMPMeasurement) { m.Egress.Interface = "../enp2s0" },
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			altered := observation
+			measurement, witness := *observation.ICMP, *observation.ICMP.Egress
+			measurement.Egress = &witness
+			altered.ICMP = &measurement
+			mutate(altered.ICMP)
+			if _, err := altered.Normalize(time.Now()); !errors.Is(err, ErrInvalidClaim) {
+				t.Fatalf("invalid egress evidence returned %v", err)
+			}
+		})
+	}
+}

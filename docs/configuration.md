@@ -612,6 +612,35 @@ is unverified. Server-driven config remains deliberately unimplemented under
 [`adr/config-push.md`](adr/config-push.md); central tests (below) are pulled by
 the agent and stamp their own `test_id`.
 
+For a centrally assigned ICMP test with an operator-provisioned upstream,
+add an entry under `test_sync.icmp_egress` keyed by the registered test UUID.
+The entry takes `target`, `handoff_id`, `peer_address`, `interface`,
+`source`, and `peer_mac`. Use the test's literal destination, the canonical
+handoff interface UUID and BGP peer IP, plus the local Linux Ethernet
+interface, its source address and the expected first-hop MAC. The agent
+requires sender-bound evidence and a Linux process with `CAP_NET_RAW`. Keep
+the operator's route to that target scoped to the intended handoff.
+
+Set the corresponding keys in the registered test's `params`.
+
+| Test parameter | Local agent key |
+| --- | --- |
+| `routing_probe_handoff_id` | `handoff_id` |
+| `routing_probe_peer_address` | `peer_address` |
+| `routing_probe_interface` | `interface` |
+| `routing_probe_source_address` | `source` |
+| `routing_probe_peer_mac` | `peer_mac` |
+
+The agent runs the bound test when the signed definition's full binding
+and literal target match its local configuration.
+
+The test still goes through central bundle signature and tenant checks and
+the agent's normal target policy. Bound tests support up to 32 requests with
+up to 1200 payload bytes. A run can provide egress evidence only when the
+kernel observes every request on the intended interface with the configured
+first-hop MAC. The witness retains the matching request headers and challenges
+in memory during the run.
+
 ### Central tests (`test_sync`)
 
 Tests created in the console, the API or the CLI reach the tenant's agents

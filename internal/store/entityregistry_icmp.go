@@ -58,7 +58,14 @@ func matchesICMPDefinition(claim entity.Observation, test testspec.ExecutableDef
 		claim.ICMP.StartedAt.Before(pathAssigned) || claim.ICMP.StartedAt.Before(contextAssigned) {
 		return false, nil
 	}
-	if target, err := netip.ParseAddr(test.Target); err == nil && target.Unmap().WithZone("").String() != claim.Alias.Value {
+	target, parseErr := netip.ParseAddr(test.Target)
+	if claim.ICMP.Egress != nil {
+		binding, err := testspec.ParseRoutingProbeBinding(test.Type, test.Target, test.Params)
+		if err != nil || binding == nil || !claim.ICMP.Egress.SameCoordinates(binding.Egress) {
+			return false, nil
+		}
+	}
+	if parseErr == nil && target.Unmap().WithZone("").String() != claim.Alias.Value {
 		return false, nil
 	}
 	digest, err := testspec.DefinitionHash(test)

@@ -361,6 +361,7 @@ message IcmpMeasurement {
   repeated string responders = 13;
   repeated IcmpNetworkError network_errors = 14; // version 2; complete challenge-matched outcomes
   IcmpRoundTrips round_trips = 15; // version 3; present even when no reply supplied an RTT
+  IcmpEgressWitness egress = 16; // version 4; present only for a fully witnessed execution
 }
 
 // One original application-monotonic RTT per validated echo reply. Packet loss
@@ -369,6 +370,15 @@ message IcmpMeasurement {
 message IcmpRoundTrips {
   repeated uint64 nanos = 1;
   uint64 execution_nanos = 2; // same monotonic clock; not reconstructed from wall timestamps
+}
+
+// Facts from the probe agent's local egress witness. The receiver determines
+// whether the current tenant owns a matching handoff independently.
+message IcmpEgressWitness {
+  string interface = 1;
+  string source = 2;
+  string peer_mac = 3;
+  uint32 transmitted = 4;
 }
 
 // Original collector packet provenance, never claimed tenant or ASN authority.

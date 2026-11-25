@@ -25,6 +25,7 @@ import (
 	"github.com/ctlplne/probectl/internal/canary"
 	"github.com/ctlplne/probectl/internal/crypto"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
+	"github.com/ctlplne/probectl/internal/testspec"
 	"github.com/ctlplne/probectl/internal/testsync"
 )
 
@@ -146,6 +147,54 @@ func TestTestSyncRefusesUnsafeBundles(t *testing.T) {
 		if v := f.sync.appliedVersion(); v != 3 {
 			t.Fatalf("%s: refused bundle moved the applied version to %d", tc.name, v)
 		}
+	}
+}
+
+func TestTestSyncICMPEgressKeepsLocallyPinnedTestsTenantScoped(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("ICMP egress is enabled on Linux")
+	}
+	const id = "de383070-9025-4230-9414-8c57e57fd6e2"
+	lanes := []struct {
+		tenant, handoff, source, target, peer, mac string
+	}{
+		{syncTenant, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "192.0.2.6", "203.0.113.90", "192.0.2.1", "02:01:02:03:04:05"},
+		{"66666666-6666-4666-8666-666666666666", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "192.0.2.7", "203.0.113.91", "192.0.2.2", "02:01:02:03:04:06"},
+	}
+	for i, lane := range lanes {
+		t.Run(lane.tenant, func(t *testing.T) {
+			f := newSyncFixture(t, func(c *TestSyncConfig) {
+				c.AllowPrivateTargets = true
+				c.ICMPEgress = map[string]ProbeEgressConfig{id: {
+					Target: lane.target, HandoffID: lane.handoff, Peer: lane.peer, Interface: "eth1", Source: lane.source, PeerMAC: lane.mac,
+				}}
+			})
+			f.sync.tenantID, f.host.tenantID = lane.tenant, lane.tenant
+			f.sync.reg.Register("icmp", canary.NewICMP)
+			f.sync.allowed["icmp"] = true
+			definition := testsync.Test{ID: id, Type: "icmp", Target: lane.target, IntervalSeconds: 30, TimeoutSeconds: 5,
+				Params: map[string]string{canary.AllowPrivateParam: "true", testspec.RoutingProbeHandoffParam: lane.handoff,
+					testspec.RoutingProbePeerParam: lane.peer, testspec.RoutingProbeInterfaceParam: "eth1",
+					testspec.RoutingProbeSourceParam: lane.source, testspec.RoutingProbePeerMACParam: lane.mac}}
+			own := f.sign(testsync.Bundle{TenantID: lane.tenant, Epoch: 1, Tests: []testsync.Test{definition}})
+			if err := f.sync.accept(own, false); err != nil || !slices.Equal(f.host.centralIDs(), []string{id}) {
+				t.Fatalf("own signed definition did not reach its locally pinned canary: %v", err)
+			}
+			sibling := lanes[1-i]
+			definition.Target = sibling.target
+			foreign := f.sign(testsync.Bundle{TenantID: sibling.tenant, Epoch: 2, Tests: []testsync.Test{definition}})
+			if err := f.sync.accept(foreign, false); refusalReason(err) != "foreign_tenant" ||
+				!slices.Equal(f.host.centralIDs(), []string{id}) {
+				t.Fatalf("sibling's signed definition changed this tenant's active lane: %v", err)
+			}
+			definition.Target = lane.target
+			definition.Params[testspec.RoutingProbeHandoffParam] = sibling.handoff
+			definition.Params[testspec.RoutingProbePeerParam] = sibling.peer
+			retargeted := f.sign(testsync.Bundle{TenantID: lane.tenant, Epoch: 2, Tests: []testsync.Test{definition}})
+			if err := f.sync.accept(retargeted, false); err != nil || len(f.host.centralIDs()) != 0 {
+				t.Fatalf("signed definition could bypass the locally pinned handoff or peer: %v", err)
+			}
+		})
 	}
 }
 

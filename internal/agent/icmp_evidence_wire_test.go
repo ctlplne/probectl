@@ -7,15 +7,63 @@
 package agent
 
 import (
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/ctlplne/probectl/internal/canary"
 	"github.com/ctlplne/probectl/internal/entity"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
+
+func TestICMPEgressWireRetainsTheLocalWitness(t *testing.T) {
+	host, schedule, result, _ := probeQueueFixture(t, "north", "north-agent")
+	measurement := result.ICMP
+	measurement.TargetIP = "198.51.100.18"
+	measurement.Responders = []string{measurement.TargetIP}
+	measurement.RoundTripNanos = []uint64{10, 20, 30}
+	measurement.ExecutionNanos = uint64(time.Millisecond)
+	wire := func() *agentv1.IcmpMeasurement {
+		t.Helper()
+		observation, err := host.probeObservation(schedule, result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := proto.Marshal(encodeICMPMeasurement(observation.ICMP))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded agentv1.IcmpMeasurement
+		if err := proto.Unmarshal(body, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		return &decoded
+	}
+	if ordinary := wire(); ordinary.GetVersion() != 3 || ordinary.GetEgress() != nil {
+		t.Fatal("the ordinary probe gained an egress witness", ordinary)
+	}
+	measurement.Egress = &canary.ICMPEgressMeasurement{
+		ICMPEgress: canary.ICMPEgress{
+			Interface: "eth0", Source: netip.MustParseAddr("192.0.2.3"),
+			PeerMAC: [6]byte{0x02, 0, 0, 0, 0, 4},
+		},
+		Transmitted: 3,
+	}
+	bound := wire()
+	want := &agentv1.IcmpEgressWitness{Interface: "eth0", Source: "192.0.2.3", PeerMac: "02:00:00:00:00:04", Transmitted: 3}
+	if bound.GetVersion() != entity.ICMPVersionEgress || !proto.Equal(bound.GetEgress(), want) ||
+		len(bound.GetRoundTrips().GetNanos()) != 3 {
+		t.Fatal("the local witness or original measurement was lost on the wire", bound)
+	}
+
+	measurement.Egress.Transmitted--
+	if _, err := host.probeObservation(schedule, result); err == nil {
+		t.Fatal("a partial local witness was accepted")
+	}
+}
 
 func TestICMPNetworkErrorWireRetainsCompleteConfiguredPopulation(t *testing.T) {
 	const count = 100000

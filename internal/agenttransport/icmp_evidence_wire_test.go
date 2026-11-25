@@ -12,8 +12,33 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 )
+
+func TestICMPEgressWireRefusesMissingOrUnknownMetadata(t *testing.T) {
+	witness := &agentv1.IcmpEgressWitness{Interface: "eth0", Source: "192.0.2.3", PeerMac: "02:00:00:00:00:04", Transmitted: 3}
+	raw := &agentv1.IcmpMeasurement{Version: entity.ICMPVersionEgress, Egress: witness}
+	got, err := parseICMPMeasurement(raw)
+	want := entity.ICMPEgressWitness{Interface: "eth0", Source: "192.0.2.3", PeerMAC: "02:00:00:00:00:04", Transmitted: 3}
+	if err != nil || got.Egress == nil || *got.Egress != want {
+		t.Fatal("the receiver lost the supplied egress witness", got, err)
+	}
+	raw.Version = 3
+	if _, err := parseICMPMeasurement(raw); status.Code(err) != codes.InvalidArgument {
+		t.Fatal("a legacy message claimed an egress witness", err)
+	}
+	raw.Version = entity.ICMPVersionEgress
+	raw.Egress = nil
+	if _, err := parseICMPMeasurement(raw); status.Code(err) != codes.InvalidArgument {
+		t.Fatal("a version 4 message omitted its egress witness", err)
+	}
+	raw.Egress = witness
+	witness.ProtoReflect().SetUnknown([]byte{0x98, 0x06, 1})
+	if _, err := parseICMPMeasurement(raw); status.Code(err) != codes.InvalidArgument {
+		t.Fatal("unsupported evidence inside the witness was accepted", err)
+	}
+}
 
 func TestICMPMeasurementWireRefusesUnknownMetadataFields(t *testing.T) {
 	if got, err := parseICMPMeasurement(nil); err != nil || got != nil {

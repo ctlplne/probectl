@@ -41,7 +41,8 @@ type icmpWireLane struct {
 	client                 *agent.EvidenceClient
 }
 
-func seedICMPWireLane(ctx context.Context, t *testing.T, pool *pgxpool.Pool, server testServer, area, router string) icmpWireLane {
+func seedICMPWireLane(ctx context.Context, t *testing.T, pool *pgxpool.Pool, server testServer, area, router string,
+	configure ...func(*testspec.ExecutableDefinition)) icmpWireLane {
 	t.Helper()
 	tenant, err := store.NewTenants(pool).Create(ctx, fmt.Sprintf("icmp-wire-%d", time.Now().UnixNano()), "ICMP wire")
 	if err != nil {
@@ -53,6 +54,9 @@ func seedICMPWireLane(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ser
 		}
 	})
 	lane := icmpWireLane{tenant: tenant.ID, sender: newUUID(t), definition: testspec.ExecutableDefinition{ID: newUUID(t), Type: "icmp", Target: "127.0.0.1", IntervalSeconds: 30, TimeoutSeconds: 2, Params: map[string]string{"allow_private_targets": "true", "count": "3", "payload_bytes": "4096"}}}
+	for _, apply := range configure {
+		apply(&lane.definition)
+	}
 	var cert, key []byte
 	for _, uri := range []string{crypto.AgentSPIFFEID(lane.tenant, lane.sender), crypto.EntitySPIFFEID(lane.tenant, lane.sender)} {
 		cert, key, err = server.ca.IssueClientCert(lane.sender, uri, time.Hour)

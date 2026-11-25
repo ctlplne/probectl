@@ -108,6 +108,8 @@ type TestSyncConfig struct {
 	// central tests survive restarts and control-plane outages. Default:
 	// <buffer.dir>/testsync.
 	StateDir string `yaml:"state_dir"`
+	// ICMPEgress pins selected registered tests to locally provisioned links.
+	ICMPEgress map[string]ProbeEgressConfig `yaml:"icmp_egress,omitempty"`
 }
 
 // SecurityConfig retains legacy safety-key decoding so old configurations fail
@@ -546,6 +548,11 @@ func (t TestSyncConfig) validate() error {
 			return fmt.Errorf("config: test_sync.allowed_types[%d] is empty", i)
 		}
 	}
+	for testID, egress := range t.ICMPEgress {
+		if _, err := egress.binding(testID); err != nil {
+			return fmt.Errorf("config: test_sync.icmp_egress[%q]: %w", testID, err)
+		}
+	}
 	return nil
 }
 
@@ -656,6 +663,9 @@ func (c *Config) validate() error {
 	}
 	if err := c.TestSync.validate(); err != nil {
 		return err
+	}
+	if len(c.TestSync.ICMPEgress) > 0 && (!c.Evidence.Enabled() || (c.TestSync.Enabled != nil && !*c.TestSync.Enabled)) {
+		return fmt.Errorf("config: test_sync.icmp_egress requires central tests and sender-bound evidence")
 	}
 	testIDs := make(map[string]int, len(c.Canaries))
 	for i, cc := range c.Canaries {

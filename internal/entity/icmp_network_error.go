@@ -37,10 +37,10 @@ func normalizeICMPNetworkErrors(m ICMPMeasurement, target netip.Addr) ([]ICMPNet
 		}
 		return nil, nil
 	}
-	if m.Version == 3 && len(m.NetworkErrors) == 0 {
+	if m.Version >= 3 && len(m.NetworkErrors) == 0 {
 		return nil, nil
 	}
-	if (m.Version != 2 && m.Version != 3) || len(m.NetworkErrors) == 0 || uint64(len(m.NetworkErrors)) > uint64(m.Transmitted) {
+	if m.Version < 2 || m.Version > ICMPVersionEgress || len(m.NetworkErrors) == 0 || uint64(len(m.NetworkErrors)) > uint64(m.Transmitted) {
 		return nil, ErrInvalidClaim
 	}
 	out := append([]ICMPNetworkError(nil), m.NetworkErrors...)

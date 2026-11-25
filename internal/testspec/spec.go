@@ -109,7 +109,8 @@ func Validate(s Spec) error {
 			return err
 		}
 	}
-	return nil
+	_, err := ParseRoutingProbeBinding(s.Type, s.Target, s.Params)
+	return err
 }
 
 // PathChangeOptions keeps rules for new, imported, and older test rows aligned.

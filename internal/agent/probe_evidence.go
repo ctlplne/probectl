@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"math"
+	"net"
 	"sync"
 	"time"
 
@@ -122,6 +123,16 @@ func (h *Host) probeObservation(schedule scheduled, result canary.Result) (entit
 	if m.RoundTripNanos != nil {
 		observation.ICMP.Version = 3
 		observation.ICMP.RoundTrips = &entity.ICMPRoundTrips{Nanos: append([]uint64{}, m.RoundTripNanos...), ExecutionNanos: m.ExecutionNanos}
+	}
+	if witness := m.Egress; witness != nil {
+		if witness.Transmitted != m.Transmitted {
+			return entity.Observation{}, ErrEvidenceBatchInvalid
+		}
+		observation.ICMP.Version = entity.ICMPVersionEgress
+		observation.ICMP.Egress = &entity.ICMPEgressWitness{
+			Interface: witness.Interface, Source: witness.Source.String(),
+			PeerMAC: net.HardwareAddr(witness.PeerMAC[:]).String(), Transmitted: observation.ICMP.Transmitted,
+		}
 	}
 	return observation.Normalize(time.Now())
 }

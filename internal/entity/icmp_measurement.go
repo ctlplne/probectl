@@ -15,6 +15,11 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	ICMPVersionEgress     = 4
+	MaxICMPEgressAttempts = 32
+)
+
 // ICMPMeasurement is optional, untrusted collector metadata on existing
 // sender-bound evidence. Neither a digest nor these counts grants tenant,
 // agent, current-test, context, canonical identity or notification authority.
@@ -34,6 +39,7 @@ type ICMPMeasurement struct {
 	Responders     []string           `json:"responders"`
 	NetworkErrors  []ICMPNetworkError `json:"network_errors,omitempty"`
 	RoundTrips     *ICMPRoundTrips    `json:"round_trips,omitempty"`
+	Egress         *ICMPEgressWitness `json:"egress,omitempty"`
 }
 
 // Present empty samples attest zero replies. Absence on older receipt versions
@@ -57,7 +63,7 @@ func normalizeICMPMeasurement(o Observation) (*ICMPMeasurement, error) {
 		return nil, ErrInvalidClaim
 	}
 	digest, err := hex.DecodeString(m.DefinitionHash)
-	if err != nil || len(digest) != 32 || hex.EncodeToString(digest) != m.DefinitionHash || (m.Version != 1 && m.Version != 2 && m.Version != 3) ||
+	if err != nil || len(digest) != 32 || hex.EncodeToString(digest) != m.DefinitionHash || m.Version < 1 || m.Version > ICMPVersionEgress ||
 		m.Requested == 0 || m.Attempted > m.Requested || m.Transmitted > m.Attempted ||
 		m.Replies > m.Transmitted || m.SendErrors != m.Attempted-m.Transmitted {
 		return nil, ErrInvalidClaim
@@ -67,7 +73,7 @@ func normalizeICMPMeasurement(o Observation) (*ICMPMeasurement, error) {
 		uint64(len(m.Responders)) > uint64(m.Replies) || m.Replies > 0 && len(m.Responders) == 0 && !m.IOFailed {
 		return nil, ErrInvalidClaim
 	}
-	if m.Version == 3 {
+	if m.Version >= 3 {
 		// Keep original execution clocks inside the receipt; only the indexed
 		// observation header is quantized to PostgreSQL's microseconds.
 		m.StartedAt = m.StartedAt.UTC()
@@ -94,7 +100,7 @@ func normalizeICMPMeasurement(o Observation) (*ICMPMeasurement, error) {
 		seen[value], m.Responders[i] = true, value
 	}
 	sort.Strings(m.Responders)
-	if m.Version == 3 {
+	if m.Version >= 3 {
 		if m.RoundTrips == nil || m.RoundTrips.Nanos == nil || uint64(len(m.RoundTrips.Nanos)) != uint64(m.Replies) {
 			return nil, ErrInvalidClaim
 		}
@@ -116,6 +122,10 @@ func normalizeICMPMeasurement(o Observation) (*ICMPMeasurement, error) {
 		return nil, ErrInvalidClaim
 	}
 	m.NetworkErrors, err = normalizeICMPNetworkErrors(m, target)
+	if err != nil {
+		return nil, err
+	}
+	m.Egress, err = normalizeICMPEgress(m, target)
 	if err != nil {
 		return nil, err
 	}

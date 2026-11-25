@@ -35,6 +35,7 @@ type ICMPMeasurement struct {
 	NetworkErrors                                         []ICMPNetworkError
 	ExecutionNanos                                        uint64   // original application-monotonic execution duration
 	RoundTripNanos                                        []uint64 // one original application-monotonic sample per validated reply
+	Egress                                                *ICMPEgressMeasurement
 }
 
 func (m ICMPMeasurement) Complete() bool {
