@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,9 +58,14 @@ func TestConnectorLoadsCloudFixturesAndKeepsTenantIsolation(t *testing.T) {
 		}
 	}
 
-	foreign := []byte("2 123456789012 eni-foreign 172.16.0.10 172.16.0.11 44444 443 6 1000 9000000 1782820800 1782820860 ACCEPT OK\n")
-	if n, _, err := conn.load(ctx, ProviderAWSVPC, "tenant-b", bytes.NewReader(foreign)); err != nil || n != 1 {
-		t.Fatalf("foreign tenant load inserted %d rows: %v", n, err)
+	foreign := "2 123456789012 eni-foreign 172.16.0.10 172.16.0.11 44444 443 6 1000 9000000 1782820800 1782820860 ACCEPT OK\n" +
+		"2 123456789012 eni-overflow 172.16.0.12 172.16.0.11 44444 443 6 1000 9000000 1782820800 9223372037 ACCEPT OK\n"
+	if n, malformed, err := conn.load(ctx, ProviderAWSVPC, "tenant-b", strings.NewReader(foreign)); err != nil || n != 1 || malformed != 1 {
+		t.Fatalf("foreign tenant load inserted %d rows with %d malformed: %v", n, malformed, err)
+	}
+	overflow := bytes.ReplaceAll(readFixture(t, "gcp-vpc-flow.jsonl"), []byte("2026-06-30T12:04:00Z"), []byte("2262-04-11T23:47:16.854775808Z"))
+	if n, malformed, err := conn.load(ctx, ProviderGCPVPC, "tenant-b", bytes.NewReader(overflow)); err != nil || n != 0 || malformed != 1 {
+		t.Fatalf("out-of-range GCP clock inserted %d rows with %d malformed: %v", n, malformed, err)
 	}
 
 	topA, err := store.TopTalkers(ctx, flowstore.TopQuery{
@@ -304,48 +310,75 @@ func exportRows(t *testing.T, store flowstore.Store, tenantID string) []flowstor
 	return rows
 }
 
-// TestParseUnixSecondsRejectsOutOfRange (DPR-246) is the CodeQL
-// go/incorrect-integer-conversion finding on this file, made concrete.
-//
-// The field is a timestamp in a CLOUD PROVIDER's flow log — third-party content,
-// which §7 guardrail 10 says is untrusted. It was parsed as uint64 and converted
-// straight to int64 for time.Unix, so an out-of-range value did not fail to
-// import; it imported with a nonsense timestamp. Measured on the unbounded code:
-// 2^63 became 292277026596-12-04T15:30:08Z, and max uint64 (which is int64 -1)
-// became 1969-12-31T23:59:59Z. Either way the record lands silently outside every
-// retention and query window instead of being rejected as malformed.
-func TestParseUnixSecondsRejectsOutOfRange(t *testing.T) {
-	// 2^63 is a legal uint64 and a negative int64; unbounded, time.Unix turned it
-	// into the year 292277026596.
-	const wraps = "9223372036854775808" // 2^63
-	if got, err := parseUnixSeconds(wraps); err == nil {
-		t.Errorf("parseUnixSeconds(%s) = %s with no error; a value that wraps int64 must be refused",
-			wraps, got.Format(time.RFC3339))
-	}
-	for _, in := range []string{
-		"18446744073709551615", // max uint64
-		"253402300800",         // one second past the bound
+func TestCloudImportTimestampsFitFlowNanoseconds(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		parse   func(string) (time.Time, error)
+		valid   map[string]int64
+		invalid []string
+	}{
+		{
+			name:  "epoch seconds",
+			parse: parseUnixSeconds,
+			valid: map[string]int64{
+				"0":          0,
+				"1757980800": 1_757_980_800_000_000_000,
+				"9223372036": 9_223_372_036_000_000_000,
+			},
+			invalid: []string{"9223372037", "253402300799", "9223372036854775808", "18446744073709551615"},
+		},
+		{
+			name:  "RFC3339",
+			parse: parseRFC3339,
+			valid: map[string]int64{
+				"1677-09-21T00:12:43.145224192Z":      math.MinInt64,
+				"1970-01-01T01:00:00+01:00":           0,
+				"2262-04-12T00:47:16.854775807+01:00": math.MaxInt64,
+			},
+			invalid: []string{"1677-09-21T00:12:43.145224191Z", "2262-04-11T23:47:16.854775808Z"},
+		},
 	} {
-		if _, err := parseUnixSeconds(in); err == nil {
-			t.Errorf("parseUnixSeconds(%s) accepted an out-of-range timestamp", in)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			for _, input := range tc.invalid {
+				if _, err := tc.parse(input); err == nil {
+					t.Errorf("accepted an out-of-range timestamp %q", input)
+				}
+			}
+			for input, want := range tc.valid {
+				got, err := tc.parse(input)
+				if err != nil || got.Location() != time.UTC || got.UnixNano() != want {
+					t.Errorf("parse(%q) = %v, %v; want UTC at %d Unix nanoseconds", input, got, err, want)
+				}
+			}
+		})
 	}
-	// And the ordinary cases still work, including the exact bound.
-	for in, want := range map[string]int64{
-		"0":            0,
-		"1757980800":   1757980800,
-		"253402300799": 253402300799, // the bound itself is valid
-	} {
-		got, err := parseUnixSeconds(in)
-		if err != nil {
-			t.Errorf("parseUnixSeconds(%s) errored: %v", in, err)
-			continue
+	t.Run("GCP clock fields", func(t *testing.T) {
+		var fixture gcpLogEntry
+		if err := json.Unmarshal(readFixture(t, "gcp-vpc-flow.jsonl"), &fixture); err != nil {
+			t.Fatal(err)
 		}
-		if got.Unix() != want {
-			t.Errorf("parseUnixSeconds(%s) = %d, want %d", in, got.Unix(), want)
+		for _, field := range []string{"observation", "start", "end"} {
+			t.Run(field, func(t *testing.T) {
+				entry := fixture
+				const outside = "2262-04-11T23:47:16.854775808Z"
+				switch field {
+				case "observation":
+					entry.Timestamp = outside
+				case "start":
+					entry.JSONPayload.StartTime = outside
+				case "end":
+					entry.JSONPayload.EndTime = outside
+				}
+				body, err := json.Marshal(entry)
+				if err != nil {
+					t.Fatal(err)
+				}
+				emitter := &captureEmitter{}
+				inserted, malformed, err := Emit(t.Context(), ProviderGCPVPC, "tenant-a", "cloud-agent", bytes.NewReader(body), emitter)
+				if err != nil || inserted != 0 || malformed != 1 || len(emitter.recs) != 0 {
+					t.Fatalf("GCP %s clock published %d records with %d malformed: %v", field, inserted, malformed, err)
+				}
+			})
 		}
-		if got.Location() != time.UTC {
-			t.Errorf("parseUnixSeconds(%s) is not UTC: %s", in, got.Location())
-		}
-	}
+	})
 }

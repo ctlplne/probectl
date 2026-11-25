@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -503,17 +504,22 @@ func parseGCPVPCLine(tenantID, agentID, line string, now time.Time) ([]flow.Reco
 	if err != nil {
 		return nil, err
 	}
-	observed := now
-	if t, err := parseRFC3339(entry.Timestamp); err == nil {
-		observed = t
+	observed, observedErr := parseRFC3339(entry.Timestamp)
+	start, startErr := parseRFC3339(entry.JSONPayload.StartTime)
+	end, endErr := parseRFC3339(entry.JSONPayload.EndTime)
+	// Keep the optional clock fallbacks, but do not move a record with a
+	// supplied out-of-range timestamp into the current collection window.
+	if errors.Is(observedErr, errCloudTimestampRange) || errors.Is(startErr, errCloudTimestampRange) || errors.Is(endErr, errCloudTimestampRange) {
+		return nil, errCloudTimestampRange
 	}
-	start := observed
-	if t, err := parseRFC3339(entry.JSONPayload.StartTime); err == nil {
-		start = t
+	if observedErr != nil {
+		observed = now
 	}
-	end := observed
-	if t, err := parseRFC3339(entry.JSONPayload.EndTime); err == nil {
-		end = t
+	if startErr != nil {
+		start = observed
+	}
+	if endErr != nil {
+		end = observed
 	}
 	if end.Before(start) {
 		start = end
@@ -600,18 +606,12 @@ func parseAzureProtocol(s string) (uint8, error) {
 	}
 }
 
-// maxUnixSeconds bounds a cloud flow log's timestamp field. Year 9999 is far
-// past any retention window and still leaves int64 seconds room to spare.
-const maxUnixSeconds = 253402300799 // 9999-12-31T23:59:59Z
+// Flow records carry signed Unix nanoseconds on the wire. Check the limit
+// before converting external epoch seconds so serialization preserves the time.
+const maxUnixSeconds = math.MaxInt64 / uint64(time.Second)
 
-// parseUnixSeconds reads an epoch-seconds field from a cloud provider's flow log.
-//
-// DPR-246: the value is third-party content and §7 guardrail 10 says fetched
-// content is untrusted, so the range is checked rather than assumed. Without the
-// bound an out-of-range value did not fail — it produced a nonsense timestamp:
-// 2^63 became the year 292277026596, and max uint64 (int64 -1) became 1969. Either
-// way the record was filed silently outside every retention and query window
-// instead of being rejected as malformed.
+var errCloudTimestampRange = errors.New("timestamp is outside the signed Unix nanosecond range")
+
 func parseUnixSeconds(s string) (time.Time, error) {
 	n, err := parseUint(strings.TrimSpace(s))
 	if err != nil {
@@ -631,6 +631,9 @@ func parseRFC3339(s string) (time.Time, error) {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		return time.Time{}, err
+	}
+	if t.Before(time.Unix(0, math.MinInt64)) || t.After(time.Unix(0, math.MaxInt64)) {
+		return time.Time{}, errCloudTimestampRange
 	}
 	return t.UTC(), nil
 }
