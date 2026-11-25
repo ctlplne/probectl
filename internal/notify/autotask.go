@@ -78,8 +78,8 @@ type AutotaskFilter struct {
 	Value    any    `json:"value"`
 }
 
-// Query reads a bounded page. Callers scope by ownership and expect all rows
-// in that page. A continuation is an incomplete result, never an empty result.
+// Query reads a bounded page. The API supplies a null nextPageUrl when there
+// are no more rows. An absent marker cannot establish that a result is complete.
 func (c *AutotaskAPI) Query(ctx context.Context, entity string, fields []string, filters []AutotaskFilter, result any) error {
 	query := struct {
 		IncludeFields []string         `json:"IncludeFields"`
@@ -92,11 +92,11 @@ func (c *AutotaskAPI) Query(ctx context.Context, entity string, fields []string,
 	var response struct {
 		Items json.RawMessage `json:"items"`
 		Page  struct {
-			NextURL string `json:"nextPageUrl"`
+			NextURL json.RawMessage `json:"nextPageUrl"`
 		} `json:"pageDetails"`
 	}
 	if json.Unmarshal(body, &response) != nil || len(response.Items) == 0 || bytes.Equal(response.Items, []byte("null")) ||
-		response.Page.NextURL != "" || json.Unmarshal(response.Items, result) != nil {
+		!bytes.Equal(response.Page.NextURL, []byte("null")) || json.Unmarshal(response.Items, result) != nil {
 		return errors.New("autotask: incomplete ticket or contract query response")
 	}
 	return nil

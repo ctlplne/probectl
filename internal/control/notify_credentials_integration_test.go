@@ -95,7 +95,7 @@ func TestAutotaskTicketCredentialsAndInboundLinksKeepTenantIsolation(t *testing.
 	var createdAlpha, createdBeta, unexpected atomic.Int32
 	var readAlphaStatus, readBetaStatus atomic.Int32
 	var alphaResolutions, betaResolutions atomic.Int32
-	var alphaClosed atomic.Bool
+	var alphaClosed, omitAlphaPage atomic.Bool
 	var alphaExternalID, alphaResolution atomic.Value
 	receiver := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		const maxFixtureBody = 8192
@@ -146,15 +146,19 @@ func TestAutotaskTicketCredentialsAndInboundLinksKeepTenantIsolation(t *testing.
 					readBetaStatus.Add(1)
 				}
 			}
+			page := `,"pageDetails":{"nextPageUrl":null}`
+			if user == "alpha" && statusQuery && omitAlphaPage.Load() {
+				page = ""
+			}
 			if externalID, ok := alphaExternalID.Load().(string); user == "alpha" && ok && (!statusQuery || alphaClosed.Load()) {
 				state := 1
 				if alphaClosed.Load() {
 					state = 5
 				}
-				_, _ = fmt.Fprintf(w, `{"items":[{"id":12,"companyID":101,"externalID":%q,"status":%d}]}`, externalID, state)
+				_, _ = fmt.Fprintf(w, `{"items":[{"id":12,"companyID":101,"externalID":%q,"status":%d}]%s}`, externalID, state, page)
 				return
 			}
-			_, _ = io.WriteString(w, `{"items":[]}`)
+			_, _ = fmt.Fprintf(w, `{"items":[]%s}`, page)
 			return
 		}
 		if r.Method == http.MethodGet && r.URL.Path == endpoint+"/12" && user == "alpha" {
@@ -270,6 +274,15 @@ func TestAutotaskTicketCredentialsAndInboundLinksKeepTenantIsolation(t *testing.
 		t.Fatal("stale ticket status undid a newer local reopen", err)
 	}
 	alphaClosed.Store(true)
+	alphaReads, betaReads := readAlphaStatus.Load(), readBetaStatus.Load()
+	omitAlphaPage.Store(true)
+	otherWorker.Reconcile(t.Context())
+	stillOpen, err := links.OpenTicketStatuses(t.Context(), alpha, "autotask", "", 1)
+	if err != nil || len(stillOpen) != 1 || stillOpen[0].IncidentID != left.ID ||
+		readAlphaStatus.Load() <= alphaReads || readBetaStatus.Load() <= betaReads {
+		t.Fatal("an incomplete status affected alpha's incident or prevented beta's status read", err)
+	}
+	omitAlphaPage.Store(false)
 	otherWorker.Reconcile(t.Context())
 	otherWorker.Reconcile(t.Context()) // repeat the native reconciliation after the local commit
 	h := buildNotifyHandler(db, d, inbound)

@@ -48,6 +48,7 @@ func autotaskTestConnector(t *testing.T, tenant string, client Doer) *autotask {
 func TestAutotaskTicketLifecycleUsesStableOwnedTicket(t *testing.T) {
 	var stored autotaskTicketRecord
 	var writes []autotaskTicketWrite
+	missingPage := true
 	const path = "/atservicesrest/v1.0/Tickets"
 	probe := incident.Incident{
 		TenantID: "left", ID: "20200000-0000-4000-8000-000000000001", Severity: incident.SeverityWarning,
@@ -64,7 +65,11 @@ func TestAutotaskTicketLifecycleUsesStableOwnedTicket(t *testing.T) {
 			if stored.ID != 0 {
 				items = append(items, stored)
 			}
-			return autotaskTestResponse(t, map[string]any{"items": items})
+			reply := map[string]any{"items": items}
+			if !missingPage {
+				reply["pageDetails"] = map[string]any{"nextPageUrl": nil}
+			}
+			return autotaskTestResponse(t, reply)
 		case http.MethodGet + " " + path + "/12":
 			return autotaskTestResponse(t, map[string]any{"item": stored})
 		case http.MethodPost + " " + path, http.MethodPatch + " " + path:
@@ -83,6 +88,10 @@ func TestAutotaskTicketLifecycleUsesStableOwnedTicket(t *testing.T) {
 		}
 	})
 	provider := autotaskTestConnector(t, probe.TenantID, client)
+	if _, err := provider.Open(t.Context(), probe); err == nil || len(writes) != 0 {
+		t.Fatal("an incomplete empty lookup permitted a new ticket")
+	}
+	missingPage = false
 	first, err := provider.Open(t.Context(), probe)
 	if err != nil || first.ExternalRef != "12" {
 		t.Fatalf("create = %+v, %v", first, err)
