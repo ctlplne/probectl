@@ -267,14 +267,23 @@ func TestEnrollAllowsPlaintextLoopbackWithExplicitOverride(t *testing.T) {
 	}
 }
 
-// A rejected token surfaces the server refusal (and writes nothing).
+// A rejected token surfaces the HTTP status and writes no identity material.
 func TestEnrollBadTokenWritesNothing(t *testing.T) {
-	srv, pin := fakeControl(t)
+	const echoedSecret = "enrollment-secret-fixture"
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, echoedSecret, http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	pin := hex.EncodeToString(crypto.Hash(srv.Certificate().Raw))
 	dir := filepath.Join(t.TempDir(), "identity")
-	if _, _, err := Enroll(context.Background(), EnrollOptions{
-		Server: srv.URL, Token: "pjt_wrong", Dir: dir, CAPin: pin,
-	}); err == nil {
-		t.Fatal("bad token accepted")
+	_, _, err := Enroll(t.Context(), EnrollOptions{
+		Server: srv.URL, Token: echoedSecret, Dir: dir, CAPin: pin,
+	})
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatal("enrollment did not surface the HTTP refusal")
+	}
+	if strings.Contains(err.Error(), echoedSecret) {
+		t.Fatal("enrollment disclosed the response body")
 	}
 	if _, err := os.Stat(filepath.Join(dir, IdentityKeyFile)); !os.IsNotExist(err) {
 		t.Fatal("identity material written despite refusal")

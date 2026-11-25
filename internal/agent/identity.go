@@ -260,11 +260,10 @@ func checkTestSyncPublicKey(pemText string) error {
 // as a different error type and is likewise treated as transient).
 type EnrollStatusError struct {
 	StatusCode int
-	Body       string
 }
 
 func (e *EnrollStatusError) Error() string {
-	return fmt.Sprintf("enroll: server answered %d: %s", e.StatusCode, e.Body)
+	return fmt.Sprintf("enroll: server answered HTTP %d", e.StatusCode)
 }
 
 // Definitive reports whether the rejection is permanent (4xx) and must not be
@@ -635,10 +634,11 @@ func postIdentity(ctx context.Context, hc *http.Client, url string, body map[str
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return nil, &EnrollStatusError{StatusCode: resp.StatusCode, Body: truncate(string(raw), 200)}
+		// A proxy or server can echo the enrollment token or other secrets.
+		return nil, &EnrollStatusError{StatusCode: resp.StatusCode}
 	}
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var id issuedIdentity
 	if err := json.Unmarshal(raw, &id); err != nil {
 		return nil, fmt.Errorf("enroll: malformed identity response: %w", err)
@@ -721,11 +721,4 @@ func firstCert(pemBytes []byte) (*x509.Certificate, error) {
 		return nil, errors.New("identity: no certificate in PEM")
 	}
 	return x509.ParseCertificate(block.Bytes)
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
 }
