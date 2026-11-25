@@ -45,6 +45,14 @@ func TestLocalOllamaKeepsTenantAndRBACBoundaries(t *testing.T) {
 	if endpoint == "" || len(models) == 0 {
 		t.Fatal("local Ollama endpoint and model name are required")
 	}
+	modelTimeout := time.Minute
+	if value := os.Getenv("PROBECTL_AI_MODEL_TIMEOUT"); value != "" {
+		configured, err := time.ParseDuration(value)
+		if err != nil || configured <= 0 {
+			t.Fatal("PROBECTL_AI_MODEL_TIMEOUT must be a positive duration")
+		}
+		modelTimeout = configured
+	}
 	model, err := ai.NewHTTPModel(ai.HTTPModelConfig{Kind: ai.KindOllama, Endpoint: endpoint, Model: models[0]})
 	if err != nil || model.RemoteEgress() {
 		t.Fatal("the model endpoint must be local")
@@ -56,7 +64,7 @@ func TestLocalOllamaKeepsTenantAndRBACBoundaries(t *testing.T) {
 	cfg := &config.Config{
 		AuthMode: "session", SessionTTL: time.Hour,
 		AIModelProvider: "ollama", AIModelEndpoint: proxyURL, AIModelName: models[0], AIModelCAFile: caFile,
-		AIModelTimeout: time.Minute, AIMaxEvidence: 50, AIMaxConcurrent: 2,
+		AIModelTimeout: modelTimeout, AIMaxEvidence: 50, AIMaxConcurrent: 2,
 	}
 	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).
 		WithTenantStatus(NewTenantStatusCache(db.Pool(), 0))
@@ -87,16 +95,21 @@ func TestLocalOllamaKeepsTenantAndRBACBoundaries(t *testing.T) {
 			permTenantRead, permAIQuery, ai.PermEntitiesRead, permIncidentRead), owner)
 		audit.owner.Store(int64(lane) + 1)
 		before := audit.requests.Load()
+		beforeResponses := audit.responses.Load()
+		started := time.Now()
 		rec := sessionReq(t, h, http.MethodPost, route, cookie, request)
+		elapsed := time.Since(started).Round(time.Millisecond)
 		var answer ai.Answer
 		if audit.requests.Load() <= before || rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &answer) != nil ||
 			answer.Tenant != tenant || answer.Reasoning.Execution != ai.ReasoningLocalAdapter ||
 			answer.Reasoning.Adapter != model.Name() || answer.Reasoning.EgressConsent != ai.ConsentNotRequired {
-			t.Fatalf("tenant %d did not receive an owned local answer: HTTP %d, reasoning %+v", lane, rec.Code, answer.Reasoning)
+			t.Fatalf("tenant %d did not receive an owned local answer in %s: API HTTP %d, model responses %d (last HTTP %d), reasoning %+v",
+				lane, elapsed, rec.Code, audit.responses.Load()-beforeResponses, audit.lastStatus.Load(), answer.Reasoning)
 		}
 		if !strings.Contains(rec.Body.String(), markers[lane]) || strings.Contains(rec.Body.String(), markers[1-lane]) {
 			t.Fatalf("tenant %d answer failed the own/sibling evidence boundary", lane)
 		}
+		t.Logf("tenant %d received its local answer in %s", lane, elapsed)
 
 		audit.owner.Store(0)
 		before = audit.requests.Load()
@@ -125,8 +138,10 @@ func TestLocalOllamaKeepsTenantAndRBACBoundaries(t *testing.T) {
 }
 
 type localOllamaPromptAudit struct {
-	owner    atomic.Int64
-	requests atomic.Uint64
+	owner      atomic.Int64
+	requests   atomic.Uint64
+	responses  atomic.Uint64
+	lastStatus atomic.Int64
 }
 
 // The test sends each request through a TLS loopback observer to the real
@@ -148,6 +163,11 @@ func auditLocalOllamaPrompts(t *testing.T, endpoint string, markers [2]string) (
 	proxy := &httputil.ReverseProxy{
 		Rewrite:   func(request *httputil.ProxyRequest) { request.SetURL(target) },
 		Transport: transport,
+		ModifyResponse: func(response *http.Response) error {
+			audit.lastStatus.Store(int64(response.StatusCode))
+			audit.responses.Add(1)
+			return nil
+		},
 	}
 	t.Cleanup(transport.CloseIdleConnections)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
