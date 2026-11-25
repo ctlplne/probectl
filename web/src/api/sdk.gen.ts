@@ -4230,7 +4230,7 @@ export interface OncallStatus {
   providers: JsonObject[]
   secrets_redacted: boolean
   summary: string
-  supported_providers: ("pagerduty" | "opsgenie" | "slack" | "teams" | "servicenow" | "jira")[]
+  supported_providers: ("pagerduty" | "opsgenie" | "slack" | "teams" | "servicenow" | "jira" | "autotask" | "halopsa")[]
   tls_required: boolean
 }
 
@@ -5362,7 +5362,7 @@ export interface IngestChangeWebhookRequest {
 export type IngestChangeWebhookResponse = JsonObject
 
 export interface IngestItsmStatusRequest {
-  provider: "pagerduty" | "opsgenie" | "slack" | "teams" | "servicenow" | "jira" | "psa"
+  provider: "pagerduty" | "opsgenie" | "slack" | "teams" | "servicenow" | "jira" | "psa" | "autotask" | "halopsa"
   id: string
   body: JsonValue
 }

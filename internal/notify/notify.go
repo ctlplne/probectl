@@ -79,6 +79,16 @@ type LifecycleConnector interface {
 	Reopen(ctx context.Context, inc incident.Incident, ref string) error
 }
 
+// openRecoveryConnector resolves uncertain opens using the provider's stable
+// lookup key. An empty reference means the provider has no visible ticket yet.
+type openRecoveryConnector interface {
+	Connector
+	RecoverOpen(ctx context.Context, inc incident.Incident) (Delivery, error)
+}
+
+// LinkOpening marks a reserved create without a confirmed external reference.
+const LinkOpening = "opening"
+
 // Link is a persisted incident↔external mapping: idempotency for outbound, and
 // the reverse lookup for inbound status sync.
 type Link struct {
@@ -86,7 +96,7 @@ type Link struct {
 	IncidentID  string
 	Connector   string
 	ExternalRef string
-	Status      string // "open" | "resolved"
+	Status      string // connector status or LinkOpening while delivery is uncertain
 	Revision    int    // newest incident signal_count confirmed by this mirror
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -109,6 +119,39 @@ type LinkStore interface {
 	Upsert(ctx context.Context, l Link) error
 	// FindByRef resolves a connector's external ref back to its link (inbound sync).
 	FindByRef(ctx context.Context, tenant, connector, externalRef string) (*Link, error)
+}
+
+// OpenReservationStore prevents concurrent or uncertain ticket creates from
+// being replayed before their outcome is known. All operations are tenant scoped.
+type OpenReservationStore interface {
+	ReserveOpen(ctx context.Context, tenant, incidentID, connector string) (bool, error)
+	CompleteOpen(ctx context.Context, link Link) error
+	ReleaseOpen(ctx context.Context, tenant, incidentID, connector string) error
+}
+
+// TicketStatusSnapshot binds a confirmed external ticket to the versions of
+// its local link and incident. The store checks both versions before applying
+// a status obtained outside the database transaction.
+type TicketStatusSnapshot struct {
+	TenantID        string
+	Connector       string
+	IncidentID      string
+	ExternalRef     string
+	IncidentVersion string
+	LinkVersion     string
+}
+
+type ticketStatusConnector interface {
+	Connector
+	statusBatchSize() int
+	ResolvedTickets(ctx context.Context, snapshots []TicketStatusSnapshot) ([]TicketStatusSnapshot, error)
+}
+
+// TicketStatusStore lists owned, open tickets and applies their confirmed state
+// only while the same incident and connector link remain current.
+type TicketStatusStore interface {
+	OpenTicketStatuses(ctx context.Context, tenant, connector, after string, limit int) ([]TicketStatusSnapshot, error)
+	ResolveTicketStatus(ctx context.Context, snapshot TicketStatusSnapshot) (*incident.Incident, error)
 }
 
 // dedupKey is the stable per-incident key a pager connector uses so even a

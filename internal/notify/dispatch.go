@@ -8,6 +8,7 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -22,6 +23,8 @@ const (
 	defaultConnectorAttempts  = 3
 	defaultRetryBackoff       = 50 * time.Millisecond
 )
+
+var errTicketCreateRejected = errors.New("ticket create was rejected or never attempted")
 
 type dispatchKind int
 
@@ -51,9 +54,10 @@ type Dispatcher struct {
 	connectorTTL time.Duration
 	brand        branding.Lookup
 
-	mu       sync.RWMutex
-	byTenant map[string][]Connector
-	queues   map[string]chan dispatchJob
+	mu            sync.RWMutex
+	byTenant      map[string][]Connector
+	queues        map[string]chan dispatchJob
+	statusCursors map[string]string
 }
 
 // WithBranding attaches the output lookup before the dispatcher starts.
@@ -70,6 +74,7 @@ func NewDispatcher(links LinkStore, log *slog.Logger) *Dispatcher {
 	return &Dispatcher{
 		links: links, log: log, queueDepth: defaultDispatchQueueDepth, connectorTTL: defaultConnectorTimeout,
 		byTenant: map[string][]Connector{}, queues: map[string]chan dispatchJob{},
+		statusCursors: map[string]string{},
 	}
 }
 
@@ -189,7 +194,7 @@ func (d *Dispatcher) runTenantQueue(tenant string, q <-chan dispatchJob) {
 		}
 		switch job.kind {
 		case dispatchOpened:
-			d.openedSync(job.ctx, job.inc)
+			d.openedSync(job.ctx, job.inc, false)
 		case dispatchResolved:
 			d.resolvedSync(job.ctx, job.inc, job.source)
 		case dispatchUpdated:
@@ -225,20 +230,32 @@ func (d *Dispatcher) connectorContext(parent context.Context) (context.Context, 
 	return context.WithTimeout(parent, d.connectorTTL)
 }
 
-func (d *Dispatcher) openedSync(ctx context.Context, inc incident.Incident) {
+func (d *Dispatcher) openedSync(ctx context.Context, inc incident.Incident, pendingOnly bool) {
 	for _, c := range d.Connectors(inc.TenantID) {
+		recoverable, usesReservation := c.(openRecoveryConnector)
+		if pendingOnly && !usesReservation {
+			continue
+		}
 		opCtx, cancel := d.connectorContext(ctx)
 		existing, err := d.links.Get(opCtx, inc.TenantID, inc.ID, c.Name())
+		cancel()
 		if err != nil {
-			cancel()
 			d.log.Warn("notify: link lookup failed", "connector", c.Name(), "incident", inc.ID, "error", err)
 			continue
 		}
-		if existing != nil {
-			cancel()
+		pending := existing != nil && existing.Status == LinkOpening
+		if pendingOnly && !pending || existing != nil && !pending {
 			continue // already opened on this connector — no double-page / dup ticket
 		}
-		cancel()
+		if usesReservation {
+			if err := d.openReserved(ctx, recoverable, inc, pending); err != nil {
+				d.log.Warn("notify: open or recovery failed", "connector", c.Name(), "incident", inc.ID, "error", err)
+			}
+			continue
+		}
+		if pending {
+			continue
+		}
 		del, err := d.openWithRetry(ctx, c, inc)
 		if err != nil {
 			d.log.Warn("notify: open failed", "connector", c.Name(), "incident", inc.ID, "error", err)
@@ -260,7 +277,54 @@ func (d *Dispatcher) openedSync(ctx context.Context, inc incident.Incident) {
 	}
 }
 
+func (d *Dispatcher) openReserved(ctx context.Context, c openRecoveryConnector, inc incident.Incident, pending bool) error {
+	reservations, ok := d.links.(OpenReservationStore)
+	if !ok {
+		return errors.New("notify: ticket opens require a durable reservation store")
+	}
+	var err error
+	if !pending {
+		opCtx, cancel := d.connectorContext(ctx)
+		var acquired bool
+		acquired, err = reservations.ReserveOpen(opCtx, inc.TenantID, inc.ID, c.Name())
+		cancel()
+		if err != nil {
+			return err
+		}
+		pending = !acquired
+	}
+	call := c.Open
+	revision := inc.SignalCount
+	if pending {
+		call = c.RecoverOpen
+		revision = 0 // the unseen create might have carried an earlier revision
+	}
+	opCtx, cancel := d.connectorContext(ctx)
+	delivery, err := call(opCtx, inc)
+	cancel()
+	if err != nil {
+		// A transport failure or ambiguous vendor reply keeps the reservation.
+		// Only the caller that sent the create can release a definitive rejection.
+		if !pending && errors.Is(err, errTicketCreateRejected) {
+			opCtx, cancel := d.connectorContext(ctx)
+			defer cancel()
+			return errors.Join(err, reservations.ReleaseOpen(opCtx, inc.TenantID, inc.ID, c.Name()))
+		}
+		return err
+	}
+	if delivery.ExternalRef == "" {
+		return nil
+	}
+	opCtx, cancel = d.connectorContext(ctx)
+	defer cancel()
+	return reservations.CompleteOpen(opCtx, Link{
+		TenantID: inc.TenantID, IncidentID: inc.ID, Connector: c.Name(),
+		ExternalRef: delivery.ExternalRef, Status: firstNonEmpty(delivery.Status, "open"), Revision: revision,
+	})
+}
+
 func (d *Dispatcher) resolvedSync(ctx context.Context, inc incident.Incident, source string) {
+	d.openedSync(ctx, inc, true)
 	for _, c := range d.Connectors(inc.TenantID) {
 		opCtx, cancel := d.connectorContext(ctx)
 		link, err := d.links.Get(opCtx, inc.TenantID, inc.ID, c.Name())
@@ -269,7 +333,7 @@ func (d *Dispatcher) resolvedSync(ctx context.Context, inc incident.Incident, so
 			d.log.Warn("notify: link lookup failed", "connector", c.Name(), "incident", inc.ID, "error", err)
 			continue
 		}
-		if link == nil || link.Status == "resolved" {
+		if link == nil || link.Status == "resolved" || link.Status == LinkOpening {
 			cancel()
 			continue
 		}
@@ -304,7 +368,7 @@ func (d *Dispatcher) updatedSync(ctx context.Context, inc incident.Incident) {
 		opCtx, cancel := d.connectorContext(ctx)
 		link, err := d.links.Get(opCtx, inc.TenantID, inc.ID, c.Name())
 		cancel()
-		if err != nil || link == nil || link.Status == "resolved" {
+		if err != nil || link == nil || link.Status == "resolved" || link.Status == LinkOpening {
 			if err != nil {
 				d.log.Warn("notify: update link lookup failed", "connector", c.Name(), "incident", inc.ID, "error", err)
 			}
@@ -396,8 +460,8 @@ func (d *Dispatcher) Reconcile(ctx context.Context) {
 					d.log.Warn("notify: reconciliation link lookup failed", "tenant_id", tenant, "connector", c.Name(), "incident", inc.ID, "error", linkErr)
 					continue
 				}
-				if link == nil {
-					d.openedSync(outputContext(), inc)
+				if link == nil || link.Status == LinkOpening {
+					d.openedSync(outputContext(), inc, false)
 					break
 				}
 				if link.Status == "resolved" {
@@ -410,6 +474,7 @@ func (d *Dispatcher) Reconcile(ctx context.Context) {
 				}
 			}
 		}
+		d.pollTicketStatuses(ctx, tenant, outputContext)
 	}
 }
 

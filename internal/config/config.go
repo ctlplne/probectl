@@ -1062,7 +1062,7 @@ type ChangeWebhook struct {
 // API/webhook URL.
 type NotifyConnector struct {
 	TenantID string
-	Provider string // pagerduty|opsgenie|slack|teams|servicenow|jira
+	Provider string // pagerduty|opsgenie|slack|teams|servicenow|jira|psa|autotask|halopsa
 	Endpoint string
 	Secret   string
 }
@@ -2973,7 +2973,7 @@ func (l *loader) changeWebhooks(key string) map[string]ChangeWebhook {
 var knownNotifyProviders = map[string]bool{
 	"pagerduty": true, "opsgenie": true, "slack": true,
 	"teams": true, "servicenow": true, "jira": true,
-	"psa": true,
+	"psa": true, "autotask": true, "halopsa": true,
 }
 
 // notifyConnectors parses "tenant|provider|endpoint|secret,..." into outbound
@@ -2986,23 +2986,24 @@ func (l *loader) notifyConnectors(key string) []NotifyConnector {
 		return nil
 	}
 	var out []NotifyConnector
-	for _, entry := range strings.Split(v, ",") {
+	registered := map[[2]string]bool{}
+	for i, entry := range strings.Split(v, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue
 		}
 		f := strings.SplitN(entry, "|", 4)
 		if len(f) != 4 {
-			l.errf("%s: %q must be tenant|provider|endpoint|secret", key, entry)
+			l.errf("%s entry %d: expected tenant|provider|endpoint|secret", key, i+1)
 			continue
 		}
 		tenant, provider, endpoint, secret := strings.TrimSpace(f[0]), strings.ToLower(strings.TrimSpace(f[1])), strings.TrimSpace(f[2]), f[3]
 		if tenant == "" || provider == "" || endpoint == "" {
-			l.errf("%s: %q has an empty field (tenant|provider|endpoint|secret)", key, entry)
+			l.errf("%s entry %d: tenant, provider and endpoint are required", key, i+1)
 			continue
 		}
 		if !knownNotifyProviders[provider] {
-			l.errf("%s: unknown provider %q", key, provider)
+			l.errf("%s entry %d: unknown provider", key, i+1)
 			continue
 		}
 		if provider == "psa" && strings.TrimSpace(secret) == "" {
@@ -3010,8 +3011,20 @@ func (l *loader) notifyConnectors(key string) []NotifyConnector {
 			continue
 		}
 		if err := validateNotifyEndpoint(endpoint); err != nil {
-			l.errf("%s: %v", key, err)
+			l.errf("%s entry %d: %v", key, i+1, err)
 			continue
+		}
+		if provider == "autotask" || provider == "halopsa" {
+			owner := [2]string{tenant, provider}
+			if strings.TrimSpace(secret) == "" {
+				l.errf("%s entry %d: %s connector requires a connection secret", key, i+1, provider)
+				continue
+			}
+			if registered[owner] {
+				l.errf("%s entry %d: only one %s connector can own a tenant's ticket links", key, i+1, provider)
+				continue
+			}
+			registered[owner] = true
 		}
 		out = append(out, NotifyConnector{TenantID: tenant, Provider: provider, Endpoint: endpoint, Secret: secret})
 	}
@@ -3021,10 +3034,10 @@ func (l *loader) notifyConnectors(key string) []NotifyConnector {
 func validateNotifyEndpoint(endpoint string) error {
 	u, err := url.Parse(strings.TrimSpace(endpoint))
 	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return fmt.Errorf("notify connector endpoint %q must be an http(s) URL with a host", endpoint)
+		return fmt.Errorf("notify connector endpoint must be an http(s) URL with a host")
 	}
 	if u.Scheme != "https" && !isLoopbackHostname(u.Hostname()) {
-		return fmt.Errorf("notify connector endpoint must be https:// for remote provider URLs; plaintext http:// is allowed only for loopback dev endpoints (got %q)", endpoint)
+		return fmt.Errorf("notify connector endpoint must be https:// for remote provider URLs; plaintext http:// is allowed only for loopback dev endpoints")
 	}
 	return nil
 }
@@ -3038,29 +3051,29 @@ func (l *loader) notifyInbound(key string) map[string]NotifyInbound {
 		return nil
 	}
 	out := map[string]NotifyInbound{}
-	for _, entry := range strings.Split(v, ",") {
+	for i, entry := range strings.Split(v, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue
 		}
 		f := strings.SplitN(entry, ":", 4)
 		if len(f) != 4 {
-			l.errf("%s: %q must be id:tenant:provider:secret", key, entry)
+			l.errf("%s entry %d: expected id:tenant:provider:secret", key, i+1)
 			continue
 		}
 		id, tenant, provider, secret := strings.TrimSpace(f[0]), strings.TrimSpace(f[1]), strings.ToLower(strings.TrimSpace(f[2])), f[3]
 		if id == "" || tenant == "" || provider == "" || secret == "" {
-			l.errf("%s: %q has an empty field (id:tenant:provider:secret)", key, entry)
+			l.errf("%s entry %d: id, tenant, provider and secret are required", key, i+1)
 			continue
 		}
 		if !knownNotifyProviders[provider] {
-			l.errf("%s: unknown provider %q", key, provider)
+			l.errf("%s entry %d: unknown provider", key, i+1)
 			continue
 		}
 		if len(secret) < minWebhookSecretBytes {
 			// AUTHZ-19: fail closed at load — a short HMAC/token secret is online
 			// brute-forceable on an unauthenticated ingress.
-			l.errf("%s: secret for inbound webhook %q must be at least %d bytes", key, id, minWebhookSecretBytes)
+			l.errf("%s entry %d: inbound webhook secret must be at least %d bytes", key, i+1, minWebhookSecretBytes)
 			continue
 		}
 		out[id] = NotifyInbound{TenantID: tenant, Provider: provider, Secret: secret}

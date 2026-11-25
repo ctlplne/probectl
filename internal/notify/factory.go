@@ -6,7 +6,10 @@
 
 package notify
 
-import "strings"
+import (
+	"errors"
+	"strings"
+)
 
 // providerCaps is the supported provider set and what each does.
 var providerCaps = map[string]Capability{
@@ -17,12 +20,38 @@ var providerCaps = map[string]Capability{
 	"servicenow": CapabilityTicket,
 	"jira":       CapabilityTicket,
 	"psa":        CapabilityTicket,
+	"autotask":   CapabilityTicket,
+	"halopsa":    CapabilityTicket,
 }
 
 // knownProvider reports whether name is a supported connector provider.
 func knownProvider(name string) bool {
 	_, ok := providerCaps[strings.ToLower(strings.TrimSpace(name))]
 	return ok
+}
+
+// NewTenantConnector binds provider configuration to the tenant selected by the
+// control plane, before constructing a connector with resolved credentials.
+func NewTenantConnector(tenant, provider, endpoint, secret string, client Doer) (Connector, error) {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "autotask":
+		c, err := configuredAutotask(tenant, endpoint, secret, client)
+		if err != nil {
+			return nil, err
+		}
+		return c, nil
+	case "halopsa":
+		c, err := configuredHaloPSA(tenant, endpoint, secret, client)
+		if err != nil {
+			return nil, err
+		}
+		return c, nil
+	}
+	c, ok := NewConnector(provider, endpoint, secret, client)
+	if !ok {
+		return nil, errors.New("notify: unsupported connector provider")
+	}
+	return c, nil
 }
 
 // NewConnector builds a connector for a provider over endpoint + secret. A nil

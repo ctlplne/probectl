@@ -32,6 +32,8 @@ tooling, so the whole feature stays off unless `PROBECTL_NOTIFY_CONNECTORS` is s
 | **ServiceNow** | ticket | create incident (Table API) | set state Resolved (state `6`) | native Business-Rule POST, or the portable contract |
 | **Jira** | ticket | create issue (REST v2) | transition to Done (default transition `31`) | native issue webhook, or the portable contract |
 | **PSA (vendor-neutral)** | ticket | signed `create` | signed `resolve` | portable signed status contract |
+| **Autotask** | ticket | create a mapped ticket through REST v1.0 | set the mapped resolved status | authenticated REST status readback or the portable signed contract |
+| **HaloPSA** | ticket | create a mapped ticket through the Halo API | set the mapped resolved status | authenticated REST status readback or the portable signed contract |
 
 Routing is **per-tenant**: a connector is registered against one tenant id and
 only ever fires for incidents of that tenant.
@@ -75,11 +77,9 @@ flowchart LR
 ### Vendor-neutral PSA lifecycle
 
 A PSA is the MSP's business operating system for customers, contracts, tickets,
-time, and billing. The `psa` connector deliberately does not guess whether the
-first design partner uses ConnectWise, Autotask, or HaloPSA. It sends one stable
+time, and billing. The `psa` connector sends a portable
 `probectl-psa-ticket/v1` JSON envelope for `create`, `update`, `resolve`, and
-`reopen`; the design partner maps that envelope into its PSA once, and the first
-named adapter can then be built from observed workflow evidence.
+`reopen`. The receiving workflow maps the envelope to its PSA.
 
 Each request has `X-Probectl-Contract: probectl-psa-ticket/v1`, a stable
 `Idempotency-Key`, and `X-Probectl-Signature: sha256=<HMAC-of-exact-body>`. The
@@ -95,6 +95,108 @@ to `open` emits `reopen` and is audited as `incident.reopen`. Provider-plane
 operators have no implicit tenant write path; they need the existing
 tenant-consented, time-bounded break-glass flow before acting as an authorized
 tenant principal.
+
+### Autotask ticket mapping
+
+Set one `autotask` connector per tenant. Use the tenant's Autotask zone URL ending
+in `/atservicesrest/v1.0` and supply the connection settings as a secret reference.
+The resolver loads the JSON document at startup. Use the IDs from the tenant's
+Autotask setup and a text custom field dedicated to probectl's signal count and
+last observation time.
+
+```sh
+PROBECTL_NOTIFY_CONNECTORS='00000000-0000-4000-8000-000000000001|autotask|https://webservices4.autotask.net/atservicesrest/v1.0|env:AUTOTASK_CONNECTOR_JSON'
+```
+
+```json
+{
+  "username": "<Autotask API user>",
+  "api_secret": "<Autotask API secret>",
+  "integration_code": "<Autotask integration code>",
+  "company_id": 101,
+  "contract_id": 203,
+  "queue_id": 7,
+  "priority": 2,
+  "open_status": 1,
+  "resolved_status": 5,
+  "due_after": "48h",
+  "progress_field": "probectl progress",
+  "console_origin": "https://observability.example"
+}
+```
+
+Omit `contract_id` or `queue_id` to use the account's defaults where supported.
+The API user needs permission to read and write the mapped tickets. The
+connector checks the company, optional contract and incident key before every
+update. The ticket links to the incident in the authenticated probectl console,
+where readers with evidence access can download its signed export.
+
+Before creating a ticket, the dispatcher reserves its link in the tenant's
+incident store. A subsequent worker recovers an uncertain create by querying
+the vendor for the same company and external ID. The dispatcher publishes the
+link once that query finds a single matching ticket. A definite rejection
+releases the reservation for a later retry.
+
+Each reconciliation interval reads up to 50 of the tenant's open linked
+tickets in one authenticated Autotask request. Pagination rotates through
+the open tickets. A confirmed resolved status updates the incident and its
+link together after checking that both local versions are current. The
+resolution is audited and any notifications go to the other configured
+connectors. [Autotask REST query fields and pagination](https://www.autotask.net/help/developerhelp/content/apis/rest/API_Calls/REST_Advanced_Query_Features.htm)
+
+An Autotask workflow can send `{"external_ref":"12345","status":"resolved"}`
+to `/ingest/itsm/autotask/<id>` using a separate tenant-bound inbound credential.
+Use the numeric Autotask ticket ID as a string and sign the body using the
+portable status contract. probectl matches the ticket through the tenant's
+stored link and suppresses the echo back to Autotask.
+
+[Autotask tickets and field requirements](https://autotask.net/help/developerhelp/content/apis/rest/Entities/TicketsEntity.htm)
+
+### HaloPSA ticket mapping
+
+Set one `halopsa` connector per tenant. Use the HTTPS origin of the Halo
+instance and a secret reference that resolves to a JSON object. Create a Halo API
+application with client credentials, scoped to the mapped customer and to ticket
+reads and writes. A contract mapping also needs read access to that contract.
+
+```sh
+PROBECTL_NOTIFY_CONNECTORS='00000000-0000-4000-8000-000000000001|halopsa|https://tenant.halopsa.example|env:HALOPSA_CONNECTOR_JSON'
+```
+
+```json
+{
+  "client_id": "<Halo API application ID>",
+  "client_secret": "<Halo API application secret>",
+  "customer_id": 42,
+  "contract_id": 17,
+  "ticket_type_id": 5,
+  "priority_id": 2,
+  "open_status": 1,
+  "resolved_status": 9,
+  "progress_field_id": 123,
+  "due_after": "48h",
+  "console_origin": "https://probectl.example"
+}
+```
+
+Use the ticket type, priority and status IDs from the Halo instance. Set
+`progress_field_id` to a dedicated text field. The connector can also set
+`site_id` and `user_id` when the ticket type requires them. Omit `contract_id`
+to use the customer mapping alone. The optional `scope` selects OAuth
+application permissions and defaults to `all` within the configured API
+application permissions. [Halo client credentials](https://api.usehalo.com/reference/get_new-endpoint)
+
+The ticket links to the authenticated incident view, where an authorized
+operator can export signed evidence. probectl uses Halo's third-party ticket
+ID field to recover a create after an interrupted response. It verifies the
+customer, the incident's stable marker and the configured contract before a
+ticket change. Periodic readback checks the resolved status of up to eight
+linked tickets per reconciliation sweep. A resolution applies only while the
+same local incident and link versions remain current. [Halo Swagger](https://www.usehalo.com/swagger)
+
+For a portable signed webhook, use `/ingest/itsm/halopsa/<id>` with the
+tenant's separate inbound credential and the numeric Halo ticket ID encoded
+as a string.
 
 ## Idempotency
 

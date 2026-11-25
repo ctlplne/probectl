@@ -19046,7 +19046,9 @@
                 "teams",
                 "servicenow",
                 "jira",
-                "psa"
+                "psa",
+                "autotask",
+                "halopsa"
               ]
             }
           },
@@ -31201,7 +31203,9 @@
                 "slack",
                 "teams",
                 "servicenow",
-                "jira"
+                "jira",
+                "autotask",
+                "halopsa"
               ]
             }
           }

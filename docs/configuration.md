@@ -2991,7 +2991,7 @@ secrets or endpoint path/query values.
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `PROBECTL_NOTIFY_CONNECTORS` | (none) | outbound connectors, comma-separated, each `tenant\|provider\|endpoint\|secret` (pipe-delimited because the endpoint is a URL). `provider` ∈ `pagerduty`/`opsgenie`/`slack`/`teams`/`servicenow`/`jira`/`psa`. `psa` is the signed vendor-neutral `probectl-psa-ticket/v1` lifecycle contract and requires an HMAC secret; the first named vendor adapter remains design-partner-selected. `endpoint` must be `https://` for remote provider URLs; plain `http://` is accepted only for loopback local dev/test doubles. |
+| `PROBECTL_NOTIFY_CONNECTORS` | (none) | Outbound connectors in comma-separated `tenant\|provider\|endpoint\|secret` entries. Providers include `pagerduty`, `opsgenie`, `slack`, `teams`, `servicenow`, `jira`, `psa`, `autotask` and `halopsa`. `psa` uses the signed `probectl-psa-ticket/v1` contract with an HMAC secret. `autotask` uses an HTTPS zone URL and a secret reference for its [JSON connection settings](oncall-itsm.md#autotask-ticket-mapping). `halopsa` uses the HTTPS instance origin and a secret reference for its [JSON connection settings](oncall-itsm.md#halopsa-ticket-mapping). Remote endpoints require HTTPS. The existing local dev connectors also accept HTTP on loopback. |
 | `PROBECTL_NOTIFY_INBOUND` | (none) | inbound status-sync credentials, comma-separated, each `id:tenant:provider:secret` (the `id` is the URL selector for `POST /ingest/itsm/{provider}/{id}`; `secret` verifies the delivery). |
 
 **Off by default** (each connector is an outbound connection to the operator's

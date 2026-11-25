@@ -61,6 +61,79 @@ func (p pgLinkStore) Upsert(ctx context.Context, l notify.Link) error {
 		})
 }
 
+func (p pgLinkStore) ReserveOpen(ctx context.Context, tenant, incidentID, connector string) (bool, error) {
+	var acquired bool
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
+		func(c context.Context, sc tenancy.Scope) error {
+			var err error
+			acquired, err = (store.IncidentIntegrations{}).ReserveOpen(c, sc, incidentID, connector)
+			return err
+		})
+	return acquired, err
+}
+
+func (p pgLinkStore) CompleteOpen(ctx context.Context, l notify.Link) error {
+	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(l.TenantID)), p.pool,
+		func(c context.Context, sc tenancy.Scope) error {
+			return (store.IncidentIntegrations{}).CompleteOpen(c, sc, l)
+		})
+}
+
+func (p pgLinkStore) ReleaseOpen(ctx context.Context, tenant, incidentID, connector string) error {
+	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
+		func(c context.Context, sc tenancy.Scope) error {
+			return (store.IncidentIntegrations{}).ReleaseOpen(c, sc, incidentID, connector)
+		})
+}
+
+func (p pgLinkStore) OpenTicketStatuses(ctx context.Context, tenant, connector, after string, limit int) ([]notify.TicketStatusSnapshot, error) {
+	if status, err := NewTenantStatusCache(p.pool, 0).TenantStatus(ctx, tenant); err != nil || status != "active" {
+		return nil, err
+	}
+	var snapshots []notify.TicketStatusSnapshot
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
+		func(c context.Context, sc tenancy.Scope) error {
+			var err error
+			snapshots, err = (store.IncidentIntegrations{}).OpenTicketStatuses(c, sc, connector, after, limit)
+			return err
+		})
+	return snapshots, err
+}
+
+func (p pgLinkStore) ResolveTicketStatus(ctx context.Context, snapshot notify.TicketStatusSnapshot) (*incident.Incident, error) {
+	if status, err := NewTenantStatusCache(p.pool, 0).TenantStatus(ctx, snapshot.TenantID); err != nil || status != "active" {
+		return nil, err
+	}
+	var resolved *incident.Incident
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(snapshot.TenantID)), p.pool,
+		func(c context.Context, sc tenancy.Scope) error {
+			links := store.IncidentIntegrations{}
+			current, err := links.LockOpenTicketStatus(c, sc, snapshot)
+			if err != nil || !current {
+				return err
+			}
+			resolved, err = (store.Incidents{}).Resolve(c, sc, snapshot.IncidentID)
+			if err != nil {
+				return err
+			}
+			// Commit the origin link with the incident so restart reconciliation
+			// cannot echo the resolution back to the provider that originated it.
+			if err := links.Upsert(c, sc, notify.Link{
+				TenantID: sc.Tenant.String(), IncidentID: snapshot.IncidentID, Connector: snapshot.Connector,
+				ExternalRef: snapshot.ExternalRef, Status: "resolved", Revision: resolved.SignalCount,
+			}); err != nil {
+				return err
+			}
+			_, err = audit.TenantAppend(c, sc, "connector:"+snapshot.Connector, "incident.resolve", snapshot.IncidentID,
+				map[string]any{"source": snapshot.Connector, "external_ref": snapshot.ExternalRef})
+			return err
+		})
+	if err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}
+
 func (p pgLinkStore) ListIncidents(ctx context.Context, tenant string) ([]incident.Incident, error) {
 	var out []incident.Incident
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
@@ -86,9 +159,9 @@ func BuildDispatcher(cfg *config.Config, pool *pgxpool.Pool, log *slog.Logger) (
 	d := notify.NewDispatcher(pgLinkStore{pool: pool}, log)
 	n := 0
 	for _, nc := range cfg.NotifyConnectors {
-		c, ok := notify.NewConnector(nc.Provider, nc.Endpoint, nc.Secret, nil)
-		if !ok {
-			log.Warn("notify: unknown connector provider; skipping", "provider", nc.Provider)
+		c, err := notify.NewTenantConnector(nc.TenantID, nc.Provider, nc.Endpoint, nc.Secret, nil)
+		if err != nil {
+			log.Warn("notify: connector configuration is invalid; skipping", "provider", nc.Provider, "error", err)
 			continue
 		}
 		d.Register(nc.TenantID, c)

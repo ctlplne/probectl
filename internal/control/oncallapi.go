@@ -79,7 +79,7 @@ func guardAlertChannels(channels []alert.ChannelSpec) error {
 	return nil
 }
 
-var oncallSupportedProviders = []string{"pagerduty", "opsgenie", "slack", "teams", "servicenow", "jira"}
+var oncallSupportedProviders = []string{"pagerduty", "opsgenie", "slack", "teams", "servicenow", "jira", "autotask", "halopsa"}
 
 type oncallStatus struct {
 	ID                     string                 `json:"id"`
@@ -172,9 +172,9 @@ func (s *Server) handleOncallTest(w http.ResponseWriter, r *http.Request) error 
 	if !ok {
 		return apierror.NotFound("on-call connector is not configured for this tenant")
 	}
-	c, ok := notify.NewConnector(nc.Provider, nc.Endpoint, nc.Secret, nil)
-	if !ok {
-		return apierror.Validation("unsupported on-call connector provider")
+	c, err := notify.NewTenantConnector(tid, nc.Provider, nc.Endpoint, nc.Secret, nil)
+	if err != nil {
+		return apierror.Validation("on-call connector configuration is invalid")
 	}
 	testID, err := crypto.UUIDv4()
 	if err != nil {

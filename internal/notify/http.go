@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -23,6 +24,15 @@ const userAgent = "probectl-oncall"
 
 // maxRespBody bounds a provider response read (untrusted input).
 const maxRespBody = 1 << 16
+
+type httpStatusError struct {
+	method string
+	status int
+}
+
+func (e httpStatusError) Error() string {
+	return fmt.Sprintf("notify: %s returned HTTP %d", e.method, e.status)
+}
 
 // defaultClient is the hardened (certificate-validating) HTTP client a connector
 // uses when none is injected — outbound TLS is never disabled (guardrail 12).
@@ -62,7 +72,7 @@ func doJSONBytes(ctx context.Context, client Doer, method, endpoint string, head
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxRespBody))
-		return nil, fmt.Errorf("notify: %s returned HTTP %d", method, resp.StatusCode)
+		return nil, httpStatusError{method: method, status: resp.StatusCode}
 	}
 	out, _ := io.ReadAll(io.LimitReader(resp.Body, maxRespBody))
 	return out, nil
@@ -74,4 +84,38 @@ func clientOr(c Doer) Doer {
 		return c
 	}
 	return defaultClient()
+}
+
+func psaHTTPSURL(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || parsed.RawPath != "" {
+		return nil, errors.New("notify: expected an HTTPS URL without credentials, query or fragment")
+	}
+	return parsed, nil
+}
+
+// clientWithoutRedirects keeps API keys, bearer tokens and OAuth form bodies
+// on their configured endpoints. Redirects can replay a form even when no
+// credential header is present.
+func clientWithoutRedirects(injected Doer) Doer {
+	client := clientOr(injected)
+	if transport, ok := client.(*http.Client); ok {
+		strict := *transport
+		strict.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		return &strict
+	}
+	return client
+}
+
+// ticketCreateError identifies a vendor response that definitely rejected the create.
+func ticketCreateError(err error) error {
+	var status httpStatusError
+	if errors.As(err, &status) {
+		switch status.status {
+		case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusUnprocessableEntity:
+			return fmt.Errorf("%w: %w", errTicketCreateRejected, err)
+		}
+	}
+	return err
 }
