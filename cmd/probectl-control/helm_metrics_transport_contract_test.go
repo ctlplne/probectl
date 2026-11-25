@@ -85,7 +85,9 @@ func TestHelmMetricsTransportMatchesRenderedControlListener(t *testing.T) {
 				`nginx.ingress.kubernetes.io/proxy-ssl-secret:`,
 				`nginx.ingress.kubernetes.io/proxy-ssl-server-name: "on"`,
 				`nginx.ingress.kubernetes.io/proxy-ssl-name:`,
-				`name: {{ include "probectl.servicePortName" . }}`,
+				// The host loop's dot is the customer record. Resolve the port
+				// from the root chart context for every host.
+				`name: {{ include "probectl.servicePortName" $ }}`,
 			},
 		},
 		{
