@@ -45,6 +45,11 @@ returns 409. A replacement writes its provider audit event in the same
 transaction. Empty fields return the customer to the default presentation
 and clear the hostname mapping.
 
+`probectl provider brand <tenant-id>` returns the brand and its current
+`revision`. Replace it with `probectl provider set-brand <tenant-id>
+--revision <revision> --body-file <brand.json>`. The file contains the
+complete brand document returned under `brand`.
+
 ## Sign-in and attribution
 
 Before sign-in, `GET /branding` resolves a custom host by exact match. The

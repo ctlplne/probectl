@@ -896,7 +896,7 @@ capabilities:
     engine: {refs: ["file:ee/whitelabel"]}
     binary: {refs: ["file:cmd/probectl-control/ee_attach.go#WithCustomerBranding"]}
     api: {refs: ["api:GET /branding", "api:GET /provider/v1/tenants/{id}/brand", "api:PUT /provider/v1/tenants/{id}/brand"]}
-    cli: {none_by_design: "The revisioned provider API and customer brand editor administer this presentation."}
+    cli: {refs: ["cli:probectl provider brand", "cli:probectl provider set-brand"]}
     ui: {refs: ["ui:F54@/provider"]}
     docs: {refs: ["file:docs/white-label.md#MSP customer branding"]}
     config_keys: *api_config

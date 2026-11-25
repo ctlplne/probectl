@@ -61,17 +61,9 @@ func (a *Authenticator) Resolve(r *http.Request) (*Principal, error) {
 	return principalFromSession(sess, grants), nil
 }
 
-// ResolveAndRotate resolves a cookie session and atomically rotates its opaque
-// ID when the user's effective permission set changed since issuance. The
-// replacement token is returned for the HTTP edge to set as a cookie before
-// serving the request. Rotation covers both grants (privilege elevation) and
-// revocations; the latter is intentionally just as strict.
-func (a *Authenticator) ResolveAndRotate(r *http.Request) (*Principal, string, error) {
-	return a.ResolveAndRotateForTenant(r, "")
-}
-
-// ResolveAndRotateForTenant restricts the credential before loading grants or
-// rotating it. The optional tenant constraint is supplied by the HTTP caller.
+// ResolveAndRotateForTenant checks an optional tenant constraint before
+// loading grants. If permissions changed, it atomically rotates the cookie
+// session and returns the replacement for the HTTP edge to set.
 func (a *Authenticator) ResolveAndRotateForTenant(r *http.Request, tenantID string) (*Principal, string, error) {
 	token := TokenFromRequest(r)
 	sess, err := a.mgr.Resolve(r.Context(), token)

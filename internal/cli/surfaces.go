@@ -21,6 +21,7 @@ type apiOp struct {
 	Path             string
 	ArgName          string
 	Description      string
+	BrandRevision    bool
 	// SensitiveBody marks credential-bearing requests whose JSON must never be
 	// supplied through --body (and therefore exposed in argv / shell history).
 	// These operations accept only --body-file, with "-" meaning stdin.
@@ -512,6 +513,8 @@ var surfaceCommands = map[string]surfaceCommand{
 		"create-operator":            {Method: http.MethodPost, Path: "/provider/v1/operators"},
 		"operator-status":            {Method: http.MethodPost, Path: "/provider/v1/operators/{id}/status", ArgName: "id"},
 		"tenants":                    {Method: http.MethodGet, Path: "/provider/v1/tenants"},
+		"brand":                      {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/brand", ArgName: "id", BrandRevision: true, Description: "read a customer brand and its current revision"},
+		"set-brand":                  {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/brand", ArgName: "id", BrandRevision: true, Description: "replace a customer brand using the current revision and a complete JSON document"},
 		"create-tenant":              {Method: http.MethodPost, Path: "/provider/v1/tenants"},
 		"update-tenant":              {Method: http.MethodPatch, Path: "/provider/v1/tenants/{id}", ArgName: "id"},
 		"suspend-tenant":             {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/suspend", ArgName: "id"},

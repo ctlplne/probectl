@@ -102,7 +102,7 @@ func TestScopedRBACScopeChangeRotatesSession(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/hierarchy", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: token})
-	principal, replacement, err := NewAuthenticator(manager, loader).ResolveAndRotate(req)
+	principal, replacement, err := NewAuthenticator(manager, loader).ResolveAndRotateForTenant(req, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -367,6 +367,15 @@ func (c *client) setRequestIdentity(req *http.Request) {
 
 // do performs a request and returns the decoded body or a domain error message.
 func (c *client) do(method, path string, body any, out any) error {
+	return c.doVersioned(method, path, body, out, nil)
+}
+
+type brandRevision struct {
+	ifMatch string
+	etag    string
+}
+
+func (c *client) doVersioned(method, path string, body any, out any, revision *brandRevision) error {
 	policy, err := c.cfg.httpPolicy()
 	if err != nil {
 		return err
@@ -388,6 +397,9 @@ func (c *client) do(method, path string, body any, out any) error {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
+	if revision != nil && revision.ifMatch != "" {
+		req.Header.Set("If-Match", revision.ifMatch)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -413,6 +425,9 @@ func (c *client) do(method, path string, body any, out any) error {
 			return err
 		}
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+	if revision != nil {
+		revision.etag = resp.Header.Get("ETag")
 	}
 	if out != nil && (len(data) > 0 || isYAMLResponse(resp)) {
 		if isDownload(resp) || isYAMLResponse(resp) {

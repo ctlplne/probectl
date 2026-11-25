@@ -637,7 +637,7 @@ func TestAuthenticatorRotatesOnRoleElevation(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/tests", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: oldToken})
 
-	p, replacement, err := NewAuthenticator(m, perms).ResolveAndRotate(req)
+	p, replacement, err := NewAuthenticator(m, perms).ResolveAndRotateForTenant(req, "")
 	if err != nil {
 		t.Fatalf("resolve elevated role: %v", err)
 	}

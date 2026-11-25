@@ -57,6 +57,9 @@ func printOperationUsage(w io.Writer, op apiOp) {
 	if op.VerifiedDownload {
 		fmt.Fprint(w, " [--max-bytes N]")
 	}
+	if op.BrandRevision && op.Method == http.MethodPut {
+		fmt.Fprint(w, " --revision N")
+	}
 	fmt.Fprintln(w)
 }
 
@@ -214,6 +217,10 @@ func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Read
 	fs.SetOutput(stderr)
 	bodyRaw := fs.String("body", "", "JSON request body")
 	bodyFile := fs.String("body-file", "", "JSON request body path; - reads stdin (sensitive bodies require a 0600 file or stdin)")
+	var brandRevisionValue string
+	if op.BrandRevision && op.Method == http.MethodPut {
+		fs.StringVar(&brandRevisionValue, "revision", "", "revision from provider brand")
+	}
 	query := queryFlag{}
 	fs.Var(&query, "query", "query parameter k=v (repeatable)")
 	var maxDownloadBytes int64 = 256 << 20
@@ -307,7 +314,12 @@ func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Read
 		return 0
 	}
 	var out any
-	if op.ExactJSON {
+	if op.BrandRevision {
+		out, err = runBrandOperation(cfg, op.Method, path, body, brandRevisionValue)
+		if err != nil {
+			return fail(stderr, err)
+		}
+	} else if op.ExactJSON {
 		var raw json.RawMessage
 		if err := newClient(cfg).do(op.Method, path, body, &raw); err != nil {
 			return fail(stderr, err)
@@ -332,6 +344,30 @@ func runRawOperationWithStdin(cfg Config, op apiOp, args []string, stdin io.Read
 		return 1
 	}
 	return 0
+}
+
+func runBrandOperation(cfg Config, method, path string, body any, requested string) (any, error) {
+	var revision brandRevision
+	if method == http.MethodPut {
+		if body == nil || !validBrandRevision(requested) {
+			return nil, fmt.Errorf("provider set-brand requires a complete JSON body and --revision from provider brand")
+		}
+		revision.ifMatch = strconv.Quote(requested)
+	}
+	var brand json.RawMessage
+	if err := newClient(cfg).doVersioned(method, path, body, &brand, &revision); err != nil {
+		return nil, err
+	}
+	value, err := strconv.Unquote(revision.etag)
+	if err != nil || !validBrandRevision(value) || revision.etag != strconv.Quote(value) || len(brand) == 0 {
+		return nil, fmt.Errorf("provider response omitted a valid brand or strong revision")
+	}
+	return map[string]any{"revision": value, "brand": brand}, nil
+}
+
+func validBrandRevision(value string) bool {
+	n, err := strconv.ParseInt(value, 10, 64)
+	return err == nil && n >= 0 && strconv.FormatInt(n, 10) == value
 }
 
 // verdictIsFalse reports whether the response's named boolean field is present

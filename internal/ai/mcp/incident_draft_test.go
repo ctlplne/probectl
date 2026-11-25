@@ -83,6 +83,13 @@ func TestIncidentDraftUsesOnlyVerifiedFacts(t *testing.T) {
 				t.Fatalf("wrong draft binding: %+v, %v", draft, err)
 			}
 			assertNativeIncidentDraft(t, draft, wire, incidentData.ID, trusted)
+			citation := &draft.Sections[0].Sentences[0].Citations[0]
+			original := citation.Pointer
+			citation.Pointer = "/missing_signed_field"
+			if _, err := NewSignedIncidentDraft(draft, "builtin", false, wire, "tenant-a", incidentData.ID, trusted); !errors.Is(err, evidence.ErrDraftClaim) {
+				t.Fatalf("native draft accepted an unresolved citation: %v", err)
+			}
+			citation.Pointer = original
 			var sentences []string
 			for _, section := range draft.Sections {
 				for _, sentence := range section.Sentences {

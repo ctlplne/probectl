@@ -220,6 +220,10 @@ const runRawOperationWithStdinSpine = `{
 	fs.SetOutput(stderr)
 	bodyRaw := fs.String("body", "", "JSON request body")
 	bodyFile := fs.String("body-file", "", "JSON request body path; - reads stdin (sensitive bodies require a 0600 file or stdin)")
+	var brandRevisionValue string
+	if op.BrandRevision && op.Method == http.MethodPut {
+		fs.StringVar(&brandRevisionValue, "revision", "", "revision from provider brand")
+	}
 	query := queryFlag{}
 	fs.Var(&query, "query", "query parameter k=v (repeatable)")
 	var maxDownloadBytes int64 = 256 << 20
@@ -309,7 +313,12 @@ const runRawOperationWithStdinSpine = `{
 		return 0
 	}
 	var out any
-	if op.ExactJSON {
+	if op.BrandRevision {
+		out, err = runBrandOperation(cfg, op.Method, path, body, brandRevisionValue)
+		if err != nil {
+			return fail(stderr, err)
+		}
+	} else if op.ExactJSON {
 		var raw json.RawMessage
 		if err := newClient(cfg).do(op.Method, path, body, &raw); err != nil {
 			return fail(stderr, err)

@@ -809,17 +809,9 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 	if c, _ := r.Cookie(oauthTenantCookie); c != nil && uuidRe.MatchString(c.Value) {
 		tid = tenancy.ID(c.Value)
 	}
-	mapped, err := s.brandLoginTenant(r)
+	mapped, err := s.callbackBrandTenant(w, r, tid)
 	if err != nil {
 		return err
-	}
-	brandCookie, _ := r.Cookie(oauthBrandCookie)
-	if (mapped != "" && mapped != tid.String()) ||
-		(brandCookie != nil && (mapped == "" || mapped != brandCookie.Value)) {
-		return apierror.Unauthorized("sign-in host mapping changed")
-	}
-	if brandCookie != nil {
-		s.clearOAuthCookie(w, oauthBrandCookie)
 	}
 	code := q.Get("code")
 	if code == "" {
@@ -1011,6 +1003,22 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 	s.sessions.SetCookie(w, token)
 	http.Redirect(w, r, "/", http.StatusFound)
 	return nil
+}
+
+func (s *Server) callbackBrandTenant(w http.ResponseWriter, r *http.Request, tenant tenancy.ID) (string, error) {
+	mapped, err := s.brandLoginTenant(r)
+	if err != nil {
+		return "", err
+	}
+	brandCookie, _ := r.Cookie(oauthBrandCookie)
+	if (mapped != "" && mapped != tenant.String()) ||
+		(brandCookie != nil && (mapped == "" || mapped != brandCookie.Value)) {
+		return "", apierror.Unauthorized("sign-in host mapping changed")
+	}
+	if brandCookie != nil {
+		s.clearOAuthCookie(w, oauthBrandCookie)
+	}
+	return mapped, nil
 }
 
 // handleLogout revokes the session and clears the cookie.

@@ -71,6 +71,9 @@ func NewSignedIncidentDraft(draft evidence.IncidentDraft, model string, degraded
 			}
 			citations := make([]nativeDraftCitation, len(sentence.Citations))
 			for i, citation := range sentence.Citations {
+				if _, ok := verified.Resolve(citation); !ok {
+					return SignedIncidentDraft{}, evidence.ErrDraftClaim
+				}
 				citations[i] = nativeDraftCitation{draftReference(citation.EvidenceID), draftPointer(citation.Pointer)}
 			}
 			projected.Sentences = append(projected.Sentences, nativeDraftSentence{sentence.Text, sentence.State, citations})

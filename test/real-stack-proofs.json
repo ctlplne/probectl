@@ -794,6 +794,13 @@
       ]
     },
     {
+      "ref": "test:internal/control/incident_draft_integration_test.go#TestIncidentDraftRechecksCredentialAndIsolatesTenantEvidence",
+      "profile": "integration",
+      "capabilities": [
+        "F9"
+      ]
+    },
+    {
       "ref": "test:internal/control/device_config_policy_integration_test.go#TestDeviceConfigPolicyCommitsOwnedEvaluationsAndRedactedWitnesses",
       "profile": "integration",
       "capabilities": [
