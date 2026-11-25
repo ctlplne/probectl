@@ -26,6 +26,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 // The S-T2 named integration suite (live Postgres; ClickHouse legs are
@@ -45,6 +46,68 @@ func countIn(t *testing.T, pool *pgxpool.Pool, table, tenantID string) int {
 		t.Fatalf("count %s: %v", table, err)
 	}
 	return n
+}
+
+func TestCloudTopologySiloCascadeKeepsSiblingInventory(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
+	ctx := t.Context()
+	stamp := fmt.Sprint(time.Now().UnixNano())
+	siloed := mkTenant(t, pool, "cloud-silo-"+stamp, "siloed", "")
+	pooled := mkTenant(t, pool, "cloud-pool-"+stamp, "pooled", "")
+	provisioner := NewProvisioner(pool, CHPlanes{}, nil, 0, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	t.Cleanup(func() {
+		cleanup := context.Background()
+		if err := provisioner.Teardown(cleanup, siloed, "", tenancy.IsolationSiloed); err != nil {
+			t.Error(err)
+		}
+		if _, err := pool.Exec(cleanup, `DELETE FROM public.tenants WHERE id IN ($1::uuid,$2::uuid)`, siloed, pooled); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := provisioner.Provision(ctx, siloed, "", tenancy.IsolationSiloed); err != nil {
+		t.Fatal(err)
+	}
+	siloTable := quoteIdent(SchemaName(siloed)) + `."cloud_topology_inventories"`
+	if _, err := pool.Exec(ctx, "ALTER TABLE "+siloTable+" DROP CONSTRAINT cloud_topology_inventories_tenant_id_fkey"); err != nil {
+		t.Fatalf("initial provision did not install the tenant cascade: %v", err)
+	}
+	if err := provisioner.CatchUpSchema(ctx, siloed); err != nil {
+		t.Fatal(err)
+	}
+	previous := tenancy.CurrentRouter()
+	t.Cleanup(func() { tenancy.SetRouter(previous); tenancy.SetSiloRequiredTables(nil) })
+	tenantTables, err := RequiredSiloTables(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenancy.SetSiloRequiredTables(tenantTables)
+	tenancy.SetRouter(NewRouter(pool, nil, 0).WithQuarantine(tenancy.NewQuarantine()))
+	inventory := topology.CloudInventory{
+		Source:     topology.CloudInventorySource{Provider: "gcp", Account: "example-project", Location: "global"},
+		ObservedAt: time.Now().UTC(),
+		Resources:  []topology.CloudInventoryResource{{ID: "test-vpc", Kind: topology.CloudNetwork, Type: "vpc"}},
+	}
+	for _, tenant := range []string{siloed, pooled} {
+		scoped := tenancy.WithTenant(ctx, tenancy.ID(tenant))
+		if err := tenancy.InTenant(scoped, pool, func(ctx context.Context, sc tenancy.Scope) error {
+			return (store.CloudTopologyInventories{}).Save(ctx, sc, inventory)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const pooledTable = "public.cloud_topology_inventories"
+	if countIn(t, pool, siloTable, siloed) != 1 || countIn(t, pool, pooledTable, siloed) != 0 ||
+		countIn(t, pool, pooledTable, pooled) != 1 {
+		t.Fatal("inventory did not route to the correct physical storage for both tenants")
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM public.tenants WHERE id=$1`, siloed); err != nil {
+		t.Fatal(err)
+	}
+	if countIn(t, pool, siloTable, siloed) != 0 || countIn(t, pool, pooledTable, pooled) != 1 {
+		t.Fatal("directory removal left silo inventory behind or removed the sibling's inventory")
+	}
 }
 
 func TestSiloedPhysicalSeparation(t *testing.T) {

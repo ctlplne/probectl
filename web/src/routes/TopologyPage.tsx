@@ -93,6 +93,7 @@ export function TopologyPage() {
       ? (params.get('entity_context') ?? '')
       : ''
   const includeKubernetes = Boolean(contextID) && params.get('include_kubernetes') === 'true'
+  const includeCloud = params.get('include_cloud') === 'true'
   const contexts = useEntityContexts(tenant.id, permissions.includes('entities.read'))
   const contextOptions = useMemo(() => {
     const known = (contexts.data?.pages ?? []).flatMap((page) =>
@@ -114,6 +115,7 @@ export function TopologyPage() {
     true,
     contextID,
     includeKubernetes,
+    includeCloud,
   )
   const comparisonAt =
     at && pivotContext.from && pivotContext.from !== at ? pivotContext.from : undefined
@@ -234,24 +236,18 @@ export function TopologyPage() {
     whatIf.mutate({ target, at: at || undefined })
   }
 
+  const previewTarget =
+    params.get('preview') === 'blast' && !selected?.kubernetes && !selected?.cloud
+      ? selected?.id
+      : undefined
   useEffect(() => {
-    const target =
-      params.get('preview') === 'blast' && !selected?.kubernetes ? selected?.id : undefined
     const incidentReady = !pivotContext.incidentId || linkedIncident.data?.id
-    if (!target || !incidentReady) return
-    const key = `${target}|${at || 'live'}|${linkedIncident.data?.id ?? ''}`
+    if (!previewTarget || !incidentReady) return
+    const key = `${previewTarget}|${at || 'live'}|${linkedIncident.data?.id ?? ''}`
     if (autoPreviewed.current === key) return
     autoPreviewed.current = key
-    whatIf.mutate({ target, at: at || undefined })
-  }, [
-    at,
-    linkedIncident.data?.id,
-    params,
-    pivotContext.incidentId,
-    selected?.id,
-    selected?.kubernetes,
-    whatIf,
-  ])
+    whatIf.mutate({ target: previewTarget, at: at || undefined })
+  }, [at, linkedIncident.data?.id, pivotContext.incidentId, previewTarget, whatIf])
 
   const updateTime = (value: string) => {
     setTimeInput(value)
@@ -340,6 +336,19 @@ export function TopologyPage() {
               ) : null}
             </>
           ) : null}
+          <label className={styles.inventoryControl}>
+            <input
+              type="checkbox"
+              checked={includeCloud}
+              onChange={(event) => {
+                const next = new URLSearchParams(params)
+                if (event.target.checked) next.set('include_cloud', 'true')
+                else next.delete('include_cloud')
+                setParams(next, { replace: true })
+              }}
+            />
+            {t('entity.topology.cloud')}
+          </label>
           <TopologyToolbar
             at={at}
             timeInput={timeInput}
@@ -385,6 +394,14 @@ export function TopologyPage() {
         </p>
       ) : null}
 
+      {data?.cloud_latest_only ? (
+        <p role="status" className={styles.safetyCopy}>
+          {nodes.some((node) => node.cloud)
+            ? t('entity.topology.cloudLatest')
+            : t('entity.topology.cloudEmpty')}
+        </p>
+      ) : null}
+
       {at && comparison.isError ? (
         <ErrorState
           title="Topology comparison unavailable"
@@ -414,7 +431,7 @@ export function TopologyPage() {
                 diff={versionDiff}
                 from={comparison.data?.at ?? comparisonAt ?? 'live'}
                 to={data.at ?? at}
-                selectedID={selected?.id}
+                selectedID={selected?.cloud ? undefined : selected?.id}
               />
             )}
             <TopologyListCard
@@ -808,6 +825,9 @@ function nodeMatches(
     node.label,
     node.site ?? '',
     node.kubernetes?.namespace ?? '',
+    node.cloud?.resource_id ?? '',
+    node.cloud?.account ?? '',
+    ...(node.cloud?.cidrs ?? []),
     ...tags,
   ]
     .join(' ')
@@ -1031,7 +1051,11 @@ function TopologyGraphCard({
                       styles.edge,
                       e.kind === 'flow' ? styles.edgeFlow : '',
                       e.kind === 'routing' ? styles.edgeRouting : '',
-                      e.kind === 'device' || e.observed_at ? styles.edgeDevice : '',
+                      e.kind.startsWith('cloud_')
+                        ? styles.edgeCloud
+                        : e.kind === 'device' || e.observed_at
+                          ? styles.edgeDevice
+                          : '',
                       impacted.edges.has(e.id) ? styles.edgeImpacted : '',
                     ]
                       .filter(Boolean)
@@ -1179,7 +1203,13 @@ const KIND_CLASS: Record<string, string | undefined> = {
   kubernetes_pod: styles.kindHost,
   kubernetes_service: styles.kindService,
   kubernetes_workload: styles.kindDevice,
+  cloud_network: styles.kindAs,
+  cloud_subnet: styles.kindPrefix,
+  cloud_gateway: styles.kindDevice,
+  cloud_peering: styles.kindService,
 }
+
+const CLOUD_PROVIDER_LABELS = { aws: 'AWS', azure: 'Azure', gcp: 'Google Cloud' }
 
 function kindClass(kind: string): string {
   if (kind.startsWith('kubernetes_')) return KIND_CLASS[kind] ?? styles.kindDevice
@@ -1187,7 +1217,9 @@ function kindClass(kind: string): string {
 }
 
 function topologyKindLabel(kind: string): string {
-  return kind.startsWith('kubernetes_') ? kind.replace(/_/g, ' ') : kind
+  return kind.startsWith('kubernetes_') || kind.startsWith('cloud_')
+    ? kind.replace(/_/g, ' ')
+    : kind
 }
 
 const T_BAND_PAD = 14
@@ -1223,6 +1255,7 @@ function TopologyLegend({ layout }: { layout: TopoLayout }) {
                 kind === 'flow' ? styles.edgeFlow : '',
                 kind === 'routing' ? styles.edgeRouting : '',
                 kind === 'device' || kind.startsWith('kubernetes_') ? styles.edgeDevice : '',
+                kind.startsWith('cloud_') ? styles.edgeCloud : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -1344,7 +1377,45 @@ function TopologySidePanel({
                     </dd>
                   </>
                 ) : null}
-                {selected.kubernetes ? (
+                {selected.cloud ? (
+                  <>
+                    <dt>{t('entity.topology.cloudSource')}</dt>
+                    <dd>
+                      {CLOUD_PROVIDER_LABELS[selected.cloud.provider]} · {selected.cloud.account} ·{' '}
+                      {selected.cloud.location}
+                    </dd>
+                    <dt>{t('entity.topology.cloudResource')}</dt>
+                    <dd>
+                      <code>{selected.cloud.resource_id}</code>
+                    </dd>
+                    <dt>{t('entity.topology.cloudType')}</dt>
+                    <dd>{selected.cloud.type.replace(/_/g, ' ')}</dd>
+                    {selected.cloud.state ? (
+                      <>
+                        <dt>{t('entity.topology.cloudState')}</dt>
+                        <dd>{selected.cloud.state}</dd>
+                      </>
+                    ) : null}
+                    {selected.cloud.cidrs?.length ? (
+                      <>
+                        <dt>{t('entity.topology.cloudPrefixes')}</dt>
+                        <dd>{selected.cloud.cidrs.join(', ')}</dd>
+                      </>
+                    ) : null}
+                    {selected.cloud.external ? (
+                      <>
+                        <dt>{t('entity.topology.cloudPeer')}</dt>
+                        <dd>{t('entity.topology.cloudPeerExternal')}</dd>
+                      </>
+                    ) : null}
+                    <dt>{t('entity.topology.kubernetesObservedAt')}</dt>
+                    <dd>
+                      <time dateTime={selected.cloud.observed_at}>
+                        {new Date(selected.cloud.observed_at).toLocaleString()}
+                      </time>
+                    </dd>
+                  </>
+                ) : selected.kubernetes ? (
                   <>
                     <dt>{t('entity.topology.kubernetesNamespace')}</dt>
                     <dd>{selected.kubernetes.namespace}</dd>
@@ -1368,7 +1439,7 @@ function TopologySidePanel({
                   </>
                 )}
               </dl>
-              {!selected.kubernetes ? (
+              {!selected.kubernetes && !selected.cloud ? (
                 <>
                   <p className={styles.simulationAction}>
                     <Button onClick={() => onSimulate(selected.id)} disabled={isSimulating}>
@@ -1548,20 +1619,30 @@ interface TopologyDiff {
 }
 
 function diffTopology(from: TopologyResponse, to: TopologyResponse): TopologyDiff {
-  const fromNodes = new Map(from.nodes.map((node) => [node.id, node]))
-  const toNodes = new Map(to.nodes.map((node) => [node.id, node]))
-  const fromEdges = new Map(from.edges.map((edge) => [topologyEdgeID(edge), edge]))
-  const toEdges = new Map(to.edges.map((edge) => [topologyEdgeID(edge), edge]))
+  // Cloud sources retain a latest complete snapshot, so there is no cloud
+  // history to compare with the dependency graph's earlier version.
+  const fromNodes = new Map(from.nodes.filter((node) => !node.cloud).map((node) => [node.id, node]))
+  const toNodes = new Map(to.nodes.filter((node) => !node.cloud).map((node) => [node.id, node]))
+  const fromEdges = new Map(
+    from.edges
+      .filter((edge) => !edge.kind.startsWith('cloud_'))
+      .map((edge) => [topologyEdgeID(edge), edge]),
+  )
+  const toEdges = new Map(
+    to.edges
+      .filter((edge) => !edge.kind.startsWith('cloud_'))
+      .map((edge) => [topologyEdgeID(edge), edge]),
+  )
   return {
-    addedNodes: to.nodes.filter((node) => !fromNodes.has(node.id)),
-    removedNodes: from.nodes.filter((node) => !toNodes.has(node.id)),
-    changedNodes: to.nodes.filter((node) => {
+    addedNodes: [...toNodes.values()].filter((node) => !fromNodes.has(node.id)),
+    removedNodes: [...fromNodes.values()].filter((node) => !toNodes.has(node.id)),
+    changedNodes: [...toNodes.values()].filter((node) => {
       const previous = fromNodes.get(node.id)
       return previous ? topologyNodeState(previous) !== topologyNodeState(node) : false
     }),
-    addedEdges: to.edges.filter((edge) => !fromEdges.has(topologyEdgeID(edge))),
-    removedEdges: from.edges.filter((edge) => !toEdges.has(topologyEdgeID(edge))),
-    changedEdges: to.edges.filter((edge) => {
+    addedEdges: [...toEdges.values()].filter((edge) => !fromEdges.has(topologyEdgeID(edge))),
+    removedEdges: [...fromEdges.values()].filter((edge) => !toEdges.has(topologyEdgeID(edge))),
+    changedEdges: [...toEdges.values()].filter((edge) => {
       const previous = fromEdges.get(topologyEdgeID(edge))
       return previous ? (previous.label ?? '') !== (edge.label ?? '') : false
     }),

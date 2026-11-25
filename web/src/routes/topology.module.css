@@ -54,6 +54,22 @@
   padding: var(--space-4);
 }
 
+.inventoryControl {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  inline-size: fit-content;
+  min-block-size: var(--density-touch-target);
+  cursor: pointer;
+}
+
+.inventoryControl input {
+  inline-size: var(--space-6);
+  block-size: var(--space-6);
+  margin: 0;
+  accent-color: hsl(var(--primary));
+}
+
 .clock {
   display: grid;
   gap: var(--space-3);
@@ -341,6 +357,11 @@
 .edgeDevice {
   stroke: hsl(var(--chart-3));
   stroke-dasharray: var(--viz-series-3-dash);
+}
+
+.edgeCloud {
+  stroke: hsl(var(--chart-4));
+  stroke-dasharray: var(--viz-series-4-dash);
 }
 
 .edgeImpacted {

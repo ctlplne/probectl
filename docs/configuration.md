@@ -2073,13 +2073,13 @@ Leave the direct-bus settings unset in enrolled mode.
 A **flow record** is a router's summary of one conversation — who talked to
 whom, on which ports/protocol, when, and how many bytes/packets — with **no
 payload**: the phone bill, not the phone call. NetFlow, IPFIX, and sFlow are the
-three export dialects devices speak; AWS VPC Flow Logs, Azure NSG Flow Logs, and
-GCP VPC Flow Logs are the equivalent cloud-export path. The flow collector
+three export dialects devices speak; AWS VPC Flow Logs, Azure NSG and VNet Flow
+Logs, and GCP VPC Flow Logs are the equivalent cloud-export path. The collector
 listens for NetFlow v5/v9, IPFIX, and sFlow v5 datagrams from network devices,
 decodes them (template + sampling handling), and publishes normalized batches to
-`probectl.flow.events` (`flowv1.FlowBatch`, tenant-keyed). Cloud flow logs and
-metrics are imported from local files already exported by the operator's cloud
-pipeline. probectl does not poll cloud-provider APIs.
+`probectl.flow.events` (`flowv1.FlowBatch`, tenant-keyed). Cloud flow logs come
+from local exports or an explicitly configured, read-only object pull. The
+cloud metrics agent imports local files from the operator's export pipeline.
 It reads a YAML config (default path `PROBECTL_FLOW_CONFIG`), refusing files
 larger than 1 MiB before YAML decoding; `PROBECTL_FLOW_*` env vars override the
 file. The defaults serve all three protocols on their
@@ -2118,8 +2118,8 @@ batches; canonical joins expire with the old evidence SVID.
 | `PROBECTL_FLOW_SFLOW_ENABLED`      | `true`      | serve sFlow v5                                                  |
 | `PROBECTL_FLOW_SFLOW_LISTEN`       | `:6343`     | sFlow UDP listen address                                        |
 | `PROBECTL_FLOW_SFLOW_ALLOWED_SOURCES` | (required for non-loopback) | comma-separated exporter CIDRs/IPs admitted before decode |
-| `PROBECTL_FLOW_CLOUD_PROVIDER`     | (none)      | one-shot local cloud-flow import provider: `aws_vpc_flow_logs`, `azure_nsg_flow_logs`, or `gcp_vpc_flow_logs`; when set, the agent imports and exits |
-| `PROBECTL_FLOW_CLOUD_FILE`         | (none)      | local file path for cloud-flow import, or `-` for stdin; required when `PROBECTL_FLOW_CLOUD_PROVIDER` is set |
+| `PROBECTL_FLOW_CLOUD_PROVIDER`     | (none)      | one-shot cloud-flow import provider. Use `aws_vpc_flow_logs`, `azure_nsg_flow_logs`, `azure_vnet_flow_logs`, or `gcp_vpc_flow_logs`. When set, the agent imports and exits. |
+| `PROBECTL_FLOW_CLOUD_FILE`         | (none)      | local file path for cloud-flow import, or `-` for stdin. Omit it when YAML selects `cloud_import.object` or `cloud_import.queue`. |
 | `PROBECTL_FLOW_BATCH_SIZE`         | `1000`      | records per emitted batch                                       |
 | `PROBECTL_FLOW_FLUSH_INTERVAL`     | `2s`        | max time a record waits before emission                         |
 | `PROBECTL_FLOW_TEMPLATE_TTL`       | `30m`       | v9/IPFIX template expiry                                        |
@@ -2130,7 +2130,7 @@ batches; canonical joins expire with the old evidence SVID.
 | `PROBECTL_FLOW_LOG_LEVEL`          | `info`      | `debug` \| `info` \| `warn` \| `error`                          |
 | `PROBECTL_FLOW_LOG_FORMAT`         | `json`      | `json` \| `text`                                                |
 
-YAML equivalent for one-shot cloud import:
+Use this YAML to import one local export.
 
 ```yaml
 cloud_import:
@@ -2138,14 +2138,91 @@ cloud_import:
   path: /var/lib/probectl/cloud-flow/aws-vpc-flow.log
 ```
 
+For a read from cloud storage, configure Kafka or NATS and use the `object`
+fields in place of `path`. The agent accepts native provider resource names.
+
+```yaml
+netflow: {enabled: false}
+ipfix: {enabled: false}
+sflow: {enabled: false}
+cloud_import:
+  provider: aws_vpc_flow_logs
+  object:
+    bucket: customer-flow-exports
+    key: AWSLogs/111122223333/vpcflowlogs/eu-west-1/example.log.gz
+    region: eu-west-1
+    expected_owner: "111122223333"
+    credential_ref: env:AWS_FLOW_READ_CREDENTIAL
+```
+
+| Field | Meaning |
+| --- | --- |
+| `bucket`, `key` | Required bucket or Azure container and exact object name. The key can contain nested export paths. |
+| `version` | Optional immutable S3 version ID, Azure Blob version timestamp, or GCS generation. Omit it to request the provider's current revision. S3 can overwrite its reserved `null` version. |
+| `region`, `expected_owner` | AWS-only fields. Set the bucket region and the owner's 12-digit AWS account ID. |
+| `account` | Azure-only storage account name. The collector uses Azure's public Blob Storage HTTPS endpoint. |
+| `credential_ref` | Required reference to an existing secrets backend. For AWS the value is JSON with `access_key_id`, `secret_access_key`, and optional `session_token`. For Azure and GCP the value is the current short-lived OAuth access token for storage read. |
+
+Run a separate collector configuration with a narrowly scoped cloud read
+identity and broker credentials for each tenant. Use the [documented secrets
+reference formats](secrets.md) to resolve credential values at run time.
+For GCS, the collector uses the direct media download endpoint at
+`storage.googleapis.com`. It refuses redirects and keeps the configured
+generation on the request.
+
+Azure Blob downloads read the native NSG or VNet JSON object with a top-level
+`records` array. Both compact and multiline exports are accepted. The collector
+validates the complete object before it publishes flows.
+[Azure NSG flow log format](https://learn.microsoft.com/en-us/azure/network-watcher/nsg-flow-logs-overview)
+
+Use `cloud_import.queue` in place of `path` or `object` for one notification
+poll. Use Kafka or NATS and create `state_dir` as an
+absolute, persistent directory writable only by the collector's operating
+system account, with directory mode `0700`.
+
+```yaml
+netflow: {enabled: false}
+ipfix: {enabled: false}
+sflow: {enabled: false}
+cloud_import:
+  provider: gcp_vpc_flow_logs
+  queue:
+    project: customer-flow-project
+    subscription: vpc-flow-exports
+    credential_ref: env:PROBECTL_QUEUE_READ_TOKEN
+    object:
+      bucket: customer-flow-exports
+      credential_ref: env:PROBECTL_STORAGE_READ_TOKEN
+    prefix: vpc-flow/exports/
+    state_dir: /var/lib/probectl/flow-queue
+```
+
+| Provider | Queue fields | Separate `object` fields |
+| --- | --- | --- |
+| `aws_vpc_flow_logs` | `account`, `region`, `name`, and `credential_ref` for the SQS signing credentials | `bucket`, `region`, `expected_owner`, and the S3 signing `credential_ref` |
+| `azure_nsg_flow_logs` or `azure_vnet_flow_logs` | `account`, `name`, and a queue OAuth `credential_ref` | Blob `account`, container in `bucket`, and a storage OAuth `credential_ref` |
+| `gcp_vpc_flow_logs` | `project`, `subscription`, and a Pub/Sub OAuth `credential_ref` | `bucket` and a storage OAuth `credential_ref` |
+
+`prefix` must end with `/`. The collector accepts only keys below that
+prefix and takes the object revision from the matched notification. `state_dir`
+holds tenant-scoped revision markers, capped at 65,536 per source. Each poll
+accepts up to ten queue messages and 64 notices, including skipped notices.
+An oversized batch is refused before any object is fetched.
+
+Azure Queue Storage exposes only the first visible messages to the read-only
+collector. The queue owner manages message removal or expiry. Until earlier
+messages leave that window, a subsequent poll can see the same messages while
+later exports wait. For specific exports outside that window, use the direct
+`cloud_import.object` path with their known keys and revisions.
+[Azure Peek Messages](https://learn.microsoft.com/en-us/rest/api/storageservices/peek-messages)
+
 If all UDP listeners are disabled, `cloud_import` must be complete; otherwise
 the flow agent refuses to start. Cloud import still publishes to the configured
 bus as `probectl.flow.events`, tenant-keyed by `tenant_id`.
 
-Cloud metrics use the live `probectl-cloud-metrics` importer documented below.
-It reads operator-exported JSONL locally and sends tenant-bound remote write to
-the self-hosted control plane. The previous cloud-pull prototype was never wired
-into a command, so there is no hidden cloud-API polling path.
+Cloud metrics use the separate `probectl-cloud-metrics` importer documented
+below. It reads operator-exported JSONL locally and sends tenant-bound remote
+write to the self-hosted control plane.
 
 The **control plane** consumes that flow topic, optionally enriches each record
 with ASN/geo, and persists to the flow store behind `/v1/flows/*` (top-talkers /

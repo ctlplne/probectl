@@ -40,6 +40,10 @@ const KIND_ORDER = [
   'kubernetes_workload',
   'as',
   'prefix',
+  'cloud_network',
+  'cloud_subnet',
+  'cloud_gateway',
+  'cloud_peering',
 ]
 
 export interface PlacedNode extends TopoNode {

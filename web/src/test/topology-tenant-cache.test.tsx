@@ -7,7 +7,7 @@
 import type { PropsWithChildren } from 'react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { test, expect, vi } from 'vitest'
 import { AuthContext, type AuthContextValue } from '../auth/AuthProvider'
 import { useTopology } from '../api/topology'
@@ -16,15 +16,22 @@ import { TopologyPage } from '../routes/TopologyPage'
 import { TimeProvider } from '../time/TimeProvider'
 import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
 
-test('topology canonical cache changes with the authenticated tenant', async () => {
+test('topology canonical and cloud inventory caches change with the authenticated tenant', async () => {
   const tenants = ['00000000-0000-4000-8000-000000000101', '00000000-0000-4000-8000-000000000102']
   const canonicalIDs = [
     '00000000-0000-4000-8000-000000000301',
     '00000000-0000-4000-8000-000000000302',
   ]
+  const projects = ['project-one', 'project-two']
   let selected = 0
-  const fetcher = vi.fn(async () =>
-    jsonResponse({
+  let signedIn = 0
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const expectedTenant = new Headers(init?.headers).get('X-Probectl-Tenant')
+    if (expectedTenant && expectedTenant !== tenants[signedIn]) {
+      return jsonResponse({ error: 'request tenant no longer matches the session' }, 403)
+    }
+    const cloud = new URL(String(input), 'https://probectl.test').searchParams.has('include_cloud')
+    return jsonResponse({
       topology_running: true,
       nodes: [
         {
@@ -32,12 +39,30 @@ test('topology canonical cache changes with the authenticated tenant', async () 
           kind: 'hop',
           label: '10.0.0.1',
           canonical_status: 'resolved',
-          canonical_entity_id: canonicalIDs[selected],
+          canonical_entity_id: canonicalIDs[signedIn],
         },
+        ...(cloud
+          ? [
+              {
+                id: `cloud:${projects[signedIn]}`,
+                kind: 'cloud_network',
+                label: 'overlapping-vpc',
+                cloud: {
+                  provider: 'gcp',
+                  account: projects[signedIn],
+                  location: 'global',
+                  resource_id: `projects/${projects[signedIn]}/global/networks/overlapping-vpc`,
+                  type: 'vpc',
+                  observed_at: '2026-11-23T15:14:00Z',
+                  cidrs: ['10.0.0.0/16'],
+                },
+              },
+            ]
+          : []),
       ],
       edges: [],
-    }),
-  )
+    })
+  })
   vi.stubGlobal('fetch', fetcher)
   const client = new QueryClient({
     defaultOptions: { queries: { staleTime: Infinity, retry: false } },
@@ -58,18 +83,30 @@ test('topology canonical cache changes with the authenticated tenant', async () 
       </QueryClientProvider>
     )
   }
-  const { result, rerender } = renderHook(() => useTopology(undefined, true, tenants[0]), {
-    wrapper,
-  })
+  const { result, rerender } = renderHook(
+    () => useTopology(undefined, true, tenants[0], false, true),
+    {
+      wrapper,
+    },
+  )
   await waitFor(() =>
     expect(result.current.data?.nodes[0]?.canonical_entity_id).toBe(canonicalIDs[0]),
   )
+  expect(result.current.data?.nodes[1]?.cloud?.account).toBe(projects[0])
+  signedIn = 1
+  await act(async () => {
+    const stale = await result.current.refetch()
+    expect(stale.isError).toBe(true)
+    expect(stale.data?.nodes[1]?.cloud?.account).toBe(projects[0])
+  })
   selected = 1
   rerender()
   await waitFor(() =>
     expect(result.current.data?.nodes[0]?.canonical_entity_id).toBe(canonicalIDs[1]),
   )
-  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(result.current.data?.nodes[1]?.cloud?.account).toBe(projects[1])
+  expect(result.current.data?.nodes.some((node) => node.cloud?.account === projects[0])).toBe(false)
+  expect(fetcher).toHaveBeenCalledTimes(3)
   client.clear()
 })
 

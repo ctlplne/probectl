@@ -611,6 +611,16 @@ func repairTenantBoundaryPlan(schema, quotedTable, table string) []string {
 	}
 	plan = append(plan, auditWriteFencePlan(quotedTable, table)...)
 	plan = append(plan, tenantWriteFencePlan(quotedTable, table)...)
+	if table == "cloud_topology_inventories" {
+		// LIKE does not copy the pooled table's foreign key. Keep inventory
+		// deletion tied to its tenant directory row in every storage model.
+		plan = append(plan, fmt.Sprintf(`DO $cloud_topology_tenant$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid=%s::regclass AND conname='cloud_topology_inventories_tenant_id_fkey') THEN
+ ALTER TABLE %s ADD CONSTRAINT cloud_topology_inventories_tenant_id_fkey
+  FOREIGN KEY (tenant_id) REFERENCES public.tenants (id) ON DELETE CASCADE;
+END IF;
+END $cloud_topology_tenant$`, quoteLiteral(quotedTable), quotedTable))
+	}
 	if table == "prospect_engagements" {
 		plan = append(plan,
 			"DROP TRIGGER IF EXISTS prospect_collection_deadline ON "+quotedTable,

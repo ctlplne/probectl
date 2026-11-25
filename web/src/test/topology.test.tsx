@@ -11,6 +11,7 @@ import axe from 'axe-core'
 import { renderApp } from './renderApp'
 import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
 import type { TopologyResponse, WhatIfImpact } from '../api/topology'
+import { pivotHref } from '../routes/pivotContext'
 
 /** S43 surface (PR1): the topology graph + what-if simulation. */
 
@@ -98,6 +99,81 @@ function stub() {
 }
 
 describe('topology + what-if (S43)', () => {
+  test('cloud inventory is optional, inspectable and excluded from graph history and what-if', async () => {
+    const account = 'example-owner'
+    const networkID = 'cloud:fixture-network'
+    const resourceID = `projects/${account}/global/networks/fixture-vpc`
+    const at = '2026-06-04T12:00:00Z'
+    const requests: URLSearchParams[] = []
+    const fallback = defaultFetch()
+    let simulationRequests = 0
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = pathOf(input)
+      if (path === '/v1/topology/whatif') simulationRequests += 1
+      if (path !== '/v1/topology') return fallback(input, init)
+      const params = new URL(String(input), 'https://probectl.test').searchParams
+      requests.push(params)
+      const graph = diamond()
+      if (params.get('include_cloud') === 'true') {
+        graph.cloud_latest_only = true
+        graph.nodes.push({
+          id: networkID,
+          kind: 'cloud_network',
+          label: 'fixture-vpc',
+          cloud: {
+            account,
+            provider: 'gcp',
+            location: 'global',
+            resource_id: resourceID,
+            type: 'vpc',
+            cidrs: ['10.44.0.0/16'],
+            observed_at: '2026-06-04T11:59:17Z',
+          },
+        })
+      }
+      return jsonResponse(graph)
+    })
+
+    renderApp(`/topology?at=${encodeURIComponent(at)}`)
+    await screen.findByRole('group', { name: /topology graph/i })
+    expect(requests.every((params) => !params.has('include_cloud'))).toBe(true)
+    await userEvent.click(screen.getByText('History & filters'))
+    const include = screen.getByRole('checkbox', { name: 'Show cloud inventory' })
+    expect(include).not.toBeChecked()
+    await userEvent.click(include)
+    const network = await screen.findByRole('button', { name: 'cloud network fixture-vpc' })
+    await userEvent.click(network)
+    const inspector = screen.getByRole('heading', { name: /inspector/i }).closest('section')
+    if (!inspector) throw new Error('missing inspector card')
+    expect(within(inspector).getByText(resourceID)).toBeInTheDocument()
+    expect(within(inspector).getByText('Google Cloud · example-owner · global')).toBeInTheDocument()
+    expect(within(inspector).getByText('10.44.0.0/16')).toBeInTheDocument()
+    expect(await screen.findByText('No node or edge changes in this interval.')).toBeInTheDocument()
+    expect(screen.getByText(/latest complete snapshot from each source/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /simulate failure/i })).not.toBeInTheDocument()
+    expect(requests.some((params) => params.get('include_cloud') === 'true')).toBe(true)
+    expect(
+      requests.filter((params) => params.has('include_cloud')).every((p) => p.get('at') === at),
+    ).toBe(true)
+
+    await userEvent.click(include)
+    await screen.findByRole('group', { name: /topology graph/i })
+    expect(
+      screen.queryByRole('button', { name: 'cloud network fixture-vpc' }),
+    ).not.toBeInTheDocument()
+
+    cleanup()
+    renderApp(
+      pivotHref(
+        '/topology',
+        { filters: {}, selection: { kind: 'entity', id: networkID } },
+        { include_cloud: 'true', preview: 'blast' },
+      ),
+    )
+    expect(await screen.findByText(resourceID)).toBeInTheDocument()
+    expect(simulationRequests).toBe(0)
+  })
+
   test('refreshes an empty site mesh and clears cached rows after access is refused', async () => {
     const tenant = '00000000-0000-4000-8000-000000000101'
     const fallback = defaultFetch()

@@ -11711,7 +11711,7 @@
         "description": "Returns the tenant's live or historical dependency graph. An explicit context_id adds a current canonical entity projection beside stable graph IDs. The canonical lookup time and truncation remain explicit. Use include_kubernetes with a routing context to include authorized Kubernetes objects and separately labelled owner or backend relationships. With an explicit at, each Kubernetes object and relationship has evidence covering that instant. On the live graph each Kubernetes object carries the time of its source's last completed observation. Ownership and membership edges represent inventory evidence. The per-plane coverage block describes the observed traffic and infrastructure graph. topology_running=false distinguishes an unwired store.",
         "parameters": [
           {
-            "$ref": "#/components/parameters/TenantHeader"
+            "$ref": "#/components/parameters/ExpectedRequestTenant"
           },
           {
             "name": "at",
@@ -11735,6 +11735,13 @@
             "in": "query",
             "required": false,
             "description": "Include verified Kubernetes objects and topology links. Requires context_id and current context and collector read authority.",
+            "schema": {"type": "boolean", "default": false}
+          },
+          {
+            "name": "include_cloud",
+            "in": "query",
+            "required": false,
+            "description": "Include the latest complete tenant cloud inventories that are fresh at the requested time. Cloud relationships are inventory evidence and do not participate in failure simulations.",
             "schema": {"type": "boolean", "default": false}
           }
         ],
@@ -11773,6 +11780,21 @@
                           "canonical_status": {
                             "type": "string", "enum": ["resolved", "conflict", "unresolved"]
                           },
+                          "cloud": {
+                            "type": "object",
+                            "required": ["provider", "account", "location", "resource_id", "type", "observed_at"],
+                            "properties": {
+                              "provider": {"type": "string", "enum": ["aws", "azure", "gcp"]},
+                              "account": {"type": "string"},
+                              "location": {"type": "string"},
+                              "resource_id": {"type": "string"},
+                              "type": {"type": "string"},
+                              "observed_at": {"type": "string", "format": "date-time"},
+                              "cidrs": {"type": "array", "items": {"type": "string"}},
+                              "state": {"type": "string"},
+                              "external": {"type": "boolean"}
+                            }
+                          },
                           "kubernetes": {
                             "type": "object",
                             "required": ["cluster_id", "namespace", "uid", "observed_at"],
@@ -11806,7 +11828,7 @@
                           "observed_at": {
                             "type": "string",
                             "format": "date-time",
-                            "description": "Original inventory witness time for a Kubernetes ownership or backend edge."
+                            "description": "Original witness time for a Kubernetes or cloud inventory edge."
                           }
                         }
                       }
@@ -11816,11 +11838,15 @@
                     },
                     "canonical_context_id": {"type": "string", "format": "uuid"},
                     "canonical_projection_current_at": {"type": "string", "format": "date-time"},
-                    "canonical_projection_truncated": {"type": "boolean"}
+                    "canonical_projection_truncated": {"type": "boolean"},
+                    "cloud_latest_only": {"type": "boolean", "description": "Cloud projection retains the latest complete snapshot per source."}
                   }
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         },
         "x-probectl-pagination": {

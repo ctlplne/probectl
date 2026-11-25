@@ -45,6 +45,26 @@ func TestParseDataPlanes(t *testing.T) {
 	}
 }
 
+func TestCloudTopologySiloCascadePlannedOnProvisionAndCatchUp(t *testing.T) {
+	const table = "cloud_topology_inventories"
+	const schema = "t_3fa2bc10123456789abcdef012345678"
+	tables := []string{table}
+	for _, plan := range [][]string{
+		ProvisionPlan(schema, tables),
+		CatchUpPlan(schema, Catalog{TenantTables: tables, SchemaTables: tables}),
+	} {
+		statements := strings.Join(plan, "\n")
+		for _, want := range []string{
+			`ALTER TABLE "` + schema + `"."` + table + `" ADD CONSTRAINT cloud_topology_inventories_tenant_id_fkey`,
+			`FOREIGN KEY (tenant_id) REFERENCES public.tenants (id) ON DELETE CASCADE`,
+		} {
+			if !strings.Contains(statements, want) {
+				t.Fatalf("cloud inventory plan is missing %q", want)
+			}
+		}
+	}
+}
+
 // TestProvisionPlan pins the schema-provisioning recipe: schema + grants,
 // then per tenant-owned table LIKE-copy + recreated RLS (defense-in-depth on
 // top of physical separation) + DML grants — and the provider-owned deny

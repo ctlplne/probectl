@@ -9,9 +9,9 @@ counts) and ships them off the box. NetFlow, IPFIX, and sFlow are the three
 common wire formats for that export: **NetFlow** is Cisco's original (v5 with a
 fixed layout, v9 template-based), **IPFIX** is the IETF standard that grew out
 of v9, and **sFlow** ships sampled raw packet headers instead of summaries. For
-cloud-first estates, probectl also imports already-exported **AWS VPC Flow
-Logs**, **Azure NSG Flow Logs**, and **GCP VPC Flow Logs** from local files or
-object-export pipelines; it does not call cloud APIs by default.
+cloud-first estates, probectl imports already-exported **AWS VPC Flow Logs**,
+**Azure NSG and VNet Flow Logs**, and **GCP VPC Flow Logs** from local files or
+explicitly selected objects in customer cloud storage.
 
 If a synthetic probe is placing a test call yourself, a flow record is a line
 on the itemized phone bill: it can't tell you how the call *sounded*, but it
@@ -32,7 +32,7 @@ is anything anomalous?*
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR
   R[routers / switches<br/>NetFlow v5/v9 · IPFIX · sFlow v5] -- UDP --> C[probectl-flow-agent<br/>decode · templates · sampling]
-  CL[cloud flow-log exports<br/>AWS VPC · Azure NSG · GCP VPC] -- "local file / object export" --> C
+  CL[cloud flow-log exports<br/>AWS VPC · Azure NSG/VNet · GCP VPC] -- "local file / object export" --> C
   C -- "probectl.flow.events (FlowBatch, tenant-keyed)" --> B[(bus)]
   C -- "probectl.flow.ingest-quality (bounded receipt, tenant-keyed)" --> B
   B --> P[control-plane FlowConsumer<br/>verify tenant · ASN/geo enrich (opt-in)]
@@ -76,6 +76,7 @@ IANA ports. Disable any listener you don't run.
 | sFlow v5 | `:6343` | raw-packet-header samples, parsed Ethernet / 802.1Q / IPv4 / IPv6 / TCP / UDP far enough for the 5-tuple |
 | AWS VPC Flow Logs | local line export | default v2 text fields; `log-status != OK` rows are ignored |
 | Azure NSG Flow Logs | local JSON Lines | Network Watcher v2 flow-tuples are normalized into the same 5-tuple/counter shape |
+| Azure VNet Flow Logs | Network Watcher `PT1H.json` or gzip | accepts versions 2, 4 and 5, preserves the source clock and separates traffic by direction |
 | GCP VPC Flow Logs | local JSON Lines | Cloud Logging VPC flow entries are normalized from `jsonPayload.connection` |
 
 **Templates (v9 / IPFIX).** Unlike v5's fixed layout, v9 and IPFIX describe
@@ -127,15 +128,14 @@ signals rather than remapping them. The mapping (see
 
 ## Cloud flow logs
 
-Cloud flow-log import lives in `internal/flow/cloudflow`. It is intentionally a
-local connector, not a cloud SDK client: an operator points probectl at files or
-object-store exports that already exist inside their environment. That keeps the
-default no-phone-home posture intact and lets air-gapped deployments use the same
-normalization path after they move logs across their boundary.
+Cloud flow-log import lives in `internal/flow/cloudflow`. It reads local
+exports by default. An operator can also configure a single read of a named
+object from their S3 bucket, Azure Blob container, or Google Cloud Storage
+bucket. Both paths use the same normalizers and tenant-bound flow consumer.
 
 Every imported row is stamped with the authenticated agent/operator tenant before
 storage; tenant identity is never accepted from the cloud log payload. AWS
-interface IDs, Azure NSG resource IDs/MACs, and GCP subnetwork labels are kept as
+interface IDs, Azure resource IDs/MACs, and GCP subnetwork labels are kept as
 exporter provenance, while `flow_protocol` records which cloud format was parsed.
 
 Use `probectl-flow-agent` in one-shot import mode with
@@ -143,6 +143,78 @@ Use `probectl-flow-agent` in one-shot import mode with
 `cloud_import` YAML block). The agent publishes the normalized records to the
 same tenant-keyed `probectl.flow.events` topic and exits; the control plane then
 uses the ordinary flow consumer and store path.
+
+For Azure VNet, feed a complete `PT1H.json` object and select
+`azure_vnet_flow_logs`. The parser reads the `records` array in order. Each
+nonzero sent or received delta produces a row in its own direction. Denied and
+begin tuples contribute no delivered traffic. The tuple clock identifies the
+time of the observation. Version 5 data keeps the original five-tuple from
+before any Private Link NAT translation. A malformed record or tuple is counted
+and skipped. Invalid JSON or a decompressed object beyond 64 MiB stops the
+import. During a local streaming import, previously published batches stay
+committed. Each record is limited to 4 MiB. The Azure VNet path uses
+schema-based fixtures for proof, with real Azure Storage verification pending. [Microsoft VNet flow-log format](https://learn.microsoft.com/en-us/azure/network-watcher/vnet-flow-logs-overview)
+
+### Pull from customer object storage
+
+Configure `cloud_import.object` in the collector YAML in place of
+`cloud_import.path`. The collector sends one authenticated HTTPS GET for the
+configured key. A returned redirect fails the import. An optional version pins
+the provider revision. S3 can overwrite a `null` version in place, so a pinned
+S3 read requires an immutable version ID. The response and its decoded gzip content each have a
+64 MiB limit. Before publishing its first record, the collector reads the
+full response, checks gzip integrity and validates the staged file's framing.
+The data pass counts and skips individual malformed records. A successful
+run waits for the configured Kafka or NATS broker to acknowledge delivery.
+
+Each tenant's collector uses its own secret reference, cloud read identity,
+and bus credentials. Grant AWS `s3:GetObject` or `s3:GetObjectVersion` only
+for the approved object scope, Azure **Storage Blob Data Reader** on the
+container, or GCP `storage.objects.get` on the approved bucket or object scope.
+For AWS, the request also verifies the expected bucket owner's account ID.
+Azure and GCP use short-lived OAuth access tokens in the request header.
+The cloud provider's payload cannot change tenant, credentials, or source.
+[Amazon S3 GetObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html) ·
+[S3 versioning-suspended buckets](https://docs.aws.amazon.com/AmazonS3/latest/userguide/AddingObjectstoVersionSuspendedBuckets.html) ·
+[Azure Get Blob](https://learn.microsoft.com/en-us/rest/api/storageservices/get-blob) ·
+[Google Cloud Storage objects.get](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/get)
+
+Current verification uses provider-shaped responses and a local storage
+fixture. Real cloud account verification is pending. See
+[collector configuration](configuration.md#flow-collector-probectl-flow-agent)
+for the object fields.
+
+### Pull cloud storage notifications
+
+Configure `cloud_import.queue` for a dedicated export notification queue or
+subscription. The collector reads up to ten messages per invocation and
+accepts object creation notices within the configured account, bucket and
+prefix. It uses a separate storage credential to fetch the exact version or
+make a conditional read with the notice's ETag. A replacement at the same key
+cannot fulfill an earlier notice when the original revision is unavailable.
+
+| Provider | Queue read and scope | Accepted notification |
+| --- | --- | --- |
+| AWS | `sqs:ReceiveMessage` on one standard queue. Requests use zero visibility timeout. | Direct Amazon S3 `ObjectCreated` records with a version ID or ETag. |
+| Azure | **Storage Queue Data Message Reader** on one queue. Peek leaves visibility unchanged. | Event Grid or CloudEvents `Microsoft.Storage.BlobCreated` with an ETag and a URL in the configured storage account. |
+| GCP | `pubsub.subscriptions.consume` on one pull subscription. Pull creates a delivery lease. | Cloud Storage `OBJECT_FINALIZE` with an object generation. |
+
+The collector leaves acknowledgement, deletion, and queue retention to the
+customer. SQS and Pub/Sub can redeliver the same messages. Azure Peek repeatedly
+reads the first visible messages, so the queue owner must keep that window
+moving for later exports to appear. Use a dedicated AWS queue and account for
+its redrive policy, which may move repeatedly received messages to a dead-letter
+queue. Queue polling covers notifications that the provider actually delivers.
+
+Use a stable agent ID and a private, persistent state directory on the
+collector's Unix host. A tenant-scoped lock prevents overlapping polls for the
+same source. After Kafka or NATS acknowledges the flow batches, the collector
+records the completed revision and skips its replays for 32 days. Loss of that
+state can cause a replay. Queue tests use provider-shaped responses and a local
+ClickHouse fixture. Real-account verification is pending.
+[SQS ReceiveMessage](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_ReceiveMessage.html) ·
+[Azure Peek Messages](https://learn.microsoft.com/en-us/rest/api/storageservices/peek-messages) ·
+[Pub/Sub pull](https://docs.cloud.google.com/pubsub/docs/reference/rest/v1/projects.subscriptions/pull)
 
 ## Security posture
 

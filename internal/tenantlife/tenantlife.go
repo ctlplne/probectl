@@ -1876,6 +1876,21 @@ func (e *Engine) pruneDerivedIdentityCaches(ctx context.Context, p retentionSwee
 			},
 		))
 	}
+	if e.pool != nil {
+		pruneErrors = append(pruneErrors, e.runRetentionPrune(
+			ctx, p.tenant, "cloud_topology_inventories", cutoff, days, "derived_identity_cache", nil,
+			func() (int64, error) {
+				var deleted int64
+				scoped := tenancy.WithTenant(ctx, tenancy.ID(p.tenant))
+				err := tenancy.InTenant(scoped, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+					var err error
+					deleted, err = (store.CloudTopologyInventories{}).PruneBefore(ctx, sc, cutoff)
+					return err
+				})
+				return deleted, err
+			},
+		))
+	}
 	if e.kubernetesRetention != nil {
 		pruneErrors = append(pruneErrors, e.runRetentionPrune(
 			ctx, p.tenant, "kubernetes_inventory", cutoff, days, "derived_identity_cache", nil,

@@ -25,6 +25,50 @@ type fakeS3Transport struct {
 	status  int
 }
 
+type s3VersionFixtureTransport func(*http.Request) (*http.Response, error)
+
+func (f s3VersionFixtureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestS3ScopedVersionReadSignsExpectedOwnerAndRefusesRedirect(t *testing.T) {
+	const key = "logs/one +?.gz"
+	const version = "revision +/value"
+	const owner = "111122223333"
+	const etag = `"revision-etag"`
+	for _, tc := range []struct {
+		status int
+		etag   string
+		ok     bool
+	}{{http.StatusOK, etag, true}, {http.StatusOK, `"replaced-object"`, false}, {http.StatusTemporaryRedirect, etag, false}} {
+		var calls int
+		client := &http.Client{Transport: s3VersionFixtureTransport(func(req *http.Request) (*http.Response, error) {
+			calls++
+			if req.URL.EscapedPath() != "/flow-exports/logs/one%20%2B%3F.gz" || req.URL.Query().Get("versionId") != version ||
+				req.URL.Host != "s3.eu-west-1.amazonaws.com" || req.Method != http.MethodGet || req.Header.Get("X-Amz-Expected-Bucket-Owner") != owner ||
+				req.Header.Get("If-Match") != etag ||
+				!strings.Contains(req.Header.Get("Authorization"), "SignedHeaders=host;if-match;x-amz-content-sha256;x-amz-date;x-amz-expected-bucket-owner;x-amz-security-token,") {
+				t.Fatal("GET did not authenticate the configured owner and exact version")
+			}
+			res := fakeS3Response(tc.status, "blob", map[string]string{"Location": "https://s3.eu-west-1.amazonaws.com/other-tenant/secret"})
+			res.Header.Set("X-Amz-Version-Id", version)
+			res.Header.Set("ETag", tc.etag)
+			return res, nil
+		})}
+		source, err := newS3(S3Config{Endpoint: "https://s3.eu-west-1.amazonaws.com", Region: "eu-west-1", Bucket: "flow-exports",
+			AccessKey: "FIXTUREKEY", SecretKey: "fixture-signing-value", SessionToken: "fixture-session"}, client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var staged strings.Builder
+		n, err := source.copyVersionLimited(t.Context(), S3ReadRevision{Key: key, Version: version, ExpectedOwner: owner, ETag: etag}, &staged, 64)
+		if calls != 1 || (tc.ok && (err != nil || n != 4 || staged.String() != "blob")) ||
+			(!tc.ok && (err == nil || n > 0 || staged.Len() != 0)) {
+			t.Fatalf("unexpected S3 bounded transfer, status=%d calls=%d copied=%d err=%v", tc.status, calls, n, err)
+		}
+	}
+}
+
 func (f *fakeS3Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -20,6 +20,7 @@ import (
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/topology"
 )
 
 type retentionPolicyState struct {
@@ -31,6 +32,60 @@ type retentionPolicyState struct {
 	PrunedSeq     int64
 	PrunedHash    string
 	RetentionRows int64
+}
+
+func TestCloudInventoryRetentionWithoutLiveTopologyKeepsSiblingScope(t *testing.T) {
+	pool := itPool(t)
+	t.Cleanup(pool.Close)
+	ctx := t.Context()
+	now := time.Now().UTC().Truncate(time.Second)
+	var tenants []string
+	for _, name := range []string{"red", "blue"} {
+		tenant := mkTenant(t, pool, fmt.Sprintf("it-cloud-retention-%s-%d", name, now.UnixNano()))
+		tenants = append(tenants, tenant)
+		t.Cleanup(func() {
+			if _, err := pool.Exec(context.Background(), `DELETE FROM tenants WHERE id = $1`, tenant); err != nil {
+				t.Errorf("remove tenant fixture: %v", err)
+			}
+		})
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			inventories := store.CloudTopologyInventories{}
+			for i, age := range []time.Duration{48 * time.Hour, 24 * time.Hour, 30 * time.Minute} {
+				inventory := topology.CloudInventory{
+					Source:     topology.CloudInventorySource{Provider: "aws", Account: "111122223333", Location: fmt.Sprintf("test-region-%d", i)},
+					ObservedAt: now.Add(-age),
+				}
+				if err := inventories.Save(ctx, sc, inventory); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("seed %s cloud inventory: %v", name, err)
+		}
+	}
+
+	receipts := &capturedAudit{}
+	engine := New(pool, nil, nil, nil, receipts.sink, "", testLog()).
+		WithClock(func() time.Time { return now }).WithDerivedIdentityRetentionDays(1)
+	if err := engine.pruneDerivedIdentityCaches(ctx, retentionSweepPolicy{tenant: tenants[0]}); err != nil {
+		t.Fatal(err)
+	}
+	for i, tenant := range tenants {
+		var rows, expired int
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			return sc.Q.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE observed_at < $1) FROM cloud_topology_inventories`,
+				now.Add(-24*time.Hour)).Scan(&rows, &expired)
+		})
+		if err != nil || rows != 2+i || expired != i {
+			t.Fatalf("tenant %d cloud inventory after retention: total=%d expired=%d err=%v", i, rows, expired, err)
+		}
+	}
+	if len(receipts.data) != 2 || receipts.data[0]["store"] != "cloud_topology_inventories" ||
+		receipts.data[0]["status"] != "intent" || receipts.data[1]["status"] != "enforced" || receipts.data[1]["deleted"] != int64(1) {
+		t.Fatalf("missing cloud inventory retention audit: %+v", receipts.data)
+	}
 }
 
 func tenantRetentionState(t *testing.T, engine *Engine, tenantID string) retentionPolicyState {

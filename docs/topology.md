@@ -48,6 +48,90 @@ every sighting lands on the same vertex.
   follow OTel conventions where they exist — a `flow` edge carries
   `destination.port`, `network.transport`, and `network.protocol.name`.
 
+## Cloud inventory
+
+### AWS
+
+A deployment operator can refresh one tenant's AWS account and region. The
+command resolves its read credential through the existing secrets integration
+and verifies the account with `GetCallerIdentity` before making any inventory
+requests. Use `ec2:DescribeVpcs`, `ec2:DescribeSubnets`,
+`ec2:DescribeInternetGateways`, `ec2:DescribeNatGateways`,
+`ec2:DescribeVpnGateways`, and `ec2:DescribeVpcPeeringConnections`. The command
+uses the same AWS credential JSON fields as cloud flow-log imports.
+
+```sh
+probectl-control sync-cloud-topology --tenant "$TENANT_ID" \
+  --aws-account "$AWS_ACCOUNT" --aws-region "$AWS_REGION" \
+  --credential-ref env:AWS_TOPOLOGY_READER
+```
+
+The AWS command verifies its configured account before reading EC2 inventory.
+Real AWS account verification remains pending. [AWS account identity](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html) · [EC2 VPC inventory](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeVpcs.html)
+
+### Azure
+
+Select an Azure subscription UUID. Provide an OAuth access token for Azure
+Resource Manager through a secret reference. In that subscription, grant the
+identity `Microsoft.Resources/subscriptions/resources/read` and the
+`Microsoft.Network/virtualNetworks/read`, `Microsoft.Network/natGateways/read`
+and `Microsoft.Network/virtualNetworkGateways/read` actions.
+
+```sh
+probectl-control sync-cloud-topology --tenant "$TENANT_ID" \
+  --azure-subscription "$AZURE_SUBSCRIPTION" --credential-ref env:AZURE_TOPOLOGY_READER
+```
+
+The command reads VNets, their subnets and peerings, NAT gateways, and up to
+128 virtual network gateways per refresh, including VPN and ExpressRoute.
+It checks the subscription in resource IDs and follows pagination within
+each configured list. Supply a current Resource Manager token for each
+refresh. Real Azure subscription verification remains pending. [Virtual networks](https://learn.microsoft.com/en-us/rest/api/virtualnetwork/virtual-networks/list-all?view=rest-virtualnetwork-2025-05-01) · [NAT gateways](https://learn.microsoft.com/en-us/rest/api/virtualnetwork/nat-gateways/list-all?view=rest-virtualnetwork-2025-05-01) · [Virtual network gateways](https://learn.microsoft.com/en-us/rest/api/network-gateway/virtual-network-gateways?view=rest-network-gateway-2025-05-01)
+
+### Google Cloud
+
+Select one Compute Engine project by ID. Provide a read-only OAuth access
+token through a secret reference. Use `compute.readonly` scope and the
+`compute.networks.list`, `compute.subnetworks.list`, `compute.vpnGateways.list`,
+`compute.targetVpnGateways.list`, `compute.routers.list`, and
+`compute.routes.list` permissions within that project. Supply a current token
+for each scheduled refresh.
+
+```sh
+probectl-control sync-cloud-topology --tenant "$TENANT_ID" \
+  --gcp-project "$GCP_PROJECT" --credential-ref env:GCP_TOPOLOGY_READER
+```
+
+The project-wide view includes VPCs, subnets, HA and Classic VPN gateways,
+Cloud NAT configurations, default internet gateway attachments found in
+routes, and network peerings. The command rejects incomplete regional results
+and responses for a different Compute Engine collection. A failed refresh
+leaves the last complete snapshot in place until it expires. Cross-project
+peering references stay within the local projection.
+Real Google Cloud project verification remains pending. [Networks](https://docs.cloud.google.com/compute/docs/reference/rest/v1/networks/list) · [VPN gateways](https://docs.cloud.google.com/compute/docs/reference/rest/v1/vpnGateways/aggregatedList) · [Routes](https://docs.cloud.google.com/compute/docs/reference/rest/v1/routes/list)
+
+### View and refresh inventory
+
+On the Topology page, open **History & filters** and select **Show cloud
+inventory**. Select a cloud node to inspect its source, full resource ID,
+prefixes and observation time. Use `GET /v1/topology?include_cloud=true` or
+`probectl topology show --query include_cloud=true` for the same projection.
+A tenant session needs `topology.read`. The projection uses the latest
+complete snapshot per source and records the start of the provider inventory
+read. An observation must be fresh within one hour of the requested graph
+time. `cloud_latest_only`
+identifies the latest-snapshot retention policy. Schedule the command through
+the deployment's normal job runner to refresh the inventory before it expires.
+
+VPCs with overlapping addresses remain separate. Peering connections show
+only their known local attachments and mark a connection with an unobserved
+endpoint as external. The cloud relationships describe configured inventory.
+What-if calculations continue to use the observed dependency graph. The
+effective derived identity retention policy prunes old snapshots even when
+live topology collection is off. Cloud inventory deletions are audited under
+`cloud_topology_inventories`. Both pooled and siloed inventories are tied to
+the tenant directory row, so tenant deletion removes the remaining snapshots.
+
 ## Versioning / temporal (designed in, not bolted on)
 
 Every node and edge carries a **validity interval** `[FirstSeen, LastSeen]`.

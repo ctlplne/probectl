@@ -19,7 +19,8 @@ same:
   signal types: metrics, traces, and logs.
 - **Flow analytics** — decodes the flow summaries your routers, switches, and
   cloud accounts already export (NetFlow, IPFIX, sFlow, AWS VPC Flow Logs,
-  Azure NSG Flow Logs, and GCP VPC Flow Logs) into one record per conversation.
+  Azure NSG and VNet Flow Logs, and GCP VPC Flow Logs) into normalized traffic
+  observations.
 - **Device telemetry** — reads the switches' and routers' own health (interface
   counters, link state, CPU, memory, temperature) over SNMP and gNMI.
 
@@ -93,11 +94,11 @@ application-performance-monitoring (APM) replacement and not a log store.
 byte and packet counts — as UDP (User Datagram Protocol) datagrams to a small
 collector. The collector decodes NetFlow v5/v9, IPFIX, and sFlow into one
 normalized, tenant-bound record. Cloud networks export the same idea as logs:
-AWS VPC Flow Logs, Azure NSG Flow Logs, and GCP VPC Flow Logs enter through a
-local file/object-export connector and land in the same record shape, with the
-provider resource kept as exporter provenance. Cloud metrics likewise enter
-through `probectl-cloud-metrics` from an operator-exported local JSONL file;
-probectl does not poll AWS, Azure, or Google APIs. Two details matter:
+AWS VPC Flow Logs, Azure NSG and VNet Flow Logs, and GCP VPC Flow Logs enter
+through a local file or an explicitly configured cloud object read. Both
+produce the same record shape and keep the provider resource as exporter
+provenance. Cloud metrics enter through `probectl-cloud-metrics` from an
+operator-exported local JSONL file. Two details matter:
 template-based formats (v9, IPFIX) send the record's shape in a *template* the
 exporter resends periodically, so data that arrives before its template is
 counted as a miss and the gap self-heals; and high-rate links *sample* (say 1 in

@@ -24,8 +24,21 @@ export interface TopoNode {
   canonical_entity_id?: string
   canonical_status?: 'resolved' | 'conflict' | 'unresolved'
   kubernetes?: { cluster_id: string; namespace: string; uid: string; observed_at: string }
+  cloud?: CloudTopologyObject
   site?: string
   tags?: string[]
+}
+
+interface CloudTopologyObject {
+  provider: 'aws' | 'azure' | 'gcp'
+  account: string
+  location: string
+  resource_id: string
+  type: string
+  observed_at: string
+  cidrs?: string[]
+  state?: string
+  external?: boolean
 }
 
 export interface TopoEdge {
@@ -54,6 +67,7 @@ export interface TopologyResponse {
   canonical_context_id?: string
   canonical_projection_current_at?: string
   canonical_projection_truncated?: boolean
+  cloud_latest_only?: boolean
 }
 
 export interface PathImpact {
@@ -108,6 +122,7 @@ export function useTopology(
   enabled = true,
   contextID = '',
   includeKubernetes = false,
+  includeCloud = false,
 ) {
   const { tenant } = useAuth()
   const query = new URLSearchParams()
@@ -115,13 +130,18 @@ export function useTopology(
   if (contextID) query.set('context_id', contextID)
   const kubernetes = Boolean(contextID) && includeKubernetes
   if (kubernetes) query.set('include_kubernetes', 'true')
+  if (includeCloud) query.set('include_cloud', 'true')
   const qs = query.size ? `?${query.toString()}` : ''
   return useQuery({
     // The same routing-context UUID may exist in different tenants. Keep
     // canonical projections and raw graphs in separate tenant cache lanes.
-    queryKey: ['topology', tenant.id, at ?? 'live', contextID, kubernetes],
+    queryKey: ['topology', tenant.id, at ?? 'live', contextID, kubernetes, includeCloud],
     enabled,
-    queryFn: () => apiFetch<TopologyResponse>(`/topology${qs}`),
+    queryFn: ({ signal }) =>
+      apiFetch<TopologyResponse>(`/topology${qs}`, {
+        signal,
+        headers: { 'X-Probectl-Tenant': tenant.id },
+      }),
   })
 }
 

@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/agent"
 	agentmetrics "github.com/ctlplne/probectl/internal/agent/metrics"
@@ -36,6 +37,7 @@ import (
 	"github.com/ctlplne/probectl/internal/flow/cloudflow"
 	agentv1 "github.com/ctlplne/probectl/internal/gen/probectl/agent/v1"
 	"github.com/ctlplne/probectl/internal/logging"
+	"github.com/ctlplne/probectl/internal/secrets"
 	"github.com/ctlplne/probectl/internal/version"
 )
 
@@ -102,6 +104,9 @@ func run() error {
 
 	if cfg.CloudImport.Provider != "" {
 		return metricsRuntime.RunTogether(ctx, func(ctx context.Context) error {
+			if cfg.CloudImport.Object != nil || cfg.CloudImport.Queue != nil {
+				return runRemoteCloudImport(ctx, cfg, emitter, b, log)
+			}
 			return runCloudImport(ctx, cfg, emitter, log)
 		})
 	}
@@ -192,6 +197,55 @@ func runCloudImport(ctx context.Context, cfg *flow.Config, emitter flow.Emitter,
 		"records", n,
 		"malformed", malformed,
 		"tenant", cfg.TenantID)
+	return nil
+}
+
+func runRemoteCloudImport(ctx context.Context, cfg *flow.Config, emitter flow.Emitter, producer bus.Bus, log *slog.Logger) error {
+	flusher, ok := producer.(bus.Flusher)
+	if !ok {
+		return fmt.Errorf("flow: remote cloud import requires broker delivery acknowledgement")
+	}
+	resolver, err := secrets.FromEnv(secrets.DefaultLease)
+	if err != nil {
+		return fmt.Errorf("flow: initialize cloud import secrets: %w", err)
+	}
+	defer resolver.Close()
+	flush := func(ctx context.Context) error {
+		return flushCloudImport(ctx, flusher, producer)
+	}
+	if cfg.CloudImport.Queue != nil {
+		result, err := cloudflow.PullQueue(ctx, cfg.CloudImport, cfg.TenantID, cfg.AgentID, resolver, emitter, flush)
+		if err != nil {
+			return err
+		}
+		log.Info("flow: cloud queue import complete", "provider", cfg.CloudImport.Provider,
+			"objects", result.Objects, "records", result.Records, "malformed", result.Malformed,
+			"replayed", result.Replayed, "out_of_scope", result.OutOfScope, "tenant", cfg.TenantID)
+		return nil
+	}
+	n, malformed, err := cloudflow.PullObject(ctx, cfg.CloudImport, cfg.TenantID, cfg.AgentID, resolver, emitter)
+	if err != nil {
+		return err
+	}
+	if err := flush(ctx); err != nil {
+		return err
+	}
+	log.Info("flow: cloud object import complete", "provider", cfg.CloudImport.Provider,
+		"records", n, "malformed", malformed, "tenant", cfg.TenantID)
+	return nil
+}
+
+func flushCloudImport(ctx context.Context, flusher bus.Flusher, producer bus.Bus) error {
+	flush, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := flusher.Flush(flush); err != nil {
+		return fmt.Errorf("flow: cloud import delivery acknowledgement: %w", err)
+	}
+	if reporter, ok := producer.(bus.PublishFailureReporter); ok {
+		if failed, shed, _ := reporter.PublishFailures(); failed != 0 || shed != 0 {
+			return fmt.Errorf("flow: cloud import delivery failed for %d batches and shed %d batches", failed, shed)
+		}
+	}
 	return nil
 }
 

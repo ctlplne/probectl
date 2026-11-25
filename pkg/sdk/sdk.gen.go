@@ -11954,6 +11954,7 @@ type GetTopologyRequest struct {
 	At                *string `json:"-"`
 	ContextId         *string `json:"-"`
 	IncludeKubernetes *bool   `json:"-"`
+	IncludeCloud      *bool   `json:"-"`
 }
 
 func (c *Client) GetTopology(ctx context.Context, req GetTopologyRequest) (map[string]any, error) {
@@ -11967,6 +11968,9 @@ func (c *Client) GetTopology(ctx context.Context, req GetTopologyRequest) (map[s
 	}
 	if req.IncludeKubernetes != nil {
 		query.Set("include_kubernetes", formatQueryValue(*req.IncludeKubernetes))
+	}
+	if req.IncludeCloud != nil {
+		query.Set("include_cloud", formatQueryValue(*req.IncludeCloud))
 	}
 	var out map[string]any
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {

@@ -118,6 +118,15 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if cloud := r.URL.Query().Get("include_cloud"); cloud != "" && cloud != "false" {
+		if cloud != "true" {
+			return apierror.BadRequest("include_cloud must be true or false")
+		}
+		if err := s.projectCloudTopology(r.Context(), tid, at, &viz); err != nil {
+			return err
+		}
+		projection["cloud_latest_only"] = true
+	}
 	response := map[string]any{
 		"topology_running": true,
 		"at":               snap.At.UTC(),
@@ -129,6 +138,31 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) error {
 		response[key] = value
 	}
 	writeJSON(w, http.StatusOK, response)
+	return nil
+}
+
+func (s *Server) projectCloudTopology(ctx context.Context, tenant string, at time.Time, viz *topology.Viz) error {
+	if s.pool == nil {
+		return apierror.Unavailable("cloud topology inventory storage unavailable")
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	ctx = tenancy.WithTenant(ctx, tenancy.ID(tenant))
+	var observations []topology.CloudInventory
+	err := tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		observations, err = (store.CloudTopologyInventories{}).Visible(ctx, sc, at)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	for _, observation := range observations {
+		if err := topology.ProjectCloudInventory(viz, observation); err != nil {
+			return apierror.Unavailable("stored cloud topology could not be projected").Wrap(err)
+		}
+	}
 	return nil
 }
 

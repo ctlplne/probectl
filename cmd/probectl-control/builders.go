@@ -797,11 +797,11 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 	case "testsync":
 		// G9: print the test-bundle public key agents verify with.
 		return true, runTestSync(os.Args[2:], os.Getenv, os.Stdout)
-	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "bootstrap-admin", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token", "register-collector", "replay-deadletter", "envelope-rewrap", "backup-control-state":
+	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "bootstrap-admin", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token", "register-collector", "replay-deadletter", "envelope-rewrap", "backup-control-state", "sync-cloud-topology":
 		// fall through to the configured path in run()
 		return false, nil
 	default:
-		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | bootstrap-admin | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | public-mrt-fetch | testsync | gen-cert | stage-binary | stage-credentials | ir-key-install | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | backup-control-state | restore-control-state | version)", cmd)
+		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | bootstrap-admin | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | public-mrt-fetch | testsync | gen-cert | stage-binary | stage-credentials | ir-key-install | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | backup-control-state | restore-control-state | sync-cloud-topology | version)", cmd)
 	}
 }
 
@@ -811,7 +811,7 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 // (and anything else) so run() continues into the serving wiring. The DB is
 // owned by run() (its `defer db.Close()` fires after this returns). Extracted
 // verbatim from run()'s second switch (CODE-001).
-func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.Logger) (handled bool, err error) {
+func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.Logger, resolver *secrets.Resolver) (handled bool, err error) {
 	if cmd == "migrate" {
 		return true, runMigrations(context.Background(), cfg, db, log)
 	}
@@ -821,6 +821,8 @@ func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.L
 		return true, fmt.Errorf("tenancy router: %w", err)
 	}
 	switch cmd {
+	case "sync-cloud-topology":
+		return true, runSyncCloudTopology(context.Background(), db, resolver, log, os.Args[2:])
 	case "mcp-stdio":
 		return true, runMCPStdio(cfg, log, db)
 	case "mcp-token":

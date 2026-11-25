@@ -7541,6 +7541,7 @@ export interface GetTopologyRequest {
   at?: string
   contextId?: string
   includeKubernetes?: boolean
+  includeCloud?: boolean
 }
 
 export type GetTopologyResponse = JsonObject
@@ -10013,6 +10014,7 @@ export class ProbectlSDKClient {
     if (request.at !== undefined) query.set("at", String(request.at))
     if (request.contextId !== undefined) query.set("context_id", String(request.contextId))
     if (request.includeKubernetes !== undefined) query.set("include_kubernetes", String(request.includeKubernetes))
+    if (request.includeCloud !== undefined) query.set("include_cloud", String(request.includeCloud))
     return this.requestJSON<GetTopologyResponse>("GET", path, query, undefined)
   }
 

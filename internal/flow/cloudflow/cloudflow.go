@@ -4,10 +4,8 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-// Package cloudflow imports cloud-provider flow logs into probectl's normalized
-// flow store. It intentionally does not fetch from AWS, Azure, or GCP APIs:
-// operators feed local files/objects that their own cloud export pipeline
-// produced, preserving the no-phone-home guardrail.
+// Package cloudflow imports local exports or explicitly configured customer
+// cloud objects into the normalized flow pipeline.
 package cloudflow
 
 import (
@@ -31,9 +29,10 @@ import (
 type Provider string
 
 const (
-	ProviderAWSVPC   Provider = "aws_vpc_flow_logs"
-	ProviderAzureNSG Provider = "azure_nsg_flow_logs"
-	ProviderGCPVPC   Provider = "gcp_vpc_flow_logs"
+	ProviderAWSVPC    Provider = "aws_vpc_flow_logs"
+	ProviderAzureNSG  Provider = "azure_nsg_flow_logs"
+	ProviderAzureVNet Provider = flow.ProtoAzureVNetFlowLogs
+	ProviderGCPVPC    Provider = "gcp_vpc_flow_logs"
 )
 
 var (
@@ -67,7 +66,7 @@ func (c *Connector) load(ctx context.Context, provider Provider, tenantID string
 	if c == nil || c.store == nil {
 		return 0, 0, ErrNoStore
 	}
-	return scan(ctx, provider, tenantID, c.agentID, r, c.now, func(ctx context.Context, recs []flow.Record) error {
+	return scan(ctx, provider, tenantID, c.agentID, r, c.now, false, func(ctx context.Context, recs []flow.Record) error {
 		rows := make([]flowstore.Row, 0, len(recs))
 		for i := range recs {
 			rows = append(rows, rowFromRecord(recs[i]))
@@ -76,7 +75,7 @@ func (c *Connector) load(ctx context.Context, provider Provider, tenantID string
 	})
 }
 
-// Emit reads cloud flow-log lines and publishes them through the normal flow
+// Emit reads cloud flow-log exports and publishes them through the normal flow
 // emitter path (`probectl.flow.events` in production). It is the flow-agent
 // import mode used for local/exported cloud logs. It reports the number of
 // records emitted and the number of malformed lines skipped (RTP-20).
@@ -87,12 +86,12 @@ func Emit(ctx context.Context, provider Provider, tenantID, agentID string, r io
 	if agentID == "" {
 		agentID = "cloud-flow-importer"
 	}
-	return scan(ctx, provider, tenantID, agentID, r, time.Now, emit.Emit)
+	return scan(ctx, provider, tenantID, agentID, r, time.Now, false, emit.Emit)
 }
 
 type recordSink func(context.Context, []flow.Record) error
 
-func scan(ctx context.Context, provider Provider, tenantID, agentID string, r io.Reader, now func() time.Time, sink recordSink) (inserted, malformed int, err error) {
+func scan(ctx context.Context, provider Provider, tenantID, agentID string, r io.Reader, now func() time.Time, stagedObject bool, sink recordSink) (inserted, malformed int, err error) {
 	if tenantID == "" {
 		return 0, 0, ErrNoTenant
 	}
@@ -108,21 +107,27 @@ func scan(ctx context.Context, provider Provider, tenantID, agentID string, r io
 	// gzip magic (0x1f 0x8b) and transparently decompress — Peek does not consume
 	// the stream, so an uncompressed export is scanned unchanged. This is content
 	// detection, not filename detection, so it works for stdin and any entry path.
-	br := bufio.NewReader(r)
-	var src io.Reader = br
-	if magic, perr := br.Peek(2); perr == nil && magic[0] == 0x1f && magic[1] == 0x8b {
-		gz, gerr := gzip.NewReader(br)
-		if gerr != nil {
-			return 0, 0, fmt.Errorf("cloudflow: %s gzip: %w", provider, gerr)
+	src := r
+	if !stagedObject {
+		br := bufio.NewReader(r)
+		src = br
+		if gzipStream(br) {
+			gz, gerr := gzip.NewReader(br)
+			if gerr != nil {
+				return 0, 0, fmt.Errorf("cloudflow: %s gzip: %w", provider, gerr)
+			}
+			defer func() { _ = gz.Close() }()
+			src = gz
 		}
-		defer func() { _ = gz.Close() }()
-		src = gz
 	}
 
-	scanner := bufio.NewScanner(src)
-	scanner.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
-
 	pending := make([]flow.Record, 0, 256)
+	azureLog := provider == ProviderAzureVNet || (stagedObject && provider == ProviderAzureNSG)
+	batchLimit := 1000
+	if azureLog {
+		// ARM resource IDs can carry more metadata than a device IP address.
+		batchLimit = 256
+	}
 	flush := func() error {
 		if len(pending) == 0 {
 			return nil
@@ -134,9 +139,34 @@ func scan(ctx context.Context, provider Provider, tenantID, agentID string, r io
 		pending = pending[:0]
 		return nil
 	}
+	enqueue := func(recs ...flow.Record) error {
+		pending = append(pending, recs...)
+		if len(pending) >= batchLimit {
+			return flush()
+		}
+		return nil
+	}
+	if azureLog {
+		emitRecord := emitAzureVNetRecord
+		if provider == ProviderAzureNSG {
+			emitRecord = emitAzureNSGObjectRecord
+		}
+		malformed, err = scanAzureLogRecords(ctx, src, provider, func(raw json.RawMessage) (int, error) {
+			return emitRecord(raw, tenantID, agentID, now().UTC(), enqueue)
+		})
+		if err == nil {
+			err = flush()
+		}
+		return inserted, malformed, err
+	}
+
+	scanner := cloudLineScanner(src)
 
 	lineNo := 0
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return inserted, malformed, err
+		}
 		lineNo++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -154,11 +184,8 @@ func scan(ctx context.Context, provider Provider, tenantID, agentID string, r io
 			malformed++
 			continue
 		}
-		pending = append(pending, recs...)
-		if len(pending) >= 1000 {
-			if ferr := flush(); ferr != nil {
-				return inserted, malformed, ferr
-			}
+		if ferr := enqueue(recs...); ferr != nil {
+			return inserted, malformed, ferr
 		}
 	}
 	if serr := scanner.Err(); serr != nil {
@@ -170,9 +197,22 @@ func scan(ctx context.Context, provider Provider, tenantID, agentID string, r io
 	return inserted, malformed, nil
 }
 
+const maxCloudLineBytes = 2 << 20
+
+func cloudLineScanner(src io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(src)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxCloudLineBytes)
+	return scanner
+}
+
+func gzipStream(r *bufio.Reader) bool {
+	magic, err := r.Peek(2)
+	return err == nil && magic[0] == 0x1f && magic[1] == 0x8b
+}
+
 func validProvider(p Provider) bool {
 	switch p {
-	case ProviderAWSVPC, ProviderAzureNSG, ProviderGCPVPC:
+	case ProviderAWSVPC, ProviderAzureNSG, ProviderAzureVNet, ProviderGCPVPC:
 		return true
 	default:
 		return false
@@ -360,9 +400,38 @@ func parseAzureNSGLine(tenantID, agentID, line string, now time.Time) ([]flow.Re
 		}
 		env.Records = []azureRecord{single}
 	}
+	return parseAzureNSGRecords(tenantID, agentID, env.Records, now)
+}
 
+func emitAzureNSGObjectRecord(raw json.RawMessage, tenantID, agentID string, now time.Time,
+	enqueue func(...flow.Record) error) (int, error) {
+	var record azureRecord
+	if len(raw) > maxAzureLogRecordBytes || json.Unmarshal(raw, &record) != nil ||
+		len(record.ResourceID) > 1024 || record.Properties.Flows == nil {
+		return 1, nil
+	}
+	for _, rule := range record.Properties.Flows {
+		for _, device := range rule.Flows {
+			if len(device.MAC) > 64 {
+				return 1, nil
+			}
+		}
+	}
+	records, err := parseAzureNSGRecords(tenantID, agentID, []azureRecord{record}, now)
+	if err != nil {
+		return 1, nil
+	}
+	for _, flowRecord := range records {
+		if err := enqueue(flowRecord); err != nil {
+			return 0, err
+		}
+	}
+	return 0, nil
+}
+
+func parseAzureNSGRecords(tenantID, agentID string, records []azureRecord, now time.Time) ([]flow.Record, error) {
 	var out []flow.Record
-	for _, rec := range env.Records {
+	for _, rec := range records {
 		observed := now
 		if t, err := parseRFC3339(rec.Time); err == nil {
 			observed = t

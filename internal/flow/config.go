@@ -45,13 +45,6 @@ type BusConfig struct {
 	Namespace string `yaml:"namespace"`
 }
 
-// CloudImportConfig selects a local cloud flow-log file to import and exit.
-// It never fetches cloud APIs; the file/object export must already be local.
-type CloudImportConfig struct {
-	Provider string `yaml:"provider"`
-	Path     string `yaml:"path"`
-}
-
 // EvidenceConfig enables the restricted, sender-bound entity channel for
 // explicitly configured exporter IPs. The UDP listener ACL remains a separate
 // admission control and can be broader than this canonical evidence list.
@@ -117,7 +110,7 @@ type Config struct {
 	IPFIX   ListenerConfig `yaml:"ipfix"`
 	SFlow   ListenerConfig `yaml:"sflow"`
 
-	// CloudImport loads one local/exported AWS/Azure/GCP flow-log file, emits it
+	// CloudImport loads one local file or explicitly configured cloud object, emits it
 	// to the bus under this agent's tenant binding, and exits.
 	CloudImport CloudImportConfig `yaml:"cloud_import"`
 
@@ -313,16 +306,11 @@ func (c *Config) Validate() error {
 		}
 	}
 	if cloud {
-		if c.CloudImport.Provider == "" {
-			return errors.New("flow: cloud_import.provider is required when cloud import is enabled")
+		if err := c.CloudImport.Validate(); err != nil {
+			return err
 		}
-		if c.CloudImport.Path == "" {
-			return errors.New("flow: cloud_import.path is required when cloud import is enabled")
-		}
-		switch c.CloudImport.Provider {
-		case ProtoAWSVPCFlowLogs, ProtoAzureNSGFlowLogs, ProtoGCPVPCFlowLogs:
-		default:
-			return fmt.Errorf("flow: unknown cloud_import.provider %q", c.CloudImport.Provider)
+		if (c.CloudImport.Object != nil || c.CloudImport.Queue != nil) && c.Bus.Mode != "kafka" && c.Bus.Mode != "nats" {
+			return errors.New("flow: a remote cloud import requires a durable Kafka or NATS bus")
 		}
 	}
 	if c.BatchSize <= 0 || c.QueueSize <= 0 || c.FlushInterval <= 0 {
@@ -387,7 +375,7 @@ func parseSourcePrefixes(raw []string) ([]netip.Prefix, error) {
 }
 
 func (c *Config) cloudImportEnabled() bool {
-	return c.CloudImport.Provider != "" || c.CloudImport.Path != ""
+	return c.CloudImport.Provider != "" || c.CloudImport.Path != "" || c.CloudImport.Object != nil || c.CloudImport.Queue != nil
 }
 
 func splitCSV(s string) []string {

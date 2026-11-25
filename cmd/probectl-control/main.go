@@ -149,7 +149,7 @@ func run(cmd string) error {
 	// *-token, revoke-*, register-collector, replay-deadletter) dispatch here,
 	// after the DB is open (so `defer db.Close()` above still fires). `serve`
 	// falls through to the long wiring path below. Pure mechanical extraction.
-	if handled, err := dispatchDBCommand(cmd, cfg, db, log); handled {
+	if handled, err := dispatchDBCommand(cmd, cfg, db, log, secretsResolver); handled {
 		return err
 	}
 

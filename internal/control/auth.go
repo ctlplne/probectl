@@ -471,7 +471,8 @@ func bearerTokenFromRequest(r *http.Request) (string, bool) {
 }
 
 func acceptsExpectedTenant(pattern string) bool {
-	return pattern == "/v1/agents" || pattern == "/v1/rollouts" || strings.HasPrefix(pattern, "/v1/rollouts/")
+	return pattern == "/v1/agents" || pattern == "/v1/rollouts" || strings.HasPrefix(pattern, "/v1/rollouts/") ||
+		pattern == "/v1/topology"
 }
 
 // requireMatchingTenantHint lets clients detect a stale browser session.

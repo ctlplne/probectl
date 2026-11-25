@@ -18,6 +18,17 @@ type VizNode struct {
 	CanonicalEntityID string               `json:"canonical_entity_id,omitempty"`
 	CanonicalStatus   string               `json:"canonical_status,omitempty"`
 	Kubernetes        *VizKubernetesObject `json:"kubernetes,omitempty"`
+	Cloud             *VizCloudObject      `json:"cloud,omitempty"`
+}
+
+type VizCloudObject struct {
+	CloudInventorySource
+	ResourceID string    `json:"resource_id"`
+	Type       string    `json:"type"`
+	CIDRs      []string  `json:"cidrs,omitempty"`
+	State      string    `json:"state,omitempty"`
+	External   bool      `json:"external,omitempty"`
+	ObservedAt time.Time `json:"observed_at"`
 }
 
 type VizKubernetesObject struct {
