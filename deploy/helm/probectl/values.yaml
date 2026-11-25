@@ -356,6 +356,11 @@ ingress:
   # TLS secret holding the cert for `host`. Use cert-manager (annotations below)
   # or pre-create the secret. HTTPS-by-default requires this to be set.
   tlsSecretName: probectl-tls
+  # Extra HTTPS console hostnames, each with its own same-namespace TLS Secret.
+  # Register the hostname in Provider customer branding to select that tenant.
+  additionalHosts: []
+    # - host: portal.customer.example
+    #   tlsSecretName: customer-portal-tls
   # The ingress controller separately verifies the HTTPS control listener.
   # trustSecret is a Secret in this release namespace satisfying ingress-nginx's
   # proxy-ssl Secret contract: tls.crt, tls.key, and ca.crt for the listener's issuer.

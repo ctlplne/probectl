@@ -51,6 +51,22 @@ backend certificate chain and hostname verification. The chart does not guess
 controller-specific annotations because a guessed control can silently do
 nothing.
 
+## Additional HTTPS console hosts
+
+Keep `ingress.host` and `ingress.tlsSecretName` for the primary hostname. For
+each additional hostname, point DNS at the same ingress and supply a TLS
+Secret for that hostname in the release namespace.
+
+```yaml
+ingress:
+  additionalHosts:
+    - host: portal.customer.example
+      tlsSecretName: customer-portal-tls
+```
+
+Each hostname has its own ingress rule and certificate binding. All rules
+retain the original `Host` header and use the same verified HTTPS backend.
+
 ## Install (single-tenant / sovereign)
 
 Use separate PostgreSQL logins for schema migrations and normal runtime queries.

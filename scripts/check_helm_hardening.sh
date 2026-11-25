@@ -458,6 +458,33 @@ need_fixed "nginx.ingress.kubernetes.io/proxy-ssl-secret: \"default/$BACKEND_TLS
 need_fixed 'nginx.ingress.kubernetes.io/proxy-ssl-server-name: "on"' "$base_ing" "default ingress does not send SNI to the verified backend (CRYPTO-bced5da5)"
 need_fixed "nginx.ingress.kubernetes.io/proxy-ssl-name: \"$BACKEND_TLS_SERVER_NAME\"" "$base_ing" "default ingress does not verify the expected backend name (CRYPTO-bced5da5)"
 need "name: https" "$base_ing" "default ingress does not route to the https Service port (CONFIG-aa08042e)"
+
+# F54: customer hostnames retain their own public TLS certificates while
+# sharing the same verified probectl backend and the original Host header.
+customer_hosts='[{"host":"north.example.com","tlsSecretName":"north-tls"},{"host":"south.example.com","tlsSecretName":"south-tls"}]'
+customer_ingress="$(render --show-only templates/ingress.yaml --set-json "ingress.additionalHosts=$customer_hosts")"
+for binding in 'north.example.com north-tls' 'south.example.com south-tls' 'h.example.com probectl-tls'; do
+  read -r host secret <<<"$binding"
+  need_fixed "- host: \"$host\"" "$customer_ingress" "customer ingress omitted the route for $host (F54)"
+  need_fixed "secretName: \"$secret\"" "$(grep -A1 -F -- "- \"$host\"" <<<"$customer_ingress" || true)" \
+    "customer ingress did not bind $host to its configured TLS Secret (F54)"
+done
+need_fixed 'nginx.ingress.kubernetes.io/force-ssl-redirect: "true"' "$customer_ingress" "customer ingress lost its HTTPS redirect (F54)"
+need_fixed 'nginx.ingress.kubernetes.io/proxy-ssl-verify: "on"' "$customer_ingress" "customer ingress lost backend TLS verification (F54)"
+if [[ $(grep -cE '^ +name: https$' <<<"$customer_ingress") -ne 3 ]]; then
+  fail "the shared console and both customer routes must use the HTTPS Service port (F54)"
+fi
+if render --set-json 'ingress.additionalHosts=[{"host":"north.example.com"}]' >/dev/null 2>&1; then
+  fail "chart accepted a customer hostname without its TLS Secret (F54)"
+fi
+if render --set-json 'ingress.additionalHosts=[{"host":"h.example.com","tlsSecretName":"north-tls"}]' >/dev/null 2>&1; then
+  fail "chart accepted a customer hostname that duplicates the shared console (F54)"
+fi
+if render --set-json "ingress.additionalHosts=$customer_hosts" \
+    --set-string 'ingress.annotations.nginx\.ingress\.kubernetes\.io/upstream-vhost=h.example.com' >/dev/null 2>&1; then
+  fail "chart accepted an annotation that replaces all customer Host headers (F54)"
+fi
+
 # CRYPTO-bced5da5: HTTPS without CA/name verification is not an authenticated
 # channel. Both trust inputs are mandatory, and generic annotations cannot turn
 # the chart-owned verification controls off.

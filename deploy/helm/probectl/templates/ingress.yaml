@@ -22,6 +22,19 @@
 {{- if not .Values.ingress.tlsSecretName }}
 {{- fail "ingress.tlsSecretName is required (HTTPS-by-default): provide a TLS secret or use cert-manager" }}
 {{- end }}
+{{- $additionalHosts := .Values.ingress.additionalHosts | default list -}}
+{{- if and $additionalHosts (hasKey $ingressAnnotations "nginx.ingress.kubernetes.io/upstream-vhost") }}
+{{- fail "ingress.additionalHosts requires the original Host header: remove ingress.annotations[nginx.ingress.kubernetes.io/upstream-vhost]" }}
+{{- end }}
+{{- $hosts := concat (list (dict "host" .Values.ingress.host "tlsSecretName" .Values.ingress.tlsSecretName)) $additionalHosts -}}
+{{- $seen := dict -}}
+{{- range $host := $hosts }}
+{{- $name := lower $host.host -}}
+{{- if hasKey $seen $name }}
+{{- fail (printf "ingress hostname %q is configured more than once" $host.host) }}
+{{- end }}
+{{- $_ := set $seen $name true -}}
+{{- end }}
 {{- $backendTrustSecret := "" -}}
 {{- $backendServerName := "" -}}
 {{- if .Values.control.tls.enabled }}
@@ -66,18 +79,22 @@ metadata:
 spec:
   ingressClassName: {{ $ingressClassName | quote }}
   tls:
+    {{- range $host := $hosts }}
     - hosts:
-        - {{ .Values.ingress.host | quote }}
-      secretName: {{ .Values.ingress.tlsSecretName }}
+        - {{ $host.host | quote }}
+      secretName: {{ $host.tlsSecretName | quote }}
+    {{- end }}
   rules:
-    - host: {{ .Values.ingress.host | quote }}
+    {{- range $host := $hosts }}
+    - host: {{ $host.host | quote }}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: {{ include "probectl.fullname" . }}
+                name: {{ include "probectl.fullname" $ }}
                 port:
-                  name: {{ include "probectl.servicePortName" . }}
+                  name: {{ include "probectl.servicePortName" $ }}
+    {{- end }}
 {{- end }}
