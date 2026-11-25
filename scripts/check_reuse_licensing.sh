@@ -31,6 +31,7 @@
 # Usage:
 #   scripts/check_reuse_licensing.sh            run the gate
 #   scripts/check_reuse_licensing.sh SELFTEST   plant each defect, prove it fails
+#   scripts/check_reuse_licensing.sh attribution  check the attribution grant and summaries
 #   scripts/check_reuse_licensing.sh sync       rewrite the three probectl
 #                                               copies in LICENSES/ from LICENSE
 #                                               and ee/LICENSE
@@ -64,6 +65,34 @@ OFL-1.1 8eea8287e5876b539670cadb82e99f9a7afddec6f6730811be1daf25d2e9bcfd
 "
 
 die() { echo "::error::reuse-gate: $*" >&2; exit 1; }
+
+check_attribution_grant() {
+  python3 -I - "$1" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+def normalized(path):
+    return " ".join((root / path).read_text(encoding="utf-8").split())
+
+grant = normalized("LICENSE").split("Additional Use Grant:", 1)[1].split("Change Date:", 1)[0]
+if '(d) you do not remove, alter, or obscure the probectl name, logos, or "Powered by probectl" attribution' not in grant:
+    sys.exit("Additional Use Grant must preserve probectl attribution in condition (d)")
+for path in (
+    "README.md",
+    "LICENSING.md",
+    "deploy/packaging/copyright",
+    "docs/buyer-memo.md",
+    "docs/compliance/control-evidence.md",
+    "docs/editions.md",
+    "docs/pricing.md",
+    "docs/white-label.md",
+):
+    summary = normalized(path)
+    if "Additional Use Grant" not in summary or "Powered by probectl" not in summary:
+        sys.exit(f"{path} must summarize the attribution requirement")
+PY
+}
 
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
@@ -287,6 +316,7 @@ PY
 # gate <root> [map-out]
 gate() {
   local r="$1" map="${2:-}" work drift
+  check_attribution_grant "$r" || return 1
   drift="$(check_copies "$r")"
   if [ -n "$drift" ]; then
     printf '::error::reuse-gate: %s\n' "$drift" >&2
@@ -308,6 +338,10 @@ gate() {
 }
 
 case "${1:-}" in
+  attribution)
+    check_attribution_grant .
+    echo "reuse-gate: attribution grant and summaries verified"
+    ;;
   sync)
     extract_section LICENSE "Business Source License 1.1" >LICENSES/BUSL-1.1.txt
     extract_section LICENSE "Mozilla Public License Version 2.0" >LICENSES/MPL-2.0.txt
@@ -381,7 +415,7 @@ case "${1:-}" in
     echo "reuse-gate: OK (LICENSES/ copies match LICENSE and ee/LICENSE; reuse ${REUSE_VERSION} lint passes; every file carries its tree's license or a declared override)"
     ;;
   *)
-    echo "usage: scripts/check_reuse_licensing.sh [SELFTEST|sync]" >&2
+    echo "usage: scripts/check_reuse_licensing.sh [SELFTEST|sync|attribution]" >&2
     exit 2
     ;;
 esac

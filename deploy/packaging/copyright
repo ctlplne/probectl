@@ -7,9 +7,10 @@ Copyright: 2026 certctl LLC
 License: BUSL-1.1
  This package ships a probectl agent binary, part of the probectl core. The
  core is licensed under the Business Source License 1.1, with an Additional
- Use Grant that permits production use; on its Change Date, four years after
- each version is published, that version converts to the Mozilla Public
- License 2.0. The complete license, with its parameters, is in
+ Use Grant that permits production use and requires preserving the probectl
+ name, logos, and "Powered by probectl" attribution wherever the software
+ displays them. On its Change Date, four years after each version is published,
+ that version converts to the Mozilla Public License 2.0. The full license is in
  /usr/share/doc/<package>/LICENSE.
  .
  The binary statically links third-party Go modules, each under its own

@@ -84,9 +84,11 @@ read-only after the grace period. Telemetry pipelines keep running.
 
 The core license grant is already final: first-party source outside `ee/`,
 `pkg/`, `proto/` and `examples/` is covered by the Business Source License 1.1
-text and parameters in the root [`LICENSE`](../LICENSE), and `pkg/`, `proto/`
-and `examples/` by the unmodified MPL-2.0 text that follows it, without Exhibit
-B. The draft `ee/LICENSE`, commercial agreements, reseller terms, DPA/MSA,
+text and parameters in the root [`LICENSE`](../LICENSE). Production use under
+the Additional Use Grant requires preserving the probectl name, logos, and
+“Powered by probectl” attribution wherever the software displays them.
+`pkg/`, `proto/` and `examples/` use the MPL-2.0 text that follows it, without
+Exhibit B. The draft `ee/LICENSE`, commercial agreements, reseller terms, DPA/MSA,
 trademark posture, and open-data resale review remain counsel-owned. This page
 describes product packaging and metering; it does not replace that commercial
 paper.

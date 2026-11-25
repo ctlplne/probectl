@@ -198,17 +198,15 @@ run_checks() { # run_checks <root>
     fi
   done <<<"$disclosure_hits"
 
-  # DOCS-S16 / LICENSE-001: the owner decision is final for core. The root
-  # grant is canonical BUSL-1.1 with its parameters for the core, followed by
-  # canonical MPL-2.0 without Exhibit B for pkg/, proto/ and examples/; only the
-  # separate commercial paper remains counsel work. Keep buyer/compliance pages
-  # from quietly reverting to the old "root LICENSE is a placeholder" state.
+  # DOCS-S16 / LICENSE-001: the root LICENSE sets the BUSL-1.1 parameters
+  # and the core attribution condition, followed by MPL-2.0 for the client
+  # tree. The separate commercial paper remains counsel work.
   if ! grep -q '^Business Source License 1\.1$' "$r/LICENSE" 2>/dev/null \
      || ! grep -q '^Mozilla Public License Version 2\.0$' "$r/LICENSE" 2>/dev/null \
-     || ! grep -q 'complete, unmodified license is in' "$r/LICENSING.md" 2>/dev/null \
-     || ! grep -q 'root `LICENSE` is already the final' "$r/docs/compliance/control-evidence.md" 2>/dev/null \
+     || ! grep -q 'See the full' "$r/LICENSING.md" 2>/dev/null \
+     || ! grep -q 'root `LICENSE` sets the BUSL-1.1 parameters' "$r/docs/compliance/control-evidence.md" 2>/dev/null \
      || ! grep -q 'core license grant is already final' "$r/docs/pricing.md" 2>/dev/null; then
-    echo "DOCS-S16: root LICENSE must remain final (unmodified BUSL-1.1 core, unmodified MPL-2.0 client tree); only commercial paper is pending counsel" >&2; f=1
+    echo "DOCS-S16: root LICENSE sets the BUSL-1.1 core and MPL-2.0 client terms" >&2; f=1
   fi
   if grep -RniE 'legal source-available license text is still|`LICENSE` / commercial license texts.{0,40}(pending|placeholder)|root LICENSE.{0,40}(pending|placeholder)' \
        "$r/README.md" "$r/LICENSING.md" "$r/CONTRIBUTING.md" "$r/docs" 2>/dev/null | grep -q .; then
@@ -399,13 +397,13 @@ Business Source License 1.1
 Mozilla Public License Version 2.0
 EOF
   cat > "$d/LICENSING.md" <<'EOF'
-The complete, unmodified license is in LICENSE. Commercial paper remains counsel-owned.
+See the full LICENSE. Commercial paper remains counsel-owned.
 EOF
   cat > "$d/CONTRIBUTING.md" <<'EOF'
 Core is final BUSL-1.1 with an MPL-2.0 client tree; only commercial terms remain counsel work.
 EOF
   cat > "$d/docs/compliance/control-evidence.md" <<'EOF'
-The root `LICENSE` is already the final grant: unmodified BUSL-1.1 core, unmodified MPL-2.0 client tree; draft `ee/LICENSE` remains counsel work.
+The root `LICENSE` sets the BUSL-1.1 parameters for the core and MPL-2.0 for the client tree. Draft `ee/LICENSE` remains counsel work.
 EOF
   cat > "$d/docs/pricing.md" <<'EOF'
 The core license grant is already final; draft `ee/LICENSE` and commercial agreements remain counsel-owned.

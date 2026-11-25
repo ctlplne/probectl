@@ -11,8 +11,10 @@ branches — the commercial boundary is a license file plus a directory fence, n
 a fork.** Everything below is an elaboration of that sentence.
 
 The source-license boundary is final: first-party core files outside `ee/`,
-`pkg/`, `proto/` and `examples/` are **BUSL-1.1** (production use permitted;
-each version converts to MPL-2.0 four years after publication), `pkg/`,
+`pkg/`, `proto/` and `examples/` are **BUSL-1.1**. Its Additional Use Grant
+permits production use and requires preserving the probectl name, logos, and
+“Powered by probectl” attribution wherever the software displays them. Each
+version converts to MPL-2.0 four years after publication. `pkg/`,
 `proto/` and `examples/` are **MPL-2.0**, and `ee/` is governed by its separate
 commercial license. MPL's Exhibit B incompatibility notice is not used. See
 [`../LICENSING.md`](../LICENSING.md) for the file-level rules and contributor
@@ -365,8 +367,9 @@ Ed25519 math — no sockets.
 - Not a kill-switch: no state in the ladder ever stops ingestion, probing,
   alerting, or dashboards that already exist.
 - Not finalized commercial legal text: the core [`LICENSE`](../LICENSE) is
-  final, the unmodified BUSL-1.1 text with its parameters followed by the
-  unmodified MPL-2.0 text for `pkg/`, `proto/` and `examples/`. The bespoke
+  final. It uses the BUSL-1.1 text with the core's Additional Use Grant,
+  including required probectl attribution, followed by the MPL-2.0 text for
+  `pkg/`, `proto/` and `examples/`. The bespoke
   `ee/LICENSE`, commercial headers,
   reseller terms, DPA/MSA, and open-data resale review remain counsel work. The
   enforcement mechanics above are complete independently of that review.

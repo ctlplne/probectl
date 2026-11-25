@@ -470,8 +470,10 @@ only through `internal/crypto`, TLS on every listener) are summarized in
 probectl is **source-available**. All first-party source outside `ee/`,
 `pkg/`, `proto/` and `examples/` is licensed under the
 [Business Source License 1.1](LICENSE): production use is permitted under its
-Additional Use Grant, and each version converts to the Mozilla Public License
-2.0 four years after it is published. `pkg/` (the public Go SDK), `proto/`
+Additional Use Grant. Preserve the probectl name, logos, and “Powered by
+probectl” attribution wherever the software displays them. Each version
+converts to the Mozilla Public License 2.0 four years after it is published.
+`pkg/` (the public Go SDK), `proto/`
 (the wire contracts) and `examples/` are licensed under the
 [Mozilla Public License 2.0](LICENSE), a file-level copyleft license; the MPL
 Exhibit B incompatibility notice is not invoked.

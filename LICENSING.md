@@ -9,19 +9,25 @@ a file grants no right to use it beyond what its zone's license says.
 All first-party source outside `ee/`, `pkg/`, `proto/` and `examples/` is
 licensed under the **Business Source License 1.1** (`BUSL-1.1`) with the
 parameters stated at the top of [`LICENSE`](LICENSE): the Licensor is certctl
-LLC; the Additional Use Grant permits production use, with three limits (no
-offering the core to third parties as a hosted or managed service, no embedding
-it in a competing product, no circumventing the license-key functionality) and
-one express carve-out (operating the core on a customer's own deployment as that
-customer's service provider is permitted); the Change Date is four years after
-each version is published; and the Change License is the Mozilla Public License
-2.0. The complete, unmodified license is in [`LICENSE`](LICENSE).
+LLC. The Additional Use Grant permits production use subject to four conditions.
+
+- The grant restricts hosted or managed services offered to third parties. You
+  may operate the core on a customer's own deployment as their service provider.
+- You may not embed the core in a competing product.
+- You must preserve the core's license-key functionality.
+- You must preserve the probectl name, logos, and “Powered by probectl”
+  attribution wherever the software displays them in its interfaces, emails,
+  reports, or notifications. You may display your own name and logo alongside
+  them.
+
+The Change Date is four years after each version is published, and the Change
+License is the Mozilla Public License 2.0. See the full [`LICENSE`](LICENSE).
 
 The BSL is a source-available license, not an open-source license. ELI5: you
 can read, build, change and run the core, including in production, at no charge
-and without a signed license file; you cannot resell it as a hosted service or
-build a competing product on it; and every published version becomes MPL-2.0
-open source on its Change Date, automatically and without anyone's action.
+and without a signed license file under the grant above. Keep the probectl name,
+logos, and “Powered by probectl” attribution visible. Every published version
+becomes MPL-2.0 open source automatically on its Change Date.
 
 ## Client tree: MPL-2.0
 

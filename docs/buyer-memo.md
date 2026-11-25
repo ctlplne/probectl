@@ -92,7 +92,9 @@ not the same thing as a served buyer surface.
 These are decision inputs, not footnotes:
 
 - Core is licensed under BUSL-1.1 and converts to MPL-2.0 four years after
-  each release; `pkg/`, `proto/` and `examples/` are MPL-2.0; `ee/` remains
+  each release. The [Additional Use Grant](../LICENSE) requires preserving
+  the probectl name, logos, and “Powered by probectl” attribution wherever
+  displayed. `pkg/`, `proto/` and `examples/` are MPL-2.0. `ee/` remains
   separately commercial. Counsel
   still must finalize the bespoke `ee/LICENSE`, reseller terms, DPA/MSA, and
   trademark posture before commercial/MSP motion.

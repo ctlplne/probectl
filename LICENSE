@@ -10,9 +10,9 @@ file sits, and nothing about being able to read a file grants a right to use it.
     parameters. Hand-maintained core source files carry
     `SPDX-License-Identifier: BUSL-1.1`; every other core file takes this
     license from its location. The BSL is a source-available license, not an
-    open source license: production use is permitted under the Additional Use
-    Grant stated below, and on the Change Date each published version of the
-    core converts to the Mozilla Public License 2.0.
+    open source license. Production use follows the Additional Use Grant
+    below, including preservation of the probectl attribution. Each published
+    version converts to Mozilla Public License 2.0 on its Change Date.
 
   * The CLIENT tree — everything INSIDE the top-level `pkg/` (the public Go
     SDK), `proto/` (the wire contracts) and `examples/` directories — is
@@ -66,9 +66,13 @@ Additional Use Grant: You may make production use of the Licensed Work,
                       own deployment as that customer's service provider is
                       permitted; (b) you do not embed the Licensed Work in a
                       product or service that competes with those offered by
-                      certctl LLC; and (c) you do not move, change, disable, or
+                      certctl LLC; (c) you do not move, change, disable, or
                       circumvent the license-key functionality in the Licensed
-                      Work.
+                      Work; and (d) you do not remove, alter, or obscure the
+                      probectl name, logos, or "Powered by probectl" attribution
+                      that the Licensed Work displays in its user interfaces,
+                      emails, reports, or notifications. You may display your
+                      own name and logo alongside them.
 
 Change Date:          Four years from the date the Licensed Work is published.
 

@@ -16,9 +16,13 @@ Additional Use Grant: You may make production use of the Licensed Work,
                       own deployment as that customer's service provider is
                       permitted; (b) you do not embed the Licensed Work in a
                       product or service that competes with those offered by
-                      certctl LLC; and (c) you do not move, change, disable, or
+                      certctl LLC; (c) you do not move, change, disable, or
                       circumvent the license-key functionality in the Licensed
-                      Work.
+                      Work; and (d) you do not remove, alter, or obscure the
+                      probectl name, logos, or "Powered by probectl" attribution
+                      that the Licensed Work displays in its user interfaces,
+                      emails, reports, or notifications. You may display your
+                      own name and logo alongside them.
 
 Change Date:          Four years from the date the Licensed Work is published.
 

@@ -69,3 +69,9 @@ binary during a rolling deploy or rollback, violating the repository’s
 expand/contract policy. A later release may add the destructive contract
 migration only after its minimum-supported predecessor no longer accesses the
 tables.
+
+## Attribution
+
+The [Additional Use Grant](../LICENSE) requires preserving the probectl
+name, logos, and “Powered by probectl” attribution wherever the software
+displays them.
