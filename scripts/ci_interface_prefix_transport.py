@@ -787,8 +787,8 @@ ROUTING_WRITE_CONTROLS = {
     ),
     "peering-capture-context": (
         "internal/store/bgp_routing_capture_query_batch.go",
-        "if err := authorize(ctx, record); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tpreauthorized = record.ContextID",
-        "if err := authorize(ctx, record); false && err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tpreauthorized = record.ContextID",
+        "if err := authorize(ctx, record); err != nil {\n\t\t\treturn nil, err\n\t\t}",
+        "if err := authorize(ctx, record); false && err != nil {\n\t\t\treturn nil, err\n\t\t}",
         "TestPeeringCaptureReaderKeepsCurrentTargetTenantAndOriginalSourceAuthority", "",
         "empty peering selection or tiny budget bypassed current context authority",
     ),
@@ -1593,9 +1593,9 @@ ROUTING_WRITE_CONTROLS = {
         "disjoint IPv6 Peer Up retired IPv4 or another tenant",
     ),
     "routing-mapped-selector": (
-        "internal/store/bgp_routing_stream.go",
-        "if err := routingStreamSelectorMatches(source, input.PeerSelector); err != nil {",
-        "if err := error(nil); err != nil {",
+        "internal/store/bgp_routing_stream_selector.go",
+        "else if err := routingStreamSelectorMatches(source, peer); err != nil {",
+        "else if err := error(nil); err != nil {",
         "TestRoutingMappedVRFRequiresCurrentBindingThroughRealMTLS", "",
         "unbound routing UPDATE changed canonical global state",
     ),
@@ -1689,31 +1689,38 @@ ROUTING_WRITE_CONTROLS = {
     ),
     "routing-bound-stream-cohort": (
         "internal/store/bgp_routing_stream_binding.go",
-        "if !routingStreamFamiliesComplete(source, seen) {",
-        "if false && !routingStreamFamiliesComplete(source, seen) {",
+        "if storedKind != \"adj_rib_in_post_policy\" && !routingStreamFamiliesComplete(source, seen) {",
+        "if false && storedKind != \"adj_rib_in_post_policy\" && !routingStreamFamiliesComplete(source, seen) {",
         "TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation",
         "",
         "incomplete retained source refreshed a surviving routing view",
     ),
     "routing-bound-stream-peer": (
         "internal/store/bgp_routing_stream.go",
-        "if !routingStreamPeerMatchesSource(source, current, ref.AFI, ref.SAFI) {",
-        "if false && !routingStreamPeerMatchesSource(source, current, ref.AFI, ref.SAFI) {",
+        "if !routingStreamPeerMatchesSource(source, current, ref.AFI, ref.SAFI, storedKind) {",
+        "if false && !routingStreamPeerMatchesSource(source, current, ref.AFI, ref.SAFI, storedKind) {",
         "TestRoutingBoundStreamKeepsWholeCurrentGenerationsAndRefusalIsolation",
         "",
         "wrong routing peer reached source decoder",
     ),
     "routing-stage-selector": (
         "internal/store/bgp_routing_stage.go",
-        "AND source_kind='router_bmp' AND state IN ('staging','current')\n AND ((routing_selection IS NULL AND $6::text IS NULL)\n      OR (routing_selection->>'epoch'=$6 AND routing_selection->>'binding_id'=$7))",
-        "AND source_kind='router_bmp' AND state IN ('staging','current') AND ($6::text IS NULL OR $6::text IS NOT NULL) AND ($7::text IS NULL OR $7::text IS NOT NULL)",
+        "AND source_kind='router_bmp' AND state IN ('staging','current')\n"
+        " AND (($8='' AND view_kind IN ('loc_rib','operator_loc_rib'))"
+        " OR ($8<>'' AND view_kind='adj_rib_in_post_policy' AND peer_identity->>'Address'=$8))\n"
+        " AND ((routing_selection IS NULL AND $6::text IS NULL)\n"
+        "      OR (routing_selection->>'epoch'=$6 AND routing_selection->>'binding_id'=$7))",
+        "AND source_kind='router_bmp' AND state IN ('staging','current')\n"
+        " AND (($8='' AND view_kind IN ('loc_rib','operator_loc_rib'))"
+        " OR ($8<>'' AND view_kind='adj_rib_in_post_policy' AND peer_identity->>'Address'=$8))\n"
+        " AND ($6::text IS NULL OR $6::text IS NOT NULL) AND ($7::text IS NULL OR $7::text IS NOT NULL)",
         "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
         "",
         "routing source selector retired a sibling binding or tenant",
     ),
     "routing-stage-nonce": (
         "internal/store/bgp_routing_stage.go",
-        "if conflict, err := routingStageNonceConflicts(ctx, sc, source, input.ObservationID); err != nil || conflict {",
+        "if conflict, err := routingStageNonceConflicts(ctx, sc, source, input.ObservationID, routingStageNeighbor(input)); err != nil || conflict {",
         "if conflict, err := false, error(nil); err != nil || conflict {",
         "TestRoutingBoundStagingKeepsSelectorIncarnationsAndSourceWideRefusal",
         "",
@@ -1998,7 +2005,10 @@ def bgp_routing_write_controls(peering_unit=False):
         file, seam, replacement, root, child, marker = ROUTING_WRITE_CONTROLS[name]
         source = Path(file).resolve()
         original = source.read_text()
-        assert original.count(seam) == (2 if name in ("routing-final-authority", "routing-birth-epoch") else 1)
+        expected = 2 if name in ("routing-final-authority", "routing-birth-epoch") else 1
+        matches = original.count(seam)
+        if matches != expected:
+            raise RuntimeError(f"{name} expected {expected} source matches in {file}, found {matches}")
         mutant = overlay_source_path(out, name + ".go")
         mutant.write_text(original.replace(seam, replacement))
         overlay = out / (name + ".json")
