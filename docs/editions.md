@@ -1,8 +1,9 @@
 # Editions & licensing
 
-probectl is **source-available**: the core platform is licensed under the
-Business Source License 1.1 and free to run, while the commercial Enterprise
-and MSP tiers are gated.
+probectl is **source-available**. The Business Source License 1.1 Additional
+Use Grant allows production use of the core at no charge and requires
+preserving the probectl name, logos, and “Powered by probectl” attribution.
+Enterprise and MSP features require a commercial license.
 This document is the engineering contract for how that split is enforced in the
 codebase.
 
@@ -155,8 +156,9 @@ The claims inside:
   create a tenant past the band, with `tenant_band_exhausted`), and is **never**
   a kill-switch on already-running telemetry.
 - Verification rejects: an unknown payload version, an unknown or `core` tier
-  (core needs no license at all), an invalid pricing model, a signature that fails against every
-  trusted key, and an inverted validity window (expiry before issue). An
+  (core needs no signed license file), an invalid pricing model, a signature
+  that fails against every trusted key, and an inverted validity window (expiry
+  before issue). An
   **expired license still loads** — expiry is a *state*, not a parse error (see
   the ladder below).
 

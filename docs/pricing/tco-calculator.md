@@ -37,14 +37,13 @@ zero.
 No price list or pricing model is published (owner decision, 2026-09-20).
 Revision 2 of the worksheet therefore records every commercial license-fee
 input as `null` with provenance `unknown`, so the Enterprise and MSP totals
-render as `UNKNOWN` and only the Core plan, which is free under the core
-license, produces a complete total. What the calculator does compute for every
-plan is the part the buyer controls: infrastructure, operator labor, support
-and migration.
+render as `UNKNOWN` and only the Core plan produces a complete total.
+For every plan, the calculator also computes infrastructure, operator labor,
+support and migration costs.
 
 | Plan | Planning input | Why |
 |---|---:|---|
-| Core | license: 0 | The five-plane core is free to run under the core license. |
+| Core | license: 0 | The [Additional Use Grant](../../LICENSE) allows production use at no charge and requires preserving the probectl name, logos, and “Powered by probectl” attribution. |
 | Enterprise | license: unknown; planning tenant band 100 | Rates are set per agreement; nothing is published. |
 | MSP | license: unknown; planning tenant band 1,000 | Rates are set per agreement; nothing is published. |
 

@@ -148,7 +148,10 @@ complete bundle untouched and refuses to touch a partial one, so it never
 overwrites your files. Leave `PROBECTL_TLS_DIR` empty to keep the self-signed
 quickstart certificate.
 
-**Install your license (Enterprise / MSP).** The free core needs no license.
+**Install your license (Enterprise / MSP).** Core needs no signed license
+file. Production use is subject to the [Additional Use Grant](../LICENSE),
+which requires preserving the probectl name, logos, and “Powered by probectl”
+attribution.
 To unlock commercial features, set `PROBECTL_LICENSE_PATH=/absolute/path/to/license.json`
 in `.env` (the offline-signed file your vendor issued) and layer the license
 overlay:

@@ -72,8 +72,14 @@ from pathlib import Path
 import sys
 
 root = Path(sys.argv[1])
+missing = []
+
 def normalized(path):
     return " ".join((root / path).read_text(encoding="utf-8").split())
+
+def require_attribution(location, summary):
+    if "Additional Use Grant" not in summary or "Powered by probectl" not in summary:
+        missing.append(f"{location} must summarize the attribution requirement")
 
 grant = normalized("LICENSE").split("Additional Use Grant:", 1)[1].split("Change Date:", 1)[0]
 if '(d) you do not remove, alter, or obscure the probectl name, logos, or "Powered by probectl" attribution' not in grant:
@@ -88,9 +94,20 @@ for path in (
     "docs/pricing.md",
     "docs/white-label.md",
 ):
-    summary = normalized(path)
-    if "Additional Use Grant" not in summary or "Powered by probectl" not in summary:
-        sys.exit(f"{path} must summarize the attribution requirement")
+    require_attribution(path, normalized(path))
+
+# Check short summaries in place so a later legal section cannot mask an omission.
+for path, start, end in (
+    ("docs/editions.md", "probectl is **source-available**", "\n\n"),
+    ("docs/install.md", "**Install your license (Enterprise / MSP).**", "\n\n"),
+    ("docs/pricing.md", "| Core |", "\n"),
+    ("docs/pricing/tco-calculator.md", "| Core |", "\n"),
+):
+    _, marker, content = (root / path).read_text(encoding="utf-8").partition(start)
+    summary = " ".join(content.split(end, 1)[0].split()) if marker else ""
+    require_attribution(f"{path} ({start})", summary)
+if missing:
+    sys.exit("\n".join(missing))
 PY
 }
 

@@ -9,7 +9,7 @@ the public plan boundary and the metering units without inventing legal terms.
 
 | Plan | Boundary |
 |---|---|
-| Core | The full five-plane platform: observability, AI assistant and MCP, security/threat signals, topology, cost/SLO, OIDC SSO, SCIM, RBAC/ABAC, per-tenant export/deletion, fairness enforcement, and support-bundle generation. Free to run in production under the core license. |
+| Core | The full five-plane platform: observability, AI assistant and MCP, security/threat signals, topology, cost/SLO, OIDC SSO, SCIM, RBAC/ABAC, per-tenant export/deletion, fairness enforcement, and support-bundle generation. Free to run in production under the [Additional Use Grant](../LICENSE), which requires preserving the probectl name, logos, and “Powered by probectl” attribution. |
 | Enterprise | Every non-resale `ee/` capability: validated-module/FIPS distribution, BYOK, governance, guarded remediation, HA support/SLA, and siloed/hybrid isolation. A self-hosted commercial license. |
 | MSP | The complete Enterprise set plus the provider plane, usage metering/export, and customer branding with fixed **Powered by probectl** attribution. The MSP self-hosts and sets its own customer prices. |
 

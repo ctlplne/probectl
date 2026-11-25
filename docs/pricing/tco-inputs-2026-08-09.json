@@ -16,8 +16,8 @@
     {
       "name": "Core",
       "pricing_model": "free",
-      "base_annual_usd": {"value": 0, "unit": "USD/year", "provenance": "product_contract", "as_of": "2026-09-20", "source": "docs/pricing.md: the core is free to run under the core license"},
-      "per_peak_agent_monthly_usd": {"value": 0, "unit": "USD/peak-agent-month", "provenance": "product_contract", "as_of": "2026-09-20", "source": "docs/pricing.md: the core is free to run under the core license"},
+      "base_annual_usd": {"value": 0, "unit": "USD/year", "provenance": "product_contract", "as_of": "2026-09-20", "source": "docs/pricing.md#plan-boundary (Core)"},
+      "per_peak_agent_monthly_usd": {"value": 0, "unit": "USD/peak-agent-month", "provenance": "product_contract", "as_of": "2026-09-20", "source": "docs/pricing.md#plan-boundary (Core)"},
       "tenant_cap": null,
       "cap_meaning": "No commercial license cap; infrastructure and fairness limits still apply.",
       "included_features": ["five-plane observability", "AI and MCP", "OIDC/SCIM/RBAC/ABAC", "tenant export and deletion", "fairness", "support bundle"],
