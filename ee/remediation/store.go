@@ -178,11 +178,12 @@ func (s *PGStore) insertAuditedWithReview(ctx context.Context, tenantID string, 
 func insertProposal(ctx context.Context, q tenancy.Querier, tenantID string, p rem.Proposal, dry, review []byte) (rem.Proposal, error) {
 	out, err := scanProposal(q.QueryRow(ctx, `
 		INSERT INTO remediation_proposals
-			(tenant_id, kind, title, rationale, target, incident_id, dry_run, state, proposed_by, created_at, proposed_user_id, rtbh_review, flowspec_review, diversion_review)
+			(tenant_id, kind, title, rationale, target, incident_id, dry_run, state, proposed_by, created_at, proposed_user_id, rtbh_review, flowspec_review, diversion_review, routing_transfer_review)
 		SELECT $1::uuid, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, NULLIF($11,'')::uuid,
 		       CASE WHEN $2='rtbh_review' THEN $12::jsonb END,
 		       CASE WHEN $2='flowspec_review' THEN $12::jsonb END,
-		       CASE WHEN $2='diversion_preview' THEN $12::jsonb END
+		       CASE WHEN $2='diversion_preview' THEN $12::jsonb END,
+		       CASE WHEN $2='routing_transfer_review' THEN $12::jsonb END
 		WHERE $11='' OR EXISTS (SELECT 1 FROM users WHERE tenant_id=$1 AND id=NULLIF($11,'')::uuid AND status='active' FOR SHARE)
 		RETURNING `+cols,
 		tenantID, p.Kind, p.Title, p.Rationale, p.Target, p.IncidentID, string(dry), p.State, p.ProposedBy, p.CreatedAt, p.ProposedUserID, review))
@@ -296,7 +297,7 @@ func decideProposal(ctx context.Context, q tenancy.Querier, tenantID, id string,
 		 WHERE id = $1 AND tenant_id=$6 AND state='proposed'
 		   AND ($2 <> 'approved' OR (
 			proposed_user_id IS NOT NULL AND proposed_user_id <> NULLIF($7,'')::uuid
-			AND ((kind NOT IN ('rtbh_review','flowspec_review','diversion_preview') AND $8::jsonb IS NULL AND $9::text='')
+			AND ((kind NOT IN ('rtbh_review','flowspec_review','diversion_preview','routing_transfer_review') AND $8::jsonb IS NULL AND $9::text='')
 			  OR (kind='rtbh_review' AND $9='rtbh_review' AND rtbh_review=$8::jsonb)
 			  OR (kind='flowspec_review' AND $9='flowspec_review' AND flowspec_review=$8::jsonb)
 			  OR (kind='diversion_preview' AND $9='diversion_preview' AND diversion_review=$8::jsonb))

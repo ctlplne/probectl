@@ -350,3 +350,47 @@ The equivalent CLI commands are `probectl remediation diversion-preview`,
 session cookie file is required for filing and approval. The start preview
 uses a current protected observation. The stop preview uses the recorded
 `start_preview_id`.
+
+## Review an exact routing transfer
+
+Start with a feasible Capacity routing transfer estimate. Select a current,
+owned FRRouting configuration archive for that router. The dry run shows the
+exact candidate peer, prefix, policy commands, rollback commands, and the
+observed peak traffic. It checks current financial, routing and archive access.
+
+```sh
+probectl --json routing-transfer dry-run --body-file transfer-dry-run.json
+probectl --json --session-cookie-file SESSION routing-transfer propose --body-file transfer-proposal.json
+probectl --json routing-transfer review REVIEW_ID
+probectl --json --session-cookie-file REVIEWER_SESSION routing-transfer approve REVIEW_ID --body-file transfer-approval.json
+```
+
+The dry-run request contains `archive_id` and the original `estimate`
+request. The proposal contains that `selection`, its `preview_fingerprint`,
+and the operator's `max_moved_bps`. In Admin, a distinct signed-in operator
+reviews the resulting proposal and approves it using the displayed review
+fingerprint. Proposal and approval use an interactive session. Approval also
+requires the deployment's remediation approval switch.
+
+The review shows its current validity deadline and records the approver. The
+operator applies the approved commands and any rollback through their router
+change process. The service rechecks current ownership, source expiration,
+the movement limit and the review fingerprint before recording approval.
+When the estimate includes an upstream probe comparison, review also
+rechecks the exact observed pairs, thresholds, test assignments and live
+handoffs. A change to that evidence requires a fresh preview.
+
+```sh
+probectl --json routing-transfer rollback REVIEW_ID
+probectl --json --session-cookie-file REVIEWER_SESSION routing-transfer withdraw REVIEW_ID --body-file transfer-withdrawal.json
+```
+
+The rollback read returns the saved commands, router, prefix, expected policy
+attachment, and exclusive approval deadline. Authorized operators can read it
+after applying the change or after the approval expires. Access checks use
+the approval's original router and archive source with the operator's current
+remediation, entity, and device telemetry permissions. The withdrawal request
+takes the displayed `review_fingerprint`, records withdrawal intent once, and
+ends access to the apply-ready review. Use the saved commands through the
+router's change process at expiry or on withdrawal. Check that the candidate
+still has the approved policy attachment before restoring the previous one.

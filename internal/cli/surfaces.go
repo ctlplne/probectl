@@ -92,6 +92,12 @@ var surfaceCommands = map[string]surfaceCommand{
 	}},
 	"routing-transfer": {Name: "routing-transfer", Summary: "owned upstream transfer estimates", Ops: map[string]apiOp{
 		"estimate": {Method: http.MethodPost, Path: "/v1/flows/routing-transfer-estimate", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "read-only exact-prefix handoff comparison; --body-file supplies the routing context, destination prefix, proposed local preference, billing window, current agreements and owned egress interfaces, with optional paired probes and thresholds"},
+		"dry-run":  {Method: http.MethodPost, Path: "/v1/remediation/routing-transfer-dry-run", ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "render FRRouting policy and rollback from a current owned archive; --body-file supplies archive_id and the estimate request"},
+		"propose":  {Method: http.MethodPost, Path: "/v1/remediation/routing-transfer-reviews", SessionAuth: true, ExactJSON: true, MaxBodyBytes: 64 << 20, Description: "propose the exact routing transfer and operator peak limit using an interactive session"},
+		"review":   {Method: http.MethodGet, Path: "/v1/remediation/routing-transfer-reviews/{id}", ArgName: "id", ExactJSON: true, Description: "read the current exact routing transfer review"},
+		"approve":  {Method: http.MethodPost, Path: "/v1/remediation/routing-transfer-reviews/{id}/approve", ArgName: "id", SessionAuth: true, ExactJSON: true, Description: "record the displayed routing transfer review as a distinct interactive reviewer"},
+		"rollback": {Method: http.MethodGet, Path: "/v1/remediation/routing-transfer-reviews/{id}/rollback", ArgName: "id", ExactJSON: true, Description: "read the exact approved rollback and expiry or withdrawal status"},
+		"withdraw": {Method: http.MethodPost, Path: "/v1/remediation/routing-transfer-reviews/{id}/withdraw", ArgName: "id", SessionAuth: true, ExactJSON: true, Description: "record an audited withdrawal request with the approved review_fingerprint in --body-file"},
 	}},
 	"peering": {Name: "peering", Summary: "hypothetical observed-route peering estimates", Ops: map[string]apiOp{
 		"estimate": {Method: http.MethodPost, Path: "/v1/flows/peering-estimate", ExactJSON: true, Description: "read-only estimate over an owned IX interface; --body-file supplies context_id, interface_id, peer_asn, exact decimal ix_id/ix_lan_id, inbound/outbound direction and optional range/bucket/dataseries; unknown volumes and observed gaps remain explicit"},

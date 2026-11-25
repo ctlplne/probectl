@@ -26,6 +26,10 @@ import type {
   RemediationRTBHProposalInput,
   RemediationRTBHReview,
   RemediationRTBHUpstreamTemplates,
+  RoutingTransferApprovalInput,
+  RoutingTransferReview,
+  RoutingTransferRollback,
+  RoutingTransferWithdrawalInput,
 } from './sdk.gen'
 
 /** Guarded agentic remediation (S-EE5, F44 — ee-backed). The AI PROPOSES; a
@@ -252,7 +256,10 @@ export function useDecideRemediation() {
       apiFetch<Proposal>(`/remediation/proposals/${id}/${decision}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: note ?? '', review_fingerprint: fingerprint }),
+        body: JSON.stringify({
+          note: note ?? '',
+          review_fingerprint: fingerprint,
+        }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['remediation-proposals'] }),
   })
@@ -308,5 +315,67 @@ export function useApproveDiversion() {
         },
       ),
     onSuccess: () => query.invalidateQueries({ queryKey: ['remediation-proposals'] }),
+  })
+}
+
+export function useRoutingTransferReview(id: string, identity: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['remediation-proposals', identity, 'routing-transfer-review', id],
+    enabled,
+    queryFn: ({ signal }) =>
+      apiFetch<RoutingTransferReview>(
+        `/remediation/routing-transfer-reviews/${encodeURIComponent(id)}`,
+        { signal },
+      ),
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  })
+}
+
+export function useApproveRoutingTransfer() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: RoutingTransferApprovalInput }) =>
+      apiFetch<Proposal>(
+        `/remediation/routing-transfer-reviews/${encodeURIComponent(id)}/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['remediation-proposals'] }),
+  })
+}
+
+export function useRoutingTransferRollback(id: string, identity: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['remediation-proposals', identity, 'routing-transfer-rollback', id],
+    enabled,
+    queryFn: ({ signal }) =>
+      apiFetch<RoutingTransferRollback>(
+        `/remediation/routing-transfer-reviews/${encodeURIComponent(id)}/rollback`,
+        { signal },
+      ),
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  })
+}
+
+export function useRequestRoutingTransferWithdrawal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: RoutingTransferWithdrawalInput }) =>
+      apiFetch<RoutingTransferRollback>(
+        `/remediation/routing-transfer-reviews/${encodeURIComponent(id)}/withdraw`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+        },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['remediation-proposals'] }),
   })
 }

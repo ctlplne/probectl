@@ -16,10 +16,12 @@ import (
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 type routingTransferRequest struct {
@@ -49,7 +51,9 @@ type routingTransferResponse struct {
 	Performance   string                       `json:"performance_status"`
 	Upstream      *routingTransferPerformance  `json:"upstream_performance,omitempty"`
 	ValidUntil    time.Time                    `json:"source_valid_until"`
+	proofDigest   func(context.Context) ([32]byte, error)
 	check         func(context.Context) error
+	checkInScope  func(context.Context, tenancy.Scope) error
 }
 
 func (s *Server) handleRoutingTransferEstimate(w http.ResponseWriter, r *http.Request) error {
@@ -185,6 +189,17 @@ func (s *Server) runRoutingTransferEstimate(ctx context.Context, op capacityAgre
 			result.Policy = nil
 		}
 	}
+	result.proofDigest = func(ctx context.Context) ([32]byte, error) {
+		base, err := routingTransferEvidenceIdentity(ctx, scope, route, plans, rows, originals, op.budget)
+		if err != nil || performance == nil {
+			return base, err
+		}
+		var combined [64]byte
+		copy(combined[:32], base[:])
+		copy(combined[32:], performance.result.proof[:])
+		copy(base[:], crypto.Hash(combined[:]))
+		return base, nil
+	}
 	result.check = func(ctx context.Context) error {
 		if err := s.recheckRoutingTransferEstimate(ctx, op, scope, billing, plans, ports, route, sources, originals, rows); err != nil {
 			return err
@@ -202,6 +217,9 @@ func (s *Server) runRoutingTransferEstimate(ctx context.Context, op capacityAgre
 			return apierror.Unavailable("routing transfer sources expired; retry")
 		}
 		return ctx.Err()
+	}
+	result.checkInScope = func(ctx context.Context, sc tenancy.Scope) error {
+		return s.recheckRoutingTransferPublicationInScope(ctx, sc, op, scope, billing, plans, ports, route, sources, originals, rows, performance)
 	}
 	return result, ctx.Err()
 }
@@ -248,6 +266,8 @@ func routingTransferAPIError(err error) error {
 		return apierror.NotFound("the owned routing transfer source is unavailable")
 	case errors.Is(err, entity.ErrInvalidClaim):
 		return apierror.Validation("two distinct, canonical test and agent selections are required")
+	case errors.Is(err, store.ErrRoutingProbeSourcesBusy):
+		return apierror.Conflict("routing probe assignments are changing; run a fresh preview")
 	default:
 		return capacityBillAPIError(err)
 	}

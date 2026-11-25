@@ -21,6 +21,7 @@ import {
   Table,
 } from '../../components'
 import { DiversionReviewDialog } from '../../components/DiversionReviewDialog'
+import { RoutingTransferReviewDialog } from '../../components/RoutingTransferReviewDialog'
 import { FlowSpecEvidence } from '../../components/FlowSpecEvidence'
 import { FlowSpecHandoffDialog } from '../../components/FlowSpecHandoffDialog'
 import { FlowSpecRouterQualification } from '../../components/FlowSpecRouterQualification'
@@ -48,8 +49,22 @@ import { DateTime } from '../../time/DateTime'
  *  (hidden-unlicensed). */
 export function RemediationCard() {
   const { t } = useI18n()
-  const { tenant, user, permissions } = useAuth()
+  const { tenant, user, permissions, hasScopedGrants } = useAuth()
   const identity = `${tenant.id}:${user.id}`
+  const transferReviewAuthority = JSON.stringify([
+    tenant.id,
+    user.id,
+    [...permissions].sort(),
+    Boolean(hasScopedGrants),
+  ])
+  const canReadTransferReview =
+    permissions.includes('remediation.propose') && permissions.includes('flow.agreements.read')
+  const canReadTransferRollback =
+    permissions.includes('remediation.propose') &&
+    permissions.includes('entities.read') &&
+    permissions.includes('metrics.read')
+  const canOpenTransfer = (proposal: Proposal) =>
+    canReadTransferReview || (proposal.state === 'approved' && canReadTransferRollback)
   const { data, isPending, isError, error } = useRemediations(true, identity)
   const decide = useDecideRemediation()
   const approveFlowSpec = useApproveFlowSpec()
@@ -61,12 +76,14 @@ export function RemediationCard() {
     proposal: Proposal
     handoff?: RemediationFlowSpecHandoffInput
   } | null>(null)
-  const [handoffSelection, setHandoffSelection] = useState<{ identity: string; id: string } | null>(
-    null,
-  )
+  const [handoffSelection, setHandoffSelection] = useState<{
+    identity: string
+    id: string
+  } | null>(null)
   const currentSelection = selection?.identity === identity ? selection.proposal : null
   const diversion = currentSelection?.kind === 'diversion_preview' ? currentSelection : null
-  const reviewing = diversion ? null : currentSelection
+  const transfer = currentSelection?.kind === 'routing_transfer_review' ? currentSelection : null
+  const reviewing = diversion || transfer ? null : currentSelection
   const handoffID = handoffSelection?.identity === identity ? handoffSelection.id : undefined
   const isRTBH = reviewing?.kind === 'rtbh_review'
   const isFlowSpec = reviewing?.kind === 'flowspec_review'
@@ -95,7 +112,11 @@ export function RemediationCard() {
       header: t('remediation.column.proposal'),
       render: (p) => <strong>{p.title}</strong>,
     },
-    { key: 'kind', header: t('remediation.column.kind'), render: (p) => <code>{p.kind}</code> },
+    {
+      key: 'kind',
+      header: t('remediation.column.kind'),
+      render: (p) => <code>{p.kind}</code>,
+    },
     {
       key: 'blast',
       header: t('remediation.column.blast'),
@@ -130,6 +151,15 @@ export function RemediationCard() {
           <Button variant="ghost" onClick={() => setSelection({ identity, proposal: p })}>
             {p.state === 'approved' ? 'Open preview receipt' : 'Review local preview'}
           </Button>
+        ) : p.kind === 'routing_transfer_review' &&
+          (p.state === 'proposed' || p.state === 'approved') ? (
+          canOpenTransfer(p) ? (
+            <Button variant="ghost" onClick={() => setSelection({ identity, proposal: p })}>
+              {p.state === 'approved'
+                ? 'Open approved routing transfer'
+                : 'Review routing transfer'}
+            </Button>
+          ) : null
         ) : p.kind === 'flowspec_review' && p.state === 'approved' ? (
           <Button variant="ghost" onClick={() => setHandoffSelection({ identity, id: p.id })}>
             Open handoff
@@ -213,10 +243,17 @@ export function RemediationCard() {
                     if (isFlowSpec && fingerprint) {
                       approveFlowSpec.mutate({
                         id: reviewing.id,
-                        input: { review_fingerprint: fingerprint, handoff: selection?.handoff },
+                        input: {
+                          review_fingerprint: fingerprint,
+                          handoff: selection?.handoff,
+                        },
                       })
                     } else {
-                      decide.mutate({ id: reviewing.id, decision: 'approve', fingerprint })
+                      decide.mutate({
+                        id: reviewing.id,
+                        decision: 'approve',
+                        fingerprint,
+                      })
                     }
                     setSelection(null)
                   }}
@@ -305,6 +342,18 @@ export function RemediationCard() {
             onClose={() => setSelection(null)}
           />
         ) : null}
+        {transfer && canOpenTransfer(transfer) ? (
+          <RoutingTransferReviewDialog
+            key={`${transferReviewAuthority}:${transfer.id}`}
+            proposal={transfer}
+            identity={transferReviewAuthority}
+            canDecide={permissions.includes('remediation.approve')}
+            canReadReview={canReadTransferReview}
+            canReadRollback={canReadTransferRollback}
+            approvalsEnabled={approvalsEnabled}
+            onClose={() => setSelection(null)}
+          />
+        ) : null}
         {handoffID ? (
           <FlowSpecHandoffDialog
             id={handoffID}
@@ -380,7 +429,11 @@ export function KeysCard() {
   if (isError && error instanceof ApiError && error.status === 404) return null
 
   const columns: Column<KeyInfo>[] = [
-    { key: 'version', header: 'Version', render: (k) => <strong>v{k.version}</strong> },
+    {
+      key: 'version',
+      header: 'Version',
+      render: (k) => <strong>v{k.version}</strong>,
+    },
     {
       key: 'mode',
       header: 'Mode',
@@ -398,7 +451,11 @@ export function KeysCard() {
           <StatusDot tone="danger" label="Destroyed" />
         ),
     },
-    { key: 'created', header: 'Created', render: (k) => <DateTime value={k.created_at} /> },
+    {
+      key: 'created',
+      header: 'Created',
+      render: (k) => <DateTime value={k.created_at} />,
+    },
   ]
 
   return (

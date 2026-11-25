@@ -4689,7 +4689,7 @@ export interface RemediationProposal {
   dry_run?: RemediationDryRun
   id?: string
   incident_id?: string
-  kind?: "reroute_suggestion" | "traffic_shift_suggestion" | "open_ticket" | "trustctl_renewal" | "rtbh_review" | "flowspec_review" | "diversion_preview"
+  kind?: "reroute_suggestion" | "traffic_shift_suggestion" | "open_ticket" | "trustctl_renewal" | "rtbh_review" | "flowspec_review" | "diversion_preview" | "routing_transfer_review"
   proposed_by?: string
   rationale?: string
   state?: "proposed" | "approved" | "rejected" | "applied"
@@ -4800,6 +4800,11 @@ export interface RoutingChangeReference {
   view_id: string
 }
 
+export interface RoutingTransferApprovalInput {
+  fingerprint: string
+  note?: string
+}
+
 export interface RoutingTransferBill {
   after: CapacityBillResult
   after_p95: CapacityPercentileResult
@@ -4814,6 +4819,44 @@ export interface RoutingTransferBillingSelection {
   agreement_version: string
   egress_interface_id: string
   physical_bounds: CapacityPhysicalBound[]
+}
+
+export interface RoutingTransferDecision {
+  approved_at: string
+  approved_by: string
+  valid_until: string
+}
+
+export interface RoutingTransferDryRun {
+  address_count_upper_bound: string
+  address_limit: string
+  archive_agent_id?: string
+  archive_digest: string
+  archive_id: string
+  archive_observed_at: string
+  archive_source_ref?: string
+  candidate_asn: number
+  candidate_limit_bps: string
+  candidate_peak_bps: string
+  candidate_peer: string
+  configure: string[]
+  context_id?: string
+  current_inbound_policy: string
+  default_local_preference: number
+  estimate_digest: string
+  exact_prefix: string
+  moved_peak_bps: string
+  preview_fingerprint: string
+  proposed_inbound_policy: string
+  requires_weight_verification: boolean
+  router_id: string
+  source_valid_until: string
+  withdraw: string[]
+}
+
+export interface RoutingTransferDryRunInput {
+  archive_id: string
+  estimate: RoutingTransferInput
 }
 
 export interface RoutingTransferEstimate {
@@ -4880,6 +4923,12 @@ export interface RoutingTransferProbeTestSelection {
   test_id: string
 }
 
+export interface RoutingTransferProposalInput {
+  max_moved_bps: string
+  preview_fingerprint: string
+  selection: RoutingTransferDryRunInput
+}
+
 export interface RoutingTransferResponse {
   context_id: string
   destination_prefix: string
@@ -4889,6 +4938,32 @@ export interface RoutingTransferResponse {
   policy?: RoutingTransferPolicy
   source_valid_until: string
   upstream_performance?: RoutingTransferUpstreamPerformance
+}
+
+export interface RoutingTransferReview {
+  blast_radius: number
+  decision?: RoutingTransferDecision
+  expires_at: string
+  fingerprint: string
+  max_moved_bps: string
+  preview: RoutingTransferDryRun
+  valid_until: string
+}
+
+export interface RoutingTransferRollback {
+  approval_expires_at: string
+  approved_at: string
+  candidate_peer: string
+  context_id: string
+  exact_prefix: string
+  proposal_id: string
+  remove_policy: string
+  restore_policy: string
+  review_fingerprint: string
+  router_id: string
+  state: "approval_active" | "approval_expired" | "withdrawal_requested"
+  withdraw: string[]
+  withdraw_requested_at?: string
 }
 
 export interface RoutingTransferUpstreamPerformance {
@@ -4908,6 +4983,10 @@ export interface RoutingTransferUpstreamPerformance {
   status: "measured" | "unavailable"
   target: string
   to: string
+}
+
+export interface RoutingTransferWithdrawalInput {
+  review_fingerprint: string
 }
 
 export interface SCIMToken {
@@ -7327,6 +7406,44 @@ export interface GetRtbhReviewRequest {
 }
 
 export type GetRtbhReviewResponse = RemediationRTBHReview
+
+export interface PreviewRoutingTransferDryRunRequest {
+  body: RoutingTransferDryRunInput
+}
+
+export type PreviewRoutingTransferDryRunResponse = RoutingTransferDryRun
+
+export interface ProposeRoutingTransferRequest {
+  body: RoutingTransferProposalInput
+}
+
+export type ProposeRoutingTransferResponse = RemediationProposal
+
+export interface GetRoutingTransferReviewRequest {
+  id: string
+}
+
+export type GetRoutingTransferReviewResponse = RoutingTransferReview
+
+export interface ApproveRoutingTransferRequest {
+  id: string
+  body: RoutingTransferApprovalInput
+}
+
+export type ApproveRoutingTransferResponse = RemediationProposal
+
+export interface GetRoutingTransferRollbackRequest {
+  id: string
+}
+
+export type GetRoutingTransferRollbackResponse = RoutingTransferRollback
+
+export interface RequestRoutingTransferWithdrawalRequest {
+  id: string
+  body: RoutingTransferWithdrawalInput
+}
+
+export type RequestRoutingTransferWithdrawalResponse = RoutingTransferRollback
 
 export interface PreviewRemediationRtbhRequest {
   body: RemediationRTBHPreviewInput
@@ -9769,6 +9886,46 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<GetRtbhReviewResponse>("GET", path, query, undefined)
+  }
+
+  async previewRoutingTransferDryRun(request: PreviewRoutingTransferDryRunRequest): Promise<PreviewRoutingTransferDryRunResponse> {
+    let path = "/v1/remediation/routing-transfer-dry-run"
+    const query = new URLSearchParams()
+    return this.requestJSON<PreviewRoutingTransferDryRunResponse>("POST", path, query, request.body)
+  }
+
+  async proposeRoutingTransfer(request: ProposeRoutingTransferRequest): Promise<ProposeRoutingTransferResponse> {
+    let path = "/v1/remediation/routing-transfer-reviews"
+    const query = new URLSearchParams()
+    return this.requestJSON<ProposeRoutingTransferResponse>("POST", path, query, request.body)
+  }
+
+  async getRoutingTransferReview(request: GetRoutingTransferReviewRequest): Promise<GetRoutingTransferReviewResponse> {
+    let path = "/v1/remediation/routing-transfer-reviews/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetRoutingTransferReviewResponse>("GET", path, query, undefined)
+  }
+
+  async approveRoutingTransfer(request: ApproveRoutingTransferRequest): Promise<ApproveRoutingTransferResponse> {
+    let path = "/v1/remediation/routing-transfer-reviews/{id}/approve"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ApproveRoutingTransferResponse>("POST", path, query, request.body)
+  }
+
+  async getRoutingTransferRollback(request: GetRoutingTransferRollbackRequest): Promise<GetRoutingTransferRollbackResponse> {
+    let path = "/v1/remediation/routing-transfer-reviews/{id}/rollback"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetRoutingTransferRollbackResponse>("GET", path, query, undefined)
+  }
+
+  async requestRoutingTransferWithdrawal(request: RequestRoutingTransferWithdrawalRequest): Promise<RequestRoutingTransferWithdrawalResponse> {
+    let path = "/v1/remediation/routing-transfer-reviews/{id}/withdraw"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<RequestRoutingTransferWithdrawalResponse>("POST", path, query, request.body)
   }
 
   async previewRemediationRtbh(request: PreviewRemediationRtbhRequest): Promise<PreviewRemediationRtbhResponse> {

@@ -5,18 +5,23 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { useEffect, useState, type FormEvent } from 'react'
+import { useRemediations, type Proposal } from '../api/remediation'
 import type {
   CapacityAgreement,
   CapacityBillResult,
   CapacityPercentileResult,
   CapacityPhysicalBound,
   RoutingTransferBillingSelection,
+  RoutingTransferDryRun,
+  RoutingTransferDryRunInput,
+  RoutingTransferProposalInput,
   RoutingTransferInput,
   RoutingTransferProbeComparisonInput,
   RoutingTransferResponse,
   RoutingTransferUpstreamPerformance,
 } from '../api/sdk.gen'
 import { Button, Card, CardBody, CardHeader, Field, Select, Table } from '../components'
+import { RoutingTransferPolicyEvidence } from '../components/RoutingTransferReviewDialog'
 import { useAuth } from '../auth/useAuth'
 import { DateTime } from '../time/DateTime'
 import styles from './flowExplorer.module.css'
@@ -65,8 +70,11 @@ export function CapacityRoutingTransfer({
   busy: boolean
   execute: Execute
 }) {
-  const { permissions } = useAuth()
+  const { tenant, user, permissions } = useAuth()
+  const mayPropose = permissions.includes('remediation.propose')
   const mayCompareProbes = permissions.includes('test.read') && permissions.includes('agent.read')
+  const remediation = useRemediations(mayPropose, `${tenant.id}:${user.id}`)
+  const canPreview = mayPropose && remediation.isSuccess && !remediation.isError
   const [source, setSource] = useState(() => emptyHandoff())
   const [candidate, setCandidate] = useState(() => emptyHandoff())
   const [context, setContext] = useState('')
@@ -267,6 +275,15 @@ export function CapacityRoutingTransfer({
         )}
         {expired && <p role="status">The source validity window elapsed. Run a fresh estimate.</p>}
         {result && !revised && <TransferResult result={result} />}
+        {completed && !revised && completed.result.policy && canPreview && (
+          <RoutingTransferProposalForm
+            key={completed.result.source_valid_until}
+            estimate={completed.estimate}
+            estimateExpires={completed.result.source_valid_until}
+            busy={busy}
+            execute={execute}
+          />
+        )}
       </CardBody>
     </Card>
   )
@@ -363,6 +380,128 @@ function ProbeComparisonFields({
       />
     </fieldset>
   )
+}
+
+function RoutingTransferProposalForm({
+  estimate,
+  estimateExpires,
+  busy,
+  execute,
+}: {
+  estimate: RoutingTransferInput
+  estimateExpires: string
+  busy: boolean
+  execute: Execute
+}) {
+  const [archive, setArchive] = useState('')
+  const [peakLimit, setPeakLimit] = useState('')
+  const [selection, setSelection] = useState<RoutingTransferDryRunInput>()
+  const [preview, setPreview] = useState<RoutingTransferDryRun>()
+  const [proposal, setProposal] = useState<Proposal>()
+  const [expired, setExpired] = useState(false)
+  const deadline = Math.min(
+    Date.parse(estimateExpires),
+    Date.parse(preview?.source_valid_until ?? estimateExpires),
+  )
+  useEffect(() => {
+    if (!preview) return
+    const delay = Math.min(Math.max(0, deadline - Date.now()), 2147483647)
+    const timer = window.setTimeout(() => {
+      setPreview(undefined)
+      setSelection(undefined)
+      setExpired(true)
+    }, delay)
+    return () => window.clearTimeout(timer)
+  }, [deadline, preview])
+
+  function load(event: FormEvent) {
+    event.preventDefault()
+    setPreview(undefined)
+    setSelection(undefined)
+    setProposal(undefined)
+    setExpired(false)
+    if (Date.parse(estimateExpires) <= Date.now()) return
+    const selected: RoutingTransferDryRunInput = {
+      archive_id: archive,
+      estimate,
+    }
+    void execute<RoutingTransferDryRun>(
+      '/remediation/routing-transfer-dry-run',
+      mutation(selected),
+      (value) => {
+        setSelection(selected)
+        setPreview(value)
+      },
+    )
+  }
+
+  function propose(event: FormEvent) {
+    event.preventDefault()
+    if (!preview || !selection || deadline <= Date.now()) return
+    const input: RoutingTransferProposalInput = {
+      selection,
+      preview_fingerprint: preview.preview_fingerprint,
+      max_moved_bps: peakLimit,
+    }
+    void execute<Proposal>('/remediation/routing-transfer-reviews', mutation(input), setProposal)
+  }
+
+  return (
+    <section aria-label="Routing transfer remediation" className={styles.stack}>
+      <form aria-label="Dry run routing transfer" onSubmit={load} className={styles.stack}>
+        <fieldset disabled={busy} className={styles.stack}>
+          <Field
+            label="Router archive ID"
+            value={archive}
+            required
+            onChange={(event) => {
+              setArchive(event.target.value)
+              setSelection(undefined)
+              setPreview(undefined)
+              setProposal(undefined)
+              setExpired(false)
+            }}
+          />
+          <div className={styles.actions}>
+            <Button type="submit">Preview router policy</Button>
+          </div>
+        </fieldset>
+      </form>
+      {expired && <p role="status">The policy preview expired. Open a fresh preview.</p>}
+      {preview && deadline > Date.now() && (
+        <>
+          <RoutingTransferPolicyEvidence preview={preview} />
+          <p>
+            Preview valid until <DateTime value={preview.source_valid_until} />
+          </p>
+          {!proposal && (
+            <form aria-label="Propose routing transfer" onSubmit={propose} className={styles.stack}>
+              <fieldset disabled={busy} className={styles.stack}>
+                <Field
+                  label="Maximum peak to move (bps)"
+                  value={peakLimit}
+                  required
+                  onChange={(event) => setPeakLimit(event.target.value)}
+                />
+                <div className={styles.actions}>
+                  <Button type="submit">Propose routing transfer</Button>
+                </div>
+              </fieldset>
+            </form>
+          )}
+        </>
+      )}
+      {proposal && <p role="status">Proposal recorded. Open Remediation in Admin for review.</p>}
+    </section>
+  )
+}
+
+function mutation(input: RoutingTransferDryRunInput | RoutingTransferProposalInput): RequestInit {
+  return {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  }
 }
 
 function transferSelection(

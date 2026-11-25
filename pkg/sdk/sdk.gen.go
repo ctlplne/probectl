@@ -4980,6 +4980,11 @@ type RoutingChangeReference struct {
 	ViewId            string `json:"view_id"`
 }
 
+type RoutingTransferApprovalInput struct {
+	Fingerprint string `json:"fingerprint"`
+	Note        string `json:"note,omitempty"`
+}
+
 type RoutingTransferBill struct {
 	After            CapacityBillResult       `json:"after"`
 	AfterP95         CapacityPercentileResult `json:"after_p95"`
@@ -4994,6 +4999,44 @@ type RoutingTransferBillingSelection struct {
 	AgreementVersion  string                  `json:"agreement_version"`
 	EgressInterfaceId string                  `json:"egress_interface_id"`
 	PhysicalBounds    []CapacityPhysicalBound `json:"physical_bounds"`
+}
+
+type RoutingTransferDecision struct {
+	ApprovedAt string `json:"approved_at"`
+	ApprovedBy string `json:"approved_by"`
+	ValidUntil string `json:"valid_until"`
+}
+
+type RoutingTransferDryRun struct {
+	AddressCountUpperBound     string   `json:"address_count_upper_bound"`
+	AddressLimit               string   `json:"address_limit"`
+	ArchiveAgentId             string   `json:"archive_agent_id,omitempty"`
+	ArchiveDigest              string   `json:"archive_digest"`
+	ArchiveId                  string   `json:"archive_id"`
+	ArchiveObservedAt          string   `json:"archive_observed_at"`
+	ArchiveSourceRef           string   `json:"archive_source_ref,omitempty"`
+	CandidateAsn               int      `json:"candidate_asn"`
+	CandidateLimitBps          string   `json:"candidate_limit_bps"`
+	CandidatePeakBps           string   `json:"candidate_peak_bps"`
+	CandidatePeer              string   `json:"candidate_peer"`
+	Configure                  []string `json:"configure"`
+	ContextId                  string   `json:"context_id,omitempty"`
+	CurrentInboundPolicy       string   `json:"current_inbound_policy"`
+	DefaultLocalPreference     int      `json:"default_local_preference"`
+	EstimateDigest             string   `json:"estimate_digest"`
+	ExactPrefix                string   `json:"exact_prefix"`
+	MovedPeakBps               string   `json:"moved_peak_bps"`
+	PreviewFingerprint         string   `json:"preview_fingerprint"`
+	ProposedInboundPolicy      string   `json:"proposed_inbound_policy"`
+	RequiresWeightVerification bool     `json:"requires_weight_verification"`
+	RouterId                   string   `json:"router_id"`
+	SourceValidUntil           string   `json:"source_valid_until"`
+	Withdraw                   []string `json:"withdraw"`
+}
+
+type RoutingTransferDryRunInput struct {
+	ArchiveId string               `json:"archive_id"`
+	Estimate  RoutingTransferInput `json:"estimate"`
 }
 
 type RoutingTransferEstimate struct {
@@ -5062,6 +5105,12 @@ type RoutingTransferProbeTestSelection struct {
 	TestId  string `json:"test_id"`
 }
 
+type RoutingTransferProposalInput struct {
+	MaxMovedBps        string                     `json:"max_moved_bps"`
+	PreviewFingerprint string                     `json:"preview_fingerprint"`
+	Selection          RoutingTransferDryRunInput `json:"selection"`
+}
+
 type RoutingTransferResponse struct {
 	ContextId           string                             `json:"context_id"`
 	DestinationPrefix   string                             `json:"destination_prefix"`
@@ -5071,6 +5120,32 @@ type RoutingTransferResponse struct {
 	Policy              RoutingTransferPolicy              `json:"policy,omitzero"`
 	SourceValidUntil    string                             `json:"source_valid_until"`
 	UpstreamPerformance RoutingTransferUpstreamPerformance `json:"upstream_performance,omitzero"`
+}
+
+type RoutingTransferReview struct {
+	BlastRadius int                     `json:"blast_radius"`
+	Decision    RoutingTransferDecision `json:"decision,omitzero"`
+	ExpiresAt   string                  `json:"expires_at"`
+	Fingerprint string                  `json:"fingerprint"`
+	MaxMovedBps string                  `json:"max_moved_bps"`
+	Preview     RoutingTransferDryRun   `json:"preview"`
+	ValidUntil  string                  `json:"valid_until"`
+}
+
+type RoutingTransferRollback struct {
+	ApprovalExpiresAt   string   `json:"approval_expires_at"`
+	ApprovedAt          string   `json:"approved_at"`
+	CandidatePeer       string   `json:"candidate_peer"`
+	ContextId           string   `json:"context_id"`
+	ExactPrefix         string   `json:"exact_prefix"`
+	ProposalId          string   `json:"proposal_id"`
+	RemovePolicy        string   `json:"remove_policy"`
+	RestorePolicy       string   `json:"restore_policy"`
+	ReviewFingerprint   string   `json:"review_fingerprint"`
+	RouterId            string   `json:"router_id"`
+	State               string   `json:"state"`
+	Withdraw            []string `json:"withdraw"`
+	WithdrawRequestedAt string   `json:"withdraw_requested_at,omitempty"`
 }
 
 type RoutingTransferUpstreamPerformance struct {
@@ -5090,6 +5165,10 @@ type RoutingTransferUpstreamPerformance struct {
 	Status                      string                    `json:"status"`
 	Target                      string                    `json:"target"`
 	To                          string                    `json:"to"`
+}
+
+type RoutingTransferWithdrawalInput struct {
+	ReviewFingerprint string `json:"review_fingerprint"`
 }
 
 // A SCIM bearer-token metadata row. The token hash and plaintext token are never returned from list/get responses.
@@ -11263,6 +11342,114 @@ func (c *Client) GetRtbhReview(ctx context.Context, req GetRtbhReviewRequest) (*
 	query := url.Values{}
 	var out RemediationRTBHReview
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Review an exact FRRouting policy transfer and rollback
+type PreviewRoutingTransferDryRunRequest struct {
+	Body *RoutingTransferDryRunInput `json:"-"`
+}
+
+func (c *Client) PreviewRoutingTransferDryRun(ctx context.Context, req PreviewRoutingTransferDryRunRequest) (*RoutingTransferDryRun, error) {
+	path := "/v1/remediation/routing-transfer-dry-run"
+	query := url.Values{}
+	var out RoutingTransferDryRun
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Propose the exact routing transfer and peak limit
+type ProposeRoutingTransferRequest struct {
+	Body *RoutingTransferProposalInput `json:"-"`
+}
+
+func (c *Client) ProposeRoutingTransfer(ctx context.Context, req ProposeRoutingTransferRequest) (*RemediationProposal, error) {
+	path := "/v1/remediation/routing-transfer-reviews"
+	query := url.Values{}
+	var out RemediationProposal
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Get the current exact routing transfer review
+type GetRoutingTransferReviewRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetRoutingTransferReview(ctx context.Context, req GetRoutingTransferReviewRequest) (*RoutingTransferReview, error) {
+	path := "/v1/remediation/routing-transfer-reviews/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RoutingTransferReview
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Record the separate human approval
+type ApproveRoutingTransferRequest struct {
+	Id   string                        `json:"-"`
+	Body *RoutingTransferApprovalInput `json:"-"`
+}
+
+func (c *Client) ApproveRoutingTransfer(ctx context.Context, req ApproveRoutingTransferRequest) (*RemediationProposal, error) {
+	path := "/v1/remediation/routing-transfer-reviews/{id}/approve"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RemediationProposal
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read the exact approved routing transfer rollback
+type GetRoutingTransferRollbackRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetRoutingTransferRollback(ctx context.Context, req GetRoutingTransferRollbackRequest) (*RoutingTransferRollback, error) {
+	path := "/v1/remediation/routing-transfer-reviews/{id}/rollback"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RoutingTransferRollback
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Record a human withdrawal request
+type RequestRoutingTransferWithdrawalRequest struct {
+	Id   string                          `json:"-"`
+	Body *RoutingTransferWithdrawalInput `json:"-"`
+}
+
+func (c *Client) RequestRoutingTransferWithdrawal(ctx context.Context, req RequestRoutingTransferWithdrawalRequest) (*RoutingTransferRollback, error) {
+	path := "/v1/remediation/routing-transfer-reviews/{id}/withdraw"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out RoutingTransferRollback
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

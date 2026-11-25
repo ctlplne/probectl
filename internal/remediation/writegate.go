@@ -43,6 +43,14 @@ func (g writeGatedService) Get(ctx context.Context, tenantID, id string) (Propos
 	return g.delegate.Get(ctx, tenantID, id)
 }
 
+func (g writeGatedService) PreviewRoutingTransfer(ctx context.Context, tenant string, evidence RoutingTransferDryRunEvidence) (RoutingTransferDryRun, error) {
+	service, ok := g.delegate.(RoutingTransferDryRunner)
+	if !ok {
+		return RoutingTransferDryRun{}, Error{Code: "not_found", Message: "routing transfer dry run is unavailable"}
+	}
+	return service.PreviewRoutingTransfer(ctx, tenant, evidence)
+}
+
 func (g writeGatedService) PreviewRTBH(ctx context.Context, tenantID string, input RTBHPreviewInput, check func(context.Context) error) (RTBHPreview, error) {
 	service, ok := g.delegate.(RTBHPreviewer)
 	if !ok {

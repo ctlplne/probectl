@@ -96,7 +96,7 @@ func (store BGPRouting) lookupCurrentRoutingViewInScope(ctx context.Context, sc 
 			return BGPRoutingLookup{}, err
 		}
 	}
-	if err := requireRoutingReadSnapshot(ctx, sc); err != nil {
+	if err := requireRoutingTransferReadSnapshot(ctx, sc); err != nil {
 		return BGPRoutingLookup{}, err
 	}
 	afi := uint16(2)

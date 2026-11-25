@@ -1637,10 +1637,7 @@
             "headers": {
               "X-Probectl-Brand-Tenant": {
                 "description": "Present only for customer presentation confirmed by an authenticated session. The web console compares it with the tenant from /v1/me.",
-                "schema": {
-                  "type": "string",
-                  "format": "uuid"
-                }
+                "schema": {"type": "string", "format": "uuid"}
               }
             },
             "content": {
@@ -5184,7 +5181,7 @@
             "name": "tenant",
             "in": "query",
             "required": false,
-            "description": "Tenant UUID for sign-in. On a customer host, it must match that host's tenant. Without a UUID, the request uses the customer bound to the host or the default tenant on the shared host.",
+              "description": "Tenant UUID for sign-in. On a customer host, it must match that host's tenant. Without a UUID, the request uses the customer bound to the host or the default tenant on the shared host.",
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -16465,6 +16462,421 @@
         }
       }
     },
+    "/v1/remediation/routing-transfer-reviews": {
+      "post": {
+        "operationId": "proposeRoutingTransfer",
+        "summary": "Propose the exact routing transfer and peak limit",
+        "tags": [
+          "remediation"
+        ],
+        "x-required-permission": "remediation.propose",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Propose the exact routing transfer and peak limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationProposal"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutingTransferProposalInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/remediation/routing-transfer-reviews/{id}": {
+      "get": {
+        "operationId": "getRoutingTransferReview",
+        "summary": "Get the current exact routing transfer review",
+        "tags": [
+          "remediation"
+        ],
+        "x-required-permission": "remediation.propose",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Get the current exact routing transfer review",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutingTransferReview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/remediation/routing-transfer-reviews/{id}/approve": {
+      "post": {
+        "operationId": "approveRoutingTransfer",
+        "summary": "Record the separate human approval",
+        "tags": [
+          "remediation"
+        ],
+        "x-required-permission": "remediation.approve",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Record the separate human approval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemediationProposal"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutingTransferApprovalInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/remediation/routing-transfer-reviews/{id}/rollback": {
+      "get": {
+        "operationId": "getRoutingTransferRollback",
+        "summary": "Read the exact approved routing transfer rollback",
+        "description": "Returns saved rollback commands and the approval or withdrawal status after the route changes or the approval expires. Requires current tenant and router access.",
+        "tags": [
+          "remediation"
+        ],
+        "x-required-permission": "remediation.propose",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read the exact approved routing transfer rollback",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutingTransferRollback"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/remediation/routing-transfer-reviews/{id}/withdraw": {
+      "post": {
+        "operationId": "requestRoutingTransferWithdrawal",
+        "summary": "Record a human withdrawal request",
+        "description": "Records audited and idempotent withdrawal intent for the exact approved transfer from an interactive session. Returns the operator’s saved rollback commands. Router removal is independently observed.",
+        "tags": [
+          "remediation"
+        ],
+        "x-required-permission": "remediation.approve",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Record a human withdrawal request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutingTransferRollback"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutingTransferWithdrawalInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/remediation/routing-transfer-dry-run": {
+      "post": {
+        "operationId": "previewRoutingTransferDryRun",
+        "summary": "Review an exact FRRouting policy transfer and rollback",
+        "description": "Preview a policy edit and its rollback for a feasible estimate and a current owned router archive. Requires current financial, router telemetry, archive and remediation authority.",
+        "tags": [
+          "remediation"
+        ],
+        "x-required-permission": "remediation.propose",
+        "x-probectl-lifecycle": {
+          "stage": "preview"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutingTransferDryRunInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Exact reviewed edit and rollback for the recorded configuration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutingTransferDryRun"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "413": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "429": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/remediation/diversion-preview": {
       "post": {
         "operationId": "previewDiversion",
@@ -24196,7 +24608,8 @@
               "trustctl_renewal",
               "rtbh_review",
               "flowspec_review",
-              "diversion_preview"
+              "diversion_preview",
+              "routing_transfer_review"
             ]
           },
           "title": {
@@ -26613,22 +27026,13 @@
           },
           "customer": {
             "type": "object",
-            "required": [
-              "name"
-            ],
+            "required": ["name"],
             "properties": {
-              "name": {
-                "type": "string",
-                "maxLength": 120
-              },
-              "logo_data_uri": {
-                "type": "string"
-              }
+              "name": {"type": "string", "maxLength": 120},
+              "logo_data_uri": {"type": "string"}
             }
           },
-          "customer_domain": {
-            "type": "boolean"
-          },
+          "customer_domain": {"type": "boolean"},
           "token_overrides": {
             "type": "object",
             "description": "Validated deployment and optional customer color tokens. A color value is a bare HSL triplet, for example \"28 85% 30%\".",
@@ -41508,6 +41912,328 @@
           "candidate_peer",
           "candidate_asn",
           "local_preference"
+        ]
+      },
+      "RoutingTransferProposalInput": {
+        "type": "object",
+        "properties": {
+          "selection": {
+            "$ref": "#/components/schemas/RoutingTransferDryRunInput"
+          },
+          "preview_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "max_moved_bps": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "selection",
+          "preview_fingerprint",
+          "max_moved_bps"
+        ],
+        "additionalProperties": false
+      },
+      "RoutingTransferApprovalInput": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fingerprint"
+        ],
+        "additionalProperties": false
+      },
+      "RoutingTransferDecision": {
+        "type": "object",
+        "properties": {
+          "approved_by": {
+            "type": "string"
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "approved_by",
+          "approved_at",
+          "valid_until"
+        ],
+        "additionalProperties": false
+      },
+      "RoutingTransferReview": {
+        "type": "object",
+        "properties": {
+          "preview": {
+            "$ref": "#/components/schemas/RoutingTransferDryRun"
+          },
+          "max_moved_bps": {
+            "type": "string"
+          },
+          "blast_radius": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "valid_until": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Earliest current source, review, or recorded approval deadline."
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/RoutingTransferDecision"
+          }
+        },
+        "required": [
+          "preview",
+          "max_moved_bps",
+          "blast_radius",
+          "expires_at",
+          "valid_until",
+          "fingerprint"
+        ],
+        "additionalProperties": false
+      },
+      "RoutingTransferDryRunInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "archive_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "estimate": {
+            "$ref": "#/components/schemas/RoutingTransferInput"
+          }
+        },
+        "required": [
+          "archive_id",
+          "estimate"
+        ]
+      },
+      "RoutingTransferRollback": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "review_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "router_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "exact_prefix": {
+            "type": "string"
+          },
+          "candidate_peer": {
+            "type": "string"
+          },
+          "restore_policy": {
+            "type": "string"
+          },
+          "remove_policy": {
+            "type": "string"
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approval_expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "withdraw_requested_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "approval_active",
+              "approval_expired",
+              "withdrawal_requested"
+            ]
+          },
+          "withdraw": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "proposal_id",
+          "review_fingerprint",
+          "context_id",
+          "router_id",
+          "exact_prefix",
+          "candidate_peer",
+          "restore_policy",
+          "remove_policy",
+          "approved_at",
+          "approval_expires_at",
+          "state",
+          "withdraw"
+        ]
+      },
+      "RoutingTransferWithdrawalInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "review_fingerprint": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "review_fingerprint"
+        ]
+      },
+      "RoutingTransferDryRun": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "router_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "archive_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "archive_digest": {
+            "type": "string"
+          },
+          "archive_agent_id": {
+            "type": "string"
+          },
+          "archive_source_ref": {
+            "type": "string"
+          },
+          "archive_observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "candidate_peer": {
+            "type": "string"
+          },
+          "candidate_asn": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 4294967295
+          },
+          "exact_prefix": {
+            "type": "string"
+          },
+          "current_inbound_policy": {
+            "type": "string"
+          },
+          "proposed_inbound_policy": {
+            "type": "string"
+          },
+          "default_local_preference": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "requires_weight_verification": {
+            "type": "boolean"
+          },
+          "estimate_digest": {
+            "type": "string"
+          },
+          "source_valid_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "preview_fingerprint": {
+            "type": "string"
+          },
+          "address_count_upper_bound": {
+            "type": "string"
+          },
+          "address_limit": {
+            "type": "string"
+          },
+          "moved_peak_bps": {
+            "type": "string"
+          },
+          "candidate_peak_bps": {
+            "type": "string"
+          },
+          "candidate_limit_bps": {
+            "type": "string"
+          },
+          "configure": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "withdraw": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "router_id",
+          "archive_id",
+          "archive_digest",
+          "archive_observed_at",
+          "candidate_peer",
+          "candidate_asn",
+          "exact_prefix",
+          "current_inbound_policy",
+          "proposed_inbound_policy",
+          "default_local_preference",
+          "requires_weight_verification",
+          "estimate_digest",
+          "source_valid_until",
+          "preview_fingerprint",
+          "address_count_upper_bound",
+          "address_limit",
+          "moved_peak_bps",
+          "candidate_peak_bps",
+          "candidate_limit_bps",
+          "configure",
+          "withdraw"
         ]
       },
       "RoutingTransferResponse": {

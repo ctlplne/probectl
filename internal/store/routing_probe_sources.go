@@ -8,6 +8,9 @@ package store
 
 import (
 	"context"
+	"errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
@@ -16,6 +19,50 @@ import (
 type RoutingProbeTest struct {
 	TestID  string `json:"test_id"`
 	AgentID string `json:"agent_id"`
+}
+
+var ErrRoutingProbeSourcesBusy = errors.New("routing probe assignments are changing")
+
+// LockRoutingProbeSourcesForPublication holds the exact test and assignment
+// rows through the approval mutation. The enclosing publication already holds
+// the tenant audit lock used by the evidence writer, so a concurrent late
+// observation waits while the closed-window proof is checked and published.
+func (s *EntityRegistry) LockRoutingProbeSourcesForPublication(ctx context.Context, sc tenancy.Scope, scope entity.Scope,
+	router string, requested [2]RoutingProbeTest) error {
+	if err := requireRoutingTransferReadSnapshot(ctx, sc); err != nil {
+		return err
+	}
+	if err := requireRoutingCaptureReadSnapshot(ctx, sc); err != nil {
+		return err
+	}
+	if canonical, err := scope.Normalize(); err != nil || canonical != scope || scope.TenantID != sc.Tenant.String() {
+		return entity.ErrScopeMismatch
+	}
+	var locked int
+	err := sc.Q.QueryRow(ctx, `WITH requested AS (
+  SELECT * FROM unnest($4::uuid[],$5::text[]) AS key(test_id,agent_id)
+), held AS (
+  SELECT t.id FROM requested k
+  JOIN tests t ON (t.tenant_id,t.id)=($1,k.test_id) AND t.enabled AND t.type='icmp'
+  JOIN entity_test_contexts c ON (c.tenant_id,c.context_id,c.test_id)=($1,$2,t.id)
+  JOIN entity_path_test_contexts p ON (p.tenant_id,p.context_id,p.test_id)=(c.tenant_id,c.context_id,c.test_id)
+  JOIN entity_source_contexts m ON (m.tenant_id,m.context_id,m.anchor_entity_id,m.agent_id,m.source_kind,m.source_ref)
+    =($1,$2,$3,k.agent_id,'path_agent',k.test_id::text)
+  JOIN entity_agent_contexts a ON (a.tenant_id,a.context_id,a.agent_id)=(m.tenant_id,m.context_id,m.agent_id)
+  ORDER BY t.id,k.agent_id FOR SHARE OF t,c,p,m,a NOWAIT
+) SELECT count(*) FROM held`, scope.TenantID, scope.ContextID, router,
+		[]string{requested[0].TestID, requested[1].TestID}, []string{requested[0].AgentID, requested[1].AgentID}).Scan(&locked)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
+		return ErrRoutingProbeSourcesBusy
+	}
+	if err != nil {
+		return err
+	}
+	if locked != len(requested) {
+		return entity.ErrScopeMismatch
+	}
+	return ctx.Err()
 }
 
 // RoutingProbeTestsInScope requires both explicitly selected agents and
