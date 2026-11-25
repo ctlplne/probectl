@@ -487,7 +487,7 @@ func tableRolePlan(quotedTable, table string) []string {
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_provider",
 			"GRANT SELECT, INSERT ON " + quotedTable + " TO probectl_provider",
 		}
-	case "dashboard_report_artifacts", "dashboard_report_artifact_chunks", "bgp_flow_capture_objects", "bgp_flow_capture_receipts", "bgp_flow_capture_payloads", "bgp_flow_capture_intents", "bgp_flow_capture_intent_payloads", "device_counter_captures", "device_counter_capture_sources", "device_config_policy_revisions":
+	case "dashboard_report_artifacts", "dashboard_report_artifact_chunks", "bgp_flow_capture_objects", "bgp_flow_capture_receipts", "bgp_flow_capture_payloads", "bgp_flow_capture_intents", "bgp_flow_capture_intent_payloads", "device_counter_captures", "device_counter_capture_sources", "device_config_policy_revisions", "psa_autotask_adjustment_pending":
 		return []string{
 			"REVOKE ALL ON " + quotedTable + " FROM probectl_app",
 			"GRANT SELECT, INSERT, DELETE ON " + quotedTable + " TO probectl_app",

@@ -153,6 +153,43 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	if err != nil {
 		return err
 	}
+	if metering != nil && (cfg.HaloBillingConfig != "" || cfg.AutotaskBillingConfig != "") {
+		var raw billing.PSAConfigurations
+		for _, entry := range []struct {
+			name string
+			ref  string
+			body *[]byte
+		}{
+			{"PROBECTL_HALO_PSA_BILLING_CONFIG", cfg.HaloBillingConfig, &raw.Halo},
+			{"PROBECTL_AUTOTASK_PSA_BILLING_CONFIG", cfg.AutotaskBillingConfig, &raw.Autotask},
+		} {
+			if entry.ref == "" {
+				continue
+			}
+			if !secrets.IsRef(entry.ref) || secretsResolver == nil {
+				return fmt.Errorf("%s requires a deployment secret reference", entry.name)
+			}
+			body, cleanup, err := secretsResolver.ResolveBytes(ctx, entry.ref)
+			if err != nil {
+				return fmt.Errorf("%s: %w", entry.name, err)
+			}
+			defer cleanup()
+			if len(body) == 0 {
+				return fmt.Errorf("%s resolved to an empty value", entry.name)
+			}
+			*entry.body = body
+		}
+		psa, err := billing.NewPSASync(raw, pool, writeCapability, log, nil)
+		if err != nil {
+			return err
+		}
+		if err := singletons.Register("psa-billing-sync", func(ctx context.Context, token cluster.LeaseToken) error {
+			psa.Run(tenancy.WithTxGuard(ctx, cluster.LeaseGuard(token)))
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
 
 	// Per-tenant key isolation / BYOK (S-T6). The keyring replaces the
 	// deployment envelope as the PRIMARY sealer; the deployment sealer stays

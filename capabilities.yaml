@@ -879,15 +879,15 @@ capabilities:
     status: delivered
     owner: product research/MSP
     engine: {refs: ["file:ee/billing", "file:internal/usage"]}
-    binary: {refs: ["file:cmd/probectl-control/ee_attach.go#usage.SetRecorder(recorder)"]}
+    binary: {refs: ["file:cmd/probectl-control/ee_attach.go#usage.SetRecorder(recorder)", "file:cmd/probectl-control/ee_attach.go#billing.NewPSASync("]}
     api: {refs: ["api:GET /provider/v1/usage", "api:GET /provider/v1/usage/export"]}
     cli: {refs: ["cli:probectl billing usage", "cli:probectl billing export"]}
     ui: {refs: ["ui:F53@/provider"]}
-    docs: {refs: ["file:docs/metering.md#Per-tenant metering"]}
-    config_keys: *api_config
-    telemetry: {refs: ["file:ee/billing/recorder.go"]}
+    docs: {refs: ["file:docs/metering.md#Per-tenant metering", "file:docs/oncall-itsm.md#HaloPSA usage billing (MSP)", "file:docs/oncall-itsm.md#Autotask usage billing (MSP)"]}
+    config_keys: {refs: ["config:PROBECTL_HALO_PSA_BILLING_CONFIG", "config:PROBECTL_AUTOTASK_PSA_BILLING_CONFIG"]}
+    telemetry: {refs: ["file:ee/billing/recorder.go", "file:ee/billing/psa_sync.go"]}
     real_stack_proof: {refs: ["test:ee/billing/metering_realstack_integration_test.go#TestMeteringAndBillingExportRealStack"]}
-    migration: {refs: ["file:migrations/0026_metering.sql"]}
+    migration: {refs: ["file:migrations/0026_metering.sql", "file:migrations/0263_autotask_adjustment_journal.sql"]}
 
   - id: F54
     name: MSP customer branding

@@ -537,6 +537,8 @@ var subjectPostgresTablePolicies = map[string]subjectTablePolicy{
 		plane: "postgres:prospect_engagements", disposition: subjectTableDeleteMatches,
 		exact: []string{"owner_id"}, contains: []string{"preparer"},
 	},
+	// Pending PSA claims contain business IDs, counts and a system audit sequence.
+	"psa_autotask_adjustment_pending": {plane: "postgres:psa_autotask_adjustment_pending", disposition: subjectTableNoSubject},
 	"remediation_proposals": {
 		plane: "postgres:remediation_proposals", disposition: subjectTableDeleteMatches,
 		exact:    []string{"proposed_by", "decided_by", "target", "proposed_user_id"},

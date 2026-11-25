@@ -198,6 +198,96 @@ For a portable signed webhook, use `/ingest/itsm/halopsa/<id>` with the
 tenant's separate inbound credential and the numeric Halo ticket ID encoded
 as a string.
 
+### HaloPSA usage billing (MSP)
+
+HaloPSA billing sync remains preview pending an authorized sandbox test.
+
+Create two dedicated subscriptions in the Halo customer's workspace. Use one
+for monitored devices and one for registered agents. Link each to the matching
+recurring invoice line. Grant the Halo API application subscription read and
+update access only for the intended customer. Keep this credential separate
+from the ticket connector. [Halo usage billing and recurring invoices](https://www.usehalo.com/guides/2789?891281fb_page=2)
+
+Point `PROBECTL_HALO_PSA_BILLING_CONFIG` at a deployment secret reference, such
+as `env:HALO_BILLING_ROUTES_JSON`, that resolves to a JSON array of mappings.
+
+```json
+[
+  {
+    "tenant_id": "00000000-0000-4000-8000-000000000001",
+    "origin": "https://tenant.halopsa.example",
+    "client_id": "<Halo API application ID>",
+    "client_secret": "<Halo API application secret>",
+    "customer_id": 42,
+    "devices_subscription_id": 123,
+    "agents_subscription_id": 124
+  }
+]
+```
+
+Set at most one mapping per probectl tenant. Use one canonical HTTPS origin per
+Halo instance and assign each subscription to a single tenant. The optional
+`scope` limits the application permissions requested from Halo.
+
+The worker checks quantities on startup and every 15 minutes. A monitored
+device is a canonical device with a current configured device target in its
+routing context. Multiple pollers on that device count once. The agent count
+includes offline registrations. Permanent agent revocation removes the agent
+and its targets from the next PSA inventory calculation. The worker sends only
+changed quantities. It updates subscriptions already created by the MSP and
+records the requested and confirmed quantities
+in the tenant audit chain. Invoice creation remains in Halo.
+
+### Autotask usage billing (MSP)
+
+Autotask billing sync remains preview pending an authorized sandbox test.
+
+Create two dedicated services on the customer's Recurring Service contract.
+Use one service for monitored devices and one for registered agents. Give the
+billing API user access to read that company's contract and service units and
+create Contract Service Adjustments. Use a credential separate from the ticket
+connector. [Autotask contract service adjustments](https://autotask.net/help/developerhelp/content/apis/rest/entities/ContractServiceAdjustmentsEntity.htm)
+
+Set `PROBECTL_AUTOTASK_PSA_BILLING_CONFIG` to a deployment secret reference,
+such as `env:AUTOTASK_BILLING_ROUTES_JSON`, that resolves to a JSON array.
+
+```json
+[
+  {
+    "tenant_id": "00000000-0000-4000-8000-000000000001",
+    "zone_url": "https://webservices4.autotask.net/atservicesrest/v1.0",
+    "username": "<Autotask API user>",
+    "api_secret": "<Autotask API secret>",
+    "integration_code": "<Autotask integration code>",
+    "company_id": 42,
+    "contract_id": 17,
+    "recurring_contract_type": 6,
+    "devices_contract_service_id": 123,
+    "agents_contract_service_id": 124
+  }
+]
+```
+
+Use the Recurring Service contract type value from the zone's Contracts
+picklist. Use the existing contract service IDs, which identify the lines
+on the contract. The worker counts the same tenant inventory as the Halo
+sync and checks every 15 minutes. Configure one PSA billing route per tenant
+and give each route its own contract services. The worker verifies and reads
+each line separately. If one service is unavailable, reconciliation can still
+proceed for the other service on the same verified contract. A calendar end
+date, including one serialized as midnight UTC, includes the last UTC
+billing day. A non-midnight timestamp retains its exact cutoff.
+
+An adjustment changes the vendor's count by a signed delta. Each send has a
+durable tenant journal entry and an audit event. If the response is uncertain,
+the worker checks the original effective period for the resulting quantity.
+It waits for that quantity before attempting another adjustment on that line.
+The tenant audit request shows the original effective time and target quantity.
+If Autotask confirms the adjustment never applied, reconcile that dedicated
+line in Autotask to the logged quantity for the effective period. Keep the
+line assigned to the same tenant while the adjustment is pending.
+[Autotask contract service units](https://ww16.autotask.net/help/developerhelp/content/apis/rest/Entities/ContractServiceUnitsEntity.htm)
+
 ## Idempotency
 
 Ticket creation and paging are **idempotent** — doing it twice has the same

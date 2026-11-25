@@ -386,6 +386,7 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 		"tenant_tag_assignments",
 		"tenant_tag_rules",
 		"roles",
+		"psa_autotask_adjustment_pending",
 		"ir_attribution_records",
 	})
 	if err != nil {
@@ -403,8 +404,10 @@ func TestSubjectPostgresClassificationFailsClosedOnUnknownTenantTable(t *testing
 			t.Fatalf("%s disposition = %d, want count-verified deletion", table, byName[table])
 		}
 	}
-	if byName["roles"] != subjectTableNoSubject {
-		t.Fatalf("roles disposition = %d, want explicit no-subject classification", byName["roles"])
+	for _, table := range []string{"roles", "psa_autotask_adjustment_pending"} {
+		if byName[table] != subjectTableNoSubject {
+			t.Fatalf("%s disposition = %d, want explicit no-subject classification", table, byName[table])
+		}
 	}
 	for _, table := range []string{
 		"entity_contexts", "entity_path_test_contexts", "entity_path_targets", "entity_test_contexts", "entity_links",

@@ -1040,6 +1040,9 @@ type Config struct {
 	// credentials carry no endpoint, so they mirror the change-webhook colon form.
 	NotifyConnectors []NotifyConnector
 	NotifyInbound    map[string]NotifyInbound
+	// PSA billing references are resolved at the MSP-only metering attach seam.
+	HaloBillingConfig     string
+	AutotaskBillingConfig string
 }
 
 // minWebhookSecretBytes is the fail-closed floor for an inbound webhook
@@ -1552,6 +1555,8 @@ func loadOpsEditionConfig(l *loader, cfg *Config) {
 	cfg.ChangeCorrelationWindow = l.dur("PROBECTL_CHANGE_CORRELATION_WINDOW", 24*time.Hour)
 	cfg.NotifyConnectors = l.notifyConnectors("PROBECTL_NOTIFY_CONNECTORS")
 	cfg.NotifyInbound = l.notifyInbound("PROBECTL_NOTIFY_INBOUND")
+	cfg.HaloBillingConfig = l.str("PROBECTL_HALO_PSA_BILLING_CONFIG", "")
+	cfg.AutotaskBillingConfig = l.str("PROBECTL_AUTOTASK_PSA_BILLING_CONFIG", "")
 }
 
 func applyDerivedConfigDefaults(l *loader, cfg *Config) {
