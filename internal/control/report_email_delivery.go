@@ -230,7 +230,8 @@ func (s *DashboardReportSupervisor) sendCurrentReportEmail(ctx context.Context, 
 	}
 	defer func() { _ = reader.Close() }()
 	messageID := "<probectl-report-" + hex.EncodeToString(crypto.Hash([]byte(tenant.String()+"/"+item.ID))) + "@probectl.invalid>"
-	if err := sender.SendAttachment(ctx, destination.Recipients, "[probectl] "+verified.Filename, alert.MailAttachment{Filename: verified.Filename, MediaType: verified.MediaType, MessageID: messageID, Bytes: verified.BodyBytes, Body: reader}); err != nil {
+	brand := server.OutputBrand(ctx, tenant.String())
+	if err := sender.SendAttachment(ctx, destination.Recipients, "["+brand.DisplayName()+"] "+verified.Filename, alert.MailAttachment{Filename: verified.Filename, MediaType: verified.MediaType, MessageID: messageID, BrandName: brand.CustomerName(), Bytes: verified.BodyBytes, Body: reader}); err != nil {
 		return err
 	}
 	return tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {

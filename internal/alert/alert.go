@@ -52,18 +52,21 @@ type ruleRef struct {
 // outbound contract (signed with HMAC-SHA256 in the X-Probectl-Signature header
 // when the channel has a secret).
 type WebhookPayload struct {
-	Version    string            `json:"version"`
-	State      string            `json:"state"`
-	Rule       ruleRef           `json:"rule"`
-	TenantID   string            `json:"tenant_id"`
-	Severity   string            `json:"severity"`
-	Metric     string            `json:"metric"`
-	Labels     map[string]string `json:"labels,omitempty"`
-	Value      float64           `json:"value"`
-	Threshold  float64           `json:"threshold,omitempty"`
-	Comparison string            `json:"comparison,omitempty"`
-	Reason     string            `json:"reason"`
-	FiredAt    string            `json:"fired_at"`
+	Brand        string            `json:"brand,omitempty"`
+	PoweredBy    string            `json:"powered_by,omitempty"`
+	PoweredByURL string            `json:"powered_by_url,omitempty"`
+	Version      string            `json:"version"`
+	State        string            `json:"state"`
+	Rule         ruleRef           `json:"rule"`
+	TenantID     string            `json:"tenant_id"`
+	Severity     string            `json:"severity"`
+	Metric       string            `json:"metric"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	Value        float64           `json:"value"`
+	Threshold    float64           `json:"threshold,omitempty"`
+	Comparison   string            `json:"comparison,omitempty"`
+	Reason       string            `json:"reason"`
+	FiredAt      string            `json:"fired_at"`
 }
 
 // Payload renders the alert as its webhook schema.

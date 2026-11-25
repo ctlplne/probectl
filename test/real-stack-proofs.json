@@ -461,6 +461,13 @@
       ]
     },
     {
+      "ref": "test:ee/whitelabel/store_integration_test.go#TestCustomerBrandStorageKeepsTwoTenantsAndHostsSeparate",
+      "profile": "integration",
+      "capabilities": [
+        "F54"
+      ]
+    },
+    {
       "ref": "test:internal/tenantlife/realstack_integration_test.go#TestTenantExportAndErasureRealStack",
       "profile": "integration",
       "capabilities": [

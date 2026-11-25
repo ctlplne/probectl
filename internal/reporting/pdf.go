@@ -27,6 +27,8 @@ import (
 	ot "github.com/go-text/typesetting/font/opentype"
 	"github.com/go-text/typesetting/shaping"
 	"golang.org/x/image/math/fixed"
+
+	"github.com/ctlplne/probectl/internal/branding"
 )
 
 // PDFLimits bounds complete logical table rows, serialized bytes and renderer
@@ -100,6 +102,11 @@ func WritePDF(ctx context.Context, target io.Writer, d Document, limits PDFLimit
 	p := &pdfDocument{ctx: ctx, remaining: remaining, limits: limits, fonts: fonts, objects: []pdfObject{{}, {}}, glyphs: make(map[pdfGlyphKey]pdfGlyph), forms: make(map[pdfOutlineKey]int)}
 	p.shaper.SetFontCacheSize(len(fonts.faces))
 	header := []string{Banner, "Tenant: " + d.TenantName + " (" + d.TenantScope + ")", "Absolute time: " + d.AbsoluteFrom.UTC().Format(time.RFC3339Nano) + " to " + d.AbsoluteTo.UTC().Format(time.RFC3339Nano)}
+	if d.BrandName != "" {
+		if err := p.setBrandHeader(d.BrandName); err != nil {
+			return PDFReceipt{}, err
+		}
+	}
 	for _, value := range header {
 		lines, shapeErr := p.layout(value)
 		if shapeErr != nil {
@@ -150,10 +157,10 @@ const pdfSize = 10
 const pdfLeft, pdfRight = 44.0, 568.0
 
 type pdfLine struct {
-	text                 []rune
-	runs                 shaping.Line
-	height, ascent, left float64
-	start, end           int
+	text                        []rune
+	runs                        shaping.Line
+	height, ascent, left, width float64
+	start, end                  int
 }
 type pdfOutlineKey struct {
 	face *font.Face
@@ -198,6 +205,9 @@ type pdfDocument struct {
 	headerHeight, y float64
 	pages           []pdfPage
 	files           []pdfFileName
+	brandBadge      pdfLine
+	brandBadgeRow   int
+	brandHeaderLink [4]float64
 }
 
 func (p *pdfDocument) charge(n int64) error {
@@ -316,7 +326,8 @@ func (p *pdfDocument) layout(value string) ([]pdfLine, error) {
 				return nil, fmt.Errorf("PDF layout returned a noncontiguous logical line")
 			}
 			line.left = math.Max(0, -minX)
-			if maxX-minX > pdfRight-pdfLeft {
+			line.width = maxX - minX
+			if line.width > pdfRight-pdfLeft {
 				return nil, fmt.Errorf("PDF unbreakable glyph cluster exceeds page width")
 			}
 			line.height = math.Max(line.height, line.ascent-descent+3)
@@ -367,6 +378,55 @@ func (p *pdfDocument) text(value string) error {
 	return nil
 }
 
+func (p *pdfDocument) setBrandHeader(name string) error {
+	if !utf8.ValidString(name) || strings.IndexFunc(name, unicode.IsControl) >= 0 {
+		return fmt.Errorf("PDF brand name must be a single line of display text")
+	}
+	// Branding must not prevent delivery of a report whose data can be rendered.
+	// Keep the exact name in the PDF's text layer when a bundled font cannot
+	// draw a character. The one-for-one substitution preserves cluster indexes.
+	printable := strings.Map(func(r rune) rune {
+		if pdfIgnorable(r) {
+			return r
+		}
+		for _, face := range p.fonts.faces {
+			if glyph, ok := face.NominalGlyph(r); ok && glyph != 0 {
+				return r
+			}
+		}
+		return '?'
+	}, name)
+	lines, err := p.layout(printable)
+	if err != nil {
+		return err
+	}
+	if printable != name {
+		original := []rune(name)
+		for i := range lines {
+			lines[i].text = original
+		}
+	}
+	badge, err := p.layout(branding.Attribution)
+	if err != nil {
+		return err
+	}
+	if len(lines) == 0 || len(badge) != 1 {
+		return fmt.Errorf("PDF brand header could not be laid out")
+	}
+	p.brandBadge = badge[0]
+	last := &lines[len(lines)-1]
+	const gap = 8.0
+	if last.width+gap+p.brandBadge.width <= pdfRight-pdfLeft {
+		p.brandBadge.left += last.width + gap
+		last.height = max(last.height, p.brandBadge.height)
+	} else {
+		lines = append(lines, pdfLine{height: p.brandBadge.height})
+	}
+	p.brandBadgeRow = len(lines) - 1
+	p.header = lines
+	return nil
+}
+
 func (p *pdfDocument) newPage() error {
 	if err := p.charge(512); err != nil {
 		return err
@@ -375,9 +435,19 @@ func (p *pdfDocument) newPage() error {
 	contentID := p.reserve()
 	p.pages = append(p.pages, pdfPage{object: pageID, content: contentID, stream: &pdfBuffer{document: p}})
 	p.y = 750
-	for _, line := range p.header {
+	for row, line := range p.header {
+		top := p.y
 		if err := p.paint(line); err != nil {
 			return err
+		}
+		if p.brandBadge.height > 0 && row == p.brandBadgeRow {
+			p.y = top
+			if err := p.paint(p.brandBadge); err != nil {
+				return err
+			}
+			x := pdfLeft + p.brandBadge.left
+			p.brandHeaderLink = [4]float64{x, p.y, x + p.brandBadge.width, top}
+			p.y = top - line.height
 		}
 	}
 	p.y -= 6
@@ -797,7 +867,11 @@ func (p *pdfDocument) finish() error {
 	// Footer shaping can add glyphs; finalize fonts only after every page footer.
 	total := len(p.pages)
 	for i := range p.pages {
-		lines, err := p.layout(fmt.Sprintf("Page %d of %d", i+1, total))
+		footer := fmt.Sprintf("Page %d of %d", i+1, total)
+		if p.brandBadge.height > 0 {
+			footer = branding.Attribution + " · " + footer
+		}
+		lines, err := p.layout(footer)
 		if err != nil {
 			return err
 		}
@@ -844,8 +918,22 @@ func (p *pdfDocument) finish() error {
 		if err := p.charge(256); err != nil {
 			return err
 		}
+		var annotations string
+		if p.brandBadge.height > 0 {
+			if err := p.charge(512); err != nil {
+				return err
+			}
+			var links [2]int
+			for i, box := range [2][4]float64{p.brandHeaderLink, {44, 40, 163, 59}} {
+				id := p.reserve()
+				links[i] = id
+				p.objects[id-1] = pdfObject{body: fmt.Sprintf("<< /Type /Annot /Subtype /Link /Rect [%g %g %g %g] /Border [0 0 0] /Contents (%s) /A << /S /URI /URI (%s) >> >>",
+					box[0], box[1], box[2], box[3], branding.Attribution, branding.AttributionURL)}
+			}
+			annotations = fmt.Sprintf(" /Annots [%d 0 R %d 0 R]", links[0], links[1])
+		}
 		p.objects[page.content-1] = pdfObject{body: body, stream: true}
-		p.objects[page.object-1] = pdfObject{body: fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << %s >> /XObject << %s >> >> /Contents %d 0 R >>", resources.String(), graphics.String(), page.content)}
+		p.objects[page.object-1] = pdfObject{body: fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << %s >> /XObject << %s >> >> /Contents %d 0 R%s >>", resources.String(), graphics.String(), page.content, annotations)}
 		fmt.Fprintf(kids, "%d 0 R ", page.object)
 	}
 	if kids.err != nil {

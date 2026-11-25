@@ -111,7 +111,7 @@ serves HTTPS directly, including behind an ingress.
 | `PROBECTL_MIGRATE_ON_BOOT`          | `false`                                                            | apply migrations during `serve` startup      |
 | `PROBECTL_LOG_LEVEL`                | `info`                                                             | `debug` \| `info` \| `warn` \| `error`       |
 | `PROBECTL_LOG_FORMAT`               | `json`                                                             | `json` \| `text`                             |
-| `PROBECTL_THEME_OVERRIDES`          | (none)                                                             | JSON object of deployment-wide design-token overrides, for example `{"--radius-panel":"10px"}`. Only shipped color tokens plus `--radius-control\|panel\|pill` and `--font-sans\|mono\|display` are accepted. A color value must be the bare HSL triplet the stylesheet consumes (`"28 85% 30%"`, optionally `"28 85% 30% / 0.12"`) — a hex or `rgb()` value is refused because the stylesheet reads the token as `hsl(var(--token) / <alpha>)`. Unsafe values, unknown token names, or any set that breaks WCAG contrast in either shipped theme fails startup. Applies to every tenant while product identity remains probectl |
+| `PROBECTL_THEME_OVERRIDES`          | (none)                                                             | JSON object of deployment-wide design-token overrides, for example `{"--radius-panel":"10px"}`. Only shipped color tokens plus `--radius-control\|panel\|pill` and `--font-sans\|mono\|display` are accepted. A color value must be the bare HSL triplet the stylesheet consumes (`"28 85% 30%"`, optionally `"28 85% 30% / 0.12"`) — a hex or `rgb()` value is refused because the stylesheet reads the token as `hsl(var(--token) / <alpha>)`. Unsafe values, unknown token names, or any set that breaks WCAG contrast in either shipped theme fails startup. Sets the deployment defaults for all tenants. The fixed probectl attribution has its own styling |
 | `PROBECTL_HSTS_ENABLED`             | `true`                                                             | send `Strict-Transport-Security`             |
 | `PROBECTL_HSTS_MAX_AGE`             | `8760h`                                                            | HSTS `max-age`                               |
 | `PROBECTL_TLS_CERT_FILE`            | (none)                                                            | PEM server certificate; the process serves HTTPS directly when set together with the key |
@@ -3239,16 +3239,20 @@ separate tombstone-aware maintenance flow.
 It is a JSON object because CSS color functions and font lists can contain
 commas. Startup validates token names, value grammar, the 64-entry size bound,
 and WCAG contrast against both shipped themes; malformed or unsafe config fails
-closed. The light and dark operator themes remain built in; light is the default.
+closed. The light and dark operator themes remain built in, with light as the
+default. Set color tokens to bare HSL triplets such as `28 85% 30%`.
+The deployment can also override the `--radius-control`, `--radius-panel`,
+`--radius-pill`, `--font-sans`, `--font-mono`, and `--font-display` tokens.
+The fixed probectl attribution uses its own palette and typography.
 
 Public `GET /branding` is intentionally available before authentication so the
-login shell and signed-in UI receive the same theme. It always returns
-`product_name: "probectl"`, never varies by host/session/tenant, and may include
-the validated deployment `token_overrides`. It is cacheable for 60 seconds.
-There are no provider-plane or per-tenant branding APIs, custom-domain tenant
-mapping, logo override, login-message override, or notification-email identity
-override. The product decision and schema compatibility window are recorded in
-[`white-label.md`](white-label.md).
+login shell and signed-in UI receive the same theme. It always returns the fixed
+`product_name: "probectl"` and may include validated `token_overrides`.
+Core and Enterprise return the deployment theme and allow caching for 60
+seconds. An MSP can override selected customer colors, set a name and logo, and
+map a custom domain using the provider plane. A customer branding response is
+private and varies by exact hostname or authenticated tenant. See
+[MSP customer branding](white-label.md).
 
 ### Advanced data governance (`governance`, ee/)
 

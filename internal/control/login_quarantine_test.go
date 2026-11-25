@@ -6,11 +6,13 @@
 package control
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -46,6 +48,9 @@ func TestQuarantineLoginBrowserRecovery(t *testing.T) {
 				if !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") || !strings.Contains(body, "Retry sign-in") || !strings.Contains(body, "tenant_quarantined") {
 					t.Fatalf("missing browser recovery: %s", body)
 				}
+				if !strings.Contains(body, `<svg aria-hidden="true"`) || !strings.Contains(body, `</svg> probectl`) {
+					t.Fatal("recovery page is missing the fixed probectl name and mark")
+				}
 				retry := "/auth/login"
 				console := "/ui/"
 				if strings.Contains(tc.path, "tenant="+tenant) {
@@ -65,5 +70,62 @@ func TestQuarantineLoginBrowserRecovery(t *testing.T) {
 				t.Fatal("JSON contract changed")
 			}
 		})
+	}
+}
+
+type reassignedRecoveryHost struct{ fixtureBrandResolver }
+
+func (f reassignedRecoveryHost) ForHost(ctx context.Context, _ string) (string, branding.Branding, error) {
+	return f.fixtureBrandResolver.ForHost(ctx, "riverside.example")
+}
+
+func TestCustomerRecoveryUsesOnlyTheRegisteredHostBrand(t *testing.T) {
+	previous := tenancy.CurrentQuarantine()
+	quarantine := tenancy.NewQuarantine()
+	tenancy.SetQuarantine(quarantine)
+	t.Cleanup(func() { tenancy.SetQuarantine(previous) })
+	for _, id := range []string{mappedBrandTenant, siblingBrandTenant} {
+		quarantine.Enter(tenancy.QuarantineEntry{TenantID: id, Reason: tenancy.QuarantinePlaneMissing, Plane: "postgres"})
+	}
+	srv := testServer(fakePinger{}).WithCustomerBranding(fixtureBrandResolver{})
+	srv.cfg.AuthMode = "sso"
+	for _, tc := range []struct{ host, forwarded, customer, other string }{
+		{"northstar.example", "riverside.example", "Northstar", "Riverside"},
+		{"riverside.example", "northstar.example", "Riverside", "Northstar"},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "https://"+tc.host+"/auth/login", nil)
+		req.Header.Set("Accept", "text/html")
+		req.Header.Set("X-Forwarded-Host", tc.forwarded)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		body := rec.Body.String()
+		if rec.Code != http.StatusServiceUnavailable || !strings.Contains(body, "tenant_quarantined") ||
+			!strings.Contains(body, "<bdi>"+tc.customer+"</bdi>") || strings.Contains(body, tc.other) ||
+			!strings.Contains(body, `<a href="https://probectl.com">`) || !strings.Contains(body, `</svg> Powered by probectl</a>`) {
+			t.Fatalf("%s recovery lost the correct brand or attribution: %d %s", tc.host, rec.Code, body)
+		}
+		if rec.Header().Get("Location") != "" || rec.Header().Get("Set-Cookie") != "" ||
+			rec.Header().Get("Cache-Control") != "no-store" || !strings.Contains(rec.Header().Get("Content-Security-Policy"), "default-src 'none'") {
+			t.Fatalf("%s recovery changed the authentication, caching or CSP policy: %v", tc.host, rec.Header())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://northstar.example/auth/login?tenant="+siblingBrandTenant, nil)
+	req.Header.Set("Accept", "text/html")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "Riverside") {
+		t.Fatalf("a sibling routing hint escaped its host boundary: %d %s", rec.Code, rec.Body)
+	}
+
+	srv.WithCustomerBranding(reassignedRecoveryHost{})
+	req = httptest.NewRequest(http.MethodGet, "https://northstar.example/auth/login", nil)
+	req.Header.Set("Accept", "text/html")
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	body := rec.Body.String()
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(body, "</svg> probectl") ||
+		strings.Contains(body, "Riverside") || strings.Contains(body, "Northstar") {
+		t.Fatalf("host ownership changed during sign-in, expected the default recovery: %d %s", rec.Code, body)
 	}
 }

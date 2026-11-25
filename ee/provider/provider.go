@@ -37,6 +37,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/ee/whitelabel"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/config"
@@ -51,6 +52,7 @@ import (
 // Deps are the core seams the provider plane builds on. Everything here is a
 // CORE type — the one-way import rule in action.
 type Deps struct {
+	Branding          *whitelabel.Store
 	MonthlyReports    reporting.MonthlyReportQueue
 	ComplianceReports reporting.ComplianceReportQueue
 	DDoSReports       reporting.DDoSReportQueue
@@ -179,7 +181,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 		cfg.ProviderBootstrapToken, cfg.CookieSecure()).
 		WithMonthlyReports(d.MonthlyReports).WithComplianceReports(d.ComplianceReports).WithDDoSReports(d.DDoSReports).WithProspectReports(d.ProspectReports).WithTrustedProxies(cfg.TrustedProxies).
 		WithMetering(d.Metering).WithLifecycle(d.Lifecycle).
-		WithFairness(d.Fairness).WithGovernance(d.Governance), nil
+		WithFairness(d.Fairness).WithGovernance(d.Governance).withCustomerBrands(d.Branding), nil
 }
 
 // providerAudit writes the separate, tamper-evident provider audit stream.

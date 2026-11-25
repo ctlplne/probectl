@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/incident"
 )
 
@@ -30,8 +31,8 @@ func (c *chat) Name() string           { return c.name }
 func (c *chat) Capability() Capability { return CapabilityChat }
 
 func (c *chat) Open(ctx context.Context, inc incident.Incident) (Delivery, error) {
-	text := fmt.Sprintf("🔴 probectl incident opened — %s (severity %s, target %s)",
-		inc.Title, inc.Severity, displayTarget(inc))
+	text := fmt.Sprintf("🔴 %s incident opened — %s (severity %s, target %s)",
+		branding.Output(ctx).DisplayName(), inc.Title, inc.Severity, displayTarget(inc))
 	if err := c.post(ctx, text); err != nil {
 		return Delivery{}, err
 	}
@@ -39,12 +40,34 @@ func (c *chat) Open(ctx context.Context, inc incident.Incident) (Delivery, error
 }
 
 func (c *chat) Resolve(ctx context.Context, inc incident.Incident, _ string) error {
-	return c.post(ctx, fmt.Sprintf("✅ probectl incident resolved — %s", inc.Title))
+	return c.post(ctx, fmt.Sprintf("✅ %s incident resolved — %s", branding.Output(ctx).DisplayName(), inc.Title))
 }
 
 func (c *chat) post(ctx context.Context, text string) error {
 	var payload any = map[string]string{"text": text}
+	brand := branding.Output(ctx)
+	if brand.Customer != nil && c.name == "slack" {
+		payload = map[string]any{
+			"text": text + "\n" + brand.AttributionLine(), "mrkdwn": false,
+			"unfurl_links": false, "unfurl_media": false,
+			"blocks": []map[string]any{
+				{"type": "section", "text": map[string]string{"type": "plain_text", "text": text}},
+				{"type": "context", "elements": []map[string]string{
+					{"type": "mrkdwn", "text": "<" + branding.AttributionURL + "|" + branding.Attribution + ">"},
+				}},
+			},
+		}
+	}
 	if c.name == "teams" {
+		blocks := []map[string]any{{"type": "TextBlock", "text": text, "wrap": true}}
+		if brand.Customer != nil {
+			// Teams interprets TextBlock as Markdown. Use a literal text run
+			// for the customer content and keep the fixed link in its own block.
+			blocks = []map[string]any{
+				{"type": "RichTextBlock", "inlines": []map[string]string{{"type": "TextRun", "text": text}}},
+				{"type": "TextBlock", "text": "[" + branding.Attribution + "](" + branding.AttributionURL + ")", "wrap": true},
+			}
+		}
 		payload = map[string]any{
 			"type": "message",
 			"attachments": []map[string]any{{
@@ -54,7 +77,7 @@ func (c *chat) post(ctx context.Context, text string) error {
 					"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
 					"type":    "AdaptiveCard",
 					"version": "1.2",
-					"body":    []map[string]any{{"type": "TextBlock", "text": text, "wrap": true}},
+					"body":    blocks,
 				},
 			}},
 		}

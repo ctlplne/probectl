@@ -1,0 +1,72 @@
+/* SPDX-License-Identifier: BUSL-1.1
+ *
+ * Use of this source code is governed by the Business Source License 1.1
+ * in the LICENSE file at the root of this repository; on its Change Date
+ * each version converts to the Mozilla Public License 2.0.
+ */
+
+.identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--space-2);
+  font-weight: var(--font-weight-semibold);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mark {
+  flex: none;
+}
+
+.customerLogo {
+  display: block;
+  flex: none;
+  max-width: 80px;
+  max-height: 28px;
+  object-fit: contain;
+}
+
+/* The attribution has a fixed palette and font. Only the customer identity
+   inherits the operator's design tokens. */
+.attribution {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 2px 7px;
+  border: 1px solid #8e480b;
+  border-radius: 999px;
+  background: #231b16;
+  color: #fffefa;
+  font:
+    600 12px/16px system-ui,
+    sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.attribution:hover {
+  text-decoration: underline;
+}
+
+.attribution:focus-visible {
+  outline: 2px solid #fffefa;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px #231b16;
+}

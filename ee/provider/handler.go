@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctlplne/probectl/ee/whitelabel"
 	coreaudit "github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -51,6 +52,7 @@ const consentPermission = "directory.write"
 
 // Handler serves /provider/v1/*.
 type Handler struct {
+	brands            *whitelabel.Store
 	monthlyReports    reporting.MonthlyReportQueue
 	complianceReports reporting.ComplianceReportQueue
 	ddosReports       reporting.DDoSReportQueue
@@ -109,6 +111,8 @@ func routes() []RouteDecl {
 		{http.MethodGet, "/provider/v1/tenants"},
 		{http.MethodPost, "/provider/v1/tenants"},
 		{http.MethodPatch, "/provider/v1/tenants/{id}"},
+		{http.MethodGet, "/provider/v1/tenants/{id}/brand"},
+		{http.MethodPut, "/provider/v1/tenants/{id}/brand"},
 		{http.MethodPost, "/provider/v1/tenants/{id}/suspend"},
 		{http.MethodPost, "/provider/v1/tenants/{id}/resume"},
 		{http.MethodPost, "/provider/v1/tenants/{id}/offboard"},
@@ -175,6 +179,8 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	h.handle("GET /provider/v1/tenants", h.asOperator("", h.auditedRead("provider.tenants_read", false, h.handleListTenants)))
 	h.handle("POST /provider/v1/tenants", h.asOperator("", h.handleProvision))
 	h.handle("PATCH /provider/v1/tenants/{id}", h.asOperator("", h.handleConfigure))
+	h.handle("GET /provider/v1/tenants/{id}/brand", h.asOperator(RoleAdmin, h.handleReadBrand))
+	h.handle("PUT /provider/v1/tenants/{id}/brand", h.asOperator(RoleAdmin, h.handleReplaceBrand))
 	h.handle("POST /provider/v1/tenants/{id}/suspend", h.asOperator("", h.handleSuspend))
 	h.handle("POST /provider/v1/tenants/{id}/resume", h.asOperator("", h.handleResume))
 	h.handle("POST /provider/v1/tenants/{id}/offboard", h.asOperator("", h.handleOffboard))
@@ -929,6 +935,14 @@ func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 		code, status = "single_profile_tenant_cap", http.StatusConflict
 	case errors.Is(err, ErrNotFound):
 		code, status = "not_found", http.StatusNotFound
+	case errors.Is(err, whitelabel.ErrTenantUnavailable):
+		code, status = "not_found", http.StatusNotFound
+	case errors.Is(err, errBrandPreconditionRequired):
+		code, status = "brand_revision_required", http.StatusPreconditionRequired
+	case errors.Is(err, whitelabel.ErrRevisionConflict):
+		code, status = "brand_revision_conflict", http.StatusConflict
+	case errors.Is(err, whitelabel.ErrDomainInUse):
+		code, status = "brand_domain_in_use", http.StatusConflict
 	case errors.Is(err, ErrConflict):
 		code, status = "conflict", http.StatusConflict
 	case errors.Is(err, errConsentNotConfigured):

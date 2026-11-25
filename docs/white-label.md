@@ -1,77 +1,80 @@
-# White-label / per-tenant branding — removed by design
+# MSP customer branding
 
-Status: **not a product capability**. Owner decision recorded 2026-07-14.
+Provider edition administrators can set a customer's product name, logo,
+colors, and custom domain. This supersedes the white-label removal decision
+of 2026-07-14 (F54). The tenant indicator and separate provider console remain.
 
-MSPs self-host and resell probectl under the **probectl banner**. A tenant or
-provider operator cannot replace the product name, mark/logo, login identity,
-notification-email identity, or map a hostname to a tenant-specific brand.
-PRD feature F54 remains in the traceability matrix as “removed by design” so
-the capability is not silently forgotten or later mistaken for unfinished
-work.
+## Change a customer's brand
 
-## What remains: deployment-level theming
+Choose **Brand** beside the customer in the provider console. The editor
+loads the current brand before a save can proceed. Tenant branding belongs
+to that customer and changes only the allowed display fields:
 
-The design-token system remains because it is useful for accessibility and
-operator preference. **Light and dark** are the two shipped themes; light is the
-default. An operator may additionally provide one token map for the entire
-deployment:
+- A display name of up to 120 bytes.
+- An inline PNG logo of up to 32 KiB and 512 by 512 pixels.
+- Allowlisted color overrides. Each value is a bare HSL triplet, such as
+  `28 85% 30%`. The effective palette must pass contrast checks in light
+  and dark. Core `PROBECTL_THEME_OVERRIDES` continues to provide the
+  deployment defaults.
+- One unique DNS hostname. Numeric IP aliases are rejected. Configure the
+  customer's DNS, HTTPS certificate, and ingress before assigning the
+  hostname. Pass the original `Host` to probectl. Register the same
+  `https://<customer-host>/auth/callback` URL in the customer's SSO settings
+  and at the IdP. probectl reserves the hostname in the deployment-level
+  `PROBECTL_OIDC_REDIRECT_URL` for the shared console. An existing shared-console
+  sign-in link that selects the customer opens the branded sign-in page on
+  the customer host. The user selects **Sign in** there to start SSO.
 
-```sh
-PROBECTL_THEME_OVERRIDES='{"--primary":"28 85% 30%","--primary-foreground":"0 0% 100%"}'
+For the built-in Helm ingress, keep `ingress.host` as the shared console and
+list customer domains in `ingress.additionalHosts`. Each entry names a TLS
+Secret in the same namespace. The ingress preserves the request hostname and
+uses the same verified HTTPS backend for all hosts.
+
+```yaml
+ingress:
+  additionalHosts:
+    - host: portal.customer.example
+      tlsSecretName: customer-portal-tls
 ```
 
-A color value is the **bare HSL triplet** the stylesheet consumes — `28 85% 30%`,
-or `28 85% 30% / 0.12` for a tint. The stylesheet reads each token as
-`hsl(var(--token) / <alpha-value>)`, so a hex or `rgb()` value is refused with the
-expected shape spelled out: accepting one would make every rule that uses the
-token unparseable and paint the deployment wrong rather than differently.
+An automation client can read `GET /provider/v1/tenants/{id}/brand` and
+replace it with `PUT /provider/v1/tenants/{id}/brand`. Send the last strong
+`ETag` in `If-Match` with the complete document. The initial revision is
+`"0"`. A missing precondition returns 428. A stale revision or assigned domain
+returns 409. A replacement writes its provider audit event in the same
+transaction. Empty fields return the customer to the default presentation
+and clear the hostname mapping.
 
-Overridable names are the color tokens the stylesheet actually ships, plus
-`--radius-control|panel|pill` and `--font-sans|mono|display`. The color allowlist
-IS the shipped palette, so a token becomes overridable the moment it ships and a
-name the palette does not define is refused instead of silently applied to
-nothing. Spacing and type scale stay structural.
+## Sign-in and attribution
 
-The control plane rejects browser-fetching/injection syntax, caps the map at 64
-entries, and checks WCAG contrast against **both** shipped themes — so an override
-that reads well in light but not dark fails startup rather than making one theme
-unreadable. The browser repeats the grammar and contrast checks as defense in
-depth.
+Before sign-in, `GET /branding` resolves a custom host by exact match. The
+host selects the tenant when its sign-in button is used, including when a
+bookmark carries an older tenant hint. The IdP and session still authenticate
+the user and determine tenant access. A customer host refuses console API requests
+that carry credentials from a different tenant. The domain remains reserved
+while a customer is suspended. On a shared host, the authenticated tenant
+selects the brand. Customer branding responses are private and non-cacheable.
+The protected console applies a customer brand when the branding response and
+`/v1/me` agree on the authenticated tenant. During a session change it shows
+probectl branding until the current customer's presentation is available.
+If a tenant is quarantined, the browser recovery page can show its published
+name and fixed attribution from the same registered host.
 
-Public `GET /branding` exposes only this deployment contract:
+Every customer brand is accompanied by **Powered by probectl**, linked to
+[probectl.com](https://probectl.com). The customer console and sign-in display
+it beside the customer's name. Alert and report emails contain a clickable
+HTML badge and a plain-text URL. Each branded PDF page links to probectl
+beside the customer's name and in the footer. When the bundled offline fonts
+lack a character in the name, the PDF displays a question mark and preserves
+the full name in its text layer. CSV reports carry the URL in their metadata
+rows, and branded notifications
+include the same attribution and URL. This also applies to on-call test
+deliveries and notifications recovered after a restart. The badge uses fixed
+probectl styling independent of the configured logo, palette and deployment
+theme. On desktop, the identity stays visible as the navigation menu scrolls.
+On mobile, it sits above the console controls.
 
-```json
-{
-  "product_name": "probectl",
-  "token_overrides": {
-    "--radius-panel": "10px"
-  }
-}
-```
-
-The response is pre-auth so the login shell can consume it, but it is not
-tenant data: it is identical for every hostname, session, and tenant and is
-cacheable for 60 seconds. `product_name` is fixed to `probectl`; the client also
-rejects any response that attempts to replace it.
-
-## API and storage removal
-
-The provider-console branding card and the historical provider/tenant branding
-routes were removed. `ee/whitelabel` was deleted, and no product-identity path
-reads or writes `tenant_branding` or `provider_branding`. The generic,
-count-verified tenant-offboarding path may still erase a tenant's deprecated row
-during the compatibility window; it cannot use that row to influence the UI.
-
-The two legacy tables are deliberately retained, inert, for one compatibility
-release. Migration `0057_deprecate_branding_storage.sql` marks that contract
-phase. Dropping them in the same rollout as the code removal would break an old
-binary during a rolling deploy or rollback, violating the repository’s
-expand/contract policy. A later release may add the destructive contract
-migration only after its minimum-supported predecessor no longer accesses the
-tables.
-
-## Attribution
-
-The [Additional Use Grant](../LICENSE) requires preserving the probectl
-name, logos, and “Powered by probectl” attribution wherever the software
-displays them.
+Old branding rows start with revision zero and remain inert until a provider
+administrator saves an approved brand. Core and Enterprise show the probectl
+name and mark. See the [Additional Use Grant](../LICENSE) for the attribution
+condition.

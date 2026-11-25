@@ -27,6 +27,7 @@ import (
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/carbon"
 	"github.com/ctlplne/probectl/internal/cluster"
 	"github.com/ctlplne/probectl/internal/cmdb"
@@ -68,6 +69,13 @@ import (
 
 // Discoverer runs a path discovery. The default is path.Run; tests inject a fake.
 type Discoverer func(ctx context.Context, cfg path.Config) (*path.Path, error)
+
+type customerBrandResolver interface {
+	ForTenant(context.Context, string) (branding.Branding, error)
+	ForHost(context.Context, string) (string, branding.Branding, error)
+	TenantForHost(context.Context, string) (string, error)
+	HostForTenant(context.Context, string) (string, error)
+}
 
 // Server is the probectl control-plane HTTP API server. It is stateless: all
 // durable state lives in the datastores, so instances are interchangeable.
@@ -140,7 +148,8 @@ type Server struct {
 	// On-call/ITSM dispatcher (S33). nil unless connectors are configured; set via
 	// WithDispatcher so the inbound status-sync webhook + the resolve handler can
 	// sync the operator's tooling.
-	dispatcher *notify.Dispatcher
+	dispatcher       *notify.Dispatcher
+	customerBranding customerBrandResolver
 
 	// Flow analytics store (S38). Defaults to in-memory; main attaches the
 	// configured store (ClickHouse in production) via WithFlowStore.
@@ -676,9 +685,7 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /openapi.json", apiHandler(s.handleOpenAPI))
 	mux.Handle("GET /.well-known/security.txt", apiHandler(s.handleSecurityTxt))
 
-	// Deployment theme — public + pre-auth so the login shell uses the same
-	// allowlisted token overrides. Product identity is always probectl and the
-	// response is identical for every host and tenant.
+	// Public presentation and optional customer sign-in identity.
 	mux.Handle("GET /branding", apiHandler(s.handleBranding))
 
 	// ARCH-004: serve the embedded web UI behind the same CSP + security headers
@@ -757,6 +764,7 @@ func (s *Server) routes() http.Handler {
 		default:
 			h = s.requirePermission(rt.Permission, h)
 		}
+		h = requireCustomerHost(h)
 		if lifecycle, ok := apiLifecycleFor(rt.Method, rt.Pattern); ok {
 			h = lifecycle.wrap(h)
 		}

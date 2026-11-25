@@ -23,6 +23,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/crypto"
 )
 
@@ -68,7 +69,13 @@ func (w *WebhookChannel) Notify(ctx context.Context, a Alert) error {
 	if u, perr := neturl.Parse(w.url); perr != nil || !strings.EqualFold(u.Scheme, "https") {
 		return fmt.Errorf("webhook: url must be https")
 	}
-	body, err := json.Marshal(a.Payload())
+	payload := a.Payload()
+	if brand := branding.Output(ctx); brand.Customer != nil {
+		payload.Brand = brand.DisplayName()
+		payload.PoweredBy = branding.Attribution
+		payload.PoweredByURL = branding.AttributionURL
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
@@ -95,7 +102,8 @@ func (w *WebhookChannel) Notify(ctx context.Context, a Alert) error {
 	return nil
 }
 
-// MailSender sends a plaintext email (injectable; SMTPSender is the live impl).
+// MailSender sends email with a plaintext body. The SMTP sender can add a
+// branded HTML alternative to tenant alert mail.
 type MailSender interface {
 	Send(ctx context.Context, to []string, subject, body string) error
 }
@@ -117,13 +125,20 @@ func (e *EmailChannel) Notify(ctx context.Context, a Alert) error {
 	if e.sender == nil {
 		return fmt.Errorf("email channel has no configured mail sender")
 	}
-	subject := fmt.Sprintf("[probectl][%s] %s %s", a.Severity, a.RuleName, a.State)
+	brand := branding.Output(ctx)
+	subject := fmt.Sprintf("[%s][%s] %s %s", brand.DisplayName(), a.Severity, a.RuleName, a.State)
 	observed := fmt.Sprint(a.Value)
 	if a.Metric == SeasonalFlowMetric {
 		observed = "Open the evaluation receipt with flow access"
 	}
 	body := fmt.Sprintf("Rule %q is %s.\n\nMetric: %s\nValue: %s\nReason: %s\nWhen: %s\n",
 		a.RuleName, a.State, a.Metric, observed, a.Reason, a.At.UTC().Format(time.RFC3339))
+	if brand.Customer != nil {
+		if sender, ok := e.sender.(*SMTPSender); ok {
+			return sender.sendMessage(ctx, e.recipients, subject, body, brand.CustomerName())
+		}
+		body = brandedMailText(brand.CustomerName(), body)
+	}
 	return e.sender.Send(ctx, e.recipients, subject, body)
 }
 
@@ -287,6 +302,10 @@ func (s *SMTPSender) send(ctx context.Context, to []string, write func(io.Writer
 }
 
 func (s *SMTPSender) Send(ctx context.Context, to []string, subject, body string) error {
+	return s.sendMessage(ctx, to, subject, body, "")
+}
+
+func (s *SMTPSender) sendMessage(ctx context.Context, to []string, subject, body, customer string) error {
 	return s.send(ctx, to, func(target io.Writer) error {
 		msg := strings.Builder{}
 		// DPR-243: every header value is sanitized. A header is CRLF-delimited, so a
@@ -300,6 +319,12 @@ func (s *SMTPSender) Send(ctx context.Context, to []string, subject, body string
 		fmt.Fprintf(&msg, "To: %s\r\n", headerValue(strings.Join(to, ", ")))
 		fmt.Fprintf(&msg, "Subject: %s\r\n", encodedSubject(subject))
 		msg.WriteString("MIME-Version: 1.0\r\n")
+		if customer != "" {
+			if _, err := io.WriteString(target, msg.String()); err != nil {
+				return err
+			}
+			return writeBrandedMail(target, customer, body)
+		}
 		msg.WriteString("Content-Type: text/plain; charset=utf-8\r\n\r\n")
 		// The body needs no escaping for structure: Data() returns a
 		// textproto.DotWriter, which dot-stuffs, so a "\r\n.\r\n" in the body cannot

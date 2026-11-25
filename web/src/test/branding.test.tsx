@@ -5,7 +5,10 @@
 // each version converts to the Mozilla Public License 2.0.
 
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { Providers } from '../App'
+import { AppRoutes } from '../routes/AppRoutes'
 import { renderApp } from './renderApp'
 import { defaultFetch, jsonResponse } from './fetchStub'
 import {
@@ -17,9 +20,22 @@ import {
 } from '../api/brand'
 import { MAX_RESPONSE_BODY_BYTES } from '../api/response'
 
-function brandingStub(response: unknown) {
+const northTenant = '00000000-0000-0000-0000-000000000001'
+const northLogo =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGPwTGoHAAIqATNiOKEkAAAAAElFTkSuQmCC'
+const southLogo =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNot/AEAAJSAQngtvKYAAAAAElFTkSuQmCC'
+
+function sessionBrand(body: unknown, tenant: string) {
+  const response = jsonResponse(body)
+  response.headers.set('X-Probectl-Brand-Tenant', tenant)
+  return response
+}
+
+function brandingStub(response: unknown, tenant?: string) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input).endsWith('/branding')) return jsonResponse(response)
+    if (String(input).endsWith('/branding'))
+      return tenant ? sessionBrand(response, tenant) : jsonResponse(response)
     return defaultFetch()(input, init)
   }) as unknown as typeof fetch
 }
@@ -28,6 +44,153 @@ afterEach(() => {
   applyBrand(DEFAULT_BRAND)
   document.title = ''
 })
+
+test.each(['/targets', '/incidents', '/dashboards'])(
+  'customer console %s keeps the fixed attribution with its brand',
+  async (route) => {
+    vi.stubGlobal(
+      'fetch',
+      brandingStub(
+        {
+          product_name: 'probectl',
+          customer: { name: 'Northstar', logo_data_uri: northLogo },
+          token_overrides: { '--font-sans': 'Example', '--powered-by-opacity': '0' },
+          powered_by: false,
+        },
+        northTenant,
+      ),
+    )
+    renderApp(route)
+    const nav = await screen.findByRole('navigation', { name: 'Primary' })
+    expect(await within(nav).findByText('Northstar')).toBeInTheDocument()
+    const badge = within(nav).getByRole('link', { name: 'Powered by probectl' })
+    expect(badge).toHaveAttribute('href', 'https://probectl.com')
+    expect(badge.querySelector('svg')).toBeInTheDocument()
+    expect(nav.querySelector('img')).toHaveAttribute('src', northLogo)
+    expect(document.documentElement.style.getPropertyValue('--powered-by-opacity')).toBe('')
+    expect(document.title).toContain('Powered by probectl')
+  },
+)
+
+test('a session change rejects another tenant’s name, logo and palette', async () => {
+  const southTenant = '00000000-0000-0000-0000-000000000002'
+  const fallback = defaultFetch()
+  let lookups = 0
+  let finishSession!: (response: Response) => void
+  let finishCurrentBrand!: (response: Response) => void
+  const session = new Promise<Response>((resolve) => {
+    finishSession = resolve
+  })
+  const pending = new Promise<Response>((resolve) => {
+    finishCurrentBrand = resolve
+  })
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith('/v1/me')) return session
+    if (!String(input).endsWith('/branding')) return fallback(input, init)
+    lookups++
+    if (lookups > 1) return pending
+    return sessionBrand(
+      {
+        product_name: 'probectl',
+        customer: { name: 'Northstar', logo_data_uri: northLogo },
+        token_overrides: { '--font-sans': 'Northstar Type' },
+      },
+      northTenant,
+    )
+  })
+  render(
+    <Providers>
+      <MemoryRouter initialEntries={['/targets']}>
+        <AppRoutes />
+      </MemoryRouter>
+    </Providers>,
+  )
+  await waitFor(() => expect(lookups).toBe(1))
+  await act(async () => {
+    finishSession(
+      jsonResponse({
+        tenant_id: southTenant,
+        tenant_name: 'South customer',
+        user_id: 'u',
+        email: 'user@example.test',
+      }),
+    )
+  })
+
+  const nav = await screen.findByRole('navigation', { name: 'Primary' })
+  await waitFor(() => expect(lookups).toBe(2))
+  expect(within(nav).getByText('probectl')).toBeInTheDocument()
+  expect(screen.queryByText('Northstar')).not.toBeInTheDocument()
+  expect(nav.querySelector('img')).toBeNull()
+  expect(document.documentElement.style.getPropertyValue('--font-sans')).toBe('')
+  expect(document.title).toBe('probectl')
+
+  finishCurrentBrand(
+    sessionBrand(
+      {
+        product_name: 'probectl',
+        customer: { name: 'Southwind', logo_data_uri: southLogo },
+        token_overrides: { '--font-sans': 'Southwind Type' },
+      },
+      southTenant,
+    ),
+  )
+  expect(await within(nav).findByText('Southwind')).toBeInTheDocument()
+  expect(nav.querySelector('img')).toHaveAttribute('src', southLogo)
+  expect(within(nav).getByRole('link', { name: 'Powered by probectl' })).toHaveAttribute(
+    'href',
+    'https://probectl.com',
+  )
+  expect(document.documentElement.style.getPropertyValue('--font-sans')).toBe('Southwind Type')
+})
+
+test.each([true, false])(
+  'a mapped customer sign-in uses the host even when the bookmark names another tenant (brand visible: %s)',
+  async (hasCustomer) => {
+    const foreignTenant = '00000000-0000-0000-0000-000000000002'
+    const search = `?login_tenant=${foreignTenant}`
+    const assign = vi.fn()
+    vi.stubGlobal('location', { assign, search })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input)
+        if (path.endsWith('/branding')) {
+          return jsonResponse({
+            product_name: 'probectl',
+            customer_domain: true,
+            ...(hasCustomer ? { customer: { name: 'Northstar' } } : {}),
+          })
+        }
+        if (path.endsWith('/me')) return new Response('', { status: 401 })
+        if (path.endsWith('/readyz')) return jsonResponse({ status: 'ready' })
+        return defaultFetch()(input, init)
+      }),
+    )
+    render(
+      <Providers>
+        <MemoryRouter initialEntries={[`/targets${search}`]}>
+          <AppRoutes />
+        </MemoryRouter>
+      </Providers>,
+    )
+    const signIn = await screen.findByRole('button', { name: 'Sign in' })
+    expect(assign).not.toHaveBeenCalled()
+    if (hasCustomer) {
+      expect(screen.getByText('Northstar')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Powered by probectl' })).toHaveAttribute(
+        'href',
+        'https://probectl.com',
+      )
+    } else {
+      expect(screen.getByText('probectl')).toBeInTheDocument()
+      expect(screen.queryByText('Northstar')).not.toBeInTheDocument()
+    }
+    expect(screen.queryByRole('navigation', { name: 'Primary' })).not.toBeInTheDocument()
+    fireEvent.click(signIn)
+    expect(assign).toHaveBeenCalledExactlyOnceWith('/auth/login')
+  },
+)
 
 describe('deployment-level probectl theming', () => {
   test('applies deployment tokens while keeping the probectl banner and title', async () => {
@@ -46,6 +209,9 @@ describe('deployment-level probectl theming', () => {
     // says "probectl", so an unscoped text query races the boot unmount.
     const nav = await screen.findByRole('navigation', { name: 'Primary' })
     expect(within(nav).getByText('probectl')).toBeInTheDocument()
+    const wordmark = within(nav).getByText('probectl').parentElement
+    expect(wordmark?.querySelector('svg[aria-hidden="true"]')).toBeInTheDocument()
+    expect(within(nav).queryByRole('link', { name: 'Powered by probectl' })).not.toBeInTheDocument()
     await waitFor(() => {
       expect(document.documentElement.style.getPropertyValue('--primary')).toBe('28 85% 30%')
     })

@@ -17,6 +17,7 @@ import { DemoWorkspace } from '../demo/DemoWorkspace'
 import { useDemoMode } from '../demo/useDemoMode'
 import { EditionBanner } from './EditionBanner'
 import { NoRoleNotice } from './NoRoleNotice'
+import { ProductIdentity } from '../brand/ProductIdentity'
 
 export function AppShell() {
   const { active: demoMode } = useDemoMode()
@@ -67,6 +68,9 @@ export function AppShell() {
     <div className={styles.shell}>
       <SkipLink />
       <Sidebar />
+      <div className={styles.mobileIdentity}>
+        <ProductIdentity />
+      </div>
       <TopBar
         onOpenPalette={openPalette}
         onOpenNavigation={openMobileNav}

@@ -48,8 +48,9 @@ duplicated anywhere else, so there is a single source of truth.
 The buyer-facing boundary follows that table. The full five-plane core is free.
 Enterprise is a self-hosted license: the customer bears its own infrastructure
 cost, and one Enterprise entitlement opens every non-resale `ee/` capability.
-MSP is a self-hosted resale license under the **probectl** banner; its usage
-basis is the existing tenant-scoped meters, which the operator exports
+MSP is a self-hosted resale license. Providers can give each customer its own
+brand and domain with fixed **Powered by probectl** attribution. MSP billing
+uses the existing tenant-scoped meters, which the operator exports
 deliberately, and no meter is ever transmitted by probectl. No price list or
 pricing model is published; commercial terms are set per agreement. The plan
 boundary and metering units live in [`pricing.md`](pricing.md).
@@ -58,7 +59,7 @@ boundary and metering units live in [`pricing.md`](pricing.md).
 |---|---|
 | `core` | None — everything not listed below is core and free forever. |
 | `enterprise` | `fips` (a build artifact, see below), `byok`, `governance`, `remediation`, `ha_support` (displayed as HA support/SLA), `siloed_isolation` |
-| `msp` | The complete Enterprise set, plus `provider_plane` and `metering` for resale operations. |
+| `msp` | The complete Enterprise set, plus `provider_plane` (including customer branding) and `metering` for resale operations. |
 
 `ha_support` is a support/SLA and assurance entitlement, not the high-availability
 runtime itself. The control plane can run the documented HA reference deployment
@@ -92,14 +93,13 @@ entitlement tiers riding the same core binary.
 
 ## Product identity and deployment theming
 
-MSPs resell under the **probectl banner**. Per-tenant and provider-master
-rebranding (historical F54) is removed by design and is not an edition feature:
-there is no license entitlement, provider-console card, mutable API, custom
-domain mapping, logo replacement, or email identity override. The native light
-and dark themes remain, and every deployment may set one validated,
-deployment-wide design-token override through `PROBECTL_THEME_OVERRIDES`.
-That theming mechanism is core and changes presentation tokens only; it cannot
-replace the probectl product name or create tenant-specific presentation.
+An MSP can set each customer's name, logo, colors and custom domain through
+the Provider edition. Customer branding carries fixed **Powered by probectl**
+attribution on the tenant console, sign-in, emails, reports and notifications.
+The separate provider console and the tenant indicator remain visible. The
+core light and dark themes support deployment-wide token overrides through
+`PROBECTL_THEME_OVERRIDES`. The attribution uses its own fixed styling. See
+[customer branding](white-label.md).
 
 **`fips` is the one exception to runtime gating.** The FIPS 140-3 build is gated by
 the **artifact**, not by a `lic.Has(fips)` check — there is *no* runtime license

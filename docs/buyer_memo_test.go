@@ -33,7 +33,7 @@ func TestBuyerMemoPackagesAdoptionDecision(t *testing.T) {
 		"Enterprise and MSP are commercial tiers",
 		"No price list or pricing model is published",
 		"operator-run export",
-		"probectl banner",
+		"each customer a brand and domain alongside fixed **Powered by probectl** attribution",
 		"Core is licensed under BUSL-1.1",
 		"pending `make scale-gate TIER=L`, `XL`, `XXL`",
 		"regional WAN, DNS, proxy, fence, ClickHouse, and object-store recovery",

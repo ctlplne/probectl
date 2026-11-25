@@ -42,8 +42,8 @@
       "per_peak_agent_monthly_usd": {"value": null, "unit": "USD/peak-agent-month", "provenance": "unknown", "note": "no price list or pricing model is published; owner decision 2026-09-20"},
       "tenant_cap": 1000,
       "cap_meaning": "Planning tenant band; the band controls new provisioning only, never telemetry ingest.",
-      "included_features": ["all Enterprise features", "provider plane", "local metering and operator-run export", "self-hosted resale under the probectl brand"],
-      "unavailable_capabilities": ["white-label identity replacement", "probectl-hosted SaaS"],
+      "included_features": ["all Enterprise features", "provider plane", "local metering and operator-run export", "self-hosted resale with customer branding and fixed probectl attribution"],
+      "unavailable_capabilities": ["probectl-hosted SaaS"],
       "review_state": "not_published"
     }
   ],

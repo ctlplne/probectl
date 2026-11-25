@@ -233,7 +233,9 @@ SIEM feed carry, and reading never appends to the stream); usage,
 fairness, and governance cards (each documented on its own page —
 [`metering.md`](metering.md), [`fairness.md`](fairness.md),
 [`governance.md`](governance.md)); and operator management with one-time
-enrollment tokens for admins. MSPs resell the service under the probectl banner.
+enrollment tokens for admins. The **Brand** action lets admins set each
+customer's identity and hostname alongside fixed **Powered by probectl**
+attribution. See [MSP customer branding](white-label.md).
 
 ## Engineering eval smoke
 

@@ -15,7 +15,15 @@
       been bundled — and tells you so instead of 404ing.
     -->
     <main style="font-family: system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem;">
-      <h1>probectl</h1>
+      <h1>
+        <svg aria-hidden="true" viewBox="0 0 32 32" width="26" height="26" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="16" fill="#8e480b" />
+          <circle cx="16" cy="16" r="10" fill="none" stroke="#fffefa" stroke-width="2.2" />
+          <circle cx="16" cy="16" r="4.2" fill="none" stroke="#fffefa" stroke-width="1.8" />
+          <circle cx="16" cy="16" r="1.8" fill="#fffefa" />
+        </svg>
+        probectl
+      </h1>
       <p>The web UI is not bundled in this build.</p>
       <p>
         Build it with <code>npm --prefix web ci &amp;&amp; npm --prefix web run build</code>

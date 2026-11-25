@@ -4,9 +4,7 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-// Package branding owns deployment-level product theming. The product name is
-// always probectl; operators may override the allowlisted design tokens for an
-// entire deployment, never per tenant or request host.
+// Package branding owns the shared presentation contract and token validation.
 package branding
 
 import (
@@ -16,16 +14,28 @@ import (
 	"strings"
 )
 
-// Branding is the public /branding response. ProductName is fixed so an MSP
-// deployment always presents the probectl banner. TokenOverrides apply to both
-// shipped themes for every tenant in the deployment.
+const (
+	ProductName    = "probectl"
+	Attribution    = "Powered by probectl"
+	AttributionURL = "https://probectl.com"
+)
+
+// Branding is the public /branding response. ProductName is the fixed probectl
+// identity. Customer is an optional presentation approved by the provider.
 type Branding struct {
 	ProductName    string            `json:"product_name"`
 	TokenOverrides map[string]string `json:"token_overrides,omitempty"`
+	Customer       *CustomerIdentity `json:"customer,omitempty"`
+	CustomerDomain bool              `json:"customer_domain,omitempty"`
+}
+
+type CustomerIdentity struct {
+	Name        string `json:"name"`
+	LogoDataURI string `json:"logo_data_uri,omitempty"`
 }
 
 // Default is the unmodified probectl deployment theme.
-func Default() Branding { return Branding{ProductName: "probectl"} }
+func Default() Branding { return Branding{ProductName: ProductName} }
 
 // Deployment returns a defensive copy of the validated deployment overrides.
 // Callers validate configuration at startup with ValidateOverrides.
@@ -37,7 +47,7 @@ func Deployment(overrides map[string]string) Branding {
 	for name, value := range overrides {
 		cloned[name] = strings.TrimSpace(value)
 	}
-	return Branding{ProductName: "probectl", TokenOverrides: cloned}
+	return Branding{ProductName: ProductName, TokenOverrides: cloned}
 }
 
 // overridableNonColor lists the non-color tokens a deployment may set, with the
@@ -79,6 +89,25 @@ func overridableTokens() string {
 
 // MaxOverrides bounds the deployment override blob.
 const MaxOverrides = 64
+
+// ValidateColorOverrides constrains a customer palette to color tokens and
+// validates the effective deployment palette in both shipped schemes.
+func ValidateColorOverrides(colors, deployment map[string]string) error {
+	if len(colors) > MaxOverrides {
+		return fmt.Errorf("branding: too many customer color overrides")
+	}
+	merged := make(map[string]string)
+	for name, value := range deployment {
+		merged[name] = value
+	}
+	for name, value := range colors {
+		if !isColorToken(name) {
+			return fmt.Errorf("branding: customer palettes accept only color tokens")
+		}
+		merged[name] = value
+	}
+	return ValidateOverrides(merged)
+}
 
 // ValidateOverrides rejects unknown token names, unsafe values, and sets that
 // would make either shipped theme fail the WCAG text/UI contrast baseline.

@@ -43,7 +43,7 @@ func (*serviceNow) Capability() Capability { return CapabilityTicket }
 func (s *serviceNow) Open(ctx context.Context, inc incident.Incident) (Delivery, error) {
 	payload := map[string]any{
 		"short_description": inc.Title,
-		"description":       fmt.Sprintf("probectl incident %s (target %s)", inc.ID, displayTarget(inc)),
+		"description":       attributedNotification(ctx, fmt.Sprintf("probectl incident %s (target %s)", inc.ID, displayTarget(inc))),
 		"urgency":           serviceNowUrgency(inc.Severity),
 		"correlation_id":    inc.ID, // probectl's id, for the operator's reference
 	}
@@ -123,7 +123,7 @@ func (j *jira) Open(ctx context.Context, inc incident.Incident) (Delivery, error
 		"fields": map[string]any{
 			"project":     map[string]any{"key": j.project},
 			"summary":     inc.Title,
-			"description": fmt.Sprintf("probectl incident %s (severity %s, target %s)", inc.ID, inc.Severity, displayTarget(inc)),
+			"description": attributedNotification(ctx, fmt.Sprintf("probectl incident %s (severity %s, target %s)", inc.ID, inc.Severity, displayTarget(inc))),
 			"issuetype":   map[string]any{"name": "Task"},
 		},
 	}

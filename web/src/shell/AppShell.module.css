@@ -20,6 +20,10 @@
     'main sidebar';
 }
 
+.mobileIdentity {
+  display: none;
+}
+
 /* The banner row hosts every shell-level notice (demo, license, no-role);
  * stacking them here keeps each notice a plain block instead of three
  * elements fighting over one grid area (DPR-016). */
@@ -48,14 +52,23 @@
 }
 
 @media (max-width: 720px) {
-  .shell {
+  .shell,
+  :global(html[dir='rtl']) .shell {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto var(--layout-topbar-height) auto minmax(0, 1fr);
     grid-template-areas:
+      'identity'
       'topbar'
       'banner'
       'main';
   }
   .shell > nav[aria-label='Primary'] {
     display: none;
+  }
+  .mobileIdentity {
+    display: block;
+    grid-area: identity;
+    min-width: 0;
+    padding: var(--space-1) var(--space-3);
   }
 }

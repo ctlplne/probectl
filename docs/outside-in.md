@@ -240,7 +240,8 @@ See [`adr/external-vantage-sources.md`](adr/external-vantage-sources.md).
 
 For an MSP, the product shape is:
 
-1. The MSP self-hosts the probectl MSP tier and resells under the probectl banner.
+1. The MSP self-hosts and resells the MSP tier. Customer brands carry fixed
+   **Powered by probectl** attribution.
 2. Each customer is a tenant with its own enrolled vantages and tenant-scoped
    tests.
 3. The existing local meters form the MSP consumption basis and can also feed

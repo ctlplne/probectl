@@ -84,7 +84,7 @@ var requiredFeatureCLICoverage = map[string]cliFeatureCoverage{
 	"F51":                    {Command: "probectl provider tenants"},
 	"F52":                    {Command: "probectl isolation status"},
 	"F53":                    {Command: "probectl billing usage"},
-	"F54":                    {Reason: "Per-tenant rebranding was removed by design; deployment theming is static operator configuration, so no CLI mutation is intended."},
+	"F54":                    {Reason: "The revisioned provider API and provider-console editor administer customer branding."},
 	"F55":                    {Command: "probectl lifecycle export"},
 	"F56":                    {Command: "probectl key list"},
 	"F57":                    {Command: "probectl fairness status"},

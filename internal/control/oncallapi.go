@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/canary"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -187,7 +188,8 @@ func (s *Server) handleOncallTest(w http.ResponseWriter, r *http.Request) error 
 			return err
 		}
 	}
-	del, err := c.Open(r.Context(), incident.Incident{
+	ctx := branding.WithOutput(r.Context(), s.OutputBrand(r.Context(), tid))
+	del, err := c.Open(ctx, incident.Incident{
 		ID:         "test-" + testID,
 		TenantID:   tid,
 		Status:     incident.StatusOpen,

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/incident"
 )
 
@@ -34,32 +35,37 @@ func newPagerDuty(endpoint, secret string, client Doer) *pagerDuty {
 func (*pagerDuty) Name() string           { return "pagerduty" }
 func (*pagerDuty) Capability() Capability { return CapabilityPager }
 
-func (p *pagerDuty) event(action, dedup string, inc incident.Incident) map[string]any {
+func (p *pagerDuty) event(ctx context.Context, action, dedup string, inc incident.Incident) map[string]any {
 	m := map[string]any{
 		"routing_key":  p.routingKey,
 		"event_action": action,
 		"dedup_key":    dedup,
 	}
 	if action == "trigger" {
-		m["payload"] = map[string]any{
+		payload := map[string]any{
 			"summary":  inc.Title,
 			"source":   "probectl",
 			"severity": pagerDutySeverity(inc.Severity),
 		}
+		if brand := branding.Output(ctx); brand.Customer != nil {
+			payload["custom_details"] = map[string]string{"brand": brand.DisplayName()}
+			m["links"] = []map[string]string{{"href": branding.AttributionURL, "text": branding.Attribution}}
+		}
+		m["payload"] = payload
 	}
 	return m
 }
 
 func (p *pagerDuty) Open(ctx context.Context, inc incident.Incident) (Delivery, error) {
 	dk := dedupKey(inc.ID)
-	if _, err := doJSON(ctx, p.client, "POST", p.endpoint, nil, p.event("trigger", dk, inc)); err != nil {
+	if _, err := doJSON(ctx, p.client, "POST", p.endpoint, nil, p.event(ctx, "trigger", dk, inc)); err != nil {
 		return Delivery{}, err
 	}
 	return Delivery{ExternalRef: dk, Status: "triggered"}, nil
 }
 
 func (p *pagerDuty) Resolve(ctx context.Context, inc incident.Incident, ref string) error {
-	_, err := doJSON(ctx, p.client, "POST", p.endpoint, nil, p.event("resolve", ref, inc))
+	_, err := doJSON(ctx, p.client, "POST", p.endpoint, nil, p.event(ctx, "resolve", ref, inc))
 	return err
 }
 
@@ -107,6 +113,9 @@ func (o *opsgenie) Open(ctx context.Context, inc incident.Incident) (Delivery, e
 		"alias":    alias,
 		"priority": opsgeniePriority(inc.Severity),
 	}
+	if details := attributedNotification(ctx, ""); details != "" {
+		payload["description"] = strings.TrimSpace(details)
+	}
 	if _, err := doJSON(ctx, o.client, "POST", o.endpoint, o.auth(), payload); err != nil {
 		return Delivery{}, err
 	}
@@ -115,7 +124,7 @@ func (o *opsgenie) Open(ctx context.Context, inc incident.Incident) (Delivery, e
 
 func (o *opsgenie) Resolve(ctx context.Context, _ incident.Incident, ref string) error {
 	closeURL := o.endpoint + "/" + url.PathEscape(ref) + "/close?identifierType=alias"
-	_, err := doJSON(ctx, o.client, "POST", closeURL, o.auth(), map[string]any{"note": "resolved by probectl"})
+	_, err := doJSON(ctx, o.client, "POST", closeURL, o.auth(), map[string]any{"note": attributedNotification(ctx, "resolved by probectl")})
 	return err
 }
 

@@ -45,6 +45,71 @@ const tenants = [
     created_at: '2026-06-02T00:00:00Z',
   },
 ]
+
+test('the provider brand editor keeps the selected customer and saved revision together', async () => {
+  const user = userEvent.setup()
+  const fallback = providerStub()
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGPwTGoHAAIqATNiOKEkAAAAAElFTkSuQmCC'
+  const logo = new File([Uint8Array.from(atob(png), (byte) => byte.charCodeAt(0))], 'acme.png', {
+    type: 'image/png',
+  })
+  const palette = { '--primary': '28 85% 30%', '--primary-foreground': '0 0% 100%' }
+  let write: { path: string; etag: string | null; document: unknown } | undefined
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input)
+      if (path.endsWith('/tn_1/brand')) {
+        if (init?.method === 'PUT') {
+          write = {
+            path,
+            etag: new Headers(init.headers).get('If-Match'),
+            document: JSON.parse(String(init.body)),
+          }
+          return new Response(JSON.stringify(write.document), { headers: { ETag: '"8"' } })
+        }
+        return new Response(JSON.stringify({ name: 'Saved Acme', domain: 'acme.example' }), {
+          headers: { ETag: '"7"' },
+        })
+      }
+      return fallback(input, init)
+    }),
+  )
+  renderApp('/provider')
+  expect(screen.getByText('Loading page…')).toBeInTheDocument()
+  expect(
+    screen.getByText('probectl').parentElement?.querySelector('svg[aria-hidden="true"]'),
+  ).toBeInTheDocument()
+  await user.click(await screen.findByRole('button', { name: 'Brand Acme Industries' }))
+  const form = await screen.findByRole('form', { name: 'Brand for Acme Industries' })
+  const name = within(form).getByLabelText('Product name')
+  await waitFor(() => expect(name).toHaveValue('Saved Acme'))
+  await user.clear(name)
+  await user.type(name, 'Acme Network')
+  const domain = within(form).getByLabelText('Custom domain')
+  await user.clear(domain)
+  await user.type(domain, 'portal.acme.example')
+  const colors = within(form).getByLabelText('Color overrides')
+  await user.clear(colors)
+  await user.paste(JSON.stringify(palette))
+  await user.upload(within(form).getByLabelText('Logo PNG'), logo)
+  expect(await within(form).findByRole('button', { name: 'Remove logo' })).toBeEnabled()
+  await user.click(within(form).getByRole('button', { name: 'Save brand' }))
+  await waitFor(() =>
+    expect(write).toEqual({
+      path: '/provider/v1/tenants/tn_1/brand',
+      etag: '"7"',
+      document: {
+        name: 'Acme Network',
+        domain: 'portal.acme.example',
+        logo_data_uri: `data:image/png;base64,${png}`,
+        colors: palette,
+      },
+    }),
+  )
+  expect(await within(form).findByText('Customer brand saved.')).toBeInTheDocument()
+  expect(within(form).queryByLabelText(/powered by/i)).not.toBeInTheDocument()
+})
 const fleet = [
   {
     tenant_id: 'tn_1',

@@ -462,13 +462,11 @@ describe('frontend-coverage gate (S-FE6)', () => {
     )
   })
 
-  test('removed features remain explicit none-by-design decisions', () => {
-    const removed = REQUIRED_FEATURES.filter((feature) => feature.status === 'removed')
-    expect(removed.map((feature) => feature.id)).toEqual(['F54'])
+  test('customer branding has a native provider surface', () => {
+    expect(REQUIRED_FEATURES.find((feature) => feature.id === 'F54')?.status).toBe('delivered')
     const declaration = SURFACES.find((surface) => surface.featureIds?.includes('F54'))
-    expect(declaration?.kind).toBe('none-by-design')
-    expect(declaration?.noneReason).toMatch(/removed by design/i)
-    expect(declaration?.noneReason).toMatch(/probectl banner/i)
+    expect(declaration?.kind).toBe('native')
+    expect(declaration?.route).toBe('/provider')
   })
 
   test('the gate itself fails on a capability with no surface', () => {

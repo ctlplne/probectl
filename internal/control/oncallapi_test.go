@@ -104,35 +104,76 @@ func TestOncallStatusIsTenantScopedAndRedacted(t *testing.T) {
 }
 
 func TestNotificationRoutingTestDelivery(t *testing.T) {
-	var oncallHit bool
-	oncallSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		oncallHit = true
-		if r.URL.RawQuery != "" {
-			t.Fatalf("connector test leaked query into request URL: %s", r.URL.String())
+	type delivery struct {
+		path, query string
+		payload     struct {
+			Text   string
+			Blocks []struct {
+				Elements []struct{ Text string }
+			}
 		}
+	}
+	deliveries := make(chan delivery, 2)
+	oncallSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got := delivery{path: r.URL.Path, query: r.URL.RawQuery}
+		if err := json.NewDecoder(r.Body).Decode(&got.payload); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		deliveries <- got
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer oncallSink.Close()
 
-	srv := testServer(fakePinger{})
-	srv.cfg.NotifyConnectors = []config.NotifyConnector{{
-		TenantID: tenancy.DefaultTenantID.String(),
-		Provider: "slack",
-		Endpoint: oncallSink.URL,
-		Secret:   "not-returned",
-	}}
-
-	req := httptest.NewRequest(http.MethodPost, "/v1/oncall/test", strings.NewReader(`{"connector_id":"slack-1"}`))
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("oncall test status = %d body=%s", rec.Code, rec.Body.String())
+	customers := []struct{ tenant, brand, otherBrand, path string }{
+		{mappedBrandTenant, "Northstar", "Riverside", "/north"},
+		{siblingBrandTenant, "Riverside", "Northstar", "/south"},
 	}
-	if !oncallHit {
-		t.Fatal("on-call connector test did not deliver")
+	srv := testServer(fakePinger{}).WithCustomerBranding(fixtureBrandResolver{})
+	for _, customer := range customers {
+		srv.cfg.NotifyConnectors = append(srv.cfg.NotifyConnectors, config.NotifyConnector{
+			TenantID: customer.tenant,
+			Provider: "slack",
+			Endpoint: oncallSink.URL + customer.path,
+			Secret:   "not-returned",
+		})
 	}
-	if strings.Contains(rec.Body.String(), "not-returned") {
-		t.Fatalf("on-call test response leaked secret: %s", rec.Body.String())
+	handler := srv.Handler()
+	for _, customer := range customers {
+		t.Run(customer.brand, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/oncall/test", strings.NewReader(`{"connector_id":"slack-1"}`))
+			req.Header.Set("X-Probectl-Tenant", customer.tenant)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusAccepted {
+				t.Fatalf("oncall test status = %d body=%s", rec.Code, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), "not-returned") {
+				t.Fatalf("on-call test response leaked secret: %s", rec.Body.String())
+			}
+			select {
+			case got := <-deliveries:
+				if got.path != customer.path || got.query != "" {
+					t.Fatalf("connector test reached the wrong destination: %q?%s", got.path, got.query)
+				}
+				if !strings.Contains(got.payload.Text, customer.brand) ||
+					strings.Contains(got.payload.Text, customer.otherBrand) ||
+					!strings.Contains(got.payload.Text, "Powered by probectl (https://probectl.com)") {
+					t.Fatalf("on-call test delivery lost its own brand or fixed attribution: %q", got.payload.Text)
+				}
+				var attributionLinked bool
+				for _, block := range got.payload.Blocks {
+					for _, element := range block.Elements {
+						attributionLinked = attributionLinked || element.Text == "<https://probectl.com|Powered by probectl>"
+					}
+				}
+				if !attributionLinked {
+					t.Fatal("on-call test delivery lost the clickable probectl attribution")
+				}
+			default:
+				t.Fatal("on-call connector test did not deliver")
+			}
+		})
 	}
 }
 

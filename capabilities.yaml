@@ -890,19 +890,19 @@ capabilities:
     migration: {refs: ["file:migrations/0026_metering.sql"]}
 
   - id: F54
-    name: White-label
-    status: removed
+    name: MSP customer branding
+    status: delivered
     owner: founder/legal/product
-    engine: {none_by_design: "Removed by design: probectl keeps its product identity and ships no per-tenant or provider-master rebranding engine."}
-    binary: {none_by_design: "Removed by design: no white-label implementation is linked into any shipping binary."}
-    api: {none_by_design: "Removed by design: no tenant or provider API can replace product identity, logos, domains, login, or email branding."}
-    cli: {none_by_design: "Removed by design: the CLI exposes no white-label mutation command."}
-    ui: {none_by_design: "The existing surface registry records per-tenant and provider-master product rebranding as none-by-design."}
-    docs: {refs: ["file:docs/white-label.md#removed by design"]}
-    config_keys: {none_by_design: "Removed by design: accepting white-label configuration would contradict the product contract."}
-    telemetry: {none_by_design: "Removed by design: no white-label runtime exists and therefore no signal is emitted."}
-    real_stack_proof: {none_by_design: "Removed by design: the release proof is the absence gate and explicit product contract, not a fabricated workflow."}
-    migration: {refs: ["file:migrations/0057_deprecate_branding_storage.sql"]}
+    engine: {refs: ["file:ee/whitelabel"]}
+    binary: {refs: ["file:cmd/probectl-control/ee_attach.go#WithCustomerBranding"]}
+    api: {refs: ["api:GET /branding", "api:GET /provider/v1/tenants/{id}/brand", "api:PUT /provider/v1/tenants/{id}/brand"]}
+    cli: {none_by_design: "The revisioned provider API and customer brand editor administer this presentation."}
+    ui: {refs: ["ui:F54@/provider"]}
+    docs: {refs: ["file:docs/white-label.md#MSP customer branding"]}
+    config_keys: *api_config
+    telemetry: {refs: ["file:ee/provider/customer_brand.go#provider.tenant_brand_replaced"]}
+    real_stack_proof: {refs: ["test:ee/whitelabel/store_integration_test.go#TestCustomerBrandStorageKeepsTwoTenantsAndHostsSeparate"]}
+    migration: {refs: ["file:migrations/0265_restore_tenant_branding.sql"]}
 
   - id: F55
     name: Export/residency/verifiable deletion

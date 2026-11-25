@@ -401,7 +401,7 @@
       ],
       "name": "Provider/MSP plane",
       "status": "delivered",
-      "evidence": "`ee/provider` (self-hosted resale under the probectl banner with export-based usage metering and separately audited break-glass). Provider scheduling for monthly reports and signed compliance evidence is preview. Current tenant-owner consent, counts-only queue and progress, report-family-bound retries and cadence restoration use migrations/0209_provider_report_trigger.sql and internal/control/provider_report_queue.go. Signed files stay in the tenant inbox under current source authority. Prospect assessment requests require a separate tenant-owner grant bound to the current engagement and grant revisions. The MFA provider view exposes operational status and the request receipt. `TestProviderProspectOperationsRequireCurrentTenantGrant` and `TestProviderProspectOperationsServeBothThemes` exercise the tenant grant, provider API and rendered console. Complete lifecycle and exact-main qualification remain owed."
+      "evidence": "`ee/provider` (self-hosted resale with export-based usage metering and separately audited break-glass). Provider scheduling for monthly reports and signed compliance evidence is preview. Current tenant-owner consent, counts-only queue and progress, report-family-bound retries and cadence restoration use migrations/0209_provider_report_trigger.sql and internal/control/provider_report_queue.go. Signed files stay in the tenant inbox under current source authority. Prospect assessment requests require a separate tenant-owner grant bound to the current engagement and grant revisions. The MFA provider view exposes operational status and the request receipt. `TestProviderProspectOperationsRequireCurrentTenantGrant` and `TestProviderProspectOperationsServeBothThemes` exercise the tenant grant, provider API and rendered console. Complete lifecycle and exact-main qualification remain owed."
     },
     {
       "ids": [
@@ -423,9 +423,9 @@
       "ids": [
         "F54"
       ],
-      "name": "White-label",
-      "status": "removed",
-      "evidence": "MSPs resell under the probectl banner; one deployment-wide, allowlisted token theme remains, with no per-tenant/provider-master product, logo, domain, login, or email identity override"
+      "name": "MSP customer branding",
+      "status": "delivered",
+      "evidence": "`ee/whitelabel` and `docs/white-label.md`: provider-managed customer name, logo, colors and hostname with fixed Powered by probectl attribution"
     },
     {
       "ids": [

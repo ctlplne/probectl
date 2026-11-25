@@ -29,7 +29,7 @@ func TestOwnedOutsideInGuidePackagesReplacementMotion(t *testing.T) {
 		"MSP resale",
 		"consumption basis",
 		"operator-run export",
-		"probectl banner",
+		"Customer brands carry fixed **Powered by probectl** attribution",
 		"does not operate a global probe fleet",
 		"no-phone-home",
 		"no vendor-managed shared probe pool",

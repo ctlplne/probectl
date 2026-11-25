@@ -8,6 +8,8 @@ import { createContext, useCallback, useEffect, useMemo, useState, type ReactNod
 import { apiFetch, isApiStatus, publicFetch, redirectToLogin } from '../api/client'
 import { Button, ErrorState, LoadingState } from '../components'
 import { useI18n } from '../i18n/useI18n'
+import { ProductIdentity } from '../brand/ProductIdentity'
+import { useBrandState } from '../brand/BrandProvider'
 import styles from './AuthProvider.module.css'
 
 /**
@@ -70,6 +72,8 @@ const LOGOUT_PATH = '/auth/logout'
 const toLogin = redirectToLogin
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n()
+  const { customerDomain: customerSignIn, loaded: brandLoaded, bindTenant } = useBrandState()
   const [me, setMe] = useState<Me | null>(null)
   const [status, setStatus] = useState<
     'loading' | 'ready' | 'unauthenticated' | 'unavailable' | 'signing-out'
@@ -83,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     apiFetch<Me>('/me')
       .then((m) => {
         if (alive) {
+          bindTenant?.(m.tenant_id)
           setMe(m)
           setStatus('ready')
         }
@@ -109,8 +114,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
     return () => {
       alive = false
+      bindTenant?.(null)
     }
-  }, [identityAttempt])
+  }, [bindTenant, identityAttempt])
 
   useEffect(() => {
     function onPageShow(event: PageTransitionEvent) {
@@ -132,9 +138,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // current history entry for the same reason. /auth/logout is outside the
     // /v1 API base, so it remains a direct same-origin fetch.
     setMe(null)
+    bindTenant?.(null)
     setStatus('signing-out')
-    void publicFetch(LOGOUT_PATH, { method: 'POST' }).finally(() => toLogin({ replace: true }))
-  }, [])
+    void publicFetch(LOGOUT_PATH, { method: 'POST' }).finally(() => {
+      if (customerSignIn) setStatus('unauthenticated')
+      else toLogin({ replace: true })
+    })
+  }, [bindTenant, customerSignIn])
 
   const value = useMemo<AuthContextValue | null>(() => {
     if (!me) return null
@@ -170,8 +180,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // The SSO redirect is a navigation side effect — it belongs in an effect,
   // not the render body (renders may run more than once; the redirect must not).
   useEffect(() => {
-    if (status === 'unauthenticated') toLogin()
-  }, [status])
+    if (status === 'unauthenticated' && brandLoaded && !customerSignIn) toLogin()
+  }, [status, brandLoaded, customerSignIn])
 
   if (status === 'loading') {
     return <AuthBoot messageKey="auth.boot.signingIn" />
@@ -180,8 +190,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return (
       <AuthUnavailable
         onRetry={() => setIdentityAttempt((attempt) => attempt + 1)}
-        onSignIn={() => toLogin({ replace: true })}
+        onSignIn={() => toLogin({ replace: true, useHostTenant: customerSignIn })}
       />
+    )
+  }
+  if (status === 'unauthenticated' && customerSignIn) {
+    return (
+      <main className={styles.boot}>
+        <ProductIdentity />
+        <Button variant="primary" onClick={() => toLogin({ useHostTenant: true })}>
+          {t('auth.signIn')}
+        </Button>
+      </main>
     )
   }
   if (status === 'unauthenticated' || status === 'signing-out' || !value) {
@@ -194,7 +214,7 @@ function AuthUnavailable({ onRetry, onSignIn }: { onRetry: () => void; onSignIn:
   const { t } = useI18n()
   return (
     <div className={styles.boot}>
-      <span className={styles.wordmark}>probectl</span>
+      <ProductIdentity />
       <ErrorState
         headingLevel={2}
         title={t('auth.unavailable.title')}
@@ -218,7 +238,7 @@ function AuthBoot({ messageKey }: { messageKey: 'auth.boot.signingIn' | 'auth.bo
   const { t } = useI18n()
   return (
     <div className={styles.boot} role="status" aria-live="polite" aria-busy="true">
-      <span className={styles.wordmark}>probectl</span>
+      <ProductIdentity />
       <LoadingState label={t(messageKey)} />
     </div>
   )

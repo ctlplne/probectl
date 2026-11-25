@@ -73,6 +73,7 @@ func (s *DashboardReportSupervisor) materializeSourceReport(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
+	document.BrandName = server.OutputBrand(ctx, document.TenantScope).CustomerName()
 	requirements, err := marshalReportSourceRequirements(ctx, capture, budget.MemoryBytes/4)
 	if err != nil {
 		return false, err

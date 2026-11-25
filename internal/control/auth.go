@@ -110,6 +110,7 @@ const (
 	oauthNonceCookie  = "probectl_oauth_nonce"
 	oauthPKCECookie   = "probectl_oauth_pkce"
 	oauthTenantCookie = "probectl_oauth_tenant"
+	oauthBrandCookie  = "probectl_oauth_brand_tenant"
 	oauthCookieTTL    = 10 * time.Minute
 )
 
@@ -157,9 +158,16 @@ func newOIDCFactory(cfg *config.Config, pool *pgxpool.Pool) *oidcFactory {
 }
 
 func (f *oidcFactory) For(ctx context.Context, tenantID string) (auth.Provider, error) {
+	return f.forHost(ctx, tenantID, "")
+}
+
+func (f *oidcFactory) forHost(ctx context.Context, tenantID, customerHost string) (auth.Provider, error) {
 	cfg, source, err := f.resolveConfig(ctx, tenantID)
 	if err != nil {
 		return nil, err
+	}
+	if customerHost != "" && !customerCallbackMatches(cfg.RedirectURL, customerHost) {
+		return nil, apierror.Unavailable("tenant SSO callback must use this customer host")
 	}
 	version := oidcConfigFingerprint(source, cfg)
 	f.mu.Lock()
@@ -286,6 +294,36 @@ func validateOIDCHTTPSURL(name, raw string) error {
 // login with a mock IdP without real OIDC discovery.
 func (s *Server) setSSOProviderFactory(f auth.ProviderFactory) { s.providers = f }
 
+func customerCallbackMatches(raw, host string) bool {
+	callback, err := url.Parse(raw)
+	request, requestErr := url.Parse("https://" + host)
+	if err != nil || requestErr != nil || callback.Scheme != "https" || callback.Hostname() == "" ||
+		callback.User != nil || callback.EscapedPath() != "/auth/callback" ||
+		callback.RawQuery != "" || callback.ForceQuery || callback.Fragment != "" {
+		return false
+	}
+	callbackPort, requestPort := callback.Port(), request.Port()
+	if callbackPort == "443" {
+		callbackPort = ""
+	}
+	if requestPort == "443" {
+		requestPort = ""
+	}
+	return callbackPort == requestPort && strings.EqualFold(callback.Hostname(), request.Hostname())
+}
+
+func (s *Server) providerForSignIn(r *http.Request, tenantID, mapped string) (auth.Provider, error) {
+	if mapped != "" {
+		if err := s.checkTenantLifecycle(r, tenantID); err != nil {
+			return nil, err
+		}
+		if factory, ok := s.providers.(*oidcFactory); ok {
+			return factory.forHost(r.Context(), tenantID, r.Host)
+		}
+	}
+	return s.providers.For(r.Context(), tenantID)
+}
+
 // devModeHook is the ONLY entry point to dev-auth behavior. It is nil unless
 // the binary was built with -tags devauth (internal/control/devauth.go), so a
 // RELEASE binary contains no dev-auth logic, no dev literals, and nothing to
@@ -311,6 +349,12 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Presentation resolves its own optional session. Public branding and
+		// static UI assets have no principal to resolve or session to rotate.
+		if r.URL.Path == "/branding" || strings.HasPrefix(r.URL.Path, "/ui/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		// AUTHZ-25: /metrics carries no principal — it is authorized by its own
 		// scrape credential in requireMetricsScrape (or is open in local dev).
 		// Skipping ambient resolution here keeps a configured scrape token from
@@ -320,6 +364,12 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		boundRequest, err := s.bindCustomerHost(r)
+		if err != nil {
+			writeError(w, r, err)
+			return
+		}
+		r = boundRequest
 		// Dev auth exists only behind the compiled-in hook. In a release
 		// build (hook nil) AuthMode=dev grants NOTHING — requests fall
 		// through unauthenticated and the route layer 401s (and main has
@@ -379,6 +429,9 @@ func (s *Server) resolvePrincipalSessionWith(
 			s.logResolveFailure("bearer token resolve failed", err)
 			return nil
 		}
+		if tenant := customerHostTenant(r.Context()); tenant != "" && p != nil && tenant != p.TenantID {
+			return nil
+		}
 		return s.principalWithSubjectAttributes(r.Context(), p, loadAttributes)
 	}
 	if s.authn == nil {
@@ -392,7 +445,7 @@ func (s *Server) resolvePrincipalSessionWith(
 	if w == nil {
 		p, err = s.authn.Resolve(r)
 	} else {
-		p, replacement, err = s.authn.ResolveAndRotate(r)
+		p, replacement, err = s.authn.ResolveAndRotateForTenant(r, customerHostTenant(r.Context()))
 	}
 	if err != nil {
 		notePrincipalFailure(r.Context(), err)
@@ -604,14 +657,45 @@ func (s *Server) requirePermissionMode(perm string, allowScoped bool, h apiHandl
 // tenant, sets short-lived state+tenant cookies, and redirects to the IdP.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	tid := tenancy.DefaultTenantID
+	mapped, err := s.brandLoginTenant(r)
+	if err != nil {
+		return err
+	}
+	if mapped != "" {
+		tid = tenancy.ID(mapped)
+	}
 	if q := r.URL.Query().Get("tenant"); q != "" {
 		if !uuidRe.MatchString(q) {
 			return apierror.BadRequest("tenant must be a tenant UUID")
 		}
+		if mapped != "" && q != mapped {
+			return apierror.NotFound("sign-in tenant unavailable on this host")
+		}
+		if mapped == "" && s.customerBranding != nil {
+			host, err := s.customerBranding.HostForTenant(r.Context(), q)
+			if err != nil {
+				return apierror.Unavailable("sign-in routing is temporarily unavailable")
+			}
+			if host != "" {
+				// Send browsers to the customer's sign-in shell first. OAuth
+				// starts on the same host so its state cookie reaches the callback.
+				destination := url.URL{Scheme: "https", Host: host, Path: "/auth/login"}
+				if acceptsLoginHTML(r.Header.Get("Accept")) {
+					destination.Path = "/ui/"
+				}
+				w.Header().Add("Vary", "Accept")
+				w.Header().Set("Cache-Control", "no-store")
+				http.Redirect(w, r, destination.String(), http.StatusSeeOther)
+				return nil
+			}
+		}
 		tid = tenancy.ID(q)
 	}
-	prov, err := s.providers.For(r.Context(), tid.String())
+	prov, err := s.providerForSignIn(r, tid.String(), mapped)
 	if err != nil {
+		if s.writeCustomerLoginRefusal(w, r, mapped, err) {
+			return nil
+		}
 		return err
 	}
 	// A revoked/expired predecessor cannot authenticate this browser. Drop it
@@ -643,6 +727,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	s.setOAuthCookie(w, oauthNonceCookie, nonce)
 	s.setOAuthCookie(w, oauthPKCECookie, codeVerifier)
 	s.setOAuthCookie(w, oauthTenantCookie, tid.String())
+	if mapped != "" {
+		s.setOAuthCookie(w, oauthBrandCookie, mapped)
+	} else if _, err := r.Cookie(oauthBrandCookie); err == nil {
+		s.clearOAuthCookie(w, oauthBrandCookie)
+	}
 	http.Redirect(w, r, prov.AuthCodeURL(state, nonce, codeVerifier), http.StatusFound)
 	return nil
 }
@@ -720,11 +809,23 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 	if c, _ := r.Cookie(oauthTenantCookie); c != nil && uuidRe.MatchString(c.Value) {
 		tid = tenancy.ID(c.Value)
 	}
+	mapped, err := s.brandLoginTenant(r)
+	if err != nil {
+		return err
+	}
+	brandCookie, _ := r.Cookie(oauthBrandCookie)
+	if (mapped != "" && mapped != tid.String()) ||
+		(brandCookie != nil && (mapped == "" || mapped != brandCookie.Value)) {
+		return apierror.Unauthorized("sign-in host mapping changed")
+	}
+	if brandCookie != nil {
+		s.clearOAuthCookie(w, oauthBrandCookie)
+	}
 	code := q.Get("code")
 	if code == "" {
 		return apierror.BadRequest("missing authorization code")
 	}
-	prov, err := s.providers.For(r.Context(), tid.String())
+	prov, err := s.providerForSignIn(r, tid.String(), mapped)
 	if err != nil {
 		return err
 	}
@@ -778,6 +879,16 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 				jitAllowed = true
 			}
 		}
+	}
+
+	// The IdP exchange can outlive the hostname assignment that routed it.
+	// Confirm the current assignment before touching the tenant directory.
+	currentHostTenant, err := s.brandLoginTenant(r)
+	if err != nil {
+		return err
+	}
+	if currentHostTenant != mapped {
+		return apierror.Unauthorized("sign-in host mapping changed")
 	}
 
 	var user *store.User

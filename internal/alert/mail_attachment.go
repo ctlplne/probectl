@@ -25,6 +25,7 @@ import (
 // makes external delivery at least once, never an exactly-once guarantee.
 type MailAttachment struct {
 	Filename, MediaType, MessageID string
+	BrandName                      string
 	Bytes                          int64
 	Body                           io.Reader
 }
@@ -40,7 +41,7 @@ func (s *SMTPSender) SendAttachment(ctx context.Context, to []string, subject st
 	if attachment.Body == nil || attachment.Bytes <= 0 || (attachment.MediaType != "application/pdf" && attachment.MediaType != "text/csv") || attachment.Filename == "" || attachment.MessageID == "" {
 		return fmt.Errorf("smtp: complete report metadata required")
 	}
-	for _, value := range []string{attachment.Filename, attachment.MessageID} {
+	for _, value := range []string{attachment.Filename, attachment.MessageID, attachment.BrandName} {
 		if strings.IndexFunc(value, unicode.IsControl) >= 0 {
 			return fmt.Errorf("smtp: report metadata contains a control character")
 		}
@@ -59,7 +60,18 @@ func (s *SMTPSender) SendAttachment(ctx context.Context, to []string, subject st
 		if _, err := fmt.Fprintf(target, "Subject: %s\r\nMessage-ID: %s\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", encodedSubject(subject), attachment.MessageID, boundary); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(target, "--%s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nYour probectl report is attached. Access and retention remain governed by your tenant.\r\n\r\n--%s\r\nContent-Type: %s\r\nContent-Disposition: %s\r\nContent-Transfer-Encoding: base64\r\n\r\n", boundary, boundary, attachment.MediaType, mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Filename})); err != nil {
+		if _, err := fmt.Fprintf(target, "--%s\r\n", boundary); err != nil {
+			return err
+		}
+		const retention = " Access and retention remain governed by your tenant."
+		if attachment.BrandName != "" {
+			if err := writeBrandedMail(target, attachment.BrandName, "Your report is attached."+retention); err != nil {
+				return err
+			}
+		} else if _, err := io.WriteString(target, "Content-Type: text/plain; charset=utf-8\r\n\r\nYour probectl report is attached."+retention+"\r\n"); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(target, "\r\n--%s\r\nContent-Type: %s\r\nContent-Disposition: %s\r\nContent-Transfer-Encoding: base64\r\n\r\n", boundary, attachment.MediaType, mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Filename})); err != nil {
 			return err
 		}
 		lines := &mailBase64Lines{target: target}

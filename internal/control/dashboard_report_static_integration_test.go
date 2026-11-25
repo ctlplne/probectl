@@ -20,10 +20,27 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/reporting"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+type staticReportBrandResolver struct {
+	fixtureBrandResolver
+	names map[string]string
+}
+
+func (f staticReportBrandResolver) ForTenant(ctx context.Context, tenantID string) (branding.Branding, error) {
+	if tenant, ok := tenancy.FromContext(ctx); !ok || tenant.String() != tenantID {
+		return branding.Default(), tenancy.ErrNoTenant
+	}
+	brand := branding.Default()
+	if name := f.names[tenantID]; name != "" {
+		brand.Customer = &branding.CustomerIdentity{Name: name}
+	}
+	return brand, nil
+}
 
 // Real Postgres/application-role service entrypoints, complete rendered PDF and
 // local scheduling. Principals are injected component identities: this is not
@@ -63,6 +80,7 @@ func TestStaticReportsPublishReadAndScheduleCompleteMultilingualDocuments(t *tes
 	}
 	tenants := make([]string, 2)
 	names := []string{"Static tenant A", "Static tenant B"}
+	brands := []string{"Northstar Operations", "Riverside Network Services"}
 	owner := uuid(t)
 	views := []string{uuid(t), uuid(t)}
 	artifacts := make([]string, 2)
@@ -79,6 +97,9 @@ func TestStaticReportsPublishReadAndScheduleCompleteMultilingualDocuments(t *tes
 			t.Fatal(err)
 		}
 	}
+	core.WithCustomerBranding(staticReportBrandResolver{names: map[string]string{
+		tenants[0]: brands[0], tenants[1]: brands[1],
+	}})
 	t.Cleanup(func() {
 		if _, err := db.Pool().Exec(context.Background(), `DELETE FROM tenants WHERE id=ANY($1::uuid[])`, tenants); err != nil {
 			t.Error(err)
@@ -89,7 +110,7 @@ func TestStaticReportsPublishReadAndScheduleCompleteMultilingualDocuments(t *tes
 		bound := auth.WithPrincipal(tenancy.WithTenant(ctx, tenancy.ID(tenant)), principal)
 		return httptest.NewRequest(method, path, bytes.NewReader(body)).WithContext(bound)
 	}
-	prove := func(index int, id string) {
+	prove := func(index int, id, delivery string) {
 		t.Helper()
 		req := request(tenants[index], owner, http.MethodGet, "/v1/dashboard-report-artifacts/"+id, nil)
 		req.SetPathValue("id", id)
@@ -104,6 +125,15 @@ func TestStaticReportsPublishReadAndScheduleCompleteMultilingualDocuments(t *tes
 		full, err := staticDocumentSemanticText(reply.Body.Bytes(), doc)
 		if err != nil || !strings.Contains(full, input.Name) {
 			t.Fatal("published static PDF lost complete original fields", err)
+		}
+		footerLinks := bytes.Count(reply.Body.Bytes(), []byte("/Rect [44 40 163 59]"))
+		brandLinks := bytes.Count(reply.Body.Bytes(), []byte("/URI ("+branding.AttributionURL+")"))
+		if !strings.Contains(full, brands[index]) || !strings.Contains(full, branding.Attribution) ||
+			footerLinks == 0 || brandLinks != 2*footerLinks {
+			t.Errorf("%s report for tenant %d is missing its customer brand or linked attribution", delivery, index)
+		}
+		if strings.Contains(full, brands[1-index]) {
+			t.Fatalf("%s report for tenant %d contains the sibling customer brand", delivery, index)
 		}
 		t.Logf("complete static service lane=%d input_bytes=%d body_bytes=%d full_metrics=%d provenance=%d coverage=%d", index, len(encoded), reply.Body.Len(), len(definition.Metrics), len(definition.Provenance), len(definition.CoverageLimitations))
 	}
@@ -122,7 +152,7 @@ func TestStaticReportsPublishReadAndScheduleCompleteMultilingualDocuments(t *tes
 			t.Fatal("static generation response invalid", err)
 		}
 		artifacts[i] = item.ID
-		prove(i, item.ID)
+		prove(i, item.ID, "on-demand")
 		listed := httptest.NewRecorder()
 		if err := core.listCurrentReportArtifactMetadata(listed, request(tenant, owner, http.MethodGet, "/v1/dashboard-report-artifacts", nil)); err != nil || !strings.Contains(listed.Body.String(), item.ID) {
 			t.Fatal("static document metadata missing from current list", err)
@@ -168,7 +198,7 @@ func TestStaticReportsPublishReadAndScheduleCompleteMultilingualDocuments(t *tes
 	}); err != nil {
 		t.Fatal(err)
 	}
-	prove(0, scheduled)
+	prove(0, scheduled, "scheduled")
 	old := core.cfg.ReportMaxBytes
 	core.cfg.ReportMaxBytes = 1024
 	defer func() { core.cfg.ReportMaxBytes = old }()

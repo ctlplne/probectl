@@ -608,6 +608,49 @@
         }
       }
     },
+    "/provider/v1/tenants/{id}/brand": {
+      "get": {
+        "summary": "Read the selected customer's brand as a provider administrator",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "The saved brand, or an empty brand with revision zero.",
+            "headers": {"ETag": {"schema": {"type": "string"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CustomerBrand"}}}
+          },
+          "401": {"description": "Provider operator authentication required."},
+          "403": {"description": "Provider administrator required."},
+          "404": {"description": "Customer brand unavailable."}
+        }
+      },
+      "put": {
+        "summary": "Replace the selected customer's brand as a provider administrator",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+          {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CustomerBrand"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Saved brand and its new revision.",
+            "headers": {"ETag": {"schema": {"type": "string"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CustomerBrand"}}}
+          },
+          "400": {"description": "Unknown field or invalid name, PNG, palette, domain or revision."},
+          "401": {"description": "Provider operator authentication required."},
+          "403": {"description": "Provider administrator and a writable MSP entitlement required."},
+          "404": {"description": "Customer brand unavailable."},
+          "409": {"description": "The brand revision changed or the domain is already assigned."},
+          "415": {"description": "Browser form media types are refused. Send application/json."},
+          "428": {"description": "If-Match revision required."}
+        }
+      }
+    },
     "/provider/v1/tenants/{id}/suspend": {
       "post": {
         "summary": "Suspend a tenant: its users are rejected at the API; data and ingestion are untouched",
@@ -1511,6 +1554,16 @@
           "name"
         ],
         "additionalProperties": false
+      },
+      "CustomerBrand": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "maxLength": 120},
+          "logo_data_uri": {"type": "string", "description": "Inline PNG, at most 32 KiB after decoding and 512 by 512 pixels."},
+          "colors": {"type": "object", "additionalProperties": {"type": "string"}},
+          "domain": {"type": "string", "maxLength": 253}
+        }
       },
       "TenantConfigureRequest": {
         "description": "Update a tenant's mutable settings.",

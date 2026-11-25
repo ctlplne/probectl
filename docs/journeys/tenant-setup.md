@@ -4,8 +4,8 @@ You run probectl for many customers as a managed service provider
 ([glossary](../glossary.md)) — an **MSP**. This journey walks you from an empty
 provider plane to a single tenant that is isolated, metered, and wired to
 its own users. By the end the tenant's people can log in and see only their own
-data under the probectl banner — and you, the operator, still cannot read their
-telemetry.
+data. You can give them a customer-branded console with fixed probectl
+attribution. Provider operators have no standing access to tenant telemetry.
 
 That last point is the spine of this journey. A provider operator lives in a
 *separate* privilege domain from a tenant's users. Provisioning a tenant gives you
@@ -89,14 +89,13 @@ provider plane page, deliberately not part of standing setup.
    lifetime totals, and never drops telemetry. Powered by
    [tenancy and hard isolation](../features/tenancy.md).
 
-4. **Confirm product identity and deployment theme.** Every tenant sees the
-   probectl banner. If the deployment operator configured an allowlisted token
-   theme, the same colors/radii/fonts apply across the whole deployment; there
-   is no tenant-specific product, logo, hostname, login, or email identity.
+4. **Confirm product identity and deployment theme.** The standard console
+   shows the probectl name and mark. On a tenant with an MSP customer brand,
+   check its name and logo and the **Powered by probectl** link beside them.
 
    You observe the always-visible tenant indicator distinguishing tenant
    context while the provider console remains a visually separate operator
-   surface. See the [removed F54 decision](../white-label.md).
+   surface. See [MSP customer branding](../white-label.md).
 
 5. **Connect single sign-on and SCIM provisioning.** Point the tenant at its own
    OIDC identity provider, then mint a per-tenant System for Cross-domain Identity

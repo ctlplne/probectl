@@ -189,6 +189,7 @@ func (s *DashboardReportSupervisor) materializeCapturedReport(ctx context.Contex
 	profile, err := (*Server)(nil).staticReportOperation()
 	if s.sourceServer != nil {
 		profile, err = s.sourceServer.staticReportOperation()
+		document.BrandName = s.sourceServer.OutputBrand(ctx, tenant.String()).CustomerName()
 	}
 	if err != nil {
 		return false, err

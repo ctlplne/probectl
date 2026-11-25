@@ -246,10 +246,6 @@ func (rt *serveRuntime) buildServeEngines() error {
 	if rt.dispatcher != nil {
 		corrOpts = append(corrOpts, incident.WithObserver(control.NotifyObserver(rt.dispatcher, rt.log)))
 		rt.log.Info("on-call/itsm integration enabled", "connectors", len(rt.cfg.NotifyConnectors))
-		rt.g.Go(func() error {
-			rt.dispatcher.RunReconciler(rt.gctx, time.Minute)
-			return nil
-		})
 	}
 	rt.correlator = control.BuildCorrelator(rt.db.Pool(), rt.cfg.IncidentWindow, rt.log, corrOpts...)
 
@@ -636,6 +632,7 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 	if err != nil {
 		return err
 	}
+	channelDeps.Brand = rt.srv.OutputBrand
 	rt.srv.WithAlertChannelDeps(channelDeps)
 	if sup, ok := control.BuildAlertEvaluatorSupervisor(rt.db.Pool(), rt.tsdbWriter, channelDeps,
 		rt.cfg.AlertEvalInterval, control.AlertSink(rt.correlator, rt.log), rt.log,
@@ -663,6 +660,14 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 	}
 	rt.srv.WithAlertingActive(rt.alertingActive)
 	rt.srv.WithCorrelationActive(rt.correlator != nil)
+	if rt.dispatcher != nil {
+		// Recovery runs immediately. Edition assembly has now attached the
+		// customer brand resolver and installed the tenant isolation router.
+		rt.g.Go(func() error {
+			rt.dispatcher.RunReconciler(rt.gctx, time.Minute)
+			return nil
+		})
+	}
 	rt.g.Go(func() error { return rt.srv.Run(rt.gctx) })
 	return nil
 }

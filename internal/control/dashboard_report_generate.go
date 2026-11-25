@@ -82,6 +82,7 @@ func (s *Server) generateSourceDashboardReport(r *http.Request, req reportGenera
 	if err != nil {
 		return nil, err
 	}
+	document.BrandName = s.OutputBrand(ctx, document.TenantScope).CustomerName()
 	phase = "source envelope"
 	requirements, err := marshalReportSourceRequirements(ctx, capture, budget.MemoryBytes/4)
 	if err != nil {

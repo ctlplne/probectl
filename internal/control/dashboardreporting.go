@@ -921,7 +921,8 @@ func (s *Server) generateDashboardReportWithStager(r *http.Request, req reportGe
 	}
 	now := time.Now().UTC()
 	doc := reporting.Document{
-		Title: view.Name, Preset: view.Preset, TenantName: tenantName,
+		BrandName: s.OutputBrand(r.Context(), capturedTenant.String()).CustomerName(),
+		Title:     view.Name, Preset: view.Preset, TenantName: tenantName,
 		TenantScope: view.TenantID, AbsoluteFrom: definition.AbsoluteFrom,
 		AbsoluteTo: definition.AbsoluteTo, GeneratedAt: now, GeneratedBy: auditActor(r),
 		Provenance: definition.Provenance, RedactionState: definition.RedactionState,

@@ -21,6 +21,7 @@ import {
   type Column,
 } from "../../../web/src/components";
 import styles from "./ProviderConsole.module.css";
+import { TenantBrandEditor } from "./TenantBrandEditor";
 
 export type ProviderAPI = <T>(
   method: string,
@@ -41,9 +42,11 @@ type TenantAction = "suspend" | "resume" | "offboard";
 
 export function TenantsCard({
   readOnly,
+  isAdmin = false,
   api,
 }: {
   readOnly: boolean;
+  isAdmin?: boolean;
   api: ProviderAPI;
 }) {
   const [error, setError] = useState("");
@@ -55,6 +58,7 @@ export function TenantsCard({
   // so it is gated behind a typed-slug confirm rather than a one-click button.
   const [confirmTenant, setConfirmTenant] = useState<Tenant | null>(null);
   const [confirmText, setConfirmText] = useState("");
+  const [brandTenant, setBrandTenant] = useState<Tenant | null>(null);
 
   const tenantsQuery = useQuery<{ items: Tenant[] }>({
     queryKey: ["provider", "tenants"],
@@ -96,7 +100,10 @@ export function TenantsCard({
   const act = async (id: string, action: TenantAction) => {
     setError("");
     try {
-      await api("POST", `/provider/v1/tenants/${encodeURIComponent(id)}/${action}`);
+      await api(
+        "POST",
+        `/provider/v1/tenants/${encodeURIComponent(id)}/${action}`,
+      );
       load();
     } catch (err) {
       setError((err as Error).message);
@@ -120,6 +127,7 @@ export function TenantsCard({
     readOnly,
     onAction: act,
     onOffboard: beginOffboard,
+    onBrand: isAdmin ? setBrandTenant : undefined,
   });
 
   return (
@@ -151,6 +159,14 @@ export function TenantsCard({
               </p>
             ) : null}
             <TenantInventoryTable tenants={tenants} columns={columns} />
+            {brandTenant ? (
+              <TenantBrandEditor
+                key={brandTenant.id}
+                tenant={brandTenant}
+                readOnly={readOnly}
+                onClose={() => setBrandTenant(null)}
+              />
+            ) : null}
             <OffboardConfirm
               tenant={confirmTenant}
               confirmText={confirmText}
@@ -323,10 +339,12 @@ function tenantColumns({
   readOnly,
   onAction,
   onOffboard,
+  onBrand,
 }: {
   readOnly: boolean;
   onAction: (id: string, action: TenantAction) => void;
   onOffboard: (tenant: Tenant) => void;
+  onBrand?: (tenant: Tenant) => void;
 }): Column<Tenant>[] {
   return [
     { key: "slug", header: "Slug", render: (t) => <code>{t.slug}</code> },
@@ -368,6 +386,16 @@ function tenantColumns({
       header: "Lifecycle",
       render: (t) => (
         <span className={styles.actions}>
+          {onBrand && (t.status === "active" || t.status === "suspended") ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              aria-label={`Brand ${t.name}`}
+              onClick={() => onBrand(t)}
+            >
+              Brand
+            </Button>
+          ) : null}
           {t.status === "active" ? (
             <Button
               size="sm"

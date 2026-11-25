@@ -325,6 +325,7 @@ const en = {
   'page.notFound.action': 'Go to dashboards',
   'auth.boot.signingIn': 'Signing you in…',
   'auth.boot.redirecting': 'Redirecting to sign-in…',
+  'auth.signIn': 'Sign in',
   'auth.unavailable.title': 'Control plane temporarily unavailable',
   'auth.unavailable.description':
     'probectl could not verify your session, so no tenant data is shown. Check the local control plane and retry.',
@@ -2081,6 +2082,7 @@ const es: Record<MessageKey, string> = {
   'page.notFound.action': 'Ir a los paneles',
   'auth.boot.signingIn': 'Iniciando sesion…',
   'auth.boot.redirecting': 'Redirigiendo al inicio de sesion…',
+  'auth.signIn': 'Iniciar sesión',
   'auth.unavailable.title': 'Plano de control temporalmente no disponible',
   'auth.unavailable.description':
     'probectl no pudo verificar tu sesion, por lo que no se muestran datos del tenant. Revisa el plano de control local y vuelve a intentarlo.',
@@ -3854,6 +3856,7 @@ const ar: Record<MessageKey, string> = {
     'تعذر على probectl التحقق من جلستك، لذلك لا تظهر بيانات أي مستأجر. افحص مستوى التحكم المحلي ثم أعد المحاولة.',
   'auth.unavailable.retry': 'إعادة المحاولة',
   'auth.unavailable.signIn': 'بدء تسجيل دخول جديد',
+  'auth.signIn': 'تسجيل الدخول',
   'planes.tab.bgp': 'BGP',
   'planes.tab.flow': 'التدفق',
   'planes.tab.device': 'الأجهزة',

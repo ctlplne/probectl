@@ -1626,14 +1626,23 @@
       "get": {
         "security": [],
         "operationId": "getBranding",
-        "summary": "Deployment-wide probectl product theme",
-        "description": "Public pre-auth theme metadata used by the login shell and tenant app. product_name is always probectl; token_overrides are operator-configured once per deployment, validated against an allowlist and WCAG contrast, and never vary by host, tenant, or session.",
+        "summary": "Deployment and customer presentation",
+        "description": "Public display metadata used by sign-in and the tenant console. The Provider edition resolves a customer by an exact configured host or the authenticated tenant. The fixed probectl identity remains present in the response.",
         "tags": [
           "operational"
         ],
         "responses": {
           "200": {
-            "description": "The deployment-wide probectl identity and optional design-token overrides.",
+            "description": "The probectl identity, optional customer presentation, and validated design tokens.",
+            "headers": {
+              "X-Probectl-Brand-Tenant": {
+                "description": "Present only for customer presentation confirmed by an authenticated session. The web console compares it with the tenant from /v1/me.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -5163,7 +5172,7 @@
       "get": {
         "security": [],
         "operationId": "ssoLogin",
-        "summary": "Begin OIDC SSO login (redirects to the tenant's identity provider)",
+        "summary": "Begin tenant OIDC sign-in",
         "tags": [
           "auth"
         ],
@@ -5172,7 +5181,7 @@
             "name": "tenant",
             "in": "query",
             "required": false,
-            "description": "Tenant UUID to log into; omitted → the default tenant.",
+            "description": "Tenant UUID for sign-in. On a customer host, it must match that host's tenant. Without a UUID, the request uses the customer bound to the host or the default tenant on the shared host.",
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -5182,6 +5191,12 @@
         "responses": {
           "302": {
             "description": "Redirect to the identity provider's authorization endpoint."
+          },
+          "303": {
+            "description": "The selected tenant has a custom host. Requests accepting HTML go to its branded sign-in page. Other clients go directly to its sign-in endpoint."
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
           },
           "503": {
             "$ref": "#/components/responses/ErrorResponse"
@@ -26491,9 +26506,27 @@
               "probectl"
             ]
           },
+          "customer": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "logo_data_uri": {
+                "type": "string"
+              }
+            }
+          },
+          "customer_domain": {
+            "type": "boolean"
+          },
           "token_overrides": {
             "type": "object",
-            "description": "Deployment-wide allowlisted CSS design-token values. Absent means the shipped light and dark themes are unmodified. A color value is the bare HSL triplet the stylesheet consumes, for example \"28 85% 30%\".",
+            "description": "Validated deployment and optional customer color tokens. A color value is a bare HSL triplet, for example \"28 85% 30%\".",
             "additionalProperties": {
               "type": "string"
             }

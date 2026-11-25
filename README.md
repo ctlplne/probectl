@@ -40,7 +40,7 @@ what-if simulation, and cost/SLO intelligence on top.
 One codebase serves two operating modes: **sovereign single-tenant** (a
 regulated or air-gapped org self-hosts; the deployment *is* the tenant) and
 **multi-tenant / provider** (an MSP self-hosts once and serves many
-hard-isolated tenants under the probectl banner). A **tenant** is one isolated customer or
+hard-isolated tenants). A **tenant** is one isolated customer or
 organization in a deployment, and the single-tenant install is just the
 one-tenant case — there is no separate code path, no enterprise fork to drift
 out of sync. **Tenant is the outermost scope and security boundary** on every
@@ -128,7 +128,7 @@ Four choices set it apart:
   through an operator-run export, never a phone-home path.
 - **It's multi-tenant to the core.** The same binary runs as a single sovereign
   tenant for one org, or as a hard-isolated, individually-metered platform an
-  MSP resells under the probectl banner — one codebase, one security boundary.
+  MSP resells with each customer's brand and fixed probectl attribution.
 
 ## What it answers
 
@@ -175,8 +175,8 @@ network change on its own.
   sector, defense, critical infrastructure) that need deep network
   observability but cannot send telemetry to a third-party cloud.
 - **MSPs & internal platform teams** serving many customers or business units —
-  self-host once, serve hard-isolated, individually-metered tenants under the
-  probectl banner from one control plane.
+  self-host once and serve hard-isolated, individually-metered tenants from one
+  control plane. MSPs can assign each customer its own brand and domain.
 - **Network & platform engineers** tired of hand-correlating five dashboards
   who want a single OTel-native source of truth they actually own.
 
@@ -290,8 +290,9 @@ validated-module (FIPS) build, BYOK/governance, validated HA support/SLA,
 guarded remediation, and siloed/hybrid physical isolation; the runtime HA
 reference deployment remains core. **MSP** is a self-hosted resale license: it
 inherits the Enterprise set and adds the management plane plus local
-metering/export. MSPs set their own customer pricing and resell under the
-probectl banner. Meter reporting is operator-run and never phones home. Hard
+metering/export. MSPs set their own customer pricing and may present each
+customer's brand alongside fixed **Powered by probectl** attribution.
+Meter reporting is operator-run and never phones home. Hard
 tenant isolation remains a core-platform property. No price list or pricing
 model is published; commercial terms are set per agreement.
 Unlicensed commercial features are simply hidden (no lockware). See

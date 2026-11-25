@@ -47,8 +47,8 @@ wall in front of tenant data:
   separately-audited consent. There is *no* standing read access.
 - **"How do we bill each tenant accurately?"** Metering counts usage from the
   streams already flowing and exports a vendor-neutral feed.
-- **"Can each customer replace the product identity?"** No — MSPs resell under
-  the probectl banner. One optional design-token theme applies deployment-wide.
+- **"Can each customer use its own brand?"** An MSP can set a customer's name,
+  logo, colors and domain alongside fixed **Powered by probectl** attribution.
 - **"Can we honor a customer's deletion or data-residency demand, and prove it?"**
   Yes — export and a recomputable deletion attestation, plus regional pinning for
   strict tenants.
@@ -161,17 +161,12 @@ check *open* because a quota is a billing control, not a security boundary.
 
 ### Product identity and deployment theme
 
-MSPs resell under the probectl banner. Per-tenant/provider-master product,
-logo, custom-domain, login, email, and token overrides were removed by design
-(historical F54). The tenant indicator still makes scope explicit, and the
-provider console remains visually separate from the tenant shell.
-
-Light and dark remain the shipped operator themes. A deployment may layer one
-allowlisted token map across every tenant through `PROBECTL_THEME_OVERRIDES`.
-The control plane rejects unsafe syntax and token sets that fail WCAG contrast;
-public `GET /branding` returns the same fixed-probectl response for every host
-and tenant. See [`../white-label.md`](../white-label.md) for the decision and
-expand/contract storage compatibility window.
+The Provider edition supports a name, logo, color palette and custom domain
+for each customer. The customer shell and the customer-facing outputs carry
+fixed **Powered by probectl** attribution whenever they show that brand.
+The tenant indicator makes scope explicit, and the provider console remains
+visually separate. The control plane validates themes for contrast in both
+shipped modes. See [customer branding](../white-label.md).
 
 ### Export, residency & verifiable deletion
 
@@ -305,8 +300,9 @@ before returning data.
   summed; gauges (agents, tests) peaked; export at
   `GET /provider/v1/usage/export?format=csv|jsonl` with a stable additive column
   contract; quotas gate creation only, never drop telemetry.
-- **Product identity:** probectl banner for every tenant; optional validated
-  design-token overrides apply once per deployment, never per tenant.
+- **Product identity:** the provider can give each customer its own name, logo,
+  palette and hostname. Fixed **Powered by probectl** attribution accompanies
+  the customer brand. See [MSP customer branding](../white-label.md).
 - **Export / deletion:** suspend is reversible; offboarding plus a separate
   verifiable-deletion flow produces a recomputable attestation; residency via
   siloed region-pinned stores.
@@ -316,4 +312,4 @@ before returning data.
 - **Related capabilities (separate pages):** Tenancy & hard isolation; Running
   probectl in production (governance, residency in multi-region, supportability).
 
-**Covers:** F51, F53, F55, F56. Historical F54 is explicitly removed by design.
+**Covers:** F51, F53, F54, F55, F56.

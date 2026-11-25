@@ -913,6 +913,8 @@ export interface BMPUpdateChurn {
 }
 
 export interface Branding {
+  customer?: JsonObject
+  customer_domain?: boolean
   product_name: "probectl"
   token_overrides?: { [key: string]: string }
 }

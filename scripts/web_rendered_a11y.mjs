@@ -1251,9 +1251,11 @@ function apiPayload(path, method, pagePath = "") {
   return json({ error: { code: "not_found", message: "not found" } }, 404);
 }
 
-function fetchStubSource(theme) {
+function fetchStubSource(theme, customer = null, signedIn = true) {
   return `(() => {
     const theme = ${JSON.stringify(theme)};
+    const customer = ${JSON.stringify(customer)};
+    const signedIn = ${JSON.stringify(signedIn)};
     const appBasePath = ${JSON.stringify(appBasePath)};
     const appRoute = ${appRoute.toString()};
     const explorerTemplates = ${JSON.stringify(explorerTemplates)};
@@ -1261,9 +1263,9 @@ function fetchStubSource(theme) {
     localStorage.setItem('probectl.theme', theme);
     const json = (body, status = 200) => ({ status, body });
     const payloads = ${apiPayload.toString()};
-    const respond = ({ status, body }) => new Response(JSON.stringify(body), {
+    const respond = ({ status, body }, headers = {}) => new Response(JSON.stringify(body), {
       status,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
     });
     window.fetch = async (input, init = {}) => {
       const method = String(init.method || 'GET').toUpperCase();
@@ -1272,9 +1274,105 @@ function fetchStubSource(theme) {
       if (url.searchParams.has('tenant_id')) throw new Error('browser sent tenant_id query param: ' + url.pathname);
       window.__probectlFetches = window.__probectlFetches || [];
       window.__probectlFetches.push(url.pathname + url.search);
+      if (customer && url.pathname === '/branding') {
+        const tenantHeader = signedIn ? { 'X-Probectl-Brand-Tenant': payloads('/v1/me', 'GET', '').body.tenant_id } : {};
+        return respond(json(customer), tenantHeader);
+      }
+      if (!signedIn && url.pathname === '/v1/me') return respond(json({}, 401));
+      if (!signedIn && url.pathname === '/readyz') return respond(json({status: 'ready'}));
       return respond(payloads(url.pathname, method, appRoute(location.pathname, appBasePath)));
     };
   })();`;
+}
+
+async function assertCustomerAttribution(browser, baseURL) {
+  const fixture = {
+    product_name: "probectl",
+    customer: {
+      name: "Northstar managed network",
+      logo_data_uri: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAAyCAIAAAB6RmagAAAAcklEQVR42u3SAQkAAAgEsa9nDctY2wIWEAZLcFyqB06RAHNgDsyBOTAH5sAcmANzYA4wB+bAHJgDc2AOzIE5MAfmAHNgDsyBOTAH5sAcmANzYA4wB+bAHJgDc2AOzIE5MAfmwBxgDsyBOTAH5sAcmIPvFhlbCEeUC+ZFAAAAAElFTkSuQmCC",
+    },
+    customer_domain: true,
+    powered_by: false,
+    token_overrides: {
+      "--primary": "24 85% 28%",
+      "--primary-foreground": "0 0% 100%",
+      "--font-sans": "Courier New",
+      "--powered-by-background": "0 0% 100%",
+    },
+  };
+  for (const width of [320, 1366]) {
+    for (const theme of themes) {
+      for (const signedIn of [true, false]) {
+        const desktopConsole = signedIn && width > 720;
+        const context = await browser.newContext({ viewport: { width, height: desktopConsole ? 480 : 800 }, colorScheme: theme });
+        try {
+          await context.addInitScript(fetchStubSource(theme, fixture, signedIn));
+          const page = await context.newPage();
+          await page.goto(appURL(baseURL, "/targets"));
+          if (signedIn) {
+            await page.locator("#main-content").waitFor({ state: "visible" });
+          } else {
+            await page.getByRole("button", { name: "Sign in", exact: true }).waitFor();
+          }
+          const badge = page.getByRole("link", { name: "Powered by probectl", exact: true });
+          await badge.waitFor({ state: "visible" });
+          if (desktopConsole) {
+            const scrolled = await page.getByRole("navigation", { name: "Primary", exact: true }).evaluate((nav) => {
+              const sections = [nav, ...nav.children];
+              for (const section of sections) section.scrollTop = section.scrollHeight;
+              return sections.some((section) => section.scrollTop > 0);
+            });
+            if (!scrolled) throw new Error("Customer attribution test did not scroll the desktop navigation");
+          }
+          const actual = await badge.evaluate(async (element) => {
+            const wordmark = element.previousElementSibling;
+            const logo = wordmark?.querySelector("img");
+            if (logo) await logo.decode();
+            const logoBounds = logo?.getBoundingClientRect();
+            const bounds = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+            return {
+              href: element.getAttribute("href"),
+              referrerPolicy: element.getAttribute("referrerpolicy"),
+              inside: bounds.left >= 0 && bounds.top >= 0 && bounds.right <= innerWidth && bounds.bottom <= innerHeight,
+              clickable: element.contains(hit),
+              visibility: style.visibility,
+              opacity: style.opacity,
+              height: bounds.height,
+              customer: wordmark?.textContent,
+              logoSource: logo?.getAttribute("src"),
+              logoAlt: logo?.getAttribute("alt"),
+              logoVisible: Boolean(logo && logoBounds && logo.naturalWidth === 180 && logo.naturalHeight === 50 &&
+                logoBounds.width > 0 && logoBounds.height > 0 && logoBounds.left >= 0 && logoBounds.top >= 0 &&
+                logoBounds.right <= innerWidth && logoBounds.bottom <= innerHeight &&
+                getComputedStyle(logo).visibility === "visible"),
+              theme: document.documentElement.dataset.theme,
+              primary: document.documentElement.style.getPropertyValue("--primary"),
+              deploymentFont: document.documentElement.style.getPropertyValue("--font-sans"),
+              color: style.color,
+              background: style.backgroundColor,
+              font: style.fontSize,
+              fontFamily: style.fontFamily,
+            };
+          });
+          if (actual.href !== "https://probectl.com" || actual.referrerPolicy !== "no-referrer" ||
+              !actual.inside || !actual.clickable ||
+              actual.visibility !== "visible" || actual.opacity !== "1" || actual.height < 24 ||
+              actual.customer !== fixture.customer.name || actual.theme !== theme ||
+              actual.logoSource !== fixture.customer.logo_data_uri || actual.logoAlt !== "" || !actual.logoVisible ||
+              actual.primary !== fixture.token_overrides["--primary"] || actual.deploymentFont !== "Courier New" ||
+              actual.color !== "rgb(255, 254, 250)" || actual.background !== "rgb(35, 27, 22)" ||
+              actual.font !== "12px" || !actual.fontFamily.startsWith("system-ui")) {
+            throw new Error(`customer attribution changed at ${width}px ${theme} signedIn=${signedIn}: ${JSON.stringify(actual)}`);
+          }
+        } finally {
+          await context.close();
+        }
+      }
+    }
+  }
 }
 
 function performanceObserverSource() {
@@ -3794,6 +3892,18 @@ async function main() {
   });
   const routes = await nativeRoutes();
   const { server, baseURL } = await startVite();
+  if (process.argv.includes("--customer-attribution-only")) {
+    try {
+      await assertCustomerAttribution(browser, baseURL);
+      console.log("Customer attribution passed on desktop and mobile sign-in and console");
+    } finally {
+      await new Promise((resolve, reject) => {
+        server.httpServer.close((error) => (error ? reject(error) : resolve()));
+      });
+      await browser.close();
+    }
+    return;
+  }
   const failures = [];
   const a11yReceipt = {
     schema: "probectl.web-rendered-a11y/v1",
@@ -3822,6 +3932,7 @@ async function main() {
 
   try {
     await selfCheck(browser, axeSource);
+    await assertCustomerAttribution(browser, baseURL);
     a11yReceipt.native_control_checks =
       await nativeDisabledControlChecks(browser);
     for (const viewport of viewports) {

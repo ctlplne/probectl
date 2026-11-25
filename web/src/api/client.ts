@@ -179,10 +179,14 @@ export function holdLoginRedirect(hold = true) {
 export function redirectToLogin({
   replace = false,
   force = false,
-}: { replace?: boolean; force?: boolean } = {}) {
+  useHostTenant = false,
+}: { replace?: boolean; force?: boolean; useHostTenant?: boolean } = {}) {
   if (typeof window === 'undefined') return
   if (loginRedirectHeld && !force) return
-  const tenant = validLoginTenant(new URLSearchParams(window.location.search).get('login_tenant'))
+  // A customer domain already identifies the sign-in tenant on the server.
+  const tenant = useHostTenant
+    ? undefined
+    : validLoginTenant(new URLSearchParams(window.location.search).get('login_tenant'))
   const loginPath = tenant ? `${LOGIN_PATH}?tenant=${encodeURIComponent(tenant)}` : LOGIN_PATH
   if (replace) {
     window.location.replace(loginPath)

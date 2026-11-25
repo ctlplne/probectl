@@ -28,8 +28,17 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/incident"
 )
+
+func attributedNotification(ctx context.Context, text string) string {
+	brand := branding.Output(ctx)
+	if attribution := brand.AttributionLine(); attribution != "" {
+		return brand.DisplayName() + "\n" + attribution + "\n\n" + text
+	}
+	return text
+}
 
 // Doer is the subset of *http.Client a connector needs (injectable for tests).
 type Doer interface {

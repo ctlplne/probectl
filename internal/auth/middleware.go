@@ -67,12 +67,18 @@ func (a *Authenticator) Resolve(r *http.Request) (*Principal, error) {
 // serving the request. Rotation covers both grants (privilege elevation) and
 // revocations; the latter is intentionally just as strict.
 func (a *Authenticator) ResolveAndRotate(r *http.Request) (*Principal, string, error) {
+	return a.ResolveAndRotateForTenant(r, "")
+}
+
+// ResolveAndRotateForTenant restricts the credential before loading grants or
+// rotating it. The optional tenant constraint is supplied by the HTTP caller.
+func (a *Authenticator) ResolveAndRotateForTenant(r *http.Request, tenantID string) (*Principal, string, error) {
 	token := TokenFromRequest(r)
 	sess, err := a.mgr.Resolve(r.Context(), token)
 	if err != nil {
 		return nil, "", err
 	}
-	if sess == nil {
+	if sess == nil || (tenantID != "" && sess.TenantID != tenantID) {
 		return nil, "", nil
 	}
 	grants, err := a.perms.ForUser(r.Context(), sess.TenantID, sess.UserID)

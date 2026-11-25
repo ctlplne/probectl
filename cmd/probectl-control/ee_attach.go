@@ -36,6 +36,7 @@ import (
 	eeremediation "github.com/ctlplne/probectl/ee/remediation"
 	"github.com/ctlplne/probectl/ee/silo"
 	"github.com/ctlplne/probectl/ee/tenantkeys"
+	"github.com/ctlplne/probectl/ee/whitelabel"
 	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/cluster"
 	"github.com/ctlplne/probectl/internal/config"
@@ -238,7 +239,10 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		}
 		srv.WithIRInvestigator(investigator)
 		life.WithIRAttributionLifecycle(investigator)
+		customerBrands := whitelabel.NewStore(pool, cfg.ThemeOverrides, cfg.OIDCRedirectURL)
+		srv.WithCustomerBranding(customerBrands)
 		h, err := provider.Build(cfg, provider.Deps{
+			Branding: customerBrands,
 			Reaper: func(svc *provider.Service) {
 				// One replica sweeps (the coordinator elects it), bounded per
 				// run, on the configured cadence. Abandoning tears down the

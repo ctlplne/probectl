@@ -25,16 +25,20 @@ export class APIError extends Error {
   }
 }
 
-export async function api<T>(
+export async function providerResponse(
   method: string,
   path: string,
   body?: unknown,
-): Promise<T> {
+  headers?: HeadersInit,
+): Promise<Response> {
+  const requestHeaders = new Headers(headers);
+  if (body !== undefined)
+    requestHeaders.set("Content-Type", "application/json");
   const res = await fetch(path, {
     method,
     credentials: "same-origin",
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+    headers: requestHeaders,
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (res.status === 404) throw new NotEnabledError();
   if (res.status === 429) {
@@ -55,7 +59,15 @@ export async function api<T>(
       payload?.error?.message ?? `HTTP ${res.status}`,
     );
   }
-  return (await res.json()) as T;
+  return res;
+}
+
+export async function api<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  return (await (await providerResponse(method, path, body)).json()) as T;
 }
 
 /** Cached provider-plane read. Not-enabled (404) and other failures are never

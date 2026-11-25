@@ -30,6 +30,7 @@ import {
   type Column,
 } from "../../../web/src/components";
 import { useI18n } from "../../../web/src/i18n/useI18n";
+import { ProductIdentity } from "../../../web/src/brand/ProductIdentity";
 import { useTheme } from "../../../web/src/theme/useTheme";
 import styles from "./ProviderConsole.module.css";
 import { TenantsCard } from "./TenantsCard";
@@ -146,6 +147,7 @@ export function ProviderConsole({ search = "" }: ProviderConsoleProps) {
   return (
     <div className={styles.shell}>
       <header className={styles.domainBanner}>
+        <ProductIdentity platform />
         <h1 className={styles.domainName}>{t("provider.banner.title")}</h1>
         <Badge tone="warning">{t("provider.banner.domain")}</Badge>
         <Button
@@ -359,7 +361,11 @@ function Dashboard({ operator }: { operator: Operator }) {
           <QuarantineCard />
         </div>
         <div id="provider-tenants" className={styles.taskSection} tabIndex={-1}>
-          <TenantsCard readOnly={readOnly} api={api} />
+          <TenantsCard
+            readOnly={readOnly}
+            isAdmin={operator.role === "admin"}
+            api={api}
+          />
           <MonthlyReportsCard key={operator.id} readOnly={readOnly} />
         </div>
         <div id="provider-usage" className={styles.taskSection} tabIndex={-1}>

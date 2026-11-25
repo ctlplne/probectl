@@ -1006,6 +1006,8 @@ type BMPUpdateChurn struct {
 }
 
 type Branding struct {
+	Customer       map[string]any    `json:"customer,omitempty"`
+	CustomerDomain *bool             `json:"customer_domain,omitempty"`
 	ProductName    string            `json:"product_name"`
 	TokenOverrides map[string]string `json:"token_overrides,omitempty"`
 }

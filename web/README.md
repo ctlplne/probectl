@@ -52,8 +52,9 @@ the AI **Ask** panel, the provider console, and more) are routes on top of it.
 
 - **No hardcoded design values** — enforced by a test
   (`test/no-hardcoded-colors.test.ts`).
-- **Deployment-theme ready** — a token swap re-themes the whole UI while the
-  probectl banner stays fixed (`test/theme.test.tsx`).
+- **Deployment and customer themes** — validated tokens control the console
+  palette. The probectl mark and **Powered by probectl** badge have fixed
+  styling (`test/branding.test.tsx`).
 - **WCAG 2.2 AA baseline** (the Web Content Accessibility Guidelines' mid
   conformance level — the usual legal/procurement bar) — semantic landmarks,
   skip link, focus management, reduced-motion, keyboard-first; an **axe gate**

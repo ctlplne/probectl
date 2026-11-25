@@ -4,43 +4,65 @@
 // in the LICENSE file at the root of this repository; on its Change Date
 // each version converts to the Mozilla Public License 2.0.
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  type ReactNode,
+} from 'react'
 import { applyBrand, fetchBrand, DEFAULT_BRAND, type Brand } from '../api/brand'
 
-/**
- * BrandProvider fetches the deployment-wide probectl theme pre-auth and
- * applies its validated token overrides to <html>. Product identity stays
- * probectl and failures fall back to the shipped light/dark tokens.
- */
+type BrandState = {
+  brand: Brand
+  loaded: boolean
+  customerDomain: boolean
+  bindTenant?: (tenantID: string | null) => void
+}
+
+// The sign-in shell waits for the branding response before starting SSO.
 // eslint-disable-next-line react-refresh/only-export-components
-export const BrandContext = createContext<Brand>(DEFAULT_BRAND)
+export const BrandContext = createContext<BrandState>({
+  brand: DEFAULT_BRAND,
+  loaded: true,
+  customerDomain: false,
+})
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function useBrand(): Brand {
+  return useContext(BrandContext).brand
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function useBrandState() {
   return useContext(BrandContext)
 }
 
 export function BrandProvider({ children }: { children: ReactNode }) {
-  const [brand, setBrand] = useState<Brand>(DEFAULT_BRAND)
+  const [state, setState] = useState({ brand: DEFAULT_BRAND, loaded: false })
+  const [tenantID, bindTenant] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    void fetchBrand().then(
-      (b) => {
-        if (cancelled) return
-        applyBrand(b)
-        setBrand(b)
-      },
-      () => {
-        if (cancelled) return
-        applyBrand(DEFAULT_BRAND)
-        setBrand(DEFAULT_BRAND)
-      },
-    )
+    void fetchBrand().then((brand) => {
+      if (!cancelled) setState({ brand, loaded: true })
+    })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [tenantID])
 
-  return <BrandContext.Provider value={brand}>{children}</BrandContext.Provider>
+  const customerDomain = state.brand.customer_domain === true
+  // A public, registered customer host can brand sign-in. For a protected
+  // console, only use presentation confirmed for its authenticated tenant.
+  const customerMatches = tenantID ? state.brand.sessionTenant === tenantID : customerDomain
+  const brand = state.brand.customer && !customerMatches ? DEFAULT_BRAND : state.brand
+  useLayoutEffect(() => applyBrand(brand), [brand])
+
+  return (
+    <BrandContext.Provider value={{ brand, loaded: state.loaded, customerDomain, bindTenant }}>
+      {children}
+    </BrandContext.Provider>
+  )
 }

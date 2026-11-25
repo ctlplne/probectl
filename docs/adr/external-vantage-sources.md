@@ -8,7 +8,7 @@
 ## Decision
 
 Reject a partner/public **active probe** integration for the current product.
-probectl remains customer/MSP-owned-vantage only and keeps the probectl brand.
+Active vantages remain customer- or MSP-owned.
 The already-supported opt-in public outage/routing feeds remain read-only
 context; they do not become a substitute probe, a green coverage cell, or an
 external party allowed to publish tenant results.
@@ -37,7 +37,7 @@ design partner exists.
 | provenance | public feeds remain explicitly `public`/external context; customer results remain `synthetic` or `endpoint` with owned-vantage identity |
 | availability | an external feed may be stale/unavailable without breaking tests, incidents, or coverage truth |
 | data custody | tenant telemetry stays in the operator's deployment; no probe task or result is sent to a partner |
-| product boundary | no probectl-operated public fleet, hosted SaaS, white-label/OEM identity, or implied global coverage |
+| product boundary | no probectl-operated public fleet, hosted SaaS, or implied global coverage. MSP customer branding is covered by [its own decision](../white-label.md). |
 
 ## AUP/resale and cost
 

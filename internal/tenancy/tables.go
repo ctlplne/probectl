@@ -28,9 +28,9 @@ var providerOwnedTables = map[string]providerOwnedKind{
 	"break_glass_grants": providerTenantTable,
 	"usage_records":      providerTenantTable,
 	"tenant_quotas":      providerTenantTable,
-	// Retained only during the 0057 expand/contract compatibility window. It
-	// must remain provider-owned so a rolling deployment cannot copy this
-	// legacy table into tenant silos. No product-identity path reads it.
+	// Provider-owned so custom hosts are unique across the deployment. Tenants
+	// may read their own active brand in public under FORCE RLS. Legacy rows
+	// remain inert until a provider administrator saves a current revision.
 	"tenant_branding":   providerTenantTable,
 	"tenant_retention":  providerTenantTable,
 	"tenant_keys":       providerTenantTable,

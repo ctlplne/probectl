@@ -342,8 +342,8 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   },
   {
     id: 'F54',
-    name: 'Per-tenant rebranding (removed by design)',
-    status: 'removed',
+    name: 'MSP customer branding',
+    status: 'delivered',
     source: 'contract:features',
   },
   {

@@ -50,8 +50,8 @@ and migration.
 
 The tenant band controls new provisioning; it never drops telemetry. MSP
 metering stays local and leaves only through an operator-run export. The MSP
-resells under the probectl brand; white-label identity replacement is not
-offered. Rates, discounts, support commitments, reseller language, and
+can resell with customer branding and fixed **Powered by probectl** attribution.
+Rates, discounts, support commitments, reseller language, and
 commercial license terms still need real design-partner evidence and counsel.
 
 ## Formula map

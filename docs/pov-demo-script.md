@@ -99,7 +99,8 @@ measured incident workflow that beats your current diagnosis baseline.”
 - **“Is this an IPS or full NDR?”** No. Detections are confidence-scored
   signals and remediation is observe-only or human-gated. probectl feeds the
   operator’s SIEM; it does not replace it.
-- **“Can we white-label it?”** No. MSPs resell under the probectl banner.
+- **“Can we white-label it?”** The MSP edition supports customer branding with
+  fixed **Powered by probectl** attribution.
   Theming is a deployment-level token override, not tenant branding.
 - **“What scale?”** Mechanics are proven at CI scale with hard floors.
   L/XL/XXL reference numbers remain provisional until reference-iron evidence

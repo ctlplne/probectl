@@ -71,7 +71,8 @@ internal/   a2a (agent-to-agent measurement broker) · agent (canary-plugin agen
 ee/         billing (metering/usage export) · cmd (commercial offline CLIs) ·
             governance (ee governance workflows) · pricing (offline TCO model; no license prices) ·
             provider (provider/management plane) · remediation (guarded remediation workflow) ·
-            silo (siloed/hybrid isolation) · tenantkeys (BYOK) · web (embedded provider-console assets)
+            silo (siloed/hybrid isolation) · tenantkeys (BYOK) · web (embedded provider-console assets) ·
+            whitelabel (customer presentation and domain mapping)
 analyzer/   Python BGP · proto/ schemas · migrations/ (sequential, idempotent) · web/ frontend
 deploy/     helm · compose · terraform · backup · packaging | docs/ · test/ (real-stack integration)
 ```

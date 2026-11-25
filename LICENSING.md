@@ -72,7 +72,7 @@ The runtime tiers are:
 |---|---|
 | `core` | No `ee/` grants. |
 | `enterprise` | FIPS artifact, BYOK, governance, guarded remediation, HA support/SLA, and siloed isolation. |
-| `msp` | The complete Enterprise set plus provider-plane operations and local usage metering/export. The MSP resells under the probectl banner. |
+| `msp` | The complete Enterprise set plus provider-plane operations, local usage metering/export, and customer branding alongside fixed “Powered by probectl” attribution. |
 
 `pricing_model` in a signed license is a reserved, informational field; only
 the single feature table in `internal/license` grants code. No price list or

@@ -101,7 +101,7 @@ func (p *psa) deliver(ctx context.Context, action string, inc incident.Incident,
 			ExternalKey: inc.ID, Title: "probectl incident " + inc.ID, Status: status,
 			Severity: inc.Severity, OpenedAt: inc.StartedAt, LastSeenAt: inc.LastSeenAt,
 			SignalCount: inc.SignalCount,
-			Evidence:    "redacted evidence remains tenant-scoped in probectl; use a signed incident export",
+			Evidence:    attributedNotification(ctx, "redacted evidence remains tenant-scoped in probectl; use a signed incident export"),
 		},
 	}
 	body, err := json.Marshal(event)

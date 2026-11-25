@@ -10,6 +10,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+
+	"github.com/ctlplne/probectl/internal/branding"
 )
 
 // ChannelDeps are the shared dependencies a rule's channels are built from (an
@@ -17,6 +19,7 @@ import (
 type ChannelDeps struct {
 	HTTPClient Doer
 	Mail       MailSender
+	Brand      branding.Lookup
 }
 
 // Notifier fans an alert out to every channel on a rule. A channel that fails to
@@ -38,6 +41,9 @@ func NewNotifier(deps ChannelDeps, log *slog.Logger) *Notifier {
 // Deliver sends a to each of rule's channels. It returns the number of
 // successful deliveries.
 func (n *Notifier) Deliver(ctx context.Context, rule Rule, a Alert) int {
+	if n.deps.Brand != nil && len(rule.Channels) != 0 && rule.TenantID != "" && rule.TenantID == a.TenantID {
+		ctx = branding.WithOutput(ctx, n.deps.Brand(ctx, a.TenantID))
+	}
 	delivered := 0
 	for i, spec := range rule.Channels {
 		ch, err := n.build(spec)

@@ -19,6 +19,7 @@ import { DemoModeProvider } from '../demo/DemoMode'
 import { AuthProvider } from '../auth/AuthProvider'
 import { TenantLoginHint } from '../auth/TenantLoginHint'
 import { useAuth } from '../auth/useAuth'
+import { ProductIdentity } from '../brand/ProductIdentity'
 import { TimeProvider } from '../time/TimeProvider'
 import { useI18n } from '../i18n/useI18n'
 import { resolveLocale } from '../i18n/core'
@@ -128,7 +129,14 @@ const AdminPage = lazy(() =>
 function ProviderRoute() {
   const { search } = useLocation()
   return (
-    <Suspense fallback={<LoadingState label="Loading page…" />}>
+    <Suspense
+      fallback={
+        <main className="grid gap-3 p-4">
+          <ProductIdentity platform />
+          <LoadingState label="Loading page…" />
+        </main>
+      }
+    >
       <ProviderConsole search={search} />
     </Suspense>
   )

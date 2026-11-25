@@ -15,27 +15,27 @@ import (
 	"strings"
 
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/branding"
 )
 
 // This emergency page needs no app bundle, scripts, remote assets or storage.
 // Browser-native semantic HTML keeps recovery usable when tenant storage is held.
-var quarantineLoginPage = template.Must(template.New("quarantine-login").Parse(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign-in temporarily unavailable · probectl</title></head>
-<body><main><p>probectl</p><h1>Sign-in temporarily unavailable</h1>
+var quarantineLoginPage = template.Must(template.New("quarantine-login").Parse(`{{define "mark"}}<svg aria-hidden="true" viewBox="0 0 32 32" width="26" height="26" xmlns="http://www.w3.org/2000/svg">
+<circle cx="16" cy="16" r="16" fill="#8e480b"/>
+<circle cx="16" cy="16" r="10" fill="none" stroke="#fffefa" stroke-width="2.2"/>
+<circle cx="16" cy="16" r="4.2" fill="none" stroke="#fffefa" stroke-width="1.8"/>
+<circle cx="16" cy="16" r="1.8" fill="#fffefa"/>
+</svg>{{end}}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign-in temporarily unavailable · {{if .Customer}}{{.Customer}} · {{.Attribution}}{{else}}probectl{{end}}</title></head>
+<body><main><p>{{if .Customer}}<strong><bdi>{{.Customer}}</bdi></strong> <a href="{{.AttributionURL}}">{{template "mark"}} {{.Attribution}}</a>{{else}}{{template "mark"}} probectl{{end}}</p><h1>Sign-in temporarily unavailable</h1>
 <p>{{.Message}}</p><p>Error: <code>{{.Code}}</code></p>
 {{if .RequestID}}<p>Request ID: <code>{{.RequestID}}</code></p>{{end}}
 <p>Contact your deployment operator. After the tenant is restored, retry sign-in.</p>
 <nav aria-label="Sign-in recovery"><a href="{{.Retry}}">Retry sign-in</a> · <a href="{{.Console}}">Return to console</a></nav>
 </main></body></html>`))
 
-// writeQuarantineLoginPage changes only a browser's login refusal presentation.
-// The 503 and quarantine enforcement remain unchanged; API callers retain JSON.
-func writeQuarantineLoginPage(w http.ResponseWriter, r *http.Request, domain *apierror.Error, requestID string) bool {
-	if r.Method != http.MethodGet || r.URL.Path != "/auth/login" || domain.Code != string(apierror.CodeTenantQuarantined) {
-		return false
-	}
-	acceptsHTML := false
-	for _, part := range strings.Split(r.Header.Get("Accept"), ",") {
+func acceptsLoginHTML(accept string) bool {
+	for _, part := range strings.Split(accept, ",") {
 		media, params, err := mime.ParseMediaType(strings.TrimSpace(part))
 		if err != nil || media != "text/html" {
 			continue
@@ -48,10 +48,17 @@ func writeQuarantineLoginPage(w http.ResponseWriter, r *http.Request, domain *ap
 			}
 		}
 		if quality > 0 && quality <= 1 {
-			acceptsHTML = true
+			return true
 		}
 	}
-	if !acceptsHTML {
+	return false
+}
+
+// writeQuarantineLoginPage changes only a browser's login refusal presentation.
+// The 503 and quarantine enforcement remain unchanged; API callers retain JSON.
+func writeQuarantineLoginPage(w http.ResponseWriter, r *http.Request, domain *apierror.Error, requestID string) bool {
+	if r.Method != http.MethodGet || r.URL.Path != "/auth/login" ||
+		domain.Code != string(apierror.CodeTenantQuarantined) || !acceptsLoginHTML(r.Header.Get("Accept")) {
 		return false
 	}
 	retry, console := "/auth/login", "/ui/"
@@ -62,7 +69,14 @@ func writeQuarantineLoginPage(w http.ResponseWriter, r *http.Request, domain *ap
 		console += "?login_tenant=" + tenant
 	}
 	var body bytes.Buffer
-	if err := quarantineLoginPage.Execute(&body, struct{ Message, Code, RequestID, Retry, Console string }{domain.Message, domain.Code, requestID, retry, console}); err != nil {
+	view := struct {
+		Message, Code, RequestID, Retry, Console string
+		Customer, Attribution, AttributionURL    string
+	}{
+		Message: domain.Message, Code: domain.Code, RequestID: requestID, Retry: retry, Console: console,
+		Customer: branding.Output(r.Context()).CustomerName(), Attribution: branding.Attribution, AttributionURL: branding.AttributionURL,
+	}
+	if err := quarantineLoginPage.Execute(&body, view); err != nil {
 		return false
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -5,10 +5,8 @@
 // each version converts to the Mozilla Public License 2.0.
 
 /**
- * Deployment-level probectl theming. Fetched PRE-AUTH from /branding so the
- * login shell and tenant app use the same operator-configured token overrides.
- * The response is identical for every tenant and host; product identity is
- * always probectl.
+ * Branding fetched from /branding so the login shell and tenant app can
+ * use the same validated presentation.
  *
  * /branding lives OUTSIDE the /v1 API base, so it goes through publicFetch
  * (the single off-/v1 convention, UX-006) rather than a bare fetch().
@@ -19,6 +17,9 @@ import { readResponseJSON, responseBodyLimit } from './response'
 export interface Brand {
   product_name: string
   token_overrides?: Record<string, string>
+  customer?: { name: string; logo_data_uri?: string }
+  customer_domain?: boolean
+  sessionTenant?: string
 }
 
 export const DEFAULT_BRAND: Brand = { product_name: 'probectl' }
@@ -181,14 +182,43 @@ const SHIPPED_CONTRAST_THEMES: Record<string, Record<string, string>> = {
 const REQUIRED_CONTRAST_PAIRS = buildContrastPairs()
 
 export async function fetchBrand(): Promise<Brand> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 2500)
   try {
-    const res = await publicFetch('/branding')
+    const res = await publicFetch('/branding', { signal: controller.signal })
     if (!res.ok) return DEFAULT_BRAND
     const b = await readResponseJSON<Brand>(res, responseBodyLimit(res))
     if (!b || b.product_name !== 'probectl') return DEFAULT_BRAND
-    return b
+    const presentation: Brand = {
+      product_name: 'probectl',
+      token_overrides: b.token_overrides,
+      ...(b.customer_domain === true ? { customer_domain: true } : {}),
+    }
+    const customer = b.customer
+    if (!customer) return presentation
+    if (
+      typeof customer.name !== 'string' ||
+      !customer.name.trim() ||
+      customer.name.length > 120 ||
+      /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(customer.name)
+    )
+      return presentation
+    const logo = customer.logo_data_uri
+    const safeLogo =
+      typeof logo === 'string' &&
+      logo.length <= 43714 &&
+      /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(logo)
+        ? logo
+        : undefined
+    return {
+      ...presentation,
+      customer: { name: customer.name, logo_data_uri: safeLogo },
+      sessionTenant: res.headers.get('X-Probectl-Brand-Tenant') ?? undefined,
+    }
   } catch {
     return DEFAULT_BRAND // theming must never take the app down
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
@@ -203,12 +233,13 @@ export function applyBrand(b: Brand) {
     root.style.setProperty(name, value)
     appliedTokens.push(name)
   }
-  document.title = 'probectl'
+  document.title = b.customer ? `${b.customer.name} · Powered by probectl` : 'probectl'
 }
 
 export function sanitizeTokenOverrides(overrides: Record<string, string> | undefined) {
   const safe: Record<string, string> = {}
   for (const [name, rawValue] of Object.entries(overrides ?? {})) {
+    if (typeof rawValue !== 'string') continue
     const value = rawValue.trim()
     if (!tokenValueIsSafe(name, value)) continue
     safe[name] = value

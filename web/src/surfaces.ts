@@ -915,7 +915,7 @@ export const SURFACES: SurfaceDecl[] = [
   {
     capability:
       'Provider console: ranked MSP operations, isolation lifecycle, showback, fairness, governance, and break-glass',
-    featureIds: ['F34', 'F51', 'F52', 'F53', 'F57'],
+    featureIds: ['F34', 'F51', 'F52', 'F53', 'F54', 'F57'],
     sprint: 'S-T1',
     kind: 'native',
     route: '/provider',
@@ -1230,16 +1230,6 @@ export const SURFACES: SurfaceDecl[] = [
   },
 
   // --- declared none-by-design surfaces (deliberate product exclusions) ---
-
-  {
-    capability: 'Per-tenant or provider-master product rebranding',
-    featureIds: ['F54'],
-    sprint: 'W11 owner decision',
-    kind: 'none-by-design',
-    noneReason:
-      'Removed by design: MSPs resell under the probectl banner. Operators may set one deployment-wide allowlisted token theme, but no tenant can replace product identity, logos, domains, or email identity.',
-    liveReceipt: NONE_BY_DESIGN_RECEIPT,
-  },
 
   {
     capability: 'Plugin/detection marketplace',

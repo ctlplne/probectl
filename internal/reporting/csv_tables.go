@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/ctlplne/probectl/internal/branding"
 )
 
 // CSVTable is an already authorized, captured source. Rendering grants no
@@ -137,6 +139,9 @@ func chargeCSVLegacy(d Document, memory *int64) error {
 			return ErrCSVLimit
 		}
 	}
+	if d.BrandName != "" && !charge(d.BrandName) {
+		return ErrCSVLimit
+	}
 	for _, values := range [][]string{d.Provenance, d.CoverageLimitations} {
 		for _, value := range values {
 			if !charge(value) {
@@ -163,6 +168,10 @@ func writeCSVLegacy(writer *csv.Writer, d Document) error {
 		{"provenance", strings.Join(d.Provenance, " | ")},
 		{"redaction_state", d.RedactionState},
 		{"coverage_limitations", strings.Join(d.CoverageLimitations, " | ")},
+	}
+	if d.BrandName != "" {
+		rows = append([][2]string{{"brand", d.BrandName}, {"powered_by", branding.Attribution},
+			{"powered_by_url", branding.AttributionURL}}, rows...)
 	}
 	for _, row := range rows {
 		if err := writer.Write([]string{row[0], CSVText(row[1])}); err != nil {

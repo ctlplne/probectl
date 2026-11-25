@@ -25,7 +25,7 @@ replacement motion for several network-observability spend lines:
 | Active path and synthetic monitoring | ThousandEyes-style tests and path visibility | Run tenant-bound canary agents from sites you control; use owned vantage points rather than a vendor-operated global probe fleet. |
 | Device telemetry and network health | SolarWinds-style polling and operational inventory | Collect device telemetry, topology, incidents, and alert state into the same control plane as active tests and flows. |
 | Network-adjacent observability inside a larger telemetry estate | Datadog-style dashboards and cross-signal views | Federate through OpenTelemetry and served APIs while keeping probectl focused on network planes, not general APM ownership. |
-| MSP resale | Managed monitoring platform with per-customer portals | Run the MSP tier yourself, isolate tenants, explicitly export usage for consumption reporting, resell under the probectl banner, and keep probectl out of customer data custody. |
+| MSP resale | Managed monitoring platform with per-customer portals | Self-host the MSP tier, isolate tenants, export usage for consumption reporting, and give each customer its own brand alongside **Powered by probectl** attribution. |
 
 The ELI5 picture: most shops buy one flashlight for the road, one for the
 router, one for the server, and one for the billing meter. probectl gives the
@@ -54,8 +54,9 @@ The commercial posture follows who bears the operating cost:
 - Core stays free as the five-plane self-hosted platform.
 - Enterprise and MSP are commercial tiers. Enterprise is a self-hosted license
   opening every non-resale `ee/` capability; MSP receives the Enterprise set
-  plus provider operations and resells under the probectl banner at its own
-  customer pricing.
+  plus provider operations and sells at its own customer pricing. It can give
+  each customer a brand and domain alongside fixed **Powered by probectl**
+  attribution.
 - No price list or pricing model is published; commercial terms are set per
   agreement.
 - Usage counters are collected locally and leave only through an operator-run

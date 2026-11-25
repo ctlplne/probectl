@@ -19,6 +19,7 @@ import (
 const Banner = "probectl · tenant-scoped report"
 
 type Document struct {
+	BrandName           string
 	Title               string
 	Preset              string
 	TenantName          string

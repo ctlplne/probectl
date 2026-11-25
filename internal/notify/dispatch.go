@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/branding"
 	"github.com/ctlplne/probectl/internal/incident"
 )
 
@@ -48,10 +49,17 @@ type Dispatcher struct {
 	log          *slog.Logger
 	queueDepth   int
 	connectorTTL time.Duration
+	brand        branding.Lookup
 
 	mu       sync.RWMutex
 	byTenant map[string][]Connector
 	queues   map[string]chan dispatchJob
+}
+
+// WithBranding attaches the output lookup before the dispatcher starts.
+func (d *Dispatcher) WithBranding(lookup branding.Lookup) *Dispatcher {
+	d.brand = lookup
+	return d
 }
 
 // NewDispatcher builds a dispatcher over a link store.
@@ -172,6 +180,13 @@ func (d *Dispatcher) queueFor(tenant string) chan dispatchJob {
 
 func (d *Dispatcher) runTenantQueue(tenant string, q <-chan dispatchJob) {
 	for job := range q {
+		if job.kind != dispatchBarrier {
+			if job.inc.TenantID != tenant {
+				d.log.Warn("notify: ignored dispatch job outside its tenant", "tenant_id", tenant)
+				continue
+			}
+			job.ctx = d.withOutputBrand(job.ctx, tenant)
+		}
 		switch job.kind {
 		case dispatchOpened:
 			d.openedSync(job.ctx, job.inc)
@@ -189,6 +204,15 @@ func (d *Dispatcher) runTenantQueue(tenant string, q <-chan dispatchJob) {
 			d.log.Warn("notify: unknown dispatch job", "tenant_id", tenant)
 		}
 	}
+}
+
+func (d *Dispatcher) withOutputBrand(ctx context.Context, tenant string) context.Context {
+	if d.brand == nil {
+		return ctx
+	}
+	lookupCtx, cancel := d.connectorContext(ctx)
+	defer cancel()
+	return branding.WithOutput(ctx, d.brand(lookupCtx, tenant))
 }
 
 func (d *Dispatcher) connectorContext(parent context.Context) (context.Context, context.CancelFunc) {
@@ -354,9 +378,14 @@ func (d *Dispatcher) Reconcile(ctx context.Context) {
 			d.log.Warn("notify: reconciliation incident list failed", "tenant_id", tenant, "error", err)
 			continue
 		}
+		outputContext := sync.OnceValue(func() context.Context { return d.withOutputBrand(ctx, tenant) })
 		for _, inc := range incidents {
+			if inc.TenantID != tenant {
+				d.log.Warn("notify: ignored reconciliation incident outside its tenant", "tenant_id", tenant)
+				continue
+			}
 			if inc.Status == incident.StatusResolved {
-				d.resolvedSync(ctx, inc, "reconcile")
+				d.resolvedSync(outputContext(), inc, "reconcile")
 				continue
 			}
 			for _, c := range d.Connectors(tenant) {
@@ -368,15 +397,15 @@ func (d *Dispatcher) Reconcile(ctx context.Context) {
 					continue
 				}
 				if link == nil {
-					d.openedSync(ctx, inc)
+					d.openedSync(outputContext(), inc)
 					break
 				}
 				if link.Status == "resolved" {
-					d.reopenedSync(ctx, inc)
+					d.reopenedSync(outputContext(), inc)
 					break
 				}
 				if link.Revision < inc.SignalCount {
-					d.updatedSync(ctx, inc)
+					d.updatedSync(outputContext(), inc)
 					break
 				}
 			}
