@@ -1588,7 +1588,7 @@ ROUTING_WRITE_CONTROLS = {
     "routing-disjoint-cohort": (
         "internal/store/bgp_routing_stage.go",
         "if err := retireRoutingStageCohorts(ctx, sc, source, input.Definitions); err != nil {",
-        "if _, err := invalidateRoutingStageSource(ctx, sc, source); err != nil {",
+        "if _, err := invalidateRoutingStageSource(ctx, sc, source, routingStageNeighbor(input)); err != nil {",
         "TestRoutingStageKeepsDisjointCohortsAndRetiresWholeOverlap", "",
         "disjoint IPv6 Peer Up retired IPv4 or another tenant",
     ),
