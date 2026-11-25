@@ -177,6 +177,17 @@
     monospace;
   --font-display: 'Syne Variable', Syne, 'Sora Variable', Sora, ui-sans-serif, sans-serif;
 
+  /* Fixed product attribution. These values sit outside the palettes and
+     typography that customer brands and deployment themes may override. */
+  --attribution-background: #231b16;
+  --attribution-foreground: #fffefa;
+  --attribution-border-color: #8e480b;
+  --attribution-radius: 999px;
+  --attribution-min-height: 24px;
+  --attribution-padding-inline: 7px;
+  --attribution-font: 600 12px/16px system-ui, sans-serif;
+  --attribution-focus-ring: 0 0 0 5px var(--attribution-background);
+
   /* Semantic type rungs, each paired with its line height. */
   --font-size-caption: 0.75rem;
   --font-size-data: 0.875rem;

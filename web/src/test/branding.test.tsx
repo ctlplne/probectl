@@ -54,7 +54,11 @@ test.each(['/targets', '/incidents', '/dashboards'])(
         {
           product_name: 'probectl',
           customer: { name: 'Northstar', logo_data_uri: northLogo },
-          token_overrides: { '--font-sans': 'Example', '--powered-by-opacity': '0' },
+          token_overrides: {
+            '--font-sans': 'Example',
+            '--attribution-background': '0 0% 100%',
+            '--attribution-radius': '0px',
+          },
           powered_by: false,
         },
         northTenant,
@@ -70,7 +74,9 @@ test.each(['/targets', '/incidents', '/dashboards'])(
     const header = within(screen.getByRole('banner'))
     expect(header.getByText('Northstar')).toBeInTheDocument()
     expect(header.getByText('Powered by probectl')).toHaveAttribute('href', 'https://probectl.com')
-    expect(document.documentElement.style.getPropertyValue('--powered-by-opacity')).toBe('')
+    const overrides = document.documentElement.style
+    expect(overrides.getPropertyValue('--attribution-background')).toBe('')
+    expect(overrides.getPropertyValue('--attribution-radius')).toBe('')
     expect(document.title).toContain('Powered by probectl')
   },
 )

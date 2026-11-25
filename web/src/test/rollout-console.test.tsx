@@ -260,6 +260,7 @@ describe('Admin staged rollout control', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.queryByText(macEndpoint.executable_identity)).not.toBeInTheDocument()
     expect(await screen.findByText(windowsEndpoint.executable_identity)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByText('Blue fleet agent')).toBeInTheDocument()
     expect(screen.queryByText('Red fleet agent')).not.toBeInTheDocument()
     expect(requests).toContainEqual({ path: '/v1/agents', tenant: blue })
@@ -272,6 +273,7 @@ describe('Admin staged rollout control', () => {
       expect(screen.getByLabelText('Pending red rollout decisions')).toHaveTextContent('0'),
     )
     expect(screen.getByText(windowsEndpoint.executable_identity)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(
       screen.queryByText(/red wave verified|verify health gate accepted/i),
     ).not.toBeInTheDocument()

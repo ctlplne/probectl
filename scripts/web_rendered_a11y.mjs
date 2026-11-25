@@ -1298,7 +1298,8 @@ async function assertCustomerAttribution(browser, baseURL) {
       "--primary": "24 85% 28%",
       "--primary-foreground": "0 0% 100%",
       "--font-sans": "Courier New",
-      "--powered-by-background": "0 0% 100%",
+      "--attribution-background": "0 0% 100%",
+      "--attribution-radius": "0px",
     },
   };
   for (const width of [320, 1366]) {
@@ -1362,6 +1363,7 @@ async function assertCustomerAttribution(browser, baseURL) {
               deploymentFont: document.documentElement.style.getPropertyValue("--font-sans"),
               color: style.color,
               background: style.backgroundColor,
+              radius: style.borderRadius,
               font: style.fontSize,
               fontFamily: style.fontFamily,
             };
@@ -1373,6 +1375,7 @@ async function assertCustomerAttribution(browser, baseURL) {
               actual.logoSource !== fixture.customer.logo_data_uri || actual.logoAlt !== "" || !actual.logoVisible ||
               actual.primary !== fixture.token_overrides["--primary"] || actual.deploymentFont !== "Courier New" ||
               actual.color !== "rgb(255, 254, 250)" || actual.background !== "rgb(35, 27, 22)" ||
+              actual.radius !== "999px" ||
               actual.font !== "12px" || !actual.fontFamily.startsWith("system-ui")) {
             throw new Error(`customer attribution changed at ${width}px ${theme} signedIn=${signedIn}: ${JSON.stringify(actual)}`);
           }

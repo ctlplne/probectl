@@ -757,6 +757,13 @@ function SecretBackendsCard() {
 }
 
 export function AdminPage() {
+  const { tenant } = useAuth()
+  // A new tenant can reuse the same IDs. End pending dialogs and receipts
+  // before the next tenant's query data can reopen the old selection.
+  return <TenantAdminPage key={tenant.id} />
+}
+
+function TenantAdminPage() {
   const { permissions } = useAuth()
   const canEnroll = permissions.includes('agent.write')
   const { t, locale } = useI18n()

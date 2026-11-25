@@ -39,23 +39,20 @@
   object-fit: contain;
 }
 
-/* The attribution has a fixed palette and font. Only the customer identity
-   inherits the operator's design tokens. */
+/* The attribution uses the fixed product tokens. */
 .attribution {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 4px;
-  min-height: 24px;
-  padding: 2px 7px;
-  border: 1px solid #8e480b;
-  border-radius: 999px;
-  background: #231b16;
-  color: #fffefa;
-  font:
-    600 12px/16px system-ui,
-    sans-serif;
-  letter-spacing: 0;
+  gap: var(--space-1);
+  min-height: var(--attribution-min-height);
+  padding: var(--space-half) var(--attribution-padding-inline);
+  border: var(--border-width-thin) solid var(--attribution-border-color);
+  border-radius: var(--attribution-radius);
+  background: var(--attribution-background);
+  color: var(--attribution-foreground);
+  font: var(--attribution-font);
+  letter-spacing: var(--tracking-normal);
   text-transform: none;
   text-decoration: none;
   white-space: nowrap;
@@ -66,7 +63,7 @@
 }
 
 .attribution:focus-visible {
-  outline: 2px solid #fffefa;
-  outline-offset: 2px;
-  box-shadow: 0 0 0 5px #231b16;
+  outline: var(--space-half) solid var(--attribution-foreground);
+  outline-offset: var(--space-half);
+  box-shadow: var(--attribution-focus-ring);
 }

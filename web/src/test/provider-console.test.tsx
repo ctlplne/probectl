@@ -573,7 +573,9 @@ describe('provider console (S-T1)', () => {
     )
     expect(calls.some((url) => /telemetry|\/v1\/agents/.test(url))).toBe(false)
     expect(screen.getByText(/probectl · provider plane/i)).toBeInTheDocument()
-    expect(screen.queryByLabelText(/brand|logo|white.?label|color/i)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Brand Acme Industries' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Brand Globex' })).toBeInTheDocument()
+    expect(screen.queryByRole('form', { name: /brand for/i })).not.toBeInTheDocument()
   })
 
   test('S-T3 showback: month-to-date usage per tenant + the export feed links', async () => {

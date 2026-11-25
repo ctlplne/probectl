@@ -1050,6 +1050,13 @@ export const API_CALL_CONTRACTS = [
   },
   {
     file: 'api/incidents.ts',
+    method: 'POST',
+    path: '`/incidents/${encodeURIComponent(id)}/drafts`',
+    response: 'IncidentDraftResponse',
+    generated: 'GenerateIncidentDraftResponse',
+  },
+  {
+    file: 'api/incidents.ts',
     method: 'GET',
     path: "`/incident-shares/${encodeURIComponent(id ?? '')}`",
     response: 'IncidentShareArtifact',

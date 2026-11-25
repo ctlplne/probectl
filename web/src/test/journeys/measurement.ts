@@ -320,9 +320,12 @@ export function comparableActiveTimeMs(measurement: JourneyMeasurement): number 
   return measurement.outcome.status === 'complete' ? measurement.active_time_proxy.max_ms : null
 }
 
-/** The authenticated session owns tenant scope. This guard is reusable by
- * every journey fixture and rejects the common client-spoofing channels. */
-export function assertRequestsUseSessionTenant(requests: MeasuredRequest[]): void {
+/** The authenticated session owns tenant scope. A fixture may supply its
+ * session tenant to verify a client assertion that only rejects stale sessions. */
+export function assertRequestsUseSessionTenant(
+  requests: MeasuredRequest[],
+  sessionTenant?: string,
+): void {
   for (const request of requests) {
     const url = new URL(request.url, 'https://probectl.invalid')
     for (const key of url.searchParams.keys()) {
@@ -330,8 +333,12 @@ export function assertRequestsUseSessionTenant(requests: MeasuredRequest[]): voi
         throw new Error(`${request.method ?? 'GET'} ${url.pathname} supplies tenant_id in URL`)
       }
     }
-    for (const key of Object.keys(request.headers ?? {})) {
-      if (['x-tenant-id', 'x-probectl-tenant'].includes(key.toLowerCase())) {
+    for (const [key, value] of Object.entries(request.headers ?? {})) {
+      const name = key.toLowerCase()
+      if (
+        name === 'x-tenant-id' ||
+        (name === 'x-probectl-tenant' && (!sessionTenant || value !== sessionTenant))
+      ) {
         throw new Error(`${request.method ?? 'GET'} ${url.pathname} supplies tenant in a header`)
       }
     }

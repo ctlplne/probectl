@@ -52,18 +52,25 @@ describe('UX journey measurement contract', () => {
 
   test('fixture requests derive tenant from the session and reject spoofing channels', () => {
     expect(() =>
-      assertRequestsUseSessionTenant([
-        { url: '/v1/incidents?from=2026-07-14T00%3A00%3A00Z' },
-        { url: '/v1/ai/ask', method: 'POST', body: { subject: { incident_id: 'inc-1' } } },
-      ]),
+      assertRequestsUseSessionTenant(
+        [
+          { url: '/v1/incidents?from=2026-07-14T00%3A00%3A00Z' },
+          { url: '/v1/ai/ask', method: 'POST', body: { subject: { incident_id: 'inc-1' } } },
+          { url: '/v1/topology', headers: { 'X-Probectl-Tenant': 'tenant-a' } },
+        ],
+        'tenant-a',
+      ),
     ).not.toThrow()
 
     for (const request of [
       { url: '/v1/incidents?tenant_id=tenant-b' },
       { url: '/v1/ai/ask', method: 'POST', body: { subject: { tenant_id: 'tenant-b' } } },
       { url: '/v1/agents', headers: { 'X-Probectl-Tenant': 'tenant-b' } },
+      { url: '/v1/agents', headers: { 'X-Tenant-ID': 'tenant-a' } },
     ]) {
-      expect(() => assertRequestsUseSessionTenant([request])).toThrow(/supplies tenant/i)
+      expect(() => assertRequestsUseSessionTenant([request], 'tenant-a')).toThrow(
+        /supplies tenant/i,
+      )
     }
   })
 

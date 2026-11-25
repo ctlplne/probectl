@@ -172,7 +172,9 @@ describe('J2 unified incident room', () => {
       }),
     )
 
-    renderApp('/incidents', { me: { permissions: ['incident.read', 'ai.query'] } })
+    renderApp('/incidents', {
+      me: { tenant_id: incident.tenant_id, permissions: ['incident.read', 'ai.query'] },
+    })
 
     const room = await screen.findByRole('region', {
       name: /unified five-plane incident room/i,
@@ -248,7 +250,7 @@ describe('J2 unified incident room', () => {
       }),
     ).toBeInTheDocument()
 
-    assertRequestsUseSessionTenant(requests)
+    assertRequestsUseSessionTenant(requests, incident.tenant_id)
     const measurement = new JourneyRecorder('J2', 'incident to cited RCA to share')
       .pointer(1)
       .activeTimeProxy({
