@@ -195,14 +195,20 @@ export async function fetchBrand(): Promise<Brand> {
       ...(b.customer_domain === true ? { customer_domain: true } : {}),
     }
     const customer = b.customer
-    if (!customer) return presentation
+    if (customer === undefined) return presentation
     if (
+      !customer ||
       typeof customer.name !== 'string' ||
       !customer.name.trim() ||
-      customer.name.length > 120 ||
-      /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(customer.name)
-    )
-      return presentation
+      new TextEncoder().encode(customer.name).length > 120 ||
+      /[\p{Cc}\p{Cf}]/u.test(customer.name)
+    ) {
+      // Customer colors share the deployment token field. Without a valid
+      // customer identity, applying those tokens would bypass session matching.
+      return presentation.customer_domain
+        ? { ...DEFAULT_BRAND, customer_domain: true }
+        : DEFAULT_BRAND
+    }
     const logo = customer.logo_data_uri
     const safeLogo =
       typeof logo === 'string' &&

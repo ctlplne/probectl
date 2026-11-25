@@ -246,6 +246,30 @@ describe('deployment-level probectl theming', () => {
     expect(document.title).toBe('probectl')
   })
 
+  test('customer names follow the server Unicode validation', async () => {
+    for (const codePoint of [0x1f, 0x85, 0x200d, 0x202e]) {
+      vi.stubGlobal(
+        'fetch',
+        brandingStub({
+          product_name: 'probectl',
+          customer: { name: `North${String.fromCodePoint(codePoint)}star` },
+          customer_domain: true,
+          token_overrides: { '--chart-neutral': '215 16% 47%' },
+        }),
+      )
+      await expect(fetchBrand()).resolves.toEqual({ ...DEFAULT_BRAND, customer_domain: true })
+    }
+    vi.stubGlobal(
+      'fetch',
+      brandingStub({ product_name: 'probectl', customer: { name: '界'.repeat(41) } }),
+    )
+    await expect(fetchBrand()).resolves.toEqual(DEFAULT_BRAND)
+
+    const name = '界'.repeat(40)
+    vi.stubGlobal('fetch', brandingStub({ product_name: 'probectl', customer: { name } }))
+    await expect(fetchBrand()).resolves.toMatchObject({ customer: { name } })
+  })
+
   test('falls back without buffering an oversized branding response', async () => {
     let cancelled = false
     const stream = new ReadableStream<Uint8Array>({
