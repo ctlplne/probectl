@@ -5523,7 +5523,7 @@ func (c *Client) SsoCallback(ctx context.Context, req SsoCallbackRequest) error 
 	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
 }
 
-// Begin OIDC SSO login (redirects to the tenant's identity provider)
+// Begin tenant OIDC sign-in
 type SsoLoginRequest struct {
 	Tenant *string `json:"-"`
 }
@@ -5547,7 +5547,7 @@ func (c *Client) SsoLogout(ctx context.Context, req SsoLogoutRequest) error {
 	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
 }
 
-// Deployment-wide probectl product theme
+// Deployment and customer presentation
 type GetBrandingRequest struct {
 }
 
