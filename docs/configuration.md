@@ -2218,10 +2218,10 @@ cloud_import:
   queue:
     project: customer-flow-project
     subscription: vpc-flow-exports
-    credential_ref: env:PROBECTL_QUEUE_READ_TOKEN
+    credential_ref: env:GCP_FLOW_QUEUE_READ_TOKEN
     object:
       bucket: customer-flow-exports
-      credential_ref: env:PROBECTL_STORAGE_READ_TOKEN
+      credential_ref: env:GCP_FLOW_STORAGE_READ_TOKEN
     prefix: vpc-flow/exports/
     state_dir: /var/lib/probectl/flow-queue
 ```
