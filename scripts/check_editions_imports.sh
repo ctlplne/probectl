@@ -86,7 +86,7 @@ check_license_headers() {
           fi
         done
         ;;
-      *.go|*.ts|*.tsx|*.css)
+      *.go|*.ts|*.tsx|*.css|*.sh)
         if ! grep -Fq 'SPDX-License-Identifier: LicenseRef-Probectl-Commercial' "${f}" || ! grep -Fq 'ee/LICENSE' "${f}"; then
           out="${out}${f}: commercial source must carry the exact SPDX identifier and point to ee/LICENSE\n"
         fi

@@ -179,6 +179,19 @@ type NMSImportDryRunInput struct {
 	Limit      int    `json:"limit,omitempty"`
 }
 
+type NMSImportDiscoveryInput struct {
+	ContextID   string `json:"context_id"`
+	InstanceRef string `json:"instance_ref"`
+}
+
+type NMSImportDiscoveryResult struct {
+	ContextID    NativeRoleUUID `json:"context_id"`
+	PlanID       NativeRoleUUID `json:"plan_id"`
+	SnapshotHash string         `json:"snapshot_hash"`
+	RowCount     int            `json:"row_count"`
+	State        string         `json:"state"`
+}
+
 type NMSImportExportStartInput struct {
 	ContextID   string `json:"context_id"`
 	SourceKind  string `json:"source_kind"`
@@ -238,6 +251,19 @@ func WithNMSImportBackend(backend NMSImportBackend) Option {
 			s.tools[tool.Name] = tool
 			s.order = append(s.order, tool.Name)
 		}
+	}
+}
+
+// WithNMSImportDiscovery registers the MSP inventory workflow on a server
+// that has an attached deployment-owned inventory adapter.
+func WithNMSImportDiscovery(invoke func(context.Context, *auth.Principal, NMSImportDiscoveryInput) (NMSImportDiscoveryResult, error)) Option {
+	return func(s *Server) {
+		tool := nmsImportToolWithPermission("nms_import_inventory_sync",
+			"Read a configured RMM site into one sealed tenant review plan for an operator. This tool never activates devices.",
+			json.RawMessage(`{"type":"object","properties":{"context_id":{"type":"string","format":"uuid"},"instance_ref":{"type":"string","minLength":1,"maxLength":128}},"required":["context_id","instance_ref"],"additionalProperties":false}`),
+			"nms.import.write", invoke)
+		s.tools[tool.Name] = tool
+		s.order = append(s.order, tool.Name)
 	}
 }
 

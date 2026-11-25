@@ -3994,6 +3994,7 @@ export interface Me {
   locale?: string
   mfa_satisfied?: boolean
   permissions: string[]
+  rmm_inventory_sync?: boolean
   tenant_id: string
   tenant_locale?: string
   tenant_name: string
@@ -4137,6 +4138,7 @@ export interface NMSImportSealedRowsPage {
   items: NMSImportSealedRow[]
   next_cursor?: number
   plan_id: string
+  requires_source_verification?: boolean
   row_count: number
   snapshot_hash: string
   source_id: string

@@ -7449,8 +7449,8 @@
       "post": {
         "x-required-permission": "nms.import.write",
         "operationId": "startConfiguredLibreNMSImportPlan",
-        "summary": "Start an inert capture plan from an enabled LibreNMS source",
-        "description": "The authenticated tenant and stored routing context determine authority. The source row is locked through plan creation so disable or reconfiguration cannot race its version binding. No credential is resolved and no vendor request is made. A complete capture and human review are required before any destination write.",
+        "summary": "Start a review plan from a configured inventory source",
+        "description": "The authenticated tenant and stored routing context determine authority. LibreNMS creates an inert capture plan and resolves credentials during advance. An MSP RMM source resolves its deployment-provisioned site and read credential, captures the site's device inventory and returns a sealed plan. Both require explicit human review before any destination write.",
         "tags": ["entities"],
         "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {
@@ -7458,17 +7458,25 @@
           "required": ["context_id", "instance_ref"],
           "properties": {
             "context_id": {"type": "string", "format": "uuid"},
-            "instance_ref": {"type": "string", "minLength": 1, "maxLength": 128}
+            "instance_ref": {"type": "string", "minLength": 1, "maxLength": 128},
+            "source_kind": {"type": "string", "enum": ["librenms", "rmm"], "default": "librenms"}
           }
         }}}},
         "responses": {
-          "201": {"description": "Inert plan started with an opaque ID.", "content": {"application/json": {"schema": {
+          "201": {"description": "Opaque ID of a LibreNMS capture or a sealed RMM review plan.", "content": {"application/json": {"schema": {
             "type": "object", "required": ["plan_id", "state"],
-            "properties": {"plan_id": {"type": "string", "format": "uuid"}, "state": {"type": "string", "enum": ["capturing"]}}
+            "properties": {
+              "plan_id": {"type": "string", "format": "uuid"},
+              "state": {"type": "string", "enum": ["capturing", "sealed"]},
+              "context_id": {"type": "string", "format": "uuid"},
+              "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "row_count": {"type": "integer", "minimum": 0}
+            }
           }}}},
           "400": {"description": "Invalid source instance or routing context."},
           "403": {"description": "Import write permission denied in this context."},
-          "404": {"description": "Enabled source or routing context not found in this tenant."}
+          "404": {"description": "Enabled source or routing context not found in this tenant."},
+          "503": {"description": "Configured source or read credential unavailable."}
         }
       }
     },
@@ -30700,6 +30708,10 @@
             "type": "boolean",
             "description": "Informational only: the authenticated principal has resource-scoped RBAC grants. Does not confer tenant-wide permission; actions still require scoped RBAC and ABAC."
           },
+          "rmm_inventory_sync": {
+            "type": "boolean",
+            "description": "An inventory site is configured for this tenant and the user has an import write grant. Starting a sync still requires current routing-context authorization."
+          },
           "tenant_id": {
             "type": "string",
             "format": "uuid"
@@ -34050,6 +34062,7 @@
           "source_id": {"type": "string", "format": "uuid"},
           "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "row_count": {"type": "integer", "minimum": 0, "format": "int64"},
+          "requires_source_verification": {"type": "boolean"},
           "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/NMSImportSealedRow"}},
           "next_cursor": {"type": "integer", "minimum": 0, "format": "int64"}
         }

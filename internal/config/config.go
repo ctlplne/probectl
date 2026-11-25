@@ -1043,6 +1043,9 @@ type Config struct {
 	// PSA billing references are resolved at the MSP-only metering attach seam.
 	HaloBillingConfig     string
 	AutotaskBillingConfig string
+
+	// RMMInventoryConfig names the deployment secret for MSP site mappings.
+	RMMInventoryConfig string
 }
 
 // minWebhookSecretBytes is the fail-closed floor for an inbound webhook
@@ -1557,6 +1560,7 @@ func loadOpsEditionConfig(l *loader, cfg *Config) {
 	cfg.NotifyInbound = l.notifyInbound("PROBECTL_NOTIFY_INBOUND")
 	cfg.HaloBillingConfig = l.str("PROBECTL_HALO_PSA_BILLING_CONFIG", "")
 	cfg.AutotaskBillingConfig = l.str("PROBECTL_AUTOTASK_PSA_BILLING_CONFIG", "")
+	cfg.RMMInventoryConfig = l.str("PROBECTL_RMM_INVENTORY_CONFIG", "")
 }
 
 func applyDerivedConfigDefaults(l *loader, cfg *Config) {

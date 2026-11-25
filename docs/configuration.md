@@ -2995,6 +2995,7 @@ secrets or endpoint path/query values.
 | `PROBECTL_HALO_PSA_BILLING_CONFIG` | (none) | MSP-only HaloPSA usage sync. Provide a deployment secret reference to an array of tenant-to-subscription mappings. The sync sends only aggregate counts to the operator's configured Halo instance. See [HaloPSA usage billing](oncall-itsm.md#halopsa-usage-billing-msp). |
 | `PROBECTL_AUTOTASK_PSA_BILLING_CONFIG` | (none) | MSP-only Autotask usage sync. Provide a deployment secret reference to an array of tenant-to-contract-service mappings. The worker journals each additive adjustment before transmission. See [Autotask usage billing](oncall-itsm.md#autotask-usage-billing-msp). |
 | `PROBECTL_NOTIFY_INBOUND` | (none) | inbound status-sync credentials, comma-separated, each `id:tenant:provider:secret` (the `id` is the URL selector for `POST /ingest/itsm/{provider}/{id}`; `secret` verifies the delivery). |
+| `PROBECTL_RMM_INVENTORY_CONFIG` | (none) | MSP-only RMM inventory review. Deployment secret reference to an array of site mappings and inventory credential references. See [MSP deployment from RMM](deploying-agents.md#msp-deployment-from-rmm). |
 
 **Off by default** (each connector is an outbound connection to the operator's
 tooling). Paging + ticket creation are **idempotent** (an incident opens at most

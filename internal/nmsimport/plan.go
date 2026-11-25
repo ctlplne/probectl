@@ -139,7 +139,7 @@ func normalizePlanPage(tenantID, contextID, sourceInstance, generationHash strin
 
 func knownSource(kind Kind) bool {
 	switch kind {
-	case LibreNMS, Zabbix, Orion, PRTG, Sightline, DefenseFlow:
+	case LibreNMS, Zabbix, Orion, PRTG, Sightline, DefenseFlow, DeviceDiscovery:
 		return true
 	default:
 		return false

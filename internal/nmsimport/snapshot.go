@@ -34,12 +34,13 @@ var ErrInvalidPage = errors.New("nmsimport: invalid source page")
 type Kind string
 
 const (
-	LibreNMS    Kind = "librenms"
-	Zabbix      Kind = "zabbix"
-	Orion       Kind = "orion"
-	PRTG        Kind = "prtg"
-	Sightline   Kind = "sightline"
-	DefenseFlow Kind = "defenseflow"
+	LibreNMS        Kind = "librenms"
+	Zabbix          Kind = "zabbix"
+	Orion           Kind = "orion"
+	PRTG            Kind = "prtg"
+	Sightline       Kind = "sightline"
+	DefenseFlow     Kind = "defenseflow"
+	DeviceDiscovery Kind = "device_discovery"
 )
 
 // Row is an allowlisted preview candidate. Arbitrary source JSON, macros,

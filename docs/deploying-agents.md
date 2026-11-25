@@ -697,3 +697,75 @@ readable.
   field for every binary.
 - [Agent enrollment & rotation](agent/enrollment.md) — the identity lifecycle in
   depth.
+
+## MSP deployment from RMM
+
+Use the shared [Linux installer](../ee/rmm/install-linux.sh) in a NinjaOne
+automation, a ConnectWise RMM script task, or a Datto RMM component. Scope
+the job to the intended Linux systemd site. Prepare the signed package
+repository and its verification key. Stage the control plane's verified CA
+bundle at `/etc/probectl-rmm/control-ca.pem`. Use a root-owned directory with
+mode `0755` and a root-owned CA file with mode `0644` so the packaged
+`probectl` account can read the bundle. The installer keeps its service
+configuration in the same root-owned directory, outside the package-managed
+`/etc/probectl` tree. Enrollment, connection and certificate renewal use
+the staged CA bundle. Use an agent and control plane that support tenant-bound
+enrollment.
+
+Pass these values from the site's policy when running the script as root.
+
+| Variable | Value |
+| --- | --- |
+| `PROBECTL_RMM_VENDOR` | `ninjaone`, `connectwise-rmm`, or `datto-rmm` |
+| `PROBECTL_RMM_SITE_ID` | The stable site or location ID the MSP mapped |
+| `PROBECTL_RMM_TENANT_ID` | The canonical probectl tenant UUID for that site |
+| `PROBECTL_RMM_ENROLL_URL` | The tenant's control-plane HTTPS origin |
+| `PROBECTL_RMM_GRPC_ADDR` | The control plane's agent mTLS host and port |
+| `PROBECTL_RMM_JOIN_TOKEN` | One short-lived enrollment token for this device, delivered through the site's protected job input |
+
+In NinjaOne, use a ShellScript automation and populate the script variables
+from the site-specific policy. [NinjaOne script variables](https://www.ninjaone.com/docs/endpoint-management/scripting-and-automation/using-variables-automation-scripts/)
+
+In ConnectWise RMM, associate the Linux script task and its protected inputs
+with the mapped site. Inventory sync for Asio requires the current
+device-list API contract and sandbox verification. [ConnectWise Platform developer documentation](https://developer.connectwise.com/Products/ConnectWise_Platform)
+
+In Datto RMM, select only the necessary site variables on the component.
+Give the token variable a site-specific protected value and keep its global
+default empty. [Datto RMM component variables](https://rmm.datto.com/help/en/Content/3NEWUI/Automation/Components/CreateAComponent.htm)
+
+Mint a separate token for each new agent. Run the script without token
+arguments. It sends the token to the agent on standard input and starts the
+service after verifying the enrollment. A retry can keep its existing valid
+certificate by using the same site mapping. An unmanaged installation or a
+different mapping requires operator review. Enrollment jobs serialize under
+the root-private `/run/probectl-rmm` directory on the device.
+
+On an MSP deployment, configure `PROBECTL_RMM_INVENTORY_CONFIG` with a
+deployment secret reference. Its value is a JSON array of site mappings with
+`vendor`, `account`, `site_id`, `tenant_id`, `context_id`, `enrollment_url`,
+`agent_grpc_addr`, `inventory_alias`, `inventory_origin`, and
+`inventory_credential_ref`. Use a stable alias for each site within its tenant
+and an HTTPS origin for the configured provider region.
+
+For NinjaOne, map the numeric organization and location as
+`organization:location`. The credential reference resolves to a JSON object
+with `client_id` and `client_secret` from a monitoring application. probectl
+requests the `monitoring` OAuth scope, filters every device-list page by both
+IDs and checks both in each response. For Datto RMM, use the stable site UID
+and a credential reference that resolves to a JSON object with an
+`access_token` from the Datto OAuth flow. Keep that lease current in the
+deployment secret store and grant only site inventory access.
+[NinjaOne OAuth](https://app.ninjaone.com/apidocs-beta/authorization/flows/client-credentials-flow)
+· [NinjaOne list devices API](https://app.ninjaone.com/apidocs-beta/core-resources/operations/getDevices)
+· [Datto RMM API](https://rmm.datto.com/help/en/Content/2SETUP/APIv2.htm)
+
+An operator with `nms.import.write` for the mapped context can enter the site
+alias in the import screen and select **Sync RMM inventory**. With the API, send
+`POST /v1/nms-imports/live-plans` with `context_id`, `instance_ref` set to the
+site alias, and `source_kind` set to `rmm`. The same body works with
+`probectl nms-import start-live --body`. Native HTTPS MCP exposes
+`nms_import_inventory_sync` with the context and site alias. A complete sync
+returns a sealed review plan ID and snapshot hash. Only device IDs, valid hostnames and
+available IP addresses enter the plan. Explicit review choices are required
+before a device record can change.

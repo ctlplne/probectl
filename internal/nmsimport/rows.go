@@ -45,13 +45,14 @@ type SealedRow struct {
 
 // SealedRowsPage is a bounded page from one inert plan snapshot.
 type SealedRowsPage struct {
-	ContextID    string      `json:"context_id"`
-	PlanID       string      `json:"plan_id"`
-	SourceID     string      `json:"source_id"`
-	SnapshotHash string      `json:"snapshot_hash"`
-	RowCount     int64       `json:"row_count"`
-	Items        []SealedRow `json:"items"`
-	NextCursor   *int64      `json:"next_cursor,omitempty"`
+	ContextID                  string      `json:"context_id"`
+	PlanID                     string      `json:"plan_id"`
+	SourceID                   string      `json:"source_id"`
+	SnapshotHash               string      `json:"snapshot_hash"`
+	RowCount                   int64       `json:"row_count"`
+	RequiresSourceVerification bool        `json:"requires_source_verification"`
+	Items                      []SealedRow `json:"items"`
+	NextCursor                 *int64      `json:"next_cursor,omitempty"`
 }
 
 // ListSealedRows pages one complete capture after FORCE-RLS plan and
@@ -86,6 +87,7 @@ func (s CaptureStore) ListSealedRows(ctx context.Context, contextID, planID stri
 			return ErrPlanUnavailable
 		}
 		page.SnapshotHash, page.RowCount = meta.snapshotHash, meta.rowCount
+		page.RequiresSourceVerification = meta.configVersion != 0
 		if err := sc.Q.QueryRow(ctx, `SELECT source_id::text FROM nms_import_plans
 			WHERE tenant_id=$1 AND context_id=$2 AND id=$3`,
 			sc.Tenant.String(), contextID, planID).Scan(&page.SourceID); err != nil {

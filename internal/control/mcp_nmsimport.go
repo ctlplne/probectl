@@ -63,6 +63,22 @@ func (b mcpNMSImportBackend) scope(ctx context.Context, p *auth.Principal,
 	return ctx, scope.ContextID, nil
 }
 
+func (b mcpNMSImportBackend) NMSImportDiscovery(ctx context.Context, p *auth.Principal,
+	input mcp.NMSImportDiscoveryInput) (mcp.NMSImportDiscoveryResult, error) {
+	ctx, contextID, err := b.scope(ctx, p, input.ContextID, permNMSImportWrite)
+	if err != nil {
+		return mcp.NMSImportDiscoveryResult{}, err
+	}
+	plan, err := b.owner.syncDiscoveryInventory(ctx, contextID, input.InstanceRef, b.writeStore(p))
+	if err != nil {
+		return mcp.NMSImportDiscoveryResult{}, err
+	}
+	return mcp.NMSImportDiscoveryResult{
+		ContextID: mcp.NativeRoleUUID(plan.ContextID), PlanID: mcp.NativeRoleUUID(plan.PlanID),
+		SnapshotHash: plan.SnapshotHash, RowCount: plan.RowCount, State: "sealed",
+	}, nil
+}
+
 func nmsImportMCPReadError(err error) error {
 	switch {
 	case errors.Is(err, nmsimport.ErrPlanUnavailable):

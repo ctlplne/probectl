@@ -42,6 +42,7 @@ export interface AuthContextValue {
   tenants: Tenant[]
   permissions: string[]
   hasScopedGrants?: boolean
+  rmmInventorySync?: boolean
   switchTenant: (id: string) => void
   signOut: () => void
 }
@@ -59,6 +60,7 @@ interface Me {
   display_name: string
   permissions?: string[]
   has_scoped_grants?: boolean
+  rmm_inventory_sync?: boolean
   tenant_time_zone?: string | null
   tenant_locale?: string | null
   time_zone?: string | null
@@ -172,6 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tenants: [tenant],
       permissions: me.permissions ?? [],
       hasScopedGrants: me.has_scoped_grants === true,
+      rmmInventorySync: me.rmm_inventory_sync === true,
       switchTenant: () => {},
       signOut,
     }

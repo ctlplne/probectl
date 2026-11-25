@@ -16,9 +16,21 @@ import (
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
+	"github.com/ctlplne/probectl/internal/license"
 	"github.com/ctlplne/probectl/internal/nmsimport"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+type inventorySyncStart func(context.Context, string, string, nmsimport.CaptureStore) (nmsimport.DiscoveryPlan, error)
+
+// WithDiscoveryInventorySync installs the deployment-owned inventory adapter.
+// The existing import route returns the same missing-source response when
+// the edition seam is absent or the site is outside the authorized context.
+func (s *Server) WithDiscoveryInventorySync(start inventorySyncStart, available func(string) bool) *Server {
+	s.discoveryInventorySync = start
+	s.discoveryInventoryAvailable = available
+	return s
+}
 
 func (s *Server) nmsImportContext(r *http.Request, contextID, permission string) (context.Context, string, error) {
 	tenantID, err := s.principalTenant(r)
@@ -107,13 +119,13 @@ func (s *Server) handleDisableNMSImportSource(w http.ResponseWriter, r *http.Req
 	return nil
 }
 
-// A live plan binds an enabled source/version inside the tenant transaction;
-// starting it never resolves credentials or contacts the source. Its rows
-// remain inert until a separate complete capture and human review.
+// LibreNMS starts an inert plan bound to the enabled source version.
+// An attached discovery source publishes a complete plan for human review.
 func (s *Server) handleStartNMSImportLivePlan(w http.ResponseWriter, r *http.Request) error {
 	var req struct {
 		ContextID   string `json:"context_id"`
 		InstanceRef string `json:"instance_ref"`
+		SourceKind  string `json:"source_kind"`
 	}
 	if err := decodeJSONLimit(r, 8<<10, &req); err != nil {
 		return err
@@ -121,6 +133,13 @@ func (s *Server) handleStartNMSImportLivePlan(w http.ResponseWriter, r *http.Req
 	ctx, contextID, err := s.nmsImportContext(r, req.ContextID, permNMSImportWrite)
 	if err != nil {
 		return err
+	}
+	switch req.SourceKind {
+	case "", "librenms":
+	case "rmm":
+		return s.startDiscoveryInventorySync(w, r, ctx, contextID, req.InstanceRef)
+	default:
+		return apierror.BadRequest("invalid import source kind")
 	}
 	if s.cfg == nil || len(s.cfg.NMSImportApprovedCIDRs) == 0 || s.cfg.NMSImportRefPrefix == "" {
 		return apierror.Unavailable("live NMS import is not configured")
@@ -137,6 +156,39 @@ func (s *Server) handleStartNMSImportLivePlan(w http.ResponseWriter, r *http.Req
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"plan_id": planID, "state": "capturing"})
 	return nil
+}
+
+func (s *Server) startDiscoveryInventorySync(w http.ResponseWriter, r *http.Request,
+	ctx context.Context, contextID, instanceRef string) error {
+	plan, err := s.syncDiscoveryInventory(ctx, contextID, instanceRef, s.nmsImportCaptureStore(r))
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusCreated, struct {
+		nmsimport.DiscoveryPlan
+		State string `json:"state"`
+	}{DiscoveryPlan: plan, State: "sealed"})
+	return nil
+}
+
+func (s *Server) syncDiscoveryInventory(ctx context.Context, contextID, instanceRef string,
+	store nmsimport.CaptureStore) (nmsimport.DiscoveryPlan, error) {
+	if s.discoveryInventorySync == nil {
+		return nmsimport.DiscoveryPlan{}, apierror.NotFound("enabled import source not found in this routing context")
+	}
+	bounded, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	plan, err := s.discoveryInventorySync(bounded, contextID, instanceRef, store)
+	switch {
+	case errors.Is(err, nmsimport.ErrPlanUnavailable):
+		return nmsimport.DiscoveryPlan{}, apierror.NotFound("enabled import source not found in this routing context")
+	case errors.Is(err, license.ErrReadOnly):
+		return nmsimport.DiscoveryPlan{}, apierror.Forbidden(license.ErrReadOnly.Error()).WithCode(string(apierror.CodeLicenseReadOnly))
+	case errors.Is(err, nmsimport.ErrSourceUnavailable), errors.Is(err, context.DeadlineExceeded), errors.Is(err, nmsimport.ErrInvalidPage):
+		return nmsimport.DiscoveryPlan{}, apierror.Unavailable("configured inventory source is unavailable")
+	default:
+		return plan, err
+	}
 }
 
 // One authenticated request fetches only the server-selected next endpoint.

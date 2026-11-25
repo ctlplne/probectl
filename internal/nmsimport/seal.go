@@ -113,24 +113,29 @@ func (s CaptureStore) Seal(ctx context.Context, contextID, planID string,
 			}
 			return nil
 		}
-		updated, err := sc.Q.Exec(ctx, `UPDATE nms_import_plans SET snapshot_hash=$4,row_count=$5,
-			state='sealed',capture_lease_hash=NULL,capture_lease_until=NULL
-			WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND state='capturing'`,
-			tenantID, contextID, planID, sealedHash, expectedRows)
-		if err != nil {
-			return err
-		}
-		if updated.RowsAffected() != 1 {
-			return ErrPlanUnavailable
-		}
-		return s.audit(ctx, sc, "nms_import.capture_sealed", planID,
-			map[string]any{"context_id": contextID, "snapshot_hash": sealedHash,
-				"page_count": expectedPages, "row_count": expectedRows})
+		return s.sealCapturePlan(ctx, sc, tenantID, contextID, planID, sealedHash, expectedPages, expectedRows)
 	})
 	if err != nil {
 		return "", err
 	}
 	return sealedHash, nil
+}
+
+func (s CaptureStore) sealCapturePlan(ctx context.Context, sc tenancy.Scope, tenantID, contextID, planID,
+	sealedHash string, pageCount, rowCount int64) error {
+	updated, err := sc.Q.Exec(ctx, `UPDATE nms_import_plans SET snapshot_hash=$4,row_count=$5,
+		state='sealed',capture_lease_hash=NULL,capture_lease_until=NULL
+		WHERE tenant_id=$1 AND context_id=$2 AND id=$3 AND state='capturing'`,
+		tenantID, contextID, planID, sealedHash, rowCount)
+	if err != nil {
+		return err
+	}
+	if updated.RowsAffected() != 1 {
+		return ErrPlanUnavailable
+	}
+	return s.audit(ctx, sc, "nms_import.capture_sealed", planID,
+		map[string]any{"context_id": contextID, "snapshot_hash": sealedHash,
+			"page_count": pageCount, "row_count": rowCount})
 }
 
 func readNormalizedPage(ctx context.Context, sc tenancy.Scope,

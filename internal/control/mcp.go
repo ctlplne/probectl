@@ -294,7 +294,11 @@ func newMCPServer(
 			options = append(options, mcp.WithNetBoxTagBackend(mcpNetBoxTagBackend{
 				mcpTagBackend: tagReadBackend(pool, policyLoader, src, gate), source: source}))
 		}
-		options = append(options, mcp.WithNMSImportBackend(mcpNMSImportBackend{pool: pool, policyLoader: policyLoader, owner: src.NativeFlow}))
+		imports := mcpNMSImportBackend{pool: pool, policyLoader: policyLoader, owner: src.NativeFlow}
+		options = append(options, mcp.WithNMSImportBackend(imports))
+		if src.NativeFlow != nil && src.NativeFlow.discoveryInventorySync != nil {
+			options = append(options, mcp.WithNMSImportDiscovery(imports.NMSImportDiscovery))
+		}
 	}
 	if src.NativeFlow != nil {
 		if schemas, err := reportToolSchemas(); err != nil {

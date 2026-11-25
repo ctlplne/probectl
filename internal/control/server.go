@@ -148,8 +148,11 @@ type Server struct {
 	// On-call/ITSM dispatcher (S33). nil unless connectors are configured; set via
 	// WithDispatcher so the inbound status-sync webhook + the resolve handler can
 	// sync the operator's tooling.
-	dispatcher       *notify.Dispatcher
-	customerBranding customerBrandResolver
+	dispatcher *notify.Dispatcher
+	// discoveryInventorySync is attached by the MSP edition seam.
+	discoveryInventorySync      inventorySyncStart
+	discoveryInventoryAvailable func(string) bool
+	customerBranding            customerBrandResolver
 
 	// Flow analytics store (S38). Defaults to in-memory; main attaches the
 	// configured store (ClickHouse in production) via WithFlowStore.

@@ -16,6 +16,81 @@ const sourceID = '00000000-0000-4000-8000-000000000305'
 const snapshotHash = 'a'.repeat(64)
 const reviewHash = 'b'.repeat(64)
 
+test('RMM sync follows the signed-in tenant and works with import permissions alone', async () => {
+  const fallback = defaultFetch()
+  const starts: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = pathOf(input)
+      if (path === '/v1/editions') return jsonResponse({ error: 'diagnostics denied' }, 403)
+      if (path === '/v1/entity-contexts')
+        return jsonResponse({
+          items: [
+            {
+              context_id: contextID,
+              site_id: contextID,
+              vrf_id: contextID,
+              site_label: 'West DC',
+              vrf_label: 'Private',
+            },
+          ],
+        })
+      if (path === '/v1/nms-imports/live-plans') {
+        starts.push(JSON.parse(String(init?.body)))
+        return jsonResponse({ plan_id: planID, state: 'sealed', snapshot_hash: snapshotHash }, 201)
+      }
+      if (path === `/v1/nms-imports/${planID}/rows`)
+        return jsonResponse({
+          context_id: contextID,
+          plan_id: planID,
+          source_id: sourceID,
+          snapshot_hash: snapshotHash,
+          requires_source_verification: false,
+          row_count: 1,
+          items: [
+            {
+              row_number: 0,
+              object_kind: 'device',
+              external_id: 'owned-rmm-device',
+              label: 'Owned RMM device',
+              unmapped_codes: [],
+              action: 'captured',
+              reviewed: false,
+              state: 'pending',
+            },
+          ],
+        })
+      return fallback(input, init)
+    }),
+  )
+  const permissions = ['nms.import.read', 'nms.import.write']
+  renderApp('/admin', {
+    me: {
+      tenant_id: '00000000-0000-4000-8000-000000000300',
+      permissions,
+      rmm_inventory_sync: true,
+    },
+  })
+  const user = userEvent.setup()
+  await user.type(await screen.findByLabelText('RMM site alias'), 'west-managed')
+  await user.click(screen.getByRole('button', { name: 'Sync RMM inventory' }))
+  const table = await screen.findByRole('table', { name: 'Import source rows' })
+  expect(within(table).getByRole('cell', { name: /Owned RMM device/ })).toBeInTheDocument()
+  expect(starts).toEqual([
+    { context_id: contextID, instance_ref: 'west-managed', source_kind: 'rmm' },
+  ])
+  cleanup()
+
+  renderApp('/admin', {
+    me: { tenant_id: '00000000-0000-4000-8000-000000000304', permissions },
+  })
+  expect(await screen.findByRole('button', { name: 'Start inert plan' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Sync RMM inventory' })).toBeNull()
+  expect(screen.queryByRole('cell', { name: /Owned RMM device/ })).toBeNull()
+  expect(starts).toHaveLength(1)
+})
+
 test('Admin export preview uploads documented pages within each selected tenant', async () => {
   const cases = [
     {

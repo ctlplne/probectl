@@ -109,7 +109,7 @@ func (s CaptureStore) startPlan(ctx context.Context, contextID string,
 		return "", ErrCaptureAuditUnavailable
 	}
 	contextUUID, err := uuid.Parse(contextID)
-	if err != nil || contextUUID == uuid.Nil || !knownSource(source) ||
+	if err != nil || contextUUID == uuid.Nil || !knownSource(source) || source == DeviceDiscovery ||
 		!safeInstanceRef(instanceRef) || len(generationHash) != 64 || !lowerHex(generationHash) {
 		return "", ErrInvalidPage
 	}
@@ -123,58 +123,63 @@ func (s CaptureStore) startPlan(ctx context.Context, contextID string,
 		return "", err
 	}
 	err = tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		tenantUUID, err := uuid.Parse(sc.Tenant.String())
-		if err != nil || tenantUUID == uuid.Nil {
-			return ErrPlanUnavailable
-		}
-		tenantID := tenantUUID.String()
-		digest, err := newPlanDigest(tenantID, contextID, instanceRef,
-			generationHash, source, capturePolicyVersion)
-		if err != nil {
-			return ErrInvalidPage
-		}
-		initialHash, err := digest.hexSum()
-		if err != nil {
-			return err
-		}
-		if !requireConfigured {
-			if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_sources
-			(tenant_id,context_id,id,source_kind,instance_ref) VALUES ($1,$2,$3,$4,$5)
-			ON CONFLICT (tenant_id,context_id,source_kind,instance_ref) DO NOTHING`,
-				tenantID, contextID, sourceID, string(source), instanceRef); err != nil {
-				return captureStartErr(err)
-			}
-		}
-		var configVersion int64
-		query := `SELECT id::text,config_version FROM nms_import_sources
-			WHERE tenant_id=$1 AND context_id=$2 AND source_kind=$3 AND instance_ref=$4`
-		if requireConfigured {
-			query += ` AND fetch_enabled AND config_version>0`
-		}
-		query += ` FOR SHARE`
-		if err := sc.Q.QueryRow(ctx, query, tenantID, contextID,
-			string(source), instanceRef).Scan(&sourceID, &configVersion); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return ErrPlanUnavailable
-			}
-			return err
-		}
-		if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_plans
-			(tenant_id,context_id,id,source_id,snapshot_hash,source_generation_hash,
-			 policy_version,row_count,source_config_version,expires_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,clock_timestamp()+interval '24 hours')`,
-			tenantID, contextID, planID, sourceID, initialHash,
-			generationHash, capturePolicyVersion, configVersion); err != nil {
-			return captureStartErr(err)
-		}
-		return s.audit(ctx, sc, "nms_import.capture_started", planID,
-			map[string]any{"context_id": contextID, "source_kind": source,
-				"source_id": sourceID, "generation_hash": generationHash})
+		return s.insertCapturePlan(ctx, sc, contextID, planID, sourceID, source, instanceRef, generationHash, requireConfigured)
 	})
 	if err != nil {
 		return "", err
 	}
 	return planID, nil
+}
+
+func (s CaptureStore) insertCapturePlan(ctx context.Context, sc tenancy.Scope, contextID, planID, sourceID string,
+	source Kind, instanceRef, generationHash string, requireConfigured bool) error {
+	tenantUUID, err := uuid.Parse(sc.Tenant.String())
+	if err != nil || tenantUUID == uuid.Nil {
+		return ErrPlanUnavailable
+	}
+	tenantID := tenantUUID.String()
+	digest, err := newPlanDigest(tenantID, contextID, instanceRef,
+		generationHash, source, capturePolicyVersion)
+	if err != nil {
+		return ErrInvalidPage
+	}
+	initialHash, err := digest.hexSum()
+	if err != nil {
+		return err
+	}
+	if !requireConfigured {
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_sources
+		(tenant_id,context_id,id,source_kind,instance_ref) VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (tenant_id,context_id,source_kind,instance_ref) DO NOTHING`,
+			tenantID, contextID, sourceID, string(source), instanceRef); err != nil {
+			return captureStartErr(err)
+		}
+	}
+	var configVersion int64
+	query := `SELECT id::text,config_version FROM nms_import_sources
+		WHERE tenant_id=$1 AND context_id=$2 AND source_kind=$3 AND instance_ref=$4`
+	if requireConfigured {
+		query += ` AND fetch_enabled AND config_version>0`
+	}
+	query += ` FOR SHARE`
+	if err := sc.Q.QueryRow(ctx, query, tenantID, contextID,
+		string(source), instanceRef).Scan(&sourceID, &configVersion); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrPlanUnavailable
+		}
+		return err
+	}
+	if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_plans
+		(tenant_id,context_id,id,source_id,snapshot_hash,source_generation_hash,
+		 policy_version,row_count,source_config_version,expires_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,0,$8,clock_timestamp()+interval '24 hours')`,
+		tenantID, contextID, planID, sourceID, initialHash,
+		generationHash, capturePolicyVersion, configVersion); err != nil {
+		return captureStartErr(err)
+	}
+	return s.audit(ctx, sc, "nms_import.capture_started", planID,
+		map[string]any{"context_id": contextID, "source_kind": source,
+			"source_id": sourceID, "generation_hash": generationHash})
 }
 
 func captureUUID() (string, error) {
@@ -329,34 +334,40 @@ func (s CaptureStore) appendSnapshot(ctx context.Context, contextID, planID stri
 		if firstRow > math.MaxInt64-int64(len(rows)) {
 			return ErrInvalidPage
 		}
-		if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_pages
-			(tenant_id,context_id,plan_id,page_number,resource_kind,first_row,row_count,page_hash)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-			tenantID, contextID, planID, pageNumber, resource, firstRow, len(rows), pageHash); err != nil {
-			return captureWriteErr(err)
-		}
-		for _, row := range rows {
-			if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_rows
-				(tenant_id,context_id,plan_id,row_number,object_kind,external_id,label,address,hostname,
-				 parent_external_id,location_id,location_label,group_ids,poll_seconds,severity,unmapped_codes,source_mapping_sha256)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-				tenantID, contextID, planID, row.RowNumber, row.ObjectKind, row.ExternalID,
-				nullText(row.Label), nullText(row.Address), nullText(row.Hostname),
-				nullText(row.ParentID), nullText(row.LocationID), nullText(row.LocationLabel),
-				nonNilStrings(row.GroupIDs), nullPositive(row.PollSeconds), nullText(row.Severity),
-				nonNilStrings(row.UnmappedCodes), nullText(row.SourceMappingDigest)); err != nil {
-				return captureWriteErr(err)
-			}
-		}
-		return s.audit(ctx, sc, "nms_import.page_captured", planID,
-			map[string]any{"context_id": contextID, "page_number": pageNumber,
-				"resource_kind": resource, "first_row": firstRow,
-				"row_count": len(rows), "page_hash": pageHash})
+		return s.insertCapturePage(ctx, sc, tenantID, contextID, planID,
+			pageNumber, firstRow, resource, pageHash, rows)
 	})
 	if err != nil {
 		return "", err
 	}
 	return pageHash, nil
+}
+
+func (s CaptureStore) insertCapturePage(ctx context.Context, sc tenancy.Scope, tenantID, contextID, planID string,
+	pageNumber, firstRow int64, resource, pageHash string, rows []planRow) error {
+	if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_pages
+		(tenant_id,context_id,plan_id,page_number,resource_kind,first_row,row_count,page_hash)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		tenantID, contextID, planID, pageNumber, resource, firstRow, len(rows), pageHash); err != nil {
+		return captureWriteErr(err)
+	}
+	for _, row := range rows {
+		if _, err := sc.Q.Exec(ctx, `INSERT INTO nms_import_rows
+			(tenant_id,context_id,plan_id,row_number,object_kind,external_id,label,address,hostname,
+			 parent_external_id,location_id,location_label,group_ids,poll_seconds,severity,unmapped_codes,source_mapping_sha256)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+			tenantID, contextID, planID, row.RowNumber, row.ObjectKind, row.ExternalID,
+			nullText(row.Label), nullText(row.Address), nullText(row.Hostname),
+			nullText(row.ParentID), nullText(row.LocationID), nullText(row.LocationLabel),
+			nonNilStrings(row.GroupIDs), nullPositive(row.PollSeconds), nullText(row.Severity),
+			nonNilStrings(row.UnmappedCodes), nullText(row.SourceMappingDigest)); err != nil {
+			return captureWriteErr(err)
+		}
+	}
+	return s.audit(ctx, sc, "nms_import.page_captured", planID,
+		map[string]any{"context_id": contextID, "page_number": pageNumber,
+			"resource_kind": resource, "first_row": firstRow,
+			"row_count": len(rows), "page_hash": pageHash})
 }
 
 func loadCaptureMeta(ctx context.Context, sc tenancy.Scope, contextID, planID string, lock bool) (captureMeta, error) {

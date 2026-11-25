@@ -125,6 +125,8 @@ func knownResource(source Kind, resource string) bool {
 		return resource == "managed_objects"
 	case DefenseFlow:
 		return resource == "protected_objects"
+	case DeviceDiscovery:
+		return resource == "devices"
 	default:
 		return false
 	}

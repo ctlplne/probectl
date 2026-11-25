@@ -1090,7 +1090,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) error {
 		perms = append(perms, k)
 	}
 	sort.Strings(perms)
-	writeJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"tenant_id":         p.TenantID,
 		"tenant_name":       tenantName,
 		"tenant_slug":       tenantSlug,
@@ -1104,7 +1104,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) error {
 		"tenant_locale":     prefOrDefault(p.TenantLocale, "en"),
 		"permissions":       perms,
 		"has_scoped_grants": p.HasScopedGrants(),
-	})
+	}
+	if s.discoveryInventoryAvailable != nil && p.HasAny(permNMSImportWrite) && s.discoveryInventoryAvailable(p.TenantID) {
+		response["rmm_inventory_sync"] = true
+	}
+	writeJSON(w, http.StatusOK, response)
 	return nil
 }
 

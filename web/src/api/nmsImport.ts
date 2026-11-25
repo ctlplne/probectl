@@ -32,6 +32,7 @@ export interface ImportRowsPage {
   source_id: string
   snapshot_hash: string
   row_count: number
+  requires_source_verification?: boolean
   items: ImportRow[]
   next_cursor?: number
 }
@@ -187,10 +188,10 @@ export function configureImportSource(input: {
   return apiFetch<ImportConfigureResponse>('/nms-imports/sources', jsonInit('POST', input))
 }
 
-export function startImportPlan(contextID: string, instanceRef: string) {
+export function startImportPlan(contextID: string, instanceRef: string, sourceKind?: 'rmm') {
   return apiFetch<ImportStartResponse>(
     '/nms-imports/live-plans',
-    jsonInit('POST', { context_id: contextID, instance_ref: instanceRef }),
+    jsonInit('POST', { context_id: contextID, instance_ref: instanceRef, source_kind: sourceKind }),
   )
 }
 

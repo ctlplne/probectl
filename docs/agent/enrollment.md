@@ -107,7 +107,7 @@ before consuming the token. The agent checks the returned certificate's
 tenant before writing it. Both the control plane and agent must support this
 enrollment mode. Add `--if-needed` to reuse a current SVID for the same tenant
 on a repeat deployment. A partial, expired, or foreign identity requires
-operator review.
+operator review. See [MSP deployment from RMM](../deploying-agents.md#msp-deployment-from-rmm).
 
 Enrollment and every rotation write `cert.pem`, `key.pem` and `ca.pem` as
 **one unit**: a fresh version directory under the identity directory, each

@@ -103,13 +103,14 @@ function canRemoveImportMember(row: ImportRow): boolean {
 }
 
 export function NMSImportCard() {
-  const { tenant, permissions } = useAuth()
+  const { tenant, permissions, rmmInventorySync } = useAuth()
   if (!permissions.includes('nms.import.read')) return null
   return (
     <ImportContents
       key={tenant.id}
       tenantID={tenant.id}
       canWrite={permissions.includes('nms.import.write')}
+      canSyncRMM={rmmInventorySync === true}
       canPreviewTarget={permissions.includes('entities.read')}
       canApplyAlert={
         permissions.includes('nms.import.write') &&
@@ -123,11 +124,13 @@ export function NMSImportCard() {
 function ImportContents({
   tenantID,
   canWrite,
+  canSyncRMM,
   canPreviewTarget,
   canApplyAlert,
 }: {
   tenantID: string
   canWrite: boolean
+  canSyncRMM: boolean
   canPreviewTarget: boolean
   canApplyAlert: boolean
 }) {
@@ -139,6 +142,7 @@ function ImportContents({
   const [contextID, setContextID] = useState('')
   const selectedContext = available.find((item) => item.context_id === contextID)
   const [instanceRef, setInstanceRef] = useState('')
+  const [inventoryAlias, setInventoryAlias] = useState('')
   const [exportInstanceRef, setExportInstanceRef] = useState('')
   const [origin, setOrigin] = useState('')
   const [credentialRef, setCredentialRef] = useState('')
@@ -184,6 +188,7 @@ function ImportContents({
   function chooseContext(next: string) {
     setContextID(next)
     setInstanceRef('')
+    setInventoryAlias('')
     setExportInstanceRef('')
     setOrigin('')
     setPlanID('')
@@ -271,6 +276,25 @@ function ImportContents({
       setDiffPage(null)
       setChoices({})
       setMessage('Inert capture plan started. Advance one source endpoint per request.')
+    })
+  }
+
+  function syncInventory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    void run(async () => {
+      const result = await startImportPlan(contextID, inventoryAlias, 'rmm')
+      setPlanID(result.plan_id)
+      setIsExportPreview(false)
+      setCapturedFormat(null)
+      setSnapshotHash('')
+      setReviewHash('')
+      setProofReady(false)
+      setApplyComplete(false)
+      setPage(null)
+      setDiffPage(null)
+      setChoices({})
+      showPage(await importRows(contextID, result.plan_id))
+      setMessage('Site inventory captured. Review the device candidates before applying changes.')
     })
   }
 
@@ -532,6 +556,7 @@ function ImportContents({
   }
 
   const isProtectedPrefixReview = page?.items.some((row) => row.object_kind === 'prefix') === true
+  const requireSourceRecheck = page?.requires_source_verification ?? !isProtectedPrefixReview
 
   function applyChunk() {
     void run(async () => {
@@ -546,9 +571,9 @@ function ImportContents({
         `${result.applied} applied, ${result.skipped} skipped; ${result.remaining} rows remain. ` +
           (result.state === 'applied'
             ? 'Import complete.'
-            : isProtectedPrefixReview
-              ? 'Apply the next reviewed chunk.'
-              : 'Recheck the source before the next chunk.'),
+            : requireSourceRecheck
+              ? 'Recheck the source before the next chunk.'
+              : 'Apply the next reviewed chunk.'),
       )
     })
   }
@@ -775,6 +800,22 @@ function ImportContents({
               Start inert plan
             </Button>
           ) : null}
+          {contextID && canWrite && canSyncRMM ? (
+            <form className={styles.form} onSubmit={syncInventory}>
+              <div className={styles.row}>
+                <Field
+                  label="RMM site alias"
+                  required
+                  maxLength={128}
+                  value={inventoryAlias}
+                  onChange={(event) => setInventoryAlias(event.target.value)}
+                />
+                <Button type="submit" disabled={busy || !inventoryAlias}>
+                  Sync RMM inventory
+                </Button>
+              </div>
+            </form>
+          ) : null}
           {canWrite && contextID ? (
             <div className={styles.stack}>
               <h3>Saved vendor export preview</h3>
@@ -952,7 +993,7 @@ function ImportContents({
               <Button onClick={() => load()} disabled={busy || !planID}>
                 Load redacted rows
               </Button>
-              {canWrite && !isExportPreview ? (
+              {canWrite && !isExportPreview && !page ? (
                 <Button onClick={advance} disabled={busy || !planID}>
                   Advance one endpoint
                 </Button>
@@ -1177,14 +1218,14 @@ function ImportContents({
               ) : null}
               {canWrite && !applyComplete ? (
                 <div className={styles.row}>
-                  {isProtectedPrefixReview ? null : (
+                  {requireSourceRecheck ? (
                     <Button onClick={verifySource} disabled={busy || !snapshotHash || !reviewHash}>
                       Recheck next source endpoint
                     </Button>
-                  )}
+                  ) : null}
                   <Button
                     onClick={applyChunk}
-                    disabled={busy || (!isProtectedPrefixReview && !proofReady)}
+                    disabled={busy || (requireSourceRecheck && !proofReady)}
                   >
                     Apply one reviewed chunk
                   </Button>

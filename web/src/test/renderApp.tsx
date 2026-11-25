@@ -24,6 +24,7 @@ interface MeFixture {
   mfa_satisfied: boolean
   permissions: string[]
   has_scoped_grants?: boolean
+  rmm_inventory_sync?: boolean
   tenant_time_zone?: string
   tenant_locale?: string
   time_zone?: string

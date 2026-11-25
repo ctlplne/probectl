@@ -321,6 +321,24 @@ END $fx2_silo_fk$`, quoteLiteral(child), quoteLiteral(key.name), child,
 // cannot copy into an older physical silo during schema catch-up.
 func nmsImportSiloCheckPlan(schema string, owned map[string]bool) []string {
 	var plan []string
+	if owned["nms_import_sources"] {
+		sources := quoteIdent(schema) + `."nms_import_sources"`
+		plan = append(plan, fmt.Sprintf(`DO $fx40_discovery_source$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint
+               WHERE conrelid = %s::regclass
+                 AND conname='nms_import_sources_source_kind_check'
+                 AND position('device_discovery' in pg_get_constraintdef(oid))=0) THEN
+        ALTER TABLE %s DROP CONSTRAINT nms_import_sources_source_kind_check;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                   WHERE conrelid = %s::regclass
+                     AND conname='nms_import_sources_source_kind_check') THEN
+        ALTER TABLE %s ADD CONSTRAINT nms_import_sources_source_kind_check
+            CHECK (source_kind IN ('librenms','zabbix','orion','prtg','sightline','defenseflow',
+                                  'device_discovery')) NOT VALID;
+    END IF;
+END $fx40_discovery_source$`, quoteLiteral(sources), sources, quoteLiteral(sources), sources))
+	}
 	if owned["nms_import_rows"] {
 		// Catch-up adds public columns but does not automatically copy later
 		// CHECK constraints into an existing silo table. Keep reviewed exact

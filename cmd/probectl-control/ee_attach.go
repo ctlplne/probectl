@@ -34,6 +34,7 @@ import (
 	"github.com/ctlplne/probectl/ee/governance"
 	"github.com/ctlplne/probectl/ee/provider"
 	eeremediation "github.com/ctlplne/probectl/ee/remediation"
+	"github.com/ctlplne/probectl/ee/rmm"
 	"github.com/ctlplne/probectl/ee/silo"
 	"github.com/ctlplne/probectl/ee/tenantkeys"
 	"github.com/ctlplne/probectl/ee/whitelabel"
@@ -264,6 +265,22 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	}
 
 	if lic.Has(license.FeatureProviderPlane) {
+		if cfg.RMMInventoryConfig != "" {
+			if !secrets.IsRef(cfg.RMMInventoryConfig) || secretsResolver == nil {
+				return errors.New("PROBECTL_RMM_INVENTORY_CONFIG requires a deployment secret reference")
+			}
+			raw, cleanup, err := secretsResolver.ResolveBytes(ctx, cfg.RMMInventoryConfig)
+			if err != nil {
+				return errors.New("PROBECTL_RMM_INVENTORY_CONFIG could not be resolved")
+			}
+			syncer, err := rmm.NewInventorySync(raw, secretsResolver, writeCapability, nil)
+			cleanup()
+			if err != nil {
+				return err
+			}
+			srv.WithDiscoveryInventorySync(syncer.Start, syncer.Available)
+			log.Info("MSP RMM inventory review attached")
+		}
 		irSidecar, investigator, err := buildIRInvestigator(
 			ctx,
 			cfg,

@@ -550,6 +550,13 @@ predicates are never returned. A seal verifies submitted pages, not the
 completeness of an unseen live source. The same explicit review and dry-run
 tools show every unmapped row before any destination write.
 
+`nms_import_inventory_sync` is available on the native HTTPS listener when
+the MSP deployment has configured RMM inventory. It accepts `context_id`
+and `instance_ref` (the configured site alias), requires `nms.import.write`
+in that context, and returns the same sealed review plan as REST. The
+standalone stdio process can read authorized plans using `nms_import_rows`
+and `nms_import_dry_run`.
+
 ## See also
 
 - `docs/ai-query.md` — the semantic query engine the tools read through.
