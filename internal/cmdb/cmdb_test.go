@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestServiceNowCredentialIsBoundToOneTenant(t *testing.T) {
@@ -24,24 +26,42 @@ func TestServiceNowCredentialIsBoundToOneTenant(t *testing.T) {
 	source := mockSNow(t, &calls, &failure)
 	t.Cleanup(source.Close)
 	provider := NewServiceNow(source.URL, "", "user:pass", netBoxTenantA)
-	resolver := NewResolver(provider, time.Minute)
-	owner := netBoxContext(netBoxTenantA)
-	sibling := netBoxContext(netBoxTenantB)
-	const key = "web.acme.example"
-	owned, err := resolver.Lookup(owner, key)
-	if err != nil || len(owned) != 1 || owned[0].SysID != "def456" {
-		t.Fatalf("bound tenant failed to read its configured source: %+v, %v", owned, err)
-	}
-	for _, lookup := range []func(context.Context, string) ([]CI, error){resolver.Lookup, provider.Lookup} {
-		if rows, err := lookup(sibling, key); rows != nil || !errors.Is(err, ErrTenantBinding) {
-			t.Fatalf("unbound tenant was not refused before source lookup: %v", err)
-		}
-	}
-	if rows, err := resolver.Lookup(owner, key); err != nil || len(rows) != 1 || rows[0].SysID != owned[0].SysID {
-		t.Fatal("a refused lookup altered the owner's result")
-	}
+	checkServiceNowCredentialScope(t, provider, netBoxTenantA, netBoxTenantB, "web.acme.example", "def456", &calls)
 	if calls.Load() != 1 {
 		t.Fatalf("expected one source read for the bound tenant, received %d", calls.Load())
+	}
+}
+
+func checkServiceNowCredentialScope(t *testing.T, provider *ServiceNow, ownerID, siblingID tenancy.ID, key, expectedID string, calls *atomic.Int64) {
+	t.Helper()
+	resolver := NewResolver(provider, time.Minute)
+	owner := tenancy.WithTenant(t.Context(), ownerID)
+	sibling := tenancy.WithTenant(t.Context(), siblingID)
+	refuseSibling := func() {
+		t.Helper()
+		for _, lookup := range []func(context.Context, string) ([]CI, error){resolver.Lookup, provider.Lookup} {
+			if rows, err := lookup(sibling, key); rows != nil || !errors.Is(err, ErrTenantBinding) {
+				t.Fatal("unbound tenant must be refused before source lookup")
+			}
+		}
+	}
+	refuseSibling()
+	if calls.Load() != 0 {
+		t.Fatal("unbound tenant reached the source before the owner cache was populated")
+	}
+	if rows, err := resolver.Lookup(owner, key); err != nil || len(rows) != 1 || rows[0].SysID != expectedID {
+		t.Fatal("bound tenant failed to read the expected inventory item from its configured source")
+	}
+	coldReads := calls.Load()
+	if coldReads == 0 {
+		t.Fatal("the owner did not make a real source request")
+	}
+	refuseSibling()
+	if rows, err := resolver.Lookup(owner, key); err != nil || len(rows) != 1 || rows[0].SysID != expectedID {
+		t.Fatal("a refused lookup altered the owner's result")
+	}
+	if calls.Load() != coldReads {
+		t.Fatal("the unbound tenant or warm owner lookup unexpectedly contacted the source")
 	}
 }
 
