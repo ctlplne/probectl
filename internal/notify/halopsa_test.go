@@ -27,6 +27,54 @@ const haloTestSettings = `{
   "due_after":"48h", "console_origin":"https://console.example.invalid"
 }`
 
+func TestHaloPostChecksWriteAuthorizationAfterOAuth(t *testing.T) {
+	denied := errors.New("writes became read-only")
+	writeAllowed := true
+	var tokens, updates int
+	client := autotaskTestDoer(func(r *http.Request) (*http.Response, error) {
+		switch r.Method + " " + r.URL.Path {
+		case "POST /auth/token":
+			tokens++
+			writeAllowed = false
+			return autotaskTestResponse(t, map[string]any{
+				"access_token": "refreshed.fixture", "token_type": "Bearer", "expires_in": 3600,
+			})
+		case "POST /api/SoftwareLicence":
+			updates++
+			if r.Header.Get("Authorization") != "Bearer refreshed.fixture" {
+				t.Error("billing POST did not use the refreshed token")
+			}
+			return autotaskTestResponse(t, nil)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+			return nil, nil
+		}
+	})
+	api, err := NewHaloAPI("https://psa.example.invalid", HaloCredentials{
+		ClientID: "fixture", ClientSecret: "fixture-value",
+	}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.auth.token = "expired.fixture"
+	api.auth.refreshAt = time.Now().Add(-time.Minute)
+	beforeSend := func() error {
+		if !writeAllowed {
+			return denied
+		}
+		return nil
+	}
+	payload := []map[string]int{{"id": 12, "count": 3}}
+	if _, err := api.Post(t.Context(), payload, beforeSend, "SoftwareLicence"); !errors.Is(err, denied) ||
+		!errors.Is(err, errHaloPostNotSent) || tokens != 1 || updates != 0 {
+		t.Fatalf("read-only transition during OAuth allowed a write: tokens %d, updates %d, %v", tokens, updates, err)
+	}
+	writeAllowed = true
+	if _, err := api.Post(t.Context(), payload, beforeSend, "SoftwareLicence"); err != nil || tokens != 1 || updates != 1 {
+		t.Fatalf("authorized write did not reuse the refreshed token: tokens %d, updates %d, %v", tokens, updates, err)
+	}
+}
+
 func TestHaloPSATicketLifecycle(t *testing.T) {
 	inc := incident.Incident{TenantID: "left", ID: "20200000-0000-4000-8000-000000000001",
 		Severity: incident.SeverityWarning, SignalCount: 3, LastSeenAt: time.Now()}

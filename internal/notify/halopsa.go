@@ -219,7 +219,7 @@ func (c *haloPSA) Open(ctx context.Context, inc incident.Incident) (Delivery, er
 		TargetDate: &due, Summary: "probectl incident " + inc.ID, Fields: c.fields(inc),
 		Details: attributedNotification(ctx, fmt.Sprintf("probectl incident (%s). Signals: %d. Open the tenant incident to export its signed evidence: %s",
 			inc.Severity, inc.SignalCount, link.String())),
-	}}, "Tickets")
+	}}, nil, "Tickets")
 	if err != nil {
 		if errors.Is(err, errHaloPostNotSent) {
 			return Delivery{}, fmt.Errorf("%w: %w", errTicketCreateRejected, err)
@@ -278,7 +278,7 @@ func (c *haloPSA) transition(ctx context.Context, inc incident.Incident, ref str
 	if _, err := c.ownedTicket(ctx, id, key); err != nil {
 		return err
 	}
-	_, err = c.api.Post(ctx, []haloTicketWrite{{ID: id, Status: status, Fields: c.fields(inc)}}, "Tickets")
+	_, err = c.api.Post(ctx, []haloTicketWrite{{ID: id, Status: status, Fields: c.fields(inc)}}, nil, "Tickets")
 	return err
 }
 

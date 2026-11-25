@@ -75,24 +75,14 @@ func (c *HaloBillingWriter) read(ctx context.Context, id int32) (int64, error) {
 	return *row.Count, nil
 }
 
-// Sync reads both owned subscriptions before sending a count-only update.
-// Absolute values make a retry safe if the remote side applied one or both
-// updates before the client received an error.
-func (c *HaloBillingWriter) Sync(ctx context.Context, tenant string, counts PSAQuantities) (bool, error) {
-	return c.sync(ctx, tenant, counts, nil)
-}
-
-func (c *HaloBillingWriter) sync(ctx context.Context, tenant string, counts PSAQuantities, beforeWrite func() error) (bool, error) {
+// sync reads both owned subscriptions before sending a count-only update.
+// Absolute quantities make a retry safe after a partial or uncertain write.
+func (c *HaloBillingWriter) sync(ctx context.Context, tenant string, counts PSAQuantities, beforeSend func() error) (bool, error) {
 	desired, updates, err := c.quantityChanges(ctx, tenant, counts)
 	if err != nil || len(updates) == 0 {
 		return false, err
 	}
-	if beforeWrite != nil {
-		if err := beforeWrite(); err != nil {
-			return false, err
-		}
-	}
-	if _, err := c.api.Post(ctx, updates, "SoftwareLicence"); err != nil {
+	if _, err := c.api.Post(ctx, updates, beforeSend, "SoftwareLicence"); err != nil {
 		return false, err
 	}
 	for _, line := range desired {

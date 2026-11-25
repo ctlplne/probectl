@@ -90,7 +90,7 @@ func TestHaloBillingRetriesAbsoluteQuantities(t *testing.T) {
 		tenant string
 		count  PSAQuantities
 	}{{"right", desired}, {"left", PSAQuantities{Devices: math.MaxInt64}}} {
-		if changed, err := writer.Sync(t.Context(), attempt.tenant, attempt.count); err == nil || changed {
+		if changed, err := writer.sync(t.Context(), attempt.tenant, attempt.count, nil); err == nil || changed {
 			t.Fatal("invalid tenant or quantity reached Halo", err)
 		}
 	}
@@ -100,19 +100,19 @@ func TestHaloBillingRetriesAbsoluteQuantities(t *testing.T) {
 	}
 	customer = 99
 	mu.Unlock()
-	if changed, err := writer.Sync(t.Context(), "left", desired); err == nil || changed {
+	if changed, err := writer.sync(t.Context(), "left", desired, nil); err == nil || changed {
 		t.Fatal("a foreign subscription passed the ownership check", err)
 	}
 	mu.Lock()
 	customer = 7
 	mu.Unlock()
-	if changed, err := writer.Sync(t.Context(), "left", desired); err == nil || changed {
+	if changed, err := writer.sync(t.Context(), "left", desired, nil); err == nil || changed {
 		t.Fatal("partial remote failure was reported as a confirmed sync", err)
 	}
-	if changed, err := writer.Sync(t.Context(), "left", desired); err != nil || !changed {
+	if changed, err := writer.sync(t.Context(), "left", desired, nil); err != nil || !changed {
 		t.Fatal("repair of the partial write did not converge", err)
 	}
-	if changed, err := writer.Sync(t.Context(), "left", desired); err != nil || changed {
+	if changed, err := writer.sync(t.Context(), "left", desired, nil); err != nil || changed {
 		t.Fatal("unchanged quantities triggered a redundant write", err)
 	}
 	mu.Lock()
@@ -203,16 +203,16 @@ func TestHaloBillingWritersKeepTwoTenantsSeparate(t *testing.T) {
 	alpha := newWriter("alpha", HaloSubscriptions{CustomerID: 7, DevicesSubscription: 12, AgentsSubscription: 13})
 	beta := newWriter("beta", HaloSubscriptions{CustomerID: 8, DevicesSubscription: 22, AgentsSubscription: 23})
 	corrupt := newWriter("beta", HaloSubscriptions{CustomerID: 8, DevicesSubscription: 22, AgentsSubscription: 13})
-	if _, err := alpha.Sync(t.Context(), "beta", PSAQuantities{Devices: 99, Agents: 99}); err == nil {
+	if _, err := alpha.sync(t.Context(), "beta", PSAQuantities{Devices: 99, Agents: 99}, nil); err == nil {
 		t.Fatal("a writer accepted the sibling tenant's snapshot")
 	}
-	if _, err := corrupt.Sync(t.Context(), "beta", PSAQuantities{Devices: 99, Agents: 99}); err == nil {
+	if _, err := corrupt.sync(t.Context(), "beta", PSAQuantities{Devices: 99, Agents: 99}, nil); err == nil {
 		t.Fatal("the vendor's foreign subscription was writable")
 	}
-	if changed, err := alpha.Sync(t.Context(), "alpha", PSAQuantities{Devices: 2, Agents: 3}); err != nil || !changed {
+	if changed, err := alpha.sync(t.Context(), "alpha", PSAQuantities{Devices: 2, Agents: 3}, nil); err != nil || !changed {
 		t.Fatal("alpha's own usage did not sync", err)
 	}
-	if changed, err := beta.Sync(t.Context(), "beta", PSAQuantities{Devices: 4, Agents: 5}); err != nil || !changed {
+	if changed, err := beta.sync(t.Context(), "beta", PSAQuantities{Devices: 4, Agents: 5}, nil); err != nil || !changed {
 		t.Fatal("beta's own usage did not sync", err)
 	}
 	mu.Lock()

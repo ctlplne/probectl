@@ -57,7 +57,7 @@ func NewHaloAPI(endpoint string, credentials HaloCredentials, client Doer) (*Hal
 
 // Get reads and decodes a single bounded Halo API response.
 func (c *HaloAPI) Get(ctx context.Context, result any, query url.Values, resource ...string) error {
-	body, err := c.request(ctx, http.MethodGet, query, nil, resource)
+	body, err := c.request(ctx, http.MethodGet, query, nil, resource, nil)
 	if err != nil {
 		return err
 	}
@@ -67,18 +67,19 @@ func (c *HaloAPI) Get(ctx context.Context, result any, query url.Values, resourc
 	return nil
 }
 
-// Post sends one declared payload to a path on the configured Halo instance.
-func (c *HaloAPI) Post(ctx context.Context, payload any, resource ...string) ([]byte, error) {
+// Post sends one payload to the configured Halo instance. It checks any
+// supplied write guard after obtaining the OAuth token.
+func (c *HaloAPI) Post(ctx context.Context, payload any, beforeSend func() error, resource ...string) ([]byte, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errHaloPostNotSent, err)
 	}
-	return c.request(ctx, http.MethodPost, nil, body, resource)
+	return c.request(ctx, http.MethodPost, nil, body, resource, beforeSend)
 }
 
 var errHaloPostNotSent = errors.New("halopsa: API write did not reach its request step")
 
-func (c *HaloAPI) request(ctx context.Context, method string, query url.Values, body []byte, resource []string) ([]byte, error) {
+func (c *HaloAPI) request(ctx context.Context, method string, query url.Values, body []byte, resource []string, beforeSend func() error) ([]byte, error) {
 	headers, err := c.auth.headers(ctx)
 	if err != nil {
 		if method == http.MethodPost {
@@ -88,6 +89,11 @@ func (c *HaloAPI) request(ctx context.Context, method string, query url.Values, 
 	}
 	u := c.origin.JoinPath(append([]string{"api"}, resource...)...)
 	u.RawQuery = query.Encode()
+	if beforeSend != nil {
+		if err := beforeSend(); err != nil {
+			return nil, fmt.Errorf("%w: %w", errHaloPostNotSent, err)
+		}
+	}
 	result, err := doJSONBytes(ctx, c.auth.client, method, u.String(), headers, body)
 	c.auth.discardUnauthorized(headers["Authorization"], err)
 	return result, err
