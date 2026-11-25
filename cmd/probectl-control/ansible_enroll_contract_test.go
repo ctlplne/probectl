@@ -20,15 +20,8 @@ import (
 	flowcfg "github.com/ctlplne/probectl/internal/flow"
 )
 
-// OPS-004: the Ansible probectl_agents role used to run `<binary> enroll` for
-// EVERY agent type, but only the canary `agent` ships an `enroll` subcommand.
-// The bus collectors (ebpf-agent/flow-agent/device-agent/endpoint) register on
-// the control plane with `probectl-control register-collector` and have no
-// per-host enroll — so `<binary> enroll` would fail with "unknown subcommand".
-//
-// This contract test pins the role's enroll command to the SET OF AGENT TYPES
-// THAT ACTUALLY IMPLEMENT an enroll subcommand (discovered from each binary's
-// main.go), so the role and the real CLIs can never drift apart again.
+// OPS-004: keep the role's supported enrollment binaries aligned with the
+// real CLI dispatch. An endpoint uses this path only in managed mode.
 func TestAnsibleEnrollMatchesAgentCLIs(t *testing.T) {
 	root := repoRoot(t)
 
@@ -92,8 +85,7 @@ func TestAnsibleEnrollMatchesAgentCLIs(t *testing.T) {
 		}
 	}
 
-	// 3. The enroll task in the role must be gated by that allow-list (so a
-	//    collector type can never hit `<binary> enroll`).
+	// 3. The role uses the enrollment allow-list and the endpoint's transport.
 	tasks := readArtifact(t, "deploy/ansible/roles/probectl_agents/tasks/main.yml")
 	enrollIdx := strings.Index(tasks, "enroll\n")
 	if enrollIdx < 0 {
@@ -102,14 +94,69 @@ func TestAnsibleEnrollMatchesAgentCLIs(t *testing.T) {
 	if enrollIdx < 0 {
 		t.Fatal("role has no enroll task")
 	}
-	// The enroll command block must be preceded (within the same task) by the
-	// allow-list guard.
-	if !strings.Contains(tasks, "probectl_agent_type in probectl_mtls_agent_types") {
-		t.Error("the enroll task must be gated by `probectl_agent_type in probectl_mtls_agent_types` (OPS-004)")
+	if !strings.Contains(defaults, "probectl_agent_type in probectl_mtls_agent_types") ||
+		!strings.Contains(defaults, "probectl_endpoint_transport == 'control'") ||
+		!strings.Contains(defaults, "probectl_endpoint_transport: bus") {
+		t.Error("enrollment must be gated by binary capability and explicit endpoint transport (OPS-004)")
+	}
+	for _, taskName := range []string{"Enroll the mTLS canary agent", "Enroll the managed endpoint if its identity is absent"} {
+		_, section, ok := strings.Cut(tasks, "- name: "+taskName)
+		task, _, _ := strings.Cut(section, "\n- name:")
+		if !ok || !strings.Contains(task, "- probectl_agent_uses_mtls | bool") ||
+			!strings.Contains(task, "- not probectl_identity.stat.exists") || !strings.Contains(task, "no_log: true") {
+			t.Errorf("%s must be scoped, idempotent and private (OPS-004)", taskName)
+		}
 	}
 	// And the collectors must get the register-collector guidance instead.
 	if !strings.Contains(tasks, "register-collector") {
 		t.Error("the role must document `register-collector` for bus collectors (OPS-004)")
+	}
+}
+
+func TestAnsibleManagedEndpointUsesItsTenantAndControlTransport(t *testing.T) {
+	clearAgentConfigEnv(t)
+	const root = "deploy/ansible/roles/probectl_agents/"
+	template := readArtifact(t, root+"templates/endpoint-managed.yaml.j2")
+	rendered := renderAnsibleTemplate(t, template, map[string]string{
+		"probectl_tenant_id | to_json":                 `"tenant-b"`,
+		"probectl_agent_id | to_json":                  `"managed-endpoint"`,
+		"probectl_endpoint_grpc_address | to_json":     `"control.example:8444"`,
+		"probectl_control_grpc_addr | to_json":         `"https://control.example:8443"`,
+		"(probectl_state_dir ~ '/identity') | to_json": `"/var/lib/probectl-endpoint/identity"`,
+		"probectl_endpoint_interval | to_json":         `"60s"`,
+		"probectl_endpoint_targets | to_json":          `["https://portal.example"]`,
+		"probectl_endpoint_max_hops":                   "20",
+		"probectl_endpoint_probes":                     "3",
+		"probectl_endpoint_session_timeout | to_json":  `"15s"`,
+	})
+	path := filepath.Join(t.TempDir(), "endpoint.yaml")
+	if err := os.WriteFile(path, []byte(rendered), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := endpointcfg.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TenantID != "tenant-b" || cfg.AgentID != "managed-endpoint" ||
+		cfg.Control.Address != "control.example:8444" ||
+		cfg.Control.EnrollmentURL != "https://control.example:8443" ||
+		cfg.Control.IdentityDir != "/var/lib/probectl-endpoint/identity" ||
+		strings.Contains(rendered, "bus:") {
+		t.Fatal("managed endpoint configuration lost its tenant, identity or control transport")
+	}
+	tasks := readArtifact(t, root+"tasks/main.yml")
+	_, enrollment, _ := strings.Cut(tasks, "- name: Redeem the managed endpoint enrollment token")
+	enrollment, _, _ = strings.Cut(enrollment, "\n- name:")
+	for _, want := range []string{
+		"become_user: probectl", "- /usr/bin/probectl-endpoint", "- /etc/probectl/endpoint.yaml",
+		"- --ca-file", `stdin: "{{ probectl_enroll_token }}"`, "no_log: true",
+	} {
+		if !strings.Contains(enrollment, want) {
+			t.Errorf("managed endpoint enrollment is missing %q", want)
+		}
+	}
+	if strings.Contains(enrollment, "--token") {
+		t.Error("managed endpoint enrollment exposes a token argument")
 	}
 }
 
@@ -224,7 +271,7 @@ func TestAnsibleRoleAssertsCollectorRequiredVars(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		`src: "{{ probectl_agent_type }}.yaml.j2"`,
+		`'endpoint-managed.yaml.j2' if probectl_agent_type == 'endpoint' and probectl_agent_uses_mtls | bool`,
 		"Assert bus collector identity and bus config",
 		"probectl_tenant_id | length > 0",
 		"probectl_agent_id | length > 0",

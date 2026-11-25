@@ -148,12 +148,12 @@ func managedEndpointConfigPath() (string, error) {
 }
 
 func endpointMetricsConfig(enrolled bool) (agentmetrics.Config, error) {
-	const prefix = "PROBECTL_ENDPOINT"
+	defaultAddr := ""
 	if !enrolled {
-		return agentmetrics.ConfigFromEnv(os.Getenv, prefix, agentmetrics.DefaultEndpointAddr), nil
+		defaultAddr = agentmetrics.DefaultEndpointAddr
 	}
-	cfg := agentmetrics.ConfigFromEnv(os.Getenv, prefix, "")
-	if cfg == (agentmetrics.Config{}) {
+	cfg := agentmetrics.ConfigFromEnv(os.Getenv, "PROBECTL_ENDPOINT", defaultAddr)
+	if !enrolled || cfg == (agentmetrics.Config{}) {
 		return cfg, nil
 	}
 	if cfg.TLSCertFile == "" || cfg.TLSKeyFile == "" {

@@ -127,12 +127,6 @@
     "endpoint.decodeConfigYAML": {
       "exempt": "operator-supplied agent config file, not network input"
     },
-    "endpoint.parseAirportChannel": {
-      "target": "FuzzWiFiParsers"
-    },
-    "endpoint.parseAirportI": {
-      "target": "FuzzWiFiParsers"
-    },
     "endpoint.parseChannel": {
       "target": "FuzzWiFiParsers"
     },

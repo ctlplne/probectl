@@ -1,0 +1,12 @@
+apiVersion: probectl.io/endpoint/v1
+tenant_id: {{ probectl_tenant_id | to_json }}
+agent_id: {{ probectl_agent_id | to_json }}
+control:
+  address: {{ probectl_endpoint_grpc_address | to_json }}
+  enrollment_url: {{ probectl_control_grpc_addr | to_json }}
+  identity_dir: {{ (probectl_state_dir ~ '/identity') | to_json }}
+interval: {{ probectl_endpoint_interval | to_json }}
+targets: {{ probectl_endpoint_targets | to_json }}
+max_hops: {{ probectl_endpoint_max_hops }}
+probes: {{ probectl_endpoint_probes }}
+session_timeout: {{ probectl_endpoint_session_timeout | to_json }}

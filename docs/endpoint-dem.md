@@ -243,6 +243,16 @@ configured HTTPS origin. Use this mode after all control replicas support
 enrolled endpoint delivery. The control plane selects the result lane and
 stamps both the tenant and device IDs from the client certificate.
 
+For packaged Linux deployments, the Ansible `probectl_agents` role uses the
+existing bus transport by default. Set `probectl_endpoint_transport: control`
+to enroll the service under its `probectl` account. Set
+`probectl_endpoint_grpc_address` to the agent listener's host and port, and
+`probectl_control_grpc_addr` to the HTTPS enrollment origin. Supply the tenant
+ID, the local CA PEM path in `probectl_endpoint_enroll_ca_file`, and the
+one-time `probectl_enroll_token` from your vault. The role supplies the token
+through standard input and keeps the service identity in
+`/var/lib/probectl-endpoint/identity`.
+
 To prepare a native rollout, verify the installer publisher and the detached
 signature on the exact delivered artifact. Put the approved installer into
 this control plane's configured object store. For a pooled tenant, use

@@ -195,15 +195,17 @@ func TestRetentionAuditIntentFailurePreventsEveryPrune(t *testing.T) {
 		})
 	}
 
-	for store, want := range map[string]int{
+	wantAttempts := map[string]int{
 		"sessions": 1, "flows": 1, "flow_query_cache": 1, "otel": 1, "ebpf": 1, "path": 1,
 		"ai_answers": 1, "topology": 1, "endpoint": 1, "endpoint_events": 1,
-	} {
+		"cloud_topology_inventories": 1,
+	}
+	for store, want := range wantAttempts {
 		if auditedStores[store] != want {
 			t.Errorf("%s intent attempts = %d, want %d", store, auditedStores[store], want)
 		}
 	}
-	if len(auditedStores) != 10 {
+	if len(auditedStores) != len(wantAttempts) {
 		t.Fatalf("audited destructive stores = %+v", auditedStores)
 	}
 	for store, calls := range map[string][]string{

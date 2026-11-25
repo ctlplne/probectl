@@ -237,6 +237,7 @@ func TestEntityRegistryForeignKeysFollowAllSiloCopies(t *testing.T) {
 				`ADD CONSTRAINT "fx2b_alert_plan_fk" FOREIGN KEY (tenant_id, context_id, plan_id, source_id) REFERENCES "t_abc"."nms_import_plans" (tenant_id, context_id, id, source_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
 				`ADD CONSTRAINT "fx2b_alert_row_fk" FOREIGN KEY (tenant_id, context_id, plan_id, row_kind, rule_external_id) REFERENCES "t_abc"."nms_import_rows" (tenant_id, context_id, plan_id, object_kind, external_id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED`,
 				`ADD CONSTRAINT "fx2b_alert_native_fk" FOREIGN KEY (tenant_id, alert_rule_id) REFERENCES "t_abc"."alert_rules" (tenant_id, id) ON DELETE CASCADE`,
+				`ALTER TABLE "t_abc"."nms_import_sources" ADD CONSTRAINT nms_import_sources_source_kind_check`,
 				`ADD CONSTRAINT nms_import_rows_target_fingerprint_check`,
 				`ADD CONSTRAINT nms_import_rows_action_check`,
 				`ADD CONSTRAINT nms_import_rows_target_group_revision_check`,

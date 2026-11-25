@@ -7,13 +7,14 @@ probectl_supported_agent_types:
   - flow-agent
   - device-agent
   - endpoint
-# OPS-004: only these agent types ship an `enroll` subcommand (mTLS identity via
-# the control-plane gRPC endpoint, cmd/probectl-agent/enroll.go). Every other
-# type is a bus collector registered ONCE on the control plane with
-# `probectl-control register-collector` — it has NO per-host enroll command, so
-# the role must never run `<binary> enroll` for them.
+# OPS-004: these binaries can enroll. The endpoint keeps its existing bus
+# transport unless the inventory explicitly selects managed control transport.
 probectl_mtls_agent_types:
   - agent
+  - endpoint
+probectl_agent_uses_mtls: >-
+  {{ probectl_agent_type in probectl_mtls_agent_types
+     and (probectl_agent_type != 'endpoint' or probectl_endpoint_transport == 'control') }}
 probectl_collector_agent_types:
   - ebpf-agent
   - flow-agent
@@ -91,6 +92,9 @@ probectl_device_sensors: true
 probectl_device_neighbors: false       # explicit opt-in; bounded LLDP/CDP SNMP walks only
 
 # endpoint template knobs.
+probectl_endpoint_transport: bus      # bus | control
+probectl_endpoint_grpc_address: ""    # host:port for managed mTLS results
+probectl_endpoint_enroll_ca_file: ""  # readable control-plane CA PEM on the endpoint
 probectl_endpoint_targets: []          # e.g. ["https://portal.example", "https://1.1.1.1"]
 probectl_endpoint_interval: 60s
 probectl_endpoint_max_hops: 20
