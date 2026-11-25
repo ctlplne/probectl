@@ -10393,7 +10393,7 @@ func (c *Client) StartNmsImportExportPreviewPlan(ctx context.Context, req StartN
 	return out, nil
 }
 
-// Start an inert capture plan from an enabled LibreNMS source
+// Start a review plan from a configured inventory source
 type StartConfiguredLibreNmsImportPlanRequest struct {
 	Body *map[string]any `json:"-"`
 }
