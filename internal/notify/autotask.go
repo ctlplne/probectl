@@ -159,7 +159,7 @@ func configuredAutotask(tenant, endpoint, resolvedSecret string, client Doer) (*
 	if err != nil {
 		return nil, errors.New("autotask: due_after must be a positive duration")
 	}
-	settings.autotaskMapping.TenantID = tenant
+	settings.TenantID = tenant
 	settings.autotaskMapping.DueAfter = due
 	return newAutotask(endpoint, settings.ConsoleOrigin, settings.autotaskMapping, settings.AutotaskCredentials, client)
 }
