@@ -334,9 +334,11 @@ deploy recipes are `sslmode=require` or stricter.
   coverage** is the fraction of code statements the tests actually executed; a
   **floor** fails CI when a package drops below its number. This gate floors the
   service-free logic / parser / probe packages
-  (`scripts/check_coverage.sh`). The stateful DB/transport packages are gated for
-  _correctness_ by the `integration` and `cross-tenant-isolation` jobs instead — a
-  stronger guarantee than a coverage percentage — so they are not floored here.
+  (`scripts/check_coverage.sh`). The `integration` job measures the separate
+  stateful package floors with `scripts/check_integration_coverage.sh`. Its
+  profile includes statements exercised through the required-service suite,
+  such as a control-plane test that reaches the tenant store. The
+  `cross-tenant-isolation` job separately proves the isolation behavior.
 
 ## Commits
 

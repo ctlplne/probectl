@@ -1853,36 +1853,19 @@ jobs:
           PROBECTL_TEST_REQUIRE_STOCK_OTEL_COLLECTOR: "1"
           PROBECTL_TEST_SHIPPED_BROWSER_WORKER: ${{ github.workspace }}/browser-worker/worker.mjs
           PROBECTL_TEST_REQUIRE_SHIPPED_BROWSER_WORKER: "1"
-        run: make test-integration
-      - name: Integration-coverage floors for stateful security packages (TQ-09, supersedes U-057)
-        # The service-free unit gate (scripts/check_coverage.sh) exempts the
-        # stateful packages (store, tenancy, audit, enroll, agenttransport,
-        # control, ee/silo, tenantlife); their meaningful coverage needs a real
-        # Postgres. Measure each WITH its integration tests and hold its floor.
-        #
-        # Use a DEDICATED fresh Postgres, not the make-test-integration DB: the
-        # gate re-runs each package's integration suite, and a few suites assert
-        # absolute state that only holds on a clean database (e.g. the agent-CA
-        # public-bundle test expects exactly root+intermediate, which a second
-        # CA init on an already-seeded DB turns into three certs). One clean
-        # pass on an empty DB is exactly how the suites are designed to run.
-        # CH/Kafka-only tests skip here (no FLOWSTORE/KAFKA env, no
-        # PROBECTL_TEST_REQUIRE_SERVICES), so the floors are Postgres-only lower
-        # bounds; raise them as coverage grows, never lower one to pass.
         run: |
           set -euo pipefail
-          docker run -d --name tq09-cover-pg \
-            -e POSTGRES_USER=probectl -e POSTGRES_PASSWORD=probectl -e POSTGRES_DB=probectl \
-            -p 5433:5432 \
-            postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae
-          for i in $(seq 1 30); do
-            docker exec tq09-cover-pg pg_isready -U probectl -d probectl >/dev/null 2>&1 && break
-            sleep 1
-          done
-          export PROBECTL_DATABASE_URL="postgres://probectl:probectl@localhost:5433/probectl?sslmode=disable"
+          export PROBECTL_INTEGRATION_COVERPROFILE="$RUNNER_TEMP/probectl-integration-coverage.out"
+          make test-integration
+      - name: Integration-coverage floors for stateful security packages (TQ-09, supersedes U-057)
+        # Measure the existing clean, required-service integration run. A
+        # control-plane test can cover a branch in the store or transport,
+        # and each package retains its own floor. The suite runs once so
+        # seed-sensitive tests see their original database state.
+        run: |
+          set -euo pipefail
           bash scripts/check_integration_coverage.sh SELFTEST
-          bash scripts/check_integration_coverage.sh
-          docker rm -f tq09-cover-pg >/dev/null 2>&1 || true
+          bash scripts/check_integration_coverage.sh PROFILE "$RUNNER_TEMP/probectl-integration-coverage.out"
       # Run the complete FX3/FX4 stack and stateful coverage before the
       # selected-view source proof, so a newer source conformance failure
       # does not prevent their independent recovery/served proofs running.

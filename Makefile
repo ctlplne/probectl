@@ -191,7 +191,12 @@ test-integration: ## Run integration tests across modules (needs a database / de
 		PROBECTL_TEST_NATS="$(or $(PROBECTL_TEST_NATS),nats://localhost:4222)" \
 		./scripts/with_integration_stack_lock.sh test-integration bash -c 'set -euo pipefail; for d in $(GO_MODULE_DIRS); do \
 		echo ">> integration tests ($$d)"; \
-		( cd $$d && $(GO) test -p=1 -tags=integration -count=1 -timeout 60m ./... ) || exit 1; \
+		( cd "$$d" || exit 1; options=(); \
+		  if [[ "$$d" == "." && -n "$${PROBECTL_INTEGRATION_COVERPROFILE:-}" ]]; then \
+		    packages="$$(bash scripts/check_integration_coverage.sh PACKAGES)" || exit 1; \
+		    options=(-coverpkg "$$packages" -coverprofile "$$PROBECTL_INTEGRATION_COVERPROFILE"); \
+		  fi; \
+		  $(GO) test -p=1 -tags=integration -count=1 -timeout 60m "$${options[@]}" ./... ) || exit 1; \
 	done'
 
 .PHONY: test-integration-isolated
