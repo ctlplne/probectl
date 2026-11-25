@@ -15,7 +15,11 @@ import { TimeProvider } from '../time/TimeProvider'
 import { renderApp } from './renderApp'
 import { jsonResponse, defaultFetch, pathOf } from './fetchStub'
 import type { Proposal } from '../api/remediation'
-import type { RemediationRTBHReview } from '../api/sdk.gen'
+import type {
+  RemediationRTBHReview,
+  RoutingTransferReview,
+  RoutingTransferRollback,
+} from '../api/sdk.gen'
 
 /** S-EE5 surface: the AI remediation proposals card on Admin. ee-backed:
  *  unlicensed deployments answer 404 and the card renders NOTHING
@@ -162,6 +166,137 @@ describe('guarded remediation (S-EE5)', () => {
     expect(calls).toHaveLength(0)
     // Still proposed — nothing decided it.
     expect(screen.getByText(/reroute around failing hop/i)).toBeInTheDocument()
+  })
+
+  test('a routing transfer needs its exact review for approval and keeps the saved rollback after expiry', async () => {
+    const user = userEvent.setup()
+    const decide = vi.fn()
+    const readRollback = vi.fn()
+    let releaseReview: (() => void) | undefined
+    const pendingReview = new Promise<void>((resolve) => {
+      releaseReview = resolve
+    })
+    let row: Proposal = {
+      ...proposals[0],
+      kind: 'routing_transfer_review',
+      title: 'Exact transfer',
+    }
+    const deadline = new Date(Date.now() + 60_000).toISOString()
+    const past = new Date(Date.now() - 60_000).toISOString()
+    const fingerprint = 'a'.repeat(64)
+    const review: RoutingTransferReview = {
+      blast_radius: 64,
+      expires_at: deadline,
+      fingerprint,
+      max_moved_bps: '20000',
+      valid_until: deadline,
+      preview: {
+        address_count_upper_bound: '64',
+        address_limit: '128',
+        archive_digest: 'b'.repeat(64),
+        archive_id: 'archive-1',
+        archive_observed_at: past,
+        candidate_asn: 64496,
+        candidate_limit_bps: '100000',
+        candidate_peak_bps: '18000',
+        candidate_peer: '192.0.2.2',
+        configure: ['reviewed-policy'],
+        current_inbound_policy: 'prior-policy',
+        default_local_preference: 100,
+        estimate_digest: 'c'.repeat(64),
+        exact_prefix: '203.0.113.0/26',
+        moved_peak_bps: '12000',
+        preview_fingerprint: 'd'.repeat(64),
+        proposed_inbound_policy: 'reviewed-policy',
+        requires_weight_verification: false,
+        router_id: 'router-1',
+        source_valid_until: deadline,
+        withdraw: ['restore-prior-policy'],
+      },
+    }
+    let rollback: RoutingTransferRollback = {
+      approval_expires_at: past,
+      approved_at: new Date(Date.parse(past) - 1_000).toISOString(),
+      candidate_peer: review.preview.candidate_peer,
+      context_id: 'context-1',
+      exact_prefix: review.preview.exact_prefix,
+      proposal_id: row.id,
+      remove_policy: review.preview.proposed_inbound_policy,
+      restore_policy: review.preview.current_inbound_policy,
+      review_fingerprint: fingerprint,
+      router_id: review.preview.router_id,
+      state: 'approval_expired',
+      withdraw: review.preview.withdraw,
+    }
+    const base = defaultFetch()
+    const endpoint = '/v1/remediation/routing-transfer-reviews/rem-1'
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/v1/remediation/proposals')) {
+        return jsonResponse({ items: [row], approvals_enabled: true })
+      }
+      if (url.endsWith(endpoint)) {
+        await pendingReview
+        return row.state === 'approved'
+          ? jsonResponse({ error: { code: 'review_changed', message: 'Review expired.' } }, 409)
+          : jsonResponse(review)
+      }
+      if (url.endsWith(`${endpoint}/approve`) && init?.method === 'POST') {
+        decide('approve', JSON.parse(String(init.body)))
+        row = { ...row, state: 'approved' }
+        return jsonResponse(row)
+      }
+      if (url.endsWith(`${endpoint}/rollback`)) {
+        readRollback()
+        return jsonResponse(rollback)
+      }
+      if (url.endsWith(`${endpoint}/withdraw`) && init?.method === 'POST') {
+        decide('withdraw', JSON.parse(String(init.body)))
+        rollback = {
+          ...rollback,
+          state: 'withdrawal_requested',
+          withdraw_requested_at: new Date().toISOString(),
+        }
+        return jsonResponse(rollback)
+      }
+      return base(input, init)
+    })
+    renderApp('/admin', {
+      me: {
+        permissions: [
+          'remediation.propose',
+          'remediation.approve',
+          'flow.agreements.read',
+          'entities.read',
+          'metrics.read',
+        ],
+      },
+    })
+    await user.click(await screen.findByRole('button', { name: 'Review routing transfer' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    const approve = dialog.getByRole('button', { name: 'Approve routing transfer' })
+    expect(approve).toBeDisabled()
+    expect(decide).not.toHaveBeenCalled()
+    expect(readRollback).not.toHaveBeenCalled()
+
+    releaseReview?.()
+    expect(await dialog.findByText('203.0.113.0/26')).toBeVisible()
+    await waitFor(() => expect(approve).toBeEnabled())
+    await user.click(approve)
+    await waitFor(() => expect(decide).toHaveBeenCalledExactlyOnceWith('approve', { fingerprint }))
+
+    const saved = within(await dialog.findByRole('region', { name: 'Approved routing rollback' }))
+    expect(saved.getByRole('status')).toHaveTextContent('Approval expired')
+    expect(saved.getByText('prior-policy')).toBeVisible()
+    expect(
+      dialog.queryByRole('button', { name: 'Approve routing transfer' }),
+    ).not.toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Request withdrawal' }))
+    await waitFor(() => expect(saved.getByRole('status')).toHaveTextContent('Withdrawal requested'))
+    expect(decide.mock.calls).toEqual([
+      ['approve', { fingerprint }],
+      ['withdraw', { review_fingerprint: fingerprint }],
+    ])
   })
 
   test('routing approval requires the fetched review handle covering the exact declared limit', async () => {
