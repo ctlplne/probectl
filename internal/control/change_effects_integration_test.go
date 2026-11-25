@@ -186,8 +186,25 @@ func TestChangeEffectsReadsCompleteOriginalRoundTripsThroughCurrentTenantStorage
 			if err := sc.Q.QueryRow(ctx, `SELECT id::text,type,target,interval_seconds,timeout_seconds,params FROM tests WHERE tenant_id=$1 AND id=$2`, tenant, node.TestID).Scan(&definition.ID, &definition.Type, &definition.Target, &definition.IntervalSeconds, &definition.TimeoutSeconds, &params); err != nil {
 				return err
 			}
-			return json.Unmarshal(params, &definition.Params)
+			if err := json.Unmarshal(params, &definition.Params); err != nil {
+				return err
+			}
+			if lane == 0 {
+				return nil
+			}
+			definition.Params[testspec.RoutingProbeHandoffParam] = f.interfaceID
+			definition.Params[testspec.RoutingProbePeerParam] = "192.0.2.4"
+			definition.Params[testspec.RoutingProbeInterfaceParam] = "eth0"
+			definition.Params[testspec.RoutingProbeSourceParam] = "192.0.2.30"
+			definition.Params[testspec.RoutingProbePeerMACParam] = "02:01:02:03:04:05"
+			_, err := sc.Q.Exec(ctx, `UPDATE tests SET params=$3::jsonb, updated_at=statement_timestamp()
+WHERE tenant_id=$1 AND id=$2`, tenant, node.TestID, definition.Params)
+			return err
 		})
+		binding, err := testspec.ParseRoutingProbeBinding(definition.Type, definition.Target, definition.Params)
+		if err != nil || (binding != nil) != (lane == 1) {
+			t.Fatalf("fixture did not retain its egress test definition in lane %d: %v", lane, err)
+		}
 		digest, err := testspec.DefinitionHash(definition)
 		if err != nil {
 			t.Fatal(err)
@@ -205,6 +222,11 @@ func TestChangeEffectsReadsCompleteOriginalRoundTripsThroughCurrentTenantStorage
 				rtts[i] = sample
 			}
 			m := &entity.ICMPMeasurement{Version: 3, DefinitionHash: digest, StartedAt: at, CompletedAt: at, Requested: n, Attempted: n, Transmitted: n, Replies: n, ReadComplete: true, Responders: []string{definition.Target}, RoundTrips: &entity.ICMPRoundTrips{Nanos: rtts, ExecutionNanos: sample}}
+			if binding != nil {
+				witness := binding.Egress
+				witness.Transmitted = n
+				m.Version, m.Egress = entity.ICMPVersionEgress, &witness
+			}
 			claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: node.AgentID, Kind: entity.PathAgent, SourceRef: node.TestID}, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: definition.Target}, SourceRef: "icmp:configured-test", ObservedAt: at, ICMP: m}
 			receipt, err := store.NewEntityRegistry(f.pool).WriteEvidenceBatchReceipt(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), node.AgentID, serial, []entity.Observation{claim})
 			if err != nil || receipt.Accepted != 1 || receipt.ICMPMeasurements != 1 {

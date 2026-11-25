@@ -152,7 +152,7 @@ func summarizeOriginalTestPeriods(ctx context.Context, tenant string, sources []
 // Boundary-bucket legacy receipts retain their citation without inventing time.
 func changeEffectObservationClock(read store.IncidentTestMeasurement, from, to time.Time) (time.Time, bool, bool) {
 	clock := read.ObservedAt
-	precise := read.Available && read.ICMP != nil && read.ICMP.Version == 3
+	precise := read.Available && read.ICMP != nil && read.ICMP.Version >= 3
 	if precise {
 		clock = read.ICMP.CompletedAt
 	}
@@ -221,7 +221,8 @@ func (p *originalMeasurementProjection) apply(ctx context.Context) error {
 	if measurement.Requested == 0 || measurement.Replies > measurement.Transmitted || measurement.Transmitted > measurement.Attempted || measurement.Attempted > measurement.Requested {
 		return entity.ErrInvalidClaim
 	}
-	if measurement.Version == 3 && (measurement.RoundTrips == nil || uint64(len(measurement.RoundTrips.Nanos)) != uint64(measurement.Replies)) {
+	if measurement.Version >= 3 &&
+		(measurement.RoundTrips == nil || uint64(len(measurement.RoundTrips.Nanos)) != uint64(measurement.Replies)) {
 		return entity.ErrInvalidClaim
 	}
 	observation.Available = true

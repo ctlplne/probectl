@@ -21,10 +21,23 @@ import (
 func TestChangeEffectMeasurementsKeepOriginalBeforeAfterLossLatencyAndTenantBoundary(t *testing.T) {
 	at := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 	from, to := at.Add(-time.Minute), at.Add(time.Minute)
-	for _, tenant := range []string{"primary", "paired"} {
+	for lane, tenant := range []string{"primary", "paired"} {
+		version := [2]int{3, entity.ICMPVersionEgress}[lane]
 		source := store.IncidentConfiguredTest{TenantID: tenant, ContextID: "context", EntityID: "router", TestID: "test", AgentID: "agent"}
 		read := func(id string, end time.Time, rtts []uint64) store.IncidentTestMeasurement {
-			return store.IncidentTestMeasurement{TenantID: tenant, ContextID: source.ContextID, EntityID: source.EntityID, TestID: source.TestID, AgentID: source.AgentID, EvidenceID: id, ObservationID: "observation-" + id, CaptureDigest: [32]byte{byte(len(id))}, ObservedAt: end, Available: true, Reason: "original_attested_test_observation", ICMP: &entity.ICMPMeasurement{Version: 3, StartedAt: end.Add(-time.Second), CompletedAt: end, Requested: 3, Attempted: 3, Transmitted: 3, Replies: uint32(len(rtts)), ReadComplete: true, RoundTrips: &entity.ICMPRoundTrips{Nanos: rtts, ExecutionNanos: uint64(time.Second)}}}
+			t.Helper()
+			if len(rtts) > 3 {
+				t.Fatal("fixture has more replies than requests")
+			}
+			measurement := &entity.ICMPMeasurement{Version: version, StartedAt: end.Add(-time.Second), CompletedAt: end,
+				Requested: 3, Attempted: 3, Transmitted: 3, Replies: uint32(len(rtts)), ReadComplete: true,
+				RoundTrips: &entity.ICMPRoundTrips{Nanos: rtts, ExecutionNanos: uint64(time.Second)}}
+			if version == entity.ICMPVersionEgress {
+				measurement.Egress = &entity.ICMPEgressWitness{Interface: "eth0", Source: "192.0.2.30", PeerMAC: "02:01:02:03:04:05", Transmitted: 3}
+			}
+			return store.IncidentTestMeasurement{TenantID: tenant, ContextID: source.ContextID, EntityID: source.EntityID, TestID: source.TestID, AgentID: source.AgentID,
+				EvidenceID: id, ObservationID: "observation-" + id, CaptureDigest: [32]byte{byte(len(id))}, ObservedAt: end,
+				Available: true, Reason: "original_attested_test_observation", ICMP: measurement}
 		}
 		before := read("before", at.Add(-5*time.Second), []uint64{100, 200})
 		after := read("after", at.Add(5*time.Second), []uint64{900, 1200, 1500})
@@ -43,6 +56,7 @@ func TestChangeEffectMeasurementsKeepOriginalBeforeAfterLossLatencyAndTenantBoun
 		legacy.ICMP = &copyMeasurement
 		legacy.ICMP.Version = 1
 		legacy.ICMP.RoundTrips = nil
+		legacy.ICMP.Egress = nil
 		result, err = summarizeChangeEffectTests(t.Context(), tenant, []store.IncidentConfiguredTest{source}, []store.IncidentTestMeasurement{legacy}, from, at, to, 1<<20)
 		if err != nil || result[0].Before.Latency != nil || result[0].Before.LossRatio == nil || result[0].Before.LatencyCoverage != "unavailable_original_round_trips" {
 			t.Fatal("legacy data gained invented latency or lost its original packets", err)
@@ -73,7 +87,7 @@ func TestChangeEffectMeasurementsKeepOriginalBeforeAfterLossLatencyAndTenantBoun
 		if err != nil || result[0].Before.Latency == nil || result[0].Before.Latency.MeanNanos != "50" || len(result[0].Before.Observations) != 1 {
 			t.Fatal("quantized index lost an included exact original", err)
 		}
-		precise.ICMP.Version, precise.ICMP.RoundTrips = 1, nil
+		precise.ICMP.Version, precise.ICMP.RoundTrips, precise.ICMP.Egress = 1, nil, nil
 		precise.ICMP.CompletedAt = precise.ObservedAt
 		result, err = summarizeChangeEffectTests(t.Context(), tenant, []store.IncidentConfiguredTest{source}, []store.IncidentTestMeasurement{precise}, preciseFrom, at, to, 1<<20)
 		if err != nil || result[0].Before.LossRatio != nil || result[0].Before.Latency != nil || result[0].Before.Observations[0].Reason != "ambiguous_quantized_window_boundary" {
