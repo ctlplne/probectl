@@ -67,6 +67,9 @@ test.each(['/targets', '/incidents', '/dashboards'])(
     expect(badge).toHaveAttribute('href', 'https://probectl.com')
     expect(badge.querySelector('svg')).toBeInTheDocument()
     expect(nav.querySelector('img')).toHaveAttribute('src', northLogo)
+    const header = within(screen.getByRole('banner'))
+    expect(header.getByText('Northstar')).toBeInTheDocument()
+    expect(header.getByText('Powered by probectl')).toHaveAttribute('href', 'https://probectl.com')
     expect(document.documentElement.style.getPropertyValue('--powered-by-opacity')).toBe('')
     expect(document.title).toContain('Powered by probectl')
   },
@@ -118,8 +121,10 @@ test('a session change rejects another tenant’s name, logo and palette', async
   })
 
   const nav = await screen.findByRole('navigation', { name: 'Primary' })
+  const header = within(screen.getByRole('banner'))
   await waitFor(() => expect(lookups).toBe(2))
   expect(within(nav).getByText('probectl')).toBeInTheDocument()
+  expect(header.getByText('probectl')).toBeInTheDocument()
   expect(screen.queryByText('Northstar')).not.toBeInTheDocument()
   expect(nav.querySelector('img')).toBeNull()
   expect(document.documentElement.style.getPropertyValue('--font-sans')).toBe('')
@@ -136,6 +141,8 @@ test('a session change rejects another tenant’s name, logo and palette', async
     ),
   )
   expect(await within(nav).findByText('Southwind')).toBeInTheDocument()
+  expect(header.getByText('Southwind')).toBeInTheDocument()
+  expect(header.getByText('Powered by probectl')).toHaveAttribute('href', 'https://probectl.com')
   expect(nav.querySelector('img')).toHaveAttribute('src', southLogo)
   expect(within(nav).getByRole('link', { name: 'Powered by probectl' })).toHaveAttribute(
     'href',

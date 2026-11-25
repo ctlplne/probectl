@@ -63,7 +63,7 @@ export function TopBar({
   }, [accountOpen])
 
   return (
-    <header className={styles.topbar}>
+    <div className={styles.topbar}>
       <div className={styles.left}>
         <button
           type="button"
@@ -138,6 +138,6 @@ export function TopBar({
           ) : null}
         </div>
       </div>
-    </header>
+    </div>
   )
 }

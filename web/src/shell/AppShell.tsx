@@ -68,14 +68,16 @@ export function AppShell() {
     <div className={styles.shell}>
       <SkipLink />
       <Sidebar />
-      <div className={styles.mobileIdentity}>
-        <ProductIdentity />
-      </div>
-      <TopBar
-        onOpenPalette={openPalette}
-        onOpenNavigation={openMobileNav}
-        navigationOpen={mobileNavOpen}
-      />
+      <header className={styles.header}>
+        <div className={styles.mobileIdentity}>
+          <ProductIdentity />
+        </div>
+        <TopBar
+          onOpenPalette={openPalette}
+          onOpenNavigation={openMobileNav}
+          navigationOpen={mobileNavOpen}
+        />
+      </header>
       <div className={styles.banners}>
         <DemoModeBanner />
         <EditionBanner />

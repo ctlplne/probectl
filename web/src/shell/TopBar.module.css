@@ -1,5 +1,4 @@
 .topbar {
-  grid-area: topbar;
   height: var(--layout-topbar-height);
   display: flex;
   align-items: center;

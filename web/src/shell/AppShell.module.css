@@ -20,6 +20,11 @@
     'main sidebar';
 }
 
+.header {
+  grid-area: topbar;
+  min-width: 0;
+}
+
 .mobileIdentity {
   display: none;
 }
@@ -55,9 +60,8 @@
   .shell,
   :global(html[dir='rtl']) .shell {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto var(--layout-topbar-height) auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
     grid-template-areas:
-      'identity'
       'topbar'
       'banner'
       'main';
@@ -67,7 +71,6 @@
   }
   .mobileIdentity {
     display: block;
-    grid-area: identity;
     min-width: 0;
     padding: var(--space-1) var(--space-3);
   }

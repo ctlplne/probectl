@@ -1317,6 +1317,15 @@ async function assertCustomerAttribution(browser, baseURL) {
           }
           const badge = page.getByRole("link", { name: "Powered by probectl", exact: true });
           await badge.waitFor({ state: "visible" });
+          if (signedIn && !desktopConsole) {
+            const mobileBadge = page.getByRole("banner").getByRole("link", {
+              name: "Powered by probectl",
+              exact: true,
+            });
+            if (!(await mobileBadge.isVisible())) {
+              throw new Error("Mobile customer attribution is outside the console banner");
+            }
+          }
           if (desktopConsole) {
             const scrolled = await page.getByRole("navigation", { name: "Primary", exact: true }).evaluate((nav) => {
               const sections = [nav, ...nav.children];
