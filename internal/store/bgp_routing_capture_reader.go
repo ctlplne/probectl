@@ -22,6 +22,11 @@ import (
 // of a flow key/clock does not grant source access. Private intents, changed
 // ownership/credentials and erased payloads are unavailable.
 func (BGPRouting) readFlowCaptureInScope(ctx context.Context, sc tenancy.Scope, sender string, witness entity.FlowCaptureWitness, ref BGPRoutingCaptureReference, budget BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error) (BGPRoutingFlowLookup, error) {
+	return readFlowCaptureWithExporterAuthority(ctx, sc, sender, witness, ref, budget, authorize, false)
+}
+
+func readFlowCaptureWithExporterAuthority(ctx context.Context, sc tenancy.Scope, sender string, witness entity.FlowCaptureWitness,
+	ref BGPRoutingCaptureReference, budget BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error, continuousExporter bool) (BGPRoutingFlowLookup, error) {
 	if err := routingCaptureScope(ctx, sc); err != nil {
 		return BGPRoutingFlowLookup{}, err
 	}
@@ -75,7 +80,7 @@ func (BGPRouting) readFlowCaptureInScope(ctx context.Context, sc tenancy.Scope, 
 	if lookup.Owner.ContextID != contextID {
 		return BGPRoutingFlowLookup{}, entity.ErrScopeMismatch
 	}
-	current, err := routingCaptureAuthorityCurrent(ctx, sc, lookup, sender, witness.Input, budget, false)
+	current, err := routingCaptureAuthorityCurrent(ctx, sc, lookup, sender, witness.Input, budget, false, continuousExporter)
 	if err != nil {
 		return BGPRoutingFlowLookup{}, err
 	}

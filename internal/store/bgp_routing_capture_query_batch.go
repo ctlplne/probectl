@@ -44,8 +44,9 @@ func readRoutingCaptureQueryBatchInScope(ctx context.Context, sc tenancy.Scope, 
 }
 
 type routingCaptureVisitor struct {
-	scope entity.Scope
-	visit func(context.Context, flowstore.RoutingCaptureRead, BGPRoutingFlowLookup, *BGPRoutingBudget) error
+	scope              entity.Scope
+	visit              func(context.Context, flowstore.RoutingCaptureRead, BGPRoutingFlowLookup, *BGPRoutingBudget) error
+	continuousExporter bool
 }
 
 func readRoutingCaptureBatch(ctx context.Context, sc tenancy.Scope, reads []flowstore.RoutingCaptureRead, budget BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error, visitor *routingCaptureVisitor, peering ...BGPPeeringCaptureTarget) ([]flowstore.RoutingProjection, error) {
@@ -129,6 +130,7 @@ func readRoutingCaptureBatch(ctx context.Context, sc tenancy.Scope, reads []flow
 		}
 	}
 	cache := map[[64]byte]routingQueryCaptureCache{}
+	continuousExporter := visitor != nil && visitor.continuousExporter
 	var out []flowstore.RoutingProjection
 	if visitor == nil {
 		out = make([]flowstore.RoutingProjection, 0, len(reads))
@@ -143,7 +145,7 @@ func readRoutingCaptureBatch(ctx context.Context, sc tenancy.Scope, reads []flow
 		}
 		entry, cached := cache[header.objects]
 		if !cached {
-			entry, err = loadRoutingQueryCaptureCache(ctx, sc, read, header, &budget, authorizeOnce, visitor == nil, peering...)
+			entry, err = loadRoutingQueryCaptureCache(ctx, sc, read, header, &budget, authorizeOnce, visitor == nil, continuousExporter, peering...)
 			if err != nil {
 				return nil, err
 			}
@@ -246,9 +248,15 @@ func loadScopedRoutingQueryCaptureHeaders(ctx context.Context, sc tenancy.Scope,
 	return out, rows.Err()
 }
 
-func loadRoutingQueryCaptureCache(ctx context.Context, sc tenancy.Scope, read flowstore.RoutingCaptureRead, header routingQueryCaptureHeader, budget *BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error, project bool, peering ...BGPPeeringCaptureTarget) (routingQueryCaptureCache, error) {
+func loadRoutingQueryCaptureCache(ctx context.Context, sc tenancy.Scope, read flowstore.RoutingCaptureRead, header routingQueryCaptureHeader, budget *BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error, project, continuousExporter bool, peering ...BGPPeeringCaptureTarget) (routingQueryCaptureCache, error) {
 	entry := routingQueryCaptureCache{}
-	lookup, err := (BGPRouting{}).readFlowCaptureInScope(ctx, sc, read.Sender, read.Witness, read.Ref, *budget, authorize)
+	var lookup BGPRoutingFlowLookup
+	var err error
+	if continuousExporter {
+		lookup, err = readFlowCaptureWithExporterAuthority(ctx, sc, read.Sender, read.Witness, read.Ref, *budget, authorize, true)
+	} else {
+		lookup, err = (BGPRouting{}).readFlowCaptureInScope(ctx, sc, read.Sender, read.Witness, read.Ref, *budget, authorize)
+	}
 	if errors.Is(err, ErrBGPRoutingSourceUnavailable) {
 		return entry, nil
 	}

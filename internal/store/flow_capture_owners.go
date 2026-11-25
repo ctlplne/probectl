@@ -212,18 +212,23 @@ func (state *capturedFlowOwnerRead) continuousOwner(ctx context.Context, sc tena
 	}
 	// Refreshing an observation/certificate does not erase traffic history.
 	// Reassignment or deletion/recreation must not revive an old association.
-	var since time.Time
-	err = sc.Q.QueryRow(ctx, `SELECT GREATEST(source.assigned_at,assignment.assigned_at,node.created_at)
-		FROM entity_source_contexts source JOIN entity_agent_contexts assignment
-		ON (assignment.tenant_id,assignment.context_id,assignment.agent_id)=(source.tenant_id,source.context_id,source.agent_id)
-		JOIN entities node ON (node.tenant_id,node.context_id,node.id)=(source.tenant_id,source.context_id,source.anchor_entity_id)
-		WHERE source.tenant_id=$1 AND source.context_id=$2 AND source.agent_id=$3
-		AND source.source_kind='flow_exporter' AND source.source_ref=$4 AND node.id=$5 AND node.kind='device'`,
-		sc.Tenant.String(), owner.ContextID, owner.AgentID, owner.Exporter.String(), owner.RouterID).Scan(&since)
+	since, err := currentFlowOwnerSince(ctx, sc, owner)
 	if err != nil {
 		return none, err
 	}
 	value := capturedFlowOwnerCurrent{binding: binding, since: since, valid: true}
 	state.current[key] = value
 	return value, nil
+}
+
+func currentFlowOwnerSince(ctx context.Context, sc tenancy.Scope, owner InterfaceRoleExporterOwner) (time.Time, error) {
+	var since time.Time
+	err := sc.Q.QueryRow(ctx, `SELECT GREATEST(source.assigned_at,assignment.assigned_at,node.created_at)
+		FROM entity_source_contexts source JOIN entity_agent_contexts assignment
+		ON (assignment.tenant_id,assignment.context_id,assignment.agent_id)=(source.tenant_id,source.context_id,source.agent_id)
+		JOIN entities node ON (node.tenant_id,node.context_id,node.id)=(source.tenant_id,source.context_id,source.anchor_entity_id)
+		WHERE source.tenant_id=$1 AND source.context_id=$2 AND source.agent_id=$3
+		AND source.source_kind='flow_exporter' AND source.source_ref=$4 AND node.id=$5 AND node.kind='device'`,
+		sc.Tenant.String(), owner.ContextID, owner.AgentID, owner.Exporter.String(), owner.RouterID).Scan(&since)
+	return since, err
 }

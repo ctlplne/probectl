@@ -5013,15 +5013,16 @@ type RoutingTransferEstimate struct {
 
 // Choose billing_at for a complete common billing period, or observed_from and observed_to for a closed measurement comparison at the two recorded tariffs.
 type RoutingTransferInput struct {
-	BillingAt         string                          `json:"billing_at,omitempty"`
-	Candidate         RoutingTransferBillingSelection `json:"candidate"`
-	ContextId         string                          `json:"context_id"`
-	DestinationPrefix string                          `json:"destination_prefix"`
-	LocalPreference   int                             `json:"local_preference"`
-	MaximumPollGap    string                          `json:"maximum_poll_gap"`
-	ObservedFrom      string                          `json:"observed_from,omitempty"`
-	ObservedTo        string                          `json:"observed_to,omitempty"`
-	Source            RoutingTransferBillingSelection `json:"source"`
+	BillingAt         string                              `json:"billing_at,omitempty"`
+	Candidate         RoutingTransferBillingSelection     `json:"candidate"`
+	ContextId         string                              `json:"context_id"`
+	DestinationPrefix string                              `json:"destination_prefix"`
+	LocalPreference   int                                 `json:"local_preference"`
+	MaximumPollGap    string                              `json:"maximum_poll_gap"`
+	ObservedFrom      string                              `json:"observed_from,omitempty"`
+	ObservedTo        string                              `json:"observed_to,omitempty"`
+	ProbeComparison   RoutingTransferProbeComparisonInput `json:"probe_comparison,omitzero"`
+	Source            RoutingTransferBillingSelection     `json:"source"`
 }
 
 type RoutingTransferPolicy struct {
@@ -5034,14 +5035,61 @@ type RoutingTransferPolicy struct {
 	RouterId        string `json:"router_id"`
 }
 
+// One closed window inside the estimate window, with the same target and packet profile on two explicitly assigned upstreams. Charge is in the agreements’ common currency.
+type RoutingTransferProbeComparisonInput struct {
+	Candidate                   RoutingTransferProbeTestSelection `json:"candidate"`
+	From                        string                            `json:"from"`
+	MaximumAddedCharge          string                            `json:"maximum_added_charge"`
+	MaximumCandidateLossPpm     int                               `json:"maximum_candidate_loss_ppm"`
+	MaximumCandidateP95RttNanos string                            `json:"maximum_candidate_p95_rtt_nanos"`
+	Mode                        string                            `json:"mode"`
+	Source                      RoutingTransferProbeTestSelection `json:"source"`
+	To                          string                            `json:"to"`
+}
+
+type RoutingTransferProbeStats struct {
+	AgentId     string `json:"agent_id"`
+	LossRatio   string `json:"loss_ratio"`
+	P95RttNanos string `json:"p95_rtt_nanos,omitempty"`
+	Reachable   bool   `json:"reachable"`
+	Replies     int    `json:"replies"`
+	TestId      string `json:"test_id"`
+	Transmitted int    `json:"transmitted"`
+}
+
+type RoutingTransferProbeTestSelection struct {
+	AgentId string `json:"agent_id"`
+	TestId  string `json:"test_id"`
+}
+
 type RoutingTransferResponse struct {
-	ContextId         string                  `json:"context_id"`
-	DestinationPrefix string                  `json:"destination_prefix"`
-	Estimate          RoutingTransferEstimate `json:"estimate"`
-	EstimateBasis     string                  `json:"estimate_basis"`
-	PerformanceStatus string                  `json:"performance_status"`
-	Policy            RoutingTransferPolicy   `json:"policy,omitzero"`
-	SourceValidUntil  string                  `json:"source_valid_until"`
+	ContextId           string                             `json:"context_id"`
+	DestinationPrefix   string                             `json:"destination_prefix"`
+	Estimate            RoutingTransferEstimate            `json:"estimate"`
+	EstimateBasis       string                             `json:"estimate_basis"`
+	PerformanceStatus   string                             `json:"performance_status"`
+	Policy              RoutingTransferPolicy              `json:"policy,omitzero"`
+	SourceValidUntil    string                             `json:"source_valid_until"`
+	UpstreamPerformance RoutingTransferUpstreamPerformance `json:"upstream_performance,omitzero"`
+}
+
+type RoutingTransferUpstreamPerformance struct {
+	Candidate                   RoutingTransferProbeStats `json:"candidate,omitzero"`
+	From                        string                    `json:"from"`
+	LossImprovementRatio        string                    `json:"loss_improvement_ratio,omitempty"`
+	MaximumAddedCharge          string                    `json:"maximum_added_charge"`
+	MaximumCandidateLossPpm     int                       `json:"maximum_candidate_loss_ppm"`
+	MaximumCandidateP95RttNanos string                    `json:"maximum_candidate_p95_rtt_nanos"`
+	Mode                        string                    `json:"mode"`
+	P95RttImprovementNanos      string                    `json:"p95_rtt_improvement_nanos,omitempty"`
+	PairedRounds                int                       `json:"paired_rounds"`
+	Reason                      string                    `json:"reason,omitempty"`
+	Recommendation              string                    `json:"recommendation"`
+	RecommendationReason        string                    `json:"recommendation_reason"`
+	Source                      RoutingTransferProbeStats `json:"source,omitzero"`
+	Status                      string                    `json:"status"`
+	Target                      string                    `json:"target"`
+	To                          string                    `json:"to"`
 }
 
 // A SCIM bearer-token metadata row. The token hash and plaintext token are never returned from list/get responses.

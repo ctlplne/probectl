@@ -8,7 +8,10 @@ package control
 
 import (
 	"context"
+	"maps"
 	"net/netip"
+	"reflect"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -27,62 +30,100 @@ type routingTransferFlowEvidence struct {
 	destinations map[netip.Addr]netip.Prefix
 }
 
+func (e routingTransferFlowEvidence) matchesCurrent(current routingTransferFlowEvidence) bool {
+	sameOwner := func(before, after store.CapturedFlowOwner) bool {
+		// These are current observations of a continuous assignment. The
+		// immutable original and current assignment epoch must still match.
+		if before.CurrentSourceID == "" || after.CurrentSourceID == "" {
+			return false
+		}
+		before.CurrentSourceID = after.CurrentSourceID
+		return before == after
+	}
+	return maps.EqualFunc(e.owners, current.owners, sameOwner) &&
+		reflect.DeepEqual(e.selected, current.selected) &&
+		maps.Equal(e.destinations, current.destinations)
+}
+
 type routingTransferFlowInput struct {
 	rows      []flowstore.Row
 	originals routingTransferFlowEvidence
 }
 
+type routingTransferExporterPlan struct {
+	sources    []flowstore.IncidentTrafficSource
+	validUntil time.Time
+}
+
+func (p routingTransferExporterPlan) matchesCurrent(current routingTransferExporterPlan) bool {
+	return !p.validUntil.IsZero() && !current.validUntil.Before(p.validUntil) && reflect.DeepEqual(p.sources, current.sources)
+}
+
 // A provider need not expose its other end of a link. Exact address/ifIndex
 // ownership of the local handoff and the same router's exporter suffice.
 func (s *Server) routingTransferExporterSources(ctx context.Context, actor *auth.Principal, scope entity.Scope,
-	port store.DeviceCounterInterface, budget flowstore.ExplorerBudget) ([]flowstore.IncidentTrafficSource, error) {
-	var out []flowstore.IncidentTrafficSource
-	if port.Scope != scope || port.IfIndex == 0 {
-		return nil, entity.ErrScopeMismatch
-	}
+	port store.DeviceCounterInterface, budget flowstore.ExplorerBudget) (routingTransferExporterPlan, error) {
+	var out routingTransferExporterPlan
 	err := s.withTopologyFailureSnapshot(ctx, actor, scope, budget, func(ctx context.Context, sc tenancy.Scope, record entity.ContextRecord, authorize topologyFailureAuthorize) error {
-		for _, id := range []string{port.Source.DeviceID, port.InterfaceID} {
-			if err := authorize(ctx, record, id); err != nil {
-				return err
-			}
-		}
-		current, err := store.NewDeviceCounterCaptures(s.pool).CurrentInterfaceInScope(ctx, sc, scope, port.InterfaceID)
-		if err != nil {
-			return err
-		}
-		if !sameCapacityCounterInterface(port, current) {
-			return apierror.Unavailable("handoff ownership changed; retry")
-		}
-		reader := &store.InterfaceRoleInputsStore{}
-		part := entity.InterfaceRolePolicyBudget{MemoryBytes: budget.MemoryBytes / 8, WorkUnits: budget.ReadBytes / 8}
-		owners, err := reader.ExporterOwnersInScope(ctx, sc, part)
-		if err != nil {
-			return err
-		}
-		byIP := map[netip.Addr][]store.InterfaceRoleExporterOwner{}
-		for _, owner := range owners {
-			byIP[owner.Exporter] = append(byIP[owner.Exporter], owner)
-		}
-		bindings, err := reader.FlowBindingsInScope(ctx, sc, scope, part)
-		if err != nil {
-			return err
-		}
-		for _, binding := range bindings {
-			owner := byIP[binding.Exporter]
-			if binding.Scope != scope || binding.RouterID != port.Source.DeviceID || len(owner) != 1 ||
-				owner[0].Scope != scope || owner[0].RouterID != binding.RouterID || owner[0].AgentID != binding.AgentID {
-				continue
-			}
-			out = append(out, flowstore.IncidentTrafficSource{AgentID: binding.AgentID, Exporter: binding.Exporter, Protocol: binding.Protocol,
-				Domain: binding.Domain, InterfaceIndices: []uint32{port.IfIndex}})
-		}
-		return ctx.Err()
+		var err error
+		out, err = s.routingTransferExporterSourcesInScope(ctx, sc, scope, record, authorize, port, budget)
+		return err
 	})
 	if err != nil {
-		return nil, err
+		return routingTransferExporterPlan{}, err
 	}
-	if len(out) == 0 {
-		return nil, apierror.Unavailable("the selected handoff has no current original flow exporter")
+	return out, ctx.Err()
+}
+
+func (s *Server) routingTransferExporterSourcesInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope,
+	record entity.ContextRecord, authorize topologyFailureAuthorize, port store.DeviceCounterInterface, budget flowstore.ExplorerBudget) (routingTransferExporterPlan, error) {
+	var out routingTransferExporterPlan
+	if port.Scope != scope || port.IfIndex == 0 {
+		return routingTransferExporterPlan{}, entity.ErrScopeMismatch
+	}
+	for _, id := range []string{port.Source.DeviceID, port.InterfaceID} {
+		if err := authorize(ctx, record, id); err != nil {
+			return routingTransferExporterPlan{}, err
+		}
+	}
+	current, err := store.NewDeviceCounterCaptures(s.pool).CurrentInterfaceInScope(ctx, sc, scope, port.InterfaceID)
+	if err != nil {
+		return routingTransferExporterPlan{}, err
+	}
+	if !sameCapacityCounterInterface(port, current) {
+		return routingTransferExporterPlan{}, apierror.Unavailable("handoff ownership changed; retry")
+	}
+	reader := &store.InterfaceRoleInputsStore{}
+	part := entity.InterfaceRolePolicyBudget{MemoryBytes: budget.MemoryBytes / 8, WorkUnits: budget.ReadBytes / 8}
+	owners, err := reader.ExporterOwnersInScope(ctx, sc, part)
+	if err != nil {
+		return routingTransferExporterPlan{}, err
+	}
+	byIP := map[netip.Addr][]store.InterfaceRoleExporterOwner{}
+	for _, owner := range owners {
+		byIP[owner.Exporter] = append(byIP[owner.Exporter], owner)
+	}
+	bindings, err := reader.FlowBindingsInScope(ctx, sc, scope, part)
+	if err != nil {
+		return routingTransferExporterPlan{}, err
+	}
+	for _, binding := range bindings {
+		owner := byIP[binding.Exporter]
+		if binding.Scope != scope || binding.RouterID != port.Source.DeviceID || len(owner) != 1 ||
+			owner[0].Scope != scope || owner[0].RouterID != binding.RouterID || owner[0].AgentID != binding.AgentID {
+			continue
+		}
+		if binding.ValidUntil.IsZero() {
+			return routingTransferExporterPlan{}, apierror.Unavailable("the selected handoff has no current exporter lease")
+		}
+		out.sources = append(out.sources, flowstore.IncidentTrafficSource{AgentID: binding.AgentID, Exporter: binding.Exporter, Protocol: binding.Protocol,
+			Domain: binding.Domain, InterfaceIndices: []uint32{port.IfIndex}})
+		if out.validUntil.IsZero() || binding.ValidUntil.Before(out.validUntil) {
+			out.validUntil = binding.ValidUntil
+		}
+	}
+	if len(out.sources) == 0 {
+		return routingTransferExporterPlan{}, apierror.Unavailable("the selected handoff has no current original flow exporter")
 	}
 	return out, ctx.Err()
 }
@@ -117,44 +158,55 @@ func (s *Server) readRoutingTransferFlows(ctx context.Context, scope entity.Scop
 
 func (s *Server) readRoutingTransferOriginals(ctx context.Context, actor *auth.Principal, scope entity.Scope, router string,
 	originals routingTransferFlowEvidence, budget flowstore.ExplorerBudget) (routingTransferFlowEvidence, error) {
-	out := routingTransferFlowEvidence{all: originals.all, inPrefix: originals.inPrefix,
-		owners: map[[32]byte]store.CapturedFlowOwner{}, selected: map[[32]byte]store.BGPRoutingFailureCapture{}, destinations: map[netip.Addr]netip.Prefix{}}
+	var out routingTransferFlowEvidence
 	err := s.withTopologyFailureSnapshot(ctx, actor, scope, budget, func(ctx context.Context, sc tenancy.Scope, record entity.ContextRecord, authorize topologyFailureAuthorize) error {
-		if err := authorize(ctx, record, router); err != nil {
-			return err
-		}
-		bgpBudget := store.BGPRoutingBudget{MemoryBytes: budget.MemoryBytes / 8, WorkUnits: budget.ReadBytes / 8, StateBytes: budget.MemoryBytes}
-		owners, err := (store.CapturedFlowOwners{}).ReadInScope(ctx, sc, originals.all, bgpBudget,
-			func(ctx context.Context, current entity.ContextRecord, binding store.InterfaceRoleFlowBinding) error {
-				if binding.Scope != scope || binding.RouterID != router {
-					return entity.ErrScopeMismatch
-				}
-				return authorize(ctx, current, router)
-			})
-		if err != nil {
-			return err
-		}
-		for _, owner := range owners {
-			if owner.Available {
-				out.owners[owner.Reference.Key] = owner
-			}
-		}
-		routing := store.BGPRouting{}
-		captures, err := routing.FailureCapturesInScope(ctx, sc, scope, originals.inPrefix, bgpBudget, func(ctx context.Context, current entity.ContextRecord) error {
-			return authorize(ctx, current, router)
-		})
-		if err != nil {
-			return err
-		}
-		for _, capture := range captures {
-			if capture.Owner.Scope != scope || capture.Owner.RouterID != router {
-				return entity.ErrScopeMismatch
-			}
-			out.selected[capture.Reference.Key] = capture
-		}
-		return readRoutingTransferCurrentPrefixes(ctx, sc, scope, router, &out, bgpBudget)
+		var err error
+		out, err = s.readRoutingTransferOriginalsInScope(ctx, sc, scope, record, authorize, router, originals, budget)
+		return err
 	})
 	if err != nil {
+		return routingTransferFlowEvidence{}, err
+	}
+	return out, ctx.Err()
+}
+
+func (s *Server) readRoutingTransferOriginalsInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope,
+	record entity.ContextRecord, authorize topologyFailureAuthorize, router string, originals routingTransferFlowEvidence, budget flowstore.ExplorerBudget) (routingTransferFlowEvidence, error) {
+	out := routingTransferFlowEvidence{all: originals.all, inPrefix: originals.inPrefix,
+		owners: map[[32]byte]store.CapturedFlowOwner{}, selected: map[[32]byte]store.BGPRoutingFailureCapture{}, destinations: map[netip.Addr]netip.Prefix{}}
+	if err := authorize(ctx, record, router); err != nil {
+		return routingTransferFlowEvidence{}, err
+	}
+	bgpBudget := store.BGPRoutingBudget{MemoryBytes: budget.MemoryBytes / 8, WorkUnits: budget.ReadBytes / 8, StateBytes: budget.MemoryBytes}
+	owners, err := (store.CapturedFlowOwners{}).ReadInScope(ctx, sc, originals.all, bgpBudget,
+		func(ctx context.Context, current entity.ContextRecord, binding store.InterfaceRoleFlowBinding) error {
+			if binding.Scope != scope || binding.RouterID != router {
+				return entity.ErrScopeMismatch
+			}
+			return authorize(ctx, current, router)
+		})
+	if err != nil {
+		return routingTransferFlowEvidence{}, err
+	}
+	for _, owner := range owners {
+		if owner.Available {
+			out.owners[owner.Reference.Key] = owner
+		}
+	}
+	routing := store.BGPRouting{}
+	captures, err := routing.TransferCapturesInScope(ctx, sc, scope, originals.inPrefix, bgpBudget, func(ctx context.Context, current entity.ContextRecord) error {
+		return authorize(ctx, current, router)
+	})
+	if err != nil {
+		return routingTransferFlowEvidence{}, err
+	}
+	for _, capture := range captures {
+		if capture.Owner.Scope != scope || capture.Owner.RouterID != router {
+			return routingTransferFlowEvidence{}, entity.ErrScopeMismatch
+		}
+		out.selected[capture.Reference.Key] = capture
+	}
+	if err := readRoutingTransferCurrentPrefixes(ctx, sc, scope, router, &out, bgpBudget); err != nil {
 		return routingTransferFlowEvidence{}, err
 	}
 	return out, ctx.Err()

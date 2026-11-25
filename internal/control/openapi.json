@@ -347,7 +347,7 @@
         "x-probectl-lifecycle": {
           "stage": "preview"
         },
-        "description": "Requires current tenant financial read authority and scoped topology, flow, entity, metric and event reads for both handoffs and their shared router. Reconciles original flow traffic against independently witnessed counters, shifts the measured traffic interval by interval, and recomputes the two recorded charges. The policy describes the exact inbound preference change as a proposal and has no router side effect.",
+        "description": "Requires current tenant financial read authority and scoped topology, flow, entity, metric and event reads for both handoffs and their shared router. Reconciles original flow traffic against independently witnessed counters and recomputes the two recorded charges. An optional probe comparison also requires current test and agent read access. It admits complete paired upstream observations and checks the supplied performance and charge ceilings. A feasible recommendation can include an exact inbound preference policy preview.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -41362,6 +41362,9 @@
           "observed_to": {
             "type": "string",
             "format": "date-time"
+          },
+          "probe_comparison": {
+            "$ref": "#/components/schemas/RoutingTransferProbeComparisonInput"
           }
         },
         "required": [
@@ -41537,6 +41540,9 @@
               "complete_billing_period",
               "observed_window_at_recorded_unit_rates"
             ]
+          },
+          "upstream_performance": {
+            "$ref": "#/components/schemas/RoutingTransferUpstreamPerformance"
           }
         },
         "required": [
@@ -41546,6 +41552,209 @@
           "performance_status",
           "source_valid_until",
           "estimate_basis"
+        ]
+      },
+      "RoutingTransferProbeTestSelection": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "test_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "test_id",
+          "agent_id"
+        ]
+      },
+      "RoutingTransferProbeComparisonInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/RoutingTransferProbeTestSelection"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/RoutingTransferProbeTestSelection"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "improve_performance",
+              "reduce_cost"
+            ]
+          },
+          "maximum_candidate_loss_ppm": {
+            "type": "integer",
+            "minimum": 0,
+            "format": "int64",
+            "maximum": 1000000
+          },
+          "maximum_candidate_p95_rtt_nanos": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "maximum_added_charge": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,8})?$"
+          }
+        },
+        "required": [
+          "source",
+          "candidate",
+          "from",
+          "to",
+          "mode",
+          "maximum_candidate_loss_ppm",
+          "maximum_candidate_p95_rtt_nanos",
+          "maximum_added_charge"
+        ],
+        "description": "One closed window inside the estimate window, with the same target and packet profile on two explicitly assigned upstreams. Charge is in the agreements’ common currency."
+      },
+      "RoutingTransferProbeStats": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "test_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "transmitted": {
+            "type": "integer",
+            "minimum": 0,
+            "format": "int64"
+          },
+          "replies": {
+            "type": "integer",
+            "minimum": 0,
+            "format": "int64"
+          },
+          "reachable": {
+            "type": "boolean"
+          },
+          "loss_ratio": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)(/[1-9][0-9]*)?$"
+          },
+          "p95_rtt_nanos": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
+          }
+        },
+        "required": [
+          "test_id",
+          "agent_id",
+          "transmitted",
+          "replies",
+          "reachable",
+          "loss_ratio"
+        ]
+      },
+      "RoutingTransferUpstreamPerformance": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "measured",
+              "unavailable"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "paired_rounds": {
+            "type": "integer",
+            "minimum": 0,
+            "format": "int64"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RoutingTransferProbeStats"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/RoutingTransferProbeStats"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "improve_performance",
+              "reduce_cost"
+            ]
+          },
+          "maximum_candidate_loss_ppm": {
+            "type": "integer",
+            "minimum": 0,
+            "format": "int64",
+            "maximum": 1000000
+          },
+          "maximum_candidate_p95_rtt_nanos": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "maximum_added_charge": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,8})?$"
+          },
+          "recommendation": {
+            "type": "string",
+            "enum": [
+              "retain_current",
+              "move_prefix"
+            ]
+          },
+          "recommendation_reason": {
+            "type": "string"
+          },
+          "loss_improvement_ratio": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)(/[1-9][0-9]*)?$"
+          },
+          "p95_rtt_improvement_nanos": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]{0,18})$"
+          }
+        },
+        "required": [
+          "target",
+          "from",
+          "to",
+          "status",
+          "paired_rounds",
+          "mode",
+          "maximum_candidate_loss_ppm",
+          "maximum_candidate_p95_rtt_nanos",
+          "maximum_added_charge",
+          "recommendation",
+          "recommendation_reason"
         ]
       },
       "CapacityPhysicalBound": {

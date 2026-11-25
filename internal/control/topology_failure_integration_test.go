@@ -16,6 +16,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math"
 	"net/http/httptest"
 	"net/netip"
 	"os"
@@ -431,6 +432,12 @@ func seedTopologyFailureMeasuredLoad(t *testing.T, f *roleExplanationAPIFixture,
 	from, to time.Time, failedBytes uint64) {
 	t.Helper()
 	const snmp, exporter = "role-snmp", "role-flow"
+	const initialUptime = 10000
+	elapsedTicks := int64(to.Sub(from) / (10 * time.Millisecond))
+	if elapsedTicks <= 0 || elapsedTicks > math.MaxUint32-initialUptime {
+		t.Fatal("measurement fixture window exceeds the supported uptime range")
+	}
+	uptime := [2]uint32{initialUptime, initialUptime + uint32(elapsedTicks)}
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 	profile := store.BGPRoutingBudget{MemoryBytes: 64 << 20, WorkUnits: 64 << 20, StateBytes: 128 << 20}
 	record := &flowv1.FlowRecord{TenantId: tenant, AgentId: exporter, ExporterAddress: local,
@@ -483,7 +490,7 @@ func seedTopologyFailureMeasuredLoad(t *testing.T, f *roleExplanationAPIFixture,
 							SourceAssignedAt: witness.SourceAssignedAt, AgentAssignedAt: witness.AgentAssignedAt},
 						SenderSerial: witness.SenderSerial, CaptureKey: ref.Key, RawDigest: digest, CapturedAt: ref.CapturedAt, PollStartedAt: at, PollCompletedAt: at,
 						Population: input.PointCount, IfIndex: index, Name: "probectl.device.if." + direction + ".octets", Value: 10000 + uint64(poll)*increment, Width: 64,
-						UptimeTicks: 10000 + uint32(poll)*100, UptimeKnown: true, DiscontinuityKnown: true, InterfaceSpeedBPS: 1_000_000, InterfaceSpeedKnown: true})
+						UptimeTicks: uptime[poll], UptimeKnown: true, DiscontinuityKnown: true, InterfaceSpeedBPS: 1_000_000, InterfaceSpeedKnown: true})
 				}
 			}
 			if err := ch.InsertCounterPoll(ctx, rows, budget); err != nil {

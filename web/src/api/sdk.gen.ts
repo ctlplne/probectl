@@ -4840,6 +4840,7 @@ export interface RoutingTransferInput {
   maximum_poll_gap: string
   observed_from?: string
   observed_to?: string
+  probe_comparison?: RoutingTransferProbeComparisonInput
   source: RoutingTransferBillingSelection
 }
 
@@ -4853,6 +4854,32 @@ export interface RoutingTransferPolicy {
   router_id: string
 }
 
+export interface RoutingTransferProbeComparisonInput {
+  candidate: RoutingTransferProbeTestSelection
+  from: string
+  maximum_added_charge: string
+  maximum_candidate_loss_ppm: number
+  maximum_candidate_p95_rtt_nanos: string
+  mode: "improve_performance" | "reduce_cost"
+  source: RoutingTransferProbeTestSelection
+  to: string
+}
+
+export interface RoutingTransferProbeStats {
+  agent_id: string
+  loss_ratio: string
+  p95_rtt_nanos?: string
+  reachable: boolean
+  replies: number
+  test_id: string
+  transmitted: number
+}
+
+export interface RoutingTransferProbeTestSelection {
+  agent_id: string
+  test_id: string
+}
+
 export interface RoutingTransferResponse {
   context_id: string
   destination_prefix: string
@@ -4861,6 +4888,26 @@ export interface RoutingTransferResponse {
   performance_status: string
   policy?: RoutingTransferPolicy
   source_valid_until: string
+  upstream_performance?: RoutingTransferUpstreamPerformance
+}
+
+export interface RoutingTransferUpstreamPerformance {
+  candidate?: RoutingTransferProbeStats
+  from: string
+  loss_improvement_ratio?: string
+  maximum_added_charge: string
+  maximum_candidate_loss_ppm: number
+  maximum_candidate_p95_rtt_nanos: string
+  mode: "improve_performance" | "reduce_cost"
+  p95_rtt_improvement_nanos?: string
+  paired_rounds: number
+  reason?: string
+  recommendation: "retain_current" | "move_prefix"
+  recommendation_reason: string
+  source?: RoutingTransferProbeStats
+  status: "measured" | "unavailable"
+  target: string
+  to: string
 }
 
 export interface SCIMToken {

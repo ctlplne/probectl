@@ -22,7 +22,7 @@ func WithRoutingTransferEstimate(schema json.RawMessage, read func(context.Conte
 		}
 		tool := Tool{
 			Name: RoutingTransferToolName, InputSchema: append(json.RawMessage(nil), schema...),
-			Description: "Estimate the charges and headroom from moving one exact prefix between two owned upstream handoffs. Requires original routing, traffic and counter evidence. The result is a read-only policy preview.",
+			Description: "Estimate charges and headroom for moving one exact prefix between owned upstream handoffs. Optionally compare paired active probes against performance and charge limits. Requires original evidence and returns a read-only policy preview.",
 			Permission:  "flow.agreements.read", ExtraPermissions: []string{"topology.read", "flow.read", "entities.read", "metrics.read", "events.read"},
 			Native: true, RequiresUser: true, Query: true,
 			Invoke: func(ctx context.Context, p *auth.Principal, raw json.RawMessage) (any, error) {

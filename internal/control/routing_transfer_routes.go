@@ -39,6 +39,16 @@ type routingTransferRoute struct {
 	pathsFingerprint       [32]byte
 }
 
+// A heartbeat can extend an unchanged route. A response keeps its original
+// deadline and must be recomputed if the current lease is any shorter.
+func (r routingTransferRoute) matchesCurrent(current routingTransferRoute) bool {
+	if r.validUntil.IsZero() || current.validUntil.Before(r.validUntil) {
+		return false
+	}
+	current.validUntil = r.validUntil
+	return r == current
+}
+
 func selectRoutingTransferPorts(scope entity.Scope, plans routingTransferBillPlans) routingTransferPorts {
 	var ports routingTransferPorts
 	for _, member := range plans.plan[0].members {
@@ -62,40 +72,43 @@ func selectRoutingTransferPorts(scope entity.Scope, plans routingTransferBillPla
 func (s *Server) authorizeRoutingTransferRoute(ctx context.Context, actor *auth.Principal, scope entity.Scope,
 	ports routingTransferPorts, prefix netip.Prefix, budget flowstore.ExplorerBudget) (routingTransferRoute, error) {
 	var out routingTransferRoute
-	router := ports.source.Source.DeviceID
-	if ports.source.Scope != scope || ports.candidate.Scope != scope || router == "" || router != ports.candidate.Source.DeviceID {
-		return out, apierror.Validation("the handoffs must belong to the same verified routing device and context")
-	}
 	err := s.withTopologyFailureSnapshot(ctx, actor, scope, budget, func(ctx context.Context, sc tenancy.Scope, record entity.ContextRecord, authorize topologyFailureAuthorize) error {
-		for _, id := range []string{router, ports.source.InterfaceID, ports.candidate.InterfaceID} {
-			if err := authorize(ctx, record, id); err != nil {
-				return err
-			}
-		}
-		bgpBudget := store.BGPRoutingBudget{MemoryBytes: budget.MemoryBytes / 8, WorkUnits: budget.ReadBytes / 8, StateBytes: budget.MemoryBytes}
-		view, err := (store.BGPRouting{}).LookupRouterPolicyPrefixInScope(ctx, sc, scope, router, prefix, bgpBudget)
-		if err != nil {
-			return err
-		}
-		if !view.Complete || view.Selected.Prefix != prefix || len(view.Selected.Paths) != 1 {
-			return apierror.Unavailable("the exact prefix lacks one selected path and complete upstream evidence")
-		}
-		selected := singleRoutingTransferNextHop(view.Selected.Paths[0].NextHops)
-		if !selected.IsValid() {
-			return apierror.Unavailable("the selected path has no unique physical next hop")
-		}
-		reader := store.NewDeviceCounterCaptures(s.pool)
-		result, err := chooseRoutingTransferHandoffs(ctx, sc, scope, reader, ports, prefix, view, selected)
-		if err != nil {
-			return err
-		}
-		out = result
-		return ctx.Err()
+		var err error
+		out, err = s.routingTransferRouteInScope(ctx, sc, scope, record, authorize, ports, prefix, budget)
+		return err
 	})
 	if err != nil {
 		return routingTransferRoute{}, err
 	}
 	return out, ctx.Err()
+}
+
+func (s *Server) routingTransferRouteInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope,
+	record entity.ContextRecord, authorize topologyFailureAuthorize, ports routingTransferPorts, prefix netip.Prefix,
+	budget flowstore.ExplorerBudget) (routingTransferRoute, error) {
+	var none routingTransferRoute
+	router := ports.source.Source.DeviceID
+	if ports.source.Scope != scope || ports.candidate.Scope != scope || router == "" || router != ports.candidate.Source.DeviceID {
+		return none, apierror.Validation("the handoffs must belong to the same verified routing device and context")
+	}
+	for _, id := range []string{router, ports.source.InterfaceID, ports.candidate.InterfaceID} {
+		if err := authorize(ctx, record, id); err != nil {
+			return none, err
+		}
+	}
+	bgpBudget := store.BGPRoutingBudget{MemoryBytes: budget.MemoryBytes / 8, WorkUnits: budget.ReadBytes / 8, StateBytes: budget.MemoryBytes}
+	view, err := (store.BGPRouting{}).LookupRouterPolicyPrefixInScope(ctx, sc, scope, router, prefix, bgpBudget)
+	if err != nil {
+		return none, err
+	}
+	if !view.Complete || view.Selected.Prefix != prefix || len(view.Selected.Paths) != 1 {
+		return none, apierror.Unavailable("the exact prefix lacks one selected path and complete upstream evidence")
+	}
+	selected := singleRoutingTransferNextHop(view.Selected.Paths[0].NextHops)
+	if !selected.IsValid() {
+		return none, apierror.Unavailable("the selected path has no unique physical next hop")
+	}
+	return chooseRoutingTransferHandoffs(ctx, sc, scope, store.NewDeviceCounterCaptures(s.pool), ports, prefix, view, selected)
 }
 
 func chooseRoutingTransferHandoffs(ctx context.Context, sc tenancy.Scope, scope entity.Scope,

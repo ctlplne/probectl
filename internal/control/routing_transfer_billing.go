@@ -49,19 +49,46 @@ type routingTransferBillPlans struct {
 	basis     string
 }
 
+func routingTransferBillPlanMatchesCurrent(previous, current capacityBillPlan) bool {
+	if !sameCapacityBillPlan(previous, current) {
+		return false
+	}
+	for i, member := range previous.members {
+		if current.members[i].target.ValidUntil.Before(member.target.ValidUntil) {
+			return false
+		}
+	}
+	return true
+}
+
 func routingTransferBillingSelections(input routingTransferBillingInput) [2]routingTransferBillingSelection {
 	return [2]routingTransferBillingSelection{input.Source, input.Candidate}
 }
 
 func (s *Server) readRoutingTransferBillPlans(ctx context.Context, op capacityAgreementOperation, scope entity.Scope,
 	input routingTransferBillingInput, previous *routingTransferBillPlans, rows []flowstore.CounterRow) (routingTransferBillPlans, error) {
+	var out routingTransferBillPlans
+	if op.actor == nil {
+		return out, entity.ErrScopeMismatch
+	}
+	if err := s.currentCapacityAgreementActor(ctx, op.actor, false); err != nil {
+		return out, err
+	}
+	err := s.withTopologyFailureSnapshot(ctx, op.actor, scope, op.budget, func(ctx context.Context, sc tenancy.Scope, record entity.ContextRecord, authorize topologyFailureAuthorize) error {
+		var err error
+		out, err = s.routingTransferBillPlansInScope(ctx, sc, record, authorize, op, scope, input, previous, rows)
+		return err
+	})
+	return out, err
+}
+
+func (s *Server) routingTransferBillPlansInScope(ctx context.Context, sc tenancy.Scope, record entity.ContextRecord,
+	authorize topologyFailureAuthorize, op capacityAgreementOperation, scope entity.Scope,
+	input routingTransferBillingInput, previous *routingTransferBillPlans, rows []flowstore.CounterRow) (routingTransferBillPlans, error) {
 	none := routingTransferBillPlans{}
 	if op.actor == nil || scope.TenantID != op.actor.TenantID || input.Source.AgreementID == input.Candidate.AgreementID ||
 		input.Source.EgressID == input.Candidate.EgressID {
 		return none, apierror.Validation("select two distinct tenant-owned agreements and handoffs")
-	}
-	if err := s.currentCapacityAgreementActor(ctx, op.actor, false); err != nil {
-		return none, err
 	}
 	period, err := observedRoutingTransferPeriod(input)
 	if err != nil {
@@ -90,39 +117,36 @@ func (s *Server) readRoutingTransferBillPlans(ctx context.Context, op capacityAg
 		requests[i], parameters[i] = request, params
 	}
 	out.gap = parameters[0].gap
-	err = s.withTopologyFailureSnapshot(ctx, op.actor, scope, op.budget, func(ctx context.Context, sc tenancy.Scope, record entity.ContextRecord, authorize topologyFailureAuthorize) error {
-		current, err := readCurrentUserAuthorityScope(ctx, sc, op.actor.UserID)
-		if err != nil {
-			return err
-		}
-		ctx, principal, err := current.requestContext(ctx, op.actor)
-		if err != nil {
-			return err
-		}
-		for i, selected := range out.selection {
-			plan, err := s.routingTransferBillPlanInScope(ctx, sc, op, principal, selected.AgreementID, requests[i], parameters[i], period)
-			if err != nil {
-				return err
-			}
-			if plan.agreement.Version != plan.agreement.CurrentVersion {
-				return apierror.Conflict("refresh the agreement revision before recommending a change")
-			}
-			if err := authorizeRoutingTransferHandoff(ctx, scope, record, authorize, selected.EgressID, plan.members); err != nil {
-				return err
-			}
-			if previous != nil && !sameCapacityBillPlan(previous.plan[i], plan) {
-				return apierror.Unavailable("capacity terms, membership or source authority changed; retry")
-			}
-			out.plan[i] = plan
-		}
-		joined, err := joinRoutingTransferBillPlans(out.plan)
-		if err != nil {
-			return err
-		}
-		out.joined = joined
-		return validateCapacityCounterRows(ctx, sc, store.NewDeviceCounterCaptures(s.pool), joined, rows, op.budget.MemoryBytes/8)
-	})
+	current, err := readCurrentUserAuthorityScope(ctx, sc, op.actor.UserID)
 	if err != nil {
+		return none, err
+	}
+	ctx, principal, err := current.requestContext(ctx, op.actor)
+	if err != nil {
+		return none, err
+	}
+	for i, selected := range out.selection {
+		plan, err := s.routingTransferBillPlanInScope(ctx, sc, op, principal, selected.AgreementID, requests[i], parameters[i], period)
+		if err != nil {
+			return none, err
+		}
+		if plan.agreement.Version != plan.agreement.CurrentVersion {
+			return none, apierror.Conflict("refresh the agreement revision before recommending a change")
+		}
+		if err := authorizeRoutingTransferHandoff(ctx, scope, record, authorize, selected.EgressID, plan.members); err != nil {
+			return none, err
+		}
+		if previous != nil && !routingTransferBillPlanMatchesCurrent(previous.plan[i], plan) {
+			return none, apierror.Unavailable("capacity terms, membership or source authority changed; retry")
+		}
+		out.plan[i] = plan
+	}
+	joined, err := joinRoutingTransferBillPlans(out.plan)
+	if err != nil {
+		return none, err
+	}
+	out.joined = joined
+	if err := validateCapacityCounterRows(ctx, sc, store.NewDeviceCounterCaptures(s.pool), joined, rows, op.budget.MemoryBytes/8); err != nil {
 		return none, err
 	}
 	return out, ctx.Err()

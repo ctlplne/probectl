@@ -12,7 +12,6 @@ import (
 	"errors"
 	"net/http"
 	"net/netip"
-	"reflect"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/apierror"
@@ -25,9 +24,10 @@ import (
 
 type routingTransferRequest struct {
 	routingTransferBillingInput
-	ContextID       string `json:"context_id"`
-	Destination     string `json:"destination_prefix"`
-	LocalPreference uint32 `json:"local_preference"`
+	ContextID       string                       `json:"context_id"`
+	Destination     string                       `json:"destination_prefix"`
+	LocalPreference uint32                       `json:"local_preference"`
+	ProbeComparison *routingTransferProbeRequest `json:"probe_comparison,omitempty"`
 }
 
 type routingTransferPolicy struct {
@@ -47,6 +47,7 @@ type routingTransferResponse struct {
 	Policy        *routingTransferPolicy       `json:"policy,omitempty"`
 	EstimateBasis string                       `json:"estimate_basis"`
 	Performance   string                       `json:"performance_status"`
+	Upstream      *routingTransferPerformance  `json:"upstream_performance,omitempty"`
 	ValidUntil    time.Time                    `json:"source_valid_until"`
 	check         func(context.Context) error
 }
@@ -105,6 +106,13 @@ func (s *Server) runRoutingTransferEstimate(ctx context.Context, op capacityAgre
 	if canonical, err := scope.Normalize(); err != nil || canonical != scope {
 		return none, apierror.Validation("a canonical routing context is required")
 	}
+	var selection routingTransferPerformanceSelection
+	if input.ProbeComparison != nil {
+		selection, err = input.ProbeComparison.selection()
+		if err != nil {
+			return none, err
+		}
+	}
 	billing := input.routingTransferBillingInput
 	plans, err := s.readRoutingTransferBillPlans(ctx, op, scope, billing, nil, nil)
 	if err != nil {
@@ -126,7 +134,7 @@ func (s *Server) runRoutingTransferEstimate(ctx context.Context, op capacityAgre
 	if err != nil {
 		return none, err
 	}
-	observed, err := s.readRoutingTransferFlows(ctx, scope, prefix, window, sources, op.budget)
+	observed, err := s.readRoutingTransferFlows(ctx, scope, prefix, window, sources.sources, op.budget)
 	if err != nil {
 		return none, err
 	}
@@ -141,6 +149,9 @@ func (s *Server) runRoutingTransferEstimate(ctx context.Context, op capacityAgre
 	}
 	result := routingTransferResponse{ContextID: scope.ContextID, Prefix: prefix.String(), EstimateBasis: plans.basis, Performance: "no_paired_upstream_measurement", ValidUntil: route.validUntil,
 		Estimate: flow.RoutingTransferEstimate{From: window.From, To: window.To, Status: "unavailable", Reason: reason}}
+	if sources.validUntil.Before(result.ValidUntil) {
+		result.ValidUntil = sources.validUntil
+	}
 	for _, member := range plans.joined.members {
 		if member.target.ValidUntil.Before(result.ValidUntil) {
 			result.ValidUntil = member.target.ValidUntil
@@ -157,9 +168,35 @@ func (s *Server) runRoutingTransferEstimate(ctx context.Context, op capacityAgre
 			ExactPrefix: prefix.String(), SourcePeer: route.selected.String(), CandidatePeer: route.candidate.String(), CandidateASN: route.candidateASN,
 			LocalPreference: input.LocalPreference}
 	}
+	var performance *routingTransferPerformanceEvidence
+	if input.ProbeComparison != nil {
+		if selection.request.From.Before(window.From) || selection.request.To.After(window.To) {
+			return none, apierror.Validation("the probe comparison window must fall inside the routing transfer measurement window")
+		}
+		captured, err := s.captureRoutingTransferPerformance(ctx, op, scope, ports, route, selection)
+		if err != nil {
+			return none, err
+		}
+		performance = &captured
+		comparison := selection.evaluate(captured.result, result.Estimate)
+		result.Performance, result.Upstream = comparison.Status, &comparison
+		result.ValidUntil = earlierRoutingProbeDeadline(result.ValidUntil, captured.plan.validUntil)
+		if comparison.Recommendation != "move_prefix" {
+			result.Policy = nil
+		}
+	}
 	result.check = func(ctx context.Context) error {
 		if err := s.recheckRoutingTransferEstimate(ctx, op, scope, billing, plans, ports, route, sources, originals, rows); err != nil {
 			return err
+		}
+		if performance != nil {
+			current, err := s.captureRoutingTransferPerformance(ctx, op, scope, ports, route, performance.selection)
+			if err != nil {
+				return err
+			}
+			if !performance.matchesCurrent(current) {
+				return apierror.Conflict("the upstream probe evidence changed; run a fresh estimate")
+			}
 		}
 		if !time.Now().Before(result.ValidUntil) {
 			return apierror.Unavailable("routing transfer sources expired; retry")
@@ -171,7 +208,7 @@ func (s *Server) runRoutingTransferEstimate(ctx context.Context, op capacityAgre
 
 func (s *Server) recheckRoutingTransferEstimate(ctx context.Context, op capacityAgreementOperation, scope entity.Scope,
 	input routingTransferBillingInput, before routingTransferBillPlans, ports routingTransferPorts, route routingTransferRoute,
-	sources []flowstore.IncidentTrafficSource, originals routingTransferFlowEvidence, rows []flowstore.CounterRow) error {
+	sources routingTransferExporterPlan, originals routingTransferFlowEvidence, rows []flowstore.CounterRow) error {
 	if _, err := s.readRoutingTransferBillPlans(ctx, op, scope, input, &before, rows); err != nil {
 		return err
 	}
@@ -179,21 +216,21 @@ func (s *Server) recheckRoutingTransferEstimate(ctx context.Context, op capacity
 	if err != nil {
 		return err
 	}
-	if currentRoute != route {
+	if !route.matchesCurrent(currentRoute) {
 		return apierror.Unavailable("owned routing choices changed; retry")
 	}
 	currentSources, err := s.routingTransferExporterSources(ctx, op.actor, scope, ports.source, op.budget)
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(sources, currentSources) {
-		return apierror.Unavailable("owned exporter assignments changed; retry")
+	if !sources.matchesCurrent(currentSources) {
+		return apierror.Unavailable("owned exporter assignments or leases changed; retry")
 	}
 	after, err := s.readRoutingTransferOriginals(ctx, op.actor, scope, ports.source.Source.DeviceID, originals, op.budget)
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(originals, after) {
+	if !originals.matchesCurrent(after) {
 		return apierror.Unavailable("original flow authority or selected prefixes changed; retry")
 	}
 	return ctx.Err()
@@ -209,6 +246,8 @@ func routingTransferAPIError(err error) error {
 		return apierror.TooLarge("complete routing transfer input exceeds resource admission")
 	case errors.Is(err, entity.ErrScopeMismatch):
 		return apierror.NotFound("the owned routing transfer source is unavailable")
+	case errors.Is(err, entity.ErrInvalidClaim):
+		return apierror.Validation("two distinct, canonical test and agent selections are required")
 	default:
 		return capacityBillAPIError(err)
 	}

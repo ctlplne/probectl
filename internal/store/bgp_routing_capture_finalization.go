@@ -75,10 +75,10 @@ func finalizeAuthenticatedRoutingCaptureInScope(ctx context.Context, sc tenancy.
 // private first-ingestion snapshot. The publication transaction retains source
 // rows through commit, sharing the existing routing writer lock order.
 func routingCapturePublicationCurrent(ctx context.Context, sc tenancy.Scope, lookup BGPRoutingFlowLookup, sender string, input BGPRoutingFlowInput, budget BGPRoutingBudget) (bool, error) {
-	return routingCaptureAuthorityCurrent(ctx, sc, lookup, sender, input, budget, true)
+	return routingCaptureAuthorityCurrent(ctx, sc, lookup, sender, input, budget, true, false)
 }
 
-func routingCaptureAuthorityCurrent(ctx context.Context, sc tenancy.Scope, lookup BGPRoutingFlowLookup, sender string, input BGPRoutingFlowInput, budget BGPRoutingBudget, lock bool) (bool, error) {
+func routingCaptureAuthorityCurrent(ctx context.Context, sc tenancy.Scope, lookup BGPRoutingFlowLookup, sender string, input BGPRoutingFlowInput, budget BGPRoutingBudget, lock, continuousExporter bool) (bool, error) {
 	if lookup.Owner.TenantID != sc.Tenant.String() || lookup.Owner.AgentID != sender || lookup.Owner.Exporter != input.Exporter.Unmap() || lookup.Owner.Protocol != input.Protocol || lookup.Owner.Domain != input.Domain {
 		return false, entity.ErrScopeMismatch
 	}
@@ -110,7 +110,13 @@ func routingCaptureAuthorityCurrent(ctx context.Context, sc tenancy.Scope, looku
 		return false, err
 	}
 	if binding.SourceID != lookup.Owner.SourceID {
-		return false, nil
+		if lock || !continuousExporter {
+			return false, nil
+		}
+		since, err := currentFlowOwnerSince(ctx, sc, owner)
+		if err != nil || since.IsZero() || lookup.CapturedAt.Before(since) {
+			return false, err
+		}
 	}
 	id, err := validRegistryUUID(strings.TrimPrefix(binding.SourceID, "evidence/"))
 	if err != nil || !strings.HasPrefix(binding.SourceID, "evidence/") {

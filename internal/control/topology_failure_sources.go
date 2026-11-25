@@ -141,36 +141,51 @@ func (s *Server) withTopologyFailureSnapshot(ctx context.Context, actor *auth.Pr
 	ctx, flush := scopedABACDenial(ctx)
 	defer flush(s)
 	return tenancy.InTenantReadSnapshot(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
-		if err != nil {
-			return err
-		}
-		ctx, principal, err := current.requestContext(ctx, actor)
-		if err != nil {
-			return err
-		}
-		record, err := store.NewEntityRegistry(s.pool).GetEntityContextInScope(ctx, sc, scope.ContextID)
-		if err != nil {
-			return err
-		}
-		authorize := func(ctx context.Context, record entity.ContextRecord, entityID string) error {
-			if record.TenantID != scope.TenantID || record.ContextID != scope.ContextID {
-				return entity.ErrScopeMismatch
-			}
-			resource := entityContextResource(record)
-			if entityID != "" {
-				resource["entity_id"] = entityID
-			}
-			for _, permission := range []string{ai.PermTopologyRead, permFlowRead, ai.PermEntitiesRead, ai.PermMetricsRead, "events.read"} {
-				if err := s.authorize(ctx, principal, permission, auth.RBACGlobal, resource); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-		if err := authorize(ctx, record, ""); err != nil {
-			return err
-		}
-		return read(ctx, sc, record, authorize)
+		return s.withTopologyFailureAuthority(ctx, sc, actor, scope, read)
 	})
+}
+
+// withTopologyFailureAuthority is also used after the routing review writer
+// has locked its sources and audit stream in this tenant transaction.
+func (s *Server) withTopologyFailureAuthority(ctx context.Context, sc tenancy.Scope, actor *auth.Principal,
+	scope entity.Scope, read func(context.Context, tenancy.Scope, entity.ContextRecord, topologyFailureAuthorize) error) error {
+	tenant, bound := tenancy.FromContext(ctx)
+	if !bound || tenant != sc.Tenant || sc.Q == nil || actor == nil || actor.TenantID != tenant.String() ||
+		scope.TenantID != actor.TenantID {
+		return entity.ErrScopeMismatch
+	}
+	if s.requireMFA && !actor.MFASatisfied {
+		return apierror.Forbidden("current multi-factor authentication required")
+	}
+	current, err := readCurrentUserAuthorityScope(ctx, sc, actor.UserID)
+	if err != nil {
+		return err
+	}
+	ctx, principal, err := current.requestContext(ctx, actor)
+	if err != nil {
+		return err
+	}
+	record, err := store.NewEntityRegistry(s.pool).GetEntityContextInScope(ctx, sc, scope.ContextID)
+	if err != nil {
+		return err
+	}
+	authorize := func(ctx context.Context, record entity.ContextRecord, entityID string) error {
+		if record.TenantID != scope.TenantID || record.ContextID != scope.ContextID {
+			return entity.ErrScopeMismatch
+		}
+		resource := entityContextResource(record)
+		if entityID != "" {
+			resource["entity_id"] = entityID
+		}
+		for _, permission := range []string{ai.PermTopologyRead, permFlowRead, ai.PermEntitiesRead, ai.PermMetricsRead, "events.read"} {
+			if err := s.authorize(ctx, principal, permission, auth.RBACGlobal, resource); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := authorize(ctx, record, ""); err != nil {
+		return err
+	}
+	return read(ctx, sc, record, authorize)
 }

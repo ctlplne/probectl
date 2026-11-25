@@ -49,6 +49,19 @@ type BGPRoutingFailureCapture struct {
 
 func (BGPRouting) FailureCapturesInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, reads []flowstore.RoutingCaptureRead,
 	budget BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error) ([]BGPRoutingFailureCapture, error) {
+	return readRoutingFailureCapturesInScope(ctx, sc, scope, reads, budget, authorize, false)
+}
+
+// TransferCapturesInScope returns retained route facts for a closed traffic
+// window. A refreshed exporter observation qualifies only under a continuous
+// current assignment. The original capture and routing sources stay authoritative.
+func (BGPRouting) TransferCapturesInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, reads []flowstore.RoutingCaptureRead,
+	budget BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error) ([]BGPRoutingFailureCapture, error) {
+	return readRoutingFailureCapturesInScope(ctx, sc, scope, reads, budget, authorize, true)
+}
+
+func readRoutingFailureCapturesInScope(ctx context.Context, sc tenancy.Scope, scope entity.Scope, reads []flowstore.RoutingCaptureRead,
+	budget BGPRoutingBudget, authorize func(context.Context, entity.ContextRecord) error, continuousExporter bool) ([]BGPRoutingFailureCapture, error) {
 	out := []BGPRoutingFailureCapture{}
 	visit := func(ctx context.Context, read flowstore.RoutingCaptureRead, lookup BGPRoutingFlowLookup, admission *BGPRoutingBudget) error {
 		if lookup.Owner.Scope != scope {
@@ -75,7 +88,8 @@ func (BGPRouting) FailureCapturesInScope(ctx context.Context, sc tenancy.Scope, 
 		out = append(out, record)
 		return ctx.Err()
 	}
-	if _, err := readRoutingCaptureBatch(ctx, sc, reads, budget, authorize, &routingCaptureVisitor{scope: scope, visit: visit}); err != nil {
+	visitor := routingCaptureVisitor{scope: scope, visit: visit, continuousExporter: continuousExporter}
+	if _, err := readRoutingCaptureBatch(ctx, sc, reads, budget, authorize, &visitor); err != nil {
 		return nil, err
 	}
 	return out, ctx.Err()

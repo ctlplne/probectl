@@ -90,11 +90,21 @@ func marshalNativeRoutingTransfer(value routingTransferResponse) (json.RawMessag
 		routingTransferPolicy
 		RouterID mcp.NativeRoleUUID `json:"router_id"`
 	}
+	type probe struct {
+		routingTransferProbeStats
+		TestID mcp.NativeRoleUUID `json:"test_id"`
+	}
+	type performance struct {
+		routingTransferPerformance
+		Source    *probe `json:"source,omitempty"`
+		Candidate *probe `json:"candidate,omitempty"`
+	}
 	out := struct {
 		routingTransferResponse
 		ContextID mcp.NativeRoleUUID `json:"context_id"`
 		Estimate  estimate           `json:"estimate"`
 		Policy    *policy            `json:"policy,omitempty"`
+		Upstream  *performance       `json:"upstream_performance,omitempty"`
 	}{routingTransferResponse: value, ContextID: mcp.NativeRoleUUID(value.ContextID), Estimate: estimate{RoutingTransferEstimate: value.Estimate}}
 	if value.Policy != nil {
 		out.Policy = &policy{*value.Policy, mcp.NativeRoleUUID(value.Policy.RouterID)}
@@ -104,6 +114,15 @@ func marshalNativeRoutingTransfer(value routingTransferResponse) (json.RawMessag
 	}
 	if candidate := value.Estimate.Candidate; candidate != nil {
 		out.Estimate.Candidate = &bill{*candidate, mcp.NativeRoleUUID(candidate.AgreementID), mcp.NativeRoleRevision(candidate.Version)}
+	}
+	if upstream := value.Upstream; upstream != nil {
+		out.Upstream = &performance{routingTransferPerformance: *upstream}
+		if upstream.Source != nil {
+			out.Upstream.Source = &probe{*upstream.Source, mcp.NativeRoleUUID(upstream.Source.TestID)}
+		}
+		if upstream.Candidate != nil {
+			out.Upstream.Candidate = &probe{*upstream.Candidate, mcp.NativeRoleUUID(upstream.Candidate.TestID)}
+		}
 	}
 	return json.Marshal(out)
 }

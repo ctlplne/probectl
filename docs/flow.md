@@ -1305,13 +1305,6 @@ format used by the capacity bill check for every member of that agreement.
 probectl --json routing-transfer estimate --body-file transfer.json
 ```
 
-In **Capacity planning**, open **Routing transfer estimate** and select the two
-recorded agreements. The preview shows each handoff's before and after p95 and
-charges, and clears when the source validity window ends. The native MCP tool
-`flow_routing_transfer_estimate` accepts the same JSON arguments as the API.
-Both surfaces require the current tenant user's `flow.agreements.read`,
-`topology.read`, `flow.read`, `entities.read`, `metrics.read` and `events.read` grants.
-
 Use `billing_at` to select matching completed billing periods, or provide both
 `observed_from` and `observed_to` for a closed RFC3339 window covered by both
 recorded agreement versions. `estimate_basis` identifies the period used.
@@ -1327,9 +1320,39 @@ the identified traffic. Missing evidence leaves the estimate unavailable, and
 projected peaks over observed capacity withhold the policy preview. Amounts and
 rates use exact integer fractions. The result reports the observed candidate
 line speed and the effective ceiling, which also enforces the supplied physical
-bound. `no_paired_upstream_measurement` means this
-result has no comparative upstream performance evidence. The returned policy
-is a preview for review. The endpoint performs no router writes.
+bound. `source_valid_until` is the earliest expiry across the current routing,
+flow exporter and interface evidence used in the estimate. A routine exporter
+refresh preserves the original measurement under a continuous assignment.
+Reassigning the exporter invalidates earlier captures for that handoff.
+
+Add `probe_comparison` to the estimate to compare two registered routing probes.
+Set `source` and `candidate` to their `test_id` and `agent_id`. Both probes use
+the same literal destination inside the exact prefix. Set `from` and `to` to a
+closed window inside the estimate's window with whole intervals of the shared
+test cadence. The service requires a complete contemporaneous pair per interval.
+See the [routing probe configuration](configuration.md#scheduled-canary-identity-and-cadence-evidence).
+
+Choose `improve_performance` or `reduce_cost`, and supply
+`maximum_candidate_loss_ppm`, `maximum_candidate_p95_rtt_nanos`, and
+`maximum_added_charge` in the agreements' common currency. The performance mode
+requires a measured improvement without higher loss or latency. The cost mode
+requires a lower modeled charge without a performance regression. A candidate
+also needs measured reachability and enough capacity for the projected peak.
+The response includes the thresholds, statistics, and the recommendation reason.
+When the comparison supports a transfer, its policy is available for human review.
+`no_paired_upstream_measurement` identifies an estimate without a requested probe
+comparison. The endpoint is read-only.
+
+The Capacity planning screen compares two current agreements from the catalog.
+For an interface agreement it uses the recorded interface. For a circuit it
+requires the selected egress and a physical upper bound for every member. The
+screen displays before and after charges and 95th-percentile rates as exact
+fractions. It clears the result when its source validity window ends or either
+selected agreement changes.
+
+The native `flow_routing_transfer_estimate` tool takes the same request as
+REST. It requires current tenant consent and financial and telemetry authority.
+Native output applies the same financial text redaction as the bill check.
 
 
 ## Recorded capacity agreements (preview)
