@@ -49,7 +49,8 @@ const tenants = [
 test('the provider brand editor keeps the selected customer and saved revision together', async () => {
   const user = userEvent.setup()
   const fallback = providerStub()
-  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGPwTGoHAAIqATNiOKEkAAAAAElFTkSuQmCC'
+  const png =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGPwTGoHAAIqATNiOKEkAAAAAElFTkSuQmCC'
   const logo = new File([Uint8Array.from(atob(png), (byte) => byte.charCodeAt(0))], 'acme.png', {
     type: 'image/png',
   })
