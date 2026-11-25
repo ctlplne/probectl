@@ -337,8 +337,9 @@ deploy recipes are `sslmode=require` or stricter.
   (`scripts/check_coverage.sh`). The `integration` job measures the separate
   stateful package floors with `scripts/check_integration_coverage.sh`. Its
   profile includes statements exercised through the required-service suite,
-  such as a control-plane test that reaches the tenant store. The
-  `cross-tenant-isolation` job separately proves the isolation behavior.
+  such as a control-plane test that reaches the tenant store. To verify tenant
+  isolation guarantees, the `cross-tenant-isolation` job exercises read and
+  write boundaries against real PostgreSQL and ClickHouse.
 
 ## Commits
 
