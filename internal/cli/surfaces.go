@@ -289,7 +289,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"disable-source": {Method: http.MethodPost, Path: "/v1/nms-imports/sources/{instance}/disable", ArgName: "instance",
 			Description: "disable source egress and invalidate unfinished captures; --body with context_id"},
 		"start-live": {Method: http.MethodPost, Path: "/v1/nms-imports/live-plans",
-			Description: "start an inert plan from an enabled source; --body with context_id and instance_ref"},
+			Description: `Start a LibreNMS review plan with context_id and instance_ref in the JSON body. Set "source_kind":"rmm" to sync a configured RMM site for review.`},
 		"export-start": {Method: http.MethodPost, Path: "/v1/nms-imports/export-plans",
 			Description: "start an inert Orion or PRTG documented-export preview; --body with context_id, source_kind and instance_ref"},
 		"export-page": {Method: http.MethodPost, Path: "/v1/nms-imports/{id}/export-pages", ArgName: "id",
@@ -626,7 +626,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"posture": {Method: http.MethodGet, Path: "/v1/tls/posture"},
 	}},
 	"topology": {Name: "topology", Summary: "topology and what-if simulation", Ops: map[string]apiOp{
-		"show":          {Method: http.MethodGet, Path: "/v1/topology", Description: "show the dependency graph, with Kubernetes inventory via --query context_id=<uuid> --query include_kubernetes=true"},
+		"show":          {Method: http.MethodGet, Path: "/v1/topology", Description: "Include cloud inventory with --query include_cloud=true. For Kubernetes inventory, use --query context_id=<uuid> --query include_kubernetes=true."},
 		"whatif":        {Method: http.MethodPost, Path: "/v1/topology/whatif"},
 		"whatif-export": {Method: http.MethodGet, Path: "/v1/topology/whatif/export", Description: "export the tenant-scoped what-if evidence artifact"},
 	}},

@@ -90,13 +90,18 @@ func TestCLISubcommandHelpIsOffline(t *testing.T) {
 	// A mix of explicit direct-dial handlers (test/agent get), stream handlers
 	// (dashboard-report download), the generic surface executor (rollout/incident
 	// get), and the raw api passthrough.
-	commands := [][]string{
-		{"test", "get"},
-		{"agent", "get"},
-		{"rollout", "get"},
-		{"incident", "get"},
-		{"dashboard-report", "download"},
-		{"api", "GET", "/v1/tests"},
+	commands := []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"test", "get"}},
+		{args: []string{"agent", "get"}},
+		{args: []string{"rollout", "get"}},
+		{args: []string{"incident", "get"}},
+		{args: []string{"dashboard-report", "download"}},
+		{args: []string{"api", "GET", "/v1/tests"}},
+		{args: []string{"topology", "show"}, want: "--query include_cloud=true"},
+		{args: []string{"nms-import", "start-live"}, want: `"source_kind":"rmm"`},
 	}
 	env := func(k string) string {
 		if k == "PROBECTL_API_URL" {
@@ -104,9 +109,9 @@ func TestCLISubcommandHelpIsOffline(t *testing.T) {
 		}
 		return ""
 	}
-	for _, base := range commands {
+	for _, command := range commands {
 		for _, helpFlag := range []string{"-h", "--help"} {
-			args := append(append([]string{}, base...), helpFlag)
+			args := append(append([]string{}, command.args...), helpFlag)
 			before := atomic.LoadInt32(&hits)
 			var out, errb bytes.Buffer
 			code := runCLI(args, env, &out, &errb)
@@ -118,6 +123,9 @@ func TestCLISubcommandHelpIsOffline(t *testing.T) {
 			}
 			if !strings.Contains(strings.ToLower(out.String()), "usage") {
 				t.Errorf("%v printed no usage on stdout:\nstdout=%q\nstderr=%q", args, out.String(), errb.String())
+			}
+			if !strings.Contains(out.String(), command.want) {
+				t.Errorf("%v help is missing %q:\n%s", args, command.want, out.String())
 			}
 		}
 	}

@@ -61,6 +61,9 @@ func printOperationUsage(w io.Writer, op apiOp) {
 		fmt.Fprint(w, " --revision N")
 	}
 	fmt.Fprintln(w)
+	if op.Description != "" {
+		fmt.Fprintln(w, op.Description)
+	}
 }
 
 func cmdAPIWithStdin(cfg Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
