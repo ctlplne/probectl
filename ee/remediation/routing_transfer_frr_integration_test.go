@@ -31,11 +31,11 @@ func TestFRRRoutingTransferPreservesMoreSpecificRoutesAndWithdraws(t *testing.T)
 	defer cancelImage()
 	if out, err := exec.CommandContext(imageCtx, "docker", "image", "inspect", image).CombinedOutput(); err != nil {
 		if !testsupport.RequireServices() {
-			t.Skipf("pinned local FRRouting fixture unavailable: %v %s", err, out)
+			testsupport.SkipOrFatal(t, "pinned local FRRouting fixture unavailable: %v %s", err, out)
 		}
 		// The BGP package may start in parallel. Required integration tests
 		// fetch their own pinned fixture instead of waiting for that package.
-		transferFRRDocker(t, imageCtx, "pull", image)
+		transferFRRDocker(imageCtx, t, "pull", image)
 	}
 	cancelImage()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
@@ -46,34 +46,34 @@ func TestFRRRoutingTransferPreservesMoreSpecificRoutesAndWithdraws(t *testing.T)
 		// Fixture bridges carry routed packets between the lab endpoints. Keep
 		// the bridge without a host gateway or masquerading and clear each
 		// fixture namespace's default route before introducing test traffic.
-		transferFRRDocker(t, ctx, "network", "create", "--driver", "bridge", "--ipv6=false",
+		transferFRRDocker(ctx, t, "network", "create", "--driver", "bridge", "--ipv6=false",
 			"--opt", "com.docker.network.bridge.inhibit_ipv4=true", "--opt", "com.docker.network.bridge.enable_ip_masquerade=false",
 			"--label", "qa.owner=probectl-beta", network)
 		t.Cleanup(func() { _ = exec.Command("docker", "network", "rm", network).Run() })
 	}
-	router := startTransferFRR(t, ctx, image, sourceLink, "router")
-	source := startTransferFRR(t, ctx, image, sourceLink, "upstream")
-	candidate := startTransferFRR(t, ctx, image, candidateLink, "upstream")
-	client := startTransferFRR(t, ctx, image, clientLink, "workload")
+	router := startTransferFRR(ctx, t, image, sourceLink, "router")
+	source := startTransferFRR(ctx, t, image, sourceLink, "upstream")
+	candidate := startTransferFRR(ctx, t, image, candidateLink, "upstream")
+	client := startTransferFRR(ctx, t, image, clientLink, "workload")
 	for _, network := range []string{candidateLink, clientLink} {
-		transferFRRDocker(t, ctx, "network", "connect", network, router.name)
+		transferFRRDocker(ctx, t, "network", "connect", network, router.name)
 	}
 	for _, node := range []transferFRRNode{router, source, candidate, client} {
 		for _, family := range []string{"-4", "-6"} {
-			transferFRRDocker(t, ctx, "exec", "--user", "0", node.name, "ip", family, "route", "flush", "exact", "default")
-			if routes := transferFRRDocker(t, ctx, "exec", node.name, "ip", family, "route", "show", "exact", "default"); strings.TrimSpace(routes) != "" {
+			transferFRRDocker(ctx, t, "exec", "--user", "0", node.name, "ip", family, "route", "flush", "exact", "default")
+			if routes := transferFRRDocker(ctx, t, "exec", node.name, "ip", family, "route", "show", "exact", "default"); strings.TrimSpace(routes) != "" {
 				t.Fatalf("fixture %s retained an outbound default route: %s", node.name, routes)
 			}
 		}
 	}
-	if forwarding := transferFRRDocker(t, ctx, "exec", router.name, "cat", "/proc/sys/net/ipv4/ip_forward"); strings.TrimSpace(forwarding) != "1" {
+	if forwarding := transferFRRDocker(ctx, t, "exec", router.name, "cat", "/proc/sys/net/ipv4/ip_forward"); strings.TrimSpace(forwarding) != "1" {
 		t.Fatal("the owned router has IPv4 forwarding disabled")
 	}
-	onCandidate := transferFRRAddress(t, ctx, router.name, candidateLink)
-	onClient := transferFRRAddress(t, ctx, router.name, clientLink)
-	sourceIf := transferFRRInterface(t, ctx, router.name, router.address)
-	candidateIf := transferFRRInterface(t, ctx, router.name, onCandidate)
-	clientIf := transferFRRInterface(t, ctx, router.name, onClient)
+	onCandidate := transferFRRAddress(ctx, t, router.name, candidateLink)
+	onClient := transferFRRAddress(ctx, t, router.name, clientLink)
+	sourceIf := transferFRRInterface(ctx, t, router.name, router.address)
+	candidateIf := transferFRRInterface(ctx, t, router.name, onCandidate)
+	clientIf := transferFRRInterface(ctx, t, router.name, onClient)
 	if sourceIf == candidateIf {
 		t.Fatal("the two physical handoffs share one kernel interface")
 	}
@@ -88,7 +88,7 @@ func TestFRRRoutingTransferPreservesMoreSpecificRoutesAndWithdraws(t *testing.T)
 		"address-family ipv4 unicast", "neighbor " + source.address + " route-map SOURCE-IN in",
 		"neighbor " + candidate.address + " route-map CANDIDATE-IN in", "exit-address-family", "exit",
 	}
-	transferFRRConfig(t, ctx, router.name, original)
+	transferFRRConfig(ctx, t, router.name, original)
 	for i, upstream := range []transferFRRNode{source, candidate} {
 		localPeer := []string{router.address, onCandidate}[i]
 		commands := []string{
@@ -99,50 +99,50 @@ func TestFRRRoutingTransferPreservesMoreSpecificRoutesAndWithdraws(t *testing.T)
 		if i == 1 {
 			commands = append(commands, "network "+denied)
 		}
-		transferFRRConfig(t, ctx, upstream.name, append(commands, "exit-address-family", "exit"))
+		transferFRRConfig(ctx, t, upstream.name, append(commands, "exit-address-family", "exit"))
 	}
-	awaitTransferFRRBestPath(t, ctx, router.name, exact, source.address, 2)
-	awaitTransferFRRBestPath(t, ctx, router.name, moreSpecific, source.address, 2)
-	awaitTransferFRRBestPath(t, ctx, router.name, denied, "", 0)
+	awaitTransferFRRBestPath(ctx, t, router.name, exact, source.address, 2)
+	awaitTransferFRRBestPath(ctx, t, router.name, moreSpecific, source.address, 2)
+	awaitTransferFRRBestPath(ctx, t, router.name, denied, "", 0)
 	const workload = "203.0.113.200"
 	for i, upstream := range []transferFRRNode{source, candidate} {
-		transferFRRDocker(t, ctx, "exec", "--user", "0", upstream.name, "ip", "address", "add", workload+"/32", "dev", "lo")
-		transferFRRDocker(t, ctx, "exec", "--user", "0", upstream.name, "ip", "route", "replace", client.address+"/32",
+		transferFRRDocker(ctx, t, "exec", "--user", "0", upstream.name, "ip", "address", "add", workload+"/32", "dev", "lo")
+		transferFRRDocker(ctx, t, "exec", "--user", "0", upstream.name, "ip", "route", "replace", client.address+"/32",
 			"via", []string{router.address, onCandidate}[i])
 	}
-	transferFRRDocker(t, ctx, "exec", "--user", "0", client.name, "ip", "route", "replace", exact, "via", onClient)
-	proveTransferForwarding(t, ctx, router.name, client, clientIf, workload, sourceIf, candidateIf)
-	before := transferFRRDocker(t, ctx, "exec", router.name, "vtysh", "-c", "show running-config")
+	transferFRRDocker(ctx, t, "exec", "--user", "0", client.name, "ip", "route", "replace", exact, "via", onClient)
+	proveTransferForwarding(ctx, t, router.name, client, clientIf, workload, sourceIf, candidateIf)
+	before := transferFRRDocker(ctx, t, "exec", router.name, "vtysh", "-c", "show running-config")
 	draft, err := draftFRRTransfer(ctx, before, netip.MustParseAddr(candidate.address), 64498, netip.MustParsePrefix(exact), 300, 128<<10)
 	if err != nil || len(draft.Configure) == 0 || len(draft.Withdraw) == 0 {
 		t.Fatalf("original FRRouting archive could not be rendered: %v", err)
 	}
-	assertTransferFRRPolicy(t, ctx, router.name, draft, false)
+	assertTransferFRRPolicy(ctx, t, router.name, draft, false)
 	// Execute the two separate test-owner steps only against this fixture's
 	// isolated Docker networks after the read-only product preview is checked.
-	transferFRRConfig(t, ctx, router.name, draft.Configure)
-	transferFRRDocker(t, ctx, "exec", router.name, "vtysh", "-c", "clear bgp "+candidate.address+" soft in")
-	assertTransferFRRPolicy(t, ctx, router.name, draft, true)
-	awaitTransferFRRBestPath(t, ctx, router.name, exact, candidate.address, 2)
-	proveTransferForwarding(t, ctx, router.name, client, clientIf, workload, candidateIf, sourceIf)
-	awaitTransferFRRBestPath(t, ctx, router.name, moreSpecific, source.address, 2)
-	awaitTransferFRRBestPath(t, ctx, router.name, denied, "", 0)
-	transferFRRConfig(t, ctx, router.name, draft.Withdraw)
-	transferFRRDocker(t, ctx, "exec", router.name, "vtysh", "-c", "clear bgp "+candidate.address+" soft in")
-	awaitTransferFRRBestPath(t, ctx, router.name, exact, source.address, 2)
-	awaitTransferFRRBestPath(t, ctx, router.name, moreSpecific, source.address, 2)
-	awaitTransferFRRBestPath(t, ctx, router.name, denied, "", 0)
-	proveTransferForwarding(t, ctx, router.name, client, clientIf, workload, sourceIf, candidateIf)
-	assertTransferFRRPolicy(t, ctx, router.name, draft, false)
+	transferFRRConfig(ctx, t, router.name, draft.Configure)
+	transferFRRDocker(ctx, t, "exec", router.name, "vtysh", "-c", "clear bgp "+candidate.address+" soft in")
+	assertTransferFRRPolicy(ctx, t, router.name, draft, true)
+	awaitTransferFRRBestPath(ctx, t, router.name, exact, candidate.address, 2)
+	proveTransferForwarding(ctx, t, router.name, client, clientIf, workload, candidateIf, sourceIf)
+	awaitTransferFRRBestPath(ctx, t, router.name, moreSpecific, source.address, 2)
+	awaitTransferFRRBestPath(ctx, t, router.name, denied, "", 0)
+	transferFRRConfig(ctx, t, router.name, draft.Withdraw)
+	transferFRRDocker(ctx, t, "exec", router.name, "vtysh", "-c", "clear bgp "+candidate.address+" soft in")
+	awaitTransferFRRBestPath(ctx, t, router.name, exact, source.address, 2)
+	awaitTransferFRRBestPath(ctx, t, router.name, moreSpecific, source.address, 2)
+	awaitTransferFRRBestPath(ctx, t, router.name, denied, "", 0)
+	proveTransferForwarding(ctx, t, router.name, client, clientIf, workload, sourceIf, candidateIf)
+	assertTransferFRRPolicy(ctx, t, router.name, draft, false)
 }
 
-func assertTransferFRRPolicy(t *testing.T, ctx context.Context, router string, policy frrTransferDryRun, applied bool) {
+func assertTransferFRRPolicy(ctx context.Context, t *testing.T, router string, policy frrTransferDryRun, applied bool) {
 	t.Helper()
 	expected := policy.BeforeMap
 	if applied {
 		expected = policy.AfterMap
 	}
-	raw := transferFRRDocker(t, ctx, "exec", router, "vtysh", "-c", "show running-config")
+	raw := transferFRRDocker(ctx, t, "exec", router, "vtysh", "-c", "show running-config")
 	current, err := readFRRInboundPolicy(ctx, raw, netip.MustParseAddr(policy.CandidatePeer), "ipv4", "", 128<<10)
 	if err != nil || current.mapName != expected || current.peerASN != policy.CandidateASN {
 		t.Fatalf("candidate has attachment %q in AS%d, want %q in AS%d: %v", current.mapName, current.peerASN, expected, policy.CandidateASN, err)
@@ -167,7 +167,7 @@ func assertTransferFRRPolicy(t *testing.T, ctx context.Context, router string, p
 
 type transferFRRNode struct{ name, address string }
 
-func startTransferFRR(t *testing.T, ctx context.Context, image, network, role string) transferFRRNode {
+func startTransferFRR(ctx context.Context, t *testing.T, image, network, role string) transferFRRNode {
 	t.Helper()
 	name := network + "-" + role
 	args := []string{"create", "--pull=never", "--label", "qa.owner=probectl-beta", "--name", name,
@@ -175,7 +175,7 @@ func startTransferFRR(t *testing.T, ctx context.Context, image, network, role st
 	if role == "router" {
 		args = append(args, "--sysctl", "net.ipv4.ip_forward=1")
 	}
-	transferFRRDocker(t, ctx, append(args, image)...)
+	transferFRRDocker(ctx, t, append(args, image)...)
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
 	config := t.TempDir()
 	for file, body := range map[string]string{
@@ -187,9 +187,9 @@ func startTransferFRR(t *testing.T, ctx context.Context, image, network, role st
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		transferFRRDocker(t, ctx, "cp", path, name+":/etc/frr/"+file)
+		transferFRRDocker(ctx, t, "cp", path, name+":/etc/frr/"+file)
 	}
-	transferFRRDocker(t, ctx, "start", name)
+	transferFRRDocker(ctx, t, "start", name)
 	for {
 		if ctx.Err() != nil {
 			t.Fatal("FRRouting never started", role)
@@ -199,12 +199,12 @@ func startTransferFRR(t *testing.T, ctx context.Context, image, network, role st
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	return transferFRRNode{name, transferFRRAddress(t, ctx, name, network)}
+	return transferFRRNode{name, transferFRRAddress(ctx, t, name, network)}
 }
 
-func transferFRRAddress(t *testing.T, ctx context.Context, name, network string) string {
+func transferFRRAddress(ctx context.Context, t *testing.T, name, network string) string {
 	t.Helper()
-	address := strings.TrimSpace(transferFRRDocker(t, ctx, "inspect", name, "--format",
+	address := strings.TrimSpace(transferFRRDocker(ctx, t, "inspect", name, "--format",
 		`{{(index .NetworkSettings.Networks "`+network+`").IPAddress}}`))
 	if parsed, err := netip.ParseAddr(address); err != nil || !parsed.Is4() || !parsed.IsPrivate() {
 		t.Fatalf("fixture router %s did not receive a private IPv4 address", name)
@@ -212,7 +212,7 @@ func transferFRRAddress(t *testing.T, ctx context.Context, name, network string)
 	return address
 }
 
-func transferFRRInterface(t *testing.T, ctx context.Context, router, local string) string {
+func transferFRRInterface(ctx context.Context, t *testing.T, router, local string) string {
 	t.Helper()
 	var interfaces []struct {
 		Name      string `json:"ifname"`
@@ -220,7 +220,7 @@ func transferFRRInterface(t *testing.T, ctx context.Context, router, local strin
 			Local string `json:"local"`
 		} `json:"addr_info"`
 	}
-	raw := transferFRRDocker(t, ctx, "exec", router, "ip", "-j", "-4", "address", "show")
+	raw := transferFRRDocker(ctx, t, "exec", router, "ip", "-j", "-4", "address", "show")
 	if err := json.Unmarshal([]byte(raw), &interfaces); err != nil {
 		t.Fatalf("read the owned router's kernel interfaces: %v", err)
 	}
@@ -237,19 +237,19 @@ func transferFRRInterface(t *testing.T, ctx context.Context, router, local strin
 
 // The lab operator observes the workload entering the router and the bytes
 // transmitted on both uplinks. The kernel lookup is checked separately.
-func proveTransferForwarding(t *testing.T, ctx context.Context, router string, client transferFRRNode,
+func proveTransferForwarding(ctx context.Context, t *testing.T, router string, client transferFRRNode,
 	clientIf, destination, selected, standby string) {
 	t.Helper()
 	var lookup []struct {
 		Interface string `json:"dev"`
 	}
-	forwarding := transferFRRDocker(t, ctx, "exec", router, "ip", "-j", "route", "get", destination,
+	forwarding := transferFRRDocker(ctx, t, "exec", router, "ip", "-j", "route", "get", destination,
 		"from", client.address, "iif", clientIf)
 	if err := json.Unmarshal([]byte(forwarding), &lookup); err != nil || len(lookup) != 1 || lookup[0].Interface != selected {
 		t.Fatalf("kernel lookup for the owned workload selected a different link: %s (%v)", forwarding, err)
 	}
 	read := func(iface, counter string) uint64 {
-		raw := transferFRRDocker(t, ctx, "exec", router, "cat", "/sys/class/net/"+iface+"/statistics/"+counter)
+		raw := transferFRRDocker(ctx, t, "exec", router, "cat", "/sys/class/net/"+iface+"/statistics/"+counter)
 		value, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 64)
 		if err != nil {
 			t.Fatalf("read %s %s counter: %v", iface, counter, err)
@@ -278,16 +278,16 @@ func proveTransferForwarding(t *testing.T, ctx context.Context, router string, c
 	}
 }
 
-func transferFRRConfig(t *testing.T, ctx context.Context, router string, commands []string) {
+func transferFRRConfig(ctx context.Context, t *testing.T, router string, commands []string) {
 	t.Helper()
 	args := []string{"exec", router, "vtysh", "-c", "configure terminal"}
 	for _, command := range commands {
 		args = append(args, "-c", command)
 	}
-	transferFRRDocker(t, ctx, append(args, "-c", "end")...)
+	transferFRRDocker(ctx, t, append(args, "-c", "end")...)
 }
 
-func transferFRRDocker(t *testing.T, ctx context.Context, args ...string) string {
+func transferFRRDocker(ctx context.Context, t *testing.T, args ...string) string {
 	t.Helper()
 	output, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	if err != nil || strings.Contains(string(output), "% Unknown command") || strings.Contains(string(output), "% Command incomplete") {
@@ -296,7 +296,7 @@ func transferFRRDocker(t *testing.T, ctx context.Context, args ...string) string
 	return string(output)
 }
 
-func awaitTransferFRRBestPath(t *testing.T, ctx context.Context, router, prefix, want string, paths int) {
+func awaitTransferFRRBestPath(ctx context.Context, t *testing.T, router, prefix, want string, paths int) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) && ctx.Err() == nil {
