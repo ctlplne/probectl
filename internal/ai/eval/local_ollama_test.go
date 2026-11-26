@@ -59,11 +59,12 @@ type localModelEval struct {
 }
 
 type localEvalMatrix struct {
-	StartedAt     time.Time        `json:"started_at"`
-	ScenarioCount int              `json:"scenario_count"`
-	ScenarioFrom  int              `json:"scenario_from"`
-	ScenarioTo    int              `json:"scenario_to"`
-	Models        []localModelEval `json:"models"`
+	StartedAt      time.Time        `json:"started_at"`
+	ScenarioCount  int              `json:"scenario_count"`
+	ScenarioFrom   int              `json:"scenario_from"`
+	ScenarioTo     int              `json:"scenario_to"`
+	ModelTimeoutNS int64            `json:"model_timeout_ns"`
+	Models         []localModelEval `json:"models"`
 }
 
 // observedModel measures the provider output before the analyzer drops invalid
@@ -93,8 +94,7 @@ func (m *observedModel) Synthesize(ctx context.Context, input ai.SynthesisInput)
 	return out, nil
 }
 
-func measureLocalModel(ctx context.Context, cases []Scenario, adapter ai.ModelAdapter) localModelEval {
-	const budget = 60 * time.Second // production PROBECTL_AI_MODEL_TIMEOUT default
+func measureLocalModel(ctx context.Context, cases []Scenario, adapter ai.ModelAdapter, budget time.Duration) localModelEval {
 	probe := &observedModel{ModelAdapter: adapter}
 	var model ai.ModelAdapter = probe
 	if adapter.Name() != ai.NewBuiltinModel().Name() {
@@ -178,9 +178,18 @@ func TestRCAEvalLocalOllama(t *testing.T) {
 	if err != nil || !addr.Unmap().IsLoopback() || len(models) == 0 || output == "" {
 		t.Fatal("a literal loopback origin, local model names and report path are required")
 	}
+	modelTimeout := time.Minute
+	if value := os.Getenv("PROBECTL_AI_MODEL_TIMEOUT"); value != "" {
+		configured, err := time.ParseDuration(value)
+		if err != nil || configured <= 0 {
+			t.Fatal("PROBECTL_AI_MODEL_TIMEOUT must be a positive duration")
+		}
+		modelTimeout = configured
+	}
 
 	scenarios := Scenarios()
-	matrix := localEvalMatrix{StartedAt: time.Now().UTC(), ScenarioCount: len(scenarios), ScenarioTo: len(scenarios)}
+	matrix := localEvalMatrix{StartedAt: time.Now().UTC(), ScenarioCount: len(scenarios), ScenarioTo: len(scenarios),
+		ModelTimeoutNS: modelTimeout.Nanoseconds()}
 	if raw := os.Getenv("PROBECTL_RCA_OLLAMA_RANGE"); raw != "" {
 		from, to, found := strings.Cut(raw, ":")
 		first, fromErr := strconv.Atoi(from)
@@ -192,13 +201,13 @@ func TestRCAEvalLocalOllama(t *testing.T) {
 		scenarios = scenarios[matrix.ScenarioFrom:matrix.ScenarioTo]
 	}
 	complete := matrix.ScenarioFrom == 0 && matrix.ScenarioTo == matrix.ScenarioCount
-	matrix.Models = append(matrix.Models, measureLocalModel(t.Context(), scenarios, ai.NewBuiltinModel()))
+	matrix.Models = append(matrix.Models, measureLocalModel(t.Context(), scenarios, ai.NewBuiltinModel(), modelTimeout))
 	for _, name := range models {
-		adapter, err := ai.NewHTTPModel(ai.HTTPModelConfig{Kind: ai.KindOllama, Endpoint: endpoint, Model: name})
+		adapter, err := ai.NewHTTPModel(ai.HTTPModelConfig{Kind: ai.KindOllama, Endpoint: endpoint, Model: name, Timeout: modelTimeout})
 		if err != nil || adapter.RemoteEgress() {
 			t.Fatalf("cannot build local model %q: %v", name, err)
 		}
-		report := measureLocalModel(t.Context(), scenarios, adapter)
+		report := measureLocalModel(t.Context(), scenarios, adapter, modelTimeout)
 		matrix.Models = append(matrix.Models, report)
 		if complete && report.AdapterAnswers == 0 {
 			t.Errorf("%s never supplied an answer through the Ollama adapter", report.Model)
