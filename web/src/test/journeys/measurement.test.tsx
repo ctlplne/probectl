@@ -14,6 +14,7 @@ import {
   comparableActiveTimeMs,
   validateJourneyArtifact,
   type JourneyArtifact,
+  type MeasuredRequest,
 } from './measurement'
 
 describe('UX journey measurement contract', () => {
@@ -62,12 +63,13 @@ describe('UX journey measurement contract', () => {
       ),
     ).not.toThrow()
 
-    for (const request of [
+    const spoofedRequests: MeasuredRequest[] = [
       { url: '/v1/incidents?tenant_id=tenant-b' },
       { url: '/v1/ai/ask', method: 'POST', body: { subject: { tenant_id: 'tenant-b' } } },
       { url: '/v1/agents', headers: { 'X-Probectl-Tenant': 'tenant-b' } },
       { url: '/v1/agents', headers: { 'X-Tenant-ID': 'tenant-a' } },
-    ]) {
+    ]
+    for (const request of spoofedRequests) {
       expect(() => assertRequestsUseSessionTenant([request], 'tenant-a')).toThrow(
         /supplies tenant/i,
       )
