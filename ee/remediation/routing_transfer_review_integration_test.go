@@ -94,8 +94,8 @@ func TestRoutingTransferReviewStoresDistinctOwnedApprovals(t *testing.T) {
 		if _, err := service.ApproveRoutingTransfer(l.reviewer, l.tenant, "user:reviewer", l.id, other.fingerprint, "", l.prepare); err == nil {
 			t.Fatalf("lane %d accepted a sibling fingerprint", i)
 		}
-		assertRoutingTransferDecisionRequiresPayload(t, store, l.reviewer, l.tenant, l.id)
-		assertRoutingTransferReviewRefusesAConcurrentDecision(t, service, store, l.reviewer, l.tenant, l.id, l.fingerprint, l.prepare)
+		assertRoutingTransferDecisionRequiresPayload(l.reviewer, t, store, l.tenant, l.id)
+		assertRoutingTransferReviewRefusesAConcurrentDecision(l.reviewer, t, service, store, l.tenant, l.id, l.fingerprint, l.prepare)
 		result, err := service.ApproveRoutingTransfer(l.reviewer, l.tenant, "user:reviewer", l.id, l.fingerprint, "reviewed exact prefix", l.prepare)
 		if err != nil || result.State != rem.StateApproved || result.DecidedAt == nil {
 			t.Fatalf("approve lane %d: %+v, %v", i, result, err)
@@ -206,7 +206,7 @@ func routingTransferReviewTestEvidence(tenant, fingerprint, moved string, expire
 	}
 }
 
-func assertRoutingTransferDecisionRequiresPayload(t *testing.T, store *PGStore, reviewer context.Context, tenant, proposal string) {
+func assertRoutingTransferDecisionRequiresPayload(reviewer context.Context, t *testing.T, store *PGStore, tenant, proposal string) {
 	t.Helper()
 	scoped, err := remediationTenantContext(reviewer, tenant)
 	if err != nil {
@@ -225,8 +225,8 @@ func assertRoutingTransferDecisionRequiresPayload(t *testing.T, store *PGStore, 
 // A generic rejection holds the proposal row first, then takes the audit
 // lock. Approval holds the audit lock after its contract check. A conflict
 // must return for a fresh review without waiting for the held row.
-func assertRoutingTransferReviewRefusesAConcurrentDecision(t *testing.T, service *Service, store *PGStore,
-	reviewer context.Context, tenant, id, fingerprint string, prepare rem.RoutingTransferReviewPrepare) {
+func assertRoutingTransferReviewRefusesAConcurrentDecision(reviewer context.Context, t *testing.T, service *Service, store *PGStore,
+	tenant, id, fingerprint string, prepare rem.RoutingTransferReviewPrepare) {
 	t.Helper()
 	scoped, err := remediationTenantContext(reviewer, tenant)
 	if err != nil {
