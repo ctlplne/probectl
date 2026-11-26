@@ -24,6 +24,8 @@ import (
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/flow"
+	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 	"github.com/ctlplne/probectl/pkg/sdk"
 )
@@ -64,6 +66,7 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		st.SignIn(t, second.tenantID, reviewerEmail, "FX-2 Router Blue"),
 	}
 	prepareTransferStockCollectors(t, lab, st, links, community, exporterImage, &lanes)
+	warmTransferStockExporters(t, lab, st, links[0], lanes)
 	installTransferStockWorkload(t, lab)
 	probes := prepareTransferStockProbes(t, lab, st, lanes, links)
 	assertTransferStockKernelPath(t, lab, links[0])
@@ -110,7 +113,7 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		inputs[i] = makeTransferStockRequest(t, st, lane, int64(4+3*i), int64(1+i))
 		measured[i] = inputs[i]
 		measured[i].ProbeComparison = comparisons[i]
-		estimates[i] = awaitTransferStockPerformance(t, st, *lane, i, measured[i])
+		estimates[i] = awaitTransferStockPerformance(t, st, *lane, links[0].index, i, measured[i])
 		assertTransferStockEstimate(t, *lane, links, estimates[i], int64(4+3*i), int64(1+i))
 	}
 	for i, lane := range lanes {
@@ -351,6 +354,37 @@ func prepareTransferStockCollectors(t *testing.T, lab *routingLab, st *shipped.S
 		export := links[0]
 		export.name = suffix
 		lane.exporter = startRoleRouterExporter(t, lab, exporterImage, destination, export, egressOnly)
+	}
+}
+
+func warmTransferStockExporters(t *testing.T, lab *routingLab, st *shipped.Stack, link roleRouterLink, lanes [2]transferStockLane) {
+	t.Helper()
+	// A collector learns its signed exporter identity from the first packet.
+	// Establish that identity before measuring. Raw ingestion can arrive before
+	// the first identity RPC and permanently record ownership as unavailable.
+	pool := st.ApplicationReadPool(t)
+	reader := store.NewInterfaceRoleInputs(pool)
+	exporter := netip.MustParseAddr(lab.ip["rtr-a"])
+	budget := entity.InterfaceRolePolicyBudget{MemoryBytes: 32 << 20, WorkUnits: 32 << 20}
+	for _, lane := range lanes {
+		emitRoleRouterCapturedTraffic(t, lab, lane.exporter, link, link.routerIP, link.peerIP, "1", false)
+		scope := entity.Scope{TenantID: lane.reg.tenantID, ContextID: lane.reg.contextID}
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(scope.TenantID))
+		shipped.Await(t, "stock IPFIX exporter has a current signed tenant binding", 30*time.Second, func() bool {
+			found := false
+			err := tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+				bindings, err := reader.FlowBindingsInScope(ctx, sc, scope, budget)
+				if err != nil {
+					return err
+				}
+				found = slices.ContainsFunc(bindings, func(binding store.InterfaceRoleFlowBinding) bool {
+					return binding.Scope == scope && binding.RouterID == lane.reg.deviceID && binding.AgentID == lane.reg.agentID &&
+						binding.Exporter == exporter && binding.Protocol == flow.ProtoIPFIX && binding.Domain == 0 && binding.ValidUntil.After(time.Now())
+				})
+				return nil
+			})
+			return err == nil && found
+		})
 	}
 }
 

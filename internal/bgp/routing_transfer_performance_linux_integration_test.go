@@ -323,7 +323,7 @@ func collectTransferStockComparisons(t *testing.T, probes [2][2]transferStockPro
 	return out, lastWindowEnd
 }
 
-func awaitTransferStockPerformance(t *testing.T, st *shipped.Stack, lane transferStockLane, index int,
+func awaitTransferStockPerformance(t *testing.T, st *shipped.Stack, lane transferStockLane, ifIndex uint32, index int,
 	input sdk.RoutingTransferInput) sdk.RoutingTransferResponse {
 	t.Helper()
 	const endpoint = "/v1/flows/routing-transfer-estimate"
@@ -333,6 +333,9 @@ func awaitTransferStockPerformance(t *testing.T, st *shipped.Stack, lane transfe
 		if t.Failed() {
 			t.Logf("performance estimate HTTP %d: estimate status %q, reason %q, comparison %+v",
 				status, result.Estimate.Status, result.Estimate.Reason, result.UpstreamPerformance)
+			if result.Estimate.Reason == "original_egress_ownership_incomplete" {
+				logTransferStockFlowCaptures(t, st, lane, ifIndex)
+			}
 		}
 	}()
 	shipped.Await(t, "physical paired observations join the stock transfer estimate", time.Minute, func() bool {

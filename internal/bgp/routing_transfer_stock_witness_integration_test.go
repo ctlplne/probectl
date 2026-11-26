@@ -36,14 +36,15 @@ type transferStockPoll struct {
 	octets    [2]uint64
 }
 
+var transferStockSQLIdentity = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
+
 func readTransferStockPoll(t *testing.T, lane *transferStockLane, links [2]roleRouterLink,
 	from, to time.Time, earliest bool) transferStockPoll {
 	t.Helper()
 	// Fixture identifiers come from registration. Fail closed if their
 	// representation cannot be used as an unambiguous SQL literal.
-	literal := regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
 	for _, value := range []string{lane.reg.tenantID, lane.reg.contextID, lane.reg.deviceID, lane.counters} {
-		if !literal.MatchString(value) {
+		if !transferStockSQLIdentity.MatchString(value) {
 			t.Fatal("counter fixture identity is not canonical")
 		}
 	}
@@ -116,6 +117,60 @@ func readTransferStockPoll(t *testing.T, lane *transferStockLane, links [2]roleR
 		}
 	}
 	return transferStockPoll{}
+}
+
+// Report the owned fixture's clocks and terminal capture state only when the
+// API refuses its evidence. Receipt counts alone include unavailable captures.
+func logTransferStockFlowCaptures(t *testing.T, st *shipped.Stack, lane transferStockLane, ifIndex uint32) {
+	t.Helper()
+	if !transferStockSQLIdentity.MatchString(lane.reg.tenantID) || !transferStockSQLIdentity.MatchString(lane.reg.agentID) {
+		t.Log("invalid stock flow fixture identity")
+		return
+	}
+	query := fmt.Sprintf(`SELECT routing_capture_key,clock_basis,
+ toString(toUnixTimestamp64Nano(start_ts)) AS started,toString(toUnixTimestamp64Nano(ts)) AS ended,
+ toString(routing_captured_unix_nanos) AS retained,toString(packets) AS packets
+ FROM probectl_flows FINAL WHERE tenant_id='%s' AND agent_id='%s' AND out_if=%d
+ AND toUnixTimestamp64Nano(ts)>=%d AND toUnixTimestamp64Nano(ts)<=%d
+ ORDER BY ts,routing_capture_key LIMIT 16 FORMAT JSONEachRow`, lane.reg.tenantID, lane.reg.agentID, ifIndex,
+		lane.before.started.UnixNano(), lane.after.started.UnixNano())
+	body, err := shipped.CHQuery(shipped.CHURL(), query)
+	if err != nil {
+		t.Logf("read owned stock flow clocks: %v", err)
+		return
+	}
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(lane.reg.tenantID))
+	err = tenancy.InTenantReadSnapshot(ctx, st.ApplicationReadPool(t), func(ctx context.Context, sc tenancy.Scope) error {
+		for _, line := range strings.Split(strings.TrimSpace(body), "\n") {
+			if line == "" {
+				continue
+			}
+			var row struct {
+				Key      string `json:"routing_capture_key"`
+				Basis    uint8  `json:"clock_basis"`
+				Started  string
+				Ended    string
+				Retained string
+				Packets  string
+			}
+			if err := json.Unmarshal([]byte(line), &row); err != nil {
+				return err
+			}
+			outcome := "missing"
+			if key, err := hex.DecodeString(row.Key); err == nil && len(key) == 32 {
+				if err := sc.Q.QueryRow(ctx, `SELECT COALESCE((SELECT outcome FROM bgp_flow_capture_receipts
+ WHERE tenant_id=$1 AND flow_key=$2),'pending')`, lane.reg.tenantID, key).Scan(&outcome); err != nil {
+					return err
+				}
+			}
+			t.Logf("stock egress row packets=%s clock_basis=%d start_ns=%s end_ns=%s receipt_ns=%s outcome=%s",
+				row.Packets, row.Basis, row.Started, row.Ended, row.Retained, outcome)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Logf("read owned stock flow receipt states: %v", err)
+	}
 }
 
 func verifyTransferStockPolls(t *testing.T, st *shipped.Stack, lane *transferStockLane) {
