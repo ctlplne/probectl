@@ -1023,9 +1023,11 @@ async function submitTransfer(tenant: string, prefix: string) {
   const form = within(screen.getByRole('form', { name: 'Routing transfer estimate' }))
   const current = form.getByLabelText('Current handoff agreement')
   const candidate = form.getByLabelText('Candidate handoff agreement')
-  await within(current).findByRole('option', { name: `${tenant} WAN · revision ${version}` })
+  await within(current).findByRole('option', {
+    name: `${tenant} WAN · revision ${version} · ${primaryInterface}`,
+  })
   await within(candidate).findByRole('option', {
-    name: `${tenant}-candidate WAN · revision ${version}`,
+    name: `${tenant}-candidate WAN · revision ${version} · ${candidateInterface}`,
   })
   fireEvent.change(current, {
     target: { value: `${tenant}-agreement:${version}` },
@@ -1061,7 +1063,9 @@ test('estimates exact-prefix transfer costs with the selected immutable revision
   expect(result.getByRole('status')).toHaveTextContent(`Transfer calculated for ${prefix}`)
   expect(result.getByText(/observation window priced at recorded rates/i)).toBeInTheDocument()
   expect(result.getByText(/comparative upstream performance is unavailable/i)).toBeInTheDocument()
-  const table = within(result.getByRole('table', { name: 'Estimated handoff charges' }))
+  const table = within(
+    result.getByRole('table', { name: 'Estimated handoff charges and 95th-percentile traffic' }),
+  )
   const current = within(table.getByRole('row', { name: /^Current / }))
   expect(current.getByText('4750000000000000019/1250000000000000000 USD')).toBeInTheDocument()
   expect(current.getByText('19 USD')).toBeInTheDocument()
