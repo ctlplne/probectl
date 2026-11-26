@@ -25,12 +25,14 @@ stops the entire schedule until a human signs the incident book.
 
 ## The model — and what is deliberately absent
 
-Update authority stays with the operator's orchestrator (Helm, `install.sh`, or
-your device manager). The control plane **plans** waves from the agent registry
-and **verifies** the result against that registry. For managed macOS and Windows
-endpoints it can also serve a wave's approved installer to an enrolled device
-that explicitly requests it. The operator or device manager initiates the
-download and runs the installer. See [the endpoint deployment runbook](../endpoint-dem.md#deploy).
+There is no agent self-update channel. Update authority stays with the operator's
+orchestrator (Helm, `install.sh`, or your device manager). The control plane
+**plans** waves from the agent registry and **verifies** the result against that
+registry. For managed macOS and Windows endpoints it can serve a wave's approved
+installer to an enrolled device through `probectl-endpoint stage-update`. The
+operator or device manager invokes that command to stage the verified file and
+separately runs the installer.
+See [the endpoint deployment runbook](../endpoint-dem.md#deploy).
 
 The engine is `internal/agent/rollout.go` — a pure, fully-tested state machine
 (plan → advance → verify → resume) that operator tooling drives; the agent
