@@ -78,6 +78,7 @@ func cmdVantage(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 }
 
 func runVantageTerraform(executable, root, operation, input string, stdin io.Reader, stdout, stderr io.Writer) error {
+	// #nosec G204 -- Only Terraform or OpenTofu from the local PATH can run. The operator's directory is one argument and no shell parses it.
 	command := exec.Command(executable, "-chdir="+root, operation, input)
 	command.Stdin, command.Stdout, command.Stderr = stdin, stdout, stderr
 	environment := command.Environ()
