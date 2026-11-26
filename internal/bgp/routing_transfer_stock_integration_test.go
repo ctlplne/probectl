@@ -356,14 +356,15 @@ func prepareTransferStockCollectors(t *testing.T, lab *routingLab, st *shipped.S
 
 // softflowd's capture can leave a partial libpcap block waiting. Traffic to
 // the adjacent owned peer completes the block without changing the number of
-// datagrams sent to the transfer prefix. The independent egress counters
-// still account for these small frames.
+// datagrams sent to the transfer prefix. Use the same bounded frame count and
+// size as the router role fixture. The independent egress counters include
+// this traffic.
 func drainTransferStockCapture(t *testing.T, lab *routingLab, selected roleRouterLink) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 12*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	args := []string{"exec", "--user", "0", lab.container("rtr-a"), "ping",
-		"-A", "-q", "-I", selected.iface, "-c", "512", "-s", "8", "-W", "1", selected.peerIP}
+		"-A", "-q", "-I", selected.iface, "-c", "4096", "-s", "1200", "-W", "1", selected.peerIP}
 	if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
 		t.Fatalf("flush the owned exporter capture buffer: %v %.400s", err, out)
 	}
