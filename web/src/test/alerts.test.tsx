@@ -907,18 +907,32 @@ describe('alerting surface (S-FE1)', () => {
 
   test('configures alert-channel delivery and tests tenant-routed incident connectors with redacted secrets', async () => {
     const { state, fetcher } = alertsBackend()
+    state.oncall.outbound.push({
+      id: 'halopsa-1',
+      provider: 'halopsa',
+      tenant_routed: true,
+      endpoint_configured: true,
+      endpoint_tls_configured: true,
+      endpoint_host: 'psa.example.invalid',
+      credential_configured: true,
+      endpoint_secrets_redacted: true,
+    })
+    state.oncall.outbound_connector_count = 2
     vi.stubGlobal('fetch', fetcher)
     renderApp('/alerts', {
       me: { permissions: ['alert.read', 'alert.write', 'incident.read', 'incident.write'] },
     })
 
     const connectors = await screen.findByRole('table', { name: 'Incident connectors' })
-    expect(within(connectors).getByText('Pagerduty')).toBeDefined()
-    expect(within(connectors).getByText('current tenant')).toBeDefined()
-    expect(within(connectors).getByText('events.pagerduty.com')).toBeDefined()
+    const pagerDuty = within(connectors).getByRole('row', { name: /Pagerduty/ })
+    const halo = within(connectors).getByRole('row', { name: /HaloPSA/ })
+    expect(within(pagerDuty).getByText('current tenant')).toBeDefined()
+    expect(within(pagerDuty).getByText('events.pagerduty.com')).toBeDefined()
+    expect(within(halo).getByText('current tenant')).toBeDefined()
+    expect(within(halo).getByText('psa.example.invalid')).toBeDefined()
     expect(screen.queryByText(/routing-key|secret/i)).toBeNull()
 
-    await userEvent.click(within(connectors).getByRole('button', { name: 'Test' }))
+    await userEvent.click(within(pagerDuty).getByRole('button', { name: 'Test' }))
     await waitFor(() => expect(state.connectorTests).toEqual(['pagerduty-1']))
 
     await userEvent.click(screen.getByRole('button', { name: 'Create rule' }))

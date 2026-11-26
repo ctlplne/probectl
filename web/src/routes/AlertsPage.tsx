@@ -104,6 +104,7 @@ function channelSummary(channels?: ChannelSpec[]): string {
 }
 
 function providerLabel(provider: string): string {
+  if (provider === 'halopsa') return 'HaloPSA'
   return provider
     .split(/[-_]/)
     .map((s) => (s ? s[0].toUpperCase() + s.slice(1) : s))
