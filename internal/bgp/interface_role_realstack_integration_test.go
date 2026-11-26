@@ -490,7 +490,9 @@ func startRoleRouterExporter(t *testing.T, lab *routingLab, image, destination s
 	}
 	name := lab.name + "-" + link.name + "-flow"
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "--force", name).Run() })
-	args := []string{"create", "--name", name, "--network", "container:" + lab.container("rtr-a"), "--cap-add", "NET_RAW", image, "softflowd", "-d", "-N", "-i", strconv.FormatUint(uint64(link.index), 10) + ":" + link.iface, "-v", "10", "-B", "65536", "-n", destination, "-c", "/tmp/softflowd.ctl"}
+	// IPFIX has no uptime clock in its header. Ask the stock exporter for
+	// absolute observation times so consumers can verify the original interval.
+	args := []string{"create", "--name", name, "--network", "container:" + lab.container("rtr-a"), "--cap-add", "NET_RAW", image, "softflowd", "-d", "-N", "-i", strconv.FormatUint(uint64(link.index), 10) + ":" + link.iface, "-v", "10", "-A", "milli", "-B", "65536", "-n", destination, "-c", "/tmp/softflowd.ctl"}
 	lab.docker(t, append(args, captureFilter...)...)
 	lab.docker(t, "start", name)
 	shipped.Await(t, "same-router "+link.name+" capture", 30*time.Second, func() bool {

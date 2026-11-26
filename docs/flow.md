@@ -1325,6 +1325,11 @@ flow exporter and interface evidence used in the estimate. A routine exporter
 refresh preserves the original measurement under a continuous assignment.
 Reassigning the exporter invalidates earlier captures for that handoff.
 
+For IPFIX, configure the exporter to report absolute flow start and end
+timestamps. Boot-relative timestamps alone cannot establish when the traffic
+crossed the handoff. With softflowd 1.1.0, use `-v 10 -A milli` to export
+absolute millisecond timestamps. [Exporter options](https://github.com/irino/softflowd/blob/softflowd-v1.1.0/softflowd.c)
+
 Add `probe_comparison` to the estimate to compare two registered routing probes.
 Set `source` and `candidate` to their `test_id` and `agent_id`. Both probes use
 the same literal destination inside the exact prefix. Set `from` and `to` to a
