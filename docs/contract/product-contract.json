@@ -417,7 +417,7 @@
       ],
       "name": "Metering/billing export",
       "status": "delivered",
-      "evidence": "`ee/billing`, `internal/usage` (operator-run export; never phone-home; MSP consumption basis)"
+      "evidence": "`ee/billing` and `internal/usage` provide operator-run metering exports for MSP consumption without phoning home. MSP deployments can opt in to billing sync for monitored device and agent counts through their own HaloPSA or Autotask instance. Native PSA billing sync remains preview pending authorized sandbox verification. See `docs/oncall-itsm.md`."
     },
     {
       "ids": [
