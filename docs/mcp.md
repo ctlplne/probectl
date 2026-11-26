@@ -362,6 +362,14 @@ Three absences, each deliberate:
 `context_id` and optional RFC 3339 `at` time. It requires `topology.read`,
 `entities.read` and the native AI query grant in the current tenant.
 
+`topology_cloud` previews the current tenant's stored AWS, Azure and Google
+Cloud inventory graph. It requires `topology.read`, `ai.query` and the
+tenant's MCP egress consent. An optional RFC 3339 `at` time selects which
+latest snapshots were fresh at that instant. `cloud_latest_only` indicates
+that each source retains its newest complete snapshot. Nodes include the
+source and observation time. The tool reads stored configuration and uses
+the tenant's MCP redaction policy.
+
 `topology_whatif_traffic` previews a link or node failure with the same retained
 traffic and directional load model as Topology. It takes `target`, `context_id`,
 `traffic_from`, `traffic_to`, and `maximum_poll_gap`. It also accepts

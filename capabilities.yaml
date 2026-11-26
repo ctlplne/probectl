@@ -677,7 +677,7 @@ capabilities:
     name: Live topology graph
     status: delivered
     owner: platform/release
-    engine: {refs: ["file:internal/topology", "file:internal/entity", "file:internal/store/kubernetes_inventory_topology.go", "file:internal/flow/failure_traffic.go", "file:internal/control/mcp_topology_failure.go"]}
+    engine: {refs: ["file:internal/topology", "file:internal/entity", "file:internal/store/kubernetes_inventory_topology.go", "file:internal/flow/failure_traffic.go", "file:internal/control/mcp_topology_failure.go", "file:internal/control/mcp_cloud_topology.go"]}
     binary: {refs: ["file:cmd/probectl-control/serve_runtime.go#WithTopology(rt.topoStore)"]}
     api: {refs: ["api:GET /v1/topology", "api:POST /v1/topology/whatif", "api:GET /v1/topology/whatif/export", "api:GET /v1/entities", "api:GET /v1/entities/resolve", "api:POST /v1/entity-contexts/{context_id}/kubernetes-inventory-sources", "api:DELETE /v1/entity-contexts/{context_id}/kubernetes-inventory-sources/{id}"]}
     cli: {refs: ["cli:probectl topology show", "cli:probectl topology whatif", "cli:probectl topology whatif-export", "cli:probectl entities list", "cli:probectl entities resolve", "cli:probectl entities kubernetes-source-assign", "cli:probectl entities kubernetes-source-revoke"]}

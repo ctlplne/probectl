@@ -196,6 +196,7 @@ func newMCPServer(
 			}
 			options = append(options, mcp.WithPathHistoryBackend(src.NativeFlow.nativePathHistory))
 			options = append(options, mcp.WithKubernetesTopologyBackend(src.NativeFlow.nativeKubernetesTopology))
+			options = append(options, mcp.WithCloudTopologyBackend(src.NativeFlow.nativeCloudTopology, backend.beginQuery))
 			if option, err := topologyFailureToolOption(src.NativeFlow); err != nil {
 				log.Error("MCP topology traffic schema is unavailable", "error_class", mcp.ErrorClass(err))
 			} else {

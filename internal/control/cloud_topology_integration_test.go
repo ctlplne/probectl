@@ -15,13 +15,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/store/pathstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/topology"
 )
@@ -44,6 +47,9 @@ func TestCloudTopologyUsesOwnTenantSnapshotAndObservationClock(t *testing.T) {
 			if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], ai.PermTopologyRead); err != nil {
 				return err
 			}
+			if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], "ai.query"); err != nil {
+				return err
+			}
 			inventories := store.CloudTopologyInventories{}
 			for _, source := range sources {
 				id := networkID(source.Provider, i)
@@ -63,6 +69,12 @@ func TestCloudTopologyUsesOwnTenantSnapshotAndObservationClock(t *testing.T) {
 			return nil
 		})
 	}
+	seedInterfaceRoleMCPConsent(f)
+	mcpConfig := &config.Config{}
+	mcpServer := NewMCPServerWithPolicyLoader(mcpConfig, f.server.log, f.pool, pathstore.NewMemory(), 0,
+		NewAIEgressGate(mcpConfig, f.server.log, f.pool), nil, nil, f.server.MCPPolicyLoader(), AISources{NativeFlow: f.server})
+	authenticator := NewMCPAuthenticator(f.pool, NewTenantStatusCache(f.pool, 0), false)
+	const mcpWire = "2026-07-28"
 	for i, tenant := range f.tenants {
 		var grants []auth.PermissionGrant
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
@@ -131,6 +143,21 @@ func TestCloudTopologyUsesOwnTenantSnapshotAndObservationClock(t *testing.T) {
 		}
 		if _, nodes, _ := read(route + "?include_cloud=true&at=" + url.QueryEscape(at.Add(2*time.Hour).Format(time.RFC3339))); len(nodes) != 0 {
 			t.Fatal("stale cloud resources were projected as current")
+		}
+		client := openInterfaceRoleStdio(t, mcpServer, authenticator, f.tokens[tenant], mcpWire)
+		var graph struct {
+			topology.Viz
+			LatestOnly bool `json:"cloud_latest_only"`
+		}
+		client.call(t, mcpWire, "topology_cloud", map[string]any{"at": at}, &graph, true)
+		if !graph.LatestOnly || graph.Tenant != tenant || !graph.At.Equal(at) ||
+			!reflect.DeepEqual(graph.Nodes, nodes) || !reflect.DeepEqual(graph.Edges, edges) {
+			t.Fatalf("tenant %d MCP did not return the same owned inventory as REST: %+v", i, graph)
+		}
+		client.call(t, mcpWire, "topology_cloud", map[string]any{"tenant_id": f.tenants[1-i]}, nil, false)
+		client.call(t, mcpWire, "topology_cloud", map[string]any{"at": at.Add(-time.Second)}, &graph, true)
+		if !graph.LatestOnly || len(graph.Nodes) != 0 || len(graph.Edges) != 0 {
+			t.Fatalf("tenant %d MCP returned inventory before its observation: %+v", i, graph)
 		}
 	}
 }

@@ -11700,6 +11700,7 @@
       "get": {
         "x-required-permission": "topology.read",
         "x-additional-permissions": ["entities.read when context_id is set", "source-specific evidence read for canonical candidates"],
+        "x-probectl-mcp-tools": ["topology_cloud"],
         "operationId": "getTopology",
         "summary": "Topology dependency graph (S43)",
         "tags": [

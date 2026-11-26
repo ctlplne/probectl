@@ -116,6 +116,8 @@ On the Topology page, open **History & filters** and select **Show cloud
 inventory**. Select a cloud node to inspect its source, full resource ID,
 prefixes and observation time. Use `GET /v1/topology?include_cloud=true` or
 `probectl topology show --query include_cloud=true` for the same projection.
+The `topology_cloud` MCP tool returns the cloud portion of the graph. It
+requires `ai.query` and tenant MCP egress consent as well as `topology.read`.
 A tenant session needs `topology.read`. The projection uses the latest
 complete snapshot per source and records the start of the provider inventory
 read. An observation must be fresh within one hour of the requested graph
