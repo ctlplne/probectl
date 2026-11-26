@@ -126,6 +126,42 @@ func TestFSStore(t *testing.T) {
 	runStoreSuite(t, s)
 }
 
+func TestFSStoreCopyDoesNotWriteForIneligibleSources(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFS(filepath.Join(root, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	if err := store.Put(ctx, "owned/package", "text/plain", []byte("owned bytes")); err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		key  string
+		want error
+	}{
+		{"missing parent", ctx, "missing/package", ErrNotFound},
+		{"missing object", ctx, "owned/missing", ErrNotFound},
+		{"over byte limit", ctx, "owned/package", ErrTooLarge},
+		{"canceled", canceled, "owned/package", context.Canceled},
+		{"directory as object", ctx, "owned", nil},
+		{"file as directory", ctx, "owned/package/nested", nil},
+		{"invalid key", ctx, "../package", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			n, err := store.CopyLimited(tc.ctx, tc.key, &output, 5)
+			if n != 0 || output.Len() != 0 || err == nil || tc.want != nil && !errors.Is(err, tc.want) {
+				t.Fatalf("invalid copy wrote %d bytes or returned the wrong error: %v", n, err)
+			}
+		})
+	}
+}
+
 func TestFSStoreTenantCopiesRejectLinkedDirectories(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewFS(root)

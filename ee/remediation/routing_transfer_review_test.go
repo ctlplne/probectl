@@ -7,12 +7,16 @@
 package remediation
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/entity"
 	rem "github.com/ctlplne/probectl/internal/remediation"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 func TestRoutingTransferReviewBindsTheExactBlastLimitAndTenant(t *testing.T) {
@@ -62,6 +66,9 @@ func TestRoutingTransferReviewBindsTheExactBlastLimitAndTenant(t *testing.T) {
 	if _, err := decodeStoredRoutingTransferReview("22222222-2222-4222-8222-222222222222", raw); err == nil {
 		t.Fatal("a review fingerprint crossed the tenant boundary")
 	}
+	t.Run("rollback_requires_the_recorded_approval_and_current_grant", func(t *testing.T) {
+		assertStoredRoutingTransferRollback(t, tenant, raw, stored.Review)
+	})
 	stored.Review.Preview.ArchiveSourceRef = "192.0.2.99"
 	altered, err := json.Marshal(stored)
 	if err != nil {
@@ -84,4 +91,66 @@ func TestRoutingTransferReviewBindsTheExactBlastLimitAndTenant(t *testing.T) {
 			t.Fatalf("after recorded withdrawal, got %q", got)
 		}
 	})
+}
+
+func assertStoredRoutingTransferRollback(t *testing.T, tenant string, review []byte, expected rem.RoutingTransferReview) {
+	t.Helper()
+	preview := expected.Preview
+	approvedAt := expected.ExpiresAt.Add(-time.Minute)
+	older := approvedAt.Add(-time.Nanosecond)
+	later := expected.ExpiresAt.Add(time.Minute)
+	validApproval := map[string]any{
+		"version": 1, "review_fingerprint": expected.Fingerprint, "approved_by_user_id": "reviewer-id",
+		"approved_at": approvedAt, "expires_at": later,
+	}
+	payload, err := json.Marshal(validApproval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := loadedRoutingTransferReview{review: review, approval: payload,
+		proposal: rem.Proposal{State: rem.StateApproved, Target: preview.ExactPrefix,
+			ProposedUserID: "proposer-id", DecidedBy: "user:reviewer", DecidedAt: &approvedAt}}
+	scope := tenancy.Scope{Tenant: tenancy.ID(tenant)}
+	refusal := errors.New("source grant refused")
+	authorize := func(_ context.Context, sc tenancy.Scope, contextID, routerID string, source entity.SourceKey) error {
+		if sc.Tenant.String() != tenant || contextID != preview.ContextID || routerID != preview.RouterID ||
+			source != (entity.SourceKey{AgentID: preview.ArchiveAgentID, Kind: entity.DeviceTarget, SourceRef: preview.ArchiveSourceRef}) {
+			t.Fatalf("the rollback read checked the wrong source or tenant: %+v", source)
+		}
+		return nil
+	}
+	got, err := storedRoutingTransferRollback(t.Context(), scope, loaded, authorize)
+	if err != nil || !got.ApprovalExpiresAt.Equal(expected.ExpiresAt) || !slices.Equal(got.Withdraw, preview.Withdraw) {
+		t.Fatalf("owned rollback lost the original commands or deadline: %+v, %v", got, err)
+	}
+	denied, err := storedRoutingTransferRollback(t.Context(), scope, loaded,
+		func(context.Context, tenancy.Scope, string, string, entity.SourceKey) error { return refusal })
+	if !errors.Is(err, refusal) || len(denied.Withdraw) != 0 {
+		t.Fatalf("a removed source grant exposed rollback: %+v, %v", denied, err)
+	}
+	for _, tc := range []struct {
+		name  string
+		scope tenancy.Scope
+		edit  func(*loadedRoutingTransferReview)
+	}{
+		{"sibling tenant", tenancy.Scope{Tenant: "22222222-2222-4222-8222-222222222222"}, func(*loadedRoutingTransferReview) {}},
+		{"missing approval", scope, func(r *loadedRoutingTransferReview) { r.approval = nil }},
+		{"unapproved proposal", scope, func(r *loadedRoutingTransferReview) { r.proposal.State = rem.StateProposed }},
+		{"wrong target", scope, func(r *loadedRoutingTransferReview) { r.proposal.Target = "203.0.113.64/26" }},
+		{"self approval", scope, func(r *loadedRoutingTransferReview) { r.proposal.ProposedUserID = "reviewer-id" }},
+		{"withdrawal preceding approval", scope, func(r *loadedRoutingTransferReview) { r.withdrawn = &older }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			candidate := loaded
+			tc.edit(&candidate)
+			rejected, err := storedRoutingTransferRollback(t.Context(), tc.scope, candidate,
+				func(context.Context, tenancy.Scope, string, string, entity.SourceKey) error {
+					t.Fatal("an invalid stored approval reached authorization")
+					return nil
+				})
+			if err == nil || len(rejected.Withdraw) != 0 {
+				t.Fatalf("invalid stored approval exposed commands: %+v, %v", rejected, err)
+			}
+		})
+	}
 }

@@ -129,6 +129,39 @@ func TestCollectorSnapshots(t *testing.T) {
 	}
 }
 
+func TestMeteringWorkersPreserveTenantUsageAtShutdown(t *testing.T) {
+	store := NewMemStore()
+	collector := NewCollector(store,
+		func(context.Context) ([]string, error) { return []string{"alpha", "beta"}, nil },
+		func(_ context.Context, tenant string) (int64, int64, error) {
+			if tenant == "alpha" {
+				return 2, 3, nil
+			}
+			return 5, 7, nil
+		}, testLog()).withClock(func() time.Time { return t0 })
+	recorder := NewRecorder(store, testLog()).withClock(func() time.Time { return t0 })
+	recorder.Record("alpha", usage.MeterResultsIngested, 11)
+	recorder.Record("beta", usage.MeterResultsIngested, 13)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	collector.Run(ctx, 0)
+	recorder.Run(ctx, 0)
+	for tenant, want := range map[string]map[string]int64{
+		"alpha": {usage.MeterAgents: 2, usage.MeterTests: 3, usage.MeterResultsIngested: 11},
+		"beta":  {usage.MeterAgents: 5, usage.MeterTests: 7, usage.MeterResultsIngested: 13},
+	} {
+		rows, err := store.Query(t.Context(), t0.Add(-time.Hour), t0.Add(time.Hour), tenant)
+		if err != nil || len(rows) != len(want) {
+			t.Fatalf("%s did not retain gauges and counters: %v %v", tenant, rows, err)
+		}
+		for _, row := range rows {
+			if expected, ok := want[row.Meter]; !ok || row.TenantID != tenant || row.Value != expected {
+				t.Fatalf("%s received the wrong usage: %+v", tenant, row)
+			}
+		}
+	}
+}
+
 // TestUsageExportFormats is the named export-format test: the CSV and JSONL
 // contracts, byte-for-byte.
 func TestUsageExportFormats(t *testing.T) {

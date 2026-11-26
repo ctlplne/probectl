@@ -181,6 +181,68 @@ func TestConfigCloudImportCanRunWithoutUDPListeners(t *testing.T) {
 	}
 }
 
+func TestConfigCloudImportBindsQueueAndObjectToTheSelectedProvider(t *testing.T) {
+	const queueCredential = "env:FLOW_QUEUE_READ"
+	const objectCredential = "env:FLOW_OBJECT_READ"
+	const prefix = "logs/flow/"
+	dir := t.TempDir()
+	for _, tc := range []struct {
+		provider   string
+		queue      CloudQueueConfig
+		version    string
+		badVersion string
+	}{
+		{ProtoAWSVPCFlowLogs, CloudQueueConfig{
+			Account: "111122223333", Region: "eu-west-1", Name: "flow-notifications",
+			Object: CloudObjectConfig{Bucket: "flow-archive", Region: "eu-west-1", ExpectedOwner: "111122223333"},
+		}, "s3-version-01", "null"},
+		{ProtoAzureVNetFlowLogs, CloudQueueConfig{
+			Account: "flowarchive1", Name: "flow-notifications",
+			Object: CloudObjectConfig{Bucket: "flow-archive", Account: "flowarchive1"},
+		}, "2026-11-21T00:12:01.0000001Z", "latest"},
+		{ProtoGCPVPCFlowLogs, CloudQueueConfig{
+			Project: "flowproject", Subscription: "flow-notifications",
+			Object: CloudObjectConfig{Bucket: "flow-archive"},
+		}, "9223372036854775807", "092"},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			queue := tc.queue
+			queue.Prefix, queue.StateDir = prefix, dir
+			queue.CredentialRef, queue.Object.CredentialRef = queueCredential, objectCredential
+			if err := (CloudImportConfig{Provider: tc.provider, Queue: &queue}).Validate(); err != nil {
+				t.Fatalf("owned notification scope was refused: %v", err)
+			}
+			for _, change := range []struct {
+				name string
+				edit func(*CloudQueueConfig)
+			}{
+				{"missing secrets reference", func(q *CloudQueueConfig) { q.CredentialRef = "" }},
+				{"relative checkpoint", func(q *CloudQueueConfig) { q.StateDir = "relative" }},
+				{"ambiguous prefix", func(q *CloudQueueConfig) { q.Prefix = "logs/../" }},
+				{"preselected object version", func(q *CloudQueueConfig) { q.Object.Version = tc.version }},
+				{"cross-provider bucket scope", func(q *CloudQueueConfig) { q.Object.Bucket = "same/cloud" }},
+			} {
+				t.Run(change.name, func(t *testing.T) {
+					invalid := queue
+					change.edit(&invalid)
+					if err := (CloudImportConfig{Provider: tc.provider, Queue: &invalid}).Validate(); err == nil {
+						t.Fatal("invalid queue configuration was accepted")
+					}
+				})
+			}
+			object := queue.Object
+			object.Key, object.Version = prefix+"2026-11-21.json", tc.version
+			if err := (CloudImportConfig{Provider: tc.provider, Object: &object}).Validate(); err != nil {
+				t.Fatalf("immutable object was refused: %v", err)
+			}
+			object.Version = tc.badVersion
+			if err := (CloudImportConfig{Provider: tc.provider, Object: &object}).Validate(); err == nil {
+				t.Fatal("ambiguous object version was accepted")
+			}
+		})
+	}
+}
+
 func TestConfigLoadRequiresVersionAndRejectsUnknownKeys(t *testing.T) {
 	missingVersion := writeFlowConfig(t, "tenant_id: t\nbus:\n  mode: memory\n")
 	_, err := Load(missingVersion)

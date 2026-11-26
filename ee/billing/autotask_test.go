@@ -8,6 +8,7 @@ package billing
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ctlplne/probectl/internal/notify"
+	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
 var autotaskBillingInstant = time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
@@ -229,5 +231,27 @@ func TestAutotaskBillingReadbackKeepsTwoTenantsSeparate(t *testing.T) {
 	mismatched := newAutotaskBillingFixtureReader(t, server, "beta", accounts["alpha"].mapping)
 	if got, err := mismatched.readServiceUnits(t.Context(), "beta", mismatched.mapping.DevicesServiceID, autotaskBillingInstant); err == nil || got != 0 {
 		t.Fatal("a matching contract ID bypassed the company's ownership check")
+	}
+	claim := pendingAutotaskAdjustment{Tenant: tenancy.ID(alpha.tenant), Sequence: 1,
+		autotaskAdjustment: autotaskAdjustment{
+			Key:         autotaskAdjustmentKey{alpha.mapping.CompanyID, alpha.mapping.ContractID, alpha.mapping.DevicesServiceID},
+			EffectiveAt: autotaskBillingInstant,
+			Previous:    2,
+			Desired:     3,
+		}}
+	before := requests.Load()
+	invalid := claim
+	invalid.Desired = invalid.Previous
+	for _, err := range []error{beta.createAdjustment(t.Context(), claim), alpha.createAdjustment(t.Context(), invalid)} {
+		if !errors.Is(err, errInvalidAutotaskAdjustment) {
+			t.Fatalf("the connector accepted a foreign or malformed claim: %v", err)
+		}
+	}
+	if requests.Load() != before {
+		t.Fatal("a rejected claim reached the vendor")
+	}
+	if err := alpha.createAdjustment(t.Context(), claim); err == nil ||
+		accounts["alpha"].adjustmentCalls.Load() != 1 || accounts["beta"].adjustmentCalls.Load() != 0 {
+		t.Fatalf("an owned send must make one request and expose the vendor error: %v", err)
 	}
 }

@@ -8,6 +8,7 @@ package remediation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -66,12 +67,35 @@ func (d *routingGateDelegate) ApproveDiversion(ctx context.Context, tenant, _ st
 	return DiversionReceipt{}, d.call(ctx, "diversion approve", tenant, check)
 }
 
+func (d *routingGateDelegate) ProposeRoutingTransfer(ctx context.Context, tenant, _ string, _ json.RawMessage, _, _ string, _ RoutingTransferReviewPrepare) (Proposal, error) {
+	return Proposal{}, d.call(ctx, "transfer propose", tenant, refuseRoutingAuthority)
+}
+
+func (d *routingGateDelegate) GetRoutingTransfer(ctx context.Context, tenant, _ string, _ RoutingTransferReviewPrepare) (RoutingTransferReview, error) {
+	return RoutingTransferReview{}, d.call(ctx, "transfer review", tenant, refuseRoutingAuthority)
+}
+
+func (d *routingGateDelegate) ApproveRoutingTransfer(ctx context.Context, tenant, _, _, _, _ string, _ RoutingTransferReviewPrepare) (Proposal, error) {
+	return Proposal{}, d.call(ctx, "transfer approve", tenant, refuseRoutingAuthority)
+}
+
+func (d *routingGateDelegate) GetRoutingTransferRollback(ctx context.Context, tenant, _ string, _ RoutingTransferRollbackAuthorizer) (RoutingTransferRollback, error) {
+	return RoutingTransferRollback{}, d.call(ctx, "transfer rollback", tenant, refuseRoutingAuthority)
+}
+
+func (d *routingGateDelegate) RequestRoutingTransferWithdrawal(ctx context.Context, tenant, _, _, _ string, _ RoutingTransferRollbackAuthorizer) (RoutingTransferRollback, error) {
+	return RoutingTransferRollback{}, d.call(ctx, "transfer withdraw", tenant, refuseRoutingAuthority)
+}
+
+var errRoutingAuthority = errors.New("current authority unavailable")
+
+func refuseRoutingAuthority(context.Context) error { return errRoutingAuthority }
+
 func TestRoutingReviewWritesRequireLicenseAndReadsRetainAuthority(t *testing.T) {
 	const tenant, actor, id = "owned-tenant", "reviewer", "proposal"
 	ctx := t.Context()
-	authorityErr := errors.New("current authority unavailable")
-	check := func(context.Context) error { return authorityErr }
-	publication := RTBHImpactPublication{Scope: authorityErr.Error()}
+	check := refuseRoutingAuthority
+	publication := RTBHImpactPublication{Scope: errRoutingAuthority.Error()}
 	for _, test := range []struct {
 		name   string
 		writes bool
@@ -121,6 +145,26 @@ func TestRoutingReviewWritesRequireLicenseAndReadsRetainAuthority(t *testing.T) 
 			_, err := g.ApproveDiversion(ctx, tenant, actor, id, DiversionApprovalInput{}, check, publication)
 			return err
 		}},
+		{"transfer propose", true, func(g writeGatedService) error {
+			_, err := g.ProposeRoutingTransfer(ctx, tenant, actor, nil, "preview", "1", nil)
+			return err
+		}},
+		{"transfer review", false, func(g writeGatedService) error {
+			_, err := g.GetRoutingTransfer(ctx, tenant, id, nil)
+			return err
+		}},
+		{"transfer approve", true, func(g writeGatedService) error {
+			_, err := g.ApproveRoutingTransfer(ctx, tenant, actor, id, "review", "", nil)
+			return err
+		}},
+		{"transfer rollback", false, func(g writeGatedService) error {
+			_, err := g.GetRoutingTransferRollback(ctx, tenant, id, nil)
+			return err
+		}},
+		{"transfer withdraw", true, func(g writeGatedService) error {
+			_, err := g.RequestRoutingTransferWithdrawal(ctx, tenant, actor, id, "review", nil)
+			return err
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			spy := &routingGateDelegate{ctx: ctx, want: test.name, t: t}
@@ -133,7 +177,7 @@ func TestRoutingReviewWritesRequireLicenseAndReadsRetainAuthority(t *testing.T) 
 				enabled := writeGatedService{delegate: spy, writes: license.WriteCapability(func() bool { return true })}
 				err = test.invoke(enabled)
 			}
-			if err == nil || err.Error() != authorityErr.Error() || !spy.called {
+			if err == nil || err.Error() != errRoutingAuthority.Error() || !spy.called {
 				t.Fatal("the delegated authority failure was lost", err)
 			}
 			unavailable := writeGatedService{delegate: &remediationDelegateSpy{}, writes: license.WriteCapability(func() bool { return true })}
