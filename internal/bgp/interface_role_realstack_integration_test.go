@@ -483,14 +483,15 @@ func buildRoleRouterExporter(t *testing.T, lab *routingLab) string {
 	return image
 }
 
-func startRoleRouterExporter(t *testing.T, lab *routingLab, image, destination string, link roleRouterLink) string {
+func startRoleRouterExporter(t *testing.T, lab *routingLab, image, destination string, link roleRouterLink, captureFilter ...string) string {
 	t.Helper()
 	if link.index > 65535 {
 		t.Fatal("pinned softflowd1.1.0 cannot represent the observed kernel index; different real exporter required", link.index)
 	}
 	name := lab.name + "-" + link.name + "-flow"
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "--force", name).Run() })
-	lab.docker(t, "create", "--name", name, "--network", "container:"+lab.container("rtr-a"), "--cap-add", "NET_RAW", image, "softflowd", "-d", "-N", "-i", strconv.FormatUint(uint64(link.index), 10)+":"+link.iface, "-v", "10", "-B", "65536", "-n", destination, "-c", "/tmp/softflowd.ctl")
+	args := []string{"create", "--name", name, "--network", "container:" + lab.container("rtr-a"), "--cap-add", "NET_RAW", image, "softflowd", "-d", "-N", "-i", strconv.FormatUint(uint64(link.index), 10) + ":" + link.iface, "-v", "10", "-B", "65536", "-n", destination, "-c", "/tmp/softflowd.ctl"}
+	lab.docker(t, append(args, captureFilter...)...)
 	lab.docker(t, "start", name)
 	shipped.Await(t, "same-router "+link.name+" capture", 30*time.Second, func() bool {
 		return exec.Command("docker", "exec", name, "softflowctl", "-c", "/tmp/softflowd.ctl", "statistics").Run() == nil

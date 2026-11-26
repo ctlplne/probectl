@@ -31,6 +31,7 @@ import (
 	"github.com/ctlplne/probectl/internal/enroll"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testspec"
 	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 	"github.com/ctlplne/probectl/pkg/sdk"
@@ -40,45 +41,19 @@ type routerChangeProbe struct {
 	agent, test, serial string
 }
 
+type routerProbeEnrollment struct {
+	routerChangeProbe
+	ordinary, cert, private, ca string
+	definition                  testspec.ExecutableDefinition
+}
+
 // The shipped synthetic agent collects real routed echo replies. Its ordinary
 // SVID, separate evidence SVID and signed current test bundle are all real;
 // direct SQL below only reads resulting receipts through application-role RLS.
 func startRouterChangeProbe(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, target, label string) routerChangeProbe {
 	t.Helper()
-	probe := routerChangeProbe{agent: gouuid.NewString()}
 	name := "change-rtt-" + label
-	ordinary := st.EnrollAgent(t, reg.tenantID, probe.agent, name)
-	csr, key, err := crypto.CreateCSR(name + "-evidence")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer clear(key)
-	code, body := st.Do(t, reg.cookie, http.MethodPost, "/v1/agents/enroll-tokens", map[string]any{"name": name + "-evidence", "agent_id": probe.agent, "ttl_seconds": 600})
-	var token struct{ Token string }
-	if code != http.StatusCreated || json.Unmarshal(body, &token) != nil || token.Token == "" {
-		t.Fatal("mint actual probe evidence identity", code)
-	}
-	code, body = st.Do(t, reg.cookie, http.MethodPost, "/v1/collectors/register", map[string]string{"token": token.Token, "plane": "entity", "hostname": name, "csr_pem": string(csr)})
-	var registration struct {
-		TenantID string           `json:"tenant_id"`
-		AgentID  string           `json:"agent_id"`
-		SVID     *enroll.Identity `json:"svid"`
-	}
-	if code != http.StatusCreated || json.Unmarshal(body, &registration) != nil || registration.SVID == nil || registration.TenantID != reg.tenantID || registration.AgentID != probe.agent || registration.SVID.SPIFFEID != crypto.EntitySPIFFEID(reg.tenantID, probe.agent) {
-		t.Fatal("restricted probe evidence identity changed tenant or sender", code)
-	}
-	probe.serial = registration.SVID.Serial
-	cert, private, ca := writeRouterEvidenceFiles(t, st, name+"-evidence", registration.SVID.CertPEM, key)
-	code, body = st.Do(t, reg.cookie, http.MethodPost, "/v1/tests", map[string]any{"name": name, "type": "icmp", "target": target, "interval_seconds": 10, "timeout_seconds": 2, "enabled": true, "params": map[string]string{"allow_private_targets": "true", "count": "3"}})
-	var test struct{ ID string }
-	if code != http.StatusCreated || json.Unmarshal(body, &test) != nil || test.ID == "" {
-		t.Fatal("create actual routed RTT test", code)
-	}
-	probe.test = test.ID
-	if code, _ = st.Do(t, reg.cookie, http.MethodPut, "/v1/tests/"+probe.test+"/entity-context", map[string]string{"context_id": reg.contextID}); code != http.StatusOK {
-		t.Fatal("assign actual RTT test context", code)
-	}
-	requireRoleSourceBinding(t, st, reg, map[string]string{"agent_id": probe.agent, "source_kind": "path_agent", "source_ref": probe.test, "context_id": reg.contextID, "anchor_entity_id": reg.deviceID})
+	enrolled := enrollOwnedRouterProbe(t, st, reg, name, target, map[string]string{"allow_private_targets": "true", "count": "3"})
 	configuration := fmt.Sprintf(`apiVersion: probectl.io/agent/v1
 control_plane:
   grpc_addr: %q
@@ -109,13 +84,57 @@ evidence:
   key_file: %q
   ca_file: %q
   server_name: localhost
-`, st.AgentAddr, filepath.Join(ordinary, "cert.pem"), filepath.Join(ordinary, "key.pem"), st.CAFile, st.BaseURL, name, name, filepath.Join(st.Dir, name+"-buffer"), st.AgentAddr, cert, private, ca)
+`, st.AgentAddr, filepath.Join(enrolled.ordinary, "cert.pem"), filepath.Join(enrolled.ordinary, "key.pem"),
+		st.CAFile, st.BaseURL, name, name, filepath.Join(st.Dir, name+"-buffer"), st.AgentAddr,
+		enrolled.cert, enrolled.private, enrolled.ca)
 	file := filepath.Join(st.Dir, name+".yaml")
 	if err := os.WriteFile(file, []byte(configuration), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	st.StartProcess(t, name, st.Agent, []string{"-config", file}, []string{"PROBECTL_AGENT_METRICS_ADDR=127.0.0.1:0"})
-	return probe
+	return enrolled.routerChangeProbe
+}
+
+func enrollOwnedRouterProbe(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration,
+	name, target string, params map[string]string) routerProbeEnrollment {
+	t.Helper()
+	probe := routerChangeProbe{agent: gouuid.NewString()}
+	ordinary := st.EnrollAgent(t, reg.tenantID, probe.agent, name)
+	csr, key, err := crypto.CreateCSR(name + "-evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(key)
+	code, body := st.Do(t, reg.cookie, http.MethodPost, "/v1/agents/enroll-tokens", map[string]any{"name": name + "-evidence", "agent_id": probe.agent, "ttl_seconds": 600})
+	var token struct{ Token string }
+	if code != http.StatusCreated || json.Unmarshal(body, &token) != nil || token.Token == "" {
+		t.Fatal("mint actual probe evidence identity", code)
+	}
+	code, body = st.Do(t, reg.cookie, http.MethodPost, "/v1/collectors/register", map[string]string{"token": token.Token, "plane": "entity", "hostname": name, "csr_pem": string(csr)})
+	var registration struct {
+		TenantID string           `json:"tenant_id"`
+		AgentID  string           `json:"agent_id"`
+		SVID     *enroll.Identity `json:"svid"`
+	}
+	if code != http.StatusCreated || json.Unmarshal(body, &registration) != nil || registration.SVID == nil || registration.TenantID != reg.tenantID || registration.AgentID != probe.agent || registration.SVID.SPIFFEID != crypto.EntitySPIFFEID(reg.tenantID, probe.agent) {
+		t.Fatal("restricted probe evidence identity changed tenant or sender", code)
+	}
+	probe.serial = registration.SVID.Serial
+	cert, private, ca := writeRouterEvidenceFiles(t, st, name+"-evidence", registration.SVID.CertPEM, key)
+	definition := testspec.ExecutableDefinition{Type: "icmp", Target: target, IntervalSeconds: 10, TimeoutSeconds: 2, Params: params}
+	code, body = st.Do(t, reg.cookie, http.MethodPost, "/v1/tests", map[string]any{"name": name, "type": definition.Type, "target": target,
+		"interval_seconds": definition.IntervalSeconds, "timeout_seconds": definition.TimeoutSeconds, "enabled": true, "params": params})
+	var test struct{ ID string }
+	if code != http.StatusCreated || json.Unmarshal(body, &test) != nil || test.ID == "" {
+		t.Fatal("create actual routed RTT test", code)
+	}
+	probe.test = test.ID
+	definition.ID = test.ID
+	if code, _ = st.Do(t, reg.cookie, http.MethodPut, "/v1/tests/"+probe.test+"/entity-context", map[string]string{"context_id": reg.contextID}); code != http.StatusOK {
+		t.Fatal("assign actual RTT test context", code)
+	}
+	requireRoleSourceBinding(t, st, reg, map[string]string{"agent_id": probe.agent, "source_kind": "path_agent", "source_ref": probe.test, "context_id": reg.contextID, "anchor_entity_id": reg.deviceID})
+	return routerProbeEnrollment{routerChangeProbe: probe, ordinary: ordinary, cert: cert, private: private, ca: ca, definition: definition}
 }
 
 func awaitRouterChangeProbe(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, probe routerChangeProbe, after time.Time) time.Time {

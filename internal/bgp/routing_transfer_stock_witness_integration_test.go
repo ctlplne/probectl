@@ -1,0 +1,284 @@
+// SPDX-License-Identifier: BUSL-1.1
+//
+// Use of this source code is governed by the Business Source License 1.1
+// in the LICENSE file at the root of this repository; on its Change Date
+// each version converts to the Mozilla Public License 2.0.
+
+//go:build integration && linux
+
+package bgp_test
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/ctlplne/probectl/internal/device"
+	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport/shipped"
+)
+
+type transferStockPoll struct {
+	started   time.Time
+	completed time.Time
+	capture   string
+	octets    [2]uint64
+}
+
+func readTransferStockPoll(t *testing.T, lane *transferStockLane, links [2]roleRouterLink,
+	from, to time.Time, earliest bool) transferStockPoll {
+	t.Helper()
+	// Fixture identifiers come from registration. Fail closed if their
+	// representation cannot be used as an unambiguous SQL literal.
+	literal := regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
+	for _, value := range []string{lane.reg.tenantID, lane.reg.contextID, lane.reg.deviceID, lane.counters} {
+		if !literal.MatchString(value) {
+			t.Fatal("counter fixture identity is not canonical")
+		}
+	}
+	order := "DESC"
+	if earliest {
+		order = "ASC"
+	}
+	statement := fmt.Sprintf(`SELECT capture_key,
+ toString(poll_started_unix_nanos) AS started,
+ toString(poll_completed_unix_nanos) AS completed,
+ toString(if_index) AS interface_text,
+ toString(counter_value) AS counter_text
+ FROM probectl_device_counters FINAL
+ WHERE tenant_id='%s' AND context_id='%s' AND device_id='%s' AND agent_id='%s'
+ AND name='%s' AND (if_index=%d OR if_index=%d)
+ AND counter_width=64 AND uptime_known=1 AND discontinuity_known=1
+ AND poll_started_unix_nanos>=%d AND poll_completed_unix_nanos<=%d
+ ORDER BY poll_started_unix_nanos %s, capture_key, if_index LIMIT 128 FORMAT JSONEachRow`,
+		lane.reg.tenantID, lane.reg.contextID, lane.reg.deviceID, lane.counters, device.MetricIfOutOctets,
+		links[0].index, links[1].index, from.UnixNano(), to.UnixNano(), order)
+
+	body, err := shipped.CHQuery(shipped.CHURL(), statement)
+	if err != nil {
+		t.Fatalf("read the isolated fixture's original counter history: %v", err)
+	}
+	type combined struct {
+		poll transferStockPoll
+		seen [2]bool
+	}
+	polls := map[string]*combined{}
+	for _, line := range strings.Split(strings.TrimSpace(body), "\n") {
+		if line == "" {
+			continue
+		}
+		var row struct {
+			Capture   string `json:"capture_key"`
+			Started   string `json:"started"`
+			Completed string `json:"completed"`
+			Interface string `json:"interface_text"`
+			Counter   string `json:"counter_text"`
+		}
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			t.Fatalf("decode exact counter row: %v", err)
+		}
+		started, e1 := strconv.ParseInt(row.Started, 10, 64)
+		completed, e2 := strconv.ParseInt(row.Completed, 10, 64)
+		idx, e3 := strconv.ParseUint(row.Interface, 10, 32)
+		value, e4 := strconv.ParseUint(row.Counter, 10, 64)
+		if e1 != nil || e2 != nil || e3 != nil || e4 != nil || completed < started || len(row.Capture) != 64 {
+			t.Fatal("invalid exact counter value or clock in owned fixture")
+		}
+		member := 0
+		if idx == uint64(links[1].index) {
+			member = 1
+		} else if idx != uint64(links[0].index) {
+			t.Fatal("counter read included a different interface")
+		}
+		key := polls[row.Capture]
+		if key == nil {
+			key = &combined{poll: transferStockPoll{started: time.Unix(0, started).UTC(),
+				completed: time.Unix(0, completed).UTC(), capture: row.Capture}}
+			polls[row.Capture] = key
+		}
+		if key.seen[member] || key.poll.started.UnixNano() != started || key.poll.completed.UnixNano() != completed {
+			t.Fatal("an exact capture contained competing counter samples")
+		}
+		key.seen[member], key.poll.octets[member] = true, value
+		if key.seen[0] && key.seen[1] {
+			return key.poll
+		}
+	}
+	return transferStockPoll{}
+}
+
+func verifyTransferStockPolls(t *testing.T, st *shipped.Stack, lane *transferStockLane) {
+	t.Helper()
+	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(lane.reg.tenantID))
+	err := tenancy.InTenantReadSnapshot(ctx, st.ApplicationReadPool(t), func(ctx context.Context, sc tenancy.Scope) error {
+		for _, poll := range []transferStockPoll{lane.before, lane.after} {
+			key, err := hex.DecodeString(poll.capture)
+			if err != nil || len(key) != 32 {
+				return fmt.Errorf("invalid current capture key")
+			}
+			var found bool
+			err = sc.Q.QueryRow(ctx, `SELECT EXISTS (
+ SELECT 1 FROM device_counter_capture_sources
+ WHERE tenant_id=$1 AND context_id=$2 AND device_id=$3 AND agent_id=$4 AND capture_key=$5
+  AND poll_started_unix_nanos=$6 AND poll_completed_unix_nanos=$7
+ )`, lane.reg.tenantID, lane.reg.contextID, lane.reg.deviceID, lane.counters, key,
+				poll.started.UnixNano(), poll.completed.UnixNano()).Scan(&found)
+			if err != nil {
+				return err
+			}
+			if !found {
+				return fmt.Errorf("physical counter has no matching tenant-authenticated witness")
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+const transferStockContainerWorkload = "/tmp/probectl-transfer-workload"
+
+func installTransferStockWorkload(t *testing.T, lab *routingLab) {
+	t.Helper()
+	src := filepath.Join(t.TempDir(), "main.go")
+	body := fmt.Sprintf(transferStockWorkloadSource, transferStockAddress, transferStockPackets, transferStockPayload)
+	if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(t.TempDir(), "transfer-workload")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, src)
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build the bounded local workload: %v %s", err, out)
+	}
+	for _, router := range []string{"edge", "rtr-b"} {
+		lab.docker(t, "cp", binary, lab.container(router)+":"+transferStockContainerWorkload)
+	}
+}
+
+func sendTransferStockPayload(t *testing.T, lab *routingLab, links [2]roleRouterLink) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
+	defer cancel()
+	receive := exec.CommandContext(ctx, "docker", "exec", lab.container("edge"), transferStockContainerWorkload, "receive", links[1].peerIP)
+	reader, err := receive.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receiverErr bytes.Buffer
+	receive.Stderr = &receiverErr
+	if err := receive.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waited := false
+	defer func() {
+		cancel()
+		if !waited {
+			_ = receive.Wait()
+		}
+	}()
+	lines := bufio.NewScanner(reader)
+	if !lines.Scan() || lines.Text() != "ready" {
+		t.Fatalf("owned receiver did not start: %v", lines.Err())
+	}
+	sender := exec.CommandContext(ctx, "docker", "exec", lab.container("rtr-b"),
+		transferStockContainerWorkload, "send", links[1].peerIP)
+	if out, err := sender.CombinedOutput(); err != nil {
+		t.Fatalf("bounded owned payload did not send: %v %s", err, out)
+	}
+	if !lines.Scan() || lines.Text() != "received all" {
+		t.Fatalf("the upstream did not receive every fixed-size packet: %v", lines.Err())
+	}
+	err = receive.Wait()
+	waited = true
+	if err != nil {
+		t.Fatalf("owned receiver completed unsuccessfully: %v %s", err, receiverErr.String())
+	}
+}
+
+const transferStockWorkloadSource = `package main
+
+import (
+    "encoding/binary"
+    "fmt"
+    "net"
+    "os"
+    "time"
+)
+
+func main() {
+    if len(os.Args) != 3 {
+        os.Exit(2)
+    }
+    address := &net.UDPAddr{IP: net.ParseIP(%q), Port: 37200}
+    origin := net.ParseIP(os.Args[2])
+    if origin == nil || origin.To4() == nil || !origin.IsPrivate() {
+        fail("the test origin requires an owned private IPv4 address")
+    }
+    const count, payload = %d, %d
+    switch os.Args[1] {
+    case "receive":
+        socket, err := net.ListenUDP("udp4", address)
+        check(err)
+        defer socket.Close()
+        check(socket.SetReadBuffer(1 << 20))
+        check(socket.SetReadDeadline(time.Now().Add(18 * time.Second)))
+        fmt.Println("ready")
+        buf := make([]byte, payload+1)
+        var received [count]bool
+        for i := 0; i < count; i++ {
+            size, sender, err := socket.ReadFromUDP(buf)
+            check(err)
+            if size != payload || !sender.IP.Equal(origin) {
+                fail("wrong payload length or source")
+            }
+            sequence := binary.BigEndian.Uint32(buf)
+            if sequence >= count || received[sequence] {
+                fail("unexpected or duplicate payload sequence")
+            }
+            received[sequence] = true
+        }
+        fmt.Println("received all")
+    case "send":
+        socket, err := net.DialUDP("udp4", &net.UDPAddr{IP: origin}, address)
+        check(err)
+        defer socket.Close()
+        check(socket.SetWriteDeadline(time.Now().Add(12 * time.Second)))
+        buf := make([]byte, payload)
+        for i := 0; i < count; i++ {
+            binary.BigEndian.PutUint32(buf, uint32(i))
+            size, err := socket.Write(buf)
+            check(err)
+            if size != payload {
+                fail("short payload write")
+            }
+            time.Sleep(3 * time.Millisecond)
+        }
+    default:
+        fail("unknown owned fixture operation")
+    }
+}
+
+func check(err error) {
+    if err != nil {
+        fail(err.Error())
+    }
+}
+
+func fail(message string) {
+    fmt.Fprintln(os.Stderr, message)
+    os.Exit(1)
+}
+`
