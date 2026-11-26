@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/auth"
@@ -24,15 +25,22 @@ import (
 const diversionPreviewPath = "/v1/remediation/diversion-preview"
 const diversionProposalPath = "/v1/remediation/diversion-proposals"
 
-func assertShippedDiversionPreview(t *testing.T, stack *shipped.Stack, owner, reviewer, sibling *nativeLane, observation remediation.PrefixImpactInput) {
+func readShippedDiversionStart(t *testing.T, stack *shipped.Stack, owner, sibling *nativeLane, start remediation.DiversionPreviewInput, end time.Time) remediation.DiversionPreview {
 	t.Helper()
+	// Read while the fixture's latest completed window is still current. The
+	// proposal can cite this window after the separate browser review runs.
 	var preview remediation.DiversionPreview
-	start := remediation.DiversionPreviewInput{Action: remediation.DiversionStart, Observation: &observation}
 	owner.do(t, stack, http.MethodPost, diversionPreviewPath, start, &preview, http.StatusOK)
 	sibling.do(t, stack, http.MethodPost, diversionPreviewPath, start, nil, http.StatusNotFound)
-	if preview.Connector != remediation.LocalDiversionPreview || preview.Impact == nil || preview.Impact.KnownBenign.Packets != "4060" || preview.Impact.Matched.Bytes != "301250" {
+	if preview.Connector != remediation.LocalDiversionPreview || preview.Impact == nil || !preview.Impact.To.Equal(end) ||
+		preview.Impact.KnownBenign.Packets != "4060" || preview.Impact.Matched.Bytes != "301250" {
 		t.Fatalf("start did not preserve the whole protected scope: %+v", preview)
 	}
+	return preview
+}
+
+func assertShippedDiversionDecisions(t *testing.T, stack *shipped.Stack, owner, reviewer, sibling *nativeLane, start remediation.DiversionPreviewInput, preview remediation.DiversionPreview) {
+	t.Helper()
 	input := remediation.DiversionProposalInput{Selection: start, ObservedTo: &preview.Impact.To,
 		PreviewFingerprint: preview.Fingerprint, MaxKnownBenignPackets: "4059"}
 	owner.do(t, stack, http.MethodPost, diversionProposalPath, input, nil, http.StatusConflict)
@@ -67,7 +75,7 @@ func assertShippedDiversionPreview(t *testing.T, stack *shipped.Stack, owner, re
 	}
 	sibling.do(t, stack, http.MethodPost, diversionPreviewPath, stop, nil, http.StatusNotFound)
 	assertShippedDiversionStop(t, stack, owner, reviewer, sibling, stop, started, base)
-	assertDiversionDecisionsInTenantReport(t, stack, reviewer, sibling, observation)
+	assertDiversionDecisionsInTenantReport(t, stack, reviewer, sibling, *start.Observation)
 }
 
 func assertShippedDiversionStop(t *testing.T, stack *shipped.Stack, owner, reviewer, sibling *nativeLane, stop remediation.DiversionPreviewInput, start remediation.DiversionReceipt, startPath string) {

@@ -57,8 +57,10 @@ func TestFlowSpecReviewUsesOwnedMatchesAndIndependentApproval(t *testing.T) {
 		preview.WholeScope.ObservedRecords != 2 || !preview.Matching.Sampled || !preview.WholeScope.Sampled {
 		t.Fatalf("wrong scoped FlowSpec candidate or collateral: %+v", preview)
 	}
+	diversion := remediation.DiversionPreviewInput{Action: remediation.DiversionStart, Observation: &input.PrefixImpactInput}
+	diversionPreview := readShippedDiversionStart(t, stack, owner, sibling, diversion, end)
 	proposeFlowSpecAndApprove(t, stack, owner, reviewer, sibling, input, preview)
-	assertShippedDiversionPreview(t, stack, owner, reviewer, sibling, input.PrefixImpactInput)
+	assertShippedDiversionDecisions(t, stack, owner, reviewer, sibling, diversion, diversionPreview)
 	assertShippedDDoSProviderReport(t, stack, owner, sibling, operator, input.PrefixImpactInput)
 	assertDDoSProviderReportConsole(t, stack, operator)
 }
