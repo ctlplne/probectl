@@ -151,8 +151,20 @@ func TestICMPRoundTripsKeepSiloTypedChecksOriginalClockAndTenantOnCatchup(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
+	// This historical migration replaces shared validators. Replay it in one
+	// transaction so the test database keeps the current egress checks.
+	replay, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = replay.Rollback(context.Background()) }()
 	for range 2 {
-		exec(string(migration))
+		if _, err := replay.Exec(ctx, string(migration)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := replay.Rollback(ctx); err != nil {
+		t.Fatal(err)
 	}
 	t.Logf("real-integration: legacy and precise original RTT storage in %d isolated tenant schemas; source bodies modeled", len(tenants))
 }
