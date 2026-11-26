@@ -118,6 +118,8 @@ func RunWithStdin(args []string, getenv func(string) string, stdin io.Reader, st
 		return cmdTest(cfg, rest[1:], stdout, stderr)
 	case "agent":
 		return cmdAgent(cfg, rest[1:], stdout, stderr)
+	case "vantage":
+		return cmdVantage(rest[1:], stdin, stdout, stderr)
 	case "lifecycle":
 		return cmdLifecycle(cfg, rest[1:], stdout, stderr)
 	case "dashboard-report":

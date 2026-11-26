@@ -291,10 +291,14 @@ gitops-gate: ## GitOps (ArgoCD/Flux) manifest structural validation (S35) + the 
 	bash scripts/check_gitops_manifests.sh
 
 .PHONY: terraform-gate
-terraform-gate: ## Terraform fmt + validate the probectl module (S35). Needs terraform.
+terraform-gate: ## Check formatting, deployment roots, and tenant-owned vantage plans. Needs Terraform.
 	terraform -chdir=deploy/terraform fmt -recursive -check
 	cd deploy/terraform/examples/kubernetes && terraform init -backend=false -input=false >/dev/null && terraform validate
 	cd deploy/terraform/examples/two-region && terraform init -backend=false -input=false >/dev/null && terraform validate
+	@set -e; for module in bootstrap aws azure gcp; do \
+		( cd "deploy/terraform/modules/vantage-$$module" && \
+		  terraform init -backend=false -input=false >/dev/null && terraform test ); \
+	done
 
 .PHONY: browser-worker-check
 browser-worker-check: ## Syntax-check the Playwright browser-worker (S36). Needs node. (Real-browser smoke runs in CI's Playwright container.)

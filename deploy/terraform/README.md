@@ -50,6 +50,85 @@ anything useful yet. Data appears once agents are deployed and reporting:
 first-data path, and [`docs/deploying-agents.md`](../../docs/deploying-agents.md)
 catalogs which agent produces which data plane.
 
+## Tenant-owned cloud vantages
+
+Use `examples/vantage-aws`, `examples/vantage-azure`, or `examples/vantage-gcp`
+as the Terraform root. Each entry in `vantages` launches one Linux canary VM.
+Select multiple regions by adding entries with distinct VM names and distinct
+enrollment secrets. Existing private networks must route to the control plane's
+HTTPS and agent mTLS listeners, the regional secret service, and the intended
+probe targets. The modules create no public address or ingress rule.
+
+Prepare an image for each cloud with cloud-init, systemd, nftables, the verified probectl
+canary package, and the matching cloud CLI (`aws`, `az`, or `gcloud`). Use a
+fresh image with the probectl service disabled and no agent identity. The
+provisioning profile installs the tenant's configuration and starts the
+shipped non-root service after the tenant-bound enrollment succeeds.
+[Verify release artifacts](../../docs/ops/verify-artifacts.md)
+
+Mint one join token for the intended tenant and keep it in an existing cloud
+secret. Supply the secret's identifier and the public control-plane CA. The VM
+uses its role or managed identity to read that single secret, passes the token
+to `probectl-agent enroll` through standard input, and keeps the issued mTLS
+identity on disk. Terraform state and cloud-init configuration carry only the
+secret reference and public enrollment metadata.
+
+Before starting the canary, the VM installs an nftables rule that blocks the
+canary user's access to workload identity metadata endpoints. DNS on a shared
+metadata address stays available. Enrollment runs separately as root and can
+read the VM identity.
+
+In the selected example, put the `vantages` map in `terraform.tfvars`.
+For an AWS vantage, the shape is:
+
+```hcl
+vantages = {
+  eu-west = {
+    vantage = {
+      tenant_id      = "00000000-0000-4000-8000-000000000001"
+      name           = "probe-eu-west"
+      site           = "cloud-eu"
+      region         = "eu-west-1"
+      enrollment_url = "https://control.example:8443"
+      agent_address  = "control.example:9443"
+      control_ca_pem = <<-PEM
+        -----BEGIN CERTIFICATE-----
+        <public control-plane CA certificate body>
+        -----END CERTIFICATE-----
+        PEM
+    }
+    placement = {
+      ami_id             = "<prepared regional AMI ID>"
+      instance_type      = "<instance type for the image>"
+      subnet_id          = "<private subnet ID>"
+      security_group_ids = ["<probe security group ID>"]
+    }
+    enrollment_secret_arn = "<full Secrets Manager ARN>"
+  }
+}
+```
+
+| Cloud | `placement` fields | Enrollment reference |
+| --- | --- | --- |
+| AWS | `ami_id`, `instance_type`, `subnet_id`, `security_group_ids` | `enrollment_secret_arn`. Use a secret in the same account and region encrypted with the AWS-managed Secrets Manager key. |
+| Azure | `resource_group_name`, `image_id`, `size`, `subnet_id`, `security_group_id`, `admin_ssh_public_key` | `enrollment_secret = { vault_id = "<vault ARM resource ID>", name = "<secret name>" }`. Use an RBAC Key Vault in the deployment subscription. |
+| GCP | `project_id`, `image`, `machine_type`, `zone`, `subnetwork` | `enrollment_secret_name`. Use a secret in the same project and a zone in the vantage region. |
+
+With the operator's cloud credentials configured, run the command for the
+selected root. The first command prints the plan. The second opens Terraform's
+confirmation before applying it.
+
+```sh
+probectl vantage deploy --dir deploy/terraform/examples/vantage-aws
+probectl vantage deploy --dir deploy/terraform/examples/vantage-aws --apply
+```
+
+The examples accept Terraform or OpenTofu and use the chosen root's state.
+When a plan replaces a VM, issue a fresh join token in that VM's secret before
+applying. VM restarts keep the existing identity and use normal SVID rotation.
+Check the tenant's Agents page for the new name, site, and region before
+assigning canaries. [Agent enrollment and rotation](../../docs/agent/enrollment.md)
+
 ## Module interface (`modules/probectl`)
 
 ### Inputs

@@ -28,6 +28,11 @@ resale more than renting someone else's worldwide vantage estate.
 
 ## Label model
 
+For cloud locations, `probectl vantage deploy` prepares a Terraform plan for
+AWS, Azure, or GCP and can apply it after operator confirmation. The modules
+enroll each agent into the tenant and set its site, region, network role, and
+provider labels. [Tenant-owned cloud vantage setup](../deploy/terraform/README.md#tenant-owned-cloud-vantages)
+
 Every owned vantage should carry a small, consistent label set. The agent's
 tenant and agent id come from its certificate and registry row; the labels below
 are the operator naming convention used in configs, test names, A2A mesh inputs,

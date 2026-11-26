@@ -176,6 +176,7 @@ Commands:
                                 erase a subject inside the current tenant
   collector register --body JSON register a bus collector identity
   dnstap submit --help           submit reduced closed-file resolver evidence over mTLS
+  vantage deploy --dir ROOT      plan a tenant-owned cloud vantage (add --apply to deploy)
   verify-bundle <file>           verify a signed auditor bundle offline (no network)
   Resource groups (generated from the served API surface):
 {surface_commands}
@@ -242,6 +243,7 @@ Comandos:
                                 borra un sujeto dentro del tenant actual
   collector register --body JSON registra una identidad de colector de bus
   dnstap submit --help           envia evidencia DNS reducida mediante mTLS
+  vantage deploy --dir ROOT      planea una sonda en la nube del tenant (--apply para desplegar)
   verify-bundle <file>           verifica un paquete de auditor firmado sin conexion
   Grupos de recursos (generados desde la superficie API servida):
 {surface_commands}
