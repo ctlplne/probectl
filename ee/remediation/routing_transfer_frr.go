@@ -201,28 +201,7 @@ func readFRRInboundPolicy(ctx context.Context, config string, peer netip.Addr, f
 			inFamily = false
 			afi = ""
 		case "neighbor":
-			if !inFamily && len(fields) == 3 && fields[2] == "peer-group" {
-				key := frrNeighborKey{asn, fields[1]}
-				definition := neighbors[key]
-				definition.ambiguous = definition.ambiguous || definition.groupDefined
-				definition.groupDefined = true
-				neighbors[key] = definition
-				continue
-			}
-			if !inFamily && len(fields) == 4 && (fields[2] == "remote-as" || fields[2] == "peer-group") {
-				key := frrNeighborKey{asn, fields[1]}
-				if address, err := netip.ParseAddr(key.name); err == nil {
-					key.name = address.String()
-				}
-				definition := neighbors[key]
-				if fields[2] == "remote-as" {
-					definition.ambiguous = definition.ambiguous || definition.remoteAS != ""
-					definition.remoteAS = fields[3]
-				} else {
-					definition.ambiguous = definition.ambiguous || definition.group != ""
-					definition.group = fields[3]
-				}
-				neighbors[key] = definition
+			if !inFamily && recordFRRNeighborDefinition(neighbors, asn, fields) {
 				continue
 			}
 			if afi != family || len(fields) != 5 || fields[2] != "route-map" || fields[4] != "in" {
@@ -250,6 +229,34 @@ func readFRRInboundPolicy(ctx context.Context, config string, peer netip.Addr, f
 	}
 	out.peerASN = peerASN
 	return out, ctx.Err()
+}
+
+func recordFRRNeighborDefinition(neighbors map[frrNeighborKey]frrNeighborDefinition, asn string, fields []string) bool {
+	if len(fields) == 3 && fields[2] == "peer-group" {
+		key := frrNeighborKey{asn, fields[1]}
+		definition := neighbors[key]
+		definition.ambiguous = definition.ambiguous || definition.groupDefined
+		definition.groupDefined = true
+		neighbors[key] = definition
+		return true
+	}
+	if len(fields) != 4 || (fields[2] != "remote-as" && fields[2] != "peer-group") {
+		return false
+	}
+	key := frrNeighborKey{asn, fields[1]}
+	if address, err := netip.ParseAddr(key.name); err == nil {
+		key.name = address.String()
+	}
+	definition := neighbors[key]
+	if fields[2] == "remote-as" {
+		definition.ambiguous = definition.ambiguous || definition.remoteAS != ""
+		definition.remoteAS = fields[3]
+	} else {
+		definition.ambiguous = definition.ambiguous || definition.group != ""
+		definition.group = fields[3]
+	}
+	neighbors[key] = definition
+	return true
 }
 
 func frrArchivedRemoteASN(neighbors map[frrNeighborKey]frrNeighborDefinition, localASN string, peer netip.Addr) (uint32, error) {
