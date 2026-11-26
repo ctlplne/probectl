@@ -9,6 +9,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -78,42 +79,18 @@ func (BuiltinModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis,
 		}, nil
 	}
 
-	// Stable ranking: score desc, then most-recent first, then ID for determinism.
-	ranked := make([]Evidence, len(in.Evidence))
-	copy(ranked, in.Evidence)
-	score := func(e Evidence) int { return planeCauseWeight(e.Plane)*10 + severityWeight(e.Severity)*3 }
-	sort.SliceStable(ranked, func(i, j int) bool {
-		si, sj := score(ranked[i]), score(ranked[j])
-		if si != sj {
-			return si > sj
-		}
-		if !ranked[i].OccurredAt.Equal(ranked[j].OccurredAt) {
-			return ranked[i].OccurredAt.After(ranked[j].OccurredAt)
-		}
-		return ranked[i].ID < ranked[j].ID
-	})
-
-	if contextOnly(ranked) {
-		return contextOnlySynthesis(ranked), nil
-	}
+	ranked := rankRCAEvidence(in.Evidence)
 	// A clear has the same plane/severity as its firing signal and is newer.
 	// It explains recovery, never the cause of the preceding degradation.
 	primaryIndex := -1
 	for i, e := range ranked {
-		if !recoveryEvidence(e) && !strings.EqualFold(e.Plane, "topology") {
+		if faultCandidate(e) {
 			primaryIndex = i
 			break
 		}
 	}
 	if primaryIndex < 0 {
-		out := contextOnlySynthesis(ranked)
-		out.RootCause = "Insufficient evidence: only recovery and topology context was found; no signal in your scope names the preceding fault."
-		for i, e := range ranked[:len(out.Findings)] {
-			if recoveryEvidence(e) {
-				out.Findings[i].Statement = fmt.Sprintf("Recovery context: %s on the %s plane.", describe(e), planeLabel(e))
-			}
-		}
-		return out, nil
+		return contextOnlySynthesis(ranked), nil
 	}
 	primary := ranked[primaryIndex]
 	var b strings.Builder
@@ -179,9 +156,34 @@ func (BuiltinModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis,
 	}, nil
 }
 
+// Stable ranking: score, then most-recent first, then ID for determinism.
+func rankRCAEvidence(evidence []Evidence) []Evidence {
+	ranked := append([]Evidence(nil), evidence...)
+	score := func(e Evidence) int { return planeCauseWeight(e.Plane)*10 + severityWeight(e.Severity)*3 }
+	sort.SliceStable(ranked, func(i, j int) bool {
+		si, sj := score(ranked[i]), score(ranked[j])
+		if si != sj {
+			return si > sj
+		}
+		if !ranked[i].OccurredAt.Equal(ranked[j].OccurredAt) {
+			return ranked[i].OccurredAt.After(ranked[j].OccurredAt)
+		}
+		return ranked[i].ID < ranked[j].ID
+	})
+	return ranked
+}
+
 func recoveryEvidence(e Evidence) bool {
 	kind, _ := e.Fields["kind"].(string)
 	return kind == "alert.resolved"
+}
+
+func faultCandidate(e Evidence) bool {
+	return !recoveryEvidence(e) && !strings.EqualFold(e.Plane, "topology") && !passingProbeEvidence(e)
+}
+
+func passingProbeEvidence(e Evidence) bool {
+	return e.Domain == DomainMetrics && e.Fields["metric"] == "probectl_probe_success" && e.Fields["value"] == float64(1)
 }
 
 // probeSeriesKey names the probe series a metric evidence item was read from:
@@ -203,8 +205,8 @@ func probeSeriesKey(e Evidence) (string, bool) {
 // against one host share an agent and a target, so a question about the host
 // gathers the failing test's samples and the passing test's alike. G4(a)'s
 // answer cited the passing test's success = 1 and its HTTP 200 as
-// "corroborating" the outage. A passing probe is context, not corroboration;
-// it stays in the answer's evidence, and the findings leave it out.
+// "corroborating" the outage. The answer keeps a passing probe as evidence
+// and excludes its series from corroborating findings.
 func healthyProbeSeries(evidence []Evidence) map[string]bool {
 	latest := map[string]Evidence{}
 	for _, e := range evidence {
@@ -218,7 +220,7 @@ func healthyProbeSeries(evidence []Evidence) map[string]bool {
 	}
 	out := map[string]bool{}
 	for key, e := range latest {
-		if v, ok := e.Fields["value"].(float64); ok && v == 1 {
+		if passingProbeEvidence(e) {
 			out[key] = true
 		}
 	}
@@ -236,25 +238,48 @@ func contextOnly(evidence []Evidence) bool {
 	return true
 }
 
-// contextOnlySynthesis answers a question whose only evidence is topology
-// context (DPR-299: an address now anchors on the graph even when no signal
-// names it). A node's existence is not a root cause, so the verdict is
-// insufficient evidence; the context still reaches the reader as cited
-// findings.
+const (
+	topologyOnlyRootCause = "Insufficient evidence: only topology context was found for this question (what the subject connects to); " +
+		"no signal in your scope names a fault."
+	recoveryOnlyRootCause = "Insufficient evidence: only recovery and topology context was found; no signal in your scope names the preceding fault."
+)
+
+func contextRootCause(evidence []Evidence) string {
+	switch {
+	case contextOnly(evidence):
+		return topologyOnlyRootCause
+	case slices.ContainsFunc(evidence, passingProbeEvidence):
+		return "Insufficient evidence: the passing probe observations provide context. No signal in your scope identifies a fault."
+	default:
+		return recoveryOnlyRootCause
+	}
+}
+
+// contextOnlySynthesis keeps observations as cited findings when the
+// available topology, recovery or passing probes do not establish a fault.
 func contextOnlySynthesis(ranked []Evidence) Synthesis {
 	findings := make([]Finding, 0, min(len(ranked), 6))
 	for _, e := range ranked {
 		if len(findings) >= 6 {
 			break
 		}
+		description := describe(e)
+		var statement string
+		switch {
+		case passingProbeEvidence(e):
+			statement = fmt.Sprintf("Probe context: %s passed.", description)
+		case !strings.EqualFold(e.Plane, "topology") && recoveryEvidence(e):
+			statement = fmt.Sprintf("Recovery context: %s on the %s plane.", description, planeLabel(e))
+		default:
+			statement = fmt.Sprintf("Topology context: %s.", description)
+		}
 		findings = append(findings, Finding{
-			Statement: fmt.Sprintf("Topology context: %s.", describe(e)),
+			Statement: statement,
 			Citations: []Citation{{EvidenceID: e.ID}},
 		})
 	}
 	return Synthesis{
-		RootCause: "Insufficient evidence: only topology context was found for this question (what the subject connects to); " +
-			"no signal in your scope names a fault.",
+		RootCause:            contextRootCause(ranked),
 		Confidence:           ConfidenceLow,
 		InsufficientEvidence: true,
 		Silent:               silentPlanes(map[string]bool{"topology": true}),

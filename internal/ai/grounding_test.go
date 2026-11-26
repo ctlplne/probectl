@@ -102,3 +102,89 @@ func TestRootCauseGroundingRequiresContentSupport(t *testing.T) {
 		})
 	}
 }
+
+func TestRCAAbstentionDoesNotPublishAnAdapterHeadline(t *testing.T) {
+	const title = "core-rtr-1 CPU 99%"
+	fs := fixtureSource{entities: []Row{{
+		"id": "inc-9", "kind": "alert", "plane": "device", "severity": "critical", "title": title,
+	}}}
+	for _, tc := range []struct {
+		name    string
+		cite    bool
+		finding bool
+	}{
+		{name: "uncited headline", finding: true},
+		{name: "headline with a resolving citation", cite: true, finding: true},
+		{name: "no findings", cite: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := citingModel{build: func(in SynthesisInput) Synthesis {
+				citations := []Citation{{EvidenceID: in.Evidence[0].ID}}
+				out := Synthesis{
+					RootCause:  "core-rtr-1 CPU 99% proves a separate cooling-system failure.",
+					Confidence: ConfidenceHigh, InsufficientEvidence: true,
+				}
+				if tc.cite {
+					out.RootCauseCitations = citations
+				}
+				if tc.finding {
+					out.Findings = []Finding{{Statement: title, Citations: citations}}
+				}
+				return out
+			}}
+			ans, err := NewAnalyzer(engineWith(fs), WithModel(model)).Analyze(
+				t.Context(), principal("t", PermEntitiesRead), Question{Text: "why is core-rtr-1 slow?"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !ans.InsufficientEvidence || ans.RootCauseGrounded || ans.Confidence != ConfidenceLow || len(ans.RootCauseCitations) != 0 ||
+				!strings.HasPrefix(ans.RootCause, "Insufficient evidence:") || strings.Contains(ans.RootCause, "cooling-system failure") {
+				t.Fatalf("the abstention published an adapter headline or citation: %+v", ans)
+			}
+			if tc.finding && (len(ans.Findings) != 1 || ans.Findings[0].Statement != title || len(ans.Findings[0].Citations) != 1) {
+				t.Fatalf("the abstention lost the cited observation: %+v", ans.Findings)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name, permission, headlinePrefix, findingPrefix string
+		source                                          fixtureSource
+	}{
+		{
+			name: "only a recovered alert", permission: PermEntitiesRead,
+			headlinePrefix: "Insufficient evidence: only recovery", findingPrefix: "Recovery context:",
+			source: fixtureSource{entities: []Row{{
+				"id": "clear-9", "kind": "alert.resolved", "plane": "device", "title": "core-rtr-1 recovered",
+			}}},
+		},
+		{
+			name: "only a passing probe", permission: PermMetricsRead,
+			headlinePrefix: "Insufficient evidence: the passing probe", findingPrefix: "Probe context:",
+			source: fixtureSource{metrics: []Row{{
+				"metric": "probectl_probe_success", "value": float64(1), "target": "core-rtr-1",
+			}}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := citingModel{build: func(in SynthesisInput) Synthesis {
+				citations := []Citation{{EvidenceID: in.Evidence[0].ID}}
+				claim := in.Evidence[0].Title + " proves a fan failed."
+				return Synthesis{RootCause: claim, RootCauseCitations: citations, Confidence: ConfidenceHigh,
+					Findings: []Finding{{Statement: claim, Citations: citations}}}
+			}}
+			ans, err := NewAnalyzer(engineWith(tc.source), WithModel(model)).Analyze(
+				t.Context(), principal("t", tc.permission), Question{Text: "why is core-rtr-1 slow?"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !ans.InsufficientEvidence || ans.RootCauseGrounded || ans.Confidence != ConfidenceLow ||
+				len(ans.RootCauseCitations) != 0 || !strings.HasPrefix(ans.RootCause, tc.headlinePrefix) {
+				t.Fatalf("context became a diagnosis: %+v", ans)
+			}
+			if len(ans.Findings) != 1 || !strings.HasPrefix(ans.Findings[0].Statement, tc.findingPrefix) ||
+				strings.Contains(ans.Findings[0].Statement, "fan failed") || len(ans.Findings[0].Citations) != 1 {
+				t.Fatalf("the cited finding must describe the observation: %+v", ans.Findings)
+			}
+		})
+	}
+}

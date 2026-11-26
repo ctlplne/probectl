@@ -10,13 +10,17 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/change"
 	"github.com/ctlplne/probectl/internal/config"
 	"github.com/ctlplne/probectl/internal/incident"
@@ -230,6 +234,65 @@ func TestAIAskGroundedCitedAndTenantScoped(t *testing.T) {
 	mustJSON(t, rec, &copiedIDAnswer)
 	if !copiedIDAnswer.InsufficientEvidence || len(copiedIDAnswer.Evidence) != 0 {
 		t.Errorf("cross-tenant incident subject must return no evidence, got %+v", copiedIDAnswer)
+	}
+}
+
+func TestAIAskKeepsTopologyContextSeparateAcrossTenants(t *testing.T) {
+	db := changeDB(t)
+	tenants := [2]string{freshTenant(t, db, "ai-topology-a"), freshTenant(t, db, "ai-topology-b")}
+	markers := [2]string{"owned-topology-alpha", "owned-topology-bravo"}
+	const address = "192.0.2.45"
+	const diagnosis = "confirms a carrier failure"
+	topo := topology.NewIndexedStore()
+	for i, tenant := range tenants {
+		topo.ObserveDevice(tenant, topology.DeviceInput{Address: address, Name: markers[i], InterfaceIPs: []string{address}}, time.Now())
+	}
+	evidenceID := regexp.MustCompile(`E[0-9a-f]+-[1-9][0-9]*\b`)
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		prompt, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+		id := evidenceID.Find(prompt)
+		first, second := strings.Contains(string(prompt), markers[0]), strings.Contains(string(prompt), markers[1])
+		if err != nil || r.URL.Path != "/api/chat" || len(id) == 0 || first == second {
+			t.Error("expected one tenant's topology evidence in the model prompt")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		name := markers[1]
+		if first {
+			name = markers[0]
+		}
+		claim := name + " " + diagnosis
+		payload, err := json.Marshal(map[string]any{
+			"root_cause": claim, "root_cause_citations": []string{string(id)}, "confidence": "high",
+			"findings": []map[string]any{{"statement": claim, "citations": []string{string(id)}}},
+		})
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{"message": map[string]string{"content": string(payload)}}); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(model.Close)
+	cfg := &config.Config{AuthMode: "dev", AIMaxEvidence: 50, AIModelProvider: "ollama", AIModelEndpoint: model.URL,
+		AIModelName: "topology-fixture", AIModelTimeout: 5 * time.Second}
+	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).WithTopology(topo)
+	h := srv.Handler()
+	for i, tenant := range tenants {
+		rec := apiReq(t, h, http.MethodPost, "/v1/ai/ask", tenant, map[string]any{
+			"question": "Why is the service at " + address + " failing?",
+		})
+		var answer ai.Answer
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &answer) != nil || answer.Tenant != tenant ||
+			answer.Reasoning.Execution != ai.ReasoningLocalAdapter || !answer.InsufficientEvidence || answer.RootCauseGrounded ||
+			len(answer.RootCauseCitations) != 0 || len(answer.Findings) == 0 || !strings.HasPrefix(answer.Findings[0].Statement, "Topology context:") {
+			t.Fatalf("tenant %d did not receive an insufficient-evidence answer with its own topology", i)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, markers[i]) || strings.Contains(body, markers[1-i]) || strings.Contains(body, diagnosis) {
+			t.Fatalf("tenant %d answer published a foreign observation or an unsupported diagnosis", i)
+		}
 	}
 }
 

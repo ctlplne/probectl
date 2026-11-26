@@ -119,9 +119,8 @@ func TestRCATopologyWalksFromAnAddressToItsOrigin(t *testing.T) {
 
 // TestRCATopologyContextAloneIsNotARootCause: with DPR-299 an address
 // question gathers topology context even when no signal names the address.
-// The builtin synthesizer must not then present a node's existence as the
-// root cause ("Most likely root cause: topology node 127.0.0.1"): the answer
-// is insufficient evidence, with the context as cited findings.
+// The answer reports insufficient evidence and keeps the cited observations,
+// even when the configured adapter describes the node as a fault.
 func TestRCATopologyContextAloneIsNotARootCause(t *testing.T) {
 	store := topology.NewIndexedStore()
 	g, err := store.ForTenant("tenant-b")
@@ -129,20 +128,39 @@ func TestRCATopologyContextAloneIsNotARootCause(t *testing.T) {
 		t.Fatal(err)
 	}
 	g.ObserveDevice(topology.DeviceInput{Address: "127.0.0.1", Name: "globex-edge-r1", InterfaceIPs: []string{"127.0.0.1"}}, time.Now())
-	a := NewAnalyzer(NewEngine(WithTopology(NewTopologySource(store))))
-	ans, err := a.Analyze(context.Background(), principal("tenant-b", PermTopologyRead), Question{Text: "Why is the service at 127.0.0.1 failing?"})
-	if err != nil {
-		t.Fatal(err)
+	const claim = "127.0.0.1 confirms the carrier interface is failing."
+	adapter := func(abstain bool) ModelAdapter {
+		return citingModel{build: func(in SynthesisInput) Synthesis {
+			cite := []Citation{{EvidenceID: in.Evidence[0].ID}}
+			return Synthesis{RootCause: claim, RootCauseCitations: cite, Confidence: ConfidenceHigh,
+				InsufficientEvidence: abstain, Findings: []Finding{{Statement: claim, Citations: cite}}}
+		}}
 	}
-	if len(ans.Evidence) == 0 {
-		t.Fatal("the address question gathered no topology context")
-	}
-	if !ans.InsufficientEvidence || ans.RootCauseGrounded || ans.Confidence != ConfidenceLow ||
-		!strings.HasPrefix(ans.RootCause, "Insufficient evidence: only topology context") {
-		t.Errorf("topology context alone answered %q (insufficient %v, grounded %v, %s), want insufficient evidence",
-			ans.RootCause, ans.InsufficientEvidence, ans.RootCauseGrounded, ans.Confidence)
-	}
-	if len(ans.Findings) == 0 || !strings.HasPrefix(ans.Findings[0].Statement, "Topology context:") || len(ans.Findings[0].Citations) != 1 {
-		t.Errorf("findings = %+v, want the topology context as cited findings", ans.Findings)
+	for _, tc := range []struct {
+		name  string
+		model ModelAdapter
+	}{
+		{"builtin", NewBuiltinModel()},
+		{"adapter diagnosis", adapter(false)},
+		{"adapter abstention with a diagnostic finding", adapter(true)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := NewAnalyzer(NewEngine(WithTopology(NewTopologySource(store))), WithModel(tc.model))
+			ans, err := a.Analyze(t.Context(), principal("tenant-b", PermTopologyRead), Question{Text: "Why is the service at 127.0.0.1 failing?"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(ans.Evidence) == 0 {
+				t.Fatal("the address question gathered no topology context")
+			}
+			if !ans.InsufficientEvidence || ans.RootCauseGrounded || ans.Confidence != ConfidenceLow || len(ans.RootCauseCitations) != 0 ||
+				!strings.HasPrefix(ans.RootCause, "Insufficient evidence: only topology context") {
+				t.Errorf("topology context alone answered %q (insufficient %v, grounded %v, %s), want insufficient evidence",
+					ans.RootCause, ans.InsufficientEvidence, ans.RootCauseGrounded, ans.Confidence)
+			}
+			if len(ans.Findings) == 0 || !strings.HasPrefix(ans.Findings[0].Statement, "Topology context:") || len(ans.Findings[0].Citations) != 1 {
+				t.Errorf("findings = %+v, want the topology context as cited findings", ans.Findings)
+			}
+		})
 	}
 }

@@ -57,9 +57,14 @@ or for isolation.
 
 The built-in engine keeps alert clears (`alert.resolved`) as cited recovery
 context. A clear cannot become the root cause or increase fault corroboration
-just because it is newer than the firing signal. If the authorized evidence
-contains only clears and topology, the answer reports insufficient evidence
-for the preceding fault.
+just because it is newer than the firing signal.
+
+When the model abstains, the service supplies the insufficient-evidence
+headline and sets confidence to low. Validated citations remain attached to
+their findings. The headline carries no causal claim or citations.
+When the authorized evidence consists only of topology, alert clears, or
+passing probe readings, the service reports insufficient evidence for the
+preceding fault and writes its own cited findings describing what was observed.
 
 ## The pipeline: four steps, four guarantees
 

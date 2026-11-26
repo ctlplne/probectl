@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -272,6 +273,11 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 
 	// 4. Citation integrity: drop any finding citing evidence that doesn't exist,
 	// so a hallucinated reference can never reach the user.
+	if len(evidence) > 0 && !slices.ContainsFunc(evidence, faultCandidate) {
+		contextual := contextOnlySynthesis(rankRCAEvidence(evidence))
+		syn.InsufficientEvidence = true
+		syn.Findings, syn.Silent = contextual.Findings, contextual.Silent
+	}
 	syn.Findings = groundFindings(syn.Findings, evidence)
 	insufficient := syn.InsufficientEvidence || len(syn.Findings) == 0
 
@@ -290,7 +296,14 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 	// mention is treated as unverified, not grounded, and is replaced too.
 	rcCitations := groundCitations(syn.RootCauseCitations, evidence)
 	rootCauseGrounded := len(rcCitations) > 0 && rootCauseSupported(syn.RootCause, rcCitations, evidence)
-	if !insufficient && !rootCauseGrounded {
+	if insufficient {
+		syn.RootCause = insufficientRootCause(evidence)
+		if syn.Degraded && len(syn.Findings) > 0 {
+			syn.RootCause = "PARTIAL RESULT — remote model unavailable. " + syn.RootCause
+		}
+		syn.Confidence = ConfidenceLow
+		rcCitations = nil
+	} else if !rootCauseGrounded {
 		syn.RootCause = rejectedRootCause(syn.Findings)
 		syn.Confidence = ConfidenceLow
 		rcCitations = nil
@@ -317,16 +330,6 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 		Reasoning:            a.reasoningProvenance(syn, egress),
 		InsufficientEvidence: insufficient,
 		Elapsed:              time.Since(start),
-	}
-	if insufficient {
-		ans.Confidence = ConfidenceLow
-		if len(syn.Findings) == 0 {
-			if len(evidence) == 0 {
-				ans.RootCause = "Insufficient evidence: no signals were found for this question within your scope."
-			} else {
-				ans.RootCause = "Insufficient evidence: the gathered signals do not support a confident root cause."
-			}
-		}
 	}
 	return ans, nil
 }
@@ -393,6 +396,19 @@ func rejectedRootCause(grounded []Finding) string {
 	}
 	return "The model's root-cause statement was rejected by citation integrity (it is not grounded in the gathered evidence it cites). " +
 		"The grounded findings below stand on their own; the strongest is: " + grounded[0].Statement
+}
+
+// An abstention has no headline claim. Use the scoped evidence to explain it
+// and keep the validated citations with their findings.
+func insufficientRootCause(evidence []Evidence) string {
+	switch {
+	case len(evidence) == 0:
+		return "Insufficient evidence: no signals were found for this question within your scope."
+	case !slices.ContainsFunc(evidence, faultCandidate):
+		return contextRootCause(evidence)
+	default:
+		return rejectedRootCause(nil)
+	}
 }
 
 // rootCauseSupported reports whether the model's root-cause STATEMENT actually
