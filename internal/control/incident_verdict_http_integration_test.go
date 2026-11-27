@@ -77,8 +77,16 @@ func TestIncidentVerdictJoinsIndependentHTTPSOriginalsWithinTheirTenant(t *testi
 			}
 			claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agents[i], Kind: entity.PathAgent, SourceRef: definition.ID}, Alias: entity.AliasKey{Kind: entity.ConfiguredTestAlias, Value: definition.ID}, SourceRef: "probe:configured-test", ObservedAt: at.Add(time.Microsecond),
 				Outcome: &entity.ProbeOutcome{Version: 2, DefinitionHash: digest, CanaryType: "http", StartedAt: at, CompletedAt: at.Add(time.Microsecond), Success: success, HTTPResponse: &entity.ProbeHTTPResponse{StatusCode: status, TLSVerified: true, SameOrigin: true}}}
-			receipt, err := store.NewEntityRegistry(f.pool).WriteEvidenceBatchReceipt(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), agents[i], serials[i], []entity.Observation{claim})
-			if err != nil || receipt.Accepted != 1 || receipt.Unresolved != 0 {
+			claims := []entity.Observation{claim}
+			if lane == 0 && i == 0 {
+				recovered := claim
+				recovered.ID, recovered.ObservedAt = gouuid.NewString(), at.Add(3*time.Microsecond)
+				recovered.Outcome = &entity.ProbeOutcome{Version: 2, DefinitionHash: digest, CanaryType: "http", StartedAt: at.Add(2 * time.Microsecond), CompletedAt: recovered.ObservedAt, Success: true,
+					HTTPResponse: &entity.ProbeHTTPResponse{StatusCode: 200, TLSVerified: true, SameOrigin: true}}
+				claims = append(claims, recovered)
+			}
+			receipt, err := store.NewEntityRegistry(f.pool).WriteEvidenceBatchReceipt(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), agents[i], serials[i], claims)
+			if err != nil || receipt.Accepted != len(claims) || receipt.Unresolved != 0 {
 				t.Fatal("original configured HTTPS response was not retained", receipt, err)
 			}
 		}
@@ -90,7 +98,7 @@ func TestIncidentVerdictJoinsIndependentHTTPSOriginalsWithinTheirTenant(t *testi
 			}
 			return err
 		})
-		input := incident.VerdictInput{From: at.Add(-time.Microsecond), To: at.Add(2 * time.Microsecond)}
+		input := incident.VerdictInput{From: at.Add(-time.Microsecond), To: at.Add(4 * time.Microsecond)}
 		got, err := f.server.computeIncidentVerdict(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), actor, id, input.From, input.To, 128<<20)
 		want := incident.FaultRemoteService
 		if lane == 1 {
@@ -105,6 +113,8 @@ func TestIncidentVerdictJoinsIndependentHTTPSOriginalsWithinTheirTenant(t *testi
 				citations = hypothesis.For
 				if lane == 1 {
 					citations = hypothesis.Against
+				} else if len(hypothesis.Against) != 1 || hypothesis.Against[0].AgentID != agents[0] {
+					t.Fatal("the owner lost its original recovery citation")
 				}
 			}
 		}

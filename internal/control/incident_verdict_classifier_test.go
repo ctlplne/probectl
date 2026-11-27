@@ -150,6 +150,31 @@ func TestIncidentVerdictKeepsOriginalContradictionsAndCoverage(t *testing.T) {
 	}
 }
 
+func TestIncidentVerdictRemoteRecoveryPreservesOverlappingFailures(t *testing.T) {
+	for _, offset := range []time.Duration{-10 * time.Second, 10 * time.Second} {
+		t.Run(offset.String(), func(t *testing.T) {
+			ctx, input := verdictClassifierFixture()
+			recovery := verdictHTTPTest(input, "a", "http-healthy", 200)
+			read := &recovery.reads[0]
+			read.ObservedAt = read.ObservedAt.Add(offset)
+			read.Outcome.StartedAt, read.Outcome.CompletedAt = read.Outcome.StartedAt.Add(offset), read.ObservedAt
+			input.tests = []incidentVerdictTest{
+				verdictHTTPTest(input, "a", "http-a", 503),
+				verdictHTTPTest(input, "b", "http-b", 502),
+				recovery,
+			}
+			got, err := classifyIncidentVerdict(ctx, input, 1<<20)
+			if err != nil || got.Domain != incident.FaultRemoteService || len(got.Hypotheses) != 4 {
+				t.Fatalf("disjoint success masked the corroborated remote failure: %s (%v)", got.Domain, err)
+			}
+			hypothesis := got.Hypotheses[3]
+			if len(hypothesis.For) != 2 || len(hypothesis.Against) != 1 || hypothesis.Against[0].EvidenceID != "http-healthy" {
+				t.Fatal("the fault hypothesis omitted the earlier or later healthy original")
+			}
+		})
+	}
+}
+
 func TestIncidentVerdictTwoTenantAndSourceIsolation(t *testing.T) {
 	for _, change := range []func(*incidentVerdictEvidence){
 		func(in *incidentVerdictEvidence) {

@@ -111,7 +111,7 @@ type incidentRemoteObservation struct {
 
 type incidentRemoteGroup struct {
 	failures []incidentRemoteObservation
-	healthy  bool
+	healthy  []incidentRemoteObservation
 }
 
 func classifyIncidentRemoteResponses(ctx context.Context, input incidentVerdictEvidence, seen map[string]incident.VerdictCitation, remaining *int64, hypothesis *incident.VerdictHypothesis) (bool, error) {
@@ -136,7 +136,7 @@ func classifyIncidentRemoteResponses(ctx context.Context, input incidentVerdictE
 	}
 	proven := false
 	for _, group := range groups {
-		if !group.healthy && independentOverlappingHTTPFailures(group.failures) {
+		if independentOverlappingHTTPFailures(group.failures, group.healthy) {
 			proven = true
 		}
 	}
@@ -180,7 +180,7 @@ func collectIncidentHTTPResponses(ctx context.Context, item incidentVerdictTest,
 		case status >= 200 && status <= 299 && outcome.Success:
 			citation.Reason = "verified_primary_same_origin_https_success"
 			hypothesis.Against = append(hypothesis.Against, citation)
-			group.healthy = true
+			group.healthy = append(group.healthy, incidentRemoteObservation{read: read})
 		default:
 			hypothesis.Missing = append(hypothesis.Missing, "interpretable_primary_https_server_outcome")
 		}
@@ -205,19 +205,29 @@ func incidentVerdictHTTPSOrigin(source store.IncidentConfiguredTest) (string, bo
 	return net.JoinHostPort(strings.ToLower(u.Hostname()), port), true
 }
 
-// Use an O(n log n) interval sweep, retaining the latest two ends from
-// different agents. Repeated rows/agents cannot fake an independent vantage.
-func independentOverlappingHTTPFailures(observations []incidentRemoteObservation) bool {
-	slices.SortFunc(observations, func(a, b incidentRemoteObservation) int {
+// Retain the latest two uncontradicted failure ends from different agents.
+// A success overlapping either probe disqualifies that probe. A success in
+// an earlier healthy period or subsequent recovery remains a citation without
+// suppressing the failure pair. Sort then sweep in O(n log n) time.
+func independentOverlappingHTTPFailures(failures, healthy []incidentRemoteObservation) bool {
+	byStart := func(a, b incidentRemoteObservation) int {
 		return a.read.Outcome.StartedAt.Compare(b.read.Outcome.StartedAt)
-	})
+	}
+	slices.SortFunc(failures, byStart)
+	slices.SortFunc(healthy, byStart)
 	type ending struct {
 		agent string
 		at    time.Time
 	}
 	first, second := ending{}, ending{}
-	for _, observation := range observations {
+	for _, observation := range failures {
 		read := observation.read
+		for len(healthy) > 0 && healthy[0].read.Outcome.CompletedAt.Before(read.Outcome.StartedAt) {
+			healthy = healthy[1:]
+		}
+		if len(healthy) > 0 && !healthy[0].read.Outcome.StartedAt.After(read.Outcome.CompletedAt) {
+			continue
+		}
 		other := first
 		if other.agent == read.AgentID {
 			other = second

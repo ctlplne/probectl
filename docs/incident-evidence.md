@@ -188,8 +188,11 @@ A directly implicated, currently owned backbone interface must have original
 administrative-up and operational-down evidence. A role label alone supplies
 no failure measurement. Remote-service corroboration requires overlapping
 executions by different authorized agents against the same HTTPS origin, with
-verified TLS and original server-error responses. A timeout, missing response,
-posture-only TLS handshake or cross-origin redirect supplies no such proof.
+verified TLS and original server-error responses. A successful probe that
+overlaps a failed execution rules it out of corroboration. Earlier healthy
+probes and later recoveries remain visible as citations. A timeout, missing
+response, posture-only TLS handshake or cross-origin redirect supplies no such
+proof.
 
 Every response retains all four hypotheses, their supporting and contradicting
 original citations, missing coverage and the selected window. Carrier
