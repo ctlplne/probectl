@@ -17,8 +17,8 @@ permissions:
 # Main has one running full run and one replaceable pending run. Preserve the
 # established main lane key so its existing run drains before the next starts;
 # this constant is a concurrency identifier, not a checkout/qualification pin.
-# Never cancel running CI. Every manual/scheduled/tag run retains its own group,
-# including while pending; protected runs cannot replace one another either.
+# CI keeps running jobs by default. Explicit cancellation of a superseded
+# main push leaves manual, scheduled and tag runs in their own groups.
 concurrency:
   group: ci-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && '619e37b0b601671b90840237c34c9d8ecb88087d' || github.event_name == 'pull_request' && github.ref || format('protected-{0}', github.run_id) }}
   cancel-in-progress: false

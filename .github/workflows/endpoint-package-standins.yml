@@ -1,0 +1,72 @@
+name: endpoint-package-standins
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/endpoint-package-standins.yml'
+      - 'cmd/probectl-endpoint/**'
+      - 'internal/endpoint/**'
+      - 'deploy/packaging/macos/**'
+      - 'deploy/packaging/windows/**'
+      - 'scripts/ci_endpoint_package_*'
+      - 'go.mod'
+      - 'go.sum'
+      - 'LICENSE'
+      - 'NOTICE'
+  pull_request:
+    paths:
+      - '.github/workflows/endpoint-package-standins.yml'
+      - 'cmd/probectl-endpoint/**'
+      - 'internal/endpoint/**'
+      - 'deploy/packaging/macos/**'
+      - 'deploy/packaging/windows/**'
+      - 'scripts/ci_endpoint_package_*'
+      - 'go.mod'
+      - 'go.sum'
+      - 'LICENSE'
+      - 'NOTICE'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  endpoint-package-standins:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    name: endpoint-package-standins (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel, windows-2025]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - name: Package and verify the native macOS endpoint
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/probectl-endpoint" ./cmd/probectl-endpoint
+          bash scripts/ci_endpoint_package_macos.sh "$RUNNER_TEMP/probectl-endpoint"
+      - name: Package and verify both Windows endpoint architectures
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          foreach ($target in @(@{ Go = 'amd64'; Msi = 'x64' }, @{ Go = 'arm64'; Msi = 'Arm64' })) {
+            $env:GOARCH = $target.Go
+            $binary = Join-Path $env:RUNNER_TEMP "probectl-endpoint-$($target.Go).exe"
+            go build -trimpath -o $binary ./cmd/probectl-endpoint
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & ./scripts/ci_endpoint_package_windows.ps1 -Binary $binary -Architecture $target.Msi
+          }

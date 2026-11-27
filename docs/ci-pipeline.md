@@ -234,6 +234,11 @@ Verification you ran, not verification you described.
   live and Ready, or while Kyverno's webhooks are gone.
 - **terraform-gate** — the Terraform module is `fmt`-clean and `terraform
 validate`s via an example root that consumes it.
+- **endpoint-package-standins** runs independently on endpoint packaging
+  changes. It builds native macOS packages on Intel and Arm and Windows MSI
+  packages for x64 and Arm64. Each hosted runner uses an ephemeral certificate
+  to verify the executable and installer signatures. The release process uses
+  platform-issued certificates, trusted timestamps and Apple notarization.
 
 ### 8. Supply chain & artifacts
 
