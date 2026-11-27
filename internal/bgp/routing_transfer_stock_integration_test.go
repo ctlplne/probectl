@@ -110,6 +110,13 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 	})
 	artifacts.counterBrackets(t, lanes)
 
+	// The estimate reads adjacent counter samples when bracketing the window.
+	// Stop the fixture publishers after the final signed polls are retained
+	// so another poll cannot change the evidence between review requests.
+	for i := range lanes {
+		st.Stop(t, "fx2-transfer-"+strconv.Itoa(i)+"-device-agent")
+	}
+
 	// The ring drain can transmit more frames than libpcap delivers to
 	// softflowd. Keep that maintenance traffic after both signed brackets.
 	artifacts.exporterState(t, lanes, "before-drain")
@@ -295,13 +302,27 @@ func proveTransferStockHumanReview(t *testing.T, lab *routingLab, st *shipped.St
 			len(preview.PreviewFingerprint) != 64 || len(preview.Configure) == 0 || len(preview.Withdraw) == 0 {
 			t.Fatalf("lane %d dry run lost its measured route, traffic or owned archive: %+v", lane, preview)
 		}
+		reviewMutation := func(actor, endpoint string, input any, want int, result *sdk.RemediationProposal) {
+			t.Helper()
+			code, raw := st.Do(t, actor, http.MethodPost, endpoint, input)
+			if code == want && json.Unmarshal(raw, result) == nil {
+				return
+			}
+			// Capture the read-only state without retrying or applying a review.
+			currentCode, currentRaw := st.Do(t, actor, http.MethodPost, "/v1/remediation/routing-transfer-dry-run", selections[lane])
+			var current sdk.RoutingTransferDryRun
+			_ = json.Unmarshal(currentRaw, &current)
+			t.Fatalf("lane %d %s HTTP %d, want %d: %.500s; current dry run HTTP %d preview %q vs %q estimate %q vs %q validity %q vs %q",
+				lane, endpoint, code, want, raw, currentCode, current.PreviewFingerprint, preview.PreviewFingerprint,
+				current.EstimateDigest, preview.EstimateDigest, current.SourceValidUntil, preview.SourceValidUntil)
+		}
 		foreign := selections[lane]
 		foreign.ArchiveID = selections[1-lane].ArchiveID
 		transferStockReviewRequest(t, st, cookie, http.MethodPost, "/v1/remediation/routing-transfer-dry-run",
 			foreign, http.StatusNotFound, nil)
 
 		var proposal sdk.RemediationProposal
-		transferStockReviewRequest(t, st, cookie, http.MethodPost, reviewPath, map[string]any{
+		reviewMutation(cookie, reviewPath, map[string]any{
 			"selection": selections[lane], "preview_fingerprint": preview.PreviewFingerprint, "max_moved_bps": preview.MovedPeakBps,
 		}, http.StatusCreated, &proposal)
 		if proposal.Id == "" || proposal.TenantId != owned.reg.tenantID || proposal.State != "proposed" ||
@@ -322,18 +343,7 @@ func proveTransferStockHumanReview(t *testing.T, lab *routingLab, st *shipped.St
 		transferStockReviewRequest(t, st, cookie, http.MethodPost, path+"/approve", approval, http.StatusForbidden, nil)
 		transferStockReviewRequest(t, st, other, http.MethodPost, path+"/approve", approval, http.StatusNotFound, nil)
 		var accepted sdk.RemediationProposal
-		code, raw := st.Do(t, reviewers[lane], http.MethodPost, path+"/approve", approval)
-		if code != http.StatusOK || json.Unmarshal(raw, &accepted) != nil {
-			// Record the current read-only result without retrying approval or
-			// applying anything. This distinguishes preview drift from a
-			// conflict while publishing the saved review.
-			currentCode, currentRaw := st.Do(t, reviewers[lane], http.MethodPost, "/v1/remediation/routing-transfer-dry-run", selections[lane])
-			var current sdk.RoutingTransferDryRun
-			_ = json.Unmarshal(currentRaw, &current)
-			t.Fatalf("lane %d approval HTTP %d: %.500s; current dry run HTTP %d preview %q vs %q estimate %q vs %q validity %q vs %q",
-				lane, code, raw, currentCode, current.PreviewFingerprint, preview.PreviewFingerprint,
-				current.EstimateDigest, preview.EstimateDigest, current.SourceValidUntil, preview.SourceValidUntil)
-		}
+		reviewMutation(reviewers[lane], path+"/approve", approval, http.StatusOK, &accepted)
 		var approved sdk.RoutingTransferReview
 		transferStockReviewRequest(t, st, reviewers[lane], http.MethodGet, path, nil, http.StatusOK, &approved)
 		validUntil, err := time.Parse(time.RFC3339Nano, approved.ValidUntil)
