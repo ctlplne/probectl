@@ -14,6 +14,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testsupport"
+	"github.com/ctlplne/probectl/internal/testsupport/chtest"
 )
 
 type counterPublicationProbe struct {
@@ -57,10 +59,10 @@ func (*counterPublicationProbe) Subscribe(context.Context, string, string, bus.H
 func (*counterPublicationProbe) Close() error { return nil }
 
 // Real issued mTLS and application-role Postgres, with original typed wire
-// bytes, the shipped in-process bus/consumer and exact memory history.
-// Physical SNMP, a durable broker/ClickHouse and served billing remain separate.
+// bytes and the shipped in-process bus/consumer. The full integration lane
+// also reads the committed history through a fresh ClickHouse client.
 func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 	pool := setup(ctx, t)
 	t.Cleanup(pool.Close)
@@ -143,7 +145,30 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 	witnesses := store.NewDeviceCounterCaptures(pool)
 	memoryBus := bus.NewMemory()
 	t.Cleanup(func() { _ = memoryBus.Close() })
-	history := flowstore.NewMemory()
+	var history flowstore.CounterHistory = flowstore.NewMemory()
+	openHistory := func(endpoint string) *flowstore.ClickHouse {
+		t.Helper()
+		retained, err := flowstore.NewClickHouse(endpoint, 0)
+		if err != nil {
+			t.Fatal("configured ClickHouse counter history is unavailable")
+		}
+		t.Cleanup(func() { _ = retained.Close() })
+		return retained
+	}
+	counterEndpoint := os.Getenv("PROBECTL_FLOWSTORE_URL")
+	if counterEndpoint != "" {
+		history = openHistory(counterEndpoint)
+		t.Cleanup(func() {
+			cleanup, done := context.WithTimeout(context.Background(), 30*time.Second)
+			defer done()
+			for _, lane := range lanes {
+				bound := tenancy.WithTenant(cleanup, tenancy.ID(lane.tenant))
+				if remaining, err := history.DeleteCounterTenant(bound, lane.tenant); err != nil || remaining != 0 {
+					t.Error("could not remove the owned ClickHouse counter fixture")
+				}
+			}
+		})
+	}
 	budget := flowstore.CounterBudget{MemoryBytes: 8 << 20, WorkUnits: 8 << 20, Timeout: time.Minute}
 	consumer := pipeline.NewDeviceCounterConsumer(memoryBus, history, witnesses, budget, 90, nil).WithTenantBinding(pipeline.NewRegistryBinding(pool))
 	finished := make(chan error, 1)
@@ -222,10 +247,31 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 	if err := memoryBus.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for i, lane := range lanes {
+	reader := history
+	if counterEndpoint != "" {
+		retained := openHistory(counterEndpoint)
+		readerUser, readerClient := chtest.ProvisionReader(t, counterEndpoint, "witness_counter_reader")
+		retained.WithTenantScoping(true).WithReader(readerClient)
+		if err := retained.EnsureReaderRowPolicy(ctx, readerUser); err != nil {
+			t.Fatal("could not install the ClickHouse counter reader policy")
+		}
+		reader = retained
+	}
+	selectSource := func(i int) flowstore.CounterSelector {
+		lane := lanes[i]
 		capture := captures[i]
-		query := flowstore.CounterQuery{TenantID: lane.tenant, From: at.Add(-time.Second), To: at.Add(time.Second), Budget: budget, Sources: []flowstore.CounterSelector{{CounterSource: flowstore.CounterSource{ContextID: area, DeviceID: router, AgentID: lane.sender, SourceRef: lane.input.ConfiguredTarget, SourceAssignedAt: capture.SourceAssignedAt, AgentAssignedAt: capture.AgentAssignedAt}, IfIndexes: []uint32{7}}}}
-		rows, err := history.CounterPoints(tenancy.WithTenant(ctx, tenancy.ID(lane.tenant)), query)
+		return flowstore.CounterSelector{CounterSource: flowstore.CounterSource{
+			ContextID: area, DeviceID: router, AgentID: lane.sender, SourceRef: lane.input.ConfiguredTarget,
+			SourceAssignedAt: capture.SourceAssignedAt, AgentAssignedAt: capture.AgentAssignedAt,
+		}, IfIndexes: []uint32{7}}
+	}
+	for i, lane := range lanes {
+		query := flowstore.CounterQuery{
+			TenantID: lane.tenant, From: at.Add(-time.Second), To: at.Add(time.Second), Budget: budget,
+			Sources: []flowstore.CounterSelector{selectSource(i)},
+		}
+		bound := tenancy.WithTenant(ctx, tenancy.ID(lane.tenant))
+		rows, err := reader.CounterPoints(bound, query)
 		if err != nil || len(rows) != 2 {
 			t.Fatal("real certified raw poll lost whole history or crossed tenants", len(rows), err)
 		}
@@ -234,9 +280,15 @@ func TestCounterWitnessRealMTLSBindsTwoTenantsBeforeRawPublication(t *testing.T)
 				t.Fatal("real sender/history chain changed exact values or original provenance")
 			}
 		}
+		query.Sources[0] = selectSource(1 - i)
+		if rows, err := reader.CounterPoints(bound, query); err != nil || len(rows) != 0 {
+			t.Fatal("certified counter reader accepted a sibling's exact source", len(rows), err)
+		}
 	}
 	if memoryBus.HandlerErrors() != 0 || memoryBus.HandlerLost() != 0 || memoryBus.NoSubscriberDrops() != 0 {
 		t.Fatal("real certified polls had an unacknowledged or lost history publication")
 	}
-	t.Log("real-integration: issued two-tenant mTLS/Postgres witnesses through the shipped in-process bus and consumer into exact memory history; original population/uint64/zero clocks, retry identity and foreign-key refusal. Physical SNMP, durable broker/ClickHouse and served capacity remain separate")
+	if counterEndpoint != "" {
+		t.Log("real-integration: fresh ClickHouse readers retained both certified counter polls, without duplicate retries or foreign rows")
+	}
 }
