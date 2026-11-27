@@ -54,6 +54,13 @@ func seedVerdictCarrierTest(t *testing.T, f *roleExplanationAPIFixture, tenant, 
 }
 
 func TestIncidentCarrierServesOriginalASNHandoffAndTenantIsolation(t *testing.T) {
+	proveIncidentCarrier(t, nil)
+}
+
+type verdictNetworkProbes func(*testing.T, bool, []string, []testspec.ExecutableDefinition) [2]entity.Observation
+
+func proveIncidentCarrier(t *testing.T, collect verdictNetworkProbes) {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	seedInterfaceRoleMCPConsent(f)
@@ -133,22 +140,23 @@ func TestIncidentCarrierServesOriginalASNHandoffAndTenantIsolation(t *testing.T)
 		if accepted, unresolved, err := snmp.Submit(t.Context(), states); err != nil || accepted != 2 || unresolved != 0 {
 			t.Fatal("original local/handoff state refused", accepted, unresolved, err)
 		}
-		for i, definition := range definitions {
-			digest, err := testspec.DefinitionHash(definition)
-			if err != nil {
-				t.Fatal(err)
-			}
-			m := &entity.ICMPMeasurement{Version: 1, DefinitionHash: digest, StartedAt: at.Add(time.Microsecond), CompletedAt: observed, Requested: 3, Attempted: 3, Transmitted: 3, ReadComplete: true}
-			if lane == 1 {
-				m.Replies = 3
-				m.Responders = []string{definition.Target}
-			}
-			probe := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agents[i], Kind: entity.PathAgent, SourceRef: definition.ID}, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: definition.Target}, SourceRef: "icmp:configured-test", ObservedAt: observed, ICMP: m}
+		healthy := lane == 1
+		probes := [2]entity.Observation{}
+		if collect == nil {
+			probes = modeledVerdictCarrierProbes(t, healthy, agents, definitions, at.Add(time.Microsecond), observed)
+		} else {
+			probes = collect(t, healthy, agents, definitions)
+		}
+		last := observed
+		for i, probe := range probes {
 			if accepted, unresolved, err := clients[i].Submit(t.Context(), []entity.Observation{probe}); err != nil || accepted != 1 || unresolved != 0 {
 				t.Fatal("original independent network result refused", accepted, unresolved, err)
 			}
+			if probe.ObservedAt.After(last) {
+				last = probe.ObservedAt
+			}
 		}
-		to := observed.Add(time.Microsecond)
+		to := last.Add(time.Microsecond)
 		if delay := time.Until(to); delay > 0 {
 			if delay > 5*time.Second {
 				t.Fatal("fixture/host clock skew exceeds proof admission")
@@ -170,17 +178,41 @@ func TestIncidentCarrierServesOriginalASNHandoffAndTenantIsolation(t *testing.T)
 			t.Fatal("stored carrier originals selected the wrong tenant/domain", got.Domain, want, err, got.Hypotheses)
 		}
 		found := false
+		lossSenders := make(map[string]bool, len(agents))
 		for _, citation := range got.Hypotheses[1].For {
 			if citation.PeerASN == 4294967295 && citation.HandoffInterfaceID == f.interfaceID {
 				found = true
+			}
+			if citation.Reason == "complete_original_transmitted_external_network_loss" {
+				lossSenders[citation.AgentID] = true
 			}
 		}
 		if !found {
 			t.Fatal("actual ASN/hand-off association disappeared")
 		}
+		if !healthy && (len(lossSenders) != len(agents) || !lossSenders[agents[0]] || !lossSenders[agents[1]]) {
+			t.Fatal("the carrier verdict did not cite both independent loss sources")
+		}
 		proveIncidentVerdictServedReaders(t, f, tenant, id, windows[tenant], got)
 		proveIncidentVerdictSignedExport(t, f, tenant, id, windows[tenant], got)
 	}
 	proveIncidentVerdictForeignReaderRefusal(t, f, f.tenants[0], ids[f.tenants[1]], windows[f.tenants[1]])
-	t.Log("real-integration: issued evidence mTLS, pooled RLS, current ASN/prefix/interface association and HTTPS REST/SDK/CLI/native/signed readers in two tenants; original BMP/SNMP/ICMP outcomes modeled, routed physical fault labs remain owed")
+}
+
+func modeledVerdictCarrierProbes(t *testing.T, healthy bool, agents []string, definitions []testspec.ExecutableDefinition, from, to time.Time) [2]entity.Observation {
+	t.Helper()
+	var probes [2]entity.Observation
+	for i, definition := range definitions {
+		digest, err := testspec.DefinitionHash(definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := &entity.ICMPMeasurement{Version: 1, DefinitionHash: digest, StartedAt: from, CompletedAt: to, Requested: 3, Attempted: 3, Transmitted: 3, ReadComplete: true}
+		if healthy {
+			m.Replies = 3
+			m.Responders = []string{definition.Target}
+		}
+		probes[i] = entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agents[i], Kind: entity.PathAgent, SourceRef: definition.ID}, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: definition.Target}, SourceRef: "icmp:configured-test", ObservedAt: to, ICMP: m}
+	}
+	return probes
 }

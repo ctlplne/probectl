@@ -11,6 +11,8 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -210,27 +212,11 @@ func newDependencyPhysicalNetwork(t *testing.T) dependencyPhysicalNetwork {
 	n := dependencyPhysicalNetwork{prefix + "-source", prefix + "-router", prefix + "-child", prefix + "-other"}
 	names := []string{n.source, n.router, n.child, n.other}
 	for _, name := range names {
-		dependencyLabCommand(t, "ip", "netns", "add", name)
-		t.Cleanup(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if out, err := exec.CommandContext(ctx, "ip", "netns", "del", name).CombinedOutput(); err != nil {
-				t.Errorf("remove owned dependency namespace %s: %v: %s", name, err, out)
-			}
-		})
-		dependencyLabCommand(t, "ip", "-n", name, "link", "set", "lo", "up")
+		addDependencyLabNamespace(t, name)
 	}
-	link := func(left, leftDev, leftIP, right, rightDev, rightIP string) {
-		t.Helper()
-		dependencyLabCommand(t, "ip", "-n", left, "link", "add", leftDev, "type", "veth", "peer", "name", rightDev, "netns", right)
-		for _, end := range []struct{ ns, dev, ip string }{{left, leftDev, leftIP}, {right, rightDev, rightIP}} {
-			dependencyLabCommand(t, "ip", "-n", end.ns, "addr", "add", end.ip, "dev", end.dev)
-			dependencyLabCommand(t, "ip", "-n", end.ns, "link", "set", end.dev, "up")
-		}
-	}
-	link(n.source, "to-router", "10.250.0.2/30", n.router, "to-source", "10.250.0.1/30")
-	link(n.router, "to-child", "10.250.1.1/30", n.child, "to-router", "10.250.1.2/30")
-	link(n.source, "to-other", "10.250.2.1/30", n.other, "to-source", "10.250.2.2/30")
+	addDependencyLabLink(t, n.source, "to-router", "10.250.0.2/30", n.router, "to-source", "10.250.0.1/30")
+	addDependencyLabLink(t, n.router, "to-child", "10.250.1.1/30", n.child, "to-router", "10.250.1.2/30")
+	addDependencyLabLink(t, n.source, "to-other", "10.250.2.1/30", n.other, "to-source", "10.250.2.2/30")
 	for _, end := range []struct{ ns, address string }{{n.router, "192.0.2.1/32"}, {n.child, "192.0.2.2/32"}, {n.other, "192.0.2.3/32"}} {
 		dependencyLabCommand(t, "ip", "-n", end.ns, "addr", "add", end.address, "dev", "lo")
 	}
@@ -245,6 +231,34 @@ func newDependencyPhysicalNetwork(t *testing.T) dependencyPhysicalNetwork {
 		dependencyLabCommand(t, "ip", "-n", route.ns, "route", "add", route.prefix, "via", route.via)
 	}
 	return n
+}
+
+func addDependencyLabNamespace(t *testing.T, name string) {
+	t.Helper()
+	dependencyLabCommand(t, "ip", "netns", "add", name)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if out, err := exec.CommandContext(ctx, "ip", "netns", "del", name).CombinedOutput(); err != nil {
+			t.Errorf("remove owned dependency namespace %s: %v: %s", name, err, out)
+		}
+	})
+	dependencyLabCommand(t, "ip", "-n", name, "link", "set", "lo", "up")
+}
+
+func addDependencyLabLink(t *testing.T, left, leftDev, leftIP, right, rightDev, rightIP string) {
+	t.Helper()
+	dependencyLabCommand(t, "ip", "-n", left, "link", "add", leftDev, "type", "veth", "peer", "name", rightDev, "netns", right)
+	for _, end := range []struct{ ns, dev, ip string }{{left, leftDev, leftIP}, {right, rightDev, rightIP}} {
+		dependencyLabCommand(t, "ip", "-n", end.ns, "addr", "add", end.ip, "dev", end.dev)
+		dependencyLabCommand(t, "ip", "-n", end.ns, "link", "set", end.dev, "up")
+	}
+}
+
+func enableDependencySecondVantage(t *testing.T, network dependencyPhysicalNetwork) {
+	t.Helper()
+	dependencyLabCommand(t, "ip", "netns", "exec", network.source, "sysctl", "-qw", "net.ipv4.ip_forward=1")
+	dependencyLabCommand(t, "ip", "-n", network.router, "route", "add", "10.250.2.0/30", "via", "10.250.0.2")
 }
 
 func dependencyPhysicalLoss(t *testing.T, ns, dev string, down bool) {
@@ -294,25 +308,35 @@ func TestDependencyPhysicalProbeProcess(t *testing.T) {
 
 func collectDependencyPhysical(t *testing.T, ns string, definition testspec.ExecutableDefinition) dependencyPhysicalMeasurement {
 	t.Helper()
-	body, err := json.Marshal(definition)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	value, err := runDependencyPhysicalProbe(ctx, ns, filepath.Join(t.TempDir(), "measurement.json"), definition)
 	if err != nil {
 		t.Fatal(err)
 	}
-	output := filepath.Join(t.TempDir(), "measurement.json")
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
-	defer cancel()
+	return value
+}
+
+func runDependencyPhysicalProbe(ctx context.Context, ns, output string, definition testspec.ExecutableDefinition) (dependencyPhysicalMeasurement, error) {
+	body, err := json.Marshal(definition)
+	if err != nil {
+		return dependencyPhysicalMeasurement{}, err
+	}
 	cmd := exec.CommandContext(ctx, "ip", "netns", "exec", ns, os.Args[0], "-test.run=^TestDependencyPhysicalProbeProcess$")
 	cmd.Env = append(os.Environ(), "PROBECTL_TEST_DEPENDENCY_PROBE_CHILD=1", "PROBECTL_TEST_DEPENDENCY_PROBE_DEFINITION="+string(body), "PROBECTL_TEST_DEPENDENCY_PROBE_OUTPUT="+output)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("physical ICMP child: %v: %s", err, out)
+		return dependencyPhysicalMeasurement{}, fmt.Errorf("physical ICMP child: %w: %s", err, out)
 	}
 	body, err = os.ReadFile(output)
 	if err != nil {
-		t.Fatal(err)
+		return dependencyPhysicalMeasurement{}, err
 	}
 	var value dependencyPhysicalMeasurement
-	if err := json.Unmarshal(body, &value); err != nil || value.Measurement == nil || !value.Measurement.Complete() {
-		t.Fatal("physical collector result was not complete", err)
+	if err := json.Unmarshal(body, &value); err != nil {
+		return dependencyPhysicalMeasurement{}, err
 	}
-	return value
+	if value.Measurement == nil || !value.Measurement.Complete() {
+		return dependencyPhysicalMeasurement{}, errors.New("physical collector result was not complete")
+	}
+	return value, nil
 }

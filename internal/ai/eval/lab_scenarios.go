@@ -69,15 +69,15 @@ func labScenarios() []Scenario {
 		},
 		{
 			Name: "lab-fx13-local-network", Planes: []string{"path", "device", "topology"},
-			Text:    "Does the loss start on our own network along the path?",
+			Text:    "Does the link event place the failure on our own network?",
 			Subject: map[string]string{"node": "interface:lab-ingress"},
 			Entities: []ai.Row{
-				row("network", "critical", "Loss starts at the owned ingress interface", "Current owned interface readings associate the errors with the affected test path."),
-				row("path", "warning", "Owned probe crossed the affected interface", "The scoped binding connects the probe to the interface that reported the errors."),
+				row("network", "critical", "Owned ingress interface lost carrier", "The original interface state records administrative up and operational down after the peer link was lowered."),
+				row("path", "warning", "Selected interface is an owned backbone link", "The current tenant's role declaration identifies the interface that supplied the original link state."),
 			},
 			Topology:       []ai.Row{row("topology", "info", "Path boundary is inside the local network", "The affected interface is upstream of the carrier handoff.")},
 			ExpectLabels:   []string{"owned ingress interface"},
-			RelevantTitles: []string{"Loss starts at the owned ingress interface", "Owned probe crossed the affected interface", "Path boundary is inside the local network"},
+			RelevantTitles: []string{"Owned ingress interface lost carrier", "Selected interface is an owned backbone link", "Path boundary is inside the local network"},
 		},
 		{
 			Name: "lab-fx13-owned-carrier-handoff", Planes: []string{"path", "bgp", "device"},
@@ -100,14 +100,14 @@ func labScenarios() []Scenario {
 			RelevantTitles: []string{"Loss starts beyond the owned handoffs", "Owned handoff observations remained healthy"},
 		},
 		{
-			// The HTTPS verdict test records actual verified same-origin 503
-			// responses on one lane and successful 200s in the sibling lane.
+			// The routed verdict uses a modeled published range and original
+			// verified same-origin responses from two probe namespaces.
 			Name: "lab-fx13-remote-service-error", Planes: []string{"network", "metrics"},
-			Text:           "What signal points to the remote service as the failure?",
-			Entities:       []ai.Row{row("network", "critical", "Remote service returned verified HTTPS 503", "The certificate was verified and the response was from the configured origin.")},
-			Metrics:        []ai.Row{row("metrics", "warning", "Owned HTTPS probe failed", "The same test reported an unsuccessful result from the configured target.")},
-			ExpectLabels:   []string{"remote service", "503"},
-			RelevantTitles: []string{"Remote service returned verified HTTPS 503", "Owned HTTPS probe failed"},
+			Text:           "Which provider range was corroborated by the remote HTTPS failures?",
+			Entities:       []ai.Row{row("network", "critical", "Remote service returned HTTPS 503 from the AWS S3 range", "Independent probes verified the configured origin. Their socket peers matched the same fresh published range.")},
+			Metrics:        []ai.Row{row("metrics", "warning", "Independent owned HTTPS probes failed", "Both vantages recorded 503 responses in the same window.")},
+			ExpectLabels:   []string{"aws", "s3", "503"},
+			RelevantTitles: []string{"Remote service returned HTTPS 503 from the AWS S3 range", "Independent owned HTTPS probes failed"},
 		},
 		{
 			Name: "lab-fx13-thin-verdict", Planes: []string{"topology"},

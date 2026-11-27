@@ -152,6 +152,11 @@ func TestIncidentInternetRoutingUsesCurrentCanonicalTenantAndRechecksOriginalVie
 }
 
 func TestIncidentInternetServesCompleteConfiguredPopulationAndTenantIsolation(t *testing.T) {
+	proveIncidentInternet(t, nil)
+}
+
+func proveIncidentInternet(t *testing.T, collect verdictNetworkProbes) {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
 	seedInterfaceRoleMCPConsent(f)
@@ -211,7 +216,11 @@ func TestIncidentInternetServesCompleteConfiguredPopulationAndTenantIsolation(t 
 			Submit(context.Context, []entity.Observation) (int, int, error)
 		}{sender(tenant, agents[0]), sender(tenant, agents[1])}
 		for index := range definitions {
-			definitions[index].Params["count"] = "100000"
+			if collect == nil {
+				definitions[index].Params["count"] = "100000"
+			} else {
+				definitions[index].Params["privileged"] = "true"
+			}
 			params, err := json.Marshal(definitions[index].Params)
 			if err != nil {
 				t.Fatal(err)
@@ -242,25 +251,23 @@ func TestIncidentInternetServesCompleteConfiguredPopulationAndTenantIsolation(t 
 		if accepted, unresolved, err := snmp.Submit(t.Context(), states); err != nil || accepted != 2 || unresolved != 0 {
 			t.Fatal("original local/handoff state refused", accepted, unresolved, err)
 		}
-		for i, definition := range definitions {
-			digest, err := testspec.DefinitionHash(definition)
-			if err != nil {
-				t.Fatal(err)
-			}
-			m := &entity.ICMPMeasurement{Version: 2, DefinitionHash: digest, StartedAt: at.Add(time.Microsecond), CompletedAt: observed, Requested: 100000, Attempted: 100000, Transmitted: 100000, ReadComplete: true}
-			for sequence := range m.Requested {
-				m.NetworkErrors = append(m.NetworkErrors, entity.ICMPNetworkError{Sequence: sequence, Responder: "198.19.0.1", Type: 3, ReceivedAt: observed, PacketDigest: strings.Repeat("a", 64)})
-			}
-			if lane == 1 {
-				m.Replies = 100000
-				m.Responders = []string{definition.Target}
-			}
-			probe := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agents[i], Kind: entity.PathAgent, SourceRef: definition.ID}, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: definition.Target}, SourceRef: "icmp:configured-test", ObservedAt: observed, ICMP: m}
+		healthy := lane == 1
+		var probes [2]entity.Observation
+		if collect == nil {
+			probes = modeledVerdictInternetProbes(t, healthy, agents, definitions, at.Add(time.Microsecond), observed)
+		} else {
+			probes = collect(t, healthy, agents, definitions)
+		}
+		last := observed
+		for i, probe := range probes {
 			if accepted, unresolved, err := clients[i].Submit(t.Context(), []entity.Observation{probe}); err != nil || accepted != 1 || unresolved != 0 {
 				t.Fatal("original independent network result refused", accepted, unresolved, err)
 			}
+			if probe.ObservedAt.After(last) {
+				last = probe.ObservedAt
+			}
 		}
-		to := observed.Add(time.Microsecond)
+		to := last.Add(time.Microsecond)
 		if delay := time.Until(to); delay > 0 {
 			if delay > 5*time.Second {
 				t.Fatal("fixture/host clock skew exceeds proof admission")
@@ -278,17 +285,41 @@ func TestIncidentInternetServesCompleteConfiguredPopulationAndTenantIsolation(t 
 		}
 
 		found := false
+		errorSenders := make(map[string]bool, len(agents))
 		for _, citation := range got.Hypotheses[2].For {
 			if citation.Routing != nil && citation.Routing.OriginASN == 64497 && citation.Routing.Address == "198.19.0.1" {
 				found = true
 			}
+			if citation.Reason == "complete_original_challenge_matched_external_no_route_errors" {
+				errorSenders[citation.AgentID] = true
+			}
 		}
-		if lane == 0 && !found {
-			t.Fatal("original selected-prefix routing context disappeared")
+		if !healthy && (!found || len(errorSenders) != len(agents) || !errorSenders[agents[0]] || !errorSenders[agents[1]]) {
+			t.Fatal("the wider-internet verdict lost its selected routing context or an independent error source")
 		}
 		proveIncidentVerdictServedReaders(t, f, tenant, id, windows[tenant], got)
 		proveIncidentVerdictSignedExport(t, f, tenant, id, windows[tenant], got)
 	}
 	proveIncidentVerdictForeignReaderRefusal(t, f, f.tenants[0], ids[f.tenants[1]], windows[f.tenants[1]])
-	t.Log("real-integration: issued evidence mTLS, pooled RLS, current ASN/prefix/interface association and HTTPS REST/SDK/CLI/native/signed readers in two tenants; complete100000 outcomes on each of two independent configured senders per tenant and original BMP/SNMP/ICMP/RIB metadata modeled; routed physical fault labs remain owed")
+}
+
+func modeledVerdictInternetProbes(t *testing.T, healthy bool, agents []string, definitions []testspec.ExecutableDefinition, from, to time.Time) [2]entity.Observation {
+	t.Helper()
+	var probes [2]entity.Observation
+	for i, definition := range definitions {
+		digest, err := testspec.DefinitionHash(definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := &entity.ICMPMeasurement{Version: 2, DefinitionHash: digest, StartedAt: from, CompletedAt: to, Requested: 100000, Attempted: 100000, Transmitted: 100000, ReadComplete: true}
+		for sequence := range m.Requested {
+			m.NetworkErrors = append(m.NetworkErrors, entity.ICMPNetworkError{Sequence: sequence, Responder: "198.19.0.1", Type: 3, ReceivedAt: to, PacketDigest: strings.Repeat("a", 64)})
+		}
+		if healthy {
+			m.Replies = 100000
+			m.Responders = []string{definition.Target}
+		}
+		probes[i] = entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agents[i], Kind: entity.PathAgent, SourceRef: definition.ID}, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: definition.Target}, SourceRef: "icmp:configured-test", ObservedAt: to, ICMP: m}
+	}
+	return probes
 }

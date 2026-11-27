@@ -26,6 +26,7 @@ import (
 	"github.com/ctlplne/probectl/internal/agenttransport"
 	"github.com/ctlplne/probectl/internal/alert"
 	"github.com/ctlplne/probectl/internal/bus"
+	"github.com/ctlplne/probectl/internal/canary"
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
@@ -162,23 +163,7 @@ func sampleDependencyPhysical(t *testing.T, d *dependencyRoutingFixture, tenant 
 		value := collectDependencyPhysical(t, ns, definition)
 		m := value.Measurement
 		if i < len(d.graphs[tenant].Nodes) {
-			digest, err := testspec.DefinitionHash(definition)
-			if err != nil {
-				t.Fatal(err)
-			}
-			claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: sender, Kind: entity.PathAgent, SourceRef: definition.ID},
-				Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: m.TargetIP}, SourceRef: "icmp:configured-test", ObservedAt: m.CompletedAt,
-				ICMP: &entity.ICMPMeasurement{Version: 3, DefinitionHash: digest, StartedAt: m.StartedAt, CompletedAt: m.CompletedAt,
-					Requested: uint32(m.Expected), Attempted: uint32(m.Attempted), Transmitted: uint32(m.Transmitted), Replies: uint32(m.Replies), SendErrors: uint32(m.SendErrors),
-					ReadComplete: m.ReadComplete, Canceled: m.Canceled, IOFailed: m.IOFailed, Responders: m.Responders,
-					RoundTrips: &entity.ICMPRoundTrips{Nanos: append([]uint64{}, m.RoundTripNanos...), ExecutionNanos: m.ExecutionNanos}}}
-			for _, fact := range m.NetworkErrors {
-				claim.ICMP.NetworkErrors = append(claim.ICMP.NetworkErrors, entity.ICMPNetworkError{Sequence: fact.Sequence, Responder: fact.Responder, Type: fact.Type, Code: fact.Code, ReceivedAt: fact.ReceivedAt, PacketDigest: hex.EncodeToString(fact.PacketDigest[:]), Conflicting: fact.Conflicting})
-			}
-			claim, err = claim.Normalize(time.Now())
-			if err != nil {
-				t.Fatal(err)
-			}
+			claim := dependencyPhysicalICMPObservation(t, sender, definition, m)
 			if accepted, unresolved, err := client.Submit(t.Context(), []entity.Observation{claim}); err != nil || accepted != 1 || unresolved != 0 {
 				t.Fatal("real physical sender evidence was refused", accepted, unresolved, err)
 			}
@@ -203,4 +188,26 @@ func sampleDependencyPhysical(t *testing.T, d *dependencyRoutingFixture, tenant 
 		}
 	}
 	return measurements
+}
+
+func dependencyPhysicalICMPObservation(t *testing.T, sender string, definition testspec.ExecutableDefinition, m *canary.ICMPMeasurement) entity.Observation {
+	t.Helper()
+	digest, err := testspec.DefinitionHash(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: sender, Kind: entity.PathAgent, SourceRef: definition.ID},
+		Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: m.TargetIP}, SourceRef: "icmp:configured-test", ObservedAt: m.CompletedAt,
+		ICMP: &entity.ICMPMeasurement{Version: 3, DefinitionHash: digest, StartedAt: m.StartedAt, CompletedAt: m.CompletedAt,
+			Requested: uint32(m.Expected), Attempted: uint32(m.Attempted), Transmitted: uint32(m.Transmitted), Replies: uint32(m.Replies), SendErrors: uint32(m.SendErrors),
+			ReadComplete: m.ReadComplete, Canceled: m.Canceled, IOFailed: m.IOFailed, Responders: m.Responders,
+			RoundTrips: &entity.ICMPRoundTrips{Nanos: append([]uint64{}, m.RoundTripNanos...), ExecutionNanos: m.ExecutionNanos}}}
+	for _, fact := range m.NetworkErrors {
+		claim.ICMP.NetworkErrors = append(claim.ICMP.NetworkErrors, entity.ICMPNetworkError{Sequence: fact.Sequence, Responder: fact.Responder, Type: fact.Type, Code: fact.Code, ReceivedAt: fact.ReceivedAt, PacketDigest: hex.EncodeToString(fact.PacketDigest[:]), Conflicting: fact.Conflicting})
+	}
+	claim, err = claim.Normalize(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return claim
 }
