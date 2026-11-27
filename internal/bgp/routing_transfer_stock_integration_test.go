@@ -98,15 +98,25 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 	})
 	comparisons, comparisonEnd := collectTransferStockComparisons(t, probes)
 	sendTransferStockPayload(t, lab, links, artifacts)
+	if wait := time.Until(comparisonEnd); wait > 0 {
+		time.Sleep(wait)
+	}
+	finished := time.Now().UTC()
+	waitTransferStock(t, time.Minute, func() bool {
+		for i := range lanes {
+			lanes[i].after = readTransferStockPoll(t, &lanes[i], links, finished, time.Now(), true)
+		}
+		return !lanes[0].after.started.IsZero() && !lanes[1].after.started.IsZero()
+	})
+	artifacts.counterBrackets(t, lanes)
+
+	// The ring drain can transmit more frames than libpcap delivers to
+	// softflowd. Keep that maintenance traffic after both signed brackets.
 	artifacts.exporterState(t, lanes, "before-drain")
 	if !transferStockCaptureComplete(t.Context(), lanes[0].exporter) ||
 		!transferStockCaptureComplete(t.Context(), lanes[1].exporter) {
 		drainTransferStockCapture(t, lab, links[0])
 	}
-	if wait := time.Until(comparisonEnd); wait > 0 {
-		time.Sleep(wait)
-	}
-	finished := time.Now().UTC()
 	var complete [2]bool
 	waitTransferStock(t, 12*time.Second, func() bool {
 		for i, lane := range lanes {
@@ -134,12 +144,6 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 	var measured [2]sdk.RoutingTransferInput
 	var estimates [2]sdk.RoutingTransferResponse
 	var bracketed, estimated [2]bool
-	waitTransferStock(t, time.Minute, func() bool {
-		for i := range lanes {
-			lanes[i].after = readTransferStockPoll(t, &lanes[i], links, finished, time.Now(), true)
-		}
-		return !lanes[0].after.started.IsZero() && !lanes[1].after.started.IsZero()
-	})
 	for i := range lanes {
 		lane := &lanes[i]
 		if lane.before.started.IsZero() {
@@ -392,6 +396,10 @@ func configureTransferStockHandoffs(t *testing.T, lab *routingLab) ([2]roleRoute
 		if strings.TrimSpace(kernel) != index {
 			t.Fatal("SNMP and passive capture selected different router interfaces")
 		}
+		// These handoffs measure IPv4 forwarding. Neighbor discovery on the
+		// former IPv6 links can create single-packet exporter intervals.
+		lab.docker(t, "exec", router, "ip", "link", "set", "dev", link.iface, "addrgenmode", "none")
+		lab.docker(t, "exec", router, "ip", "-6", "address", "flush", "dev", link.iface)
 	}
 	if links[0].index == links[1].index {
 		t.Fatal("both physical handoffs resolved to the same kernel interface")
@@ -481,7 +489,7 @@ func warmTransferStockExporters(t *testing.T, lab *routingLab, st *shipped.Stack
 
 // softflowd can leave a partial libpcap block waiting. Pace small frames to the
 // owned peer so the drain can complete that block without overrunning the ring.
-// The independent egress counters still include these frames.
+// The test takes both final signed counter observations before sending them.
 func drainTransferStockCapture(t *testing.T, lab *routingLab, selected roleRouterLink) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
@@ -489,7 +497,7 @@ func drainTransferStockCapture(t *testing.T, lab *routingLab, selected roleRoute
 	args := []string{"exec", "--user", "0", lab.container("rtr-a"), "ping",
 		"-q", "-i", "0.002", "-I", selected.iface, "-c", "2048", "-s", "8", "-W", "1", selected.peerIP}
 	if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
-		t.Fatalf("flush the owned exporter capture buffer: %v %.400s", err, out)
+		t.Errorf("flush the owned exporter capture buffer: %v %.400s", err, out)
 	}
 }
 

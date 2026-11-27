@@ -53,6 +53,16 @@ func (a transferArtifacts) write(t *testing.T, name string, value []byte) {
 	}
 }
 
+func (a transferArtifacts) counterBrackets(t *testing.T, lanes [2]transferStockLane) {
+	t.Helper()
+	for i, lane := range lanes {
+		report := fmt.Appendf(nil, "before %s %s %s out_octets %v\nafter %s %s %s out_octets %v\n",
+			lane.before.capture, lane.before.started.Format(time.RFC3339Nano), lane.before.completed.Format(time.RFC3339Nano), lane.before.octets,
+			lane.after.capture, lane.after.started.Format(time.RFC3339Nano), lane.after.completed.Format(time.RFC3339Nano), lane.after.octets)
+		a.write(t, fmt.Sprintf("lane-%d-counter-brackets.txt", i), report)
+	}
+}
+
 func (a transferArtifacts) exporterState(t *testing.T, lanes [2]transferStockLane, phase string) {
 	t.Helper()
 	if a.dir == "" {
