@@ -242,6 +242,11 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory, rpki bool) {
 	}
 	if rpki {
 		proveFRRRPKI(t, st, registrations, rpkiTargets)
+		goldens := make([]fx5FlowGolden, 0, len(rpkiCases))
+		for _, item := range rpkiCases {
+			goldens = append(goldens, fx5FlowGolden{prefix: item.prefix, provenance: "router_selected", rpki: item.status, origin: item.origin})
+		}
+		proveFX5ShippedFlowGoldens(t, st, lab, registrations, [][]fx5FlowGolden{goldens, goldens})
 		return
 	}
 	if pathHistory {
