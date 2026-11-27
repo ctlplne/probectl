@@ -18,6 +18,7 @@ import (
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/store/tsdb"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -33,7 +34,12 @@ func TestPathHealthAlertSourceUsesCurrentOriginalsAndWithholdsLateGrantWithdrawa
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
 		reader := store.NewDeviceCounterCaptures(f.pool)
 		start := time.Now().UTC().Add(-100 * time.Millisecond)
-		for poll, value := range []uint64{4294967288, 4294967289, 4294967290, 4294967291, 15} {
+		// Both lanes wrap the 32-bit word. Only the first has a climb.
+		words := []uint64{4294967288, 4294967289, 4294967290, 4294967291, 15}
+		if lane == 1 {
+			words = []uint64{4294967292, 4294967293, 4294967294, 4294967295, 0}
+		}
+		for poll, value := range words {
 			at := start.Add(time.Duration(poll) * 20 * time.Millisecond)
 			input := entity.CounterCaptureInput{ConfiguredTarget: "192.0.2.1", PollStartedAt: at, PollCompletedAt: at, PointCount: uint32(len(pathHealthMetricNames))}
 			digest := [32]byte{150, byte(lane + 1), byte(poll + 1)}
@@ -78,17 +84,57 @@ func TestPathHealthAlertSourceUsesCurrentOriginalsAndWithholdsLateGrantWithdrawa
 			return err
 		})
 	}
+	writer, err := tsdb.New("memory", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writer.Close() })
+	var delivered []alert.Alert
+	build := func(tenant string) *alert.Evaluator {
+		t.Helper()
+		evaluator, ok := BuildAlertEvaluator(f.pool, writer, alert.ChannelDeps{}, time.Second, tenancy.ID(tenant),
+			func(_ context.Context, event alert.Alert) { delivered = append(delivered, event) },
+			f.server.log, AlertTagDependencies{Gate: f.server.fairnessGate, FlowStore: f.server.flowStore, Queries: f.server})
+		if !ok {
+			t.Fatal("shipped path-health evaluator is unavailable")
+		}
+		return evaluator
+	}
 	groups := map[string]bool{}
-	for _, tenant := range f.tenants {
+	for lane, tenant := range f.tenants {
+		want := 1 - lane
 		read, err := f.server.readAlertPathHealthRule(t.Context(), tenant, *rules[tenant])
-		if err != nil || len(read.Samples) != 1 || read.Samples[0].Value != 1 || read.QuerySelection == nil || !read.QuerySelection.Complete {
-			t.Fatal("current original climb did not produce its complete owned decision", err, read)
+		if err != nil || len(read.Samples) != 1 || read.Samples[0].Value != float64(want) || read.QuerySelection == nil || !read.QuerySelection.Complete {
+			t.Fatal("wrapped original words did not produce the expected owned decision", err, read)
 		}
 		group := read.Samples[0].Labels["path_health_group"]
 		if groups[group] {
 			t.Fatal("paired tenant decisions shared an episode identity")
 		}
 		groups[group] = true
+		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
+		before := len(delivered)
+		evaluator := build(tenant)
+		acted, err := evaluator.Engine().Evaluate(ctx, *rules[tenant])
+		if err != nil || len(acted) != want || len(delivered)-before != want {
+			t.Fatalf("wrapped counter decision delivered %d events, want %d: %v", len(delivered)-before, want, err)
+		}
+		if want == 1 && (delivered[before].TenantID != tenant || delivered[before].RuleID != rules[tenant].ID ||
+			delivered[before].State != alert.StateFiring || delivered[before].Labels["path_health_group"] != group) {
+			t.Fatal("wrapped climb was not delivered under the owned episode identity")
+		}
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			stored, err := (store.AlertNotifications{}).List(ctx, sc)
+			if err == nil && (len(stored) != want || want == 1 && stored[0].LastNotified.IsZero()) {
+				t.Fatal("tenant did not retain its expected notification state")
+			}
+			return err
+		})
+		// A new evaluator restores notification state from this tenant's
+		// PostgreSQL scope. The retained climb must not fire a second time.
+		if acted, err := build(tenant).Engine().Evaluate(ctx, *rules[tenant]); err != nil || len(acted) != 0 || len(delivered)-before != want {
+			t.Fatal("evaluator replacement repeated a held notification", err)
+		}
 	}
 	a, b := f.tenants[0], f.tenants[1]
 	if read, err := f.server.readAlertPathHealthRule(tenancy.WithTenant(t.Context(), tenancy.ID(b)), a, *rules[a]); err == nil || len(read.Samples) != 0 {
@@ -109,7 +155,7 @@ func TestPathHealthAlertSourceUsesCurrentOriginalsAndWithholdsLateGrantWithdrawa
 	if read, err := f.server.readAlertPathHealthRule(t.Context(), a, *rules[a]); err == nil || len(read.Samples) != 0 || read.QuerySelection != nil {
 		t.Fatal("late source-grant withdrawal published a firing or healthy prefix", err)
 	}
-	if read, err := f.server.readAlertPathHealthRule(t.Context(), b, *rules[b]); err != nil || len(read.Samples) != 1 || read.Samples[0].Value != 1 {
+	if read, err := f.server.readAlertPathHealthRule(t.Context(), b, *rules[b]); err != nil || len(read.Samples) != 1 || read.Samples[0].Value != 0 {
 		t.Fatal("one tenant withdrawal changed its sibling source", err)
 	}
 }
