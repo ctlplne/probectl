@@ -34,6 +34,17 @@ function currentStatus(source: RangeSource, now: number) {
   return Number.isFinite(fetched) && now >= fetched && now < until ? source.status : 'stale'
 }
 
+const sourceAgeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'always' })
+
+function sourceAge(fetchedAt: string, now: number) {
+  const minutes = Math.floor((now - Date.parse(fetchedAt)) / 60_000)
+  if (!Number.isFinite(minutes) || minutes < 0) return 'Not available'
+  if (minutes === 0) return 'Less than a minute ago'
+  if (minutes < 60) return sourceAgeFormatter.format(-minutes, 'minute')
+  if (minutes < 1440) return sourceAgeFormatter.format(-Math.floor(minutes / 60), 'hour')
+  return sourceAgeFormatter.format(-Math.floor(minutes / 1440), 'day')
+}
+
 export function FlowServiceSources() {
   const { tenant, user, permissions, hasScopedGrants } = useAuth()
   if (!permissions.includes('flow.read')) return null
@@ -50,16 +61,13 @@ function ServiceSourceLookup() {
   const request = useRef<AbortController | undefined>(undefined)
   useEffect(() => () => request.current?.abort(), [])
   useEffect(() => {
+    if (!result?.services?.length) return
     const now = Date.now()
-    const next = (result?.services ?? []).reduce((soonest, source) => {
+    const next = result.services.reduce((soonest, source) => {
       const until = Date.parse(source.valid_until)
       return until > now ? Math.min(soonest, until) : soonest
-    }, Infinity)
-    if (!Number.isFinite(next)) return
-    const timer = window.setTimeout(
-      () => setClock(Date.now()),
-      Math.min(next - now + 1, 2147483647),
-    )
+    }, now + 60_000)
+    const timer = window.setTimeout(() => setClock(Date.now()), next - now + 1)
     return () => window.clearTimeout(timer)
   }, [result, clock])
 
@@ -137,6 +145,10 @@ function ServiceSourceLookup() {
                           <dd>{source.fetched_at || 'Not available'}</dd>
                         </div>
                         <div>
+                          <dt>Fetch age</dt>
+                          <dd>{sourceAge(source.fetched_at, now)}</dd>
+                        </div>
+                        <div>
                           <dt>Valid until</dt>
                           <dd>{source.valid_until || 'Not available'}</dd>
                         </div>
@@ -153,7 +165,10 @@ function ServiceSourceLookup() {
                           <dd>{source.digest || 'Not available'}</dd>
                         </div>
                       </dl>
-                      {!matches.length && <p>No current address attribution from this source.</p>}
+                      {status === 'unmatched' && <p>No matching range in this source.</p>}
+                      {status !== 'matched' && status !== 'unmatched' && (
+                        <p>Address attribution is unknown.</p>
+                      )}
                       <ul>
                         {matches.map((match, index) => (
                           <li key={`${match.prefix}:${match.service}:${match.region}:${index}`}>

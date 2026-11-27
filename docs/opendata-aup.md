@@ -349,7 +349,10 @@ mtime, restart and repeated lookups never renew the source's original fetch time
 In the Flow Explorer, **Published service sources** looks up an IPv4 or IPv6
 address against the same local source index. Expand a publisher to inspect every
 matching candidate, its explicit region, original fetch/validity clocks, native
-version and body digest. A missing publication time or region stays unknown.
+version and body digest. Fetch age is measured from the original fetch clock.
+A stale or unavailable source shows unknown attribution and retains the last
+known age when an original fetch clock is available. A missing publication time
+or region stays unknown.
 The view removes expired matches while retaining their original metadata, clears
 the previous lookup on tenant/user/access changes, and makes no publisher calls.
 This is current source inspection; stored flow labels remain capture-time facts.

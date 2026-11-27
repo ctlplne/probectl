@@ -37,6 +37,15 @@ function sourceResult(label: string) {
         status: 'stale',
         matches: [],
       },
+      {
+        publisher: 'unreachable-source',
+        version: 'last-known-version',
+        digest: 'c'.repeat(64),
+        fetched_at: new Date(Date.now() - 3_600_000).toISOString(),
+        valid_until: '',
+        status: 'unavailable',
+        matches: [],
+      },
     ],
   }
 }
@@ -73,12 +82,18 @@ test('shows complete source candidates and original clocks, then withholds expir
     expect(screen.getAllByText(/Unknown region/)).toHaveLength(23)
     expect(screen.getAllByText('Not published').length).toBeGreaterThan(0)
     expect(screen.getByText('aged-source')).toBeInTheDocument()
+    expect(screen.getByText('unreachable-source')).toBeInTheDocument()
+    expect(screen.getByText('1 minute ago')).toBeInTheDocument()
+    expect(screen.getByText('1 hour ago')).toBeInTheDocument()
+    expect(screen.getAllByText('Address attribution is unknown.')).toHaveLength(2)
     const [url, init] = vi.mocked(fetch).mock.calls[0]
     expect(String(url)).toBe('/v1/opendata/enrichment?ip=192.0.2.7')
     expect(init?.credentials).toBe('same-origin')
     await act(() => vi.advanceTimersByTimeAsync(61000))
     expect(screen.queryByText('published-range candidate 23')).not.toBeInTheDocument()
     expect(screen.getByText(value.services[0].fetched_at)).toBeInTheDocument()
+    expect(screen.getByText('2 minutes ago')).toBeInTheDocument()
+    expect(screen.getAllByText('Address attribution is unknown.')).toHaveLength(3)
   } finally {
     vi.useRealTimers()
   }

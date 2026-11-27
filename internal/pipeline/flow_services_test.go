@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -58,6 +59,120 @@ func localFlowServiceSource(t *testing.T, at time.Time) *opendata.Enricher {
 	en := opendata.NewEnricher(nil)
 	en.Register(source)
 	return en
+}
+
+func TestOfflinePublishedRangeFormatsClassifyBothTenantFlows(t *testing.T) {
+	fetched := time.Now().UTC().Add(-time.Minute)
+	// These are synthetic addresses in original publisher formats. Fresh
+	// and expired runs import identical bytes and keep the original clock.
+	cases := []struct {
+		publisher, address, service, provider, region, body string
+	}{
+		{"aws", "192.0.2.11", "S3", "aws", "us-east-1", `{"syncToken":"1","createDate":"2026-11-14-09-00-00","prefixes":[{"ip_prefix":"192.0.2.11/32","region":"us-east-1","service":"S3"}],"ipv6_prefixes":[]}`},
+		{"google", "192.0.2.12", "Google", "google", "global", `{"syncToken":"1","creationTime":"2026-11-14T09:00:00Z","prefixes":[{"ipv4Prefix":"192.0.2.12/32"}]}`},
+		{"google_cloud", "192.0.2.13", "Google Cloud", "google_cloud", "us-west1", `{"syncToken":"1","creationTime":"2026-11-14T09:00:00Z","prefixes":[{"ipv4Prefix":"192.0.2.13/32","service":"Google Cloud","scope":"us-west1"}]}`},
+		{"cloudflare", "192.0.2.14", "Cloudflare", "cloudflare", "", `{"success":true,"result":{"etag":"fixture","ipv4_cidrs":["192.0.2.14/32"],"ipv6_cidrs":[]}}`},
+		{"salesforce", "192.0.2.15", "Salesforce", "salesforce", "us-east-1", `{"syncToken":"fixture","createDate":"2026-11-14-09-00-00","prefixes":[{"region":"us-east-1","provider":"aws","ip_prefix":["192.0.2.15/32"]}],"ipv6_prefixes":[]}`},
+		{"azure_public", "192.0.2.16", "AzureStorage", "azure", "eastus", `{"changeNumber":1,"cloud":"Public","values":[{"name":"Storage.EastUS","properties":{"region":"eastus","systemService":"AzureStorage","addressPrefixes":["192.0.2.16/32"]}}]}`},
+		{"m365_worldwide", "192.0.2.17", "Microsoft 365 Exchange", "microsoft_365", "", `[{"id":1,"serviceArea":"Exchange","ips":["192.0.2.17/32"],"category":"Allow","required":true}]`},
+		{"zoom_meetings_ipv4", "192.0.2.18", "Zoom Meetings", "zoom", "", "192.0.2.18/32\n"},
+		{"slack_huddles", "192.0.2.19", "", "", "", `<!doctype html><html><body><article><h1>Slack Huddles network configuration</h1><h3><strong>Huddles network paths</strong></h3><ul><li>Approve <strong>*.chime.aws</strong> or IP range <strong>192.0.2.19/32</strong></li></ul></article></body></html>`},
+	}
+	type original struct {
+		Publisher string    `json:"publisher"`
+		FetchedAt time.Time `json:"fetched_at"`
+		Complete  bool      `json:"complete"`
+		Data      string    `json:"data"`
+	}
+	sources := make([]original, 0, len(cases))
+	for _, item := range cases {
+		sources = append(sources, original{item.publisher, fetched, true, item.body})
+	}
+	raw, err := json.Marshal(map[string]any{"version": 2, "sources": sources})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "recorded-publishers.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []struct {
+		name string
+		age  time.Duration
+	}{{"fresh", time.Hour}, {"expired", time.Second}} {
+		t.Run(scenario.name, func(t *testing.T) {
+			now := time.Now().UTC()
+			ranges, err := opendata.LoadServiceRanges(t.Context(), path, scenario.age, 16<<20, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			enricher := opendata.NewEnricher(nil)
+			enricher.Register(ranges)
+			flows := flowstore.NewMemory()
+			consumer := NewFlowConsumer(bus.NewMemory(), flows, nil, nil).WithTenantBinding(serviceFlowBinding{}).WithServiceRanges(enricher, 16<<20)
+			for lane, tenant := range []string{"red", "blue"} {
+				var batch flowv1.FlowBatch
+				for i, item := range cases {
+					octets := uint64(100 * (i + 1) * (lane + 1))
+					batch.Flows = append(batch.Flows, &flowv1.FlowRecord{TenantId: tenant, AgentId: "agent-" + tenant,
+						ExporterAddress: "203.0.113.1", FlowProtocol: "ipfix", SourceAddress: "198.51.100.1",
+						DestinationAddress: item.address, DestinationPort: 443, EndUnixNano: now.UnixNano(),
+						Bytes: octets, BytesScaled: octets, Packets: 1, PacketsScaled: 1, SamplingRate: 1})
+				}
+				wire, err := proto.Marshal(&batch)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := consumer.handleLane(t.Context(), bus.Message{Value: wire}, bus.FlowEventsTopic, tenant); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for lane, tenant := range []string{"red", "blue"} {
+				var output bytes.Buffer
+				if _, err := flows.ExportTenant(t.Context(), tenant, &output); err != nil {
+					t.Fatal(err)
+				}
+				read := json.NewDecoder(&output)
+				found := map[string]flowstore.Row{}
+				for read.More() {
+					var row flowstore.Row
+					if err := read.Decode(&row); err != nil {
+						t.Fatal(err)
+					}
+					if _, duplicate := found[row.DstAddr]; duplicate || row.TenantID != tenant {
+						t.Fatalf("tenant %s received a duplicate or foreign flow for %s", tenant, row.DstAddr)
+					}
+					found[row.DstAddr] = row
+				}
+				if len(found) != len(cases) {
+					t.Fatalf("tenant %s retained %d of %d golden flows", tenant, len(found), len(cases))
+				}
+				for i, item := range cases {
+					row := found[item.address]
+					service, provider, region, status := item.service, item.provider, item.region, "known"
+					if scenario.name == "expired" || service == "" {
+						service, provider, region, status = "", "", "", "unknown"
+					}
+					if row.DstService != service || row.DstServiceProvider != provider || row.DstServiceRegion != region ||
+						row.DstServiceStatus != status || row.Bytes != uint64(100*(i+1)*(lane+1)) {
+						t.Errorf("tenant %s publisher %s got service=%q provider=%q region=%q status=%q bytes=%d",
+							tenant, item.publisher, row.DstService, row.DstServiceProvider, row.DstServiceRegion, row.DstServiceStatus, row.Bytes)
+					}
+					if scenario.name == "expired" {
+						var evidence flowServiceEvidence
+						if err := json.Unmarshal([]byte(row.ServiceEvidence), &evidence); err != nil {
+							t.Fatal(err)
+						}
+						if !slices.ContainsFunc(evidence.Destination.Sources, func(source opendata.ServiceRangeStatus) bool {
+							return source.Publisher == item.publisher && source.Status == "stale" && source.FetchedAt.Equal(fetched)
+						}) {
+							t.Errorf("tenant %s publisher %s lost the stale source clock", tenant, item.publisher)
+						}
+					}
+				}
+			}
+		})
+	}
 }
 
 // Modeled authenticated lanes and memory backend; complete real signed sender,
