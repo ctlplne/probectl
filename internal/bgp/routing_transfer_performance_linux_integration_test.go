@@ -292,33 +292,42 @@ func collectTransferStockComparisons(t *testing.T, probes [2][2]transferStockPro
 	var out [2]sdk.RoutingTransferProbeComparisonInput
 	var lastWindowEnd time.Time
 	for lane, pair := range probes {
-		// Start both probes before submitting either result. A lossy source
-		// or a delayed receipt write must not postpone the candidate probe.
-		measured, from := collectTransferStockProbePair(t, pair)
-		interval := time.Duration(pair[0].definition.IntervalSeconds) * time.Second
-		to := from.Add(interval)
-		if to.After(lastWindowEnd) {
-			lastWindowEnd = to
-		}
-		for _, sample := range measured {
-			if sample.StartedAt.Before(from) || !sample.CompletedAt.Before(to) {
-				t.Fatal("the two owned observations did not fit their common closed interval")
+		t.Run("physical-probes-"+strconv.Itoa(lane), func(t *testing.T) {
+			// Start both probes before submitting either result. A lossy source
+			// or a delayed receipt write must not postpone the candidate probe.
+			measured, from := collectTransferStockProbePair(t, pair)
+			interval := time.Duration(pair[0].definition.IntervalSeconds) * time.Second
+			to := from.Add(interval)
+			if to.After(lastWindowEnd) {
+				lastWindowEnd = to
 			}
-		}
-		before, after := measured[0], measured[1]
-		if after.Replies != 3 || (lane == 0 && (before.Replies != 3 || before.RoundTripNanos[0] < uint64(80*time.Millisecond))) ||
-			(lane == 1 && before.Replies != 0) {
-			t.Fatalf("the physical lane did not observe its planted impairment: tenant %d replies %d→%d", lane, before.Replies, after.Replies)
-		}
-		for i, sample := range measured {
-			pair[i].submit(t, sample)
-		}
-		out[lane] = sdk.RoutingTransferProbeComparisonInput{
-			Source:    sdk.RoutingTransferProbeTestSelection{TestId: pair[0].test, AgentId: pair[0].agent},
-			Candidate: sdk.RoutingTransferProbeTestSelection{TestId: pair[1].test, AgentId: pair[1].agent},
-			From:      from.Format(time.RFC3339Nano), To: to.Format(time.RFC3339Nano),
-			Mode: "improve_performance", MaximumCandidateP95RttNanos: "500000000", MaximumAddedCharge: "0",
-		}
+			for i, sample := range measured {
+				if sample.StartedAt.Before(from) || !sample.CompletedAt.Before(to) {
+					t.Errorf("handoff %d observation fell outside the common closed interval", i)
+				}
+			}
+			before, after := measured[0], measured[1]
+			if after.Replies != 3 || (lane == 0 && (before.Replies != 3 || before.RoundTripNanos[0] < uint64(80*time.Millisecond))) ||
+				(lane == 1 && before.Replies != 0) {
+				t.Errorf("the physical lane did not observe its planted impairment: tenant %d replies %d→%d", lane, before.Replies, after.Replies)
+			}
+			if t.Failed() {
+				return
+			}
+			for i, sample := range measured {
+				t.Run("signed-observation-"+strconv.Itoa(i), func(t *testing.T) {
+					pair[i].submit(t, sample)
+				})
+			}
+			if !t.Failed() {
+				out[lane] = sdk.RoutingTransferProbeComparisonInput{
+					Source:    sdk.RoutingTransferProbeTestSelection{TestId: pair[0].test, AgentId: pair[0].agent},
+					Candidate: sdk.RoutingTransferProbeTestSelection{TestId: pair[1].test, AgentId: pair[1].agent},
+					From:      from.Format(time.RFC3339Nano), To: to.Format(time.RFC3339Nano),
+					Mode: "improve_performance", MaximumCandidateP95RttNanos: "500000000", MaximumAddedCharge: "0",
+				}
+			}
+		})
 	}
 	return out, lastWindowEnd
 }

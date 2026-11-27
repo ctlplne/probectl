@@ -161,10 +161,18 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		}) {
 			continue
 		}
+		if !t.Run("agreements-"+strconv.Itoa(i), func(t *testing.T) {
+			inputs[i] = makeTransferStockRequest(t, st, lane, int64(4+3*i), int64(1+i))
+		}) {
+			continue
+		}
 		bracketed[i] = true
-		inputs[i] = makeTransferStockRequest(t, st, lane, int64(4+3*i), int64(1+i))
 		measured[i] = inputs[i]
 		measured[i].ProbeComparison = comparisons[i]
+		if comparisons[i].Source.TestId == "" {
+			t.Logf("lane %d recommendation requires both signed probe observations", i)
+			continue
+		}
 		estimates[i], estimated[i] = awaitTransferStockPerformance(t, st, *lane, links[0].index, i, measured[i])
 		if estimated[i] {
 			estimated[i] = t.Run("arithmetic-"+strconv.Itoa(i), func(t *testing.T) {
@@ -174,19 +182,25 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 	}
 	artifacts.flowRows(t, st, lanes, links[0].index)
 	for i, lane := range lanes {
-		if !bracketed[i] || !bracketed[1-i] {
-			t.Logf("lane %d request controls require both independently bracketed agreements", i)
+		if !bracketed[i] {
+			t.Logf("lane %d request controls require its independently bracketed agreements", i)
 			continue
 		}
-		foreign := inputs[i]
-		foreign.Candidate = inputs[1-i].Candidate
-		if code, _ := st.Do(t, lane.reg.cookie, http.MethodPost, "/v1/flows/routing-transfer-estimate", foreign); code != http.StatusNotFound {
-			t.Errorf("lane %d accepted the sibling's agreement: HTTP %d", i, code)
+		if bracketed[1-i] {
+			foreign := inputs[i]
+			foreign.Candidate = inputs[1-i].Candidate
+			if code, _ := st.Do(t, lane.reg.cookie, http.MethodPost, "/v1/flows/routing-transfer-estimate", foreign); code != http.StatusNotFound {
+				t.Errorf("lane %d accepted the sibling's agreement: HTTP %d", i, code)
+			}
+		} else {
+			t.Logf("lane %d sibling-agreement control requires an independently bracketed sibling agreement", i)
 		}
-		foreignProbe := measured[i]
-		foreignProbe.ProbeComparison.Candidate = measured[1-i].ProbeComparison.Candidate
-		if code, _ := st.Do(t, lane.reg.cookie, http.MethodPost, "/v1/flows/routing-transfer-estimate", foreignProbe); code != http.StatusNotFound {
-			t.Errorf("lane %d accepted the sibling's measured probe: HTTP %d", i, code)
+		if comparisons[i].Source.TestId != "" && comparisons[1-i].Candidate.TestId != "" {
+			foreignProbe := measured[i]
+			foreignProbe.ProbeComparison.Candidate = measured[1-i].ProbeComparison.Candidate
+			if code, _ := st.Do(t, lane.reg.cookie, http.MethodPost, "/v1/flows/routing-transfer-estimate", foreignProbe); code != http.StatusNotFound {
+				t.Errorf("lane %d accepted the sibling's measured probe: HTTP %d", i, code)
+			}
 		}
 		limited := inputs[i]
 		limited.Candidate.PhysicalBounds = append([]sdk.CapacityPhysicalBound(nil), limited.Candidate.PhysicalBounds...)
@@ -557,7 +571,7 @@ func assertTransferStockEstimate(t *testing.T, lane transferStockLane, links [2]
 		output.Policy.CurrentPeer != links[0].peerIP || output.Policy.CandidatePeer != links[1].peerIP ||
 		output.Policy.CandidateAsn != rtrBASN || output.Policy.LocalPreference != 300 ||
 		got.MovedPeakBps != moved.RatString() || got.CandidatePeakBps != shifted.RatString() || got.NetChargeChange != chargeChange.RatString() {
-		t.Fatalf("served result differs from hand arithmetic: got %+v, moved %s, shifted %s, USD change %s", got, moved, shifted, chargeChange)
+		t.Errorf("served result differs from hand arithmetic: got %+v, moved %s, shifted %s, USD change %s", got, moved, shifted, chargeChange)
 	}
 	for _, sample := range []struct {
 		observed sdk.CapacityPercentileResult
@@ -568,7 +582,7 @@ func assertTransferStockEstimate(t *testing.T, lane transferStockLane, links [2]
 	} {
 		want := sample.want
 		if sample.observed.BpsNumerator != want.Num().String() || sample.observed.BpsDenominator != want.Denom().String() {
-			t.Fatalf("P95 differs from the independent out-octets: got %+v, want %s", sample.observed, want)
+			t.Errorf("P95 differs from the independent out-octets: got %+v, want %s", sample.observed, want)
 		}
 	}
 }
