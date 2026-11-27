@@ -640,10 +640,10 @@ covers that. Flux's helm-controller performs
 a real install, so the default gate works once the policy is applied first
 (a separate Kustomization the HelmRelease `dependsOn`, with a health check).
 
-**Know your Kyverno.** Kyverno *removes its own webhooks* when its admission
-controller is scaled to zero; from then on nothing in the cluster is verified,
-while the policy still reads `Ready`. The chart's gate refuses to roll out in
-that state, and between rollouts the chart watches for it too:
+**Know your Kyverno.** When its admission controller is scaled to zero, Kyverno
+can remove its resource webhooks while the policy still reads `Ready`. Image
+verification stops when the webhook is gone. The chart refuses to roll out in
+that state and checks for it between rollouts.
 
 - **The admission-check CronJob** (`admission.imageIntegrity.webhookCheck`, on
   by default; every 5 minutes) runs `probectl-ebpf-agent admission-check` from
@@ -681,8 +681,10 @@ key, a tag-only reference, an unsigned pod outside the chart, and an unsigned
 image in a mirror with a different path are each denied with the policy's
 message; the signed mirror image is admitted; a Kyverno that cannot answer
 refuses a signed image; the admission-check CronJob passes while Kyverno
-verifies and fails, naming the missing webhook, once Kyverno is scaled to zero;
-and the chart refuses to roll out while Kyverno's webhooks are gone. It signs with a cosign key pair generated for the run (the
+verifies and fails, naming the missing resource webhook, after the lab scales
+Kyverno to zero and confirms webhook loss. The lab removes any retained resource
+webhook after shutdown. The chart refuses to roll out while that webhook is
+gone. It signs with a cosign key pair generated for the run (the
 `publicKey` + `ignoreTlog` configuration above); admitting a real keyless-signed
 release digest pulled from GHCR waits on the release packages being publicly
 readable.

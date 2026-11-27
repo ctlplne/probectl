@@ -43,8 +43,8 @@
 #   S2  unsigned image as the installer initContainer  -> denied (initContainers are verified)
 #   W0  admission-check CronJob, Kyverno verifying     -> Job Complete (observe-only check passes)
 #   D6  Kyverno not answering, signed digest          -> denied (failurePolicy Fail)
-#   W1  Kyverno scaled to zero (webhooks gone)        -> admission-check Job FAILED, names the webhook
-#   G2  Kyverno scaled to zero (webhooks gone)        -> chart refuses (policy alone is not enough)
+#   W1  Kyverno scaled to zero and resource webhook lost -> admission-check Job FAILED, names the webhook
+#   G2  Kyverno scaled to zero and resource webhook lost -> chart refuses (policy alone is not enough)
 #
 # Not proven here: admitting a REAL keyless-signed release digest from GHCR —
 # that needs the release packages to be anonymously readable (GHCR public).
@@ -451,27 +451,29 @@ kyv CONT
 grep -Eq 'failed calling webhook "ivpol\.validate\.kyverno\.svc-fail' d6.log || { cat d6.log >&2; die "D6: refused, but not by the unanswered Kyverno ImageValidatingPolicy webhook"; }
 ok D6 "Kyverno not answering, signed digest -> DENIED (failurePolicy Fail): $(grep -Eo 'failed calling webhook "[^"]+".*' d6.log | head -1 | cut -c1-160)"
 
-# Kyverno scaled to zero DELETES its webhooks (Kyverno's design: nothing is
-# verified cluster-wide after that) while the policy still reads Ready. The
-# chart's readiness gate checks the webhooks too, so it refuses to roll out.
+# Reproduce webhook loss with a stored Ready policy. Kyverno can remove the
+# resource webhook during shutdown, but cleanup may be incomplete. Once all
+# Kyverno pods in this disposable lab are gone, remove any retained resource
+# validating webhook configuration and verify its absence through the API.
 "$KUBECTL" -n kyverno scale deploy/kyverno-admission-controller --replicas=0 >/dev/null
-ivpol_webhooks() { "$KUBECTL" get validatingwebhookconfiguration kyverno-resource-validating-webhook-cfg \
-  -o jsonpath='{.webhooks[*].name}' 2>/dev/null | tr ' ' '\n' | grep -c '^ivpol\.validate\.kyverno\.svc-fail' || true; }
-for _ in $(seq 1 120); do
-  [ "$(ivpol_webhooks)" -eq 0 ] && break
-  sleep 1
-done
-[ "$(ivpol_webhooks)" -eq 0 ] || die "G2: Kyverno at zero replicas still has its ImageValidatingPolicy webhook"
+"$KUBECTL" -n kyverno wait --for=delete pods --all --timeout=90s >/dev/null
+resource_webhook=kyverno-resource-validating-webhook-cfg
+removed="$("$KUBECTL" delete validatingwebhookconfiguration "$resource_webhook" --ignore-not-found --timeout=30s -o name)"
+if [ -n "$removed" ]; then
+  printf '== removed the retained lab resource webhook: %s\n' "$removed"
+fi
+remaining="$("$KUBECTL" get validatingwebhookconfiguration "$resource_webhook" --ignore-not-found -o name)"
+[ -z "$remaining" ] || die "G2: the lab resource webhook is still registered after shutdown"
 [ "$("$KUBECTL" get imagevalidatingpolicy "$POLICY" -o jsonpath='{.status.conditionStatus.ready}')" = true ] \
   || die "G2: expected the policy to still read Ready with no webhook (the state the gate exists for)"
 # W1: the continuous detection fires — the next check FAILS, naming the gap.
 [ "$(run_check w1)" = Failed ] || { cat w1.log >&2; die "W1: the admission check did not fail with Kyverno's webhooks gone"; }
 grep -q 'kyverno admission check FAILED' w1.log && grep -Eq "ValidatingWebhookConfiguration kyverno-resource-validating-webhook-cfg (is missing|has no failurePolicy=Fail webhook serving ImageValidatingPolicy $POLICY)" w1.log \
   || { cat w1.log >&2; die "W1: the failed check does not name the missing webhook"; }
-ok W1 "Kyverno scaled to zero -> admission-check Job FAILED: $(grep -Eo "Kyverno's ValidatingWebhookConfiguration [^\"]*" w1.log | head -1 | cut -c1-160)"
+ok W1 "resource webhook absent after Kyverno shutdown -> admission-check Job FAILED: $(grep -Eo "Kyverno's ValidatingWebhookConfiguration [^\"]*" w1.log | head -1 | cut -c1-160)"
 if run_helm upgrade "$MIRROR" "$(tagof "$m_agent")" "${SECCOMP_ON[@]}" > g2.log 2>&1; then cat g2.log >&2; die "G2 chart rolled out while Kyverno had no webhooks"; fi
 grep -q "has no failurePolicy=Fail webhook serving ImageValidatingPolicy $POLICY" g2.log || { cat g2.log >&2; die "G2: refused for the wrong reason"; }
-ok G2 "Kyverno scaled to zero (webhooks removed, policy still Ready) -> REFUSED by the chart"
+ok G2 "resource webhook absent after Kyverno shutdown, policy still Ready -> REFUSED by the chart"
 
 [ "$pass" -eq 17 ] || die "only $pass of 17 legs asserted"
 echo "KYVERNO ADMISSION SMOKE: OK ($pass legs; Kyverno $KYVERNO_TAG on kind $KIND_NODE_IMAGE)"
