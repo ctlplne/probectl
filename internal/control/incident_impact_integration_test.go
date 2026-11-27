@@ -37,6 +37,11 @@ import (
 
 func seedIncidentImpactFlowFixture(t *testing.T) (*roleExplanationAPIFixture, map[string]string) {
 	t.Helper()
+	return seedIncidentImpactWindows(t, false)
+}
+
+func seedIncidentImpactWindows(t *testing.T, includePrevious bool) (*roleExplanationAPIFixture, map[string]string) {
+	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	key, _, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
@@ -48,6 +53,10 @@ func seedIncidentImpactFlowFixture(t *testing.T) (*roleExplanationAPIFixture, ma
 	incidents := map[string]string{}
 	const agent = "impact-flow"
 	const exporter = "192.0.2.1"
+	windows := []int{0}
+	if includePrevious {
+		windows = append(windows, 1)
+	}
 	for lane, tenant := range f.tenants {
 		id, prefix, tag := gouuid.NewString(), gouuid.NewString(), gouuid.NewString()
 		incidents[tenant] = id
@@ -61,10 +70,22 @@ func seedIncidentImpactFlowFixture(t *testing.T) (*roleExplanationAPIFixture, ma
 					return err
 				}
 			}
-			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts(tenant_id,agent_id,context_id) VALUES($1,$2,$3)`, tenant, agent, f.contextID); err != nil {
+			var boundAt time.Time
+			if err := sc.Q.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&boundAt); err != nil {
 				return err
 			}
-			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_source_contexts(tenant_id,agent_id,source_kind,source_ref,context_id,anchor_entity_id) VALUES($1,$2,'flow_exporter',$3,$4,$5)`, tenant, agent, exporter, f.contextID, f.routerID); err != nil {
+			if includePrevious {
+				// Model the same continuously bound device before both windows.
+				boundAt = boundAt.Add(-8 * 24 * time.Hour)
+				if _, err := sc.Q.Exec(ctx, `UPDATE entities SET created_at=$4 WHERE tenant_id=$1 AND context_id=$2 AND id=$3`,
+					tenant, f.contextID, f.routerID, boundAt); err != nil {
+					return err
+				}
+			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_agent_contexts(tenant_id,agent_id,context_id,assigned_at) VALUES($1,$2,$3,$4)`, tenant, agent, f.contextID, boundAt); err != nil {
+				return err
+			}
+			if _, err := sc.Q.Exec(ctx, `INSERT INTO entity_source_contexts(tenant_id,agent_id,source_kind,source_ref,context_id,anchor_entity_id,assigned_at) VALUES($1,$2,'flow_exporter',$3,$4,$5,$6)`, tenant, agent, exporter, f.contextID, f.routerID, boundAt); err != nil {
 				return err
 			}
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO incidents(tenant_id,id,title,entity_context_id,entity_id,identity_lookup_attempted) VALUES($1,$2,'owned impact',$3,$4,true)`, tenant, id, f.contextID, f.routerID); err != nil {
@@ -84,23 +105,28 @@ func seedIncidentImpactFlowFixture(t *testing.T) (*roleExplanationAPIFixture, ma
 		if err != nil || accepted != 1 || unresolved != 0 {
 			t.Fatal("impact source observation was not accepted", accepted, unresolved, err)
 		}
-		var raw [32]byte
-		copy(raw[:], crypto.Hash([]byte("modeled authenticated impact observation "+tenant)))
-		ref, err := store.NewBGPRoutingFlowCaptures(f.pool).CaptureAuthenticated(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), agent, raw,
-			store.BGPRoutingFlowInput{Exporter: netip.MustParseAddr(exporter), Source: netip.MustParseAddr("203.0.113.1"), Destination: netip.MustParseAddr("203.0.113.2"), Protocol: "ipfix", Domain: ^uint32(0)}, store.BGPRoutingBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20, StateBytes: 128 << 20})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := flows.Insert(t.Context(), []flowstore.Row{{TenantID: tenant, AgentID: agent, Exporter: exporter, Protocol: "ipfix", ObsDomain: ^uint32(0), TS: ref.CapturedAt, StartTS: ref.CapturedAt,
-			SrcAddr: "203.0.113.1", DstAddr: "203.0.113.2", DstPort: uint16(443 + lane), InIf: 7, OutIf: 7, Bytes: uint64(100 + lane), Packets: 7, Sampling: 3, RawFlowDigest: hex.EncodeToString(raw[:]), RoutingCaptureKey: hex.EncodeToString(ref.Key[:]), RoutingCapturedUnixNanos: ref.CapturedAt.UnixNano()}}); err != nil {
-			t.Fatal(err)
+		for _, weeksAgo := range windows {
+			var raw [32]byte
+			copy(raw[:], crypto.Hash([]byte("modeled authenticated impact observation "+tenant+" "+strconv.Itoa(weeksAgo))))
+			ref, err := store.NewBGPRoutingFlowCaptures(f.pool).CaptureAuthenticated(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), agent, raw,
+				store.BGPRoutingFlowInput{Exporter: netip.MustParseAddr(exporter), Source: netip.MustParseAddr("203.0.113.1"), Destination: netip.MustParseAddr("203.0.113.2"), Protocol: "ipfix", Domain: ^uint32(0)}, store.BGPRoutingBudget{MemoryBytes: 128 << 20, WorkUnits: 128 << 20, StateBytes: 128 << 20})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The modeled exporter clock can describe retained traffic from last
+			// week. Receipt clocks and identity bindings still come from Postgres.
+			observed := ref.CapturedAt.Add(-time.Duration(weeksAgo) * 7 * 24 * time.Hour)
+			if err := flows.Insert(t.Context(), []flowstore.Row{{TenantID: tenant, AgentID: agent, Exporter: exporter, Protocol: "ipfix", ObsDomain: ^uint32(0), TS: observed, StartTS: observed,
+				SrcAddr: "203.0.113.1", DstAddr: "203.0.113.2", DstPort: uint16(443 + lane), InIf: 7, OutIf: 7, Bytes: uint64(100 + lane - 30*weeksAgo), Packets: 7, Sampling: 3, RawFlowDigest: hex.EncodeToString(raw[:]), RoutingCaptureKey: hex.EncodeToString(ref.Key[:]), RoutingCapturedUnixNanos: ref.CapturedAt.UnixNano()}}); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	return f, incidents
 }
 
 func TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation(t *testing.T) {
-	f, incidents := seedIncidentImpactFlowFixture(t)
+	f, incidents := seedIncidentImpactWindows(t, true)
 	socket := httptest.NewTLSServer(f.server.Handler())
 	t.Cleanup(socket.Close)
 	input := incident.ImpactInput{From: time.Now().UTC().Add(-time.Minute), To: time.Now().UTC(), CustomerTagKey: "customer"}
@@ -153,8 +179,13 @@ func TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation(t *testing
 	for lane, tenant := range f.tenants {
 		status, raw := request(tenant, incidents[tenant])
 		var out incident.ImpactResponse
-		if status != http.StatusOK || json.Unmarshal(raw, &out) != nil || out.IncidentID != incidents[tenant] || out.Current.AttestedRecords != 1 || out.Current.ObservedTotals == nil || out.Current.ObservedTotals.ScaledBytes != strconv.Itoa((100+lane)*3) || out.Previous.ObservedTotals != nil || len(out.Customers) != 1 || out.Customers[0].Value != "customer-"+tenant || len(out.Customers[0].CaptureKeys) != 1 {
-			t.Fatal("HTTPS impact lost exact owned observations, customer union or unavailable baseline", status, string(raw))
+		if status != http.StatusOK || json.Unmarshal(raw, &out) != nil {
+			t.Fatal("HTTPS impact comparison was unavailable", status, string(raw))
+		}
+		assertIncidentImpactWeeks(t, out, incidents[tenant], lane)
+		if !out.Previous.From.Equal(input.From.Add(-7*24*time.Hour)) || !out.Previous.To.Equal(input.To.Add(-7*24*time.Hour)) ||
+			out.Customers[0].Value != "customer-"+tenant {
+			t.Fatal("HTTPS impact used the wrong prior window or customer")
 		}
 		if status, raw := request(tenant, incidents[f.tenants[1-lane]]); status != http.StatusNotFound || bytes.Contains(raw, []byte("customer-"+f.tenants[1-lane])) {
 			t.Fatal("foreign incident disclosed source/customer information", status, string(raw))
@@ -219,9 +250,7 @@ func TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation(t *testing
 						if err := json.Unmarshal(attachment.Content, &retained); err != nil {
 							t.Fatal(err)
 						}
-						if retained.IncidentID != incidents[tenant] || retained.Current.ObservedTotals == nil || retained.Current.ObservedTotals.ScaledBytes != strconv.Itoa((100+lane)*3) || len(retained.Current.Captures) != 1 || len(retained.Customers) != 1 {
-							t.Fatal("signed export lost exact owned counters or complete source/customer membership", retained)
-						}
+						assertIncidentImpactWeeks(t, retained, incidents[tenant], lane)
 						found = true
 					}
 				}
@@ -271,4 +300,20 @@ func TestIncidentImpactServesCompleteCurrentSourcesAndTenantIsolation(t *testing
 		return err
 	})
 	t.Log("real-integration: served HTTPS/signed export with app-role PostgreSQL/RLS, current permissions/erasure and authenticated capture storage; observations are modeled, full served population, real sender/week-baseline/native/both-theme qualification remains owed")
+}
+
+func assertIncidentImpactWeeks(t *testing.T, out incident.ImpactResponse, id string, lane int) {
+	t.Helper()
+	current, previous := strconv.Itoa((100+lane)*3), strconv.Itoa((70+lane)*3)
+	if out.IncidentID != id || len(out.Customers) != 1 || out.ObservedByteChange != "90" ||
+		out.Current.AttestedRecords != 1 || out.Current.ObservedTotals == nil || out.Current.ObservedTotals.ScaledBytes != current ||
+		out.Previous.AttestedRecords != 1 || out.Previous.ObservedTotals == nil || out.Previous.ObservedTotals.ScaledBytes != previous ||
+		len(out.Current.Captures) != 1 || len(out.Previous.Captures) != 1 || out.Current.Captures[0].Key == out.Previous.Captures[0].Key {
+		t.Fatal("comparison lost separate cited periods or exact owned totals", out)
+	}
+	customer := out.Customers[0]
+	if customer.Current == nil || customer.Previous == nil || customer.Current.ScaledBytes != current ||
+		customer.Previous.ScaledBytes != previous || len(customer.CaptureKeys) != 2 {
+		t.Fatal("comparison lost the customer's two observation windows", customer)
+	}
 }
