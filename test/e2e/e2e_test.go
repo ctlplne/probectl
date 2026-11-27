@@ -272,6 +272,10 @@ func TestE2E(t *testing.T) {
 	t.Run("release-tag-admin", func(t *testing.T) {
 		proveReleaseTagAdmin(t, root, filepath.Join(tlsDir, "tls.crt"), [2]api{a, b}, reportSessions)
 	})
+	t.Run("release-alert-tag-criteria", func(t *testing.T) {
+		proveReleaseAlertTagCriteria(t, root, filepath.Join(tlsDir, "tls.crt"),
+			[2]api{a, b}, [2]tenantObjects{objA, objB}, reportSessions)
+	})
 
 	agentAndFlows(t, root, work, stack, secrets, cli, a, b, apiPort, agentPort, promPort, serverCA, canaryToken)
 
