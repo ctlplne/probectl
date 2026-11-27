@@ -21438,6 +21438,32 @@
           "missing"
         ]
       },
+      "IncidentVerdictProviderSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "publisher": {"type": "string"},
+          "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "fetched_at": {"type": "string", "format": "date-time"},
+          "valid_until": {"type": "string", "format": "date-time"}
+        },
+        "required": ["publisher", "digest", "fetched_at", "valid_until"]
+      },
+      "IncidentVerdictRemoteProvider": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Published address-range attribution for the verified HTTPS peers in corroborating failures. Omitted when provider coverage is missing, stale or conflicting.",
+        "properties": {
+          "provider": {"type": "string"},
+          "service": {"type": "string"},
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"$ref": "#/components/schemas/IncidentVerdictProviderSource"}
+          }
+        },
+        "required": ["provider", "sources"]
+      },
       "IncidentVerdictResponse": {
         "type": "object",
         "additionalProperties": false,
@@ -21477,6 +21503,9 @@
           },
           "reason": {
             "type": "string"
+          },
+          "remote_provider": {
+            "$ref": "#/components/schemas/IncidentVerdictRemoteProvider"
           },
           "hypotheses": {
             "type": "array",

@@ -30,6 +30,7 @@ import (
 func TestIncidentVerdictJoinsIndependentHTTPSOriginalsWithinTheirTenant(t *testing.T) {
 	f := newRoleExplanationAPIFixture(t)
 	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	f.server.WithOpenDataStatus(verdictPublishedRanges(t, time.Now().UTC().Add(-time.Minute), time.Hour), nil, nil)
 	seedInterfaceRoleMCPConsent(f)
 	for lane, tenant := range f.tenants {
 		id := gouuid.NewString()
@@ -75,8 +76,12 @@ func TestIncidentVerdictJoinsIndependentHTTPSOriginalsWithinTheirTenant(t *testi
 			if lane == 1 {
 				status, success = 200, true
 			}
+			peer := "192.0.2.7"
+			if lane == 1 {
+				peer = "198.51.100.7"
+			}
 			claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: agents[i], Kind: entity.PathAgent, SourceRef: definition.ID}, Alias: entity.AliasKey{Kind: entity.ConfiguredTestAlias, Value: definition.ID}, SourceRef: "probe:configured-test", ObservedAt: at.Add(time.Microsecond),
-				Outcome: &entity.ProbeOutcome{Version: 2, DefinitionHash: digest, CanaryType: "http", StartedAt: at, CompletedAt: at.Add(time.Microsecond), Success: success, HTTPResponse: &entity.ProbeHTTPResponse{StatusCode: status, TLSVerified: true, SameOrigin: true}}}
+				Outcome: &entity.ProbeOutcome{Version: 2, DefinitionHash: digest, CanaryType: "http", StartedAt: at, CompletedAt: at.Add(time.Microsecond), Success: success, HTTPResponse: &entity.ProbeHTTPResponse{StatusCode: status, TLSVerified: true, SameOrigin: true, PeerAddress: peer}}}
 			claims := []entity.Observation{claim}
 			if lane == 0 && i == 0 {
 				recovered := claim
@@ -106,6 +111,15 @@ func TestIncidentVerdictJoinsIndependentHTTPSOriginalsWithinTheirTenant(t *testi
 		}
 		if err != nil || got.Domain != want {
 			t.Fatal("joined HTTPS source verdict changed tenant or domain", got.Domain, want, err)
+		}
+		if lane == 0 {
+			provider := got.RemoteProvider
+			if provider == nil || provider.Provider != "aws" || provider.Service != "S3" ||
+				len(provider.Sources) != 1 || provider.Sources[0].Publisher != "aws" {
+				t.Fatal("remote verdict missed the owned provider provenance", provider)
+			}
+		} else if got.RemoteProvider != nil {
+			t.Fatal("a healthy sibling acquired another tenant's provider attribution")
 		}
 		var citations []incident.VerdictCitation
 		for _, hypothesis := range got.Hypotheses {

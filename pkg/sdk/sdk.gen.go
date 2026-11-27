@@ -3866,18 +3866,33 @@ type IncidentVerdictInput struct {
 	To   string `json:"to"`
 }
 
+type IncidentVerdictProviderSource struct {
+	Digest     string `json:"digest"`
+	FetchedAt  string `json:"fetched_at"`
+	Publisher  string `json:"publisher"`
+	ValidUntil string `json:"valid_until"`
+}
+
+// Published address-range attribution for the verified HTTPS peers in corroborating failures. Omitted when provider coverage is missing, stale or conflicting.
+type IncidentVerdictRemoteProvider struct {
+	Provider string                          `json:"provider"`
+	Service  string                          `json:"service,omitempty"`
+	Sources  []IncidentVerdictProviderSource `json:"sources"`
+}
+
 type IncidentVerdictResponse struct {
-	Confidence      IncidentVerdictConfidence   `json:"confidence"`
-	ContractVersion string                      `json:"contract_version"`
-	Domain          IncidentFaultDomain         `json:"domain"`
-	EvaluatedAt     string                      `json:"evaluated_at"`
-	From            string                      `json:"from"`
-	Hypotheses      []IncidentVerdictHypothesis `json:"hypotheses"`
-	IncidentId      string                      `json:"incident_id"`
-	Preview         bool                        `json:"preview"`
-	Reason          string                      `json:"reason"`
-	To              string                      `json:"to"`
-	ValidUntil      string                      `json:"valid_until,omitempty"`
+	Confidence      IncidentVerdictConfidence     `json:"confidence"`
+	ContractVersion string                        `json:"contract_version"`
+	Domain          IncidentFaultDomain           `json:"domain"`
+	EvaluatedAt     string                        `json:"evaluated_at"`
+	From            string                        `json:"from"`
+	Hypotheses      []IncidentVerdictHypothesis   `json:"hypotheses"`
+	IncidentId      string                        `json:"incident_id"`
+	Preview         bool                          `json:"preview"`
+	Reason          string                        `json:"reason"`
+	RemoteProvider  IncidentVerdictRemoteProvider `json:"remote_provider,omitzero"`
+	To              string                        `json:"to"`
+	ValidUntil      string                        `json:"valid_until,omitempty"`
 }
 
 type IncidentVerdictRoutingReference struct {

@@ -35,6 +35,13 @@ func incidentVerdictSnapshotStillCurrent(snapshot incidentVerdictSnapshot, resul
 		}
 		return nil
 	}
+	if result.RemoteProvider != nil {
+		for _, source := range result.RemoteProvider.Sources {
+			if err := include(&source.ValidUntil); err != nil {
+				return err
+			}
+		}
+	}
 	for _, route := range snapshot.routes {
 		if route.Route != nil {
 			if err := include(&route.Route.ValidUntil); err != nil {

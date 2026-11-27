@@ -64,4 +64,41 @@ func TestHTTPResponseEvidenceKeepsVersionedShapeAndOriginalReceipt(t *testing.T)
 	if err != nil || strings.Contains(string(body), "http_response") {
 		t.Fatal("legacy immutable receipt gained a new body member", err)
 	}
+
+	withPeer := original
+	current := *original.Outcome
+	response := *current.HTTPResponse
+	current.HTTPResponse = &response
+	withPeer.Outcome = &current
+	response.PeerAddress = "2001:db8::17"
+	got, err = withPeer.Normalize(time.Now())
+	if err != nil || !got.Outcome.VerifiedPrimaryHTTPS() || got.Outcome.HTTPResponse.PeerAddress != response.PeerAddress {
+		t.Fatal("the verified primary response lost its canonical peer", err)
+	}
+	legacyHTTP, err := json.Marshal(current)
+	if err != nil || strings.Contains(string(legacyHTTP), "peer_address") || strings.Contains(string(legacyHTTP), response.PeerAddress) {
+		t.Fatal("the optional peer changed the version 2 receipt document", err)
+	}
+	for name, mutate := range map[string]func(*ProbeOutcome){
+		"legacy response with peer": func(o *ProbeOutcome) { o.Version = 1 },
+		"unverified TLS":            func(o *ProbeOutcome) { o.HTTPResponse.TLSVerified = false },
+		"redirected origin":         func(o *ProbeOutcome) { o.HTTPResponse.SameOrigin = false },
+		"canceled request":          func(o *ProbeOutcome) { o.Canceled = true },
+		"address with zone":         func(o *ProbeOutcome) { o.HTTPResponse.PeerAddress = "2001:db8::17%eth0" },
+		"mapped IPv4":               func(o *ProbeOutcome) { o.HTTPResponse.PeerAddress = "::ffff:192.0.2.7" },
+		"noncanonical IPv6":         func(o *ProbeOutcome) { o.HTTPResponse.PeerAddress = "2001:DB8::17" },
+		"private peer":              func(o *ProbeOutcome) { o.HTTPResponse.PeerAddress = "10.0.0.1" },
+		"peer with port":            func(o *ProbeOutcome) { o.HTTPResponse.PeerAddress = "192.0.2.7:443" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := withPeer
+			outcome, peer := current, response
+			outcome.HTTPResponse = &peer
+			changed.Outcome = &outcome
+			mutate(&outcome)
+			if _, err := changed.Normalize(time.Now()); !errors.Is(err, ErrInvalidClaim) {
+				t.Fatal("invalid HTTPS peer evidence accepted", err)
+			}
+		})
+	}
 }

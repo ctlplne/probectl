@@ -173,7 +173,8 @@ func incidentCarrierHTTPSReplies(ctx context.Context, input incidentVerdictEvide
 		}
 		for _, read := range test.reads {
 			m := read.Outcome
-			if !read.Available || m == nil || m.Version != 2 || m.CanaryType != "http" || m.Canceled || m.HTTPResponse == nil || !m.HTTPResponse.TLSVerified || !m.HTTPResponse.SameOrigin || m.StartedAt.Before(after) || m.StartedAt.Before(test.source.CurrentSince) || !m.CompletedAt.Equal(read.ObservedAt) || !verdictObservationInWindow(read.ObservedAt, input) {
+			if !read.Available || !m.VerifiedPrimaryHTTPS() || m.StartedAt.Before(after) || m.StartedAt.Before(test.source.CurrentSince) ||
+				!m.CompletedAt.Equal(read.ObservedAt) || !verdictObservationInWindow(read.ObservedAt, input) {
 				continue
 			}
 			citation := testVerdictCitation(read, "original_verified_primary_https_network_reply")

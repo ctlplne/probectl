@@ -7,6 +7,7 @@
 package canary
 
 import (
+	"net/netip"
 	"net/url"
 	"strings"
 )
@@ -20,6 +21,7 @@ type HTTPMeasurement struct {
 	StatusCode  int
 	TLSVerified bool
 	SameOrigin  bool
+	PeerAddress netip.Addr
 }
 
 func sameHTTPProbeOrigin(left, right *url.URL) bool {

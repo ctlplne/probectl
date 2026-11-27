@@ -9,16 +9,88 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testspec"
 )
+
+func verdictPublishedRanges(t testing.TB, fetched time.Time, maxAge time.Duration) *opendata.Enricher {
+	t.Helper()
+	// Modeled test addresses in the approved source formats. No network.
+	body := fmt.Sprintf(`{"version":1,"sources":[
+{"publisher":"aws","fetched_at":%q,"complete":true,"data":{
+ "syncToken":"1763200000","createDate":%q,"prefixes":[
+ {"ip_prefix":"192.0.2.0/24","region":"GLOBAL","service":"AMAZON"},
+ {"ip_prefix":"192.0.2.0/25","region":"us-east-1","service":"S3"}],
+ "ipv6_prefixes":[]}},
+{"publisher":"google_cloud","fetched_at":%q,"complete":true,"data":{
+ "syncToken":"1763200000000000","creationTime":%q,"prefixes":[
+ {"ipv4Prefix":"198.51.100.0/24","service":"Google Cloud","scope":"europe-west1"}]}}
+]}`, fetched.Format(time.RFC3339Nano), fetched.Add(-time.Hour).Format("2006-01-02-15-04-05"),
+		fetched.Format(time.RFC3339Nano), fetched.Add(-time.Hour).Format(time.RFC3339))
+	path := filepath.Join(t.TempDir(), "verdict-ranges.json")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := opendata.LoadServiceRanges(t.Context(), path, maxAge, 16<<20, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	en := opendata.NewEnricher(nil)
+	en.Register(source)
+	return en
+}
+
+func TestIncidentVerdictProviderUsesOnlyFreshCorroboratingPeers(t *testing.T) {
+	for _, test := range []struct {
+		name, second, provider, service string
+		fetchedOffset, maxAge           time.Duration
+	}{
+		{"fresh agreement", "192.0.2.8", "aws", "S3", -time.Hour, 2 * time.Hour},
+		{"provider agreement across services", "192.0.2.200", "aws", "", -time.Hour, 2 * time.Hour},
+		{"disagreement", "198.51.100.7", "", "", -time.Hour, 2 * time.Hour},
+		{"missing peer", "", "", "", -time.Hour, 2 * time.Hour},
+		{"unknown peer", "203.0.113.9", "", "", -time.Hour, 2 * time.Hour},
+		{"expired since observation", "192.0.2.8", "", "", -time.Minute, 45 * time.Second},
+		{"downloaded after observation", "192.0.2.8", "", "", -5 * time.Second, time.Hour},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, input := verdictClassifierFixture()
+			input.serviceRanges = verdictPublishedRanges(t, input.to.Add(test.fetchedOffset), test.maxAge)
+			first, second, unpaired := verdictHTTPTest(input, "a", "first", 503), verdictHTTPTest(input, "b", "second", 502), verdictHTTPTest(input, "c", "unpaired", 503)
+			first.reads[0].Outcome.HTTPResponse.PeerAddress = "192.0.2.7"
+			second.reads[0].Outcome.HTTPResponse.PeerAddress = test.second
+			read := &unpaired.reads[0]
+			read.Outcome.HTTPResponse.PeerAddress = "198.51.100.9"
+			read.ObservedAt = read.ObservedAt.Add(10 * time.Second)
+			read.Outcome.StartedAt, read.Outcome.CompletedAt = read.Outcome.StartedAt.Add(10*time.Second), read.ObservedAt
+			input.tests = []incidentVerdictTest{first, second, unpaired}
+			got, err := classifyIncidentVerdict(ctx, input, 1<<20)
+			if err != nil || got.Domain != incident.FaultRemoteService || len(got.Hypotheses[3].For) != 3 {
+				t.Fatal("published ranges changed the underlying verdict or original citations", got.Domain, err)
+			}
+			if test.provider == "" {
+				if got.RemoteProvider != nil {
+					t.Fatal("incomplete attribution replaced the generic verdict", got.RemoteProvider)
+				}
+			} else if provider := got.RemoteProvider; provider == nil || provider.Provider != test.provider ||
+				provider.Service != test.service || len(provider.Sources) != 1 || provider.Sources[0].Publisher != test.provider ||
+				len(provider.Sources[0].Digest) != 64 || !provider.Sources[0].FetchedAt.Equal(input.to.Add(test.fetchedOffset)) {
+				t.Fatal("HTTPS peers did not keep their shared published source", provider)
+			}
+		})
+	}
+}
 
 func verdictClassifierFixture() (context.Context, incidentVerdictEvidence) {
 	const tenant = "9d15bcbc-38ad-4e2e-973c-4c69623db2be"

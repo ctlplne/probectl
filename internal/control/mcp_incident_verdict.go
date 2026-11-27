@@ -102,12 +102,28 @@ func marshalNativeIncidentVerdict(value incident.FaultVerdict) (json.RawMessage,
 		For     []citation `json:"for"`
 		Against []citation `json:"against"`
 	}
+	type providerSource struct {
+		incident.VerdictProviderSource
+		Digest mcp.NativeRoleDigest `json:"digest"`
+	}
+	type remoteProvider struct {
+		incident.VerdictRemoteProvider
+		Sources []providerSource `json:"sources"`
+	}
+	var provider *remoteProvider
+	if item := value.RemoteProvider; item != nil {
+		provider = &remoteProvider{VerdictRemoteProvider: *item, Sources: make([]providerSource, 0, len(item.Sources))}
+		for _, source := range item.Sources {
+			provider.Sources = append(provider.Sources, providerSource{source, mcp.NativeRoleDigest(source.Digest)})
+		}
+	}
 	out := struct {
 		incident.FaultVerdict
 		ContractVersion nativeIncidentVerdictContract `json:"contract_version"`
 		IncidentID      mcp.NativeRoleUUID            `json:"incident_id"`
 		Hypotheses      []hypothesis                  `json:"hypotheses"`
-	}{FaultVerdict: value, ContractVersion: nativeIncidentVerdictContract(value.ContractVersion), IncidentID: mcp.NativeRoleUUID(value.IncidentID), Hypotheses: []hypothesis{}}
+		RemoteProvider  *remoteProvider               `json:"remote_provider,omitempty"`
+	}{FaultVerdict: value, ContractVersion: nativeIncidentVerdictContract(value.ContractVersion), IncidentID: mcp.NativeRoleUUID(value.IncidentID), Hypotheses: []hypothesis{}, RemoteProvider: provider}
 	for _, item := range value.Hypotheses {
 		out.Hypotheses = append(out.Hypotheses, hypothesis{item, project(item.For), project(item.Against)})
 	}

@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -39,6 +40,7 @@ type IncidentTestMeasurement struct {
 	Reason                                  string
 	ICMP                                    *entity.ICMPMeasurement
 	Outcome                                 *entity.ProbeOutcome
+	HTTPSPeer                               string `json:"https_peer,omitempty"`
 }
 
 type incidentImpactTestKey struct{ contextID, entityID, agentID, testID string }
@@ -124,7 +126,7 @@ func walkIncidentTestMeasurementsInScope(ctx context.Context, sc tenancy.Scope, 
  SELECT e.context_id::text,e.entity_id::text,e.configured_ref,e.agent_id,e.id::text,e.observation_id::text,
  COALESCE(e.sender_serial,''),e.alias_value,e.source_ref,e.observed_at,e.alias_kind,
  CASE WHEN octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text)<=$10::bigint THEN COALESCE(e.probe_outcome,e.icmp_measurement) END,
- COALESCE(octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text),0),
+ COALESCE(octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text),0),COALESCE(host(e.probe_https_peer),''),
  COALESCE(sender.serial=e.sender_serial AND sender.revoked_at IS NULL
  AND sender.spiffe_id='spiffe://probectl/tenant/'||$1::text||'/entity/'||e.agent_id
  AND sender.issued_at<=e.observed_at AND sender.not_after>e.observed_at,false),COALESCE(sender.issued_at,'epoch')
@@ -154,14 +156,14 @@ func walkIncidentTestMeasurementsInScope(ctx context.Context, sc tenancy.Scope, 
 		var size int64
 		var senderValid bool
 		var senderIssued time.Time
-		if err := rows.Scan(&item.ContextID, &item.EntityID, &item.TestID, &item.AgentID, &item.EvidenceID, &item.ObservationID, &item.SenderSerial, &item.Alias, &item.SourceRef, &item.ObservedAt, &item.AliasKind, &body, &size, &senderValid, &senderIssued); err != nil {
+		if err := rows.Scan(&item.ContextID, &item.EntityID, &item.TestID, &item.AgentID, &item.EvidenceID, &item.ObservationID, &item.SenderSerial, &item.Alias, &item.SourceRef, &item.ObservedAt, &item.AliasKind, &body, &size, &item.HTTPSPeer, &senderValid, &senderIssued); err != nil {
 			return err
 		}
-		cost := int64(1024+len(item.AgentID)+len(item.SenderSerial)+len(item.Alias)) + 4*int64(len(body))
+		cost := int64(1024+len(item.AgentID)+len(item.SenderSerial)+len(item.Alias)+len(item.HTTPSPeer)) + 4*int64(len(body))
 		if size > 0 && len(body) == 0 || cost > remaining {
 			return ErrIncidentImpactBudget
 		}
-		readCost := int64(1024+len(item.AgentID)+len(item.SenderSerial)+len(item.Alias)) + size
+		readCost := int64(1024+len(item.AgentID)+len(item.SenderSerial)+len(item.Alias)+len(item.HTTPSPeer)) + size
 		if readCost > remainingReadBytes {
 			return ErrIncidentImpactBudget
 		}
@@ -228,6 +230,11 @@ func decodeIncidentTestMeasurement(item *IncidentTestMeasurement, source Inciden
 	var measurement entity.ProbeOutcome
 	if err := json.Unmarshal(body, &measurement); err != nil {
 		return err
+	}
+	if item.HTTPSPeer != "" {
+		if peer, err := netip.ParseAddr(item.HTTPSPeer); err == nil && measurement.HTTPResponse != nil {
+			measurement.HTTPResponse.PeerAddress = peer.String()
+		}
 	}
 	if measurement.StartedAt.Before(senderIssued) || measurement.StartedAt.Before(source.CurrentSince) {
 		return nil
@@ -332,7 +339,8 @@ func (Incidents) RecheckIncidentTestMeasurementsInScope(ctx context.Context, sc 
 	rows, err := sc.Q.Query(ctx, `WITH requested AS (SELECT * FROM unnest($2::uuid[],$3::uuid[]) AS r(context_id,id))
  SELECT e.context_id::text,e.entity_id::text,e.configured_ref,e.agent_id,e.id::text,e.observation_id::text,
  COALESCE(e.sender_serial,''),e.alias_value,e.source_ref,e.observed_at,e.alias_kind,
- CASE WHEN octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text)<=$4::bigint THEN COALESCE(e.probe_outcome,e.icmp_measurement) END,COALESCE(octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text),0)
+ CASE WHEN octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text)<=$4::bigint THEN COALESCE(e.probe_outcome,e.icmp_measurement) END,
+ COALESCE(octet_length(COALESCE(e.probe_outcome,e.icmp_measurement)::text),0),COALESCE(host(e.probe_https_peer),'')
  FROM requested r JOIN entity_evidence e ON e.tenant_id=$1 AND e.context_id=r.context_id AND e.id=r.id
  WHERE e.tenant_id=$1 AND e.source_kind='path_agent' AND ((e.source_ref='icmp:configured-test' AND e.alias_kind='address') OR (e.source_ref='probe:configured-test' AND e.alias_kind='configured_test_id'))`, pgx.QueryExecModeDescribeExec, bound.String(), contexts, ids, maxBytes/4)
 	if err != nil {
@@ -344,12 +352,12 @@ func (Incidents) RecheckIncidentTestMeasurementsInScope(ctx context.Context, sc 
 		var read IncidentTestMeasurement
 		var body []byte
 		var size int64
-		if err := rows.Scan(&read.ContextID, &read.EntityID, &read.TestID, &read.AgentID, &read.EvidenceID, &read.ObservationID, &read.SenderSerial, &read.Alias, &read.SourceRef, &read.ObservedAt, &read.AliasKind, &body, &size); err != nil {
+		if err := rows.Scan(&read.ContextID, &read.EntityID, &read.TestID, &read.AgentID, &read.EvidenceID, &read.ObservationID, &read.SenderSerial, &read.Alias, &read.SourceRef, &read.ObservedAt, &read.AliasKind, &body, &size, &read.HTTPSPeer); err != nil {
 			return err
 		}
 		read.TenantID = bound.String()
 		read.SourceGeneration = generation
-		cost := int64(512+len(read.AgentID)+len(read.Alias)+len(read.SenderSerial)) + 4*int64(len(body))
+		cost := int64(512+len(read.AgentID)+len(read.Alias)+len(read.SenderSerial)+len(read.HTTPSPeer)) + 4*int64(len(body))
 		if size > 0 && len(body) == 0 || cost > remaining {
 			return ErrIncidentImpactBudget
 		}

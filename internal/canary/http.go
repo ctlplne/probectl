@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -248,6 +249,11 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 	res.HTTP = &HTTPMeasurement{StatusCode: resp.StatusCode,
 		TLSVerified: resp.TLS != nil && tlsVerified != nil && *tlsVerified,
 		SameOrigin:  sameHTTPProbeOrigin(req.URL, finalURL)}
+	if res.HTTP.TLSVerified && res.HTTP.SameOrigin {
+		if peer, err := netip.ParseAddrPort(peerAddr); err == nil && peer.Addr().Zone() == "" {
+			res.HTTP.PeerAddress = peer.Addr().Unmap()
+		}
+	}
 
 	n := drainHTTPBody(resp.Body, c.maxBody)
 	total := time.Since(start)

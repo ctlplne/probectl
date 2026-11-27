@@ -3703,6 +3703,19 @@ export interface IncidentVerdictInput {
   to: string
 }
 
+export interface IncidentVerdictProviderSource {
+  digest: string
+  fetched_at: string
+  publisher: string
+  valid_until: string
+}
+
+export interface IncidentVerdictRemoteProvider {
+  provider: string
+  service?: string
+  sources: IncidentVerdictProviderSource[]
+}
+
 export interface IncidentVerdictResponse {
   confidence: IncidentVerdictConfidence
   contract_version: string
@@ -3713,6 +3726,7 @@ export interface IncidentVerdictResponse {
   incident_id: string
   preview: boolean
   reason: string
+  remote_provider?: IncidentVerdictRemoteProvider
   to: string
   valid_until?: string
 }

@@ -9,6 +9,7 @@ package canary_test
 import (
 	"crypto/tls"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -25,6 +26,9 @@ func TestHTTPPrimaryResponseFactsKeepObservedStatusAndStayOffOrdinaryBus(t *test
 		if result.HTTP == nil || result.HTTP.StatusCode != code || !result.HTTP.TLSVerified || !result.HTTP.SameOrigin || result.Success != (code == http.StatusOK) {
 			t.Fatal("primary response facts changed the observed status, trust or configured origin", code, result.HTTP, result.Success)
 		}
+		if want := server.Listener.Addr().(*net.TCPAddr).AddrPort().Addr().Unmap(); result.HTTP.PeerAddress != want {
+			t.Fatal("the verified HTTPS response lost the actual connection peer", result.HTTP.PeerAddress, want)
+		}
 		body, err := json.Marshal(result)
 		if err != nil {
 			t.Fatal(err)
@@ -37,7 +41,7 @@ func TestHTTPPrimaryResponseFactsKeepObservedStatusAndStayOffOrdinaryBus(t *test
 			t.Fatal("collector-only response facts were serialized onto the ordinary result bus")
 		}
 		var injected canary.Result
-		if err := json.Unmarshal([]byte(`{"HTTP":{"StatusCode":503,"TLSVerified":true,"SameOrigin":true},"http":{"StatusCode":503}}`), &injected); err != nil || injected.HTTP != nil {
+		if err := json.Unmarshal([]byte(`{"HTTP":{"StatusCode":503,"TLSVerified":true,"SameOrigin":true,"PeerAddress":"192.0.2.7"},"http":{"StatusCode":503}}`), &injected); err != nil || injected.HTTP != nil {
 			t.Fatal("ordinary bus JSON supplied primary response authority", injected.HTTP, err)
 		}
 	}

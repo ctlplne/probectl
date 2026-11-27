@@ -15,6 +15,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/opendata"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
@@ -45,12 +46,13 @@ type incidentVerdictTest struct {
 }
 
 type incidentVerdictEvidence struct {
-	tenantID   string
-	from, to   time.Time
-	interfaces []incidentVerdictInterface
-	tests      []incidentVerdictTest
-	paths      []incidentVerdictPath
-	routes     map[incidentVerdictRouteKey]incidentVerdictRoute
+	tenantID      string
+	from, to      time.Time
+	interfaces    []incidentVerdictInterface
+	tests         []incidentVerdictTest
+	paths         []incidentVerdictPath
+	routes        map[incidentVerdictRouteKey]incidentVerdictRoute
+	serviceRanges *opendata.Enricher
 }
 
 // classifyIncidentVerdict evaluates original local state, carrier hand-off
@@ -81,7 +83,7 @@ func classifyIncidentVerdict(ctx context.Context, input incidentVerdictEvidence,
 	if err != nil {
 		return none, err
 	}
-	remote, err := classifyIncidentRemoteResponses(ctx, input, seen, &remaining, &result.Hypotheses[3])
+	remote, provider, err := classifyIncidentRemoteResponses(ctx, input, seen, &remaining, &result.Hypotheses[3])
 	if err != nil {
 		return none, err
 	}
@@ -107,6 +109,7 @@ func classifyIncidentVerdict(ctx context.Context, input incidentVerdictEvidence,
 		result.Domain, result.Confidence, result.Reason = incident.FaultYourNetwork, "direct", "original_unplanned_local_interface_down"
 	case remote:
 		result.Domain, result.Confidence, result.Reason = incident.FaultRemoteService, "corroborated", "independent_verified_primary_https_server_errors"
+		result.RemoteProvider = provider
 	}
 	for i := range result.Hypotheses {
 		sortVerdictCitations(result.Hypotheses[i].For)

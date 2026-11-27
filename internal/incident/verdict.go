@@ -54,17 +54,33 @@ type VerdictHypothesis struct {
 // FaultVerdict preserves all hypotheses, including unavailable planes. A
 // confidence is an evidence category, never a calibrated probability.
 type FaultVerdict struct {
-	ContractVersion string              `json:"contract_version"`
-	Preview         bool                `json:"preview"`
-	IncidentID      string              `json:"incident_id"`
-	EvaluatedAt     time.Time           `json:"evaluated_at"`
-	ValidUntil      *time.Time          `json:"valid_until,omitempty"`
-	Domain          FaultDomain         `json:"domain"`
-	Confidence      string              `json:"confidence"`
-	Reason          string              `json:"reason"`
-	From            time.Time           `json:"from"`
-	To              time.Time           `json:"to"`
-	Hypotheses      []VerdictHypothesis `json:"hypotheses"`
+	ContractVersion string                 `json:"contract_version"`
+	Preview         bool                   `json:"preview"`
+	IncidentID      string                 `json:"incident_id"`
+	EvaluatedAt     time.Time              `json:"evaluated_at"`
+	ValidUntil      *time.Time             `json:"valid_until,omitempty"`
+	Domain          FaultDomain            `json:"domain"`
+	Confidence      string                 `json:"confidence"`
+	Reason          string                 `json:"reason"`
+	From            time.Time              `json:"from"`
+	To              time.Time              `json:"to"`
+	RemoteProvider  *VerdictRemoteProvider `json:"remote_provider,omitempty"`
+	Hypotheses      []VerdictHypothesis    `json:"hypotheses"`
+}
+
+// VerdictRemoteProvider attributes the corroborating HTTPS peers to published
+// address ranges. It carries source provenance without exposing the peers.
+type VerdictRemoteProvider struct {
+	Provider string                  `json:"provider"`
+	Service  string                  `json:"service,omitempty"`
+	Sources  []VerdictProviderSource `json:"sources"`
+}
+
+type VerdictProviderSource struct {
+	Publisher  string    `json:"publisher"`
+	Digest     string    `json:"digest"`
+	FetchedAt  time.Time `json:"fetched_at"`
+	ValidUntil time.Time `json:"valid_until"`
 }
 
 // VerdictRoutingReference labels current selected-route context separately

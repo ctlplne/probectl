@@ -304,12 +304,15 @@ func (s *Server) computeRetainedIncidentVerdict(ctx context.Context, actor *auth
 	if err != nil {
 		return none, err
 	}
-	result, err := classifyIncidentVerdict(ctx, before.evidence, maxBytes/4)
+	input := before.evidence
+	input.serviceRanges = s.openDataEnricher
+	result, err := classifyIncidentVerdict(ctx, input, maxBytes/4)
 	if err != nil {
 		return none, err
 	}
 	if before.inputs.RootUnresolved || len(before.inputs.UnresolvedSignalIDs) != 0 {
 		result.Domain, result.Confidence, result.Reason = incident.FaultUnknown, "insufficient", "incomplete_canonical_incident_membership"
+		result.RemoteProvider = nil
 		for i := range result.Hypotheses {
 			result.Hypotheses[i].Missing = append(result.Hypotheses[i].Missing, "complete_canonical_incident_membership")
 		}

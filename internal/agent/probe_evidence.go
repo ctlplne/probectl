@@ -65,6 +65,9 @@ func (h *Host) enqueueProbeEvidence(ctx context.Context, schedule scheduled, res
 	}
 	if observation.Outcome != nil && ctx.Err() != nil {
 		observation.Outcome.Canceled = true
+		if observation.Outcome.HTTPResponse != nil {
+			observation.Outcome.HTTPResponse.PeerAddress = ""
+		}
 	}
 	if err == nil {
 		err = h.probeEvidence.enqueue(observation)
@@ -155,7 +158,7 @@ func probeEvidenceMemory(observation entity.Observation) int64 {
 	if observation.Outcome != nil {
 		size += int64(256 + 4*len(observation.Outcome.CanaryType))
 		if observation.Outcome.HTTPResponse != nil {
-			size += 256
+			size += 256 + 4*int64(len(observation.Outcome.HTTPSPeer()))
 		}
 	}
 	if observation.ICMP != nil {
@@ -193,6 +196,10 @@ func (h *Host) configuredProbeObservation(schedule scheduled, result canary.Resu
 		}
 		observation.Outcome.Version = 2
 		observation.Outcome.HTTPResponse = &entity.ProbeHTTPResponse{StatusCode: result.HTTP.StatusCode, TLSVerified: result.HTTP.TLSVerified, SameOrigin: result.HTTP.SameOrigin}
+		peer := result.HTTP.PeerAddress.Unmap()
+		if observation.Outcome.VerifiedPrimaryHTTPS() && peer.IsGlobalUnicast() && !peer.IsPrivate() && peer.Zone() == "" {
+			observation.Outcome.HTTPResponse.PeerAddress = peer.String()
+		}
 	}
 	return observation.Normalize(time.Now())
 }

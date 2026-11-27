@@ -8,8 +8,13 @@ package entity
 
 import (
 	"encoding/hex"
+	"net/netip"
 	"time"
 )
+
+// HTTPSPeerEvidenceMetadata carries optional per-observation peer evidence on
+// the same authenticated RPC as the unchanged primary response receipt.
+const HTTPSPeerEvidenceMetadata = "x-probectl-https-peer-v1"
 
 // ProbeOutcome is a completed configured-test result on the evidence-only
 // sender-authenticated plane. It proves an observed test outcome, never packet
@@ -28,9 +33,24 @@ type ProbeOutcome struct {
 
 // ProbeHTTPResponse contains primary request facts, never raw response content.
 type ProbeHTTPResponse struct {
-	StatusCode  int  `json:"status_code"`
-	TLSVerified bool `json:"tls_verified"`
-	SameOrigin  bool `json:"same_origin"`
+	StatusCode  int    `json:"status_code"`
+	TLSVerified bool   `json:"tls_verified"`
+	SameOrigin  bool   `json:"same_origin"`
+	PeerAddress string `json:"-"` // Stored separately so older readers retain the original v2 document.
+}
+
+// VerifiedPrimaryHTTPS reports whether the original response can corroborate an HTTPS observation.
+func (m *ProbeOutcome) VerifiedPrimaryHTTPS() bool {
+	return m != nil && m.Version == 2 &&
+		m.CanaryType == "http" && !m.Canceled && m.HTTPResponse != nil && m.HTTPResponse.TLSVerified && m.HTTPResponse.SameOrigin
+}
+
+// HTTPSPeer returns the optional peer without changing the receipt document.
+func (m *ProbeOutcome) HTTPSPeer() string {
+	if m == nil || m.HTTPResponse == nil {
+		return ""
+	}
+	return m.HTTPResponse.PeerAddress
 }
 
 func normalizeProbeOutcome(o Observation) (*ProbeOutcome, error) {
@@ -62,6 +82,16 @@ func normalizeProbeOutcome(o Observation) (*ProbeOutcome, error) {
 		}
 		response := *m.HTTPResponse
 		m.HTTPResponse = &response
+		if response.PeerAddress != "" {
+			if len(response.PeerAddress) > 39 {
+				return nil, ErrInvalidClaim
+			}
+			peer, err := netip.ParseAddr(response.PeerAddress)
+			if err != nil || !peer.IsGlobalUnicast() || peer.IsPrivate() || peer.Zone() != "" ||
+				peer.Unmap().String() != response.PeerAddress || !m.VerifiedPrimaryHTTPS() {
+				return nil, ErrInvalidClaim
+			}
+		}
 	default:
 		return nil, ErrInvalidClaim
 	}

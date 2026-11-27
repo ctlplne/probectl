@@ -22,8 +22,8 @@ type phaseTimer struct {
 }
 
 // clientTrace returns an httptrace.ClientTrace bound to this timer. peerAddr is
-// filled with the remote address of the first connection used (the network-layer
-// datum that correlates an HTTP result to path/traceroute data for the same IP).
+// filled with the remote address of the connection used for the response.
+// The caller clears it before each redirect hop.
 func (t *phaseTimer) clientTrace(start time.Time, peerAddr *string) *httptrace.ClientTrace {
 	return &httptrace.ClientTrace{
 		DNSStart: func(httptrace.DNSStartInfo) {
@@ -57,7 +57,8 @@ func (t *phaseTimer) clientTrace(start time.Time, peerAddr *string) *httptrace.C
 			}
 		},
 		GotConn: func(info httptrace.GotConnInfo) {
-			if *peerAddr == "" && info.Conn != nil {
+			*peerAddr = ""
+			if info.Conn != nil {
 				*peerAddr = info.Conn.RemoteAddr().String()
 			}
 		},

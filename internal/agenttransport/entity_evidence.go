@@ -10,9 +10,11 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
@@ -51,6 +53,10 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	}
 	if !validEntityEvidenceEnvelope(req) {
 		return nil, status.Error(codes.InvalidArgument, "evidence request must contain one complete operation")
+	}
+	peers, peerBytes, err := parseHTTPSPeerEvidence(ctx, len(req.GetObservations()))
+	if err != nil {
+		return nil, err
 	}
 	if req.GetKubernetesInventory() != nil {
 		response, err := svc.submitKubernetesInventory(ctx, id, serial, req)
@@ -111,7 +117,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	if total == 0 || total > 64 {
 		return nil, status.Error(codes.InvalidArgument, "evidence batch must contain 1–64 observations and faults combined")
 	}
-	requestBytes := proto.Size(req)
+	requestBytes := proto.Size(req) + peerBytes
 	for _, item := range items {
 		if item.GetSnmpPhysicalInventory() != nil && (total != 1 || requestBytes > 1<<20) {
 			return nil, status.Error(codes.ResourceExhausted, "physical inventory requires one bounded observation")
@@ -135,6 +141,9 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	}
 	observations, err := parseEntityEvidenceObservations(ctx, items, id.AgentID)
 	if err != nil {
+		return nil, err
+	}
+	if err := bindHTTPSPeerEvidence(observations, peers); err != nil {
 		return nil, err
 	}
 	var accepted, unresolved, icmpRetained, outcomesRetained, statesRetained, sessionsRetained int
@@ -189,6 +198,52 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 		Accepted: uint32(accepted), Unresolved: uint32(unresolved),
 		FaultsPersisted: uint32(faultsPersisted), IcmpMeasurementsPersisted: uint32(icmpRetained), ProbeOutcomesPersisted: uint32(outcomesRetained), InterfaceStatesPersisted: uint32(statesRetained), BmpPeerSessionsPersisted: uint32(sessionsRetained),
 	}, nil
+}
+
+func parseHTTPSPeerEvidence(ctx context.Context, count int) (map[string]string, int, error) {
+	values := metadata.ValueFromIncomingContext(ctx, entity.HTTPSPeerEvidenceMetadata)
+	if len(values) == 0 {
+		return nil, 0, nil
+	}
+	invalid := status.Error(codes.InvalidArgument, "invalid HTTPS peer evidence metadata")
+	if len(values) != 1 || len(values[0]) > 64*(36+1+39+1) {
+		return nil, 0, invalid
+	}
+	entries := strings.Split(values[0], ",")
+	if len(entries) > count || len(entries) > 64 {
+		return nil, 0, invalid
+	}
+	peers := make(map[string]string, len(entries))
+	for _, value := range entries {
+		id, peer, ok := strings.Cut(value, " ")
+		if !ok || len(id) != 36 || len(peer) == 0 || len(peer) > 39 || peers[id] != "" {
+			return nil, 0, invalid
+		}
+		peers[id] = peer
+	}
+	return peers, len(entity.HTTPSPeerEvidenceMetadata) + len(values[0]), nil
+}
+
+func bindHTTPSPeerEvidence(observations []entity.Observation, peers map[string]string) error {
+	if len(peers) == 0 {
+		return nil
+	}
+	bound := make(map[string]bool, len(peers))
+	for _, item := range observations {
+		peer, exists := peers[item.ID]
+		if !exists {
+			continue
+		}
+		if bound[item.ID] || !item.Outcome.VerifiedPrimaryHTTPS() {
+			return status.Error(codes.InvalidArgument, "HTTPS peer must bind to one verified response")
+		}
+		bound[item.ID] = true
+		item.Outcome.HTTPResponse.PeerAddress = peer
+	}
+	if len(bound) != len(peers) {
+		return status.Error(codes.InvalidArgument, "HTTPS peer is missing its original response")
+	}
+	return nil
 }
 
 // authenticateIssuedEntityEvidence keeps the restricted purpose, issued serial

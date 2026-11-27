@@ -98,7 +98,7 @@ func TestHTTPRedirectVerifiesEachDestinationAndKeepsProbeTrustIsolated(t *testin
 					if hits.Load() != 1 || result.Attributes["probectl.tls.server.verified"] != "true" {
 						t.Fatal("valid destination was not requested through its own verified TLS connection", hits.Load(), result.Attributes["probectl.tls.server.verified"])
 					}
-					if result.HTTP == nil || result.HTTP.StatusCode != http.StatusOK || !result.HTTP.TLSVerified || result.HTTP.SameOrigin {
+					if result.HTTP == nil || result.HTTP.StatusCode != http.StatusOK || !result.HTTP.TLSVerified || result.HTTP.SameOrigin || result.HTTP.PeerAddress.IsValid() {
 						t.Fatal("redirect response facts lost actual TLS or claimed the configured origin", result.HTTP)
 					}
 				} else if hits.Load() != 0 || result.Attributes["http.response.status_code"] != "" {

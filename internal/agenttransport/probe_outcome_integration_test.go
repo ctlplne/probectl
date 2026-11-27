@@ -111,6 +111,14 @@ func TestConfiguredProbeOutcomeRealHTTPSMTLSKeepsTenantDefinitionHistoryAndRepla
 		return claim
 	}
 	claims := make([]entity.Observation, len(lanes))
+	withPeer := func(claim entity.Observation, peer string) entity.Observation {
+		outcome, response := *claim.Outcome, *claim.Outcome.HTTPResponse
+		response.PeerAddress = peer
+		outcome.HTTPResponse = &response
+		claim.Outcome = &outcome
+		return claim
+	}
+	peers := [2]string{"192.0.2.7", "2001:db8::17"}
 	for i, lane := range lanes {
 		claims[i] = observe(i, observationID, true)
 		for range 2 {
@@ -119,6 +127,11 @@ func TestConfiguredProbeOutcomeRealHTTPSMTLSKeepsTenantDefinitionHistoryAndRepla
 				t.Fatal("typed HTTPS outcome or exact replay refused", accepted, unresolved, err)
 			}
 		}
+		// A receiver of the earlier format would store this original
+		// without the extension. A retry may not rewrite that receipt.
+		if accepted, unresolved, err := lane.client.Submit(ctx, []entity.Observation{withPeer(claims[i], peers[i])}); err != nil || accepted != 1 || unresolved != 0 {
+			t.Fatal("legacy response replay with optional peer was refused", accepted, unresolved, err)
+		}
 	}
 	responseCode.Store(http.StatusServiceUnavailable)
 	for i, lane := range lanes {
@@ -126,10 +139,18 @@ func TestConfiguredProbeOutcomeRealHTTPSMTLSKeepsTenantDefinitionHistoryAndRepla
 		if err != nil || resolved.Status != entity.Resolved || resolved.EntityID != router {
 			t.Fatal("current configured alias lost its owned source", resolved, err)
 		}
-		failed := observe(i, newUUID(t), false)
+		// The HTTPS status and mTLS sender are real. Each lane uses a
+		// different modeled public peer to check the new receipt field.
+		failed := withPeer(observe(i, newUUID(t), false), peers[i])
 		accepted, unresolved, err := lane.client.Submit(ctx, []entity.Observation{failed})
 		if err != nil || accepted != 1 || unresolved != 0 {
 			t.Fatal("real failed application outcome was lost", accepted, unresolved, err)
+		}
+		if accepted, unresolved, err := lane.client.Submit(ctx, []entity.Observation{withPeer(failed, "")}); err != nil || accepted != 1 || unresolved != 0 {
+			t.Fatal("legacy sender could not replay the original response", accepted, unresolved, err)
+		}
+		if _, _, err := lane.client.Submit(ctx, []entity.Observation{withPeer(failed, peers[1-i])}); status.Code(err) != codes.AlreadyExists {
+			t.Fatal("same UUID changed the original HTTPS peer", err)
 		}
 		in(i, func(ctx context.Context, sc tenancy.Scope) error {
 			var gotTenant, gotArea, gotRouter, gotSender, gotSerial string
@@ -177,8 +198,14 @@ func TestConfiguredProbeOutcomeRealHTTPSMTLSKeepsTenantDefinitionHistoryAndRepla
 					return fmt.Errorf("original configured outcome unavailable or relabelled")
 				}
 				if record.Outcome.Success {
+					if !reflect.DeepEqual(record.Outcome, claims[i].Outcome) {
+						return fmt.Errorf("the legacy HTTPS receipt changed")
+					}
 					good++
 				} else {
+					if !reflect.DeepEqual(record.Outcome, failed.Outcome) {
+						return fmt.Errorf("the original HTTPS peer receipt changed or crossed tenant scope")
+					}
 					bad++
 				}
 			}

@@ -194,6 +194,14 @@ probes and later recoveries remain visible as citations. A timeout, missing
 response, posture-only TLS handshake or cross-origin redirect supplies no such
 proof.
 
+When the corroborating probes include their verified socket peers, the verdict
+can also name the provider from the local published address-range cache. The
+same provider must be supported by the range data both at the time of each
+observation and at evaluation. The response lists the supporting publisher,
+snapshot digest and freshness clocks. Missing, expired or conflicting attribution
+leaves the verdict at **Remote service**. This is attribution of the published
+network range. The peer IPs stay in the tenant's evidence store.
+
 Every response retains all four hypotheses, their supporting and contradicting
 original citations, missing coverage and the selected window. Carrier
 corroboration requires an original neighbour Hold Timer Expired notification,

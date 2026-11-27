@@ -450,12 +450,12 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 			  interface_name,interface_description,
 			  neighbor_protocol,neighbor_local_if_index,neighbor_local_port_id,
 			  neighbor_remote_port_id,neighbor_chassis_id,neighbor_device_name,
-			  neighbor_management_address,support_evidence_id,snmp_system_description,snmp_system_name,agent_addresses,snmp_interface_prefixes,icmp_measurement,probe_outcome,snmp_interface_state,bmp_peer_session,snmp_physical_inventory)
+			  neighbor_management_address,support_evidence_id,snmp_system_description,snmp_system_name,agent_addresses,snmp_interface_prefixes,icmp_measurement,probe_outcome,snmp_interface_state,bmp_peer_session,snmp_physical_inventory,probe_https_peer)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
 		        NULLIF($16,'')::text,NULLIF($17,'')::text,NULLIF($18,'')::text,
 		        NULLIF($19,'')::text,NULLIF($20::bigint,0::bigint),NULLIF($21,'')::text,
 		        NULLIF($22,'')::text,NULLIF($23,'')::text,NULLIF($24,'')::text,
-		        NULLIF($25,'')::text,NULLIF($26,'')::uuid,NULLIF($27,'')::text,$28::text,$29::inet[],$30::jsonb,$31::jsonb,$32::jsonb,$33::jsonb,$34::jsonb,$35::jsonb)
+		        NULLIF($25,'')::text,NULLIF($26,'')::uuid,NULLIF($27,'')::text,$28::text,$29::inet[],$30::jsonb,$31::jsonb,$32::jsonb,$33::jsonb,$34::jsonb,$35::jsonb,NULLIF($36::text,'')::inet)
 			ON CONFLICT (tenant_id,agent_id,source_kind,configured_ref,observation_id)
 			DO NOTHING RETURNING id::text`,
 		tenantID, authority.contextID, evidenceID, claim.ID, endpoint.entityID,
@@ -468,7 +468,7 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 		int64(claim.NeighborLocalIfIndex), claim.NeighborLocalPortID,
 		claim.NeighborRemotePortID, claim.NeighborChassisID,
 		claim.NeighborDeviceName, claim.NeighborAddress, authority.supportID,
-		claim.SystemDescription, claim.SystemName, claim.AgentAddresses, prefixes, icmp, outcome, interfaceState, session, inventory).Scan(&inserted)
+		claim.SystemDescription, claim.SystemName, claim.AgentAddresses, prefixes, icmp, outcome, interfaceState, session, inventory, claim.Outcome.HTTPSPeer()).Scan(&inserted)
 	if err == nil {
 		if endpoint.interfaceClaim {
 			linkID, err := newRegistryID()
@@ -518,8 +518,9 @@ func persistEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID, agent
 }
 
 // The tenant/agent/source/UUID index makes this a bounded point lookup. The
-// comparison covers every collector-supplied field; context, canonical entity
-// and support row are selected by the server and remain historical on replay.
+// comparison covers the original collector fields. An older writer may have
+// omitted peer evidence, so a replay with only one peer value acknowledges
+// the original without filling or clearing that field.
 func existingEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID,
 	agentID, serial string, claim entity.Observation) (bool, bool, error) {
 	prefixes, err := snmpInterfacePrefixDocument(claim)
@@ -568,6 +569,7 @@ func existingEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID,
 		AND snmp_interface_state IS NOT DISTINCT FROM $27::jsonb
 		AND bmp_peer_session IS NOT DISTINCT FROM $28::jsonb
 		AND snmp_physical_inventory IS NOT DISTINCT FROM $29::jsonb
+		AND (probe_https_peer IS NULL OR $30::text='' OR probe_https_peer=NULLIF($30::text,'')::inet)
 		FROM entity_evidence
 		WHERE tenant_id=$1 AND agent_id=$2 AND source_kind=$3
 		  AND configured_ref=$4 AND observation_id=$5
@@ -578,7 +580,7 @@ func existingEvidenceClaim(ctx context.Context, sc tenancy.Scope, tenantID,
 		claim.InterfaceDescription, claim.NeighborProtocol,
 		int64(claim.NeighborLocalIfIndex), claim.NeighborLocalPortID,
 		claim.NeighborRemotePortID, claim.NeighborChassisID,
-		claim.NeighborDeviceName, claim.NeighborAddress, claim.SystemDescription, claim.SystemName, claim.AgentAddresses, prefixes, icmp, outcome, interfaceState, session, inventory).Scan(&same)
+		claim.NeighborDeviceName, claim.NeighborAddress, claim.SystemDescription, claim.SystemName, claim.AgentAddresses, prefixes, icmp, outcome, interfaceState, session, inventory, claim.Outcome.HTTPSPeer()).Scan(&same)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, false, nil
 	}

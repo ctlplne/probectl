@@ -106,7 +106,8 @@ func classifyIncidentLocalInterfaces(ctx context.Context, input incidentVerdictE
 }
 
 type incidentRemoteObservation struct {
-	read store.IncidentTestMeasurement
+	read         store.IncidentTestMeasurement
+	corroborates bool
 }
 
 type incidentRemoteGroup struct {
@@ -114,11 +115,11 @@ type incidentRemoteGroup struct {
 	healthy  []incidentRemoteObservation
 }
 
-func classifyIncidentRemoteResponses(ctx context.Context, input incidentVerdictEvidence, seen map[string]incident.VerdictCitation, remaining *int64, hypothesis *incident.VerdictHypothesis) (bool, error) {
+func classifyIncidentRemoteResponses(ctx context.Context, input incidentVerdictEvidence, seen map[string]incident.VerdictCitation, remaining *int64, hypothesis *incident.VerdictHypothesis) (bool, *incident.VerdictRemoteProvider, error) {
 	groups := map[string]*incidentRemoteGroup{}
 	for _, item := range input.tests {
 		if err := ctx.Err(); err != nil {
-			return false, err
+			return false, nil, err
 		}
 		origin, ok := incidentVerdictHTTPSOrigin(item.source)
 		if !ok {
@@ -131,13 +132,17 @@ func classifyIncidentRemoteResponses(ctx context.Context, input incidentVerdictE
 			groups[key] = group
 		}
 		if err := collectIncidentHTTPResponses(ctx, item, group, input, seen, remaining, hypothesis); err != nil {
-			return false, err
+			return false, nil, err
 		}
 	}
 	proven := false
+	attribution := incidentProviderAttribution{asOf: time.Now().UTC(), ranges: input.serviceRanges}
+	providerBudget := *remaining / 16
 	for _, group := range groups {
-		if independentOverlappingHTTPFailures(group.failures, group.healthy) {
-			proven = true
+		support := corroboratingHTTPFailures(group.failures, group.healthy)
+		proven = proven || len(support) != 0
+		for _, observation := range support {
+			attribution.observe(ctx, observation.read, &providerBudget)
 		}
 	}
 	if proven {
@@ -145,7 +150,7 @@ func classifyIncidentRemoteResponses(ctx context.Context, input incidentVerdictE
 	} else {
 		hypothesis.Missing = append(hypothesis.Missing, "independent_contemporaneous_same_origin_https_failures")
 	}
-	return proven, ctx.Err()
+	return proven, attribution.result(), ctx.Err()
 }
 
 func collectIncidentHTTPResponses(ctx context.Context, item incidentVerdictTest, group *incidentRemoteGroup, input incidentVerdictEvidence,
@@ -166,9 +171,8 @@ func collectIncidentHTTPResponses(ctx context.Context, item incidentVerdictTest,
 			continue
 		}
 		outcome := read.Outcome
-		if !read.Available || outcome == nil || outcome.Version != 2 || outcome.CanaryType != "http" || outcome.Canceled ||
-			outcome.StartedAt.Before(input.from) || outcome.StartedAt.Before(item.source.CurrentSince) || outcome.CompletedAt.Before(outcome.StartedAt) || !outcome.CompletedAt.Equal(read.ObservedAt) ||
-			outcome.HTTPResponse == nil || !outcome.HTTPResponse.TLSVerified || !outcome.HTTPResponse.SameOrigin {
+		if !read.Available || !outcome.VerifiedPrimaryHTTPS() || outcome.StartedAt.Before(input.from) ||
+			outcome.StartedAt.Before(item.source.CurrentSince) || outcome.CompletedAt.Before(outcome.StartedAt) || !outcome.CompletedAt.Equal(read.ObservedAt) {
 			hypothesis.Missing = append(hypothesis.Missing, "original_verified_primary_https_response")
 			continue
 		}
@@ -206,20 +210,16 @@ func incidentVerdictHTTPSOrigin(source store.IncidentConfiguredTest) (string, bo
 }
 
 // Retain the latest two uncontradicted failure ends from different agents.
-// A success overlapping either probe disqualifies that probe. A success in
-// an earlier healthy period or subsequent recovery remains a citation without
-// suppressing the failure pair. Sort then sweep in O(n log n) time.
-func independentOverlappingHTTPFailures(failures, healthy []incidentRemoteObservation) bool {
+// corroboratingHTTPFailures finds every failure in an independent overlapping
+// pair. A healthy overlap disqualifies its probe while earlier healthy periods
+// and later recoveries remain citations. Sort and sweep in O(n log n) time.
+func corroboratingHTTPFailures(failures, healthy []incidentRemoteObservation) []incidentRemoteObservation {
 	byStart := func(a, b incidentRemoteObservation) int {
 		return a.read.Outcome.StartedAt.Compare(b.read.Outcome.StartedAt)
 	}
 	slices.SortFunc(failures, byStart)
 	slices.SortFunc(healthy, byStart)
-	type ending struct {
-		agent string
-		at    time.Time
-	}
-	first, second := ending{}, ending{}
+	eligible := failures[:0]
 	for _, observation := range failures {
 		read := observation.read
 		for len(healthy) > 0 && healthy[0].read.Outcome.CompletedAt.Before(read.Outcome.StartedAt) {
@@ -228,14 +228,21 @@ func independentOverlappingHTTPFailures(failures, healthy []incidentRemoteObserv
 		if len(healthy) > 0 && !healthy[0].read.Outcome.StartedAt.After(read.Outcome.CompletedAt) {
 			continue
 		}
+		eligible = append(eligible, observation)
+	}
+	type boundary struct {
+		agent string
+		at    time.Time
+	}
+	first, second := boundary{}, boundary{}
+	for i := range eligible {
+		read := eligible[i].read
 		other := first
 		if other.agent == read.AgentID {
 			other = second
 		}
-		if other.agent != "" && other.at.After(read.Outcome.StartedAt) {
-			return true
-		}
-		current := ending{agent: read.AgentID, at: read.Outcome.CompletedAt}
+		eligible[i].corroborates = other.agent != "" && other.at.After(read.Outcome.StartedAt)
+		current := boundary{agent: read.AgentID, at: read.Outcome.CompletedAt}
 		switch {
 		case current.agent == first.agent:
 			if current.at.After(first.at) {
@@ -251,5 +258,22 @@ func independentOverlappingHTTPFailures(failures, healthy []incidentRemoteObserv
 			second = current
 		}
 	}
-	return false
+	// The reverse sweep finds the first later start from a different agent.
+	// A probe that preceded its partner is then retained as provenance too.
+	first, second = boundary{}, boundary{}
+	for i := len(eligible) - 1; i >= 0; i-- {
+		read := eligible[i].read
+		other := first
+		if other.agent == read.AgentID {
+			other = second
+		}
+		eligible[i].corroborates = eligible[i].corroborates || (other.agent != "" && other.at.Before(read.Outcome.CompletedAt))
+		if first.agent != read.AgentID {
+			second = first
+		}
+		first = boundary{agent: read.AgentID, at: read.Outcome.StartedAt}
+	}
+	return slices.DeleteFunc(eligible, func(observation incidentRemoteObservation) bool {
+		return !observation.corroborates
+	})
 }

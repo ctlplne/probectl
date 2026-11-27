@@ -9,11 +9,13 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -245,6 +247,15 @@ func (c *EvidenceClient) Submit(ctx context.Context, observations []entity.Obser
 	}
 	callCtx, cancel := context.WithTimeout(ctx, evidenceDeliveryTimeout)
 	defer cancel()
+	var peers []string
+	for i, item := range request.GetObservations() {
+		if peer := observations[i].Outcome.HTTPSPeer(); peer != "" {
+			peers = append(peers, item.GetObservationId()+" "+peer)
+		}
+	}
+	if len(peers) != 0 {
+		callCtx = metadata.AppendToOutgoingContext(callCtx, entity.HTTPSPeerEvidenceMetadata, strings.Join(peers, ","))
+	}
 	c.mu.RLock()
 	svc := c.svc
 	c.mu.RUnlock()

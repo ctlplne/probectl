@@ -80,6 +80,7 @@ func TestProbeOutcomesKeepSiloTypedChecksAndTenantOnProvisionAndCatchup(t *testi
 		if lane == 0 {
 			// An existing silo retains its old rows and enum until additive
 			// catch-up installs the new column and complete typed boundary.
+			exec(`ALTER TABLE ` + schema + `.entity_evidence DROP COLUMN probe_https_peer`)
 			exec(`ALTER TABLE ` + schema + `.entity_evidence DROP COLUMN probe_outcome CASCADE`)
 			exec(`ALTER TABLE ` + schema + `.entity_evidence DROP CONSTRAINT entity_evidence_alias_kind_v2_check`)
 			exec(`ALTER TABLE ` + schema + `.entity_evidence ADD CONSTRAINT entity_evidence_alias_kind_check CHECK(alias_kind='address') NOT VALID`)
@@ -107,12 +108,18 @@ func TestProbeOutcomesKeepSiloTypedChecksAndTenantOnProvisionAndCatchup(t *testi
 			`observed_at=observed_at+interval '1 second'`,
 		}
 		if lane == 0 {
+			exec(`UPDATE `+schema+`.entity_evidence SET probe_https_peer='192.0.2.7'::inet WHERE tenant_id=$1 AND id=$2`, tenant, evidenceID)
 			mutations = append(mutations,
 				`probe_outcome=probe_outcome-'http_response'`,
 				`probe_outcome=jsonb_set(probe_outcome,'{version}','1'::jsonb)`,
 				`probe_outcome=jsonb_set(probe_outcome,'{http_response,status_code}','1000'::jsonb)`,
 				`probe_outcome=jsonb_set(probe_outcome,'{http_response,tls_verified}','"true"'::jsonb)`,
-				`probe_outcome=jsonb_set(probe_outcome,'{http_response,claimed_host}','"untrusted"'::jsonb)`)
+				`probe_outcome=jsonb_set(probe_outcome,'{http_response,claimed_host}','"untrusted"'::jsonb)`,
+				`probe_https_peer='192.0.2.0/24'::inet`,
+				`probe_https_peer='127.0.0.1'::inet`,
+				`probe_outcome=jsonb_set(probe_outcome,'{http_response,same_origin}','false'::jsonb)`)
+		} else {
+			mutations = append(mutations, `probe_https_peer='192.0.2.7'::inet`)
 		}
 		for _, mutation := range mutations {
 			_, err := pool.Exec(ctx, `UPDATE `+schema+`.entity_evidence SET `+mutation+` WHERE tenant_id=$1 AND id=$2`, tenant, evidenceID)
@@ -129,9 +136,9 @@ func TestProbeOutcomesKeepSiloTypedChecksAndTenantOnProvisionAndCatchup(t *testi
 			if _, err = tx.Exec(ctx, `SET LOCAL ROLE probectl_app`); err == nil {
 				_, err = tx.Exec(ctx, `SELECT set_config('probectl.tenant_id',$1,true)`, caller)
 			}
-			var count int
+			var count, peerCount int
 			if err == nil {
-				err = tx.QueryRow(ctx, `SELECT count(*) FROM `+schema+`.entity_evidence`).Scan(&count)
+				err = tx.QueryRow(ctx, `SELECT count(*), count(probe_https_peer) FROM `+schema+`.entity_evidence`).Scan(&count, &peerCount)
 			}
 			var changed int64
 			if err == nil && caller != tenant {
@@ -139,12 +146,15 @@ func TestProbeOutcomesKeepSiloTypedChecksAndTenantOnProvisionAndCatchup(t *testi
 				err, changed = writeErr, tag.RowsAffected()
 			}
 			_ = tx.Rollback(ctx)
-			want := 0
+			want, wantPeers := 0, 0
 			if caller == tenant {
 				want = 2
+				if lane == 0 {
+					wantPeers = 1
+				}
 			}
-			if err != nil || count != want || changed != 0 {
-				t.Fatal("qualified silo outcome access bypassed tenant RLS", count, want, changed, err)
+			if err != nil || count != want || peerCount != wantPeers || changed != 0 {
+				t.Fatal("qualified silo outcome access bypassed tenant RLS", count, want, peerCount, wantPeers, changed, err)
 			}
 		}
 	}
@@ -156,7 +166,11 @@ func TestProbeOutcomesKeepSiloTypedChecksAndTenantOnProvisionAndCatchup(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, string(migration)+"\n"+string(httpMigration)); err != nil {
+	peerMigration, err := migrations.FS.ReadFile("0268_http_peer_outcomes.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(migration)+"\n"+string(httpMigration)+"\n"+string(peerMigration)); err != nil {
 		t.Fatal("outcome migration replay with accepted pooled/silo rows", err)
 	}
 	t.Log("real-integration: paired managed-silo fresh/catch-up/replay typed constraints and qualified app-role RLS; direct rows prove storage, not sender attestation")

@@ -27,6 +27,27 @@ const incident: Incident = {
   signal_count: 1,
 }
 const permissions = ['incident.read', 'entities.read', 'metrics.read', 'events.read', 'test.read']
+function remoteResponse(tenant: string): IncidentVerdictResponse {
+  return {
+    ...response(tenant),
+    domain: 'remote_service',
+    confidence: 'corroborated',
+    reason: 'independent_verified_primary_https_server_errors',
+    remote_provider: {
+      provider: 'aws',
+      service: 'S3',
+      sources: [
+        {
+          publisher: 'aws',
+          digest: 'd'.repeat(64),
+          fetched_at: incident.started_at,
+          valid_until: incident.last_seen_at,
+        },
+      ],
+    },
+  }
+}
+
 function response(tenant: string): IncidentVerdictResponse {
   return {
     contract_version: 'probectl.incident-verdict.v1',
@@ -145,7 +166,7 @@ for (const theme of ['light', 'dark'])
     vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
       if (pathOf(input) === `/v1/incidents/${id}/verdict`) {
         selected = JSON.parse(String(init?.body))
-        return Promise.resolve(jsonResponse(response('red')))
+        return Promise.resolve(jsonResponse(remoteResponse('red')))
       }
       return fallback(input, init)
     })
@@ -167,6 +188,7 @@ for (const theme of ['light', 'dark'])
     })
     fireEvent.click(screen.getByRole('button', { name: 'Evaluate fault domain' }))
     expect(await screen.findByText('red-source')).toBeInTheDocument()
+    expect(screen.getByText(/HTTPS peer ranges.*AWS.*S3/)).toBeInTheDocument()
     expect(screen.getByText('AS4294967295')).toBeInTheDocument()
     expect(screen.getByText('Hand-off interface')).toBeInTheDocument()
     expect(screen.getByText('Selected routing view')).toBeInTheDocument()
@@ -178,11 +200,12 @@ for (const theme of ['light', 'dark'])
     for (const name of ['Your network', 'Carrier', 'Wider internet', 'Remote service'])
       expect(screen.getByRole('region', { name })).toBeInTheDocument()
     expect(screen.getByText('carrier coverage unavailable')).toBeInTheDocument()
-    expect(screen.getByText('insufficient original evidence')).toBeInTheDocument()
+    expect(screen.getByText('independent verified primary https server errors')).toBeInTheDocument()
     expect(screen.getByText('Control-plane path round')).toBeInTheDocument()
     expect(screen.getByText('01234567890123456789abcdefabcdef')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Withdraw verdict access' }))
     expect(screen.queryByText('red-source')).not.toBeInTheDocument()
+    expect(screen.queryByText(/HTTPS peer ranges.*AWS/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Evaluate fault domain' })).not.toBeInTheDocument()
     view.unmount()
   })
@@ -206,9 +229,10 @@ test('late verdict completion cannot disclose the previous tenant', async () => 
   await waitFor(() => expect(finish).toBeDefined())
   fireEvent.click(screen.getByRole('button', { name: 'Switch verdict tenant' }))
   await act(async () => {
-    finish!(jsonResponse(response('red')))
+    finish!(jsonResponse(remoteResponse('red')))
   })
   expect(screen.queryByText('red-source')).not.toBeInTheDocument()
+  expect(screen.queryByText(/HTTPS peer ranges.*AWS/)).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Evaluate fault domain' })).toBeEnabled()
   view.unmount()
 })

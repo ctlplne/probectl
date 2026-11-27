@@ -21,6 +21,15 @@ const labels: Record<string, string> = {
   wider_internet: 'Wider internet',
   remote_service: 'Remote service',
 }
+const providerLabels: Record<string, string> = {
+  aws: 'AWS',
+  azure: 'Azure',
+  google: 'Google',
+  google_cloud: 'Google Cloud',
+  microsoft_365: 'Microsoft 365',
+  salesforce: 'Salesforce',
+  zoom: 'Zoom',
+}
 
 export function IncidentVerdictCard({ incident }: { incident: Incident }) {
   const { tenant, user, permissions, hasScopedGrants } = useAuth()
@@ -213,6 +222,24 @@ function VerdictForm({ incident }: { incident: Incident }) {
             <strong>{labels[result.domain] ?? result.domain}</strong> · {result.confidence} evidence
           </p>
           <p>{readable(result.reason)}</p>
+          {result.remote_provider ? (
+            <details>
+              <summary>
+                HTTPS peer ranges ·{' '}
+                {providerLabels[result.remote_provider.provider] ??
+                  readable(result.remote_provider.provider)}
+                {result.remote_provider.service ? ` · ${result.remote_provider.service}` : null}
+              </summary>
+              <ul>
+                {result.remote_provider.sources.map((source) => (
+                  <li key={`${source.publisher}:${source.digest}`}>
+                    {providerLabels[source.publisher] ?? readable(source.publisher)} · fetched{' '}
+                    <DateTime value={source.fetched_at} />
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
           <p>
             Evaluated <DateTime value={result.evaluated_at} />
             {result.valid_until ? (
