@@ -15,21 +15,26 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/evidence"
 	"github.com/ctlplne/probectl/internal/reporting"
+	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
 // Read the actual downloaded PDF's complete semantic stream independently of
 // the renderer's encoder. Strip only the exact repeated page-header prefix
 // and numbered footer. Every cell, including an envelope across pages, remains.
-// Independent Poppler extraction/ink checks remain a separate CI requirement.
+// The separate Poppler check exercises the same download through a PDF reader.
 func monthlyPDFBodyText(t *testing.T, body []byte) string {
 	t.Helper()
 	var result strings.Builder
@@ -184,5 +189,61 @@ func proveServedMonthlyPDF(ctx context.Context, t *testing.T, body []byte, table
 	}
 	if !strings.Contains(text, "package_id: "+manifest.PackageID) || !strings.Contains(text, "package_sha256: "+hex.EncodeToString(crypto.Hash(raw))) {
 		t.Fatal("served monthly PDF signed index metadata disagrees with its envelope")
+	}
+	verifyMonthlyPDFReader(t, body, text, foreign, secret)
+}
+
+// The semantic stream above checks original query values and the signed
+// attachment. This independent reader checks that those same fields are
+// accessible in the served document, across page and line boundaries.
+func verifyMonthlyPDFReader(t *testing.T, body []byte, semantic, foreign, secret string) {
+	t.Helper()
+	reader, err := exec.LookPath("pdftotext")
+	if err != nil {
+		if testsupport.RequireServices() {
+			t.Fatal("required Poppler reader is unavailable for monthly PDF proof")
+		}
+		t.Log("independent monthly PDF reading requires Poppler")
+		return
+	}
+	dir := t.TempDir()
+	input, output := filepath.Join(dir, "monthly.pdf"), filepath.Join(dir, "monthly.txt")
+	if err := os.WriteFile(input, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	if err := exec.CommandContext(ctx, reader, "-raw", "-enc", "UTF-8", input, output).Run(); err != nil {
+		t.Fatal("independent monthly PDF extraction failed", err)
+	}
+	info, err := os.Stat(output)
+	if err != nil || info.Size() > 8<<20 {
+		t.Fatal("independent monthly PDF text exceeded its verification budget", err)
+	}
+	raw, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compact := func(value string) string { return strings.Join(strings.Fields(value), "") }
+	pages := strings.Split(strings.TrimRight(string(raw), "\f\n\r"), "\f")
+	header, _, found := strings.Cut(compact(pages[0]), "Monthlyclientpack-operator")
+	if !found || header == "" {
+		t.Fatal("Poppler did not find the report title after its tenant header")
+	}
+	var extracted strings.Builder
+	for i, page := range pages {
+		content := compact(page)
+		if strings.Contains(content, foreign) || strings.Contains(content, secret) {
+			t.Fatal("Poppler found sibling or secret data in the monthly PDF")
+		}
+		content, hasHeader := strings.CutPrefix(content, header)
+		content, hasFooter := strings.CutSuffix(content, "Page"+strconv.Itoa(i+1)+"of"+strconv.Itoa(len(pages)))
+		if !hasHeader || !hasFooter {
+			t.Fatalf("Poppler did not recover the monthly header and page marker on page %d", i+1)
+		}
+		extracted.WriteString(content)
+	}
+	if extracted.String() != compact(semantic) {
+		t.Fatal("Poppler reading lost or changed monthly report content")
 	}
 }
