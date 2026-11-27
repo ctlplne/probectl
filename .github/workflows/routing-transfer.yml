@@ -32,12 +32,29 @@ jobs:
         with:
           node-version: "26.12.1"
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: |
+            web/package-lock.json
+            browser-worker/package-lock.json
       - name: Embed the bundle required by the shipped harness
         run: |
           npm --prefix web ci
           npm --prefix web run build
           cp -R web/dist/. internal/webui/dist/
+      - name: Prepare the shipped harness browser
+        working-directory: browser-worker
+        env:
+          PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          bash ../scripts/ci_apt_transport.sh
+          npx --no-install playwright install-deps chromium
+          export PLAYWRIGHT_BROWSERS_PATH="$(mktemp -d "$RUNNER_TEMP/probectl-browsers.XXXXXX")"
+          browser_container="$(docker create "$PLAYWRIGHT_IMAGE")"
+          trap 'docker rm "$browser_container" >/dev/null' EXIT
+          docker cp "$browser_container:/ms-playwright/." "$PLAYWRIGHT_BROWSERS_PATH/"
+          node --input-type=module -e 'import fs from "node:fs"; import { chromium } from "playwright"; fs.accessSync(chromium.executablePath(), fs.constants.X_OK);'
+          echo "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" >> "$GITHUB_ENV"
       - name: Start TLS PostgreSQL and Dex
         run: |
           mkdir -p "$RUNNER_TEMP/routing-transfer"
