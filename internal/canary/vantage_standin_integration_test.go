@@ -54,7 +54,7 @@ func TestCloudVantageStandInEnrollsAndProbesInTwoTenants(t *testing.T) {
 		lanes[i] = lane{tenant.ID, stack.SignIn(t, tenant.ID, email, slug), make(map[string]vantage)}
 	}
 	for i, own := range lanes {
-		for _, provider := range providers {
+		for j, provider := range providers {
 			name := provider.name + "-" + strconv.Itoa(i)
 			target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusNoContent)
@@ -71,7 +71,13 @@ func TestCloudVantageStandInEnrollsAndProbesInTwoTenants(t *testing.T) {
 				t.Fatalf("%s could not create its local canary: HTTP %d", name, code)
 			}
 			agentID := uuid.NewString()
-			identity := enrollVantageStandIn(t, stack, name, own.id, lanes[1-i].id, agentID)
+			// All six stand-ins share one fixture IP. One wrong-tenant attempt
+			// per tenant checks both directions below the normal lockout limit.
+			var sibling string
+			if j == 0 {
+				sibling = lanes[1-i].id
+			}
+			identity := enrollVantageStandIn(t, stack, name, own.id, sibling, agentID)
 			launchVantageStandIn(t, stack, identity, name, provider.name, provider.region, address, created.ID)
 			own.vantages[created.ID] = vantage{agentID, provider.name, provider.region}
 		}
@@ -142,11 +148,13 @@ func enrollVantageStandIn(t *testing.T, stack *shipped.Stack, name, tenant, sibl
 		cmd.Stdin = strings.NewReader(token + "\n")
 		return cmd.CombinedOutput()
 	}
-	if raw, err := enroll(sibling); err == nil || strings.Contains(string(raw), token) {
-		t.Fatalf("%s accepted a sibling tenant claim or disclosed the token", name)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "cert.pem")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("%s left credentials after refusing sibling enrollment: %v", name, err)
+	if sibling != "" {
+		if raw, err := enroll(sibling); err == nil || !strings.Contains(string(raw), "HTTP 401") || strings.Contains(string(raw), token) {
+			t.Fatalf("%s did not reject a sibling tenant claim without disclosing the token", name)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "cert.pem")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s left credentials after refusing sibling enrollment: %v", name, err)
+		}
 	}
 	raw, err := enroll(tenant)
 	if err != nil || !strings.Contains(string(raw), crypto.AgentSPIFFEID(tenant, agentID)) || strings.Contains(string(raw), token) {
