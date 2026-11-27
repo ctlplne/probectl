@@ -566,10 +566,7 @@ func (tn *deviceTenant) checkInventory(t *testing.T, st *shipped.Stack, tenants 
 		} `json:"items"`
 		TopologyRunning bool `json:"topology_running"`
 	}
-	var api, cli inventory
-	tn.get(t, st, "/v1/devices", &api)
-	tn.cli(t, st, &cli, "device", "list")
-	for surface, inv := range map[string]inventory{"GET /v1/devices": api, "probectl device list": cli} {
+	check := func(surface string, inv inventory) bool {
 		found := false
 		for _, d := range inv.Items {
 			if d.Address == "127.0.0.1" && d.Name == tn.sysName {
@@ -577,13 +574,22 @@ func (tn *deviceTenant) checkInventory(t *testing.T, st *shipped.Stack, tenants 
 			}
 			for _, other := range tenants {
 				if other != tn && strings.Contains(d.Name+" "+d.ID, other.sysName) {
-					t.Errorf("%s as %s lists %s's device: %+v", surface, tn.slug, other.slug, d)
+					t.Fatalf("%s as %s lists %s's device: %+v", surface, tn.slug, other.slug, d)
 				}
 			}
 		}
-		if !inv.TopologyRunning || !found {
-			t.Errorf("%s as %s = %+v, want its device 127.0.0.1 named %s", surface, tn.slug, inv, tn.sysName)
-		}
+		return inv.TopologyRunning && found
+	}
+	// Metrics can be visible before the separate topology consumer applies
+	// the device record to the tenant's inventory snapshot.
+	var api, cli inventory
+	shipped.Await(t, "topology inventory for "+tn.slug+" to include "+tn.sysName, 4*pollInterval, func() bool {
+		tn.get(t, st, "/v1/devices", &api)
+		return check("GET /v1/devices", api)
+	})
+	tn.cli(t, st, &cli, "device", "list")
+	if !check("probectl device list", cli) {
+		t.Errorf("probectl device list as %s = %+v, want its device 127.0.0.1 named %s", tn.slug, cli, tn.sysName)
 	}
 }
 
