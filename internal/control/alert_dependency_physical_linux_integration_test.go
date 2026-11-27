@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -208,12 +209,17 @@ func dependencyLabCommand(t *testing.T, command string, args ...string) {
 
 func newDependencyPhysicalNetwork(t *testing.T) dependencyPhysicalNetwork {
 	t.Helper()
+	return newDependencyPhysicalNetworkWithRouters(t, 0, 0)
+}
+
+func newDependencyPhysicalNetworkWithRouters(t *testing.T, localPID, handoffPID int) dependencyPhysicalNetwork {
+	t.Helper()
 	prefix := "probectl-qa-beta-dep-" + gouuid.NewString()[:8]
 	n := dependencyPhysicalNetwork{prefix + "-source", prefix + "-router", prefix + "-child", prefix + "-other"}
-	names := []string{n.source, n.router, n.child, n.other}
-	for _, name := range names {
-		addDependencyLabNamespace(t, name)
-	}
+	addDependencyLabNamespace(t, n.source)
+	nameDependencyRouterNamespace(t, n.router, localPID)
+	nameDependencyRouterNamespace(t, n.child, handoffPID)
+	addDependencyLabNamespace(t, n.other)
 	addDependencyLabLink(t, n.source, "to-router", "10.250.0.2/30", n.router, "to-source", "10.250.0.1/30")
 	addDependencyLabLink(t, n.router, "to-child", "10.250.1.1/30", n.child, "to-router", "10.250.1.2/30")
 	addDependencyLabLink(t, n.source, "to-other", "10.250.2.1/30", n.other, "to-source", "10.250.2.2/30")
@@ -236,6 +242,21 @@ func newDependencyPhysicalNetwork(t *testing.T) dependencyPhysicalNetwork {
 func addDependencyLabNamespace(t *testing.T, name string) {
 	t.Helper()
 	dependencyLabCommand(t, "ip", "netns", "add", name)
+	prepareDependencyLabNamespace(t, name)
+}
+
+func nameDependencyRouterNamespace(t *testing.T, name string, pid int) {
+	t.Helper()
+	if pid == 0 {
+		addDependencyLabNamespace(t, name)
+		return
+	}
+	dependencyLabCommand(t, "ip", "netns", "attach", name, strconv.Itoa(pid))
+	prepareDependencyLabNamespace(t, name)
+}
+
+func prepareDependencyLabNamespace(t *testing.T, name string) {
+	t.Helper()
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

@@ -19,6 +19,7 @@ import (
 
 	gouuid "github.com/google/uuid"
 
+	"github.com/ctlplne/probectl/internal/agent"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/bgp"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -155,7 +156,12 @@ func TestIncidentInternetServesCompleteConfiguredPopulationAndTenantIsolation(t 
 	proveIncidentInternet(t, nil)
 }
 
-func proveIncidentInternet(t *testing.T, collect verdictNetworkProbes) {
+type verdictInternetLab struct {
+	verdictHandoffLab
+	capture func(*roleExplanationAPIFixture, string, *agent.EvidenceClient, []testspec.ExecutableDefinition) (*entity.BMPPeerSession, store.BGPRoutingViewRef)
+}
+
+func proveIncidentInternet(t *testing.T, startLab func(*testing.T, bool) verdictInternetLab) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
@@ -164,7 +170,15 @@ func proveIncidentInternet(t *testing.T, collect verdictNetworkProbes) {
 	backboneID := gouuid.NewString()
 	ids := map[string]string{}
 	windows := map[string]incident.VerdictInput{}
+	var views [2]store.BGPRoutingViewRef
 	for lane, tenant := range f.tenants {
+		healthy := lane == 1
+		peerASN := uint32(4294967295)
+		var lab verdictInternetLab
+		if startLab != nil {
+			lab = startLab(t, healthy)
+			peerASN = lab.peerASN
+		}
 		id := gouuid.NewString()
 		ids[tenant] = id
 		var actor *auth.Principal
@@ -178,7 +192,7 @@ func proveIncidentInternet(t *testing.T, collect verdictNetworkProbes) {
 			if err != nil {
 				return err
 			}
-			policy.Definition.ProviderASNs = []uint32{4294967295}
+			policy.Definition.ProviderASNs = []uint32{peerASN}
 			if _, err := (store.InterfaceRoleConfiguration{}).PutPolicy(ctx, sc, f.contextID, policy.ID, policy.Revision, policy.Definition, roleExplanationStoreBudget()); err != nil {
 				return err
 			}
@@ -197,18 +211,11 @@ func proveIncidentInternet(t *testing.T, collect verdictNetworkProbes) {
 			}
 			return err
 		})
-		f.peer(tenant, 4294967295)
+		if startLab == nil {
+			f.peer(tenant, peerASN)
+		}
 		listener, snmp := sender(tenant, "role-listener"), sender(tenant, "role-snmp")
-		pollAt := f.observedAt(tenant)
-		prefixes := append(roleExplanationPrefixes(), entity.SNMPInterfacePrefix{IfIndex: 8, Prefix: netip.MustParsePrefix("198.18.0.0/24"), OnLink: true})
-		source := entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"}
-		poll := []entity.Observation{{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "192.0.2.1"}, SourceRef: "snmp:configured-target", ObservedAt: pollAt, SNMPInterfacePrefixes: prefixes}}
-		for _, row := range []struct{ index, address string }{{"7", "10.42.0.2"}, {"8", "198.18.0.1"}} {
-			poll = append(poll, entity.Observation{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: row.index}, SourceRef: "snmp:ifIndex:" + row.index, ObservedAt: pollAt}, entity.Observation{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: row.address}, SourceRef: "snmp:ifIndex:" + row.index, ObservedAt: pollAt})
-		}
-		if accepted, unresolved, err := snmp.Submit(t.Context(), poll); err != nil || accepted != len(poll) || unresolved != 0 {
-			t.Fatal("whole current handoff/backbone poll refused", accepted, unresolved, err)
-		}
+		submitVerdictHandoffPoll(t, f, tenant, snmp, startLab != nil)
 
 		agents := []string{gouuid.NewString(), gouuid.NewString()}
 		definitions := []testspec.ExecutableDefinition{seedVerdictCarrierTest(t, f, tenant, agents[0], "198.51.100.7"), seedVerdictCarrierTest(t, f, tenant, agents[1], "203.0.113.7")}
@@ -216,7 +223,7 @@ func proveIncidentInternet(t *testing.T, collect verdictNetworkProbes) {
 			Submit(context.Context, []entity.Observation) (int, int, error)
 		}{sender(tenant, agents[0]), sender(tenant, agents[1])}
 		for index := range definitions {
-			if collect == nil {
+			if startLab == nil {
 				definitions[index].Params["count"] = "100000"
 			} else {
 				definitions[index].Params["privileged"] = "true"
@@ -230,33 +237,27 @@ func proveIncidentInternet(t *testing.T, collect verdictNetworkProbes) {
 				return err
 			})
 		}
-		seedInternetRoutingView(t, f, tenant, 64497)
-		raw := internetPhysicalUpForTest(64500, 4294967295)
-		copy(raw[28:32], []byte{10, 42, 0, 1})
-		fact, err := bgp.DecodePhysicalPeerSession(t.Context(), raw, bgp.PeerMessageBudget{MemoryBytes: 1 << 20, WorkUnits: 1 << 20})
-		if err != nil {
-			t.Fatal(err)
+		var fact *entity.BMPPeerSession
+		statesRead := modeledVerdictHandoffStates()
+		if startLab == nil {
+			views[lane] = seedInternetRoutingView(t, f, tenant, 64497).BGPRoutingViewRef
+			fact = modeledVerdictInternetPeer(t, peerASN)
+		} else {
+			fact, views[lane] = lab.capture(f, tenant, listener, definitions)
+			statesRead = lab.states()
 		}
 		at := f.observedAt(tenant)
-		claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-listener", Kind: entity.BMPPeer, SourceRef: "role-router"}, Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: "10.42.0.1/as4294967295"}, SourceRef: "bmp:router:role-router:peer-asn:4294967295", OriginSerial: f.serials[tenant+"role-router"], ObservedAt: at, BMPPeerSession: fact}
+		claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-listener", Kind: entity.BMPPeer, SourceRef: "role-router"}, Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("10.42.0.1/as%d", peerASN)}, SourceRef: fmt.Sprintf("bmp:router:role-router:peer-asn:%d", peerASN), OriginSerial: f.serials[tenant+"role-router"], ObservedAt: at, BMPPeerSession: fact}
 		if accepted, unresolved, err := listener.Submit(t.Context(), []entity.Observation{claim}); err != nil || accepted != 1 || unresolved != 0 {
 			t.Fatal("original handoff event refused", accepted, unresolved, err)
 		}
 		observed := f.observedAt(tenant)
-		states := []entity.Observation{}
-		for _, index := range []uint32{7, 8} {
-			oper, admin := uint32(1), uint32(1)
-			states = append(states, entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"}, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: fmt.Sprint(index)}, SourceRef: fmt.Sprint("snmp:ifIndex:", index), ObservedAt: observed, SNMPInterfaceState: &entity.SNMPInterfaceState{Version: 1, OperStatus: &oper, AdminStatus: &admin}})
-		}
-		if accepted, unresolved, err := snmp.Submit(t.Context(), states); err != nil || accepted != 2 || unresolved != 0 {
-			t.Fatal("original local/handoff state refused", accepted, unresolved, err)
-		}
-		healthy := lane == 1
+		submitVerdictHandoffStates(t, snmp, observed, statesRead)
 		var probes [2]entity.Observation
-		if collect == nil {
+		if startLab == nil {
 			probes = modeledVerdictInternetProbes(t, healthy, agents, definitions, at.Add(time.Microsecond), observed)
 		} else {
-			probes = collect(t, healthy, agents, definitions)
+			probes = lab.probes(t, healthy, agents, definitions)
 		}
 		last := observed
 		for i, probe := range probes {
@@ -287,7 +288,8 @@ func proveIncidentInternet(t *testing.T, collect verdictNetworkProbes) {
 		found := false
 		errorSenders := make(map[string]bool, len(agents))
 		for _, citation := range got.Hypotheses[2].For {
-			if citation.Routing != nil && citation.Routing.OriginASN == 64497 && citation.Routing.Address == "198.19.0.1" {
+			if citation.Routing != nil && citation.Routing.OriginASN == 64497 && citation.Routing.Address == "198.19.0.1" &&
+				citation.Routing.ViewID == views[lane].ID && citation.Routing.GenerationID == views[lane].Generation {
 				found = true
 			}
 			if citation.Reason == "complete_original_challenge_matched_external_no_route_errors" {
@@ -300,7 +302,24 @@ func proveIncidentInternet(t *testing.T, collect verdictNetworkProbes) {
 		proveIncidentVerdictServedReaders(t, f, tenant, id, windows[tenant], got)
 		proveIncidentVerdictSignedExport(t, f, tenant, id, windows[tenant], got)
 	}
-	proveIncidentVerdictForeignReaderRefusal(t, f, f.tenants[0], ids[f.tenants[1]], windows[f.tenants[1]])
+	if views[0] == views[1] || views[0].Generation == "" || views[1].Generation == "" {
+		t.Fatal("the wider-internet proof shared a routing generation between tenants")
+	}
+	for lane, tenant := range f.tenants {
+		sibling := f.tenants[1-lane]
+		proveIncidentVerdictForeignReaderRefusal(t, f, tenant, ids[sibling], windows[sibling])
+	}
+}
+
+func modeledVerdictInternetPeer(t *testing.T, peerASN uint32) *entity.BMPPeerSession {
+	t.Helper()
+	raw := internetPhysicalUpForTest(64500, peerASN)
+	copy(raw[28:32], []byte{10, 42, 0, 1})
+	fact, err := bgp.DecodePhysicalPeerSession(t.Context(), raw, bgp.PeerMessageBudget{MemoryBytes: 1 << 20, WorkUnits: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fact
 }
 
 func modeledVerdictInternetProbes(t *testing.T, healthy bool, agents []string, definitions []testspec.ExecutableDefinition, from, to time.Time) [2]entity.Observation {

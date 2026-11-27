@@ -47,7 +47,7 @@ func TestIncidentVerdictLinuxLinkFailureKeepsTenantScope(t *testing.T) {
 	for lane, tenant := range f.tenants {
 		network := newDependencyPhysicalNetwork(t)
 		sender := newSender(tenant, "role-snmp")
-		index, before := readVerdictLinuxLink(t, network.router)
+		index, before := readVerdictLinuxLink(t, network.router, "to-child")
 		if *before.AdminStatus != 1 || *before.OperStatus != 1 {
 			t.Fatal("the lab backbone did not start administratively and operationally up")
 		}
@@ -97,7 +97,7 @@ func TestIncidentVerdictLinuxLinkFailureKeepsTenantScope(t *testing.T) {
 		}
 		var state entity.SNMPInterfaceState
 		shipped.Await(t, "isolated router link reached its planted state", 3*time.Second, func() bool {
-			currentIndex, current := readVerdictLinuxLink(t, network.router)
+			currentIndex, current := readVerdictLinuxLink(t, network.router, "to-child")
 			if currentIndex != index || *current.AdminStatus != 1 {
 				t.Fatal("the lab changed the identity or administration of the observed interface")
 			}
@@ -143,11 +143,11 @@ func TestIncidentVerdictLinuxLinkFailureKeepsTenantScope(t *testing.T) {
 
 // The lab adapts kernel ifindex and link flags to the existing IF-MIB evidence
 // shape. Socket delivery and mTLS are real; this adapter is test-only.
-func readVerdictLinuxLink(t *testing.T, namespace string) (uint32, entity.SNMPInterfaceState) {
+func readVerdictLinuxLink(t *testing.T, namespace, device string) (uint32, entity.SNMPInterfaceState) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "ip", "-n", namespace, "-j", "link", "show", "dev", "to-child").CombinedOutput()
+	out, err := exec.CommandContext(ctx, "ip", "-n", namespace, "-j", "link", "show", "dev", device).CombinedOutput()
 	if err != nil {
 		t.Fatalf("read the lab link state: %v: %s", err, out)
 	}

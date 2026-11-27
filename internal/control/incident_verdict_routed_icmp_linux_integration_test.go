@@ -21,8 +21,8 @@ import (
 	"github.com/ctlplne/probectl/internal/testsupport"
 )
 
-// The probes cross a real, isolated handoff. The existing modeled BMP and
-// IF-MIB originals still supply the separate routing and interface context.
+// A stock FRR hold expiry, real kernel link state and two probes cross the
+// same handoff. All retained observations arrive over the issued mTLS lanes.
 func TestIncidentVerdictPhysicalCarrierProbeLossKeepsTenantIsolation(t *testing.T) {
 	if os.Getenv("PROBECTL_TEST_REQUIRE_DEPENDENCY_LAB") != "1" {
 		testsupport.SkipOptIn(t, "PROBECTL_TEST_REQUIRE_DEPENDENCY_LAB", "isolated Linux carrier and probe namespaces")
@@ -30,19 +30,11 @@ func TestIncidentVerdictPhysicalCarrierProbeLossKeepsTenantIsolation(t *testing.
 	if os.Geteuid() != 0 {
 		t.Fatal("the required carrier probe proof needs namespace privileges")
 	}
-	proveIncidentCarrier(t, collectVerdictCarrierProbes)
+	proveIncidentCarrier(t, startVerdictCarrierFRR)
 }
 
-func collectVerdictCarrierProbes(t *testing.T, healthy bool, senders []string, definitions []testspec.ExecutableDefinition) [2]entity.Observation {
+func collectVerdictCarrierProbes(t *testing.T, vantages [2]string, healthy bool, senders []string, definitions []testspec.ExecutableDefinition) [2]entity.Observation {
 	t.Helper()
-	network := newDependencyPhysicalNetwork(t)
-	enableDependencySecondVantage(t, network)
-	routeVerdictICMPTargets(t, network, network.child, definitions)
-	vantages := [2]string{network.source, network.other}
-	checkVerdictICMPBaseline(t, vantages, definitions)
-	if !healthy {
-		dependencyPhysicalLoss(t, network.child, "to-router", true)
-	}
 	var probes [2]entity.Observation
 	for i, sample := range collectVerdictICMPPair(t, vantages, definitions) {
 		m := sample.Measurement
@@ -60,8 +52,8 @@ func collectVerdictCarrierProbes(t *testing.T, healthy bool, senders []string, d
 	return probes
 }
 
-// This proof supplies actual challenge-matched ICMP errors. The BGP session,
-// selected routing view and local interface evidence remain modeled fixtures.
+// Stock FRR, the original selected route and kernel-generated ICMP all come
+// from the same isolated path, with separate tenant and mTLS identities.
 func TestIncidentVerdictPhysicalExternalNoRouteKeepsTenantIsolation(t *testing.T) {
 	if os.Getenv("PROBECTL_TEST_REQUIRE_DEPENDENCY_LAB") != "1" {
 		testsupport.SkipOptIn(t, "PROBECTL_TEST_REQUIRE_DEPENDENCY_LAB", "isolated Linux carrier, external router and probe namespaces")
@@ -69,34 +61,11 @@ func TestIncidentVerdictPhysicalExternalNoRouteKeepsTenantIsolation(t *testing.T
 	if os.Geteuid() != 0 {
 		t.Fatal("the required external routing proof needs namespace privileges")
 	}
-	proveIncidentInternet(t, collectVerdictInternetProbes)
+	proveIncidentInternet(t, startVerdictInternetFRR)
 }
 
-func collectVerdictInternetProbes(t *testing.T, healthy bool, senders []string, definitions []testspec.ExecutableDefinition) [2]entity.Observation {
+func collectVerdictInternetProbes(t *testing.T, vantages [2]string, healthy bool, senders []string, definitions []testspec.ExecutableDefinition) [2]entity.Observation {
 	t.Helper()
-	network := newDependencyPhysicalNetwork(t)
-	enableDependencySecondVantage(t, network)
-	external := network.child + "-external"
-	addDependencyLabNamespace(t, external)
-	addDependencyLabLink(t, network.child, "to-external", "198.19.0.254/24", external, "to-handoff", "198.19.0.1/24")
-	dependencyLabCommand(t, "ip", "netns", "exec", network.child, "sysctl", "-qw", "net.ipv4.ip_forward=1")
-	dependencyLabCommand(t, "ip", "netns", "exec", external, "sysctl", "-qw", "net.ipv4.ip_forward=1", "net.ipv4.icmp_ratelimit=0")
-	for _, prefix := range []string{"10.250.0.0/30", "10.250.2.0/30"} {
-		dependencyLabCommand(t, "ip", "-n", external, "route", "add", prefix, "via", "198.19.0.254")
-	}
-	routeVerdictICMPTargets(t, network, external, definitions)
-	for _, definition := range definitions {
-		dependencyLabCommand(t, "ip", "-n", network.child, "route", "add", definition.Target+"/32", "via", "198.19.0.1")
-	}
-	vantages := [2]string{network.source, network.other}
-	checkVerdictICMPBaseline(t, vantages, definitions)
-	if !healthy {
-		// Withdraw only the test destinations at the far router. The
-		// handoff and forwarding to the far router stay available.
-		for _, definition := range definitions {
-			dependencyLabCommand(t, "ip", "-n", external, "addr", "del", definition.Target+"/32", "dev", "lo")
-		}
-	}
 	var probes [2]entity.Observation
 	for i, sample := range collectVerdictICMPPair(t, vantages, definitions) {
 		m := sample.Measurement
@@ -110,7 +79,7 @@ func collectVerdictInternetProbes(t *testing.T, healthy bool, senders []string, 
 				m.TargetIP, m.Expected, m.Replies, len(m.NetworkErrors), sample.Result.Error)
 		}
 		for _, original := range m.NetworkErrors {
-			if original.Conflicting || original.Type != 3 || original.Code != 0 || original.Responder != "198.19.0.1" {
+			if original.Conflicting || original.Type != 3 || original.Code != 0 || original.Responder != verdictFRRExternalIP {
 				t.Fatal("incorrect original external network error", original.Type, original.Code, original.Responder)
 			}
 		}

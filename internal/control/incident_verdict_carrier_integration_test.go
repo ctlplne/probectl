@@ -18,6 +18,7 @@ import (
 
 	gouuid "github.com/google/uuid"
 
+	"github.com/ctlplne/probectl/internal/agent"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/bgp"
 	"github.com/ctlplne/probectl/internal/crypto"
@@ -26,6 +27,7 @@ import (
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
+	"github.com/ctlplne/probectl/internal/store/pathstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testspec"
 )
@@ -59,30 +61,59 @@ func TestIncidentCarrierServesOriginalASNHandoffAndTenantIsolation(t *testing.T)
 
 type verdictNetworkProbes func(*testing.T, bool, []string, []testspec.ExecutableDefinition) [2]entity.Observation
 
-func proveIncidentCarrier(t *testing.T, collect verdictNetworkProbes) {
+type verdictHandoffLab struct {
+	peerASN uint32
+	states  func() [2]entity.SNMPInterfaceState
+	probes  verdictNetworkProbes
+}
+
+type verdictCarrierLab struct {
+	verdictHandoffLab
+	capture  func([]testspec.ExecutableDefinition) *entity.BMPPeerSession
+	discover Discoverer
+}
+
+func proveIncidentCarrier(t *testing.T, startLab func(*testing.T, bool) verdictCarrierLab) {
 	t.Helper()
 	f := newRoleExplanationAPIFixture(t)
 	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
+	permissions := []string{permIncidentRead, permTestRead}
+	if startLab != nil {
+		f.server.pathStore = pathstore.NewMemory()
+		permissions = append(permissions, permTestWrite, permChangeRead, permAIQuery, permFlowRead)
+	}
+	for _, tenant := range f.tenants {
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			for _, permission := range permissions {
+				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
 	seedInterfaceRoleMCPConsent(f)
 	sender := newVerdictEvidenceSender(t, f)
 	backboneID := gouuid.NewString()
 	ids := map[string]string{}
 	windows := map[string]incident.VerdictInput{}
 	for lane, tenant := range f.tenants {
+		healthy := lane == 1
+		peerASN := uint32(4294967295)
+		var lab verdictCarrierLab
+		if startLab != nil {
+			lab = startLab(t, healthy)
+			peerASN = lab.peerASN
+		}
 		id := gouuid.NewString()
 		ids[tenant] = id
 		var actor *auth.Principal
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
-			for _, permission := range []string{permIncidentRead, permTestRead} {
-				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
-					return err
-				}
-			}
 			policy, err := (store.InterfaceRoleConfiguration{}).Policy(ctx, sc, f.contextID, roleExplanationStoreBudget())
 			if err != nil {
 				return err
 			}
-			policy.Definition.ProviderASNs = []uint32{4294967295}
+			policy.Definition.ProviderASNs = []uint32{peerASN}
 			if _, err := (store.InterfaceRoleConfiguration{}).PutPolicy(ctx, sc, f.contextID, policy.ID, policy.Revision, policy.Definition, roleExplanationStoreBudget()); err != nil {
 				return err
 			}
@@ -101,51 +132,45 @@ func proveIncidentCarrier(t *testing.T, collect verdictNetworkProbes) {
 			}
 			return err
 		})
-		f.peer(tenant, 4294967295)
+		if startLab == nil {
+			f.peer(tenant, peerASN)
+		}
 		listener, snmp := sender(tenant, "role-listener"), sender(tenant, "role-snmp")
-		pollAt := f.observedAt(tenant)
-		prefixes := append(roleExplanationPrefixes(), entity.SNMPInterfacePrefix{IfIndex: 8, Prefix: netip.MustParsePrefix("198.18.0.0/24"), OnLink: true})
-		source := entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"}
-		poll := []entity.Observation{{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "192.0.2.1"}, SourceRef: "snmp:configured-target", ObservedAt: pollAt, SNMPInterfacePrefixes: prefixes}}
-		for _, row := range []struct{ index, address string }{{"7", "10.42.0.2"}, {"8", "198.18.0.1"}} {
-			poll = append(poll, entity.Observation{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: row.index}, SourceRef: "snmp:ifIndex:" + row.index, ObservedAt: pollAt}, entity.Observation{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: row.address}, SourceRef: "snmp:ifIndex:" + row.index, ObservedAt: pollAt})
-		}
-		if accepted, unresolved, err := snmp.Submit(t.Context(), poll); err != nil || accepted != len(poll) || unresolved != 0 {
-			t.Fatal("whole current handoff/backbone poll refused", accepted, unresolved, err)
-		}
+		submitVerdictHandoffPoll(t, f, tenant, snmp, startLab != nil)
 
 		agents := []string{gouuid.NewString(), gouuid.NewString()}
 		definitions := []testspec.ExecutableDefinition{seedVerdictCarrierTest(t, f, tenant, agents[0], "198.51.100.7"), seedVerdictCarrierTest(t, f, tenant, agents[1], "203.0.113.7")}
 		clients := []interface {
 			Submit(context.Context, []entity.Observation) (int, int, error)
 		}{sender(tenant, agents[0]), sender(tenant, agents[1])}
-		_, model := carrierVerdictFixture(t)
-		raw := append([]byte(nil), model.interfaces[1].peerReads[0].Session.RawFrame...)
-		copy(raw[28:32], []byte{10, 42, 0, 1})
-		fact, err := bgp.DecodePhysicalPeerSession(t.Context(), raw, bgp.PeerMessageBudget{MemoryBytes: 1 << 20, WorkUnits: 1 << 20})
-		if err != nil {
-			t.Fatal(err)
+		var fact *entity.BMPPeerSession
+		statesRead := modeledVerdictHandoffStates()
+		if startLab == nil {
+			fact = modeledVerdictCarrierPeer(t)
+		} else {
+			fact = lab.capture(definitions)
+			statesRead = lab.states()
 		}
 		at := f.observedAt(tenant)
-		claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-listener", Kind: entity.BMPPeer, SourceRef: "role-router"}, Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: "10.42.0.1/as4294967295"}, SourceRef: "bmp:router:role-router:peer-asn:4294967295", OriginSerial: f.serials[tenant+"role-router"], ObservedAt: at, BMPPeerSession: fact}
+		claim := entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-listener", Kind: entity.BMPPeer, SourceRef: "role-router"}, Alias: entity.AliasKey{Kind: entity.BMPPeerAlias, Value: fmt.Sprintf("10.42.0.1/as%d", peerASN)}, SourceRef: fmt.Sprintf("bmp:router:role-router:peer-asn:%d", peerASN), OriginSerial: f.serials[tenant+"role-router"], ObservedAt: at, BMPPeerSession: fact}
 		if accepted, unresolved, err := listener.Submit(t.Context(), []entity.Observation{claim}); err != nil || accepted != 1 || unresolved != 0 {
 			t.Fatal("original handoff event refused", accepted, unresolved, err)
 		}
+		var retainedPeerID, frameDigest string
+		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
+			return sc.Q.QueryRow(ctx, `SELECT id::text,bmp_peer_session->>'frame_digest' FROM entity_evidence
+ WHERE tenant_id=$1 AND observation_id=$2 AND agent_id='role-listener'`, tenant, claim.ID).Scan(&retainedPeerID, &frameDigest)
+		})
+		if frameDigest != fact.FrameDigest {
+			t.Fatal("the authenticated carrier observation lost its original BMP digest")
+		}
 		observed := f.observedAt(tenant)
-		states := []entity.Observation{}
-		for _, index := range []uint32{7, 8} {
-			oper, admin := uint32(1), uint32(1)
-			states = append(states, entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"}, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: fmt.Sprint(index)}, SourceRef: fmt.Sprint("snmp:ifIndex:", index), ObservedAt: observed, SNMPInterfaceState: &entity.SNMPInterfaceState{Version: 1, OperStatus: &oper, AdminStatus: &admin}})
-		}
-		if accepted, unresolved, err := snmp.Submit(t.Context(), states); err != nil || accepted != 2 || unresolved != 0 {
-			t.Fatal("original local/handoff state refused", accepted, unresolved, err)
-		}
-		healthy := lane == 1
+		submitVerdictHandoffStates(t, snmp, observed, statesRead)
 		probes := [2]entity.Observation{}
-		if collect == nil {
+		if startLab == nil {
 			probes = modeledVerdictCarrierProbes(t, healthy, agents, definitions, at.Add(time.Microsecond), observed)
 		} else {
-			probes = collect(t, healthy, agents, definitions)
+			probes = lab.probes(t, healthy, agents, definitions)
 		}
 		last := observed
 		for i, probe := range probes {
@@ -179,8 +204,12 @@ func proveIncidentCarrier(t *testing.T, collect verdictNetworkProbes) {
 		}
 		found := false
 		lossSenders := make(map[string]bool, len(agents))
-		for _, citation := range got.Hypotheses[1].For {
-			if citation.PeerASN == 4294967295 && citation.HandoffInterfaceID == f.interfaceID {
+		carrierCitations := got.Hypotheses[1].For
+		if startLab != nil && healthy {
+			carrierCitations = got.Hypotheses[1].Against
+		}
+		for _, citation := range carrierCitations {
+			if citation.PeerASN == peerASN && citation.HandoffInterfaceID == f.interfaceID && citation.EvidenceID == retainedPeerID {
 				found = true
 			}
 			if citation.Reason == "complete_original_transmitted_external_network_loss" {
@@ -195,8 +224,66 @@ func proveIncidentCarrier(t *testing.T, collect verdictNetworkProbes) {
 		}
 		proveIncidentVerdictServedReaders(t, f, tenant, id, windows[tenant], got)
 		proveIncidentVerdictSignedExport(t, f, tenant, id, windows[tenant], got)
+		if startLab != nil {
+			sibling := f.tenants[1-lane]
+			proveRoutedCarrierPack(t, f, tenant, sibling, id, windows[tenant].From, healthy, definitions, probes, lab.discover)
+		}
 	}
 	proveIncidentVerdictForeignReaderRefusal(t, f, f.tenants[0], ids[f.tenants[1]], windows[f.tenants[1]])
+}
+
+func submitVerdictHandoffPoll(t *testing.T, f *roleExplanationAPIFixture, tenant string, snmp *agent.EvidenceClient, physical bool) {
+	t.Helper()
+	pollAt := f.observedAt(tenant)
+	prefixes := append(roleExplanationPrefixes(), entity.SNMPInterfacePrefix{IfIndex: 8, Prefix: netip.MustParsePrefix("198.18.0.0/24"), OnLink: true})
+	backboneAddress := "198.18.0.1"
+	if physical {
+		prefixes = []entity.SNMPInterfacePrefix{
+			{IfIndex: 7, Prefix: netip.MustParsePrefix("10.42.0.0/24"), OnLink: true},
+			{IfIndex: 8, Prefix: netip.MustParsePrefix("10.250.0.0/30"), OnLink: true},
+		}
+		backboneAddress = "10.250.0.1"
+	}
+	source := entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"}
+	poll := []entity.Observation{{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: "192.0.2.1"}, SourceRef: "snmp:configured-target", ObservedAt: pollAt, SNMPInterfacePrefixes: prefixes}}
+	for _, row := range []struct{ index, address string }{{"7", "10.42.0.2"}, {"8", backboneAddress}} {
+		poll = append(poll,
+			entity.Observation{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: row.index}, SourceRef: "snmp:ifIndex:" + row.index, ObservedAt: pollAt},
+			entity.Observation{ID: gouuid.NewString(), Source: source, Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: row.address}, SourceRef: "snmp:ifIndex:" + row.index, ObservedAt: pollAt})
+	}
+	if accepted, unresolved, err := snmp.Submit(t.Context(), poll); err != nil || accepted != len(poll) || unresolved != 0 {
+		t.Fatal("whole current handoff/backbone poll refused", accepted, unresolved, err)
+	}
+}
+
+func submitVerdictHandoffStates(t *testing.T, snmp *agent.EvidenceClient, observed time.Time, statesRead [2]entity.SNMPInterfaceState) {
+	t.Helper()
+	var states [2]entity.Observation
+	for i, index := range []string{"7", "8"} {
+		states[i] = entity.Observation{ID: gouuid.NewString(), Source: entity.SourceKey{AgentID: "role-snmp", Kind: entity.DeviceTarget, SourceRef: "192.0.2.1"},
+			Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: index}, SourceRef: "snmp:ifIndex:" + index, ObservedAt: observed, SNMPInterfaceState: &statesRead[i]}
+	}
+	if accepted, unresolved, err := snmp.Submit(t.Context(), states[:]); err != nil || accepted != len(states) || unresolved != 0 {
+		t.Fatal("original local/handoff state refused", accepted, unresolved, err)
+	}
+}
+
+func modeledVerdictHandoffStates() [2]entity.SNMPInterfaceState {
+	up := uint32(1)
+	state := entity.SNMPInterfaceState{Version: 1, OperStatus: &up, AdminStatus: &up}
+	return [2]entity.SNMPInterfaceState{state, state}
+}
+
+func modeledVerdictCarrierPeer(t *testing.T) *entity.BMPPeerSession {
+	t.Helper()
+	_, model := carrierVerdictFixture(t)
+	raw := append([]byte(nil), model.interfaces[1].peerReads[0].Session.RawFrame...)
+	copy(raw[28:32], []byte{10, 42, 0, 1})
+	fact, err := bgp.DecodePhysicalPeerSession(t.Context(), raw, bgp.PeerMessageBudget{MemoryBytes: 1 << 20, WorkUnits: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fact
 }
 
 func modeledVerdictCarrierProbes(t *testing.T, healthy bool, agents []string, definitions []testspec.ExecutableDefinition, from, to time.Time) [2]entity.Observation {

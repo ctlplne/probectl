@@ -82,22 +82,28 @@ func labScenarios() []Scenario {
 		{
 			Name: "lab-fx13-owned-carrier-handoff", Planes: []string{"path", "bgp", "device"},
 			Text: "Which carrier handoff shows the fault on the affected route?",
-			Entities: []ai.Row{
-				row("network", "critical", "Errors at the owned carrier handoff", "The original interface counters match the selected carrier link."),
-				row("path", "warning", "Scoped probes share the affected handoff", "The current routing assignment connects the observed path to the carrier boundary."),
+			Events: []ai.Row{
+				row("bgp", "critical", "Carrier BGP hold timer expired on the owned handoff", "The local router's original BMP notification reports a hold timer expiry for AS64496."),
 			},
-			ExpectLabels:   []string{"errors at the owned carrier handoff"},
-			RelevantTitles: []string{"Errors at the owned carrier handoff", "Scoped probes share the affected handoff"},
+			Entities: []ai.Row{
+				row("path", "warning", "Independent probes lost replies across the carrier handoff", "Two configured vantages transmitted their complete probes without receiving replies."),
+				row("network", "info", "The owned carrier and backbone interfaces stayed up", "The observed interfaces retained administrative and operational state during the outage."),
+			},
+			ExpectLabels:   []string{"hold timer expired"},
+			RelevantTitles: []string{"Carrier BGP hold timer expired on the owned handoff", "Independent probes lost replies across the carrier handoff", "The owned carrier and backbone interfaces stayed up"},
 		},
 		{
-			Name: "lab-fx13-wider-internet", Planes: []string{"path", "network"},
+			Name: "lab-fx13-wider-internet", Planes: []string{"path", "network", "bgp"},
 			Text: "Where does the path failure sit relative to our owned handoffs?",
 			Entities: []ai.Row{
-				row("path", "critical", "Loss starts beyond the owned handoffs", "Independent sender observations place the failure after the current tenant's handoff boundaries."),
-				row("network", "info", "Owned handoff observations remained healthy", "The scoped observations do not support a failure at the owned interfaces."),
+				row("path", "critical", "No-route errors came from beyond the owned handoff", "Two independent probes received matching no-route errors from the same external router."),
+				row("network", "info", "The owned handoff and its BGP neighbor remained up", "The scoped link observations and physical Peer Up frame show healthy local coverage."),
 			},
-			ExpectLabels:   []string{"beyond the owned handoffs"},
-			RelevantTitles: []string{"Loss starts beyond the owned handoffs", "Owned handoff observations remained healthy"},
+			Events: []ai.Row{
+				row("bgp", "warning", "The selected responder route has a distinct external origin", "The stock FRR view places the responder in a prefix originated by AS64497 through carrier AS64496."),
+			},
+			ExpectLabels:   []string{"beyond the owned handoff"},
+			RelevantTitles: []string{"No-route errors came from beyond the owned handoff", "The owned handoff and its BGP neighbor remained up", "The selected responder route has a distinct external origin"},
 		},
 		{
 			// The routed verdict uses a modeled published range and original

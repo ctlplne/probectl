@@ -36,6 +36,15 @@ func TestRCAEval(t *testing.T) {
 	if len(rep.Results) != len(scenarios) {
 		t.Fatalf("scored %d of %d scenarios", len(rep.Results), len(scenarios))
 	}
+	// These scenarios each qualify a distinct verdict. The aggregate can
+	// still pass if one verdict stops being grounded in its own evidence.
+	verdictAbstention := map[string]bool{
+		"lab-fx13-local-network":         false,
+		"lab-fx13-owned-carrier-handoff": false,
+		"lab-fx13-wider-internet":        false,
+		"lab-fx13-remote-service-error":  false,
+		"lab-fx13-thin-verdict":          true,
+	}
 	for i, r := range rep.Results {
 		if r.Err != "" {
 			t.Errorf("scenario %s errored: %s", r.Name, r.Err)
@@ -46,6 +55,15 @@ func TestRCAEval(t *testing.T) {
 		if r.ExpectInsufficient && len(scenarios[i].RelevantTitles) > 0 && r.Relevant == 0 {
 			t.Errorf("scenario %s abstained without grounding the available context", r.Name)
 		}
+		if abstain, required := verdictAbstention[r.Name]; required {
+			delete(verdictAbstention, r.Name)
+			if r.Insufficient != abstain || !abstain && !r.AnswerCorrect || r.Relevant == 0 {
+				t.Errorf("verdict scenario %s: correct=%t abstained=%t relevant citations=%d", r.Name, r.AnswerCorrect, r.Insufficient, r.Relevant)
+			}
+		}
+	}
+	for name := range verdictAbstention {
+		t.Errorf("missing required verdict scenario %s", name)
 	}
 	// The harness itself must discriminate: a 0.0 across the board means the
 	// pipeline broke (e.g. nothing gathered), not that the model is weak.

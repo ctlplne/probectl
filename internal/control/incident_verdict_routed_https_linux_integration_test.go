@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -94,9 +95,15 @@ func startVerdictRoutedHTTPSLab(t *testing.T, code int) verdictHTTPSLab {
 // Open the listener on the lab's child interface. Accepted sockets retain that
 // namespace while the test process keeps its original database and mTLS lanes.
 func verdictRoutedHTTPSListener(namespace string) (net.Listener, error) {
+	return openVerdictLabSocket(namespace, func() (net.Listener, error) {
+		return net.Listen("tcp4", net.JoinHostPort(verdictRoutedHTTPSAddress, "0"))
+	})
+}
+
+func openVerdictLabSocket[T io.Closer](namespace string, open func() (T, error)) (T, error) {
 	type outcome struct {
-		listener net.Listener
-		err      error
+		socket T
+		err    error
 	}
 	finished := make(chan outcome, 1)
 	go func() {
@@ -123,20 +130,20 @@ func verdictRoutedHTTPSListener(namespace string) (net.Listener, error) {
 			finished <- outcome{err: err}
 			return
 		}
-		listener, err := net.Listen("tcp4", net.JoinHostPort(verdictRoutedHTTPSAddress, "0"))
+		socket, err := open()
 		if restoreErr := unix.Setns(int(original.Fd()), unix.CLONE_NEWNET); restoreErr != nil {
-			if listener != nil {
-				_ = listener.Close()
+			if err == nil {
+				_ = socket.Close()
 			}
 			// Retire the OS thread instead of returning it to the Go scheduler.
 			unlock = false
 			finished <- outcome{err: restoreErr}
 			return
 		}
-		finished <- outcome{listener, err}
+		finished <- outcome{socket, err}
 	}()
 	result := <-finished
-	return result.listener, result.err
+	return result.socket, result.err
 }
 
 type routedVerdictHTTPMeasurement struct {
