@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -139,7 +140,7 @@ func (h *HTTPSender) Send(ctx context.Context, payload []byte) error {
 	if h.preset == PresetElastic && h.contentType == "application/json" {
 		u, err := url.Parse(endpoint)
 		if err != nil {
-			return err
+			return errors.New("siem: invalid delivery URL")
 		}
 		records := bytes.Split(bytes.TrimSpace(payload), []byte("\n"))
 		path := strings.TrimSuffix(u.Path, "/")
@@ -162,7 +163,7 @@ func (h *HTTPSender) Send(ctx context.Context, payload []byte) error {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return err
+		return errors.New("siem: invalid delivery URL")
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", "probectl-siem")
@@ -171,7 +172,11 @@ func (h *HTTPSender) Send(ctx context.Context, payload []byte) error {
 	}
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return err
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// Request URLs can contain credentials outside the Authorization header.
+		return errors.New("siem: delivery transport failed")
 	}
 	defer resp.Body.Close()
 	if bulkItems > 0 && resp.StatusCode/100 == 2 {
@@ -197,7 +202,7 @@ func (h *HTTPSender) Send(ctx context.Context, payload []byte) error {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	}
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("siem: %s returned status %d", h.url, resp.StatusCode)
+		return fmt.Errorf("siem: delivery returned HTTP %d", resp.StatusCode)
 	}
 	return nil
 }

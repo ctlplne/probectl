@@ -6,7 +6,49 @@
 
 package siem
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/url"
+	"strings"
+	"testing"
+)
+
+func TestHTTPSenderErrorsDoNotExposeDestinationCredentials(t *testing.T) {
+	const raw = "https://siem.example/fixture-key-in-path?channel=fixture-key-in-query"
+	transport := elasticProtocolDoer(func(req *http.Request) (*http.Response, error) {
+		return nil, &url.Error{Op: req.Method, URL: req.URL.String(), Err: errors.New("fixture transport refused")}
+	})
+	for _, tc := range []struct {
+		name, endpoint, want string
+		preset               Preset
+		client               Doer
+	}{
+		{"status", raw, "HTTP 503", PresetSplunk, &fakeDoer{status: http.StatusServiceUnavailable}},
+		{"transport", raw, "transport failed", PresetSplunk, transport},
+		{"request", raw + "\x00", "invalid delivery URL", PresetSplunk, transport},
+		{"bulk parse", raw + "\x00", "invalid delivery URL", PresetElastic, transport},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sender := NewHTTPSender(tc.preset, tc.endpoint, "fixture-auth-key", AuthSchemeDefault, "application/json", tc.client)
+			err := sender.Send(t.Context(), []byte("fixture payload"))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected sanitized %s failure", tc.name)
+			}
+			if msg := err.Error(); strings.Contains(msg, "fixture-key") || strings.Contains(msg, "fixture-auth-key") ||
+				strings.Contains(msg, "siem.example") {
+				t.Fatal("delivery error exposed destination credentials")
+			}
+		})
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	sender := NewHTTPSender(PresetSplunk, raw, "", AuthSchemeDefault, "application/json", transport)
+	if err := sender.Send(ctx, nil); !errors.Is(err, context.Canceled) {
+		t.Fatal("delivery lost caller cancellation")
+	}
+}
 
 // TestTheAuthSchemeCanBePinnedForTheTargetYouActuallyRun (DPR-115): the elastic
 // preset always sent "ApiKey", which Elasticsearch understands and OpenSearch
