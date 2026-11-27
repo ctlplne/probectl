@@ -98,14 +98,19 @@ for path in (
 
 # Check short summaries in place so a later legal section cannot mask an omission.
 for path, start, end in (
+    ("LICENSE", "Production use follows the", "\n\n"),
     ("docs/editions.md", "probectl is **source-available**", "\n\n"),
+    ("docs/editions.md", "It uses the BUSL-1.1 text", "\n- "),
     ("docs/install.md", "**Install your license (Enterprise / MSP).**", "\n\n"),
     ("docs/pricing.md", "| Core |", "\n"),
     ("docs/pricing/tco-calculator.md", "| Core |", "\n"),
 ):
     _, marker, content = (root / path).read_text(encoding="utf-8").partition(start)
     summary = " ".join(content.split(end, 1)[0].split()) if marker else ""
-    require_attribution(f"{path} ({start})", summary)
+    location = f"{path} ({start})"
+    require_attribution(location, summary)
+    if "probectl name, logos" not in summary:
+        missing.append(f"{location} must name the protected probectl name and logos")
 if missing:
     sys.exit("\n".join(missing))
 PY

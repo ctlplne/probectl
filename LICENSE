@@ -11,8 +11,9 @@ file sits, and nothing about being able to read a file grants a right to use it.
     `SPDX-License-Identifier: BUSL-1.1`; every other core file takes this
     license from its location. The BSL is a source-available license, not an
     open source license. Production use follows the Additional Use Grant
-    below, including preservation of the probectl attribution. Each published
-    version converts to Mozilla Public License 2.0 on its Change Date.
+    below, which requires preserving the probectl name, logos, and
+    "Powered by probectl" attribution. Each published version converts to
+    Mozilla Public License 2.0 on its Change Date.
 
   * The CLIENT tree — everything INSIDE the top-level `pkg/` (the public Go
     SDK), `proto/` (the wire contracts) and `examples/` directories — is

@@ -370,8 +370,8 @@ Ed25519 math — no sockets.
   alerting, or dashboards that already exist.
 - Not finalized commercial legal text: the core [`LICENSE`](../LICENSE) is
   final. It uses the BUSL-1.1 text with the core's Additional Use Grant,
-  including required probectl attribution, followed by the MPL-2.0 text for
-  `pkg/`, `proto/` and `examples/`. The bespoke
-  `ee/LICENSE`, commercial headers,
+  which requires preserving the probectl name, logos, and “Powered by probectl”
+  attribution. The MPL-2.0 text applies to `pkg/`, `proto/` and `examples/`.
+  The bespoke `ee/LICENSE`, commercial headers,
   reseller terms, DPA/MSA, and open-data resale review remain counsel work. The
   enforcement mechanics above are complete independently of that review.
