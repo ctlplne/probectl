@@ -11,10 +11,12 @@ package control
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -226,6 +228,68 @@ func TestSIEMExportTenantScopedDestinationIsolation(t *testing.T) {
 	}
 	if seenA != 2 || seenB != 1 {
 		t.Fatalf("delivered per tenant = A:%d B:%d, want A:2 B:1", seenA, seenB)
+	}
+}
+
+// The Splunk HEC raw fixture uses the documented HTTPS/token contract, with
+// indexer acknowledgment disabled. No proprietary Splunk instance is involved.
+func TestSplunkHECRawStandInRetriesWithoutMixingTenantBatches(t *testing.T) {
+	db := changeDB(t)
+	alpha := freshTenant(t, db, "hec-raw-alpha")
+	beta := freshTenant(t, db, "hec-raw-beta")
+	appendAudit(t, db, alpha, "alert.create")
+	appendAudit(t, db, alpha, "alert.update")
+	appendAudit(t, db, beta, "alert.resolve")
+	var rejectAlpha atomic.Bool
+	rejectAlpha.Store(true)
+	var receivedAlpha, receivedBeta atomic.Int64
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		text := string(raw)
+		var hasAlpha, hasBeta bool
+		for _, field := range strings.Fields(text) {
+			hasAlpha = hasAlpha || field == "cs1="+alpha
+			hasBeta = hasBeta || field == "cs1="+beta
+		}
+		if err != nil || hasAlpha == hasBeta || !strings.HasPrefix(text, "CEF:") ||
+			r.Method != http.MethodPost || r.URL.Path != "/services/collector/raw" ||
+			r.Header.Get("Authorization") != "Splunk local-hec-fixture" {
+			t.Error("invalid HEC raw request or mixed tenant batch")
+			http.Error(w, "invalid HEC payload", http.StatusBadRequest)
+			return
+		}
+		if hasAlpha && rejectAlpha.Load() {
+			http.Error(w, "simulated HEC unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if hasAlpha {
+			receivedAlpha.Add(int64(strings.Count(text, "CEF:")))
+		} else {
+			receivedBeta.Add(int64(strings.Count(text, "CEF:")))
+		}
+		_, _ = io.WriteString(w, `{"text":"Success","code":0}`)
+	}))
+	t.Cleanup(target.Close)
+	format, _ := siem.NewFormatter("cef")
+	sender := siem.NewHTTPSender(siem.PresetSplunk, target.URL+"/services/collector/raw", "local-hec-fixture", siem.AuthSchemeDefault, "text/plain", target.Client())
+	forwarder := siem.NewForwarder(format, sender, siem.Config{RetryBackoff: time.Millisecond, MaxBackoff: time.Millisecond}, testLog())
+	poller := NewSIEMAuditPoller(db.Pool(), forwarder, nil, true, time.Minute, testLog())
+	poller.postTimeout = 150 * time.Millisecond
+	for _, tenant := range []string{alpha, beta} {
+		if err := poller.drainTenant(t.Context(), tenant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if tenantCursor(t, db, alpha) != 0 || tenantCursor(t, db, beta) != 1 || receivedBeta.Load() != 1 {
+		t.Fatal("the failed HEC batch altered another tenant or advanced its own cursor")
+	}
+	rejectAlpha.Store(false)
+	poller.postTimeout = 5 * time.Second
+	if err := poller.drainTenant(t.Context(), alpha); err != nil {
+		t.Fatal(err)
+	}
+	if tenantCursor(t, db, alpha) != 2 || tenantCursor(t, db, beta) != 1 || receivedAlpha.Load() != 2 || receivedBeta.Load() != 1 {
+		t.Fatal("HEC recovery did not deliver the original two records within their own tenant")
 	}
 }
 

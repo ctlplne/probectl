@@ -205,3 +205,7 @@ PROBECTL_SIEM_PRESET=splunk
 PROBECTL_SIEM_ENDPOINT=https://splunk.example:8088/services/collector/raw
 PROBECTL_SIEM_TOKEN=<hec-token>
 ```
+
+Use an HEC token with indexer acknowledgment disabled for this raw CEF
+configuration. Delivery advances after the HTTP request succeeds.
+[Splunk HEC raw event format](https://help.splunk.com/en/data-management/collect-http-event-data/use-hec-in-splunk-enterprise/format-events-for-http-event-collector)
