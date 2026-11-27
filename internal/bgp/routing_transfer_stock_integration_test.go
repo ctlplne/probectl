@@ -322,7 +322,18 @@ func proveTransferStockHumanReview(t *testing.T, lab *routingLab, st *shipped.St
 		transferStockReviewRequest(t, st, cookie, http.MethodPost, path+"/approve", approval, http.StatusForbidden, nil)
 		transferStockReviewRequest(t, st, other, http.MethodPost, path+"/approve", approval, http.StatusNotFound, nil)
 		var accepted sdk.RemediationProposal
-		transferStockReviewRequest(t, st, reviewers[lane], http.MethodPost, path+"/approve", approval, http.StatusOK, &accepted)
+		code, raw := st.Do(t, reviewers[lane], http.MethodPost, path+"/approve", approval)
+		if code != http.StatusOK || json.Unmarshal(raw, &accepted) != nil {
+			// Record the current read-only result without retrying approval or
+			// applying anything. This distinguishes preview drift from a
+			// conflict while publishing the saved review.
+			currentCode, currentRaw := st.Do(t, reviewers[lane], http.MethodPost, "/v1/remediation/routing-transfer-dry-run", selections[lane])
+			var current sdk.RoutingTransferDryRun
+			_ = json.Unmarshal(currentRaw, &current)
+			t.Fatalf("lane %d approval HTTP %d: %.500s; current dry run HTTP %d preview %q vs %q estimate %q vs %q validity %q vs %q",
+				lane, code, raw, currentCode, current.PreviewFingerprint, preview.PreviewFingerprint,
+				current.EstimateDigest, preview.EstimateDigest, current.SourceValidUntil, preview.SourceValidUntil)
+		}
 		var approved sdk.RoutingTransferReview
 		transferStockReviewRequest(t, st, reviewers[lane], http.MethodGet, path, nil, http.StatusOK, &approved)
 		validUntil, err := time.Parse(time.RFC3339Nano, approved.ValidUntil)
@@ -384,6 +395,10 @@ func configureTransferStockHandoffs(t *testing.T, lab *routingLab) ([2]roleRoute
 		"-c", "router bgp "+strconv.Itoa(rtrAASN),
 		"-c", "neighbor "+lab.ip["edge"]+" shutdown",
 		"-c", "no neighbor "+links[0].peerIP6, "-c", "no neighbor "+links[1].peerIP6,
+		// Suppress periodic keepalives on the two owned fixture BGP sessions.
+		// A TCP keepalive and ACK can land in the same IPFIX millisecond.
+		"-c", "neighbor "+links[0].peerIP+" timers 0 0",
+		"-c", "neighbor "+links[1].peerIP+" timers 0 0",
 		"-c", "address-family ipv4 unicast",
 		"-c", "neighbor "+links[0].peerIP+" route-map FX23-SOURCE in",
 		"-c", "neighbor "+links[1].peerIP+" route-map FX23-CANDIDATE in", "-c", "exit-address-family",
@@ -392,7 +407,8 @@ func configureTransferStockHandoffs(t *testing.T, lab *routingLab) ([2]roleRoute
 	lab.docker(t, "exec", lab.container("rtr-b"), "vtysh", "-c", "configure terminal",
 		"-c", "router bgp "+strconv.Itoa(rtrBASN), "-c", "no bgp network import-check",
 		"-c", "address-family ipv4 unicast", "-c", "network "+prefixA, "-c", "end")
-	lab.docker(t, "exec", router, "vtysh", "-c", "clear bgp "+links[0].peerIP+" soft in")
+	// Renegotiate the hold times before collecting any signed samples.
+	lab.docker(t, "exec", router, "vtysh", "-c", "clear bgp "+links[0].peerIP, "-c", "clear bgp "+links[1].peerIP)
 	lab.docker(t, "exec", lab.container("edge"), "ip", "address", "add", transferStockAddress+"/32", "dev", "lo")
 	lab.docker(t, "exec", lab.container("rtr-b"), "ip", "route", "replace", transferStockAddress+"/32", "via", links[1].routerIP)
 	community := startRouterSNMP(t, lab, "rtr-a")
