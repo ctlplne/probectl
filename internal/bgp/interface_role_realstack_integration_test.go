@@ -268,9 +268,9 @@ func TestInterfaceRoleFRRSameRouterKeepsThreeRolesFlowAndOverride(t *testing.T) 
 
 func requireRoleSourceBinding(t *testing.T, st *shipped.Stack, reg edgeFlowRegistration, body map[string]string) {
 	t.Helper()
-	code, _ := st.Do(t, reg.cookie, http.MethodPut, "/v1/entity-source-contexts", body)
+	code, response := st.Do(t, reg.cookie, http.MethodPut, "/v1/entity-source-contexts", body)
 	if code != http.StatusOK {
-		t.Fatalf("real-router source binding: HTTP %d", code)
+		t.Fatalf("real-router %s source binding: HTTP %d: %.300s", body["source_kind"], code, response)
 	}
 }
 

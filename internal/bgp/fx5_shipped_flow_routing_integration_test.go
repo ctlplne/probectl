@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/store/flowstore"
 	"github.com/ctlplne/probectl/internal/tenancy"
+	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
 
@@ -45,6 +47,9 @@ type fx5FlowExpectation struct {
 // There are no BMP assignments. The public label and each independent IPFIX
 // row must survive the shipped collector, bus, stores and authenticated API.
 func TestFX5ShippedPublicFallbackWithoutBMPRouter(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		testsupport.SkipOrFatal(t, "the shipped IPFIX proof requires a Linux route to the owned FRR bridge")
+	}
 	lab := startRoutingLab(t)
 	st := shipped.Start(t, shipped.Options{Name: "fx5-public-fallback", TenantBand: 4})
 	first := registerEdgeFlowEvidence(t, st, lab.ip["rtr-a"])

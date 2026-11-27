@@ -242,11 +242,17 @@ func proveFRRSelectedRIB(t *testing.T, goldenFlows, pathHistory, rpki bool) {
 	}
 	if rpki {
 		proveFRRRPKI(t, st, registrations, rpkiTargets)
-		goldens := make([]fx5FlowGolden, 0, len(rpkiCases))
-		for _, item := range rpkiCases {
-			goldens = append(goldens, fx5FlowGolden{prefix: item.prefix, provenance: "router_selected", rpki: item.status, origin: item.origin})
-		}
-		proveFX5ShippedFlowGoldens(t, st, lab, registrations, [][]fx5FlowGolden{goldens, goldens})
+		t.Run("shipped-ipfix-validation", func(t *testing.T) {
+			if runtime.GOOS != "linux" {
+				testsupport.SkipOrFatal(t, "the shipped IPFIX proof requires a Linux route to the owned FRR bridge")
+			}
+			secondFlow := registerEdgeFlowEvidence(t, st, lab.ip["rtr-a"], second)
+			goldens := make([]fx5FlowGolden, 0, len(rpkiCases))
+			for _, item := range rpkiCases {
+				goldens = append(goldens, fx5FlowGolden{prefix: item.prefix, provenance: "router_selected", rpki: item.status, origin: item.origin})
+			}
+			proveFX5ShippedFlowGoldens(t, st, lab, []edgeFlowRegistration{first, secondFlow}, [][]fx5FlowGolden{goldens, goldens})
+		})
 		return
 	}
 	if pathHistory {
