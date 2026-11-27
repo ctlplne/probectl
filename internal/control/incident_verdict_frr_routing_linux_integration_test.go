@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,7 @@ import (
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 	"github.com/ctlplne/probectl/internal/testspec"
+	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
 
 func startVerdictInternetFRR(t *testing.T, healthy bool) verdictInternetLab {
@@ -55,6 +57,8 @@ func startVerdictInternetFRR(t *testing.T, healthy bool) verdictInternetLab {
 				dependencyLabCommand(t, "ip", "-n", network.child, "route", "add", definition.Target+"/32", "via", verdictFRRExternalIP)
 			}
 			checkVerdictICMPBaseline(t, vantages, definitions)
+			path.awaitEstablished(t)
+			path.awaitExternalRoute(t)
 			configureVerdictFRRBinding(t, f, tenant)
 			conn := openVerdictFRRBMP(t, network.router)
 			peer, route := captureVerdictExternalRoute(t, conn, f, tenant, listener)
@@ -68,6 +72,34 @@ func startVerdictInternetFRR(t *testing.T, healthy bool) verdictInternetLab {
 			return peer, route
 		},
 	}
+}
+
+func (lab verdictFRRPath) awaitExternalRoute(t *testing.T) {
+	t.Helper()
+	shipped.Await(t, "stock FRR established the external BGP origin session", 25*time.Second, func() bool {
+		return lab.carrier.neighborState(t, verdictFRRExternalIP) == "Established"
+	})
+	wantPath := fmt.Sprintf("%d %d", verdictFRRCarrierASN, verdictFRRExternalASN)
+	// Check convergence before opening BMP so that the selected responder
+	// route is in the initial dump. Only that dump supplies the proof.
+	shipped.Await(t, "stock FRR selected "+verdictFRRExternalPrefix+" via "+wantPath, 25*time.Second, func() bool {
+		raw := verdictFRRDocker(t, "exec", lab.local.id, "vtysh", "-c", "show bgp ipv4 unicast json")
+		var table struct {
+			Routes map[string][]struct {
+				Path     string `json:"path"`
+				BestPath bool   `json:"bestpath"`
+			} `json:"routes"`
+		}
+		if err := json.Unmarshal([]byte(raw), &table); err != nil {
+			t.Fatal("could not read the stock router's IPv4 BGP table", err)
+		}
+		for _, route := range table.Routes[verdictFRRExternalPrefix] {
+			if route.BestPath && route.Path == wantPath {
+				return true
+			}
+		}
+		return false
+	})
 }
 
 func enableVerdictExternalForwarding(t *testing.T, network dependencyPhysicalNetwork, external string) {
@@ -122,12 +154,15 @@ func captureVerdictExternalRoute(t *testing.T, conn net.Conn, f *roleExplanation
 	var staged store.BGPRoutingViewRef
 	var selected store.BGPRoutingViewRef
 	var sequence int64
+	var frames [4][4]int // BMP message type, then BMP peer type
+	var lookupErr error
 	const origin = "role-router"
 	originSerial := f.serials[tenant+origin]
 	for peer == nil || selected.ID == "" {
 		raw, err := readVerdictFRRFrame(conn)
 		if err != nil {
-			t.Fatalf("stock FRR did not provide the physical neighbor and a complete selected responder route: %v", err)
+			t.Fatalf("stock FRR dump incomplete: physical_peer=%t selected_view_staged=%t selected_route_current=%t applied_updates=%d frames_by_message_and_peer_type=%v last_lookup=%v: %v",
+				peer != nil, staged.ID != "", selected.ID != "", sequence, frames, lookupErr, err)
 		}
 		if raw[5] != 0 && raw[5] != 2 && raw[5] != 3 {
 			continue
@@ -139,6 +174,7 @@ func captureVerdictExternalRoute(t *testing.T, conn net.Conn, f *roleExplanation
 		if err != nil {
 			t.Fatal("the shipped decoder refused the stock FRR view header", err)
 		}
+		frames[raw[5]][header.PeerType]++
 		if header.View != bgp.BMPLocRIB {
 			if header.PeerAddress.String() != verdictFRRCarrierIP || header.PeerASN != verdictFRRCarrierASN {
 				t.Fatal("the stock physical session belonged to a different carrier")
@@ -181,7 +217,7 @@ func captureVerdictExternalRoute(t *testing.T, conn net.Conn, f *roleExplanation
 			}); err != nil {
 				t.Fatal("the authenticated receiver refused the original FRR update sequence", sequence, err)
 			}
-			selected = lookupVerdictExternalRoute(t, f, tenant, staged)
+			selected, lookupErr = lookupVerdictExternalRoute(t, f, tenant, staged)
 		case 2:
 			t.Fatal("stock FRR withdrew the selected view before the verdict")
 		}
@@ -189,7 +225,7 @@ func captureVerdictExternalRoute(t *testing.T, conn net.Conn, f *roleExplanation
 	return peer, selected
 }
 
-func lookupVerdictExternalRoute(t *testing.T, f *roleExplanationAPIFixture, tenant string, staged store.BGPRoutingViewRef) store.BGPRoutingViewRef {
+func lookupVerdictExternalRoute(t *testing.T, f *roleExplanationAPIFixture, tenant string, staged store.BGPRoutingViewRef) (store.BGPRoutingViewRef, error) {
 	t.Helper()
 	scope := entity.Scope{TenantID: tenant, ContextID: f.contextID}
 	var got store.BGPRoutingLookup
@@ -200,12 +236,12 @@ func lookupVerdictExternalRoute(t *testing.T, f *roleExplanationAPIFixture, tena
 		return err
 	})
 	if errors.Is(err, store.ErrBGPRoutingSourceUnavailable) || errors.Is(err, store.ErrBGPRoutingRouteMissing) {
-		return store.BGPRoutingViewRef{}
+		return store.BGPRoutingViewRef{}, err
 	}
 	if err != nil || got.Source.TenantID != tenant || got.View != staged || got.Prefix.String() != verdictFRRExternalPrefix ||
 		len(got.Paths) != 1 || len(got.Paths[0].Segments) != 1 ||
 		!slices.Equal(got.Paths[0].Segments[0].Values, []uint32{verdictFRRCarrierASN, verdictFRRExternalASN}) {
 		t.Fatal("the stored selected responder route lost its tenant, original generation or distinct carrier and origin ASNs", err)
 	}
-	return got.View
+	return got.View, nil
 }

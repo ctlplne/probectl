@@ -45,7 +45,8 @@ const (
 
 func startVerdictCarrierFRR(t *testing.T, healthy bool) verdictCarrierLab {
 	t.Helper()
-	network := startVerdictFRRPath(t, false).network
+	router := startVerdictFRRPath(t, false)
+	network := router.network
 	vantages := [2]string{network.source, network.other}
 	return verdictCarrierLab{
 		discover: routedCarrierDiscoverer(t, network.source),
@@ -59,19 +60,21 @@ func startVerdictCarrierFRR(t *testing.T, healthy bool) verdictCarrierLab {
 		capture: func(definitions []testspec.ExecutableDefinition) *entity.BMPPeerSession {
 			routeVerdictICMPTargets(t, network, network.child, definitions)
 			checkVerdictICMPBaseline(t, vantages, definitions)
+			router.awaitEstablished(t)
 			socket := openVerdictFRRBMP(t, network.router)
 			up := readVerdictFRRPeer(t, socket, "up")
 			if healthy {
 				return up
 			}
-			// The handoff keeps carrier. Only the provider side loses
-			// egress, so the local router must observe a real hold expiry.
-			dependencyPhysicalLoss(t, network.child, "to-router", true)
+			// Drop IPv4 at the provider's ingress. Its hold timer can expire
+			// and return a real notification while link and ARP stay up.
+			dependencyLabCommand(t, "ip", "netns", "exec", network.child, "tc", "qdisc", "add", "dev", "to-router", "clsact")
+			dependencyLabCommand(t, "ip", "netns", "exec", network.child, "tc", "filter", "add", "dev", "to-router", "ingress", "protocol", "ip", "matchall", "action", "drop")
 			down := readVerdictFRRPeer(t, socket, "down")
 			if down.DownReason == nil || down.NotificationCode == nil || down.NotificationSubcode == nil {
 				t.Fatal("stock FRR Peer Down omitted its original notification")
 			}
-			if *down.DownReason != 1 || *down.NotificationCode != 4 || *down.NotificationSubcode != 0 {
+			if *down.DownReason != 3 || *down.NotificationCode != 4 || *down.NotificationSubcode != 0 {
 				t.Fatalf("stock FRR reported reason %d and notification %d/%d for the planted hold timer expiry",
 					*down.DownReason, *down.NotificationCode, *down.NotificationSubcode)
 			}
@@ -102,14 +105,14 @@ type verdictFRRPath struct {
 func startVerdictFRRPath(t *testing.T, externalOrigin bool) verdictFRRPath {
 	t.Helper()
 	local := verdictFRRConfig{asn: verdictFRRLocalASN, address: verdictFRRLocalIP,
-		peers: []verdictFRRNeighbor{{verdictFRRCarrierASN, verdictFRRCarrierIP}}, monitor: true, selectedRIB: externalOrigin}
+		peers: []verdictFRRNeighbor{{verdictFRRCarrierASN, verdictFRRCarrierIP, verdictFRRLocalIP}}, monitor: true, selectedRIB: externalOrigin}
 	carrier := verdictFRRConfig{asn: verdictFRRCarrierASN, address: verdictFRRCarrierIP,
-		peers: []verdictFRRNeighbor{{verdictFRRLocalASN, verdictFRRLocalIP}}}
+		peers: []verdictFRRNeighbor{{verdictFRRLocalASN, verdictFRRLocalIP, verdictFRRCarrierIP}}}
 	var externalPID int
 	if externalOrigin {
-		carrier.peers = append(carrier.peers, verdictFRRNeighbor{verdictFRRExternalASN, verdictFRRExternalIP})
+		carrier.peers = append(carrier.peers, verdictFRRNeighbor{verdictFRRExternalASN, verdictFRRExternalIP, verdictFRRExternalPeerIP})
 		external := verdictFRRConfig{asn: verdictFRRExternalASN, address: verdictFRRExternalIP,
-			peers: []verdictFRRNeighbor{{verdictFRRCarrierASN, verdictFRRExternalPeerIP}}, origin: verdictFRRExternalPrefix}
+			peers: []verdictFRRNeighbor{{verdictFRRCarrierASN, verdictFRRExternalPeerIP, verdictFRRExternalIP}}, origin: verdictFRRExternalPrefix}
 		externalPID = startVerdictFRR(t, external).pid
 	}
 	localContainer, carrierContainer := startVerdictFRR(t, local), startVerdictFRR(t, carrier)
@@ -129,6 +132,7 @@ func startVerdictFRRPath(t *testing.T, externalOrigin bool) verdictFRRPath {
 type verdictFRRNeighbor struct {
 	asn     int
 	address string
+	source  string
 }
 
 type verdictFRRConfig struct {
@@ -155,12 +159,16 @@ func startVerdictFRR(t *testing.T, config verdictFRRConfig) verdictFRRContainer 
 		t.Fatal("the owned FRR container has no identity")
 	}
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
 		if t.Failed() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 			out, _ := exec.CommandContext(ctx, "docker", "logs", "--tail", "20", id).CombinedOutput()
 			t.Logf("owned FRR router %s: %s", name, out)
+			out, err := exec.CommandContext(ctx, "docker", "exec", id, "vtysh", "-c", "show bgp ipv4 unicast summary json", "-c", "show bgp ipv4 unicast json").CombinedOutput()
+			t.Logf("owned FRR router %s IPv4 sessions and route table: %s (error %v)", name, out, err)
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
 		if out, err := exec.CommandContext(ctx, "docker", "rm", "-f", id).CombinedOutput(); err != nil {
 			t.Errorf("remove owned FRR router %s: %v: %s", name, err, out)
 		}
@@ -176,12 +184,17 @@ router bgp %d
 		frr += " no bgp network import-check\n"
 	}
 	for _, peer := range config.peers {
-		frr += fmt.Sprintf(" neighbor %s remote-as %d\n neighbor %s timers 1 3\n neighbor %s timers connect 1\n",
-			peer.address, peer.asn, peer.address, peer.address)
+		frr += fmt.Sprintf(" neighbor %s remote-as %d\n neighbor %s update-source %s\n neighbor %s timers 1 3\n neighbor %s timers connect 1\n",
+			peer.address, peer.asn, peer.address, peer.source, peer.address, peer.address)
+	}
+	frr += " address-family ipv4 unicast\n"
+	for _, peer := range config.peers {
+		frr += "  neighbor " + peer.address + " activate\n"
 	}
 	if config.origin != "" {
-		frr += " address-family ipv4 unicast\n  network " + config.origin + "\n exit-address-family\n"
+		frr += "  network " + config.origin + "\n"
 	}
+	frr += " exit-address-family\n"
 	module := ""
 	if config.monitor {
 		module = " -M bmp"
@@ -214,6 +227,21 @@ router bgp %d
 
 func (router verdictFRRContainer) requireEstablished(t *testing.T, neighbor string) {
 	t.Helper()
+	if state := router.neighborState(t, neighbor); state != "Established" {
+		t.Fatalf("the stock session to %s did not stay established during the outside routing fault: %q", neighbor, state)
+	}
+}
+
+func (lab verdictFRRPath) awaitEstablished(t *testing.T) {
+	t.Helper()
+	shipped.Await(t, "stock FRR established the two ends of the physical carrier handoff", 25*time.Second, func() bool {
+		return lab.local.neighborState(t, verdictFRRCarrierIP) == "Established" &&
+			lab.carrier.neighborState(t, verdictFRRLocalIP) == "Established"
+	})
+}
+
+func (router verdictFRRContainer) neighborState(t *testing.T, neighbor string) string {
+	t.Helper()
 	raw := verdictFRRDocker(t, "exec", router.id, "vtysh", "-c", "show bgp ipv4 unicast summary json")
 	var summary struct {
 		Peers map[string]struct {
@@ -223,9 +251,7 @@ func (router verdictFRRContainer) requireEstablished(t *testing.T, neighbor stri
 	if err := json.Unmarshal([]byte(raw), &summary); err != nil {
 		t.Fatal("could not read the stock router's BGP neighbor state", err)
 	}
-	if state := summary.Peers[neighbor].State; state != "Established" {
-		t.Fatalf("the stock session to %s did not stay established during the outside routing fault: %q", neighbor, state)
-	}
+	return summary.Peers[neighbor].State
 }
 
 func verdictFRRDocker(t *testing.T, args ...string) string {
@@ -266,9 +292,19 @@ func readVerdictFRRPeer(t *testing.T, conn net.Conn, state string) *entity.BMPPe
 		if raw[5] != 2 && raw[5] != 3 {
 			continue
 		}
+		if len(raw) < 48 {
+			t.Fatal("stock FRR omitted the peer header")
+		}
+		header, err := bgp.ParseBMPRouteViewHeader(raw[6:48])
+		if err != nil {
+			t.Fatal("stock FRR reported an invalid session header", err)
+		}
+		if header.View == bgp.BMPLocRIB {
+			continue // The advertised local table is a different BMP source.
+		}
 		fact, err := bgp.DecodePhysicalPeerSession(t.Context(), raw, bgp.PeerMessageBudget{MemoryBytes: verdictMaxBMPFrame, WorkUnits: verdictMaxBMPFrame})
 		if err != nil {
-			t.Fatal("stock FRR emitted an unadmitted original peer session", err)
+			t.Fatalf("stock FRR emitted an unadmitted physical peer frame: type=%d peer=%s bytes=%d: %v", raw[5], header.PeerAddress, len(raw), err)
 		}
 		if fact.PeerAddress != verdictFRRCarrierIP || fact.PeerASN != verdictFRRCarrierASN {
 			t.Fatal("stock FRR reported a different peer than the configured lab handoff", fact.PeerAddress, fact.PeerASN)

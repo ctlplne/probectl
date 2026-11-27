@@ -58,7 +58,7 @@ func TestIncidentVerdictLinuxLinkFailureKeepsTenantScope(t *testing.T) {
 			Alias: entity.AliasKey{Kind: entity.SNMPInterfaceAlias, Value: alias}, SourceRef: "snmp:ifIndex:" + alias,
 			InterfaceName: "to-child", ObservedAt: f.observedAt(tenant), SNMPInterfaceState: &before,
 		}
-		if accepted, unresolved, err := sender.Submit(t.Context(), []entity.Observation{claim}); err != nil || accepted != 1 || unresolved != 0 {
+		if accepted, unresolved, err := sender.Submit(t.Context(), verdictLinuxLinkPoll(claim)); err != nil || accepted != 2 || unresolved != 0 {
 			t.Fatal("the authenticated baseline link observation did not persist", accepted, unresolved, err)
 		}
 		id := gouuid.NewString()
@@ -109,7 +109,7 @@ func TestIncidentVerdictLinuxLinkFailureKeepsTenantScope(t *testing.T) {
 		})
 		at := f.observedAt(tenant)
 		claim.ID, claim.ObservedAt, claim.SNMPInterfaceState = gouuid.NewString(), at, &state
-		if accepted, unresolved, err := sender.Submit(t.Context(), []entity.Observation{claim}); err != nil || accepted != 1 || unresolved != 0 {
+		if accepted, unresolved, err := sender.Submit(t.Context(), verdictLinuxLinkPoll(claim)); err != nil || accepted != 2 || unresolved != 0 {
 			t.Fatal("the authenticated lab link observation did not persist", accepted, unresolved, err)
 		}
 		input := incident.VerdictInput{From: at, To: f.observedAt(tenant)}
@@ -124,7 +124,7 @@ func TestIncidentVerdictLinuxLinkFailureKeepsTenantScope(t *testing.T) {
 			want = incident.FaultUnknown
 		}
 		if err != nil || got.Domain != want || len(citations) != 4 {
-			t.Fatal("the routed link verdict lost the actual link state or tenant scope", got.Domain, want, err)
+			t.Fatal("the routed link verdict lost the actual link state or tenant scope", got.Domain, want, got.Reason, citations, err)
 		}
 		originals := citations[0].For
 		if lane == 1 {
@@ -139,6 +139,16 @@ func TestIncidentVerdictLinuxLinkFailureKeepsTenantScope(t *testing.T) {
 	for lane, tenant := range f.tenants {
 		proveIncidentVerdictForeignReaderRefusal(t, f, tenant, incidents[1-lane], windows[1-lane])
 	}
+}
+
+// Interface roles use the interface row from the current device poll. Both
+// observations share the poll clock and the same authenticated source.
+func verdictLinuxLinkPoll(link entity.Observation) []entity.Observation {
+	root := entity.Observation{
+		ID: gouuid.NewString(), Source: link.Source, ObservedAt: link.ObservedAt,
+		Alias: entity.AliasKey{Kind: entity.AddressAlias, Value: link.Source.SourceRef}, SourceRef: "snmp:configured-target",
+	}
+	return []entity.Observation{root, link}
 }
 
 // The lab adapts kernel ifindex and link flags to the existing IF-MIB evidence

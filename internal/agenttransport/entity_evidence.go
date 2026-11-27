@@ -163,16 +163,7 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 	}
 	faultsPersisted, err := svc.persistEntityFaults(ctx, id.TenantID, faults)
 	if err != nil {
-		if errors.Is(err, incident.ErrFaultIdentityInactive) {
-			return nil, status.Error(codes.Unauthenticated, "fault sender identity is not active")
-		}
-		if errors.Is(err, incident.ErrFaultSourceInactive) {
-			return nil, status.Error(codes.PermissionDenied, "fault source assignment is not active")
-		}
-		if errors.Is(err, incident.ErrFaultObservationConflict) {
-			return nil, status.Error(codes.AlreadyExists, "fault observation ID was reused for different evidence")
-		}
-		return nil, status.Error(codes.Unavailable, "entity fault persistence failed")
+		return nil, entityFaultPersistenceError(err)
 	}
 	if svc.log != nil {
 		svc.log.Info("entity evidence batch processed", "tenant_id", id.TenantID,
@@ -198,6 +189,19 @@ func (svc *service) SubmitEntityEvidence(ctx context.Context, req *agentv1.Submi
 		Accepted: uint32(accepted), Unresolved: uint32(unresolved),
 		FaultsPersisted: uint32(faultsPersisted), IcmpMeasurementsPersisted: uint32(icmpRetained), ProbeOutcomesPersisted: uint32(outcomesRetained), InterfaceStatesPersisted: uint32(statesRetained), BmpPeerSessionsPersisted: uint32(sessionsRetained),
 	}, nil
+}
+
+func entityFaultPersistenceError(err error) error {
+	switch {
+	case errors.Is(err, incident.ErrFaultIdentityInactive):
+		return status.Error(codes.Unauthenticated, "fault sender identity is not active")
+	case errors.Is(err, incident.ErrFaultSourceInactive):
+		return status.Error(codes.PermissionDenied, "fault source assignment is not active")
+	case errors.Is(err, incident.ErrFaultObservationConflict):
+		return status.Error(codes.AlreadyExists, "fault observation ID was reused for different evidence")
+	default:
+		return status.Error(codes.Unavailable, "entity fault persistence failed")
+	}
 }
 
 func parseHTTPSPeerEvidence(ctx context.Context, count int) (map[string]string, int, error) {

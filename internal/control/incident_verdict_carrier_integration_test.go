@@ -166,7 +166,7 @@ func proveIncidentCarrier(t *testing.T, startLab func(*testing.T, bool) verdictC
 		}
 		observed := f.observedAt(tenant)
 		submitVerdictHandoffStates(t, snmp, observed, statesRead)
-		probes := [2]entity.Observation{}
+		var probes [2]entity.Observation
 		if startLab == nil {
 			probes = modeledVerdictCarrierProbes(t, healthy, agents, definitions, at.Add(time.Microsecond), observed)
 		} else {

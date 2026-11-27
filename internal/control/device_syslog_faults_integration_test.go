@@ -132,9 +132,11 @@ SELECT count(*) FROM device_syslog_fault_queue AS q
 		}
 		return err
 	})
-	t.Run("linux-original-patterns", func(t *testing.T) {
-		proveLinuxSyslogPatterns(t, f, server, addr, clients)
-	})
+	if runtime.GOOS == "linux" {
+		t.Run("linux-original-patterns", func(t *testing.T) {
+			proveLinuxSyslogPatterns(t, f, server, addr, clients)
+		})
+	}
 }
 
 // Capture actual RFC 5424 bytes from the runner's logger on an owned local
@@ -142,9 +144,6 @@ SELECT count(*) FROM device_syslog_fault_queue AS q
 // Replay the unchanged records through the normal authenticated TLS ingress.
 func proveLinuxSyslogPatterns(t *testing.T, f *roleExplanationAPIFixture, api *httptest.Server, addr string, clients [2]*tls.Config) {
 	t.Helper()
-	if runtime.GOOS != "linux" {
-		t.Skip("stock util-linux logger requires a Linux runner")
-	}
 	logger, err := exec.LookPath("logger")
 	if err != nil {
 		t.Fatal("Linux syslog proof requires the stock logger")
