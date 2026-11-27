@@ -13,8 +13,14 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -126,6 +132,92 @@ SELECT count(*) FROM device_syslog_fault_queue AS q
 		}
 		return err
 	})
+	t.Run("linux-original-patterns", func(t *testing.T) {
+		proveLinuxSyslogPatterns(t, f, server, addr, clients)
+	})
+}
+
+// Capture actual RFC 5424 bytes from the runner's logger on an owned local
+// socket. The fixture plants application messages, not kernel-origin faults.
+// Replay the unchanged records through the normal authenticated TLS ingress.
+func proveLinuxSyslogPatterns(t *testing.T, f *roleExplanationAPIFixture, api *httptest.Server, addr string, clients [2]*tls.Config) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("stock util-linux logger requires a Linux runner")
+	}
+	logger, err := exec.LookPath("logger")
+	if err != nil {
+		t.Fatal("Linux syslog proof requires the stock logger")
+	}
+	dir, err := os.MkdirTemp("", "probectl-qa-beta-logger-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	socketPath := filepath.Join(dir, "log")
+	socket, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: socketPath, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = socket.Close() })
+	from := time.Now().UTC()
+	var hostname string
+	for lane, messages := range [][]string{
+		{"gateway 192.0.2.21 observed 3 errors", "gateway 192.0.2.22 observed 9 errors"},
+		{"gateway 192.0.2.21 observed 3 errors"},
+	} {
+		for _, message := range messages {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			cmd := exec.CommandContext(ctx, logger, "--socket", socketPath, "--socket-errors=on",
+				"--rfc5424", "--tag", "probectl-link-monitor", "--", message)
+			err := cmd.Run()
+			cancel()
+			if err != nil {
+				t.Fatal("stock Linux logger failed to write its fixture record", err)
+			}
+			if err := socket.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			raw := make([]byte, 2048)
+			n, err := socket.Read(raw)
+			if err != nil || n == len(raw) {
+				t.Fatal("stock Linux logger record was unavailable or truncated", err)
+			}
+			line := string(raw[:n])
+			header := strings.Fields(line)
+			if len(header) < 7 || !strings.HasSuffix(header[0], ">1") || header[2] == "-" ||
+				header[3] != "probectl-link-monitor" || !strings.HasSuffix(line, message) {
+				t.Fatal("stock Linux logger did not emit the expected RFC 5424 record")
+			}
+			if hostname != "" && hostname != header[2] {
+				t.Fatal("stock Linux logger changed the source host between fixture records")
+			}
+			hostname = header[2]
+			sendSyslogLine(t, addr, clients[lane], line)
+		}
+	}
+	params := url.Values{"from": {from.Format(time.RFC3339Nano)}, "to": {time.Now().Add(10 * time.Second).Format(time.RFC3339Nano)}, "device": {hostname}}
+	const route = "/v1/device/syslog/patterns?"
+	var ids [2]string
+	for lane, tenant := range f.tenants {
+		want := int64(2 - lane)
+		shipped.Await(t, "stock Linux records reached their scoped pattern view", 6*time.Second, func() bool {
+			raw := callSeasonalAPI(t, api, f.tokens[tenant], http.MethodGet, route+params.Encode(), nil, http.StatusOK)
+			var page deviceSyslogPatternPage
+			if err := json.Unmarshal(raw, &page); err != nil {
+				t.Fatal(err)
+			}
+			if len(page.Patterns) != 1 || page.IndexedRows != want || page.UnindexedRows != 0 {
+				return false
+			}
+			pattern := page.Patterns[0]
+			ids[lane] = pattern.ID
+			return pattern.ID != "" && pattern.Count == want && pattern.Kind == device.SyslogPatternOther
+		})
+	}
+	if ids[0] == ids[1] {
+		t.Fatal("identical Linux source records shared a cross-tenant pattern identity")
+	}
 }
 
 func assertSyslogFaultCannotReferenceSibling(sibling context.Context, t *testing.T, f *roleExplanationAPIFixture, ops *device.PostgresOpsStore) {
