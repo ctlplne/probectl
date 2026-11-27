@@ -71,9 +71,16 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 	probes := prepareTransferStockProbes(t, lab, st, lanes, links)
 	assertTransferStockKernelPath(t, lab, links[0])
 
-	// Exclude records gathered before the independently bracketed workload.
+	// An empty flow table can still have warm-up packets in its capture ring.
+	// Start fresh rings while keeping the authenticated collectors and bindings.
 	for _, lane := range lanes {
-		lab.docker(t, "exec", lane.exporter, "softflowctl", "-c", "/tmp/softflowd.ctl", "delete-all")
+		lab.docker(t, "restart", "-t", "2", lane.exporter)
+		shipped.Await(t, "fresh stock exporter capture ring", 15*time.Second, func() bool {
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+			return exec.CommandContext(ctx, "docker", "exec", lane.exporter,
+				"softflowctl", "-c", "/tmp/softflowd.ctl", "delete-all").Run() == nil
+		})
 	}
 	started := time.Now().UTC()
 	shipped.Await(t, "both tenants have a complete pre-workload poll", time.Minute, func() bool {
@@ -388,17 +395,15 @@ func warmTransferStockExporters(t *testing.T, lab *routingLab, st *shipped.Stack
 	}
 }
 
-// softflowd's capture can leave a partial libpcap block waiting. Traffic to
-// the adjacent owned peer completes the block without changing the number of
-// datagrams sent to the transfer prefix. Use the same bounded frame count and
-// size as the router role fixture. The independent egress counters include
-// this traffic.
+// softflowd can leave a partial libpcap block waiting. Pace small frames to the
+// owned peer so the drain can complete that block without overrunning the ring.
+// The independent egress counters still include these frames.
 func drainTransferStockCapture(t *testing.T, lab *routingLab, selected roleRouterLink) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	args := []string{"exec", "--user", "0", lab.container("rtr-a"), "ping",
-		"-A", "-q", "-I", selected.iface, "-c", "4096", "-s", "1200", "-W", "1", selected.peerIP}
+		"-q", "-i", "0.002", "-I", selected.iface, "-c", "2048", "-s", "8", "-W", "1", selected.peerIP}
 	if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
 		t.Fatalf("flush the owned exporter capture buffer: %v %.400s", err, out)
 	}
