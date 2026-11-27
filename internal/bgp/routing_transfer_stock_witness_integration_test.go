@@ -123,22 +123,34 @@ func readTransferStockPoll(t *testing.T, lane *transferStockLane, links [2]roleR
 // API refuses its evidence. Receipt counts alone include unavailable captures.
 func logTransferStockFlowCaptures(t *testing.T, st *shipped.Stack, lane transferStockLane, ifIndex uint32) {
 	t.Helper()
+	readTransferStockFlowCaptures(t, st, lane, ifIndex, transferArtifacts{}, 0)
+}
+
+func readTransferStockFlowCaptures(t *testing.T, st *shipped.Stack, lane transferStockLane, ifIndex uint32, artifacts transferArtifacts, index int) {
+	t.Helper()
 	if !transferStockSQLIdentity.MatchString(lane.reg.tenantID) || !transferStockSQLIdentity.MatchString(lane.reg.agentID) {
 		t.Log("invalid stock flow fixture identity")
 		return
 	}
-	query := fmt.Sprintf(`SELECT routing_capture_key,clock_basis,
+	end := lane.after.started
+	if end.IsZero() {
+		end = time.Now()
+	}
+	query := fmt.Sprintf(`SELECT routing_capture_key,clock_basis,exporter,obs_domain,src_addr,dst_addr,dst_port,
+ toString(bytes) AS bytes,
  toString(toUnixTimestamp64Nano(start_ts)) AS started,toString(toUnixTimestamp64Nano(ts)) AS ended,
  toString(routing_captured_unix_nanos) AS retained,toString(packets) AS packets
  FROM probectl_flows FINAL WHERE tenant_id='%s' AND agent_id='%s' AND out_if=%d
  AND toUnixTimestamp64Nano(ts)>=%d AND toUnixTimestamp64Nano(ts)<=%d
- ORDER BY ts,routing_capture_key LIMIT 16 FORMAT JSONEachRow`, lane.reg.tenantID, lane.reg.agentID, ifIndex,
-		lane.before.started.UnixNano(), lane.after.started.UnixNano())
+ ORDER BY ts,routing_capture_key LIMIT 64 FORMAT JSONEachRow`, lane.reg.tenantID, lane.reg.agentID, ifIndex,
+		lane.before.started.UnixNano(), end.UnixNano())
 	body, err := shipped.CHQuery(shipped.CHURL(), query)
 	if err != nil {
 		t.Logf("read owned stock flow clocks: %v", err)
 		return
 	}
+	artifacts.write(t, fmt.Sprintf("lane-%d-ipfix.jsonl", index), []byte(body))
+	var ownership strings.Builder
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(lane.reg.tenantID))
 	err = tenancy.InTenantReadSnapshot(ctx, st.ApplicationReadPool(t), func(ctx context.Context, sc tenancy.Scope) error {
 		for _, line := range strings.Split(strings.TrimSpace(body), "\n") {
@@ -165,12 +177,14 @@ func logTransferStockFlowCaptures(t *testing.T, st *shipped.Stack, lane transfer
 			}
 			t.Logf("stock egress row packets=%s clock_basis=%d start_ns=%s end_ns=%s receipt_ns=%s outcome=%s",
 				row.Packets, row.Basis, row.Started, row.Ended, row.Retained, outcome)
+			fmt.Fprintf(&ownership, "%s %s %s\n", row.Key, row.Retained, outcome)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Logf("read owned stock flow receipt states: %v", err)
 	}
+	artifacts.write(t, fmt.Sprintf("lane-%d-ownership.txt", index), []byte(ownership.String()))
 }
 
 func verifyTransferStockPolls(t *testing.T, st *shipped.Stack, lane *transferStockLane) {
@@ -223,7 +237,7 @@ func installTransferStockWorkload(t *testing.T, lab *routingLab) {
 	}
 }
 
-func sendTransferStockPayload(t *testing.T, lab *routingLab, links [2]roleRouterLink) {
+func sendTransferStockPayload(t *testing.T, lab *routingLab, links [2]roleRouterLink, artifacts transferArtifacts) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
 	defer cancel()
@@ -234,8 +248,10 @@ func sendTransferStockPayload(t *testing.T, lab *routingLab, links [2]roleRouter
 	}
 	var receiverErr bytes.Buffer
 	receive.Stderr = &receiverErr
+	defer func() { artifacts.write(t, "receiver-counts.txt", receiverErr.Bytes()) }()
 	if err := receive.Start(); err != nil {
-		t.Fatal(err)
+		t.Errorf("start independent receiver: %v", err)
+		return
 	}
 	waited := false
 	defer func() {
@@ -246,20 +262,23 @@ func sendTransferStockPayload(t *testing.T, lab *routingLab, links [2]roleRouter
 	}()
 	lines := bufio.NewScanner(reader)
 	if !lines.Scan() || lines.Text() != "ready" {
-		t.Fatalf("owned receiver did not start: %v", lines.Err())
+		t.Errorf("owned receiver did not start: %v", lines.Err())
+		return
 	}
 	sender := exec.CommandContext(ctx, "docker", "exec", lab.container("rtr-b"),
 		transferStockContainerWorkload, "send", links[1].peerIP)
 	if out, err := sender.CombinedOutput(); err != nil {
-		t.Fatalf("bounded owned payload did not send: %v %s", err, out)
+		t.Errorf("bounded owned payload did not send: %v %s", err, out)
+		return
 	}
 	if !lines.Scan() || lines.Text() != "received all" {
-		t.Fatalf("the upstream did not receive every fixed-size packet: %v", lines.Err())
+		t.Errorf("the upstream did not receive every fixed-size packet: %v", lines.Err())
+		return
 	}
 	err = receive.Wait()
 	waited = true
 	if err != nil {
-		t.Fatalf("owned receiver completed unsuccessfully: %v %s", err, receiverErr.String())
+		t.Errorf("owned receiver completed unsuccessfully: %v %s", err, receiverErr.String())
 	}
 }
 
@@ -293,18 +312,30 @@ func main() {
         fmt.Println("ready")
         buf := make([]byte, payload+1)
         var received [count]bool
+        packets, wireBytes := 0, 0
+        report := func() {
+            fmt.Fprintf(os.Stderr, "packets=%%d ipv4_udp_wire_bytes=%%d\n", packets, wireBytes)
+        }
         for i := 0; i < count; i++ {
             size, sender, err := socket.ReadFromUDP(buf)
-            check(err)
+            if err != nil {
+                report()
+                check(err)
+            }
+            packets++
+            wireBytes += size + 28
             if size != payload || !sender.IP.Equal(origin) {
+                report()
                 fail("wrong payload length or source")
             }
             sequence := binary.BigEndian.Uint32(buf)
             if sequence >= count || received[sequence] {
+                report()
                 fail("unexpected or duplicate payload sequence")
             }
             received[sequence] = true
         }
+        report()
         fmt.Println("received all")
     case "send":
         socket, err := net.DialUDP("udp4", &net.UDPAddr{IP: origin}, address)

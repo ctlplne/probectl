@@ -1,0 +1,70 @@
+name: routing-transfer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: routing-transfer-main
+  cancel-in-progress: false
+
+jobs:
+  stock-routing-transfer:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PROBECTL_TEST_REQUIRE_SERVICES: "1"
+      PROBECTL_TEST_KAFKA: localhost:9092
+      PROBECTL_TEST_CLICKHOUSE_URL: http://probectl:probectl@localhost:8123
+      PROBECTL_PROM_URL: http://localhost:9090
+      PROBECTL_TEST_TRANSFER_ARTIFACTS: ${{ runner.temp }}/routing-transfer
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+      - name: Start TLS PostgreSQL and Dex
+        run: |
+          mkdir -p "$PROBECTL_TEST_TRANSFER_ARTIFACTS"
+          ./scripts/ci_pg_tls.sh
+          ./scripts/ci_dex.sh .ci-dex
+      - name: Start the existing lab stores and bus
+        run: docker compose -f deploy/compose/dev.yml up -d --wait kafka clickhouse prometheus
+      - name: Prepare the runner's capture and probe tools
+        run: |
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y tcpdump
+          gid="$(id -g)"
+          sudo sysctl -w "net.ipv4.ping_group_range=$gid $gid"
+      - name: Run the stock routing-transfer test three times
+        run: |
+          set -o pipefail
+          root=TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters
+          result=0
+          go test -json -tags=integration -count=3 -timeout=20m -run "^${root}$" ./internal/bgp \
+            | tee "$PROBECTL_TEST_TRANSFER_ARTIFACTS/go-test.jsonl" || result=1
+          python3 - "$root" "$PROBECTL_TEST_TRANSFER_ARTIFACTS/go-test.jsonl" <<'PY' || result=1
+          import json
+          import sys
+          root, path = sys.argv[1:]
+          with open(path, encoding="utf-8") as events:
+              results = [event["Action"] for event in map(json.loads, events)
+                         if event.get("Test") == root and event["Action"] in ("pass", "fail", "skip")]
+          if results != ["pass"] * 3:
+              raise SystemExit(f"Expected three completed passes of {root}; observed {results}")
+          PY
+          exit "$result"
+      - name: Upload owned routing lab diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: routing-transfer-${{ github.run_attempt }}
+          path: ${{ env.PROBECTL_TEST_TRANSFER_ARTIFACTS }}
+          if-no-files-found: warn
+          retention-days: 7

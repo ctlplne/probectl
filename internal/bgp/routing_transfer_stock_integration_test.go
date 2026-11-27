@@ -11,6 +11,7 @@ package bgp_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net"
 	"net/http"
@@ -38,18 +39,20 @@ const (
 )
 
 type transferStockLane struct {
-	reg      edgeFlowRegistration
-	counters string
-	exporter string
-	portIDs  [2]string
-	before   transferStockPoll
-	after    transferStockPoll
+	reg       edgeFlowRegistration
+	counters  string
+	exporter  string
+	collector string
+	portIDs   [2]string
+	before    transferStockPoll
+	after     transferStockPoll
 }
 
 // The outbound payload enters the lab router from the standby provider link.
 // Actual FRRouting selects the other link, and the owned receiver counts each
 // packet independently of the stock IPFIX and SNMP readers.
 func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testing.T) {
+	artifacts := newTransferArtifacts(t)
 	lab := startRoutingLabNamed(t, "probectl-qa-beta-transfer-stock-"+strconv.FormatInt(time.Now().UnixNano()%1e8, 36))
 	links, community := configureTransferStockHandoffs(t, lab)
 	exporterImage := buildRoleRouterExporter(t, lab)
@@ -66,7 +69,10 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		st.SignIn(t, second.tenantID, reviewerEmail, "FX-2 Router Blue"),
 	}
 	prepareTransferStockCollectors(t, lab, st, links, community, exporterImage, &lanes)
+	artifacts.startPCAP(t, lab, lanes)
+	defer artifacts.exporterLogs(t, lanes)
 	warmTransferStockExporters(t, lab, st, links[0], lanes)
+	artifacts.bindings(t, st, lanes)
 	installTransferStockWorkload(t, lab)
 	probes := prepareTransferStockProbes(t, lab, st, lanes, links)
 	assertTransferStockKernelPath(t, lab, links[0])
@@ -83,7 +89,7 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		})
 	}
 	started := time.Now().UTC()
-	shipped.Await(t, "both tenants have a complete pre-workload poll", time.Minute, func() bool {
+	waitTransferStock(t, time.Minute, func() bool {
 		now := time.Now().UTC()
 		for i := range lanes {
 			lanes[i].before = readTransferStockPoll(t, &lanes[i], links, started, now, false)
@@ -91,7 +97,8 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		return !lanes[0].before.started.IsZero() && !lanes[1].before.started.IsZero()
 	})
 	comparisons, comparisonEnd := collectTransferStockComparisons(t, probes)
-	sendTransferStockPayload(t, lab, links)
+	sendTransferStockPayload(t, lab, links, artifacts)
+	artifacts.exporterState(t, lanes, "before-drain")
 	if !transferStockCaptureComplete(t.Context(), lanes[0].exporter) ||
 		!transferStockCaptureComplete(t.Context(), lanes[1].exporter) {
 		drainTransferStockCapture(t, lab, links[0])
@@ -100,39 +107,82 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		time.Sleep(wait)
 	}
 	finished := time.Now().UTC()
-	for _, lane := range lanes {
-		shipped.Await(t, "stock exporter captured every known datagram with its original packet length", 12*time.Second, func() bool {
-			return transferStockCaptureComplete(t.Context(), lane.exporter)
-		})
-		lab.docker(t, "exec", lane.exporter, "softflowctl", "-c", "/tmp/softflowd.ctl", "expire-all")
+	var complete [2]bool
+	waitTransferStock(t, 12*time.Second, func() bool {
+		for i, lane := range lanes {
+			complete[i] = transferStockCaptureComplete(t.Context(), lane.exporter)
+		}
+		return complete[0] && complete[1]
+	})
+	artifacts.exporterState(t, lanes, "before-expire-all")
+	for i, lane := range lanes {
+		if !complete[i] {
+			t.Errorf("lane %d stock capture missed the exact %d datagrams and %d wire bytes", i, transferStockPackets, transferStockWireBytes)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		out, err := exec.CommandContext(ctx, "docker", "exec", lane.exporter,
+			"softflowctl", "-c", "/tmp/softflowd.ctl", "expire-all").CombinedOutput()
+		cancel()
+		artifacts.write(t, "exporter-"+strconv.Itoa(i)+"-expire-all.txt", out)
+		if err != nil {
+			t.Errorf("force lane %d stock flow export: %v %.300s", i, err, out)
+		}
 	}
+	artifacts.exporterState(t, lanes, "after-expire-all")
 
 	var inputs [2]sdk.RoutingTransferInput
 	var measured [2]sdk.RoutingTransferInput
 	var estimates [2]sdk.RoutingTransferResponse
+	var bracketed, estimated [2]bool
+	waitTransferStock(t, time.Minute, func() bool {
+		for i := range lanes {
+			lanes[i].after = readTransferStockPoll(t, &lanes[i], links, finished, time.Now(), true)
+		}
+		return !lanes[0].after.started.IsZero() && !lanes[1].after.started.IsZero()
+	})
 	for i := range lanes {
 		lane := &lanes[i]
-		shipped.Await(t, "authenticated post-workload counters on both interfaces", time.Minute, func() bool {
-			lane.after = readTransferStockPoll(t, lane, links, finished, time.Now(), true)
-			return !lane.after.started.IsZero()
-		})
-		verifyTransferStockPolls(t, st, lane)
+		if lane.before.started.IsZero() {
+			t.Errorf("lane %d has no complete pre-workload poll", i)
+		}
+		if lane.after.started.IsZero() {
+			t.Errorf("lane %d has no complete post-workload poll", i)
+		}
+		if lane.before.started.IsZero() || lane.after.started.IsZero() {
+			t.Logf("lane %d estimates require both independent counter brackets", i)
+			continue
+		}
+		if !t.Run("signed-counters-"+strconv.Itoa(i), func(t *testing.T) {
+			verifyTransferStockPolls(t, st, lane)
+		}) {
+			continue
+		}
+		bracketed[i] = true
 		inputs[i] = makeTransferStockRequest(t, st, lane, int64(4+3*i), int64(1+i))
 		measured[i] = inputs[i]
 		measured[i].ProbeComparison = comparisons[i]
-		estimates[i] = awaitTransferStockPerformance(t, st, *lane, links[0].index, i, measured[i])
-		assertTransferStockEstimate(t, *lane, links, estimates[i], int64(4+3*i), int64(1+i))
+		estimates[i], estimated[i] = awaitTransferStockPerformance(t, st, *lane, links[0].index, i, measured[i])
+		if estimated[i] {
+			estimated[i] = t.Run("arithmetic-"+strconv.Itoa(i), func(t *testing.T) {
+				assertTransferStockEstimate(t, *lane, links, estimates[i], int64(4+3*i), int64(1+i))
+			})
+		}
 	}
+	artifacts.flowRows(t, st, lanes, links[0].index)
 	for i, lane := range lanes {
+		if !bracketed[i] || !bracketed[1-i] {
+			t.Logf("lane %d request controls require both independently bracketed agreements", i)
+			continue
+		}
 		foreign := inputs[i]
 		foreign.Candidate = inputs[1-i].Candidate
 		if code, _ := st.Do(t, lane.reg.cookie, http.MethodPost, "/v1/flows/routing-transfer-estimate", foreign); code != http.StatusNotFound {
-			t.Fatalf("lane %d accepted the sibling's agreement: HTTP %d", i, code)
+			t.Errorf("lane %d accepted the sibling's agreement: HTTP %d", i, code)
 		}
 		foreignProbe := measured[i]
 		foreignProbe.ProbeComparison.Candidate = measured[1-i].ProbeComparison.Candidate
 		if code, _ := st.Do(t, lane.reg.cookie, http.MethodPost, "/v1/flows/routing-transfer-estimate", foreignProbe); code != http.StatusNotFound {
-			t.Fatalf("lane %d accepted the sibling's measured probe: HTTP %d", i, code)
+			t.Errorf("lane %d accepted the sibling's measured probe: HTTP %d", i, code)
 		}
 		limited := inputs[i]
 		limited.Candidate.PhysicalBounds = append([]sdk.CapacityPhysicalBound(nil), limited.Candidate.PhysicalBounds...)
@@ -146,7 +196,7 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		code, body := st.Do(t, lane.reg.cookie, http.MethodPost, "/v1/flows/routing-transfer-estimate", limited)
 		var refused sdk.RoutingTransferResponse
 		if code != http.StatusOK || json.Unmarshal(body, &refused) != nil || refused.Estimate.Reason != "projected_egress_exceeds_capacity" || refused.Policy.ExactPrefix != "" {
-			t.Fatalf("lane %d used a candidate without enough measured headroom: HTTP %d %s", i, code, body)
+			t.Errorf("lane %d used a candidate without enough measured headroom: HTTP %d %s", i, code, body)
 		}
 
 		missing := inputs[i]
@@ -155,14 +205,36 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 		var incomplete sdk.RoutingTransferResponse
 		if code != http.StatusOK || json.Unmarshal(body, &incomplete) != nil || incomplete.Estimate.Status != "unavailable" ||
 			incomplete.Estimate.NetChargeChange != "" || incomplete.Policy.ExactPrefix != "" {
-			t.Fatalf("lane %d priced a window without original coverage: HTTP %d %s", i, code, body)
+			t.Errorf("lane %d priced a window without original coverage: HTTP %d %s", i, code, body)
 		}
 	}
-	t.Run("human-review", func(t *testing.T) {
-		approved := proveTransferStockHumanReview(t, lab, st, lanes, measured, estimates, reviewers, reviewerEmail)
-		proveTransferStockApprovedForwarding(t, lab, st, reviewers[0], links, approved[0])
-	})
+	if estimated[0] && estimated[1] && !t.Failed() {
+		t.Run("human-review", func(t *testing.T) {
+			approved := proveTransferStockHumanReview(t, lab, st, lanes, measured, estimates, reviewers, reviewerEmail)
+			proveTransferStockApprovedForwarding(t, lab, st, reviewers[0], links, approved[0])
+		})
+	} else {
+		t.Log("human review and forwarding require complete owned measurement")
+	}
 	assertTransferStockKernelPath(t, lab, links[0])
+}
+
+func waitTransferStock(t *testing.T, within time.Duration, ready func() bool) bool {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for {
+		if ready() {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		select {
+		case <-t.Context().Done():
+			return false
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
 
 type transferStockApproval struct {
@@ -358,6 +430,7 @@ func prepareTransferStockCollectors(t *testing.T, lab *routingLab, st *shipped.S
 			netip.MustParseAddr(links[1].peerIP): netip.MustParseAddr(links[1].routerIP),
 		})
 		destination := startShippedRouterFlow(t, st, lab, lane.reg, routerIP)
+		lane.collector = destination
 		export := links[0]
 		export.name = suffix
 		lane.exporter = startRoleRouterExporter(t, lab, exporterImage, destination, export, egressOnly)
@@ -373,12 +446,17 @@ func warmTransferStockExporters(t *testing.T, lab *routingLab, st *shipped.Stack
 	reader := store.NewInterfaceRoleInputs(pool)
 	exporter := netip.MustParseAddr(lab.ip["rtr-a"])
 	budget := entity.InterfaceRolePolicyBudget{MemoryBytes: 32 << 20, WorkUnits: 32 << 20}
-	for _, lane := range lanes {
-		emitRoleRouterCapturedTraffic(t, lab, lane.exporter, link, link.routerIP, link.peerIP, "1", false)
-		scope := entity.Scope{TenantID: lane.reg.tenantID, ContextID: lane.reg.contextID}
-		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(scope.TenantID))
-		shipped.Await(t, "stock IPFIX exporter has a current signed tenant binding", 30*time.Second, func() bool {
-			found := false
+	for i, lane := range lanes {
+		t.Run(fmt.Sprintf("warm-exporter-%d", i), func(t *testing.T) {
+			emitRoleRouterCapturedTraffic(t, lab, lane.exporter, link, link.routerIP, link.peerIP, "1", false)
+		})
+	}
+	var bound [2]bool
+	waitTransferStock(t, 30*time.Second, func() bool {
+		for i, lane := range lanes {
+			scope := entity.Scope{TenantID: lane.reg.tenantID, ContextID: lane.reg.contextID}
+			ctx := tenancy.WithTenant(t.Context(), tenancy.ID(scope.TenantID))
+			var found bool
 			err := tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
 				bindings, err := reader.FlowBindingsInScope(ctx, sc, scope, budget)
 				if err != nil {
@@ -390,8 +468,14 @@ func warmTransferStockExporters(t *testing.T, lab *routingLab, st *shipped.Stack
 				})
 				return nil
 			})
-			return err == nil && found
-		})
+			bound[i] = err == nil && found
+		}
+		return bound[0] && bound[1]
+	})
+	for i, ready := range bound {
+		if !ready {
+			t.Errorf("lane %d stock IPFIX exporter has no current signed tenant binding", i)
+		}
 	}
 }
 

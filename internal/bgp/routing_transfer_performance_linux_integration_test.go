@@ -324,27 +324,26 @@ func collectTransferStockComparisons(t *testing.T, probes [2][2]transferStockPro
 }
 
 func awaitTransferStockPerformance(t *testing.T, st *shipped.Stack, lane transferStockLane, ifIndex uint32, index int,
-	input sdk.RoutingTransferInput) sdk.RoutingTransferResponse {
+	input sdk.RoutingTransferInput) (sdk.RoutingTransferResponse, bool) {
 	t.Helper()
 	const endpoint = "/v1/flows/routing-transfer-estimate"
 	var result sdk.RoutingTransferResponse
 	var status int
-	defer func() {
-		if t.Failed() {
-			t.Logf("performance estimate HTTP %d: estimate status %q, reason %q, comparison %+v",
-				status, result.Estimate.Status, result.Estimate.Reason, result.UpstreamPerformance)
-			if result.Estimate.Reason == "original_egress_ownership_incomplete" {
-				logTransferStockFlowCaptures(t, st, lane, ifIndex)
-			}
-		}
-	}()
-	shipped.Await(t, "physical paired observations join the stock transfer estimate", time.Minute, func() bool {
+	ready := waitTransferStock(t, time.Minute, func() bool {
 		code, body := st.Do(t, lane.reg.cookie, http.MethodPost, endpoint, input)
 		status = code
 		result = sdk.RoutingTransferResponse{}
 		return code == http.StatusOK && json.Unmarshal(body, &result) == nil && result.Estimate.Status == "estimated" &&
 			result.UpstreamPerformance.Recommendation == "move_prefix"
 	})
+	if !ready {
+		t.Errorf("lane %d performance estimate HTTP %d: status %q, reason %q, comparison %+v",
+			index, status, result.Estimate.Status, result.Estimate.Reason, result.UpstreamPerformance)
+		if result.Estimate.Reason == "original_egress_ownership_incomplete" {
+			logTransferStockFlowCaptures(t, st, lane, ifIndex)
+		}
+		return result, false
+	}
 	performance := result.UpstreamPerformance
 	wantReplies := [2]int{3, 0}[index]
 	if performance.Target != transferProbeTarget || performance.PairedRounds != 1 ||
@@ -353,9 +352,10 @@ func awaitTransferStockPerformance(t *testing.T, st *shipped.Stack, lane transfe
 		performance.Source.Transmitted != 3 || performance.Source.Replies != wantReplies ||
 		performance.Candidate.Transmitted != 3 || performance.Candidate.Replies != 3 ||
 		performance.Candidate.P95RttNanos == "" || (performance.Source.P95RttNanos == "") != (wantReplies == 0) {
-		t.Fatalf("the served recommendation did not retain the exact two physical probe populations: %+v", performance)
+		t.Errorf("lane %d served recommendation lost its exact two physical probe populations: %+v", index, performance)
+		return result, false
 	}
-	return result
+	return result, true
 }
 
 // The fixture operator applies and withdraws the actual approved commands.
