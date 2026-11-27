@@ -38,6 +38,15 @@ tooling, so the whole feature stays off unless `PROBECTL_NOTIFY_CONNECTORS` is s
 Routing is **per-tenant**: a connector is registered against one tenant id and
 only ever fires for incidents of that tenant.
 
+When an incident gains new evidence, ServiceNow and Jira update the existing
+ticket's probectl-managed summary and description. ServiceNow also updates
+urgency. The connector uses the tenant's stored ticket reference and credentials,
+and records the delivered revision after the provider accepts it. Paging and
+incoming chat webhooks deliver open and resolve notifications. The connector's
+account needs update permission on the records it creates.
+[ServiceNow Table API](https://www.servicenow.com/docs/r/api-reference/rest-apis/c_TableAPI.html) ·
+[Jira REST v2 issue updates](https://developer.atlassian.com/cloud/jira/platform/rest/v2/api-group-issues/#api-rest-api-2-issue-issueidorkey-put)
+
 The Alerts page links to **Docs & API → Notification routing setup** for offline
 configuration prerequisites and delivery verification steps.
 
@@ -290,17 +299,12 @@ line assigned to the same tenant while the adjustment is pending.
 
 ## Idempotency
 
-Ticket creation and paging are **idempotent** — doing it twice has the same
-effect as doing it once, a doorbell rather than a counter. A `UNIQUE (tenant,
-incident, connector)` link row means an incident is opened at most once per
-connector, so a
-delivery retry or a control-plane restart never double-pages or duplicates a
-ticket — the dispatcher checks for an existing link before opening. Pager
-connectors additionally pass a stable `dedup_key` / `alias` derived from the
-incident id (`probectl-<id>`) — the identity the pager service itself
-deduplicates on — so even a duplicate trigger that slips past the link row
-coalesces server-side. Two layers, because a 3 a.m. double-page erodes exactly
-the trust a pager runs on.
+The dispatcher checks the durable `UNIQUE (tenant, incident, connector)` link
+before opening. Pager connectors also send a stable `dedup_key` or `alias`
+derived from the incident ID so the pager service can coalesce repeated
+triggers. Jira and ServiceNow revisions replace fields on the linked ticket.
+Their create requests can be duplicated if the provider commits a create and
+its response is lost before probectl records the link.
 
 The per-tenant dispatcher queue is bounded and applies producer backpressure
 instead of dropping a committed transition when full. Provider calls have a

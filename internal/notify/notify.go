@@ -70,12 +70,15 @@ type Connector interface {
 	Resolve(ctx context.Context, inc incident.Incident, ref string) error
 }
 
-// LifecycleConnector is the optional full ticket lifecycle contract. Existing
-// paging/chat/ITSM connectors remain open+resolve; the vendor-neutral PSA
-// connector implements all four idempotent transitions.
-type LifecycleConnector interface {
+// ticketUpdater replaces the fields of an existing ticket on a new revision.
+type ticketUpdater interface {
 	Connector
 	Update(ctx context.Context, inc incident.Incident, ref string) error
+}
+
+// LifecycleConnector also supports reopening a previously resolved ticket.
+type LifecycleConnector interface {
+	ticketUpdater
 	Reopen(ctx context.Context, inc incident.Incident, ref string) error
 }
 

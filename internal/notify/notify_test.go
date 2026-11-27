@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -258,6 +259,105 @@ func TestTeamsWorkflowsPostsAdaptiveCards(t *testing.T) {
 	}
 }
 
+// PagerDuty Events v2, Slack Incoming Webhooks and Teams Workflows fixtures use
+// their documented create/resolve contracts. A correlated signal adds no page
+// or chat post. Each receiver rejects the first attempt before accepting it.
+func TestPageAndChatStandInsRecoverAndKeepTenantDestinations(t *testing.T) {
+	for _, provider := range []string{"pagerduty", "slack", "teams"} {
+		t.Run(provider, func(t *testing.T) {
+			var mu sync.Mutex
+			calls := map[string][]string{}
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var payload map[string]any
+				if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&payload) != nil {
+					t.Error("invalid event request")
+					http.Error(w, "invalid event", http.StatusBadRequest)
+					return
+				}
+				lane, action := "", ""
+				switch provider {
+				case "pagerduty":
+					key, _ := payload["routing_key"].(string)
+					lane = strings.TrimPrefix(key, "fixture-")
+					action, _ = payload["event_action"].(string)
+					if r.URL.Path != "/v2/enqueue" || key != "fixture-"+lane || payload["dedup_key"] != dedupKey("incident-"+lane) {
+						t.Error("PagerDuty lost its event route, routing key or dedup key")
+					}
+				case "slack", "teams":
+					lane = strings.TrimPrefix(r.URL.Path, "/"+provider+"/")
+					var text string
+					if provider == "slack" {
+						text, _ = payload["text"].(string)
+					} else {
+						if payload["type"] != "message" {
+							t.Error("Teams webhook did not receive a message envelope")
+						}
+						raw, _ := json.Marshal(payload["attachments"])
+						text = string(raw)
+						if !strings.Contains(text, "application/vnd.microsoft.card.adaptive") {
+							t.Error("Teams did not receive the Adaptive Card")
+						}
+					}
+					if !strings.Contains(text, "incident-"+lane) {
+						t.Error("chat message was delivered to the wrong tenant webhook")
+					}
+					if strings.Contains(text, "incident opened") {
+						action = "trigger"
+					} else if strings.Contains(text, "incident resolved") {
+						action = "resolve"
+					}
+				}
+				if lane != "alpha" && lane != "beta" || action != "trigger" && action != "resolve" {
+					t.Error("vendor fixture received an unknown lane or action")
+					http.Error(w, "invalid fixture lane", http.StatusBadRequest)
+					return
+				}
+				mu.Lock()
+				calls[lane] = append(calls[lane], action)
+				attempt := len(calls[lane])
+				mu.Unlock()
+				if attempt == 1 {
+					http.Error(w, "failed before commit", http.StatusServiceUnavailable)
+					return
+				}
+				if provider == "slack" {
+					_, _ = io.WriteString(w, "ok")
+				} else {
+					w.WriteHeader(http.StatusAccepted)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			dispatch := NewDispatcher(newMemStore(), quiet())
+			for _, lane := range []string{"alpha", "beta"} {
+				path := "/" + provider + "/" + lane
+				if provider == "pagerduty" {
+					path = "/v2/enqueue"
+				}
+				c, ok := NewConnector(provider, server.URL+path, "fixture-"+lane, server.Client())
+				if !ok {
+					t.Fatal("missing built-in connector")
+				}
+				dispatch.Register(lane, c)
+				inc := sampleIncident()
+				inc.TenantID, inc.ID, inc.Title, inc.SignalCount = lane, "incident-"+lane, "incident-"+lane, 1
+				dispatch.Opened(t.Context(), inc)
+				inc.SignalCount++
+				dispatch.Updated(t.Context(), inc)
+				dispatch.Resolved(t.Context(), inc, "")
+				drain(t, dispatch, lane)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			for _, lane := range []string{"alpha", "beta"} {
+				if actions := strings.Join(calls[lane], ","); actions != "trigger,trigger,resolve" {
+					t.Errorf("%s observed %q, want exactly one retry followed by resolution", lane, actions)
+				}
+			}
+		})
+	}
+}
+
 func TestServiceNowOpenResolve(t *testing.T) {
 	fd := &fakeDoer{respond: func(method, _ string, _ []byte) (int, string) {
 		if method == "POST" {
@@ -284,6 +384,60 @@ func TestServiceNowOpenResolve(t *testing.T) {
 	}
 	if b := bodyJSON(t, rc.body); b["state"] != "6" {
 		t.Fatalf("resolve state: %v", b)
+	}
+}
+
+func TestBuiltInTicketRevisionsKeepTheOriginalRemoteReference(t *testing.T) {
+	for _, tc := range []struct {
+		provider, endpoint, create, method, reference, titleField string
+	}{
+		{"servicenow", "https://snow.test/api/now/table/incident", `{"result":{"sys_id":"sys-9","number":"INC0010"}}`, "PATCH", "sys-9", "short_description"},
+		{"jira", "https://jira.test/rest/api/2/issue", `{"key":"OPS-191"}`, "PUT", "OPS-191", "summary"},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			client := &fakeDoer{respond: func(method, _ string, _ []byte) (int, string) {
+				if method == http.MethodPost {
+					return http.StatusCreated, tc.create
+				}
+				return http.StatusNoContent, ""
+			}}
+			connector, ok := NewConnector(tc.provider, tc.endpoint, "owner:local-token", client)
+			if !ok {
+				t.Fatal("built-in ticket connector unavailable")
+			}
+			inc := sampleIncident()
+			inc.SignalCount = 1
+			dispatch := NewDispatcher(newMemStore(), nil)
+			dispatch.Register(inc.TenantID, connector)
+			dispatch.Opened(t.Context(), inc)
+			drain(t, dispatch, inc.TenantID)
+			inc.Title = "New correlated evidence"
+			inc.SignalCount++
+			for range 2 {
+				dispatch.Updated(t.Context(), inc)
+			}
+			drain(t, dispatch, inc.TenantID)
+			calls := client.calls()
+			if len(calls) != 2 {
+				t.Fatalf("want one create and one update, got %d calls", len(calls))
+			}
+			update := calls[1]
+			if update.method != tc.method || update.url != tc.endpoint+"/"+tc.reference ||
+				update.header.Get("Authorization") != calls[0].header.Get("Authorization") {
+				t.Fatal("the revision changed destination, ticket reference or credential")
+			}
+			payload := bodyJSON(t, update.body)
+			if tc.provider == "jira" {
+				fields, ok := payload["fields"].(map[string]any)
+				if !ok {
+					t.Fatalf("Jira update fields missing: %v", payload)
+				}
+				payload = fields
+			}
+			if payload[tc.titleField] != inc.Title {
+				t.Fatalf("update omitted the current title: %v", payload)
+			}
+		})
 	}
 }
 

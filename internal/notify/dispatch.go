@@ -361,14 +361,14 @@ func (d *Dispatcher) resolvedSync(ctx context.Context, inc incident.Incident, so
 
 func (d *Dispatcher) updatedSync(ctx context.Context, inc incident.Incident) {
 	for _, base := range d.Connectors(inc.TenantID) {
-		c, ok := base.(LifecycleConnector)
+		c, ok := base.(ticketUpdater)
 		if !ok {
 			continue
 		}
 		opCtx, cancel := d.connectorContext(ctx)
 		link, err := d.links.Get(opCtx, inc.TenantID, inc.ID, c.Name())
 		cancel()
-		if err != nil || link == nil || link.Status == "resolved" || link.Status == LinkOpening {
+		if err != nil || link == nil || link.Status == "resolved" || link.Status == LinkOpening || link.Revision >= inc.SignalCount {
 			if err != nil {
 				d.log.Warn("notify: update link lookup failed", "connector", c.Name(), "incident", inc.ID, "error", err)
 			}
@@ -468,7 +468,7 @@ func (d *Dispatcher) Reconcile(ctx context.Context) {
 					d.reopenedSync(outputContext(), inc)
 					break
 				}
-				if link.Revision < inc.SignalCount {
+				if _, updates := c.(ticketUpdater); updates && link.Revision < inc.SignalCount {
 					d.updatedSync(outputContext(), inc)
 					break
 				}

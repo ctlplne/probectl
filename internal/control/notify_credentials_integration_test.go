@@ -88,6 +88,107 @@ func TestFailedWebhookLogsKeepTwoTenantCredentialsPrivate(t *testing.T) {
 	}
 }
 
+// These loopback TLS stubs implement the ServiceNow Table and Jira REST v2
+// record routes. The incident and delivery links use real tenant-scoped SQL.
+func TestBuiltInTicketStandInsRecoverUpdatesWithinTheirOwnTenant(t *testing.T) {
+	db := changeDB(t)
+	links := pgLinkStore{pool: db.Pool()}
+	dispatch := notify.NewDispatcher(links, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for _, vendor := range []struct {
+		name, path, reference, updateMethod, titleField string
+	}{
+		{"servicenow", "/api/now/table/incident", "sys-record", http.MethodPatch, "short_description"},
+		{"jira", "/rest/api/2/issue", "OPS", http.MethodPut, "summary"},
+	} {
+		t.Run(vendor.name, func(t *testing.T) {
+			tenants := [2]string{freshTenant(t, db, vendor.name+"-alpha"), freshTenant(t, db, vendor.name+"-beta")}
+			accounts := [2]string{"alpha-fixture", "beta-fixture"}
+			references := [2]string{vendor.reference + "-1", vendor.reference + "-2"}
+			summaries := [2]string{"alpha revised incident", "beta revised incident"}
+			var creates, updates, resolutions [2]atomic.Int32
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				user, secret, basic := r.BasicAuth()
+				i := 0
+				if user == accounts[1] {
+					i = 1
+				}
+				var payload map[string]any
+				if !basic || user != accounts[i] || secret != "token-"+accounts[i] ||
+					json.NewDecoder(r.Body).Decode(&payload) != nil {
+					t.Error("unexpected credential or request shape")
+					http.Error(w, "invalid fixture request", http.StatusForbidden)
+					return
+				}
+				record := vendor.path + "/" + references[i]
+				switch {
+				case r.Method == http.MethodPost && r.URL.Path == vendor.path:
+					creates[i].Add(1)
+					w.WriteHeader(http.StatusCreated)
+					if vendor.name == "jira" {
+						_ = json.NewEncoder(w).Encode(map[string]string{"key": references[i]})
+					} else {
+						_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]string{"sys_id": references[i]}})
+					}
+				case vendor.name == "jira" && r.Method == http.MethodPost && r.URL.Path == record+"/transitions",
+					vendor.name == "servicenow" && r.Method == http.MethodPatch && r.URL.Path == record && payload["state"] == "6":
+					resolutions[i].Add(1)
+					w.WriteHeader(http.StatusNoContent)
+				case r.Method == vendor.updateMethod && r.URL.Path == record:
+					if vendor.name == "jira" {
+						payload, _ = payload["fields"].(map[string]any)
+					}
+					if payload[vendor.titleField] != summaries[i] {
+						t.Error("ticket revision crossed the tenant's credential or reference")
+						http.Error(w, "unexpected revision", http.StatusBadRequest)
+						return
+					}
+					if updates[i].Add(1) == 1 && i == 0 {
+						http.Error(w, "before commit", http.StatusServiceUnavailable)
+						return
+					}
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+					http.Error(w, "unexpected fixture route", http.StatusNotFound)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			var opened [2]*incident.Incident
+			for i, tenant := range tenants {
+				client, ok := notify.NewConnector(vendor.name, server.URL+vendor.path, accounts[i]+":token-"+accounts[i], server.Client())
+				if !ok {
+					t.Fatal("could not configure the owned ticket fixture")
+				}
+				dispatch.Register(tenant, client)
+				opened[i] = openIncidentVia(t, db, dispatch, tenant, accounts[i])
+			}
+			for i, tenant := range tenants {
+				inc := *opened[i]
+				inc.Title, inc.SignalCount = summaries[i], inc.SignalCount+1
+				dispatch.Updated(t.Context(), inc)
+				drainNotify(t, dispatch, tenant)
+				link, err := links.Get(t.Context(), tenant, inc.ID, vendor.name)
+				if err != nil || link == nil || link.ExternalRef != references[i] || link.Revision != inc.SignalCount {
+					t.Fatalf("tenant %d lost the successful ticket revision: %v", i, err)
+				}
+				foreign, err := links.Get(t.Context(), tenant, opened[1-i].ID, vendor.name)
+				if err != nil || foreign != nil {
+					t.Fatalf("tenant %d read a foreign remote reference: %v", i, err)
+				}
+				dispatch.Resolved(t.Context(), inc, "")
+				drainNotify(t, dispatch, tenant)
+				link, err = links.Get(t.Context(), tenant, inc.ID, vendor.name)
+				if err != nil || link == nil || link.Status != "resolved" ||
+					creates[i].Load() != 1 || updates[i].Load() != [2]int32{2, 1}[i] || resolutions[i].Load() != 1 {
+					t.Errorf("tenant %d create/update/resolve counts = %d/%d/%d, link=%+v err=%v",
+						i, creates[i].Load(), updates[i].Load(), resolutions[i].Load(), link, err)
+				}
+			}
+		})
+	}
+}
+
 func TestAutotaskTicketCredentialsAndInboundLinksKeepTenantIsolation(t *testing.T) {
 	const endpoint = "/atservicesrest/v1.0/Tickets"
 	const mirrorPath = "/mirror/"
