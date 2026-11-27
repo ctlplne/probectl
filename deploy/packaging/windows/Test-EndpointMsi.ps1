@@ -27,16 +27,17 @@ function Read-MsiScalar($Database, [string]$Query, [string]$Property = 'StringDa
     $view = $record = $extra = $null
     try {
         $view = $Database.OpenView($Query)
-        $view.Execute()
+        [void]$view.Execute()
         $record = $view.Fetch()
         if ($null -eq $record) { return $null }
+        $value = $record.GetType().InvokeMember($Property, 'GetProperty', $null, $record, @(1))
         $extra = $view.Fetch()
         if ($null -ne $extra) { throw 'Expected at most one MSI table row.' }
-        return $record.GetType().InvokeMember($Property, 'GetProperty', $null, $record, @(1))
+        return $value
     } finally {
         Release-ComObject $extra
         Release-ComObject $record
-        if ($null -ne $view) { $view.Close() }
+        if ($null -ne $view) { [void]$view.Close() }
         Release-ComObject $view
     }
 }
@@ -156,7 +157,14 @@ try {
     $platform = $summary.GetType().InvokeMember('Property', 'GetProperty', $null, $summary, @(7))
     if ($platform -ne "$Architecture;1033") { throw 'MSI architecture or language metadata differs.' }
     $version = Read-MsiScalar $database 'SELECT `Value` FROM `Property` WHERE `Property` = ''ProductVersion'''
-    if ($version -ne $ExpectedVersion) { throw 'MSI product version differs.' }
+    if ($version -isnot [string] -or $version -ne $ExpectedVersion) {
+        $observed = 'missing'
+        if ($null -ne $version) {
+            $observed = $version.GetType().Name
+            if ($version -is [string] -and $version -cmatch '^[0-9.]{1,20}$') { $observed = $version }
+        }
+        throw "MSI product version differs (observed $observed)."
+    }
     $scope = Read-MsiScalar $database 'SELECT `Value` FROM `Property` WHERE `Property` = ''ALLUSERS'''
     if ($scope -ne '1') { throw 'MSI must use per-machine install scope.' }
     $executableDigest = Read-MsiScalar $database 'SELECT `Value` FROM `Property` WHERE `Property` = ''ProbectlExecutableSHA256'''
