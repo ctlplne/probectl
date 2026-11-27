@@ -8,6 +8,7 @@ package control
 
 import (
 	"bytes"
+	"encoding/base64"
 	"html/template"
 	"mime"
 	"net/http"
@@ -16,7 +17,38 @@ import (
 
 	"github.com/ctlplne/probectl/internal/apierror"
 	"github.com/ctlplne/probectl/internal/branding"
+	"github.com/ctlplne/probectl/internal/crypto"
 )
+
+// Fixed product tokens only. The emergency page does not load the SPA bundle
+// or interpolate deployment and customer theme settings into its stylesheet.
+const quarantineLoginStyle = `
+:root {
+	color-scheme: light dark;
+	--attribution-background: #231b16;
+	--attribution-foreground: #fffefa;
+	--attribution-border-color: #8e480b;
+	--attribution-min-height: 24px;
+	--attribution-radius: 999px;
+}
+.identity { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.identity strong { min-inline-size: 0; overflow-wrap: anywhere; }
+.attribution {
+	display: inline-flex; flex: none; align-items: center; gap: 0.25rem;
+	min-block-size: var(--attribution-min-height); padding-inline: 0.5rem;
+	border: 1px solid var(--attribution-border-color); border-radius: var(--attribution-radius);
+	background: var(--attribution-background); color: var(--attribution-foreground);
+	font-size: 0.875rem;
+}
+.attribution svg { inline-size: 14px; block-size: 14px; flex: none; }
+.attribution:focus-visible {
+	outline: 2px solid var(--attribution-foreground);
+	outline-offset: 2px; box-shadow: 0 0 0 5px var(--attribution-background);
+}
+`
+
+var quarantineLoginCSP = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; style-src 'sha256-" +
+	base64.StdEncoding.EncodeToString(crypto.Hash([]byte(quarantineLoginStyle))) + "'"
 
 // This emergency page needs no app bundle, scripts, remote assets or storage.
 // Browser-native semantic HTML keeps recovery usable when tenant storage is held.
@@ -26,8 +58,8 @@ var quarantineLoginPage = template.Must(template.New("quarantine-login").Parse(`
 <circle cx="16" cy="16" r="4.2" fill="none" stroke="#fffefa" stroke-width="1.8"/>
 <circle cx="16" cy="16" r="1.8" fill="#fffefa"/>
 </svg>{{end}}<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign-in temporarily unavailable · {{if .Customer}}{{.Customer}} · {{.Attribution}}{{else}}probectl{{end}}</title></head>
-<body><main><p>{{if .Customer}}<strong><bdi>{{.Customer}}</bdi></strong> <a href="{{.AttributionURL}}">{{template "mark"}} {{.Attribution}}</a>{{else}}{{template "mark"}} probectl{{end}}</p><h1>Sign-in temporarily unavailable</h1>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Sign-in temporarily unavailable · {{if .Customer}}{{.Customer}} · {{.Attribution}}{{else}}probectl{{end}}</title><style>` + quarantineLoginStyle + `</style></head>
+<body><main><p class="identity">{{if .Customer}}<strong><bdi>{{.Customer}}</bdi></strong> <a class="attribution" href="{{.AttributionURL}}">{{template "mark"}} {{.Attribution}}</a>{{else}}{{template "mark"}} probectl{{end}}</p><h1>Sign-in temporarily unavailable</h1>
 <p>{{.Message}}</p><p>Error: <code>{{.Code}}</code></p>
 {{if .RequestID}}<p>Request ID: <code>{{.RequestID}}</code></p>{{end}}
 <p>Contact your deployment operator. After the tenant is restored, retry sign-in.</p>
@@ -83,7 +115,7 @@ func writeQuarantineLoginPage(w http.ResponseWriter, r *http.Request, domain *ap
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Add("Vary", "Accept")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+	w.Header().Set("Content-Security-Policy", quarantineLoginCSP)
 	w.WriteHeader(http.StatusServiceUnavailable)
 	_, _ = w.Write(body.Bytes())
 	return true

@@ -63,7 +63,9 @@ The protected console applies a customer brand when the branding response and
 `/v1/me` agree on the authenticated tenant. During a session change it shows
 probectl branding until the current customer's presentation is available.
 If a tenant is quarantined, the browser recovery page can show its published
-name and fixed attribution from the same registered host.
+name and fixed attribution from the same registered host. The recovery page
+follows the browser's light or dark preference and wraps long names on narrow
+screens.
 
 Every customer brand is accompanied by **Powered by probectl**, linked to
 [probectl.com](https://probectl.com). The customer console and sign-in display

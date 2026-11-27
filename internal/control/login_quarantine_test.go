@@ -7,12 +7,14 @@ package control
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/ctlplne/probectl/internal/branding"
+	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
 
@@ -66,10 +68,28 @@ func TestQuarantineLoginBrowserRecovery(t *testing.T) {
 				if rec.Header().Get("Cache-Control") != "no-store" {
 					t.Fatal("login error may be cached")
 				}
+				assertFixedRecoveryStyle(t, rec)
 			} else if !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
 				t.Fatal("JSON contract changed")
 			}
 		})
+	}
+}
+
+func assertFixedRecoveryStyle(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	body := rec.Body.String()
+	_, style, found := strings.Cut(body, "<style>")
+	style, _, closed := strings.Cut(style, "</style>")
+	if !found || !closed || !strings.Contains(body, `<meta name="color-scheme" content="light dark">`) ||
+		!strings.Contains(style, "overflow-wrap: anywhere") || !strings.Contains(style, ".attribution:focus-visible") ||
+		!strings.Contains(style, "--attribution-background: #231b16") || !strings.Contains(style, "--attribution-foreground: #fffefa") {
+		t.Fatal("recovery page lacks the fixed responsive and light/dark styles")
+	}
+	digest := base64.StdEncoding.EncodeToString(crypto.Hash([]byte(style)))
+	policy := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(policy, "style-src 'sha256-"+digest+"'") || strings.Contains(policy, "'unsafe-inline'") {
+		t.Fatal("recovery policy does not pin the response stylesheet")
 	}
 }
 
@@ -101,13 +121,14 @@ func TestCustomerRecoveryUsesOnlyTheRegisteredHostBrand(t *testing.T) {
 		body := rec.Body.String()
 		if rec.Code != http.StatusServiceUnavailable || !strings.Contains(body, "tenant_quarantined") ||
 			!strings.Contains(body, "<bdi>"+tc.customer+"</bdi>") || strings.Contains(body, tc.other) ||
-			!strings.Contains(body, `<a href="https://probectl.com">`) || !strings.Contains(body, `</svg> Powered by probectl</a>`) {
+			!strings.Contains(body, `<a class="attribution" href="https://probectl.com">`) || !strings.Contains(body, `</svg> Powered by probectl</a>`) {
 			t.Fatalf("%s recovery lost the correct brand or attribution: %d %s", tc.host, rec.Code, body)
 		}
 		if rec.Header().Get("Location") != "" || rec.Header().Get("Set-Cookie") != "" ||
 			rec.Header().Get("Cache-Control") != "no-store" || !strings.Contains(rec.Header().Get("Content-Security-Policy"), "default-src 'none'") {
 			t.Fatalf("%s recovery changed the authentication, caching or CSP policy: %v", tc.host, rec.Header())
 		}
+		assertFixedRecoveryStyle(t, rec)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "https://northstar.example/auth/login?tenant="+siblingBrandTenant, nil)
