@@ -36,16 +36,19 @@ $work = Join-Path $env:RUNNER_TEMP ([Guid]::NewGuid().ToString())
 [void](New-Item $work -ItemType Directory)
 $certificate = $null
 try {
+    Write-Host "Creating the offline $Architecture signing identity"
     $certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=probectl Windows packaging fixture' `
         -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(1)
     $thumbprint = $certificate.Thumbprint
     $cer = Join-Path $work 'fixture.cer'
     Export-Certificate -Cert $certificate -FilePath $cer | Out-Null
-    Import-Certificate -FilePath $cer -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+    Write-Host 'Trusting the fixture certificate on the disposable runner'
+    Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
 
     $executable = Join-Path $work 'probectl-endpoint.exe'
     $msi = Join-Path $work 'probectl-endpoint.msi'
     Copy-Item -LiteralPath $Binary -Destination $executable
+    Write-Host 'Signing and verifying the endpoint executable'
     Sign-Fixture $executable $thumbprint
 
     $packaging = Join-Path $PSScriptRoot '..\deploy\packaging\windows'
@@ -53,10 +56,11 @@ try {
         -Version '0.0.1' -OutputMsi $msi -TestUnsigned
     & (Join-Path $packaging 'Test-EndpointMsi.ps1') -Msi $msi -Architecture $Architecture `
         -ExpectedVersion '0.0.1' -AllowUnsignedFixture
+    Write-Host 'Signing and verifying the complete MSI'
     Sign-Fixture $msi $thumbprint
 } finally {
     if ($null -ne $certificate) {
-        Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$($certificate.Thumbprint)" -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($certificate.Thumbprint)" -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($certificate.Thumbprint)" -DeleteKey -ErrorAction SilentlyContinue
     }
     Remove-Item -LiteralPath $work -Recurse -Force

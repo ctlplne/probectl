@@ -14,16 +14,9 @@ work=$(mktemp -d "$RUNNER_TEMP/probectl-endpoint-XXXXXX")
 keychain="$work/fixture.keychain-db"
 root="$work/root.pem"
 label="probectl macOS packaging fixture"
-trusted=false
 cleanup() {
-    local result=0
-    if "$trusted"; then
-        sudo /usr/bin/security remove-trusted-cert -d "$root" || result=$?
-        sudo /usr/bin/security delete-certificate -Z "$fingerprint" /Library/Keychains/System.keychain || result=$?
-    fi
     /usr/bin/security delete-keychain "$keychain" >/dev/null 2>&1 || true
     rm -rf -- "$work"
-    return "$result"
 }
 trap cleanup EXIT
 
@@ -55,16 +48,23 @@ EOF
     -extfile "$work/cert.cnf" -extensions signing -days 1 -out "$work/sign.pem"
 password=$(/usr/bin/openssl rand -hex 24)
 /usr/bin/openssl pkcs12 -export -inkey "$work/sign.key" -in "$work/sign.pem" \
-    -out "$work/signer.p12" -passout "pass:$password"
-fingerprint=$(/usr/bin/openssl x509 -in "$root" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d :)
-sudo /usr/bin/security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$root"
-trusted=true
+    -certfile "$root" -out "$work/signer.p12" -passout "pass:$password"
+printf '%s\n' "Installing the test authority on the disposable runner"
+sudo -n /usr/bin/security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$root"
+printf '%s\n' "Importing the app and package test identity"
 /usr/bin/security create-keychain -p "$password" "$keychain"
+/usr/bin/security set-keychain-settings -lut 900 "$keychain"
 /usr/bin/security unlock-keychain -p "$password" "$keychain"
-/usr/bin/security import "$work/signer.p12" -k "$keychain" -P "$password" -T /usr/bin/codesign -T /usr/bin/pkgbuild
+/usr/bin/security import "$work/signer.p12" -k "$keychain" -P "$password" -t cert -f pkcs12 \
+    -T /usr/bin/codesign -T /usr/bin/pkgbuild
+/usr/bin/security list-keychains -d user -s "$keychain"
 /usr/bin/security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
 
-/usr/bin/codesign --force --options runtime --timestamp=none --keychain "$keychain" --sign "$label" "$app"
+signer=$(/usr/bin/openssl x509 -in "$work/sign.pem" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d :)
+/usr/bin/security find-identity -v -p codesigning "$keychain" | /usr/bin/grep -Fi "$signer"
+printf '%s\n' "Signing the app payload"
+/usr/bin/codesign --force --options runtime --timestamp=none --keychain "$keychain" --sign "$signer" "$app"
+printf '%s\n' "Signing the installer and verifying the complete package"
 /usr/bin/pkgbuild --root "$payload" --component-plist "$repo/deploy/packaging/macos/components.plist" \
     --identifier com.probectl.endpoint.pkg --version 0.0.1 --install-location / --ownership recommended \
     --timestamp=none --keychain "$keychain" --sign "$label" "$work/fixture.pkg"
