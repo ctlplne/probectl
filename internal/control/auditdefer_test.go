@@ -14,6 +14,9 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/auth"
 )
 
 func readOnlyRefusal() error {
@@ -93,8 +96,8 @@ func TestSensitiveReadsServeAndDeferTheirAuditOnAReadOnlyDatabase(t *testing.T) 
 	}
 }
 
-// TestDeferredAuditQueueIsBounded: a failover that outlives the queue drops
-// the oldest-unwritten events loudly (counted), never grows without bound.
+// TestDeferredAuditQueueIsBounded verifies that new events are refused when
+// the queue reaches capacity.
 func TestDeferredAuditQueueIsBounded(t *testing.T) {
 	var q deferredAuditQueue
 	for i := 0; i < deferredAuditMaxQueue; i++ {
@@ -104,5 +107,77 @@ func TestDeferredAuditQueueIsBounded(t *testing.T) {
 	}
 	if q.push(deferredAuditEvent{action: "overflow"}) || q.dropped != 1 {
 		t.Fatalf("the bound must refuse and count: dropped=%d", q.dropped)
+	}
+}
+
+func TestSensitiveReadRefusesWhenDeferredAuditQueueIsFull(t *testing.T) {
+	const owner = "00000000-0000-0000-0000-0000000000a1"
+	const sibling = "00000000-0000-0000-0000-0000000000b2"
+	srv := testServer(nil)
+	srv.routeAudit = func(*http.Request, string, string, map[string]any) error { return readOnlyRefusal() }
+	read := srv.auditRoute(apiRoute{Method: http.MethodGet, Pattern: "/v1/tests"}, auditWrapped(auditFacetSensitiveRead),
+		func(w http.ResponseWriter, r *http.Request) error {
+			_, err := w.Write([]byte("tests for " + auth.PrincipalFrom(r.Context()).TenantID))
+			return err
+		})
+	request := func(tenant string) (*httptest.ResponseRecorder, error) {
+		req := httptest.NewRequest(http.MethodGet, "/v1/tests", nil)
+		req = req.WithContext(auth.WithPrincipal(req.Context(), &auth.Principal{TenantID: tenant}))
+		recorder := httptest.NewRecorder()
+		return recorder, read(recorder, req)
+	}
+	assertRefused := func(tenant string) {
+		t.Helper()
+		recorder, err := request(tenant)
+		var failure *apierror.Error
+		if !errors.As(err, &failure) || failure.Kind != apierror.KindUnavailable ||
+			failure.Code != string(apierror.CodeWriterUnavailable) ||
+			recorder.Header().Get("Retry-After") == "" || recorder.Body.Len() != 0 {
+			t.Errorf("tenant %s read escaped a full deferred audit queue: error=%v body length=%d", tenant, err, recorder.Body.Len())
+		}
+	}
+	for range deferredAuditMaxQueue - 1 {
+		if !srv.deferredAudit.push(deferredAuditEvent{tenantID: owner}) {
+			t.Fatal("queue refused an event below its capacity")
+		}
+	}
+	if response, err := request(sibling); err != nil || response.Body.String() != "tests for "+sibling {
+		t.Fatalf("sibling could not use the last audit slot: %v", err)
+	}
+	assertRefused(owner)
+	assertRefused(sibling)
+
+	started := make(chan struct{})
+	replayDone := make(chan int, 1)
+	replayCtx, stopReplay := context.WithCancel(t.Context())
+	defer stopReplay()
+	srv.routeAuditReplay = func(ctx context.Context, _, _, _, _ string, _ map[string]any) error {
+		close(started)
+		<-ctx.Done()
+		return readOnlyRefusal()
+	}
+	go func() { replayDone <- srv.FlushDeferredAudit(replayCtx) }()
+	select {
+	case <-started:
+	case flushed := <-replayDone:
+		t.Fatalf("replay ended before attempting its first append: flushed=%d", flushed)
+	}
+	assertRefused(sibling)
+	stopReplay()
+	if flushed := <-replayDone; flushed != 0 || srv.deferredAudit.pending() != deferredAuditMaxQueue {
+		t.Errorf("failed replay changed admission: flushed=%d queued=%d", flushed, srv.deferredAudit.pending())
+	}
+
+	replayed := make(map[string]int)
+	srv.routeAuditReplay = func(_ context.Context, tenant, _, _, _ string, _ map[string]any) error {
+		replayed[tenant]++
+		return nil
+	}
+	if flushed := srv.FlushDeferredAudit(t.Context()); flushed != deferredAuditMaxQueue ||
+		len(replayed) != 2 || replayed[owner] != deferredAuditMaxQueue-1 || replayed[sibling] != 1 {
+		t.Errorf("recovery did not replay each admitted tenant record once: flushed=%d tenants=%v", flushed, replayed)
+	}
+	if response, err := request(owner); err != nil || response.Body.String() != "tests for "+owner {
+		t.Fatalf("owner could not read after audit capacity recovered: %v", err)
 	}
 }

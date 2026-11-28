@@ -165,9 +165,9 @@ succeeds, a sensitive read (`access.read.*`) can be served while its audit
 event waits in a bounded per-replica queue. Once writes are usable again,
 the audit append records `deferred_at` and the reason.
 `probectl_audit_deferred_total` counts deferrals and
-`probectl_audit_deferred_dropped_total` counts overflow. Exports, operational
-actions and mutations whose audit event cannot be written return
-`503 writer_unavailable` and a `Retry-After`.
+`probectl_audit_deferred_dropped_total` counts reads refused because the queue
+is full. These reads return `503 writer_unavailable` and a `Retry-After`, as do
+exports, operational actions and mutations whose audit event cannot be written.
 
 ## RTO
 

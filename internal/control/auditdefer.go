@@ -27,11 +27,10 @@ import (
 // While the writer endpoint is a read-only standby (or the writer pool is
 // fenced on a stale ex-primary) that append is refused, and the request used
 // to fail with 500 — so "reads keep serving during a failover" held for
-// nothing that is audited. A sensitive read now serves and its audit event is
-// deferred in a bounded per-replica queue that drains once writes are usable
-// again (each replayed event carries deferred_at and the reason); exports,
-// operational actions and mutations stay fail-closed but answer an honest
-// 503 writer_unavailable with Retry-After instead of a 500.
+// nothing that is audited. A sensitive read can serve after its audit event
+// enters a bounded per-replica queue. Once writes are usable, each replayed
+// event carries deferred_at and the reason. A full queue, export, operational
+// action or mutation returns 503 writer_unavailable with Retry-After.
 
 const (
 	deferredAuditMaxQueue     = 10000
@@ -51,6 +50,7 @@ type deferredAuditEvent struct {
 // deferredAuditQueue is a bounded FIFO of deferred audit events (per replica).
 type deferredAuditQueue struct {
 	mu      sync.Mutex
+	flushMu sync.Mutex
 	events  []deferredAuditEvent
 	dropped uint64
 }
@@ -72,23 +72,22 @@ func (q *deferredAuditQueue) pending() int {
 	return len(q.events)
 }
 
-// pop removes and returns the oldest event; ok=false when empty.
-func (q *deferredAuditQueue) pop() (deferredAuditEvent, bool) {
+// first keeps the oldest event in the queue until its durable append succeeds.
+func (q *deferredAuditQueue) first() (deferredAuditEvent, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.events) == 0 {
 		return deferredAuditEvent{}, false
 	}
-	e := q.events[0]
-	q.events = q.events[1:]
-	return e, true
+	return q.events[0], true
 }
 
-// unshift puts an event back at the head after a failed replay.
-func (q *deferredAuditQueue) unshift(e deferredAuditEvent) {
+// removeFirst is called only by the active flush after a successful append.
+func (q *deferredAuditQueue) removeFirst() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.events = append([]deferredAuditEvent{e}, q.events...)
+	q.events[0] = deferredAuditEvent{}
+	q.events = q.events[1:]
 }
 
 // writesRefused reports whether err is the database refusing a write because
@@ -122,10 +121,9 @@ func (s *Server) appendRouteAudit(r *http.Request, action, target string, data m
 	})
 }
 
-// deferRouteAudit queues a sensitive read's audit event for replay once the
-// database accepts writes again. Best effort and bounded: overflow is counted
-// and logged loudly, never silent.
-func (s *Server) deferRouteAudit(r *http.Request, action, target string, data map[string]any) {
+// deferRouteAudit reports whether a sensitive read's event was admitted for
+// replay once the database accepts writes again.
+func (s *Server) deferRouteAudit(r *http.Request, action, target string, data map[string]any) bool {
 	tenantID := ""
 	if p := auth.PrincipalFrom(r.Context()); p != nil {
 		tenantID = p.TenantID
@@ -133,13 +131,14 @@ func (s *Server) deferRouteAudit(r *http.Request, action, target string, data ma
 	ev := deferredAuditEvent{tenantID: tenantID, actor: auditActor(r), action: action, target: target, data: data, at: time.Now().UTC()}
 	if s.deferredAudit.push(ev) {
 		s.metrics.Counter(metricAuditDeferredTotal, "").Inc()
-		deferredAuditLog.Log(s.log, "audit event deferred: the database refuses writes (failover in progress); the read was served and the event will be appended once writes return",
+		deferredAuditLog.Log(s.log, "audit event deferred while the writer is fenced",
 			[]string{"audit-deferred", action}, "action", action, "target", target)
-		return
+		return true
 	}
 	s.metrics.Counter(metricAuditDeferredDrops, "").Inc()
-	s.log.Error("audit event DROPPED: the deferred-audit queue is full while the database refuses writes",
+	s.log.Error("sensitive read refused because the deferred audit queue is full",
 		"action", action, "target", target, "queue", deferredAuditMaxQueue)
+	return false
 }
 
 // deferredAuditLog folds repeated deferrals into one line per action per
@@ -151,9 +150,11 @@ var deferredAuditLog = newRejectionLogger(time.Minute)
 // or the database refuses again. It is safe to call concurrently with new
 // deferrals; it returns the number of events appended.
 func (s *Server) FlushDeferredAudit(ctx context.Context) int {
+	s.deferredAudit.flushMu.Lock()
+	defer s.deferredAudit.flushMu.Unlock()
 	flushed := 0
 	for {
-		ev, ok := s.deferredAudit.pop()
+		ev, ok := s.deferredAudit.first()
 		if !ok {
 			return flushed
 		}
@@ -173,9 +174,9 @@ func (s *Server) FlushDeferredAudit(ctx context.Context) int {
 			})
 		}
 		if err != nil {
-			s.deferredAudit.unshift(ev)
 			return flushed
 		}
+		s.deferredAudit.removeFirst()
 		flushed++
 		s.metrics.Counter(metricAuditDeferredFlushd, "").Inc()
 	}
@@ -205,9 +206,8 @@ func (s *Server) RunDeferredAudit(ctx context.Context) {
 	}
 }
 
-// auditWritesRefused is the fail-closed answer for an export, operational
-// action or mutation whose audit event cannot be written: honest 503 with a
-// Retry-After, never a 500.
+// auditWritesRefused returns 503 with Retry-After when a required audit event
+// cannot be written or queued.
 func auditWritesRefused(w http.ResponseWriter) error {
 	w.Header().Set("Retry-After", "2")
 	return apierror.Unavailable("audit is required for this action and the audit store refuses writes (writer fenced during failover)").WithCode("writer_unavailable")

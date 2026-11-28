@@ -136,13 +136,11 @@ func (s *Server) auditRoute(rt apiRoute, p auditRoutePolicy, next apiHandler) ap
 					return err
 				}
 				// DPR-101: the database is read-only (failover). A sensitive
-				// read still serves — its event is deferred and replayed —
-				// while anything that exports, operates or mutates stays
-				// fail-closed with an honest retryable status.
-				if p.Facet != auditFacetSensitiveRead {
+				// read can proceed after its audit event has been queued for
+				// replay. Other actions require a writable audit store.
+				if p.Facet != auditFacetSensitiveRead || !s.deferRouteAudit(r, p.Action, p.Target, data) {
 					return auditWritesRefused(w)
 				}
-				s.deferRouteAudit(r, p.Action, p.Target, data)
 			}
 		}
 		return next(w, r)
