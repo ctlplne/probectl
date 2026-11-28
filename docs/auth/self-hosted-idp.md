@@ -70,6 +70,11 @@ standard fields naming the authentication methods used). Everything about
 which is identical no matter which IdP you run — the self-hosted IdP is not a
 special case.
 
+For `acr`, use the case-sensitive class name `mfa`, `aal2`, `aal3`, `loa2`
+or `loa3`. These can be bare names, the final path segment of an HTTP(S) URI,
+or the final colon-delimited part of a URN. Configure the issuer to assert
+that class only after it verifies the required factors.
+
 ## The contract
 
 RSA public keys in the IdP's JWKS must have a modulus of at most 4096 bits.

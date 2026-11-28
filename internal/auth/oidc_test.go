@@ -36,6 +36,7 @@ type mockIDP struct {
 	issuer   string
 	// claims overrides for the next minted token.
 	sub, email, name, zoneinfo, locale string
+	acr                                string
 	tokenCodeVerifier                  string
 	// emailVerified, when non-nil, is emitted as the email_verified claim
 	// (AUTHZ-03). nil omits the claim entirely.
@@ -139,6 +140,9 @@ func (m *mockIDP) mintIDToken(t *testing.T) string {
 	if m.emailVerified != nil {
 		claims["email_verified"] = *m.emailVerified // AUTHZ-03
 	}
+	if m.acr != "" {
+		claims["acr"] = m.acr
+	}
 	payload, err := json.Marshal(claims)
 	if err != nil {
 		t.Fatalf("marshal claims: %v", err)
@@ -161,6 +165,7 @@ func writeJSONResp(w http.ResponseWriter, v any) {
 
 func TestOIDCProviderExchange(t *testing.T) {
 	idp := newMockIDP(t, "probectl-client")
+	idp.acr = "urn:example:nomfa"
 	ctx := context.Background()
 
 	prov, err := NewOIDCProvider(ctx, OIDCConfig{
@@ -204,6 +209,9 @@ func TestOIDCProviderExchange(t *testing.T) {
 	// callback can enforce it against the login-minted value.
 	if id.Nonce != "nonce-abc" {
 		t.Fatalf("Identity.Nonce = %q, want the token's nonce claim", id.Nonce)
+	}
+	if id.MFASatisfied {
+		t.Fatal("a signed ID token with a non-MFA class was given MFA authority")
 	}
 	if idp.tokenCodeVerifier != codeVerifier {
 		t.Fatalf("token endpoint code_verifier = %q, want login verifier", idp.tokenCodeVerifier)

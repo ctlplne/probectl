@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -187,14 +188,43 @@ var secondFactorAMR = map[string]bool{
 // mfaFromAuthContext reports whether the ID token's authentication-context
 // claims assert multi-factor authentication. amr (RFC 8176) is authoritative:
 // any second-factor method (or the explicit "mfa") satisfies it. acr is a
-// secondary hint — a level-of-assurance naming mfa/aal2+/loa2+.
+// fallback for an exact, recognized class name.
 func mfaFromAuthContext(amr []string, acr string) bool {
 	for _, m := range amr {
 		if secondFactorAMR[strings.ToLower(strings.TrimSpace(m))] {
 			return true
 		}
 	}
-	la := strings.ToLower(strings.TrimSpace(acr))
-	return strings.Contains(la, "mfa") || strings.Contains(la, "aal2") ||
-		strings.Contains(la, "aal3") || strings.Contains(la, "loa2") || strings.Contains(la, "loa3")
+	acr = strings.TrimSpace(acr)
+	if strings.ContainsAny(acr, "?#") {
+		return false
+	}
+	class, err := url.Parse(acr)
+	if err != nil {
+		return false
+	}
+	switch class.Scheme {
+	case "":
+		// Match only a bare name below. Relative paths cannot qualify it.
+	case "http", "https":
+		if class.Hostname() == "" || class.User != nil {
+			return false
+		}
+		path := class.EscapedPath()
+		acr = path[strings.LastIndexByte(path, '/')+1:]
+	case "urn":
+		separator := strings.LastIndexByte(class.Opaque, ':')
+		if separator <= 0 {
+			return false
+		}
+		acr = class.Opaque[separator+1:]
+	default:
+		return false
+	}
+	switch acr {
+	case "mfa", "aal2", "aal3", "loa2", "loa3":
+		return true
+	default:
+		return false
+	}
 }
