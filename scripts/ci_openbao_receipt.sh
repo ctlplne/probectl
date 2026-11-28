@@ -79,7 +79,8 @@ else
   jq -e '(.data // .)["secret/"].options.version == "2"' <<<"$mounts" >/dev/null
 fi
 admin sys/auth/approle --data '{"type":"approle"}' >/dev/null
-admin sys/policies/acl/probectl-receipt \
+export PROBECTL_TEST_OPENBAO_POLICY=probectl-receipt
+admin "sys/policies/acl/$PROBECTL_TEST_OPENBAO_POLICY" \
   --data '{"policy":"path \"secret/data/probectl/byok/*\" { capabilities = [\"read\"] }"}' >/dev/null
 role='auth/approle/role/probectl-receipt'
 admin "$role" --data '{"bind_secret_id":true,"token_policies":["probectl-receipt"],"token_no_default_policy":true,"token_ttl":"5m","token_max_ttl":"10m","secret_id_ttl":"10m"}' >/dev/null

@@ -22,9 +22,15 @@ import (
 
 	"github.com/ctlplne/probectl/internal/crypto"
 	"github.com/ctlplne/probectl/internal/store"
+	"github.com/ctlplne/probectl/internal/tenantlife"
 	"github.com/ctlplne/probectl/internal/testsupport"
 	"github.com/ctlplne/probectl/internal/testsupport/shipped"
 )
+
+type openBaoLane struct {
+	tenant, slug, cookie, token, ref, path, material string
+	managed, sealed                                  string
+}
 
 func TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant(t *testing.T) {
 	base := strings.TrimRight(os.Getenv("PROBECTL_TEST_OPENBAO_URL"), "/")
@@ -40,8 +46,9 @@ func TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant(t *testing.T) {
 	role := os.Getenv("PROBECTL_TEST_OPENBAO_ROLE_ID")
 	secret := os.Getenv("PROBECTL_TEST_OPENBAO_SECRET_ID")
 	admin := os.Getenv("PROBECTL_TEST_OPENBAO_ADMIN_TOKEN")
-	if ca == "" || role == "" || secret == "" || admin == "" {
-		t.Fatal("the OpenBao fixture requires trusted TLS, AppRole and a separate provisioning credential")
+	policy := os.Getenv("PROBECTL_TEST_OPENBAO_POLICY")
+	if ca == "" || role == "" || secret == "" || admin == "" || policy != "probectl-receipt" {
+		t.Fatal("the OpenBao fixture requires trusted TLS, a disposable AppRole policy and a separate provisioning credential")
 	}
 	t.Setenv("PROBECTL_TEST_OPENBAO_ADMIN_TOKEN", "")
 	client, err := crypto.HardenedHTTPClientWithCAFile(5*time.Second, ca)
@@ -49,10 +56,17 @@ func TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(client.CloseIdleConnections)
-	vault := openBaoTestVault{base: base, admin: admin, client: client}
+	vault := openBaoTestVault{base: base, admin: admin, policy: policy, client: client}
+	irPrivateKeys := t.TempDir()
+	if err := os.Chmod(irPrivateKeys, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	stack := shipped.Start(t, shipped.Options{Name: "openbaokeys", TenantBand: 3, Env: map[string]string{
 		"PROBECTL_BYOK_REF_PREFIX":         "vault:secret/probectl/byok/{tenant}/",
 		"PROBECTL_SECRETS_VAULT_ADDR":      base,
+		"PROBECTL_IR_PRIVATE_KEY_DIR":      irPrivateKeys,
+		"PROBECTL_IR_UNLOCK_KEY_ID":        "openbao-receipt-ir-unlock",
+		"PROBECTL_IR_UNLOCK_KEY":           randomKey(t),
 		"PROBECTL_SECRETS_VAULT_ROLE_ID":   role,
 		"PROBECTL_SECRETS_VAULT_SECRET_ID": secret,
 		"PROBECTL_SECRETS_VAULT_TOKEN":     "",
@@ -60,11 +74,7 @@ func TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant(t *testing.T) {
 	}})
 	operator := stack.OnboardOperator(t, "root@msp-openbao-receipt.example")
 	stamp := fmt.Sprint(time.Now().UnixNano())
-	type vaultLane struct {
-		tenant, cookie, token, ref, path, material string
-		managed, sealed                            string
-	}
-	var lanes [2]vaultLane
+	var lanes [2]openBaoLane
 	for i, email := range []string{"ada@acme.example", "bob@globex.example"} {
 		lane := &lanes[i]
 		slug := fmt.Sprintf("openbao-%s-%d", stamp, i)
@@ -72,6 +82,7 @@ func TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant(t *testing.T) {
 		stack.MustCLI(t, map[string]string{"PROBECTL_API_TOKEN": operator}, &tenant, "provider", "create-tenant", "--body",
 			fmt.Sprintf(`{"slug":%q,"name":%q,"isolation_model":"pooled"}`, slug, slug))
 		lane.tenant = tenant.ID
+		lane.slug = slug
 		lane.cookie = stack.SignIn(t, tenant.ID, email, slug)
 		lane.token = stack.APIToken(t, lane.cookie, "security.keys", "tenant.read")
 		lane.managed = createShippedVaultRule(t, stack, lane.cookie, "before-rotation-"+slug, randomKey(t))
@@ -98,28 +109,32 @@ func TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant(t *testing.T) {
 		lane.sealed = createShippedVaultRule(t, stack, lane.cookie, fmt.Sprintf("after-rotation-%s-%d", stamp, i), randomKey(t))
 	}
 	owner, sibling := lanes[0], lanes[1]
-	vault.call(t, http.MethodDelete, "/v1/secret/data/"+owner.path, nil)
+	vault.setReceiptPolicy(t, owner.path)
+	t.Cleanup(func() { vault.setReceiptPolicy(t, "") })
+	if code := vault.request(t, http.MethodGet, "/v1/secret/data/"+owner.path, nil); code != http.StatusOK {
+		t.Fatal("policy revocation changed the existing key", code)
+	}
 	if code, _ := stack.Do(t, owner.cookie, http.MethodGet, "/v1/alerts/"+owner.sealed, nil); code == http.StatusOK {
-		t.Fatal("the removed OpenBao key still opened the owner's sealed value")
+		t.Fatal("the policy-revoked OpenBao key still opened the owner's sealed value")
 	}
 	if code, _ := stack.Do(t, owner.cookie, http.MethodPost, "/v1/alerts", shippedVaultRule("owner-revoked-"+stamp, randomKey(t))); code == http.StatusCreated {
-		t.Fatal("the removed OpenBao key still sealed new records")
+		t.Fatal("the policy-revoked OpenBao key still sealed new records")
 	}
 	for _, rule := range []struct{ cookie, id string }{{owner.cookie, owner.managed}, {sibling.cookie, sibling.managed}, {sibling.cookie, sibling.sealed}} {
 		if code, _ := stack.Do(t, rule.cookie, http.MethodGet, "/v1/alerts/"+rule.id, nil); code != http.StatusOK {
-			t.Fatal("removing one external key affected an independent key or tenant", code)
+			t.Fatal("revoking one external key affected an independent key or tenant", code)
 		}
 	}
 	if status, got := stack.Do(t, sibling.cookie, http.MethodGet, "/v1/secrets/health", nil); status != http.StatusOK || !bytes.Equal(got, deploymentHealth) {
 		t.Fatal("tenant-owned OpenBao activity changed the shared deployment health", status)
 	}
-	vault.put(t, owner.path, owner.material)
+	vault.setReceiptPolicy(t, "")
 	if code, _ := stack.Do(t, owner.cookie, http.MethodGet, "/v1/alerts/"+owner.sealed, nil); code != http.StatusOK {
-		t.Fatal("the owner's exact restored key did not reopen the original record", code)
+		t.Fatal("restoring policy access did not reopen the original record", code)
 	}
 	created := createShippedVaultRule(t, stack, owner.cookie, "owner-recovered-"+stamp, randomKey(t))
 	if code, _ := stack.Do(t, owner.cookie, http.MethodGet, "/v1/alerts/"+created, nil); code != http.StatusOK {
-		t.Fatal("the owner's restored key did not open the new record", code)
+		t.Fatal("the original key did not open the new record after restoring policy access", code)
 	}
 	status, raw := stack.Do(t, owner.cookie, http.MethodGet, "/v1/secrets/health", nil)
 	var health struct {
@@ -167,6 +182,43 @@ func TestShippedVaultCompatibleKeysRevokeAndRecoverWithinTenant(t *testing.T) {
 	if code, _ := stack.Do(t, sibling.cookie, http.MethodGet, "/v1/alerts/"+sibling.sealed, nil); code != http.StatusOK {
 		t.Fatal("the sibling could not open its independent external-key record on the copy", code)
 	}
+	assertVaultTenantErase(t, stack, restoredDSN, owner, sibling)
+	if code, _ := stack.Do(t, sibling.cookie, http.MethodGet, "/v1/alerts/"+sibling.sealed, nil); code != http.StatusOK {
+		t.Fatal("the sibling could not open its record after tenant erasure", code)
+	}
+}
+
+func assertVaultTenantErase(t *testing.T, stack *shipped.Stack, dsn string, owner, sibling openBaoLane) {
+	t.Helper()
+	code, raw := stack.Do(t, owner.cookie, http.MethodPost, "/v1/lifecycle/erase", map[string]string{"confirm": owner.slug})
+	var att tenantlife.Attestation
+	if code != http.StatusOK || json.Unmarshal(raw, &att) != nil || !att.Complete || att.TenantID != owner.tenant {
+		t.Fatalf("the scoped tenant erasure did not complete: HTTP %d", code)
+	}
+	var destroyed int64
+	for _, receipt := range att.Stores {
+		if receipt.Store == "tenant_keys" && receipt.VerifiedZero {
+			destroyed = receipt.Deleted
+		}
+	}
+	if destroyed != 3 {
+		t.Fatalf("tenant erasure destroyed %d key versions, want 3", destroyed)
+	}
+	db, err := store.Open(t.Context(), dsn, 1, 0, 5*time.Second)
+	if err != nil {
+		t.Fatal("open the owned key-chain fixture", err)
+	}
+	defer db.Close()
+	var remaining, siblingActive int
+	if err := db.Pool().QueryRow(t.Context(), `
+		SELECT count(*) FILTER (WHERE tenant_id = $1),
+		       count(*) FILTER (WHERE tenant_id = $2 AND state = 'active' AND mode = 'byok' AND byok_ref = $3)
+		  FROM tenant_keys WHERE tenant_id IN ($1, $2)`, owner.tenant, sibling.tenant, sibling.ref).Scan(&remaining, &siblingActive); err != nil {
+		t.Fatal("inspect the owned key chains", err)
+	}
+	if remaining != 0 || siblingActive != 1 {
+		t.Fatalf("erasure left %d owned key rows and %d active sibling key rows, want 0 and 1", remaining, siblingActive)
+	}
 }
 
 func backedAlertCiphertext(t *testing.T, dsn, tenant, rule string) string {
@@ -202,8 +254,21 @@ func createShippedVaultRule(t *testing.T, stack *shipped.Stack, cookie, name, se
 }
 
 type openBaoTestVault struct {
-	base, admin string
-	client      *http.Client
+	base, admin, policy string
+	client              *http.Client
+}
+
+func (v openBaoTestVault) setReceiptPolicy(t *testing.T, denied string) {
+	t.Helper()
+	policy := `path "secret/data/probectl/byok/*" { capabilities = ["read"] }`
+	if denied != "" {
+		policy += fmt.Sprintf("\npath %q { capabilities = [\"deny\"] }", "secret/data/"+denied)
+	}
+	body, err := json.Marshal(map[string]string{"policy": policy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v.call(t, http.MethodPost, "/v1/sys/policies/acl/"+v.policy, body)
 }
 
 func (v openBaoTestVault) seed(t *testing.T, tenant string) (ref, path, material string) {
