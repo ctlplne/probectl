@@ -70,6 +70,10 @@ func TestRoutingStagingRealMTLSKeepsTenantOriginRetryAndPrivateState(t *testing.
 	proveRoutingStagingMTLS(t, "")
 }
 
+func TestRoutingStagingRealMTLSRefusesOriginRevokedDuringWrite(t *testing.T) {
+	proveRoutingStagingMTLS(t, "concurrent-origin-revocation")
+}
+
 func TestRoutingPeerUpRateRefusalInvalidatesOnlyItsCurrentOwnedSource(t *testing.T) {
 	proveRoutingStagingMTLS(t, "peer-up-rate")
 }
@@ -230,6 +234,91 @@ func proveRoutingStagingMTLS(t *testing.T, scenario string) {
 		if err != nil || retry.GetStatus() != "replayed" || len(retry.GetViews()) != 2 || counts(lane, "staging") != 2 || counts(lane, "current") != 0 {
 			t.Fatal("real routing retry duplicated or published private metadata", retry, err)
 		}
+	}
+	if scenario == "concurrent-origin-revocation" {
+		owner, sibling := lanes[0], lanes[1]
+		ctx, stop := context.WithTimeout(ctx, 12*time.Second)
+		defer stop()
+		observation := newUUID(t)
+		replacement := func(input *agentv1.BmpRoutingPeerUp) *agentv1.BmpRoutingPeerUp {
+			message := proto.Clone(input).(*agentv1.BmpRoutingPeerUp)
+			message.ObservationId = observation
+			message.ObservedUnixNanos = time.Now().UnixNano()
+			return message
+		}
+		pending := replacement(owner.input)
+		type reply struct {
+			receipt *agentv1.BmpRoutingStagingReceipt
+			err     error
+		}
+		result := make(chan reply, 1)
+		ownerCtx := tenancy.WithTenant(ctx, tenancy.ID(owner.tenant))
+		err := tenancy.InTenant(ownerCtx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+			var revokerPID int
+			if err := sc.Q.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&revokerPID); err != nil {
+				return err
+			}
+			change, err := sc.Q.Exec(ctx, `UPDATE agent_identities SET revoked_at=clock_timestamp(),revoked_by='routing-race-fixture'
+ WHERE tenant_id=$1 AND serial=$2 AND revoked_at IS NULL`, owner.tenant, owner.originSerial)
+			if err != nil || change.RowsAffected() != 1 {
+				return fmt.Errorf("hold the owned origin revocation: rows=%d error=%v", change.RowsAffected(), err)
+			}
+			go func() {
+				receipt, err := owner.client.StageRoutingPeer(ctx, pending)
+				result <- reply{receipt: receipt, err: err}
+			}()
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				var blocked bool
+				if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))`, revokerPID).Scan(&blocked); err != nil {
+					return err
+				}
+				if blocked {
+					break
+				}
+				select {
+				case early := <-result:
+					return fmt.Errorf("origin write did not wait for revocation: status=%q error=%v", early.receipt.GetStatus(), early.err)
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-ticker.C:
+				}
+			}
+			other, err := sibling.client.StageRoutingPeer(ctx, replacement(sibling.input))
+			if err != nil || other.GetStatus() != "staged" || len(other.GetViews()) != 2 {
+				return fmt.Errorf("owned origin lock stopped the sibling: status=%q error=%v", other.GetStatus(), err)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case completed := <-result:
+			if completed.err == nil || len(completed.receipt.GetViews()) != 0 {
+				t.Fatal("concurrently revoked origin staged new views", completed.receipt, completed.err)
+			}
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		for i, target := range lanes {
+			tenantCtx := tenancy.WithTenant(ctx, tenancy.ID(target.tenant))
+			err := tenancy.InTenantReadSnapshot(tenantCtx, pool, func(ctx context.Context, sc tenancy.Scope) error {
+				var total int
+				if err := sc.Q.QueryRow(ctx, `SELECT count(*) FROM bgp_routing_views WHERE tenant_id=$1 AND context_id=$2 AND generation=$3`, target.tenant, contextID, observation).Scan(&total); err != nil {
+					return err
+				}
+				if want := 2 * i; total != want {
+					t.Errorf("routing lane %d stored %d replacement views, want %d", i, total, want)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Error(err)
+			}
+		}
+		return
 	}
 	unbound := proto.Clone(lanes[0].input).(*agentv1.BmpRoutingPeerUp)
 	unbound.ObservationId = newUUID(t)
