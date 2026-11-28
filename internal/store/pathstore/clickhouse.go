@@ -344,6 +344,10 @@ func chMigrationsFor(hopsV1, linksV1, hopsV2, linksV2 string) []chmigrate.Migrat
 		{Version: 8, Name: "path_quoted_ipv4_ttl", Statements: []string{
 			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS quoted_ttl UInt8 DEFAULT 0",
 		}},
+		{Version: 9, Name: "path_discovery_test", Statements: []string{
+			"ALTER TABLE " + hopsV2 + " ADD COLUMN IF NOT EXISTS discovery_test_id String DEFAULT ''",
+			"ALTER TABLE " + linksV2 + " ADD COLUMN IF NOT EXISTS discovery_test_id String DEFAULT ''",
+		}},
 	}
 }
 
@@ -437,6 +441,7 @@ type hopRow struct {
 	DiscoveryClockVerified uint8    `json:"discovery_clock_verified"`
 	DiscoveryCompletedAt   *string  `json:"discovery_completed_at"`
 	DiscoveryStartedAt     *string  `json:"discovery_started_at"`
+	DiscoveryTestID        string   `json:"discovery_test_id,omitempty"`
 	TS                     string   `json:"ts"`
 	TTL                    int      `json:"ttl"`
 	Responder              string   `json:"responder"`
@@ -451,18 +456,19 @@ type hopRow struct {
 }
 
 type linkRow struct {
-	TenantID string `json:"tenant_id"`
-	PathID   string `json:"path_id"`
-	Target   string `json:"target"`
-	TS       string `json:"ts"`
-	TTL      int    `json:"ttl"`
-	From     string `json:"from_ip"`
-	To       string `json:"to_ip"`
+	TenantID        string `json:"tenant_id"`
+	PathID          string `json:"path_id"`
+	DiscoveryTestID string `json:"discovery_test_id,omitempty"`
+	Target          string `json:"target"`
+	TS              string `json:"ts"`
+	TTL             int    `json:"ttl"`
+	From            string `json:"from_ip"`
+	To              string `json:"to_ip"`
 }
 
 // hopRows and linkRows are one discovery round as stored: the rows SaveBatch
 // inserts, and the rows every backend's tenant export emits.
-func hopRows(tenantID, pathID, ts string, trustedDiscoveryTime bool, p *path.Path, completed ...time.Time) []hopRow {
+func hopRows(tenantID, pathID, testID, ts string, trustedDiscoveryTime bool, p *path.Path, completed ...time.Time) []hopRow {
 	var completion *string
 	var started *string
 	if len(completed) > 1 && trustedDiscoveryTime && !completed[1].IsZero() {
@@ -494,6 +500,7 @@ func hopRows(tenantID, pathID, ts string, trustedDiscoveryTime bool, p *path.Pat
 				DiscoveryClockVerified: boolByte(trustedDiscoveryTime),
 				DiscoveryCompletedAt:   completion,
 				DiscoveryStartedAt:     started,
+				DiscoveryTestID:        testID,
 				TS:                     ts, TTL: h.TTL, Responder: n.IP, Sent: n.Sent, Received: n.Received, LossRatio: n.LossRatio,
 				RTTMin: n.RTTMinMs, RTTAvg: n.RTTAvgMs, RTTMax: n.RTTMaxMs, MPLS: labels, QuotedTTL: n.QuotedTTL,
 			})
@@ -502,10 +509,10 @@ func hopRows(tenantID, pathID, ts string, trustedDiscoveryTime bool, p *path.Pat
 	return rows
 }
 
-func linkRows(tenantID, pathID, ts string, p *path.Path) []linkRow {
+func linkRows(tenantID, pathID, testID, ts string, p *path.Path) []linkRow {
 	rows := make([]linkRow, 0, len(p.Links))
 	for _, l := range p.Links {
-		rows = append(rows, linkRow{TenantID: tenantID, PathID: pathID, Target: p.Target, TS: ts, TTL: l.TTL, From: l.From, To: l.To})
+		rows = append(rows, linkRow{TenantID: tenantID, PathID: pathID, DiscoveryTestID: testID, Target: p.Target, TS: ts, TTL: l.TTL, From: l.From, To: l.To})
 	}
 	return rows
 }
@@ -558,7 +565,7 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 	}
 	observedAt, trusted := discoveryStartedAt(ctx)
 	return c.SaveBatch(ctx, []PathItem{{
-		TenantID: tenantID, roundID: discoveryRoundID(ctx), P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
+		TenantID: tenantID, roundID: discoveryRoundID(ctx), testID: discoveryTestID(ctx), P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
 		CompletedAt: discoveryCompletedAt(ctx),
 	}})
 }
@@ -603,12 +610,12 @@ func (c *ClickHouse) SaveBatch(ctx context.Context, items []PathItem) error {
 		if value := retainedCompletion(observedAt, it.TrustedDiscoveryTime, it.CompletedAt); value != nil {
 			completed = *value
 		}
-		for _, row := range hopRows(it.TenantID, pathID, ts, it.TrustedDiscoveryTime, it.P, completed, observedAt) {
+		for _, row := range hopRows(it.TenantID, pathID, it.testID, ts, it.TrustedDiscoveryTime, it.P, completed, observedAt) {
 			if err := henc.Encode(row); err != nil {
 				return err
 			}
 		}
-		for _, row := range linkRows(it.TenantID, pathID, ts, it.P) {
+		for _, row := range linkRows(it.TenantID, pathID, it.testID, ts, it.P) {
 			if err := lenc.Encode(row); err != nil {
 				return err
 			}
@@ -895,7 +902,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		"target": target,
 		"limit":  strconv.Itoa(limit),
 	}
-	where := "tenant_id={tenant:String} AND target={target:String}"
+	where := pathHistoryWhere(params, q.TestID)
 	if len(q.IDs) > 0 {
 		ids := q.IDs
 		if len(ids) > limit {
@@ -940,7 +947,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		}
 	}
 	metaRows, err := c.queryScoped(ctx, t, tenantID,
-		"SELECT path_id, any(target_ip) AS target_ip, any(mode) AS mode, any(trace_count) AS trace_count, any(max_hops) AS max_hops, any(fidelity_version) AS fidelity_version, any(probe_transport) AS probe_transport, any(acquisition_mode) AS acquisition_mode, any(timing_source) AS timing_source, any(hop_visibility) AS hop_visibility, any(kernel_timestamping) AS kernel_timestamping, any(hardware_timestamping) AS hardware_timestamping, min(discovery_clock_verified) AS discovery_clock_verified, coalesce(max(discovery_started_at),max(ts)) AS observed_at, any(p.discovery_completed_at) AS discovery_completed_at, toUInt8(countIf(isNull(p.discovery_completed_at))=0 AND uniqExact(p.discovery_completed_at)=1 AND countIf(isNull(discovery_started_at))=0 AND uniqExact(discovery_started_at)=1) AS completion_clock_complete FROM "+hopsT+" AS p"+
+		"SELECT path_id, any(p.discovery_test_id) AS source_test_id, any(target_ip) AS target_ip, any(mode) AS mode, any(trace_count) AS trace_count, any(max_hops) AS max_hops, any(fidelity_version) AS fidelity_version, any(probe_transport) AS probe_transport, any(acquisition_mode) AS acquisition_mode, any(timing_source) AS timing_source, any(hop_visibility) AS hop_visibility, any(kernel_timestamping) AS kernel_timestamping, any(hardware_timestamping) AS hardware_timestamping, min(discovery_clock_verified) AS discovery_clock_verified, coalesce(max(discovery_started_at),max(ts)) AS observed_at, any(p.discovery_completed_at) AS discovery_completed_at, toUInt8(countIf(isNull(p.discovery_completed_at))=0 AND uniqExact(p.discovery_completed_at)=1 AND countIf(isNull(discovery_started_at))=0 AND uniqExact(discovery_started_at)=1) AS completion_clock_complete FROM "+hopsT+" AS p"+
 			" WHERE "+where+" GROUP BY path_id ORDER BY observed_at DESC, path_id DESC LIMIT {limit:UInt64}",
 		params)
 	if err != nil {
@@ -968,6 +975,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		}
 		snapshots = append(snapshots, Snapshot{
 			ID:                   id,
+			TestID:               chToString(row["source_test_id"]),
 			ObservedAt:           parseCHTime(row["observed_at"]),
 			TrustedDiscoveryTime: chToInt(row["discovery_clock_verified"]) == 1,
 			Path: path.Path{
@@ -993,7 +1001,7 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		selectedParams[key] = snapshots[i].ID
 		predicates = append(predicates, "path_id={"+key+":String}")
 	}
-	selectedWhere := "tenant_id={tenant:String} AND target={target:String} AND (" +
+	selectedWhere := pathHistoryWhere(selectedParams, q.TestID) + " AND (" +
 		strings.Join(predicates, " OR ") + ")"
 	hopRows, err := c.queryScoped(ctx, t, tenantID,
 		"SELECT path_id, ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels, quoted_ttl FROM "+hopsT+
@@ -1075,6 +1083,15 @@ func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q His
 		}
 	}
 	return snapshots, nil
+}
+
+func pathHistoryWhere(params chParams, testID string) string {
+	const scope = "tenant_id={tenant:String} AND target={target:String}"
+	if testID == "" {
+		return scope
+	}
+	params["test"] = testID
+	return scope + " AND discovery_test_id={test:String}"
 }
 
 func fidelityFromRow(row map[string]any) *path.MeasurementFidelity {

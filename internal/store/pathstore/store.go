@@ -25,6 +25,7 @@ var ErrNoTenant = errors.New("pathstore: tenant_id is required (refusing an unsc
 // tenant_id and target in the store.
 type Snapshot struct {
 	ID                   string     `json:"id"`
+	TestID               string     `json:"-"` // tenant-owned test that started this round; empty for older rounds
 	ObservedAt           time.Time  `json:"observed_at"`
 	CompletedAt          *time.Time `json:"completed_at,omitempty"`
 	Path                 path.Path  `json:"path"`
@@ -38,15 +39,33 @@ type HistoryQuery struct {
 	To    time.Time
 	Limit int
 	IDs   []string
+	// TestID restricts every query to rounds started by that test, including
+	// exact-ID queries. An unknown origin cannot match a named test.
+	TestID string
 	// MaxBytes selects a complete operation-local read instead of a browser
 	// page. Positive admission returns every matching retained round or an
 	// error, never a plausible prefix. Zero retains the paged API behavior.
 	MaxBytes int64
+	// PersistedOnly reads stored rounds without flushing the shared write batch.
+	// Use it when the caller already holds a tenant database transaction.
+	PersistedOnly bool
 }
 
 type discoveryStartedAtKey struct{}
 type discoveryCompletedAtKey struct{}
 type discoveryRoundIDKey struct{}
+type discoveryTestIDKey struct{}
+
+// WithDiscoveryTest records the test resolved by the server before tracing.
+// It supplies storage provenance, never authority to read the test or path.
+func WithDiscoveryTest(ctx context.Context, testID string) context.Context {
+	return context.WithValue(ctx, discoveryTestIDKey{}, testID)
+}
+
+func discoveryTestID(ctx context.Context) string {
+	id, _ := ctx.Value(discoveryTestIDKey{}).(string)
+	return id
+}
 
 // NewDiscoveryRound assigns a server-owned ID before persistence so a change
 // event can cite the exact retained round, even when Save is batched.

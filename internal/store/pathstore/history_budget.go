@@ -54,7 +54,7 @@ func chargeHistory(remaining *int64, amount int64) error {
 // than first allocating an unbounded JSON serialization to measure it.
 func chargeHistorySnapshot(ctx context.Context, remaining *int64, snapshot Snapshot) error {
 	p := snapshot.Path
-	if err := chargeHistory(remaining, 2048+8*int64(len(snapshot.ID)+len(p.Target)+len(p.TargetIP)+len(p.Mode)+len(p.Vantage))); err != nil {
+	if err := chargeHistory(remaining, 2048+8*int64(len(snapshot.ID)+len(snapshot.TestID)+len(p.Target)+len(p.TargetIP)+len(p.Mode)+len(p.Vantage))); err != nil {
 		return err
 	}
 	if f := p.MeasurementFidelity; f != nil {

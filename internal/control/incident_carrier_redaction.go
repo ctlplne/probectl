@@ -8,9 +8,11 @@ package control
 
 import (
 	"encoding/json"
+	"slices"
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/incident"
+	"github.com/ctlplne/probectl/internal/path"
 )
 
 func redactIncidentCarrier(value incident.CarrierPack, pol ai.RedactionPolicy, tenant string) (incident.CarrierPack, error) {
@@ -35,26 +37,11 @@ func redactIncidentCarrier(value incident.CarrierPack, pol ai.RedactionPolicy, t
 		}
 		for j := range vantage.Traces {
 			trace := &vantage.Traces[j]
-			for hop := range trace.Path.Hops {
-				for node := range trace.Path.Hops[hop].Nodes {
-					trace.Path.Hops[hop].Nodes[node].Geo = nil
-				}
-			}
-			raw, err := json.Marshal(trace.Path)
+			redacted, err := redactCarrierPath(trace.Path, pol, tenant)
 			if err != nil {
 				return incident.CarrierPack{}, err
 			}
-			var fields map[string]any
-			if err := json.Unmarshal(raw, &fields); err != nil {
-				return incident.CarrierPack{}, err
-			}
-			redacted, err := json.Marshal(redactShareAnswerValue("", fields, pol, tenant))
-			if err != nil {
-				return incident.CarrierPack{}, err
-			}
-			if err := json.Unmarshal(redacted, &trace.Path); err != nil {
-				return incident.CarrierPack{}, err
-			}
+			trace.Path = redacted
 		}
 	}
 	for i := range out.Routing {
@@ -73,4 +60,29 @@ func redactIncidentCarrier(value incident.CarrierPack, pol ai.RedactionPolicy, t
 		handoff.SourceRef = ai.RedactTextForTenant(handoff.SourceRef, pol, tenant)
 	}
 	return out, nil
+}
+
+func redactCarrierPath(original path.Path, pol ai.RedactionPolicy, tenant string) (path.Path, error) {
+	var out path.Path
+	original.Hops = slices.Clone(original.Hops)
+	for hop := range original.Hops {
+		original.Hops[hop].Nodes = slices.Clone(original.Hops[hop].Nodes)
+		for node := range original.Hops[hop].Nodes {
+			original.Hops[hop].Nodes[node].Geo = nil
+		}
+	}
+	raw, err := json.Marshal(original)
+	if err != nil {
+		return out, err
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return out, err
+	}
+	redacted, err := json.Marshal(redactShareAnswerValue("", fields, pol, tenant))
+	if err != nil {
+		return out, err
+	}
+	err = json.Unmarshal(redacted, &out)
+	return out, err
 }

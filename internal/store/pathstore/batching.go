@@ -57,6 +57,7 @@ type BatchingSaver struct {
 type pendingPath struct {
 	tenantID             string
 	roundID              string
+	testID               string
 	p                    *path.Path
 	observedAt           time.Time
 	completedAt          time.Time
@@ -83,6 +84,7 @@ type partitionedBatchSaver interface {
 type PathItem struct {
 	TenantID             string
 	roundID              string
+	testID               string
 	P                    *path.Path
 	ObservedAt           time.Time // discovery start, never the later batch flush time
 	CompletedAt          time.Time // database clock after tracing; zero is unavailable
@@ -116,7 +118,7 @@ func (b *BatchingSaver) Save(ctx context.Context, tenantID string, p *path.Path)
 	}
 	observedAt, trusted := discoveryStartedAt(ctx)
 	b.pending = append(b.pending, pendingPath{
-		tenantID: tenantID, roundID: discoveryRoundID(ctx), p: p, observedAt: observedAt,
+		tenantID: tenantID, roundID: discoveryRoundID(ctx), testID: discoveryTestID(ctx), p: p, observedAt: observedAt,
 		trustedDiscoveryTime: trusted,
 		completedAt:          discoveryCompletedAt(ctx),
 	})
@@ -190,7 +192,7 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 	if pbs, ok := b.inner.(partitionedBatchSaver); ok {
 		items := make([]PathItem, len(batch))
 		for i, q := range batch {
-			items[i] = PathItem{TenantID: q.tenantID, roundID: q.roundID, P: q.p, ObservedAt: q.observedAt,
+			items[i] = PathItem{TenantID: q.tenantID, roundID: q.roundID, testID: q.testID, P: q.p, ObservedAt: q.observedAt,
 				TrustedDiscoveryTime: q.trustedDiscoveryTime, CompletedAt: q.completedAt}
 		}
 		fenced, err := pbs.SaveBatchPartitioned(ctx, items)
@@ -240,7 +242,7 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 	if bs, ok := b.inner.(batchSaver); ok {
 		items := make([]PathItem, len(batch))
 		for i, q := range batch {
-			items[i] = PathItem{TenantID: q.tenantID, roundID: q.roundID, P: q.p, ObservedAt: q.observedAt,
+			items[i] = PathItem{TenantID: q.tenantID, roundID: q.roundID, testID: q.testID, P: q.p, ObservedAt: q.observedAt,
 				TrustedDiscoveryTime: q.trustedDiscoveryTime, CompletedAt: q.completedAt}
 		}
 		if err := bs.SaveBatch(ctx, items); err != nil {
@@ -262,7 +264,7 @@ func (b *BatchingSaver) flush(ctx context.Context) {
 		return
 	}
 	for _, q := range batch {
-		item := PathItem{TenantID: q.tenantID, roundID: q.roundID, P: q.p, ObservedAt: q.observedAt,
+		item := PathItem{TenantID: q.tenantID, roundID: q.roundID, testID: q.testID, P: q.p, ObservedAt: q.observedAt,
 			TrustedDiscoveryTime: q.trustedDiscoveryTime, CompletedAt: q.completedAt}
 		if err := b.inner.Save(item.context(ctx), q.tenantID, q.p); err != nil {
 			b.lost.Add(1)
@@ -278,6 +280,7 @@ func (item PathItem) context(ctx context.Context) context.Context {
 		ctx = WithDiscoveryStartedAt(ctx, item.ObservedAt)
 	}
 	ctx = WithDiscoveryCompletedAt(ctx, item.CompletedAt)
+	ctx = WithDiscoveryTest(ctx, item.testID)
 	return context.WithValue(ctx, discoveryRoundIDKey{}, item.roundID)
 }
 
@@ -296,11 +299,13 @@ func (b *BatchingSaver) Latest(ctx context.Context, tenantID, target string) (*p
 	return b.inner.Latest(ctx, tenantID, target)
 }
 
-// History flushes pending saves first so a just-discovered round is immediately
-// available to the scrubber and stable-share flow. Like Latest it flushes via
-// flushForRead so a canceled history read never drops the shared batch (G7-1).
+// History flushes pending saves for interactive read-your-write flows. Reports
+// holding a tenant transaction read only persisted rounds so their reads do
+// not acquire additional writer leases or drain the deployment-wide queue.
 func (b *BatchingSaver) History(ctx context.Context, tenantID, target string, q HistoryQuery) ([]Snapshot, error) {
-	b.flushForRead(ctx)
+	if !q.PersistedOnly {
+		b.flushForRead(ctx)
+	}
 	return b.inner.History(ctx, tenantID, target, q)
 }
 

@@ -30,7 +30,7 @@ func NewMemory() *Memory { return &Memory{saved: map[string][]Snapshot{}} }
 func (m *Memory) Save(ctx context.Context, tenantID string, p *path.Path) error {
 	observedAt, trusted := discoveryStartedAt(ctx)
 	return m.SaveBatch(ctx, []PathItem{{
-		TenantID: tenantID, roundID: discoveryRoundID(ctx), P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
+		TenantID: tenantID, roundID: discoveryRoundID(ctx), testID: discoveryTestID(ctx), P: p, ObservedAt: observedAt, TrustedDiscoveryTime: trusted,
 		CompletedAt: discoveryCompletedAt(ctx),
 	}})
 }
@@ -55,7 +55,7 @@ func (m *Memory) SaveBatch(_ context.Context, items []PathItem) error {
 			observedAt = time.Now().UTC()
 		}
 		m.saved[item.TenantID] = append(m.saved[item.TenantID], Snapshot{
-			ID: id, ObservedAt: observedAt, Path: clonePath(item.P),
+			ID: id, TestID: item.testID, ObservedAt: observedAt, Path: clonePath(item.P),
 			TrustedDiscoveryTime: item.TrustedDiscoveryTime,
 			CompletedAt:          retainedCompletion(observedAt, item.TrustedDiscoveryTime, item.CompletedAt),
 		})
@@ -87,7 +87,7 @@ func (m *Memory) ExportTenantHops(_ context.Context, tenantID string, w io.Write
 		if round.CompletedAt != nil {
 			completed = *round.CompletedAt
 		}
-		for _, row := range hopRows(tenantID, round.ID, formatCHTime(round.ObservedAt),
+		for _, row := range hopRows(tenantID, round.ID, round.TestID, formatCHTime(round.ObservedAt),
 			round.TrustedDiscoveryTime, &round.Path, completed, round.ObservedAt) {
 			if err := enc.Encode(row); err != nil {
 				return n, err
@@ -105,7 +105,7 @@ func (m *Memory) ExportTenantLinks(_ context.Context, tenantID string, w io.Writ
 	enc := json.NewEncoder(w)
 	var n int64
 	for _, round := range m.rounds(tenantID) {
-		for _, row := range linkRows(tenantID, round.ID, formatCHTime(round.ObservedAt), &round.Path) {
+		for _, row := range linkRows(tenantID, round.ID, round.TestID, formatCHTime(round.ObservedAt), &round.Path) {
 			if err := enc.Encode(row); err != nil {
 				return n, err
 			}
@@ -170,7 +170,7 @@ func (m *Memory) History(ctx context.Context, tenantID, target string, q History
 			return nil, err
 		}
 		round := rounds[i]
-		if round.Path.Target != target {
+		if round.Path.Target != target || (q.TestID != "" && round.TestID != q.TestID) {
 			continue
 		}
 		if len(requested) > 0 {

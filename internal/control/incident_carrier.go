@@ -57,7 +57,7 @@ func (s *Server) exportIncidentCarrier(ctx context.Context, actor *auth.Principa
 	if err != nil {
 		return nil, err
 	}
-	routes, err := s.carrierRoutingSnapshot(ctx, actor, snapshot, carrierAffectedPrefixes(inc, snapshot), input.From, input.To, memory/3, nil)
+	routes, err := s.carrierRoutingSnapshot(ctx, actor, snapshot, carrierAffectedPrefixes(inc, projection), input.From, input.To, memory/3, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -136,9 +136,11 @@ func carrierAffectedPrefixes(inc *incident.Incident, snapshot incidentVerdictSna
 	for _, test := range snapshot.tests {
 		add(test.Target)
 	}
-	for _, group := range snapshot.pathGroups {
-		for _, round := range group.Rounds {
-			add(round.Path.TargetIP)
+	for _, selected := range snapshot.evidence.paths {
+		for _, round := range selected.rounds {
+			if round.TrustedDiscoveryTime && round.ObservedAt.After(selected.since) && verdictObservationInWindow(round.ObservedAt, snapshot.evidence) {
+				add(round.Path.TargetIP)
+			}
 		}
 	}
 	return out

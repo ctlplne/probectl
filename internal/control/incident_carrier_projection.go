@@ -53,12 +53,15 @@ func projectIncidentCarrier(ctx context.Context, tenant, id string, from, to tim
 				since = test.source.CurrentSince
 			}
 			for _, group := range snapshot.pathGroups {
-				if group.Target != binding.Target {
+				if group.TestID != test.source.TestID || group.Target != binding.Target {
 					continue
 				}
 				for _, round := range group.Rounds {
 					if err := ctx.Err(); err != nil {
 						return none, err
+					}
+					if round.TestID == "" || round.TestID != group.TestID {
+						return none, entity.ErrScopeMismatch
 					}
 					if !round.TrustedDiscoveryTime || !round.ObservedAt.After(since) || round.ObservedAt.Before(from) || !round.ObservedAt.Before(to) || round.Path.Target != binding.Target {
 						continue

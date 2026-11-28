@@ -216,6 +216,7 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 		return apierror.Unavailable("path discovery completion clock unavailable")
 	}
 	saveCtx := pathstore.WithDiscoveryCompletedAt(pathstore.WithDiscoveryStartedAt(r.Context(), discoveryStartedAt), discoveryCompletedAt)
+	saveCtx = pathstore.WithDiscoveryTest(saveCtx, test.ID)
 	saveCtx, roundID, err := pathstore.NewDiscoveryRound(saveCtx)
 	if err != nil {
 		return apierror.Internal("path round identity unavailable").Wrap(err)

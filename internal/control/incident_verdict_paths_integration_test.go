@@ -16,6 +16,7 @@ import (
 	gouuid "github.com/google/uuid"
 
 	"github.com/ctlplne/probectl/internal/auth"
+	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/fairness"
 	"github.com/ctlplne/probectl/internal/incident"
 	"github.com/ctlplne/probectl/internal/store"
@@ -27,7 +28,8 @@ import (
 func TestIncidentVerdictPathsKeepOriginalRoundsCurrentBindingAndTenant(t *testing.T) {
 	f := newRoleExplanationAPIFixture(t)
 	f.server.WithFlowStore(flowstore.NewMemory()).WithFairness(fairness.NewGate(fairness.DefaultPolicy(), nil))
-	paths := pathstore.NewMemory()
+	paths := pathstore.NewBatchingSaver(pathstore.NewMemory(), nil, time.Hour, 64)
+	t.Cleanup(func() { _ = paths.Close() })
 	reader := &verdictPathPublicationStore{Store: paths}
 	f.server.pathStore = reader
 	seedInterfaceRoleMCPConsent(f)
@@ -40,14 +42,21 @@ func TestIncidentVerdictPathsKeepOriginalRoundsCurrentBindingAndTenant(t *testin
 	lanes := map[string]selected{}
 	for lane, tenant := range f.tenants {
 		value := selected{id: gouuid.NewString()}
+		const target = "https://service.example/health"
 		sender := gouuid.NewString()
-		definition := seedVerdictRealHTTPTest(t, f, tenant, sender, "https://service.example/health", "unused-in-this-storage-proof")
+		definition := seedVerdictRealHTTPTest(t, f, tenant, sender, target, "unused-in-this-storage-proof")
+		otherSender := gouuid.NewString()
+		otherTest := seedVerdictRealHTTPTest(t, f, tenant, otherSender, target, "unused-in-this-storage-proof")
 		value.testID = definition.ID
 		f.in(tenant, func(ctx context.Context, sc tenancy.Scope) error {
 			for _, permission := range []string{permIncidentRead, permTestRead} {
 				if err := (store.Roles{}).AddPermission(ctx, sc, f.roles[tenant], permission); err != nil {
 					return err
 				}
+			}
+			otherSource := entity.SourceKey{AgentID: otherSender, Kind: entity.PathAgent, SourceRef: otherTest.ID}
+			if err := store.NewEntityRegistry(f.pool).AssignEntitySource(ctx, sc, otherSource, f.contextID, f.otherRouter); err != nil {
+				return err
 			}
 			if _, err := sc.Q.Exec(ctx, `INSERT INTO incidents(tenant_id,id,title,entity_context_id,entity_id,identity_lookup_attempted) VALUES($1,$2,'original path verdict',$3,$4,true)`, tenant, value.id, f.contextID, f.routerID); err != nil {
 				return err
@@ -64,7 +73,18 @@ func TestIncidentVerdictPathsKeepOriginalRoundsCurrentBindingAndTenant(t *testin
 			p.Hops[0].Nodes[0].Received = 0
 		}
 		ctx := tenancy.WithTenant(t.Context(), tenancy.ID(tenant))
-		if err := paths.Save(pathstore.WithDiscoveryCompletedAt(pathstore.WithDiscoveryStartedAt(ctx, at), at), tenant, &p); err != nil {
+		clock := pathstore.WithDiscoveryCompletedAt(pathstore.WithDiscoveryStartedAt(ctx, at), at)
+		if err := paths.Save(pathstore.WithDiscoveryTest(clock, definition.ID), tenant, &p); err != nil {
+			t.Fatal(err)
+		}
+		other := verdictOriginalPath(incidentVerdictEvidence{tenantID: tenant, from: at}).rounds[0].Path
+		if err := paths.Save(pathstore.WithDiscoveryTest(clock, otherTest.ID), tenant, &other); err != nil {
+			t.Fatal(err)
+		}
+		paths.Flush(t.Context())
+		// A completed but pending round cannot join the retained verdict or
+		// make its reader flush tenant writes from inside the read snapshot.
+		if err := paths.Save(pathstore.WithDiscoveryTest(clock, definition.ID), tenant, &other); err != nil {
 			t.Fatal(err)
 		}
 		value.input = incident.VerdictInput{From: at, To: at.Add(time.Nanosecond)}
@@ -75,7 +95,7 @@ func TestIncidentVerdictPathsKeepOriginalRoundsCurrentBindingAndTenant(t *testin
 		want := 1 - lane
 		for _, index := range []int{1, 2} {
 			if len(got.Hypotheses[index].Against) != want {
-				t.Fatal("path round crossed tenant or disappeared from exact window", lane, index, len(got.Hypotheses[index].Against))
+				t.Fatal("verdict lost its retained original or used an unrelated or pending round", lane, index, len(got.Hypotheses[index].Against))
 			}
 			if want != 0 && (got.Hypotheses[index].Against[0].SourceKind != "control_plane_path" || got.Hypotheses[index].Against[0].EvidenceID != "") {
 				t.Fatal("control-plane path was presented as agent evidence")

@@ -81,6 +81,7 @@ var goldenCHChecksums = map[string]string{
 	"pathstore|6":     "1d08af91bededb5171c9bd89326acc86d4c767edb8796344f3729a57c32753ed",
 	"pathstore|7":     "a794c4359912df81409c12b81b14904321f801f60beaa20fc83e4337e7cf5d92",
 	"pathstore|8":     "78f36111890dbbad14396ce9338e8f715e6c69f48af8d834a72c64e5ef16af47",
+	"pathstore|9":     "978eef5ec3def94282828e90762586f7587468400f4a91c4da21be238a2f019a",
 }
 
 // TestClickHouseMigrationChecksumsAreImmutable: SCHEMA-007. Editing any shipped

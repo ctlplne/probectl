@@ -96,12 +96,13 @@ func seedCarrierExportFixture(t *testing.T) carrierExportFixture {
 			if n, unresolved, err := client.Submit(t.Context(), []entity.Observation{claim}); err != nil || n != 1 || unresolved != 0 {
 				t.Fatal("original carrier outcome refused", n, unresolved, err)
 			}
-		}
-		traceStart := f.observedAt(tenant)
-		traceEnd := f.observedAt(tenant)
-		traceContext := pathstore.WithDiscoveryCompletedAt(pathstore.WithDiscoveryStartedAt(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), traceStart), traceEnd)
-		if err := f.server.pathStore.Save(traceContext, tenant, &path.Path{Target: "198.51.100.10", TargetIP: "198.51.100.10", Vantage: path.VantageControlPlane, Hops: []path.Hop{{TTL: 1, Nodes: []path.HopNode{{IP: "10.42.0.2", Sent: 3, Received: 2, Geo: &path.HopGeo{City: "PRIVATE CUSTOMER", Source: "password=carrier-fixture-only"}}}}}}); err != nil {
-			t.Fatal(err)
+			traceStart := f.observedAt(tenant)
+			traceEnd := f.observedAt(tenant)
+			traceContext := pathstore.WithDiscoveryCompletedAt(pathstore.WithDiscoveryStartedAt(tenancy.WithTenant(t.Context(), tenancy.ID(tenant)), traceStart), traceEnd)
+			traceContext = pathstore.WithDiscoveryTest(traceContext, definition.ID)
+			if err := f.server.pathStore.Save(traceContext, tenant, &path.Path{Target: definition.Target, TargetIP: definition.Target, Vantage: path.VantageControlPlane, Hops: []path.Hop{{TTL: 1, Nodes: []path.HopNode{{IP: "10.42.0.2", Sent: 3, Received: 2, Geo: &path.HopGeo{City: "PRIVATE CUSTOMER", Source: "password=carrier-fixture-only"}}}}}}); err != nil {
+				t.Fatal(err)
+			}
 		}
 		from, err := time.Parse(time.RFC3339Nano, proof.windows[tenant].Get("health_from"))
 		if err != nil {
@@ -179,10 +180,16 @@ func TestCarrierExportKeepsCompleteOriginalsOfflineAndCurrentTenantAuthority(t *
 		if len(pack.Vantages) != 2 || len(pack.Routing) != 1 || pack.Routing[0].Routing == nil || len(pack.Handoffs) != 1 || len(pack.Handoffs[0].Counters) != 2*len(pathHealthMetricNames) {
 			t.Fatal("complete original carrier sources omitted", len(pack.Vantages), len(pack.Routing), len(pack.Handoffs), pack.Coverage)
 		}
+		seenRounds := map[string]bool{}
 		for _, v := range pack.Vantages {
 			if len(v.Traces) != 1 || v.Traces[0].Vantage != path.VantageControlPlane || v.Traces[0].Path.Hops[0].Nodes[0].Geo != nil {
 				t.Fatal("carrier trace lost its source vantage or exposed private location metadata")
 			}
+			id := v.Traces[0].RoundID
+			if id == "" || seenRounds[id] {
+				t.Fatal("an original trace was missing or attributed to more than one test")
+			}
+			seenRounds[id] = true
 			if v.Measurements.Packets == nil || v.Measurements.Packets.Replies != []string{"1", "2"}[lane] || v.Measurements.Latency == nil || v.Measurements.Latency.MeanNanos != []string{"100", "200"}[lane] || v.Measurements.Observations[0].EvidenceID == "" {
 				t.Fatal("carrier original packet/RTT population changed")
 			}

@@ -317,9 +317,10 @@ external transmission, new stored state or carrier credential is created.
 Pinned verification checks package integrity and authenticates the operator's
 key. The original observations support the carrier investigation.
 
-Trace vantages remain their actual origins. Current retained traces originate
-at the control plane; separate ICMP agents do not turn one control-plane trace
-into multiple independent traceroute vantages. Agent-origin traceroutes,
+Trace vantages remain their actual origins. Verdicts and carrier packs use
+stored control-plane traces started by the authorized test under its current binding.
+Older traces without an originating test remain available in path history.
+Each control-plane trace records a single vantage. Agent-origin traceroutes,
 physical fault, complete served/both-theme accessibility, lifecycle/restart and
 exact-main CI qualification remain required for full acceptance. This feature
 is a preview until that qualification is complete.

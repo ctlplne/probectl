@@ -21,9 +21,10 @@ import (
 
 func verdictOriginalPath(input incidentVerdictEvidence) incidentVerdictPath {
 	completed := input.from.Add(time.Second)
-	return incidentVerdictPath{source: store.IncidentConfiguredTest{TenantID: input.tenantID, ContextID: "9df966f1-6882-4654-8cd4-7d3cc7898e73", EntityID: "71e9f275-fbf2-4eca-bc75-1fb0e27b8724"},
+	const testID = "a47c7a60-3028-4635-9c6e-2017f5ef30ea"
+	return incidentVerdictPath{source: store.IncidentConfiguredTest{TenantID: input.tenantID, ContextID: "9df966f1-6882-4654-8cd4-7d3cc7898e73", EntityID: "71e9f275-fbf2-4eca-bc75-1fb0e27b8724", TestID: testID},
 		binding: store.PathTestBinding{Scope: entity.Scope{TenantID: input.tenantID, ContextID: "9df966f1-6882-4654-8cd4-7d3cc7898e73"}, Target: "service.example", AssignedAt: input.from.Add(-time.Hour)}, since: input.from.Add(-time.Hour),
-		rounds: []pathstore.Snapshot{{ID: "01234567890123456789abcdefabcdef", ObservedAt: input.from.Add(time.Second), CompletedAt: &completed, TrustedDiscoveryTime: true,
+		rounds: []pathstore.Snapshot{{ID: "01234567890123456789abcdefabcdef", TestID: testID, ObservedAt: input.from.Add(time.Second), CompletedAt: &completed, TrustedDiscoveryTime: true,
 			Path: path.Path{Target: "service.example", TargetIP: "192.0.2.1", Mode: "icmp", MeasurementFidelity: &path.MeasurementFidelity{Version: 1, ProbeTransport: "icmp", AcquisitionMode: "raw_icmp", TimingSource: "application_monotonic", HopVisibility: "full"}, Hops: []path.Hop{{TTL: 1, Nodes: []path.HopNode{{IP: "192.0.2.1", Sent: 1, Received: 1}}}}}}}}
 }
 
@@ -41,6 +42,8 @@ func TestIncidentVerdictPathsKeepOriginNamespaceAndScope(t *testing.T) {
 	for _, mutate := range []func(*incidentVerdictPath){
 		func(p *incidentVerdictPath) { p.binding.Scope.TenantID = "foreign" },
 		func(p *incidentVerdictPath) { p.binding.Scope.ContextID = "foreign" },
+		func(p *incidentVerdictPath) { p.rounds[0].TestID = "another-test" },
+		func(p *incidentVerdictPath) { p.rounds[0].TestID = "" },
 	} {
 		value := verdictOriginalPath(input)
 		mutate(&value)

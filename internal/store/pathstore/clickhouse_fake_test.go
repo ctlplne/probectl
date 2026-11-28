@@ -75,6 +75,8 @@ type fakeCH struct {
 	deleted map[string]bool // table -> tenant rows deleted
 }
 
+const fakeDiscoveryTestID = "b623d7b5-8f7d-4046-9c01-548a80950221"
+
 func (f *fakeCH) handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		qv := r.URL.Query()
@@ -116,7 +118,7 @@ func (f *fakeCH) handler() http.HandlerFunc {
 			if qv.Get("param_path0") != "" && qv.Get("param_path0") != "p1" {
 				return
 			}
-			_, _ = w.Write([]byte(`{"path_id":"p1","target_ip":"8.8.8.8","mode":"icmp","trace_count":2,"max_hops":30,"fidelity_version":1,"probe_transport":"icmp","acquisition_mode":"raw_icmp","timing_source":"application_monotonic","hop_visibility":"full","kernel_timestamping":0,"hardware_timestamping":0,"observed_at":"2026-07-14 12:05:00.000"}` + "\n"))
+			_, _ = w.Write([]byte(`{"path_id":"p1","source_test_id":"` + fakeDiscoveryTestID + `","target_ip":"8.8.8.8","mode":"icmp","trace_count":2,"max_hops":30,"fidelity_version":1,"probe_transport":"icmp","acquisition_mode":"raw_icmp","timing_source":"application_monotonic","hop_visibility":"full","kernel_timestamping":0,"hardware_timestamping":0,"observed_at":"2026-07-14 12:05:00.000"}` + "\n"))
 		case strings.Contains(q, "SELECT path_id, ttl, from_ip"):
 			_, _ = w.Write([]byte(`{"path_id":"p1","ttl":1,"from_ip":"10.0.0.1","to_ip":"8.8.8.8"}` + "\n"))
 		case strings.Contains(q, "SELECT path_id, ttl"):
@@ -184,7 +186,7 @@ func TestClickHousePathHistoryScopesQueriesAndBindsCopiedID(t *testing.T) {
 	f, ch := newFakeCH(t)
 	before := f.count()
 	rounds, err := ch.History(context.Background(), "tenant-a", "dns.example", HistoryQuery{
-		IDs: []string{"p1"}, Limit: 2,
+		IDs: []string{"p1"}, Limit: 2, TestID: fakeDiscoveryTestID,
 	})
 	if err != nil || len(rounds) != 1 {
 		t.Fatalf("History: len=%d err=%v", len(rounds), err)
@@ -193,7 +195,7 @@ func TestClickHousePathHistoryScopesQueriesAndBindsCopiedID(t *testing.T) {
 		t.Fatalf("history discovery counts = %+v", rounds[0].Path)
 	}
 
-	if rounds[0].ID != "p1" || rounds[0].Path.Target != "dns.example" || len(rounds[0].Path.Hops) != 2 || len(rounds[0].Path.Links) != 1 {
+	if rounds[0].ID != "p1" || rounds[0].TestID != fakeDiscoveryTestID || rounds[0].Path.Target != "dns.example" || len(rounds[0].Path.Hops) != 2 || len(rounds[0].Path.Links) != 1 {
 		t.Fatalf("reconstructed round = %+v", rounds[0])
 	}
 	if rounds[0].ObservedAt.IsZero() || !rounds[0].Path.DestinationReached {
@@ -215,11 +217,13 @@ func TestClickHousePathHistoryScopesQueriesAndBindsCopiedID(t *testing.T) {
 	for _, query := range queries {
 		if !strings.Contains(query, "tenant_id={tenant:String}") ||
 			!strings.Contains(query, "target={target:String}") ||
+			!strings.Contains(query, "discovery_test_id={test:String}") ||
 			!strings.Contains(query, "/*param_tenant=tenant-a*/") ||
-			!strings.Contains(query, "/*param_target=dns.example*/") {
-			t.Fatalf("history query is not tenant+target scoped with bound values: %s", query)
+			!strings.Contains(query, "/*param_target=dns.example*/") ||
+			!strings.Contains(query, "/*param_test="+fakeDiscoveryTestID+"*/") {
+			t.Fatalf("history query lost its tenant, target or test predicate: %s", query)
 		}
-		if strings.Contains(query, "'tenant-a'") || strings.Contains(query, "'dns.example'") {
+		if strings.Contains(query, "'tenant-a'") || strings.Contains(query, "'dns.example'") || strings.Contains(query, "'"+fakeDiscoveryTestID+"'") {
 			t.Fatalf("history query embedded an untrusted literal: %s", query)
 		}
 	}

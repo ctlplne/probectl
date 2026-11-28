@@ -249,16 +249,11 @@ func TestPathEnsureTenantDatabaseUpgradesOldTenantLedger(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	var joined []string
-	var sawTenantV2Record, sawTenantV4Record bool
+	recorded := make(map[string]bool)
 	for _, h := range hits {
 		joined = append(joined, h.query)
-		if strings.Contains(h.query, "INSERT INTO probectl_ch_migrations") &&
-			h.component == "pathstore:probectl_t_old" && h.version == "2" {
-			sawTenantV2Record = true
-		}
-		if strings.Contains(h.query, "INSERT INTO probectl_ch_migrations") &&
-			h.component == "pathstore:probectl_t_old" && h.version == "4" {
-			sawTenantV4Record = true
+		if strings.Contains(h.query, "INSERT INTO probectl_ch_migrations") && h.component == "pathstore:probectl_t_old" {
+			recorded[h.version] = true
 		}
 	}
 	body := strings.Join(joined, "\n")
@@ -279,15 +274,16 @@ func TestPathEnsureTenantDatabaseUpgradesOldTenantLedger(t *testing.T) {
 		"ALTER TABLE probectl_t_old.probectl_path_hops2 ADD COLUMN IF NOT EXISTS hardware_timestamping",
 		"ALTER TABLE probectl_t_old.probectl_path_hops2 ADD COLUMN IF NOT EXISTS trace_count",
 		"ALTER TABLE probectl_t_old.probectl_path_hops2 ADD COLUMN IF NOT EXISTS max_hops",
+		"ALTER TABLE probectl_t_old.probectl_path_hops2 ADD COLUMN IF NOT EXISTS discovery_test_id String DEFAULT ''",
+		"ALTER TABLE probectl_t_old.probectl_path_links2 ADD COLUMN IF NOT EXISTS discovery_test_id String DEFAULT ''",
 	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("old tenant ledger did not apply pending v2 %q in:\n%s", want, body)
+			t.Fatalf("old tenant ledger did not apply pending migration statement %q in:\n%s", want, body)
 		}
 	}
-	if !sawTenantV2Record {
-		t.Fatalf("pending tenant v2 was not recorded under the tenant component key: %+v", hits)
-	}
-	if !sawTenantV4Record {
-		t.Fatalf("pending tenant v4 fidelity migration was not recorded under the tenant component key: %+v", hits)
+	for _, version := range []string{"2", "4", "9"} {
+		if !recorded[version] {
+			t.Fatalf("pending tenant v%s was not recorded under the tenant component key: %+v", version, hits)
+		}
 	}
 }

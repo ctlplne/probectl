@@ -44,7 +44,8 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 				Version: 1, ProbeTransport: "icmp", AcquisitionMode: "raw_icmp",
 				TimingSource: "application_monotonic", HopVisibility: "full",
 			},
-			Hops: []path.Hop{{TTL: 1, Nodes: []path.HopNode{{IP: ip, Sent: 1, Received: 1, RTTAvgMs: 1.5}}}},
+			Hops:  []path.Hop{{TTL: 1, Nodes: []path.HopNode{{IP: ip, Sent: 1, Received: 1, RTTAvgMs: 1.5}}}},
+			Links: []path.Link{{TTL: 1, From: "192.0.2.1", To: ip}},
 		}
 	}
 	if err := c.Save(ctx, ta, mk("198.51.100.10", 2)); err != nil {
@@ -78,15 +79,21 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 	}
 	// Incident source joins consume the whole admitted history, not the
 	// browser's default page. Write both populations through the real store.
+	const selectedTest = "b623d7b5-8f7d-4046-9c01-548a80950221"
+	const otherTest = "b623d7b5-8f7d-4046-9c01-548a80950222"
 	var population []PathItem
 	for i := range 256 {
+		testID := selectedTest
+		if i%2 == 1 {
+			testID = otherTest
+		}
 		for _, tenant := range []string{ta, tb} {
 			ip, traces := "198.51.100.10", 2
 			if tenant == tb {
 				ip, traces = "192.0.2.99", 7
 			}
 			started := now.Add(-time.Minute).Add(time.Duration(i) * time.Millisecond)
-			population = append(population, PathItem{TenantID: tenant, P: mk(ip, traces), ObservedAt: started, CompletedAt: started.Add(123 * time.Nanosecond), TrustedDiscoveryTime: true})
+			population = append(population, PathItem{TenantID: tenant, testID: testID, P: mk(ip, traces), ObservedAt: started, CompletedAt: started.Add(123 * time.Nanosecond), TrustedDiscoveryTime: true})
 		}
 	}
 	if err := c.SaveBatch(ctx, population); err != nil {
@@ -102,6 +109,7 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 			want = "192.0.2.99"
 		}
 		completed := 0
+		var alternate, legacy string
 		for _, round := range rounds {
 			if round.Path.TargetIP != want {
 				t.Fatal("complete ClickHouse history crossed tenant storage scope")
@@ -112,10 +120,17 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 					t.Fatal("retained path execution clock lost nanoseconds")
 				}
 			}
+			switch round.TestID {
+			case otherTest:
+				alternate = round.ID
+			case "":
+				legacy = round.ID
+			}
 		}
 		if completed != 256 {
 			t.Fatal("completion clocks were omitted or fabricated for legacy rounds", completed)
 		}
+		proveClickHouseDiscoveryTestScope(t, c, tenant, target, selectedTest, want, alternate, legacy)
 		point := rounds[0]
 		narrow, err := c.History(ctx, tenant, target, HistoryQuery{From: point.ObservedAt, To: point.ObservedAt.Add(time.Nanosecond), MaxBytes: 16 << 20})
 		if err != nil || len(narrow) != 1 || narrow[0].ID != point.ID {
@@ -139,5 +154,26 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 	}
 	if _, err := c.History(ctx, "", target, HistoryQuery{}); err == nil {
 		t.Fatal("unscoped History must refuse (ErrNoTenant)")
+	}
+}
+
+func proveClickHouseDiscoveryTestScope(t *testing.T, c *ClickHouse, tenant, target, testID, wantAddress, alternate, legacy string) {
+	t.Helper()
+	const budget = 16 << 20
+	rounds, err := c.History(t.Context(), tenant, target, HistoryQuery{TestID: testID, MaxBytes: budget})
+	if err != nil || len(rounds) != 128 {
+		t.Fatal("test-scoped history borrowed rounds or omitted originals", len(rounds), err)
+	}
+	for _, round := range rounds {
+		if round.TestID != testID || round.Path.TargetIP != wantAddress || len(round.Path.Links) != 1 || round.Path.Links[0].To != wantAddress {
+			t.Fatal("test-scoped history mixed the tenant, originating test or path links", round.ID)
+		}
+	}
+	if alternate == "" || legacy == "" {
+		t.Fatal("the fixture lost the alternate test or older unlinked round")
+	}
+	borrowed, err := c.History(t.Context(), tenant, target, HistoryQuery{IDs: []string{alternate, legacy}, TestID: testID, MaxBytes: budget})
+	if err != nil || len(borrowed) != 0 {
+		t.Fatal("an exact round ID bypassed the test scope", len(borrowed), err)
 	}
 }
