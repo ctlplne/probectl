@@ -32,7 +32,8 @@ import (
 	"github.com/ctlplne/probectl/internal/testsupport/chtest"
 )
 
-func TestPathChangeTimelineKeepsTwoTenantsAndOriginalRounds(t *testing.T) {
+func newPathChangeStorageFixture(t *testing.T) *roleExplanationAPIFixture {
+	t.Helper()
 	endpoint := os.Getenv("PROBECTL_TEST_CLICKHOUSE_URL")
 	if endpoint == "" {
 		testsupport.SkipOrFatal(t, "the scoped path change check requires ClickHouse")
@@ -53,6 +54,11 @@ func TestPathChangeTimelineKeepsTwoTenantsAndOriginalRounds(t *testing.T) {
 	batch := pathstore.NewBatchingSaver(backend, f.server.log, 100*time.Millisecond, 32)
 	t.Cleanup(func() { _ = batch.Close() })
 	f.server.pathStore = batch
+	return f
+}
+
+func TestPathChangeTimelineKeepsTwoTenantsAndOriginalRounds(t *testing.T) {
+	f := newPathChangeStorageFixture(t)
 	enricher := opendata.NewEnricher(f.server.log)
 	index := opendata.NewASNFile()
 	if err := index.Load(strings.NewReader("192.0.2.0/24,64496,Before\n198.51.100.0/24,64497,After\n")); err != nil {
