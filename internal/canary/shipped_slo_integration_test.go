@@ -294,6 +294,7 @@ func (lane *shippedSLOLane) history(t *testing.T, stack *shipped.Stack, sibling 
 			Attributes map[string]string `json:"attributes"`
 			Success    bool              `json:"success"`
 			Target     string            `json:"target"`
+			Error      string            `json:"error"`
 		} `json:"items"`
 	}
 	lane.call(t, stack, http.MethodGet, "/v1/results/history?window=1h", http.StatusOK, nil, &history)
@@ -316,8 +317,11 @@ func (lane *shippedSLOLane) history(t *testing.T, stack *shipped.Stack, sibling 
 		if row.Success {
 			statusCode = "200"
 		}
-		if row.Target != target || row.Attributes[otel.AttrHTTPResponseStatusCode] != statusCode || row.ID == "" || seen[row.ID] {
-			t.Fatal("the shipped probe history lost its original target, HTTP response or unique result identity", lane.name, testID)
+		status := row.Attributes[otel.AttrHTTPResponseStatusCode]
+		if row.Target != target || status != statusCode || row.ID == "" || seen[row.ID] {
+			t.Fatalf("invalid original probe in %s test %s: target matches=%t status=%q want=%s identity present=%t duplicate=%t canceled=%t",
+				lane.name, testID, row.Target == target, status, statusCode, row.ID != "", seen[row.ID],
+				strings.Contains(row.Error, "context canceled"))
 		}
 		seen[row.ID] = true
 		if testID == lane.selected {

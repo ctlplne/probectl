@@ -9,13 +9,19 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/ctlplne/probectl/internal/canary"
 	"github.com/ctlplne/probectl/internal/configschema"
+	"github.com/ctlplne/probectl/internal/otel"
 )
 
 func TestHostProbesIntoBuffer(t *testing.T) {
@@ -63,6 +69,78 @@ func TestHostProbesIntoBuffer(t *testing.T) {
 	if env.Result.Attributes["probectl.test.id"] != "test-local-1" ||
 		env.Result.Attributes["probectl.test.interval_seconds"] != "0.005" {
 		t.Errorf("schedule receipt = %#v", env.Result.Attributes)
+	}
+}
+
+func TestHostDoesNotPublishLocallyCanceledHTTPProbe(t *testing.T) {
+	reached := make(chan struct{})
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/cancel":
+			close(reached)
+			<-r.Context().Done()
+		case "/timeout":
+			<-r.Context().Done()
+		default:
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}))
+	t.Cleanup(target.Close)
+	certs := t.TempDir()
+	canary.SetCAFileDir(certs)
+	t.Cleanup(func() { canary.SetCAFileDir("") })
+	ca := filepath.Join(certs, "target-ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: target.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	newSchedule := func(path string, timeout time.Duration) scheduled {
+		t.Helper()
+		probe, err := canary.NewHTTP(canary.Config{Type: "http", Target: target.URL + path,
+			Timeout: timeout, Params: map[string]string{"allow_private_targets": "true", "ca_file": ca}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return scheduled{canary: probe, testID: "owned-http-test", interval: time.Second}
+	}
+	buf, err := openBuffer(t.TempDir(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := &Host{buffer: buf, tenantID: "tenant-a", agentID: "agent-a",
+		log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan struct{})
+	schedule := newSchedule("/cancel", 5*time.Second)
+	go func() { host.probe(ctx, schedule); close(done) }()
+	select {
+	case <-reached:
+		cancel()
+	case <-done:
+		t.Fatal("the scheduled probe returned before making its TLS request")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the scheduled probe did not make a verified TLS request")
+	}
+	<-done
+	if buf.Len() != 0 {
+		t.Fatal("canceling an in-flight HTTP probe published a failure")
+	}
+
+	host.probe(t.Context(), newSchedule("/failure", 5*time.Second))
+	host.probe(t.Context(), newSchedule("/timeout", time.Second))
+	frames, err := buf.peekAll()
+	if err != nil || len(frames) != 2 {
+		t.Fatalf("target failures must still be buffered: frames=%d error=%v", len(frames), err)
+	}
+	for i, frame := range frames {
+		var original resultEnvelope
+		if err := json.Unmarshal(frame, &original); err != nil || original.Result.Success ||
+			original.TenantID != host.tenantID || original.AgentID != host.agentID || original.ResultID == "" {
+			t.Fatalf("HTTP failure lost its result or owner: %+v error=%v", original, err)
+		}
+		if got, want := original.Result.Attributes[otel.AttrHTTPResponseStatusCode], []string{"503", ""}[i]; got != want {
+			t.Fatalf("published HTTP status = %q, want %q", got, want)
+		}
 	}
 }
 

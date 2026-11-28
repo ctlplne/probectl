@@ -249,6 +249,12 @@ func (h *Host) probe(ctx context.Context, s scheduled) {
 	probeStarted := time.Now()
 	res, err := c.Run(ctx)
 	probeCompleted := time.Now()
+	if ctx.Err() != nil && res.Type == "http" && res.HTTP == nil {
+		// Stopping the agent or replacing the schedule can abort a request
+		// before it receives a response. That is local cancellation, not
+		// evidence the monitored target failed.
+		return
+	}
 	if err != nil {
 		// A plugin/internal fault — distinct from a probe failure, which is a
 		// Result with Success=false.
