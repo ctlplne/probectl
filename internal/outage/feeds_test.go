@@ -195,6 +195,10 @@ func TestNewFeedsOmitsRadarWithoutToken(t *testing.T) {
 		t.Fatalf("with a token both feeds should build, got %d", len(feeds))
 	}
 	// AUP provenance is tracked per feed (MSP-resale honesty).
+	ioda := feeds[0].Descriptor().AUP
+	if ioda.CommercialUse != opendata.CommercialUnknown || !strings.Contains(ioda.License, "all rights reserved") || !strings.Contains(ioda.URL, "/ioda-api/main/src/Response/Envelope.php") {
+		t.Errorf("IODA must cite the data copyright notice and leave commercial permission unconfirmed: %+v", ioda)
+	}
 	radar := feeds[1].Descriptor()
 	if radar.AUP.CommercialUse != "restricted" {
 		t.Errorf("radar CC BY-NC must be restricted, got %s", radar.AUP.CommercialUse)

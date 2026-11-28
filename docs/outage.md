@@ -98,7 +98,7 @@ data) and provenance are tracked and served, which matters for MSP resale:
 
 | Feed | License / terms | Commercial use |
 |---|---|---|
-| `ioda` | IODA data-usage terms (academic project; attribution: "IODA, Georgia Institute of Technology") | unknown — confirm before resale |
+| `ioda` | Georgia Tech Research Corporation reserves all rights to the API data. Attribution is “IODA, Georgia Institute of Technology.” [API data copyright notice](https://raw.githubusercontent.com/InetIntel/ioda-api/main/src/Response/Envelope.php) | Commercial permission unconfirmed |
 | `cloudflare_radar` | CC BY-NC 4.0 (attribution: "Cloudflare Radar"); API token required | **restricted** (non-commercial) |
 
 ```mermaid

@@ -100,8 +100,8 @@ func (f *ioda) Descriptor() opendata.Descriptor {
 	return opendata.Descriptor{
 		Name: "ioda", Kind: KindOutage, Cadence: 10 * time.Minute,
 		AUP: opendata.AUP{
-			License:       "IODA data-usage terms (academic project; attribution requested)",
-			URL:           "https://ioda.inetintel.cc.gatech.edu/",
+			License:       "Georgia Tech Research Corporation data copyright notice (all rights reserved)",
+			URL:           "https://raw.githubusercontent.com/InetIntel/ioda-api/main/src/Response/Envelope.php",
 			Attribution:   "IODA, Georgia Institute of Technology",
 			CommercialUse: opendata.CommercialUnknown,
 		},
