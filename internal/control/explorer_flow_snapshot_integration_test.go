@@ -259,9 +259,9 @@ func TestExplorerSnapshotPostgresRealPairedTLSReplicasAndCLI(t *testing.T) {
 	if source.queries.Load() != 1 {
 		t.Fatal("CLI continuation reran source query")
 	}
-	download := func(tenant string, headers map[string]string) (int, []byte, http.Header) {
+	downloadFrom := func(server *httptest.Server, tenant string, headers map[string]string) (int, []byte, http.Header) {
 		t.Helper()
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, second.URL+"/v1/explorer/flow-snapshots/"+initial.FlowPaging.SnapshotID+"/csv", nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/v1/explorer/flow-snapshots/"+initial.FlowPaging.SnapshotID+"/csv", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -269,7 +269,7 @@ func TestExplorerSnapshotPostgresRealPairedTLSReplicasAndCLI(t *testing.T) {
 		for key, value := range headers {
 			req.Header.Set(key, value)
 		}
-		response, err := second.Client().Do(req)
+		response, err := server.Client().Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -279,6 +279,9 @@ func TestExplorerSnapshotPostgresRealPairedTLSReplicasAndCLI(t *testing.T) {
 			t.Fatal(err)
 		}
 		return response.StatusCode, body, response.Header
+	}
+	download := func(tenant string, headers map[string]string) (int, []byte, http.Header) {
+		return downloadFrom(second, tenant, headers)
 	}
 	status, data, headers := download(red.ID, nil)
 	if status != http.StatusOK {
@@ -301,6 +304,40 @@ func TestExplorerSnapshotPostgresRealPairedTLSReplicasAndCLI(t *testing.T) {
 			t.Fatalf("CSV row%d changed or rounded", i)
 		}
 	}
+	t.Run("unreadable-metadata", func(t *testing.T) {
+		var privateBytes int64
+		if err := tenancy.InTenantReadSnapshot(tenancy.WithTenant(t.Context(), tenancy.ID(red.ID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			return sc.Q.QueryRow(ctx, `SELECT octet_length(private_header)::bigint FROM flow_snapshots WHERE tenant_id=$1 AND id=$2`, red.ID, initial.FlowPaging.SnapshotID).Scan(&privateBytes)
+		}); err != nil || privateBytes <= 1 {
+			t.Fatalf("read the size of the owned encrypted manifest: %d %v", privateBytes, err)
+		}
+		low := testServer(fakePinger{}).WithFlowStore(source).WithFlowSnapshotStorage(FlowSnapshotStorage{
+			Pool: pool, Objects: objects, Router: tenancy.PooledRouter{}, Fence: tenancy.NewPostgresWriterFence(pool),
+			Cache: flowsnapshot.Config{ObjectBytes: privateBytes - 1, TempDir: t.TempDir()},
+		}).WithTenantLife(engine)
+		restricted := httptest.NewTLSServer(low.Handler())
+		t.Cleanup(restricted.Close)
+		for _, test := range []struct {
+			name, tenant string
+			header       map[string]string
+			want         int
+		}{
+			{name: "owner", tenant: red.ID, want: http.StatusNotFound},
+			{name: "permission withdrawn", tenant: red.ID, header: map[string]string{testWithholdPermissionsHeader: permFlowRead}, want: http.StatusForbidden},
+			{name: "sibling", tenant: blue.ID, want: http.StatusNotFound},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				status, body := request(restricted, test.tenant, continuation, test.header)
+				if status != test.want || bytes.Contains(body, []byte("budget")) {
+					t.Fatalf("unreadable continuation returned HTTP %d, want %d: %.300s", status, test.want, body)
+				}
+				status, body, headers := downloadFrom(restricted, test.tenant, test.header)
+				if status != test.want || headers.Get("X-Probectl-SHA256") != "" || bytes.Contains(body, []byte("budget")) || bytes.HasPrefix(body, []byte("record_type")) {
+					t.Fatalf("unreadable CSV returned HTTP %d, want %d", status, test.want)
+				}
+			})
+		}
+	})
 	for _, test := range []struct {
 		tenant string
 		header map[string]string
