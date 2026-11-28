@@ -31,11 +31,14 @@ import (
 )
 
 type residencyTenant struct {
-	model, email, id, service, testID, cookie, token string
+	model, email, id, service, testID, cookie, token, sender string
 }
 
+const rtt06Plane = "eu"
+
 // TestIndependentClickHouseResidencyRealStack proves RTT-06 against two
-// independent, disposable ClickHouse servers rather than two relay origins.
+// independent, disposable ClickHouse servers, including a disconnection of
+// the named residency plane and recovery with the original tenant data.
 func TestIndependentClickHouseResidencyRealStack(t *testing.T) {
 	const secondEnv = "PROBECTL_TEST_RTT06_SECOND_CLICKHOUSE_URL"
 	secondaryRaw := os.Getenv(secondEnv)
@@ -54,7 +57,7 @@ func TestIndependentClickHouseResidencyRealStack(t *testing.T) {
 	}
 
 	shipped.EnsureCHReader(t, secondaryRaw)
-	const plane = "residency-lab"
+	eu := newPlaneRelay(t, secondary.Host)
 	credential := filepath.Join(t.TempDir(), "secondary-control.json")
 	password, _ := secondary.User.Password()
 	raw, err := json.Marshal(map[string]string{"username": secondary.User.Username(), "password": password})
@@ -64,10 +67,14 @@ func TestIndependentClickHouseResidencyRealStack(t *testing.T) {
 	if err := os.WriteFile(credential, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	secondary.User = nil
+	secondary.Host, secondary.User = eu.addr, nil
 	st := shipped.Start(t, shipped.Options{Name: "rtt06", TenantBand: 5,
-		DataPlanes: map[string]string{plane: secondary.String()},
-		Env:        map[string]string{"PROBECTL_DATAPLANE_BASIC_AUTH_FILES": plane + "=" + credential}})
+		DataPlanes: map[string]string{rtt06Plane: secondary.String()},
+		Env: map[string]string{
+			"PROBECTL_DATAPLANE_BASIC_AUTH_FILES":       rtt06Plane + "=" + credential,
+			"PROBECTL_SILO_FAILURE_MODE":                "quarantine",
+			"PROBECTL_SILO_QUARANTINE_RECHECK_INTERVAL": "5s",
+		}})
 	operator := st.OnboardOperator(t, "rtt06-provider@msp.example")
 	opEnv := map[string]string{"PROBECTL_API_TOKEN": operator}
 	run := strconv.FormatInt(time.Now().UnixNano(), 36)
@@ -79,7 +86,7 @@ func TestIndependentClickHouseResidencyRealStack(t *testing.T) {
 	awaitQuarantineOTLPListener(t, st)
 	for i := range lanes {
 		lane := &lanes[i]
-		location := plane
+		location := rtt06Plane
 		if lane.model == "pooled" {
 			location = ""
 		}
@@ -95,8 +102,9 @@ func TestIndependentClickHouseResidencyRealStack(t *testing.T) {
 		lane.id = created.ID
 		lane.cookie = st.SignIn(t, lane.id, lane.email, name)
 		lane.token = st.APIToken(t, lane.cookie, "tenant.read", "test.read", "metrics.read")
+		lane.sender = otlpToken(t, st, lane.cookie)
 		lane.testID = createResidencyWitnessTest(t, st, lane.cookie)
-		postTrace(t, st, otlpToken(t, st, lane.cookie), lane.service)
+		postTrace(t, st, lane.sender, lane.service)
 	}
 
 	pool, err := pgxpool.New(t.Context(), st.AdminDSN)
@@ -116,6 +124,46 @@ func TestIndependentClickHouseResidencyRealStack(t *testing.T) {
 			if traceServices(t, st, sibling.token, lane.service) {
 				t.Fatalf("%s could read the %s trace with its own token", sibling.model, lane.model)
 			}
+		}
+	}
+	t.Run("eu-disconnect-refuses-only-resident-tenants", func(t *testing.T) {
+		verifyIndependentResidencyOutage(t, st, eu, primary.String(), secondaryRaw, lanes[0], lanes[1:])
+	})
+}
+
+func verifyIndependentResidencyOutage(t *testing.T, st *shipped.Stack, eu *planeRelay, primary, secondary string, pooled residencyTenant, residents []residencyTenant) {
+	t.Helper()
+	eu.down()
+	st.RestartControl(t, "rtt06-eu-disconnected", nil)
+	awaitQuarantineOTLPListener(t, st)
+	for _, lane := range residents {
+		code, body := st.Do(t, lane.cookie, http.MethodGet, "/v1/otlp/traces?service="+lane.service, nil)
+		assertQuarantined(t, lane.model+" trace read", code, body)
+		if code := postSpan(t, st, lane.sender, lane.service+"-refused"); code != http.StatusServiceUnavailable {
+			t.Fatalf("%s trace export during eu loss = %d, want retryable 503", lane.model, code)
+		}
+	}
+	awaitTrace(t, st, pooled.token, pooled.service)
+	pooledDuring := pooled.service + "-during"
+	postTrace(t, st, pooled.sender, pooledDuring)
+	awaitTrace(t, st, pooled.token, pooledDuring)
+
+	eu.up(t)
+	for _, lane := range residents {
+		shipped.Await(t, lane.model+" leaves quarantine when eu returns", 60*time.Second, func() bool {
+			code, _ := st.Do(t, lane.cookie, http.MethodGet, "/v1/tests/"+lane.testID, nil)
+			return code == http.StatusOK
+		})
+		awaitTrace(t, st, lane.token, lane.service)
+		postTrace(t, st, lane.sender, lane.service+"-after")
+		awaitTrace(t, st, lane.token, lane.service+"-after")
+		if traceServices(t, st, pooled.token, lane.service) || traceServices(t, st, lane.token, pooledDuring) {
+			t.Fatalf("%s and pooled readers saw each other's traces after eu recovered", lane.model)
+		}
+		predicate := fmt.Sprintf(".probectl_otel_spans FINAL WHERE service = '%s'", lane.service+"-refused")
+		if residencyCHQuery(t, primary, "SELECT count() FROM default"+predicate) != "0" ||
+			residencyCHQuery(t, secondary, "SELECT count() FROM "+silo.CHDatabase(lane.id)+predicate) != "0" {
+			t.Fatalf("the refused %s trace was written during eu loss", lane.model)
 		}
 	}
 }
@@ -165,6 +213,17 @@ func checkResidencyPlacement(t *testing.T, st *shipped.Stack, pool *pgxpool.Pool
 	status := isolationStatus(t, st, lane.token)
 	if status.EffectiveModel != lane.model {
 		t.Fatalf("%s did not retain its configured isolation model", lane.model)
+	}
+	var residency string
+	if err := pool.QueryRow(t.Context(), "SELECT residency FROM public.tenants WHERE id=$1::uuid", lane.id).Scan(&residency); err != nil {
+		t.Fatalf("inspect %s residency registry: %v", lane.model, err)
+	}
+	wantResidency := rtt06Plane
+	if lane.model == "pooled" {
+		wantResidency = ""
+	}
+	if residency != wantResidency {
+		t.Fatalf("%s residency = %q, want %q", lane.model, residency, wantResidency)
 	}
 
 	schema, wantSchema := "public", ""
