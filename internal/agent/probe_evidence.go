@@ -58,7 +58,16 @@ func (a *Agent) WithProbeEvidence(emitter SiteEvidenceEmitter) {
 		maxRecords: a.buffer.maxRecords, maxBytes: bytes}
 }
 
-func (h *Host) enqueueProbeEvidence(ctx context.Context, schedule scheduled, result canary.Result) {
+func (h *Host) enqueueProbeEvidence(ctx context.Context, schedule scheduled, result canary.Result, started, completed time.Time) {
+	if h.probeEvidence == nil {
+		return
+	}
+	if result.Type != "icmp" {
+		// Runtime clocks bound configured outcomes even when a plugin omits
+		// its own clocks. ICMP retains its original measurement clocks.
+		result.StartedAt = started
+		result.Duration = completed.Sub(started)
+	}
 	observation, err := h.probeObservation(schedule, result)
 	if err == nil && observation.ICMP == nil && observation.Outcome == nil {
 		return // local-only tests do not author configured source evidence

@@ -61,16 +61,17 @@ type Config struct {
 // record) carried as OTel attributes on the result, not as metric labels — so
 // they never widen TSDB cardinality.
 type Result struct {
-	Type       string             `json:"type"`
-	Target     string             `json:"target"`
-	Success    bool               `json:"success"`
-	Error      string             `json:"error,omitempty"`
-	StartedAt  time.Time          `json:"started_at"`
-	Duration   time.Duration      `json:"duration"`
-	Metrics    map[string]float64 `json:"metrics,omitempty"`
-	Attributes map[string]string  `json:"attributes,omitempty"`
-	ICMP       *ICMPMeasurement   `json:"-"` // collector-local evidence; ordinary bus JSON cannot supply it
-	HTTP       *HTTPMeasurement   `json:"-"` // primary response facts, never reconstructed from attributes/posture
+	Type           string             `json:"type"`
+	Target         string             `json:"target"`
+	Success        bool               `json:"success"`
+	Error          string             `json:"error,omitempty"`
+	StartedAt      time.Time          `json:"started_at"`
+	Duration       time.Duration      `json:"duration"`
+	Metrics        map[string]float64 `json:"metrics,omitempty"`
+	Attributes     map[string]string  `json:"attributes,omitempty"`
+	ICMP           *ICMPMeasurement   `json:"-"` // collector-local evidence; ordinary bus JSON cannot supply it
+	HTTP           *HTTPMeasurement   `json:"-"` // primary response facts, never reconstructed from attributes/posture
+	CallerCanceled bool               `json:"-"` // the caller stopped the HTTP request before a response
 }
 
 // Factory builds a canary instance from its configuration.

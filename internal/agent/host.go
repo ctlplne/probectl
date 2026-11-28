@@ -249,10 +249,10 @@ func (h *Host) probe(ctx context.Context, s scheduled) {
 	probeStarted := time.Now()
 	res, err := c.Run(ctx)
 	probeCompleted := time.Now()
-	if ctx.Err() != nil && res.Type == "http" && res.HTTP == nil {
-		// Stopping the agent or replacing the schedule can abort a request
-		// before it receives a response. That is local cancellation, not
-		// evidence the monitored target failed.
+	if res.CallerCanceled {
+		// Keep the configured test's canceled attempt for evidence without
+		// charging it as monitored service downtime.
+		h.enqueueProbeEvidence(ctx, s, res, probeStarted, probeCompleted)
 		return
 	}
 	if err != nil {
@@ -299,16 +299,7 @@ func (h *Host) probe(ctx context.Context, s scheduled) {
 	if h.metrics != nil {
 		h.metrics.SetBufferDepth(h.buffer.Len())
 	}
-	if h.probeEvidence != nil {
-		evidenceResult := res
-		if res.Type != "icmp" {
-			// The runtime bounds the executed result, including plugins that
-			// omit their own clocks. Preserve ordinary plugin result semantics.
-			evidenceResult.StartedAt = probeStarted
-			evidenceResult.Duration = probeCompleted.Sub(probeStarted)
-		}
-		h.enqueueProbeEvidence(ctx, s, evidenceResult)
-	}
+	h.enqueueProbeEvidence(ctx, s, res, probeStarted, probeCompleted)
 	// RESIL-009: warn early when the store-and-forward buffer is approaching
 	// either bound (records or on-disk bytes) — a control-plane outage is filling
 	// it and shedding is imminent. Observable before data loss starts.

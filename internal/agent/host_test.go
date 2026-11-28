@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,7 +101,8 @@ func TestHostDoesNotPublishLocallyCanceledHTTPProbe(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return scheduled{canary: probe, testID: "owned-http-test", interval: time.Second}
+		return scheduled{canary: probe, testID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			definitionHash: strings.Repeat("a", 64), interval: time.Second}
 	}
 	buf, err := openBuffer(t.TempDir(), 10)
 	if err != nil {
@@ -108,6 +110,7 @@ func TestHostDoesNotPublishLocallyCanceledHTTPProbe(t *testing.T) {
 	}
 	host := &Host{buffer: buf, tenantID: "tenant-a", agentID: "agent-a",
 		log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	(&Agent{host: host, buffer: buf}).WithProbeEvidence(&blockedProbeEvidence{})
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan struct{})
@@ -124,6 +127,16 @@ func TestHostDoesNotPublishLocallyCanceledHTTPProbe(t *testing.T) {
 	<-done
 	if buf.Len() != 0 {
 		t.Fatal("canceling an in-flight HTTP probe published a failure")
+	}
+	evidence := host.probeEvidence.take()
+	defer host.probeEvidence.release(evidence)
+	if len(evidence) != 1 {
+		t.Fatalf("configured cancellation retained %d signed observations, want 1", len(evidence))
+	}
+	claim := evidence[0].observation
+	if claim.Source.AgentID != host.agentID || claim.Source.SourceRef != schedule.testID ||
+		claim.Outcome == nil || !claim.Outcome.Canceled || claim.Outcome.HTTPResponse != nil {
+		t.Fatal("canceled configured test lost its provenance or invented an HTTP response")
 	}
 
 	host.probe(t.Context(), newSchedule("/failure", 5*time.Second))

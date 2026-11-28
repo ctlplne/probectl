@@ -239,6 +239,9 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 		res.Duration = time.Since(start)
 		res.Success = false
 		res.Error = err.Error()
+		if callerErr := ctx.Err(); callerErr != nil {
+			res.CallerCanceled = errors.Is(err, callerErr)
+		}
 		return res, nil
 	}
 	defer func() { _ = resp.Body.Close() }()
