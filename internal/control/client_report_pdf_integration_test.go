@@ -15,6 +15,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,7 +37,7 @@ import (
 // the renderer's encoder. Strip only the exact repeated page-header prefix
 // and numbered footer. Every cell, including an envelope across pages, remains.
 // The separate Poppler check exercises the same download through a PDF reader.
-func monthlyPDFBodyText(t *testing.T, body []byte) string {
+func monthlyPDFText(t *testing.T, body []byte) (string, string) {
 	t.Helper()
 	var result strings.Builder
 	var header []string
@@ -99,12 +101,12 @@ func monthlyPDFBodyText(t *testing.T, body []byte) string {
 	if result.Len() == 0 || pages != total {
 		t.Fatal("downloaded PDF has no complete semantic body")
 	}
-	return result.String()
+	return strings.Join(header, ""), result.String()
 }
 
 func proveServedMonthlyPDF(ctx context.Context, t *testing.T, body []byte, tables []reporting.CSVTable, tenant, foreign, incident, public, secret string) {
 	t.Helper()
-	text := monthlyPDFBodyText(t, body)
+	header, text := monthlyPDFText(t, body)
 	if strings.Contains(text, foreign) || strings.Contains(text, secret) {
 		t.Fatal("served monthly PDF exposed foreign or secret data")
 	}
@@ -190,13 +192,13 @@ func proveServedMonthlyPDF(ctx context.Context, t *testing.T, body []byte, table
 	if !strings.Contains(text, "package_id: "+manifest.PackageID) || !strings.Contains(text, "package_sha256: "+hex.EncodeToString(crypto.Hash(raw))) {
 		t.Fatal("served monthly PDF signed index metadata disagrees with its envelope")
 	}
-	verifyMonthlyPDFReader(t, body, text, foreign, secret)
+	verifyMonthlyPDFReader(t, body, header, text, foreign, secret)
 }
 
 // The semantic stream above checks original query values and the signed
 // attachment. This independent reader checks that those same fields are
 // accessible in the served document, across page and line boundaries.
-func verifyMonthlyPDFReader(t *testing.T, body []byte, semantic, foreign, secret string) {
+func verifyMonthlyPDFReader(t *testing.T, body []byte, header, semantic, foreign, secret string) {
 	t.Helper()
 	reader, err := exec.LookPath("pdftotext")
 	if err != nil {
@@ -224,26 +226,73 @@ func verifyMonthlyPDFReader(t *testing.T, body []byte, semantic, foreign, secret
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := validateMonthlyPDFReaderText(string(raw), header, semantic, foreign, secret); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func validateMonthlyPDFReaderText(raw, semanticHeader, semantic, foreign, secret string) error {
 	compact := func(value string) string { return strings.Join(strings.Fields(value), "") }
-	pages := strings.Split(strings.TrimRight(string(raw), "\f\n\r"), "\f")
-	header, _, found := strings.Cut(compact(pages[0]), "Monthlyclientpack-operator")
-	if !found || header == "" {
-		t.Fatal("Poppler did not find the report title after its tenant header")
+	pages := strings.Split(strings.TrimSuffix(strings.TrimRight(raw, "\n\r"), "\f"), "\f")
+	header := compact(semanticHeader)
+	if header == "" {
+		return errors.New("monthly PDF is missing its semantic tenant header")
 	}
 	var extracted strings.Builder
 	for i, page := range pages {
 		content := compact(page)
 		if strings.Contains(content, foreign) || strings.Contains(content, secret) {
-			t.Fatal("Poppler found sibling or secret data in the monthly PDF")
+			return errors.New("Poppler found sibling or secret data in the monthly PDF")
 		}
 		content, hasHeader := strings.CutPrefix(content, header)
 		content, hasFooter := strings.CutSuffix(content, "Page"+strconv.Itoa(i+1)+"of"+strconv.Itoa(len(pages)))
 		if !hasHeader || !hasFooter {
-			t.Fatalf("Poppler did not recover the monthly header and page marker on page %d", i+1)
+			return fmt.Errorf("Poppler did not recover the monthly header and page marker on page %d", i+1)
 		}
 		extracted.WriteString(content)
 	}
-	if extracted.String() != compact(semantic) {
-		t.Fatal("Poppler reading lost or changed monthly report content")
+	content := extracted.String()
+	if strings.Contains(content, foreign) || strings.Contains(content, secret) {
+		return errors.New("Poppler found sibling or secret data across monthly PDF pages")
 	}
+	if content != compact(semantic) {
+		return errors.New("Poppler reading lost or changed monthly report content")
+	}
+	return nil
+}
+
+func TestMonthlyPDFReaderRefusesForeignAndSecretTextAcrossPages(t *testing.T) {
+	const header = "Alpha monthly pack\n"
+	for _, tc := range []struct {
+		name, first, second string
+		wantError           bool
+	}{
+		{"owned text", "owned-", "report", false},
+		{"foreign tenant split", "foreign-", "tenant-id", true},
+		{"secret split", "planted-", "secret", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := header + "Monthly client pack - operator\n" + tc.first + "\nPage 1 of 2\n\f" +
+				header + tc.second + "\nPage 2 of 2\n\f"
+			semantic := "Monthly client pack - operator" + tc.first + " " + tc.second
+			err := validateMonthlyPDFReaderText(raw, header, semantic, "foreign-tenant-id", "planted-secret")
+			if (err != nil) != tc.wantError || tc.wantError && !strings.Contains(err.Error(), "across monthly PDF pages") {
+				t.Fatalf("boundary result = %v, want refusal %t", err, tc.wantError)
+			}
+		})
+	}
+	t.Run("blank trailing page", func(t *testing.T) {
+		const semantic = "Monthly client pack - operator\nowned report"
+		raw := header + semantic + "\nPage 1 of 1\n\f\f"
+		if err := validateMonthlyPDFReaderText(raw, header, semantic, "foreign-tenant-id", "planted-secret"); err == nil {
+			t.Fatal("Poppler text admitted an extra blank page")
+		}
+	})
+	t.Run("changed tenant header", func(t *testing.T) {
+		const semantic = "Monthly client pack - operator\nowned report"
+		raw := "Beta monthly pack\n" + semantic + "\nPage 1 of 1\n\f"
+		if err := validateMonthlyPDFReaderText(raw, header, semantic, "foreign-tenant-id", "planted-secret"); err == nil {
+			t.Fatal("Poppler text admitted a changed tenant header")
+		}
+	})
 }
