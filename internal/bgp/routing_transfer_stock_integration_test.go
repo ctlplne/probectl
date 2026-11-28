@@ -386,6 +386,14 @@ func assertTransferStockKernelPath(t *testing.T, lab *routingLab, selected roleR
 
 func configureTransferStockHandoffs(t *testing.T, lab *routingLab) ([2]roleRouterLink, string) {
 	t.Helper()
+	links := configureTransferStockRoutes(t, lab)
+	community := startRouterSNMP(t, lab, "rtr-a")
+	readTransferStockInterfaces(t, lab, &links, community)
+	return links, community
+}
+
+func configureTransferStockRoutes(t *testing.T, lab *routingLab) [2]roleRouterLink {
+	t.Helper()
 	links := [2]roleRouterLink{
 		addRoleRouterLink(t, lab, "source", "edge", 234, edgeASN, entity.InterfaceRoleTransit),
 		addRoleRouterLink(t, lab, "candidate", "rtr-b", 233, rtrBASN, entity.InterfaceRoleTransit),
@@ -416,7 +424,12 @@ func configureTransferStockHandoffs(t *testing.T, lab *routingLab) ([2]roleRoute
 	lab.docker(t, "exec", router, "vtysh", "-c", "clear bgp "+links[0].peerIP, "-c", "clear bgp "+links[1].peerIP)
 	lab.docker(t, "exec", lab.container("edge"), "ip", "address", "add", transferStockAddress+"/32", "dev", "lo")
 	lab.docker(t, "exec", lab.container("rtr-b"), "ip", "route", "replace", transferStockAddress+"/32", "via", links[1].routerIP)
-	community := startRouterSNMP(t, lab, "rtr-a")
+	return links
+}
+
+func readTransferStockInterfaces(t *testing.T, lab *routingLab, links *[2]roleRouterLink, community string) {
+	t.Helper()
+	router := lab.container("rtr-a")
 	for i := range links {
 		link := &links[i]
 		sidecar := lab.name + "-rtr-a-snmp"
@@ -439,7 +452,6 @@ func configureTransferStockHandoffs(t *testing.T, lab *routingLab) ([2]roleRoute
 	if links[0].index == links[1].index {
 		t.Fatal("both physical handoffs resolved to the same kernel interface")
 	}
-	return links, community
 }
 
 func prepareTransferStockCollectors(t *testing.T, lab *routingLab, st *shipped.Stack, links [2]roleRouterLink,
@@ -537,10 +549,14 @@ func drainTransferStockCapture(t *testing.T, lab *routingLab, selected roleRoute
 }
 
 func transferStockCaptureComplete(ctx context.Context, exporter string) bool {
+	return routingLabCaptureComplete(ctx, exporter, transferStockPackets, transferStockWireBytes)
+}
+
+func routingLabCaptureComplete(ctx context.Context, exporter string, packetCount, wireBytes int) bool {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	packets := strconv.Itoa(transferStockPackets)
-	octets := strconv.Itoa(transferStockWireBytes)
+	packets := strconv.Itoa(packetCount)
+	octets := strconv.Itoa(wireBytes)
 	out, err := exec.CommandContext(ctx, "docker", "exec", exporter, "softflowctl", "-c", "/tmp/softflowd.ctl", "dump-flows").Output()
 	if err != nil {
 		return false

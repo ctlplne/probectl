@@ -1066,6 +1066,21 @@ func startEdgeSNMP(t *testing.T, lab *routingLab) string {
 
 func startRouterSNMP(t *testing.T, lab *routingLab, router string) string {
 	t.Helper()
+	return startRouterSNMPWithNeighbors(t, lab, router, "fx2-edge-r1", `override .1.0.8802.1.1.2.1.3.7.1.2.2 integer 5
+override .1.0.8802.1.1.2.1.3.7.1.3.2 octet_str "eth0"
+override .1.0.8802.1.1.2.1.3.7.1.4.2 octet_str "edge-uplink"
+override .1.0.8802.1.1.2.1.4.1.1.4.0.2.1 integer 4
+override .1.0.8802.1.1.2.1.4.1.1.5.0.2.1 octet_str "02:42:ac:11:00:88"
+override .1.0.8802.1.1.2.1.4.1.1.6.0.2.1 integer 5
+override .1.0.8802.1.1.2.1.4.1.1.7.0.2.1 octet_str "sw1-uplink"
+override .1.0.8802.1.1.2.1.4.1.1.8.0.2.1 octet_str "access-uplink"
+override .1.0.8802.1.1.2.1.4.1.1.9.0.2.1 octet_str "fx2-access-sw1"
+override .1.0.8802.1.1.2.1.4.1.1.10.0.2.1 octet_str "access switch"
+`)
+}
+
+func startRouterSNMPWithNeighbors(t *testing.T, lab *routingLab, router, sysName, neighbors string) string {
+	t.Helper()
 	const base = "alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
 	const image = "probectl-qa-beta-fx2-snmpd:alpine-3.22.6"
 	dockerfile := "FROM " + base + "\nRUN apk add --no-cache net-snmp net-snmp-tools\n"
@@ -1092,32 +1107,24 @@ func startRouterSNMP(t *testing.T, lab *routingLab, router string) string {
 			t.Logf("edge SNMP sidecar log tail:\n%s", strings.ReplaceAll(string(out), community, "[redacted]"))
 		}
 	})
-	config := fmt.Sprintf(`rocommunity %s
-sysName fx2-edge-r1
-sysLocation FX-2 router lab
-override .1.0.8802.1.1.2.1.3.7.1.2.2 integer 5
-override .1.0.8802.1.1.2.1.3.7.1.3.2 octet_str "eth0"
-override .1.0.8802.1.1.2.1.3.7.1.4.2 octet_str "edge-uplink"
-override .1.0.8802.1.1.2.1.4.1.1.4.0.2.1 integer 4
-override .1.0.8802.1.1.2.1.4.1.1.5.0.2.1 octet_str "02:42:ac:11:00:88"
-override .1.0.8802.1.1.2.1.4.1.1.6.0.2.1 integer 5
-override .1.0.8802.1.1.2.1.4.1.1.7.0.2.1 octet_str "sw1-uplink"
-override .1.0.8802.1.1.2.1.4.1.1.8.0.2.1 octet_str "access-uplink"
-override .1.0.8802.1.1.2.1.4.1.1.9.0.2.1 octet_str "fx2-access-sw1"
-override .1.0.8802.1.1.2.1.4.1.1.10.0.2.1 octet_str "access switch"
-`, community)
-	configFile := filepath.Join(t.TempDir(), "snmpd.conf")
-	if err := os.WriteFile(configFile, []byte(config), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	lab.docker(t, "cp", configFile, name+":/etc/snmp/snmpd.conf")
+	writeRouterSNMPConfig(t, lab, router, sysName, community, neighbors)
 	lab.docker(t, "start", name)
 	shipped.Await(t, "co-located edge SNMP", 30*time.Second, func() bool {
 		out, err := exec.Command("docker", "exec", name, "snmpget", "-v2c", "-c", community,
 			"-t", "1", "-r", "0", "-Ovq", "127.0.0.1", "SNMPv2-MIB::sysName.0").Output()
-		return err == nil && strings.TrimSpace(string(out)) == "fx2-edge-r1"
+		return err == nil && strings.TrimSpace(string(out)) == sysName
 	})
 	return community
+}
+
+func writeRouterSNMPConfig(t *testing.T, lab *routingLab, router, sysName, community, neighbors string) {
+	t.Helper()
+	config := fmt.Sprintf("rocommunity %s\nsysName %s\nsysLocation FX-2 router lab\n%s", community, sysName, neighbors)
+	configFile := filepath.Join(t.TempDir(), "snmpd.conf")
+	if err := os.WriteFile(configFile, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lab.docker(t, "cp", configFile, lab.name+"-"+router+"-snmp:/etc/snmp/snmpd.conf")
 }
 
 func queryEdgeSNMP(t *testing.T, container, community, oid string) string {

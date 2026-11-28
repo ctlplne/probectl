@@ -254,8 +254,13 @@ const transferStockContainerWorkload = "/tmp/probectl-transfer-workload"
 
 func installTransferStockWorkload(t *testing.T, lab *routingLab) {
 	t.Helper()
+	installRoutingLabWorkload(t, lab, transferStockPackets, transferStockPayload, "edge", "rtr-b")
+}
+
+func installRoutingLabWorkload(t *testing.T, lab *routingLab, packets, payload int, routers ...string) {
+	t.Helper()
 	src := filepath.Join(t.TempDir(), "main.go")
-	body := fmt.Sprintf(transferStockWorkloadSource, transferStockAddress, transferStockPackets, transferStockPayload)
+	body := fmt.Sprintf(transferStockWorkloadSource, transferStockAddress, packets, payload)
 	if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -265,23 +270,30 @@ func installTransferStockWorkload(t *testing.T, lab *routingLab) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build the bounded local workload: %v %s", err, out)
 	}
-	for _, router := range []string{"edge", "rtr-b"} {
+	for _, router := range routers {
 		lab.docker(t, "cp", binary, lab.container(router)+":"+transferStockContainerWorkload)
 	}
 }
 
 func sendTransferStockPayload(t *testing.T, lab *routingLab, links [2]roleRouterLink, artifacts transferArtifacts) {
 	t.Helper()
+	sendRoutingLabPayload(t, lab, "rtr-b", links[1].peerIP, func(counts []byte) {
+		artifacts.write(t, "receiver-counts.txt", counts)
+	})
+}
+
+func sendRoutingLabPayload(t *testing.T, lab *routingLab, senderRouter, source string, recordReceiver func([]byte)) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
 	defer cancel()
-	receive := exec.CommandContext(ctx, "docker", "exec", lab.container("edge"), transferStockContainerWorkload, "receive", links[1].peerIP)
+	receive := exec.CommandContext(ctx, "docker", "exec", lab.container("edge"), transferStockContainerWorkload, "receive", source)
 	reader, err := receive.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	var receiverErr bytes.Buffer
 	receive.Stderr = &receiverErr
-	defer func() { artifacts.write(t, "receiver-counts.txt", receiverErr.Bytes()) }()
+	defer func() { recordReceiver(receiverErr.Bytes()) }()
 	if err := receive.Start(); err != nil {
 		t.Errorf("start independent receiver: %v", err)
 		return
@@ -298,8 +310,8 @@ func sendTransferStockPayload(t *testing.T, lab *routingLab, links [2]roleRouter
 		t.Errorf("owned receiver did not start: %v", lines.Err())
 		return
 	}
-	sender := exec.CommandContext(ctx, "docker", "exec", lab.container("rtr-b"),
-		transferStockContainerWorkload, "send", links[1].peerIP)
+	sender := exec.CommandContext(ctx, "docker", "exec", lab.container(senderRouter),
+		transferStockContainerWorkload, "send", source)
 	if out, err := sender.CombinedOutput(); err != nil {
 		t.Errorf("bounded owned payload did not send: %v %s", err, out)
 		return
