@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctlplne/probectl/internal/ai"
 	"github.com/ctlplne/probectl/internal/apierror"
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/entity"
 	"github.com/ctlplne/probectl/internal/store"
@@ -64,6 +65,13 @@ func (s *Server) bgpRoutingBindings(r *http.Request) (json.RawMessage, error) {
 	r = r.WithContext(tenancy.WithSiloTableLock(ctx))
 	var body json.RawMessage
 	operation := func(ctx context.Context, sc tenancy.Scope) error {
+		if r.Method == http.MethodPut {
+			// Source publication and erasure take audit before routing locks.
+			// Keep the same order while replacing the manifest atomically.
+			if err := audit.LockTenantStream(ctx, sc.Q, sc.Tenant.String()); err != nil {
+				return err
+			}
+		}
 		actor := auth.PrincipalFrom(ctx)
 		ctx, principal, err := s.currentRoutingAuthority(ctx, sc, actor, permission)
 		if err != nil {

@@ -22,10 +22,79 @@ import (
 	gouuid "github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ctlplne/probectl/internal/audit"
 	"github.com/ctlplne/probectl/internal/auth"
 	"github.com/ctlplne/probectl/internal/store"
 	"github.com/ctlplne/probectl/internal/tenancy"
 )
+
+func TestBGPRoutingConfigurationTakesAuditBeforeRoutingState(t *testing.T) {
+	f := newRoleExplanationAPIFixture(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	tenant := f.tenants[0]
+	actor, err := NewMCPAuthenticator(f.pool, NewTenantStatusCache(f.pool, 0), false).Authenticate(ctx, f.tokens[tenant])
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Exercise the shared REST and native operation after authentication.
+	// The outer middleware can start its own earlier audit transaction.
+	ctx = auth.WithPrincipal(tenancy.WithTenant(ctx, tenancy.ID(tenant)), actor)
+	holder, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = holder.Rollback(context.Background()) }()
+	if err := audit.LockTenantStream(ctx, holder, tenant); err != nil {
+		t.Fatal(err)
+	}
+	var holderPID int32
+	if err := holder.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&holderPID); err != nil {
+		t.Fatal(err)
+	}
+	epoch := ""
+	bindings := []store.BGPRoutingBinding{{
+		ContextID: f.contextID, RouterID: f.routerID, Distinguisher: "ffffffffffffffff",
+		BGPIdentifier: "0.0.0.0", Families: []uint16{1}, SourceFormat: store.BGPRoutingSourceFRRLocRIBV1,
+	}}
+	body, err := json.Marshal(bgpRoutingBindingsInput{
+		CollectorAgentID: "role-listener", SourceRef: "role-router", ExpectedEpoch: &epoch, Bindings: &bindings,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequestWithContext(ctx, http.MethodPut,
+		"/v1/entity-contexts/"+f.contextID+"/bgp-routing-bindings", strings.NewReader(string(body)))
+	req.SetPathValue("context_id", f.contextID)
+	finished := make(chan error, 1)
+	go func() {
+		_, err := f.server.bgpRoutingBindings(req)
+		finished <- err
+	}()
+
+	waiterPID := waitProspectFenceBlocker(ctx, t, f.pool, holderPID)
+	var waitingAtAudit bool
+	if err := f.pool.QueryRow(ctx, "SELECT position('audit:' in query)>0 FROM pg_stat_activity WHERE pid=$1",
+		waiterPID).Scan(&waitingAtAudit); err != nil || !waitingAtAudit {
+		t.Fatal("routing binding did not reach the canonical tenant audit wait", err)
+	}
+	var stateAvailable bool
+	if err := holder.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended('bgp-routing-state:' || $1::text,0))`,
+		tenant).Scan(&stateAvailable); err != nil || !stateAvailable {
+		t.Fatal("a routing binding write waiting to audit still holds the routing state lock", err)
+	}
+	if err := holder.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatal("the waiting routing binding did not commit after the audit holder released", err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+}
 
 // Certificate-verified HTTPS, actual bearer/current grants, application-role
 // Postgres/FORCE-RLS and durable audit. Router identities are registry fixtures;
