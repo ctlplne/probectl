@@ -201,8 +201,10 @@ func (a transferArtifacts) startPCAP(t *testing.T, lab *routingLab, lanes [2]tra
 			_ = cmd.Process.Kill()
 		}
 	})
-	shipped.Await(t, "capture attached to the owned router", 8*time.Second, func() bool {
+	if !waitTransferStock(t, 8*time.Second, func() bool {
 		contents, err := os.ReadFile(log.Name())
 		return err == nil && strings.Contains(string(contents), "listening on")
-	})
+	}) {
+		t.Error("capture did not attach to the owned router")
+	}
 }

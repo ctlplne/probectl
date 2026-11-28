@@ -79,13 +79,15 @@ func TestFRRRoutingTransferUsesStockEgressAndIndependentSignedCounters(t *testin
 
 	// An empty flow table can still have warm-up packets in its capture ring.
 	// Start fresh rings while keeping the authenticated collectors and bindings.
-	for _, lane := range lanes {
-		lab.docker(t, "restart", "-t", "2", lane.exporter)
-		shipped.Await(t, "fresh stock exporter capture ring", 15*time.Second, func() bool {
-			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-			defer cancel()
-			return exec.CommandContext(ctx, "docker", "exec", lane.exporter,
-				"softflowctl", "-c", "/tmp/softflowd.ctl", "delete-all").Run() == nil
+	for i, lane := range lanes {
+		t.Run("fresh-capture-ring-"+strconv.Itoa(i), func(t *testing.T) {
+			lab.docker(t, "restart", "-t", "2", lane.exporter)
+			shipped.Await(t, "fresh stock exporter capture ring", 15*time.Second, func() bool {
+				ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+				defer cancel()
+				return exec.CommandContext(ctx, "docker", "exec", lane.exporter,
+					"softflowctl", "-c", "/tmp/softflowd.ctl", "delete-all").Run() == nil
+			})
 		})
 	}
 	started := time.Now().UTC()
