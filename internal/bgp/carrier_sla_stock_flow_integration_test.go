@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -63,10 +64,23 @@ func proveStockCarrierSLAFlow(t *testing.T, st *shipped.Stack, lab *routingLab, 
 		st.Stop(t, probes[i].process)
 	}
 	for i, reg := range registrations {
-		// Stock IPFIX observations are measured at millisecond precision.
-		from := time.Now().UTC().Truncate(time.Millisecond)
-		emitRoleRouterCapturedTraffic(t, lab, exporters[i], link, link.routerIP, link.peerIP, "1", false)
-		originals[i] = awaitStockCarrierSLAFlow(t, pool, reg, link, from)
+		t.Run("raw-lane-"+strconv.Itoa(i), func(t *testing.T) {
+			// delete-all does not clear a partially filled libpcap block.
+			// Start a fresh ring after both probe publishers have stopped.
+			exporter := exporters[i]
+			lab.docker(t, "restart", "-t", "2", exporter)
+			shipped.Await(t, "fresh carrier capture ring", 15*time.Second, func() bool {
+				ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+				defer cancel()
+				return exec.CommandContext(ctx, "docker", "exec", exporter, "softflowctl", "-c", "/tmp/softflowd.ctl", "statistics").Run() == nil
+			})
+			from := time.Now().UTC().Truncate(time.Millisecond)
+			emitRoleRouterCapturedTraffic(t, lab, exporter, link, link.routerIP, link.peerIP, "1", false)
+			originals[i] = awaitStockCarrierSLAFlow(t, pool, reg, link, from)
+		})
+	}
+	if t.Failed() {
+		return
 	}
 	if originals[0].Key == originals[1].Key {
 		t.Fatal("the two authenticated flow collectors shared an original capture key")
@@ -94,42 +108,77 @@ func awaitStockCarrierSLAFlow(t *testing.T, pool *pgxpool.Pool, reg edgeFlowRegi
 	if sourceErr != nil || destinationErr != nil || !source.Is4() || !destination.Is4() {
 		t.Fatal("invalid owned routed workload endpoints")
 	}
+	endpoints := fmt.Sprintf(`tenant_id='%s' AND agent_id='%s' AND protocol='ipfix'
+ AND ((src_addr='%s' AND dst_addr='%s') OR (src_addr='%s' AND dst_addr='%s'))`,
+		reg.tenantID, reg.agentID, source, destination, destination, source)
 	query := fmt.Sprintf(`SELECT routing_capture_key AS key,toString(bytes) AS observed_bytes,toString(packets) AS observed_packets,
  toString(toUnixTimestamp64Nano(start_ts)) AS start_ns,toString(toUnixTimestamp64Nano(ts)) AS end_ns
- FROM probectl_flows FINAL WHERE tenant_id='%s' AND agent_id='%s' AND protocol='ipfix'
+ FROM probectl_flows FINAL WHERE %s
  AND (in_if=%d OR out_if=%d) AND clock_basis=%d AND length(routing_capture_key)=64
- AND ((src_addr='%s' AND dst_addr='%s') OR (src_addr='%s' AND dst_addr='%s'))
  AND toUnixTimestamp64Nano(start_ts)>=%d AND packets>0 AND bytes>0
- ORDER BY ts DESC,routing_capture_key LIMIT 1 FORMAT JSONEachRow`, reg.tenantID, reg.agentID, link.index, link.index,
-		flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL, source, destination, destination, source, from.UnixNano())
+	ORDER BY ts DESC,routing_capture_key LIMIT 64 FORMAT JSON`, endpoints, link.index, link.index,
+		flowv1.FlowClockBasis_FLOW_CLOCK_BASIS_EXPORTER_INTERVAL, from.UnixNano())
+	const ownershipQuery = `SELECT COALESCE((
+ SELECT CASE WHEN receipt.outcome<>'captured' THEN receipt.outcome
+ WHEN facts.searchable_body#>>'{data,Owner,AgentID}'=$3
+  AND facts.searchable_body#>>'{data,Owner,context_id}'=$4
+  AND facts.searchable_body#>>'{data,Owner,RouterID}'=$5 THEN 'owned'
+ ELSE 'owner_mismatch' END
+ FROM bgp_flow_capture_receipts receipt
+ LEFT JOIN bgp_flow_capture_payloads links ON (links.tenant_id,links.flow_key)=(receipt.tenant_id,receipt.flow_key)
+ LEFT JOIN bgp_flow_capture_objects facts ON (facts.tenant_id,facts.digest,facts.kind)=(links.tenant_id,links.facts_digest,'routing_facts')
+ WHERE receipt.tenant_id=$1 AND receipt.flow_key=$2
+ ),'pending')`
 	var original stockCarrierSLAFlow
+	var latest struct{ Data []stockCarrierSLAFlow }
+	var rawErr error
+	var outcomes map[string]int
 	ctx := tenancy.WithTenant(t.Context(), tenancy.ID(reg.tenantID))
-	shipped.Await(t, "raw stock counters and their committed tenant ownership", time.Minute, func() bool {
+	ready := waitTransferStock(t, time.Minute, func() bool {
+		latest.Data, outcomes = nil, nil
 		body, err := shipped.CHQuery(shipped.CHURL(), query)
-		if err != nil || json.Unmarshal([]byte(body), &original) != nil {
+		if err != nil {
+			rawErr = err
 			return false
 		}
-		key, err := hex.DecodeString(original.Key)
-		if err != nil || len(key) != 32 {
+		if rawErr = json.Unmarshal([]byte(body), &latest); rawErr != nil || len(latest.Data) == 0 {
 			return false
 		}
-		var owned bool
+		outcomes = make(map[string]int)
 		err = tenancy.InTenantReadSnapshot(ctx, pool, func(ctx context.Context, sc tenancy.Scope) error {
-			return sc.Q.QueryRow(ctx, `SELECT EXISTS (
- SELECT 1 FROM bgp_flow_capture_receipts receipt
- JOIN bgp_flow_capture_payloads links ON (links.tenant_id,links.flow_key)=(receipt.tenant_id,receipt.flow_key)
- JOIN bgp_flow_capture_objects facts ON (facts.tenant_id,facts.digest,facts.kind)=(links.tenant_id,links.facts_digest,'routing_facts')
- WHERE receipt.tenant_id=$1 AND receipt.flow_key=$2 AND receipt.outcome='captured'
- AND facts.searchable_body#>>'{data,Owner,AgentID}'=$3
- AND facts.searchable_body#>>'{data,Owner,context_id}'=$4
- AND facts.searchable_body#>>'{data,Owner,RouterID}'=$5
- )`, reg.tenantID, key, reg.agentID, reg.contextID, reg.deviceID).Scan(&owned)
+			for _, row := range latest.Data {
+				key, err := hex.DecodeString(row.Key)
+				if err != nil {
+					return fmt.Errorf("decode retained stock capture key: %w", err)
+				}
+				if len(key) != 32 {
+					return fmt.Errorf("retained stock capture key has %d bytes", len(key))
+				}
+				var outcome string
+				if err := sc.Q.QueryRow(ctx, ownershipQuery, reg.tenantID, key, reg.agentID, reg.contextID, reg.deviceID).Scan(&outcome); err != nil {
+					return err
+				}
+				outcomes[outcome]++
+				if outcome == "owned" {
+					original = row
+					break
+				}
+			}
+			return nil
 		})
 		if err != nil {
 			t.Fatalf("read retained stock ownership with the scoped application role: %v", err)
 		}
-		return owned
+		return original.Key != ""
 	})
+	if !ready {
+		rows, err := shipped.CHQuery(shipped.CHURL(), fmt.Sprintf(`SELECT in_if,out_if,clock_basis,length(routing_capture_key) AS key_length,
+ toString(bytes) AS bytes,toString(packets) AS packets,toString(toUnixTimestamp64Nano(start_ts)) AS start_ns,
+ toString(toUnixTimestamp64Nano(ts)) AS end_ns FROM probectl_flows FINAL WHERE %s
+ AND toUnixTimestamp64Nano(ts)>=%d ORDER BY ts DESC LIMIT 12 FORMAT JSONEachRow`, endpoints, from.Add(-10*time.Second).UnixNano()))
+		t.Fatalf("no committed owned stock flow at or after %s on interface %d (matching raw rows=%d, receipt states=%v, query error=%v): nearby rows=%s (error=%v)",
+			from.Format(time.RFC3339Nano), link.index, len(latest.Data), outcomes, rawErr, strings.TrimSpace(rows), err)
+	}
 	return original
 }
 
