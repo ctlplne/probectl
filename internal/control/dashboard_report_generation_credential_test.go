@@ -30,7 +30,10 @@ import (
 func TestReportGenerationRechecksOriginatingCredentialAfterRender(t *testing.T) {
 	f := newRoleExplanationAPIFixture(t)
 	owner, sibling := f.tenants[0], f.tenants[1]
-	dashboard := uuid(t)
+	dashboard, err := crypto.UUIDv4()
+	if err != nil {
+		t.Fatal(err)
+	}
 	definition, err := json.Marshal(validDashboardRequest().Definition)
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +127,10 @@ func (authenticate reportCredentialTestAuthenticator) Authenticate(ctx context.C
 func TestNativeReportRevokedCredentialCannotCommitAnArtifact(t *testing.T) {
 	f := newRoleExplanationAPIFixture(t)
 	owner, sibling := f.tenants[0], f.tenants[1]
-	dashboard := uuid(t)
+	dashboard, err := crypto.UUIDv4()
+	if err != nil {
+		t.Fatal(err)
+	}
 	definition, err := json.Marshal(validDashboardRequest().Definition)
 	if err != nil {
 		t.Fatal(err)
