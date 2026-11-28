@@ -109,7 +109,19 @@ func provePeeringRouterStdio(t *testing.T, st *shipped.Stack, registrations []ed
 					t.Fatal("shipped peering process lost version or complete text/structured parity")
 				}
 				var out flow.PeeringEstimateResponse
-				if json.Unmarshal(data, &out) != nil || !peeringRouterHandMatches(out, registrations[lane], ids[lane], links, lane) || out.Direction != selected.Direction {
+				if err := json.Unmarshal(data, &out); err != nil {
+					t.Fatal("shipped peering process returned invalid structured content", err)
+				}
+				const unprovenSelector = "4111111111111111"
+				if selected.IXID == unprovenSelector && selected.LANID == unprovenSelector {
+					if !out.Preview || out.Target.Eligible || out.Target.ContextID != registrations[lane].contextID ||
+						out.Target.InterfaceID != selected.InterfaceID || out.Reason == "" || out.P95 != nil ||
+						strings.Contains(string(data), unprovenSelector) || strings.Contains(reply.Result.Content[0].Text, unprovenSelector) {
+						t.Fatal("shipped peering process exposed an unproven IX/LAN selector or invented its traffic")
+					}
+					return
+				}
+				if !peeringRouterHandMatches(out, registrations[lane], ids[lane], links, lane) || out.Direction != selected.Direction {
 					t.Fatal("shipped peering process changed the original source-joined hand p95")
 				}
 			}
@@ -120,6 +132,9 @@ func provePeeringRouterStdio(t *testing.T, st *shipped.Stack, registrations []ed
 					selected.Direction = direction
 					call(lane, selected, true)
 				}
+				unproven := selected
+				unproven.IXID, unproven.LANID = "4111111111111111", "4111111111111111"
+				call(lane, unproven, true)
 				selected.ContextID, selected.InterfaceID = registrations[1-lane].contextID, ids[1-lane][links[1].index]
 				call(lane, selected, false)
 			}
